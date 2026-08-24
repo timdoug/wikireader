@@ -78,7 +78,7 @@ directory such as `enquote/`.
 | `src/lcd.c` | LCD controller, framebuffer capture |
 | `src/display.c` | SDL2 window |
 | `src/touch.c` | EFSIF1 touch panel, keyboard geometry |
-| `src/timer.c` | 60 MHz tick timer |
+| `src/timer.c` | 60 MHz tick timer (cascaded T16 ch0/ch5) |
 | `src/periph.c` | ADC |
 | `c33_forms.h` | **generated** decode tables |
 | `c33_syscalls.h` | **generated** syscall names |
@@ -217,5 +217,16 @@ instruction against binutils over all four firmware images (65,605
 instructions, exact match), and the known-answer arithmetic tests built with
 the real cross compiler.
 
-Timing is not wall-clock paced: one tick per instruction, so emulated time
-runs at whatever speed the host manages.
+Timing is not wall-clock paced, but it is cycle-based rather than
+per-instruction: each instruction charges the MCLK cycles given by its CLK
+line in the C33 PE Core manual, and the tick timer counts those. Real
+firmware runs at about 1.36 cycles per instruction. Per-form variation
+within a mnemonic is not modelled, and `ext` is charged one cycle where the
+manual says "zero or one depending on the instruction queue status", so
+elapsed time errs slightly long.
+
+One consequence worth knowing: emulated seconds now pass fast enough to
+reach the application's idle behaviour. wikilib.c saves history and sleeps
+after five seconds without an event, so a long headless run ends on a blank
+screen -- that is the device working, not a fault. Size `-n` to the
+emulated time you want, or use `-g` and interact.

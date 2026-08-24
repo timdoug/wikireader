@@ -169,7 +169,7 @@ int main(int argc, char **argv)
 	mem.pc_src = &cpu.pc;
 
 	struct timerblk timer;
-	timer_attach(&mem, &timer, &cpu.cycles);
+	timer_attach(&mem, &timer, &cpu.clk);
 
 	char dis[128];
 	/*
@@ -283,7 +283,9 @@ done:
 		}
 	}
 
-	printf("--- timer: %lu reads ---\n", timer.reads);
+	printf("--- timer: %lu reads, %llu MCLK cycles (%.2f cyc/instr) ---\n",
+	       timer.reads, (unsigned long long)cpu.clk,
+	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken);
 	printf("\n--- lcd: %lu register writes, framebuffer=0x%08x ---\n",

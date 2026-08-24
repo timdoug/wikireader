@@ -77,7 +77,8 @@ struct c33 {
 	unsigned irq_vector;
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
-	uint64_t cycles;
+	uint64_t cycles;      /* instructions retired */
+	uint64_t clk;         /* MCLK cycles, per the manual's CLK lines */
 	bool     halted;
 	const char *fault;   /* non-NULL once the CPU has faulted */
 	uint32_t fault_pc;

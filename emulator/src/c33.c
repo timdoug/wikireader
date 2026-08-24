@@ -268,6 +268,61 @@ static bool is_delayed(uint8_t op)
 	}
 }
 
+/*
+ * Cycle costs, from the CLK line of each entry in the C33 PE Core manual.
+ *
+ * Per-form variation within a mnemonic is not modelled: the manual gives
+ * loads as one cycle register-to-register and two for some memory forms,
+ * and this uses the lower figure plus one when an ext prefix is present,
+ * which is the documented adjustment. ext itself is listed as "zero or one
+ * cycle depending on the instruction queue status"; one is charged here as
+ * the upper bound, so elapsed time errs slightly long rather than short.
+ */
+static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
+{
+	unsigned n;
+
+	switch (op) {
+	case OP_INT:                            return 7;
+	case OP_MLT_W: case OP_MLTU_W:          return 7;
+	case OP_MLT_H: case OP_MLTU_H:          return 5;
+	case OP_BRK:                            return 9;
+	case OP_HALT: case OP_SLP: case OP_RETI: return 5;
+	case OP_RET:                            return 4;
+	case OP_PSRSET: case OP_PSRCLR:         return 3;
+	case OP_PUSH:                           return 2;
+	case OP_PUSHN: case OP_POPN:            return (unsigned)nreg + 1;
+	case OP_PUSHS: case OP_POPS:            return 2;
+	case OP_BSET: case OP_BCLR: case OP_BNOT: return had_ext ? 4 : 3;
+	case OP_BTST:                           return had_ext ? 3 : 2;
+	case OP_CALL:                           return 4;
+	case OP_CALL_D:                         return 3;
+	case OP_JP: case OP_JPR:                return 3;
+	case OP_JP_D: case OP_JPR_D:            return 2;
+	case OP_EXT:                            return 1;
+	default:
+		break;
+	}
+
+	/* conditional branches: two cycles, three when taken; .d always two */
+	if (is_delayed(op))
+		return 2;
+	switch (op) {
+	case OP_JREQ: case OP_JRNE: case OP_JRGT: case OP_JRGE:
+	case OP_JRLT: case OP_JRLE: case OP_JRUGT: case OP_JRUGE:
+	case OP_JRULT: case OP_JRULE:
+		return branched ? 3 : 2;
+	default:
+		break;
+	}
+
+	n = 1;
+	if (had_ext && (op == OP_LD_W || op == OP_LD_B || op == OP_LD_UB ||
+			op == OP_LD_H || op == OP_LD_UH))
+		n = 2;
+	return n;
+}
+
 /* ---- shape classification -------------------------------------------- */
 /*
  * Several operations share a mnemonic across very different addressing
@@ -290,6 +345,7 @@ void c33_reset(struct c33 *c, uint32_t entry)
 	c->halted = false;
 	c->fault = NULL;
 	c->fault_pc = 0;
+	c->clk = 0;
 	c->irq_pending = false;
 	c->irqs_taken = 0;
 	memset(c->ext_dropped, 0, sizeof c->ext_dropped);
@@ -363,6 +419,8 @@ void c33_step(struct c33 *c)
 
 	int32_t a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0;
 	int32_t b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0;
+	bool had_ext = c->n_ext != 0;
+	uint32_t pc_before = c->pc;
 
 	bool was_delayed = c->delay_pending;
 	uint32_t delay_to = c->delay_target;
@@ -869,6 +927,10 @@ void c33_step(struct c33 *c)
 	 * form we decode but whose immediate we ignore would leak its
 	 * prefixes into the following instruction.
 	 */
+	/* Charge MCLK cycles; a taken conditional branch costs one more. */
+	c->clk += cycle_cost(op, c->pc != pc_before, had_ext,
+			     (op == OP_PUSHN || op == OP_POPN) ? a + 1 : 0);
+
 	if (c->n_ext) {
 		/*
 		 * The handler above did not consume the prefixes, so this form
