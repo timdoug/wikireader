@@ -222,9 +222,47 @@ masked -- the previous behaviour. In a normal boot nothing is masked in
 practice, because only one source is ever pending and IL is back to 0 by
 the time the next packet arrives.
 
+### LCD controller
+
+The panel is composited through `lcd_pixel()`, which the PGM writer, the
+ASCII dump and the SDL window all share.
+
+The main window is read from `MADD` with a line stride of `MLADD` words.
+The manual's own worked example is this exact device: "if the LCD width and
+image width are 240 pixels in 1-bpp mode, MWLADR[9:0] = 240 x 1 / 32 = 7.5
+[words]. In this case, MWLADR[9:0] must be set to 8. Furthermore, the image
+must be prepared in 256 (8 x 32) pixels wide." That is where the padded
+32-byte stride comes from, and it agrees with grifo's `LCD_BUFFER_WIDTH`.
+
+The Picture-in-Picture Plus sub-window is now composited: when `PIPEN`
+(SSP bit 31) is set, `SADD` replaces the main window inside the rectangle
+given by `SSP`/`SEP`. This is how grifo's `LCD_Window` draws popups, and it
+was previously not modelled at all -- the emulator rendered only `MADD`, so
+a window would simply not have appeared. In 1-bpp mode the X registers count
+32-pixel words while Y counts lines, and the sub-window has no line-offset
+register of its own: its stride is its own width, `PIPXEND - PIPXST + 1`
+words, which is exactly what grifo assumes.
+
+`make test-lcd` drives the registers the way `LCD_Window()` does, writes
+pixels the way `WindowPos()` does, and checks all 128x60 of them composite
+where grifo put them, that the window does not leak outside its rectangle,
+that clearing `PIPEN` restores the main window, and that `MLADD` drives the
+stride.
+
+The manual has a typo here worth knowing about: its example prints
+"PIPYEND[9:0] = 60 + 120 lines -1 = 180 lines (= 0xB3)", but 0xB3 is 179,
+which is what its own formula gives and what grifo computes.
+
+The firmware writes no LCDC register at all on the boot path -- grifo takes
+the framebuffer address from a linker symbol, and the bootloader has already
+programmed the timing, mode and power registers before `kernel.elf` is
+entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
+not interpreted: modelling `PSAVE` from a register that reads as its reset
+value of zero would blank a panel the hardware has running.
+
 ### Peripherals
 
-The peripherals are the least verified part. They were written from the
+The remaining peripherals are the least verified part. They were written from the
 driver sources in samo-lib and from what the firmware demanded, not from
 the S1C33E07 register descriptions, which run to several hundred pages.
 

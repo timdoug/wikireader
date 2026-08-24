@@ -99,15 +99,11 @@ bool display_update(struct display *d)
 	if (SDL_LockTexture(d->texture, NULL, (void **)&pixels, &pitch) != 0)
 		return true;
 
-	uint32_t base = d->lcd->fb_addr;
 	for (int y = 0; y < LCD_HEIGHT; y++) {
 		uint32_t *row = (uint32_t *)((uint8_t *)pixels + y * pitch);
-		for (int x = 0; x < LCD_WIDTH; x++) {
-			unsigned b = mem_read(d->mem,
-					      base + y * LCD_STRIDE + (x >> 3), 1);
-			unsigned on = (b >> (7 - (x & 7))) & 1;
-			row[x] = on ? 0xff000000u : 0xffffffffu;
-		}
+		for (int x = 0; x < LCD_WIDTH; x++)
+			row[x] = lcd_pixel(d->lcd, d->mem, x, y)
+				 ? 0xff000000u : 0xffffffffu;
 	}
 	SDL_UnlockTexture(d->texture);
 

@@ -22,6 +22,8 @@ struct lcd {
 };
 
 void lcd_attach(struct mem *m, struct lcd *l);
+/* Composited panel pixel: 1 = black. Honours the PIP sub-window overlay. */
+unsigned lcd_pixel(struct lcd *l, struct mem *m, int x, int y);
 bool lcd_write_pgm(struct lcd *l, struct mem *m, const char *path);
 void lcd_dump_ascii(struct lcd *l, struct mem *m, FILE *out);
 
