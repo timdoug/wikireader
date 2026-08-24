@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/cmu.o src/main.o
 
-.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check
+.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check difftest
 
 all: wremu
 
@@ -51,6 +51,12 @@ test-adc: tools/test_adc.c src/periph.o src/mem.o
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
 	/tmp/test_cmu
+
+# Differential test against the real cross compiler: the same C source
+# compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both
+# ways, outputs diffed. Needs host-tools/toolchain-install.
+difftest: wremu
+	difftest/run.sh 1 20
 
 # Everything that can be checked without hardware.
 check: test test-irq test-lcd test-adc test-cmu

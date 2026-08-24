@@ -48,6 +48,7 @@ int main(int argc, char **argv)
 	bool trace_syscalls = false;
 	bool gui = false; int gui_scale = 3;
 	bool check_align = false;
+	bool profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
@@ -74,6 +75,8 @@ int main(int argc, char **argv)
 			trace_syscalls = true;
 		else if (!strcmp(argv[i], "-A"))
 			check_align = true;
+		else if (!strcmp(argv[i], "-P"))
+			profile = true;
 		else if (!strcmp(argv[i], "-g"))
 			gui = true;
 		else if (!strcmp(argv[i], "-K") && i + 1 < argc) {
@@ -169,11 +172,13 @@ int main(int argc, char **argv)
 	mem.vwatch_on = vwatch_on;   /* skip the loader's own stores */
 
 	struct c33 cpu;
+	memset(&cpu, 0, sizeof cpu);
 	cpu.bus = (struct c33_bus){ mem_read, mem_write, &mem };
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
 	cpu.check_alignment = check_align;
+	cpu.profile = profile;
 	mem.pc_src = &cpu.pc;
 
 	struct timerblk timer;
@@ -311,6 +316,8 @@ done:
 	       sd.commands, sd.blocks_read, sd.overflows);
 	printf("--- adc: %lu conversions, %lu register writes, %lu overwrite errors ---\n",
 	       periph.conversions, periph.adc_writes, periph.overwrites);
+	if (profile)
+		c33_dump_profile(&cpu, stdout);
 	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
 	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
 	printf("--- stopped after %llu instructions ---\n",

@@ -149,6 +149,33 @@ static uint32_t sp_disp(struct c33 *c, uint32_t base, unsigned width,
 #define VECTOR_ADDRESS_MISALIGNED 6
 
 static void take_irq(struct c33 *c);
+/*
+ * Executed-opcode histogram, most-used first.
+ *
+ * Static disassembly cannot answer "which instructions does this binary
+ * actually run" -- objdump decodes rodata and jump tables as instructions
+ * too, which is how a binary with no div.w in it appears to contain 30 of
+ * them. This counts what the CPU retired.
+ */
+void c33_dump_profile(const struct c33 *c, FILE *out)
+{
+	unsigned order[256], n = 0;
+
+	for (unsigned i = 0; i < 256 && i < OP_COUNT; i++)
+		if (c->opcount[i])
+			order[n++] = i;
+	for (unsigned i = 0; i < n; i++)
+		for (unsigned j = i + 1; j < n; j++)
+			if (c->opcount[order[j]] > c->opcount[order[i]]) {
+				unsigned t = order[i]; order[i] = order[j]; order[j] = t;
+			}
+
+	fprintf(out, "--- opcodes executed: %u distinct ---\n", n);
+	for (unsigned i = 0; i < n; i++)
+		fprintf(out, "OP %-10s %lu\n",
+			c33_op_name[order[i]], c->opcount[order[i]]);
+}
+
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 
 static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
@@ -335,23 +362,29 @@ static bool shape_is(const struct c33_form *f, const char *s)
 	return strcmp(f->shape, s) == 0;
 }
 
+/*
+ * Reset clears the whole struct, not a hand-maintained list of fields.
+ *
+ * The bus and the flags callers set before reset are saved and restored
+ * around the wipe. Zeroing field by field has caught this project out three
+ * times now -- each new counter added to struct c33 read back as whatever
+ * was on the caller's stack, most memorably reporting six billion executed
+ * instructions in a six-hundred-million instruction run.
+ */
 void c33_reset(struct c33 *c, uint32_t entry)
 {
-	memset(c->r, 0, sizeof c->r);
-	memset(c->sr, 0, sizeof c->sr);
+	struct c33_bus bus = c->bus;
+	bool trace = c->trace_syscalls;
+	bool align = c->check_alignment;
+	bool prof = c->profile;
+
+	memset(c, 0, sizeof *c);
+
+	c->bus = bus;
+	c->trace_syscalls = trace;
+	c->check_alignment = align;
+	c->profile = prof;
 	c->pc = entry;
-	c->n_ext = 0;
-	c->delay_pending = false;
-	c->cycles = 0;
-	c->halted = false;
-	c->fault = NULL;
-	c->fault_pc = 0;
-	c->clk = 0;
-	c->irq_pending = false;
-	c->irq_priority = 0;
-	c->irqs_taken = 0;
-	c->irqs_masked = 0;
-	memset(c->ext_dropped, 0, sizeof c->ext_dropped);
 }
 
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority)
@@ -432,6 +465,8 @@ void c33_step(struct c33 *c)
 	uint16_t insn = (uint16_t)rd(c, at, 2);
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
 	uint8_t op = f->op;
+	if (c->profile)
+		c->opcount[op]++;
 
 	c->pc = at + 2;
 	c->cycles++;

@@ -80,6 +80,8 @@ struct c33 {
 	unsigned irq_vector;
 	unsigned irq_priority;
 	unsigned long irqs_masked;
+	bool     profile;            /* count executed instructions per opcode */
+	unsigned long opcount[256];
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	uint64_t cycles;      /* instructions retired */
@@ -92,6 +94,8 @@ struct c33 {
 void     c33_reset(struct c33 *c, uint32_t entry);
 /* Request a hardware interrupt; taken when PSR.IE is set. */
 void     c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
+/* Print the executed-opcode histogram gathered under c->profile. */
+void     c33_dump_profile(const struct c33 *c, FILE *out);
 /* Execute one instruction (an ext prefix counts as one). */
 void     c33_step(struct c33 *c);
 /* Human-readable single-instruction disassembly, for tracing. */

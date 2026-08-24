@@ -50,6 +50,7 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 | `-D ADDR -L N -O FILE` | memory dump, optionally to a binary file |
 | `-t N` | disassemble the first N instructions |
 | `-m` | trace unclaimed MMIO registers |
+| `-P` | histogram of opcodes actually executed |
 
 `-s` is usually the fastest way in: it turns a hang into a named syscall,
 a call site and a return value.
@@ -85,6 +86,7 @@ directory such as `enquote/`.
 | `c33_forms.h` | **generated** decode tables |
 | `c33_syscalls.h` | **generated** syscall names |
 | `tools/` | table generators and ISA-fitting scripts |
+| `difftest/` | differential tests against the real cross compiler |
 
 ## Regenerating the decode tables
 
@@ -354,13 +356,28 @@ peripheral test programs.
 
 ## Caveats
 
-This proves the firmware is self-consistent under this model of the ISA, not
-that it would boot on hardware - the emulator was built by inferring
-semantics from the same binaries it runs, so a shared misreading would not
-show up. The independent checks are the decoder, validated instruction for
-instruction against binutils over all four firmware images (65,605
-instructions, exact match), and the known-answer arithmetic tests built with
-the real cross compiler.
+Running the firmware proves it is self-consistent under this model of the
+ISA, not that it would boot on hardware. Taken alone that would be close to
+circular: the emulator was built by inferring semantics from the same
+binaries it runs, so a misreading shared between the two would not show up.
+
+Three checks are independent of that inference.
+
+* The **decoder** is validated instruction for instruction against binutils'
+  own disassembler over all four firmware images - 65,605 instructions,
+  exact match.
+* The **manuals**: every documented mnemonic's flag table and Function line
+  was checked against this implementation, along with the register
+  descriptions for the interrupt controller, LCDC, serial, SPI, ADC and CMU.
+* The **cross compiler**, via `difftest/`: the same C source compiled by
+  c33-epson-elf-gcc 3.3.2 and by the host compiler, run both ways, outputs
+  diffed. 100 random programs across five optimisation levels match value
+  for value. The compiler has never seen the emulator and the emulator has
+  never seen its output, so agreement is evidence rather than consistency.
+
+Between the firmware and the differential tests, 57 of the 68 implemented
+opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what
+the remaining 11, and the 36 unimplemented opcodes, actually are.
 
 Timing is not wall-clock paced, but it is cycle-based rather than
 per-instruction: each instruction charges the MCLK cycles given by its CLK
