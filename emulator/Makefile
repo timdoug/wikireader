@@ -7,9 +7,9 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/main.o
+OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/cmu.o src/main.o
 
-.PHONY: all clean tables test test-irq test-lcd test-adc
+.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu
 
 all: wremu
 
@@ -18,7 +18,7 @@ wremu: $(OBJS)
 
 # Header deps matter here: struct c33 is shared between translation units, so
 # a stale object compiled against an older layout silently corrupts state.
-src/%.o: src/%.c src/c33.h src/mem.h src/uart.h src/sdcard.h src/periph.h src/lcd.h src/display.h src/touch.h src/timer.h src/itc.h c33_forms.h
+src/%.o: src/%.c src/c33.h src/mem.h src/uart.h src/sdcard.h src/periph.h src/lcd.h src/display.h src/touch.h src/timer.h src/itc.h src/cmu.h c33_forms.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Regenerate the decode tables from binutils' disassembler. Requires
@@ -46,6 +46,11 @@ test-lcd: tools/test_lcd.c src/lcd.o src/mem.o
 test-adc: tools/test_adc.c src/periph.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o
 	/tmp/test_adc
+
+# CMU protect gate and the 60 MHz the timebase depends on.
+test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
+	/tmp/test_cmu
 
 clean:
 	rm -f wremu $(OBJS)

@@ -18,6 +18,7 @@
 #include "touch.h"
 #include "timer.h"
 #include "itc.h"
+#include "cmu.h"
 
 static void usage(const char *p)
 {
@@ -134,6 +135,9 @@ int main(int argc, char **argv)
 
 	struct itc itc;
 	itc_attach(&mem, &itc);
+
+	struct cmu cmu;
+	cmu_attach(&mem, &cmu);
 
 	struct touch touch;
 	touch_attach(&mem, &touch, &itc);
@@ -307,6 +311,8 @@ done:
 	       sd.commands, sd.blocks_read, sd.overflows);
 	printf("--- adc: %lu conversions, %lu register writes, %lu overwrite errors ---\n",
 	       periph.conversions, periph.adc_writes, periph.overwrites);
+	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
+	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
 	printf("--- stopped after %llu instructions ---\n",
 	       (unsigned long long)cpu.cycles);
 	if (cpu.fault) {

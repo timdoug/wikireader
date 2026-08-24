@@ -80,6 +80,7 @@ directory such as `enquote/`.
 | `src/touch.c` | EFSIF1 touch panel, keyboard geometry |
 | `src/timer.c` | 60 MHz tick timer (cascaded T16 ch0/ch5) |
 | `src/itc.c` | interrupt controller registers and priorities |
+| `src/cmu.c` | clock management unit, protect gate, derived MCLK |
 | `src/periph.c` | ADC |
 | `c33_forms.h` | **generated** decode tables |
 | `c33_syscalls.h` | **generated** syscall names |
@@ -309,6 +310,35 @@ range and the read set disagreed.
 `make test-adc` runs grifo's conversions over the presented counts and
 checks the results land in physically sensible ranges, plus the flag
 behaviour and the sweep range.
+
+### Clock management unit
+
+CMU writes used to be swallowed. Two things made that wrong.
+
+`CMU_enable1()` does `REG_CMU_GATEDCLK1 |= mask`, so a register reading back
+as zero silently turns off every clock enabled earlier -- the same
+read-modify-write hazard as the interrupt priority register. And writes are
+gated: `CMU_PROTECT` takes 0x96 to unlock and 0x00 to lock, and every driver
+brackets its accesses with that pair. `src/cmu.c` now backs the block with a
+register file and honours the gate, so a missing unlock shows up as a
+rejected write instead of taking effect anyway.
+
+The clock tree is still not simulated -- there is one instruction stream --
+but the configuration is decoded, which lets the emulator's timebase be
+checked instead of assumed. grifo programs `OSCSEL_PLL` with the PLL at
+48 MHz / 8 x 10, and `cmu_mclk_hz()` reads **60 MHz** back out of the
+registers the firmware actually wrote. That is exactly the 60 MHz that
+`Tick_TicksPerMicroSecond` and `TIMER_CountsPerMicroSecond` assume and that
+`CYCLES_PER_TICK` in `src/timer.c` is scaled to, so the timebase is now
+derived from the hardware configuration rather than taken on faith.
+
+A full boot makes 17 CMU writes with **zero** blocked, which is the check
+that the protect polarity is the right way round -- had it been inverted,
+all 17 would have been rejected.
+
+`make test-cmu` replays grifo's register values and checks the derived
+frequency, the protect gate in both directions, and that a
+read-modify-write preserves previously enabled clocks.
 
 ### Peripherals
 
