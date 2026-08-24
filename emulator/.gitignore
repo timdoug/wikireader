@@ -1,0 +1,23 @@
+# build output
+wremu
+src/*.o
+
+# Firmware binaries and card images are build products, not sources.
+# grifo.elf / init.app / wiki.app come from the top-level `make install`;
+# the card image is built with hdiutil. See README.md.
+images/
+
+# screen captures
+screen.pgm
+screen.png
+
+# Large intermediates regenerated with the c33 toolchain; see README.md.
+# c33_forms.h and c33_syscalls.h ARE committed so the emulator builds
+# without needing the cross toolchain.
+allinsn.txt
+allinsn_full.txt
+allinsn.bin
+*-full.txt
+ref-*.txt
+c33_isa.json
+isa-ref/

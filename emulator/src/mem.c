@@ -1,0 +1,112 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "mem.h"
+
+bool mem_init(struct mem *m)
+{
+	memset(m, 0, sizeof *m);
+	m->a0ram  = calloc(1, A0RAM_SIZE);
+	m->ivram  = calloc(1, IVRAM_SIZE);
+	m->dstram = calloc(1, DSTRAM_SIZE);
+	m->sdram  = calloc(1, SDRAM_SIZE);
+	m->log = stderr;
+	return m->a0ram && m->ivram && m->dstram && m->sdram;
+}
+
+void mem_free(struct mem *m)
+{
+	free(m->a0ram); free(m->ivram); free(m->dstram); free(m->sdram);
+	memset(m, 0, sizeof *m);
+}
+
+void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
+		  mmio_fn fn, void *ctx)
+{
+	if (m->ndev >= MAX_MMIO)
+		return;
+	m->dev[m->ndev++] = (struct mmio_dev){ name, off, len, fn, ctx };
+}
+
+/* Resolve an address to a host pointer, or NULL if not plain RAM. */
+static uint8_t *ram_ptr(struct mem *m, uint32_t a, unsigned size)
+{
+	if (a >= SDRAM_BASE && a + size <= SDRAM_BASE + SDRAM_SIZE)
+		return m->sdram + (a - SDRAM_BASE);
+	if (a < A0RAM_SIZE && a + size <= A0RAM_SIZE)
+		return m->a0ram + a;
+	if (a >= IVRAM_BASE && a + size <= IVRAM_BASE + IVRAM_SIZE)
+		return m->ivram + (a - IVRAM_BASE);
+	if (a >= DSTRAM_BASE && a + size <= DSTRAM_BASE + DSTRAM_SIZE)
+		return m->dstram + (a - DSTRAM_BASE);
+	return NULL;
+}
+
+static bool mmio(struct mem *m, uint32_t a, unsigned size, uint32_t *v,
+		 bool write)
+{
+	if (a < REG_BASE || a >= REG_BASE + REG_SIZE)
+		return false;
+	uint32_t off = a - REG_BASE;
+	for (unsigned i = 0; i < m->ndev; i++) {
+		struct mmio_dev *d = &m->dev[i];
+		if (off >= d->off && off < d->off + d->len)
+			if (d->fn(d->ctx, off, size, v, write))
+				return true;
+	}
+	if (m->trace_mmio)
+		fprintf(m->log, "  mmio %s %s+0x%04x size %u%s\n",
+			write ? "write" : "read ", "REG", off, size,
+			write ? "" : " -> 0 (unclaimed)");
+	if (!write)
+		*v = 0;
+	return true;   /* swallow unclaimed register accesses */
+}
+
+uint32_t mem_read(void *ctx, uint32_t addr, unsigned size)
+{
+	struct mem *m = ctx;
+	uint8_t *p = ram_ptr(m, addr, size);
+	uint32_t v = 0;
+
+	if (p) {
+		memcpy(&v, p, size);        /* host is little-endian, as is c33 */
+		return v;
+	}
+	if (mmio(m, addr, size, &v, false))
+		return v;
+
+	m->unmapped_reads++;
+	if (m->unmapped_reads <= 8)
+		fprintf(m->log, "  unmapped read  0x%08x size %u\n", addr, size);
+	return 0;
+}
+
+void mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val)
+{
+	struct mem *m = ctx;
+	uint8_t *p = ram_ptr(m, addr, size);
+
+	if (m->vwatch_on && size == 1 && (val & 0xff) == m->vwatch &&
+	    m->vhits < 12) {
+		m->vhits++;
+		fprintf(m->log, "  VALWATCH: byte 0x%02x -> 0x%08x (pc=0x%08x)\n",
+			val & 0xff, addr, m->pc_src ? *m->pc_src : 0);
+	}
+	if (m->watch_on && addr <= m->watch && addr + size > m->watch)
+		fprintf(m->log, "  WATCH: store to 0x%08x size %u = 0x%08x"
+			" (pc=0x%08x)\n", addr, size, val,
+			m->pc_src ? *m->pc_src : 0);
+
+	if (p) {
+		memcpy(p, &val, size);
+		return;
+	}
+	if (mmio(m, addr, size, &val, true))
+		return;
+
+	m->unmapped_writes++;
+	if (m->unmapped_writes <= 8)
+		fprintf(m->log, "  unmapped write 0x%08x size %u = 0x%x\n",
+			addr, size, val);
+}

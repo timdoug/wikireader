@@ -1,0 +1,369 @@
+/*
+ * wremu -- WikiReader (Epson C33 / S1C33) full-system emulator.
+ *
+ * Milestone: load an ELF image, execute from its entry point, and trace.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "c33.h"
+#include "mem.h"
+#include "uart.h"
+#include "sdcard.h"
+#include "periph.h"
+#include "lcd.h"
+#include "display.h"
+#include "touch.h"
+#include "timer.h"
+
+static void usage(const char *p)
+{
+	fprintf(stderr,
+		"usage: %s [-t N] [-n N] [-m] <image.elf>\n"
+		"  -t N   trace the first N instructions\n"
+		"  -n N   stop after N instructions (default 1000000; unlimited with -g)\n"
+		"  -m     trace unclaimed MMIO register accesses\n"
+		"  -s     trace grifo syscalls by name\n"
+		"  -g     show the panel in a live SDL2 window\n"
+		"  -S N   window scale factor (default 3)\n"
+		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
+		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
+		"  -c F   attach FAT32 card image F\n"
+		"  -D A   dump memory starting at address A\n"
+		"  -L N   memory dump length (default 64)\n"
+		"  -O F   write the memory dump as binary file F\n", p);
+}
+
+int main(int argc, char **argv)
+{
+	const char *path = NULL, *card = NULL;
+	unsigned long trace = 0, limit = 1000000;
+	bool limit_given = false;
+	bool trace_mmio = false;
+	bool trace_syscalls = false;
+	bool gui = false; int gui_scale = 3;
+	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
+	const char *type_text = NULL;
+	unsigned long type_at = 0, type_gap = 6000000;
+	size_t type_idx = 0; int type_phase = 0;
+	uint32_t watch = 0; bool watch_on = false;
+	uint32_t bp[8]; unsigned nbp = 0;
+	uint32_t vwatch = 0; bool vwatch_on = false;
+	uint32_t dump = 0; bool dump_on = false;
+	unsigned long dump_len = 64;
+	const char *dump_path = NULL;
+
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "-t") && i + 1 < argc)
+			trace = strtoul(argv[++i], NULL, 0);
+		else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
+			limit = strtoul(argv[++i], NULL, 0);
+			limit_given = true;
+		}
+		else if (!strcmp(argv[i], "-c") && i + 1 < argc)
+			card = argv[++i];
+		else if (!strcmp(argv[i], "-m"))
+			trace_mmio = true;
+		else if (!strcmp(argv[i], "-s"))
+			trace_syscalls = true;
+		else if (!strcmp(argv[i], "-g"))
+			gui = true;
+		else if (!strcmp(argv[i], "-K") && i + 1 < argc) {
+			/* type a string on the on-screen keyboard: -K cycle,TEXT */
+			char *a = argv[++i];
+			type_at = strtoul(a, &a, 0);
+			if (*a == ',') type_text = a + 1;
+		}
+		else if (!strcmp(argv[i], "-T") && i + 1 < argc) {
+			/* scripted tap: -T x,y,cycle */
+			sscanf(argv[++i], "%d,%d,%lu", &tap_x, &tap_y, &tap_at);
+		}
+		else if (!strcmp(argv[i], "-S") && i + 1 < argc)
+			gui_scale = (int)strtoul(argv[++i], NULL, 0);
+		else if (!strcmp(argv[i], "-D") && i + 1 < argc) {
+			dump = strtoul(argv[++i], NULL, 0); dump_on = true;
+		}
+		else if (!strcmp(argv[i], "-L") && i + 1 < argc)
+			dump_len = strtoul(argv[++i], NULL, 0);
+		else if (!strcmp(argv[i], "-O") && i + 1 < argc)
+			dump_path = argv[++i];
+		else if (!strcmp(argv[i], "-V") && i + 1 < argc) {
+			vwatch = strtoul(argv[++i], NULL, 0); vwatch_on = true;
+		}
+		else if (!strcmp(argv[i], "-b") && i + 1 < argc) {
+			if (nbp < 8) bp[nbp++] = strtoul(argv[++i], NULL, 0);
+			else i++;
+		}
+		else if (!strcmp(argv[i], "-W") && i + 1 < argc) {
+			watch = strtoul(argv[++i], NULL, 0); watch_on = true;
+		}
+		else if (argv[i][0] != '-')
+			path = argv[i];
+		else { usage(argv[0]); return 2; }
+	}
+	if (!path) { usage(argv[0]); return 2; }
+
+	/* Interactive runs should keep going until the window is closed. */
+	if (gui && !limit_given)
+		limit = ~0UL;
+
+	struct mem mem;
+	if (!mem_init(&mem)) {
+		fprintf(stderr, "error: cannot allocate guest memory\n");
+		return 1;
+	}
+	mem.trace_mmio = trace_mmio;
+	mem.watch = watch; mem.watch_on = watch_on;
+	mem.vwatch = vwatch;   /* enabled after load, below */
+
+	struct uart uart;
+	uart_attach(&mem, &uart, stdout);
+
+	struct periph periph;
+	periph_attach(&mem, &periph);
+
+	struct lcd lcd;
+	lcd_attach(&mem, &lcd);
+
+	struct touch touch;
+	touch_attach(&mem, &touch);
+
+	struct display disp;
+	memset(&disp, 0, sizeof disp);
+	if (gui && !display_open(&disp, &lcd, &mem, gui_scale))
+		fprintf(stderr, "warning: could not open display window\n");
+
+	struct sdcard sd;
+	if (!sd_attach(&mem, &sd, card)) {
+		fprintf(stderr, "error: cannot open card image %s\n", card);
+		return 1;
+	}
+	sd.trace = trace_mmio;
+	if (card)
+		fprintf(stderr, "card: %s (%llu blocks)\n", card,
+			(unsigned long long)sd.blocks);
+
+	char err[256];
+	fprintf(stderr, "loading %s\n", path);
+	uint32_t entry = elf_load(&mem, path, err, sizeof err);
+	if (!entry) {
+		fprintf(stderr, "error: %s\n", err);
+		mem_free(&mem);
+		return 1;
+	}
+	fprintf(stderr, "entry point: 0x%08x\n\n", entry);
+	mem.vwatch_on = vwatch_on;   /* skip the loader's own stores */
+
+	struct c33 cpu;
+	cpu.bus = (struct c33_bus){ mem_read, mem_write, &mem };
+	cpu.trace_syscalls = trace_syscalls;
+	c33_reset(&cpu, entry);
+	cpu.trace_syscalls = trace_syscalls;
+	mem.pc_src = &cpu.pc;
+
+	struct timerblk timer;
+	timer_attach(&mem, &timer, &cpu.cycles);
+
+	char dis[128];
+	/*
+	 * Ring of recent PCs. When the CPU runs off into zeroed memory the
+	 * interesting event is thousands of instructions in the past, so keep
+	 * a trailing window to show where it left real code.
+	 */
+#define RING 64
+	uint32_t ring[RING];
+	unsigned rn = 0;
+	unsigned long nop_run = 0;
+	const char *stop = NULL;
+
+	while (!cpu.halted && cpu.cycles < limit) {
+		/*
+		 * Repaint and pump SDL events periodically. 200k instructions
+		 * is frequent enough to feel live without the event pump
+		 * dominating run time.
+		 */
+		/*
+		 * Scripted typing: each key is a press then a release, spaced
+		 * far enough apart for the application to consume the events.
+		 */
+		if (type_text && cpu.cycles >= type_at && type_text[type_idx]) {
+			unsigned long due = type_at + type_idx * type_gap +
+					    (type_phase ? type_gap / 2 : 0);
+			if (cpu.cycles >= due) {
+				int kx, ky;
+				if (touch_key_pos(type_text[type_idx], &kx, &ky)) {
+					touch_post(&touch, &cpu, kx, ky,
+						   type_phase == 0);
+					if (type_phase == 0)
+						fprintf(stderr, "  [key '%c' at %d,%d]\n",
+						       type_text[type_idx], kx, ky);
+				}
+				if (++type_phase == 2) { type_phase = 0; type_idx++; }
+			}
+		}
+
+		/* scripted tap for testing without a window */
+		if (tap_x >= 0 && cpu.cycles == tap_at) {
+			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
+			touch_post(&touch, &cpu, tap_x, tap_y, true);
+		}
+		if (tap_x >= 0 && cpu.cycles == tap_at + 2000000) {
+			fprintf(stderr, "  [tap up]\n");
+			touch_post(&touch, &cpu, tap_x, tap_y, false);
+		}
+		if (tap_x >= 0 && (cpu.cycles % 100000) == 0)
+			touch_poll(&touch, &cpu);
+
+		if (disp.open && (cpu.cycles % 200000) == 0) {
+			if (!display_update(&disp)) {
+				stop = "window closed";
+				break;
+			}
+			if (disp.touch_pending) {
+				disp.touch_pending = false;
+				touch_post(&touch, &cpu, disp.touch_x,
+					   disp.touch_y, disp.touch_pressed);
+			} else {
+				touch_poll(&touch, &cpu);
+			}
+		}
+
+		if (cpu.cycles < trace) {
+			c33_disasm(&cpu, cpu.pc, dis, sizeof dis);
+			printf("%08x  %s\n", cpu.pc, dis);
+		}
+		ring[rn++ % RING] = cpu.pc;
+
+		for (unsigned k = 0; k < nbp; k++) {
+			if (cpu.pc != bp[k])
+				continue;
+			printf("\nBREAK at 0x%08x (cycle %llu)\n", cpu.pc,
+			       (unsigned long long)cpu.cycles);
+			printf("  return addr on stack = 0x%08x\n",
+			       mem_read(&mem, cpu.sr[SR_SP], 4));
+			for (int q = 0; q < 16; q += 4)
+				printf("  r%-2d %08x  r%-2d %08x  r%-2d %08x  r%-2d %08x\n",
+				       q, cpu.r[q], q+1, cpu.r[q+1],
+				       q+2, cpu.r[q+2], q+3, cpu.r[q+3]);
+			printf("  preceding PCs:\n");
+			for (unsigned t = RING > 12 ? RING - 12 : 0; t < RING; t++) {
+				uint32_t pp = ring[(rn + t) % RING];
+				c33_disasm(&cpu, pp, dis, sizeof dis);
+				printf("    %08x  %s\n", pp, dis);
+			}
+			stop = "breakpoint";
+			goto done;
+		}
+
+		/* Executing a long run of zero words means we have fallen out
+		 * of real code into blank memory. */
+		nop_run = (mem_read(&mem, cpu.pc, 2) == 0) ? nop_run + 1 : 0;
+		if (nop_run > 8) {
+			stop = "runaway: >256 consecutive zero words";
+			break;
+		}
+		c33_step(&cpu);
+	}
+
+done:
+	if (stop && strcmp(stop, "breakpoint")) {
+		printf("\n%s\n", stop);
+		printf("last %d PCs before running away:\n", RING);
+		for (unsigned i = 0; i < RING; i++) {
+			uint32_t p = ring[(rn + i) % RING];
+			c33_disasm(&cpu, p, dis, sizeof dis);
+			printf("  %08x  %s\n", p, dis);
+		}
+	}
+
+	printf("--- timer: %lu reads ---\n", timer.reads);
+	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken ---\n",
+	       touch.events, touch.bytes_read, cpu.irqs_taken);
+	printf("\n--- lcd: %lu register writes, framebuffer=0x%08x ---\n",
+	       lcd.writes, lcd.fb_addr);
+	if (lcd.fb_addr) {
+		lcd_dump_ascii(&lcd, &mem, stdout);
+		if (lcd_write_pgm(&lcd, &mem, "screen.pgm"))
+			printf("  wrote screen.pgm\n");
+	}
+
+	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
+	printf("--- sd: %lu commands, %lu blocks read ---\n", sd.commands, sd.blocks_read);
+	printf("--- stopped after %llu instructions ---\n",
+	       (unsigned long long)cpu.cycles);
+	if (cpu.fault) {
+		printf("fault: %s at pc=0x%08x\n", cpu.fault, cpu.fault_pc);
+		printf("last %d PCs:\n", RING);
+		for (unsigned t = 0; t < RING; t++) {
+			uint32_t pp = ring[(rn + t) % RING];
+			c33_disasm(&cpu, pp, dis, sizeof dis);
+			printf("  %08x  %s\n", pp, dis);
+		}
+	}
+	else if (cpu.halted)
+		printf("cpu halted cleanly\n");
+	else
+		printf("instruction limit reached\n");
+
+	printf("pc=%08x sp=%08x psr=%08x ttbr=%08x dp=%08x\n", cpu.pc,
+	       cpu.sr[SR_SP], cpu.sr[SR_PSR], cpu.sr[SR_TTBR], cpu.sr[SR_DP]);
+	for (int i = 0; i < 16; i += 4)
+		printf("r%-2d %08x  r%-2d %08x  r%-2d %08x  r%-2d %08x\n",
+		       i, cpu.r[i], i + 1, cpu.r[i + 1],
+		       i + 2, cpu.r[i + 2], i + 3, cpu.r[i + 3]);
+	if (mem.unmapped_reads || mem.unmapped_writes)
+		printf("unmapped: %lu reads, %lu writes\n",
+		       mem.unmapped_reads, mem.unmapped_writes);
+
+	if (dump_on) {
+		printf("\nmemory at 0x%08x (%lu bytes):\n", dump, dump_len);
+		for (unsigned long r = 0; r < (dump_len + 15) / 16; r++) {
+			printf("  %08x  ", (uint32_t)(dump + r * 16));
+			for (unsigned k = 0; k < 16 && r * 16 + k < dump_len; k++)
+				printf("%02x ",
+				       (unsigned)mem_read(&mem, dump + r*16 + k, 1));
+			printf("\n");
+		}
+		if (dump_path) {
+			FILE *fp = fopen(dump_path, "wb");
+			if (!fp)
+				fprintf(stderr, "error: cannot create dump file %s\n", dump_path);
+			else {
+				for (unsigned long i = 0; i < dump_len; i++)
+					fputc((int)mem_read(&mem, dump + i, 1), fp);
+				fclose(fp);
+			}
+		}
+	}
+
+	/* Did the boot sector actually land in guest RAM intact? */
+	{
+		const uint8_t sig[8] = {0xeb,0x58,0x90,0x42,0x53,0x44,0x20,0x20};
+		unsigned found = 0;
+		for (uint32_t a = SDRAM_BASE; a < SDRAM_BASE + SDRAM_SIZE - 8; a++) {
+			unsigned k = 0;
+			while (k < 8 && (uint8_t)mem_read(&mem, a + k, 1) == sig[k])
+				k++;
+			if (k == 8) {
+				printf("boot sector found in RAM at 0x%08x\n", a);
+				if (++found >= 4)
+					break;
+			}
+		}
+		if (!found)
+			printf("boot sector NOT present in guest RAM\n");
+	}
+
+	printf("\n--- forms that discarded ext prefixes ---\n");
+	c33_report_dropped_ext(&cpu, stdout);
+
+	if (disp.open) {
+		display_update(&disp);   /* final frame */
+		display_close(&disp);
+	}
+
+	mem_free(&mem);
+	return cpu.fault ? 1 : 0;
+}

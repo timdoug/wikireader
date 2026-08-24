@@ -1,0 +1,147 @@
+# wremu - WikiReader full-system emulator
+
+Emulates the WikiReader's Epson C33 (S1C33) SoC well enough to boot the real
+firmware from a real card image: `kernel.elf` (grifo) loads `init.app`, which
+chains to `wiki.app`, which mounts a FAT32 SD card, renders to a 240x208
+panel, and answers taps on its on-screen keyboard.
+
+```
+$ ./wremu -g -c images/wrcard.img images/grifo.elf
+Grifo starting
+init starting
+starting wiki app
+Display version.txt
+VERSION: 20260823
+```
+
+Typing `LOVE` on the keyboard returns real article titles out of
+`enquote/wiki.pfx` / `wiki.idx` / `wiki.fnd`.
+
+## Building
+
+```
+make
+```
+
+Needs SDL2 (`brew install sdl2`) for the window. Everything else is plain C.
+The generated decode tables are committed, so the c33 cross toolchain is
+**not** required to build the emulator - only to regenerate those tables or
+to rebuild the firmware itself.
+
+## Running
+
+```
+./wremu -g -c images/wrcard.img images/grifo.elf
+```
+
+Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
+
+| flag | meaning |
+| --- | --- |
+| `-g`, `-S N` | SDL2 window, scale factor (default 3) |
+| `-c FILE` | attach a FAT32 card image |
+| `-n N` | stop after N instructions (unlimited with `-g`) |
+| `-s` | trace grifo syscalls by name, with call sites and return values |
+| `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
+| `-T x,y,cycle` | tap a pixel |
+| `-b ADDR` | breakpoint: registers plus recent PCs |
+| `-W ADDR` | write watchpoint |
+| `-V VAL` | watch stores of a byte value |
+| `-D ADDR -L N -O FILE` | memory dump, optionally to a binary file |
+| `-t N` | disassemble the first N instructions |
+| `-m` | trace unclaimed MMIO registers |
+
+`-s` is usually the fastest way in: it turns a hang into a named syscall,
+a call site and a return value.
+
+## Making a card image
+
+```
+hdiutil create -size 512m -fs "MS-DOS FAT32" -volname WIKIREADER \
+    -layout NONE -format UDRW -srcfolder ~/wikireader-card -o wrcard
+mv wrcard.dmg emulator/images/wrcard.img
+```
+
+The card directory is what `make install` produces: `kernel.elf`, `init.app`,
+`wiki.app`, the `.bmf` fonts, `wiki.inf`, and a `<lang><suffix>/` data
+directory such as `enquote/`.
+
+## Layout
+
+| path | |
+| --- | --- |
+| `src/c33.[ch]` | CPU: decode, execute, traps, interrupts |
+| `src/mem.[ch]` | memory map and MMIO dispatch |
+| `src/elf.c` | ELF32 loader |
+| `src/uart.c` | EFSIF0 serial console |
+| `src/sdcard.c` | SPI controller and an SD card in SPI mode |
+| `src/lcd.c` | LCD controller, framebuffer capture |
+| `src/display.c` | SDL2 window |
+| `src/touch.c` | EFSIF1 touch panel, keyboard geometry |
+| `src/timer.c` | 60 MHz tick timer |
+| `src/periph.c` | ADC |
+| `c33_forms.h` | **generated** decode tables |
+| `c33_syscalls.h` | **generated** syscall names |
+| `tools/` | table generators and ISA-fitting scripts |
+
+## Regenerating the decode tables
+
+Only needed if the ISA tables change. Requires the c33 toolchain
+(`c33-epson-elf-objdump`), which is built by the top-level `make toolchain`
+on a 32-bit Linux host.
+
+```
+# every 16-bit encoding, disassembled by binutils
+python3 -c "import struct;open('/tmp/allinsn.bin','wb').write(
+    b''.join(struct.pack('<H',i) for i in range(65536)))"
+c33-epson-elf-objdump -D -b binary -m c33 /tmp/allinsn.bin \
+    | grep -E '^ *[0-9a-f]+:' > allinsn_full.txt
+
+make tables          # -> c33_forms.h
+make test            # check the tables against real firmware
+```
+
+`tools/derive_fields.py` solves each operand field for
+`(shift, width, signed, bias)` by grouping encodings that share a mnemonic
+and operand shape. `tools/fit_ext.py` and `tools/fit_data_ext.py` fit how
+`ext` prefixes compose, which is measured rather than assumed - see below.
+
+## Notes on the ISA
+
+The decoder is generated from binutils' own disassembler rather than from
+the opcode table in `c33-opc.c`, because the two disagree. `c33-dis.c` has
+`c33_opcodes` commented out and decodes with a hand-written switch; the
+assembler table is missing forms the disassembler emits, such as the
+`srl`/`sll`/`sra` family at `0x23xx` where the immediate is a single 5-bit
+field rather than the two `IMM4` families the table lists.
+
+Several semantics were measured against real firmware rather than assumed,
+after the obvious reading turned out to be wrong:
+
+* `call` pushes the return address to the **stack**. r15 is the global data
+  pointer (`__dp`), not a link register.
+* `pushn %rN` saves **r0..rN**, with r0 ending at `[sp+0]`. grifo's syscall
+  handler indexes that frame directly, so the order is observable.
+* Two `ext` prefixes on a branch give a **29-bit** displacement with the
+  first prefix at shift **18** - not `width+13`. Fitted against all 634
+  ext-prefixed branches in `grifo.elf`; it is the unique solution.
+* `add`/`sub` zero-extend their 6-bit immediate; `cmp`/`and`/`ld.w`
+  sign-extend. The assembler picks the opposite mnemonic instead of a
+  negative immediate for the first pair.
+* `add`/`sub %sp,imm10` counts **words**. `[%sp+imm]` scales the short field
+  by the access size, but an ext-composed displacement is a plain **byte**
+  offset.
+* `slp` is not a halt: `CMU_initialise` uses it deliberately to switch clocks.
+
+## Caveats
+
+This proves the firmware is self-consistent under this model of the ISA, not
+that it would boot on hardware - the emulator was built by inferring
+semantics from the same binaries it runs, so a shared misreading would not
+show up. The independent checks are the decoder, validated instruction for
+instruction against binutils over all four firmware images (65,605
+instructions, exact match), and the known-answer arithmetic tests built with
+the real cross compiler.
+
+Timing is not wall-clock paced: one tick per instruction, so emulated time
+runs at whatever speed the host manages.
