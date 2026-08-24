@@ -323,10 +323,20 @@ void c33_step(struct c33 *c)
 	/* ---- ext prefix ------------------------------------------------ */
 	case OP_EXT:
 		if (shape_is(f, "#")) {
-			if (c->n_ext < 2)
+			if (c->n_ext < 2) {
 				c->ext[c->n_ext++] = (uint32_t)a;
-			else
-				fault(c, "more than two ext prefixes");
+			} else {
+				/*
+				 * "this processor has come to generate an
+				 * exception when ... more than two ext
+				 * instructions are described" -- S1C33E07
+				 * manual B.3. Vector 2 is the ext exception.
+				 */
+				c->n_ext = 0;
+				c->irq_pending = true;
+				c->irq_vector = 2;
+				take_irq(c);
+			}
 			return;   /* prefixes never complete an instruction */
 		}
 		fault(c, "unsupported ext form");
@@ -676,14 +686,25 @@ void c33_step(struct c33 *c)
 	}
 
 	/* ---- push/pop of a special register ------------------------------ */
+	/*
+	 * pushs/pops move a *range* of special registers, mirroring pushn:
+	 * "Push special registers %ss-ALR onto the stack" and "Pop data for
+	 * special registers %sd-ALR off the stack" (S1C33E07 manual, Table
+	 * I.5.3.4). ALR is special register 2, so the range runs down to it,
+	 * with the lowest-numbered register ending at [sp+0].
+	 */
 	case OP_PUSHS:
-		c->sr[SR_SP] -= 4;
-		wr(c, c->sr[SR_SP], 4, c->sr[insn & 0xf]);
+		for (int i = (int)(insn & 0xf); i >= SR_ALR; i--) {
+			c->sr[SR_SP] -= 4;
+			wr(c, c->sr[SR_SP], 4, c->sr[i]);
+		}
 		break;
 
 	case OP_POPS:
-		c->sr[insn & 0xf] = rd(c, c->sr[SR_SP], 4);
-		c->sr[SR_SP] += 4;
+		for (int i = SR_ALR; i <= (int)(insn & 0xf); i++) {
+			c->sr[i] = rd(c, c->sr[SR_SP], 4);
+			c->sr[SR_SP] += 4;
+		}
 		break;
 
 	/* ---- bit operations on a byte in memory -------------------------- */

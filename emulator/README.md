@@ -116,7 +116,8 @@ assembler table is missing forms the disassembler emits, such as the
 field rather than the two `IMM4` families the table lists.
 
 Several semantics were measured against real firmware rather than assumed,
-after the obvious reading turned out to be wrong:
+after the obvious reading turned out to be wrong. All of the following were
+later confirmed against the S1C33E07 Technical Manual:
 
 * `call` pushes the return address to the **stack**. r15 is the global data
   pointer (`__dp`), not a link register.
@@ -132,6 +133,26 @@ after the obvious reading turned out to be wrong:
   by the access size, but an ext-composed displacement is a plain **byte**
   offset.
 * `slp` is not a halt: `CMU_initialise` uses it deliberately to switch clocks.
+
+### Checked against the S1C33E07 Technical Manual
+
+The manual confirms the ABI exactly as reverse-engineered here: `pushn %rs`
+pushes "general-purpose registers %rs-%r0", %r0..%r3 are callee-saved, %r4
+holds the return value, %r6..%r9 pass arguments, and %r15 is the default
+data area pointer. It also confirms `ld.w %rd,sign6` is sign-extended,
+`add`/`sub` take `imm6`/`imm10` (unsigned), `ext` carries `imm13`, branch
+displacements are `sign8`, `int` takes `imm2`, software exception n is
+vector 12+n relative to TTBR, and that more than two `ext` prefixes raises
+an exception.
+
+One caveat for anyone reading the manual: its prose says `cmp` takes its
+immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
+and gcc emits a redundant `ext 0x0` before `xor %r6,0x30` when it wants +48
+precisely because a bare 0x30 would sign-extend. The operand table is right.
+
+Known divergences from the manual, none of which the firmware exercises on
+the boot path: `slp` resumes immediately rather than halting until an
+interrupt, and `halt` stops the emulator outright.
 
 ## Caveats
 
