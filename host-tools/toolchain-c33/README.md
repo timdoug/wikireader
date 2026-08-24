@@ -1,5 +1,9 @@
 # Modern toolchain for the Seiko Epson C33 (S1C33)
 
+**New here? Read [`HANDOFF.md`](HANDOFF.md) first** - it covers both halves,
+how to rebuild everything, and what is left to do. This file is the binutils
+detail.
+
 Forward-port of the EPSON C33 GNU toolchain from its original
 binutils 2.10.1 / gcc 3.3.2 base (see `host-tools/toolchain-patches/`)
 to current upstream releases.
@@ -22,7 +26,7 @@ The original toolchain is from 2000-2002 and carries real limitations:
 | `binutils` (`objdump`, `readelf`, ...) | **builds; reads and disassembles real WikiReader ELFs** |
 | `gas` (`tc-c33.c`, `ext_remove.c`) | builds; assembles and relocates correctly |
 | `ld` (emulation, script template) | builds and links |
-| GCC backend | builds; leaf functions emit correct C33 code, framed functions ICE - see [`gcc/README.md`](gcc/README.md) |
+| GCC backend | builds; most simple code compiles, calls and stack args ICE in LRA - see [`gcc/README.md`](gcc/README.md) |
 
 A complete `c33-epson-elf-*` toolchain builds and installs.
 
