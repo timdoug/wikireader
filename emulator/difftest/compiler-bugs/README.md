@@ -78,6 +78,26 @@ and `.data` byte-identical to the binary built with the unpatched compiler.
 That comparison also happens to confirm the native macOS toolchain produces
 bit-for-bit the same output as the Ubuntu 12.10 i386 VM.
 
+`libgcc.a` is clean too, and it needed checking separately because it ships
+with the toolchain rather than being built from the firmware sources. Two
+`cc1` binaries were built from the same tree with the patch as the only
+difference, and libgcc built with each: **all 57 objects byte-identical**.
+So the software divide, the 64-bit helpers and the soft-float code are
+unaffected.
+
+(Reproducing that needs `GCC_FOR_TARGET` overridden - `gcc/config/c33/t-c33`
+hardcodes `d:/Epson/gnu33/xgcc`, a path from EPSON's original Windows build,
+which makes `mklibgcc` emit an empty `libgcc.mk` and silently skip libgcc
+entirely:
+
+```
+make libgcc.mk libgcc.a GCC_FOR_TARGET="./xgcc -B./"
+```
+
+The result reproduces the shipped archive: all 57 `.text` sections match the
+installed `libgcc.a`, with whole-object differences confined to stabs debug
+paths.)
+
 ## Running it
 
 ```
