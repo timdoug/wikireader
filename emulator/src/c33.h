@@ -27,10 +27,9 @@ enum c33_sreg {
 };
 
 /*
- * PSR flags. Only IE's position is externally constrained: grifo's
- * Interrupt_disable() reads %psr, ANDs with 0x010 and shifts right 4, so
- * IE must be bit 4. The condition flags are only observed through the
- * jr<cc> instructions, so their positions are ours to choose.
+ * PSR flags, as documented in the C33 PE Core manual's psrset entry: the
+ * imm5 bit number takes "values 0, 1, 2, 3, and 4 representing bits
+ * 0 (N), 1 (Z), 2 (V), 3 (C), and 4 (IE)".
  */
 #define PSR_N  (1u << 0)
 #define PSR_Z  (1u << 1)

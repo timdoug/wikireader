@@ -755,12 +755,20 @@ void c33_step(struct c33 *c)
 	}
 
 	/* ---- system ------------------------------------------------------ */
+	/*
+	 * imm5 is a bit number, not a mask: "values 0, 1, 2, 3, and 4
+	 * representing bits 0 (N), 1 (Z), 2 (V), 3 (C), and 4 (IE)... An imm5
+	 * of more than 4 is not effective and does not alter the contents of
+	 * PSR" (C33 PE Core manual, psrset).
+	 */
 	case OP_PSRSET:
-		c->sr[SR_PSR] |= 1u << (a & 31);
+		if (a <= 4)
+			c->sr[SR_PSR] |= 1u << a;
 		break;
 
 	case OP_PSRCLR:
-		c->sr[SR_PSR] &= ~(1u << (a & 31));
+		if (a <= 4)
+			c->sr[SR_PSR] &= ~(1u << a);
 		break;
 
 	/*

@@ -149,6 +149,16 @@ directly as a byte displacement, and PC-relative branches add twice the
 prefix, 32-bit with two) and that the MSB of `sign6` is data rather than
 sign when a prefix is present.
 
+It also documents the PSR layout, which had been guessed here: psrset's
+imm5 "indicates a bit number, with values 0, 1, 2, 3, and 4 representing
+bits 0 (N), 1 (Z), 2 (V), 3 (C), and 4 (IE)". The guess happened to be
+right.
+
+Every instruction entry's Function line was checked too -- pushn is
+"repeated for rN = rs to r0", reti is "pc <- W[sp+4], psr <- W[sp],
+sp <- sp+8", ld.b's ext forms use [sp+imm19]/[sp+imm32] as plain offsets,
+shift counts are "0 to 31" -- and all matched.
+
 It corrected two things. One is the two-prefix branch case above. The other
 came from the per-instruction flag tables ("Flag IE C V Z N"), which were
 extracted for all 57 documented mnemonics and checked against this
@@ -176,7 +186,10 @@ precisely because a bare 0x30 would sign-extend. The operand table is right.
 
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: `slp` resumes immediately rather than halting until an
-interrupt, and `halt` stops the emulator outright.
+interrupt, `halt` stops the emulator outright, traps are not masked between
+a `.d` branch and its delay slot, and `jpr`, `swap`, `swaph`, `adc`, `sbc`
+and the coprocessor instructions are unimplemented (none appear in any of
+the four firmware images).
 
 ## Caveats
 
