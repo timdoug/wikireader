@@ -149,7 +149,14 @@ directly as a byte displacement, and PC-relative branches add twice the
 prefix, 32-bit with two) and that the MSB of `sign6` is data rather than
 sign when a prefix is present.
 
-It corrected one rule: see the two-prefix branch case above.
+It corrected two things. One is the two-prefix branch case above. The other
+came from the per-instruction flag tables ("Flag IE C V Z N"), which were
+extracted for all 57 documented mnemonics and checked against this
+implementation. Everything matched -- add/sub/cmp update C V Z N while
+their %sp,imm10 forms update nothing, shifts and rotates update only Z and
+N, btst only Z, int clears IE, and multiplies, loads, stack operations and
+branches touch no flags -- except that the logical operations are listed as
+"- - 0 <-> <->": they force V to zero. That is now `set_nz_clrv`.
 
 ### Checked against the S1C33E07 Technical Manual
 

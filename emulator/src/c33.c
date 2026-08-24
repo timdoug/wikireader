@@ -149,6 +149,11 @@ static void wr(struct c33 *c, uint32_t a, unsigned sz, uint32_t v)
 
 /* ---- flags ----------------------------------------------------------- */
 
+/*
+ * Z and N from a result, leaving C and V alone. This is what the shift and
+ * rotate instructions do: the C33 PE Core manual lists them as
+ * "IE C V Z N / - - - <-> <->".
+ */
 static void set_nz(struct c33 *c, uint32_t v)
 {
 	uint32_t p = c->sr[SR_PSR] & ~(PSR_N | PSR_Z);
@@ -157,6 +162,17 @@ static void set_nz(struct c33 *c, uint32_t v)
 	if (v & 0x80000000u)
 		p |= PSR_N;
 	c->sr[SR_PSR] = p;
+}
+
+/*
+ * As above but also clearing V, which is what the logical operations do:
+ * and/or/xor/not are listed as "- - 0 <-> <->", so V is forced to zero
+ * while C is untouched.
+ */
+static void set_nz_clrv(struct c33 *c, uint32_t v)
+{
+	set_nz(c, v);
+	c->sr[SR_PSR] &= ~PSR_V;
 }
 
 static void set_add_flags(struct c33 *c, uint32_t a, uint32_t b, uint64_t res)
@@ -529,7 +545,7 @@ void c33_step(struct c33 *c)
 		c->r[a] = op == OP_AND ? (c->r[a] & rhs)
 		       : op == OP_OR  ? (c->r[a] | rhs)
 				      : (c->r[a] ^ rhs);
-		set_nz(c, c->r[a]);
+		set_nz_clrv(c, c->r[a]);
 		break;
 	}
 
@@ -539,7 +555,7 @@ void c33_step(struct c33 *c)
 		else if (shape_is(f, "%r#,#"))
 			c->r[a] = ~imm_ext_s(c, (uint32_t)b, f->f[1].width);
 		else { fault(c, "unhandled not form"); break; }
-		set_nz(c, c->r[a]);
+		set_nz_clrv(c, c->r[a]);
 		break;
 
 	/* ---- shifts ----------------------------------------------------- */
