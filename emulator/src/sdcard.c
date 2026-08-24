@@ -29,7 +29,24 @@
 #define OFF_TXD    0x04
 #define OFF_STAT   0x14
 
+/*
+ * SPI status register, 0x301714 (S1C33E07 Technical Manual, V.2):
+ *
+ *   D6 BSYF  transfer busy
+ *   D5 MFEF  mode fault error
+ *   D4 TDEF  transmit data empty
+ *   D3 RDOF  receive data overflow
+ *   D2 RDFF  receive data full
+ *
+ * BSYF must read 0: sd_spi.c brackets each byte with
+ * "while ((SPI_STATUS & 0x40) != 0)" and would spin forever otherwise.
+ * A transfer here completes inside the store to TXD, so the bus is never
+ * busy by the time the next instruction reads the status.
+ *
+ * MFEF cannot occur -- this is the only master on the bus.
+ */
 #define RDFF       (1u << 2)   /* receive data full  */
+#define RDOF       (1u << 3)   /* receive data overflow */
 #define TDEF       (1u << 4)   /* transmit data empty */
 
 #define R1_IDLE    0x01
@@ -253,6 +270,18 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	if (is_write) {
 		if (reg == OFF_TXD) {
 			uint8_t out = (uint8_t)(*val & 0xff);
+			/*
+			 * "If the SPI Receive Data Register is overwritten
+			 * when RDFF = 1 (the received data has not been read
+			 * yet), RDOF is set to 1." Nothing in the firmware
+			 * reads RDOF, but a driver that exchanges a byte
+			 * without collecting the previous one is a real bug,
+			 * so count it.
+			 */
+			if (sd->rdff) {
+				sd->rdof = true;
+				sd->overflows++;
+			}
 			sd->rxd = sd_xfer(sd, out);
 			sd->rdff = true;
 			if (sd->trace && sd->xfers < 0)
@@ -267,10 +296,13 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	switch (reg) {
 	case OFF_RXD:
 		*val = sd->rxd;
+		/* "RDOF is reset to 0 by reading data from the SPI Receive
+		 * Data Register", as is RDFF. */
 		sd->rdff = false;
+		sd->rdof = false;
 		return true;
 	case OFF_STAT:
-		*val = TDEF | (sd->rdff ? RDFF : 0);
+		*val = TDEF | (sd->rdff ? RDFF : 0) | (sd->rdof ? RDOF : 0);
 		return true;
 	default:
 		*val = 0;

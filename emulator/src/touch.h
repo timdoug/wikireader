@@ -8,6 +8,17 @@
 #include "c33.h"
 #include "itc.h"
 
+/*
+ * Host-side queue of bytes waiting to be handed to the driver.
+ *
+ * The hardware receive FIFO is only 4 bytes deep (RXDxNUM[1:0] in the status
+ * register counts up to 4), but a CTP packet is 6, so on real silicon a
+ * packet spans at least two receive interrupts. Queueing a whole packet
+ * here and letting CTP_interrupt's "while (RDBFx)" loop drain it in one go
+ * is the one deliberate divergence: the driver is a byte-at-a-time state
+ * machine, so it reassembles the packet identically either way, and a
+ * 4-byte queue would instead mean dropping bytes and setting OERx.
+ */
 #define TOUCH_FIFO  64
 /*
  * The panel reports at exactly twice the LCD resolution, so a pixel

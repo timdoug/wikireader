@@ -31,6 +31,8 @@ struct sdcard {
 	/* SPI controller state */
 	uint8_t   rxd;
 	bool      rdff;
+	bool      rdof;             /* receive data overflow, D3 of SPI_STAT */
+	unsigned long overflows;
 
 	unsigned long commands, blocks_read;
 	bool trace;

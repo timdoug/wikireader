@@ -260,6 +260,29 @@ entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
 not interpreted: modelling `PSAVE` from a register that reads as its reset
 value of zero would blank a panel the hardware has running.
 
+### Serial and SPI status registers
+
+Both status registers were checked field by field against the manual.
+
+EFSIF (0x300Bx2) has one trap in it: `TENDx` (D5) is called the
+"transmit-completion flag", but 1 means transmission is *in progress* and 0
+means it finished. `suspend.c` tests `if (0 != (STATUS & TENDx))` precisely
+to catch a transmit still running, so reporting 0 is what says "idle". The
+FIFO-occupancy field `RXDxNUM` (D[7:6]) is now reported too -- 0 encodes
+"1 or 0" bytes, then 2, 3, 4 -- though nothing in the firmware reads it.
+The error flags `FERx`/`PERx`/`OERx` stay clear, and the writes the drivers
+label "clear errors" are accepted; neither of these links can frame,
+parity or overrun.
+
+SPI (0x301714) matches the manual on offsets and bit positions. `BSYF` (D6)
+must read 0 or `sd_spi.c` spins forever: it brackets every byte with
+`while ((SPI_STATUS & 0x40) != 0)`, and a transfer here completes inside
+the store to TXD. `MFEF` cannot occur with a single bus master. `RDOF` (D3)
+is now modelled -- set when TXD is written while a byte is still unread,
+cleared by reading RXD -- and reported at exit. A full boot and search does
+1831 commands with zero overflows, which independently confirms the driver
+reads RXD after every exchange.
+
 ### Peripherals
 
 The remaining peripherals are the least verified part. They were written from the

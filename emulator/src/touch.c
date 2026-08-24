@@ -21,6 +21,8 @@
 #define OFF_RXD      0x01
 #define OFF_STATUS   0x02
 
+/* D[7:6]: 0 means "1 or 0" bytes, 1 means 2, 2 means 3, 3 means 4. */
+#define RXDNUM(n)     ((uint32_t)((n) <= 1 ? 0 : (n) >= 4 ? 3 : (n) - 1) << 6)
 #define RDBFx        (1u << 0)   /* receive data buffer full */
 #define TDBEx        (1u << 1)
 
@@ -48,9 +50,19 @@ static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			*val = 0xff;
 		}
 		return true;
-	case OFF_STATUS:
-		*val = TDBEx | (t->head != t->tail ? RDBFx : 0);
+	case OFF_STATUS: {
+		/*
+		 * RDBFx (D0) is "receive buffer non-empty", and D[7:6] report
+		 * the FIFO occupancy -- 0 for "1 or 0" bytes, then 2, 3, 4.
+		 * CTP_interrupt drains with "while (0 != (REG_EFSIF1_STATUS &
+		 * RDBFx))", so RDBFx is the bit that matters; RXDxNUM is
+		 * reported for completeness and capped at the hardware FIFO
+		 * depth of 4 (see the note on queue depth in touch.h).
+		 */
+		unsigned n = (t->tail - t->head + TOUCH_FIFO) % TOUCH_FIFO;
+		*val = TDBEx | (n ? RDBFx : 0) | RXDNUM(n);
 		return true;
+	}
 	default:
 		*val = 0;
 		return true;
