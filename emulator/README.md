@@ -44,6 +44,7 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 | `-s` | trace grifo syscalls by name, with call sites and return values |
 | `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
 | `-T x,y,cycle` | tap a pixel |
+| `-G x,y0,y1,cycle` | drag vertically, for the scroll path |
 | `-b ADDR` | breakpoint: registers plus recent PCs |
 | `-W ADDR` | write watchpoint |
 | `-V VAL` | watch stores of a byte value |
@@ -407,8 +408,24 @@ within a mnemonic is not modelled, and `ext` is charged one cycle where the
 manual says "zero or one depending on the instruction queue status", so
 elapsed time errs slightly long.
 
-One consequence worth knowing: emulated seconds now pass fast enough to
-reach the application's idle behaviour. wikilib.c saves history and sleeps
-after five seconds without an event, so a long headless run ends on a blank
-screen -- that is the device working, not a fault. Size `-n` to the
-emulated time you want, or use `-g` and interact.
+With a window the tick comes from wall-clock time instead of the
+instruction count (`timer_use_wallclock`). Headless runs keep the
+cycle-derived tick, which is deterministic and reproducible, but under a
+human's hand it is wrong: this build runs at about 0.75x real time, so a
+one-second drag looks like 0.75 s to the firmware. wikilib derives
+`finger_move_speed` as pixels per tick, so the scroll momentum came out
+inflated by the same factor -- and since the ratio moves with host load and
+with what the firmware is doing, the fling felt inconsistent rather than
+merely fast. Interactively the user's seconds are the ones the application
+should be measuring.
+
+Emulated seconds now pass fast enough to reach the application's idle
+behaviour, which is worth knowing but is less dramatic than it sounds.
+After two idle seconds `wikilib_run` calls `history_list_save` at the
+NORMAL level, and after five at the POWER_OFF level -- that is a *save
+level*, not a shutdown, meaning "save thoroughly, as you would before
+losing power". It then blocks in `event_wait` until something happens.
+The real `power_off()` is reached from exactly one place, a physical
+BUTTON_POWER release, so an idle device sits there with the page still on
+screen. Measured: screen content is unchanged from 200M through 1.6B
+instructions, about 35 emulated seconds.

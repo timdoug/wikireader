@@ -50,6 +50,7 @@ int main(int argc, char **argv)
 	bool check_align = false;
 	bool profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
+	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
 	size_t type_idx = 0; int type_phase = 0;
@@ -88,6 +89,11 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-T") && i + 1 < argc) {
 			/* scripted tap: -T x,y,cycle */
 			sscanf(argv[++i], "%d,%d,%lu", &tap_x, &tap_y, &tap_at);
+		}
+		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
+			/* scripted drag: -G x,y0,y1,cycle */
+			sscanf(argv[++i], "%d,%d,%d,%lu",
+			       &drag_x, &drag_y0, &drag_y1, &drag_at);
 		}
 		else if (!strcmp(argv[i], "-S") && i + 1 < argc)
 			gui_scale = (int)strtoul(argv[++i], NULL, 0);
@@ -183,6 +189,13 @@ int main(int argc, char **argv)
 
 	struct timerblk timer;
 	timer_attach(&mem, &timer, &cpu.clk);
+	/*
+	 * With a window, measure time the way the person holding the mouse
+	 * does. Headless runs keep the cycle-derived tick so they stay
+	 * deterministic.
+	 */
+	if (gui)
+		timer_use_wallclock(&timer);
 
 	char dis[128];
 	/*
@@ -222,6 +235,30 @@ int main(int argc, char **argv)
 			}
 		}
 
+		/*
+		 * Scripted drag, for exercising the scroll path without a
+		 * window: press, then a run of motion packets down the
+		 * screen, then release. grifo turns the first pressed packet
+		 * into EVENT_TOUCH_DOWN and every one after it into
+		 * EVENT_TOUCH_MOTION, so the intermediate steps are what
+		 * makes this a drag rather than a tap.
+		 */
+#define DRAG_STEPS   16
+#define DRAG_SPACING 300000UL
+		if (drag_x >= 0 && cpu.cycles >= drag_at &&
+		    cpu.cycles <= drag_at + DRAG_STEPS * DRAG_SPACING &&
+		    ((cpu.cycles - drag_at) % DRAG_SPACING) == 0) {
+			unsigned long k = (cpu.cycles - drag_at) / DRAG_SPACING;
+			int y = drag_y0 + (int)((drag_y1 - drag_y0) * (int)k) / DRAG_STEPS;
+			bool down = k < DRAG_STEPS;
+			if (k == 0)
+				fprintf(stderr, "  [drag %d,%d -> %d,%d]\n",
+					drag_x, drag_y0, drag_x, drag_y1);
+			touch_post(&touch, &cpu, drag_x, y, down);
+		}
+		if (drag_x >= 0 && (cpu.cycles % 100000) == 0)
+			touch_poll(&touch, &cpu);
+
 		/* scripted tap for testing without a window */
 		if (tap_x >= 0 && cpu.cycles == tap_at) {
 			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
@@ -239,7 +276,18 @@ int main(int argc, char **argv)
 				stop = "window closed";
 				break;
 			}
-			if (disp.touch_pending) {
+			if (disp.touch_pending || disp.touch_pressed) {
+				/*
+				 * A real panel reports continuously while it
+				 * is touched, not only when something changes.
+				 * That matters for the scroll momentum in
+				 * wikilib: it derives finger_move_speed from
+				 * the pixel delta between packets, so a finger
+				 * held still has to keep reporting the same
+				 * position to bring the speed back to zero.
+				 * Reporting only on change would leave the
+				 * last speed standing and fling on release.
+				 */
 				disp.touch_pending = false;
 				touch_post(&touch, &cpu, disp.touch_x,
 					   disp.touch_y, disp.touch_pressed);

@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "touch.h"
+#include "lcd.h"
 
 #define EFSIF1_BASE  0x0b10u
 #define EFSIF1_LEN   0x0010u
@@ -86,6 +87,22 @@ static void push_byte(struct touch *t, uint8_t b)
  */
 void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 {
+	/*
+	 * Clamp to the panel before packing.
+	 *
+	 * The coordinates go out as two 7-bit halves, so a negative value --
+	 * which is what SDL reports once the pointer leaves the window during
+	 * a drag -- wraps into a huge one: y = -10 packs as 0x7f,0x6c, which
+	 * grifo decodes as 8182 on a 208-pixel screen. The application then
+	 * jumps somewhere absurd. A real panel cannot report off-panel
+	 * coordinates at all, so clamping is both the safe and the faithful
+	 * answer.
+	 */
+	if (x < 0) x = 0;
+	if (y < 0) y = 0;
+	if (x > LCD_WIDTH - 1)  x = LCD_WIDTH - 1;
+	if (y > LCD_HEIGHT - 1) y = LCD_HEIGHT - 1;
+
 	unsigned tx = (unsigned)(x << CTP_SHIFT);
 	unsigned ty = (unsigned)(y << CTP_SHIFT);
 

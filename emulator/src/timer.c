@@ -12,6 +12,7 @@
  */
 
 #include <string.h>
+#include <time.h>
 
 #include "timer.h"
 
@@ -36,8 +37,44 @@
  */
 #define CYCLES_PER_TICK 1u
 
+/* Tick_TicksPerMicroSecond in samo-lib/drivers/include/tick.h. */
+#define TICKS_PER_MICROSECOND 60u
+
+static uint64_t mono_ns(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+/*
+ * Wall-clock tick source, used when there is a window.
+ *
+ * Deriving the tick from the instruction count makes the guest's notion of
+ * elapsed time proportional to how fast the host happens to be emulating,
+ * which is fine headless -- it is deterministic and reproducible -- but
+ * wrong under a human's hand. This build runs at about 0.75x real time, so
+ * a one-second drag looks like 0.75 s to the firmware, and wikilib derives
+ * finger_move_speed as pixels per tick: the scroll momentum comes out
+ * inflated by the same factor. The ratio also moves around with host load
+ * and with what the firmware is doing, so the fling feels inconsistent
+ * rather than merely fast.
+ *
+ * Interactively the honest clock is the real one: the user's seconds are
+ * the seconds the application should measure.
+ */
+void timer_use_wallclock(struct timerblk *t)
+{
+	t->wallclock = true;
+	t->t0_ns = mono_ns();
+}
+
 static uint32_t now(struct timerblk *t)
 {
+	if (t->wallclock) {
+		uint64_t us = (mono_ns() - t->t0_ns) / 1000ull;
+		return (uint32_t)(us * TICKS_PER_MICROSECOND);
+	}
 	if (!t->cycles)
 		return 0;
 	return (uint32_t)(*t->cycles / CYCLES_PER_TICK);

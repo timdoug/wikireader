@@ -88,6 +88,28 @@ bool display_update(struct display *d)
 			d->touch_y = ev.button.y / d->scale;
 			d->touch_pressed = (ev.type == SDL_MOUSEBUTTONDOWN);
 			d->touch_pending = true;
+			/*
+			 * Keep receiving motion and, crucially, the release
+			 * even after the pointer leaves the window, so a drag
+			 * that overshoots the edge still ends properly instead
+			 * of leaving the panel stuck down.
+			 */
+			SDL_CaptureMouse(d->touch_pressed ? SDL_TRUE : SDL_FALSE);
+			break;
+		case SDL_MOUSEMOTION:
+			/*
+			 * The panel only reports while it is being touched, so
+			 * motion with no button held is not an event. Dragging
+			 * is what produces EVENT_TOUCH_MOTION in grifo: its CTP
+			 * driver emits DOWN for the first pressed packet and
+			 * MOTION for every one after it, so a drag has to be a
+			 * run of pressed packets with changing coordinates.
+			 */
+			if (d->touch_pressed) {
+				d->touch_x = ev.motion.x / d->scale;
+				d->touch_y = ev.motion.y / d->scale;
+				d->touch_pending = true;
+			}
 			break;
 		}
 	}
