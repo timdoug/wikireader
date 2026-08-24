@@ -22,7 +22,7 @@ The original toolchain is from 2000-2002 and carries real limitations:
 | `binutils` (`objdump`, `readelf`, ...) | **builds; reads and disassembles real WikiReader ELFs** |
 | `gas` (`tc-c33.c`, `ext_remove.c`) | builds; assembles and relocates correctly |
 | `ld` (emulation, script template) | builds and links |
-| GCC backend | mid-conversion, **not currently building** - see [`gcc/README.md`](gcc/README.md) |
+| GCC backend | builds; leaf functions emit correct C33 code, framed functions ICE - see [`gcc/README.md`](gcc/README.md) |
 
 A complete `c33-epson-elf-*` toolchain builds and installs.
 

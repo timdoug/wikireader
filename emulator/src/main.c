@@ -305,6 +305,8 @@ done:
 	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
 	printf("--- sd: %lu commands, %lu blocks read, %lu rx overflows ---\n",
 	       sd.commands, sd.blocks_read, sd.overflows);
+	printf("--- adc: %lu conversions, %lu register writes, %lu overwrite errors ---\n",
+	       periph.conversions, periph.adc_writes, periph.overwrites);
 	printf("--- stopped after %llu instructions ---\n",
 	       (unsigned long long)cpu.cycles);
 	if (cpu.fault) {

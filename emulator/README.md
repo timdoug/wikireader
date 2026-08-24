@@ -283,6 +283,33 @@ cleared by reading RXD -- and reported at exit. A full boot and search does
 1831 commands with zero overflows, which independently confirms the driver
 reads RXD after every exchange.
 
+### A/D converter
+
+This one had a real bug. The S1C33E07 has a "5-ch. 10-bit A/D converter"
+and grifo agrees -- `analog.c` defines `ADC_FULL_SCALE` as 1024 -- but the
+device returned 0x800 on every channel, which is twice full scale. Run
+through grifo's own conversions that comes out as a battery of 9.2 V and a
+temperature of **-154 C**, and wiki.app puts the temperature on screen
+(`wiki/keyboard.c:617` reads `ANALOG_TEMPERATURE_CENTI_CELCIUS`).
+
+Each channel now returns a count derived by inverting grifo's formulas, so
+the numbers the firmware computes are physically sensible: 832 on ch0 gives
+2799 mV of battery (`samo_a1.h` calls 3000 mV full and 2250 mV low), 502 on
+ch1 gives 19.96 C, and 512 on ch2 gives a 23.5 V STN bias.
+
+The channel status register is modelled rather than wired to "always done".
+`ADFx` is raised by a conversion and, per the manual, "reset to 0 when the
+converted data is read"; `OWEx` in the high half flags a sweep landing on
+unread data. The sweep covers `CS[2:0]` to `CE[2:0]` from `TRIG_CHNL`, which
+grifo programs as 0x1000 -- channels 0 to 2, exactly the three `ScanADC`
+reads. That agreement is a cross-check in itself: a full boot does 13
+conversions with zero overwrite errors, which would not hold if the sweep
+range and the read set disagreed.
+
+`make test-adc` runs grifo's conversions over the presented counts and
+checks the results land in physically sensible ranges, plus the flag
+behaviour and the sweep range.
+
 ### Peripherals
 
 The remaining peripherals are the least verified part. They were written from the

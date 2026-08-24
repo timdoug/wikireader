@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/main.o
 
-.PHONY: all clean tables test test-irq test-lcd
+.PHONY: all clean tables test test-irq test-lcd test-adc
 
 all: wremu
 
@@ -41,6 +41,11 @@ test-irq: tools/test_irq.c src/c33.o src/mem.o
 test-lcd: tools/test_lcd.c src/lcd.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_lcd tools/test_lcd.c src/lcd.o src/mem.o $(SDL_LIBS)
 	/tmp/test_lcd
+
+# ADC scaling, checked by running grifo's own conversions over the counts.
+test-adc: tools/test_adc.c src/periph.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o
+	/tmp/test_adc
 
 clean:
 	rm -f wremu $(OBJS)
