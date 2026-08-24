@@ -340,11 +340,17 @@ all 17 would have been rejected.
 frequency, the protect gate in both directions, and that a
 read-modify-write preserves previously enabled clocks.
 
-### Peripherals
+### Peripherals still taken on trust
 
-The remaining peripherals are the least verified part. They were written from the
-driver sources in samo-lib and from what the firmware demanded, not from
-the S1C33E07 register descriptions, which run to several hundred pages.
+The peripherals above have been checked against the S1C33E07 register
+descriptions. What has not: the T16 timer block beyond the two count
+registers `Tick_get` reads, the SD card's own command set (which is an SD
+Association spec, not an Epson one), the port/pin configuration registers,
+and the DMA and RTC blocks the firmware never touches. These were written
+from the driver sources in samo-lib and from what the firmware demanded.
+
+`make check` runs the decoder comparison against binutils plus the four
+peripheral test programs.
 
 ## Caveats
 
