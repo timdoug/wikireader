@@ -394,51 +394,23 @@ c33_print_operand (FILE * file, rtx x, int code)
     case 'C':
     case 'd':
     case 'D':
+      /* The condition suffix of a jr<cc> / sjr<cc> / xjr<cc> branch.  Upper
+	 case reverses the condition.  The C33 has no branch on the sign bit
+	 alone, which is why c33_select_cc_mode restricts CCNZmode to EQ and
+	 NE -- there is nothing for 'd'/'D' to do that 'b'/'B' does not.  */
       switch ((code == 'B' || code == 'C' || code == 'D')
 	      ? reverse_condition (GET_CODE (x)) : GET_CODE (x))
 	{
-	  case NE:
-	    if (code == 'c' || code == 'C')
-	      fprintf (file, "nz");
-	    else
-	      fprintf (file, "ne");
-	    break;
-	  case EQ:
-	    if (code == 'c' || code == 'C')
-	      fprintf (file, "z");
-	    else
-	      fprintf (file, "e");
-	    break;
-	  case GE:
-	    if (code == 'D' || code == 'd')
-	      fprintf (file, "p");
-	    else
-	      fprintf (file, "ge");
-	    break;
-	  case GT:
-	    fprintf (file, "gt");
-	    break;
-	  case LE:
-	    fprintf (file, "le");
-	    break;
-	  case LT:
-	    if (code == 'D' || code == 'd')
-	      fprintf (file, "n");
-	    else
-	      fprintf (file, "lt");
-	    break;
-	  case GEU:
-	    fprintf (file, "nl");
-	    break;
-	  case GTU:
-	    fprintf (file, "h");
-	    break;
-	  case LEU:
-	    fprintf (file, "nh");
-	    break;
-	  case LTU:
-	    fprintf (file, "l");
-	    break;
+	  case EQ:  fputs ("eq",  file); break;
+	  case NE:  fputs ("ne",  file); break;
+	  case GT:  fputs ("gt",  file); break;
+	  case GE:  fputs ("ge",  file); break;
+	  case LT:  fputs ("lt",  file); break;
+	  case LE:  fputs ("le",  file); break;
+	  case GTU: fputs ("ugt", file); break;
+	  case GEU: fputs ("uge", file); break;
+	  case LTU: fputs ("ult", file); break;
+	  case LEU: fputs ("ule", file); break;
 	  default:
 	    gcc_unreachable ();
 	}
@@ -796,6 +768,34 @@ output_move_single (rtx * operands)
   return "";
 }
 
+/* Emit a converting load for one of the extendMN2 patterns.  SUFFIX is the
+   ld size/signedness suffix -- "b", "ub", "h" or "uh".  Alternative 0 is a
+   register source, alternative 1 memory; x-prefix the memory form when the
+   address needs a displacement, and let the assembler narrow it.  */
+
+const char *
+c33_output_extend (rtx *operands, const char *suffix)
+{
+  static char buf[32];
+  rtx src = operands[1];
+
+  if (REG_P (src) || SUBREG_P (src))
+    sprintf (buf, "ld.%s\t%%0,%%1", suffix);
+  else
+    {
+      rtx addr = XEXP (src, 0);
+
+      if (GET_CODE (addr) == POST_INC)
+	sprintf (buf, "ld.%s\t%%0,[%%1]+", suffix);
+      else if (REG_P (addr) || SUBREG_P (addr))
+	sprintf (buf, "ld.%s\t%%0,[%%1]", suffix);
+      else
+	sprintf (buf, "xld.%s\t%%0,[%%1]", suffix);
+    }
+
+  return buf;
+}
+
 machine_mode
 c33_select_cc_mode (enum rtx_code cond, rtx op0, rtx op1)
 {
@@ -803,8 +803,12 @@ c33_select_cc_mode (enum rtx_code cond, rtx op0, rtx op1)
      comparison never reaches here as a machine comparison.  */
   gcc_assert (GET_MODE_CLASS (GET_MODE (op0)) != MODE_FLOAT);
 
+  /* CCNZmode means "the flags are left over from an ALU operation", where
+     only N and Z are meaningful.  The C33 can branch on Z (jreq/jrne) but
+     has no branch on the sign bit alone -- jrlt tests N against V, which is
+     only right after a cmp -- so LT and GE must go through a real compare.  */
   if (op1 == const0_rtx
-      && (cond == EQ || cond == NE || cond == LT || cond == GE)
+      && (cond == EQ || cond == NE)
       && (GET_CODE (op0) == PLUS || GET_CODE (op0) == MINUS
 	  || GET_CODE (op0) == NEG || GET_CODE (op0) == AND
 	  || GET_CODE (op0) == IOR || GET_CODE (op0) == XOR
@@ -1314,7 +1318,6 @@ compute_register_save_size (long * p_reg_saved)
 /* The largest %sp adjustment a single add/sub %sp,imm10 can make.  The
    immediate is 10 bits scaled by 4, and the form cannot be extended with
    ext (core manual p64), so anything larger needs a scratch register.  */
-#define C33_MAX_SP_ADJUST (1023 * 4)
 
 /* Add DELTA to the stack pointer.  DELTA is a byte count; negative grows
    the stack.  Emits the add/sub %sp,imm10 form when it fits, otherwise

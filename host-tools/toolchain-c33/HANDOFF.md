@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | in progress; builds, moves/calls/frames emit real C33, arithmetic still V850 |
+| GCC 16.2 backend | instruction set converted; 163 of 196 repo `.c` files compile, all assemble; not yet run |
 
 ### binutils - finished
 
@@ -44,10 +44,15 @@ Builds against GCC 16.2. The LRA blocker is fixed and everything we throw at
 it now compiles: calls, incoming stack arguments, frames deeper than a single
 `sub %sp,imm10`, local arrays, conditionals.
 
-Moves, addressing, calls, the prologue/epilogue and register syntax emit
-genuine C33, verified by assembling the output and disassembling it back.
-Arithmetic, logic, shifts, comparisons and branches are still V850 - that is
-the remainder of step 4.
+The instruction set is converted: moves, addressing, calls, frames,
+arithmetic, logic, shifts, comparisons, branches and extensions all emit
+genuine C33. Over every `.c` file under `samo-lib` and `wiki`, 163 of 196
+compile and **all 163 assemble cleanly** with `c33-epson-elf-as`. The 33 that
+do not compile are missing headers and source conflicts from the flat include
+path used for the sweep, not compiler failures.
+
+Nothing has been *run* yet. That is the next real milestone: link `samo-lib`
+and execute it under `emulator/`.
 
 `gcc/README.md` has the detail, including what the LRA bug actually was (a
 missing `SP_REGS`/`BASE_REGS` class pair, not the arg-pointer hypothesis
@@ -105,12 +110,10 @@ In dependency order. Steps 1-2 are done; see `gcc/README.md` for detail.
 3. **`c33.opt`** - swap in `gcc/c33.opt.planned`, renaming the `TARGET_*`
    masks it drops throughout `c33.cc`/`c33.h`, and delete V850's `e1`/`e2`/
    `e3v5` core variants.
-4. **`c33.md`** - the bulk of the work. Moves, addressing, calls, the frame
-   and `%`-prefixed register syntax are done; arithmetic, logic, shifts,
-   comparisons and branches are not. Watch the reversed operand order
-   (`add %rd,%rs` is `rd += rs`, the opposite of V850's `add reg1,reg2`), and
-   keep the `ext` forms as separate patterns because their data flow differs
-   (`ext imm13; add %rd,%rs` is `rd = rs + imm13`, *not* `rd += rs`).
+4. ~~**`c33.md`**~~ - done. What remains of it is optimisation: the
+   `bset`/`bclr`/`btst` bit operations, and picking short unextended
+   encodings where the operand provably fits instead of always emitting the
+   `x` form and letting the assembler narrow it.
 5. **Data areas** - retarget V850's `__gp`-relative addressing to C33's
    `%r15`-relative default data area, with `-medda32` selecting absolute
    addressing. `ep_memory_operand` is currently stubbed out and belongs here.
@@ -152,6 +155,14 @@ them. For correctness, run output under the emulator in `emulator/`.
 * V850 patterns name hard registers up to 31. With `FIRST_PSEUDO_REGISTER` at
   22 those are *pseudo* numbers, and postreload asserts on a CLOBBER of a
   pseudo. Grep for out-of-range register numbers when porting a pattern.
+* Once `%sp` is in a register class, `register_operand` accepts it, and a
+  generic `addsi3` will claim `(set (reg sp) (plus (reg sp) N))` and then fail
+  constraint checking. The dedicated `%sp` patterns must come *first* in
+  `c33.md` - including a variant matching the CC-clobber parallel that the
+  `addsi3` splitter produces, which is how argument pushing and alloca reach
+  the stack pointer.
+* An ALU immediate constraint of `i` lets a symbol through and yields
+  `xadd %r5,ButtonBuffer`, which is not an instruction. Use `n`.
 * GCC's virtual frame and arg pointers must report `GENERAL_REGS`, even though
   they are not real registers, because they appear in insns until elimination.
 * Several C33 source files contain non-ASCII bytes, so `grep` treats them as

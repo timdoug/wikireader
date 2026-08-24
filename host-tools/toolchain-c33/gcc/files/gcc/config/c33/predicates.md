@@ -45,6 +45,14 @@
     return register_operand (op, mode);
 })
 
+;; A register or any integer constant.  xcmp takes a full 32-bit immediate
+;; and the assembler narrows it, so there is no range to check.
+(define_predicate "reg_or_int_operand"
+  (match_code "reg,subreg,const_int")
+{
+  return CONST_INT_P (op) || register_operand (op, mode);
+})
+
 ;; Return true if OP is either a register or a signed nine bit
 ;; integer.
 

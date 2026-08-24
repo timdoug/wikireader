@@ -672,17 +672,18 @@ typedef enum
 #define ZCOMMON_ASM_OP 	       "\t.zcomm\t"
 #define TCOMMON_ASM_OP 	       "\t.tcomm\t"
 
-#define ASM_COMMENT_START "#"
+/* The C33 assembler comments with ";", not "#".  */
+#define ASM_COMMENT_START ";"
 
 /* Output to assembler file text saying following lines
    may contain character constants, extra white space, comments, etc.  */
 
-#define ASM_APP_ON "#APP\n"
+#define ASM_APP_ON ";APP\n"
 
 /* Output to assembler file text saying following lines
    no longer contain unusual constructs.  */
 
-#define ASM_APP_OFF "#NO_APP\n"
+#define ASM_APP_OFF ";NO_APP\n"
 
 /* The EPSON toolchain emits C symbols unadorned -- samo-lib's hand-written
    assembly declares e.g. ".global exit", not "_exit".  */
@@ -760,6 +761,12 @@ typedef enum
 /* %r15 is the base register for the default data area (__dp).  See
    ABI.md; -medda32 turns data-area addressing off entirely.  */
 #define C33_DP_REGNUM 15
+
+/* The reach of a single add/sub %sp,imm10.  The immediate is scaled by 4 and
+   the two forms cannot be ext-extended (core manual p64, both extension rows
+   read "Unusable"), so 1023 * 4 bytes is the most one instruction can move
+   the stack pointer.  Anything larger goes through add_sp_big.  */
+#define C33_MAX_SP_ADJUST (1023 * 4)
 
 /* The callee-saved range, %r0-%r3 (ABI.md).  */
 #define C33_FIRST_SAVED_REG 0

@@ -3,37 +3,48 @@
 Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
 this is being written against.
 
-## Status: builds; moves, calls and stack frames are real C33 code
+## Status: the instruction set is converted; 163 of the repo's C files build
 
-`cc1` builds clean and the LRA blocker is gone. Everything in the test suite
-below compiles, including calls, incoming stack arguments and frames too deep
-for a single `sub %sp,imm10`:
+`cc1` builds clean, and the compiler now emits C33 throughout -- moves,
+addressing, calls, frames, arithmetic, logic, shifts, comparisons and
+branches. Measured over every `.c` file under `samo-lib` and `wiki`:
 
-```
-callit:                 arg5:                   bigframe:
-	xcall	g               xld.w	%r4,[%sp+4]         ld.w	%r14,%sp
-	add 1,%r4               ret                     xsub	%r14,8000
-	ret                                             ld.w	%sp,%r14
-                                                        ...
-```
-
-The move, addressing and call machinery now emits genuine C33, and it
-assembles and disassembles back to what we meant. Arithmetic, shifts,
-comparisons and branches are still V850 -- `add 1,%r4` above should be
-`add %r4,1` -- which is the rest of step 4.
-
-| Test | |
+| | |
 |---|---|
-| `int f(int a,int b,int c){return a+b+c;}` | OK |
-| `int f(int a){return a*3;}` | OK |
-| `int f(int *p){return *p;}` | OK |
-| `int f(int *p,int i){return p[i];}` | OK |
-| `int f(int a){int x[2]; x[0]=a; return x[0];}` | OK |
-| `int f(int a){return a<0?-a:a;}` | OK |
-| `int f(int a,int b,int c,int d,int e){return e;}` | OK |
-| `extern int g(int); int f(int a){return g(a)+1;}` | OK |
-| `int f(int a,...6 args...){return sum;}` | OK |
-| `int f(int a){volatile char buf[8000]; ...}` | OK |
+| compiled | **163** of 196 |
+| of those, assembled by `c33-epson-elf-as` | **163** (all) |
+
+The 33 that do not compile are missing headers and source-level conflicts
+from the flat include path used for the sweep (`standard.h`, `HANDLE`,
+`redefinition of abs`), not compiler failures. There are no ICEs and no
+constraint failures left.
+
+Sample output:
+
+```
+mul:                    arg5:                   uext:
+	mlt.w	%r6,%r7          xld.w	%r4,[%sp+4]      ld.ub	%r5,[%r6]
+	ld.w	%r4,%alr         ret                      ld.uh	%r4,[%r7]
+	ret                                              add	%r4,%r5
+                                                         ret
+loop:                                    bigframe:
+	xcmp	%r7,0                             ld.w	%r14,%sp
+	jrle	.L25                              xsub	%r14,8000
+	xsll	%r7,2                             ld.w	%sp,%r14
+	add	%r7,%r6                           ...
+.L24:
+	ld.w	%r5,[%r6]
+	xadd	%r6,4
+	add	%r4,%r5
+	cmp	%r6,%r7
+	jrne	.L24
+	ret
+```
+
+ABI conformance checked against the oracle with `probes/`: arguments in
+`%r6`-`%r9` and then `[%sp+4]`, `long long` in register pairs, soft-float
+through `__adddf3`, callee-saves via `pushn %r3`, and `sub %sp,5` for a
+20-byte frame -- the immediate is scaled by 4.
 
 ### The LRA bug, and what it actually was
 
@@ -92,100 +103,68 @@ failed constraint checking.
   unreachable -- nothing in `c33.cc` ever generated them. Replaced with a
   `reti` pattern, which the epilogue now uses for interrupt handlers.
 
-### Still V850, and next
+### Done in the instruction-set conversion
 
-Arithmetic, logic, shifts, comparisons and branches. The operand order is the
-thing to watch: C33 `add %rd,%rs` is `rd += rs`, the reverse of V850's
-`add reg1,reg2`, and the immediate forms are `add %rd,imm` rather than
-`add imm,%rd`. From `ABI.md`, extended register-to-register ops have
-*different data flow* -- `ext imm13; add %rd,%rs` is `rd = rs + imm13`, not
-`rd += rs` -- so they cannot be a length variant of the register form.
+* **Arithmetic**: `add %rd,%rs` / `sub %rd,%rs`, two-operand with the source
+  tied to the destination. Immediates go through `xadd`/`xsub`, which take a
+  32-bit value; the immediate is *unsigned*, so a negative constant flips the
+  mnemonic. `neg` is `not %rd,%rs` then `add %rd,1` -- there is no hardwired
+  zero register to subtract from.
+* **Logic**: `and`/`or`/`xor`/`not`, with `xand`/`xoor`/`xxor`/`xnot` for
+  immediates. Note the spelling of `xoor`.
+* **Shifts**: `sll`/`srl`/`sra` and their `x` forms.
+* **Compare and branch**: `cmp %rd,%rs`, `xcmp` for an immediate, and
+  `jr<cc>` / `sjr<cc>` / `xjr<cc>` selected by displacement range (2, 4 and 6
+  bytes). Unconditional is `jp`/`sjp`/`xjp`. Unlike the V850 there is never a
+  need to invert a condition and jump over an unconditional jump.
+* **Extensions**: `ld` is a converting move -- the suffix gives the source
+  width and signedness and the result fills the destination -- so
+  `zero_extendqisi2` is one `ld.ub`, from a register or straight from memory.
+  The V850 needed shift pairs and `zxb`/`sxh`; all of that is gone.
+* **Multiply**: `mlt.w`/`mlt.h`/`mltu.h` into the `%ahr:%alr` pair, then
+  `ld.w %rd,%alr` for the low half.
+* **Divide**: no patterns at all, deliberately. The C33 divide is a
+  multi-step `div0s`/`div1`/`div2s` sequence that does not fit one insn, and
+  the original toolchain did not use it either -- patch 0003 in
+  `host-tools/toolchain-patches` switches its libgcc to the C implementations.
+  With no `divmodsi4`, GCC calls `__divsi3`.
+* **Comments are `;`**, not `#`, including the `APP`/`NO_APP` markers around
+  inline asm.
+* **ALU immediates are `n`, not `i`.** With `i` a symbol could reach an
+  immediate alternative and produce `xadd %r5,ButtonBuffer`, which is not an
+  instruction.
 
-Also still V850: `negsi2` emits `subr %r0,%0`, which assumes a hardwired zero
-register this target does not have.
+Deleted rather than converted, because the C33 has no equivalent:
 
-### Done so far
+* `setf` and everything built on it -- `cstoresi4`, `*setcc_insn`, `*sasf`,
+  and the whole `movsicc` family. GCC materialises these with a branch
+  instead, which is what the 3.3.2 backend did.
+* V850's `set1`/`clr1`/`not1`/`tst1` bit operations on memory. The C33 has
+  `bset`/`bclr`/`bnot`/`btst`, but with a different operand shape (base
+  register plus a 3-bit bit number), so they need writing rather than
+  retemplating. Dropping them costs code size, not correctness -- GCC falls
+  back to load/or/store. Worth revisiting.
+* The `switch` instruction; `casesi` expands to a plain `tablejump`.
+* ~290 lines of V850 interrupt machinery, and the `TARGET_C33E2_UP`
+  three-operand shifts.
 
-* `c33-epson-elf` registered in `gcc/config.gcc`; `cc1` and `xgcc` built and
-  ran end-to-end before the register conversion started, so the build loop is
-  known good.
-* **Register model converted** to the C33's, per core manual tables 2.9.1.1 and
-  2.9.2.1: `FIRST_PSEUDO_REGISTER` 36 -> 22, holding `%r0`-`%r15`, `%sp`,
-  `%alr`, `%ahr`, a `CC` register for `MODE_CC`, and the two virtual pointers.
-  `FIXED_REGISTERS`, `CALL_USED_REGISTERS`, `REG_ALLOC_ORDER`,
-  `REG_CLASS_CONTENTS`, `REGISTER_NAMES` and `REGNO_OK_FOR_BASE_P` all follow
-  the ABI in `ABI.md`.
-* Only `%r15` is reserved among the general registers, as the data area
-  pointer. `%r10`-`%r14` are allocatable, where the 3.3.2 backend fixed them -
-  they are call-clobbered in the original ABI and samo-lib's hand-written
-  assembly only uses them as scratch inside a routine, so this changes no
-  interface and takes us from 10 usable registers to 15.
-* **FPU support removed.** The C33 has no FPU; floating point is entirely
-  soft-float through libgcc (`__addsf3`, `__adddf3`, ...). Dropped the
-  `CC_FPU_*` modes, ~740 lines of hardware-float patterns from `c33.md`, the
-  float comparison predicates, and `c33_gen_float_compare`. `c33.md` is down
-  from 3185 to 2429 lines.
-* **Return-address macros corrected** for a stack-based return:
-  `INCOMING_RETURN_ADDR_RTX` is now `gen_rtx_MEM (Pmode, stack_pointer_rtx)`,
-  `EPILOGUE_USES` is 0, and `DWARF_FRAME_RETURN_COLUMN` is a fake column past
-  the real registers.
+### Two ordering traps
 
-* **Prologue/epilogue rewritten** for the C33's stack-based return.
-  `compute_register_save_size`, `expand_prologue` and `expand_epilogue` were
-  replaced rather than patched - the V850 originals were built around a link
-  register, out-of-line `__save_xx`/`__restore_xx` helpers and PREPARE/DISPOSE,
-  none of which the C33 has. The new ones save the callee-saved block with a
-  single `pushn %rN` / `popn %rN` and adjust `%sp` with the dedicated
-  `add/sub %sp,imm10` form, falling back to a scratch register and
-  `ld.w %sp,%rs` past the 4092-byte reach.
-* Removed V850's out-of-line prologue helpers (`construct_save_jarl`,
-  `construct_restore_jr`) and PREPARE/DISPOSE (`construct_prepare_instruction`,
-  `construct_dispose_instruction`), with their `.md` patterns.
-* `return_internal`/`return_simple` emit `ret`; `USER_LABEL_PREFIX` is now
-  empty, matching what samo-lib's assembly declares (`.global exit`, not
-  `_exit`).
-* `c33_return_addr` reads the stack slot instead of a link register.
-* **Addressing model rewritten** for the C33's actual modes (core manual 5.5):
-  `[%rb]`, `[%rb]+`, and base+displacement - the last covering `[%sp+imm6]`
-  unextended and the 13/26-bit `ext` forms, since the assembler synthesises
-  the prefixes. `REGNO_OK_FOR_BASE_P` now admits `%sp` and the two virtual
-  pointers, which it must: frame slots are `%sp`-relative.
-* `INITIAL_ELIMINATION_OFFSET` for the arg pointer now includes the
-  return-address word that `call` pushes - the V850, which keeps the return
-  address in `r31`, has no such word.
-* `EVEN_REGS` is now identical to `GENERAL_REGS`. The C33 has no
-  even-alignment requirement on 64-bit register pairs, and leaving it a strict
-  subset makes LRA narrow reloads to a class the arg pointer cannot reach.
-* `ep_memory_operand` is **disabled** (returns false). It is V850's
-  `ep`-relative short addressing; the C33 analogue is `%r15`-relative
-  default-data-area addressing, which belongs to step 5 and needs a proper
-  address predicate rather than this one.
+Both cost real time, and both are consequences of `%sp` joining a register
+class:
 
-For reference, the output before conversion began - pure V850:
-
-```
-_add3:
-	add r7,r6
-	mov r6,r10
-	add r8,r10
-	jmp [r31]
-```
-
-### Two traps worth knowing about
-
-Both cost real time and would bite anyone repeating this:
-
-* **`%sp` is not a general register.** It is regno 16, outside `GENERAL_REGS`,
-  so `gen_addsi3` on it matches no constraint. That is correct for the C33,
-  which has dedicated `add/sub %sp,imm10`; the port now has `add_sp_imm` and
-  `add_sp_reg` patterns for it.
-* **The virtual frame and arg pointers must report `GENERAL_REGS`** from
-  `REGNO_REG_CLASS`, and be members of it in `REG_CLASS_CONTENTS`. They appear
-  in ordinary insns until reload eliminates them, so patterns have to accept
-  them. Reporting `NO_REGS` - which looks right, since they are not real
-  registers - produces `unrecognizable insn (set (reg) (reg .fp))` in reload.
-  V850 gets this right by returning `GENERAL_REGS` for everything except the
-  condition-code registers.
+* **`register_operand` accepts `%sp` now**, so a generic `addsi3` will claim
+  `(set (reg sp) (plus (reg sp) N))` and then fail constraint checking. The
+  `add_sp_imm` patterns have to come *first* in `c33.md`. Generic code
+  (argument pushing, alloca, stack probes) reaches the stack pointer through
+  `gen_addsi3`, which after splitting is the same set wrapped in a parallel
+  with a CC clobber, so that shape needs its own pattern too.
+* **A pattern whose predicates match the same shape as a more general one
+  wins recog if it comes first, then fails constraints.** Two `*movsi_from_sp`
+  / `*movsi_to_sp` patterns written with `match_operand` and an `f` constraint
+  looked specific but were not: their *predicates* were just
+  `register_operand`, so they captured every register copy. Pin hard registers
+  literally -- `(reg:SI SP_REGNUM)`.
 
 ## Why V850 is the base
 
@@ -223,25 +202,23 @@ Two files GCC needs that are easy to forget, because they live outside
 3. **`c33.opt`.** Swap in the option set drafted in `c33.opt.planned`, renaming
    the `TARGET_*` masks it removes throughout `c33.cc`/`c33.h`. Delete V850's
    `e1`/`e2`/`e3v5` core variants.
-4. **`c33.md` - the bulk of the remaining work.** Moves, addressing, calls,
-   the frame and `%`-prefixed register syntax are done. What is left is
-   arithmetic, logic, shifts, comparisons and branches: C33 mnemonics and
-   operand order (`add %rd,%rs` is `rd += rs`, the reverse of V850's
-   `add reg1,reg2`; immediates are `add %rd,imm`, not `add imm,%rd`), and the
-   `ext` prefix forms as separate patterns. Note from `ABI.md` that extended
-   register-to-register ops have *different data flow* (`ext imm13;
-   add %rd,%rs` is `rd = rs + imm13`, not `rd += rs`), so they cannot be a
-   length variant of the register form. `negsi2` still emits `subr %r0,%0`,
-   which assumes a hardwired zero register this target does not have.
+4. ~~**`c33.md`.**~~ Done - see above. What is left of it is optimisation,
+   not correctness: the `bset`/`bclr`/`btst` bit operations, and using the
+   short unextended encodings where the operand provably fits (today we emit
+   the `x` form and let the assembler narrow it, which is right but makes the
+   `length` attribute pessimistic).
 5. **Data areas.** Retarget V850's `__gp`-relative addressing to C33's
    `%r15`-relative default data area, with `-medda32` selecting absolute
    addressing instead.
 6. **Delay slots.** V850 has none; C33 has one non-annulling slot. Add
    `define_delay` - `or1k.md` has the identical shape.
-7. **Assembler output.** No leading underscore on symbols; `;` comments; and
-   emit `.size NAME,.-NAME` correctly (the 3.3.2 backend emitted
-   `.size .NAME,.-.NAME`, which old gas silently mishandled - see the main
-   README).
+7. **Assembler output.** Symbols have no leading underscore and comments are
+   `;` - both done. `.size NAME,.-NAME` comes out right, unlike the 3.3.2
+   backend's `.size .NAME,.-.NAME` (see the main README).
+
+8. **Currently untested: does it run?** Everything so far is checked by
+   compiling and assembling. Nothing has been executed. The next real
+   milestone is linking `samo-lib` and running it under `emulator/`.
 
 ## Testing
 
