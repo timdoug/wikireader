@@ -22,8 +22,32 @@ DT_OPTS=-O0 ./run.sh 1 20     # a different instruction mix
 
 ## Current state
 
-100 programs across `-O0`, `-O1`, `-O2`, `-O3` and `-Os` all match, value
-for value.
+All programs match value for value across `-O0`, `-O1`, `-O2`, `-O3` and
+`-Os`.
+
+Getting there took finding and fixing a **bug in gcc 3.3.2**. Seed 49
+diverged because the compiler discards a narrowing signed cast when it
+reassociates a multiply: `(u32)(signed char)(s * K) * C` was emitted as
+`s * (K * C)`, with no sign-extension instruction anywhere. The emulator
+executed exactly what it was given.
+
+It is a one-identifier fix in `fold-const.c` -
+`host-tools/toolchain-patches/0008-*` - reduced and root-caused in
+[`compiler-bugs/`](compiler-bugs/README.md). The firmware never triggered it:
+268 translation units compiled with an instrumented compiler reached zero
+sites, and `grifo.elf` rebuilt with the fixed compiler is byte-identical.
+
+Finding a real compiler bug is the harness working as intended: the two
+sides genuinely disagree, and the disagreement had to be adjudicated against
+the C standard rather than against either implementation.
+
+Three earlier divergences were the *generator's* fault, not either
+compiler's - `(unsigned short)a * (unsigned short)b` promotes both operands
+to `int`, so products above `INT_MAX` are signed overflow. The host
+optimiser exploited that undefined behaviour and the target did not. The
+templates now force such multiplies into unsigned arithmetic. That is the
+recurring hazard in this kind of harness: a false alarm from UB looks
+exactly like a real bug until you reduce it.
 
 ## What the generated programs cover
 

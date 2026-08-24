@@ -371,9 +371,13 @@ Three checks are independent of that inference.
   descriptions for the interrupt controller, LCDC, serial, SPI, ADC and CMU.
 * The **cross compiler**, via `difftest/`: the same C source compiled by
   c33-epson-elf-gcc 3.3.2 and by the host compiler, run both ways, outputs
-  diffed. 100 random programs across five optimisation levels match value
+  diffed. 180 random programs across five optimisation levels match value
   for value. The compiler has never seen the emulator and the emulator has
   never seen its output, so agreement is evidence rather than consistency.
+  The one divergence that survived reduction turned out to be a **gcc 3.3.2
+  bug** - it discards a narrowing signed cast when reassociating a multiply.
+  It is fixed in `host-tools/toolchain-patches/0008-*` and written up in
+  `difftest/compiler-bugs/`; the firmware never triggered it.
 
 Between the firmware and the differential tests, 57 of the 68 implemented
 opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what

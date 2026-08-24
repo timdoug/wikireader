@@ -1,0 +1,60 @@
+From: WikiReader emulator differential testing
+Subject: [PATCH] [gcc] Fix fold discarding a narrowing cast in extract_muldiv
+
+extract_muldiv_1 folds (T)(x * C1) * C2 into x * (C1 * C2), dropping the
+conversion to T entirely, when T is a narrower signed type:
+
+    u32 s;
+    (u32)(signed char)(s * 0xdeadbeefu) * 3u
+
+C requires the multiply, then truncation to signed char, then the second
+multiply.  At -O1 and above gcc emits s * (0xdeadbeef * 3) with no
+sign-extension instruction anywhere in the generated code.  It is not
+merely a constant-folding fault: a volatile operand, which cannot be
+folded, is miscompiled the same way.
+
+The CONVERT_EXPR case guards against passing a multiply through a
+truncating conversion with
+
+    GET_MODE_SIZE (TYPE_MODE (ctype)) < GET_MODE_SIZE (TYPE_MODE (TREE_TYPE (op0)))
+
+but ctype is not this node's type.  At the top of extract_muldiv_1,
+
+    ctype = (wide_type != 0 && wider than type) ? wide_type : type;
+
+and the CONVERT_EXPR case passes ctype down as the next wide_type.  So on
+the inner conversion node type is signed char while ctype has become
+unsigned int, both TYPE_MODE sizes in the test are 4, the comparison is
+false, and the 8-bit narrowing is invisible.
+
+Test TYPE, the type this conversion converts to, which is what the
+"is this a truncation" question is actually about.  Widening conversions
+are unaffected: for (long long)(int) the test is 8 < 4, still false.
+
+Found by differential testing against a host compiler; the WikiReader
+firmware itself does not trigger it (268 translation units compiled with
+an instrumented compiler, zero sites reached).
+---
+ gcc/fold-const.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/gcc/fold-const.c b/gcc/fold-const.c
+--- a/gcc/fold-const.c
++++ b/gcc/fold-const.c
+@@ -4114,9 +4114,14 @@ extract_muldiv_1 (t, c, code, wide_type)
+ 	       && (GET_MODE_SIZE (TYPE_MODE (ctype))
+ 	           > GET_MODE_SIZE (TYPE_MODE (TREE_TYPE (op0)))))
+-	      /* ... or its type is larger than ctype,
+-		 then we cannot pass through this truncation.  */
+-	      || (GET_MODE_SIZE (TYPE_MODE (ctype))
++	      /* ... or this is a truncation (t is narrower than op0),
++		 then we cannot pass through this narrowing.  Note this
++		 must test TYPE, the type this conversion converts *to*,
++		 not CTYPE: when a WIDE_TYPE has been propagated inwards
++		 CTYPE is that wider type, which hides the narrowing
++		 entirely.  Testing CTYPE lets (T)(x * C1) * C2 fold to
++		 x * (C1 * C2) with the conversion to T discarded.  */
++	      || (GET_MODE_SIZE (TYPE_MODE (type))
+ 		  < GET_MODE_SIZE (TYPE_MODE (TREE_TYPE (op0))))
+ 	      /* ... or signedness changes for division or modulus,
+ 		 then we cannot pass through this conversion.  */

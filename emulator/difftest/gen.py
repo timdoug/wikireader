@@ -46,12 +46,15 @@ BINOPS = [
     ('(({a} >> SH({b})) | ({a} << ((32 - SH({b})) & 31)))',  'rr'),
     # 16x16 multiplies, which map to mlt.h / mltu.h rather than mlt.w
     ('((u32)((short){a} * (short){b}))',                     'mlth'),
-    ('((u32)((unsigned short){a} * (unsigned short){b}))',   'mltuh'),
+    # NB both operands promote to int, so (unsigned short)a * (unsigned short)b
+    # overflows INT_MAX for products above 0x7fffffff -- undefined, and the
+    # host optimiser exploits it. Cast to u32 so the multiply is unsigned.
+    ('((u32)(unsigned short){a} * (u32)(unsigned short){b})', 'mltuh'),
 ]
 
 UNOPS = [
     '(~{a})',
-    '(u32)(-(i32){a})',
+    '(0u - {a})',                # negating (i32)INT_MIN would overflow
     '((u32)(signed char){a})',
     '((u32)(unsigned char){a})',
     '((u32)(short){a})',
