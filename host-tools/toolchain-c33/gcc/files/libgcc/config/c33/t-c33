@@ -1,0 +1,19 @@
+# The C33's divide is a multi-step div0s/div1/div2s sequence that does not
+# fit a single insn, so there is no divmodsi4 pattern and GCC calls libgcc
+# for integer division.  libgcc2.c only supplies the double-word routines
+# (__divdi3 and friends), so the single-word ones have to come from here.
+#
+# These three are GCC's own generic C implementations, shipped in this tree.
+# The original toolchain reached the same conclusion: patch 0003 in
+# host-tools/toolchain-patches replaced EPSON's hand-written assembly with
+# these files, because that assembly did not work on the PE core.  They live
+# in libgcc/ now; in gcc 3.3 they were under libgcc/config/.
+#
+#   udivmodsi4.c  __udivmodsi4   the actual long division
+#   udivmod.c     __udivsi3, __umodsi3
+#   divmod.c      __divsi3,  __modsi3   (sign handling around the above)
+
+LIB2ADD += \
+	$(srcdir)/udivmodsi4.c \
+	$(srcdir)/udivmod.c \
+	$(srcdir)/divmod.c

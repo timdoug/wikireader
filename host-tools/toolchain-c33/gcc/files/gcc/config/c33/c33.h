@@ -34,129 +34,85 @@
 #undef STARTFILE_SPEC
 #undef ASM_SPEC
 
-#define TARGET_CPU_generic 	1
-#define TARGET_CPU_c33e   	2
-#define TARGET_CPU_c33e1	3
-#define TARGET_CPU_c33e2	4
-#define TARGET_CPU_c33e2v3	5
-#define TARGET_CPU_c33e3v5	6
+/* Flags the V850 option set had that the C33 does not.  Rather than thread
+   the removals through every use, they are pinned here to the value that is
+   true for this target, with the reason.  Simplifying the code that reads
+   them is cleanup still owed -- see "Next steps" in gcc/README.md.  */
 
-#ifndef TARGET_CPU_DEFAULT
-#define TARGET_CPU_DEFAULT	TARGET_CPU_generic
-#endif
+/* Structures larger than 8 bytes are passed in memory, with the caller
+   supplying a hidden pointer to the return slot as the first argument
+   (ABI.md, derived from the original compiler).  That is what V850 called
+   its "old GCC ABI"; the RH850 alternative is not this target's.  */
+#define TARGET_GCC_ABI		1
 
-#define MASK_DEFAULT            MASK_C33
-#define SUBTARGET_ASM_SPEC 	"%{!mv*:-mc33}"
-#define SUBTARGET_CPP_SPEC 	"%{!mv*:-D__c33__}"
+/* No ep register: V850 reserved r30 as a short-addressing base.  The C33's
+   analogue is %r15 for the default data area, handled separately.  */
+#define TARGET_EP		0
 
-/* Choose which processor will be the default.
-   We must pass a -mc33xx option to the assembler if no explicit -mv* option
-   is given, because the assembler's processor default may not be correct.  */
-#if TARGET_CPU_DEFAULT == TARGET_CPU_c33e
-#undef  MASK_DEFAULT
-#define MASK_DEFAULT            MASK_C33E
-#undef  SUBTARGET_ASM_SPEC
-#define SUBTARGET_ASM_SPEC 	"%{!mv*:-mc33e}"
-#undef  SUBTARGET_CPP_SPEC
-#define SUBTARGET_CPP_SPEC 	"%{!mv*:-D__c33e__}"
-#endif
+/* All of %r0-%r15 are ordinary general registers here; V850 reserved r2 and
+   r5 for the application.  */
+#define TARGET_APP_REGS		1
 
-#if TARGET_CPU_DEFAULT == TARGET_CPU_c33e1
-#undef  MASK_DEFAULT
-#define MASK_DEFAULT            MASK_C33E     /* No practical difference.  */
-#undef  SUBTARGET_ASM_SPEC
-#define SUBTARGET_ASM_SPEC	"%{!mv*:-mc33e1}"
-#undef  SUBTARGET_CPP_SPEC
-#define SUBTARGET_CPP_SPEC	"%{!mv*:-D__c33e1__} %{mc33e1:-D__c33e1__}"
-#endif
+/* sld/sst and callt are V850 instructions.  */
+#define TARGET_SMALL_SLD	0
+#define TARGET_DISABLE_CALLT	1
 
-#if TARGET_CPU_DEFAULT == TARGET_CPU_c33e2
-#undef  MASK_DEFAULT
-#define MASK_DEFAULT            MASK_C33E2
-#undef  SUBTARGET_ASM_SPEC
-#define SUBTARGET_ASM_SPEC 	"%{!mv*:-mc33e2}"
-#undef  SUBTARGET_CPP_SPEC
-#define SUBTARGET_CPP_SPEC 	"%{!mv*:-D__c33e2__} %{mc33e2:-D__c33e2__}"
-#endif
+/* No FPU on any C33 core; floating point is soft, through libgcc.  */
+#define TARGET_SOFT_FLOAT	1
+#define TARGET_USE_FPU		0
 
-#if TARGET_CPU_DEFAULT == TARGET_CPU_c33e2v3
-#undef  MASK_DEFAULT
-#define MASK_DEFAULT            MASK_C33E2V3
-#undef  SUBTARGET_ASM_SPEC
-#define SUBTARGET_ASM_SPEC	"%{!mv*:-mc33e2v3}"
-#undef  SUBTARGET_CPP_SPEC
-#define SUBTARGET_CPP_SPEC	"%{!mv*:-D__c33e2v3__} %{mc33e2v3:-D__c33e2v3__}"
-#endif
+/* e3v5 hardware loop, and its 64-bit alignment option.  */
+#define TARGET_LOOP		0
+#define TARGET_8BYTE_ALIGN	0
 
-#if TARGET_CPU_DEFAULT == TARGET_CPU_c33e3v5
-#undef  MASK_DEFAULT
-#define MASK_DEFAULT            MASK_C33E3V5
-#undef  SUBTARGET_ASM_SPEC
-#define SUBTARGET_ASM_SPEC	"%{!mv*:-mc33e3v5}"
-#undef  SUBTARGET_CPP_SPEC
-#define SUBTARGET_CPP_SPEC	"%{!mv*:-D__c33e3v5__} %{mc33e3v5:-D__c33e3v5__}"
-#undef  TARGET_VERSION
-#define TARGET_VERSION		fprintf (stderr, " (Renesas C33E3V5)");
-#endif
+/* NEC core variants.  Nothing gates on these any more; they are here only
+   so the few remaining cost calculations still compile.  */
+#define TARGET_C33E		0
+#define TARGET_C33E_UP		0
+#define TARGET_C33E2_UP		0
+#define TARGET_C33E2V3_UP	0
+#define TARGET_C33E3V5_UP	0
 
-#define TARGET_C33E3V5_UP ((TARGET_C33E3V5))
-#define TARGET_C33E2V3_UP ((TARGET_C33E2V3) || TARGET_C33E3V5_UP)
-#define TARGET_C33E2_UP   ((TARGET_C33E2)   || TARGET_C33E2V3_UP)
-#define TARGET_C33E_UP    ((TARGET_C33E)    || TARGET_C33E2_UP)
-#define TARGET_ALL         ((TARGET_C33)     || TARGET_C33E_UP)
+/* The C33 core variant, selected by -mc33 / -mc33adv / -mc33pe (or -mcore=).
+   The WikiReader is a PE.  This replaces the V850 e/e1/e2/e2v3/e3v5 ladder
+   the port was forked from -- those were NEC cores, not Epson ones, and
+   nothing in this backend gates on them any more.  */
 
-#define ASM_SPEC "%{m850es:-mc33e1}%{!mc33es:%{mv*:-mv%*}} \
-%{mrelax:-mrelax} \
-%{m8byte-align:-m8byte-align} \
-%{msoft-float:-msoft-float} \
-%{mhard-float:-mhard-float} \
-%{mgcc-abi:-mgcc-abi}"
+#define TARGET_C33_STD  (c33_selected_core == C33_CORE_STD)
+#define TARGET_C33_ADV  (c33_selected_core == C33_CORE_ADV)
+#define TARGET_C33_PE   (c33_selected_core == C33_CORE_PE)
 
-#define LINK_SPEC "%{mgcc-abi:-m c33}"
+/* Pass the core through to the assembler, which needs it to pick the right
+   opcode table -- the ADV and PE cores have instructions the base core does
+   not.  There is no -mc33: the base core is the assembler's default, and
+   passing it is rejected as an ambiguous prefix of -mc33adv/-mc33pe.
 
-#define CPP_SPEC "\
-  %{mc33e3v5:-D__c33e3v5__} \
-  %{mc33e2v3:-D__c33e2v3__} \
-  %{mc33e2:-D__c33e2__} \
-  %{mc33es:-D__c33e1__} \
-  %{mc33e1:-D__c33e1__} \
-  %{mc33e:-D__c33e__} \
-  %{mc33:-D__c33__} \
-  %(subtarget_cpp_spec) \
-  %{mep:-D__EP__}"
+   Both spellings are matched because -mc33pe is an Alias of -mcore=.  */
+#define ASM_SPEC \
+  "%{mc33adv|mcore=c33adv:-mc33adv} %{mc33pe|mcore=c33pe:-mc33pe}"
 
-#define EXTRA_SPECS \
- { "subtarget_asm_spec", SUBTARGET_ASM_SPEC }, \
- { "subtarget_cpp_spec", SUBTARGET_CPP_SPEC }
-
-
-/* Macro to decide when FPU instructions can be used.  */
-#define TARGET_USE_FPU  (TARGET_C33E2V3_UP && ! TARGET_SOFT_FLOAT)
+#define LINK_SPEC ""
+#define CPP_SPEC ""
 
 #define TARGET_CPU_CPP_BUILTINS()		\
   do						\
     {						\
-      builtin_define( "__v851__" );		\
-      builtin_define( "__c33" );		\
-      builtin_define( "__c33__" );		\
-      builtin_assert( "machine=c33" );		\
-      builtin_assert( "cpu=c33" );		\
-      if (TARGET_EP)				\
-	builtin_define ("__EP__");		\
-      if (TARGET_GCC_ABI)			\
-	builtin_define ("__C33_GCC_ABI__");	\
-      else					\
-	builtin_define ("__C33_RH850_ABI__");	\
-      if (! TARGET_DISABLE_CALLT)		\
-	builtin_define ("__C33_CALLT__");	\
-      if (TARGET_8BYTE_ALIGN)			\
-	builtin_define ("__C33_8BYTE_ALIGN__");\
-      builtin_define (TARGET_USE_FPU ?		\
-		      "__FPU_OK__" : "__NO_FPU__");\
+      builtin_define ("__c33");			\
+      builtin_define ("__c33__");		\
+      builtin_assert ("machine=c33");		\
+      builtin_assert ("cpu=c33");		\
+      if (TARGET_C33_ADV)			\
+	builtin_define ("__c33adv__");		\
+      if (TARGET_C33_PE)			\
+	builtin_define ("__c33pe__");		\
+      if (TARGET_EXT_32)			\
+	builtin_define ("__C33_EDDA32__");	\
+      /* No FPU on any C33: floating point is soft, through libgcc.  */ \
+      builtin_define ("__NO_FPU__");		\
     }						\
-  while(0)
+  while (0)
 
-#define MASK_CPU (MASK_C33 | MASK_C33E | MASK_C33E1 | MASK_C33E2 | MASK_C33E2V3 | MASK_C33E3V5)
+
 
 /* Target machine storage layout */
 
@@ -199,10 +155,11 @@
 
 /* Allocation boundary (in *bits*) for the code of a function.
    16 is the minimum boundary; 32 would give better performance.  */
-#define FUNCTION_BOUNDARY 	(((! TARGET_GCC_ABI) || optimize_size) ? 16 : 32)
+/* Instructions are 2-byte aligned (core manual 5.1).  */
+#define FUNCTION_BOUNDARY 	16
 
 /* No data type wants to be aligned rounder than this.  */
-#define BIGGEST_ALIGNMENT	(TARGET_8BYTE_ALIGN ? 64 : 32)
+#define BIGGEST_ALIGNMENT	32
 
 /* Alignment of field after `int : 0' in a structure.  */
 #define EMPTY_FIELD_BOUNDARY 32
@@ -786,9 +743,9 @@ typedef enum
 #define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, BODY, VALUE, REL) 		\
   fprintf (FILE, "\t%s %s.L%d-.L%d%s\n",				\
 	   (TARGET_BIG_SWITCH ? ".long" : ".short"),			\
-	   (0 && ! TARGET_BIG_SWITCH && (TARGET_C33E_UP) ? "(" : ""),             \
+	   "",             \
 	   VALUE, REL,							\
-	   (0 && ! TARGET_BIG_SWITCH && (TARGET_C33E_UP) ? ")>>1" : ""))
+	   "")
 
 #define ASM_OUTPUT_ALIGN(FILE, LOG)	\
   if ((LOG) != 0)			\

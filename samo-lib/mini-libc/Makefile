@@ -28,8 +28,19 @@ TOUCH = touch
 
 
 LDFLAGS=-static -s --no-gc-sections -N -L$(LIBDIR)
-CFLAGS=-Wall -I. -Iinclude -gstabs -mlong-calls -fno-builtin -Os -mc33pe
-ASFLAGS=-c -xassembler-with-cpp -Wa,--gstabs -medda32 -mc33pe -mc33_ext
+# See Mk/rules.mk: DWARF 2 rather than STABS, which gcc 16 no longer emits.
+DEBUG_CFLAGS ?= -gdwarf-2
+DEBUG_ASFLAGS ?= --gdwarf-2
+
+# gcc 3.3 used gnu89 "extern inline" semantics: a definition in a header was
+# inline-only.  gcc 5 and later default to C99, where the same text emits an
+# external definition and collides with the real one in the .c file --
+# ctype.h and the src/string/is*.c pair being the case here.  Ask for the old
+# semantics when the compiler understands the option.
+GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 && echo -fgnu89-inline)
+
+CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin -Os -mc33pe
+ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
 
 C_STRING_OPERATIONS = \
     src/string/atol.o \

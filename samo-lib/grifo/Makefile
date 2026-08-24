@@ -58,7 +58,11 @@ LIBS += build/libinternal.a
 LIBS += ${FATFS_LIB}
 LIBS += ${MINI_LIBC_LIB}
 LIBS += ${DRIVERS_LIB}
-LIBS += $(shell $(CC) -print-libgcc-file-name)
+# Ask for the libgcc that matches the target core.  The cores are not
+# link-compatible -- the assembler stamps the variant into e_flags and
+# the linker refuses to mix them -- so this query needs the same -mc33pe
+# the sources are built with, or it returns the base-core multilib.
+LIBS += $(shell $(CC) $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
 BUILD_PREFIX := build/
 

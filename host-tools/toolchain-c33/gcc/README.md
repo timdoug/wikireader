@@ -3,48 +3,36 @@
 Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
 this is being written against.
 
-## Status: the instruction set is converted; 163 of the repo's C files build
+## Status: builds the WikiReader firmware
 
-`cc1` builds clean, and the compiler now emits C33 throughout -- moves,
-addressing, calls, frames, arithmetic, logic, shifts, comparisons and
-branches. Measured over every `.c` file under `samo-lib` and `wiki`:
-
-| | |
-|---|---|
-| compiled | **163** of 196 |
-| of those, assembled by `c33-epson-elf-as` | **163** (all) |
-
-The 33 that do not compile are missing headers and source-level conflicts
-from the flat include path used for the sweep (`standard.h`, `HANDLE`,
-`redefinition of abs`), not compiler failures. There are no ICEs and no
-constraint failures left.
-
-Sample output:
+The kernel and the wiki application both build and link with gcc 16.2 and
+binutils 2.47, against a libgcc built by the same compiler.
 
 ```
-mul:                    arg5:                   uext:
-	mlt.w	%r6,%r7          xld.w	%r4,[%sp+4]      ld.ub	%r5,[%r6]
-	ld.w	%r4,%alr         ret                      ld.uh	%r4,[%r7]
-	ret                                              add	%r4,%r5
-                                                         ret
-loop:                                    bigframe:
-	xcmp	%r7,0                             ld.w	%r14,%sp
-	jrle	.L25                              xsub	%r14,8000
-	xsll	%r7,2                             ld.w	%sp,%r14
-	add	%r7,%r6                           ...
-.L24:
-	ld.w	%r5,[%r6]
-	xadd	%r6,4
-	add	%r4,%r5
-	cmp	%r6,%r7
-	jrne	.L24
-	ret
+                     shipped (gcc 3.3.2)   this port (gcc 16.2)
+  wiki.app  text              88,734              90,412   (+1.9%)
+            total            257,510             256,292
+  kernel    text              22,364              27,308   (+22%)
 ```
 
-ABI conformance checked against the oracle with `probes/`: arguments in
-`%r6`-`%r9` and then `[%sp+4]`, `long long` in register pairs, soft-float
-through `__adddf3`, callee-saves via `pushn %r3`, and `sub %sp,5` for a
-20-byte frame -- the immediate is scaled by 4.
+The application is within 2% on text, which is about what you would hope for.
+The kernel's 22% is the cost of step 5 not being done: every access to a
+global currently loads its absolute address (`xld.w %rN,sym`, 6 bytes) instead
+of using the `%r15`-relative default data area, and the kernel is dense in
+global accesses. Delay slots (step 6) and the `bset`/`bclr`/`btst` bit
+operations account for some of the rest.
+
+**Nothing has been run yet.** Everything here is verified by compiling,
+assembling and linking. Running it under `emulator/` is the next milestone,
+and until that happens "builds" is all this claims.
+
+### What it took beyond the compiler
+
+Getting from "compiles a file" to "links the firmware" turned up four real
+bugs and a handful of source-level incompatibilities, all recorded in
+`../HANDOFF.md`. Two were in the binutils port and had been sitting there
+since it was declared byte-for-byte validated -- the validation compared
+`.text`, `.data` and relocations, and both bugs were outside that.
 
 ### The LRA bug, and what it actually was
 
@@ -199,9 +187,12 @@ Two files GCC needs that are easy to forget, because they live outside
 
 1. ~~**Registers.**~~ Done - see above.
 2. ~~**Return mechanism.**~~ Done - see above.
-3. **`c33.opt`.** Swap in the option set drafted in `c33.opt.planned`, renaming
-   the `TARGET_*` masks it removes throughout `c33.cc`/`c33.h`. Delete V850's
-   `e1`/`e2`/`e3v5` core variants.
+3. ~~**`c33.opt`.**~~ Done. `-mc33`/`-mc33adv`/`-mc33pe` (aliases of
+   `-mcore=`), `-medda32`, `-memcpy`, `-mlong-calls`. V850's `e1`/`e2`/`e3v5`
+   core ladder is gone, along with `-mep`, `-mprolog-function`, `-mghs`,
+   `-mgcc-abi` and the rest. The flags those masks fed are pinned to the
+   value that is true for this target at the top of `c33.h`; simplifying the
+   code that reads them is cleanup still owed.
 4. ~~**`c33.md`.**~~ Done - see above. What is left of it is optimisation,
    not correctness: the `bset`/`bclr`/`btst` bit operations, and using the
    short unextended encodings where the operand provably fits (today we emit
@@ -216,9 +207,15 @@ Two files GCC needs that are easy to forget, because they live outside
    `;` - both done. `.size NAME,.-NAME` comes out right, unlike the 3.3.2
    backend's `.size .NAME,.-.NAME` (see the main README).
 
-8. **Currently untested: does it run?** Everything so far is checked by
-   compiling and assembling. Nothing has been executed. The next real
-   milestone is linking `samo-lib` and running it under `emulator/`.
+8. **libgcc.** Done. Built as three multilibs, one per core, because the
+   cores are not link-compatible -- the assembler stamps the variant into
+   `e_flags` and the linker refuses to mix them. Integer division comes from
+   GCC's own generic C implementations, which is what the original toolchain
+   settled on too (patch 0003 in `host-tools/toolchain-patches`).
+
+9. **Currently untested: does it run?** Everything so far is checked by
+   compiling, assembling and linking. Nothing has been executed. The next
+   milestone is running the output under `emulator/`.
 
 ## Testing
 

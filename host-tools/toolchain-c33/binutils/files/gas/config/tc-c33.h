@@ -40,6 +40,17 @@
 #define TC_FORCE_RELOCATION(fixp) c33_force_relocation(fixp)
 extern int c33_force_relocation (struct fix *);
 
+/* Record the core variant in the ELF header's e_flags so the linker can
+   refuse to mix objects built for different cores -- see
+   c33_elf_merge_private_bfd_data in bfd/elf32-c33.c, which reads the top
+   byte of e_flags and rejects a mismatch.
+
+   The original toolchain did this by reopening the finished object file and
+   poking byte 39, in a patch to the shared gas/as.c.  This is the same
+   result through the documented hook.  */
+extern void c33_elf_final_processing (void);
+#define elf_tc_final_processing c33_elf_final_processing
+
 /* Permit temporary numeric labels.  */
 #define LOCAL_LABELS_FB 1
 

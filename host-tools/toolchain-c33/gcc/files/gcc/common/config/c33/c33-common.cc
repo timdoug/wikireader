@@ -62,42 +62,20 @@ c33_handle_option (struct gcc_options *opts,
 
   switch (code)
     {
-    case OPT_mspace:
-      opts->x_target_flags |= MASK_EP | MASK_PROLOG_FUNCTION;
-      return true;
+    /* Core selection is an Enum now (-mcore=, with -mc33/-mc33adv/-mc33pe
+       as aliases), so the option machinery handles it and there is nothing
+       to do here.  V850 needed this switch because its cores were a set of
+       mutually exclusive masks.  */
 
-    case OPT_mc33:
-      opts->x_target_flags &= ~(MASK_CPU ^ MASK_C33);
-      return true;
-
-    case OPT_mc33e:
-    case OPT_mc33e1:
-    case OPT_mc33es:
-      opts->x_target_flags &= ~(MASK_CPU ^ MASK_C33E);
-      return true;
-
-    case OPT_mc33e2:
-      opts->x_target_flags &= ~(MASK_CPU ^ MASK_C33E2);
-      return true;
-
-    case OPT_mc33e2v3:
-      opts->x_target_flags &= ~(MASK_CPU ^ MASK_C33E2V3);
-      return true;
-
+    /* The C33 has one data area, addressed through %r15, which msda=
+       sizes.  tda and zda are V850's other two; accept and ignore them so
+       existing makefiles keep working.  */
     case OPT_mtda_:
-      c33_handle_memory_option (SMALL_MEMORY_TDA, opts,
-				 decoded->orig_option_with_args_text,
-				 value, loc);
+    case OPT_mzda_:
       return true;
 
     case OPT_msda_:
       c33_handle_memory_option (SMALL_MEMORY_SDA, opts,
-				 decoded->orig_option_with_args_text,
-				 value, loc);
-      return true;
-
-    case OPT_mzda_:
-      c33_handle_memory_option (SMALL_MEMORY_ZDA, opts,
 				 decoded->orig_option_with_args_text,
 				 value, loc);
       return true;
@@ -111,19 +89,15 @@ c33_handle_option (struct gcc_options *opts,
 
 static const struct default_options c33_option_optimization_table[] =
   {
-    /* Note - we no longer enable MASK_EP when optimizing.  This is
-       because of a hardware bug which stops the SLD and SST instructions
-       from correctly detecting some hazards.  If the user is sure that
-       their hardware is fixed or that their program will not encounter
-       the conditions that trigger the bug then they can enable -mep by
-       hand.  */
-    { OPT_LEVELS_1_PLUS, OPT_mprolog_function, NULL, 1 },
+    /* -mep and -mprolog-function were V850's; neither option exists here.  */
     { OPT_LEVELS_NONE, 0, NULL, 0 }
   };
 
+/* Nothing is on by default.  V850 turned on its core mask, MASK_APP_REGS
+   and MASK_BIG_SWITCH here; the first two are gone, and switch tables
+   default to 2-byte entries with -mbig-switch widening them.  */
 #undef  TARGET_DEFAULT_TARGET_FLAGS
-#define TARGET_DEFAULT_TARGET_FLAGS \
-  (MASK_DEFAULT | MASK_APP_REGS | MASK_BIG_SWITCH)
+#define TARGET_DEFAULT_TARGET_FLAGS 0
 #undef  TARGET_HANDLE_OPTION
 #define TARGET_HANDLE_OPTION c33_handle_option
 #undef  TARGET_OPTION_OPTIMIZATION_TABLE

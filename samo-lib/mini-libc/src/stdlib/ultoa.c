@@ -21,7 +21,11 @@ char *ultoa(unsigned long num, char *str, int radix) {
             temp[temp_loc++] = digit + '0';
         else
             temp[temp_loc++] = digit - 10 + 'A';
-        ((unsigned long)num) /= radix;
+        /* Was "((unsigned long)num) /= radix;", which relied on gcc's
+           cast-as-lvalue extension.  That was removed in gcc 4.0.  The
+           rewrite is exact: the cast only ever affected the division,
+           and the result was stored straight back into num.  */
+        num = (unsigned long)((unsigned long)num / radix);
     } while ((unsigned long)num > 0);
 
     temp_loc--;

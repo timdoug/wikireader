@@ -48,7 +48,13 @@ PFND_BUF pFndBuf;
 int nIdxFndBufFirstUsed;
 int nIdxFndBufLastUsed;
 
-typedef struct __attribute__ ((packed)) _PER_WIKI_INFO {
+/* Not packed.  Every member is a naturally aligned 4-byte type, so packing
+   changed no offset and no size -- verified identical, 0x98 bytes either way.
+   All it did was drop the struct's declared alignment from 4 to 1, which made
+   gcc 14 and later warn that &s.member yields a potentially unaligned
+   pointer.  The struct is heap-allocated by memory_allocate, so it is
+   aligned in practice; removing the attribute makes the declaration say so.  */
+typedef struct _PER_WIKI_INFO {
 	int bSearchFndInited;
 	unsigned int nFndCount;
 	int fdFnd[MAX_FND_FILES];

@@ -18,7 +18,24 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-CFLAGS += -Wall -Werror -I. -gstabs -mlong-calls -fno-builtin -Os -mc33pe $(INCLUDES)
+# Debug format.  The 2002 toolchain emitted STABS; gcc 16 dropped STABS
+# entirely, and both toolchains understand DWARF 2, so that is the default.
+# Override if you need the original format.
+DEBUG_CFLAGS ?= -gdwarf-2
+DEBUG_ASFLAGS ?= --gdwarf-2
+
+# gcc 3.3 used gnu89 "extern inline" semantics: a definition in a header was
+# inline-only.  gcc 5 and later default to C99, where the same text emits an
+# external definition and collides with the real one in the .c file --
+# ctype.h and the src/string/is*.c pair being the case here.  Ask for the old
+# semantics when the compiler understands the option.
+GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 && echo -fgnu89-inline)
+
+# The core variant.  Kept separate because it also has to be passed to
+# "gcc -print-libgcc-file-name" so that query picks the right multilib.
+TARGET_ARCH_FLAGS ?= -mc33pe
+
+CFLAGS += -Wall -Werror -I. $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin -Os $(TARGET_ARCH_FLAGS) $(INCLUDES)
 ASFLAGS = -mc33pe --fatal-warnings
 
 # protection in case some Makefile includes this too early

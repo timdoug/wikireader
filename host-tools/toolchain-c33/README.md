@@ -42,6 +42,13 @@ it:
 | 86 hand-written `samo-lib/**/*.s` | `.text`, relocations and `.data` **all byte-identical** |
 | 143 files compiled to `.s` by the original gcc 3.3.2 | `.text` **all 143 byte-identical** |
 | relocations on those 143 | 123 identical; 20 differ only in representation |
+| ELF header `e_machine` and `e_flags`, all 229 | **identical** |
+
+The header comparison was added late, and its absence mattered: for a long
+time this table read "byte-for-byte validated" while the assembler was
+setting neither `e_machine` nor the core byte in `e_flags`. Nothing noticed
+until the firmware refused to link. If you add a check here, write down what
+it does not cover.
 
 The 20 differing files are not a defect. Modern gas reduces references to local
 symbols to `.text+offset`, where the 2.10.1 assembler kept the named symbol -
@@ -122,6 +129,31 @@ enormous unrelated churn.
   600 lines total, with zero deletions.
 
 ## Fixed during the port
+
+### The ELF header was never written (e_machine and the core byte in e_flags)
+
+Objects came out with `e_machine` 0 instead of `EM_SE_C33` (107), and with
+`e_flags` 0 instead of carrying the core variant in its top byte - `'P'` for
+PE, `'A'` for ADV. The linker refuses to mix cores, so the first attempt to
+link the firmware died with *"Cannot link STD object ... with PE object"*.
+
+Both were set by the original toolchain, but from *shared* files that modern
+binutils has changed out from under it: `gas/as.c` reopened the finished
+object and poked byte 39, and `bfd/elf.c` had a hand-added case in the
+architecture-to-machine switch. Neither survives. They are now done properly,
+via `elf_tc_final_processing` in `tc-c33.c` and `ELF_MACHINE_CODE` in
+`elf32-c33.c` - the latter had a "do not change to EM_SE_C33" comment which
+was true only while that `bfd/elf.c` patch existed.
+
+### The linker crashed on a null function pointer
+
+`bfd_arch_info_type` gained a `fill` callback between `scan` and `next` at
+some point after 2.10.1. `cpu-c33.c`'s positional initialiser still compiled,
+but put the `next` *pointer* into `fill`'s slot. `default_data_link_order`
+calls `arch_info->fill` to pad an alignment gap, so linking crashed - but only
+for object combinations that happen to need padding, which is why it took a
+firmware-sized link to surface.
+
 
 ### Every relocation was silently dropped (howto sizes were still log2)
 

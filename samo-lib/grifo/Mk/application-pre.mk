@@ -46,7 +46,11 @@ INCLUDES += -I${MINI_LIBC_INCLUDE}
 LIBS += lib/libapplication.a
 LIBS += ${GRIFO_LIB}
 LIBS += ${MINI_LIBC_LIB}
-LIBS += $(shell $(CC) -print-libgcc-file-name)
+# Ask for the libgcc that matches the target core.  The cores are not
+# link-compatible -- the assembler stamps the variant into e_flags and
+# the linker refuses to mix them -- so this query needs the same -mc33pe
+# the sources are built with, or it returns the base-core multilib.
+LIBS += $(shell $(CC) $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
 LDFLAGS += -static --strip-all -s --no-gc-sections -N
 

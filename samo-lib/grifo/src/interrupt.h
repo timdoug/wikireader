@@ -22,7 +22,12 @@
 #if  !defined(_INTERRUPT_H_)
 #define _INTERRUPT_H_ 1
 
-inline void Interrupt_initialise(void)
+/* static: a plain "inline" definition in a header also emits an
+   externally visible copy under gnu89 rules, so every translation
+   unit that includes this defines the symbol and the link fails on
+   multiple definition.  gcc 3.3 got away with it because these are
+   always inlined at -Os and no out-of-line copy was ever emitted.  */
+static inline void Interrupt_initialise(void)
 {
 	asm volatile ("psrclr\t4");
 }

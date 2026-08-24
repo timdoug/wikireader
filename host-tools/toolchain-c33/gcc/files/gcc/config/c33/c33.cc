@@ -2264,10 +2264,6 @@ c33_option_override (void)
   if (flag_exceptions || flag_non_call_exceptions)
     flag_omit_frame_pointer = 0;
 
-  /* The RH850 ABI does not (currently) support the use of the CALLT instruction.  */
-  if (! TARGET_GCC_ABI)
-    target_flags |= MASK_DISABLE_CALLT;
-
   /* Save the initial options in case the user does function specific
      options.  */
   target_option_default_node = target_option_current_node
@@ -2331,7 +2327,11 @@ c33_can_inline_p (tree caller, tree callee)
   tree caller_tree = DECL_FUNCTION_SPECIFIC_TARGET (caller);
   tree callee_tree = DECL_FUNCTION_SPECIFIC_TARGET (callee);
 
-  const unsigned HOST_WIDE_INT safe_flags = MASK_PROLOG_FUNCTION;
+  /* Flags that may differ between caller and callee without preventing
+     inlining.  V850 listed MASK_PROLOG_FUNCTION here, an option this target
+     does not have; nothing in the C33 option set is inlining-safe to differ,
+     so the set is empty.  */
+  const unsigned HOST_WIDE_INT safe_flags = 0;
 
   if (!callee_tree)
     callee_tree = target_option_default_node;

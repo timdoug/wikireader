@@ -28,7 +28,12 @@ typedef enum {
 } InterruptType;
 
 
-inline InterruptType Interrupt_disable(void)
+/* static: a plain "inline" definition in a header also emits an
+   externally visible copy under gnu89 rules, so every translation
+   unit that includes this defines the symbol and the link fails on
+   multiple definition.  gcc 3.3 got away with it because these are
+   always inlined at -Os and no out-of-line copy was ever emitted.  */
+static inline InterruptType Interrupt_disable(void)
 {
 	register InterruptType state;
 	asm volatile (
@@ -42,7 +47,7 @@ inline InterruptType Interrupt_disable(void)
 	return state;
 }
 
-inline void Interrupt_enable(InterruptType state)
+static inline void Interrupt_enable(InterruptType state)
 {
 	if (0 != state) {
 		asm volatile ("psrset 4");

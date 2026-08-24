@@ -25,6 +25,13 @@
 #ifndef C33_OPTS_H
 #define C33_OPTS_H
 
+/* The three C33 core variants.  The WikiReader is a PE.  */
+enum c33_core {
+  C33_CORE_STD,
+  C33_CORE_ADV,
+  C33_CORE_PE
+};
+
 enum small_memory_type {
   /* tiny data area, using EP as base register */
   SMALL_MEMORY_TDA = 0,

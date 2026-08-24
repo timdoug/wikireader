@@ -43,6 +43,7 @@ ASFLAGS="-mc33pe"
 text_same=0; text_diff=0
 reloc_same=0; reloc_diff=0
 data_same=0; data_diff=0
+flags_same=0; flags_diff=0
 old_fail=0; new_fail=0
 diff_list=""
 
@@ -69,6 +70,21 @@ compare_one () {
 			fi
 		fi
 	done
+
+	# ELF header e_machine and e_flags.  e_flags's top byte records the core variant -- 0 for
+	# the base core, 'A' for ADV, 'P' for PE -- and the linker refuses to
+	# mix objects that disagree.  Comparing only .text/.data/relocs missed
+	# this once: the ported assembler was not setting it at all, and
+	# nothing noticed until a firmware link failed.
+	# Compared together with e_machine at offset 18, which the original
+	# also sets (EM_SE_C33 = 107) and which the port initially did not.
+	if [ "$(od -An -tx1 -j 18 -N 2 "${TMP}/old.o")$(od -An -tx1 -j 36 -N 4 "${TMP}/old.o")" \
+	   = "$(od -An -tx1 -j 18 -N 2 "${TMP}/new.o")$(od -An -tx1 -j 36 -N 4 "${TMP}/new.o")" ]; then
+		flags_same=$((flags_same + 1))
+	else
+		flags_diff=$((flags_diff + 1))
+		echo "  ELF header differs: ${src}"
+	fi
 
 	# Relocations: offset, type and symbol.  Note modern gas reduces local
 	# symbol references to ".text+offset" where 2.10.1 kept the name; that
@@ -119,8 +135,9 @@ echo "results"
 echo "  .text  identical ${text_same}   differing ${text_diff}"
 echo "  .data  identical ${data_same}   differing ${data_diff}"
 echo "  relocs identical ${reloc_same}   differing ${reloc_diff}"
+echo "  e_machine+e_flags identical ${flags_same}   differing ${flags_diff}"
 echo "  old assembler failed on ${old_fail} (expected: forth/trailer.s is a cat fragment)"
 echo "  new assembler failed on ${new_fail}"
 [ -n "${diff_list}" ] && { echo "  .text differs in:"; for f in ${diff_list}; do echo "    ${f}"; done; }
 
-[ "${text_diff}" -eq 0 ] && [ "${new_fail}" -eq 0 ]
+[ "${text_diff}" -eq 0 ] && [ "${new_fail}" -eq 0 ] && [ "${flags_diff}" -eq 0 ]

@@ -23,6 +23,8 @@
 #include "as.h"
 #include "subsegs.h"     
 #include "opcode/c33.h"
+#include "elf/c33.h"
+#include "elf-bfd.h"			/* for elf_elfheader */
 #include "ext_remove.h"				// add D.Fujimoto 2007/06/21
 
 #define AREA_CDA 0
@@ -1409,6 +1411,28 @@ md_parse_option (int c, const char * arg)
     RETURN  symbolS*    NULL
     Explanation Treatment of the symbol which is not defined
 ******************************************************************************/
+/* Stamp the core variant into the top byte of the ELF header's e_flags:
+   0 for the base core, 'A' for ADV, 'P' for PE.  bfd/elf32-c33.c reads it
+   back in c33_elf_merge_private_bfd_data and refuses to link objects built
+   for different cores.
+
+   The original toolchain achieved this by reopening the output file after
+   writing it and poking byte 39 -- offset 36 (e_flags) plus 3, the top byte
+   on a little-endian target -- from a patch to the shared gas/as.c.  */
+
+void
+c33_elf_final_processing (void)
+{
+  unsigned char mode = 0;
+
+  if (g_iAdvance)
+    mode = 'A';
+  else if (g_iPE)
+    mode = 'P';
+
+  elf_elfheader (stdoutput)->e_flags |= (flagword) mode << 24;
+}
+
 symbolS *
 md_undefined_symbol (char * name)
 {

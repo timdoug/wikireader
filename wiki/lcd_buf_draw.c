@@ -2689,7 +2689,12 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 	int font_idx;
 	bool bNewLine = false;
 	int nWidth, nHeight;
-	int x_adjustment = 0;
+	/* This function measures an escape sequence; the drawing path above
+	   keeps the horizontal adjustment in lcd_draw_buf.x_adjustment.  The
+	   local copy that used to live here was written by ESC_6 and ESC_9 and
+	   never read, so it is gone -- but note that the measurement therefore
+	   ignores ESC_9 adjustments, which may be a latent bug rather than
+	   dead code.  Behaviour is unchanged either way.  */
 	int i;
 
 	switch(c)
@@ -2725,7 +2730,7 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 		*pFont = &pcfFonts[DEFAULT_FONT_IDX - 1];
 		break;
 	case ESC_6_RESET_TO_DEFAULT_ALIGN: /* reset to the default vertical alignment */
-		x_adjustment = 0;
+		/* nothing to measure */
 		break;
 	case ESC_7_FORWARD: /* forward */
 		c2 = **p;
@@ -2743,7 +2748,7 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 	case ESC_9_Y_ADJUSTMENT: /* vertical alignment adjustment */
 		c2 = **p;
 		(*p)++;
-		x_adjustment += c2;
+		/* adjustment not applied to the measured width; see above */
 		break;
 	case ESC_10_HORIZONTAL_LINE: /* drawing horizontal line */
 		(*p)++;

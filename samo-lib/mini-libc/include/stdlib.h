@@ -49,7 +49,13 @@
 #endif
 
 #if !defined(exit)
-extern void exit(int) __asm__("__stop_progExec__") __ATTR_CONST__;
+/* No __ATTR_CONST__ here.  "const" describes a function whose result depends
+   only on its arguments, which is meaningless for one returning void, and
+   gcc 14 and later warn about it.  gcc 3.3 accepted it but ignored it -- the
+   call to __stop_progExec__ survives in its output -- so dropping the
+   attribute changes nothing.  ("noreturn" would be the accurate attribute,
+   but that *would* change code generation, so it is left for later.)  */
+extern void exit(int) __asm__("__stop_progExec__");
 #endif
 
 typedef struct

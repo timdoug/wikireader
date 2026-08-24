@@ -2528,7 +2528,17 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 #define TARGET_LITTLE_NAME			"elf32-c33"
 #define ELF_ARCH					bfd_arch_c33
 /* >>>>> MODIFIED D.Fujimoto 2007/10/15 machine code */
-#define ELF_MACHINE_CODE			EM_NONE		//	do not change to EM_SE_C33
+/* EM_SE_C33 is 107, allocated to Seiko Epson upstream (include/elf/common.h).
+   The original toolchain wrote it too -- every shipped object and
+   ROOT_IMAGE/kernel.elf carries it -- but it got there by patching a switch
+   in the shared bfd/elf.c, so this file was left saying EM_NONE with a "do
+   not change" note.  That switch is gone in modern bfd, which writes
+   bed->elf_machine_code directly, so the value has to be right here.
+
+   Note the side effect: with EM_NONE, elfcode.h accepts an object of any
+   machine (see the EM_NONE special case in elf_object_p).  Now we only
+   accept 107, which is what every real C33 object has.  */
+#define ELF_MACHINE_CODE			EM_SE_C33
 /* <<<<< MODIFIED D.Fujimoto 2007/10/15 machine code */
 #define ELF_MAXPAGESIZE				0x1000
 	

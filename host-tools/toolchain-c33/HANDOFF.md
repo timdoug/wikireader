@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | instruction set converted; 163 of 196 repo `.c` files compile, all assemble; not yet run |
+| GCC 16.2 backend | **builds the WikiReader firmware** - kernel and wiki app link; not yet run |
 
 ### binutils - finished
 
@@ -38,25 +38,77 @@ The worst was that all 32 relocation `HOWTO` entries still used the historical
 log2 size encoding, so every relocation misreported its width and was quietly
 discarded.
 
-### GCC - in progress
+### GCC - builds the firmware
 
-Builds against GCC 16.2. The LRA blocker is fixed and everything we throw at
-it now compiles: calls, incoming stack arguments, frames deeper than a single
-`sub %sp,imm10`, local arrays, conditionals.
+The kernel and the wiki application both build and link with gcc 16.2 and
+binutils 2.47, against a libgcc built by the same compiler.
 
-The instruction set is converted: moves, addressing, calls, frames,
-arithmetic, logic, shifts, comparisons, branches and extensions all emit
-genuine C33. Over every `.c` file under `samo-lib` and `wiki`, 163 of 196
-compile and **all 163 assemble cleanly** with `c33-epson-elf-as`. The 33 that
-do not compile are missing headers and source conflicts from the flat include
-path used for the sweep, not compiler failures.
+```
+                     shipped (gcc 3.3.2)   this port (gcc 16.2)
+  wiki.app  text              88,734              90,412   (+1.9%)
+            total            257,510             256,292
+  kernel    text              22,364              27,308   (+22%)
+```
 
-Nothing has been *run* yet. That is the next real milestone: link `samo-lib`
-and execute it under `emulator/`.
+The kernel's 22% is mostly step 5 not being done: every global access loads an
+absolute address instead of using the `%r15`-relative default data area.
 
-`gcc/README.md` has the detail, including what the LRA bug actually was (a
-missing `SP_REGS`/`BASE_REGS` class pair, not the arg-pointer hypothesis
-recorded here previously).
+**Nothing has been run.** Everything is verified by compiling, assembling and
+linking only.
+
+Build the firmware with the new toolchain by pointing `CROSS` at it, which
+bypasses the `PATH` the build otherwise hardcodes:
+
+```sh
+make CROSS=/path/to/install/bin/c33-epson-elf- mini-libc fatfs grifo wiki
+```
+
+### Two more binutils bugs, found by linking
+
+Both had been sitting in the "byte-for-byte validated" port. The validation
+compared `.text`, `.data` and relocations; both bugs were outside that, which
+is the lesson.
+
+* **The assembler never set the ELF header.** `e_machine` stayed 0 instead of
+  `EM_SE_C33`, and `e_flags` never got the core byte (`'P'` for PE). The
+  linker refuses to mix cores, so the first firmware link failed with
+  "Cannot link STD object ... with PE object". The original toolchain set
+  both by patching *shared* files -- reopening the finished object to poke
+  byte 39 from `gas/as.c`, and a switch in `bfd/elf.c` -- neither of which
+  survives into modern binutils. Now done properly via
+  `elf_tc_final_processing` and `ELF_MACHINE_CODE`.
+  `tools/compare-with-oracle.sh` checks both fields now.
+
+* **`cpu-c33.c`'s `bfd_arch_info_type` initialiser was missing a field.**
+  Modern BFD added a `fill` callback between `scan` and `next`, so the `next`
+  pointer landed in `fill`'s slot, and the linker crashed calling it. It only
+  bit on some combinations of objects, because `default_data_link_order` only
+  calls `fill` when a link needs alignment padding.
+
+### Source changes the firmware needed
+
+Twenty-year-old code against a modern compiler. Each of these is documented
+in place:
+
+* Four cast-as-lvalue expressions in `mini-libc`'s `itoa`/`ltoa`/`utoa`/
+  `ultoa` (`((unsigned)num) /= radix`), a gcc extension removed in 4.0.
+* `extern inline` in `ctype.h` versus the real definitions in the `.c` files:
+  a gnu89-versus-C99 difference, handled by asking for `-fgnu89-inline` when
+  the compiler supports it.
+* Plain `inline` definitions in headers, which under gnu89 also emit an
+  external copy in every translation unit. Made `static`.
+* `exit` declared `__attribute__((const))` while returning void. gcc 3.3
+  ignored it -- the call survives in its output -- so dropping it changes
+  nothing.
+* A `packed` struct whose members are all naturally aligned 4-byte types, so
+  packing changed no offset or size and only cost the struct its alignment.
+* One write-only local in `wiki/lcd_buf_draw.c`, which may be a latent bug
+  rather than dead code; see the comment there.
+
+The build system needed three changes: DWARF 2 instead of `-gstabs` (gcc 16
+dropped STABS, and both toolchains understand DWARF), `-fgnu89-inline` when
+available, and passing the core flag to `gcc -print-libgcc-file-name` so it
+returns the matching multilib.
 
 ## Getting a working tree back
 
@@ -169,3 +221,11 @@ them. For correctness, run output under the emulator in `emulator/`.
   binary and silently reports nothing. Use `grep -a`. This cost real time
   twice: it hid `#include "ext_remove.h"` and two live functions, and led to
   removing working code on the assumption it was dead.
+* The oracle comparison checks `.text`, `.data`, relocations **and now the ELF
+  header**. It did not check the header for a long time, and two real bugs
+  lived there undetected through a "byte-for-byte validated" claim. When you
+  add a validation, write down what it does *not* cover.
+* A struct initialiser that compiles is not a struct initialiser that is
+  correct. `bfd_arch_info_type` grew a field in the middle; the old
+  positional initialiser still compiled and put a data pointer where a
+  function pointer belonged.

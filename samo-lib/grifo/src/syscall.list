@@ -103,11 +103,11 @@
 
  (ifnot GRIFO_SIMULATOR)
 
- (prototype ("inline critical_t" "critcal_enter" "void"))
+ (prototype ("static inline critical_t" "critcal_enter" "void"))
  (copy-part "src/interrupt.h" "enter")
  (newline)
 
- (prototype ("inline void" "critical_exit" "critical_t state"))
+ (prototype ("static inline void" "critical_exit" "critical_t state"))
  (copy-part "src/interrupt.h" "exit")
 
  (else)

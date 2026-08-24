@@ -84,9 +84,17 @@ scan (const struct bfd_arch_info * info, const char * string)
   return true;
 }
 
+/* NB the field order matters and has changed since this was written.  Modern
+   bfd_arch_info_type has a "fill" callback between "scan" and "next", and a
+   trailing max_reloc_offset_into_insn.  Without the extra entries the next
+   pointer landed in fill's slot, and the linker crashed calling it -- see
+   default_data_link_order in bfd/linker.c, which calls arch_info->fill to pad
+   an alignment gap.  It only bit on some combinations of objects, because
+   only some links need padding.  */
+
 #define N(number, print, default, next)  \
 {  32, 32, 8, bfd_arch_c33, number, "c33", print, 2, default, \
-     bfd_default_compatible, scan, next }
+     bfd_default_compatible, scan, bfd_arch_default_fill, next, 0 }
 
 #define NEXT NULL
 #if 0
