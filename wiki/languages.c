@@ -680,7 +680,8 @@ int english_to_korean(unsigned char *out_str, int max_out_len, unsigned char *in
 			}
 			else
 			{
-				*in_len = iaUsedLen[i - 1];
+				// nothing consumed yet when i == 0; iaUsedLen[-1] is out of bounds
+				*in_len = i > 0 ? iaUsedLen[i - 1] : 0;
 				break;
 			}
 		}
@@ -774,7 +775,8 @@ int english_to_korean_phonetic(unsigned char *out_str, int max_out_len, unsigned
 			}
 			else
 			{
-				*in_len = iaUsedLen[i - 1];
+				// nothing consumed yet when i == 0; iaUsedLen[-1] is out of bounds
+				*in_len = i > 0 ? iaUsedLen[i - 1] : 0;
 				break;
 			}
 		}

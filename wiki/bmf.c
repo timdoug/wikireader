@@ -66,13 +66,9 @@ int load_bmf(pcffont_bmf_t *font)
 int
 pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cmetrics)
 {
-	int size = 0;
 	int offset = 0;
-	char buffer[1024];
 	int font_header;
 	int bFound = 0;
-
-	memset(buffer,0,1024);
 
 	if(font==NULL || font->fd < 0)
 		return -1;
@@ -117,10 +113,11 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 
 		if (!bFound)
 		{
-			size = sizeof(charmetric_bmf);
-
-			file_read(font->fd,buffer,size);
-			memcpy(Cmetrics,buffer,sizeof(charmetric_bmf));
+			// A truncated font file gives a short read.  The metrics must be
+			// zeroed in that case, or the caller renders a glyph using
+			// whatever happened to be on the stack.
+			if (file_read(font->fd,Cmetrics,sizeof(charmetric_bmf)) != (ssize_t)sizeof(charmetric_bmf))
+				memset(Cmetrics,0,sizeof(charmetric_bmf));
 			memcpy(font->charmetric+val*sizeof(charmetric_bmf)+font_header,Cmetrics,sizeof(charmetric_bmf));
 		}
 	}

@@ -79,6 +79,7 @@ directory such as `enquote/`.
 | `src/display.c` | SDL2 window |
 | `src/touch.c` | EFSIF1 touch panel, keyboard geometry |
 | `src/timer.c` | 60 MHz tick timer (cascaded T16 ch0/ch5) |
+| `src/itc.c` | interrupt controller registers and priorities |
 | `src/periph.c` | ADC |
 | `c33_forms.h` | **generated** decode tables |
 | `c33_syscalls.h` | **generated** syscall names |
@@ -199,9 +200,29 @@ a `.d` branch and its delay slot, and `jpr`, `swap`, `swaph`, `adc`, `sbc`
 and the coprocessor instructions are unimplemented (none appear in any of
 the four firmware images).
 
-The PSR's IL[3:0] field (bits 11-8) is not modelled: interrupts are gated
-on IE alone, so there is no priority masking and IL is not updated on
-acceptance. Nothing here raises more than one interrupt source at a time.
+### Interrupt priority
+
+The PSR's IL[3:0] field (bits 11-8) is modelled per the PE Core manual: a
+maskable request is accepted only when its priority is *strictly greater*
+than IL, and IL is then raised to that priority until `reti` restores the
+saved PSR. `make test-irq` checks all 64 (IL, priority) combinations plus
+the IE gate, the saved-PSR contents and the pushed return address.
+
+Priorities come from the interrupt controller's own registers rather than
+being assumed. `src/itc.c` backs REG_BASE+0x200..0x2ff with a register file,
+which the drivers need anyway because they read-modify-write it --
+grifo's `CTP_initialise` does `REG_INT_PSI01_PAD |= SERIAL_CH1_INT_PRI_7`,
+so a register that read back as zero would silently drop the neighbouring
+field. Serial ch0's priority is bits 6:4 of 0x26a and ch1's is bits 2:0;
+the touch panel therefore runs at priority 7, which the emulator now reads
+out of the register the firmware wrote instead of hard-coding.
+
+Sources whose priority register is not decoded report 7, so they are never
+masked -- the previous behaviour. In a normal boot nothing is masked in
+practice, because only one source is ever pending and IL is back to 0 by
+the time the next packet arrives.
+
+### Peripherals
 
 The peripherals are the least verified part. They were written from the
 driver sources in samo-lib and from what the firmware demanded, not from

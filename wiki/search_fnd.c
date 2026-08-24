@@ -220,7 +220,7 @@ long locate_previous_title_search(long offset_fnd)
 {
 	long len_buf;
 	int nZeros;
-	unsigned int i;
+	long i; // must be signed: len_buf can be 0, and i is decremented below zero
 	unsigned char buf[sizeof(TITLE_SEARCH)];
 
 	if (offset_fnd > (long)sizeof(TITLE_SEARCH))
@@ -231,13 +231,15 @@ long locate_previous_title_search(long offset_fnd)
 	copy_fnd_to_buf(offset_fnd, buf, len_buf);
 	i = len_buf - 1;
 	nZeros = 0;
-	while (i >= sizeof(uint32_t) && nZeros < 3)
+	while (i >= (long)sizeof(uint32_t) && nZeros < 3)
 	{
 		if (!buf[i])
 			nZeros++;
 		i--;
 	}
-	i -= sizeof(uint32_t) - 1;
+	i -= (long)sizeof(uint32_t) - 1;
+	if (i < 0)
+		i = 0;
 	return offset_fnd + i;
 }
 

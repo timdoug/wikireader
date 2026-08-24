@@ -718,12 +718,8 @@ void buf_draw_char(ucs4_t u)
 	int y_base;
 	int x_offset;
 	int y_offset;
-	int x_bit_idx;
 	int i; // bitmap byte index
 	int j; // bitmap bit index
-	unsigned char *p; // pointer to lcd draw buffer
-
-
 
 	if(pres_bmfbm(u, lcd_draw_buf.pPcfFont, &bitmap, &Cmetrics)<0)
 	{
@@ -747,9 +743,6 @@ void buf_draw_char(ucs4_t u)
 		x_offset = 0;
 		y_offset = lcd_draw_buf.line_height - (lcd_draw_buf.pPcfFont->Fmetrics.descent + Cmetrics.ascent);
 
-		x_bit_idx = x_base & 0x07;
-		//p = lcd_draw_buf.screen_buf + (y_base + y_offset) * LCD_BUF_WIDTH_BYTES + (x_base >> 3);
-
 		for (i = 0; i < bytes_to_process; i++)
 		{
 			j = 7;
@@ -759,23 +752,13 @@ void buf_draw_char(ucs4_t u)
 				{
 					x_offset = 0;
 					y_offset++;
-					p = lcd_draw_buf.screen_buf + (y_base + y_offset) * LCD_BUF_WIDTH_BYTES + x_base;
 				}
 				if (x_offset < Cmetrics.width)
 				{
 					if ((bitmap[i] & (1 << j)) && x_base + x_offset < LCD_BUF_WIDTH_PIXELS)
-					{
-						//*p |= 1 << ((x_base + x_offset) & 0x07);
 						guilib_buffer_set_pixel(lcd_draw_buf.screen_buf,x_base + x_offset, y_base+y_offset);
-					}
 				}
 				x_offset++;
-				x_bit_idx++;
-				if (!(x_bit_idx & 0x07))
-				{
-					x_bit_idx = 0;
-					p++;
-				}
 				j--;
 			}
 		}
@@ -891,10 +874,8 @@ void buf_draw_char_external(LCD_DRAW_BUF *lcd_draw_buf_external,ucs4_t u,int sta
 	int y_base;
 	int x_offset;
 	int y_offset;
-	int x_bit_idx;
 	int i; // bitmap byte index
 	int j; // bitmap bit index
-	unsigned char *p; // pointer to lcd draw buffer
 
 	if(pres_bmfbm(u, lcd_draw_buf_external->pPcfFont, &bitmap, &Cmetrics)<0)
 		return;
@@ -918,7 +899,6 @@ void buf_draw_char_external(LCD_DRAW_BUF *lcd_draw_buf_external,ucs4_t u,int sta
 	y_base = lcd_draw_buf_external->current_y + lcd_draw_buf_external->y_adjustment;
 	x_offset = 0;
 	y_offset = lcd_draw_buf_external->line_height - (lcd_draw_buf_external->pPcfFont->Fmetrics.descent + Cmetrics.ascent);
-	x_bit_idx = x_base & 0x07;
 
 	for (i = 0; i < bytes_to_process; i++)
 	{
@@ -933,18 +913,9 @@ void buf_draw_char_external(LCD_DRAW_BUF *lcd_draw_buf_external,ucs4_t u,int sta
 			if (x_offset < Cmetrics.width)
 			{
 				if (bitmap[i] & (1 << j))
-				{
 					guilib_buffer_set_pixel(lcd_draw_buf_external->screen_buf,x_base + x_offset, y_base+y_offset);
-				}
-
 			}
 			x_offset++;
-			x_bit_idx++;
-			if (!(x_bit_idx & 0x07))
-			{
-				x_bit_idx = 0;
-				p++;
-			}
 			j--;
 		}
 	}
@@ -1504,7 +1475,8 @@ float scroll_speed()
 			speed = (float)finger_move_speed * ARTICLE_SCROLL_SPEED_FRICTION;
 		else
 			speed = (float)finger_move_speed * LIST_SCROLL_SPEED_FRICTION;
-		if (abs(speed) < 1 / SCROLL_UNIT_SECOND)
+		// integer abs() would truncate the fraction away; compare directly
+		if (speed < 1 / SCROLL_UNIT_SECOND && speed > -1 / SCROLL_UNIT_SECOND)
 			speed = 0;
 	}
 	return speed;

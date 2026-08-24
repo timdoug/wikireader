@@ -27,10 +27,21 @@ cp "$SNAP" "$IMG"
 DEV=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$IMG" | awk 'NR==1 {print $1}')
 diskutil mount -mountPoint "$MNT" "$DEV" >/dev/null
 cp "$APP" "$MNT/wiki.app"
+[ -n "$EXTRA_LOGO" ] && cp "$EXTRA_LOGO" "$MNT/logo.xbm"
 sync
 diskutil unmount "$MNT" >/dev/null
 hdiutil detach "$DEV" >/dev/null
 DEV=
 
-"$HERE/wremu" -c "$IMG" -n 200000000 -K 20000000,"$KEYS" "$HERE/images/grifo.elf" 2>&1 \
-	| sed -n '/lcd:/,$p' > "$OUT"
+# Type well after the app is up, and run long enough afterwards for the search
+# to settle.  Two traps if you retune these numbers:
+#
+#  - Taps delivered while grifo is still loading wiki.app wedge the boot.
+#  - The screen is dumped wherever the instruction budget happens to stop, so
+#    an unsettled UI compares unequal even between two identical builds.
+#
+# Both shift with the app's size, so any code change moves them.  A diff here
+# only means something when both sides have settled (~46 non-blank lines for
+# a search that returns hits).
+"$HERE/wremu" -c "$IMG" -n 500000000 -K 120000000,"$KEYS" "$HERE/images/grifo.elf" 2>&1 \
+	| sed -n '/lcd:/,/serial output/p' > "$OUT"

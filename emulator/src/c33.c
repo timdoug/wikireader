@@ -149,6 +149,7 @@ static uint32_t sp_disp(struct c33 *c, uint32_t base, unsigned width,
 #define VECTOR_ADDRESS_MISALIGNED 6
 
 static void take_irq(struct c33 *c);
+void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 
 static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 {
@@ -156,8 +157,8 @@ static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 		return false;
 
 	c->misaligned_hits++;
-	c->irq_pending = true;
-	c->irq_vector = VECTOR_ADDRESS_MISALIGNED;
+	/* Exceptions are not maskable by IL: enter at the top level. */
+	c33_raise_irq(c, VECTOR_ADDRESS_MISALIGNED, 15);
 	take_irq(c);
 	return true;
 }
@@ -347,14 +348,17 @@ void c33_reset(struct c33 *c, uint32_t entry)
 	c->fault_pc = 0;
 	c->clk = 0;
 	c->irq_pending = false;
+	c->irq_priority = 0;
 	c->irqs_taken = 0;
+	c->irqs_masked = 0;
 	memset(c->ext_dropped, 0, sizeof c->ext_dropped);
 }
 
-void c33_raise_irq(struct c33 *c, unsigned vector)
+void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority)
 {
 	c->irq_pending = true;
 	c->irq_vector = vector;
+	c->irq_priority = priority;
 }
 
 /*
@@ -367,6 +371,19 @@ static void take_irq(struct c33 *c)
 	uint32_t target = c->bus.read(c->bus.ctx,
 				      c->sr[SR_TTBR] + c->irq_vector * 4, 4);
 
+	/*
+	 * "Maskable interrupt requests are accepted only when their priority
+	 * levels are higher than that set in the IL bit field. When an
+	 * interrupt request is accepted, the IL bit field is set to the
+	 * priority level of that interrupt" (C33 PE Core manual, 2.3.1).
+	 * The saved PSR restores the old IL on reti.
+	 */
+	unsigned il = (c->sr[SR_PSR] & PSR_IL_MASK) >> PSR_IL_SHIFT;
+	if (c->irq_priority <= il) {
+		c->irqs_masked++;
+		return;              /* stays pending until IL drops */
+	}
+
 	c->irq_pending = false;
 	if (!target)
 		return;              /* no handler installed yet */
@@ -376,6 +393,8 @@ static void take_irq(struct c33 *c)
 	c->sr[SR_SP] -= 4;
 	c->bus.write(c->bus.ctx, c->sr[SR_SP], 4, c->sr[SR_PSR]);
 	c->sr[SR_PSR] &= ~PSR_IE;
+	c->sr[SR_PSR] = (c->sr[SR_PSR] & ~PSR_IL_MASK) |
+			(c->irq_priority << PSR_IL_SHIFT);
 	c->pc = target;
 	c->irqs_taken++;
 }
@@ -443,8 +462,7 @@ void c33_step(struct c33 *c)
 				 * manual B.3. Vector 2 is the ext exception.
 				 */
 				c->n_ext = 0;
-				c->irq_pending = true;
-				c->irq_vector = 2;
+				c33_raise_irq(c, 2, 15);   /* ext exception */
 				take_irq(c);
 			}
 			return;   /* prefixes never complete an instruction */

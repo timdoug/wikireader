@@ -202,6 +202,12 @@ static void load_logo_xbm()
 					logo_width = atoi(&buf[strlen("#define x_width ")]);
 				if (!strncmp(buf, "#define x_height ", strlen("#define x_height ")))
 					logo_height = atoi(&buf[strlen("#define x_height ")]);
+				// the logo cannot be drawn larger than the panel, and a
+				// negative dimension would size the allocation below wrongly
+				if (logo_width < 0 || logo_width > LCD_BUF_WIDTH_PIXELS)
+					logo_width = 0;
+				if (logo_height < 0 || logo_height > LCD_HEIGHT - KEYBOARD_HEIGHT)
+					logo_height = 0;
 			}
 			else
 			{
@@ -219,10 +225,10 @@ static void load_logo_xbm()
 					p_logo_bitmap->height = logo_height;
 					last_byte_truncate <<= width_bytes * 8 - logo_width;
 				}
-				if (y >= logo_height)
-					break;
 				if (!strncmp(buf, "0x", 2)) // assuming the bitmap data lines all start with 0x
 				{
+					if (y + 1 >= logo_height) // more data rows than x_height promised
+						break;
 					x = 0; // a new bitmap line
 					y++;
 					get_next_token(NULL, buf); // initialize get_next_token()
@@ -1187,7 +1193,7 @@ static void handle_touch(event_t *ev)
 			else
 			{
 				finger_move_speed = (float)diff_y * ((float)seconds_to_ticks(1) / (float)diff_ticks);
-				if (abs(finger_move_speed) > SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD)
+				if (labs(finger_move_speed) > SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD)
 				{
 					if (finger_move_speed > 0)
 					{

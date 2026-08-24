@@ -17,6 +17,7 @@
 #include "display.h"
 #include "touch.h"
 #include "timer.h"
+#include "itc.h"
 
 static void usage(const char *p)
 {
@@ -131,8 +132,11 @@ int main(int argc, char **argv)
 	struct lcd lcd;
 	lcd_attach(&mem, &lcd);
 
+	struct itc itc;
+	itc_attach(&mem, &itc);
+
 	struct touch touch;
-	touch_attach(&mem, &touch);
+	touch_attach(&mem, &touch, &itc);
 
 	struct display disp;
 	memset(&disp, 0, sizeof disp);
@@ -286,8 +290,10 @@ done:
 	printf("--- timer: %lu reads, %llu MCLK cycles (%.2f cyc/instr) ---\n",
 	       timer.reads, (unsigned long long)cpu.clk,
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
-	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken ---\n",
-	       touch.events, touch.bytes_read, cpu.irqs_taken);
+	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
+	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
+	printf("--- itc: %lu register writes, serial ch1 priority %u ---\n",
+	       itc.writes, itc_priority(&itc, 61));
 	printf("\n--- lcd: %lu register writes, framebuffer=0x%08x ---\n",
 	       lcd.writes, lcd.fb_addr);
 	if (lcd.fb_addr) {

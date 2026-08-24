@@ -6,6 +6,7 @@
 
 #include "mem.h"
 #include "c33.h"
+#include "itc.h"
 
 #define TOUCH_FIFO  64
 /*
@@ -21,9 +22,10 @@ struct touch {
 	uint8_t  fifo[TOUCH_FIFO];
 	unsigned head, tail;
 	unsigned long events, bytes_read;
+	const struct itc *itc;   /* for the configured interrupt priority */
 };
 
-void touch_attach(struct mem *m, struct touch *t);
+void touch_attach(struct mem *m, struct touch *t, const struct itc *itc);
 void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed);
 void touch_poll(struct touch *t, struct c33 *cpu);
 /* Pixel centre of an on-screen keyboard key, or false if unmapped. */

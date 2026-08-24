@@ -36,6 +36,9 @@ enum c33_sreg {
 #define PSR_V  (1u << 2)
 #define PSR_C  (1u << 3)
 #define PSR_IE (1u << 4)
+/* IL[3:0], bits 11-8: the interrupt level currently being serviced. */
+#define PSR_IL_SHIFT 8
+#define PSR_IL_MASK  (0xfu << PSR_IL_SHIFT)
 
 struct c33;
 
@@ -75,6 +78,8 @@ struct c33 {
 	unsigned long misaligned_hits;
 	bool     irq_pending;
 	unsigned irq_vector;
+	unsigned irq_priority;
+	unsigned long irqs_masked;
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	uint64_t cycles;      /* instructions retired */
@@ -86,7 +91,7 @@ struct c33 {
 
 void     c33_reset(struct c33 *c, uint32_t entry);
 /* Request a hardware interrupt; taken when PSR.IE is set. */
-void     c33_raise_irq(struct c33 *c, unsigned vector);
+void     c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 /* Execute one instruction (an ext prefix counts as one). */
 void     c33_step(struct c33 *c);
 /* Human-readable single-instruction disassembly, for tracing. */

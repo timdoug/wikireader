@@ -85,14 +85,15 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 	push_byte(t, pressed ? 0x01 : 0x00);
 
 	t->events++;
-	c33_raise_irq(cpu, CTP_IRQ_VECTOR);
+	c33_raise_irq(cpu, CTP_IRQ_VECTOR, itc_priority(t->itc, CTP_IRQ_VECTOR));
 }
 
 /* Re-assert the interrupt while bytes remain, so the handler drains the FIFO. */
 void touch_poll(struct touch *t, struct c33 *cpu)
 {
 	if (t->head != t->tail)
-		c33_raise_irq(cpu, CTP_IRQ_VECTOR);
+		c33_raise_irq(cpu, CTP_IRQ_VECTOR,
+			      itc_priority(t->itc, CTP_IRQ_VECTOR));
 }
 
 /*
@@ -128,8 +129,9 @@ bool touch_key_pos(char ch, int *x, int *y)
 	return false;
 }
 
-void touch_attach(struct mem *m, struct touch *t)
+void touch_attach(struct mem *m, struct touch *t, const struct itc *itc)
 {
 	memset(t, 0, sizeof *t);
+	t->itc = itc;
 	mem_add_mmio(m, "efsif1/ctp", EFSIF1_BASE, EFSIF1_LEN, touch_mmio, t);
 }

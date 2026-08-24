@@ -350,7 +350,7 @@ uint32_t get_article_idx_from_offset_range(const unsigned char *sInputTitleActua
 	unsigned char sTitleActual[MAX_TITLE_ACTUAL];
 	unsigned char buf_middle[sizeof(TITLE_SEARCH) * 2];
 	long offset_middle;
-	static TITLE_SEARCH *pTitleSearch;
+	TITLE_SEARCH *pTitleSearch;
 	unsigned int offsetNextTitleSearch = 0;
 	bool bFound = false;
 
@@ -488,7 +488,7 @@ int fetch_search_result(long input_offset_fnd_start, long input_offset_fnd_end, 
 	int rc;
 	unsigned char buf_middle[sizeof(TITLE_SEARCH) * 2];
 	long offset_middle;
-	static TITLE_SEARCH *pTitleSearch;
+	TITLE_SEARCH *pTitleSearch;
 	static unsigned int offsetNextTitleSearch = 0;
 	static long offset_fnd_start = -1;
 	static long offset_fnd_end = -1;

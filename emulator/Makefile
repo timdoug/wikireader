@@ -7,9 +7,9 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/main.o
+OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/main.o
 
-.PHONY: all clean tables test
+.PHONY: all clean tables test test-irq
 
 all: wremu
 
@@ -18,7 +18,7 @@ wremu: $(OBJS)
 
 # Header deps matter here: struct c33 is shared between translation units, so
 # a stale object compiled against an older layout silently corrupts state.
-src/%.o: src/%.c src/c33.h src/mem.h src/uart.h src/sdcard.h src/periph.h src/lcd.h src/display.h src/touch.h src/timer.h c33_forms.h
+src/%.o: src/%.c src/c33.h src/mem.h src/uart.h src/sdcard.h src/periph.h src/lcd.h src/display.h src/touch.h src/timer.h src/itc.h c33_forms.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Regenerate the decode tables from binutils' disassembler. Requires
@@ -31,6 +31,11 @@ tables: allinsn_full.txt
 test: c33_forms.h
 	$(CC) $(CFLAGS) -o /tmp/test_decode tools/test_decode.c
 	cat ref-*.txt | /tmp/test_decode
+
+# Interrupt priority (PSR.IL) rules, per the C33 PE Core manual.
+test-irq: tools/test_irq.c src/c33.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o
+	/tmp/test_irq
 
 clean:
 	rm -f wremu $(OBJS)

@@ -217,8 +217,12 @@ void init_wiki_info(void)
 
 		if (nTempWikiList > 0)
 		{
-			if (nTempWikiList > sizeof(wiki_list) / sizeof(WIKI_LIST))
+			if (nTempWikiList > SizeOfArray(wiki_list_default))
+			{
 				wiki_list = (WIKI_LIST *)memory_allocate(sizeof(WIKI_LIST) * nTempWikiList, "wiki_list");
+				if (!wiki_list)
+					fatal_error("too many wikis in wiki.inf");
+			}
 			else
 				wiki_list = wiki_list_default;
 			file_lseek(fd, 0);
@@ -305,6 +309,8 @@ void init_wiki_info(void)
 		nWikiList = sizeof(wiki_list_default) / sizeof(WIKI_LIST);
 	}
 	baWikiActive = (bool *)memory_allocate(sizeof(bool) * nWikiList, "baWikiActive");
+	if (!baWikiActive)
+		fatal_error("out of memory for wiki list");
 	memset(baWikiActive, 0, sizeof(bool) * nWikiList);
 	for (i = 0; i < nWikiList; i++)
 	{
