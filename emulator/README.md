@@ -400,6 +400,30 @@ Between the firmware and the differential tests, 57 of the 68 implemented
 opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what
 the remaining 11, and the 36 unimplemented opcodes, actually are.
 
+## Speed
+
+About 80M instructions/sec, a little under 2x the real device. Getting there
+was three changes, all found by profiling rather than by guessing:
+
+* **No text in the execute path.** Operand shapes are interned to integers
+  by the table generator. They used to be compared with `strcmp` against the
+  shape string objdump prints -- a disassembler artifact reused as the
+  semantic discriminator. Since forms are tested as an if/else chain, a
+  common instruction like `ld.w` walked several string compares on every
+  execution, and it profiled as the single hottest thing in the interpreter.
+  The instruction word fully determines the semantics; nothing about that
+  should involve English.
+* **A region cache for fetch and load.** Every access went through an
+  indirect call into `mem_read` and a walk of the memory map. Caching the
+  region the PC or the data pointer currently sits in turns the common case
+  into a bounds check and a load.
+* **A byte-wide decode table.** `c33_form_of` was `uint16_t[65536]`, exactly
+  128K, exactly the L1 data cache on the machines this runs on, so every
+  decode thrashed it. There are only 231 forms, so a byte does.
+
+One thing that turned out not to matter: `-O3` and `-mcpu=native` are within
+noise of `-O2`.
+
 Timing is not wall-clock paced, but it is cycle-based rather than
 per-instruction: each instruction charges the MCLK cycles given by its CLK
 line in the C33 PE Core manual, and the tick timer counts those. Real

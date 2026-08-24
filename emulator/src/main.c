@@ -179,7 +179,9 @@ int main(int argc, char **argv)
 
 	struct c33 cpu;
 	memset(&cpu, 0, sizeof cpu);
-	cpu.bus = (struct c33_bus){ mem_read, mem_write, &mem };
+	cpu.bus = (struct c33_bus){ mem_read, mem_write,
+				   (uint8_t *(*)(void *, uint32_t, uint32_t *, uint32_t *))mem_region,
+				   &mem };
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
@@ -325,12 +327,18 @@ int main(int argc, char **argv)
 
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
-		nop_run = (mem_read(&mem, cpu.pc, 2) == 0) ? nop_run + 1 : 0;
+		c33_step(&cpu);
+
+		/*
+		 * Runaway detection, from the word c33_step already fetched.
+		 * Re-reading it here cost a second full memory dispatch per
+		 * instruction -- about 15% of total run time.
+		 */
+		nop_run = (cpu.last_insn == 0) ? nop_run + 1 : 0;
 		if (nop_run > 8) {
 			stop = "runaway: >256 consecutive zero words";
 			break;
 		}
-		c33_step(&cpu);
 	}
 
 done:

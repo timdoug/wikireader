@@ -63,6 +63,23 @@ static bool mmio(struct mem *m, uint32_t a, unsigned size, uint32_t *v,
 	return true;   /* swallow unclaimed register accesses */
 }
 
+uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len)
+{
+	if (addr >= SDRAM_BASE && addr < SDRAM_BASE + SDRAM_SIZE) {
+		*base = SDRAM_BASE; *len = SDRAM_SIZE; return m->sdram;
+	}
+	if (addr < A0RAM_SIZE) {
+		*base = 0; *len = A0RAM_SIZE; return m->a0ram;
+	}
+	if (addr >= IVRAM_BASE && addr < IVRAM_BASE + IVRAM_SIZE) {
+		*base = IVRAM_BASE; *len = IVRAM_SIZE; return m->ivram;
+	}
+	if (addr >= DSTRAM_BASE && addr < DSTRAM_BASE + DSTRAM_SIZE) {
+		*base = DSTRAM_BASE; *len = DSTRAM_SIZE; return m->dstram;
+	}
+	return NULL;
+}
+
 uint32_t mem_read(void *ctx, uint32_t addr, unsigned size)
 {
 	struct mem *m = ctx;

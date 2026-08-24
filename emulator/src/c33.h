@@ -46,6 +46,13 @@ struct c33;
 struct c33_bus {
 	uint32_t (*read)(void *ctx, uint32_t addr, unsigned size);
 	void     (*write)(void *ctx, uint32_t addr, unsigned size, uint32_t val);
+	/*
+	 * Optional: direct host pointer for a mapped address, with the bounds
+	 * of its region. Lets the fetch path skip the indirect call and the
+	 * region search while the PC stays inside one region, which is nearly
+	 * always. Leave NULL and everything still works, just slower.
+	 */
+	uint8_t *(*region)(void *ctx, uint32_t addr, uint32_t *base, uint32_t *len);
 	void     *ctx;
 };
 
@@ -63,6 +70,15 @@ struct c33 {
 	uint32_t delay_target;
 
 	struct c33_bus bus;
+
+	/* cached fetch region: [fetch_lo, fetch_hi) maps to fetch_ptr */
+	uint8_t *fetch_ptr;
+	uint32_t fetch_lo, fetch_hi;
+	/* same, for data reads; kept separate since code and data differ */
+	uint8_t *data_ptr;
+	uint32_t data_lo, data_hi;
+	/* last instruction word fetched, for the runaway detector */
+	uint16_t last_insn;
 
 	/* diagnostics: how often each form silently discarded ext prefixes */
 	uint32_t ext_dropped[256];

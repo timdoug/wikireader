@@ -65,6 +65,13 @@ void mem_free(struct mem *m);
 void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
 		  mmio_fn fn, void *ctx);
 
+/*
+ * Host pointer for a mapped address, plus the bounds of the region it falls
+ * in, so callers can cache it and skip the dispatch while they stay inside.
+ * Returns NULL for MMIO and unmapped addresses.
+ */
+uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len);
+
 uint32_t mem_read(void *ctx, uint32_t addr, unsigned size);
 void     mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val);
 

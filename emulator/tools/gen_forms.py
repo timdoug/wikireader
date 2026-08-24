@@ -16,6 +16,46 @@ sys.path.insert(0, str(Path(__file__).parent))
 from derive_fields import derive  # noqa: E402
 
 
+def shape_ident(sh):
+    """Stable C identifier for an operand shape.
+
+    The emulator selects addressing modes by comparing this integer. It used
+    to strcmp the shape string itself, which profiled as the hottest thing in
+    the interpreter: forms are tested as an if/else chain, so a common
+    instruction walked several string compares per execution. The string is
+    still emitted, but only for the disassembler.
+    """
+    import re as _re
+    if sh == "":
+        return "SHAPE_NONE"
+    t = sh.replace("%r#", "R").replace("%sp", "SP").replace("%dp", "DP")
+    t = t.replace("%psr", "PSR").replace("%alr", "ALR").replace("%ahr", "AHR")
+    t = t.replace("%", "").replace("[", "L").replace("]", "B")
+    t = t.replace("+", "P").replace(",", "_").replace("#", "I").replace(".", "")
+    return "SHAPE_" + _re.sub(r"[^A-Za-z0-9_]", "", t).upper()
+
+
+def shape_map(forms):
+    """shape string -> unique C identifier, in order of first appearance.
+
+    The empty shape is seeded first so SHAPE_NONE is always value 0, which is
+    what the OP_INVALID entry uses.
+    """
+    names, used = {"": "SHAPE_NONE"}, {"SHAPE_NONE"}
+    for f in forms:
+        sh = f["shape"]
+        if sh in names:
+            continue
+        n = base = shape_ident(sh)
+        k = 2
+        while n in used:
+            n = f"{base}_{k}"
+            k += 1
+        used.add(n)
+        names[sh] = n
+    return names
+
+
 def op_ident(mnemonic):
     s = mnemonic.upper().replace(".", "_")
     return "OP_" + s
@@ -70,6 +110,13 @@ def main():
         L.append(f'\t[{op_ident(m)}] = "{m}",')
     L += ["};", ""]
 
+    shapes = shape_map(forms)
+    L.append("/* Interned operand shapes: an integer compare in place of strcmp. */")
+    L.append("enum c33_shape {")
+    for sh in shapes:
+        L.append(f"\t{shapes[sh]},")
+    L += ["};", ""]
+
     L += [
         "struct c33_field { uint8_t shift, width, is_signed; int32_t bias; };",
         "",
@@ -78,10 +125,11 @@ def main():
         "\tuint8_t  nfields;",
         "\tstruct c33_field f[C33_MAX_FIELDS];",
         "\tconst char *shape;",
+        "\tuint8_t  shape_id;",
         "};",
         "",
         f"static const struct c33_form c33_forms[{len(forms) + 1}] = {{",
-        '\t{ OP_INVALID, 0, {{0,0,0,0}}, "" },',
+        '\t{ OP_INVALID, 0, {{0,0,0,0}}, "", SHAPE_NONE },',
     ]
     for f in forms:
         fl = ", ".join("{%d,%d,%d,%d}" % (a, b, 1 if c else 0, d)
@@ -90,11 +138,15 @@ def main():
             fl = "{0,0,0,0}"
         shp = f["shape"].replace("\\", "\\\\").replace('"', '\\"')
         L.append(f'\t{{ {op_ident(f["mnemonic"])}, {len(f["fields"])}, '
-                 f'{{{fl}}}, "{shp}" }},')
+                 f'{{{fl}}}, "{shp}", {shapes[f["shape"]]} }},')
     L += ["};", ""]
 
     L.append("/* encoding -> index into c33_forms */")
-    L.append("static const uint16_t c33_form_of[65536] = {")
+    assert max(form_of) < 256, "form index no longer fits in a byte"
+    # A byte keeps the table at 64K rather than 128K. That matters: 128K is
+    # the L1 data cache size on the machines this runs on, so the wider
+    # table thrashed it on every decode.
+    L.append("static const uint8_t c33_form_of[65536] = {")
     row = []
     for i in range(65536):
         row.append(f"{form_of[i]:4d}")

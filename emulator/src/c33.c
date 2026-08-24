@@ -194,6 +194,25 @@ static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 {
 	if (misaligned(c, a, sz))
 		return 0;
+
+	/* Same region cache as the fetch path; see c33_step. */
+	if (a >= c->data_lo && a + sz <= c->data_hi) {
+		uint32_t v = 0;
+		memcpy(&v, c->data_ptr + (a - c->data_lo), sz);
+		return v;
+	}
+	if (c->bus.region) {
+		uint32_t base, len;
+		uint8_t *p = c->bus.region(c->bus.ctx, a, &base, &len);
+		if (p && a + sz <= base + len) {
+			c->data_ptr = p;
+			c->data_lo  = base;
+			c->data_hi  = base + len;
+			uint32_t v = 0;
+			memcpy(&v, p + (a - base), sz);
+			return v;
+		}
+	}
 	return c->bus.read(c->bus.ctx, a, sz);
 }
 
@@ -357,10 +376,13 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
  * modes (ld.w alone has 30+ forms). The generated form carries the operand
  * `shape` string objdump printed, which distinguishes them exactly.
  */
-static bool shape_is(const struct c33_form *f, const char *s)
-{
-	return strcmp(f->shape, s) == 0;
-}
+/*
+ * Shapes are interned to integers by the table generator (enum c33_shape).
+ * This used to strcmp against the shape string, which profiled as the
+ * single hottest thing in the interpreter: forms are tested as an if/else
+ * chain, so a common instruction like ld.w walked several string compares
+ * on every execution.
+ */
 
 /*
  * Reset clears the whole struct, not a hand-maintained list of fields.
@@ -482,7 +504,34 @@ void c33_step(struct c33 *c)
 	}
 
 	c->cur_pc = at;
-	uint16_t insn = (uint16_t)rd(c, at, 2);
+
+	/*
+	 * Fetch fast path.
+	 *
+	 * The generic path is an indirect call into mem_read followed by a
+	 * search of the memory map, for every instruction. Caching the region
+	 * the PC currently sits in turns the common case into a bounds check
+	 * and a load. The cache holds a pointer into the same buffer rather
+	 * than a copy, so writes through the bus stay visible.
+	 */
+	uint16_t insn;
+	if (at >= c->fetch_lo && at + 2 <= c->fetch_hi) {
+		memcpy(&insn, c->fetch_ptr + (at - c->fetch_lo), 2);
+	} else if (c->bus.region) {
+		uint32_t base, len;
+		uint8_t *p = c->bus.region(c->bus.ctx, at, &base, &len);
+		if (p && at + 2 <= base + len) {
+			c->fetch_ptr = p;
+			c->fetch_lo  = base;
+			c->fetch_hi  = base + len;
+			memcpy(&insn, p + (at - base), 2);
+		} else {
+			insn = (uint16_t)rd(c, at, 2);
+		}
+	} else {
+		insn = (uint16_t)rd(c, at, 2);
+	}
+	c->last_insn = insn;
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
 	uint8_t op = f->op;
 	if (c->profile)
@@ -506,7 +555,7 @@ void c33_step(struct c33 *c)
 
 	/* ---- ext prefix ------------------------------------------------ */
 	case OP_EXT:
-		if (shape_is(f, "#")) {
+		if ((f->shape_id == SHAPE_I)) {
 			if (c->n_ext < 2) {
 				c->ext[c->n_ext++] = (uint32_t)a;
 			} else {
@@ -544,31 +593,31 @@ void c33_step(struct c33 *c)
 
 	/* ---- moves and loads ------------------------------------------- */
 	case OP_LD_W:
-		if (shape_is(f, "%r#,#")) {                    /* immediate */
+		if ((f->shape_id == SHAPE_R_I)) {                    /* immediate */
 			c->r[a] = imm_ext_s(c, (uint32_t)b, f->f[1].width);
-		} else if (shape_is(f, "%r#,%r#")) {
+		} else if ((f->shape_id == SHAPE_R_R)) {
 			c->r[a] = c->r[b];
-		} else if (shape_is(f, "%r#,[%r#]")) {
+		} else if ((f->shape_id == SHAPE_R_LRB)) {
 			/* an ext prefix turns [%rs] into [%rs+imm] */
 			c->r[a] = rd(c, c->r[b] + imm_ext(c, 0, 0), 4);
-		} else if (shape_is(f, "%r#,[%r#]+")) {
+		} else if ((f->shape_id == SHAPE_R_LRBP)) {
 			c->r[a] = rd(c, c->r[b], 4);
 			c->r[b] += 4;
-		} else if (shape_is(f, "[%r#],%r#")) {
+		} else if ((f->shape_id == SHAPE_LRB_R)) {
 			wr(c, c->r[a] + imm_ext(c, 0, 0), 4, c->r[b]);
-		} else if (shape_is(f, "[%r#]+,%r#")) {
+		} else if ((f->shape_id == SHAPE_LRBP_R)) {
 			wr(c, c->r[a], 4, c->r[b]);
 			c->r[a] += 4;
-		} else if (shape_is(f, "%r#,[%sp+#]")) {
+		} else if ((f->shape_id == SHAPE_R_LSPPIB)) {
 			c->r[a] = rd(c, c->sr[SR_SP] +
 				     sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
-		} else if (shape_is(f, "[%sp+#],%r#")) {
+		} else if ((f->shape_id == SHAPE_LSPPIB_R)) {
 			wr(c, c->sr[SR_SP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
-		} else if (shape_is(f, "%r#,[%dp+#]")) {
+		} else if ((f->shape_id == SHAPE_R_LDPPIB)) {
 			c->r[a] = rd(c, c->sr[SR_DP] +
 				     sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
-		} else if (shape_is(f, "[%dp+#],%r#")) {
+		} else if ((f->shape_id == SHAPE_LDPPIB_R)) {
 			wr(c, c->sr[SR_DP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
 		} else if (f->shape[0] == '%' && strncmp(f->shape, "%r#", 3) != 0) {
@@ -589,28 +638,28 @@ void c33_step(struct c33 *c)
 	case OP_LD_UH: {
 		unsigned sz = (op == OP_LD_B || op == OP_LD_UB) ? 1 : 2;
 		bool sext = (op == OP_LD_B || op == OP_LD_H);
-		if (shape_is(f, "%r#,%r#")) {
+		if ((f->shape_id == SHAPE_R_R)) {
 			/* register-to-register: narrow then extend, no memory */
 			uint32_t v = c->r[b] & (sz == 1 ? 0xffu : 0xffffu);
 			if (sext)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
 			c->r[a] = v;
-		} else if (shape_is(f, "%r#,[%r#]") || shape_is(f, "%r#,[%r#]+")) {
-			uint32_t off = shape_is(f, "%r#,[%r#]") ? imm_ext(c, 0, 0) : 0;
+		} else if ((f->shape_id == SHAPE_R_LRB) || (f->shape_id == SHAPE_R_LRBP)) {
+			uint32_t off = (f->shape_id == SHAPE_R_LRB) ? imm_ext(c, 0, 0) : 0;
 			uint32_t v = rd(c, c->r[b] + off, sz);
 			if (sext)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
 			c->r[a] = v;
-			if (shape_is(f, "%r#,[%r#]+"))
+			if ((f->shape_id == SHAPE_R_LRBP))
 				c->r[b] += sz;
-		} else if (shape_is(f, "[%r#],%r#") || shape_is(f, "[%r#]+,%r#")) {
-			uint32_t off = shape_is(f, "[%r#],%r#") ? imm_ext(c, 0, 0) : 0;
+		} else if ((f->shape_id == SHAPE_LRB_R) || (f->shape_id == SHAPE_LRBP_R)) {
+			uint32_t off = (f->shape_id == SHAPE_LRB_R) ? imm_ext(c, 0, 0) : 0;
 			wr(c, c->r[a] + off, sz, c->r[b]);
-			if (shape_is(f, "[%r#]+,%r#"))
+			if ((f->shape_id == SHAPE_LRBP_R))
 				c->r[a] += sz;
-		} else if (shape_is(f, "%r#,[%sp+#]")) {
+		} else if ((f->shape_id == SHAPE_R_LSPPIB)) {
 			uint32_t v = rd(c, c->sr[SR_SP] +
 					sp_disp(c, (uint32_t)b, f->f[1].width, sz),
 					sz);
@@ -618,7 +667,7 @@ void c33_step(struct c33 *c)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
 			c->r[a] = v;
-		} else if (shape_is(f, "[%sp+#],%r#")) {
+		} else if ((f->shape_id == SHAPE_LSPPIB_R)) {
 			wr(c, c->sr[SR_SP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, sz), sz, c->r[b]);
 		} else {
@@ -629,7 +678,7 @@ void c33_step(struct c33 *c)
 
 	/* ---- arithmetic ------------------------------------------------- */
 	case OP_ADD:
-		if (shape_is(f, "%r#,%r#")) {
+		if ((f->shape_id == SHAPE_R_R)) {
 			if (c->n_ext) {
 				/*
 				 * An ext prefix on a register-register form
@@ -649,7 +698,7 @@ void c33_step(struct c33 *c)
 			uint64_t s = (uint64_t)c->r[a] + c->r[b];
 			set_add_flags(c, c->r[a], c->r[b], s);
 			c->r[a] = (uint32_t)s;
-		} else if (shape_is(f, "%r#,#")) {
+		} else if ((f->shape_id == SHAPE_R_I)) {
 			/* add/sub zero-extend: the assembler picks the opposite
 			 * mnemonic rather than a negative immediate. Measured
 			 * over 56 sites in grifo.elf + the arithmetic test. */
@@ -657,11 +706,11 @@ void c33_step(struct c33 *c)
 			uint64_t s = (uint64_t)c->r[a] + i;
 			set_add_flags(c, c->r[a], i, s);
 			c->r[a] = (uint32_t)s;
-		} else if (shape_is(f, "%sp,#")) {
+		} else if ((f->shape_id == SHAPE_SP_I)) {
 			/* imm10 counts words: SP must stay 4-aligned for popn
 			 * and ld.w [%sp+n]. objdump prints the raw field. */
 			c->sr[SR_SP] += imm_ext(c, (uint32_t)a, f->f[0].width) * 4;
-		} else if (shape_is(f, "%r#,%dp")) {
+		} else if ((f->shape_id == SHAPE_R_DP)) {
 			c->r[a] += c->sr[SR_DP];
 		} else {
 			fault(c, "unhandled add form");
@@ -669,14 +718,14 @@ void c33_step(struct c33 *c)
 		break;
 
 	case OP_SUB:
-		if (shape_is(f, "%r#,%r#")) {
+		if ((f->shape_id == SHAPE_R_R)) {
 			set_sub_flags(c, c->r[a], c->r[b]);
 			c->r[a] -= c->r[b];
-		} else if (shape_is(f, "%r#,#")) {
+		} else if ((f->shape_id == SHAPE_R_I)) {
 			uint32_t i = imm_ext(c, (uint32_t)b, f->f[1].width);
 			set_sub_flags(c, c->r[a], i);
 			c->r[a] -= i;
-		} else if (shape_is(f, "%sp,#")) {
+		} else if ((f->shape_id == SHAPE_SP_I)) {
 			c->sr[SR_SP] -= imm_ext(c, (uint32_t)a, f->f[0].width) * 4;
 		} else {
 			fault(c, "unhandled sub form");
@@ -684,9 +733,9 @@ void c33_step(struct c33 *c)
 		break;
 
 	case OP_CMP:
-		if (shape_is(f, "%r#,%r#"))
+		if ((f->shape_id == SHAPE_R_R))
 			set_sub_flags(c, c->r[a], c->r[b]);
-		else if (shape_is(f, "%r#,#"))
+		else if ((f->shape_id == SHAPE_R_I))
 			set_sub_flags(c, c->r[a],
 				      imm_ext_s(c, (uint32_t)b, f->f[1].width));
 		else
@@ -697,9 +746,9 @@ void c33_step(struct c33 *c)
 	case OP_OR:
 	case OP_XOR: {
 		uint32_t rhs;
-		if (shape_is(f, "%r#,%r#"))
+		if ((f->shape_id == SHAPE_R_R))
 			rhs = c->r[b];
-		else if (shape_is(f, "%r#,#"))
+		else if ((f->shape_id == SHAPE_R_I))
 			rhs = imm_ext_s(c, (uint32_t)b, f->f[1].width);
 		else { fault(c, "unhandled logic form"); break; }
 		c->r[a] = op == OP_AND ? (c->r[a] & rhs)
@@ -710,9 +759,9 @@ void c33_step(struct c33 *c)
 	}
 
 	case OP_NOT:
-		if (shape_is(f, "%r#,%r#"))
+		if ((f->shape_id == SHAPE_R_R))
 			c->r[a] = ~c->r[b];
-		else if (shape_is(f, "%r#,#"))
+		else if ((f->shape_id == SHAPE_R_I))
 			c->r[a] = ~imm_ext_s(c, (uint32_t)b, f->f[1].width);
 		else { fault(c, "unhandled not form"); break; }
 		set_nz_clrv(c, c->r[a]);
@@ -725,7 +774,7 @@ void c33_step(struct c33 *c)
 	case OP_SLA:
 	case OP_RL:
 	case OP_RR: {
-		uint32_t n = shape_is(f, "%r#,%r#") ? (c->r[b] & 31)
+		uint32_t n = (f->shape_id == SHAPE_R_R) ? (c->r[b] & 31)
 						    : ((uint32_t)b & 31);
 		uint32_t v = c->r[a];
 		switch (op) {
@@ -786,7 +835,7 @@ void c33_step(struct c33 *c)
 	case OP_JP:
 	case OP_JP_D: {
 		uint32_t target;
-		if (shape_is(f, "%r#")) {
+		if ((f->shape_id == SHAPE_R)) {
 			target = c->r[a];
 			c->n_ext = 0;
 		} else {
