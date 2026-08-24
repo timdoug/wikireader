@@ -81,31 +81,24 @@
 
 ;; Return true if OP is a valid call operand.
 
+;; A symbol is always a valid call target: scall reaches +/-4MB and xcall the
+;; whole address space, so -mlong-calls picks a wider instruction rather than
+;; forcing the address into a register the way the V850 had to.
 (define_predicate "call_address_operand"
   (match_code "reg,symbol_ref")
 {
-  /* Only registers are valid call operands if TARGET_LONG_CALLS.  */
-  if (TARGET_LONG_CALLS)
-    return GET_CODE (op) == REG;
   return (GET_CODE (op) == SYMBOL_REF || GET_CODE (op) == REG);
 })
 
 ;; Return true if OP is a valid source operand for SImode move.
 
+;; Every constant is directly loadable: xld.w %rd,imm32 covers the whole
+;; 32-bit range with two ext prefixes, so unlike the V850 there is nothing
+;; here that has to be split into HIGH and LO_SUM first.
 (define_predicate "movsi_source_operand"
-  (match_code "label_ref,symbol_ref,const_int,const_double,const,high,mem,reg,subreg")
+  (match_code "label_ref,symbol_ref,const_int,const_double,const,mem,reg,subreg")
 {
-  /* Some constants, as well as symbolic operands
-     must be done with HIGH & LO_SUM patterns.  */
-  if (CONSTANT_P (op)
-      && GET_CODE (op) != HIGH
-      && !(GET_CODE (op) == CONST_INT
-           && (CONST_OK_FOR_J (INTVAL (op))
-               || CONST_OK_FOR_K (INTVAL (op))
-               || CONST_OK_FOR_L (INTVAL (op)))))
-    return special_symbolref_operand (op, mode);
-  else
-    return general_operand (op, mode);
+  return general_operand (op, mode);
 })
 
 ;; Return true if OP is a valid operand for 23 bit displacement

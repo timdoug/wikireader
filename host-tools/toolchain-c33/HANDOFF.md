@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | in progress; builds, simple functions correct, calls and stack args ICE |
+| GCC 16.2 backend | in progress; builds, moves/calls/frames emit real C33, arithmetic still V850 |
 
 ### binutils - finished
 
@@ -40,13 +40,18 @@ discarded.
 
 ### GCC - in progress
 
-Builds against GCC 16.2. Compiles arithmetic, pointer dereferences, array
-indexing, local arrays and conditionals. **ICEs in LRA on function calls and
-on incoming stack arguments** - both paths touch the argument area, and the
-symptom is that `.ap` is never eliminated and gets reloaded forever.
+Builds against GCC 16.2. The LRA blocker is fixed and everything we throw at
+it now compiles: calls, incoming stack arguments, frames deeper than a single
+`sub %sp,imm10`, local arrays, conditionals.
 
-`gcc/README.md` has the LRA trace, the hypotheses already ruled out, and where
-to look next.
+Moves, addressing, calls, the prologue/epilogue and register syntax emit
+genuine C33, verified by assembling the output and disassembling it back.
+Arithmetic, logic, shifts, comparisons and branches are still V850 - that is
+the remainder of step 4.
+
+`gcc/README.md` has the detail, including what the LRA bug actually was (a
+missing `SP_REGS`/`BASE_REGS` class pair, not the arg-pointer hypothesis
+recorded here previously).
 
 ## Getting a working tree back
 
@@ -100,10 +105,11 @@ In dependency order. Steps 1-2 are done; see `gcc/README.md` for detail.
 3. **`c33.opt`** - swap in `gcc/c33.opt.planned`, renaming the `TARGET_*`
    masks it drops throughout `c33.cc`/`c33.h`, and delete V850's `e1`/`e2`/
    `e3v5` core variants.
-4. **`c33.md`** - the bulk of the work, and what unblocks the current ICE.
-   C33 mnemonics, `%`-prefixed register syntax, reversed operand order
+4. **`c33.md`** - the bulk of the work. Moves, addressing, calls, the frame
+   and `%`-prefixed register syntax are done; arithmetic, logic, shifts,
+   comparisons and branches are not. Watch the reversed operand order
    (`add %rd,%rs` is `rd += rs`, the opposite of V850's `add reg1,reg2`), and
-   the `ext` forms as separate patterns because their data flow differs
+   keep the `ext` forms as separate patterns because their data flow differs
    (`ext imm13; add %rd,%rs` is `rd = rs + imm13`, *not* `rd += rs`).
 5. **Data areas** - retarget V850's `__gp`-relative addressing to C33's
    `%r15`-relative default data area, with `-medda32` selecting absolute
@@ -132,6 +138,20 @@ them. For correctness, run output under the emulator in `emulator/`.
   a wrong size entry as a result.
 * `%sp` is not a general register on the C33 (regno 16 here), so generic
   `addsi3` on it matches no constraint. It has dedicated `add/sub %sp,imm10`.
+* ...but `%sp` **must** still be in `BASE_REG_CLASS`, because `[%sp+imm6]` is a
+  real address. LRA decides whether an eliminable register may be a base by
+  folding it to its elimination target and testing class membership -
+  `lra_eliminate_reg_if_possible` substitutes `ep->to_rtx` and drops the
+  offset. Leave `%sp` out and `[.ap + N]` is judged invalid, LRA reloads the
+  base, the reload fails the same test, and it recurses to the reload limit.
+  The symptom looks nothing like the cause.
+* A `define_insn` whose predicates match the same shape as a more general one
+  wins recog if it comes first in the file, and then fails constraint
+  checking. Pin hard registers literally - `(reg:SI SP_REGNUM)` - rather than
+  via a `match_operand` with a narrow constraint.
+* V850 patterns name hard registers up to 31. With `FIRST_PSEUDO_REGISTER` at
+  22 those are *pseudo* numbers, and postreload asserts on a CLOBBER of a
+  pseudo. Grep for out-of-range register numbers when porting a pattern.
 * GCC's virtual frame and arg pointers must report `GENERAL_REGS`, even though
   they are not real registers, because they appear in insns until elimination.
 * Several C33 source files contain non-ASCII bytes, so `grep` treats them as

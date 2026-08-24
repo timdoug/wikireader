@@ -340,15 +340,17 @@
 
 enum reg_class
 {
-  NO_REGS, EVEN_REGS, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES
+  NO_REGS, EVEN_REGS, GENERAL_REGS, SP_REGS, BASE_REGS, ALL_REGS,
+  LIM_REG_CLASSES
 };
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
 
 /* Give names of register classes as strings for dump file.  */
 
-#define REG_CLASS_NAMES \
-{ "NO_REGS", "EVEN_REGS", "GENERAL_REGS", "ALL_REGS", "LIM_REGS" }
+#define REG_CLASS_NAMES							\
+{ "NO_REGS", "EVEN_REGS", "GENERAL_REGS", "SP_REGS", "BASE_REGS",	\
+  "ALL_REGS", "LIM_REGS" }
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
@@ -360,13 +362,26 @@ enum reg_class
 
    Keeping it a strict subset is actively harmful: LRA will narrow a reload to
    the smaller class and then be unable to copy the arg pointer (a member of
-   GENERAL_REGS only) into it, and loop until it hits the reload limit.  */
+   GENERAL_REGS only) into it, and loop until it hits the reload limit.
+
+   %sp is architecturally a *system* register on this target, not one of the
+   sixteen general registers, so it gets a class of its own and BASE_REGS is
+   the union.  This is not cosmetic.  BASE_REG_CLASS must contain %sp, because
+   LRA tests whether an eliminable register is a valid base by folding it to
+   its elimination target and asking for class membership -- see
+   lra_eliminate_reg_if_possible, which substitutes ep->to_rtx and drops the
+   offset.  With %sp outside the base class, [.ap + N] is judged an invalid
+   address, LRA reloads the base into a pseudo, the reload itself contains .ap
+   and is judged invalid the same way, and it recurses until it hits the
+   reload limit.  The 3.3.2 backend had exactly these classes.  */
 
 #define REG_CLASS_CONTENTS                     \
 {                                              \
   { 0x00000000 }, /* NO_REGS       */          \
   { 0x0030ffff }, /* EVEN_REGS   = GENERAL_REGS */ \
   { 0x0030ffff }, /* GENERAL_REGS: %r0-%r15 + .fp/.ap */ \
+  { 0x00010000 }, /* SP_REGS:      %sp */      \
+  { 0x0031ffff }, /* BASE_REGS:    GENERAL_REGS + %sp */ \
   { 0x003fffff }, /* ALL_REGS      */          \
 }
 
@@ -377,15 +392,16 @@ enum reg_class
 
 /* The virtual frame and arg pointers must report GENERAL_REGS: they appear
    in ordinary insns until reload eliminates them, so the patterns have to
-   accept them.  Only %sp, %alr, %ahr and CC are genuinely unallocatable.  */
+   accept them.  Only %alr, %ahr and CC are genuinely unallocatable.  */
 #define REGNO_REG_CLASS(REGNO)						\
-  (((REGNO) < 16 || (REGNO) == FRAME_POINTER_REGNUM			\
-    || (REGNO) == ARG_POINTER_REGNUM) ? GENERAL_REGS : NO_REGS)
+  ((REGNO) == STACK_POINTER_REGNUM ? SP_REGS				\
+   : ((REGNO) < 16 || (REGNO) == FRAME_POINTER_REGNUM			\
+      || (REGNO) == ARG_POINTER_REGNUM) ? GENERAL_REGS : NO_REGS)
 
 /* The class value for index registers, and the one for base regs.  */
 
 #define INDEX_REG_CLASS NO_REGS
-#define BASE_REG_CLASS  GENERAL_REGS
+#define BASE_REG_CLASS  BASE_REGS
 
 /* Macros to check register numbers against specific register classes.  */
 
@@ -717,10 +733,20 @@ typedef enum
 /* The assembler spells registers with a leading '%' (core manual 2.9), which
    c33_print_operand emits; these are the bare names.  */
 
-#define REGISTER_NAMES                                         \
-{  "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",      \
-   "r8",  "r9", "r10", "r11", "r12", "r13", "r14", "r15",      \
-   "sp", "alr", "ahr",  "cc", ".fp", ".ap" }
+/* The C33 assembler requires a '%' on every register name -- "add %r4,%r5",
+   not "add r4,r5".  Carrying the prefix in REGISTER_NAMES rather than in each
+   template is what the original toolchain's output looks like, and it means
+   an operand printed with %0 comes out right without per-pattern help.
+
+   REGISTER_PREFIX lets asm() register operands be written either way:
+   strip_reg_name in varasm.cc drops the prefix before matching.  */
+
+#define REGISTER_PREFIX "%"
+
+#define REGISTER_NAMES						\
+{ "%r0",  "%r1",  "%r2",  "%r3",  "%r4",  "%r5",  "%r6",  "%r7", \
+  "%r8",  "%r9", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15", \
+  "%sp", "%alr", "%ahr",  "cc",  ".fp",  ".ap" }
 
 /* Register numbers */
 

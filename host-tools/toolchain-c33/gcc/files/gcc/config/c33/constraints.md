@@ -20,6 +20,16 @@
 (define_register_constraint "e" "EVEN_REGS"
   "@internal")
 
+;; %sp is a system register, not one of %r0-%r15, so it needs its own
+;; constraint: the only instructions that name it are ld.w to/from a general
+;; register, add/sub %sp,imm10, and the [%sp+imm6] addressing forms.
+(define_register_constraint "f" "SP_REGS"
+  "The stack pointer, @code{%sp}.")
+
+;; Anything usable as a memory base: %r0-%r15 or %sp.
+(define_register_constraint "b" "BASE_REGS"
+  "@internal")
+
 ;; Integer constraints.
 (define_constraint "I"
   "Integer constant 0."

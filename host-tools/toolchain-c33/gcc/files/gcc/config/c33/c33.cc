@@ -644,101 +644,40 @@ c33_print_operand (FILE * file, rtx x, int code)
 static void
 c33_print_operand_address (FILE * file, machine_mode /*mode*/, rtx addr)
 {
+  /* Addresses print *without* the surrounding brackets: every template that
+     uses one writes them itself, as "ld.w %0,[%1]".  That is also how the
+     3.3.2 backend did it.  The forms are [%rb], [%rb]+ and [%rb+disp]
+     (core manual 5.5); the assembler supplies whatever ext prefixes the
+     displacement needs.  */
+
   switch (GET_CODE (addr))
     {
     case REG:
-      fprintf (file, "0[");
+    case SUBREG:
       c33_print_operand (file, addr, 0);
-      fprintf (file, "]");
       break;
-    case LO_SUM:
-      if (GET_CODE (XEXP (addr, 0)) == REG)
-	{
-	  /* reg,foo */
-	  fprintf (file, "lo(");
-	  c33_print_operand (file, XEXP (addr, 1), 0);
-	  fprintf (file, ")[");
-	  c33_print_operand (file, XEXP (addr, 0), 0);
-	  fprintf (file, "]");
-	}
+
+    case POST_INC:
+      /* The trailing "+" belongs to the template, which writes "[%1]+".  */
+      c33_print_operand (file, XEXP (addr, 0), 0);
       break;
+
     case PLUS:
-      if (GET_CODE (XEXP (addr, 0)) == REG
-	  || GET_CODE (XEXP (addr, 0)) == SUBREG)
-	{
-	  /* reg,foo */
-	  c33_print_operand (file, XEXP (addr, 1), 0);
-	  fprintf (file, "[");
-	  c33_print_operand (file, XEXP (addr, 0), 0);
-	  fprintf (file, "]");
-	}
-      else
-	{
-	  c33_print_operand (file, XEXP (addr, 0), 0);
-	  fprintf (file, "+");
-	  c33_print_operand (file, XEXP (addr, 1), 0);
-	}
-      break;
-    case SYMBOL_REF:
       {
-        const char *off_name = NULL;
-        const char *reg_name = NULL;
+	rtx base = XEXP (addr, 0);
+	rtx off = XEXP (addr, 1);
 
-	if (SYMBOL_REF_ZDA_P (addr))
-          {
-            off_name = "zdaoff";
-            reg_name = "r0";
-          }
-        else if (SYMBOL_REF_SDA_P (addr))
-          {
-            off_name = "sdaoff";
-            reg_name = "gp";
-          }
-        else if (SYMBOL_REF_TDA_P (addr))
-          {
-            off_name = "tdaoff";
-            reg_name = "ep";
-          }
+	/* Canonical form is (plus reg disp), but accept the reverse.  */
+	if (CONST_INT_P (base))
+	  std::swap (base, off);
 
-	if (off_name)
-          fprintf (file, "%s(", off_name);
-        output_addr_const (file, addr);
-	if (reg_name)
-          fprintf (file, ")[%s]", reg_name);
+	c33_print_operand (file, base, 0);
+	if (!CONST_INT_P (off) || INTVAL (off) >= 0)
+	  fprintf (file, "+");
+	c33_print_operand (file, off, 0);
       }
       break;
-    case CONST:
-      if (special_symbolref_operand (addr, VOIDmode))
-        {
-	  rtx x = XEXP (XEXP (addr, 0), 0);
-          const char *off_name;
-          const char *reg_name;
 
-          if (SYMBOL_REF_ZDA_P (x))
-            {
-              off_name = "zdaoff";
-              reg_name = "r0";
-            }
-          else if (SYMBOL_REF_SDA_P (x))
-            {
-              off_name = "sdaoff";
-              reg_name = "gp";
-            }
-          else if (SYMBOL_REF_TDA_P (x))
-            {
-              off_name = "tdaoff";
-              reg_name = "ep";
-            }
-          else
-            gcc_unreachable ();
-
-          fprintf (file, "%s(", off_name);
-          output_addr_const (file, addr);
-          fprintf (file, ")[%s]", reg_name);
-        }
-      else
-        output_addr_const (file, addr);
-      break;
     default:
       output_addr_const (file, addr);
       break;
@@ -794,92 +733,63 @@ output_move_single (rtx * operands)
   rtx dst = operands[0];
   rtx src = operands[1];
 
+  /* The C33 has one move instruction, ld, in a size suffixed form: ld.w,
+     ld.h, ld.b and the unsigned ld.uh/ld.ub (core manual 5.5).  Destination
+     comes first, so a register copy is "ld.w %rd,%rs" -- the reverse of the
+     V850's "mov %rs,%rd".
+
+     The x-prefixed spelling (xld.w) tells the assembler it may emit ext
+     prefixes, which is how a 32-bit immediate or a displaced address is
+     reached.  We use it wherever the operand is not provably short; the
+     assembler picks the narrowest encoding that works.  */
+
   if (REG_P (dst))
     {
       if (REG_P (src))
-	return "mov %1,%0";
+	return "ld%W0\t%0,%1";
 
-      else if (GET_CODE (src) == CONST_INT)
+      if (CONST_INT_P (src))
+	return "xld.w\t%0,%1";
+
+      if (GET_CODE (src) == CONST_DOUBLE && GET_MODE (src) == SFmode)
+	return "xld.w\t%0,%F1";
+
+      if (MEM_P (src))
 	{
-	  HOST_WIDE_INT value = INTVAL (src);
+	  rtx addr = XEXP (src, 0);
 
-	  if (CONST_OK_FOR_J (value))		/* Signed 5-bit immediate.  */
-	    return "mov %1,%0";
-
-	  else if (CONST_OK_FOR_K (value))	/* Signed 16-bit immediate.  */
-	    return "movea %1,%.,%0";
-
-	  else if (CONST_OK_FOR_L (value))	/* Upper 16 bits were set.  */
-	    return "movhi hi0(%1),%.,%0";
-
-	  /* A random constant.  */
-	  else if (TARGET_C33E_UP)
-	      return "mov %1,%0";
-	  else
-	    return "movhi hi(%1),%.,%0\n\tmovea lo(%1),%0,%0";
+	  if (GET_CODE (addr) == POST_INC)
+	    return "ld%W1\t%0,[%1]+";
+	  if (REG_P (addr) || SUBREG_P (addr))
+	    return "ld%W1\t%0,[%1]";
+	  /* base+displacement, or an absolute address.  */
+	  return "xld%W1\t%0,[%1]";
 	}
 
-      else if (GET_CODE (src) == CONST_DOUBLE && GET_MODE (src) == SFmode)
-	{
-	  HOST_WIDE_INT high, low;
-
-	  const_double_split (src, &high, &low);
-
-	  if (CONST_OK_FOR_J (high))		/* Signed 5-bit immediate.  */
-	    return "mov %F1,%0";
-
-	  else if (CONST_OK_FOR_K (high))	/* Signed 16-bit immediate.  */
-	    return "movea %F1,%.,%0";
-
-	  else if (CONST_OK_FOR_L (high))	/* Upper 16 bits were set.  */
-	    return "movhi hi0(%F1),%.,%0";
-
-	  /* A random constant.  */
-	else if (TARGET_C33E_UP)
-	      return "mov %F1,%0";
-
-	  else
-	    return "movhi hi(%F1),%.,%0\n\tmovea lo(%F1),%0,%0";
-	}
-
-      else if (GET_CODE (src) == MEM)
-	return "%S1ld%W1 %1,%0";
-
-      else if (special_symbolref_operand (src, VOIDmode))
-	return "movea %O1(%P1),%Q1,%0";
-
-      else if (GET_CODE (src) == LABEL_REF
-	       || GET_CODE (src) == SYMBOL_REF
-	       || GET_CODE (src) == CONST)
-	{
-	  if (TARGET_C33E_UP)
-	    return "mov hilo(%1),%0";
-	  else
-	    return "movhi hi(%1),%.,%0\n\tmovea lo(%1),%0,%0";
-	}
-
-      else if (GET_CODE (src) == HIGH)
-	return "movhi hi(%1),%.,%0";
-
-      else if (GET_CODE (src) == LO_SUM)
-	{
-	  operands[2] = XEXP (src, 0);
-	  operands[3] = XEXP (src, 1);
-	  return "movea lo(%3),%2,%0";
-	}
+      if (GET_CODE (src) == LABEL_REF
+	  || GET_CODE (src) == SYMBOL_REF
+	  || GET_CODE (src) == CONST)
+	/* XXX Taking the address of a symbol.  This is correct only with
+	   -medda32; the %r15-relative default data area form belongs to the
+	   data-area work (step 5 in README.md), which has to decide between
+	   "ext doff_hi(sym); ext doff_lo(sym); add %rd,%r15" and this.  */
+	return "xld.w\t%0,%1";
     }
-
-  else if (GET_CODE (dst) == MEM)
+  else if (MEM_P (dst))
     {
+      rtx addr = XEXP (dst, 0);
+
       if (REG_P (src))
-	return "%S0st%W0 %1,%0";
+	{
+	  if (GET_CODE (addr) == POST_INC)
+	    return "ld%W0\t[%0]+,%1";
+	  if (REG_P (addr) || SUBREG_P (addr))
+	    return "ld%W0\t[%0],%1";
+	  return "xld%W0\t[%0],%1";
+	}
 
-      else if (GET_CODE (src) == CONST_INT && INTVAL (src) == 0)
-	return "%S0st%W0 %.,%0";
-
-      else if (GET_CODE (src) == CONST_DOUBLE
-	       && CONST0_RTX (GET_MODE (dst)) == src)
-	return "%S0st%W0 %.,%0";
+      /* There is no hardwired zero register, so a store of 0 has to go
+	 through a register; the movsi expander forces that.  */
     }
 
   fatal_insn ("output_move_single:", gen_rtx_SET (dst, src));
@@ -1422,13 +1332,10 @@ c33_adjust_sp (HOST_WIDE_INT delta, bool frame_related)
       && (delta & 3) == 0)
     insn = emit_insn (gen_add_sp_imm (GEN_INT (delta)));
   else
-    {
-      /* %r14 is call-clobbered and, at prologue/epilogue time, dead.  */
-      rtx scratch = gen_rtx_REG (Pmode, 14);
-
-      emit_move_insn (scratch, GEN_INT (delta));
-      insn = emit_insn (gen_add_sp_reg (scratch));
-    }
+    /* Out of reach of add/sub %sp,imm10, which cannot be ext-extended.  Go
+       through %r14, which is call-clobbered and dead at prologue/epilogue
+       time; the pattern clobbers it explicitly.  */
+    insn = emit_insn (gen_add_sp_big (GEN_INT (delta)));
 
   if (frame_related)
     {
@@ -1500,8 +1407,12 @@ expand_epilogue (void)
     emit_insn (gen_popn (GEN_INT (highest)));
 
   /* ret pops the return address that call pushed (core manual 2.4.4);
-     there is no link register to jump through.  */
-  emit_jump_insn (gen_return_internal ());
+     there is no link register to jump through.  An interrupt pushed PSR as
+     well, so a handler has to leave through reti instead.  */
+  if (c33_interrupt_function_p (current_function_decl))
+    emit_jump_insn (gen_return_interrupt ());
+  else
+    emit_jump_insn (gen_return_internal ());
 }
 
 /* Typical stack layout should looks like this after the function's prologue:

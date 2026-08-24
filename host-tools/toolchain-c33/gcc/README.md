@@ -3,23 +3,24 @@
 Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
 this is being written against.
 
-## Status: builds; leaf functions correct, framed functions ICE
+## Status: builds; moves, calls and stack frames are real C33 code
 
-`cc1` builds clean, and **leaf functions now compile to correct C33 code**:
+`cc1` builds clean and the LRA blocker is gone. Everything in the test suite
+below compiles, including calls, incoming stack arguments and frames too deep
+for a single `sub %sp,imm10`:
 
 ```
-add3:                     mul3:
-	add r7,r6         	mov r6,r4
-	mov r6,r4         	shl 1,r4
-	add r8,r4         	add r6,r4
-	ret               	ret
+callit:                 arg5:                   bigframe:
+	xcall	g               xld.w	%r4,[%sp+4]         ld.w	%r14,%sp
+	add 1,%r4               ret                     xsub	%r14,8000
+	ret                                             ld.w	%sp,%r14
+                                                        ...
 ```
 
-Right ABI (`%r4` return, args in `%r6`+), right return (`ret`, no link
-register), no leading underscore, correct `.size`. The mnemonics and register
-syntax are still V850 - that is the `.md` rewrite, step 4.
-
-Quite a lot compiles:
+The move, addressing and call machinery now emits genuine C33, and it
+assembles and disassembles back to what we meant. Arithmetic, shifts,
+comparisons and branches are still V850 -- `add 1,%r4` above should be
+`add %r4,1` -- which is the rest of step 4.
 
 | Test | |
 |---|---|
@@ -29,52 +30,79 @@ Quite a lot compiles:
 | `int f(int *p,int i){return p[i];}` | OK |
 | `int f(int a){int x[2]; x[0]=a; return x[0];}` | OK |
 | `int f(int a){return a<0?-a:a;}` | OK |
-| `int f(int a,int b,int c,int d,int e){return e;}` | **ICE** |
-| `extern int g(int); int f(int a){return g(a)+1;}` | **ICE** |
+| `int f(int a,int b,int c,int d,int e){return e;}` | OK |
+| `extern int g(int); int f(int a){return g(a)+1;}` | OK |
+| `int f(int a,...6 args...){return sum;}` | OK |
+| `int f(int a){volatile char buf[8000]; ...}` | OK |
 
-### The open bug
+### The LRA bug, and what it actually was
 
-Both failures involve the *argument area* - reading incoming stack argument 5,
-and making a call. Both die in LRA with
+The previous note here guessed that the arg pointer was being forced into a
+pseudo during expand. It was not. The real cause was a missing register
+class.
 
-```
-maximum number of generated reload insns per insn achieved (90)
-```
+`%sp` is architecturally a *system* register on the C33, not one of `%r0`-`%r15`,
+so this port had left it out of `GENERAL_REGS` -- and `BASE_REG_CLASS` was
+`GENERAL_REGS`. But `[%sp+imm6]` is a perfectly good address, and LRA decides
+whether an eliminable register may be a base by folding it to its elimination
+target and asking for class membership: `in_class_p` calls
+`lra_eliminate_reg_if_possible`, which substitutes `ep->to_rtx` and **drops the
+offset**. So the question LRA asked about `[.ap + 4]` was "is `%sp` in the base
+class?", the answer was no, and it reloaded the base into a pseudo. The reload
+insn `r36 = .ap` then failed the same test for the same reason, and it recursed
+until it hit the 90-reload limit.
 
-The LRA dump shows why. The insn that matters is
+The 3.3.2 backend had this right: a `SP_REGS` class holding just `%sp`, and
+`BASE_REGS` as the union with `GENERAL_REGS`. That structure is now restored,
+along with the `f` (`SP_REGS`) and `b` (`BASE_REGS`) constraint letters.
 
-```
-(set (reg r4) (mem (plus (reg 36) (const_int 4))))     ; load arg 5
-```
+Moving `%sp` needs instructions too, and they exist: `ld.w %rd,%sp` and
+`ld.w %sp,%rs` are the special-register forms (`RD,SS` and `SD,RS2`), two
+bytes each. They are alternatives of `*movsi_internal` rather than separate
+patterns -- as separate patterns with `match_operand` predicates they had the
+same shape as any register move, won recog for every reg-to-reg copy, and then
+failed constraint checking.
 
-where pseudo 36 holds the **arg pointer**. LRA never eliminates `.ap`; instead
-it repeatedly reloads it:
+### Done since
 
-```
-Choosing alt 0 in insn 89:  (0) =r  (1) Jr
-Creating newreg=107 from oldreg=21, assigning class EVEN_REGS to r107
-  89: r106:SI = r107:SI
-  Inserting insn reload before:
-  90: r107:SI = .ap:SI          <- needs its own reload, and so on
-```
+* **Register classes**: `SP_REGS` and `BASE_REGS` added, `BASE_REG_CLASS` is
+  now `BASE_REGS`, `REGNO_REG_CLASS` reports `SP_REGS` for `%sp`.
+* **Register names carry the `%` prefix**, as the C33 assembler requires.
+  `REGISTER_PREFIX` is defined so `asm()` operands may be written either way.
+* **`output_move_single` rewritten** for the C33's single suffixed `ld`
+  instruction: destination first, `ld.w %rd,%rs` for a copy, `[%rb]`,
+  `[%rb]+` and `[%rb+disp]` for memory, `xld.w` where the operand may need
+  `ext` prefixes. The V850's `mov`/`movea`/`movhi`/`st` are gone, as is the
+  `%.` zero register, which this target does not have.
+* **`c33_print_operand_address` rewritten**: `%sp+4`, not `4[sp]`. Brackets
+  belong to the template, matching the 3.3.2 backend.
+* **No more HIGH/LO_SUM splitting.** `xld.w %rd,imm32` takes the whole 32-bit
+  range, so `movsi_source_operand` is just `general_operand` now.
+* **Call patterns rewritten**: `scall`/`xcall` for a symbol, `call %rb`
+  indirect, and no clobber -- the C33 pushes the return address on the stack,
+  and V850's `(clobber (reg:SI 31))` named a *pseudo* here, which postreload
+  rejects outright. `-mlong-calls` now selects the wider instruction instead
+  of forcing the address into a register.
+* **Frames deeper than 4092 bytes** go through `add_sp_big`, which is
+  `ld.w %r14,%sp` / `xadd %r14,n` / `ld.w %sp,%r14`. The previous
+  `add_sp_reg` emitted `add %rN,%sp`, which is not an instruction.
+* **V850 interrupt machinery deleted** (~290 lines): `callt_save_interrupt`,
+  `save_all_interrupt` and the rest were for its `ep`/`gp`/`callt` model and
+  its 32 registers, named registers that do not exist here, and were
+  unreachable -- nothing in `c33.cc` ever generated them. Replaced with a
+  `reti` pattern, which the epilogue now uses for interrupt handlers.
 
-Ruled out so far, each tested and reverted or kept on its own merits:
+### Still V850, and next
 
-* **not** `TARGET_CAN_ELIMINATE` - forcing it to return `true` unconditionally
-  changes nothing.
-* **not** the `Q`/`ep_memory_operand` constraint - disabling it entirely
-  (see below) changes nothing.
-* **not** the arg-pointer elimination offset, though that *was* genuinely
-  wrong and is now fixed (it was missing the return-address word).
-* **not** `EVEN_REGS` being a strict subset, though that too was a real bug
-  and is fixed.
+Arithmetic, logic, shifts, comparisons and branches. The operand order is the
+thing to watch: C33 `add %rd,%rs` is `rd += rs`, the reverse of V850's
+`add reg1,reg2`, and the immediate forms are `add %rd,imm` rather than
+`add imm,%rd`. From `ABI.md`, extended register-to-register ops have
+*different data flow* -- `ext imm13; add %rd,%rs` is `rd = rs + imm13`, not
+`rd += rs` -- so they cannot be a length variant of the register form.
 
-The remaining suspicion is that `.ap` is reaching constraint matching at all -
-in a working port it should be eliminated to `%sp`/`%r3` plus a constant before
-LRA starts picking alternatives. Worth checking `c33.md`'s `movsi_source_operand`
-and the `addsi3` expander next: if the arg pointer gets forced into a pseudo
-during expand (rather than left as `(plus (.ap) const)` for elimination to
-fold), that would produce exactly this.
+Also still V850: `negsi2` emits `subr %r0,%0`, which assumes a hardwired zero
+register this target does not have.
 
 ### Done so far
 
@@ -195,14 +223,16 @@ Two files GCC needs that are easy to forget, because they live outside
 3. **`c33.opt`.** Swap in the option set drafted in `c33.opt.planned`, renaming
    the `TARGET_*` masks it removes throughout `c33.cc`/`c33.h`. Delete V850's
    `e1`/`e2`/`e3v5` core variants.
-4. **`c33.md` - the current blocker, and the bulk of the remaining work.**
-   C33 mnemonics and operand order (`add %rd,%rs` is `rd += rs`, the reverse
-   of V850's `add reg1,reg2`), `%`-prefixed register syntax, and the `ext`
-   prefix forms as separate patterns. This is also what has to happen before
-   framed functions stop ICEing in reload. Note from `ABI.md` that extended register-to-register
-   ops have *different data flow* (`ext imm13; add %rd,%rs` is
-   `rd = rs + imm13`, not `rd += rs`), so they cannot be a length variant of
-   the register form.
+4. **`c33.md` - the bulk of the remaining work.** Moves, addressing, calls,
+   the frame and `%`-prefixed register syntax are done. What is left is
+   arithmetic, logic, shifts, comparisons and branches: C33 mnemonics and
+   operand order (`add %rd,%rs` is `rd += rs`, the reverse of V850's
+   `add reg1,reg2`; immediates are `add %rd,imm`, not `add imm,%rd`), and the
+   `ext` prefix forms as separate patterns. Note from `ABI.md` that extended
+   register-to-register ops have *different data flow* (`ext imm13;
+   add %rd,%rs` is `rd = rs + imm13`, not `rd += rs`), so they cannot be a
+   length variant of the register form. `negsi2` still emits `subr %r0,%0`,
+   which assumes a hardwired zero register this target does not have.
 5. **Data areas.** Retarget V850's `__gp`-relative addressing to C33's
    `%r15`-relative default data area, with `-medda32` selecting absolute
    addressing instead.
