@@ -446,7 +446,27 @@ void c33_step(struct c33 *c)
 	if (c->halted)
 		return;
 
-	if (c->irq_pending && (c->sr[SR_PSR] & PSR_IE) && !c->delay_pending)
+	/*
+	 * An interrupt must not be taken part-way through an ext sequence.
+	 *
+	 *   "For exceptions associated with ext instructions, exception
+	 *    handling is started immediately for reset and debug break, but is
+	 *    not started for other exceptions until after the target
+	 *    instruction to be extended is executed."
+	 *                              (C33 PE Core manual, 5.6.3)
+	 *
+	 * Taking one mid-sequence discards the prefixes already seen, so the
+	 * target instruction computes a truncated immediate, and the leftover
+	 * state leaks into the handler's first instruction. That is not
+	 * theoretical: a touch interrupt landing between the two prefixes of
+	 *
+	 *     ext 0x200 ; ext 0x353 ; ld.w %r0,0x2c   -> 0x1000d4ec
+	 *
+	 * in grifo's syscall return made it load from 0xd4ec instead, which
+	 * read as zero and sent an indirect ret to address 0.
+	 */
+	if (c->irq_pending && (c->sr[SR_PSR] & PSR_IE) &&
+	    !c->delay_pending && !c->n_ext)
 		take_irq(c);
 
 	uint32_t at = c->pc;

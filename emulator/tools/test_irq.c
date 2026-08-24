@@ -121,6 +121,54 @@ int main(void)
 	c33_step(&d);
 	check("IE=0 blocks even the highest priority", d.irqs_taken == 0, 1);
 
+	/*
+	 * An interrupt must not be taken part-way through an ext sequence.
+	 * "exception handling ... is not started for other exceptions until
+	 * after the target instruction to be extended is executed"
+	 * (C33 PE Core manual, 5.6.3).
+	 *
+	 * The regression: grifo's syscall return does
+	 *     ext 0x200 ; ext 0x353 ; ld.w %r0,0x2c
+	 * which composes 0x1000d4ec. A touch interrupt landing between the
+	 * two prefixes dropped the first one, the load came from 0xd4ec,
+	 * read as zero, and an indirect ret went to address 0.
+	 */
+	{
+		struct c33 e;
+		memset(&e, 0, sizeof e);
+		e.bus.read = tr; e.bus.write = tw;
+		c33_reset(&e, ENTRY);
+		e.sr[SR_TTBR] = TTBR;
+		e.sr[SR_SP] = 0x10000;
+		e.sr[SR_PSR] = PSR_IE;
+		tw(NULL, TTBR + VECTOR * 4, 4, HANDLER);
+
+		/* ext 0x200 ; ext 0x353 ; ld.w %r0,0x2c */
+		tw(NULL, ENTRY + 0, 2, 0xc200);
+		tw(NULL, ENTRY + 2, 2, 0xc353);
+		tw(NULL, ENTRY + 4, 2, 0x6ec0);
+
+		c33_step(&e);                     /* first ext */
+		check("one ext pending after the first prefix", e.n_ext, 1);
+
+		/* Interrupt arrives mid-sequence, at the worst moment. */
+		c33_raise_irq(&e, VECTOR, 7);
+		c33_step(&e);                     /* second ext */
+		check("interrupt deferred during an ext sequence",
+		      e.irqs_taken, 0);
+		check("it stays pending", e.irq_pending, 1);
+		check("both prefixes survive", e.n_ext, 2);
+
+		c33_step(&e);                     /* the target instruction */
+		check("target composed the full 32-bit immediate",
+		      e.r[0] == 0x1000d4ec, 1);
+		check("prefix state cleared after the target", e.n_ext, 0);
+
+		c33_step(&e);                     /* now the interrupt lands */
+		check("interrupt taken once the sequence completed",
+		      e.irqs_taken, 1);
+	}
+
 	printf("\n%s\n", fails ? "FAILURES" : "all interrupt tests passed");
 	return fails != 0;
 }

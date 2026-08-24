@@ -196,6 +196,22 @@ misaligned accesses, which independently exercises the `[%sp+imm]` scaling
 and `ext` composition rules -- getting either wrong produces unaligned word
 accesses almost immediately.
 
+Interrupts are deferred until an `ext` sequence completes, per 5.6.3:
+"exception handling ... is not started for other exceptions until after the
+target instruction to be extended is executed". This one bites in practice
+rather than in theory. grifo's syscall return composes a 32-bit address
+from two prefixes:
+
+```
+ext 0x200 ; ext 0x353 ; ld.w %r0,0x2c    ->  0x1000d4ec <saved_pc>
+```
+
+A touch interrupt landing between the two prefixes used to discard the
+first, so the load came from `0xd4ec`, read as zero from unmapped memory,
+and the indirect `ret` that follows jumped to address 0. It needed a real
+keypress at exactly the wrong cycle, which is why a headless boot never
+showed it. `make test-irq` now pins it deterministically.
+
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: `slp` resumes immediately rather than halting until an
 interrupt, `halt` stops the emulator outright, traps are not masked between
