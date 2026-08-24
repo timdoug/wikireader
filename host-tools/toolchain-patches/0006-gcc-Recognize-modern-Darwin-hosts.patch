@@ -1,0 +1,24 @@
+diff --git a/config.guess b/config.guess
+--- a/config.guess
++++ b/config.guess
+@@ -1137,6 +1137,7 @@ EOF
+ 	case `uname -p` in
+ 	    *86) UNAME_PROCESSOR=i686 ;;
+ 	    powerpc) UNAME_PROCESSOR=powerpc ;;
++	    *) UNAME_PROCESSOR=`uname -p` ;;
+ 	esac
+	echo ${UNAME_PROCESSOR}-apple-darwin${UNAME_RELEASE}
+	exit 0 ;;
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -501,6 +501,9 @@ esac
+
+ case $machine in
+ # Support site-specific machine types.
++arm-*-darwin*)
++	xm_defines=POSIX
++	;;
+ *local*)
+ 	rest=`echo $machine | sed -e "s/$cpu_type-//"`
+ 	tm_file=${cpu_type}/$rest.h

@@ -304,6 +304,10 @@ $(call STD_RULE, drivers, ${SAMO_LIB}/drivers, mini-libc)
 # These pre-C99 sources and configure probes rely on implicit int and implicit
 # function declarations, which GCC 14 rejects in its modern default C mode.
 TOOLCHAIN_HOST_CFLAGS ?= -O2 -std=gnu89
+ifeq ($(shell uname -s),Darwin)
+TOOLCHAIN_HOST_CFLAGS += -Wno-error=implicit-function-declaration \
+	-Wno-error=incompatible-function-pointer-types
+endif
 
 BINUTILS_FILE = ${DOWNLOAD_DIR}/${BINUTILS_PACKAGE}
 BINUTILS_SUM = ${SUM_DIR}/${BINUTILS_PACKAGE}.SHA256
