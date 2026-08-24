@@ -301,6 +301,10 @@ $(call STD_RULE, drivers, ${SAMO_LIB}/drivers, mini-libc)
 # GCC and Binutils toolchain
 # ==========================
 
+# These pre-C99 sources and configure probes rely on implicit int and implicit
+# function declarations, which GCC 14 rejects in its modern default C mode.
+TOOLCHAIN_HOST_CFLAGS ?= -O2 -std=gnu89
+
 BINUTILS_FILE = ${DOWNLOAD_DIR}/${BINUTILS_PACKAGE}
 BINUTILS_SUM = ${SUM_DIR}/${BINUTILS_PACKAGE}.SHA256
 
@@ -342,8 +346,8 @@ binutils: binutils-patch
 	cd "${HOST_TOOLS}/binutils-${BINUTILS_VERSION}" && \
 	mkdir -p build && \
 	cd build  && \
-	CPPFLAGS="-D_FORTIFY_SOURCE=0" ../configure --prefix "${HOST_TOOLS}/toolchain-install" --target=c33-epson-elf && \
-	CPPFLAGS="-D_FORTIFY_SOURCE=0" ${MAKE} && \
+	CPPFLAGS="-D_FORTIFY_SOURCE=0" CFLAGS="${TOOLCHAIN_HOST_CFLAGS}" ../configure --prefix "${HOST_TOOLS}/toolchain-install" --target=c33-epson-elf && \
+	CPPFLAGS="-D_FORTIFY_SOURCE=0" CFLAGS="${TOOLCHAIN_HOST_CFLAGS}" ${MAKE} && \
 	${MAKE} install
 	${TOUCH} "$@"
 
@@ -362,8 +366,8 @@ gcc: binutils gcc-patch
 	cd "${HOST_TOOLS}/gcc-${GCC_VERSION}" && \
 	mkdir -p build && \
 	cd build && \
-	CPPFLAGS="-D_FORTIFY_SOURCE=0" ../configure --prefix "${HOST_TOOLS}/toolchain-install" --target=c33-epson-elf --enable-languages=c && \
-	CPPFLAGS="-D_FORTIFY_SOURCE=0" ${MAKE} && \
+	CPPFLAGS="-D_FORTIFY_SOURCE=0" CFLAGS="${TOOLCHAIN_HOST_CFLAGS}" ../configure --prefix "${HOST_TOOLS}/toolchain-install" --target=c33-epson-elf --enable-languages=c && \
+	CPPFLAGS="-D_FORTIFY_SOURCE=0" CFLAGS="${TOOLCHAIN_HOST_CFLAGS}" ${MAKE} && \
 	${MAKE} install
 	${TOUCH} "$@"
 
