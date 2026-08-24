@@ -19,6 +19,13 @@ CC = gcc
 LD = ld
 
 CFLAGS = -g -Wall -Werror -MD -D_REENTRANT
+
+# this is K&R-era X11 PCF code: clang defaults to C23, where unprototyped
+# declarations are errors.  These flags are clang-only, so keep them off
+# the gcc path where they would be unrecognised.
+ifneq (,$(findstring clang,$(shell $(CC) --version 2>/dev/null | head -1)))
+CFLAGS += -Wno-deprecated-non-prototype -Wno-macro-redefined
+endif
 LDFLAGS = -g -dynamic
 C_OBJS = pcf.o
 

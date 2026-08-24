@@ -106,7 +106,7 @@ HEADERS += btree.h
 HEADERS += general_header.h
 HEADERS += glyph.h
 HEADERS += guilib.h
-HEADERS += highlight.c
+HEADERS += highlight.h
 HEADERS += history.h
 HEADERS += keyboard.h
 HEADERS += languages.h
@@ -120,6 +120,7 @@ HEADERS += search_fnd.h
 HEADERS += search.h
 HEADERS += sha1.h
 HEADERS += Types.h
+HEADERS += ustring.h
 HEADERS += utf8.h
 HEADERS += wiki_info.h
 HEADERS += wikilib.h
@@ -170,7 +171,7 @@ qmake-project:
 	  echo "QMAKE_EXTRA_TARGETS += $${t}" >> ${QMAKE_PROJECT}; \
 	done
 	echo 'QMAKE_EXTRA_TARGETS += all_images' >> ${QMAKE_PROJECT}
-	echo 'QMAKE_LIBS += -lrt' >> ${QMAKE_PROJECT}
+	echo 'QMAKE_LIBS += ${SIMULATE_LIBS}' >> ${QMAKE_PROJECT}
 	echo 'QMAKE_CLEAN += $$$${all_images.target}' >> ${QMAKE_PROJECT}
 
 

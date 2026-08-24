@@ -84,10 +84,16 @@ void TerminateApplication(const char *format = 0, ...) {
 }
 
 
+// the literal 4 was used because old glibc did not declare this;
+// Darwin's clock_gettime takes a clockid_t enum, so the name is required
+#if !defined(CLOCK_MONOTONIC_RAW)
+#define CLOCK_MONOTONIC_RAW 4
+#endif
+
 unsigned long TimeStamp() {
 	struct timespec tp;
 
-	clock_gettime(4 /*CLOCK_MONOTONIC_RAW*/, &tp);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &tp);
 
 	return tp.tv_nsec / 1000 * TIMER_CountsPerMicroSecond + tp.tv_sec * 1000000 * TIMER_CountsPerMicroSecond;
 }

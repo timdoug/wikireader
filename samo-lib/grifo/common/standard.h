@@ -27,7 +27,11 @@
 #include <stdlib.h>    // size_t
 #include <stdarg.h>    // va_list
 
-#ifndef __ssize_t_defined
+// __ssize_t_defined is glibc-specific; on Darwin ssize_t already
+// arrives via <stdlib.h> and is 64-bit, so must not be redefined here
+#if defined(__APPLE__)
+#include <sys/types.h>  // ssize_t, 64-bit on Darwin
+#elif !defined(__ssize_t_defined)
 typedef int32_t ssize_t;
 #endif
 

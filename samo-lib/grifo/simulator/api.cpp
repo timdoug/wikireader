@@ -194,7 +194,7 @@ void power_off(void) {
 }
 
 
-void reboot(void) {
+void grifo_reboot(void) {
 	TerminateApplication("Reboot");
 }
 

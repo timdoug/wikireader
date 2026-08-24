@@ -285,7 +285,9 @@ int is_proper_string(const unsigned char *s, int len)
 	return 0;
 }
 
-char *strnstr(char *s1, char *s2, int len)
+// named wiki_strnstr because Darwin's <string.h> declares a strnstr
+// with a different signature; this one has no callers outside this file
+char *wiki_strnstr(char *s1, char *s2, int len)
 {
 	int bFound = 0;
 	int s2_len = ustrlen(s2);

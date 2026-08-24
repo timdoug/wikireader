@@ -48,9 +48,13 @@
 
  (newline)
 
- (ifnot "__ssize_t_defined")
+ ;; __ssize_t_defined is glibc-specific; on Darwin ssize_t already
+ ;; arrives via <stdlib.h> above and is 64-bit, so must not be redefined
+ (output "#if defined(__APPLE__)")
+ (output "#include <sys/types.h>  // ssize_t, 64-bit on Darwin")
+ (output "#elif !defined(__ssize_t_defined)")
  (output "typedef int32_t ssize_t;")
- (endif)
+ (output "#endif")
 
  (start-c-code)
 
@@ -74,7 +78,9 @@
  (16 System_exit ("void" "exit" "int result") "noreturn")
  (17 System_chain ("void" "chain" "const char *command") "noreturn")
  (18 System_PowerOff ("void" "power_off" "void") "noreturn")
- (19 System_reboot ("void" "reboot" "void") "noreturn")
+ ;; exported as grifo_reboot: plain "reboot" collides with the
+ ;; "int reboot(int)" that Darwin's <unistd.h> declares
+ (19 System_reboot ("void" "grifo_reboot" "void") "noreturn")
 
 
  (section "Interrupt Handlers")

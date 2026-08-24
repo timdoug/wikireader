@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # image2header - Convert an image to a C header
@@ -21,32 +21,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
 import os, sys
 import getopt
 import os.path
 import datetime
 
 try:
-    import gd
-except:
-    print 'error: Missing python module: python-gd'
-    print '       sudo apt-get install python-gd'
+    from PIL import Image
+except ImportError:
+    print('error: Missing python module: Pillow')
+    print('       pip3 install Pillow  (or: brew install pillow)')
     exit(1)
 
 verbose = False
 
 def usage(message):
     if None != message:
-        print 'error:', message
-    print 'usage: %s <options> image' % os.path.basename(__file__)
-    print '       --help                  This message'
-    print '       --verbose               Enable verbose output'
-    print '       --header-file=file      Output header file'
-    print '       --type-name=name        Name of type [LCD_ImageType]'
-    print '       --variable-name=name    Name of the variable [image]'
-    print '       --inverted              Black=1 White=0 pixels [White=1 Black=0]'
-    print '       --extra-fields          Enable BytesPerRow field'
+        print('error:', message)
+    print('usage: %s <options> image' % os.path.basename(__file__))
+    print('       --help                  This message')
+    print('       --verbose               Enable verbose output')
+    print('       --header-file=file      Output header file')
+    print('       --type-name=name        Name of type [LCD_ImageType]')
+    print('       --variable-name=name    Name of the variable [image]')
+    print('       --inverted              Black=1 White=0 pixels [White=1 Black=0]')
+    print('       --extra-fields          Enable BytesPerRow field')
     exit(1)
 
 
@@ -61,7 +60,7 @@ def main():
                                     'variable-name=',
                                     'extra-fields',
                                     'inverted'])
-    except getopt.GetoptError, e:
+    except getopt.GetoptError as e:
         usage(str(e))
 
     verbose = False
@@ -115,11 +114,11 @@ def main():
             % (header_file, datetime.date.today().isoformat(), os.path.basename(__file__)))
 
         try:
-            image = gd.image(image_file)
-        except IOError, e:
+            image = Image.open(image_file).convert('RGB')
+        except IOError as e:
             usage(str(e))
 
-        width, height = image.size()
+        width, height = image.size
 
         # output some constants as an enum
         bytes_per_row = (width + 7) >> 3
@@ -144,7 +143,7 @@ def main():
             byte = 0
             bit_count = 8
             for x in range(0, width):
-		if (0, 0, 0) == image.colorComponents(image.getPixel((x, y))):
+                if (0, 0, 0) == image.getpixel((x, y)):
                     pixel = black
                 else:
                     pixel = white
