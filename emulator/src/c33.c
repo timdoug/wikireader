@@ -87,14 +87,21 @@ static int32_t disp_ext(struct c33 *c, uint32_t base, unsigned width)
 		T = width + 13;
 	} else {
 		/*
-		 * Two prefixes give a 29-bit word displacement with the first
-		 * ext at shift 18 -- NOT width+13 as the single-prefix case
-		 * would suggest. Fitted against all 634 ext-prefixed branches
-		 * in grifo.elf (tools/fit_ext.py); it is the unique solution
-		 * and the "clean" shift-21 model is refuted by the data.
+		 * Two prefixes, per the C33 PE Core manual's "call sign8"
+		 * entry (Extension 2):
+		 *
+		 *   ext  imm13 ; imm13(12:3) = sign32(31:22)
+		 *   ext  imm13 ; = sign32(21:9)
+		 *   call sign8 ; sign8 = sign32(8:1), sign32(0) = 0
+		 *
+		 * Only bits 12:3 of the FIRST prefix take part; its low three
+		 * bits are discarded rather than shifted in. Working in word
+		 * units (this returns a halfword displacement that the caller
+		 * doubles) that is ext1[12:3] at 21, ext2 at 8, sign8 at 0,
+		 * signed across 31 bits.
 		 */
-		v = (e0 << 18) | (e1 << width) | base;
-		T = 29;
+		v = ((e0 >> 3) << 21) | (e1 << width) | base;
+		T = 31;
 	}
 
 	if (T < 32) {

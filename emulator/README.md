@@ -123,9 +123,13 @@ later confirmed against the S1C33E07 Technical Manual:
   pointer (`__dp`), not a link register.
 * `pushn %rN` saves **r0..rN**, with r0 ending at `[sp+0]`. grifo's syscall
   handler indexes that frame directly, so the order is observable.
-* Two `ext` prefixes on a branch give a **29-bit** displacement with the
-  first prefix at shift **18** - not `width+13`. Fitted against all 634
-  ext-prefixed branches in `grifo.elf`; it is the unique solution.
+* Two `ext` prefixes on a branch use only bits **12:3** of the first
+  prefix, discarding its low three bits rather than shifting them in:
+  `imm13(12:3) = sign32(31:22)`, `imm13 = sign32(21:9)`,
+  `sign8 = sign32(8:1)`. Fitting this from firmware alone gave a shift of
+  18 over 29 bits, which agrees on every real branch only because the
+  assembler zeroes those three bits; the C33 PE Core manual gives the
+  actual rule.
 * `add`/`sub` zero-extend their 6-bit immediate; `cmp`/`and`/`ld.w`
   sign-extend. The assembler picks the opposite mnemonic instead of a
   negative immediate for the first pair.
@@ -133,6 +137,19 @@ later confirmed against the S1C33E07 Technical Manual:
   by the access size, but an ext-composed displacement is a plain **byte**
   offset.
 * `slp` is not a halt: `CMU_initialise` uses it deliberately to switch clocks.
+
+### Checked against the C33 PE Core manual
+
+The PE Core manual has the encodings the S1C33E07 manual defers to, and
+confirms the addressing rules derived here: `[%sp+imm6]` scales the
+immediate by the access size ("for word data transfers... four times the
+6-bit immediate"), an ext-prefixed `[%rb]` adds the composed immediate
+directly as a byte displacement, and PC-relative branches add twice the
+`sign8`. It also confirms the imm6/sign6 extension widths (19-bit with one
+prefix, 32-bit with two) and that the MSB of `sign6` is data rather than
+sign when a prefix is present.
+
+It corrected one rule: see the two-prefix branch case above.
 
 ### Checked against the S1C33E07 Technical Manual
 
