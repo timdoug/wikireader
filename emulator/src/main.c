@@ -26,6 +26,7 @@ static void usage(const char *p)
 		"  -n N   stop after N instructions (default 1000000; unlimited with -g)\n"
 		"  -m     trace unclaimed MMIO register accesses\n"
 		"  -s     trace grifo syscalls by name\n"
+		"  -A     trap misaligned halfword/word accesses (vector 6)\n"
 		"  -g     show the panel in a live SDL2 window\n"
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
@@ -44,6 +45,7 @@ int main(int argc, char **argv)
 	bool trace_mmio = false;
 	bool trace_syscalls = false;
 	bool gui = false; int gui_scale = 3;
+	bool check_align = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
@@ -68,6 +70,8 @@ int main(int argc, char **argv)
 			trace_mmio = true;
 		else if (!strcmp(argv[i], "-s"))
 			trace_syscalls = true;
+		else if (!strcmp(argv[i], "-A"))
+			check_align = true;
 		else if (!strcmp(argv[i], "-g"))
 			gui = true;
 		else if (!strcmp(argv[i], "-K") && i + 1 < argc) {
@@ -161,6 +165,7 @@ int main(int argc, char **argv)
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
+	cpu.check_alignment = check_align;
 	mem.pc_src = &cpu.pc;
 
 	struct timerblk timer;

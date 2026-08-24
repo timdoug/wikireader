@@ -184,12 +184,28 @@ immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
 and gcc emits a redundant `ext 0x0` before `xor %r6,0x30` when it wants +48
 precisely because a bare 0x30 would sign-extend. The operand table is right.
 
+`-A` turns on the address misaligned exception (vector 6): halfword and
+word accesses must sit on their natural boundary. It is off by default
+because it is a debugging aid rather than something the firmware needs,
+but running the whole boot and a search with it enabled reports zero
+misaligned accesses, which independently exercises the `[%sp+imm]` scaling
+and `ext` composition rules -- getting either wrong produces unaligned word
+accesses almost immediately.
+
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: `slp` resumes immediately rather than halting until an
 interrupt, `halt` stops the emulator outright, traps are not masked between
 a `.d` branch and its delay slot, and `jpr`, `swap`, `swaph`, `adc`, `sbc`
 and the coprocessor instructions are unimplemented (none appear in any of
 the four firmware images).
+
+The PSR's IL[3:0] field (bits 11-8) is not modelled: interrupts are gated
+on IE alone, so there is no priority masking and IL is not updated on
+acceptance. Nothing here raises more than one interrupt source at a time.
+
+The peripherals are the least verified part. They were written from the
+driver sources in samo-lib and from what the firmware demanded, not from
+the S1C33E07 register descriptions, which run to several hundred pages.
 
 ## Caveats
 

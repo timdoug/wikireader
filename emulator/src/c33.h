@@ -71,6 +71,8 @@ struct c33 {
 	unsigned sysret_num;
 
 	/* pending hardware interrupt, delivered once PSR.IE allows it */
+	bool     check_alignment;   /* raise vector 6 on misaligned access */
+	unsigned long misaligned_hits;
 	bool     irq_pending;
 	unsigned irq_vector;
 	unsigned long irqs_taken;

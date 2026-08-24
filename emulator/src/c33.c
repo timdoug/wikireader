@@ -137,13 +137,42 @@ static uint32_t sp_disp(struct c33 *c, uint32_t base, unsigned width,
 
 /* ---- memory helpers -------------------------------------------------- */
 
+/*
+ * Halfword and word accesses must sit on their natural boundary; otherwise
+ * the processor raises the address misaligned exception (vector 6) and the
+ * access does not happen. The manual notes SP-based loads can never trip
+ * this, because their displacement is scaled by the access size.
+ *
+ * Off by default: it is primarily a way to catch emulator bugs, and turning
+ * a silent unaligned access into a trap changes behaviour.
+ */
+#define VECTOR_ADDRESS_MISALIGNED 6
+
+static void take_irq(struct c33 *c);
+
+static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
+{
+	if (!c->check_alignment || sz < 2 || (a & (sz - 1)) == 0)
+		return false;
+
+	c->misaligned_hits++;
+	c->irq_pending = true;
+	c->irq_vector = VECTOR_ADDRESS_MISALIGNED;
+	take_irq(c);
+	return true;
+}
+
 static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 {
+	if (misaligned(c, a, sz))
+		return 0;
 	return c->bus.read(c->bus.ctx, a, sz);
 }
 
 static void wr(struct c33 *c, uint32_t a, unsigned sz, uint32_t v)
 {
+	if (misaligned(c, a, sz))
+		return;
 	c->bus.write(c->bus.ctx, a, sz, v);
 }
 
