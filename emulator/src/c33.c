@@ -20,7 +20,7 @@ static int32_t fld(uint16_t insn, const struct c33_field *f)
 	int32_t v = (insn >> f->shift) & ((1u << f->width) - 1);
 	if (f->is_signed && (v >> (f->width - 1)))
 		v -= (int32_t)1 << f->width;
-	return v + f->bias;
+	return v;
 }
 
 /*
@@ -620,11 +620,10 @@ void c33_step(struct c33 *c)
 		} else if ((f->shape_id == SHAPE_LDPPIB_R)) {
 			wr(c, c->sr[SR_DP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
-		} else if (f->shape[0] == '%' && strncmp(f->shape, "%r#", 3) != 0) {
+		} else if (f->sreg == 1) {
 			/* ld.w %sreg,%rN  (0xa00N): index is bits 3:0 */
 			c->sr[insn & 0xf] = c->r[a];
-		} else if (!strncmp(f->shape, "%r#,", 4) &&
-			   (f->shape[4] == '%' || f->shape[4] == '\0')) {
+		} else if (f->sreg == 2) {
 			/* ld.w %rN,%sreg  (0xa4N0): index is bits 7:4 */
 			c->r[a] = c->sr[(insn >> 4) & 0xf];
 		} else {

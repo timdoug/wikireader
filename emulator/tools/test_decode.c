@@ -18,7 +18,7 @@ static int32_t field(uint16_t insn, const struct c33_field *f)
 	int32_t v = (insn >> f->shift) & ((1u << f->width) - 1);
 	if (f->is_signed && (v >> (f->width - 1)))
 		v -= (int32_t)1 << f->width;
-	return v + f->bias;
+	return v;
 }
 
 int main(void)

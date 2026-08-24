@@ -412,7 +412,31 @@ was three changes, all found by profiling rather than by guessing:
   common instruction like `ld.w` walked several string compares on every
   execution, and it profiled as the single hottest thing in the interpreter.
   The instruction word fully determines the semantics; nothing about that
-  should involve English.
+  should involve English. The `ld.w` special-register forms were the last
+  holdout -- they were recognised with `strncmp` prefix tests -- and are now
+  classified into a `sreg` field when the tables are built.
+
+### What binutils is and is not used for
+
+It is a **generation-time** authority, not a runtime dependency. The tables
+were derived by disassembling all 65,536 encodings and solving each operand
+field for `(shift, width, signed, bias)`, because the ISA documentation is
+incomplete and binutils' own assembler table disagrees with its
+disassembler. That derivation is also what validates the decoder, exactly,
+on 65,605 instructions. The generated header is committed, so building the
+emulator needs no toolchain.
+
+What was wrong was letting the *shape of that derivation* reach the
+executor. Two vestiges are now gone: the `strcmp` discrimination above, and
+a `bias` field carried in every operand descriptor -- the solver looks for
+one, and the answer is zero for all 330 fields in the ISA, so it was pure
+residue of the discovery process. The generator asserts that invariant now
+instead of paying for it at runtime.
+
+`struct c33_form` went from 48 bytes to 24 as a result. That did **not**
+make anything faster -- the table was 11K, comfortably cached either way --
+but it is the right shape: an executor wants form index to semantics, not a
+printer's decomposition into mnemonic plus operand syntax.
 * **A region cache for fetch and load.** Every access went through an
   indirect call into `mem_read` and a walk of the memory map. Caching the
   region the PC or the data pointer currently sits in turns the common case

@@ -35,6 +35,20 @@ def shape_ident(sh):
     return "SHAPE_" + _re.sub(r"[^A-Za-z0-9_]", "", t).upper()
 
 
+def sreg_kind(sh):
+    """Classify ld.w special-register forms.
+
+    The executor used to work this out per instruction with strncmp on the
+    shape string. It is a property of the encoding, so it belongs here.
+      1: ld.w %sreg,%rN   2: ld.w %rN,%sreg   0: neither
+    """
+    if sh[:1] == "%" and not sh.startswith("%r#"):
+        return 1
+    if sh.startswith("%r#,") and (sh[4:5] == "%" or sh[4:5] == ""):
+        return 2
+    return 0
+
+
 def shape_map(forms):
     """shape string -> unique C identifier, in order of first appearance.
 
@@ -118,27 +132,33 @@ def main():
     L += ["};", ""]
 
     L += [
-        "struct c33_field { uint8_t shift, width, is_signed; int32_t bias; };",
+        "/* No bias: derive_fields.py solves for one, and it is zero for every",
+        "   field in the ISA. The generator asserts that below. */",
+        "struct c33_field { uint8_t shift, width, is_signed; };",
         "",
         "struct c33_form {",
         "\tuint8_t  op;",
         "\tuint8_t  nfields;",
         "\tstruct c33_field f[C33_MAX_FIELDS];",
-        "\tconst char *shape;",
         "\tuint8_t  shape_id;",
+        "\tuint8_t  sreg;      /* ld.w special-register form: 0 none, 1 dst, 2 src */",
+        "\tconst char *shape;  /* disassembly only */",
         "};",
         "",
         f"static const struct c33_form c33_forms[{len(forms) + 1}] = {{",
-        '\t{ OP_INVALID, 0, {{0,0,0,0}}, "", SHAPE_NONE },',
+        '\t{ OP_INVALID, 0, {{0,0,0}}, SHAPE_NONE, 0, "" },',
     ]
     for f in forms:
-        fl = ", ".join("{%d,%d,%d,%d}" % (a, b, 1 if c else 0, d)
-                       for a, b, c, d in f["fields"])
+        assert all(d == 0 for _, _, _, d in f["fields"]), \
+            "a field has a non-zero bias; the runtime struct no longer carries one"
+        fl = ", ".join("{%d,%d,%d}" % (a, b, 1 if c else 0)
+                       for a, b, c, _ in f["fields"])
         if not fl:
-            fl = "{0,0,0,0}"
+            fl = "{0,0,0}"
         shp = f["shape"].replace("\\", "\\\\").replace('"', '\\"')
         L.append(f'\t{{ {op_ident(f["mnemonic"])}, {len(f["fields"])}, '
-                 f'{{{fl}}}, "{shp}", {shapes[f["shape"]]} }},')
+                 f'{{{fl}}}, {shapes[f["shape"]]}, '
+                 f'{sreg_kind(f["shape"])}, "{shp}" }},')
     L += ["};", ""]
 
     L.append("/* encoding -> index into c33_forms */")
