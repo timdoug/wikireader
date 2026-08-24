@@ -416,6 +416,26 @@ was three changes, all found by profiling rather than by guessing:
   holdout -- they were recognised with `strncmp` prefix tests -- and are now
   classified into a `sreg` field when the tables are built.
 
+### Two authorities for the decoder
+
+The 65,536-entry table is not a claim that the ISA has 65,536 instructions.
+It has 231 forms; the table is a flattened lookup from instruction word to
+form index, which for a fixed-width 16-bit encoding is one load instead of a
+mask-and-compare cascade. 64,448 words map to something and 1,088 are
+invalid, which is itself a statement about how dense the encoding is.
+
+The real problem with deriving it from binutils was different: binutils was
+the *only* authority. A bug in its disassembler would be reproduced here
+exactly, and "matches binutils on 65,605 instructions" could never detect
+it. The PE Core manual documents each instruction's encoding as a bit
+diagram plus a hex pattern with don't-care nibbles -- `add %rd, %rs` is
+`0x22__`. `make test-manual` reads those out of the PDF and checks the table
+against them: **90 documented forms, 90 agree, 0 disagree.**
+
+That covers the opcode structure. It does not cover operand field extents,
+which come from the field solver and are checked against binutils' operand
+printing instead -- so the two authorities overlap rather than nest.
+
 ### What binutils is and is not used for
 
 It is a **generation-time** authority, not a runtime dependency. The tables

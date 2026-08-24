@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/cmu.o src/main.o
 
-.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check difftest
+.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check difftest test-manual
 
 all: wremu
 
@@ -57,6 +57,11 @@ test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 # ways, outputs diffed. Needs host-tools/toolchain-install.
 difftest: wremu
 	difftest/run.sh 1 20
+
+# Decode table against the documented encodings in the C33 PE Core manual,
+# an authority independent of binutils. Needs the PDF and pdftotext.
+test-manual:
+	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
 check: test test-irq test-lcd test-adc test-cmu
