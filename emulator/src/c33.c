@@ -7,6 +7,8 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "c33.h"
@@ -423,17 +425,13 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
  */
 void c33_reset(struct c33 *c, uint32_t entry)
 {
-	struct c33_bus bus = c->bus;
-	bool trace = c->trace_syscalls;
-	bool align = c->check_alignment;
-	bool prof = c->profile;
-
-	memset(c, 0, sizeof *c);
-
-	c->bus = bus;
-	c->trace_syscalls = trace;
-	c->check_alignment = align;
-	c->profile = prof;
+	/*
+	 * Machine state only. The host-side wiring lives past the barrier and
+	 * is deliberately untouched -- see the comment on it in c33.h. An
+	 * earlier version listed the fields to save and restore by hand, and
+	 * every field added after that was silently zeroed on reset.
+	 */
+	memset(c, 0, offsetof(struct c33, reset_barrier__));
 	c->pc = entry;
 }
 

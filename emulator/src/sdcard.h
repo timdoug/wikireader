@@ -54,5 +54,7 @@ struct sdcard {
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
 	       const struct port *port, struct eeprom *eeprom);
 void sd_close(struct sdcard *sd);
+/* Return the card to its just-powered state, keeping the image open. */
+void sd_reset(struct sdcard *sd);
 
 #endif /* SDCARD_H */

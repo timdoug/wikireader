@@ -39,6 +39,8 @@ struct timerblk {
 void timer_use_wallclock(struct timerblk *t);
 /* Fire the channel-2 wake interrupt when its timeout expires. */
 void timer_poll(struct timerblk *t, struct c33 *cpu);
+/* Clear counters and the channel-2 wake timer, keeping the clock source. */
+void timer_reset(struct timerblk *t);
 
 void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,
 		  const struct itc *itc);

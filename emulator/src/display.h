@@ -39,6 +39,7 @@ struct display {
 	int   bezel_drawn_held;    /* button_held the texture was drawn for */
 	uint64_t last_fingerprint;
 	bool  have_fingerprint;
+	bool  powered;           /* false blanks the panel, as an off LCD is */
 	unsigned long presents, skipped, calls;
 };
 

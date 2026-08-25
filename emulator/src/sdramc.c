@@ -76,8 +76,14 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	return true;
 }
 
-void sdramc_attach(struct mem *m, struct sdramc *s)
+/* Reset state without re-registering the device. */
+void sdramc_reset(struct sdramc *s)
 {
 	memset(s, 0, sizeof *s);
+}
+
+void sdramc_attach(struct mem *m, struct sdramc *s)
+{
+	sdramc_reset(s);
 	mem_add_mmio(m, "sdramc", SDRAMC_BASE, SDRAMC_LEN, sdramc_mmio, s);
 }

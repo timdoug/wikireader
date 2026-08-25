@@ -118,7 +118,8 @@ unsigned lcd_pixel(struct lcd *l, struct mem *m, int x, int y)
 	return (v >> (7 - (x & 7))) & 1;
 }
 
-void lcd_attach(struct mem *m, struct lcd *l)
+/* Reset state without re-registering the device. */
+void lcd_reset(struct lcd *l)
 {
 	memset(l, 0, sizeof *l);
 	/*
@@ -138,6 +139,11 @@ void lcd_attach(struct mem *m, struct lcd *l)
 	 * at TTBR+0x34, after which the next syscall trapped to address 0.
 	 */
 	l->reg[(0x1a70u - LCDC_BASE) / 4] = IVRAM_BASE;
+}
+
+void lcd_attach(struct mem *m, struct lcd *l)
+{
+	lcd_reset(l);
 	mem_add_mmio(m, "lcdc", LCDC_BASE, LCDC_LEN, lcd_mmio, l);
 }
 

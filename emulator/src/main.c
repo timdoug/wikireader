@@ -98,6 +98,61 @@ static void deliver_input(struct display *disp, struct port *port,
 	}
 }
 
+
+/*
+ * What the mask ROM leaves behind: mbr, linked at 0, copied from the
+ * EEPROM offset the FLASH map assigns it.
+ */
+#define MBR_EEPROM_OFFSET     0x1
+#define MASK_ROM_LOAD_BYTES   512
+/*
+ * The mask ROM also leaves a usable stack. Nothing in samo-lib sets one up
+ * before mbr's first call: application.lds defines __dp and the load
+ * address but no stack symbol, and mbr.c only loads %r15. Internal RAM is
+ * the only memory available this early -- mbr deliberately does not
+ * initialise SDRAM ("but will be too big") -- so the stack starts at the
+ * top of the 8K a0ram and grows down toward the loaded application.
+ */
+#define MASK_ROM_STACK_TOP    (IVRAM_BASE + IVRAM_SIZE)
+
+/*
+ * Bring the machine up from cold: reset every device and the core, and put
+ * the boot image back where the hardware would find it.
+ *
+ * The emulator models the device's power state rather than tying it to its
+ * own lifetime, so this runs again each time the power switch is pressed.
+ */
+static void machine_power_on(struct c33 *cpu, struct mem *mem,
+			     struct port *port, struct itc *itc,
+			     struct sdramc *sdramc, struct lcd *lcd,
+			     struct touch *touch, struct timerblk *timer,
+			     struct sdcard *sd, struct eeprom *eeprom,
+			     const char *path, uint32_t entry, uint32_t boot_sp)
+{
+	itc_reset(itc);
+	port_reset(port);
+	sdramc_reset(sdramc);
+	lcd_reset(lcd);
+	touch_reset(touch);
+	timer_reset(timer);
+	sd_reset(sd);
+	if (eeprom)
+		eeprom_deselect(eeprom);
+
+	if (!path) {
+		for (unsigned k = 0; k < MASK_ROM_LOAD_BYTES; k++)
+			mem_write(mem, k, 1,
+				  eeprom->data[MBR_EEPROM_OFFSET + k]);
+	} else {
+		char e[256];
+		elf_load(mem, path, e, sizeof e);
+	}
+
+	c33_reset(cpu, entry);
+	if (boot_sp)
+		cpu->sr[SR_SP] = boot_sp;
+}
+
 int main(int argc, char **argv)
 {
 	const char *path = NULL, *card = NULL;
@@ -129,21 +184,6 @@ int main(int argc, char **argv)
 #define IDLE_WAIT_MS  10
 #define MCLK_HZ       60000000u
 	uint32_t boot_sp = 0;
-/*
- * What the mask ROM leaves behind: mbr, linked at 0, copied from the
- * EEPROM offset the FLASH map assigns it.
- */
-#define MBR_EEPROM_OFFSET     0x1
-#define MASK_ROM_LOAD_BYTES   512
-/*
- * The mask ROM also leaves a usable stack. Nothing in samo-lib sets one up
- * before mbr's first call: application.lds defines __dp and the load
- * address but no stack symbol, and mbr.c only loads %r15. Internal RAM is
- * the only memory available this early -- mbr deliberately does not
- * initialise SDRAM ("but will be too big") -- so the stack starts at the
- * top of the 8K a0ram and grows down toward the loaded application.
- */
-#define MASK_ROM_STACK_TOP    (IVRAM_BASE + IVRAM_SIZE)
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
 	size_t type_idx = 0; int type_phase = 0;
@@ -316,6 +356,13 @@ int main(int argc, char **argv)
 	}
 	mem.vwatch_on = vwatch_on;   /* skip the loader's own stores */
 
+	/*
+	 * A device with a power switch starts off. Headless there is nobody
+	 * to press it, so those runs come up powered, which is also what
+	 * every scripted test expects.
+	 */
+	bool powered = !gui;
+
 	struct c33 cpu;
 	memset(&cpu, 0, sizeof cpu);
 	cpu.bus = (struct c33_bus){ mem_read, mem_write,
@@ -485,8 +532,53 @@ int main(int argc, char **argv)
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
 		if (port.power_off_requested) {
-			stop = "powered off";
-			break;
+			if (!disp.open) {
+				stop = "powered off";
+				break;
+			}
+			/*
+			 * The device is off, but the emulator is not. Keep
+			 * the window so the power switch can turn it back on,
+			 * exactly as the hardware behaves.
+			 */
+			fprintf(stderr, "  [powered off]\n");
+			powered = false;
+			port.power_off_requested = false;
+			disp.powered = false;
+			continue;
+		}
+
+		if (!powered) {
+			if (!display_update(&disp)) {
+				stop = "window closed";
+				break;
+			}
+			/*
+			 * Time passes while the device is off, so a scripted
+			 * press still lands and instruction limits still end
+			 * the run.
+			 */
+			cpu.cycles += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+			bool scripted = btn_code == BUTTON_POWER_CODE &&
+					!btn_down_done && cpu.cycles >= btn_at;
+			if (scripted)
+				btn_down_done = btn_up_done = true;
+
+			if (scripted ||
+			    (disp.button == BUTTON_POWER_CODE &&
+			     disp.button_pressed)) {
+				fprintf(stderr, "  [powered on]\n");
+				machine_power_on(&cpu, &mem, &port, &itc,
+						 &sdramc, &lcd, &touch, &timer,
+						 &sd, eeprom_path ? &eeprom : NULL,
+						 path, entry, boot_sp);
+				powered = true;
+				disp.powered = true;
+			}
+			disp.button = -1;
+			disp.touch_pending = false;
+			display_idle_wait(&disp, IDLE_WAIT_MS);
+			continue;
 		}
 
 		timer_poll(&timer, &cpu);

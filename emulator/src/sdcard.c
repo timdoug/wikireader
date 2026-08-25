@@ -344,6 +344,19 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 	return true;
 }
 
+void sd_reset(struct sdcard *sd)
+{
+	sd->cmdlen = 0;
+	sd->collecting = false;
+	sd->resp_len = sd->resp_pos = 0;
+	sd->idle = true;
+	sd->rdff = sd->rdof = false;
+	sd->rxd = 0xff;
+	sd->eeprom_selected = false;
+	sd->byte_addressed = false;
+	sd->streaming = false;
+}
+
 void sd_close(struct sdcard *sd)
 {
 	if (sd->img)

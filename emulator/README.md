@@ -34,6 +34,9 @@ to rebuild the firmware itself.
 ./wremu -g -c images/wrcard.img images/grifo.elf
 ```
 
+The window opens with the device **off**, as it would be sitting on a
+shelf: press **P**, or click the power symbol, to turn it on.
+
 Click keys with the mouse; that is the touch panel. Below it is the bezel,
 laid out like the device: a WikiReader wordmark and three round buttons
 reading **search**, **history**, **random** left to right. Click them, or
@@ -60,6 +63,7 @@ on the case it is on the edge rather than the bezel. `Q` or `Esc` quits.
 | `-m` | trace unclaimed MMIO registers |
 | `-P` | histogram of opcodes actually executed |
 | `-H` | histogram of where time is spent, by address |
+| `WREMU_SUSPEND_DIV=N` | (env) divide the 120 s suspend timeout by N |
 
 `-s` is usually the fastest way in: it turns a hang into a named syscall,
 a call site and a return value.
@@ -490,13 +494,42 @@ emulator simply ran the loop, which is why an unattended run used to sit at
 full CPU indefinitely: `SUSPEND_AUTO_POWER_OFF_SECONDS` is 120, so after
 two idle minutes the firmware shuts down and the emulator spun on the
 toggle from then on. `src/port.c` now recognises P63 being driven and
-toggled, and the run ends with "powered off" -- which is what the hardware
-does.
+toggled, which is what the hardware does.
 
 That path is reachable both ways: pressing the power switch, which makes
 wiki.app save its history and call `power_off()`, and the idle timeout. A
-run left alone now stops at about 132 emulated seconds, and takes under two
-seconds of real time to get there.
+run left alone reaches it at about 132 emulated seconds, and takes under
+two seconds of real time to get there.
+
+### Off is a state, not an exit
+
+Powering a device off does not make it stop existing, so with a window open
+the emulator does not exit either. It marks the machine off, blanks the
+panel to the flat grey of an LCD with nothing driving it, and keeps
+pumping events. Pressing the power switch again calls `machine_power_on()`,
+which resets every device, re-places the boot image -- the mask ROM copy
+out of the serial FLASH under `-e`, otherwise the ELF -- and restarts the
+core at the entry point. So a window comes up **off**, exactly like a
+device on a shelf, and the first thing to do is press **P**.
+
+Headless runs have nobody to press the switch, so they come up powered and
+still end at power-off. Every scripted test depends on that.
+
+Getting this right needed one more fix. `c33_reset` used to clear the whole
+CPU structure and then restore, by hand, the few fields that are host-side
+wiring rather than machine state. That list was wrong three times, and the
+third time cost a real bug: the first power-on wiped `irq_enabled`, the hook
+that asks the interrupt controller whether a cause is still enabled, so the
+timer 2 wake-up that ends a suspend was delivered instead of withdrawn. It
+landed in grifo's default vector and printed `Panic: undefined interrupt`.
+The struct now has a `reset_barrier__` marker: reset zeroes the machine
+state above it and never touches the wiring below, so a field added later
+cannot be silently lost.
+
+The suspend timeout is two minutes, which is a long time to wait when the
+thing being debugged is at the far end of it. `WREMU_SUSPEND_DIV=12` divides
+the span the firmware programs into timer 2, turning it into ten seconds,
+without changing a byte of the guest.
 
 ### Why the panel reports on change, not continuously
 

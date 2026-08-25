@@ -124,10 +124,12 @@ void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
 		      p->itc ? itc_priority(p->itc, VECTOR_PORT_INPUT_3) : 7);
 }
 
-void port_attach(struct mem *m, struct port *p, const struct itc *itc)
+/* Reset state without re-registering the device. */
+void port_reset(struct port *p)
 {
+	const struct itc *keep = p->itc;
 	memset(p, 0, sizeof *p);
-	p->itc = itc;
+	p->itc = keep;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
 	/*
 	 * Port 6: the three buttons on bits 0..2 read 0 when not held, but
@@ -160,5 +162,11 @@ void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 	 */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
+}
+
+void port_attach(struct mem *m, struct port *p, const struct itc *itc)
+{
+	p->itc = itc;
+	port_reset(p);
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 }

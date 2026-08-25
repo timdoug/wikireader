@@ -69,8 +69,6 @@ struct c33 {
 	bool     delay_pending;
 	uint32_t delay_target;
 
-	struct c33_bus bus;
-
 	/* cached fetch region: [fetch_lo, fetch_hi) maps to fetch_ptr */
 	uint8_t *fetch_ptr;
 	uint32_t fetch_lo, fetch_hi;
@@ -82,32 +80,20 @@ struct c33 {
 
 	/* diagnostics: how often each form silently discarded ext prefixes */
 	uint32_t ext_dropped[256];
-	/* log each grifo syscall (int 1) by name as it is issued */
-	bool     trace_syscalls;
 	unsigned long syscalls;
 	/* where the in-flight syscall resumes, so its result can be logged */
 	uint32_t sysret_pc;
 	unsigned sysret_num;
 
 	/* pending hardware interrupt, delivered once PSR.IE allows it */
-	bool     check_alignment;   /* raise vector 6 on misaligned access */
 	unsigned long misaligned_hits;
 	bool     sleeping;           /* in HALT, waiting for an interrupt */
 	unsigned long sleep_cycles;
 	bool     irq_pending;
 	unsigned irq_vector;
 	unsigned irq_priority;
-	/* Optional: asks the interrupt controller whether a cause is still
-	   enabled, so a request cancelled before it is taken is dropped. */
-	bool   (*irq_enabled)(void *ctx, unsigned vector);
-	void    *irq_ctx;
 	unsigned long irqs_masked;
-	bool     profile;            /* count executed instructions per opcode */
 	unsigned long opcount[256];
-	/* Executed instructions per 1K of address space, for finding hot code. */
-	bool     pc_profile;
-	unsigned long *pcbuckets;
-	uint32_t      *pcsample;     /* a real PC seen in each bucket */
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	uint64_t cycles;      /* instructions retired */
@@ -115,6 +101,32 @@ struct c33 {
 	bool     halted;
 	const char *fault;   /* non-NULL once the CPU has faulted */
 	uint32_t fault_pc;
+
+	/*
+	 * Everything below this point is host-side wiring, not machine state:
+	 * where the bus goes, which diagnostics are on, and the buffers they
+	 * write into. c33_reset clears the fields above and leaves these
+	 * alone, so powering the device off and on again does not unplug the
+	 * emulator from itself.
+	 *
+	 * Add new fields on the correct side of the barrier: above it to have
+	 * reset clear them, below it to have them survive.
+	 */
+	char     reset_barrier__[0];
+
+	struct c33_bus bus;
+	/* Optional: asks the interrupt controller whether a cause is still
+	   enabled, so a request cancelled before it is taken is dropped. */
+	bool   (*irq_enabled)(void *ctx, unsigned vector);
+	void    *irq_ctx;
+	/* log each grifo syscall (int 1) by name as it is issued */
+	bool     trace_syscalls;
+	bool     check_alignment;   /* raise vector 6 on misaligned access */
+	bool     profile;            /* count executed instructions per opcode */
+	/* Executed instructions per 1K of address space, for finding hot code. */
+	bool     pc_profile;
+	unsigned long *pcbuckets;
+	uint32_t      *pcsample;     /* a real PC seen in each bucket */
 };
 
 void     c33_reset(struct c33 *c, uint32_t entry);

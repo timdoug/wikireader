@@ -158,9 +158,16 @@ bool touch_key_pos(char ch, int *x, int *y)
 	return false;
 }
 
+void touch_reset(struct touch *t)
+{
+	const struct itc *keep = t->itc;
+	memset(t, 0, sizeof *t);
+	t->itc = keep;
+}
+
 void touch_attach(struct mem *m, struct touch *t, const struct itc *itc)
 {
-	memset(t, 0, sizeof *t);
 	t->itc = itc;
+	touch_reset(t);
 	mem_add_mmio(m, "efsif1/ctp", EFSIF1_BASE, EFSIF1_LEN, touch_mmio, t);
 }

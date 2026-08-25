@@ -292,6 +292,7 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 
 	d->button = -1;
 	d->button_held = -1;
+	d->powered = false;
 	d->bezel_tex = SDL_CreateTexture(d->renderer, SDL_PIXELFORMAT_ARGB8888,
 					 SDL_TEXTUREACCESS_TARGET,
 					 LCD_WIDTH * d->scale,
@@ -475,7 +476,7 @@ bool display_update(struct display *d)
 	 * identical. Hashing the framebuffer is far cheaper than uploading
 	 * and presenting it.
 	 */
-	uint64_t fp = lcd_fingerprint(d->lcd, d->mem);
+	uint64_t fp = d->powered ? lcd_fingerprint(d->lcd, d->mem) : 0;
 	if (d->have_fingerprint && fp == d->last_fingerprint &&
 	    d->bezel_drawn_held == d->button_held) {
 		d->skipped++;
@@ -492,7 +493,12 @@ bool display_update(struct display *d)
 	for (int y = 0; y < LCD_HEIGHT; y++) {
 		uint32_t *row = (uint32_t *)((uint8_t *)pixels + y * pitch);
 		for (int x = 0; x < LCD_WIDTH; x++)
-			row[x] = lcd_pixel(d->lcd, d->mem, x, y)
+			/*
+			 * An unpowered panel is not white, it is the blank
+			 * grey of an LCD with nothing driving it.
+			 */
+			row[x] = !d->powered ? 0xffb8b8b0u
+			       : lcd_pixel(d->lcd, d->mem, x, y)
 				 ? 0xff000000u : 0xffffffffu;
 	}
 	SDL_UnlockTexture(d->texture);

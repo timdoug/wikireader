@@ -17,5 +17,6 @@ struct sdramc {
 };
 
 void sdramc_attach(struct mem *m, struct sdramc *s);
+void sdramc_reset(struct sdramc *s);
 
 #endif /* SDRAMC_H */

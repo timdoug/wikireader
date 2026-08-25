@@ -139,8 +139,14 @@ void itc_set_flag(struct itc *t, unsigned vector)
 	}
 }
 
-void itc_attach(struct mem *m, struct itc *t)
+/* Reset state without re-registering the device. */
+void itc_reset(struct itc *t)
 {
 	memset(t, 0, sizeof *t);
+}
+
+void itc_attach(struct mem *m, struct itc *t)
+{
+	itc_reset(t);
 	mem_add_mmio(m, "itc", ITC_BASE, ITC_LEN, itc_mmio, t);
 }

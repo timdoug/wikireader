@@ -37,6 +37,7 @@ struct touch {
 };
 
 void touch_attach(struct mem *m, struct touch *t, const struct itc *itc);
+void touch_reset(struct touch *t);
 void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed);
 void touch_poll(struct touch *t, struct c33 *cpu);
 /* Pixel centre of an on-screen keyboard key, or false if unmapped. */

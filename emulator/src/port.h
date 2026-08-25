@@ -60,6 +60,7 @@ struct port {
 };
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc);
+void port_reset(struct port *p);   /* keeps the controller link */
 /* Press or release one of the three front buttons: 0 random, 1 search,
    2 history. Raises the key-input interrupt if the controller wants it. */
 void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed);

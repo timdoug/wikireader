@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 /*
  * 16-bit timer block (REG_BASE+0x780), enough for grifo's tick source.
  *
@@ -133,8 +135,19 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			if ((*val & PRUNx) && !t->t2_running) {
 				uint64_t n = t->reg[OFF_CR2A / 2];
 				t->t2_running = true;
-				t->t2_deadline = (t->cycles ? *t->cycles : 0) +
-						 n * T2_PRESCALE;
+				uint64_t span = (uint64_t)n * T2_PRESCALE;
+				/*
+				 * Development knob: the firmware asks for a
+				 * 120 s suspend timeout, which is a long wait
+				 * to reproduce anything that happens at the
+				 * far end of it. Dividing the span here rather
+				 * than editing the firmware keeps the guest
+				 * byte-identical to the shipping build.
+				 */
+				const char *sc = getenv("WREMU_SUSPEND_DIV");
+				if (sc && atoi(sc) > 1)
+					span /= (unsigned)atoi(sc);
+				t->t2_deadline = (t->cycles ? *t->cycles : 0) + span;
 			} else if (!(*val & PRUNx)) {
 				t->t2_running = false;
 			}
@@ -159,6 +172,19 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		*val = 0;
 		return true;
 	}
+}
+
+void timer_reset(struct timerblk *t)
+{
+	const uint64_t *cycles = t->cycles;
+	const struct itc *itc = t->itc;
+	bool wall = t->wallclock;
+	uint64_t t0 = t->t0_ns;
+	memset(t, 0, sizeof *t);
+	t->cycles = cycles;
+	t->itc = itc;
+	t->wallclock = wall;
+	t->t0_ns = t0;
 }
 
 void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,
