@@ -258,7 +258,7 @@ int main(int argc, char **argv)
 	mem.pc_src = &cpu.pc;
 
 	struct timerblk timer;
-	timer_attach(&mem, &timer, &cpu.clk);
+	timer_attach(&mem, &timer, &cpu.clk, &itc);
 	/*
 	 * With a window, measure time the way the person holding the mouse
 	 * does. Headless runs keep the cycle-derived tick so they stay
@@ -395,6 +395,7 @@ int main(int argc, char **argv)
 
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
+		timer_poll(&timer, &cpu);
 		c33_step(&cpu);
 
 		/*

@@ -97,8 +97,8 @@ bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
 serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
 (`sdramc.c`), because the boot path spins on its initialise flag.
 
-The whole chain works. `-n 300000000` is enough to reach the rendered
-keyboard, in about three seconds:
+The whole chain works. `-n 8000000000` reaches the rendered keyboard; see
+the note on suspend below for why that is not 300 million:
 
 ```
 load: kernel.elf
@@ -150,11 +150,14 @@ three-byte address, so it begins clocking out data during the fourth
 address byte, and the boot ROM discards it. The 512 bytes it keeps start at
 offset 1.
 
-### One pin, twenty-seven times
+### Suspend: a 27x speedup that is not switched on
 
-The chain first worked at about 8 billion instructions, where the ELF path
-reached the same screen in 600 million. It now takes **300 million**, and
-the whole boot runs in about three seconds.
+This one is worth reading before touching port 6 or `Suspend`.
+
+The chain takes about 8 billion instructions where the ELF path reaches the
+same screen in 600 million. It can be made to take **300 million** -- a
+three second boot -- and the emulator knows exactly how. It is deliberately
+not doing so, for a reason given at the end.
 
 The cost was not I/O: both paths did nearly identical card traffic, 587
 commands against 538. It was not the boot stages either -- `-H` put 98% of
@@ -179,13 +182,36 @@ if (0 == (REG_P6_P6D & 0x10)) {
 Port 6 was initialised here to all zeros so the three buttons on bits 0..2
 would read as not held. But `REG_MISC_PUP6` in `boards/samo_a1.h` enables
 pull-ups on bits 3, 4 and 5, so those idle **high**. With bit 4 low,
-`Suspend` concluded a touch packet was arriving and returned immediately,
-every time, and the idle loop ran flat out instead of suspending.
+`Suspend` concludes a touch packet is arriving and returns immediately,
+every time, and the idle loop runs flat out instead of suspending.
 
-The lesson is the one from the earlier port bug, twice over: reset state
-for an I/O port is a property of the board, not a convenient default. The
+Setting bit 4 high is the accurate thing and gives the 27x. It also makes
+the machine deaf: touch stops working in both boot paths, 8 events turning
+into 1 interrupt and no search. Suspending is a whole subsystem, and only
+part of it is modelled:
+
+* `halt` now parks the core until an interrupt instead of stopping the
+  emulator, and wakes on a request **regardless of `IE`**, which is what
+  the manual specifies -- "interrupt signals are able to cancel HALT and
+  SLEEP modes even if the IE flag in PSR or the interrupt enable bits in
+  the interrupt controller are set to disable interrupts". That matters
+  because `Suspend` disables interrupts before halting.
+* `SELDO` in the SDRAM refresh register is modelled, because the relocated
+  suspend code enables self-refresh and spins until it reads back.
+* 16-bit timer 2 is modelled as a wake source, because that is what the
+  suspend path arms before halting.
+
+With all three in place the device still does not deliver touch packets
+across a suspend and resume. So bit 4 is left low, with bits 3 and 5 at
+their pull-up values, and the emulator idles inefficiently but answers the
+keyboard. An emulator that responds to input beats one that idles well.
+
+The lesson from the port bug still stands, twice over now: the reset state
+of an I/O port is a property of the board, not a convenient default. The
 manual lists these registers as "Ext." precisely because they read the
-external pin, and the schematic is in the board header.
+external pin, and the pull-ups are in the board header. But the second
+lesson is that a register can be *more* accurate in isolation and still be
+a regression, if it turns on behaviour the rest of the model cannot follow.
 
 ## Making a card image
 

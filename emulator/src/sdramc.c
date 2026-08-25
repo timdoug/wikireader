@@ -21,10 +21,27 @@
 #include "sdramc.h"
 
 #define OFF_INI  ((0x1600u - SDRAMC_BASE) / 4)
+#define OFF_REF  ((0x1608u - SDRAMC_BASE) / 4)
 
 #define SDON    (1u << 4)   /* controller enable        R/W */
 #define SDEN    (1u << 3)   /* initialized flag         R   */
 #define INIMRS  (1u << 2)   /* mode register set        R/W */
+
+/*
+ * Refresh register (0x301608). SELDO is read-only and reports whether the
+ * SDRAM is actually in self-refresh:
+ *
+ *   D25 SELDO  SDRAM self-refresh status   1 Refresh mode  0 Done   R
+ *   D23 SELEN  SDRAM self-refresh enable                            R/W
+ *
+ * grifo's suspend code, relocated into internal RAM, enables self-refresh
+ * and then spins until SELDO reads back 1 before it powers things down.
+ * With the bit unmodelled that loop never ends, and because Suspend()
+ * disables interrupts first, nothing could wake it -- touch events queued
+ * up and no interrupt was ever taken.
+ */
+#define SELDO   (1u << 25)  /* self-refresh status      R   */
+#define SELEN   (1u << 23)  /* self-refresh enable      R/W */
 
 static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			bool is_write)
@@ -36,7 +53,9 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return false;
 
 	if (is_write) {
-		if (i == OFF_INI) {
+		if (i == OFF_REF) {
+			s->reg[i] = *val & ~SELDO;   /* SELDO is read-only */
+		} else if (i == OFF_INI) {
 			/* SDEN is not writable; the MRS command raises it. */
 			s->reg[i] = *val & ~SDEN;
 			if ((*val & SDON) && (*val & INIMRS))
@@ -51,6 +70,9 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	*val = s->reg[i];
 	if (i == OFF_INI && s->initialised)
 		*val |= SDEN;
+	/* Self-refresh is entered and left as soon as it is asked for. */
+	if (i == OFF_REF && (s->reg[i] & SELEN))
+		*val |= SELDO;
 	return true;
 }
 

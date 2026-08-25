@@ -497,6 +497,36 @@ void c33_step(struct c33 *c)
 		return;
 
 	/*
+	 * Asleep in HALT: retire no instructions, but let time pass so the
+	 * timers keep running and a pending interrupt can arrive. The cycle
+	 * counter advances too, so instruction limits and scripted input
+	 * still work against a sleeping machine.
+	 */
+	if (c->sleeping) {
+		c->clk++;
+		c->cycles++;
+		c->sleep_cycles++;
+		/*
+		 * "The interrupt enable/disable status set in the processor
+		 *  does not affect the cancellation of HALT or SLEEP modes...
+		 *  interrupt signals are able to cancel HALT and SLEEP modes
+		 *  even if the IE flag in PSR or the interrupt enable bits in
+		 *  the interrupt controller are set to disable interrupts."
+		 *                        (C33 PE Core manual, HALT/SLEEP)
+		 *
+		 * So a request wakes the core whatever IE says; it is only
+		 * the taking of it that IE gates. This matters because grifo
+		 * suspends with interrupts disabled and expects to be woken.
+		 */
+		if (c->irq_pending) {
+			c->sleeping = false;
+			if (c->sr[SR_PSR] & PSR_IE)
+				take_irq(c);
+		}
+		return;
+	}
+
+	/*
 	 * An interrupt must not be taken part-way through an ext sequence.
 	 *
 	 *   "For exceptions associated with ext instructions, exception
@@ -616,7 +646,14 @@ void c33_step(struct c33 *c)
 		break;
 
 	case OP_HALT:
-		c->halted = true;
+		/*
+		 * HALT stops the core until an interrupt, it does not stop the
+		 * machine. Treating it as a stop was harmless while nothing
+		 * reached it, but grifo's suspend path halts and waits for the
+		 * touch controller to wake it, so ending the run there made
+		 * the device unresponsive the moment it first went idle.
+		 */
+		c->sleeping = true;
 		break;
 
 	case OP_SLP:

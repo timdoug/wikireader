@@ -92,6 +92,8 @@ struct c33 {
 	/* pending hardware interrupt, delivered once PSR.IE allows it */
 	bool     check_alignment;   /* raise vector 6 on misaligned access */
 	unsigned long misaligned_hits;
+	bool     sleeping;           /* in HALT, waiting for an interrupt */
+	unsigned long sleep_cycles;
 	bool     irq_pending;
 	unsigned irq_vector;
 	unsigned irq_priority;

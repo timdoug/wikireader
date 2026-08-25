@@ -64,6 +64,24 @@ void port_attach(struct mem *m, struct port *p)
 	 * so with it low the idle loop never suspends and spins at full
 	 * speed, which is most of where a boot's instructions were going.
 	 */
-	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
+	/*
+	 * Bits 3 and 5 idle high, bit 4 deliberately does not.
+	 *
+	 * All three have pull-ups per REG_MISC_PUP6, so the accurate reset
+	 * value is 0x38. But bit 4 is what grifo's Suspend() tests:
+	 *
+	 *     if (0 == (REG_P6_P6D & 0x10)) return;   // in CTP receive
+	 *
+	 * Driving it high makes Suspend actually suspend, which is both more
+	 * faithful and much faster -- it cut a boot from 8 billion
+	 * instructions to 300 million, because the idle loop stops spinning.
+	 * It also makes the machine unresponsive to touch, because the
+	 * suspend path is not fully modelled yet: it halts with interrupts
+	 * disabled and expects a 16-bit timer 2 underflow to wake it, and
+	 * while HALT and the timer are now modelled, packets still are not
+	 * delivered across a suspend/resume cycle. Until that works, an
+	 * emulator that responds to input beats one that idles efficiently.
+	 */
+	p->reg[OFF_P6D] = (1u << 5) | (1u << 3);
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 }

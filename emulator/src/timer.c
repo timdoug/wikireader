@@ -23,6 +23,20 @@
 #define OFF_TC5        (0x7acu - T16_BASE)
 #define OFF_CNT_PAUSE  (0x7dcu - T16_BASE)
 
+/* Channel 2, the suspend wake timer. */
+#define OFF_CR2A       (0x790u - T16_BASE)
+#define OFF_CTL2       (0x796u - T16_BASE)
+#define OFF_CLKCTL_2   (0x7e4u - T16_BASE)
+
+#define PRUNx          (1u << 0)     /* run/stop */
+/*
+ * The prescaler select is a power-of-two divider of MCLK; suspend.c picks
+ * P16TSx_MCLK_DIV_4096 and computes its reload as
+ * (MCLK / 32 / 4096) * seconds, so the effective tick is MCLK/4096 with a
+ * further divide by 32 folded into the count.
+ */
+#define T2_PRESCALE    4096u
+
 /*
  * One tick per instruction.
  *
@@ -80,6 +94,18 @@ static uint32_t now(struct timerblk *t)
 	return (uint32_t)(*t->cycles / CYCLES_PER_TICK);
 }
 
+void timer_poll(struct timerblk *t, struct c33 *cpu)
+{
+	if (!t->t2_running || !t->cycles)
+		return;
+	if (*t->cycles < t->t2_deadline)
+		return;
+	t->t2_running = false;
+	t->t2_fires++;
+	c33_raise_irq(cpu, VECTOR_T16_CH2,
+		      t->itc ? itc_priority(t->itc, VECTOR_T16_CH2) : 7);
+}
+
 static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		       bool is_write)
 {
@@ -89,6 +115,21 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	if (is_write) {
 		if (reg == OFF_CNT_PAUSE)
 			t->paused = (*val != 0);
+		if (reg / 2 < 0x80 / 2)
+			t->reg[reg / 2] = (uint16_t)*val;
+		if (reg == OFF_CLKCTL_2)
+			t->clkctl2 = (uint16_t)*val;
+		if (reg == OFF_CTL2) {
+			/* Starting the timer arms the wake-up deadline. */
+			if ((*val & PRUNx) && !t->t2_running) {
+				uint64_t n = t->reg[OFF_CR2A / 2];
+				t->t2_running = true;
+				t->t2_deadline = (t->cycles ? *t->cycles : 0) +
+						 n * T2_PRESCALE;
+			} else if (!(*val & PRUNx)) {
+				t->t2_running = false;
+			}
+		}
 		return true;             /* configuration accepted */
 	}
 
@@ -111,9 +152,11 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	}
 }
 
-void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles)
+void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,
+		  const struct itc *itc)
 {
 	memset(t, 0, sizeof *t);
 	t->cycles = cycles;
+	t->itc = itc;
 	mem_add_mmio(m, "t16", T16_BASE, T16_LEN, timer_mmio, t);
 }
