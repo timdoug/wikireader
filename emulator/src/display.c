@@ -393,18 +393,25 @@ bool display_update(struct display *d)
 		return false;
 
 	/*
-	 * Pump events every call, but repaint at the display's rate rather
-	 * than the guest's.
+	 * Pump events every call, but bound how often the rest of this runs.
 	 *
-	 * This used to be driven purely by guest cycles -- once every 200k --
-	 * which at emulation speed is several hundred presents a second. The
-	 * emulator itself did not look especially busy; the cost landed on
-	 * the compositor, which was doing more work than the emulator was.
-	 * Nothing on a 240x208 panel needs more than 60 frames a second.
+	 * It used to be driven purely by guest cycles -- once every 200k --
+	 * which at emulation speed is several hundred frames a second, and
+	 * the cost landed on the compositor rather than showing up as the
+	 * emulator's own CPU.
+	 *
+	 * vsync now does the pacing, so this is no longer a frame limiter;
+	 * its job is to bound the fingerprint below, which reads the whole
+	 * framebuffer. Deliberately looser than the refresh rate: throttling
+	 * at exactly 60 Hz against a 60 Hz display, with only millisecond
+	 * resolution to work with, means sometimes just missing a refresh
+	 * and waiting for the next -- a beat that shows as judder. Letting
+	 * frames through faster than the display costs nothing, because
+	 * vsync is what decides when they actually go out.
 	 */
 	d->calls++;
 	unsigned now_ms = SDL_GetTicks();
-	if (now_ms - d->last_present_ms < 1000 / 60)
+	if (now_ms - d->last_present_ms < 1000 / 120)
 		return true;
 	d->last_present_ms = now_ms;
 
