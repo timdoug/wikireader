@@ -13,6 +13,8 @@
 #include <SDL.h>
 
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 
 #include "display.h"
@@ -225,6 +227,23 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 					 LCD_WIDTH * d->scale,
 					 BEZEL_H * d->scale);
 	d->bezel_drawn_held = -2;      /* force the first paint */
+	if (getenv("WREMU_DISPLAY_INFO")) {
+		int ww, wh, dw, dh, ow, oh;
+		float sx, sy;
+		SDL_GetWindowSize(d->window, &ww, &wh);
+		SDL_GL_GetDrawableSize(d->window, &dw, &dh);
+		SDL_GetRendererOutputSize(d->renderer, &ow, &oh);
+		SDL_RenderGetScale(d->renderer, &sx, &sy);
+		SDL_Rect vp;
+		SDL_RenderGetViewport(d->renderer, &vp);
+		fprintf(stderr,
+			"display: window %dx%d drawable %dx%d output %dx%d "
+			"scale %.4gx%.4g viewport %d,%d %dx%d logical %dx%d\n",
+			ww, wh, dw, dh, ow, oh, sx, sy,
+			vp.x, vp.y, vp.w, vp.h,
+			LCD_WIDTH * d->scale, (LCD_HEIGHT + BEZEL_H) * d->scale);
+	}
+
 	d->open = true;
 	return true;
 }
@@ -410,6 +429,37 @@ bool display_update(struct display *d)
 	SDL_Rect panel = { 0, 0, LCD_WIDTH * d->scale, LCD_HEIGHT * d->scale };
 	SDL_RenderCopy(d->renderer, d->texture, NULL, &panel);
 	draw_bezel(d);
+	/*
+	 * Optional capture of exactly what is about to be shown, for
+	 * checking edges. Must happen before the present: after it the back
+	 * buffer contents are undefined.
+	 */
+	if (getenv("WREMU_GRAB")) {
+		static int grab_n;
+		char path[256];
+		snprintf(path, sizeof path, "%s.%03d.ppm",
+			 getenv("WREMU_GRAB"), grab_n++);
+		int ow, oh;
+		SDL_GetRendererOutputSize(d->renderer, &ow, &oh);
+		uint32_t *px = malloc((size_t)ow * oh * 4);
+		if (px && SDL_RenderReadPixels(d->renderer, NULL,
+					       SDL_PIXELFORMAT_ARGB8888,
+					       px, ow * 4) == 0) {
+			FILE *fp = fopen(path, "wb");
+			if (fp) {
+				fprintf(fp, "P6\n%d %d\n255\n", ow, oh);
+				for (int i = 0; i < ow * oh; i++) {
+					uint32_t v = px[i];
+					fputc((v >> 16) & 0xff, fp);
+					fputc((v >> 8) & 0xff, fp);
+					fputc(v & 0xff, fp);
+				}
+				fclose(fp);
+			}
+		}
+		free(px);
+	}
+
 	SDL_RenderPresent(d->renderer);
 	d->presents++;
 	return true;
