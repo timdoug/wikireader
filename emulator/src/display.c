@@ -196,8 +196,29 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 	if (!d->window)
 		return false;
 
+	/*
+	 * Present in step with the display.
+	 *
+	 * Without this the emulator hands over a new frame whenever it has
+	 * one, and the display scans out part of the old buffer and part of
+	 * the new -- a thin seam along an edge. It shows only while frames
+	 * are actually being presented, so it appears when the guest is
+	 * drawing and vanishes the moment the screen settles, and it cannot
+	 * be screenshotted at all: a screenshot copies the composited
+	 * surface, which is intact, while tearing happens later, during
+	 * scanout.
+	 *
+	 * The cost is that a present waits for the next refresh, which is
+	 * the right thing for a window: it is exactly the pacing a display
+	 * can use. Frames that change nothing are skipped before we get
+	 * here, so an idle screen never waits at all.
+	 */
 	d->renderer = SDL_CreateRenderer(d->window, -1,
-					 SDL_RENDERER_ACCELERATED);
+					 SDL_RENDERER_ACCELERATED |
+					 SDL_RENDERER_PRESENTVSYNC);
+	if (!d->renderer)
+		d->renderer = SDL_CreateRenderer(d->window, -1,
+						 SDL_RENDERER_PRESENTVSYNC);
 	if (!d->renderer)
 		d->renderer = SDL_CreateRenderer(d->window, -1, 0);
 	if (!d->renderer)

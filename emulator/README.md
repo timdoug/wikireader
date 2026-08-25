@@ -644,6 +644,17 @@ scales, and at an integer factor with `SDL_HINT_RENDER_SCALE_QUALITY` at
 nearest it stays sharp. A one-bit panel wants hard pixel edges;
 interpolating between them is only blur.
 
+**Presents are synchronised to the display.** Without vsync the emulator
+hands over a new frame whenever it has one and the display scans out part
+of the old buffer and part of the new -- a thin seam along an edge. It is
+an odd bug to chase because it only shows while frames are actually being
+presented, so it appears when the guest draws and vanishes when the screen
+settles, and it **cannot be screenshotted**: a screenshot copies the
+composited surface, which is intact, while tearing happens afterwards
+during scanout. Waiting for the refresh is the right pacing for a window
+anyway, and since unchanged frames are skipped before that point, an idle
+screen never waits.
+
 **Unchanged frames are not presented at all.** This is the one that
 mattered. Nothing draws to an idle panel, so those sixty frames a second
 were sixty identical uploads. `lcd_fingerprint()` hashes the framebuffer
