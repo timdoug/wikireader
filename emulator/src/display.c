@@ -77,9 +77,23 @@ bool display_update(struct display *d)
 			d->quit = true;
 			break;
 		case SDL_KEYDOWN:
-			if (ev.key.keysym.sym == SDLK_ESCAPE ||
-			    ev.key.keysym.sym == SDLK_q)
+		case SDL_KEYUP:
+			if (ev.type == SDL_KEYDOWN &&
+			    (ev.key.keysym.sym == SDLK_ESCAPE ||
+			     ev.key.keysym.sym == SDLK_q)) {
 				d->quit = true;
+				break;
+			}
+			/*
+			 * The three front buttons, on keys 1, 2 and 3. grifo
+			 * calls them random, search and history, and reports
+			 * them in that order (button.c: "0=random, 1=search,
+			 * 2=history").
+			 */
+			if (ev.key.keysym.sym >= SDLK_1 && ev.key.keysym.sym <= SDLK_3) {
+				d->button = ev.key.keysym.sym - SDLK_1;
+				d->button_pressed = (ev.type == SDL_KEYDOWN);
+			}
 			break;
 		case SDL_MOUSEBUTTONDOWN:
 		case SDL_MOUSEBUTTONUP:

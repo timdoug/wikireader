@@ -25,6 +25,9 @@ struct display {
 	int   touch_x, touch_y;
 	bool  touch_pressed;
 	bool  touch_pending;
+	/* front buttons: 0 random, 1 search, 2 history */
+	int   button;            /* -1 when nothing to report */
+	bool  button_pressed;
 };
 
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem, int scale);

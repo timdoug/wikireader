@@ -56,6 +56,7 @@ int main(int argc, char **argv)
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
+	int btn_code = -1; unsigned long btn_at = 0;
 	uint32_t boot_sp = 0;
 /*
  * What the mask ROM leaves behind: mbr, linked at 0, copied from the
@@ -114,6 +115,10 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-T") && i + 1 < argc) {
 			/* scripted tap: -T x,y,cycle */
 			sscanf(argv[++i], "%d,%d,%lu", &tap_x, &tap_y, &tap_at);
+		}
+		else if (!strcmp(argv[i], "-N") && i + 1 < argc) {
+			/* scripted button: -N code,cycle  (0 random 1 search 2 history) */
+			sscanf(argv[++i], "%d,%lu", &btn_code, &btn_at);
 		}
 		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
 			/* scripted drag: -G x,y0,y1,cycle */
@@ -178,11 +183,12 @@ int main(int argc, char **argv)
 
 	struct display disp;
 	memset(&disp, 0, sizeof disp);
+	disp.button = -1;
 	if (gui && !display_open(&disp, &lcd, &mem, gui_scale))
 		fprintf(stderr, "warning: could not open display window\n");
 
 	struct port port;
-	port_attach(&mem, &port);
+	port_attach(&mem, &port, &itc);
 
 	struct sdramc sdramc;
 	sdramc_attach(&mem, &sdramc);
@@ -331,6 +337,16 @@ int main(int argc, char **argv)
 		if (drag_x >= 0 && (cpu.cycles % 100000) == 0)
 			touch_poll(&touch, &cpu);
 
+		/* scripted button press, held briefly then released */
+		if (btn_code >= 0 && cpu.cycles == btn_at) {
+			fprintf(stderr, "  [button %d down]\n", btn_code);
+			port_button(&port, &cpu, (unsigned)btn_code, true);
+		}
+		if (btn_code >= 0 && cpu.cycles == btn_at + 2000000) {
+			fprintf(stderr, "  [button %d up]\n", btn_code);
+			port_button(&port, &cpu, (unsigned)btn_code, false);
+		}
+
 		/* scripted tap for testing without a window */
 		if (tap_x >= 0 && cpu.cycles == tap_at) {
 			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
@@ -347,6 +363,11 @@ int main(int argc, char **argv)
 			if (!display_update(&disp)) {
 				stop = "window closed";
 				break;
+			}
+			if (disp.button >= 0) {
+				port_button(&port, &cpu, (unsigned)disp.button,
+					    disp.button_pressed);
+				disp.button = -1;
 			}
 			if (disp.touch_pending || disp.touch_pressed) {
 				/*
@@ -428,6 +449,7 @@ done:
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
+	printf("--- buttons: %lu transitions ---\n", port.button_events);
 	printf("--- itc: %lu register writes, serial ch1 priority %u, ESIF01=0x%02x, ch1-rx %s ---\n",
 	       itc.writes, itc_priority(&itc, 61),
 	       itc.reg[0x276 - ITC_BASE],

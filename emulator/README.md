@@ -34,7 +34,9 @@ to rebuild the firmware itself.
 ./wremu -g -c images/wrcard.img images/grifo.elf
 ```
 
-Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
+Click keys with the mouse; that is the touch panel. Keys **1**, **2** and
+**3** are the three front buttons -- random, search and history, in the
+order grifo numbers them. `Q` or `Esc` quits.
 
 | flag | meaning |
 | --- | --- |
@@ -45,6 +47,7 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 | `-s` | trace grifo syscalls by name, with call sites and return values |
 | `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
 | `-T x,y,cycle` | tap a pixel |
+| `-N code,cycle` | press a front button: 0 random, 1 search, 2 history |
 | `-G x,y0,y1,cycle` | drag vertically, for the scroll path |
 | `-b ADDR` | breakpoint: registers plus recent PCs |
 | `-W ADDR` | write watchpoint |
@@ -447,6 +450,20 @@ programmed the timing, mode and power registers before `kernel.elf` is
 entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
 not interpreted: modelling `PSAVE` from a register that reads as its reset
 value of zero would blank a panel the hardware has running.
+
+### The front buttons
+
+The three buttons are P60..P62, and they do not simply appear in a port
+register: the firmware arms a key-input comparator and takes an interrupt.
+`REG_KINTCOMP_SMPK0` selects which bits participate, `SCPK0` holds the
+state last seen, and KINT0 (vector 20) is raised whenever the two stop
+matching. grifo's handler re-arms by writing the current state back, so a
+held button does not retrigger.
+
+`src/port.c` models that, and the interrupt controller knows KINT0's enable
+(EK0), flag (FK0) and priority bits. Codes are grifo's own numbering from
+`button.c` -- "0=random, 1=search, 2=history". The power button is separate,
+on a P03 port interrupt, and is not modelled.
 
 ### Serial and SPI status registers
 

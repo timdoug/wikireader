@@ -49,9 +49,41 @@ bool port_cs_low(const struct port *p, unsigned bit)
 	return (p->reg[OFF_P5D] & (1u << bit)) == 0;
 }
 
-void port_attach(struct mem *m, struct port *p)
+/*
+ * Raise KINT0 if the buttons no longer match what the comparator was armed
+ * with. grifo enables it with EK0 and re-arms from its handler by writing
+ * the current state back to SCPK0, so this stays quiet until something
+ * actually changes.
+ */
+static void kint_check(struct port *p, struct c33 *cpu)
+{
+	uint8_t mask = p->reg[OFF_SMPK0];
+	if (!mask)
+		return;
+	if ((p->reg[OFF_P6D] & mask) == (p->reg[OFF_SCPK0] & mask))
+		return;
+	if (p->itc)
+		itc_set_flag((struct itc *)p->itc, VECTOR_KEY_INPUT_0);
+	c33_raise_irq(cpu, VECTOR_KEY_INPUT_0,
+		      p->itc ? itc_priority(p->itc, VECTOR_KEY_INPUT_0) : 7);
+}
+
+void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
+{
+	if (n > 2)
+		return;
+	if (pressed)
+		p->reg[OFF_P6D] |= (uint8_t)(1u << n);
+	else
+		p->reg[OFF_P6D] &= (uint8_t)~(1u << n);
+	p->button_events++;
+	kint_check(p, cpu);
+}
+
+void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 {
 	memset(p, 0, sizeof *p);
+	p->itc = itc;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
 	/*
 	 * Port 6: the three buttons on bits 0..2 read 0 when not held, but

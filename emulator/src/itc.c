@@ -38,6 +38,9 @@
 #define FSIF01     (0x286u - ITC_BASE)   /* serial ch0-1 causes */
 
 /* Enable registers, one bit per cause. */
+#define EK01_EP03  (0x270u - ITC_BASE)   /* key input and port causes */
+#define FK01_FP03  (0x280u - ITC_BASE)
+#define PK01L      (0x262u - ITC_BASE)
 #define E16T23     (0x273u - ITC_BASE)
 #define ESIF01     (0x276u - ITC_BASE)
 
@@ -83,6 +86,8 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 	case VEC_SERIAL0_RX:
 	case VEC_SERIAL0_TX:
 		return (t->reg[PSI01_PAD] >> 4) & 0x7;
+	case 20:
+		return t->reg[PK01L] & 0x7;        /* key input 0 priority */
 	case VEC_SERIAL1_ERR:
 	case VEC_SERIAL1_RX:
 	case VEC_SERIAL1_TX:
@@ -104,6 +109,7 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 bool itc_enabled(const struct itc *t, unsigned vector)
 {
 	switch (vector) {
+	case 20: return (t->reg[EK01_EP03] & (1u << 4)) != 0; /* key input 0 */
 	case 38: return (t->reg[E16T23] & (1u << 2)) != 0;  /* timer 2 cmp B */
 	case 39: return (t->reg[E16T23] & (1u << 3)) != 0;  /* timer 2 cmp A */
 	case 56: return (t->reg[ESIF01] & (1u << 0)) != 0;  /* serial 0 error */
@@ -119,6 +125,7 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 void itc_set_flag(struct itc *t, unsigned vector)
 {
 	switch (vector) {
+	case 20: t->reg[FK01_FP03] |= 1u << 4; break;  /* key input 0 */
 	case 38: t->reg[F16T23] |= 1u << 2; break;  /* timer 2 comparison B */
 	case 39: t->reg[F16T23] |= 1u << 3; break;  /* timer 2 comparison A */
 	case 56: case 57: case 58:
