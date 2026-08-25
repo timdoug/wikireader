@@ -129,6 +129,12 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 			     struct sdcard *sd, struct eeprom *eeprom,
 			     const char *path, uint32_t entry, uint32_t boot_sp)
 {
+	/*
+	 * Power was removed, so nothing volatile survives. Do this before the
+	 * boot image is placed, or it would be wiped straight back out.
+	 */
+	mem_clear_ram(mem);
+
 	itc_reset(itc);
 	port_reset(port);
 	sdramc_reset(sdramc);

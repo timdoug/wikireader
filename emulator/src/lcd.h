@@ -23,6 +23,15 @@ struct lcd {
 
 void lcd_attach(struct mem *m, struct lcd *l);
 void lcd_reset(struct lcd *l);
+/*
+ * True once the controller is actually refreshing the panel. LCD_initialise
+ * (samo-lib/drivers/src/lcd.c) parks REG_LCDC_PS in PSAVE_POWER_SAVE, programs
+ * the timing and the framebuffer address, and only then selects PSAVE_NORMAL.
+ * Until that last write the glass is not being driven and shows nothing --
+ * which is why a power cycle must not flash whatever the framebuffer still
+ * holds from last time.
+ */
+bool lcd_driving(const struct lcd *l);
 /* Composited panel pixel: 1 = black. Honours the PIP sub-window overlay. */
 unsigned lcd_pixel(struct lcd *l, struct mem *m, int x, int y);
 /*

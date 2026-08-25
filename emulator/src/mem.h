@@ -62,6 +62,12 @@ struct mem {
 
 bool mem_init(struct mem *m);
 void mem_free(struct mem *m);
+/*
+ * Clear every RAM region. Cutting the power to the board loses all of it,
+ * so a machine coming back on must not find the last session's contents --
+ * least of all the framebuffer.
+ */
+void mem_clear_ram(struct mem *m);
 void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
 		  mmio_fn fn, void *ctx);
 

@@ -119,6 +119,15 @@ unsigned lcd_pixel(struct lcd *l, struct mem *m, int x, int y)
 }
 
 /* Reset state without re-registering the device. */
+/* REG_LCDC_PS[1:0]: 0 power save, 2 doze, 3 normal. */
+#define PSAVE_MASK    0x3u
+#define PSAVE_NORMAL  0x3u
+
+bool lcd_driving(const struct lcd *l)
+{
+	return (R(l, OFF_PS) & PSAVE_MASK) == PSAVE_NORMAL;
+}
+
 void lcd_reset(struct lcd *l)
 {
 	memset(l, 0, sizeof *l);

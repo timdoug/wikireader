@@ -526,7 +526,13 @@ bool display_update(struct display *d)
 	 * identical. Hashing the framebuffer is far cheaper than uploading
 	 * and presenting it.
 	 */
-	uint64_t fp = d->powered ? lcd_fingerprint(d->lcd, d->mem) : 0;
+	/*
+	 * A blank panel is a blank panel: an off device and a controller that
+	 * has not been taken out of power save look the same, because neither
+	 * is driving the glass.
+	 */
+	bool lit = d->powered && lcd_driving(d->lcd);
+	uint64_t fp = lit ? lcd_fingerprint(d->lcd, d->mem) : 0;
 	if (d->have_fingerprint && fp == d->last_fingerprint &&
 	    d->bezel_drawn_held == d->button_held) {
 		d->skipped++;
@@ -547,7 +553,7 @@ bool display_update(struct display *d)
 			 * An unpowered panel is not white, it is the blank
 			 * grey of an LCD with nothing driving it.
 			 */
-			row[x] = !d->powered ? 0xffb8b8b0u
+			row[x] = !lit ? 0xffb8b8b0u
 			       : lcd_pixel(d->lcd, d->mem, x, y)
 				 ? 0xff000000u : 0xffffffffu;
 	}

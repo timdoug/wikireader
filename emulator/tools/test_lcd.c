@@ -158,6 +158,28 @@ int main(void)
 	check("with MLADD 4, row 2 sees what row 1 held at stride 32",
 	      lcd_pixel(&lcd, &mem, 0, 2), 1);
 
+	/*
+	 * A power cycle must not flash the last session's screen. The panel
+	 * is only driven once LCD_initialise selects PSAVE_NORMAL, and the
+	 * framebuffer lives in RAM the board loses when the power goes.
+	 */
+	wr32(0x1a74, 8);                     /* stride back to 32 bytes */
+	wr32(0x1a04, 0x3);                   /* REG_LCDC_PS = PSAVE_NORMAL */
+	main_set(120, 100);
+	check("the panel is driven once PS selects normal mode",
+	      lcd_driving(&lcd), 1);
+	check("and shows what the framebuffer holds",
+	      lcd_pixel(&lcd, &mem, 120, 100), 1);
+
+	lcd_reset(&lcd);                     /* what powering off does */
+	check("after a power cycle the controller is back in power save",
+	      lcd_driving(&lcd), 0);
+
+	mem_clear_ram(&mem);
+	wr32(0x1a04, 0x3);                   /* firmware re-enables the panel */
+	check("and the old image is gone rather than flashed back up",
+	      lcd_pixel(&lcd, &mem, 120, 100), 0);
+
 	printf("\n%s\n", fails ? "FAILURES" : "all LCD tests passed");
 	return fails != 0;
 }

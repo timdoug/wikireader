@@ -524,6 +524,21 @@ and `make test-display` drives it with synthetic events -- no window, no
 video device -- covering the release-off-panel case, the clamping, and the
 counted power press.
 
+### Nothing to show until the controller says so
+
+Powering back on flashed the previous screen for a moment. Two reasons, both
+of them the emulator being less careful than the board.
+
+The framebuffer is ordinary RAM, and cutting the power loses it, so
+`machine_power_on()` clears every RAM region before placing the boot image.
+And the panel is not driven until the controller is told to drive it:
+`LCD_initialise` (`samo-lib/drivers/src/lcd.c`) parks `REG_LCDC_PS` in
+`PSAVE_POWER_SAVE`, programs the timing and the framebuffer address, and
+only then selects `PSAVE_NORMAL`. Until that last write there is nothing on
+the glass, so the window now draws the same blank grey it uses for an off
+device. An off machine and an uninitialised controller look alike because
+neither is refreshing the panel.
+
 ### Off is a state, not an exit
 
 Powering a device off does not make it stop existing, so with a window open

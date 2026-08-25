@@ -14,6 +14,14 @@ bool mem_init(struct mem *m)
 	return m->a0ram && m->ivram && m->dstram && m->sdram;
 }
 
+void mem_clear_ram(struct mem *m)
+{
+	memset(m->a0ram,  0, A0RAM_SIZE);
+	memset(m->ivram,  0, IVRAM_SIZE);
+	memset(m->dstram, 0, DSTRAM_SIZE);
+	memset(m->sdram,  0, SDRAM_SIZE);
+}
+
 void mem_free(struct mem *m)
 {
 	free(m->a0ram); free(m->ivram); free(m->dstram); free(m->sdram);
