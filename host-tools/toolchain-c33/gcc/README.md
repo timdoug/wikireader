@@ -3,10 +3,12 @@
 Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
 this is being written against.
 
-## Status: builds the WikiReader firmware
+## Status: runs the WikiReader firmware, output identical to gcc 3.3.2
 
-The kernel and the wiki application both build and link with gcc 16.2 and
-binutils 2.47, against a libgcc built by the same compiler.
+The kernel built by this port boots in `emulator/`, loads `init.app`, chains
+to `wiki.app`, mounts the card, renders the keyboard, accepts typed input and
+returns real article titles - and the framebuffer is **byte-identical to the
+gcc 3.3.2 build** for every search term tried (`LOVE`, `CAT`, `PARIS`).
 
 ```
                      shipped (gcc 3.3.2)   this port (gcc 16.2)
@@ -15,24 +17,39 @@ binutils 2.47, against a libgcc built by the same compiler.
   kernel    text              22,364              27,308   (+22%)
 ```
 
-The application is within 2% on text, which is about what you would hope for.
-The kernel's 22% is the cost of step 5 not being done: every access to a
-global currently loads its absolute address (`xld.w %rN,sym`, 6 bytes) instead
-of using the `%r15`-relative default data area, and the kernel is dense in
-global accesses. Delay slots (step 6) and the `bset`/`bclr`/`btst` bit
-operations account for some of the rest.
+The kernel's 22% is mostly step 5 not being done: every global access loads an
+absolute address instead of using the `%r15`-relative default data area.
 
-**Nothing has been run yet.** Everything here is verified by compiling,
-assembling and linking. Running it under `emulator/` is the next milestone,
-and until that happens "builds" is all this claims.
+Still to verify: the wiki *application* built by this port has not been run,
+only the kernel. That needs it written into a card image.
 
-### What it took beyond the compiler
+### Three bugs that only running could find
 
-Getting from "compiles a file" to "links the firmware" turned up four real
-bugs and a handful of source-level incompatibilities, all recorded in
-`../HANDOFF.md`. Two were in the binutils port and had been sitting there
-since it was declared byte-for-byte validated -- the validation compared
-`.text`, `.data` and relocations, and both bugs were outside that.
+Compiling, assembling and linking all succeeded while every one of these was
+present.
+
+* **`main` was not at the entry point.** gcc 4 and later split functions into
+  `.text.startup`, `.text.unlikely` and friends; `grifo.lds` matched only
+  `build/main.o(*.text)`, so `main` - which is what sets up `%sp` - went to
+  `.text.startup` and some other function landed at `0x10000000`. The first
+  `push` ran with `%sp` still zero. The script now takes
+  `build/main.o(.text.startup .text.startup.*)` first.
+
+* **Jump tables were emitted as zeroes.** This port inherited V850's
+  2-byte PC-relative case vectors (`.short .Lx-.Ltab`). The EPSON assembler
+  emits **0** for a `.short` whose value is a difference of labels that appear
+  *later* in the file - which is always true of a jump table. Every `switch`
+  therefore branched to the same place. The bug is in the original assembler
+  too, which is why the 3.3.2 backend used `CASE_VECTOR_MODE Pmode` and
+  absolute `.long` entries; this port now does the same. Worth fixing in gas
+  eventually, but nothing has ever depended on the `.short` form working.
+
+  This is what broke the touch input: the touch ISR's state machine ran
+  `1,2,3,4,5,6` instead of `1,2,3,4,5,0`, never reaching the case that queues
+  an event, so `Event_wait` blocked forever and the display never updated.
+
+* Plus the `.text.startup` and linker-script issues above, neither of which
+  any amount of static checking would have surfaced.
 
 ### The LRA bug, and what it actually was
 

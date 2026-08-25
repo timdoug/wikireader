@@ -33,7 +33,8 @@ SECTIONS
 
     .text : {
          __START_text = . ;
-         *(.text)
+         /* .text.* too; see the note in grifo.lds.  */
+         *(.text .text.*)
     } > sdram
     __END_text = . ;
 

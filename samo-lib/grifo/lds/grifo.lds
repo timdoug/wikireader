@@ -70,8 +70,15 @@ SECTIONS
 
     .text : {
          __START_text = . ;
-         build/main.o(*.text)
-         *(.text)
+         /* .text.* as well as .text: gcc 4 and later split functions into
+             .text.startup, .text.unlikely, .text.hot and so on.  main is the
+             kernel's entry -- it is what sets up %sp -- so it has to stay at
+             the start of .text, and with only "*.text" here it silently did
+             not: main went to .text.startup, "process" landed at the entry
+             address, and the first push ran with %sp still zero.  */
+         build/main.o(.text.startup .text.startup.*)
+         build/main.o(.text .text.*)
+         *(.text .text.*)
     } > ksdram
     __END_text = . ;
 

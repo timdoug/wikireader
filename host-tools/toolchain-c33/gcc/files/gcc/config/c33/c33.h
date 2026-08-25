@@ -731,21 +731,28 @@ typedef enum
 
 /* This is how to output an element of a case-vector that is absolute.  */
 
+/* Jump tables hold absolute 4-byte addresses.
+
+   Not 2-byte differences, which is what this was inherited doing: the EPSON
+   assembler emits 0 for a .short whose value is the difference of two labels
+   when the labels come *later* in the file -- which is always the case for a
+   jump table, whose entries point forward at the case bodies.  The bug is in
+   the original assembler too, so the 3.3.2 backend sidestepped it the same
+   way, with CASE_VECTOR_MODE Pmode and .long entries.
+
+   It is worth fixing in gas eventually; until then this is the shape that
+   works, and it costs two bytes per case.  */
+
 #define ASM_OUTPUT_ADDR_VEC_ELT(FILE, VALUE) \
-  fprintf (FILE, "\t%s .L%d\n",					\
-	   (TARGET_BIG_SWITCH ? ".long" : ".short"), VALUE)
+  fprintf (FILE, "\t.long .L%d\n", VALUE)
 
 /* This is how to output an element of a case-vector that is relative.  */
 
 /* Disable the shift, which is for the currently disabled "switch"
    opcode.  Se casesi in c33.md.  */
 
-#define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, BODY, VALUE, REL) 		\
-  fprintf (FILE, "\t%s %s.L%d-.L%d%s\n",				\
-	   (TARGET_BIG_SWITCH ? ".long" : ".short"),			\
-	   "",             \
-	   VALUE, REL,							\
-	   "")
+/* No ASM_OUTPUT_ADDR_DIFF_ELT: CASE_VECTOR_PC_RELATIVE is not defined, so
+   GCC never asks for a difference vector.  */
 
 #define ASM_OUTPUT_ALIGN(FILE, LOG)	\
   if ((LOG) != 0)			\
@@ -772,13 +779,10 @@ typedef enum
 
 /* Specify the machine mode that this machine uses
    for the index in the tablejump instruction.  */
-#define CASE_VECTOR_MODE (TARGET_BIG_SWITCH ? SImode : HImode)
+#define CASE_VECTOR_MODE Pmode
 
-/* Define as C expression which evaluates to nonzero if the tablejump
-   instruction expects the table to contain offsets from the address of the
-   table.
-   Do not define this if the table should contain absolute addresses.  */
-#define CASE_VECTOR_PC_RELATIVE 1
+/* Table entries are absolute addresses, so CASE_VECTOR_PC_RELATIVE stays
+   undefined -- see ASM_OUTPUT_ADDR_VEC_ELT above for why.  */
 
 /* The switch instruction requires that the jump table immediately follow
    it.  */

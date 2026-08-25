@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **builds the WikiReader firmware** - kernel and wiki app link; not yet run |
+| GCC 16.2 backend | **runs the firmware** - kernel boots in `emulator/`, output byte-identical to gcc 3.3.2 |
 
 ### binutils - finished
 
@@ -38,10 +38,12 @@ The worst was that all 32 relocation `HOWTO` entries still used the historical
 log2 size encoding, so every relocation misreported its width and was quietly
 discarded.
 
-### GCC - builds the firmware
+### GCC - runs the firmware
 
-The kernel and the wiki application both build and link with gcc 16.2 and
-binutils 2.47, against a libgcc built by the same compiler.
+The kernel built by this port boots in `emulator/`, loads `init.app`, chains
+to `wiki.app`, mounts the card, renders the keyboard, takes typed input and
+returns real article titles. The framebuffer is **byte-identical to the
+gcc 3.3.2 build** for every search term tried (`LOVE`, `CAT`, `PARIS`).
 
 ```
                      shipped (gcc 3.3.2)   this port (gcc 16.2)
@@ -53,15 +55,34 @@ binutils 2.47, against a libgcc built by the same compiler.
 The kernel's 22% is mostly step 5 not being done: every global access loads an
 absolute address instead of using the `%r15`-relative default data area.
 
-**Nothing has been run.** Everything is verified by compiling, assembling and
-linking only.
-
-Build the firmware with the new toolchain by pointing `CROSS` at it, which
-bypasses the `PATH` the build otherwise hardcodes:
+Not yet verified: the wiki *application* built by this port. Only the kernel
+has been run; testing the app needs it written into a card image.
 
 ```sh
 make CROSS=/path/to/install/bin/c33-epson-elf- mini-libc fatfs grifo wiki
+cd emulator && ./wremu -c images/wrcard.img -n 3000000000 \
+    -K 30000000,LOVE ../samo-lib/grifo/grifo.elf
 ```
+
+### Three bugs that only running could find
+
+Everything compiled, assembled and linked with all of these present.
+
+* **`main` was not at the entry point.** gcc 4 and later split functions into
+  `.text.startup` and friends; `grifo.lds` matched only
+  `build/main.o(*.text)`, so `main` - which sets up `%sp` - was not first and
+  the first `push` ran with `%sp` zero.
+
+* **Jump tables were emitted as zeroes**, so every `switch` branched to the
+  same place. This port had inherited V850's 2-byte PC-relative case vectors,
+  and the EPSON assembler emits 0 for a `.short` holding a difference of
+  labels that appear *later* in the file - always true of a jump table. The
+  original assembler has the same bug, which is why the 3.3.2 backend used
+  absolute `.long` entries; this port now does too.
+
+  This is what broke touch input: the ISR's state machine ran `1,2,3,4,5,6`
+  instead of `1,2,3,4,5,0`, never reaching the case that queues an event, so
+  `Event_wait` blocked forever.
 
 ### Two more binutils bugs, found by linking
 
@@ -225,6 +246,9 @@ them. For correctness, run output under the emulator in `emulator/`.
   header**. It did not check the header for a long time, and two real bugs
   lived there undetected through a "byte-for-byte validated" claim. When you
   add a validation, write down what it does *not* cover.
+* Compiling, assembling and linking cleanly says nothing about whether the
+  result runs. Three real bugs - `main` not at the entry point, jump tables
+  full of zeroes, and the ELF header - survived every static check. Run it.
 * A struct initialiser that compiles is not a struct initialiser that is
   correct. `bfd_arch_info_type` grew a field in the middle; the old
   positional initialiser still compiled and put a data pointer where a
