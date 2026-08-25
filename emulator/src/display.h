@@ -39,6 +39,7 @@ struct display {
 	int   bezel_drawn_held;    /* button_held the texture was drawn for */
 	uint64_t last_fingerprint;
 	bool  have_fingerprint;
+	unsigned long presents, skipped, calls;
 };
 
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem, int scale);

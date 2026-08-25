@@ -178,11 +178,19 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 	if (SDL_Init(SDL_INIT_VIDEO) != 0)
 		return false;
 
+	/*
+	 * Nearest-neighbour scaling. The panel is one bit per pixel; every
+	 * pixel is meant to be a hard square, and interpolating between them
+	 * is just blur.
+	 */
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+
 	d->window = SDL_CreateWindow("WikiReader",
 				     SDL_WINDOWPOS_CENTERED,
 				     SDL_WINDOWPOS_CENTERED,
 				     LCD_WIDTH * d->scale,
-				     (LCD_HEIGHT + BEZEL_H) * d->scale, 0);
+				     (LCD_HEIGHT + BEZEL_H) * d->scale,
+				     SDL_WINDOW_ALLOW_HIGHDPI);
 	if (!d->window)
 		return false;
 
@@ -192,6 +200,17 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 		d->renderer = SDL_CreateRenderer(d->window, -1, 0);
 	if (!d->renderer)
 		return false;
+
+	/*
+	 * Ask for a high-DPI drawable and then draw in the logical size we
+	 * already use. Without this the backing store is at window size and
+	 * the compositor upscales it to a Retina panel, which looks soft --
+	 * most obviously on a still screen, where there is time to notice.
+	 * With it, SDL does the scaling itself, and at an integer factor
+	 * with nearest-neighbour it stays sharp.
+	 */
+	SDL_RenderSetLogicalSize(d->renderer, LCD_WIDTH * d->scale,
+				 (LCD_HEIGHT + BEZEL_H) * d->scale);
 
 	d->texture = SDL_CreateTexture(d->renderer, SDL_PIXELFORMAT_ARGB8888,
 				       SDL_TEXTUREACCESS_STREAMING,
@@ -343,6 +362,7 @@ bool display_update(struct display *d)
 	 * the compositor, which was doing more work than the emulator was.
 	 * Nothing on a 240x208 panel needs more than 60 frames a second.
 	 */
+	d->calls++;
 	unsigned now_ms = SDL_GetTicks();
 	if (now_ms - d->last_present_ms < 1000 / 60)
 		return true;
@@ -355,8 +375,10 @@ bool display_update(struct display *d)
 	 */
 	uint64_t fp = lcd_fingerprint(d->lcd, d->mem);
 	if (d->have_fingerprint && fp == d->last_fingerprint &&
-	    d->bezel_drawn_held == d->button_held)
+	    d->bezel_drawn_held == d->button_held) {
+		d->skipped++;
 		return true;
+	}
 	d->last_fingerprint = fp;
 	d->have_fingerprint = true;
 
@@ -378,5 +400,6 @@ bool display_update(struct display *d)
 	SDL_RenderCopy(d->renderer, d->texture, NULL, &panel);
 	draw_bezel(d);
 	SDL_RenderPresent(d->renderer);
+	d->presents++;
 	return true;
 }

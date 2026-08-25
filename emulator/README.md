@@ -636,14 +636,27 @@ frame, because every lit pixel of the 3x5 font is its own rectangle and
 each button outline is a stack of lines. It changes only when a button goes
 down, so it is rendered once and blitted after that.
 
+**The window is high-DPI and scaled nearest-neighbour.** Without
+`SDL_WINDOW_ALLOW_HIGHDPI` the backing store is at window size and the
+compositor upscales it to a Retina panel, which looks soft -- most
+obviously on a still screen, where there is time to notice. With it, SDL
+scales, and at an integer factor with `SDL_HINT_RENDER_SCALE_QUALITY` at
+nearest it stays sharp. A one-bit panel wants hard pixel edges;
+interpolating between them is only blur.
+
 **Unchanged frames are not presented at all.** This is the one that
 mattered. Nothing draws to an idle panel, so those sixty frames a second
 were sixty identical uploads. `lcd_fingerprint()` hashes the framebuffer
 bytes -- 6656 of them, plus the sub-window when PIP is on -- and the
 repaint is skipped when nothing has moved.
 
-Measured on an idle window: **0.7%** of a core for the emulator and no
-measurable addition to the compositor, against 20% and 40-odd before.
+Measured on an idle window: **0.6%** of a core for the emulator and no
+measurable addition to the compositor, against 20% and 40-odd before. A
+run reports its own figures -- update calls against presents -- and a
+settled screen presents a handful of times in thousands of calls.
+
+Note that "idle" means the device is idle. Using the interface wakes it,
+and a woken machine emulates at full speed, as it should.
 
 ### Idling
 

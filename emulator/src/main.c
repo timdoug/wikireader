@@ -553,6 +553,9 @@ done:
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
 	printf("--- buttons: %lu transitions ---\n", port.button_events);
+	if (disp.calls)
+		printf("--- display: %lu update calls, %lu presents, %lu skipped ---\n",
+		       disp.calls, disp.presents, disp.skipped);
 	if (idle_skipped)
 		printf("--- idle: %llu cycles skipped rather than spun ---\n",
 		       (unsigned long long)idle_skipped);
