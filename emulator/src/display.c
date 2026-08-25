@@ -197,6 +197,12 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 	return true;
 }
 
+void display_idle_wait(struct display *d, unsigned ms)
+{
+	(void)d;
+	SDL_Delay(ms);
+}
+
 void display_close(struct display *d)
 {
 	if (!d->open)

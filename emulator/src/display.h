@@ -34,6 +34,8 @@ struct display {
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem, int scale);
 void display_close(struct display *d);
 bool display_update(struct display *d);
+/* Give the host CPU back for a few milliseconds while the guest idles. */
+void display_idle_wait(struct display *d, unsigned ms);
 
 /*
  * The bezel below the panel, laid out like the device: a WikiReader

@@ -60,6 +60,14 @@ int main(int argc, char **argv)
 	/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
 #define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
 	unsigned long long last_touch_post = 0;
+	unsigned long long idle_skipped = 0;
+	/*
+	 * About 100 Hz while idle: fast enough that a click still feels
+	 * immediate, slow enough that repainting a screen nothing is drawing
+	 * to is not what keeps the host busy.
+	 */
+#define IDLE_WAIT_MS  10
+#define MCLK_HZ       60000000u
 	uint32_t boot_sp = 0;
 /*
  * What the mask ROM leaves behind: mbr, linked at 0, copied from the
@@ -449,6 +457,62 @@ int main(int argc, char **argv)
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
 		timer_poll(&timer, &cpu);
+
+		/*
+		 * Idle: the core is in HALT waiting for an interrupt, so
+		 * there is nothing to execute until something is due. Grind
+		 * through it a cycle at a time and a host core stays pinned
+		 * for no reason.
+		 *
+		 * With a window, hand the time back to the operating system
+		 * and keep pumping events -- the tick comes from the wall
+		 * clock there, so it advances by itself. Headless, jump the
+		 * clock straight to whatever is due next, which costs nothing
+		 * and is what the guest would have seen anyway.
+		 */
+		if (cpu.sleeping && !cpu.irq_pending) {
+			if (disp.open) {
+				if (!display_update(&disp)) {
+					stop = "window closed";
+					break;
+				}
+				/*
+				 * About 100 Hz: fast enough that a click still
+				 * feels immediate, slow enough that repainting
+				 * an idle screen is not the thing keeping the
+				 * host busy.
+				 */
+				display_idle_wait(&disp, IDLE_WAIT_MS);
+				/*
+				 * Account for the time that just passed, so
+				 * instruction limits and scripted input keep
+				 * their meaning across an idle stretch.
+				 */
+				cpu.cycles += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+				cpu.clk    += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+				idle_skipped += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+				continue;
+			}
+			unsigned long long next = limit;
+			if (timer.t2_running && timer.t2_deadline < next)
+				next = timer.t2_deadline;
+			if (type_text && type_text[type_idx] && type_at < next)
+				next = type_at;
+			if (tap_x >= 0 && tap_at > cpu.cycles && tap_at < next)
+				next = tap_at;
+			if (drag_x >= 0 && drag_at > cpu.cycles && drag_at < next)
+				next = drag_at;
+			if (btn_code >= 0 && btn_at > cpu.cycles && btn_at < next)
+				next = btn_at;
+			if (next > cpu.cycles) {
+				uint64_t skip = next - cpu.cycles;
+				cpu.cycles += skip;
+				cpu.clk += skip;
+				idle_skipped += skip;
+				continue;
+			}
+		}
+
 		c33_step(&cpu);
 
 		/*
@@ -480,6 +544,9 @@ done:
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
 	printf("--- buttons: %lu transitions ---\n", port.button_events);
+	if (idle_skipped)
+		printf("--- idle: %llu cycles skipped rather than spun ---\n",
+		       (unsigned long long)idle_skipped);
 	printf("--- itc: %lu register writes, serial ch1 priority %u, ESIF01=0x%02x, ch1-rx %s ---\n",
 	       itc.writes, itc_priority(&itc, 61),
 	       itc.reg[0x276 - ITC_BASE],

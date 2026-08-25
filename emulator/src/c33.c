@@ -526,8 +526,12 @@ void c33_step(struct c33 *c)
 	 * still work against a sleeping machine.
 	 */
 	if (c->sleeping) {
-		c->clk++;
-		c->cycles++;
+		/*
+		 * Time still has to pass -- the wake-up is a timer -- but the
+		 * caller decides how far to jump, because only it knows when
+		 * the next thing is due. Ticking one cycle per call here kept
+		 * a host core busy doing nothing.
+		 */
 		c->sleep_cycles++;
 		/*
 		 * "The interrupt enable/disable status set in the processor

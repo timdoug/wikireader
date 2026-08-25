@@ -621,6 +621,26 @@ Between the firmware and the differential tests, 57 of the 68 implemented
 opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what
 the remaining 11, and the 36 unimplemented opcodes, actually are.
 
+### Idling
+
+The core spends most of its life in HALT waiting for an interrupt, and for
+a while the emulator ground through that a cycle at a time, pinning a host
+core to do nothing.
+
+It now skips it, differently in each mode. Headless, the guest clock jumps
+straight to whatever is due next -- the suspend wake timer, or a scripted
+tap or keypress -- since nothing can happen before then anyway. A five
+billion instruction run finishes in about 1.5 seconds, because nearly all
+of it was idle. `-n` counts guest cycles, so it still bounds the run the
+same way; the report says how many were skipped rather than spun.
+
+With a window the tick comes from the wall clock, so instead of jumping it
+hands the time back to the operating system in 10 ms slices, repainting and
+pumping events at about 100 Hz. That is well inside what a click needs, and
+the guest clock is advanced by the elapsed amount so limits and scripted
+input keep their meaning. An idle window costs a few percent of a core
+rather than all of one.
+
 ## Speed
 
 About 80M instructions/sec, a little under 2x the real device. Getting there
