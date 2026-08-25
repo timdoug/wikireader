@@ -86,8 +86,9 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 	case VEC_SERIAL0_RX:
 	case VEC_SERIAL0_TX:
 		return (t->reg[PSI01_PAD] >> 4) & 0x7;
+	case 19:
 	case 20:
-		return t->reg[PK01L] & 0x7;        /* key input 0 priority */
+		return t->reg[PK01L] & 0x7;        /* key/port input priority */
 	case VEC_SERIAL1_ERR:
 	case VEC_SERIAL1_RX:
 	case VEC_SERIAL1_TX:
@@ -109,6 +110,7 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 bool itc_enabled(const struct itc *t, unsigned vector)
 {
 	switch (vector) {
+	case 19: return (t->reg[EK01_EP03] & (1u << 3)) != 0; /* port input 3 */
 	case 20: return (t->reg[EK01_EP03] & (1u << 4)) != 0; /* key input 0 */
 	case 38: return (t->reg[E16T23] & (1u << 2)) != 0;  /* timer 2 cmp B */
 	case 39: return (t->reg[E16T23] & (1u << 3)) != 0;  /* timer 2 cmp A */
@@ -125,6 +127,7 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 void itc_set_flag(struct itc *t, unsigned vector)
 {
 	switch (vector) {
+	case 19: t->reg[FK01_FP03] |= 1u << 3; break;  /* port input 3 */
 	case 20: t->reg[FK01_FP03] |= 1u << 4; break;  /* key input 0 */
 	case 38: t->reg[F16T23] |= 1u << 2; break;  /* timer 2 comparison B */
 	case 39: t->reg[F16T23] |= 1u << 3; break;  /* timer 2 comparison A */

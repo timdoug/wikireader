@@ -335,6 +335,12 @@ bool display_update(struct display *d)
 			 * them in that order (button.c: "0=random, 1=search,
 			 * 2=history").
 			 */
+			/* The power switch is on the case, not the bezel. */
+			if (ev.key.keysym.sym == SDLK_p) {
+				d->button = 3;
+				d->button_pressed = (ev.type == SDL_KEYDOWN);
+				break;
+			}
 			if (ev.key.keysym.sym >= SDLK_1 && ev.key.keysym.sym <= SDLK_3) {
 				d->button = buttons[ev.key.keysym.sym - SDLK_1].code;
 				d->button_pressed = (ev.type == SDL_KEYDOWN);

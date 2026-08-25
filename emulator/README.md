@@ -37,7 +37,8 @@ to rebuild the firmware itself.
 Click keys with the mouse; that is the touch panel. Below it is the bezel,
 laid out like the device: a WikiReader wordmark and three round buttons
 reading **search**, **history**, **random** left to right. Click them, or
-use keys **1**, **2**, **3** in that same order. `Q` or `Esc` quits.
+use keys **1**, **2**, **3** in that same order. **P** is the power switch,
+which is on the side of the case rather than the bezel. `Q` or `Esc` quits.
 
 | flag | meaning |
 | --- | --- |
@@ -48,7 +49,7 @@ use keys **1**, **2**, **3** in that same order. `Q` or `Esc` quits.
 | `-s` | trace grifo syscalls by name, with call sites and return values |
 | `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
 | `-T x,y,cycle` | tap a pixel |
-| `-N code,cycle` | press a front button: 0 random, 1 search, 2 history |
+| `-N code,cycle` | press a button: 0 random, 1 search, 2 history, 3 power |
 | `-G x,y0,y1,cycle` | drag vertically, for the scroll path |
 | `-b ADDR` | breakpoint: registers plus recent PCs |
 | `-W ADDR` | write watchpoint |
@@ -451,6 +452,40 @@ programmed the timing, mode and power registers before `kernel.elf` is
 entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
 not interpreted: modelling `PSAVE` from a register that reads as its reset
 value of zero would blank a panel the hardware has running.
+
+### Powering off
+
+The power switch is not one of the three front buttons. It is P03 with its
+own port interrupt, vector 19, rather than a member of the key comparator
+the others share, so it is modelled separately and driven with **P** or
+`-N 3,cycle`.
+
+What happens next is the interesting part. `power_off()` in
+`boards/samo_a1.h` does not stop the processor -- it drives P63 as an
+output and toggles it forever, expecting circuitry outside the chip to
+notice and cut the rails:
+
+```c
+for (;;) {
+	REG_P6_P6D |= (1 << 3);              /* P63 high */
+	for (i = 0; i < POWER_OFF_CYCLES; ++i) asm volatile ("nop");
+	REG_P6_P6D &= ~(1 << 3);             /* P63 low  */
+	for (i = 0; i < POWER_OFF_CYCLES; ++i) asm volatile ("nop");
+}
+```
+
+Nothing in software ever returns from that. Before this was modelled the
+emulator simply ran the loop, which is why an unattended run used to sit at
+full CPU indefinitely: `SUSPEND_AUTO_POWER_OFF_SECONDS` is 120, so after
+two idle minutes the firmware shuts down and the emulator spun on the
+toggle from then on. `src/port.c` now recognises P63 being driven and
+toggled, and the run ends with "powered off" -- which is what the hardware
+does.
+
+That path is reachable both ways: pressing the power switch, which makes
+wiki.app save its history and call `power_off()`, and the idle timeout. A
+run left alone now stops at about 132 emulated seconds, and takes under two
+seconds of real time to get there.
 
 ### Why the panel reports on change, not continuously
 

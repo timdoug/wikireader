@@ -531,7 +531,13 @@ void c33_step(struct c33 *c)
 		 * caller decides how far to jump, because only it knows when
 		 * the next thing is due. Ticking one cycle per call here kept
 		 * a host core busy doing nothing.
+		 *
+		 * It does advance by one, though, so the cycle counter is
+		 * always monotonic. Returning without moving it lets a caller
+		 * see the same cycle number twice, and anything watching for
+		 * an exact count -- scripted input, for one -- fires twice.
 		 */
+		c->cycles++;
 		c->sleep_cycles++;
 		/*
 		 * "The interrupt enable/disable status set in the processor

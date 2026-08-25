@@ -43,6 +43,9 @@ static void usage(const char *p)
 }
 
 
+/* grifo's numbering: 0 random, 1 search, 2 history, 3 power. */
+#define BUTTON_POWER_CODE 3
+
 /* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
 #define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
 
@@ -59,8 +62,11 @@ static void deliver_input(struct display *disp, struct port *port,
 			  unsigned long long *last_post)
 {
 	if (disp->button >= 0) {
-		port_button(port, cpu, (unsigned)disp->button,
-			    disp->button_pressed);
+		if (disp->button == BUTTON_POWER_CODE)
+			port_power_button(port, cpu, disp->button_pressed);
+		else
+			port_button(port, cpu, (unsigned)disp->button,
+				    disp->button_pressed);
 		disp->button = -1;
 	}
 
@@ -104,9 +110,15 @@ int main(int argc, char **argv)
 	bool profile = false;
 	bool pc_profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
+	bool tap_down_done = false, tap_up_done = false;
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
 	int btn_code = -1; unsigned long btn_at = 0;
+	bool btn_down_done = false, btn_up_done = false;
+/* How long a scripted press is held before release. */
+#define HOLD_CYCLES  2000000UL
+/* Total span of a scripted drag, from its first packet to its last. */
+#define DRAG_SPAN    (16UL * 300000UL)
 	unsigned long long last_touch_post = 0;
 	unsigned long long idle_skipped = 0;
 	/*
@@ -396,22 +408,39 @@ int main(int argc, char **argv)
 		if (drag_x >= 0 && (cpu.cycles % 100000) == 0)
 			touch_poll(&touch, &cpu);
 
-		/* scripted button press, held briefly then released */
-		if (btn_code >= 0 && cpu.cycles == btn_at) {
+		/*
+		 * Scripted button press, held briefly then released. Edge
+		 * triggered rather than testing for an exact cycle: the
+		 * counter can pause across an idle stretch, and an equality
+		 * test then fires more than once.
+		 */
+		if (btn_code >= 0 && !btn_down_done && cpu.cycles >= btn_at) {
+			btn_down_done = true;
 			fprintf(stderr, "  [button %d down]\n", btn_code);
-			port_button(&port, &cpu, (unsigned)btn_code, true);
+			if (btn_code == BUTTON_POWER_CODE)
+				port_power_button(&port, &cpu, true);
+			else
+				port_button(&port, &cpu, (unsigned)btn_code, true);
 		}
-		if (btn_code >= 0 && cpu.cycles == btn_at + 2000000) {
+		if (btn_code >= 0 && btn_down_done && !btn_up_done &&
+		    cpu.cycles >= btn_at + HOLD_CYCLES) {
+			btn_up_done = true;
 			fprintf(stderr, "  [button %d up]\n", btn_code);
-			port_button(&port, &cpu, (unsigned)btn_code, false);
+			if (btn_code == BUTTON_POWER_CODE)
+				port_power_button(&port, &cpu, false);
+			else
+				port_button(&port, &cpu, (unsigned)btn_code, false);
 		}
 
 		/* scripted tap for testing without a window */
-		if (tap_x >= 0 && cpu.cycles == tap_at) {
+		if (tap_x >= 0 && !tap_down_done && cpu.cycles >= tap_at) {
+			tap_down_done = true;
 			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
 			touch_post(&touch, &cpu, tap_x, tap_y, true);
 		}
-		if (tap_x >= 0 && cpu.cycles == tap_at + 2000000) {
+		if (tap_x >= 0 && tap_down_done && !tap_up_done &&
+		    cpu.cycles >= tap_at + HOLD_CYCLES) {
+			tap_up_done = true;
 			fprintf(stderr, "  [tap up]\n");
 			touch_post(&touch, &cpu, tap_x, tap_y, false);
 		}
@@ -455,6 +484,11 @@ int main(int argc, char **argv)
 
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
+		if (port.power_off_requested) {
+			stop = "powered off";
+			break;
+		}
+
 		timer_poll(&timer, &cpu);
 
 		/*
@@ -507,12 +541,30 @@ int main(int argc, char **argv)
 				next = timer.t2_deadline;
 			if (type_text && type_text[type_idx] && type_at < next)
 				next = type_at;
-			if (tap_x >= 0 && tap_at > cpu.cycles && tap_at < next)
+			/*
+			 * Every scripted event still to come, releases
+			 * included. Missing one means jumping straight over
+			 * it: a press whose release was not counted here
+			 * stayed down forever, because the skip went from the
+			 * press to the end of the run.
+			 */
+			if (tap_x >= 0 && !tap_down_done && tap_at > cpu.cycles &&
+			    tap_at < next)
 				next = tap_at;
-			if (drag_x >= 0 && drag_at > cpu.cycles && drag_at < next)
-				next = drag_at;
-			if (btn_code >= 0 && btn_at > cpu.cycles && btn_at < next)
+			if (tap_x >= 0 && tap_down_done && !tap_up_done &&
+			    tap_at + HOLD_CYCLES > cpu.cycles &&
+			    tap_at + HOLD_CYCLES < next)
+				next = tap_at + HOLD_CYCLES;
+			if (drag_x >= 0 && drag_at + DRAG_SPAN > cpu.cycles &&
+			    drag_at < next)
+				next = drag_at > cpu.cycles ? drag_at : cpu.cycles + 1;
+			if (btn_code >= 0 && !btn_down_done && btn_at > cpu.cycles &&
+			    btn_at < next)
 				next = btn_at;
+			if (btn_code >= 0 && btn_down_done && !btn_up_done &&
+			    btn_at + HOLD_CYCLES > cpu.cycles &&
+			    btn_at + HOLD_CYCLES < next)
+				next = btn_at + HOLD_CYCLES;
 			if (next > cpu.cycles) {
 				uint64_t skip = next - cpu.cycles;
 				cpu.cycles += skip;

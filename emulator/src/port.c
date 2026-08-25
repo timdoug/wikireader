@@ -33,9 +33,26 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return false;
 
 	if (is_write) {
+		uint8_t p6_before = p->reg[OFF_P6D];
 		for (unsigned k = 0; k < size; k++)
 			p->reg[i + k] = (uint8_t)(*val >> (8 * k));
 		p->writes++;
+
+		/*
+		 * Watch for the shutdown signal. power_off() drives P63 as an
+		 * output and toggles it forever, expecting the power supply
+		 * outside the chip to notice and cut the rails. There is no
+		 * way back from it in software, so a real device stops here
+		 * and so should this one -- otherwise the emulator spins in
+		 * that loop indefinitely, which is what it used to do after
+		 * the 120 second idle timeout.
+		 */
+		if (i <= OFF_P6D && i + size > OFF_P6D &&
+		    (p->reg[OFF_IOC6] & (1u << POWEROFF_BIT)) &&
+		    ((p6_before ^ p->reg[OFF_P6D]) & (1u << POWEROFF_BIT))) {
+			if (++p->power_off_toggles >= 2)
+				p->power_off_requested = true;
+		}
 		return true;
 	}
 	*val = 0;
@@ -78,6 +95,22 @@ void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
 		p->reg[OFF_P6D] &= (uint8_t)~(1u << n);
 	p->button_events++;
 	kint_check(p, cpu);
+}
+
+void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
+{
+	if (pressed)
+		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);
+	else
+		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);
+	p->button_events++;
+
+	if (!pressed)
+		return;                       /* the handler triggers on press */
+	if (p->itc)
+		itc_set_flag((struct itc *)p->itc, VECTOR_PORT_INPUT_3);
+	c33_raise_irq(cpu, VECTOR_PORT_INPUT_3,
+		      p->itc ? itc_priority(p->itc, VECTOR_PORT_INPUT_3) : 7);
 }
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc)
