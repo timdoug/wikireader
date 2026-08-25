@@ -40,6 +40,13 @@ struct display {
 	uint64_t last_fingerprint;
 	bool  have_fingerprint;
 	bool  powered;           /* false blanks the panel, as an off LCD is */
+	/*
+	 * Count of power-switch press edges, never reset here. A press and
+	 * its release can both arrive in one poll, which leaves button_pressed
+	 * false and loses the press; while the device is off that is the one
+	 * event that has to survive, so it is counted rather than sampled.
+	 */
+	unsigned power_presses;
 	unsigned long presents, skipped, calls;
 };
 

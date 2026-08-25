@@ -515,6 +515,17 @@ device on a shelf, and the first thing to do is press **P**.
 Headless runs have nobody to press the switch, so they come up powered and
 still end at power-off. Every scripted test depends on that.
 
+Two things about that switch are easy to get wrong, and both were. The
+off-state check has to be the **first** thing in the run loop: the periodic
+event pump further down hands whatever the window collected to the port, so
+with the check below it a press was delivered to a machine that was not
+running and discarded, and the button appeared dead. And a press cannot be
+sampled, only counted -- a quick click's down and up can arrive in the same
+poll, which leaves `button_pressed` false. `display.c` counts press edges in
+`power_presses` and the loop consumes the count, so no press is lost. The
+count is resynchronised when the firmware powers the device off, or the
+press that caused the shutdown would turn it straight back on.
+
 Getting this right needed one more fix. `c33_reset` used to clear the whole
 CPU structure and then restore, by hand, the few fields that are host-side
 wiring rather than machine state. That list was wrong three times, and the

@@ -293,6 +293,7 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 	d->button = -1;
 	d->button_held = -1;
 	d->powered = false;
+	d->power_presses = 0;
 	d->bezel_tex = SDL_CreateTexture(d->renderer, SDL_PIXELFORMAT_ARGB8888,
 					 SDL_TEXTUREACCESS_TARGET,
 					 LCD_WIDTH * d->scale,
@@ -389,6 +390,8 @@ bool display_update(struct display *d)
 			if (ev.key.keysym.sym == SDLK_p) {
 				d->button = 3;
 				d->button_pressed = (ev.type == SDL_KEYDOWN);
+				if (ev.type == SDL_KEYDOWN && !ev.key.repeat)
+					d->power_presses++;
 				break;
 			}
 			if (ev.key.keysym.sym >= SDLK_1 && ev.key.keysym.sym <= SDLK_3) {
@@ -403,6 +406,8 @@ bool display_update(struct display *d)
 				d->button = buttons[hit].code;
 				d->button_pressed = true;
 				d->button_held = hit;
+				if (buttons[hit].code == 3)
+					d->power_presses++;
 				break;
 			}
 			if (ev.type == SDL_MOUSEBUTTONUP && d->button_held >= 0) {

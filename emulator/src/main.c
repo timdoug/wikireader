@@ -362,6 +362,7 @@ int main(int argc, char **argv)
 	 * every scripted test expects.
 	 */
 	bool powered = !gui;
+	unsigned power_presses_seen = 0;
 
 	struct c33 cpu;
 	memset(&cpu, 0, sizeof cpu);
@@ -406,6 +407,54 @@ int main(int argc, char **argv)
 	const char *stop = NULL;
 
 	while (!cpu.halted && cpu.cycles < limit) {
+		/*
+		 * An off device runs nothing and consumes no input. This has
+		 * to come first: the periodic pump below hands whatever the
+		 * window collected to the port, so leaving it ahead of this
+		 * fed the power switch straight to a machine that was not
+		 * running, and the press that should have turned the device
+		 * on was counted and discarded instead.
+		 */
+		if (!powered) {
+			if (!display_update(&disp)) {
+				stop = "window closed";
+				break;
+			}
+			/*
+			 * Time passes while the device is off, so a scripted
+			 * press still lands and instruction limits still end
+			 * the run.
+			 */
+			cpu.cycles += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+			/*
+			 * A scripted press is fed through the same field a
+			 * click lands in, so the two share one path from here
+			 * on. They used to be separate conditions, which is
+			 * how the scripted test passed while a real click did
+			 * nothing at all.
+			 */
+			if (btn_code == BUTTON_POWER_CODE && !btn_down_done &&
+			    cpu.cycles >= btn_at) {
+				btn_down_done = btn_up_done = true;
+				disp.power_presses++;
+			}
+
+			if (disp.power_presses != power_presses_seen) {
+				power_presses_seen = disp.power_presses;
+				fprintf(stderr, "  [powered on]\n");
+				machine_power_on(&cpu, &mem, &port, &itc,
+						 &sdramc, &lcd, &touch, &timer,
+						 &sd, eeprom_path ? &eeprom : NULL,
+						 path, entry, boot_sp);
+				powered = true;
+				disp.powered = true;
+			}
+			disp.button = -1;
+			disp.touch_pending = false;
+			display_idle_wait(&disp, IDLE_WAIT_MS);
+			continue;
+		}
+
 		/*
 		 * Repaint and pump SDL events periodically. 200k instructions
 		 * is frequent enough to feel live without the event pump
@@ -543,43 +592,17 @@ int main(int argc, char **argv)
 			 */
 			fprintf(stderr, "  [powered off]\n");
 			powered = false;
+			/*
+			 * The press that asked for the power-off counted too.
+			 * Without this the machine would come straight back
+			 * on from its own shutdown.
+			 */
+			power_presses_seen = disp.power_presses;
 			port.power_off_requested = false;
 			disp.powered = false;
 			continue;
 		}
 
-		if (!powered) {
-			if (!display_update(&disp)) {
-				stop = "window closed";
-				break;
-			}
-			/*
-			 * Time passes while the device is off, so a scripted
-			 * press still lands and instruction limits still end
-			 * the run.
-			 */
-			cpu.cycles += IDLE_WAIT_MS * (MCLK_HZ / 1000);
-			bool scripted = btn_code == BUTTON_POWER_CODE &&
-					!btn_down_done && cpu.cycles >= btn_at;
-			if (scripted)
-				btn_down_done = btn_up_done = true;
-
-			if (scripted ||
-			    (disp.button == BUTTON_POWER_CODE &&
-			     disp.button_pressed)) {
-				fprintf(stderr, "  [powered on]\n");
-				machine_power_on(&cpu, &mem, &port, &itc,
-						 &sdramc, &lcd, &touch, &timer,
-						 &sd, eeprom_path ? &eeprom : NULL,
-						 path, entry, boot_sp);
-				powered = true;
-				disp.powered = true;
-			}
-			disp.button = -1;
-			disp.touch_pending = false;
-			display_idle_wait(&disp, IDLE_WAIT_MS);
-			continue;
-		}
 
 		timer_poll(&timer, &cpu);
 
