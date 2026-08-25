@@ -101,10 +101,18 @@ static const struct { const char *label; int code; } buttons[3] = {
 	{ "RANDOM",  0 },
 };
 
+/* Centre within the window. */
 static void button_centre(const struct display *d, int n, int *cx, int *cy)
 {
 	*cx = (BUTTON_CX0 + n * BUTTON_DX) * d->scale;
 	*cy = BUTTON_CY * d->scale;
+}
+
+/* Centre within the bezel texture, whose origin is the top of the strip. */
+static void button_centre_local(const struct display *d, int n, int *cx, int *cy)
+{
+	*cx = (BUTTON_CX0 + n * BUTTON_DX) * d->scale;
+	*cy = (BEZEL_H / 2) * d->scale;
 }
 
 /* Which button a window-pixel lands on, or -1. */
@@ -121,11 +129,11 @@ static int button_hit(const struct display *d, int wx, int wy)
 	return -1;
 }
 
-static void draw_bezel(struct display *d)
+/* Draw the bezel into the current render target. */
+static void paint_bezel(struct display *d)
 {
 	SDL_SetRenderDrawColor(d->renderer, 0x10, 0x10, 0x10, 0xff);
-	SDL_Rect strip = { 0, LCD_HEIGHT * d->scale,
-			   LCD_WIDTH * d->scale, BEZEL_H * d->scale };
+	SDL_Rect strip = { 0, 0, LCD_WIDTH * d->scale, BEZEL_H * d->scale };
 	SDL_RenderFillRect(d->renderer, &strip);
 
 	/*
@@ -138,11 +146,11 @@ static void draw_bezel(struct display *d)
 	/* wordmark, as on the case */
 	SDL_SetRenderDrawColor(d->renderer, 0xff, 0xff, 0xff, 0xff);
 	draw_text(d->renderer, "WIKIREADER", 8 * d->scale,
-		  (BUTTON_CY * d->scale) - 2 * px, px);
+		  ((BEZEL_H / 2) * d->scale) - 2 * px, px);
 
 	for (int n = 0; n < 3; n++) {
 		int cx, cy;
-		button_centre(d, n, &cx, &cy);
+		button_centre_local(d, n, &cx, &cy);
 		int rad = BUTTON_R * d->scale;
 		bool down = (d->button_held == n);
 
@@ -193,6 +201,11 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 
 	d->button = -1;
 	d->button_held = -1;
+	d->bezel_tex = SDL_CreateTexture(d->renderer, SDL_PIXELFORMAT_ARGB8888,
+					 SDL_TEXTUREACCESS_TARGET,
+					 LCD_WIDTH * d->scale,
+					 BEZEL_H * d->scale);
+	d->bezel_drawn_held = -2;      /* force the first paint */
 	d->open = true;
 	return true;
 }
@@ -207,6 +220,8 @@ void display_close(struct display *d)
 {
 	if (!d->open)
 		return;
+	if (d->bezel_tex)
+		SDL_DestroyTexture(d->bezel_tex);
 	SDL_DestroyTexture(d->texture);
 	SDL_DestroyRenderer(d->renderer);
 	SDL_DestroyWindow(d->window);
@@ -215,6 +230,27 @@ void display_close(struct display *d)
 }
 
 /* Pump events and repaint. Returns false once the user closes the window. */
+/*
+ * Blit the bezel, re-rendering it only when a button changes state. Drawn
+ * live it was several hundred draw calls a frame -- every lit glyph pixel
+ * is its own rectangle -- for something static, and the compositor was
+ * doing more work than the emulator.
+ */
+static void draw_bezel(struct display *d)
+{
+	if (!d->bezel_tex)
+		return;
+	if (d->bezel_drawn_held != d->button_held) {
+		SDL_SetRenderTarget(d->renderer, d->bezel_tex);
+		paint_bezel(d);
+		SDL_SetRenderTarget(d->renderer, NULL);
+		d->bezel_drawn_held = d->button_held;
+	}
+	SDL_Rect dst = { 0, LCD_HEIGHT * d->scale,
+			 LCD_WIDTH * d->scale, BEZEL_H * d->scale };
+	SDL_RenderCopy(d->renderer, d->bezel_tex, NULL, &dst);
+}
+
 bool display_update(struct display *d)
 {
 	if (!d->open)
@@ -296,6 +332,33 @@ bool display_update(struct display *d)
 	}
 	if (d->quit)
 		return false;
+
+	/*
+	 * Pump events every call, but repaint at the display's rate rather
+	 * than the guest's.
+	 *
+	 * This used to be driven purely by guest cycles -- once every 200k --
+	 * which at emulation speed is several hundred presents a second. The
+	 * emulator itself did not look especially busy; the cost landed on
+	 * the compositor, which was doing more work than the emulator was.
+	 * Nothing on a 240x208 panel needs more than 60 frames a second.
+	 */
+	unsigned now_ms = SDL_GetTicks();
+	if (now_ms - d->last_present_ms < 1000 / 60)
+		return true;
+	d->last_present_ms = now_ms;
+
+	/*
+	 * Nothing draws to an idle panel, so most of these frames would be
+	 * identical. Hashing the framebuffer is far cheaper than uploading
+	 * and presenting it.
+	 */
+	uint64_t fp = lcd_fingerprint(d->lcd, d->mem);
+	if (d->have_fingerprint && fp == d->last_fingerprint &&
+	    d->bezel_drawn_held == d->button_held)
+		return true;
+	d->last_fingerprint = fp;
+	d->have_fingerprint = true;
 
 	uint32_t *pixels;
 	int pitch;

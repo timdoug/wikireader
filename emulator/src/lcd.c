@@ -142,6 +142,44 @@ void lcd_attach(struct mem *m, struct lcd *l)
 }
 
 /*
+ * Fingerprint the visible framebuffer, and the sub-window when it is
+ * enabled, by hashing the bytes rather than the composited pixels. The
+ * whole panel is 6656 bytes, so this costs far less than the repaint it
+ * usually avoids: nothing draws to an idle screen, and presenting an
+ * unchanged frame sixty times a second is work for the compositor as well
+ * as for us.
+ */
+uint64_t lcd_fingerprint(struct lcd *l, struct mem *m)
+{
+	uint64_t h = 1469598103934665603ull;      /* FNV-1a */
+	uint32_t mladd = R(l, OFF_MLADD) & 0x3ff;
+	unsigned stride = mladd ? mladd * 4 : LCD_STRIDE;
+
+	for (int y = 0; y < LCD_HEIGHT; y++)
+		for (unsigned b = 0; b < stride; b++) {
+			h ^= mem_read(m, l->fb_addr + (uint32_t)y * stride + b, 1);
+			h *= 1099511628211ull;
+		}
+
+	uint32_t ssp = R(l, OFF_SSP);
+	h ^= ssp; h *= 1099511628211ull;
+	if (ssp & PIPEN) {
+		uint32_t sep = R(l, OFF_SEP);
+		int x0 = PIP_X(ssp), x1 = PIP_X(sep);
+		int y0 = PIP_Y(ssp), y1 = PIP_Y(sep);
+		unsigned sw = (unsigned)(x1 - x0 + 1) * 4;
+		uint32_t base = R(l, OFF_SADD);
+		h ^= sep; h *= 1099511628211ull;
+		for (int y = y0; y <= y1; y++)
+			for (unsigned b = 0; b < sw; b++) {
+				h ^= mem_read(m, base + (uint32_t)(y - y0) * sw + b, 1);
+				h *= 1099511628211ull;
+			}
+	}
+	return h;
+}
+
+/*
  * Write the panel out as a binary PGM. Bit set means black: grifo's
  * image2header uses --inverted, and lcd.c drives a monochrome panel where a
  * 1 bit lights the pixel.

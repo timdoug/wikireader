@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <stdint.h>
 #include "lcd.h"
 #include "mem.h"
 
@@ -29,6 +30,15 @@ struct display {
 	int   button;            /* -1 when nothing to report */
 	bool  button_pressed;
 	int   button_held;       /* -1, or the button currently drawn pressed */
+	unsigned last_present_ms;  /* repaints are paced to the display, not the guest */
+	/*
+	 * The bezel is hundreds of small draw calls and almost never changes,
+	 * so it is rendered once into a texture and blitted after that.
+	 */
+	struct SDL_Texture *bezel_tex;
+	int   bezel_drawn_held;    /* button_held the texture was drawn for */
+	uint64_t last_fingerprint;
+	bool  have_fingerprint;
 };
 
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem, int scale);

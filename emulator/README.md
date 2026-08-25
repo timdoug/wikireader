@@ -621,6 +621,30 @@ Between the firmware and the differential tests, 57 of the 68 implemented
 opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what
 the remaining 11, and the 36 unimplemented opcodes, actually are.
 
+### Drawing
+
+Three things keep an idle window nearly free, and the first two were not
+enough on their own.
+
+**Repaints are paced by the wall clock, not the guest.** The repaint used
+to be driven by guest cycles -- once every 200k -- which at emulation speed
+is several hundred presents a second. Nothing on a 240x208 panel needs more
+than sixty.
+
+**The bezel is a texture.** Drawn live it is several hundred draw calls a
+frame, because every lit pixel of the 3x5 font is its own rectangle and
+each button outline is a stack of lines. It changes only when a button goes
+down, so it is rendered once and blitted after that.
+
+**Unchanged frames are not presented at all.** This is the one that
+mattered. Nothing draws to an idle panel, so those sixty frames a second
+were sixty identical uploads. `lcd_fingerprint()` hashes the framebuffer
+bytes -- 6656 of them, plus the sub-window when PIP is on -- and the
+repaint is skipped when nothing has moved.
+
+Measured on an idle window: **0.7%** of a core for the emulator and no
+measurable addition to the compositor, against 20% and 40-odd before.
+
 ### Idling
 
 The core spends most of its life in HALT waiting for an interrupt, and for

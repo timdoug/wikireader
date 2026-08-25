@@ -42,6 +42,56 @@ static void usage(const char *p)
 		"  -O F   write the memory dump as binary file F\n", p);
 }
 
+
+/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
+#define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
+
+/*
+ * Hand whatever the window collected to the emulated hardware.
+ *
+ * Called from both the running and the idle path. It has to be, and that is
+ * easy to get wrong: the idle path pumps SDL events and then goes back to
+ * sleep, so if it does not also deliver them, every click while the device
+ * sits idle -- which is most of them -- is collected and discarded.
+ */
+static void deliver_input(struct display *disp, struct port *port,
+			  struct touch *touch, struct c33 *cpu,
+			  unsigned long long *last_post)
+{
+	if (disp->button >= 0) {
+		port_button(port, cpu, (unsigned)disp->button,
+			    disp->button_pressed);
+		disp->button = -1;
+	}
+
+	/*
+	 * The panel cannot deliver packets faster than the wire carries
+	 * them: six bytes at CTP_BPS (9600), eight data bits with start and
+	 * stop, is 6.25 ms. Deferring rather than dropping keeps every event.
+	 *
+	 * Report on change only, never a stream while the finger sits still.
+	 * An earlier version did stream, on the theory that a stationary
+	 * finger must keep reporting for scroll momentum to decay. That is
+	 * wrong: wikilib arms a link with set_article_link_number(), which
+	 * resets its activation timer on every touch event, and
+	 * check_invert_link() will not promote the link until
+	 * LINK_ACTIVATION_TIME_THRESHOLD (0.1 s) passes without one. A stream
+	 * re-arms it forever and no link in an article can be tapped. The
+	 * hardware cannot stream either, for the 6.25 ms reason above.
+	 */
+	if (disp->touch_pending &&
+	    cpu->cycles - *last_post < CTP_PACKET_CYCLES) {
+		/* too soon; it goes out next time round */
+	} else if (disp->touch_pending) {
+		*last_post = cpu->cycles;
+		disp->touch_pending = false;
+		touch_post(touch, cpu, disp->touch_x, disp->touch_y,
+			   disp->touch_pressed);
+	} else {
+		touch_poll(touch, cpu);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	const char *path = NULL, *card = NULL;
@@ -57,8 +107,6 @@ int main(int argc, char **argv)
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
 	int btn_code = -1; unsigned long btn_at = 0;
-	/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
-#define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
 	unsigned long long last_touch_post = 0;
 	unsigned long long idle_skipped = 0;
 	/*
@@ -375,56 +423,7 @@ int main(int argc, char **argv)
 				stop = "window closed";
 				break;
 			}
-			if (disp.button >= 0) {
-				port_button(&port, &cpu, (unsigned)disp.button,
-					    disp.button_pressed);
-				disp.button = -1;
-			}
-			/*
-			 * The panel cannot deliver packets faster than the
-			 * wire carries them: six bytes at CTP_BPS (9600),
-			 * eight data bits with start and stop, is 6.25 ms.
-			 * Deferring rather than dropping keeps every event.
-			 */
-			if (disp.touch_pending &&
-			    cpu.cycles - last_touch_post < CTP_PACKET_CYCLES)
-				; /* too soon; it will go out next time round */
-			else if (disp.touch_pending) {
-				last_touch_post = cpu.cycles;
-				/*
-				 * Report on change only, never a stream while
-				 * the finger sits still.
-				 *
-				 * This looks like the panel under-reporting,
-				 * and an earlier version did stream, on the
-				 * theory that a stationary finger needs to
-				 * keep reporting to bring the scroll momentum
-				 * back to zero. That is wrong, and wikilib
-				 * shows why: a link is only armed by
-				 * set_article_link_number(), which resets its
-				 * activation timer on every touch event, and
-				 * check_invert_link() will not promote the
-				 * link until LINK_ACTIVATION_TIME_THRESHOLD
-				 * (0.1 s) has passed without one. A stream
-				 * re-arms the timer forever and no link in an
-				 * article can ever be tapped.
-				 *
-				 * The hardware cannot stream either: a
-				 * six-byte packet at CTP_BPS (9600) takes
-				 * 6.25 ms, so back-to-back packets would break
-				 * the same 0.1 s threshold on a real device.
-				 * Momentum still works because the speed is
-				 * computed on release from the last recorded
-				 * positions and the time since them, so a
-				 * pause before letting go gives a small
-				 * number by itself.
-				 */
-				disp.touch_pending = false;
-				touch_post(&touch, &cpu, disp.touch_x,
-					   disp.touch_y, disp.touch_pressed);
-			} else {
-				touch_poll(&touch, &cpu);
-			}
+			deliver_input(&disp, &port, &touch, &cpu, &last_touch_post);
 		}
 
 		if (cpu.cycles < trace) {
@@ -482,6 +481,16 @@ int main(int argc, char **argv)
 				 * an idle screen is not the thing keeping the
 				 * host busy.
 				 */
+				deliver_input(&disp, &port, &touch, &cpu,
+					      &last_touch_post);
+				/*
+				 * If that woke the machine, get on with it
+				 * rather than sitting out the rest of the
+				 * slice -- otherwise every click pays up to
+				 * IDLE_WAIT_MS before anything happens.
+				 */
+				if (cpu.irq_pending)
+					continue;
 				display_idle_wait(&disp, IDLE_WAIT_MS);
 				/*
 				 * Account for the time that just passed, so
