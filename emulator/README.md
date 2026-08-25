@@ -452,6 +452,35 @@ entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
 not interpreted: modelling `PSAVE` from a register that reads as its reset
 value of zero would blank a panel the hardware has running.
 
+### Why the panel reports on change, not continuously
+
+Worth knowing before "improving" the touch model.
+
+An earlier version streamed a packet on every poll while the mouse was
+held, reasoning that a finger sitting still must keep reporting so the
+scroll momentum decays to zero. That is wrong, and it silently breaks
+tapping links inside an article.
+
+`wikilib` arms a link with `set_article_link_number()`, which resets its
+activation timer on **every** touch event, and `check_invert_link()` will
+not promote the link to activated until `LINK_ACTIVATION_TIME_THRESHOLD`
+(0.1 s) has passed without one. A stream re-arms that timer forever, so no
+link ever activates and the release does nothing. Search and the keyboard
+keep working, which makes it look like a link-specific bug rather than a
+touch one.
+
+The hardware cannot stream either, which is the clinching argument: six
+bytes at `CTP_BPS` (9600), eight data bits with start and stop, is 6.25 ms
+per packet, so even back-to-back packets on a real device would break the
+same 0.1 s threshold. The panel must go quiet when nothing moves.
+
+Momentum still works, because the speed is computed on release from the
+last few recorded positions and the time since them -- pausing before
+letting go produces a small number without needing any packets to say so.
+
+That 6.25 ms is also enforced as a floor on how fast the emulator will emit
+packets. Events are deferred rather than dropped.
+
 ### The front buttons
 
 The three buttons are P60..P62, and they do not simply appear in a port

@@ -57,6 +57,9 @@ int main(int argc, char **argv)
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
 	int btn_code = -1; unsigned long btn_at = 0;
+	/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
+#define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
+	unsigned long long last_touch_post = 0;
 	uint32_t boot_sp = 0;
 /*
  * What the mask ROM leaves behind: mbr, linked at 0, copied from the
@@ -369,17 +372,44 @@ int main(int argc, char **argv)
 					    disp.button_pressed);
 				disp.button = -1;
 			}
-			if (disp.touch_pending || disp.touch_pressed) {
+			/*
+			 * The panel cannot deliver packets faster than the
+			 * wire carries them: six bytes at CTP_BPS (9600),
+			 * eight data bits with start and stop, is 6.25 ms.
+			 * Deferring rather than dropping keeps every event.
+			 */
+			if (disp.touch_pending &&
+			    cpu.cycles - last_touch_post < CTP_PACKET_CYCLES)
+				; /* too soon; it will go out next time round */
+			else if (disp.touch_pending) {
+				last_touch_post = cpu.cycles;
 				/*
-				 * A real panel reports continuously while it
-				 * is touched, not only when something changes.
-				 * That matters for the scroll momentum in
-				 * wikilib: it derives finger_move_speed from
-				 * the pixel delta between packets, so a finger
-				 * held still has to keep reporting the same
-				 * position to bring the speed back to zero.
-				 * Reporting only on change would leave the
-				 * last speed standing and fling on release.
+				 * Report on change only, never a stream while
+				 * the finger sits still.
+				 *
+				 * This looks like the panel under-reporting,
+				 * and an earlier version did stream, on the
+				 * theory that a stationary finger needs to
+				 * keep reporting to bring the scroll momentum
+				 * back to zero. That is wrong, and wikilib
+				 * shows why: a link is only armed by
+				 * set_article_link_number(), which resets its
+				 * activation timer on every touch event, and
+				 * check_invert_link() will not promote the
+				 * link until LINK_ACTIVATION_TIME_THRESHOLD
+				 * (0.1 s) has passed without one. A stream
+				 * re-arms the timer forever and no link in an
+				 * article can ever be tapped.
+				 *
+				 * The hardware cannot stream either: a
+				 * six-byte packet at CTP_BPS (9600) takes
+				 * 6.25 ms, so back-to-back packets would break
+				 * the same 0.1 s threshold on a real device.
+				 * Momentum still works because the speed is
+				 * computed on release from the last recorded
+				 * positions and the time since them, so a
+				 * pause before letting go gives a small
+				 * number by itself.
 				 */
 				disp.touch_pending = false;
 				touch_post(&touch, &cpu, disp.touch_x,
