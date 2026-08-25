@@ -501,6 +501,29 @@ wiki.app save its history and call `power_off()`, and the idle timeout. A
 run left alone reaches it at about 132 emulated seconds, and takes under
 two seconds of real time to get there.
 
+### Letting go outside the panel
+
+Dragging to scroll and releasing outside the window used to work in one
+direction only. Scrolling the text down means dragging upwards, so the
+pointer leaves by the top edge; scrolling up means dragging downwards, and
+it leaves by the bottom, over the bezel. The mouse is captured either way,
+so the release does arrive -- but the handler dropped any mouse event below
+the panel as "not a touch", which is right for a press and wrong for a
+release. The finger was never lifted, so the scroll held the drag instead
+of coasting.
+
+A release now ends the touch wherever the pointer has got to, and
+coordinates are pinned to the edge of the glass, since a panel cannot
+report a position it does not have.
+
+This is the second bug in the window rather than in anything the guest can
+see, and scripted runs could not have caught either: `-T` and `-G` call
+`touch_post()` directly, so nothing between an SDL event and that call was
+ever exercised. `display_handle_event()` is now split out of the poll loop
+and `make test-display` drives it with synthetic events -- no window, no
+video device -- covering the release-off-panel case, the clamping, and the
+counted power press.
+
 ### Off is a state, not an exit
 
 Powering a device off does not make it stop existing, so with a window open

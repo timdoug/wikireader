@@ -361,95 +361,140 @@ static void draw_bezel(struct display *d)
 	SDL_RenderCopy(d->renderer, d->bezel_tex, NULL, &dst);
 }
 
+/*
+ * The pointer can be dragged off the panel, and is captured so that it
+ * keeps reporting when it is. The panel itself cannot report a coordinate
+ * outside its own glass, so pin the value to the edge.
+ */
+static int clamp_to_panel(int v, int span)
+{
+	if (v < 0)
+		return 0;
+	return v >= span ? span - 1 : v;
+}
+
+/*
+ * One SDL event, applied to the display state. Split out of the poll loop
+ * so it can be driven directly from a test: the window is the part of this
+ * emulator that scripted runs reach the least, and both bugs the buttons
+ * and the touch panel have had were in here rather than in anything the
+ * guest could see.
+ */
+void display_handle_event(struct display *d, const SDL_Event *ev)
+{
+	switch (ev->type) {
+	case SDL_QUIT:
+		d->quit = true;
+		break;
+	case SDL_KEYDOWN:
+	case SDL_KEYUP:
+		if (ev->type == SDL_KEYDOWN &&
+		    (ev->key.keysym.sym == SDLK_ESCAPE ||
+		     ev->key.keysym.sym == SDLK_q)) {
+			d->quit = true;
+			break;
+		}
+		/*
+		 * The three front buttons, on keys 1, 2 and 3. grifo
+		 * calls them random, search and history, and reports
+		 * them in that order (button.c: "0=random, 1=search,
+		 * 2=history").
+		 */
+		/* The power switch is on the case, not the bezel. */
+		if (ev->key.keysym.sym == SDLK_p) {
+			d->button = 3;
+			d->button_pressed = (ev->type == SDL_KEYDOWN);
+			if (ev->type == SDL_KEYDOWN && !ev->key.repeat)
+				d->power_presses++;
+			break;
+		}
+		if (ev->key.keysym.sym >= SDLK_1 && ev->key.keysym.sym <= SDLK_3) {
+			d->button = buttons[ev->key.keysym.sym - SDLK_1].code;
+			d->button_pressed = (ev->type == SDL_KEYDOWN);
+		}
+		break;
+	case SDL_MOUSEBUTTONDOWN:
+	case SDL_MOUSEBUTTONUP: {
+		int hit = button_hit(d, ev->button.x, ev->button.y);
+		if (ev->type == SDL_MOUSEBUTTONDOWN && hit >= 0) {
+			d->button = buttons[hit].code;
+			d->button_pressed = true;
+			d->button_held = hit;
+			if (buttons[hit].code == 3)
+				d->power_presses++;
+			break;
+		}
+		if (ev->type == SDL_MOUSEBUTTONUP && d->button_held >= 0) {
+			d->button = buttons[d->button_held].code;
+			d->button_pressed = false;
+			d->button_held = -1;
+			break;
+		}
+		/*
+		 * A press below the panel is not a touch -- it landed
+		 * on the bezel. A release is different: whatever the
+		 * pointer is over, if a finger is down it has just
+		 * been lifted, and dropping that leaves the panel
+		 * stuck down forever. That is what happened when a
+		 * drag downwards, which is a scroll upwards, let go
+		 * past the bottom edge and over the buttons: the
+		 * scroll kept the drag instead of coasting.
+		 */
+		if (ev->type == SDL_MOUSEBUTTONDOWN &&
+		    ev->button.y >= LCD_HEIGHT * d->scale)
+			break;
+		if (ev->type == SDL_MOUSEBUTTONUP && !d->touch_pressed)
+			break;
+		/*
+		 * Report where the finger left the panel rather than
+		 * where the pointer got to, so a drag that overshoots
+		 * still ends on a coordinate the panel could produce.
+		 */
+		/* Queued for the touch panel; see touch_post(). */
+		d->touch_x = clamp_to_panel(ev->button.x / d->scale,
+					    LCD_WIDTH);
+		d->touch_y = clamp_to_panel(ev->button.y / d->scale,
+					    LCD_HEIGHT);
+		d->touch_pressed = (ev->type == SDL_MOUSEBUTTONDOWN);
+		d->touch_pending = true;
+		/*
+		 * Keep receiving motion and, crucially, the release
+		 * even after the pointer leaves the window, so a drag
+		 * that overshoots the edge still ends properly instead
+		 * of leaving the panel stuck down.
+		 */
+		SDL_CaptureMouse(d->touch_pressed ? SDL_TRUE : SDL_FALSE);
+		break;
+	}
+	case SDL_MOUSEMOTION:
+		/*
+		 * The panel only reports while it is being touched, so
+		 * motion with no button held is not an event. Dragging
+		 * is what produces EVENT_TOUCH_MOTION in grifo: its CTP
+		 * driver emits DOWN for the first pressed packet and
+		 * MOTION for every one after it, so a drag has to be a
+		 * run of pressed packets with changing coordinates.
+		 */
+		if (d->touch_pressed) {
+			d->touch_x = clamp_to_panel(ev->motion.x / d->scale,
+						    LCD_WIDTH);
+			d->touch_y = clamp_to_panel(ev->motion.y / d->scale,
+						    LCD_HEIGHT);
+			d->touch_pending = true;
+		}
+		break;
+	}
+}
+
 bool display_update(struct display *d)
 {
 	if (!d->open)
 		return true;
 
 	SDL_Event ev;
-	while (SDL_PollEvent(&ev)) {
-		switch (ev.type) {
-		case SDL_QUIT:
-			d->quit = true;
-			break;
-		case SDL_KEYDOWN:
-		case SDL_KEYUP:
-			if (ev.type == SDL_KEYDOWN &&
-			    (ev.key.keysym.sym == SDLK_ESCAPE ||
-			     ev.key.keysym.sym == SDLK_q)) {
-				d->quit = true;
-				break;
-			}
-			/*
-			 * The three front buttons, on keys 1, 2 and 3. grifo
-			 * calls them random, search and history, and reports
-			 * them in that order (button.c: "0=random, 1=search,
-			 * 2=history").
-			 */
-			/* The power switch is on the case, not the bezel. */
-			if (ev.key.keysym.sym == SDLK_p) {
-				d->button = 3;
-				d->button_pressed = (ev.type == SDL_KEYDOWN);
-				if (ev.type == SDL_KEYDOWN && !ev.key.repeat)
-					d->power_presses++;
-				break;
-			}
-			if (ev.key.keysym.sym >= SDLK_1 && ev.key.keysym.sym <= SDLK_3) {
-				d->button = buttons[ev.key.keysym.sym - SDLK_1].code;
-				d->button_pressed = (ev.type == SDL_KEYDOWN);
-			}
-			break;
-		case SDL_MOUSEBUTTONDOWN:
-		case SDL_MOUSEBUTTONUP: {
-			int hit = button_hit(d, ev.button.x, ev.button.y);
-			if (ev.type == SDL_MOUSEBUTTONDOWN && hit >= 0) {
-				d->button = buttons[hit].code;
-				d->button_pressed = true;
-				d->button_held = hit;
-				if (buttons[hit].code == 3)
-					d->power_presses++;
-				break;
-			}
-			if (ev.type == SDL_MOUSEBUTTONUP && d->button_held >= 0) {
-				d->button = buttons[d->button_held].code;
-				d->button_pressed = false;
-				d->button_held = -1;
-				break;
-			}
-			/* Below the panel but not on a button: not a touch. */
-			if (ev.button.y >= LCD_HEIGHT * d->scale)
-				break;
-			/* Queued for the touch panel; see touch_post(). */
-			d->touch_x = ev.button.x / d->scale;
-			d->touch_y = ev.button.y / d->scale;
-			d->touch_pressed = (ev.type == SDL_MOUSEBUTTONDOWN);
-			d->touch_pending = true;
-			/*
-			 * Keep receiving motion and, crucially, the release
-			 * even after the pointer leaves the window, so a drag
-			 * that overshoots the edge still ends properly instead
-			 * of leaving the panel stuck down.
-			 */
-			SDL_CaptureMouse(d->touch_pressed ? SDL_TRUE : SDL_FALSE);
-			break;
-		}
-		case SDL_MOUSEMOTION:
-			/*
-			 * The panel only reports while it is being touched, so
-			 * motion with no button held is not an event. Dragging
-			 * is what produces EVENT_TOUCH_MOTION in grifo: its CTP
-			 * driver emits DOWN for the first pressed packet and
-			 * MOTION for every one after it, so a drag has to be a
-			 * run of pressed packets with changing coordinates.
-			 */
-			if (d->touch_pressed) {
-				d->touch_x = ev.motion.x / d->scale;
-				d->touch_y = ev.motion.y / d->scale;
-				d->touch_pending = true;
-			}
-			break;
-		}
-	}
+	while (SDL_PollEvent(&ev))
+		display_handle_event(d, &ev);
+
 	if (d->quit)
 		return false;
 

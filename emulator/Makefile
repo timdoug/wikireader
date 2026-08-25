@@ -47,6 +47,12 @@ test-adc: tools/test_adc.c src/periph.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o
 	/tmp/test_adc
 
+# Window events: the path from an SDL click to the touch panel, which
+# scripted runs bypass entirely by calling touch_post() directly.
+test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_display tools/test_display.c src/display.o src/lcd.o src/mem.o $(SDL_LIBS)
+	/tmp/test_display
+
 # CMU protect gate and the 60 MHz the timebase depends on.
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
@@ -64,7 +70,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-irq test-lcd test-adc test-cmu
+check: test test-irq test-lcd test-adc test-cmu test-display
 
 clean:
 	rm -f wremu $(OBJS)
