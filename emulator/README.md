@@ -53,6 +53,7 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 | `-t N` | disassemble the first N instructions |
 | `-m` | trace unclaimed MMIO registers |
 | `-P` | histogram of opcodes actually executed |
+| `-H` | histogram of where time is spent, by address |
 
 `-s` is usually the fastest way in: it turns a hang into a named syscall,
 a call site and a return value.
@@ -96,8 +97,8 @@ bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
 serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
 (`sdramc.c`), because the boot path spins on its initialise flag.
 
-The whole chain works. `-n 8000000000` is enough to reach the rendered
-keyboard:
+The whole chain works. `-n 300000000` is enough to reach the rendered
+keyboard, in about three seconds:
 
 ```
 load: kernel.elf
@@ -149,12 +150,42 @@ three-byte address, so it begins clocking out data during the fourth
 address byte, and the boot ROM discards it. The 512 bytes it keeps start at
 offset 1.
 
-### Known slowness
+### One pin, twenty-seven times
 
-The full chain takes about 8 billion instructions where the ELF path
-reaches the same screen in 600 million. That is not I/O -- the two do
-almost identical card traffic, 587 commands against 538 -- and the opcode
-mix is ordinary code rather than a spin loop. Unexplained.
+The chain first worked at about 8 billion instructions, where the ELF path
+reached the same screen in 600 million. It now takes **300 million**, and
+the whole boot runs in about three seconds.
+
+The cost was not I/O: both paths did nearly identical card traffic, 587
+commands against 538. It was not the boot stages either -- `-H` put 98% of
+the time inside grifo, not in mbr, menu or file-loader. At 64-byte
+resolution the map named the functions:
+
+```
+vuprintf 24%   Event_get 22%   ELF32_load 16%   Event_wait 14%   Suspend 15%
+```
+
+`Event_wait`, `Suspend` and `Event_get` are the idle loop, and they were
+half the total. The device was spinning where it should have been asleep,
+because of this, at the top of `Suspend`:
+
+```c
+// if in CTP receive sequence
+if (0 == (REG_P6_P6D & 0x10)) {
+	return;
+}
+```
+
+Port 6 was initialised here to all zeros so the three buttons on bits 0..2
+would read as not held. But `REG_MISC_PUP6` in `boards/samo_a1.h` enables
+pull-ups on bits 3, 4 and 5, so those idle **high**. With bit 4 low,
+`Suspend` concluded a touch packet was arriving and returned immediately,
+every time, and the idle loop ran flat out instead of suspending.
+
+The lesson is the one from the earlier port bug, twice over: reset state
+for an I/O port is a property of the board, not a convenient default. The
+manual lists these registers as "Ext." precisely because they read the
+external pin, and the schematic is in the board header.
 
 ## Making a card image
 

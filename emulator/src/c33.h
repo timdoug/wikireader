@@ -98,6 +98,10 @@ struct c33 {
 	unsigned long irqs_masked;
 	bool     profile;            /* count executed instructions per opcode */
 	unsigned long opcount[256];
+	/* Executed instructions per 1K of address space, for finding hot code. */
+	bool     pc_profile;
+	unsigned long *pcbuckets;
+	uint32_t      *pcsample;     /* a real PC seen in each bucket */
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	uint64_t cycles;      /* instructions retired */
@@ -112,6 +116,9 @@ void     c33_reset(struct c33 *c, uint32_t entry);
 void     c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 /* Print the executed-opcode histogram gathered under c->profile. */
 void     c33_dump_profile(const struct c33 *c, FILE *out);
+#define C33_PCBUCKET_SHIFT 6
+#define C33_PCBUCKETS      (1u << 16)     /* 64-byte buckets */
+void     c33_dump_pcprofile(const struct c33 *c, FILE *out);
 /* Execute one instruction (an ext prefix counts as one). */
 void     c33_step(struct c33 *c);
 /* Human-readable single-instruction disassembly, for tracing. */

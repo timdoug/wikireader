@@ -52,6 +52,7 @@ int main(int argc, char **argv)
 	bool gui = false; int gui_scale = 3;
 	bool check_align = false;
 	bool profile = false;
+	bool pc_profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
@@ -100,6 +101,8 @@ int main(int argc, char **argv)
 			check_align = true;
 		else if (!strcmp(argv[i], "-P"))
 			profile = true;
+		else if (!strcmp(argv[i], "-H"))
+			pc_profile = true;
 		else if (!strcmp(argv[i], "-g"))
 			gui = true;
 		else if (!strcmp(argv[i], "-K") && i + 1 < argc) {
@@ -246,6 +249,10 @@ int main(int argc, char **argv)
 	cpu.trace_syscalls = trace_syscalls;
 	cpu.check_alignment = check_align;
 	cpu.profile = profile;
+	cpu.pc_profile = pc_profile;
+	if (pc_profile)
+		cpu.pcbuckets = calloc(C33_PCBUCKETS, sizeof *cpu.pcbuckets),
+		cpu.pcsample  = calloc(C33_PCBUCKETS, sizeof *cpu.pcsample);
 	if (boot_sp)
 		cpu.sr[SR_SP] = boot_sp;
 	mem.pc_src = &cpu.pc;
@@ -438,6 +445,8 @@ done:
 	       periph.conversions, periph.adc_writes, periph.overwrites);
 	if (profile)
 		c33_dump_profile(&cpu, stdout);
+	if (pc_profile)
+		c33_dump_pcprofile(&cpu, stdout);
 	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
 	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
 	printf("--- stopped after %llu instructions ---\n",

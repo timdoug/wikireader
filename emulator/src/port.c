@@ -53,6 +53,17 @@ void port_attach(struct mem *m, struct port *p)
 {
 	memset(p, 0, sizeof *p);
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
-	p->reg[OFF_P6D] = 0;                   /* no buttons held */
+	/*
+	 * Port 6: the three buttons on bits 0..2 read 0 when not held, but
+	 * bits 3..5 have pull-ups (REG_MISC_PUP6 in boards/samo_a1.h) and so
+	 * idle high. Bit 4 matters more than it looks: grifo's Suspend()
+	 * begins
+	 *
+	 *     if (0 == (REG_P6_P6D & 0x10)) return;   // in CTP receive
+	 *
+	 * so with it low the idle loop never suspends and spins at full
+	 * speed, which is most of where a boot's instructions were going.
+	 */
+	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 }

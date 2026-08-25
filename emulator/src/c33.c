@@ -176,6 +176,34 @@ void c33_dump_profile(const struct c33 *c, FILE *out)
 			c33_op_name[order[i]], c->opcount[order[i]]);
 }
 
+/*
+ * Executed instructions per 1K of address space, hottest first. The opcode
+ * histogram says what is running; this says where, which is what you need
+ * when the mix looks ordinary but the total does not.
+ */
+void c33_dump_pcprofile(const struct c33 *c, FILE *out)
+{
+	if (!c->pcbuckets)
+		return;
+	unsigned long total = 0;
+	for (unsigned i = 0; i < C33_PCBUCKETS; i++)
+		total += c->pcbuckets[i];
+	fprintf(out, "--- hottest code (1K buckets) ---\n");
+	for (unsigned shown = 0; shown < 12; shown++) {
+		unsigned best = 0;
+		for (unsigned i = 0; i < C33_PCBUCKETS; i++)
+			if (c->pcbuckets[i] > c->pcbuckets[best])
+				best = i;
+		if (!c->pcbuckets[best])
+			break;
+		fprintf(out, "PC %08x  %12lu  %5.1f%%\n",
+			c->pcsample[best] & ~((1u << C33_PCBUCKET_SHIFT) - 1),
+			c->pcbuckets[best],
+			total ? 100.0 * c->pcbuckets[best] / total : 0.0);
+		((struct c33 *)c)->pcbuckets[best] = 0;
+	}
+}
+
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 
 static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
@@ -541,6 +569,11 @@ void c33_step(struct c33 *c)
 	uint8_t op = f->op;
 	if (c->profile)
 		c->opcount[op]++;
+	if (c->pc_profile) {
+		unsigned b = (at >> C33_PCBUCKET_SHIFT) & (C33_PCBUCKETS - 1);
+		c->pcbuckets[b]++;
+		c->pcsample[b] = at;   /* buckets alias; keep a real address */
+	}
 
 	c->pc = at + 2;
 	c->cycles++;
