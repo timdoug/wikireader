@@ -37,8 +37,9 @@ to rebuild the firmware itself.
 Click keys with the mouse; that is the touch panel. Below it is the bezel,
 laid out like the device: a WikiReader wordmark and three round buttons
 reading **search**, **history**, **random** left to right. Click them, or
-use keys **1**, **2**, **3** in that same order. **P** is the power switch,
-which is on the side of the case rather than the bezel. `Q` or `Esc` quits.
+use keys **1**, **2**, **3** in that same order. To their right is a small
+power symbol -- clickable, or **P** -- drawn smaller and set apart because
+on the case it is on the edge rather than the bezel. `Q` or `Esc` quits.
 
 | flag | meaning |
 | --- | --- |
@@ -457,7 +458,9 @@ value of zero would blank a panel the hardware has running.
 
 The power switch is not one of the three front buttons. It is P03 with its
 own port interrupt, vector 19, rather than a member of the key comparator
-the others share, so it is modelled separately and driven with **P** or
+the others share, so it is modelled separately. In the window it is the
+small power symbol to the right of the three, deliberately unlike them
+because the case puts it on an edge; it can also be pressed with **P** or
 `-N 3,cycle`.
 
 What happens next is the interesting part. `power_off()` in

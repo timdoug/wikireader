@@ -97,10 +97,11 @@ static void draw_circle(SDL_Renderer *r, int cx, int cy, int rad, bool filled,
  * Buttons left to right as they are on the case, with the code grifo uses
  * for each: search is 1, history 2, random 0.
  */
-static const struct { const char *label; int code; } buttons[3] = {
+static const struct { const char *label; int code; } buttons[4] = {
 	{ "SEARCH",  1 },
 	{ "HISTORY", 2 },
 	{ "RANDOM",  0 },
+	{ "",        3 },   /* power, drawn as a symbol rather than a word */
 };
 
 /* Centre within the window. */
@@ -117,9 +118,24 @@ static void button_centre_local(const struct display *d, int n, int *cx, int *cy
 	*cy = (BEZEL_H / 2) * d->scale;
 }
 
-/* Which button a window-pixel lands on, or -1. */
+/* Centre of the power control, in window pixels. */
+static void power_centre(const struct display *d, int *cx, int *cy)
+{
+	*cx = POWER_CX * d->scale;
+	*cy = BUTTON_CY * d->scale;
+}
+
+/* Which button a window-pixel lands on, or -1. Index 3 is power. */
 static int button_hit(const struct display *d, int wx, int wy)
 {
+	{
+		int cx, cy;
+		power_centre(d, &cx, &cy);
+		int rad = POWER_R * d->scale;
+		int dx = wx - cx, dy = wy - cy;
+		if (dx * dx + dy * dy <= rad * rad)
+			return 3;
+	}
 	for (int n = 0; n < 3; n++) {
 		int cx, cy;
 		button_centre(d, n, &cx, &cy);
@@ -165,6 +181,39 @@ static void paint_bezel(struct display *d)
 			SDL_SetRenderDrawColor(d->renderer, 0x10, 0x10, 0x10, 0xff);
 		draw_text(d->renderer, buttons[n].label,
 			  cx - tw / 2, cy - 2 * lpx, lpx);
+	}
+
+	/*
+	 * Power, as the usual broken ring and stem. Smaller than the others
+	 * and off to one side, because on the case it is not one of them.
+	 */
+	{
+		int cx = POWER_CX * d->scale;
+		int cy = (BEZEL_H / 2) * d->scale;
+		int rad = POWER_R * d->scale;
+		bool down = (d->button_held == 3);
+		int t = d->scale > 1 ? d->scale : 1;
+
+		SDL_SetRenderDrawColor(d->renderer, 0xff, 0xff, 0xff, 0xff);
+		draw_circle(d->renderer, cx, cy, rad, down, t);
+
+		/* ring */
+		SDL_SetRenderDrawColor(d->renderer,
+				       down ? 0x10 : 0xff, down ? 0x10 : 0xff,
+				       down ? 0x10 : 0xff, 0xff);
+		draw_circle(d->renderer, cx, cy, rad / 2, false, t);
+		/* gap at the top, then the stem through it */
+		SDL_SetRenderDrawColor(d->renderer,
+				       down ? 0xff : 0x10, down ? 0xff : 0x10,
+				       down ? 0xff : 0x10, 0xff);
+		SDL_Rect gap = { cx - t, cy - rad / 2 - t, 2 * t, t * 3 };
+		SDL_RenderFillRect(d->renderer, &gap);
+		SDL_SetRenderDrawColor(d->renderer,
+				       down ? 0x10 : 0xff, down ? 0x10 : 0xff,
+				       down ? 0x10 : 0xff, 0xff);
+		SDL_Rect stem = { cx - t / 2 - (t > 1), cy - rad / 2 - t,
+				  t + 2 * (t > 1), rad / 2 + t };
+		SDL_RenderFillRect(d->renderer, &stem);
 	}
 }
 

@@ -60,7 +60,14 @@ void display_idle_wait(struct display *d, unsigned ms);
 #define BEZEL_H         46
 #define BUTTON_R        19          /* radius */
 #define BUTTON_CY       (LCD_HEIGHT + BEZEL_H / 2)
-#define BUTTON_CX0      92          /* centre of the leftmost button */
-#define BUTTON_DX       56          /* spacing between centres */
+#define BUTTON_CX0      88          /* centre of the leftmost button */
+#define BUTTON_DX       52          /* spacing between centres */
+
+/*
+ * The power switch is on the edge of the case, not the bezel, so it is
+ * drawn small and set apart from the three the case actually prints.
+ */
+#define POWER_CX        226
+#define POWER_R         11
 
 #endif /* DISPLAY_H */
