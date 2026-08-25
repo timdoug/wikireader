@@ -36,12 +36,18 @@ void display_close(struct display *d);
 bool display_update(struct display *d);
 
 /*
- * The three front buttons live in a strip below the panel, matching the
- * real device. Sized in panel pixels and scaled with everything else.
+ * The bezel below the panel, laid out like the device: a WikiReader
+ * wordmark on the left, then three round buttons reading search, history,
+ * random from left to right. Sized in panel pixels and scaled with
+ * everything else.
+ *
+ * Note the order. grifo numbers them 0 random, 1 search, 2 history
+ * (button.c), which is not the order they sit in on the case.
  */
-#define BUTTON_STRIP_H  28
-#define BUTTON_W        64
-#define BUTTON_H        20
-#define BUTTON_GAP      ((LCD_WIDTH - 3 * BUTTON_W) / 4)
+#define BEZEL_H         46
+#define BUTTON_R        19          /* radius */
+#define BUTTON_CY       (LCD_HEIGHT + BEZEL_H / 2)
+#define BUTTON_CX0      92          /* centre of the leftmost button */
+#define BUTTON_DX       56          /* spacing between centres */
 
 #endif /* DISPLAY_H */

@@ -13,32 +13,44 @@
 #include <SDL.h>
 
 #include <string.h>
+#include <math.h>
 
 #include "display.h"
 
 
 /*
- * A 5x7 bitmap for the handful of characters the button labels need. Not
- * worth a font library: the panel itself comes from the guest's own
- * framebuffer, so this is the only text the emulator draws.
+ * A 3x5 bitmap for the letters the bezel needs. The panel itself is drawn
+ * from the guest's framebuffer, so this is the only text the emulator
+ * renders, and it is not worth a font library. The case prints the labels
+ * in lower case; these are small capitals, which read the same at this
+ * size.
  */
-static const struct { char c; const char *rows[7]; } font[] = {
-	{ 'R', { "#### ", "#   #", "#   #", "#### ", "#  # ", "#   #", "#   #" } },
-	{ 'S', { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " } },
-	{ 'H', { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" } },
-	{ '1', { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " } },
-	{ '2', { " ### ", "#   #", "    #", "   # ", "  #  ", " #   ", "#####" } },
-	{ '3', { " ### ", "#   #", "    #", "  ## ", "    #", "#   #", " ### " } },
+static const struct { char c; const char *rows[5]; } font3x5[] = {
+	{ 'A', { ".#.", "#.#", "###", "#.#", "#.#" } },
+	{ 'C', { ".##", "#..", "#..", "#..", ".##" } },
+	{ 'D', { "##.", "#.#", "#.#", "#.#", "##." } },
+	{ 'E', { "###", "#..", "##.", "#..", "###" } },
+	{ 'H', { "#.#", "#.#", "###", "#.#", "#.#" } },
+	{ 'I', { "###", ".#.", ".#.", ".#.", "###" } },
+	{ 'K', { "#.#", "#.#", "##.", "#.#", "#.#" } },
+	{ 'M', { "#.#", "###", "###", "#.#", "#.#" } },
+	{ 'N', { "#.#", "###", "###", "###", "#.#" } },
+	{ 'O', { ".#.", "#.#", "#.#", "#.#", ".#." } },
+	{ 'R', { "##.", "#.#", "##.", "#.#", "#.#" } },
+	{ 'S', { ".##", "#..", ".#.", "..#", "##." } },
+	{ 'T', { "###", ".#.", ".#.", ".#.", ".#." } },
+	{ 'W', { "#.#", "#.#", "###", "###", "#.#" } },
+	{ 'Y', { "#.#", "#.#", ".#.", ".#.", ".#." } },
 };
 
 static void draw_char(SDL_Renderer *r, char c, int x, int y, int px)
 {
-	for (unsigned i = 0; i < sizeof font / sizeof *font; i++) {
-		if (font[i].c != c)
+	for (unsigned i = 0; i < sizeof font3x5 / sizeof *font3x5; i++) {
+		if (font3x5[i].c != c)
 			continue;
-		for (int row = 0; row < 7; row++)
-			for (int col = 0; col < 5; col++)
-				if (font[i].rows[row][col] == '#') {
+		for (int row = 0; row < 5; row++)
+			for (int col = 0; col < 3; col++)
+				if (font3x5[i].rows[row][col] == '#') {
 					SDL_Rect q = { x + col * px, y + row * px,
 						       px, px };
 					SDL_RenderFillRect(r, &q);
@@ -47,56 +59,102 @@ static void draw_char(SDL_Renderer *r, char c, int x, int y, int px)
 	}
 }
 
-/* Where button n sits, in window pixels. */
-static SDL_Rect button_rect(const struct display *d, int n)
+static int text_width(const char *s, int px) { return (int)strlen(s) * 4 * px; }
+
+static void draw_text(SDL_Renderer *r, const char *s, int x, int y, int px)
 {
-	int gap = BUTTON_GAP;
-	int x = gap + n * (BUTTON_W + gap);
-	int y = LCD_HEIGHT + (BUTTON_STRIP_H - BUTTON_H) / 2;
-	SDL_Rect r = { x * d->scale, y * d->scale,
-		       BUTTON_W * d->scale, BUTTON_H * d->scale };
-	return r;
+	for (; *s; s++, x += 4 * px)
+		draw_char(r, *s, x, y, px);
+}
+
+/* Filled or outlined circle, drawn as horizontal spans. */
+static void draw_circle(SDL_Renderer *r, int cx, int cy, int rad, bool filled,
+			int thick)
+{
+	for (int dy = -rad; dy <= rad; dy++) {
+		int dx = (int)(sqrt((double)rad * rad - (double)dy * dy) + 0.5);
+		if (filled) {
+			SDL_RenderDrawLine(r, cx - dx, cy + dy, cx + dx, cy + dy);
+			continue;
+		}
+		int inner = rad - thick;
+		int ix = 0;
+		if (inner > 0 && dy > -inner && dy < inner)
+			ix = (int)(sqrt((double)inner * inner -
+					(double)dy * dy) + 0.5);
+		if (ix == 0) {
+			SDL_RenderDrawLine(r, cx - dx, cy + dy, cx + dx, cy + dy);
+		} else {
+			SDL_RenderDrawLine(r, cx - dx, cy + dy, cx - ix, cy + dy);
+			SDL_RenderDrawLine(r, cx + ix, cy + dy, cx + dx, cy + dy);
+		}
+	}
+}
+
+/*
+ * Buttons left to right as they are on the case, with the code grifo uses
+ * for each: search is 1, history 2, random 0.
+ */
+static const struct { const char *label; int code; } buttons[3] = {
+	{ "SEARCH",  1 },
+	{ "HISTORY", 2 },
+	{ "RANDOM",  0 },
+};
+
+static void button_centre(const struct display *d, int n, int *cx, int *cy)
+{
+	*cx = (BUTTON_CX0 + n * BUTTON_DX) * d->scale;
+	*cy = BUTTON_CY * d->scale;
 }
 
 /* Which button a window-pixel lands on, or -1. */
 static int button_hit(const struct display *d, int wx, int wy)
 {
 	for (int n = 0; n < 3; n++) {
-		SDL_Rect r = button_rect(d, n);
-		if (wx >= r.x && wx < r.x + r.w && wy >= r.y && wy < r.y + r.h)
+		int cx, cy;
+		button_centre(d, n, &cx, &cy);
+		int rad = BUTTON_R * d->scale;
+		int dx = wx - cx, dy = wy - cy;
+		if (dx * dx + dy * dy <= rad * rad)
 			return n;
 	}
 	return -1;
 }
 
-static void draw_buttons(struct display *d)
+static void draw_bezel(struct display *d)
 {
-	static const char label[3][2] = { {'1','R'}, {'2','S'}, {'3','H'} };
-
-	SDL_SetRenderDrawColor(d->renderer, 0x20, 0x20, 0x20, 0xff);
+	SDL_SetRenderDrawColor(d->renderer, 0x10, 0x10, 0x10, 0xff);
 	SDL_Rect strip = { 0, LCD_HEIGHT * d->scale,
-			   LCD_WIDTH * d->scale, BUTTON_STRIP_H * d->scale };
+			   LCD_WIDTH * d->scale, BEZEL_H * d->scale };
 	SDL_RenderFillRect(d->renderer, &strip);
 
-	for (int n = 0; n < 3; n++) {
-		SDL_Rect r = button_rect(d, n);
-		bool down = (d->button_held == n);
-		SDL_SetRenderDrawColor(d->renderer,
-				       down ? 0xff : 0x60,
-				       down ? 0xcc : 0x60,
-				       down ? 0x33 : 0x60, 0xff);
-		SDL_RenderFillRect(d->renderer, &r);
+	/*
+	 * Label size is tied to the scale so the text keeps its proportion
+	 * inside the circles: at one pixel per scale step, the longest label
+	 * spans about three quarters of a button's diameter.
+	 */
+	int px = d->scale;
 
-		int px = d->scale > 1 ? d->scale - 1 : 1;
-		int tw = (5 + 2 + 5) * px;
-		int tx = r.x + (r.w - tw) / 2;
-		int ty = r.y + (r.h - 7 * px) / 2;
-		SDL_SetRenderDrawColor(d->renderer,
-				       down ? 0x00 : 0xdd,
-				       down ? 0x00 : 0xdd,
-				       down ? 0x00 : 0xdd, 0xff);
-		draw_char(d->renderer, label[n][0], tx, ty, px);
-		draw_char(d->renderer, label[n][1], tx + 7 * px, ty, px);
+	/* wordmark, as on the case */
+	SDL_SetRenderDrawColor(d->renderer, 0xff, 0xff, 0xff, 0xff);
+	draw_text(d->renderer, "WIKIREADER", 8 * d->scale,
+		  (BUTTON_CY * d->scale) - 2 * px, px);
+
+	for (int n = 0; n < 3; n++) {
+		int cx, cy;
+		button_centre(d, n, &cx, &cy);
+		int rad = BUTTON_R * d->scale;
+		bool down = (d->button_held == n);
+
+		SDL_SetRenderDrawColor(d->renderer, 0xff, 0xff, 0xff, 0xff);
+		draw_circle(d->renderer, cx, cy, rad, down, d->scale);
+
+		int lpx = px;
+		int tw = text_width(buttons[n].label, lpx);
+		if (down)
+			SDL_SetRenderDrawColor(d->renderer, 0x10, 0x10, 0x10, 0xff);
+		draw_text(d->renderer, buttons[n].label,
+			  cx - tw / 2, cy - 2 * lpx, lpx);
 	}
 }
 
@@ -116,7 +174,7 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 				     SDL_WINDOWPOS_CENTERED,
 				     SDL_WINDOWPOS_CENTERED,
 				     LCD_WIDTH * d->scale,
-				     (LCD_HEIGHT + BUTTON_STRIP_H) * d->scale, 0);
+				     (LCD_HEIGHT + BEZEL_H) * d->scale, 0);
 	if (!d->window)
 		return false;
 
@@ -177,7 +235,7 @@ bool display_update(struct display *d)
 			 * 2=history").
 			 */
 			if (ev.key.keysym.sym >= SDLK_1 && ev.key.keysym.sym <= SDLK_3) {
-				d->button = ev.key.keysym.sym - SDLK_1;
+				d->button = buttons[ev.key.keysym.sym - SDLK_1].code;
 				d->button_pressed = (ev.type == SDL_KEYDOWN);
 			}
 			break;
@@ -185,13 +243,13 @@ bool display_update(struct display *d)
 		case SDL_MOUSEBUTTONUP: {
 			int hit = button_hit(d, ev.button.x, ev.button.y);
 			if (ev.type == SDL_MOUSEBUTTONDOWN && hit >= 0) {
-				d->button = hit;
+				d->button = buttons[hit].code;
 				d->button_pressed = true;
 				d->button_held = hit;
 				break;
 			}
 			if (ev.type == SDL_MOUSEBUTTONUP && d->button_held >= 0) {
-				d->button = d->button_held;
+				d->button = buttons[d->button_held].code;
 				d->button_pressed = false;
 				d->button_held = -1;
 				break;
@@ -249,7 +307,7 @@ bool display_update(struct display *d)
 	SDL_RenderClear(d->renderer);
 	SDL_Rect panel = { 0, 0, LCD_WIDTH * d->scale, LCD_HEIGHT * d->scale };
 	SDL_RenderCopy(d->renderer, d->texture, NULL, &panel);
-	draw_buttons(d);
+	draw_bezel(d);
 	SDL_RenderPresent(d->renderer);
 	return true;
 }
