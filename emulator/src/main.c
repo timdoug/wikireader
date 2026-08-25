@@ -19,6 +19,9 @@
 #include "timer.h"
 #include "itc.h"
 #include "cmu.h"
+#include "port.h"
+#include "eeprom.h"
+#include "sdramc.h"
 
 static void usage(const char *p)
 {
@@ -51,6 +54,23 @@ int main(int argc, char **argv)
 	bool profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
+	const char *eeprom_path = NULL;
+	uint32_t boot_sp = 0;
+/*
+ * What the mask ROM leaves behind: mbr, linked at 0, copied from the
+ * EEPROM offset the FLASH map assigns it.
+ */
+#define MBR_EEPROM_OFFSET     0x1
+#define MASK_ROM_LOAD_BYTES   512
+/*
+ * The mask ROM also leaves a usable stack. Nothing in samo-lib sets one up
+ * before mbr's first call: application.lds defines __dp and the load
+ * address but no stack symbol, and mbr.c only loads %r15. Internal RAM is
+ * the only memory available this early -- mbr deliberately does not
+ * initialise SDRAM ("but will be too big") -- so the stack starts at the
+ * top of the 8K a0ram and grows down toward the loaded application.
+ */
+#define MASK_ROM_STACK_TOP    A0RAM_SIZE
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
 	size_t type_idx = 0; int type_phase = 0;
@@ -68,6 +88,8 @@ int main(int argc, char **argv)
 			limit = strtoul(argv[++i], NULL, 0);
 			limit_given = true;
 		}
+		else if (!strcmp(argv[i], "-e") && i + 1 < argc)
+			eeprom_path = argv[++i];
 		else if (!strcmp(argv[i], "-c") && i + 1 < argc)
 			card = argv[++i];
 		else if (!strcmp(argv[i], "-m"))
@@ -118,7 +140,7 @@ int main(int argc, char **argv)
 			path = argv[i];
 		else { usage(argv[0]); return 2; }
 	}
-	if (!path) { usage(argv[0]); return 2; }
+	if (!path && !eeprom_path) { usage(argv[0]); return 2; }
 
 	/* Interactive runs should keep going until the window is closed. */
 	if (gui && !limit_given)
@@ -156,8 +178,21 @@ int main(int argc, char **argv)
 	if (gui && !display_open(&disp, &lcd, &mem, gui_scale))
 		fprintf(stderr, "warning: could not open display window\n");
 
+	struct port port;
+	port_attach(&mem, &port);
+
+	struct sdramc sdramc;
+	sdramc_attach(&mem, &sdramc);
+
+	static struct eeprom eeprom;
+	if (eeprom_path && !eeprom_load(&eeprom, eeprom_path, stderr)) {
+		fprintf(stderr, "error: cannot open eeprom image %s\n", eeprom_path);
+		return 1;
+	}
+
 	struct sdcard sd;
-	if (!sd_attach(&mem, &sd, card)) {
+	if (!sd_attach(&mem, &sd, card, &port,
+		       eeprom_path ? &eeprom : NULL)) {
 		fprintf(stderr, "error: cannot open card image %s\n", card);
 		return 1;
 	}
@@ -167,14 +202,38 @@ int main(int argc, char **argv)
 			(unsigned long long)sd.blocks);
 
 	char err[256];
-	fprintf(stderr, "loading %s\n", path);
-	uint32_t entry = elf_load(&mem, path, err, sizeof err);
-	if (!entry) {
-		fprintf(stderr, "error: %s\n", err);
-		mem_free(&mem);
-		return 1;
+	uint32_t entry;
+	if (!path) {
+		/*
+		 * Boot the way the device does, from the serial FLASH.
+		 *
+		 * The first stage is Epson's mask ROM, which is not in this
+		 * repository and cannot be, so its effect is emulated rather
+		 * than its code: it reads the first block out of the EEPROM
+		 * into RAM and jumps to it. samo-lib/mbr is linked at address
+		 * 0 (-Ttext=0) and the FLASH map places it at EEPROM offset 1
+		 * (SAMO_A1.mapfile-default), which is what fixes those two
+		 * numbers here. From that point on everything is real
+		 * firmware: mbr loads menu, menu loads file-loader, and
+		 * file-loader reads kernel.elf off the card.
+		 */
+		for (unsigned k = 0; k < MASK_ROM_LOAD_BYTES; k++)
+			mem_write(&mem, k, 1, eeprom.data[MBR_EEPROM_OFFSET + k]);
+		entry = 0;
+		boot_sp = MASK_ROM_STACK_TOP;
+		fprintf(stderr, "mask ROM: loaded %u bytes from eeprom+0x%x to RAM 0, sp=0x%x\n",
+			MASK_ROM_LOAD_BYTES, MBR_EEPROM_OFFSET, boot_sp);
+		fprintf(stderr, "entry point: 0x%08x (mbr)\n\n", entry);
+	} else {
+		fprintf(stderr, "loading %s\n", path);
+		entry = elf_load(&mem, path, err, sizeof err);
+		if (!entry) {
+			fprintf(stderr, "error: %s\n", err);
+			mem_free(&mem);
+			return 1;
+		}
+		fprintf(stderr, "entry point: 0x%08x\n\n", entry);
 	}
-	fprintf(stderr, "entry point: 0x%08x\n\n", entry);
 	mem.vwatch_on = vwatch_on;   /* skip the loader's own stores */
 
 	struct c33 cpu;
@@ -187,6 +246,8 @@ int main(int argc, char **argv)
 	cpu.trace_syscalls = trace_syscalls;
 	cpu.check_alignment = check_align;
 	cpu.profile = profile;
+	if (boot_sp)
+		cpu.sr[SR_SP] = boot_sp;
 	mem.pc_src = &cpu.pc;
 
 	struct timerblk timer;
@@ -370,6 +431,9 @@ done:
 	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
 	printf("--- sd: %lu commands, %lu blocks read, %lu rx overflows ---\n",
 	       sd.commands, sd.blocks_read, sd.overflows);
+	if (eeprom_path)
+		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
+		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);
 	printf("--- adc: %lu conversions, %lu register writes, %lu overwrite errors ---\n",
 	       periph.conversions, periph.adc_writes, periph.overwrites);
 	if (profile)

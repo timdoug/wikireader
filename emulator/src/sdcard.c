@@ -282,9 +282,23 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				sd->rdof = true;
 				sd->overflows++;
 			}
-			sd->rxd = sd_xfer(sd, out);
+			/*
+			 * Route by chip select. The FLASH driver frames a
+			 * transaction with EEPROM_CS_LO/HI, so releasing the
+			 * select has to reset its command state machine.
+			 */
+			bool ee = sd->eeprom && sd->port &&
+				  port_cs_low(sd->port, CS_EEPROM_BIT);
+			if (!ee && sd->eeprom_selected && sd->eeprom)
+				eeprom_deselect(sd->eeprom);
+			sd->eeprom_selected = ee;
+
+			if (ee)
+				sd->rxd = eeprom_exchange(sd->eeprom, out);
+			else
+				sd->rxd = sd_xfer(sd, out);
 			sd->rdff = true;
-			if (sd->trace && sd->xfers < 0)
+			if (sd->trace_bytes)
 				fprintf(stderr, "   spi[%02lu] -> %02x  <- %02x%s\n",
 					sd->xfers, out, sd->rxd,
 					sd->collecting ? " (cmd)" : "");
@@ -310,10 +324,13 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	}
 }
 
-bool sd_attach(struct mem *m, struct sdcard *sd, const char *path)
+bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
+	       const struct port *port, struct eeprom *eeprom)
 {
 	memset(sd, 0, sizeof *sd);
 	sd->idle = true;
+	sd->port = port;
+	sd->eeprom = eeprom;
 
 	if (path) {
 		sd->img = fopen(path, "rb");

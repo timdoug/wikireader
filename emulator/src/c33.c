@@ -196,7 +196,7 @@ static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 		return 0;
 
 	/* Same region cache as the fetch path; see c33_step. */
-	if (a >= c->data_lo && a + sz <= c->data_hi) {
+	if (a >= c->data_lo && a < c->data_hi && c->data_hi - a >= sz) {
 		uint32_t v = 0;
 		memcpy(&v, c->data_ptr + (a - c->data_lo), sz);
 		return v;
@@ -204,7 +204,7 @@ static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 	if (c->bus.region) {
 		uint32_t base, len;
 		uint8_t *p = c->bus.region(c->bus.ctx, a, &base, &len);
-		if (p && a + sz <= base + len) {
+		if (p && a >= base && a - base <= len - sz) {
 			c->data_ptr = p;
 			c->data_lo  = base;
 			c->data_hi  = base + len;
@@ -515,12 +515,17 @@ void c33_step(struct c33 *c)
 	 * than a copy, so writes through the bus stay visible.
 	 */
 	uint16_t insn;
-	if (at >= c->fetch_lo && at + 2 <= c->fetch_hi) {
+	/*
+	 * Written to avoid wrapping: "at + 2 <= fetch_hi" would be true for
+	 * an address near 0xffffffff, letting a wild PC index far outside the
+	 * region. A stray jump is exactly when this path must not misbehave.
+	 */
+	if (at >= c->fetch_lo && at < c->fetch_hi && c->fetch_hi - at >= 2) {
 		memcpy(&insn, c->fetch_ptr + (at - c->fetch_lo), 2);
 	} else if (c->bus.region) {
 		uint32_t base, len;
 		uint8_t *p = c->bus.region(c->bus.ctx, at, &base, &len);
-		if (p && at + 2 <= base + len) {
+		if (p && at >= base && at - base <= len - 2) {
 			c->fetch_ptr = p;
 			c->fetch_lo  = base;
 			c->fetch_hi  = base + len;

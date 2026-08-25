@@ -29,15 +29,25 @@ void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
 }
 
 /* Resolve an address to a host pointer, or NULL if not plain RAM. */
+/*
+ * Host pointer for a mapped guest address, or NULL.
+ *
+ * The bounds tests are written as "offset within region" rather than
+ * "a + size <= end", because the latter wraps: for a = 0xffffffff and
+ * size = 4, a + size is 3, which is inside every region, and the function
+ * would hand back a pointer 0xefffffff bytes past the SDRAM buffer. Real
+ * firmware never generated an address like that, so this sat unnoticed
+ * until the boot ROM path ran code against uninitialised hardware.
+ */
 static uint8_t *ram_ptr(struct mem *m, uint32_t a, unsigned size)
 {
-	if (a >= SDRAM_BASE && a + size <= SDRAM_BASE + SDRAM_SIZE)
+	if (a >= SDRAM_BASE && a - SDRAM_BASE <= SDRAM_SIZE - size)
 		return m->sdram + (a - SDRAM_BASE);
-	if (a < A0RAM_SIZE && a + size <= A0RAM_SIZE)
+	if (a <= A0RAM_SIZE - size)
 		return m->a0ram + a;
-	if (a >= IVRAM_BASE && a + size <= IVRAM_BASE + IVRAM_SIZE)
+	if (a >= IVRAM_BASE && a - IVRAM_BASE <= IVRAM_SIZE - size)
 		return m->ivram + (a - IVRAM_BASE);
-	if (a >= DSTRAM_BASE && a + size <= DSTRAM_BASE + DSTRAM_SIZE)
+	if (a >= DSTRAM_BASE && a - DSTRAM_BASE <= DSTRAM_SIZE - size)
 		return m->dstram + (a - DSTRAM_BASE);
 	return NULL;
 }

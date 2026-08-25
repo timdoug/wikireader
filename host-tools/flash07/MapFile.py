@@ -20,21 +20,21 @@ class MapFile:
             m = MapFile.MAP_LINE_RE.match(line)
             c = MapFile.MAP_COMMENT_RE.match(line)
             if m:
-                offset = eval(m.group(1))
+                offset = int(m.group(1), 0)
                 file = m.group(2)
                 if '*ERASE' == file:
-                    data = '\xff'
+                    data = b'\xff'
                 else:
                     if not os.path.isfile(file):
                         file = os.path.join(os.path.dirname(filename), file)
                     if not os.path.isfile(file):
-                        print 'Missing program: "%s"' % m.group(2)
+                        print('Missing program: "%s"' % m.group(2))
                         self.status = False
                     data = open(file, 'rb').read()
                 data_len = len(data)
                 self.rom.append((offset, file, data_len, data))
             elif not c:
-                print 'invalid map line:', line
+                print('invalid map line:', line.rstrip())
                 self.status = False
 
     def items(self):

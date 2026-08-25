@@ -6,10 +6,21 @@
 #include <stdbool.h>
 
 #include "mem.h"
+#include "port.h"
+#include "eeprom.h"
 
 #define SD_RESP_MAX 600      /* token + 512 data + CRC, with headroom */
 
 struct sdcard {
+	/*
+	 * The SPI controller is shared. Chip select decides which device a
+	 * byte goes to: port 5 bit 0 is this card, bit 2 the serial FLASH.
+	 * Both optional -- with neither attached the bus reads back 0xff.
+	 */
+	const struct port *port;
+	struct eeprom     *eeprom;
+	bool               eeprom_selected;   /* to detect deselect edges */
+
 	FILE     *img;
 	uint64_t  blocks;
 
@@ -36,10 +47,12 @@ struct sdcard {
 
 	unsigned long commands, blocks_read;
 	bool trace;
+	bool trace_bytes;   /* per-byte SPI log; very verbose */
 	unsigned long xfers;
 };
 
-bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path);
+bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
+	       const struct port *port, struct eeprom *eeprom);
 void sd_close(struct sdcard *sd);
 
 #endif /* SDCARD_H */

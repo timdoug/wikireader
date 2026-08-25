@@ -40,6 +40,7 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 | --- | --- |
 | `-g`, `-S N` | SDL2 window, scale factor (default 3) |
 | `-c FILE` | attach a FAT32 card image |
+| `-e FILE` | attach the serial FLASH and boot through it, as the hardware does |
 | `-n N` | stop after N instructions (unlimited with `-g`) |
 | `-s` | trace grifo syscalls by name, with call sites and return values |
 | `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
@@ -55,6 +56,64 @@ Click keys with the mouse; that is the touch panel. `Q` or `Esc` quits.
 
 `-s` is usually the fastest way in: it turns a hang into a named syscall,
 a call site and a return value.
+
+## Booting the way the hardware does
+
+`./wremu -e flash.rom -c card.img` starts where the device starts, instead
+of loading `grifo.elf` straight off the host filesystem.
+
+The real chain has four stages before any application runs:
+
+| stage | lives in | |
+| --- | --- | --- |
+| mask ROM | burned into the S1C33E07 | Epson's, not in this repo |
+| `mbr` | serial FLASH offset 0x1 | `samo-lib/mbr/mbr.c`, linked at 0 |
+| `menu` | serial FLASH 0x300 | boot menu, auto-boots on timeout |
+| `file-loader` | serial FLASH 0x2300 | reads `kernel.elf` off the card |
+
+Only the first cannot be run: it is silicon we do not have, so the emulator
+reproduces its *effect* -- copy the first 512 bytes of the FLASH to RAM 0,
+set the stack to the top of internal RAM, jump to 0. Those numbers are not
+guesses: `SAMO_A1.mapfile-default` places `mbr` at FLASH offset 1,
+`mbr.elf` is linked with `-Ttext=0`, and nothing in samo-lib sets up a
+stack before mbr's first call, so the ROM must.
+
+Everything after that is real firmware. Building the FLASH image needs
+
+```
+make AWK="python3 samo-lib/mbr/GenerateApplicationHeader.py" mbr
+```
+
+which produces `samo-lib/mbr/flash.rom`. The `AWK` override is because the
+original header generator uses `gensub()`, a gawk extension;
+`GenerateApplicationHeader.py` is a drop-in that needs only Python. The
+image assembler `host-tools/flash07/image07` was Python 2 and has been
+ported.
+
+This required modelling three things the ELF path never touched: the I/O
+ports, because the SPI chip selects live there (`port.c` -- SD is port 5
+bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
+serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
+(`sdramc.c`), because the boot path spins on its initialise flag.
+
+Current state: the chain runs as far as `file-loader` mounting the card. The
+boot menu comes up over the serial console with live readings from the
+emulated ADC, and auto-boots on timeout exactly as the hardware does:
+
+```
+BAT: 3079 mV      TMP: 19 DegC      LCD: 23462 mV
+menu? -\|/...
+load: kernel.elf
+load 'kernel.elf' error = -2
+```
+
+`-2` is `f_open` failing. The card is read correctly -- the SD
+initialisation sequence completes, `CMD17` for sector 0 returns the right
+FAT32 boot record, and the full 512 bytes plus CRC are clocked out -- but
+FatFs then rejects the volume without issuing a second read. It is not a
+filesystem-layout problem: MBR and bare volumes, FAT16 and FAT32 all fail
+identically, the BPB validates, and `KERNEL.ELF` is present in the root
+directory. Unfinished.
 
 ## Making a card image
 

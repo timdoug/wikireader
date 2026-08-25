@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # COPYRIGHT: Openmoko Inc. 2009
 # LICENSE: GPL Version 3 or later
@@ -15,14 +15,14 @@ import Dump
 
 def usage(message):
     if None != message:
-        print 'error:', message
-    print 'usage: %s [--verbose] --image=<rom.image> --map-file=<map>' % os.path.basename(__file__)
+        print('error:', message)
+    print('usage: %s [--verbose] --image=<rom.image> --map-file=<map>' % os.path.basename(__file__))
     exit(1)
 
 def main():
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hvi:m:', ['help', 'verbose', 'image-file=', 'map-file='])
-    except getopt.GetoptError, err:
+    except getopt.GetoptError as err:
         usage(err)
 
     verbose = False
@@ -48,17 +48,17 @@ def main():
     if not map.ok():
         usage('Invalid mapfile')
 
-    rom_image = 65536 * '\xff'
+    rom_image = bytearray(b'\xff' * 65536)
     for r in map.items():
         offset, filename, bytecount, data = r
         if verbose:
-            print '0x%04x %s (%d bytes)' % (offset, filename, bytecount)
-        rom_image = rom_image[0:offset] + data + rom_image[offset + bytecount:65536]
+            print('0x%04x %s (%d bytes)' % (offset, filename, bytecount))
+        rom_image[offset:offset + bytecount] = data
 
     if verbose:
         Dump.hex(rom_image)
 
-    fh = open(imagefile, 'w')
+    fh = open(imagefile, 'wb')
     fh.write(rom_image)
     fh.close()
 
