@@ -439,6 +439,17 @@ void c33_reset(struct c33 *c, uint32_t entry)
 
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority)
 {
+	/*
+	 * A cause that is disabled in the controller never reaches the CPU.
+	 * Checking here rather than only at delivery matters because there
+	 * is one pending slot: a disabled source that got as far as being
+	 * recorded would displace a live request and then be discarded,
+	 * losing both. That is how an unwanted timer 2 wake-up was eating
+	 * touch interrupts.
+	 */
+	if (c->irq_enabled && !c->irq_enabled(c->irq_ctx, vector))
+		return;
+
 	c->irq_pending = true;
 	c->irq_vector = vector;
 	c->irq_priority = priority;
@@ -461,6 +472,18 @@ static void take_irq(struct c33 *c)
 	 * priority level of that interrupt" (C33 PE Core manual, 2.3.1).
 	 * The saved PSR restores the old IL on reti.
 	 */
+	/*
+	 * A raised request can be withdrawn before it is taken. grifo's
+	 * resume path does exactly that: it arms timer 2 as a wake source,
+	 * halts, and then disables and clears that interrupt before
+	 * re-enabling interrupts. Delivering it anyway lands in grifo's
+	 * "Panic: undefined interrupt".
+	 */
+	if (c->irq_enabled && !c->irq_enabled(c->irq_ctx, c->irq_vector)) {
+		c->irq_pending = false;
+		return;
+	}
+
 	unsigned il = (c->sr[SR_PSR] & PSR_IL_MASK) >> PSR_IL_SHIFT;
 	if (c->irq_priority <= il) {
 		c->irqs_masked++;

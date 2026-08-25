@@ -256,6 +256,8 @@ int main(int argc, char **argv)
 	if (boot_sp)
 		cpu.sr[SR_SP] = boot_sp;
 	mem.pc_src = &cpu.pc;
+	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
+	cpu.irq_ctx = &itc;
 
 	struct timerblk timer;
 	timer_attach(&mem, &timer, &cpu.clk, &itc);
@@ -426,8 +428,10 @@ done:
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
-	printf("--- itc: %lu register writes, serial ch1 priority %u ---\n",
-	       itc.writes, itc_priority(&itc, 61));
+	printf("--- itc: %lu register writes, serial ch1 priority %u, ESIF01=0x%02x, ch1-rx %s ---\n",
+	       itc.writes, itc_priority(&itc, 61),
+	       itc.reg[0x276 - ITC_BASE],
+	       itc_enabled(&itc, 61) ? "enabled" : "DISABLED");
 	printf("\n--- lcd: %lu register writes, framebuffer=0x%08x ---\n",
 	       lcd.writes, lcd.fb_addr);
 	if (lcd.fb_addr) {

@@ -82,6 +82,6 @@ void port_attach(struct mem *m, struct port *p)
 	 * delivered across a suspend/resume cycle. Until that works, an
 	 * emulator that responds to input beats one that idles efficiently.
 	 */
-	p->reg[OFF_P6D] = (1u << 5) | (1u << 3);
+	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 }

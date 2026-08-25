@@ -35,7 +35,14 @@
  * (MCLK / 32 / 4096) * seconds, so the effective tick is MCLK/4096 with a
  * further divide by 32 folded into the count.
  */
-#define T2_PRESCALE    4096u
+/*
+ * The prescaler divides by 4096, but the suspend code switches the system
+ * clock to OSC3/32 before arming the timer, which is the other factor in
+ * its own reload calculation: (MCLK / 32 / 4096) * seconds. Modelling only
+ * the 4096 made the timeout fire 32x early, so the firmware concluded it
+ * had timed out and powered the device off instead of resuming.
+ */
+#define T2_PRESCALE    (4096u * 32u)
 
 /*
  * One tick per instruction.
@@ -102,6 +109,8 @@ void timer_poll(struct timerblk *t, struct c33 *cpu)
 		return;
 	t->t2_running = false;
 	t->t2_fires++;
+	if (t->itc)
+		itc_set_flag((struct itc *)t->itc, VECTOR_T16_CH2);
 	c33_raise_irq(cpu, VECTOR_T16_CH2,
 		      t->itc ? itc_priority(t->itc, VECTOR_T16_CH2) : 7);
 }

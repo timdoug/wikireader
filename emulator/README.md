@@ -97,8 +97,8 @@ bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
 serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
 (`sdramc.c`), because the boot path spins on its initialise flag.
 
-The whole chain works. `-n 8000000000` reaches the rendered keyboard; see
-the note on suspend below for why that is not 300 million:
+The whole chain works. `-n 300000000` reaches the rendered keyboard, in a
+bit over two seconds:
 
 ```
 load: kernel.elf
@@ -150,14 +150,11 @@ three-byte address, so it begins clocking out data during the fourth
 address byte, and the boot ROM discards it. The 512 bytes it keeps start at
 offset 1.
 
-### Suspend: a 27x speedup that is not switched on
+### Suspend, and the 27x it was worth
 
-This one is worth reading before touching port 6 or `Suspend`.
-
-The chain takes about 8 billion instructions where the ELF path reaches the
-same screen in 600 million. It can be made to take **300 million** -- a
-three second boot -- and the emulator knows exactly how. It is deliberately
-not doing so, for a reason given at the end.
+The chain first took about 8 billion instructions where the ELF path
+reached the same screen in 600 million. It now takes **300 million**, and a
+full hardware boot runs in a bit over two seconds.
 
 The cost was not I/O: both paths did nearly identical card traffic, 587
 commands against 538. It was not the boot stages either -- `-H` put 98% of
@@ -186,9 +183,8 @@ pull-ups on bits 3, 4 and 5, so those idle **high**. With bit 4 low,
 every time, and the idle loop runs flat out instead of suspending.
 
 Setting bit 4 high is the accurate thing and gives the 27x. It also makes
-the machine deaf: touch stops working in both boot paths, 8 events turning
-into 1 interrupt and no search. Suspending is a whole subsystem, and only
-part of it is modelled:
+the machine deaf until the rest of suspend is modelled, which took five
+more pieces. Each one hid the next:
 
 * `halt` now parks the core until an interrupt instead of stopping the
   emulator, and wakes on a request **regardless of `IE`**, which is what
@@ -201,17 +197,32 @@ part of it is modelled:
 * 16-bit timer 2 is modelled as a wake source, because that is what the
   suspend path arms before halting.
 
-With all three in place the device still does not deliver touch packets
-across a suspend and resume. So bit 4 is left low, with bits 3 and 5 at
-their pull-up values, and the emulator idles inefficiently but answers the
-keyboard. An emulator that responds to input beats one that idles well.
+* The **cause-of-interrupt flag registers** at 0x280..0x28f are
+  write-1-to-clear, not storage: "The flag that has been set can be reset by
+  writing". Treated as storage, the resume path's own attempt to clear the
+  timer flags set them instead, so the firmware always concluded it had
+  timed out and called `System_PowerOff()`.
+* Interrupt delivery is **gated on the controller's enable bits**, and a
+  cause that is disabled is refused at the point it is raised rather than
+  when it is taken. The resume path disables and clears the timer 2
+  interrupt before re-enabling interrupts, and delivering it anyway landed
+  in grifo's "Panic: undefined interrupt". Refusing it late was not enough
+  either: there is one pending slot, so a doomed request would displace a
+  live one and take it down with it, which is how a stray timer wake-up ate
+  the touch interrupts.
+* The wake timer runs from **OSC3/32**, because the suspend code switches
+  the clock down before arming it. That is the other factor in the
+  firmware's own reload, `(MCLK / 32 / 4096) * seconds`. Modelling only the
+  4096 made the timeout fire 32 times early, so the device decided it had
+  been idle for two minutes and powered off.
 
-The lesson from the port bug still stands, twice over now: the reset state
-of an I/O port is a property of the board, not a convenient default. The
-manual lists these registers as "Ext." precisely because they read the
-external pin, and the pull-ups are in the board header. But the second
-lesson is that a register can be *more* accurate in isolation and still be
-a regression, if it turns on behaviour the rest of the model cannot follow.
+The lesson from the port bug still stands, twice over: the reset state of an
+I/O port is a property of the board, not a convenient default. The manual
+lists these registers as "Ext." precisely because they read the external
+pin, and the pull-ups are in the board header. The second lesson is that a
+register can be more accurate in isolation and still be a regression, until
+the rest of the model catches up -- this one was a regression for several
+hours before it became a 27x speedup.
 
 ## Making a card image
 

@@ -19,6 +19,28 @@
 /* Priority register offsets within the block, from samo-lib/include/regs.h. */
 #define PSI01_PAD  (0x26au - ITC_BASE)   /* serial ch0 bits 6:4, ch1 bits 2:0 */
 
+/*
+ * Cause-of-interrupt flag registers, 0x280..0x28f.
+ *
+ * These are write-1-to-clear, not plain storage: "The flag that has been
+ * set can be reset by writing" (S1C33E07 Technical Manual, 0x300283), and
+ * samo-lib says the same in passing -- "1 => reset flag bit".
+ *
+ * Getting this wrong is not subtle. grifo's resume path decides why it
+ * woke by reading the timer 2 flags, and it clears them before halting
+ * with |=. Treated as storage, that write sets them, so on resume the
+ * firmware always concludes it timed out and calls System_PowerOff().
+ */
+#define FLAG_LO    (0x280u - ITC_BASE)
+#define FLAG_HI    (0x290u - ITC_BASE)
+
+#define F16T23     (0x283u - ITC_BASE)   /* 16-bit timer 2-3 causes */
+#define FSIF01     (0x286u - ITC_BASE)   /* serial ch0-1 causes */
+
+/* Enable registers, one bit per cause. */
+#define E16T23     (0x273u - ITC_BASE)
+#define ESIF01     (0x276u - ITC_BASE)
+
 /* Vector numbers from samo-lib/grifo/src/vector.h. */
 #define VEC_SERIAL0_ERR   56
 #define VEC_SERIAL0_RX    57
@@ -37,8 +59,14 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return false;
 
 	if (is_write) {
-		for (unsigned k = 0; k < size; k++)
-			t->reg[i + k] = (uint8_t)(*val >> (8 * k));
+		for (unsigned k = 0; k < size; k++) {
+			uint32_t a = i + k;
+			uint8_t v = (uint8_t)(*val >> (8 * k));
+			if (a >= FLAG_LO && a < FLAG_HI)
+				t->reg[a] &= (uint8_t)~v;   /* write 1 to clear */
+			else
+				t->reg[a] = v;
+		}
 		t->writes++;
 		return true;
 	}
@@ -66,6 +94,38 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 		 * previous behaviour of ignoring IL entirely.
 		 */
 		return 7;
+	}
+}
+
+/*
+ * Which enable bit gates a vector. Returning true for anything not listed
+ * keeps sources this does not decode behaving as they always have.
+ */
+bool itc_enabled(const struct itc *t, unsigned vector)
+{
+	switch (vector) {
+	case 38: return (t->reg[E16T23] & (1u << 2)) != 0;  /* timer 2 cmp B */
+	case 39: return (t->reg[E16T23] & (1u << 3)) != 0;  /* timer 2 cmp A */
+	case 56: return (t->reg[ESIF01] & (1u << 0)) != 0;  /* serial 0 error */
+	case 57: return (t->reg[ESIF01] & (1u << 1)) != 0;  /* serial 0 rx    */
+	case 58: return (t->reg[ESIF01] & (1u << 2)) != 0;  /* serial 0 tx    */
+	case 60: return (t->reg[ESIF01] & (1u << 3)) != 0;  /* serial 1 error */
+	case 61: return (t->reg[ESIF01] & (1u << 4)) != 0;  /* serial 1 rx    */
+	case 62: return (t->reg[ESIF01] & (1u << 5)) != 0;  /* serial 1 tx    */
+	default: return true;
+	}
+}
+
+void itc_set_flag(struct itc *t, unsigned vector)
+{
+	switch (vector) {
+	case 38: t->reg[F16T23] |= 1u << 2; break;  /* timer 2 comparison B */
+	case 39: t->reg[F16T23] |= 1u << 3; break;  /* timer 2 comparison A */
+	case 56: case 57: case 58:
+	case 60: case 61: case 62:
+		t->reg[FSIF01] |= 1u << (vector - 56 < 3 ? 0 : 4);
+		break;
+	default: break;
 	}
 }
 

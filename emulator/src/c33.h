@@ -97,6 +97,10 @@ struct c33 {
 	bool     irq_pending;
 	unsigned irq_vector;
 	unsigned irq_priority;
+	/* Optional: asks the interrupt controller whether a cause is still
+	   enabled, so a request cancelled before it is taken is dropped. */
+	bool   (*irq_enabled)(void *ctx, unsigned vector);
+	void    *irq_ctx;
 	unsigned long irqs_masked;
 	bool     profile;            /* count executed instructions per opcode */
 	unsigned long opcount[256];
