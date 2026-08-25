@@ -97,16 +97,27 @@ void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
 	kint_check(p, cpu);
 }
 
+/*
+ * The power switch is active low and edge triggered -- Button_initialise
+ * clears SPPT3 in REG_PINTPOL_SPP07 and sets SEPT3 in REG_PINTEL_SEPT07 --
+ * so the pin idles high and pressing pulls it down, and the interrupt is
+ * the falling edge.
+ *
+ * How long it is held makes no difference. Button_PowerInterrupt queues a
+ * BUTTON_DOWN and a BUTTON_UP together from that one edge, so the
+ * application sees a complete press and release however briefly the switch
+ * is touched. A tap powers the device off.
+ */
 void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
 {
 	if (pressed)
-		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);
+		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);   /* active low */
 	else
-		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);
+		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);
 	p->button_events++;
 
 	if (!pressed)
-		return;                       /* the handler triggers on press */
+		return;                       /* the edge is the press */
 	if (p->itc)
 		itc_set_flag((struct itc *)p->itc, VECTOR_PORT_INPUT_3);
 	c33_raise_irq(cpu, VECTOR_PORT_INPUT_3,
@@ -148,5 +159,6 @@ void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 	 * emulator that responds to input beats one that idles efficiently.
 	 */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
+	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 }

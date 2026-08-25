@@ -463,6 +463,14 @@ small power symbol to the right of the three, deliberately unlike them
 because the case puts it on an edge; it can also be pressed with **P** or
 `-N 3,cycle`.
 
+A tap is enough; there is no press-and-hold. `Button_PowerInterrupt` queues
+a `BUTTON_DOWN` and a `BUTTON_UP` together from the single falling edge, so
+the application sees a complete press and release however briefly the
+switch is touched, and nothing anywhere measures duration. The pin is
+active low and edge triggered (`REG_PINTPOL_SPP07` clears SPPT3,
+`REG_PINTEL_SEPT07` sets SEPT3), so it idles high and pressing pulls it
+down.
+
 What happens next is the interesting part. `power_off()` in
 `boards/samo_a1.h` does not stop the processor -- it drives P63 as an
 output and toggles it forever, expecting circuitry outside the chip to
