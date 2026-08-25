@@ -28,10 +28,20 @@ struct display {
 	/* front buttons: 0 random, 1 search, 2 history */
 	int   button;            /* -1 when nothing to report */
 	bool  button_pressed;
+	int   button_held;       /* -1, or the button currently drawn pressed */
 };
 
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem, int scale);
 void display_close(struct display *d);
 bool display_update(struct display *d);
+
+/*
+ * The three front buttons live in a strip below the panel, matching the
+ * real device. Sized in panel pixels and scaled with everything else.
+ */
+#define BUTTON_STRIP_H  28
+#define BUTTON_W        64
+#define BUTTON_H        20
+#define BUTTON_GAP      ((LCD_WIDTH - 3 * BUTTON_W) / 4)
 
 #endif /* DISPLAY_H */

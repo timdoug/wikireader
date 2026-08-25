@@ -34,9 +34,10 @@ to rebuild the firmware itself.
 ./wremu -g -c images/wrcard.img images/grifo.elf
 ```
 
-Click keys with the mouse; that is the touch panel. Keys **1**, **2** and
-**3** are the three front buttons -- random, search and history, in the
-order grifo numbers them. `Q` or `Esc` quits.
+Click keys with the mouse; that is the touch panel. Below it is a strip
+with the three front buttons -- **1 R** random, **2 S** search, **3 H**
+history -- which can be clicked or driven from the number keys. `Q` or
+`Esc` quits.
 
 | flag | meaning |
 | --- | --- |
@@ -461,7 +462,9 @@ matching. grifo's handler re-arms by writing the current state back, so a
 held button does not retrigger.
 
 `src/port.c` models that, and the interrupt controller knows KINT0's enable
-(EK0), flag (FK0) and priority bits. Codes are grifo's own numbering from
+(EK0), flag (FK0) and priority bits. In the window they are a strip under
+the panel; the window is 28 panel-pixels taller than the LCD to make room,
+and clicks landing there are buttons rather than touches. Codes are grifo's own numbering from
 `button.c` -- "0=random, 1=search, 2=history". The power button is separate,
 on a P03 port interrupt, and is not modelled.
 

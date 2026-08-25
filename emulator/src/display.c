@@ -16,6 +16,90 @@
 
 #include "display.h"
 
+
+/*
+ * A 5x7 bitmap for the handful of characters the button labels need. Not
+ * worth a font library: the panel itself comes from the guest's own
+ * framebuffer, so this is the only text the emulator draws.
+ */
+static const struct { char c; const char *rows[7]; } font[] = {
+	{ 'R', { "#### ", "#   #", "#   #", "#### ", "#  # ", "#   #", "#   #" } },
+	{ 'S', { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " } },
+	{ 'H', { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" } },
+	{ '1', { "  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### " } },
+	{ '2', { " ### ", "#   #", "    #", "   # ", "  #  ", " #   ", "#####" } },
+	{ '3', { " ### ", "#   #", "    #", "  ## ", "    #", "#   #", " ### " } },
+};
+
+static void draw_char(SDL_Renderer *r, char c, int x, int y, int px)
+{
+	for (unsigned i = 0; i < sizeof font / sizeof *font; i++) {
+		if (font[i].c != c)
+			continue;
+		for (int row = 0; row < 7; row++)
+			for (int col = 0; col < 5; col++)
+				if (font[i].rows[row][col] == '#') {
+					SDL_Rect q = { x + col * px, y + row * px,
+						       px, px };
+					SDL_RenderFillRect(r, &q);
+				}
+		return;
+	}
+}
+
+/* Where button n sits, in window pixels. */
+static SDL_Rect button_rect(const struct display *d, int n)
+{
+	int gap = BUTTON_GAP;
+	int x = gap + n * (BUTTON_W + gap);
+	int y = LCD_HEIGHT + (BUTTON_STRIP_H - BUTTON_H) / 2;
+	SDL_Rect r = { x * d->scale, y * d->scale,
+		       BUTTON_W * d->scale, BUTTON_H * d->scale };
+	return r;
+}
+
+/* Which button a window-pixel lands on, or -1. */
+static int button_hit(const struct display *d, int wx, int wy)
+{
+	for (int n = 0; n < 3; n++) {
+		SDL_Rect r = button_rect(d, n);
+		if (wx >= r.x && wx < r.x + r.w && wy >= r.y && wy < r.y + r.h)
+			return n;
+	}
+	return -1;
+}
+
+static void draw_buttons(struct display *d)
+{
+	static const char label[3][2] = { {'1','R'}, {'2','S'}, {'3','H'} };
+
+	SDL_SetRenderDrawColor(d->renderer, 0x20, 0x20, 0x20, 0xff);
+	SDL_Rect strip = { 0, LCD_HEIGHT * d->scale,
+			   LCD_WIDTH * d->scale, BUTTON_STRIP_H * d->scale };
+	SDL_RenderFillRect(d->renderer, &strip);
+
+	for (int n = 0; n < 3; n++) {
+		SDL_Rect r = button_rect(d, n);
+		bool down = (d->button_held == n);
+		SDL_SetRenderDrawColor(d->renderer,
+				       down ? 0xff : 0x60,
+				       down ? 0xcc : 0x60,
+				       down ? 0x33 : 0x60, 0xff);
+		SDL_RenderFillRect(d->renderer, &r);
+
+		int px = d->scale > 1 ? d->scale - 1 : 1;
+		int tw = (5 + 2 + 5) * px;
+		int tx = r.x + (r.w - tw) / 2;
+		int ty = r.y + (r.h - 7 * px) / 2;
+		SDL_SetRenderDrawColor(d->renderer,
+				       down ? 0x00 : 0xdd,
+				       down ? 0x00 : 0xdd,
+				       down ? 0x00 : 0xdd, 0xff);
+		draw_char(d->renderer, label[n][0], tx, ty, px);
+		draw_char(d->renderer, label[n][1], tx + 7 * px, ty, px);
+	}
+}
+
 bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 		  int scale)
 {
@@ -32,7 +116,7 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 				     SDL_WINDOWPOS_CENTERED,
 				     SDL_WINDOWPOS_CENTERED,
 				     LCD_WIDTH * d->scale,
-				     LCD_HEIGHT * d->scale, 0);
+				     (LCD_HEIGHT + BUTTON_STRIP_H) * d->scale, 0);
 	if (!d->window)
 		return false;
 
@@ -49,6 +133,8 @@ bool display_open(struct display *d, struct lcd *lcd, struct mem *mem,
 	if (!d->texture)
 		return false;
 
+	d->button = -1;
+	d->button_held = -1;
 	d->open = true;
 	return true;
 }
@@ -96,7 +182,23 @@ bool display_update(struct display *d)
 			}
 			break;
 		case SDL_MOUSEBUTTONDOWN:
-		case SDL_MOUSEBUTTONUP:
+		case SDL_MOUSEBUTTONUP: {
+			int hit = button_hit(d, ev.button.x, ev.button.y);
+			if (ev.type == SDL_MOUSEBUTTONDOWN && hit >= 0) {
+				d->button = hit;
+				d->button_pressed = true;
+				d->button_held = hit;
+				break;
+			}
+			if (ev.type == SDL_MOUSEBUTTONUP && d->button_held >= 0) {
+				d->button = d->button_held;
+				d->button_pressed = false;
+				d->button_held = -1;
+				break;
+			}
+			/* Below the panel but not on a button: not a touch. */
+			if (ev.button.y >= LCD_HEIGHT * d->scale)
+				break;
 			/* Queued for the touch panel; see touch_post(). */
 			d->touch_x = ev.button.x / d->scale;
 			d->touch_y = ev.button.y / d->scale;
@@ -110,6 +212,7 @@ bool display_update(struct display *d)
 			 */
 			SDL_CaptureMouse(d->touch_pressed ? SDL_TRUE : SDL_FALSE);
 			break;
+		}
 		case SDL_MOUSEMOTION:
 			/*
 			 * The panel only reports while it is being touched, so
@@ -144,7 +247,9 @@ bool display_update(struct display *d)
 	SDL_UnlockTexture(d->texture);
 
 	SDL_RenderClear(d->renderer);
-	SDL_RenderCopy(d->renderer, d->texture, NULL, NULL);
+	SDL_Rect panel = { 0, 0, LCD_WIDTH * d->scale, LCD_HEIGHT * d->scale };
+	SDL_RenderCopy(d->renderer, d->texture, NULL, &panel);
+	draw_buttons(d);
 	SDL_RenderPresent(d->renderer);
 	return true;
 }
