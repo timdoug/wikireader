@@ -395,6 +395,17 @@ bool display_update(struct display *d)
 	}
 	SDL_UnlockTexture(d->texture);
 
+	/*
+	 * Set the clear colour rather than inheriting it. SDL_RenderClear
+	 * uses whatever colour was last set, which here was left over from
+	 * painting the bezel -- white, from the labels. The panel and bezel
+	 * between them cover the whole logical area, so it should never
+	 * show; but with a scaled drawable it can catch a pixel at the
+	 * edges, and with double buffering the two back buffers disagreed
+	 * about it. That is a thin light border that flickers while frames
+	 * are being presented and freezes to one state when they stop.
+	 */
+	SDL_SetRenderDrawColor(d->renderer, 0x00, 0x00, 0x00, 0xff);
 	SDL_RenderClear(d->renderer);
 	SDL_Rect panel = { 0, 0, LCD_WIDTH * d->scale, LCD_HEIGHT * d->scale };
 	SDL_RenderCopy(d->renderer, d->texture, NULL, &panel);
