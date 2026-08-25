@@ -70,7 +70,7 @@ int main(int argc, char **argv)
  * initialise SDRAM ("but will be too big") -- so the stack starts at the
  * top of the 8K a0ram and grows down toward the loaded application.
  */
-#define MASK_ROM_STACK_TOP    A0RAM_SIZE
+#define MASK_ROM_STACK_TOP    (IVRAM_BASE + IVRAM_SIZE)
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
 	size_t type_idx = 0; int type_phase = 0;
@@ -491,7 +491,20 @@ done:
 	{
 		const uint8_t sig[8] = {0xeb,0x58,0x90,0x42,0x53,0x44,0x20,0x20};
 		unsigned found = 0;
-		for (uint32_t a = SDRAM_BASE; a < SDRAM_BASE + SDRAM_SIZE - 8; a++) {
+		/*
+		 * All RAM, not just SDRAM. The EEPROM boot path runs entirely
+		 * in internal memory -- FatFs's sector window is a local in
+		 * a0ram -- so scanning only SDRAM reported "not present" for a
+		 * read that had in fact landed correctly.
+		 */
+		static const struct { uint32_t base, len; } ram[] = {
+			{ 0,           A0RAM_SIZE },
+			{ IVRAM_BASE,  IVRAM_SIZE },
+			{ DSTRAM_BASE, DSTRAM_SIZE },
+			{ SDRAM_BASE,  SDRAM_SIZE },
+		};
+		for (unsigned r = 0; r < 4 && found < 4; r++)
+		for (uint32_t a = ram[r].base; a < ram[r].base + ram[r].len - 8; a++) {
 			unsigned k = 0;
 			while (k < 8 && (uint8_t)mem_read(&mem, a + k, 1) == sig[k])
 				k++;

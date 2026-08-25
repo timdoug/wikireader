@@ -96,24 +96,65 @@ bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
 serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
 (`sdramc.c`), because the boot path spins on its initialise flag.
 
-Current state: the chain runs as far as `file-loader` mounting the card. The
-boot menu comes up over the serial console with live readings from the
-emulated ADC, and auto-boots on timeout exactly as the hardware does:
+The whole chain works. `-n 8000000000` is enough to reach the rendered
+keyboard:
+
+```
+load: kernel.elf
+Grifo starting
+init starting
+starting wiki app
+VERSION: 20260823
+```
+
+Before that the boot menu comes up over the serial console with live
+readings from the emulated ADC, and auto-boots on timeout as the hardware
+does:
 
 ```
 BAT: 3079 mV      TMP: 19 DegC      LCD: 23462 mV
 menu? -\|/...
-load: kernel.elf
-load 'kernel.elf' error = -2
 ```
 
-`-2` is `f_open` failing. The card is read correctly -- the SD
-initialisation sequence completes, `CMD17` for sector 0 returns the right
-FAT32 boot record, and the full 512 bytes plus CRC are clocked out -- but
-FatFs then rejects the volume without issuing a second read. It is not a
-filesystem-layout problem: MBR and bare volumes, FAT16 and FAT32 all fail
-identically, the BPB validates, and `KERNEL.ELF` is present in the root
-directory. Unfinished.
+### Where the stack goes, and why it matters
+
+Getting this working came down to one number the manual does not give.
+
+The boot flowchart (D.4.2) is explicit about everything else: read the
+status register, issue READ with a 32-bit address, load 512 bytes to the
+start of A0RAM, jump to 0. It says nothing about a stack -- and the PE Core
+manual says SP "becomes indeterminate when it is initialized upon reset",
+with software expected to set it. But `mbr` never does: `master_boot`
+begins `pushn %r3`, using whatever it was given. So the mask ROM must leave
+a working stack, and the emulator has to pick the same one.
+
+The top of A0RAM is the obvious guess and it is wrong. `mbr` loads every
+application with `FLASH_read(0x200, EEPROM_PAYLOAD_SIZE, ...)`, which writes
+0x200 to 0x1F00 regardless of how big the application actually is, leaving
+256 bytes below an 8K stack top. FatFs alone needs more than that:
+`FATFS` embeds a 512-byte sector window, and `elf32_exec` puts one on the
+stack. The symptom was a `dirbase` of 0x80409 -- an address, not a cluster
+number -- and a read of sector 2,151,983,104.
+
+The stack lives at the top of IVRAM instead. That is internal memory,
+available before SDRAM is initialised, and does not collide with the
+application A0RAM is full of.
+
+### The offset-by-one
+
+The FLASH map places `mbr` at EEPROM offset 1, not 0, which looks like a
+mistake until the manual explains it: "The SPI-EEPROM boot sequence issues
+a 32-bit address regardless of the EEPROM size." The PM25LV512 takes a
+three-byte address, so it begins clocking out data during the fourth
+address byte, and the boot ROM discards it. The 512 bytes it keeps start at
+offset 1.
+
+### Known slowness
+
+The full chain takes about 8 billion instructions where the ELF path
+reaches the same screen in 600 million. That is not I/O -- the two do
+almost identical card traffic, 587 commands against 538 -- and the opcode
+mix is ordinary code rather than a spin loop. Unexplained.
 
 ## Making a card image
 
