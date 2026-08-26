@@ -13,6 +13,16 @@ OUTPUT_FORMAT("elf32-c33")
 
 OUTPUT_ARCH(c33)
 
+/* grifo jumps to e_entry, and an application's entry is grifo_main.  Naming
+   it is not optional: without ENTRY the entry address defaults to the start
+   of .text, which is only grifo_main if the compiler happened to emit it
+   first.  gcc 3.3.2 always did.  gcc 16 reorders functions, so init.app --
+   whose object holds five of them -- started in the middle of
+   CursorPosition and returned -1 before it could print anything.  wiki.o
+   holds one function, which is why wiki.app was unaffected and this stayed
+   hidden.  */
+ENTRY(grifo_main)
+
 MEMORY
 {
     /* sdram must be first or linker gives errors */
