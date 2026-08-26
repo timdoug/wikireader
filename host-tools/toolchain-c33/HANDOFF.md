@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the whole firmware**, rendering pixel-identical to gcc 3.3.2; app -16%, boot ~100 ms faster, article load ~98 ms slower |
+| GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2; app -15%, 8.7% fewer instructions to boot, 86% fewer soft-float calls |
 
 ### binutils - finished
 
@@ -38,50 +38,84 @@ The worst was that all 32 relocation `HOWTO` entries still used the historical
 log2 size encoding, so every relocation misreported its width and was quietly
 discarded.
 
-### GCC - runs the whole firmware
+### GCC - runs the whole firmware, and is faster than 3.3.2
 
-Kernel *and* `wiki.app` build with gcc 16.2 and run in `emulator/`, booting
-from `flash.rom` off a FAT32 card. Rendering is **pixel-identical** to the
-gcc 3.3.2 build - search results, article view, scrolled article.
+Kernel, `init.app` *and* `wiki.app` build with gcc 16.2 and run in
+`emulator/`. After typing `LOVE` and tapping a result the framebuffer is
+**byte-identical** to the gcc 3.3.2 build; the scrolled screen matches at
+0.00% once its 31-pixel difference in scroll position is accounted for.
 
 | | gcc 3.3.2 | gcc 16.2 | |
 |---|---:|---:|---|
-| `wiki.app` stripped | 170,976 | 144,020 | -16% |
-| `kernel.elf` stripped | 35,412 | 31,956 | -10% |
-| boot to usable screen | 2.435 s | **2.335 s** | ~100 ms faster |
-| tap -> article rendered | **888 ms** | 986 ms | ~98 ms slower |
+| `wiki.app` stripped | 170,352 | 143,992 | -15% |
+| kernel stripped | 32,812 | 31,712 | -3% |
+| boot -> app main loop | 11,189,610 insn | 10,220,202 insn | -8.7% |
+| article load | 4,198,115 insn | 4,197,975 insn | -140 |
+| search redraw, worst case | 1,005,062 insn | 959,991 insn | -4.5% |
+| `__mulsf3` calls, whole session | 233,164 | 32,895 | -86% |
 
-(Cycles at 60 MHz: boot 146.1M -> 140.1M; article 53,290k -> 59,132k after the
-tap. Measured on the flash-boot path with a scripted `-K`/`-T` script and
-binary search on `-n` against a freshly captured reference screen.)
+Instruction counts are exact and reproduce identically run to run. The
+millisecond figures elsewhere in this file depend on the emulator's
+per-instruction cycle model, which averages 1.2-1.5 cyc/instr; trust the
+instruction counts further than the times.
 
-**The article-load regression is real and user-visible.** An earlier commit
-message claims it "was the idle loop, not code generation" - the *mechanism*
-part is right, but it was then wrongly treated as meaning there is no
-slowdown. A user waiting for an article waits 11% longer, whatever the cause.
+**The biggest single win is floating point.** gcc 16 calls `__mulsf3` 7x
+less often than 3.3.2 for identical source and identical output, and the
+*span* is the tell: 3.3.2 calls soft-float continuously from 791 ms to
+4618 ms, through idle and rendering both, while gcc 16 touches it only in a
+700 ms band during typing. Across the search window that is 44.7M
+instructions - 43% of the window - down to 10.2M.
 
-## The one open question
+**Boot is 90% SD card driver, and 45% of it is a calibrated busy-wait.**
+`delay_loop` + `delay_us` come out 50 instructions apart on 5 million
+between the two compilers, which is the control that says the instrument
+works. Real work moved a lot: `rcvr_datablock` -61%, `wait_ready` -67%,
+`File_initialise` -69%.
 
-Why the article load is 11% slower. What is established:
+### What this does *not* buy
 
-* Every syscall that does real work is **identical to the call** -
-  `lcd_set_pixel` 15,824 both, `file_read` 135 both, `memory_allocate` 29
-  both, `directory_exists` 40 both, `lcd_framebuffer_get`/`set_byte` 608 each.
-* The only difference is polling: `timer_get` 282,557 -> 612,827 and
-  `event_get` 96,422 -> 207,850. A clean 2.17x on both.
-* That is `Event_wait`'s loop - `Event_get`, `Suspend`, repeat - spinning more
-  because the loop body is faster while the I/O takes the same wall time.
-* From the PC profile, `Suspend` takes its **full path** every iteration, not
-  its early returns: past `File_PowerDown` and into the low-RAM suspend code.
-  So each iteration powers the card down, suspends, and wakes.
+The stall distribution - the longest gaps between event-loop polls, which is
+how long a tap can sit unanswered - is essentially unchanged:
 
-What is **not** established: that the per-iteration `File_PowerDown` +
-suspend + wake is what costs the 98 ms.
+```
+gcc 3.3.2:  201.2  129.1  18.7  11.5  3.5  3.3 ms
+gcc 16.2:   201.4  130.3  21.6  11.2  3.4  3.4 ms
+```
 
-**Next step is one measurement, not a patch.** Count `File_PowerDown` calls
-across the article load in both builds. If the ratio is ~2.17x and the
-per-call cost is material, that is the answer, and the fix belongs in the
-firmware's poll loop rather than in the compiler.
+Every stall on this device is bound by I/O or a timer, not by compute, so
+the saved instructions turn into idle rather than into responsiveness. The
+gains are size, headroom and battery. The one exception was a real 25%
+regression in the article load, which is fixed - see below.
+
+The worst stall in the whole session, 201 ms and identical in both builds,
+is 99% `Timer_get` + `Delay_microseconds` + `Watchdog_KeepAlive`. It is a
+calibrated wait; no compiler can touch it. Getting it back is a firmware
+change.
+
+### The article-load regression, and what it was
+
+Earlier revisions of this file recorded the article load as ~11% slower and
+called it an open question about `File_PowerDown` and the idle loop. That
+was wrong, and both the measurement and the diagnosis were wrong.
+
+The measurement was wrong because `-n` counts `cpu.cycles`, which the
+headless idle path also advances when it fast-forwards; every "N cycles"
+figure mixed real work with invented idle. The 2.17x "extra polling" was
+the idle loop busy-spinning to a fixed 2 s suspend timeout - a *faster*
+build completes more spins. It was never work.
+
+The regression was real, but it was one addressing mode. Profiled to a
+single phase, the article-load window is 100% `memset`, whose word loop was
+five instructions where 3.3.2 emitted four, because `HAVE_POST_INCREMENT`
+was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
+5/4. Fixed; the window is now 140 instructions from 3.3.2's on 4.2 million.
+
+## Still open
+
+* **Boot executes 8.7% fewer instructions but takes ~6% more wall clock**
+  (230.0 -> 243.4 ms). Boot is I/O-bound so instruction count is not what
+  drives it, and `spi_transmit` + `spi_receive` did go up 6.4% (3,840,964 ->
+  4,087,296) while everything around them fell. Not isolated. Not guessed at.
 
 ## Known broken
 
@@ -91,9 +125,12 @@ firmware's poll loop rather than in the compiler.
   then fails to load `init.app`. Not root-caused. Off by default; see the
   comment on `TARGET_DEFAULT_TARGET_FLAGS` for why it is also not worth
   enabling on size.
-* **`memchr` (3.4%) and `memset` (2.9%)** are in this compiler's top profile
-  buckets during an article load and absent from gcc 3.3.2's. Never examined.
-  Two small mini-libc routines - diffing their assembly needs no emulator.
+* ~~`memchr` (3.4%) and `memset` (2.9%)~~ - resolved, and the note was an
+  artifact. The profiler's buckets were 64 bytes wide while `memchr`,
+  `delay_us` and `delay_loop` are about 30 bytes each and adjacent, so one
+  bucket covered all three and the profile named whichever came first. The
+  "memchr" was the SD driver's busy-wait. Buckets are one instruction wide
+  now. `memset` was real and is fixed.
 
 ## Benchmark harness notes
 
@@ -111,6 +148,17 @@ firmware's poll loop rather than in the compiler.
   for *codegen* - on this device they mostly reflect how a build interacts
   with fixed-duration I/O waits. Syscall counts and static instruction counts
   are the instruments that held up.
+* `-n` is not a stopwatch: it counts `cpu.cycles`, which the headless idle
+  path advances too. Read `--- work: N executed, M idle ---` instead.
+* Scripted input must be anchored with `-Z`, or two builds get the tap at
+  different points in their own progress and are not running the same
+  interaction.
+* Call counts mislead: the idle loop busy-spins to a 2 s timeout, so a
+  faster build makes *more* calls to everything the poll loop touches. Use
+  the stall list from `-X` for anything user-facing.
+* Profile one phase (`-Y`/`-y`) and diff whole bucket dumps (`-F`). A
+  whole-run profile is always the idle loop, and a top-12 hides the rest.
+* See "Measuring, without fooling yourself" in `emulator/README.md`.
 
 ### Three bugs that only running could find
 
