@@ -119,24 +119,77 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 
 ## Known broken
 
-* ~~`-O1`~~ - fixed, and it was never a backend bug. `grifo.lds` had no
-  `ENTRY`, so the entry point defaulted to the start of `.text` and the
-  kernel relied on `main` being emitted first. At `-O2`
-  `-freorder-functions` puts `main` in `.text.startup`, which the script
-  lists first; at `-O1` that flag is off, `main` stays in plain `.text`,
-  and `process` was emitted ahead of it. The CPU entered `process`, whose
-  prologue pushed with `%sp` still zero. `ENTRY(main)` names it instead.
-  The same omission in `application.lds` broke `init.app` under gcc 16.
-* **`-mno-edda32`** (the `%r15` data area) - builds and links, but the kernel
-  then fails to load `init.app`. Not root-caused. Off by default; see the
-  comment on `TARGET_DEFAULT_TARGET_FLAGS` for why it is also not worth
-  enabling on size.
-* ~~`memchr` (3.4%) and `memset` (2.9%)~~ - resolved, and the note was an
-  artifact. The profiler's buckets were 64 bytes wide while `memchr`,
-  `delay_us` and `delay_loop` are about 30 bytes each and adjacent, so one
-  bucket covered all three and the profile named whichever came first. The
-  "memchr" was the SD driver's busy-wait. Buckets are one instruction wide
-  now. `memset` was real and is fixed.
+Nothing outstanding. Both former entries were the same bug in different
+places, and neither was in the compiler:
+
+* ~~`-O1`~~ and ~~`-mno-edda32`~~ - fixed. See "The entry-point bug, four
+  times" below.
+
+## The optimisation matrix
+
+Every cell builds, boots, and renders byte-identical to gcc 3.3.2 after
+typing `LOVE` and tapping a result. Instruction counts are exact and
+reproduce run to run; they do not depend on host load.
+
+| | boot (insn) | article (insn) | kernel | `wiki.app` |
+|---|---:|---:|---:|---:|
+| gcc 3.3.2 `-Os` | 11,189,610 | 4,198,115 | 32,812 | 170,352 |
+| `-Os` absolute | 10,297,930 | 4,197,971 | **31,744** | **144,352** |
+| `-Os` relative | 10,363,193 | 4,197,949 | 31,808 | 145,136 |
+| `-O1` absolute | 9,709,495 | 3,148,847 | 33,588 | 157,024 |
+| `-O1` relative | 9,834,376 | 3,148,825 | 33,356 | 154,896 |
+| `-O2` absolute | 7,004,177 | 3,148,805 | 37,560 | 158,104 |
+| `-O2` relative | **6,975,897** | 3,148,791 | 37,516 | 157,744 |
+| `-O3` absolute | 7,320,831 | 3,148,800 | 39,996 | 184,444 |
+| `-O3` relative | 7,272,793 | **3,148,785** | 39,948 | 184,020 |
+
+**The data area does not matter.** Absolute against `%r15`-relative is
+within 1.3% on boot, within 22 instructions on the article load, and within
+0.5% on size in either direction - at `-Os` the data area is actually
+*bigger*. That confirms the earlier static measurement: modern GCC already
+hoists the address computation, so the data area only pays for a symbol
+touched once. Keep `-medda32` (absolute) as the default; `-mno-edda32` now
+works but buys nothing.
+
+**Optimisation level does matter, and not uniformly.** `-Os` costs 33% on
+the article load (4.20M against 3.15M) - every other level gets the full
+win. `-O1` reaches that same article figure at nearly `-Os` size, but boots
+38% slower than `-O2`. `-O3` is worse than `-O2` on boot and 26 kB bigger,
+past gcc 3.3.2's own size.
+
+**`-O2` is the recommendation**: fastest boot, article load within 25
+instructions of the best, and `wiki.app` still 7% smaller than the
+toolchain being replaced.
+
+## The entry-point bug, four times
+
+Four separate "known broken" items turned out to be one mistake repeated:
+*the entry point works because of emission order*. That holds until a flag
+changes which order the compiler emits in.
+
+1. **The kernel under gcc 4+** - `main` moved to `.text.startup`, `process`
+   landed at the entry address. Patched by listing `.text.startup` first in
+   `grifo.lds`, which papered over the real problem.
+2. **`init.app` under gcc 16** - `application.lds` had no `ENTRY`, so the
+   entry defaulted to the start of `.text`; `wiki.o` holds one function and
+   was fine by luck, `init.o` holds five and was not. Fixed with
+   `ENTRY(grifo_main)`.
+3. **`-O1`** - at `-O2` `-freorder-functions` puts `main` in
+   `.text.startup`; at `-O1` it does not, and `process` was emitted first.
+   Fixed with `ENTRY(main)` in `grifo.lds`.
+4. **`-mno-edda32`** - reported as "the kernel fails to load `init.app`".
+   It was case 2 again: the data area changes function layout, so
+   `grifo_main` was not first. Fixed by the same `ENTRY`.
+
+Every loader that starts these images jumps to `e_entry` -
+`emulator/src/elf.c`, `drivers/src/elf32.c:235`, `mbr/rs232-loader.c:157`,
+`grifo/src/elf32.c:231` - so naming the entry is what actually places it.
+
+Hiding behind case 4 was a genuine compiler bug: see
+`output_move_single`'s comment on why taking a symbol's address never uses
+the data area. `ext hi; ext lo; add %rd,%r15` writes the condition flags,
+and it was being emitted from a move pattern, so GCC scheduled it between a
+compare and its branch.
 
 ## Benchmark harness notes
 

@@ -768,12 +768,27 @@ output_move_single (rtx * operands)
 	  || GET_CODE (src) == SYMBOL_REF
 	  || GET_CODE (src) == CONST)
 	{
-	  /* Taking the address of a symbol.  Note the data flow of the
-	     extended register form: "ext imm; add %rd,%rs" is rd = rs + imm,
-	     *not* rd += rs, so this leaves %r15 + doff(sym) in %0 without
-	     needing %0 to hold anything first (ABI.md, "the ext mechanism").  */
-	  if (c33_dp_relative_address_p (src))
-	    return "%p1add\t%0,%%r15";
+	  /* Taking the address of a symbol.
+
+	     This deliberately does not use the data area, even under
+	     -mno-edda32.  Materialising %r15 + doff(sym) needs
+	     "ext hi; ext lo; add %rd,%r15", and add writes the condition
+	     flags -- while this is a move pattern, which GCC is entitled to
+	     schedule between a compare and the branch that reads it.  It
+	     did exactly that in grifo's application loader:
+
+	         cmp  %r4,0        ; test ELF32_load's result
+	         ext  ...          ; address of a global
+	         add  %r5,%r15     ; ...which overwrites the flags
+	         jrne .L29         ; branches on the add
+
+	     so a successful load was reported as "ELF32_load error=0" and
+	     the kernel never started an application.
+
+	     The absolute form costs nothing to use instead: both are two
+	     ext prefixes and a two-byte instruction, six bytes either way.
+	     Loads and stores are unaffected and still go through the data
+	     area -- ld/st do not touch the flags.  */
 	  return "xld.w\t%0,%1";
 	}
     }
