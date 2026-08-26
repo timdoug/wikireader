@@ -2214,9 +2214,15 @@ c33_legitimate_address_p (machine_mode mode, rtx x, bool strict_p,
   if (c33_rtx_ok_for_base_p (x, strict_p))
     return true;
 
-  /* [%rb]+ -- register indirect with post-increment (5.5.4).  */
+  /* [%rb]+ -- register indirect with post-increment (5.5.4).  Unlike plain
+     register indirect this form takes a *general* register only: %sp is
+     system register 1 and there is no "ld.w [%sp]+,%rs" encoding.  Without
+     this check auto-inc-dec is free to build one, since %sp is in
+     BASE_REG_CLASS for the sake of [%sp] and [%sp+imm6].  */
   if (GET_CODE (x) == POST_INC
-      && c33_rtx_ok_for_base_p (XEXP (x, 0), strict_p))
+      && c33_rtx_ok_for_base_p (XEXP (x, 0), strict_p)
+      && !(REG_P (XEXP (x, 0))
+	   && REGNO (XEXP (x, 0)) == STACK_POINTER_REGNUM))
     return true;
 
   /* base + displacement.  Unextended this only exists as [%sp+imm6], where

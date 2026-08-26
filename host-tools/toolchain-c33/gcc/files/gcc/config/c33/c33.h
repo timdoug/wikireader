@@ -586,6 +586,19 @@ struct cum_arg { int nbytes; };
 /* Maximum number of registers that can appear in a valid memory address.  */
 
 #define MAX_REGS_PER_ADDRESS 1
+
+/* The core has "ld.<sz> %rd,[%rb]+" and "ld.<sz> [%rb]+,%rs" -- register
+   indirect with a post-increment of the transfer size (core manual 5.5.4),
+   which is exactly what GCC means by post-increment.  Saying so is what
+   turns the auto-inc-dec pass on: TARGET_LEGITIMATE_ADDRESS_P accepting
+   POST_INC and output_move_single knowing how to print it are not enough
+   on their own, because nothing would ever build the address.
+
+   Leaving this out cost a fifth of every byte-filling loop.  mini-libc's
+   memset is the whole of an article load on this device, and its inner
+   loop came out as store / add 4 / sub / cmp / branch where gcc 3.3.2
+   emitted store-and-increment / sub / cmp / branch.  */
+#define HAVE_POST_INCREMENT 1
 
 /* Given a comparison code (EQ, NE, etc.) and the first operand of a COMPARE,
    return the mode to be used for the comparison.
