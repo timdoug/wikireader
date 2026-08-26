@@ -36,7 +36,14 @@ GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 &
 TARGET_ARCH_FLAGS ?= -mc33pe
 
 # Optimisation level, overridable so the toolchain work can A/B it.
-OPT ?= -Os
+#
+# -O2 rather than -Os.  On gcc 16 the size setting costs 33% on an article
+# load -- 4.20M instructions against 3.15M -- and buys about 1% of image
+# size; -O3 is slower again on boot and larger than the original toolchain's
+# output.  On gcc 3.3.2 the choice is a wash: -O2 takes 0.17% off boot and
+# puts about 1% back onto both images.  Measured across
+# {-Os,-O1,-O2,-O3} x {absolute,%r15-relative}, see toolchain-c33/HANDOFF.md.
+OPT ?= -O2
 
 # scall reaches +/-4MB and the largest image here is 158kB, so -mlong-calls
 # only bought two ext prefixes per direct call.  Dropping it is better on
