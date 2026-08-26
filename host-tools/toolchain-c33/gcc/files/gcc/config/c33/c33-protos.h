@@ -33,6 +33,7 @@ extern void   c33_init_expanders           (void);
 extern rtx    c33_return_addr              (int);
 extern const char *output_move_single       (rtx *);
 extern const char *c33_output_extend    (rtx *, const char *);
+extern bool        c33_dp_relative_address_p (rtx);
 #ifdef HAVE_MACHINE_MODES
 extern int    ep_memory_operand             (rtx, machine_mode, int);
 extern int    c33_adjust_insn_length       (rtx_insn *, int);

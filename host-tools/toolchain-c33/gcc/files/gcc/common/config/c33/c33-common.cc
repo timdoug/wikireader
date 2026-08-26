@@ -93,11 +93,28 @@ static const struct default_options c33_option_optimization_table[] =
     { OPT_LEVELS_NONE, 0, NULL, 0 }
   };
 
-/* Nothing is on by default.  V850 turned on its core mask, MASK_APP_REGS
-   and MASK_BIG_SWITCH here; the first two are gone, and switch tables
-   default to 2-byte entries with -mbig-switch widening them.  */
+/* MASK_EXT_32 (-medda32) is on by default: globals are addressed absolutely
+   rather than through the %r15 default data area.
+
+   That is the opposite of what the 3.3.2 compiler did, and it is a
+   measurement rather than a preference.  Building the firmware both ways:
+
+			   absolute      %r15-relative
+	kernel  code+rodata    27,422	     27,350
+	wiki.app               90,510	     91,294
+
+   -- a net loss of 712 bytes for the data area, because modern GCC already
+   hoists the address computation.  For a symbol touched N times absolute
+   costs 6 + 2N bytes against the data area's 6N, so the data area only wins
+   at N = 1; gcc 3.3's weaker CSE made it a clear win for *that* compiler.
+
+   The %r15-relative path (-mno-edda32) is also not currently correct: it
+   builds and links but the kernel fails to load init.app.  Not root-caused.
+
+   V850 turned on its core mask, MASK_APP_REGS and MASK_BIG_SWITCH here;
+   the first two are gone, and switch tables default to 2-byte entries.  */
 #undef  TARGET_DEFAULT_TARGET_FLAGS
-#define TARGET_DEFAULT_TARGET_FLAGS 0
+#define TARGET_DEFAULT_TARGET_FLAGS MASK_EXT_32
 #undef  TARGET_HANDLE_OPTION
 #define TARGET_HANDLE_OPTION c33_handle_option
 #undef  TARGET_OPTION_OPTIMIZATION_TABLE

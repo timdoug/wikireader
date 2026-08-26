@@ -415,6 +415,21 @@ c33_print_operand (FILE * file, rtx x, int code)
 	    gcc_unreachable ();
 	}
       break;
+    case 'p':
+      /* The ext prefix pair carrying a default-data-area displacement, with
+	 the tab that starts the instruction it prefixes.  X is either the
+	 symbolic address itself or the MEM holding one.  */
+      {
+	rtx addr = MEM_P (x) ? XEXP (x, 0) : x;
+
+	fputs ("ext doff_hi(", file);
+	output_addr_const (file, addr);
+	fputs (")\n\text doff_lo(", file);
+	output_addr_const (file, addr);
+	fputs (")\n\t", file);
+      }
+      break;
+
     case 'F':			/* High word of CONST_DOUBLE.  */
       switch (GET_CODE (x))
 	{
@@ -734,6 +749,8 @@ output_move_single (rtx * operands)
 	    return "ld%W1\t%0,[%1]+";
 	  if (REG_P (addr) || SUBREG_P (addr))
 	    return "ld%W1\t%0,[%1]";
+	  if (c33_dp_relative_address_p (addr))
+	    return "%p1ld%W1\t%0,[%%r15]";
 	  /* base+displacement, or an absolute address.  */
 	  return "xld%W1\t%0,[%1]";
 	}
@@ -741,11 +758,15 @@ output_move_single (rtx * operands)
       if (GET_CODE (src) == LABEL_REF
 	  || GET_CODE (src) == SYMBOL_REF
 	  || GET_CODE (src) == CONST)
-	/* XXX Taking the address of a symbol.  This is correct only with
-	   -medda32; the %r15-relative default data area form belongs to the
-	   data-area work (step 5 in README.md), which has to decide between
-	   "ext doff_hi(sym); ext doff_lo(sym); add %rd,%r15" and this.  */
-	return "xld.w\t%0,%1";
+	{
+	  /* Taking the address of a symbol.  Note the data flow of the
+	     extended register form: "ext imm; add %rd,%rs" is rd = rs + imm,
+	     *not* rd += rs, so this leaves %r15 + doff(sym) in %0 without
+	     needing %0 to hold anything first (ABI.md, "the ext mechanism").  */
+	  if (c33_dp_relative_address_p (src))
+	    return "%p1add\t%0,%%r15";
+	  return "xld.w\t%0,%1";
+	}
     }
   else if (MEM_P (dst))
     {
@@ -757,6 +778,8 @@ output_move_single (rtx * operands)
 	    return "ld%W0\t[%0]+,%1";
 	  if (REG_P (addr) || SUBREG_P (addr))
 	    return "ld%W0\t[%0],%1";
+	  if (c33_dp_relative_address_p (addr))
+	    return "%p0ld%W0\t[%%r15],%1";
 	  return "xld%W0\t[%0],%1";
 	}
 
@@ -789,6 +812,8 @@ c33_output_extend (rtx *operands, const char *suffix)
 	sprintf (buf, "ld.%s\t%%0,[%%1]+", suffix);
       else if (REG_P (addr) || SUBREG_P (addr))
 	sprintf (buf, "ld.%s\t%%0,[%%1]", suffix);
+      else if (c33_dp_relative_address_p (addr))
+	sprintf (buf, "%%p1ld.%s\t%%0,[%%%%r15]", suffix);
       else
 	sprintf (buf, "xld.%s\t%%0,[%%1]", suffix);
     }
@@ -2124,6 +2149,35 @@ c33_legitimate_constant_p (machine_mode mode ATTRIBUTE_UNUSED, rtx x)
 	       && !CONST_OK_FOR_K (INTVAL (XEXP (XEXP (x, 0), 1)))));
 }
 
+/* True if X is an address we can reach through the default data area.
+
+   %r15 is preset by the startup code to __dp, the base of that area (the
+   linker scripts define it).  A pair of ext prefixes carrying doff_hi/doff_lo
+   then supplies a 26-bit displacement, so any symbol becomes reachable with a
+   *single* memory instruction:
+
+	ext doff_hi(g)
+	ext doff_lo(g)
+	ld.w %rd,[%r15]
+
+   The alternative is to materialise the 32-bit address in a register and
+   dereference that, which costs an extra instruction and a scratch register
+   on every access.  -medda32 selects it; this is the default.  */
+
+bool
+c33_dp_relative_address_p (rtx x)
+{
+  if (TARGET_EXT_32)
+    return false;
+
+  if (GET_CODE (x) == CONST)
+    x = XEXP (x, 0);
+  if (GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1)))
+    x = XEXP (x, 0);
+
+  return GET_CODE (x) == SYMBOL_REF || GET_CODE (x) == LABEL_REF;
+}
+
 /* Helper function for `c33_legitimate_address_p'.  */
 
 static bool
@@ -2186,6 +2240,10 @@ c33_legitimate_address_p (machine_mode mode, rtx x, bool strict_p,
 	return false;
       return true;
     }
+
+  /* A symbol reached through the default data area.  */
+  if (c33_dp_relative_address_p (x))
+    return true;
 
   /* An absolute address, materialised by the assembler as an xld.w of the
      symbol (the R_C33_H/M/L triple).  */

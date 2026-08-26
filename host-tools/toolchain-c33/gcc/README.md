@@ -3,25 +3,64 @@
 Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
 this is being written against.
 
-## Status: runs the WikiReader firmware, output identical to gcc 3.3.2
+## Status: runs the WikiReader firmware; measured against gcc 3.3.2
 
-The kernel built by this port boots in `emulator/`, loads `init.app`, chains
-to `wiki.app`, mounts the card, renders the keyboard, accepts typed input and
-returns real article titles - and the framebuffer is **byte-identical to the
-gcc 3.3.2 build** for every search term tried (`LOVE`, `CAT`, `PARIS`).
+The whole firmware -- kernel *and* `wiki.app` -- builds with gcc 16.2 and runs
+in `emulator/`, booting from `flash.rom` off a FAT32 card.
 
-```
-                     shipped (gcc 3.3.2)   this port (gcc 16.2)
-  wiki.app  text              88,734              90,412   (+1.9%)
-            total            257,510             256,292
-  kernel    text              22,364              27,308   (+22%)
-```
+**Rendering is bit-exact.** Search results, article view and scrolled article
+are all pixel-identical to the gcc 3.3.2 build (0.00% residual once scroll
+offset is accounted for).
 
-The kernel's 22% is mostly step 5 not being done: every global access loads an
-absolute address instead of using the `%r15`-relative default data area.
+### Size
 
-Still to verify: the wiki *application* built by this port has not been run,
-only the kernel. That needs it written into a card image.
+| | gcc 3.3.2 | gcc 16.2 | |
+|---|---:|---:|---|
+| `wiki.app` stripped | 170,976 | 144,020 | -16% |
+| `kernel.elf` stripped | 35,412 | 31,956 | -10% |
+| 170 files at `-Os`, static | 113,465 insns | 105,779 | -6.8% |
+| - memory operations | 38,102 | 35,193 | -7.6% |
+
+### Speed -- mixed, and not yet understood
+
+| workload | gcc 3.3.2 | gcc 16.2 | |
+|---|---:|---:|---|
+| boot + app load + first render | 146.1M cyc | 140.1M cyc | **4.1% faster** |
+| article load + render (after the tap) | 53.4M cyc | 59.6M cyc | **11.7% slower** |
+
+Article loading -- the thing a user waits on -- is *worse*, and the cause is
+not what we assumed. Two hypotheses were tested and both failed:
+
+* **Not LZMA code quality.** `LzmaDec.o` is smaller with this compiler
+  (5,318 vs 5,554 bytes) and has fewer memory operations (987 vs 1,096) and
+  fewer `ext` prefixes. The app's own hot bucket profiles about the same
+  (12.3% vs 11.5%).
+* **Not the deleted bit operations.** If dropping V850's `set1`/`clr1` were
+  the cause it would show in the app's drawing code, not where it does.
+
+The emulator's PC profiler (`-H`) puts the difference in the *kernel's idle
+loop*: `Suspend` accounts for 18.8% of the article-load window in our build
+against 6.2% in the 3.3.2 build. That is time spent **waiting**, not
+computing -- most likely a difference in how the SD/FAT path issues reads.
+Comparing `file_read` patterns with `-s` across the load is the next step.
+
+(Caveats: the profiler buckets 1kB at a time, and PC-to-symbol mapping used
+global symbols only, so statics fall under the preceding global.)
+
+### Optimisation levels
+
+`-Os` wins outright and is what the firmware uses: smallest *and* fastest
+to idle. `-O3` costs 41% more code for nothing measurable. **`-O1` is
+broken** -- the kernel jumps to `pc=0x12` with a wild stack before printing
+anything. That is a real backend bug, still un-diagnosed.
+
+### A firmware quirk this surfaced
+
+Scroll distance depends on CPU speed: the same scripted drag scrolls ~26%
+further on the faster build, consistently across a 6x range of drag lengths.
+The app appears to scroll a fixed increment per touch event processed rather
+than tracking touch position, so a faster CPU changes the feel. Worth
+knowing independently of this port.
 
 ### Three bugs that only running could find
 

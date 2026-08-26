@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the firmware** - kernel boots in `emulator/`, output byte-identical to gcc 3.3.2 |
+| GCC 16.2 backend | **runs the whole firmware**, rendering bit-exact vs gcc 3.3.2; 16% smaller app, boot 4.1% faster, article load 11.7% slower |
 
 ### binutils - finished
 
@@ -38,30 +38,36 @@ The worst was that all 32 relocation `HOWTO` entries still used the historical
 log2 size encoding, so every relocation misreported its width and was quietly
 discarded.
 
-### GCC - runs the firmware
+### GCC - runs the whole firmware
 
-The kernel built by this port boots in `emulator/`, loads `init.app`, chains
-to `wiki.app`, mounts the card, renders the keyboard, takes typed input and
-returns real article titles. The framebuffer is **byte-identical to the
-gcc 3.3.2 build** for every search term tried (`LOVE`, `CAT`, `PARIS`).
+Kernel *and* `wiki.app` build with gcc 16.2 and run in `emulator/`, booting
+from `flash.rom` off a FAT32 card. **Rendering is bit-exact** against the
+gcc 3.3.2 build - search results, article view, scrolled article.
 
-```
-                     shipped (gcc 3.3.2)   this port (gcc 16.2)
-  wiki.app  text              88,734              90,412   (+1.9%)
-            total            257,510             256,292
-  kernel    text              22,364              27,308   (+22%)
-```
+| | gcc 3.3.2 | gcc 16.2 | |
+|---|---:|---:|---|
+| `wiki.app` stripped | 170,976 | 144,020 | -16% |
+| `kernel.elf` stripped | 35,412 | 31,956 | -10% |
+| boot + load + first render | 146.1M cyc | 140.1M cyc | 4.1% faster |
+| article load + render | 53.4M cyc | 59.6M cyc | **11.7% slower** |
 
-The kernel's 22% is mostly step 5 not being done: every global access loads an
-absolute address instead of using the `%r15`-relative default data area.
+Article loading is worse and **not yet explained**. The PC profiler puts the
+difference in the kernel's *idle* loop (`Suspend`: 18.8% of the window vs
+6.2%), i.e. waiting rather than computing. Two hypotheses were tested and
+falsified - it is not LZMA code quality (our `LzmaDec.o` is smaller with
+fewer memory ops) and not the deleted bit operations. Next step: compare
+`file_read` patterns with `-s` across the load.
 
-Not yet verified: the wiki *application* built by this port. Only the kernel
-has been run; testing the app needs it written into a card image.
+`-Os` is the right level; `-O1` is **broken** (kernel jumps to `pc=0x12`) and
+that bug is un-diagnosed.
+
+Reproduce:
 
 ```sh
 make CROSS=/path/to/install/bin/c33-epson-elf- mini-libc fatfs grifo wiki
-cd emulator && ./wremu -c images/wrcard.img -n 3000000000 \
-    -K 30000000,LOVE ../samo-lib/grifo/grifo.elf
+# put the stripped kernel.elf and wiki.app on a card image, then
+cd emulator && ./wremu -e ../samo-lib/mbr/flash.rom -c card.img \
+    -n 260000000 -K 30000000,LOVE -T 120,60,200000000 -H
 ```
 
 ### Three bugs that only running could find
@@ -246,6 +252,13 @@ them. For correctness, run output under the emulator in `emulator/`.
   header**. It did not check the header for a long time, and two real bugs
   lived there undetected through a "byte-for-byte validated" claim. When you
   add a validation, write down what it does *not* cover.
+* Predicting performance is worse than measuring it. Three predictions this
+  port made - that the %r15 data area would close a size gap, that storing
+  .bss in the file was costing boot time, and that slow article loading was
+  LZMA codegen - were all wrong, and measurement said so each time.
+* `size` counts read-only sections as text. The 3.3.2 build marks .rodata
+  writable and ours does not, so `size` made our kernel look 22% bigger when
+  it was actually smaller. Compare sections, not `size` output.
 * Compiling, assembling and linking cleanly says nothing about whether the
   result runs. Three real bugs - `main` not at the entry point, jump tables
   full of zeroes, and the ELF header - survived every static check. Run it.
