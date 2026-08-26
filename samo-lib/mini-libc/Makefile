@@ -42,7 +42,12 @@ GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 &
 # Optimisation level, overridable so the toolchain work can A/B it.
 OPT ?= -Os
 
-CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin $(OPT) -mc33pe
+# scall reaches +/-4MB and the largest image here is 158kB, so -mlong-calls
+# only bought two ext prefixes per direct call.  Dropping it is better on
+# both toolchains and on every axis measured -- gcc 3.3.2: boot -2.6%,
+# kernel -2.3%, wiki.app -2.2%; gcc 16 at -O2: boot -0.6%, wiki.app -1.7%.
+# Rendering is byte-identical either way.
+CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) -mc33pe
 ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
 
 C_STRING_OPERATIONS = \
