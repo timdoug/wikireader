@@ -53,6 +53,11 @@ test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_display tools/test_display.c src/display.o src/lcd.o src/mem.o $(SDL_LIBS)
 	/tmp/test_display
 
+# SD writes: the path that makes the guest's history outlive a run.
+test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o
+	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o $(SDL_LIBS)
+	/tmp/test_sd
+
 # CMU protect gate and the 60 MHz the timebase depends on.
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
@@ -70,7 +75,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-irq test-lcd test-adc test-cmu test-display
+check: test test-irq test-lcd test-adc test-cmu test-display test-sd
 
 clean:
 	rm -f wremu $(OBJS)

@@ -37,6 +37,7 @@ static void usage(const char *p)
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
 		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
 		"  -c F   attach FAT32 card image F\n"
+		"  -R     open the card image read-only\n"
 		"  -D A   dump memory starting at address A\n"
 		"  -L N   memory dump length (default 64)\n"
 		"  -O F   write the memory dump as binary file F\n", p);
@@ -169,6 +170,7 @@ int main(int argc, char **argv)
 	bool gui = false; int gui_scale = 3;
 	bool check_align = false;
 	bool profile = false;
+	bool card_readonly = false;
 	bool pc_profile = false;
 	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
 	bool tap_down_done = false, tap_up_done = false;
@@ -211,6 +213,8 @@ int main(int argc, char **argv)
 			eeprom_path = argv[++i];
 		else if (!strcmp(argv[i], "-c") && i + 1 < argc)
 			card = argv[++i];
+		else if (!strcmp(argv[i], "-R"))
+			card_readonly = true;
 		else if (!strcmp(argv[i], "-m"))
 			trace_mmio = true;
 		else if (!strcmp(argv[i], "-s"))
@@ -318,7 +322,7 @@ int main(int argc, char **argv)
 
 	struct sdcard sd;
 	if (!sd_attach(&mem, &sd, card, &port,
-		       eeprom_path ? &eeprom : NULL)) {
+		       eeprom_path ? &eeprom : NULL, card_readonly)) {
 		fprintf(stderr, "error: cannot open card image %s\n", card);
 		return 1;
 	}
@@ -745,8 +749,8 @@ done:
 	}
 
 	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
-	printf("--- sd: %lu commands, %lu blocks read, %lu rx overflows ---\n",
-	       sd.commands, sd.blocks_read, sd.overflows);
+	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows ---\n",
+	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
 		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);

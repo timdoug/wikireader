@@ -48,6 +48,7 @@ on the case it is on the edge rather than the bezel. `Q` or `Esc` quits.
 | --- | --- |
 | `-g`, `-S N` | SDL2 window, scale factor (default 3) |
 | `-c FILE` | attach a FAT32 card image |
+| `-R` | open the card image read-only, so a run cannot change it |
 | `-e FILE` | attach the serial FLASH and boot through it, as the hardware does |
 | `-n N` | stop after N instructions (unlimited with `-g`) |
 | `-s` | trace grifo syscalls by name, with call sites and return values |
@@ -523,6 +524,29 @@ ever exercised. `display_handle_event()` is now split out of the poll loop
 and `make test-display` drives it with synthetic events -- no window, no
 video device -- covering the release-off-panel case, the clamping, and the
 counted power press.
+
+### The card keeps what is written to it
+
+A card that forgets everything the moment the power goes is not a card, and
+the guest has things worth keeping: `history_list_save()` writes `wiki.hst`
+whenever the device is switched off and the history has changed. So the
+image is opened for update and block writes go straight through to it.
+
+grifo is built with `FATFS_MODE = read-write`, and `mmc_disk_write` uses
+CMD24 for one block and CMD25 for a run of them, each block sent as a start
+token, 512 bytes, two CRC bytes and then a data response from the card:
+0x05 accepted, 0x0d write error. `-R` opens the image read-only and answers
+0x0d, which is the honest reply -- the guest sees the failure rather than
+losing the data quietly. The regression runs use it so a sweep cannot
+change the reference image out from under the next one.
+
+The trap in the write path is that block data is arbitrary. A byte in the
+middle of an article can have bit 7 clear and bit 6 set, which is exactly
+the shape of a command frame, so the data phase has to be recognised before
+any command sniffing or a file writes itself into nonsense. `make test-sd`
+writes blocks composed entirely of command-shaped bytes and reads them back
+off the host file to keep that honest; putting the check back in the wrong
+order fails eight of its cases.
 
 ### Nothing to show until the controller says so
 

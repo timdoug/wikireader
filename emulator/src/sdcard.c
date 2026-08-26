@@ -202,10 +202,55 @@ static void execute(struct sdcard *sd)
 		break;
 	}
 
+	case 24:                                 /* WRITE_BLOCK */
+	case 25: {                               /* WRITE_MULTIPLE_BLOCK */
+		uint32_t blk = sd->byte_addressed ? arg / 512 : arg;
+		respond(sd, 0x00);
+		sd->awaiting_token = true;
+		sd->write_multi = (idx == 25);
+		sd->write_blk = blk;
+		sd->wlen = 0;
+		break;
+	}
+
 	default:
 		respond(sd, 0x04);                   /* illegal command */
 		break;
 	}
+}
+
+/*
+ * A completed data block. The response byte is the card's verdict: 0x05
+ * accepted, 0x0d rejected on a write error, which is what a write-protected
+ * image reports so the guest sees a failure rather than losing the data
+ * quietly. The zero after it is the card holding the line busy while it
+ * programs, which is what the driver's wait_ready() is looking for.
+ */
+static void finish_block(struct sdcard *sd)
+{
+	bool wrote = false;
+
+	if (sd->img && !sd->readonly &&
+	    sd->write_blk < sd->blocks &&
+	    fseeko(sd->img, (off_t)sd->write_blk * 512, SEEK_SET) == 0 &&
+	    fwrite(sd->wbuf, 1, 512, sd->img) == 512) {
+		fflush(sd->img);
+		sd->blocks_written++;
+		wrote = true;
+	}
+	if (sd->trace)
+		fprintf(stderr, "  SD write block %u %s\n", sd->write_blk,
+			wrote ? "ok" : "REJECTED");
+
+	sd->resp_len = sd->resp_pos = 0;
+	push(sd, wrote ? 0x05 : 0x0d);
+	push(sd, 0x00);                          /* busy while programming */
+
+	sd->receiving = false;
+	sd->write_blk++;
+	sd->wlen = 0;
+	if (!sd->write_multi)
+		sd->awaiting_token = false;
 }
 
 /* One SPI byte exchange: host sends `out`, card returns a byte. */
@@ -218,6 +263,34 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 			execute(sd);
 		}
 		return 0xFF;
+	}
+
+	/*
+	 * Data being written. Nothing here may be mistaken for a command:
+	 * these bytes are file contents.
+	 */
+	if (sd->receiving) {
+		if (sd->wlen < 512)
+			sd->wbuf[sd->wlen++] = out;
+		else if (++sd->crc_seen == 2)
+			finish_block(sd);
+		return 0xFF;
+	}
+
+	if (sd->awaiting_token) {
+		if (sd->resp_pos < sd->resp_len)
+			return sd->resp[sd->resp_pos++];
+		if (out == 0xFE || out == 0xFC) {    /* single / multi start */
+			sd->receiving = true;
+			sd->wlen = 0;
+			sd->crc_seen = 0;
+			return 0xFF;
+		}
+		if (out == 0xFD) {                   /* STOP_TRAN */
+			sd->awaiting_token = false;
+			sd->write_multi = false;
+		}
+		return 0xFF;                         /* host is polling ready */
 	}
 
 	/*
@@ -325,15 +398,26 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 }
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
-	       const struct port *port, struct eeprom *eeprom)
+	       const struct port *port, struct eeprom *eeprom, bool readonly)
 {
 	memset(sd, 0, sizeof *sd);
 	sd->idle = true;
 	sd->port = port;
 	sd->eeprom = eeprom;
+	sd->readonly = readonly;
 
 	if (path) {
-		sd->img = fopen(path, "rb");
+		/*
+		 * A card keeps what is written to it, so the image is opened
+		 * for update and the guest's history, bookmarks and settings
+		 * survive the run. An image that cannot be opened that way is
+		 * still usable, just write-protected.
+		 */
+		sd->img = readonly ? NULL : fopen(path, "r+b");
+		if (!sd->img) {
+			sd->img = fopen(path, "rb");
+			sd->readonly = true;
+		}
 		if (!sd->img)
 			return false;
 		fseeko(sd->img, 0, SEEK_END);
