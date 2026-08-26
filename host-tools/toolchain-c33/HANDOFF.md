@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2; app -15%, 8.7% fewer instructions to boot, 86% fewer soft-float calls |
+| GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured: 38% fewer instructions to boot, 25% fewer on an article load, app 9% smaller |
 
 ### binutils - finished
 
@@ -45,19 +45,45 @@ Kernel, `init.app` *and* `wiki.app` build with gcc 16.2 and run in
 **byte-identical** to the gcc 3.3.2 build; the scrolled screen matches at
 0.00% once its 31-pixel difference in scroll position is accounted for.
 
-| | gcc 3.3.2 | gcc 16.2 | |
+Both toolchains now default to `-O2 -mno-long-calls`; a plain `make` gets
+the numbers below.
+
+| | gcc 3.3.2 as shipped | gcc 16.2, current defaults | |
 |---|---:|---:|---|
-| `wiki.app` stripped | 170,352 | 143,992 | -15% |
-| kernel stripped | 32,812 | 31,712 | -3% |
-| boot -> app main loop | 11,189,610 insn | 10,220,202 insn | -8.7% |
-| article load | 4,198,115 insn | 4,197,975 insn | -140 |
-| search redraw, worst case | 1,005,062 insn | 959,991 insn | -4.5% |
+| boot -> app main loop | 11,189,610 insn | 6,954,717 insn | **-38%** |
+| article load | 4,198,115 insn | 3,148,782 insn | **-25%** |
+| `wiki.app` stripped | 170,352 | 155,368 | **-9%** |
+| kernel stripped | 32,812 | 37,032 | +13% |
 | `__mulsf3` calls, whole session | 233,164 | 32,895 | -86% |
 
-Instruction counts are exact and reproduce identically run to run. The
-millisecond figures elsewhere in this file depend on the emulator's
-per-instruction cycle model, which averages 1.2-1.5 cyc/instr; trust the
-instruction counts further than the times.
+### Read those numbers correctly
+
+This is the part to keep hold of, because it is easy to overstate.
+
+* **Instruction counts are exact.** They are counts of `c33_step` calls,
+  deterministic, and unaffected by host load or thermals.
+* **Milliseconds are a model.** `cpu.clk` comes from `cycle_cost()`, a
+  per-opcode table from the manual. It charges **one cycle per load and
+  models no SDRAM wait states at all**, and always charges 1 for `ext`
+  though the manual says 0 or 1. So memory-heavy wins - `memset`,
+  post-increment, delay slots - are the ones most likely overstated.
+  In modelled time the same two headline figures are -29% and -17%.
+* **The user-visible number is smaller still.** What a person feels is the
+  stall - how long the UI stops answering. Tap-to-article is 129 ms -> 108 ms,
+  about -16%. Everything else they touch moves by a few ms.
+* **The worst stall on the device does not move at all**: 201 ms of
+  `Delay_microseconds` + `Timer_get` + `Watchdog_KeepAlive`, a calibrated
+  busy-wait, longer than the article load itself. No compiler can touch it.
+* **"Boot" here is not the boot you sit through.** The measured window is
+  kernel entry -> app main loop on the ELF path, about 230 ms. The real
+  device first runs mask ROM, `mbr`, the boot menu with its timeout and
+  `file-loader`; full flash boot measured ~2.4 s earlier. This work
+  improved roughly a tenth of what a user waits for.
+
+**The single highest-value measurement left is timing one fixed workload on
+real hardware.** It is the only way to convert any of this into a claim
+about seconds, and it would calibrate the emulator's cycle model at the
+same time. It cannot be done from inside this repo.
 
 **The biggest single win is floating point.** gcc 16 calls `__mulsf3` 7x
 less often than 3.3.2 for identical source and identical output, and the
@@ -110,12 +136,71 @@ five instructions where 3.3.2 emitted four, because `HAVE_POST_INCREMENT`
 was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 5/4. Fixed; the window is now 140 instructions from 3.3.2's on 4.2 million.
 
-## Still open
+## The work queue, in the order agreed
 
-* **Boot executes 8.7% fewer instructions but takes ~6% more wall clock**
-  (230.0 -> 243.4 ms). Boot is I/O-bound so instruction count is not what
-  drives it, and `spi_transmit` + `spi_receive` did go up 6.4% (3,840,964 ->
-  4,087,296) while everything around them fell. Not isolated. Not guessed at.
+**#4 - `length` is pessimistic for memory operands.** Do this one first;
+#3 is partly downstream of it.
+
+Every memory reference outside the `Q` constraint declares itself 6 bytes,
+because one alternative covers both the short form and the `ext`-prefixed
+one. That costs delay-slot eligibility (a slot needs a 2-byte instruction)
+and makes branch-range estimates conservative. Two ISA facts established by
+assembler probe, both of which shape the fix:
+
+* **General registers have no unextended base+displacement.**
+  `ld.w %r4,[%r5+0x10]` is rejected outright. Only `%sp` has the short
+  form, so this only ever helps stack accesses - which is still most of
+  them.
+* **The `%sp` displacement is a raw `imm6` that the hardware scales by
+  transfer size.** `ld.w %r4,[%sp+0x10]` means SP+64, not SP+16, and the
+  assembler enforces 0..63 on the written value.
+
+So the pattern must print `offset / GET_MODE_SIZE (mode)`, reject anything
+not exactly divisible, and cap at 63 x size. **Get that scaling wrong and
+every function silently reads and writes the wrong stack slots, with no
+diagnostic.** Roughly 40 lines: a `define_memory_constraint` for "`%sp`
+plus a correctly-scaled small displacement", one more alternative in each
+move pattern, and an operand modifier that divides. This is the case where
+the firmware rendering byte-identical is a good test but not a sufficient
+one - it is worth doing #1 first if you want real confidence.
+
+**#3 - conditional-branch delay slots are ~35% filled versus 3.3.2.**
+We emit 86 `jreq.d` + 58 `jrne.d`; gcc 3.3.2 emits 226 + 184. Re-measure
+after #4 rather than attacking directly: eligible fillers must be 2-byte
+instructions, so widening that set is what unlocks more of them, and 3.3.2
+gets most of its fills from *moves* pulled forward - exactly what #4 makes
+eligible.
+
+The residual after that is structural and will not go away: nearly every
+C33 ALU instruction writes the flags, so nothing can move across a compare
+into the branch that reads it, and the slot is non-annulling so reorg
+cannot speculate from the target either.
+
+**#5 - soft float.** 32,895 `__mulsf3` calls survive, down from gcc 3.3.2's
+233,164. The span is the tell: 3.3.2 called soft float continuously from
+791 ms to 4618 ms, through idle and rendering both; gcc 16 touches it only
+in a 700 ms band during typing. Find what still computes in float and
+whether it needs to - `seconds_to_ticks` is one known caller.
+
+**#1 - the GCC testsuite has never been run.** The big one, and it is not
+performance. Everything here is validated by "one firmware renders
+identically", which is a single program exercising a fraction of the
+language. `gcc.c-torture` and `gcc.dg` against a simulator target would be
+orders of magnitude more coverage, and it is the difference between "works
+for the WikiReader" and "is a C compiler". Note the ordering agreed puts
+this last, but #4 is exactly the kind of change it would protect.
+
+### Done this session, for context
+
+* **post-increment addressing** - `HAVE_POST_INCREMENT` was never defined,
+  so auto-inc-dec never ran. Worth 25% of an article load.
+* **delay slots** - `define_delay`, `%#`, and a two-byte memory alternative
+  on the `Q` constraint. Worth 16% of an article load.
+* **rotates** - `rl`/`rr`; a rotate had been shift/shift/or.
+* **the flag-clobbering data-area address** - `add %rd,%r15` writes the
+  flags and was emitted from a move pattern.
+* **the entry-point omission, in four places** - see below.
+* **`-mno-long-calls` and `-O2` as defaults** - measured on both toolchains.
 
 ## Known broken
 
@@ -218,6 +303,20 @@ compare and its branch.
 * Profile one phase (`-Y`/`-y`) and diff whole bucket dumps (`-F`). A
   whole-run profile is always the idle loop, and a top-12 hides the rest.
 * See "Measuring, without fooling yourself" in `emulator/README.md`.
+* **Application addresses need `-M`.** `init.app` and `wiki.app` are both
+  linked at 0x10040000, so an address from one application's map can fire
+  while the other is running. `-M ADDR,N` holds probes, breakpoints, the
+  script anchor and profile windows disarmed until ADDR has been reached N
+  times; arm on the *second* `ELF32_load` and nothing can fire until
+  `wiki.app` is the running program. Without it, a `-O3` measurement
+  reported boot as 3,586,957 instructions against `-O2`'s 7,023,077 - a 2x
+  win that was really a breakpoint firing inside `init.app`. Corrected,
+  `-O3` is 3.9% *worse* than `-O2`.
+* **The stall list misses a final stall that has no closing poll.** It is
+  computed from gaps *between* consecutive probe hits, so a stall running to
+  the end of the run is invisible. That nearly produced a claim that `-O3`
+  eliminated the 201 ms wait; it does not, and the gap is visible by
+  comparing `Event_get`'s last hit against `Suspend`'s.
 
 ### Three bugs that only running could find
 
