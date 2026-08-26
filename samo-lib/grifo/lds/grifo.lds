@@ -13,6 +13,13 @@ OUTPUT_FORMAT("elf32-c33")
 
 OUTPUT_ARCH(c33)
 
+/* main is the kernel's entry point: it is what sets up %sp, so nothing may
+   run before it.  Every loader that starts this image jumps to e_entry --
+   the emulator, drivers/src/elf32.c and mbr/rs232-loader.c all do -- so
+   naming it here is what actually places it, rather than hoping the
+   compiler emits main first.  */
+ENTRY(main)
+
 MEMORY
 {
     /* sdram must be first or linker gives errors */
@@ -71,11 +78,13 @@ SECTIONS
     .text : {
          __START_text = . ;
          /* .text.* as well as .text: gcc 4 and later split functions into
-             .text.startup, .text.unlikely, .text.hot and so on.  main is the
-             kernel's entry -- it is what sets up %sp -- so it has to stay at
-             the start of .text, and with only "*.text" here it silently did
-             not: main went to .text.startup, "process" landed at the entry
-             address, and the first push ran with %sp still zero.  */
+             .text.startup, .text.unlikely, .text.hot and so on.  Keeping
+             main.o's pieces together and first is still worth doing for
+             locality, but it is no longer what makes main the entry --
+             ENTRY(main) above does that.  Ordering alone was not enough:
+             it holds at -O2, where -freorder-functions puts main in
+             .text.startup, and fails at -O1, where main stays in plain
+             .text and "process" is emitted ahead of it.  */
          build/main.o(.text.startup .text.startup.*)
          build/main.o(.text .text.*)
          *(.text .text.*)

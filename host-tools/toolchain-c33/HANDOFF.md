@@ -119,8 +119,14 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 
 ## Known broken
 
-* **`-O1`** - the kernel jumps to `pc=0x12` with a wild stack before printing
-  anything. A real backend bug, undiagnosed. `-O2`/`-O3`/`-Os` are fine.
+* ~~`-O1`~~ - fixed, and it was never a backend bug. `grifo.lds` had no
+  `ENTRY`, so the entry point defaulted to the start of `.text` and the
+  kernel relied on `main` being emitted first. At `-O2`
+  `-freorder-functions` puts `main` in `.text.startup`, which the script
+  lists first; at `-O1` that flag is off, `main` stays in plain `.text`,
+  and `process` was emitted ahead of it. The CPU entered `process`, whose
+  prologue pushed with `%sp` still zero. `ENTRY(main)` names it instead.
+  The same omission in `application.lds` broke `init.app` under gcc 16.
 * **`-mno-edda32`** (the `%r15` data area) - builds and links, but the kernel
   then fails to load `init.app`. Not root-caused. Off by default; see the
   comment on `TARGET_DEFAULT_TARGET_FLAGS` for why it is also not worth
