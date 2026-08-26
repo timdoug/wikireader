@@ -21,31 +21,45 @@ offset is accounted for).
 | 170 files at `-Os`, static | 113,465 insns | 105,779 | -6.8% |
 | - memory operations | 38,102 | 35,193 | -7.6% |
 
-### Speed -- mixed, and not yet understood
+### Speed
 
 | workload | gcc 3.3.2 | gcc 16.2 | |
 |---|---:|---:|---|
-| boot + app load + first render | 146.1M cyc | 140.1M cyc | **4.1% faster** |
-| article load + render (after the tap) | 53.4M cyc | 59.6M cyc | **11.7% slower** |
+| boot + app load + first render | 146.1M cyc | 140.1M cyc | 4.1% faster |
+| article load + render (wall) | 53.4M cyc | 59.6M cyc | 11.7% *longer* |
 
-Article loading -- the thing a user waits on -- is *worse*, and the cause is
-not what we assumed. Two hypotheses were tested and both failed:
+The article-load number is **not a code-generation regression**. Tracing
+syscalls across the load shows every call that does real work is identical to
+the call:
 
-* **Not LZMA code quality.** `LzmaDec.o` is smaller with this compiler
-  (5,318 vs 5,554 bytes) and has fewer memory operations (987 vs 1,096) and
-  fewer `ext` prefixes. The app's own hot bucket profiles about the same
-  (12.3% vs 11.5%).
-* **Not the deleted bit operations.** If dropping V850's `set1`/`clr1` were
-  the cause it would show in the app's drawing code, not where it does.
+| syscall | gcc 3.3.2 | gcc 16.2 |
+|---|---:|---:|
+| `lcd_set_pixel` | 15,824 | 15,824 |
+| `file_read` | 135 | 135 |
+| `memory_allocate` | 29 | 29 |
+| `lcd_framebuffer_get`/`set_byte` | 608 / 608 | 608 / 608 |
+| `directory_exists` | 40 | 40 |
+| **`timer_get`** | 282,557 | **612,827** |
+| **`event_get`** | 96,422 | **207,850** |
 
-The emulator's PC profiler (`-H`) puts the difference in the *kernel's idle
-loop*: `Suspend` accounts for 18.8% of the article-load window in our build
-against 6.2% in the 3.3.2 build. That is time spent **waiting**, not
-computing -- most likely a difference in how the SD/FAT path issues reads.
-Comparing `file_read` patterns with `-s` across the load is the next step.
+The only difference is polling, and it is a clean 2.17x on both poll calls.
+That is `Event_wait`'s loop -- `Event_get`, `Suspend`, repeat -- spun more
+times *because the loop body is faster*, while the external event it waits on
+(SD I/O, a timer tick) takes the same wall time either way.
 
-(Caveats: the profiler buckets 1kB at a time, and PC-to-symbol mapping used
-global symbols only, so statics fall under the preceding global.)
+The PC profile agrees: the idle path is ~29% of the window for this compiler
+(`Suspend` 18.8%, timer 6.4%, `delay_us` 4.1%) against ~17% for gcc 3.3.2,
+while *app* code is a smaller share (22.6% vs 28.1%). More time waiting, less
+time working.
+
+So the wall-clock figure is measuring the idle loop, not the compiler. A fair
+comparison needs cycles spent outside `Suspend`/`Event_wait`, which the
+current tooling does not separate cleanly.
+
+**One thing worth chasing.** `memchr` (3.4%) and `memset` (2.9%) are in this
+compiler's top twelve buckets and not in gcc 3.3.2's. That is 6.3% of the
+window in two mini-libc routines, and it is the one place the profile
+suggests a genuine codegen difference rather than an artefact.
 
 ### Optimisation levels
 

@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the whole firmware**, rendering bit-exact vs gcc 3.3.2; 16% smaller app, boot 4.1% faster, article load 11.7% slower |
+| GCC 16.2 backend | **runs the whole firmware**, rendering bit-exact vs gcc 3.3.2; 16% smaller app, boot 4.1% faster |
 
 ### binutils - finished
 
@@ -51,12 +51,16 @@ gcc 3.3.2 build - search results, article view, scrolled article.
 | boot + load + first render | 146.1M cyc | 140.1M cyc | 4.1% faster |
 | article load + render | 53.4M cyc | 59.6M cyc | **11.7% slower** |
 
-Article loading is worse and **not yet explained**. The PC profiler puts the
-difference in the kernel's *idle* loop (`Suspend`: 18.8% of the window vs
-6.2%), i.e. waiting rather than computing. Two hypotheses were tested and
-falsified - it is not LZMA code quality (our `LzmaDec.o` is smaller with
-fewer memory ops) and not the deleted bit operations. Next step: compare
-`file_read` patterns with `-s` across the load.
+Article loading takes 11.7% longer in wall-clock, but that is **not a
+codegen regression** - it is the idle loop. Every syscall that does real work
+is identical to the call (`lcd_set_pixel` 15,824 both, `file_read` 135 both);
+the only difference is polling, 2.17x more `timer_get` and `event_get`,
+because `Event_wait`'s loop body is faster and so spins more while waiting on
+I/O that takes the same wall time. The profile agrees: idle path ~29% of the
+window vs ~17%, with *less* time in app code.
+
+Worth chasing: `memchr` (3.4%) and `memset` (2.9%) are in this compiler's top
+buckets and not in 3.3.2's - the one hint of a real codegen difference.
 
 `-Os` is the right level; `-O1` is **broken** (kernel jumps to `pc=0x12`) and
 that bug is un-diagnosed.
