@@ -39,7 +39,10 @@ DEBUG_ASFLAGS ?= --gdwarf-2
 # semantics when the compiler understands the option.
 GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 && echo -fgnu89-inline)
 
-CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin -Os -mc33pe
+# Optimisation level, overridable so the toolchain work can A/B it.
+OPT ?= -Os
+
+CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin $(OPT) -mc33pe
 ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
 
 C_STRING_OPERATIONS = \

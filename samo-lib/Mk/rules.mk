@@ -35,7 +35,10 @@ GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 &
 # "gcc -print-libgcc-file-name" so that query picks the right multilib.
 TARGET_ARCH_FLAGS ?= -mc33pe
 
-CFLAGS += -Wall -Werror -I. $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin -Os $(TARGET_ARCH_FLAGS) $(INCLUDES)
+# Optimisation level, overridable so the toolchain work can A/B it.
+OPT ?= -Os
+
+CFLAGS += -Wall -Werror -I. $(DEBUG_CFLAGS) $(GNU89_INLINE) -mlong-calls -fno-builtin $(OPT) $(TARGET_ARCH_FLAGS) $(INCLUDES)
 ASFLAGS = -mc33pe --fatal-warnings
 
 # protection in case some Makefile includes this too early
