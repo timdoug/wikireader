@@ -15,7 +15,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the whole firmware**, rendering bit-exact vs gcc 3.3.2; 16% smaller app, boot 4.1% faster |
+| GCC 16.2 backend | **runs the whole firmware**, rendering pixel-identical to gcc 3.3.2; app -16%, boot ~100 ms faster, article load ~98 ms slower |
 
 ### binutils - finished
 
@@ -41,38 +41,76 @@ discarded.
 ### GCC - runs the whole firmware
 
 Kernel *and* `wiki.app` build with gcc 16.2 and run in `emulator/`, booting
-from `flash.rom` off a FAT32 card. **Rendering is bit-exact** against the
+from `flash.rom` off a FAT32 card. Rendering is **pixel-identical** to the
 gcc 3.3.2 build - search results, article view, scrolled article.
 
 | | gcc 3.3.2 | gcc 16.2 | |
 |---|---:|---:|---|
 | `wiki.app` stripped | 170,976 | 144,020 | -16% |
 | `kernel.elf` stripped | 35,412 | 31,956 | -10% |
-| boot + load + first render | 146.1M cyc | 140.1M cyc | 4.1% faster |
-| article load + render | 53.4M cyc | 59.6M cyc | **11.7% slower** |
+| boot to usable screen | 2.435 s | **2.335 s** | ~100 ms faster |
+| tap -> article rendered | **888 ms** | 986 ms | ~98 ms slower |
 
-Article loading takes 11.7% longer in wall-clock, but that is **not a
-codegen regression** - it is the idle loop. Every syscall that does real work
-is identical to the call (`lcd_set_pixel` 15,824 both, `file_read` 135 both);
-the only difference is polling, 2.17x more `timer_get` and `event_get`,
-because `Event_wait`'s loop body is faster and so spins more while waiting on
-I/O that takes the same wall time. The profile agrees: idle path ~29% of the
-window vs ~17%, with *less* time in app code.
+(Cycles at 60 MHz: boot 146.1M -> 140.1M; article 53,290k -> 59,132k after the
+tap. Measured on the flash-boot path with a scripted `-K`/`-T` script and
+binary search on `-n` against a freshly captured reference screen.)
 
-Worth chasing: `memchr` (3.4%) and `memset` (2.9%) are in this compiler's top
-buckets and not in 3.3.2's - the one hint of a real codegen difference.
+**The article-load regression is real and user-visible.** An earlier commit
+message claims it "was the idle loop, not code generation" - the *mechanism*
+part is right, but it was then wrongly treated as meaning there is no
+slowdown. A user waiting for an article waits 11% longer, whatever the cause.
 
-`-Os` is the right level; `-O1` is **broken** (kernel jumps to `pc=0x12`) and
-that bug is un-diagnosed.
+## The one open question
 
-Reproduce:
+Why the article load is 11% slower. What is established:
 
-```sh
-make CROSS=/path/to/install/bin/c33-epson-elf- mini-libc fatfs grifo wiki
-# put the stripped kernel.elf and wiki.app on a card image, then
-cd emulator && ./wremu -e ../samo-lib/mbr/flash.rom -c card.img \
-    -n 260000000 -K 30000000,LOVE -T 120,60,200000000 -H
-```
+* Every syscall that does real work is **identical to the call** -
+  `lcd_set_pixel` 15,824 both, `file_read` 135 both, `memory_allocate` 29
+  both, `directory_exists` 40 both, `lcd_framebuffer_get`/`set_byte` 608 each.
+* The only difference is polling: `timer_get` 282,557 -> 612,827 and
+  `event_get` 96,422 -> 207,850. A clean 2.17x on both.
+* That is `Event_wait`'s loop - `Event_get`, `Suspend`, repeat - spinning more
+  because the loop body is faster while the I/O takes the same wall time.
+* From the PC profile, `Suspend` takes its **full path** every iteration, not
+  its early returns: past `File_PowerDown` and into the low-RAM suspend code.
+  So each iteration powers the card down, suspends, and wakes.
+
+What is **not** established: that the per-iteration `File_PowerDown` +
+suspend + wake is what costs the 98 ms.
+
+**Next step is one measurement, not a patch.** Count `File_PowerDown` calls
+across the article load in both builds. If the ratio is ~2.17x and the
+per-call cost is material, that is the answer, and the fix belongs in the
+firmware's poll loop rather than in the compiler.
+
+## Known broken
+
+* **`-O1`** - the kernel jumps to `pc=0x12` with a wild stack before printing
+  anything. A real backend bug, undiagnosed. `-O2`/`-O3`/`-Os` are fine.
+* **`-mno-edda32`** (the `%r15` data area) - builds and links, but the kernel
+  then fails to load `init.app`. Not root-caused. Off by default; see the
+  comment on `TARGET_DEFAULT_TARGET_FLAGS` for why it is also not worth
+  enabling on size.
+* **`memchr` (3.4%) and `memset` (2.9%)** are in this compiler's top profile
+  buckets during an article load and absent from gcc 3.3.2's. Never examined.
+  Two small mini-libc routines - diffing their assembly needs no emulator.
+
+## Benchmark harness notes
+
+* Reference `.pgm` screens go **stale whenever the emulator is rebuilt**.
+  Regenerate them or every comparison silently fails.
+* `screen.pgm` is written into `emulator/`, and the shell cwd resets between
+  commands.
+* Headless runs come up powered (`bool powered = !gui` in `main.c`), so the
+  power switch does not affect scripted runs.
+* Bench card is a copy of `images/wrcard.img`; swap `kernel.elf` / `wiki.app`
+  with `hdiutil attach -nobrowse`, `cp`, `sync`, `hdiutil detach`.
+* Compare **stripped** binaries: the 3.3.2 build has symbols but no DWARF,
+  ours has both, so unstripped sizes are not comparable.
+* Wall-clock cycles are the right metric for *user experience* but a poor one
+  for *codegen* - on this device they mostly reflect how a build interacts
+  with fixed-duration I/O waits. Syscall counts and static instruction counts
+  are the instruments that held up.
 
 ### Three bugs that only running could find
 
@@ -256,6 +294,9 @@ them. For correctness, run output under the emulator in `emulator/`.
   header**. It did not check the header for a long time, and two real bugs
   lived there undetected through a "byte-for-byte validated" claim. When you
   add a validation, write down what it does *not* cover.
+* State the method and what would falsify it *before* running a benchmark.
+  Four performance claims this session were published and then withdrawn,
+  every one of them an explanation offered before the number was reproduced.
 * Predicting performance is worse than measuring it. Three predictions this
   port made - that the %r15 data area would close a size gap, that storing
   .bss in the file was costing boot time, and that slow article loading was
