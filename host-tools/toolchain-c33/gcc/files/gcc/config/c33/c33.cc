@@ -845,6 +845,155 @@ c33_output_extend (rtx *operands, const char *suffix)
   return buf;
 }
 
+/* How wide an ld actually assembles to.
+   ------------------------------------
+   A wide operand is reached by prefixing ld with up to two "ext imm13"
+   instructions, two bytes each, and an x-prefixed mnemonic lets the
+   assembler pick the narrowest that works (core manual 5.6).  How many
+   bits one ext buys depends on whether the ld itself has an immediate
+   field to concatenate with:
+
+     ld.w %rd,imm6         imm6, signed             6, 19 or 32 bits
+     ld.w %rd,[%sp+imm6]   imm6, unsigned, scaled   6, 19 or 32 bits
+     ld.w %rd,[%rb]        no field at all          0, 13 or 26 bits
+
+   so a general register never reaches a nonzero displacement in two
+   bytes, while %sp does.  These ranges were measured by assembling each
+   boundary rather than read off the manual, which does not spell out what
+   gas will and will not narrow.
+
+   Declaring this honestly is worth more than it looks.  Every stack slot
+   reference used to claim six bytes when it assembles to two, which left
+   shorten_branches sizing each function at up to three times its real
+   extent and extending branches to reach across the difference, and left
+   in_delay_slot -- which keys off length == 2 -- refusing to put any
+   stack traffic in a delay slot.
+
+   Overestimating is merely wasteful.  Underestimating would hand a branch
+   a displacement it cannot reach, so every case that is not provably
+   narrow falls through to the widest form.  */
+
+/* Bytes needed to materialise the constant V with ld.w.  */
+
+static int
+c33_const_length (HOST_WIDE_INT v)
+{
+  if (IN_RANGE (v, -32, 31))
+    return 2;
+  if (IN_RANGE (v, -262144, 262143))
+    return 4;
+  return 6;
+}
+
+/* Bytes needed for an ld referencing MEM.  */
+
+static int
+c33_mem_length (rtx mem)
+{
+  rtx addr = XEXP (mem, 0);
+  rtx base, off;
+
+  /* [%rb] and [%rb]+ need no prefix at all.  */
+  if (REG_P (addr) || SUBREG_P (addr) || GET_CODE (addr) == POST_INC)
+    return 2;
+
+  if (GET_CODE (addr) != PLUS)
+    /* A default-data-area symbol, whose %p prints both ext prefixes
+       unconditionally, or an absolute one, which needs the R_C33_H/M/L
+       triple.  Six either way.  */
+    return 6;
+
+  base = XEXP (addr, 0);
+  off = XEXP (addr, 1);
+  if (CONST_INT_P (base))
+    std::swap (base, off);
+
+  if (!CONST_INT_P (off) || !(REG_P (base) || SUBREG_P (base)))
+    return 6;
+
+  {
+    HOST_WIDE_INT d = INTVAL (off);
+
+    /* gas drops a zero displacement, leaving the bare [%rb] form.  */
+    if (d == 0)
+      return 2;
+    if (d < 0)
+      return 6;
+
+    if (REG_P (base) && REGNO (base) == STACK_POINTER_REGNUM)
+      {
+	unsigned size = GET_MODE_SIZE (GET_MODE (mem));
+
+	if (size == 0)
+	  return 6;
+
+	/* The unextended [%sp+imm6] displacement is scaled by the transfer
+	   size, so a word reaches 63 * 4 bytes up the frame.  Anything not
+	   exactly divisible cannot use this form -- and note that gas does
+	   not diagnose one that is not, it just truncates.  What keeps GCC
+	   from ever writing such a reference is the alignment test in
+	   c33_legitimate_address_p, not anything here.  */
+	if (d % size == 0 && d / size <= 63)
+	  return 2;
+
+	/* Extended, the displacement is a raw byte count: imm13:imm6.  */
+	return d <= 524287 ? 4 : 6;
+      }
+
+    /* No imm6 to concatenate with, so one ext carries all 13 bits.  */
+    return d <= 8191 ? 4 : 6;
+  }
+}
+
+/* True if INSN reads or writes %sp, in any form -- as a register, or as
+   the base of a [%sp+N] reference.  Such an insn may not go in a *call's*
+   delay slot; see the in_call_delay_slot attribute.  */
+
+bool
+c33_uses_sp_p (rtx_insn *insn)
+{
+  return refers_to_regno_p (STACK_POINTER_REGNUM, STACK_POINTER_REGNUM + 1,
+			    PATTERN (insn), NULL);
+}
+
+/* Implement the "length" attribute for the move and extend patterns.
+   Computed from the operands rather than declared per alternative,
+   because the memory alternatives cover everything from a two-byte
+   [%rb] to a six-byte absolute address.  */
+
+int
+c33_move_length (rtx_insn *insn)
+{
+  rtx set = single_set (insn);
+  rtx dst, src;
+
+  gcc_assert (set != NULL_RTX);
+
+  dst = SET_DEST (set);
+  src = SET_SRC (set);
+
+  /* The extendMN2 patterns are an ld like any other, wrapped in the
+     extension the size suffix already performs.  */
+  if (GET_CODE (src) == ZERO_EXTEND || GET_CODE (src) == SIGN_EXTEND)
+    src = XEXP (src, 0);
+
+  if (MEM_P (dst))
+    return c33_mem_length (dst);
+  if (MEM_P (src))
+    return c33_mem_length (src);
+
+  if (CONST_INT_P (src))
+    return c33_const_length (INTVAL (src));
+
+  /* A float constant, or the address of a symbol: the assembler may well
+     narrow these, but the value is not known here, so assume it cannot.  */
+  if (CONSTANT_P (src))
+    return 6;
+
+  /* Register to register, including the %sp special-register forms.  */
+  return 2;
+}
+
 machine_mode
 c33_select_cc_mode (enum rtx_code cond, rtx op0, rtx op1)
 {
