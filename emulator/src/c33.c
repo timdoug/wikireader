@@ -206,6 +206,17 @@ void c33_dump_pcprofile(const struct c33 *c, FILE *out)
 	}
 }
 
+void c33_dump_pcprofile_full(const struct c33 *c, FILE *out)
+{
+	if (!c->pcbuckets)
+		return;
+	for (unsigned i = 0; i < C33_PCBUCKETS; i++)
+		if (c->pcbuckets[i])
+			fprintf(out, "%08x %lu\n",
+				c->pcsample[i] & ~((1u << C33_PCBUCKET_SHIFT) - 1),
+				c->pcbuckets[i]);
+}
+
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 
 static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)

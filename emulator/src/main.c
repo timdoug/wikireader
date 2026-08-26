@@ -40,7 +40,12 @@ static void usage(const char *p)
 		"  -R     open the card image read-only\n"
 		"  -D A   dump memory starting at address A\n"
 		"  -L N   memory dump length (default 64)\n"
-		"  -O F   write the memory dump as binary file F\n", p);
+		"  -O F   write the memory dump as binary file F\n"
+		"  -X A[,NAME] count entries to address A without stopping\n"
+		"  -Z A   time the input script from the first hit of A\n"
+		"  -Y A,B profile only between the first hits of A and B\n"
+		"  -y M,N profile only between guest times M and N, in ms\n"
+		"  -F F   write every non-empty profile bucket to F\n", p);
 }
 
 
@@ -197,6 +202,63 @@ int main(int argc, char **argv)
 	size_t type_idx = 0; int type_phase = 0;
 	uint32_t watch = 0; bool watch_on = false;
 	uint32_t bp[8]; unsigned nbp = 0;
+	/*
+	 * Probes: like a breakpoint that does not stop. Counting how often a
+	 * function is entered, and at what point in the run, is what tells a
+	 * regression in generated code apart from a loop that simply spins
+	 * more while waiting for the same fixed-duration I/O.
+	 */
+#define NPROBE 16
+	uint32_t probe[NPROBE]; const char *probe_name[NPROBE];
+	unsigned long long probe_hits[NPROBE];
+	unsigned long long probe_first_exec[NPROBE], probe_last_exec[NPROBE];
+	unsigned long long probe_first_clk[NPROBE], probe_last_clk[NPROBE];
+	/*
+	 * The longest gap between two hits. On the event-loop poll this is
+	 * the most useful number the emulator can produce about how the
+	 * device feels: the longest single stretch the application went
+	 * without looking for input, which is exactly how long a tap can sit
+	 * unanswered. Counting calls cannot say this -- an idle loop that
+	 * spins faster racks up more calls while doing less.
+	 */
+	/* Top NGAP stalls per probe, longest first -- one number is a
+	   worst case, the list is a distribution, and the distribution is
+	   what says whether a device feels responsive. */
+#define NGAP 6
+	unsigned long long probe_gap_exec[NPROBE][NGAP];
+	unsigned long long probe_gap_clk[NPROBE][NGAP];
+	unsigned long long probe_gap_at[NPROBE][NGAP];
+	unsigned nprobe = 0;
+	memset(probe_hits, 0, sizeof probe_hits);
+	memset(probe_gap_exec, 0, sizeof probe_gap_exec);
+	memset(probe_gap_clk, 0, sizeof probe_gap_clk);
+	/*
+	 * Instructions actually stepped. cpu.cycles counts these *and* the
+	 * fabricated ones the idle skip adds, so it cannot distinguish a
+	 * build that did less work from one that waited less.
+	 */
+	unsigned long long executed = 0;
+	/*
+	 * Anchor: scripted input is timed from the first time the guest
+	 * reaches this address, not from an absolute instruction count.
+	 * Two builds of the same firmware do not retire the same number of
+	 * instructions getting to the same screen, so a fixed -T cycle
+	 * delivers the tap at a different point in each one's progress and
+	 * the two runs are not the same interaction.
+	 */
+	uint32_t anchor = 0; bool script_armed = true;
+	/*
+	 * Profile only between two program events. Over a whole run the hot
+	 * code is whatever the idle loop happens to be, which drowns out the
+	 * one phase you care about.
+	 */
+	const char *prof_full_path = NULL;
+	double prof_ms0 = 0, prof_ms1 = 0;
+	char prof_win_label[64] = "";
+	uint32_t prof_start = 0, prof_end = 0;
+	bool prof_window = false, prof_done = false;
+	unsigned long long prof_exec0 = 0, prof_clk0 = 0;
+	unsigned long long prof_exec = 0, prof_clk = 0;
 	uint32_t vwatch = 0; bool vwatch_on = false;
 	uint32_t dump = 0; bool dump_on = false;
 	unsigned long dump_len = 64;
@@ -264,6 +326,37 @@ int main(int argc, char **argv)
 		}
 		else if (!strcmp(argv[i], "-W") && i + 1 < argc) {
 			watch = strtoul(argv[++i], NULL, 0); watch_on = true;
+		}
+		else if (!strcmp(argv[i], "-X") && i + 1 < argc) {
+			/* probe: -X ADDR[,NAME] -- count entries, do not stop */
+			char *a = argv[++i];
+			if (nprobe < NPROBE) {
+				probe[nprobe] = (uint32_t)strtoul(a, &a, 0);
+				probe_name[nprobe] = (*a == ',') ? a + 1 : NULL;
+				nprobe++;
+			}
+		}
+		else if (!strcmp(argv[i], "-F") && i + 1 < argc) {
+			prof_full_path = argv[++i];
+			pc_profile = true;
+		}
+		else if (!strcmp(argv[i], "-y") && i + 1 < argc) {
+			/* profile window by guest time: -y STARTMS,ENDMS */
+			char *a = argv[++i];
+			prof_ms0 = strtod(a, &a);
+			if (*a == ',') prof_ms1 = strtod(a + 1, NULL);
+			pc_profile = profile = true;
+		}
+		else if (!strcmp(argv[i], "-Y") && i + 1 < argc) {
+			/* profile window: -Y STARTADDR,ENDADDR */
+			char *a = argv[++i];
+			prof_start = (uint32_t)strtoul(a, &a, 0);
+			if (*a == ',') prof_end = (uint32_t)strtoul(a + 1, NULL, 0);
+			pc_profile = profile = true;
+		}
+		else if (!strcmp(argv[i], "-Z") && i + 1 < argc) {
+			anchor = strtoul(argv[++i], NULL, 0);
+			script_armed = false;
 		}
 		else if (argv[i][0] != '-')
 			path = argv[i];
@@ -383,8 +476,9 @@ int main(int argc, char **argv)
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
 	cpu.check_alignment = check_align;
-	cpu.profile = profile;
-	cpu.pc_profile = pc_profile;
+	/* A -Y window starts closed; reaching prof_start opens it. */
+	cpu.profile = (prof_start || prof_ms1 > 0) ? false : profile;
+	cpu.pc_profile = (prof_start || prof_ms1 > 0) ? false : pc_profile;
 	if (pc_profile)
 		cpu.pcbuckets = calloc(C33_PCBUCKETS, sizeof *cpu.pcbuckets),
 		cpu.pcsample  = calloc(C33_PCBUCKETS, sizeof *cpu.pcsample);
@@ -474,7 +568,8 @@ int main(int argc, char **argv)
 		 * Scripted typing: each key is a press then a release, spaced
 		 * far enough apart for the application to consume the events.
 		 */
-		if (type_text && cpu.cycles >= type_at && type_text[type_idx]) {
+		if (script_armed && type_text && cpu.cycles >= type_at &&
+		    type_text[type_idx]) {
 			unsigned long due = type_at + type_idx * type_gap +
 					    (type_phase ? type_gap / 2 : 0);
 			if (cpu.cycles >= due) {
@@ -500,7 +595,7 @@ int main(int argc, char **argv)
 		 */
 #define DRAG_STEPS   16
 #define DRAG_SPACING 300000UL
-		if (drag_x >= 0 && cpu.cycles >= drag_at &&
+		if (script_armed && drag_x >= 0 && cpu.cycles >= drag_at &&
 		    cpu.cycles <= drag_at + DRAG_STEPS * DRAG_SPACING &&
 		    ((cpu.cycles - drag_at) % DRAG_SPACING) == 0) {
 			unsigned long k = (cpu.cycles - drag_at) / DRAG_SPACING;
@@ -520,7 +615,8 @@ int main(int argc, char **argv)
 		 * counter can pause across an idle stretch, and an equality
 		 * test then fires more than once.
 		 */
-		if (btn_code >= 0 && !btn_down_done && cpu.cycles >= btn_at) {
+		if (script_armed && btn_code >= 0 && !btn_down_done &&
+		    cpu.cycles >= btn_at) {
 			btn_down_done = true;
 			fprintf(stderr, "  [button %d down]\n", btn_code);
 			if (btn_code == BUTTON_POWER_CODE)
@@ -539,7 +635,8 @@ int main(int argc, char **argv)
 		}
 
 		/* scripted tap for testing without a window */
-		if (tap_x >= 0 && !tap_down_done && cpu.cycles >= tap_at) {
+		if (script_armed && tap_x >= 0 && !tap_down_done &&
+		    cpu.cycles >= tap_at) {
 			tap_down_done = true;
 			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
 			touch_post(&touch, &cpu, tap_x, tap_y, true);
@@ -566,6 +663,76 @@ int main(int argc, char **argv)
 			printf("%08x  %s\n", cpu.pc, dis);
 		}
 		ring[rn++ % RING] = cpu.pc;
+
+		for (unsigned k = 0; k < nprobe; k++) {
+			if (cpu.pc != probe[k])
+				continue;
+			if (!probe_hits[k]) {
+				probe_first_exec[k] = executed;
+				probe_first_clk[k] = cpu.clk;
+			} else {
+				unsigned long long g = executed - probe_last_exec[k];
+				if (g > probe_gap_exec[k][NGAP - 1]) {
+					unsigned j = NGAP - 1;
+					while (j > 0 && probe_gap_exec[k][j - 1] < g) {
+						probe_gap_exec[k][j] = probe_gap_exec[k][j - 1];
+						probe_gap_clk[k][j]  = probe_gap_clk[k][j - 1];
+						probe_gap_at[k][j]   = probe_gap_at[k][j - 1];
+						j--;
+					}
+					probe_gap_exec[k][j] = g;
+					probe_gap_clk[k][j] = cpu.clk - probe_last_clk[k];
+					probe_gap_at[k][j] = probe_last_clk[k];
+				}
+			}
+			probe_last_exec[k] = executed;
+			probe_last_clk[k] = cpu.clk;
+			probe_hits[k]++;
+		}
+
+		if (prof_ms1 > 0 && !prof_done) {
+			double ms = cpu.clk / (MCLK_HZ / 1000.0);
+			if (!prof_window && ms >= prof_ms0) {
+				prof_window = true;
+				prof_exec0 = executed; prof_clk0 = cpu.clk;
+				cpu.profile = profile;
+				cpu.pc_profile = pc_profile;
+			} else if (prof_window && ms >= prof_ms1) {
+				prof_window = false; prof_done = true;
+				prof_exec = executed - prof_exec0;
+				prof_clk = cpu.clk - prof_clk0;
+				cpu.profile = cpu.pc_profile = false;
+			}
+		}
+
+		if (prof_start && !prof_done) {
+			if (!prof_window && cpu.pc == prof_start) {
+				prof_window = true;
+				prof_exec0 = executed; prof_clk0 = cpu.clk;
+				cpu.profile = profile;
+				cpu.pc_profile = pc_profile;
+			} else if (prof_window && prof_end && cpu.pc == prof_end) {
+				prof_window = false; prof_done = true;
+				prof_exec = executed - prof_exec0;
+				prof_clk = cpu.clk - prof_clk0;
+				cpu.profile = cpu.pc_profile = false;
+			}
+		}
+
+		/*
+		 * Rebase the whole input script onto the moment the guest got
+		 * here, so "tap 400 ms after the keyboard was up" means the
+		 * same thing in a build that reached that point sooner.
+		 */
+		if (!script_armed && cpu.pc == anchor) {
+			script_armed = true;
+			fprintf(stderr, "  [anchor 0x%08x at %llu, script rebased]\n",
+				anchor, (unsigned long long)cpu.cycles);
+			type_at += cpu.cycles;
+			if (tap_x >= 0)  tap_at  += cpu.cycles;
+			if (drag_x >= 0) drag_at += cpu.cycles;
+			if (btn_code >= 0) btn_at += cpu.cycles;
+		}
 
 		for (unsigned k = 0; k < nbp; k++) {
 			if (cpu.pc != bp[k])
@@ -664,7 +831,16 @@ int main(int argc, char **argv)
 			unsigned long long next = limit;
 			if (timer.t2_running && timer.t2_deadline < next)
 				next = timer.t2_deadline;
-			if (type_text && type_text[type_idx] && type_at < next)
+			/*
+			 * Until the anchor fires the scripted times have not
+			 * been rebased, so they are not deadlines yet -- and
+			 * skipping all the way to the limit would jump clean
+			 * over the anchor itself.
+			 */
+			if (!script_armed && next > cpu.cycles + 1000000)
+				next = cpu.cycles + 1000000;
+			if (script_armed && type_text && type_text[type_idx] &&
+			    type_at < next)
 				next = type_at;
 			/*
 			 * Every scripted event still to come, releases
@@ -673,6 +849,7 @@ int main(int argc, char **argv)
 			 * stayed down forever, because the skip went from the
 			 * press to the end of the run.
 			 */
+			if (script_armed) {
 			if (tap_x >= 0 && !tap_down_done && tap_at > cpu.cycles &&
 			    tap_at < next)
 				next = tap_at;
@@ -690,6 +867,7 @@ int main(int argc, char **argv)
 			    btn_at + HOLD_CYCLES > cpu.cycles &&
 			    btn_at + HOLD_CYCLES < next)
 				next = btn_at + HOLD_CYCLES;
+			}
 			if (next > cpu.cycles) {
 				uint64_t skip = next - cpu.cycles;
 				cpu.cycles += skip;
@@ -700,6 +878,7 @@ int main(int argc, char **argv)
 		}
 
 		c33_step(&cpu);
+		executed++;
 
 		/*
 		 * Runaway detection, from the word c33_step already fetched.
@@ -736,6 +915,51 @@ done:
 	if (idle_skipped)
 		printf("--- idle: %llu cycles skipped rather than spun ---\n",
 		       (unsigned long long)idle_skipped);
+	/*
+	 * The instruction counter is advanced by the idle skip as well as by
+	 * execution, so on its own it cannot say whether a build did less
+	 * work or merely waited less. Report the two separately.
+	 */
+	/* A window still open at the end of the run closes here. The device
+	   can suspend inside one and never wake -- the idle path continues
+	   before the window check, so nothing would ever close it. */
+	if (prof_window) {
+		prof_exec = executed - prof_exec0;
+		prof_clk = cpu.clk - prof_clk0;
+	}
+	if (prof_ms1 > 0)
+		snprintf(prof_win_label, sizeof prof_win_label,
+			 "%.0f..%.0f ms", prof_ms0, prof_ms1);
+	else if (prof_start)
+		snprintf(prof_win_label, sizeof prof_win_label,
+			 "0x%08x..0x%08x", prof_start, prof_end);
+	if (prof_start || prof_ms1 > 0)
+		printf("--- window %s: %llu instructions, %.2f ms, %.2f cyc/instr ---\n",
+		       prof_win_label, prof_exec,
+		       prof_clk / (MCLK_HZ / 1000.0),
+		       prof_exec ? (double)prof_clk / (double)prof_exec : 0.0);
+	printf("--- work: %llu instructions executed, %llu idle, %.1f ms guest ---\n",
+	       executed, (unsigned long long)idle_skipped,
+	       (double)cpu.clk / (MCLK_HZ / 1000.0));
+	for (unsigned k = 0; k < nprobe; k++)
+	    {
+		printf("--- probe %-28s %8llu hits  first %10llu/%8.1fms  last %10llu/%8.1fms ---\n",
+		       probe_name[k] ? probe_name[k] : "",
+		       probe_hits[k],
+		       probe_hits[k] ? probe_first_exec[k] : 0,
+		       probe_hits[k] ? probe_first_clk[k] / (MCLK_HZ / 1000.0) : 0.0,
+		       probe_hits[k] ? probe_last_exec[k] : 0,
+		       probe_hits[k] ? probe_last_clk[k] / (MCLK_HZ / 1000.0) : 0.0);
+		if (probe_gap_exec[k][0]) {
+			printf("      stalls:");
+			for (unsigned g = 0; g < NGAP && probe_gap_exec[k][g]; g++)
+				printf("  %.1fms(%lluk@%.0fms)",
+				       probe_gap_clk[k][g] / (MCLK_HZ / 1000.0),
+				       probe_gap_exec[k][g] / 1000,
+				       probe_gap_at[k][g] / (MCLK_HZ / 1000.0));
+			printf("\n");
+		}
+	    }
 	printf("--- itc: %lu register writes, serial ch1 priority %u, ESIF01=0x%02x, ch1-rx %s ---\n",
 	       itc.writes, itc_priority(&itc, 61),
 	       itc.reg[0x276 - ITC_BASE],
@@ -758,8 +982,18 @@ done:
 	       periph.conversions, periph.adc_writes, periph.overwrites);
 	if (profile)
 		c33_dump_profile(&cpu, stdout);
-	if (pc_profile)
-		c33_dump_pcprofile(&cpu, stdout);
+	{
+		/* Full dump first: the top-12 summary clears buckets as it
+		   picks them, so taking it the other way round loses the
+		   twelve that matter most. */
+		if (prof_full_path) {
+			FILE *f = fopen(prof_full_path, "w");
+			if (f) { c33_dump_pcprofile_full(&cpu, f); fclose(f); }
+			else perror(prof_full_path);
+		}
+		if (pc_profile)
+			c33_dump_pcprofile(&cpu, stdout);
+	}
 	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
 	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
 	printf("--- stopped after %llu instructions ---\n",

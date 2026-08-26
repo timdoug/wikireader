@@ -64,10 +64,49 @@ on the case it is on the edge rather than the bezel. `Q` or `Esc` quits.
 | `-m` | trace unclaimed MMIO registers |
 | `-P` | histogram of opcodes actually executed |
 | `-H` | histogram of where time is spent, by address |
+| `-X ADDR[,NAME]` | count entries to ADDR without stopping, and report the longest gaps between them |
+| `-Y A,B` | profile only between the first hits of A and B |
+| `-y M,N` | profile only between guest times M and N, in ms |
+| `-F FILE` | write every non-empty profile bucket to FILE, for diffing two runs |
+| `-Z ADDR` | time the whole input script from the first hit of ADDR |
 | `WREMU_SUSPEND_DIV=N` | (env) divide the 120 s suspend timeout by N |
 
 `-s` is usually the fastest way in: it turns a hang into a named syscall,
 a call site and a return value.
+
+### Measuring, without fooling yourself
+
+Comparing two builds of the same firmware needs more care than it looks.
+
+**`-n` is not a stopwatch.** It counts `cpu.cycles`, which the headless idle
+path also advances when it fast-forwards to the next deadline. A run that
+waits more looks like a run that computed more. The summary separates them:
+
+```
+--- work: 219633709 instructions executed, 180366291 idle, 7973.0 ms guest ---
+```
+
+**Absolute cycle numbers are not a fair script.** `-T x,y,cycle` fires at an
+instruction count, so a build that boots in fewer instructions gets the tap
+delivered at a different point in its own progress, and the two runs are no
+longer the same interaction. `-Z ADDR` rebases the whole script -- `-K`,
+`-T`, `-G`, `-N` -- onto the first time the guest reaches ADDR.
+
+**Call counts are not work.** The idle loop here busy-spins until a 2 s
+suspend timeout, so a *faster* build racks up *more* calls to `Event_get`
+and everything the poll loop touches. What that costs the person holding the
+device is the gap between polls, which `-X` reports:
+
+```
+--- probe Event_get   257853 hits  first ... last ... ---
+      stalls:  201.4ms(8400k@4794ms)  130.3ms(5322k@2794ms)  21.6ms(959k@2061ms)
+```
+
+**Whole-run profiles say nothing.** The hot code over a whole run is always
+the idle loop. `-Y A,B` and `-y M,N` restrict the profile to one phase, and
+`-F` writes every bucket so two runs can be diffed function by function --
+which is how a 25% regression in an article load was traced to a single
+missing addressing mode in `memset`.
 
 ## Booting the way the hardware does
 
