@@ -381,6 +381,15 @@ c33_print_operand (FILE * file, rtx x, int code)
 
   switch (code)
     {
+    case '#':
+      /* The ".d" that turns a branch or call into its delayed form.  Printed
+	 only when the delay-slot pass actually found something to put in the
+	 slot; an unfilled branch must stay undelayed, because the slot is
+	 not annulled and whatever follows would be executed either way.  */
+      if (dbr_sequence_length () != 0)
+	fputs (".d", file);
+      return;
+
     case 'c':
       /* We use 'c' operands with symbols for .vtinherit.  */
       if (GET_CODE (x) == SYMBOL_REF)
@@ -674,7 +683,7 @@ c33_print_operand_address (FILE * file, machine_mode /*mode*/, rtx addr)
 static bool
 c33_print_operand_punct_valid_p (unsigned char code)
 {
-  return code == '.';
+  return code == '.' || code == '#';
 }
 
 /* When assemble_integer is used to emit the offsets for a switch
@@ -2199,6 +2208,30 @@ c33_rtx_ok_for_base_p (const_rtx x, bool strict_p)
   return ((REG_P (x) && c33_reg_ok_for_base_p  (x, strict_p))
 	  || (SUBREG_P (x) && REG_P (SUBREG_REG (x))
 	      && c33_reg_ok_for_base_p (SUBREG_REG (x), strict_p)));
+}
+
+/* True when MEM is reachable by a single two-byte instruction: the
+   [%rb] and [%rb]+ forms (core manual 5.5.3, 5.5.4).  Everything else
+   needs at least one ext prefix, which matters in two places -- such a
+   reference cannot go in a delay slot, because the ext would prefix the
+   branch's own slot rather than the intended instruction, and its length
+   attribute has to admit the wider encoding.  */
+
+bool
+c33_short_memory_p (rtx op)
+{
+  if (!MEM_P (op))
+    return false;
+
+  rtx addr = XEXP (op, 0);
+
+  if (GET_CODE (addr) == POST_INC)
+    addr = XEXP (addr, 0);
+
+  /* %sp has [%sp] but is a system register: no post-increment form, and
+     nothing in a delay slot should be touching it anyway.  */
+  return ((REG_P (addr) || SUBREG_P (addr))
+	  && !(REG_P (addr) && REGNO (addr) == STACK_POINTER_REGNUM));
 }
 
 /* Implement TARGET_LEGITIMATE_ADDRESS_P.  */

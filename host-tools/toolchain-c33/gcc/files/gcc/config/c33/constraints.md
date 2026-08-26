@@ -87,9 +87,9 @@
 
 ;;; Extra constraints.
 (define_memory_constraint "Q"
-  "A memory address that does not contain a symbol address."
+  "Memory reachable in one two-byte instruction: [%rb] or [%rb]+."
   (and (match_code "mem")
-       (match_test "ep_memory_operand (op, mode, FALSE)")))
+       (match_test "c33_short_memory_p (op)")))
 
 (define_constraint "R"
   "@internal"
