@@ -80,6 +80,21 @@ This is the part to keep hold of, because it is easy to overstate.
   `file-loader`; full flash boot measured ~2.4 s earlier. This work
   improved roughly a tenth of what a user waits for.
 
+* **The article-load window is 99.95% `memset`.** 3,147,357 of 3,148,785
+  instructions, profiled per function. It is a memset microbenchmark, not
+  a representative article load - which is why the -25% earlier in the
+  session was really "post-increment landed in `memset`", and why any
+  change that does not touch `memset` measures as exactly zero there.
+* **Boot instruction counts move the wrong way when code gets faster.**
+  Boot is bounded by SD polling loops (`rcvr_datablock`, `wait_ready`),
+  which spin until the card answers. Make each iteration cheaper and they
+  spin *more* times for the same wait, so the total goes up. #4 "regressed"
+  boot by 1.6% entirely this way: +89k of the +91k instructions were those
+  two functions, and modelled time moved 163.0 -> 163.5 ms.
+* **The card image is mutable state between runs.** The guest writes to it,
+  so two runs of the same build differ unless the image is restored first.
+  This produced a 0.3% phantom difference before it was noticed.
+
 **The single highest-value measurement left is timing one fixed workload on
 real hardware.** It is the only way to convert any of this into a claim
 about seconds, and it would calibrate the emulator's cycle model at the
@@ -138,38 +153,21 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 
 ## The work queue, in the order agreed
 
-**#4 - `length` is pessimistic for memory operands.** Do this one first;
-#3 is partly downstream of it.
+**#3 - conditional-branch delay slots.** Next. #4 is done, so the
+premise it rested on has already been tested: widening the set of eligible
+fillers did unlock more slots - filled slots are up 49% in `wiki.app` and
+77% in the kernel - but re-count `jreq.d`/`jrne.d` specifically before
+deciding there is anything left to get. Two things learned doing #4 that
+bear directly on this:
 
-Every memory reference outside the `Q` constraint declares itself 6 bytes,
-because one alternative covers both the short form and the `ext`-prefixed
-one. That costs delay-slot eligibility (a slot needs a 2-byte instruction)
-and makes branch-range estimates conservative. Two ISA facts established by
-assembler probe, both of which shape the fix:
-
-* **General registers have no unextended base+displacement.**
-  `ld.w %r4,[%r5+0x10]` is rejected outright. Only `%sp` has the short
-  form, so this only ever helps stack accesses - which is still most of
-  them.
-* **The `%sp` displacement is a raw `imm6` that the hardware scales by
-  transfer size.** `ld.w %r4,[%sp+0x10]` means SP+64, not SP+16, and the
-  assembler enforces 0..63 on the written value.
-
-So the pattern must print `offset / GET_MODE_SIZE (mode)`, reject anything
-not exactly divisible, and cap at 63 x size. **Get that scaling wrong and
-every function silently reads and writes the wrong stack slots, with no
-diagnostic.** Roughly 40 lines: a `define_memory_constraint` for "`%sp`
-plus a correctly-scaled small displacement", one more alternative in each
-move pattern, and an operand modifier that divides. This is the case where
-the firmware rendering byte-identical is a good test but not a sufficient
-one - it is worth doing #1 first if you want real confidence.
-
-**#3 - conditional-branch delay slots are ~35% filled versus 3.3.2.**
-We emit 86 `jreq.d` + 58 `jrne.d`; gcc 3.3.2 emits 226 + 184. Re-measure
-after #4 rather than attacking directly: eligible fillers must be 2-byte
-instructions, so widening that set is what unlocks more of them, and 3.3.2
-gets most of its fills from *moves* pulled forward - exactly what #4 makes
-eligible.
+* **A call's slot and a jump's slot have different rules.** `call.d`
+  pushes the return address before the slot runs. There are now two
+  `define_delay`s for that reason; anything added here has to say which
+  one it belongs to.
+* **Measure cycles, not instructions.** Filling a slot does not remove an
+  instruction - the slot still executes - it removes a *cycle* of branch
+  penalty. Both headline benchmarks are counted in instructions and are
+  blind to it by construction.
 
 The residual after that is structural and will not go away: nearly every
 C33 ALU instruction writes the flags, so nothing can move across a compare
@@ -187,8 +185,11 @@ performance. Everything here is validated by "one firmware renders
 identically", which is a single program exercising a fraction of the
 language. `gcc.c-torture` and `gcc.dg` against a simulator target would be
 orders of magnitude more coverage, and it is the difference between "works
-for the WikiReader" and "is a C compiler". Note the ordering agreed puts
-this last, but #4 is exactly the kind of change it would protect.
+for the WikiReader" and "is a C compiler". The ordering agreed puts this
+last. #4 has now gone in without it, on the strength of eight matrix cells
+rendering byte-identical - which did catch the `call.d` bug, but only
+because that one happened to be fatal during boot rather than subtly
+wrong somewhere the test does not look.
 
 ### Done this session, for context
 
@@ -201,6 +202,8 @@ this last, but #4 is exactly the kind of change it would protect.
   flags and was emitted from a move pattern.
 * **the entry-point omission, in four places** - see below.
 * **`-mno-long-calls` and `-O2` as defaults** - measured on both toolchains.
+* **honest `length` for moves** (#4) - see below; worth 0.86% of cycles,
+  and it turned up a live `call.d` bug.
 
 ## Known broken
 
@@ -219,14 +222,18 @@ reproduce run to run; they do not depend on host load.
 | | boot (insn) | article (insn) | kernel | `wiki.app` |
 |---|---:|---:|---:|---:|
 | gcc 3.3.2 `-Os` | 11,189,610 | 4,198,115 | 32,812 | 170,352 |
-| `-Os` absolute | 10,297,930 | 4,197,971 | **31,744** | **144,352** |
-| `-Os` relative | 10,363,193 | 4,197,949 | 31,808 | 145,136 |
-| `-O1` absolute | 9,709,495 | 3,148,847 | 33,588 | 157,024 |
-| `-O1` relative | 9,834,376 | 3,148,825 | 33,356 | 154,896 |
-| `-O2` absolute | 7,004,177 | 3,148,805 | 37,560 | 158,104 |
-| `-O2` relative | **6,975,897** | 3,148,791 | 37,516 | 157,744 |
-| `-O3` absolute | 7,320,831 | 3,148,800 | 39,996 | 184,444 |
-| `-O3` relative | 7,272,793 | **3,148,785** | 39,948 | 184,020 |
+| `-Os` absolute | 10,019,652 | 4,197,945 | **31,196** | **141,504** |
+| `-Os` relative | 10,034,073 | 4,197,923 | 31,072 | 141,632 |
+| `-O1` absolute | 9,596,684 | 3,148,828 | 32,904 | 153,292 |
+| `-O1` relative | 9,562,585 | 3,148,807 | 32,552 | 150,848 |
+| `-O2` absolute | 7,067,758 | 3,148,785 | 37,020 | 155,228 |
+| `-O2` relative | **7,043,045** | 3,148,773 | 36,900 | 154,456 |
+| `-O3` absolute | 7,329,815 | 3,148,780 | 39,464 | 181,160 |
+| `-O3` relative | 7,320,426 | **3,148,768** | 39,348 | 180,332 |
+
+Re-measured after #4, with a fresh card image per cell. Read the boot
+column with the polling-loop caveat above: it went *up* across the board
+against the previous table while the code got smaller and faster.
 
 **The data area does not matter.** Absolute against `%r15`-relative is
 within 1.3% on boot, within 22 instructions on the article load, and within
@@ -245,6 +252,80 @@ past gcc 3.3.2's own size.
 **`-O2` is the recommendation**: fastest boot, article load within 25
 instructions of the best, and `wiki.app` still 7% smaller than the
 toolchain being replaced.
+
+## What `length` has to say, and the call bug it hid
+
+The move and extend patterns used to declare six bytes for every memory
+alternative, on the reasoning that one alternative covers both the short
+form and the `ext`-prefixed one. Most of those assemble to two.
+
+`ext imm13` is a two-byte prefix, and an `x`-prefixed mnemonic lets gas
+pick the narrowest encoding that works. How many bits one prefix buys
+depends on whether the instruction has an immediate field of its own to
+concatenate with - which is the fact that makes `%sp` special:
+
+| form | field | 0 / 1 / 2 prefixes |
+|---|---|---|
+| `ld.w %rd,imm6` | signed `imm6` | 6, 19, 32 bits |
+| `ld.w %rd,[%sp+imm6]` | unsigned `imm6`, **scaled** | 6, 19, 32 bits |
+| `ld.w %rd,[%rb]` | none | 0, 13, 26 bits |
+
+So a general register never reaches a nonzero displacement in two bytes
+and `%sp` reaches 63 words up the frame. These came from assembling each
+boundary; the manual does not say what gas will narrow.
+
+Two things about `[%sp+imm6]` are worth keeping:
+
+* **gas scales it for you in the `x` form.** `xld.w %r4,[%sp+16]` and
+  `ld.w %r4,[%sp+4]` assemble to the same two bytes. The written operand
+  is a byte offset in one and a raw field value in the other.
+* **gas does not diagnose a displacement it cannot scale.**
+  `xld.w %r4,[%sp+2]` assembles silently to `[%sp+0]`. The only thing
+  stopping GCC emitting one is the alignment test in
+  `c33_legitimate_address_p`. Do not remove it.
+
+The good news for anyone changing this: an *under*-estimate is loud.
+A short branch that cannot reach is a hard assembler error
+(`operand out of range`), not a silent truncation, so the firmware
+building at all is real evidence.
+
+### The bug this exposed
+
+Making stack references two bytes made them eligible for delay slots for
+the first time, and that is when the kernel started running away during
+boot. A call pushes the return address *before* its slot executes:
+
+```
+call.d  f              ; %sp -= 4, return address stored
+ld.w    [%sp+0],%r4    ; ...lands on top of it
+```
+
+Every `%sp` reference in a call's slot is off by four, and `[%sp+0]`
+overwrites the address just pushed - the callee returns into whatever the
+slot happened to store. There were 530 in `wiki.app`.
+
+The call patterns do not mention `%sp` in their RTL, so reorg cannot see
+this for itself. There are now two `define_delay`s: calls exclude anything
+mentioning `%sp`, jumps and conditional branches keep the wider rule. The
+alternative - making the call patterns describe the push - is more honest
+and was not taken, because it perturbs every pass that looks at a call.
+
+### What it was worth
+
+Filled slots up 49% in `wiki.app` and 77% in the kernel, 214 fewer `ext`
+prefixes, 140 bytes smaller, all eight matrix cells byte-identical.
+
+**0.86% of cycles for identical work** - 112.96M instructions in
+2600.72 ms against 112.97M in 2578.23 ms, 1.381 -> 1.369 cycles per
+instruction. That is the honest figure, and it is small. Neither headline
+benchmark shows any of it, for the two reasons in "Read those numbers
+correctly": boot is polling-bound and the article window is `memset`.
+
+Also worth knowing for next time: `(eq_attr "length" "2")` does not
+survive a length computed by `symbol_ref`. genattrtab substitutes the call
+and then compares it against `LENGTH_2`, an enumerator that does not exist
+for a numeric attribute. `(match_test "get_attr_length (insn) == 2")`
+means the same thing and compiles.
 
 ## The entry-point bug, four times
 
