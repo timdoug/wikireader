@@ -257,8 +257,8 @@ int main(int argc, char **argv)
 	char prof_win_label[64] = "";
 	uint32_t prof_start = 0, prof_end = 0;
 	bool prof_window = false, prof_done = false;
-	unsigned long long prof_exec0 = 0, prof_clk0 = 0;
-	unsigned long long prof_exec = 0, prof_clk = 0;
+	unsigned long long prof_exec0 = 0, prof_clk0 = 0, prof_idle0 = 0;
+	unsigned long long prof_exec = 0, prof_clk = 0, prof_idle = 0;
 	uint32_t vwatch = 0; bool vwatch_on = false;
 	uint32_t dump = 0; bool dump_on = false;
 	unsigned long dump_len = 64;
@@ -695,12 +695,14 @@ int main(int argc, char **argv)
 			if (!prof_window && ms >= prof_ms0) {
 				prof_window = true;
 				prof_exec0 = executed; prof_clk0 = cpu.clk;
+				prof_idle0 = idle_skipped;
 				cpu.profile = profile;
 				cpu.pc_profile = pc_profile;
 			} else if (prof_window && ms >= prof_ms1) {
 				prof_window = false; prof_done = true;
 				prof_exec = executed - prof_exec0;
 				prof_clk = cpu.clk - prof_clk0;
+				prof_idle = idle_skipped - prof_idle0;
 				cpu.profile = cpu.pc_profile = false;
 			}
 		}
@@ -709,12 +711,14 @@ int main(int argc, char **argv)
 			if (!prof_window && cpu.pc == prof_start) {
 				prof_window = true;
 				prof_exec0 = executed; prof_clk0 = cpu.clk;
+				prof_idle0 = idle_skipped;
 				cpu.profile = profile;
 				cpu.pc_profile = pc_profile;
 			} else if (prof_window && prof_end && cpu.pc == prof_end) {
 				prof_window = false; prof_done = true;
 				prof_exec = executed - prof_exec0;
 				prof_clk = cpu.clk - prof_clk0;
+				prof_idle = idle_skipped - prof_idle0;
 				cpu.profile = cpu.pc_profile = false;
 			}
 		}
@@ -926,6 +930,7 @@ done:
 	if (prof_window) {
 		prof_exec = executed - prof_exec0;
 		prof_clk = cpu.clk - prof_clk0;
+		prof_idle = idle_skipped - prof_idle0;
 	}
 	if (prof_ms1 > 0)
 		snprintf(prof_win_label, sizeof prof_win_label,
@@ -934,10 +939,10 @@ done:
 		snprintf(prof_win_label, sizeof prof_win_label,
 			 "0x%08x..0x%08x", prof_start, prof_end);
 	if (prof_start || prof_ms1 > 0)
-		printf("--- window %s: %llu instructions, %.2f ms, %.2f cyc/instr ---\n",
+		printf("--- window %s: %llu instructions, %.2f ms, %llu idle, %.2f cyc/instr ---\n",
 		       prof_win_label, prof_exec,
-		       prof_clk / (MCLK_HZ / 1000.0),
-		       prof_exec ? (double)prof_clk / (double)prof_exec : 0.0);
+		       prof_clk / (MCLK_HZ / 1000.0), prof_idle,
+		       prof_exec ? (double)(prof_clk - prof_idle) / (double)prof_exec : 0.0);
 	printf("--- work: %llu instructions executed, %llu idle, %.1f ms guest ---\n",
 	       executed, (unsigned long long)idle_skipped,
 	       (double)cpu.clk / (MCLK_HZ / 1000.0));
