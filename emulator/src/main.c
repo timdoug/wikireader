@@ -45,7 +45,8 @@ static void usage(const char *p)
 		"  -Z A   time the input script from the first hit of A\n"
 		"  -Y A,B profile only between the first hits of A and B\n"
 		"  -y M,N profile only between guest times M and N, in ms\n"
-		"  -F F   write every non-empty profile bucket to F\n", p);
+		"  -F F   write every non-empty profile bucket to F\n"
+		"  -M A,N arm probes/windows only after the Nth hit of A\n", p);
 }
 
 
@@ -248,6 +249,15 @@ int main(int argc, char **argv)
 	 */
 	uint32_t anchor = 0; bool script_armed = true;
 	/*
+	 * init.app and wiki.app are both linked at 0x10040000, so an address
+	 * taken from one application's map can be hit while the other is
+	 * running.  Everything below -- probes, the script anchor, profile
+	 * windows -- stays disarmed until ADDR has been reached N times, which
+	 * is how you say "not until the second application is loaded".
+	 */
+	uint32_t arm_addr = 0; unsigned long arm_n = 0, arm_seen = 0;
+	bool armed = true;
+	/*
 	 * Profile only between two program events. Over a whole run the hot
 	 * code is whatever the idle loop happens to be, which drowns out the
 	 * one phase you care about.
@@ -353,6 +363,13 @@ int main(int argc, char **argv)
 			prof_start = (uint32_t)strtoul(a, &a, 0);
 			if (*a == ',') prof_end = (uint32_t)strtoul(a + 1, NULL, 0);
 			pc_profile = profile = true;
+		}
+		else if (!strcmp(argv[i], "-M") && i + 1 < argc) {
+			/* arm everything after the Nth hit of ADDR: -M ADDR,N */
+			char *a = argv[++i];
+			arm_addr = (uint32_t)strtoul(a, &a, 0);
+			arm_n = (*a == ',') ? strtoul(a + 1, NULL, 0) : 1;
+			armed = false;
 		}
 		else if (!strcmp(argv[i], "-Z") && i + 1 < argc) {
 			anchor = strtoul(argv[++i], NULL, 0);
@@ -664,7 +681,15 @@ int main(int argc, char **argv)
 		}
 		ring[rn++ % RING] = cpu.pc;
 
-		for (unsigned k = 0; k < nprobe; k++) {
+		if (!armed) {
+			if (cpu.pc == arm_addr && ++arm_seen >= arm_n) {
+				armed = true;
+				fprintf(stderr, "  [armed at 0x%08x, hit %lu]\n",
+					arm_addr, arm_seen);
+			}
+		}
+
+		for (unsigned k = 0; armed && k < nprobe; k++) {
 			if (cpu.pc != probe[k])
 				continue;
 			if (!probe_hits[k]) {
@@ -690,7 +715,7 @@ int main(int argc, char **argv)
 			probe_hits[k]++;
 		}
 
-		if (prof_ms1 > 0 && !prof_done) {
+		if (armed && prof_ms1 > 0 && !prof_done) {
 			double ms = cpu.clk / (MCLK_HZ / 1000.0);
 			if (!prof_window && ms >= prof_ms0) {
 				prof_window = true;
@@ -707,7 +732,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (prof_start && !prof_done) {
+		if (armed && prof_start && !prof_done) {
 			if (!prof_window && cpu.pc == prof_start) {
 				prof_window = true;
 				prof_exec0 = executed; prof_clk0 = cpu.clk;
@@ -728,7 +753,7 @@ int main(int argc, char **argv)
 		 * here, so "tap 400 ms after the keyboard was up" means the
 		 * same thing in a build that reached that point sooner.
 		 */
-		if (!script_armed && cpu.pc == anchor) {
+		if (armed && !script_armed && cpu.pc == anchor) {
 			script_armed = true;
 			fprintf(stderr, "  [anchor 0x%08x at %llu, script rebased]\n",
 				anchor, (unsigned long long)cpu.cycles);
@@ -738,7 +763,7 @@ int main(int argc, char **argv)
 			if (btn_code >= 0) btn_at += cpu.cycles;
 		}
 
-		for (unsigned k = 0; k < nbp; k++) {
+		for (unsigned k = 0; armed && k < nbp; k++) {
 			if (cpu.pc != bp[k])
 				continue;
 			printf("\nBREAK at 0x%08x (cycle %llu)\n", cpu.pc,
