@@ -97,17 +97,27 @@ SECTIONS
     } > ksdram
     __END_rodata = . ;
 
-    .bss : {
-         __START_bss = . ;
-         *(.bss)
-    } > ksdram
-     __END_bss = . ;
+    /* .data before .bss.  With .bss first, the LOAD segment's filesz has to
+       stretch past it to reach .data, so every byte of .bss ends up stored
+       in the file as zeroes -- 27kB of the kernel, read off the card at
+       every boot.  binutils 2.10.1 split this into two segments; modern ld
+       does not.  Putting .bss last lets it stay NOBITS.
+
+       The wildcard patterns matter for the same reason .text.* did:
+       gcc 4 and later split sections, and an unmatched one becomes an
+       orphan placed wherever ld likes.  */
 
     .data : {
          __START_data = . ;
-         *(.data)
+         *(.data .data.*)
     } > ksdram
     __END_data = . ;
+
+    .bss : {
+         __START_bss = . ;
+         *(.bss .bss.* COMMON)
+    } > ksdram
+     __END_bss = . ;
 
     . = ALIGN(1024);
 
