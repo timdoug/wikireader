@@ -16,8 +16,8 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
-| `gcc.c-torture` execute | **100% of what is testable, at every optimisation level**; found four wrong-code bugs the firmware could not reach |
-| `gcc.c-torture` compile | 1975 of 2003 per level, one ICE, in generic GCC rather than the backend |
+| `gcc.c-torture` execute | **1668 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
+| `gcc.c-torture` compile | 1973 of 2003 per set, one ICE, in generic GCC rather than the backend |
 
 ### binutils - finished
 
@@ -277,28 +277,43 @@ is never allowed to look like a timeout.
 fixed toolchain boots, types `LOVE`, and renders a screen **byte-
 identical** to the one built before these changes.
 
+### The runtime was capping the score, not the compiler
+
+53 of the 77 tests reported "unsupported" turned out to be unsupported only
+because they referenced a symbol nothing defined - `exit` under the name
+mini-libc actually declares it (`__stop_progExec__`), `putchar`, `malloc`,
+`setjmp`. `tests/runtime/` supplies them now, and the allocator is grifo's
+own `memory.c` compiled from the firmware source rather than something
+written for the occasion, so those tests put real firmware code through the
+new compiler as a side effect. See `tests/FAILURES.md`.
+
+The lesson generalises past this suite: when a harness reports a number,
+check what the harness is measuring before believing it is measuring the
+thing under test.
+
+### -O3 and -Og were never run, and are clean
+
+The suite now runs all seven option sets `c-torture.exp` uses, not four.
+The two `-O3` sets are the ones that lean hardest on the delay-slot filling
+and instruction-length model this port has been changing, so they were the
+most likely place for something to be hiding. Nothing was.
+
 ## What is next
 
-1. **Re-run the compile suite.** `tests/run-torture.sh` carries
-   compile-mode changes - honouring `dg-do ... { target }`, treating a
-   `dg-error` test as passing when the compiler diagnoses rather than
-   crashes, and reporting unrecognised options and `__int128` as
-   unsupported - that were checked by hand against the 23 individual
-   failures but **have not been run over the suite**. Expect the 23 to
-   go; confirm nothing else moves.
-2. **`pr110266`, the one ICE.** In `expand_builtin_cexpi`, not in the
-   backend; needs a target with no C99 complex math *and* one that passes
-   `_Complex double` in memory. Either carry a local `builtins.cc` patch
-   or record it as a known upstream limitation. No program that can run
+1. **`pr110266`, the one ICE.** Upstream's, in `expand_builtin_cexpi` -
+   confirmed by experiment, see `tests/FAILURES.md`. Either carry a local
+   `builtins.cc` patch or report it and leave it. No program that can run
    on this device is affected.
-3. **Re-measure the headline numbers.** Every figure in the table above
+2. **Re-measure the headline numbers.** Every figure in the table above
    was taken with the stale `libgcc`, so anything touching `long long` or
    soft float in the firmware was measured against broken code. The
    screens are identical, so nothing user-visible changed, but the
    instruction counts deserve a fresh pass.
-4. **Widen the net**: `-O3`, and `gcc.dg`. The torture suite has stopped
-   being the binding constraint.
-5. **`emulator/src/main.c` has debug scaffolding** left uncommitted from
+3. **`gcc.dg`.** A different scale of job: those tests assert on
+   diagnostic text and line numbers, so it needs an actual DejaGnu driver
+   rather than a shell script. The torture suite has stopped being the
+   binding constraint on confidence, and this is what replaces it.
+4. **`emulator/src/main.c` has debug scaffolding** left uncommitted from
    an earlier session - a `WREMU_CP` env-gated block hard-coding
    `0x10052482`. Not from this work; worth deleting.
 

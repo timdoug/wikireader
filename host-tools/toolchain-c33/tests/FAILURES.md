@@ -1,78 +1,89 @@
 # gcc.c-torture: what fails
 
-Regenerate with `tests/run-torture.sh execute` and `... compile`.
+Regenerate with `tests/run-torture.sh execute` and `... compile`. Both run
+all seven of upstream's option sets: `-O0`, `-O1`, `-O2`,
+`-O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions`,
+`-O3 -g`, `-Os`, `-Og -g`.
 
-## execute - nothing fails
+## execute - nothing fails, at any level
 
-Verified by a clean full run, all four levels, 2026-08-27.
+Verified by a clean full run, 2026-08-27. Identical at all seven sets:
 
 | | pass | unsupported | fail |
 |---|---:|---:|---:|
-| `-O0` | 1611 | 81 | **0** |
-| `-O1` | 1615 | 77 | **0** |
-| `-O2` | 1615 | 77 | **0** |
-| `-Os` | 1615 | 77 | **0** |
+| every option set | **1668** | 24 | **0** |
 
-1692 tests each. The four extra unsupported at `-O0` are `20000914-1`,
-`complex-6`, `pr103405` and `pr15262-1`, which call `malloc`; at `-O1`
-and above it gets optimised away and they link.
+1692 tests each, 11,844 results. For scale, the baseline two passes ago was
+1553 / 1569 / 1534 / 1530 at four levels with 72 distinct tests failing, and
+before the runtime work below it was 1611-1615 with 77 unsupported.
 
-The previous baseline, for scale: 1553 / 1569 / 1534 / 1530, with 72
-distinct tests failing.
+### The 24 that cannot run here
 
-### What "unsupported" covers
+Nothing left in this list is about the backend, and none of it is cheap to
+recover - it is a libm, a filesystem, or a 128-bit integer type.
 
-77 of 1692, and none of them are about the backend. The harness reports a
-test unsupported when it cannot be built or run here at all, which it
-detects three ways:
+| what they need | tests |
+|---|---|
+| `FILE *`, `stdout`/`stderr`, `fopen`/`fclose`/`fscanf` | `fprintf-1` `fprintf-2` `fprintf-chk-1` `printf-2` `user-printf` `vfprintf-1` `vfprintf-chk-1` `gofast` |
+| `__int128` or decimal float | `pr105613` `pr80692` `pr84748` `pr93213` |
+| a C99 math library | `980709-1` `990826-0` `float-floor` `20030125-1` |
+| `%f`, `%hhd` or `%#hhx` in printf | `920501-8` `930513-1` `pr78622` `pr79327` |
+| `<sys/mman.h>` | `loop-2f` `loop-2g` |
+| `<signal.h>` | `20101011-1` |
+| x86 register names in `asm` | `990413-2` |
 
-* **From the compiler's own diagnostics** - a header mini-libc does not
-  have (`math.h`, `setjmp.h`, `signal.h`, `sys/mman.h`), `__int128`,
-  decimal float, an x86 or MIPS register name in an `asm`, an option this
-  target does not take, an undefined reference, or `stdout`/`stderr`,
-  which this runtime has no concept of.
-* **From `{ dg-do ... { target ... } }`** when the selector is a triplet
-  for another architecture, or `lp64`.
-* **From a four-entry list in the harness**, for tests that build and run
-  but need a libc feature mini-libc lacks, so they abort exactly as a
-  miscompilation would and nothing in the output distinguishes them:
-  `920501-8` and `930513-1` want `%f` in `sprintf`, `pr79327` wants
-  `%#hho`/`%#hhx`, `20030125-1` wants a C99 math library to fold `sin`
-  and `floor` against.
+The harness detects the first six groups from the compiler's own
+diagnostics or from `{ dg-do ... { target ... } }`. The four printf ones
+build and run and then abort, exactly as a miscompilation would, so nothing
+in the output distinguishes them - they are named individually in
+`skip_reason()` in the harness, with what each wants.
 
-Upstream skips most of these itself, with `dg-skip-if { freestanding }`
-or `dg-require-effective-target c99_runtime`. This harness does not model
-effective targets: a blanket skip on those directives would also throw
-away a dozen tests that do pass here, so the narrower rules above are
-used instead and the residue is listed by name.
+### What made the difference: the runtime, not the compiler
 
-## compile - 1975 of 2003 per level, one ICE
+53 of the previous 77 unsupported were unsupported only because they
+referenced a symbol nothing defined. Four gaps accounted for nearly all of
+it, and `tests/runtime/` now fills them:
 
-Numbers below are from the last **verified** full run, which used the
-harness as it stood before the compile-mode refinements described in
-"Next steps". They will improve when that is re-run.
+* **`exit()`** - mini-libc declares it `__asm__("__stop_progExec__")`, so
+  every test including `<stdlib.h>` linked against that name and not
+  `exit`. One label in `crt0.s`; 38 tests referenced it.
+* **`putchar`** - mini-libc's `printf` calls `vuprintf(putchar, ...)` and
+  expects the user to supply `putchar`. It writes to `REG_EFSIF0_TXD`, so a
+  failing test's own output now lands in the emulator's serial capture.
+* **`malloc`/`free`/`calloc`** - thin wrappers over **grifo's allocator**,
+  compiled straight from `samo-lib/grifo/src/memory.c`. Reusing the
+  firmware's rather than writing one means these tests also put real
+  firmware code through the new compiler. No `realloc`: grifo has no
+  equivalent and faking one means duplicating `memory.c`'s header layout
+  here. Nothing needs it, and a test that did would fail to link - which
+  reports UNSUPPORTED rather than something silently wrong.
+* **`setjmp`/`longjmp`** - the one piece with no firmware equivalent, so it
+  is written here. The C33 has no link register: `call` pushes the return
+  address and `ret` pops it, so the buffer is `%r0`-`%r3`, `%sp`, and the
+  word at `[%sp+0]` on entry.
+
+## compile - 1972/1973 of 2003 per set, one ICE
 
 | | pass | ICE | fail | unsupported |
 |---|---:|---:|---:|---:|
-| `-O0` | 1975 | 1 | 22 | 5 |
-| `-O1` | 1975 | 0 | 23 | 5 |
-| `-O2` | 1975 | 0 | 23 | 5 |
-| `-Os` | 1975 | 0 | 23 | 5 |
+| `-O0` and `-Og -g` | 1972 | 1 | 2 | 28 |
+| the other five | 1973 | 0 | 2 | 28 |
 
-The 23 `FAIL`s were read individually and every one is the harness or the
-target, not codegen:
+The 28 unsupported are another architecture's `dg-options` (`-mavx`,
+`-march=skylake`, `-mcpu=603e`, `-pthread`), another architecture's
+`dg-do` target selector (x86, MIPS, `lp64`), or `__int128`.
 
-| what | tests |
-|---|---|
-| `dg-options` naming another architecture's flags (`-mavx`, `-march=skylake`, `-mcpu=603e`, `-pthread`) | `pr110386-2` `pr88423` `pr88347` `pr86636` `pr86637-2` `pr89235` |
-| `dg-do compile { target i?86 / mips / lp64 }` | `asmgoto-3` `pr30311` `mipscop-1..4` `pr65680` |
-| needs `__int128` | `bitfield-1` `bitfield-endian-1` `bitfield-endian-2` `pr99822` |
-| the test *expects* a diagnostic (`dg-error`) | `pr83547` `pr48767` `20030305-1` `pr28865` |
-| K&R storage class on a parameter | `dll` |
+Two `FAIL`s remain, both classified and neither codegen:
+
+* `pr99822` - wants `__int128`. The message is `expected expression before
+  '__int128'`, which the unsupported-detector's pattern does not match; it
+  looks for `unknown type name`. Cosmetic.
+* `dll` - `__declspec(dllimport)` on a parameter. A Windows test.
 
 ### The one ICE
 
-`pr110266`, at `-O0` only:
+`pr110266`, at `-O0` and `-Og -g` - the levels that do not fold the
+guarding `if` away before expand:
 
 ```c
 double PsyBufferUpdate (int n)
@@ -90,32 +101,30 @@ double PsyBufferUpdate (int n)
 internal compiler error: in expand_expr_addr_expr_1, at expr.cc:9343
 ```
 
-It is not in the c33 backend. `expand_builtin_cexpi` (`gcc/builtins.cc`)
-has three paths: a `sincos` optab, a `sincos` libcall, and a `cexp`
-libcall. We have no `sincos` pattern, and `elfos.h` sets
-`TARGET_LIBC_HAS_FUNCTION` to `no_c99_libc_has_function`, so it takes the
-third - where it builds a `COMPLEX_EXPR` rvalue and calls `cexp` with it.
-A `_Complex double` is 16 bytes, so this ABI passes it in memory, so
-expand has to take the address of that rvalue, and `get_inner_reference`
-makes no progress on a `COMPLEX_EXPR`: `gcc_assert (inner != exp)`.
+**It is upstream's, not ours**, and the evidence is direct:
 
-So it needs both halves - a target with no C99 complex math *and* one
-that passes `_Complex double` in memory. Fixing it means patching generic
-GCC, which nothing in this port has done so far. It was invisible until
-this session because the harness passed `-fno-builtin`.
+* The failing code is entirely generic - `expand_builtin_cexpi` in
+  `gcc/builtins.cc` calling into `gcc/expr.cc`. Nothing in `config/c33` is
+  on the path.
+* Reaching it needs two target properties, neither of which we chose
+  wrongly. `elfos.h` - not us - sets `TARGET_LIBC_HAS_FUNCTION` to
+  `no_c99_libc_has_function`, so `expand_builtin_cexpi` falls past its
+  `sincos` optab and `sincos` libcall paths to the `cexp` one, where it
+  builds a `COMPLEX_EXPR` *rvalue* and passes it by value. And a
+  `_Complex double` is 16 bytes, so this ABI passes it in memory, so expand
+  must take that rvalue's address - and `get_inner_reference` makes no
+  progress on a `COMPLEX_EXPR`: `gcc_assert (inner != exp)`.
+* Both halves are necessary, confirmed by experiment. `__builtin_cexpif`
+  gives a `_Complex float`, 8 bytes, passed in registers - **compiles
+  fine**. And an ordinary 16-byte `struct { double a, b; }` returned by
+  value **compiles fine**, so memory-passed aggregates are not broken in
+  general.
 
-## Next steps
-
-1. **Re-run the compile suite.** `run-torture.sh` has uncommitted-at-time-
-   of-writing changes for compile mode - honouring `dg-do ... { target }`,
-   treating a `dg-error` test as passing when the compiler diagnoses
-   rather than crashes, and reporting unrecognised options and
-   `__int128` as unsupported. Each was checked by hand against the tests
-   above; none has been run over the suite.
-2. **Decide what to do about `pr110266`.** Either patch `builtins.cc` to
-   force the `COMPLEX_EXPR` into a temporary and carry it as a local
-   change, or record it as a known upstream limitation and move on. It
-   affects no program that could run on this device: there is no complex
-   math library to call.
-3. **Widen the net.** `-O3`, and `gcc.dg` - the torture suite is now
-   clean enough that it has stopped being the binding constraint.
+So the ABI is right (>8 bytes to memory, inherited from gcc 3.3.2) and the
+configuration is right; upstream simply has a path that assumes the
+`COMPLEX_EXPR` never needs an address. It cannot be fixed inside
+`config/c33` without lying about the target - claiming a `sincos` pattern
+or a C99 libm we do not have. Either carry a local `builtins.cc` patch
+forcing that rvalue into a temporary, or report it and leave it. No program
+that can run on this device is affected: there is no complex math library
+to call.
