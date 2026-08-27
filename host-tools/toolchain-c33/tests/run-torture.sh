@@ -102,7 +102,7 @@ mkdir -p "${WORK}"
 # only pad the numbers: a test that wants <math.h>, or __int128, or an x86
 # register name, was never going to run here.
 unsupported_p() {
-	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|invalid register name|unknown type name '__u?int128_t'|unrecognized command-line option|undefined reference|cannot find|'std(in|out|err)' undeclared" "$1"
+	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|invalid register name|unknown type name '__u?int128_t'|expected expression before '__int128'|before '__declspec'|unrecognized command-line option|undefined reference|cannot find|'std(in|out|err)' undeclared" "$1"
 }
 
 # Tests that name the target they are for, in { dg-do compile { target ... } }.
