@@ -1718,11 +1718,22 @@ expand_epilogue (void)
       highest = i;
 
   /* If a frame pointer was set up, recover %sp from it: the frame may have
-     been extended dynamically by alloca.  */
+     been extended dynamically by alloca.
+
+     That is not enough on its own.  expand_prologue establishes the frame
+     pointer *after* carving out the locals, so it marks the bottom of the
+     frame and not the top -- which is what INITIAL_ELIMINATION_OFFSET
+     assumes, so it is the frame pointer that has to stay put.  Restoring
+     %sp from it therefore puts %sp back where it already was and gives
+     nothing back, and the popn below then reads the saved registers from
+     the wrong end of the frame and ret returns to whatever was there.
+
+     So the fixed local and outgoing-argument area is given back either
+     way, and the frame pointer only undoes an alloca.  */
   if (frame_pointer_needed)
     emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
-  else
-    c33_adjust_sp (actual_fsize - save_size, false);
+
+  c33_adjust_sp (actual_fsize - save_size, false);
 
   if (highest >= 0)
     emit_insn (gen_popn (GEN_INT (highest)));
