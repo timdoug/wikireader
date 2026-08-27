@@ -48,12 +48,23 @@ typedef long long int64_t;
 typedef unsigned long long uint64_t;
 #endif
 
+/* This header came from an AVR/MSP430 libc, where a pointer is 16 bits.
+   On the C33 it is 32, so the original int16_t/uint16_t typedefs below
+   were simply wrong -- a cast through intptr_t would have truncated
+   every address.  Nothing in the firmware uses them, which is why it
+   never showed; gcc's own <stdint.h> does, and the two definitions
+   collide.  Take the width from the compiler rather than guess again.  */
+
 #ifndef __intptr_t_defined
 #define __intptr_t_defined
-typedef int16_t intptr_t;
-typedef uint16_t uintptr_t;
+#ifdef __INTPTR_TYPE__
+typedef __INTPTR_TYPE__ intptr_t;
+typedef __UINTPTR_TYPE__ uintptr_t;
+#else
+/* gcc 3.3.2 predefines neither, and the firmware still builds with it.  */
+typedef long intptr_t;
+typedef unsigned long uintptr_t;
 #endif
-
-#define _MSP430_SIZE_T_	uint16_t
+#endif
 
 #endif
