@@ -1543,10 +1543,24 @@ int retrieve_article(long idx_article_with_wiki_id)
 			dat_article_len -= LZMA_PROPS_SIZE;
 
 			ELzmaStatus status;
-			//SizeT file_buffer_len = FILE_BUFFER_SIZE;
+			/*
+			 * The second argument is how much room file_buffer
+			 * has, not how much the article wants. Passing
+			 * required_len -- offset plus the article length,
+			 * both read out of the .dat file -- let any article
+			 * needing more than FILE_BUFFER_SIZE decompress
+			 * straight off the end of the buffer and over
+			 * whatever the heap had put after it. The wiki
+			 * index array was one victim: its entries came back
+			 * as article text, and indexing wiki_list[] with one
+			 * of those reads an arbitrary address.
+			 */
+			SizeT file_buffer_len = required_len;
+			if (file_buffer_len > FILE_BUFFER_SIZE)
+				file_buffer_len = FILE_BUFFER_SIZE;
 			SizeT compressed_buffer_len = dat_article_len;
 			int rc = (int)LzmaDecode(file_buffer,
-						 &required_len,
+						 &file_buffer_len,
 						 (const Byte *)compressed_buf + LZMA_PROPS_SIZE,
 						 &compressed_buffer_len,
 						 (const Byte *)compressed_buf, LZMA_PROPS_SIZE,
@@ -1563,8 +1577,17 @@ int retrieve_article(long idx_article_with_wiki_id)
 						restricted_article = 0;
 					}
 					// memory overlaps so cannot use memcpy
-					memmove(file_buffer, &file_buffer[offset], concat_article_infos[idx_concat_article].article_len);
-					file_buffer[concat_article_infos[idx_concat_article].article_len] = '\0';
+					// and the source has to be inside what
+					// was actually decoded, which a
+					// truncated decode makes shorter than
+					// the article claims
+					SizeT len = concat_article_infos[idx_concat_article].article_len;
+					if (offset >= file_buffer_len)
+						len = 0;
+					else if (offset + len > file_buffer_len)
+						len = file_buffer_len - offset;
+					memmove(file_buffer, &file_buffer[offset], len);
+					file_buffer[len] = '\0';
 					return 0;
 				}
 			}

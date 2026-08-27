@@ -129,7 +129,7 @@ void *Memory_allocate(size_t size, const char *tag)
 	for (; NULL != h; h = h->next) {
 		if (STATUS_free == h->status) {
 			if (MAGIC_0 != h->magic[0] ||
-			    MAGIC_0 != h->magic[0]) {
+			    MAGIC_1 != h->magic[1]) {
 				DisplayHeap("Heap is corrupted: %s", tag);
 				break;
 			}
@@ -174,7 +174,7 @@ void Memory_free(void *address, const char *tag)
 	AllocationHeaderType *h = (AllocationHeaderType *)((uint32_t)(address) & ~PAGE_MASK);
 
 	if (MAGIC_0 != h->magic[0] ||
-	    MAGIC_0 != h->magic[0]) {
+	    MAGIC_1 != h->magic[1]) {
 		DisplayHeap("freeing: %p non-allocated memory: %s\n", address, tag);
 	}
 
@@ -217,7 +217,7 @@ void DisplayHeap(const char *format, ...)
 
 	for (; NULL != h; h = h->next) {
 		if (MAGIC_0 != h->magic[0] ||
-		    MAGIC_0 != h->magic[0]) {
+		    MAGIC_1 != h->magic[1]) {
 			Serial_printf("%p: corrupted entry: magic={0x%08lx, 0x%08lx}\n", h, h->magic[0], h->magic[1]);
 			break;
 		}
