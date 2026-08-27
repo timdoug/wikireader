@@ -206,17 +206,6 @@ SDRAM wait states. On real memory that cycle amortises against stalls.
 Treat 20% as an upper bound. Not clearing the 4 MB survives contact with
 real SDRAM; making the loop 1 cycle tighter may not.
 
-**#1 - the GCC testsuite has never been run.** The big one, and it is not
-performance. Everything here is validated by "one firmware renders
-identically", which is a single program exercising a fraction of the
-language. `gcc.c-torture` and `gcc.dg` against a simulator target would be
-orders of magnitude more coverage, and it is the difference between "works
-for the WikiReader" and "is a C compiler". The ordering agreed puts this
-last. #4 has now gone in without it, on the strength of eight matrix cells
-rendering byte-identical - which did catch the `call.d` bug, but only
-because that one happened to be fatal during boot rather than subtly
-wrong somewhere the test does not look.
-
 ### Done this session, for context
 
 * **post-increment addressing** - `HAVE_POST_INCREMENT` was never defined,
@@ -235,6 +224,8 @@ wrong somewhere the test does not look.
   the ALU patterns. 49.7% -> 58.0% filled, against 3.3.2's 58.9%.
 * **soft float** (#5) - all of it was one unfoldable constant; see below.
   Zero calls now.
+* **the GCC testsuite** (#1) - run for the first time, and it found two
+  wrong-code bugs the firmware had been dodging. See below.
 
 ## Known broken
 
@@ -461,6 +452,87 @@ anyone touches this.
 The gcc 3.3.2 comparison in earlier notes said it called soft float 7x
 more often. That was never about code quality: 3.3.2 inlined less across
 the same boundary, so it made the same pointless calls more often.
+
+## The testsuite, at last
+
+`gcc.c-torture`, run against the emulator. There is no DejaGnu board and
+no newlib for this target, so `tests/run-torture.sh` drives it directly:
+compile, link against `tests/runtime` and mini-libc, run under `wremu`,
+read the answer out of the register dump.
+
+**compile: 1964 of 2003 pass, and not one ICE.** The 39 are old sources
+that modern C rejects outright - `redefinition of 'foo'` and friends -
+not backend failures.
+
+**execute, of 1692:**
+
+| | pass | abort | timeout | fault | exit!=0 | unsup | fail |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `-O0` | 1553 | 5 | 23 | 0 | 0 | 77 | 34 |
+| `-O1` | **1569** | 10 | 12 | 0 | 0 | 67 | 34 |
+| `-O2` | 1534 | 17 | 25 | 2 | 13 | 67 | 34 |
+| `-Os` | 1530 | 20 | 25 | 2 | 12 | 69 | 34 |
+
+`unsup` is a libc this runtime does not have and `fail` is the same 34
+sources the compile run rejects; neither is a backend result. Against
+what is actually testable that is about 98%.
+
+### Two wrong-code bugs, both of which the firmware dodged
+
+**The assembler counted a symbol's own offset twice.** `md_apply_fix`
+ended with an unconditional `fixp->fx_addnumber = value`, and for a
+PC-relative fixup that still has a symbol, `value` is the fully resolved
+target - which already includes the symbol's offset within its section.
+The relocation names the symbol too, so the linker added that offset
+again. The V850 this port came from has three cases there and only this
+one was dropped.
+
+It needs a same-file call *across sections*, because
+`c33_pcrel_from_section` declines to resolve into another section and
+leaves the relocation for the linker. So a call to the first function in
+a file worked and a call to the second landed past its entry by exactly
+the first one's length. One line; it took `-O2` from 1383 passes to 1525,
+aborts from 76 to 17, timeouts from 108 to 33.
+
+**The epilogue never gave the local frame back.** `expand_prologue`
+establishes the frame pointer *after* carving out the locals, so it marks
+the bottom of the frame - which is what `INITIAL_ELIMINATION_OFFSET`
+assumes, so the frame pointer is not the thing to move.
+`expand_epilogue` restored `%sp` from it and did nothing else, putting
+`%sp` back where it already was:
+
+```
+    ld.w   %sp,%r3      ; gives nothing back
+    popn   %r3          ; reads the saved registers 8 bytes low
+    ret                 ; returns to whatever was there
+```
+
+Every function with a frame pointer and any locals returned to garbage.
+`-O1` and up omit the frame pointer, so this was `-O0` only: 275 passes
+became 1553.
+
+**Both left the firmware byte-identical.** That is the point. Two
+wrong-code bugs lived through the entire port because the only test was
+one program built at `-O2`, and neither could be reached that way.
+
+### If you extend the harness
+
+Three things it has to get right, all learned the hard way:
+
+* **Stop on a breakpoint, not on HALT.** `HALT` sets `sleeping`, not
+  `halted` - grifo's suspend path waits in `HALT` for the touch
+  controller, so the emulator fast-forwards through it. `.text.exit` is
+  linked first so the breakpoint is always `0x10000002`.
+* **`%r6` is the first argument, `%r4` is the return value.** `exit(status)`
+  and a `main` that returns deliver the answer in different registers.
+* **`-fpermissive -std=gnu17`.** These tests predate C23 and many call
+  `exit()` without declaring it. Without it the harness reports the
+  compiler's strictness as a backend failure.
+
+What is left at `-O2` is 17 aborts, 2 faults and 13 wrong exit statuses -
+a real list, in `/tmp/torture-final.txt` format, and the obvious next
+thing to work through. `nest-stdar-1` and `pr43784` faulting suggests
+there is still something in nested functions or varargs.
 
 ## The entry-point bug, four times
 
