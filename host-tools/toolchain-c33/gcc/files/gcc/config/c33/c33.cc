@@ -945,6 +945,126 @@ c33_mem_length (rtx mem)
   }
 }
 
+/* The constant second operand of INSN's arithmetic, or NULL_RTX if it has
+   none.  The flag-setting twins are a PARALLEL that sets both the flags
+   and a register, and it is the register's SET that carries the plain
+   operation, so prefer it; cmp is a bare SET whose source is the compare
+   itself.  Either way the operand wanted is the second of a binary rtx,
+   which is also what keeps the (const_int 0) in a set_flags pattern's
+   compare from being mistaken for it.  */
+
+static rtx
+c33_alu_immediate (rtx_insn *insn)
+{
+  rtx pat = PATTERN (insn), set = NULL_RTX, src;
+  rtx_code code;
+
+  if (GET_CODE (pat) == SET)
+    set = pat;
+  else if (GET_CODE (pat) == PARALLEL)
+    for (int i = 0; i < XVECLEN (pat, 0); i++)
+      {
+	rtx e = XVECEXP (pat, 0, i);
+
+	if (GET_CODE (e) != SET)
+	  continue;
+	set = e;
+	if (!(REG_P (SET_DEST (e)) && REGNO (SET_DEST (e)) == CC_REGNUM))
+	  break;
+      }
+
+  if (set == NULL_RTX)
+    return NULL_RTX;
+
+  src = SET_SRC (set);
+  code = GET_CODE (src);
+
+  if (GET_RTX_LENGTH (code) >= 2
+      && GET_RTX_FORMAT (code)[1] == 'e'
+      && CONST_INT_P (XEXP (src, 1)))
+    return XEXP (src, 1);
+
+  return NULL_RTX;
+}
+
+/* Implement "length" for the ALU patterns that take a constant.  Same ext
+   mechanism as the loads (see c33_move_length), but the imm6 field is
+   read differently depending on the instruction, so the ranges are not
+   the same and were measured separately:
+
+     cmp, and, or, xor   imm6 signed     -32..31,  +/-2^18       else 6
+     add, sub            imm6 unsigned      0..63,  0..2^19-1    else 6
+
+   UNS picks between them.  add and sub print a negative constant as the
+   opposite operation on its magnitude -- "add %r4,-5" comes out as
+   "xsub %r4,5" -- so for those the width is that of |v|, not of a value
+   the unsigned field could never hold.  */
+
+int
+c33_alu_length (rtx_insn *insn, int uns)
+{
+  rtx imm = c33_alu_immediate (insn);
+  HOST_WIDE_INT v;
+
+  if (imm == NULL_RTX)
+    return 2;
+
+  v = INTVAL (imm);
+
+  if (uns)
+    {
+      if (v < 0)
+	{
+	  if (v < -524287)
+	    return 6;
+	  v = -v;
+	}
+      if (IN_RANGE (v, 0, 63))
+	return 2;
+      return v <= 524287 ? 4 : 6;
+    }
+
+  if (IN_RANGE (v, -32, 31))
+    return 2;
+  return IN_RANGE (v, -262144, 262143) ? 4 : 6;
+}
+
+/* Implement "length" for the shifts, which do not use ext at all -- the
+   count sits in the instruction, and how much of it fits depends on the
+   core.  ADV and PE take the whole imm5, so every constant shift is two
+   bytes.  The original C33 holds only 8, and gas reaches further by
+   repeating the instruction: "sll %r4,31" is four sll of 8, 8, 8, 7.
+
+   Both halves of that were wrong before.  The flat 4 was an
+   underestimate on the base core past a shift of 16 -- the direction
+   that can hand a branch a displacement it cannot reach -- and an
+   overestimate everywhere on the cores we actually build for, which kept
+   every constant shift out of a delay slot.
+
+   The core flag has to be passed to gas as well for the wide form to
+   assemble; ASFLAGS in samo-lib/Mk/rules.mk does that.  */
+
+int
+c33_shift_length (rtx_insn *insn)
+{
+  rtx imm = c33_alu_immediate (insn);
+  HOST_WIDE_INT n;
+
+  if (imm == NULL_RTX)
+    return 2;
+
+  if (TARGET_C33_ADV || TARGET_C33_PE)
+    return 2;
+
+  n = INTVAL (imm);
+  if (n <= 8)
+    return 2;
+  if (n > 31)
+    n = 31;
+
+  return 2 * ((n + 7) / 8);
+}
+
 /* True if INSN reads or writes %sp, in any form -- as a register, or as
    the base of a [%sp+N] reference.  Such an insn may not go in a *call's*
    delay slot; see the in_call_delay_slot attribute.  */
@@ -2716,8 +2836,23 @@ c33_can_inline_p (tree caller, tree callee)
 #undef  TARGET_MODES_TIEABLE_P
 #define TARGET_MODES_TIEABLE_P c33_modes_tieable_p
 
+/* Naming the flags register lets reorg fill a branch's delay slot with an
+   instruction that clobbers the flags.  That is safe here because the
+   branch has already decided whether it is taken by the time the slot
+   runs, so the flags are dead: the slot is free to set up the *next*
+   compare.  Nearly every C33 ALU instruction writes the flags, so without
+   this almost nothing is eligible -- gcc 3.3.2 put 305 cmp, 110 add and
+   69 sub into conditional slots in wiki.app where we managed 77, 11 and 9.
+
+   reorg only engages this when the branch carries a REG_DEAD note for the
+   register, so it applies to exactly the branches where the flags really
+   are dead, and not to the compare-feeding-branch pair itself.
+
+   This was inherited from the V850 reading 32, which is not a register
+   here at all -- FIRST_PSEUDO_REGISTER is 22 -- so the hook had been
+   quietly disabled rather than doing the wrong thing.  */
 #undef TARGET_FLAGS_REGNUM
-#define TARGET_FLAGS_REGNUM 32
+#define TARGET_FLAGS_REGNUM CC_REGNUM
 
 #undef  TARGET_HAVE_SPECULATION_SAFE_VALUE
 #define TARGET_HAVE_SPECULATION_SAFE_VALUE speculation_safe_value_not_needed
