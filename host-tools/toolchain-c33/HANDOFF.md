@@ -15,7 +15,8 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | Component | State |
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
-| GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured: 38% fewer instructions to boot, 25% fewer on an article load, app 9% smaller |
+| GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
+| `gcc.c-torture` | **runs**, ~98% of what is testable; found two wrong-code bugs the firmware could not reach |
 
 ### binutils - finished
 
@@ -50,11 +51,17 @@ the numbers below.
 
 | | gcc 3.3.2 as shipped | gcc 16.2, current defaults | |
 |---|---:|---:|---|
-| boot -> app main loop | 11,189,610 insn | 6,954,717 insn | **-38%** |
-| article load | 4,198,115 insn | 3,148,782 insn | **-25%** |
-| `wiki.app` stripped | 170,352 | 155,368 | **-9%** |
-| kernel stripped | 32,812 | 37,032 | +13% |
-| `__mulsf3` calls, whole session | 233,164 | 32,895 | -86% |
+| boot -> app main loop | 11,189,610 insn | 7,033,332 insn | **-37%** |
+| article load | 4,198,115 insn | 3,148,809 insn | **-25%** |
+| `wiki.app` stripped | 170,352 | 154,916 | **-9%** |
+| kernel stripped | 32,812 | 36,960 | +13% |
+| soft-float calls, whole session | 233,164 | **0** | - |
+
+The search window, which is the one that moved this session and the only
+place delay slots show at all, went 2600.72 ms to 2544.52 ms of modelled
+time for the same 113M instructions - **1.3% from the compiler and 0.9%
+from `seconds_to_ticks`**. Read the next section before quoting any of
+this.
 
 ### Read those numbers correctly
 
@@ -85,6 +92,10 @@ This is the part to keep hold of, because it is easy to overstate.
   a representative article load - which is why the -25% earlier in the
   session was really "post-increment landed in `memset`", and why any
   change that does not touch `memset` measures as exactly zero there.
+* **The boot instruction count above is not comparable across sessions.**
+  It rose from 6,954,717 to 7,033,332 while the code got smaller and
+  faster, for the reason in the next bullet. Compare boot only against a
+  build measured the same day.
 * **Boot instruction counts move the wrong way when code gets faster.**
   Boot is bounded by SD polling loops (`rcvr_datablock`, `wait_ready`),
   which spin until the card answers. Make each iteration cheaper and they
@@ -152,6 +163,39 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 5/4. Fixed; the window is now 140 instructions from 3.3.2's on 4.2 million.
 
 ## The work queue, in the order agreed
+
+**#7 - take the torture suite to 100%.** The next job, and now a
+well-defined one: `tests/FAILURES.md` lists all 72 remaining tests with
+which optimisation levels each fails at.
+
+How to work it, in the order that pays:
+
+1. **17 fail at every level.** Those are the least likely to be
+   optimisation-dependent and the most likely to be one shared cause, the
+   way the relocation bug was. Start there.
+2. **Reduce before diagnosing.** Both bugs found so far collapsed to
+   about five lines of C. The harness makes that cheap: build one file
+   with `tests/runtime`, run `wremu -b 0x10000002`, read `%r4`.
+3. **A wild PC is the friendly failure.** `wremu` prints the last 64 PCs
+   with disassembly on a fault, which is how the epilogue bug was read
+   straight off the trace.
+4. **Re-run the whole suite after each fix.** The relocation fix moved
+   142 tests; the epilogue fix moved 1278 at `-O0`. Neither was
+   predictable from the one test that led to it.
+
+Two leads already visible. `nest-stdar-1` and `pr43784` both FAULT, which
+points at nested functions or varargs -- and varargs has form here, since
+that is what exposed the relocation bug. And the `-O2`/`-Os` columns have
+13 `EXITnz` that `-O0`/`-O1` do not, so something in the optimised paths
+is wrong that the unoptimised ones do not reach.
+
+**Do not trust the "looks like" column.** It is a grep over the source,
+not a diagnosis.
+
+**Also worth doing once, cheaply:** run `gcc.dg` and `gcc.c-torture` at
+`-O3`, and run the compile suite at every level rather than just `-O2`.
+The compile run has never produced an ICE, which is worth confirming
+still holds as the backend changes.
 
 **#6 - the article-load benchmark is one 4 MB `memset`.** Not a compiler
 problem, and the most valuable thing on this list.
