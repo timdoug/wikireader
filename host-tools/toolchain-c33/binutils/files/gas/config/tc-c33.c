@@ -5077,7 +5077,25 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
             bfd_putl32 (value, (unsigned char *) where);
     }
 
-    fixp->fx_addnumber = value;
+    /* A PC-relative fixup that still has a symbol is one the linker has to
+       finish, and its relocation already names that symbol -- so the addend
+       must carry only what the expression asked for, normally nothing.
+       "value" here is the fully resolved target, which includes the
+       symbol's offset within its section, so using it hands the linker
+       that offset a second time.
+
+       It only shows when the symbol is not at offset zero, because
+       c33_pcrel_from_section declines to resolve a reference into another
+       section and gas leaves the relocation for the linker: a call to the
+       first function in a file worked, a call to the second landed past
+       its entry by exactly the first one's length.
+
+       The V850 this port came from has the same three cases here; only
+       this one was dropped.  */
+    if (fixp->fx_addsy != (symbolS *) NULL && fixp->fx_pcrel)
+        fixp->fx_addnumber = fixp->fx_offset;
+    else
+        fixp->fx_addnumber = value;
 }
 
 
