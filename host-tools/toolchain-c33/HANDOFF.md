@@ -17,7 +17,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
 | `gcc.c-torture` execute | **1668 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
-| `gcc.c-torture` compile | 1973 of 2003 per set, one ICE, in generic GCC rather than the backend |
+| `gcc.c-torture` compile | 1973 of 2003 per set, zero failures, one ICE in generic GCC rather than the backend |
 
 ### binutils - finished
 

@@ -62,23 +62,26 @@ it, and `tests/runtime/` now fills them:
   address and `ret` pops it, so the buffer is `%r0`-`%r3`, `%sp`, and the
   word at `[%sp+0]` on entry.
 
-## compile - 1972/1973 of 2003 per set, one ICE
+## compile - 1972/1973 of 2003 per set, one ICE, no failures
 
 | | pass | ICE | fail | unsupported |
 |---|---:|---:|---:|---:|
-| `-O0` and `-Og -g` | 1972 | 1 | 2 | 28 |
-| the other five | 1973 | 0 | 2 | 28 |
+| `-O0` and `-Og -g` | 1972 | 1 | **0** | 30 |
+| the other five | 1973 | 0 | **0** | 30 |
 
-The 28 unsupported are another architecture's `dg-options` (`-mavx`,
+The 30 unsupported are another architecture's `dg-options` (`-mavx`,
 `-march=skylake`, `-mcpu=603e`, `-pthread`), another architecture's
-`dg-do` target selector (x86, MIPS, `lp64`), or `__int128`.
+`dg-do` target selector (x86, MIPS, `lp64`), `__int128`, or
+`__declspec(dllimport)`.
 
-Two `FAIL`s remain, both classified and neither codegen:
-
-* `pr99822` - wants `__int128`. The message is `expected expression before
-  '__int128'`, which the unsupported-detector's pattern does not match; it
-  looks for `unknown type name`. Cosmetic.
-* `dll` - `__declspec(dllimport)` on a parameter. A Windows test.
+The last two of those - `pr99822` and `dll` - were reported `FAIL` until
+their diagnostics were added to `unsupported_p`, which matched
+`unknown type name` but not `expected expression before '__int128'` or
+`before '__declspec'`. Worth knowing when changing that function:
+**it is only consulted after a compile has already failed**, so it cannot
+reclassify anything that passes. The only tests it can reach are the ones
+already failing to compile, which makes re-running just those a complete
+check rather than a sample.
 
 ### The one ICE
 
