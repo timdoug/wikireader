@@ -23,8 +23,14 @@
 	.section .text.exit,"ax"
 	.global exit
 	.global _exit
+/* mini-libc declares exit() as __asm__("__stop_progExec__") -- see
+   mini-libc/include/stdlib.h -- so every test that includes <stdlib.h>
+   links against that name rather than "exit".  It was the single biggest
+   reason tests could not be built here.  */
+	.global __stop_progExec__
 exit:
 _exit:
+__stop_progExec__:
 	ld.w	%r4, %r6		/* status arrives in %r6; report in %r4 */
 	.global _exit_done
 _exit_done:
@@ -38,6 +44,8 @@ _start:
 	xld.w	%r15, __dp
 	ld.w	%r4, 0
 	ld.w	%psr, %r4		/* interrupts off */
+
+	xcall	_runtime_init		/* hands the heap to grifo's allocator */
 
 	ld.w	%r6, 0			/* argc */
 	ld.w	%r7, 0			/* argv */

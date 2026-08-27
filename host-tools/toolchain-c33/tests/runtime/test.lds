@@ -31,10 +31,15 @@ SECTIONS
         __bss_end = . ;
     } > sdram
 
-    . = ALIGN(16);
-    __heap_start = . ;
-
     /* Well clear of the image; tests are small and the emulator gives us
        the whole 32M.  */
     __stack_top = 0x10000000 + 8M - 16;
+
+    /* The heap sits *above* the stack rather than below it, so no test can
+       grow the stack into the heap or vice versa -- there is plenty of
+       SDRAM and nothing to gain from packing them together.  grifo's
+       allocator rounds the start up and the end down to its 256-byte page,
+       so these do not need to be aligned here.  */
+    __heap_start = 0x10000000 + 8M;
+    __heap_end   = 0x10000000 + 16M;
 }

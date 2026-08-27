@@ -27,8 +27,17 @@ WORK=${WORK:-/tmp/c33torture}
 LIMIT=${LIMIT:-1000000000}
 JOBS=${JOBS:-8}
 
+# The option sets upstream's c-torture.exp uses, verbatim.  An entry may be
+# several words, so nothing here may quote "${opt}" as a single argument --
+# it has to word-split on the command line, and the tag it names files with
+# has to have the spaces squeezed out.
 mode=${1:-execute}; shift || true
-opts=("$@"); [ ${#opts[@]} -eq 0 ] && opts=(-O0 -O1 -O2 -Os)
+opts=("$@")
+if [ ${#opts[@]} -eq 0 ]; then
+	opts=(-O0 -O1 -O2 \
+	      "-O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions" \
+	      "-O3 -g" -Os "-Og -g")
+fi
 
 ARCH="-mc33pe -mno-long-calls"
 # mini-libc supplies the headers and the string/memory routines the torture
@@ -51,6 +60,40 @@ COMMON="-w -fpermissive ${ARCH} -I${RT}/include -I${LIBC}/include"
 # division or double arithmetic fails to link rather than failing to run.
 LIBGCC=$(${GCC} ${ARCH} -print-libgcc-file-name)
 LIBS="${LIBC}/lib/libc.a ${LIBGCC}"
+
+# Runtime support the tests need and mini-libc does not have: putchar, the
+# malloc family, setjmp/longjmp.  The allocator itself is grifo's, compiled
+# straight from the firmware source rather than reimplemented -- so these
+# tests also put real firmware code through the new compiler.
+#
+# -fgnu89-inline is what the firmware builds with, and for the same reason:
+# mini-libc declares abs()/labs() "extern __inline__", which under C99
+# semantics emits an external definition in every translation unit that
+# includes <stdlib.h>.  It is confined to the runtime here rather than put
+# in COMMON, so it cannot change the meaning of a test that is itself about
+# inline semantics.
+GRIFO="${HERE}/../../../samo-lib/grifo"
+RT_INC="-I${GRIFO}/src -I${GRIFO}/common"
+RT_CFLAGS="-fgnu89-inline"
+
+# Built once per optimisation level rather than once per test -- 6768 tests
+# would otherwise recompile four files apiece -- but still built at each
+# level, so the firmware code in it is exercised the same way the tests are.
+build_runtime() {                       # build_runtime <opt>; echoes the objects
+	local opt=$1 d
+	d="${WORK}/rt$(opt_tag "${opt}")"
+	mkdir -p "${d}"
+	if [ ! -f "${d}/stamp" ]; then
+		${GCC} ${ARCH} ${opt} -c "${RT}/crt0.s"   -o "${d}/crt0.o"   || return 1
+		${GCC} ${ARCH} ${opt} -c "${RT}/setjmp.s" -o "${d}/setjmp.o" || return 1
+		${GCC} ${COMMON} ${RT_INC} ${RT_CFLAGS} ${opt} -c \
+			"${RT}/runtime.c" -o "${d}/runtime.o" || return 1
+		${GCC} ${COMMON} ${RT_INC} ${RT_CFLAGS} ${opt} -c \
+			"${GRIFO}/src/memory.c" -o "${d}/memory.o" || return 1
+		touch "${d}/stamp"
+	fi
+	echo "${d}/crt0.o ${d}/setjmp.o ${d}/runtime.o ${d}/memory.o"
+}
 
 mkdir -p "${WORK}"
 
@@ -97,6 +140,7 @@ skip_reason() {
 	case "$1" in
 	920501-8|930513-1) echo "sprintf %f: mini-libc printf has no float" ;;
 	pr79327)           echo "sprintf %#hho/%#hhx: mini-libc printf has no # or hh" ;;
+	pr78622)           echo "snprintf %hhd: mini-libc printf has no hh" ;;
 	20030125-1)        echo "needs a C99 math library to fold sin/floor against" ;;
 	*)                 return 1 ;;
 	esac
@@ -117,45 +161,67 @@ dg_options() {
 		tr '\n' ' '
 }
 
+# A very short table of options a test needs but does not ask for.  Upstream
+# put -std=gnu89 in dg-options on most of the pre-ANSI tests and missed some;
+# comp-goto-1 declares "char *malloc();", which a C23 compiler reads as
+# taking no arguments and rejects against its own builtin.  Giving it the
+# dialect it was written for is better than skipping it: the test then runs
+# and its computed gotos are actually exercised.
+extra_options() {
+	case "$1" in
+	comp-goto-1) echo "-std=gnu89" ;;
+	esac
+}
+
+# Short, stable name for an option set, for filenames and result lines.
+opt_tag() {
+	case "$1" in
+	"-O3 -fomit-frame-pointer"*) echo "O3f" ;;
+	"-O3 -g")                    echo "O3g" ;;
+	"-Og -g")                    echo "Ogg" ;;
+	*)                           echo "$1" | tr -d ' -' ;;
+	esac
+}
+
 one() {                                 # one <mode> <opt> <file>
 	local mode=$1 opt=$2 f=$3
 	local b; b=$(basename "$f" .c)
-	local tag="${b}.${opt#-}"
+	local tag; tag="${b}.$(opt_tag "${opt}")"
 	local o="${WORK}/${tag}"
 	local why
 	if why=$(skip_reason "${b}"); then
-		echo "UNSUPPORTED ${opt} ${b}  (${why})"
+		echo "UNSUPPORTED ${tag##*.} ${b}  (${why})"
 		return
 	fi
 	if wrong_target_p "$f"; then
-		echo "UNSUPPORTED ${opt} ${b}  (written for another target)"
+		echo "UNSUPPORTED ${tag##*.} ${b}  (written for another target)"
 		return
 	fi
-	local dg; dg=$(dg_options "$f")
+	local dg; dg="$(dg_options "$f") $(extra_options "${b}")"
 
 	if [ "${mode}" = compile ]; then
-		if ${GCC} ${COMMON} ${dg} "${opt}" -S "$f" -o "${o}.s" 2>"${o}.log"; then
-			echo "PASS ${opt} ${b}"
+		if ${GCC} ${COMMON} ${dg} ${opt} -S "$f" -o "${o}.s" 2>"${o}.log"; then
+			echo "PASS ${tag##*.} ${b}"
 		elif grep -qE "internal compiler error|Segmentation fault" "${o}.log"; then
-			echo "ICE ${opt} ${b}"
+			echo "ICE ${tag##*.} ${b}"
 		elif expects_error_p "$f"; then
-			echo "PASS ${opt} ${b}"
+			echo "PASS ${tag##*.} ${b}"
 		elif unsupported_p "${o}.log"; then
-			echo "UNSUPPORTED ${opt} ${b}"
+			echo "UNSUPPORTED ${tag##*.} ${b}"
 		else
-			echo "FAIL ${opt} ${b}"
+			echo "FAIL ${tag##*.} ${b}"
 		fi
 		return
 	fi
 
-	if ! ${GCC} ${COMMON} ${dg} "${opt}" -nostdlib -nostartfiles \
-	     -T "${RT}/test.lds" "${RT}/crt0.s" "$f" ${LIBS} -o "${o}.elf" 2>"${o}.log"; then
+	if ! ${GCC} ${COMMON} ${dg} ${opt} -nostdlib -nostartfiles \
+	     -T "${RT}/test.lds" ${RT_OBJS} "$f" ${LIBS} -o "${o}.elf" 2>"${o}.log"; then
 		if grep -qE "internal compiler error|Segmentation fault" "${o}.log"; then
-			echo "ICE ${opt} ${b}"
+			echo "ICE ${tag##*.} ${b}"
 		elif unsupported_p "${o}.log"; then
-			echo "UNSUPPORTED ${opt} ${b}"
+			echo "UNSUPPORTED ${tag##*.} ${b}"
 		else
-			echo "FAIL ${opt} ${b}"
+			echo "FAIL ${tag##*.} ${b}"
 		fi
 		return
 	fi
@@ -171,26 +237,33 @@ one() {                                 # one <mode> <opt> <file>
 	# them once looked like a compiler regression when the machine was
 	# simply too busy to fork.
 	if [ -z "${pc}" ]; then
-		echo "NORUN ${opt} ${b}"
+		echo "NORUN ${tag##*.} ${b}"
 		return
 	fi
 
 	if [ "${pc}" = "10000002" ] && [ "${r4}" = "00000000" ]; then
-		echo "PASS ${opt} ${b}"
+		echo "PASS ${tag##*.} ${b}"
 	elif [ "${pc}" = "10000002" ] && [ "${r4}" = "0000dead" ]; then
-		echo "ABORT ${opt} ${b}"
+		echo "ABORT ${tag##*.} ${b}"
 	elif echo "${out}" | grep -q "^fault:"; then
-		echo "FAULT ${opt} ${b}  $(echo "${out}" | grep -m1 '^fault:' | cut -c1-60)"
+		echo "FAULT ${tag##*.} ${b}  $(echo "${out}" | grep -m1 '^fault:' | cut -c1-60)"
 	elif [ "${pc}" = "10000002" ]; then
-		echo "EXIT${r4} ${opt} ${b}"
+		echo "EXIT${r4} ${tag##*.} ${b}"
 	else
-		echo "TIMEOUT ${opt} ${b}"
+		echo "TIMEOUT ${tag##*.} ${b}"
 	fi
 }
-export -f one dg_options unsupported_p skip_reason wrong_target_p expects_error_p
-export WORK RT GCC EMU COMMON LIBS LIMIT
+export -f one opt_tag dg_options extra_options unsupported_p skip_reason wrong_target_p expects_error_p
+export WORK RT GCC EMU COMMON LIBS LIMIT RT_OBJS
 
 for opt in "${opts[@]}"; do
+	if [ "${mode}" != compile ]; then
+		if ! RT_OBJS=$(build_runtime "${opt}"); then
+			echo "FATAL ${opt}: runtime failed to build" >&2
+			exit 1
+		fi
+		export RT_OBJS
+	fi
 	ls "${SRC}/${mode}"/*.c | \
 		xargs -P "${JOBS}" -I{} bash -c 'one "$0" "$1" "$2"' "${mode}" "${opt}" {}
 done
