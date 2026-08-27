@@ -1316,15 +1316,31 @@ c33_elf_reloc (bfd * abfd ATTRIBUTE_UNUSED,
 {
   long relocation;
   
-  /* If there is an output BFD,
-     and the symbol is not a section name (which is only defined at final link time),
-     and either we are not putting the addend into the instruction
-         or the addend is zero, so there is nothing to add into the instruction
-     then just fixup the address and return.  */
+  /* If there is an output BFD we are being called from
+     bfd_install_relocation while the assembler writes the object, not
+     from the final link: the reloc is being handed on, so leave the
+     addend alone and only fix up the address.
+
+     Every howto in this file is partial_inplace = false, which means the
+     whole value lives in the addend and there is nothing to deposit in
+     the section contents here.
+
+     This used to also require the symbol not to be a section symbol,
+     copied from bfd_elf_generic_reloc -- but that function returns
+     bfd_reloc_continue for section symbols and lets
+     bfd_install_relocation finish the job, and bfd_install_relocation
+     only subtracts the reloc's own address when partial_inplace is set.
+     Falling through to the final-link code below instead left the addend
+     holding a complete "symbol - PC", which ld then relocated a second
+     time.  gas reduces any *local* symbol to a section symbol plus
+     addend, so the visible symptom was that an xcall or xjp to a static
+     function in another section -- a static function called from
+     .text.startup, say -- branched to a wild address, while the same
+     call to a global function was fine.  */
   if (obfd != (bfd *) NULL
-      && (symbol->flags & BSF_SECTION_SYM) == 0
       && (! reloc->howto->partial_inplace
-	  || reloc->addend == 0))
+	  || ((symbol->flags & BSF_SECTION_SYM) == 0
+	      && reloc->addend == 0)))
     {
       reloc->address += isection->output_offset;
       return bfd_reloc_ok;
