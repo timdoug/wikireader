@@ -73,7 +73,33 @@ int wikilib_run (void);
 void invert_selection(int old_pos, int new_pos, int start_pos, int height);
 unsigned long timer_get(void);
 unsigned long time_diff(unsigned long t2, unsigned long t1);
-unsigned long seconds_to_ticks(float sec);
+enum {
+	Tick_TicksPerMicroSecond = 60,
+	Tick_TicksPerMilliSecond = Tick_TicksPerMicroSecond * 1000,
+	Tick_TicksPerSecond = Tick_TicksPerMilliSecond * 1000,
+};
+
+/* Every call site passes a literal -- seconds_to_ticks(0.3),
+   seconds_to_ticks(LINK_ACTIVATION_TIME_THRESHOLD) and so on; there is not
+   one variable argument in the tree.  Out of line in wikilib.c, none of
+   that could fold, so each call ran __mulsf3 followed by __fixsfsi: 137
+   instructions to recompute a constant.  Those two were the only soft
+   float the firmware ever reached, 34,264 times in one 700 ms band of
+   typing, 2.2% of everything executed.
+
+   Inline, the compiler does the same multiply in the same single
+   precision at compile time, so the value is unchanged -- this is not a
+   switch to integer arithmetic, which would round differently.  */
+
+static inline unsigned long seconds_to_ticks(float sec)
+{
+	long clock_ticks;
+
+	clock_ticks = sec * Tick_TicksPerSecond;
+
+	return clock_ticks;
+}
+
 void repaint_search(void);
 void fatal_error_print(const char *file, int line, const char *format, ...)  __attribute__ ((noreturn, format (printf, 3, 4)));
 #define fatal_error(format...)				\

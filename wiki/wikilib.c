@@ -1570,20 +1570,9 @@ unsigned long time_diff(unsigned long t2, unsigned long t1)
 	return diff;
 }
 
-enum {
-	Tick_TicksPerMicroSecond = 60,
-	Tick_TicksPerMilliSecond = Tick_TicksPerMicroSecond * 1000,
-	Tick_TicksPerSecond = Tick_TicksPerMilliSecond * 1000,
-};
-
-unsigned long seconds_to_ticks(float sec)
-{
-	long clock_ticks;
-
-	clock_ticks = sec * Tick_TicksPerSecond;
-
-	return clock_ticks;
-}
+/* seconds_to_ticks is now a static inline in wikilib.h, so that the
+   constant every caller passes folds at compile time instead of calling
+   soft float at run time.  */
 
 void fatal_error_print(const char *file, int line, const char *format, ...)
 {
