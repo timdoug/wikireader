@@ -153,30 +153,58 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 
 ## The work queue, in the order agreed
 
-**#6 - one unfilled slot in `memset` costs 20% of the article window.**
-The best-characterised win left, and it is not a backend bug.
+**#6 - the article-load benchmark is one 4 MB `memset`.** Not a compiler
+problem, and the most valuable thing on this list.
 
-`-Os` runs that window in 69.97 ms where every other level takes 87.46 ms,
-at the same instruction count. It is one loop, 1,049,088 iterations:
+`init_render_article` clears the whole off-screen scroll buffer on every
+article:
+
+```c
+/* wiki/lcd_buf_draw.c:1013 */
+if (lcd_draw_buf.screen_buf)
+    memset(lcd_draw_buf.screen_buf, 0, LCD_BUF_WIDTH_BYTES * LCD_BUF_HEIGHT_PIXELS);
+```
+
+`LCD_BUF_HEIGHT_PIXELS` is `128 * 1024` and `LCD_BUF_WIDTH_BYTES` is 32 -
+4,194,304 bytes, sized for a 128K-pixel-tall article. Five `memset` calls
+happen in the whole article display and this one is all of the work. The
+arithmetic closes exactly: 1,048,576 words at 5 cycles is 87.4 ms at
+60 MHz, and the measured window is 87.46 ms. Everything this document
+says about "the article load" is this one call.
+
+Directly above it sits the version that clears only what was used,
+commented out:
+
+```c
+//if(lcd_draw_buf.current_y>0)
+//  memset(lcd_draw_buf.screen_buf,0,lcd_draw_buf.current_y*LCD_BUFFER_WIDTH/8);
+```
+
+An article rendering 2,000 pixels tall needs 64 KB, not 4 MB. Unknown why
+it was abandoned; the obvious risk is stale pixels below `current_y`
+showing through when scrolling, and whether `current_y` is even valid at
+that point. It is a firmware behaviour change, not a toolchain one.
+
+**The 20% `-Os` win in that window is real but is the most overstated
+number here.** It is one loop, 1,049,088 iterations:
 
 ```
 -Os                         -O2
   sub    %r9,0x1              ld.w   [%r5]+,%r10
   jrne.d                      cmp    %r5,%r9
   ld.w   [%r11]+,%r10         jrne
-  = 1 + 2 + 1 = 4 cycles      = 1 + 1 + 3 = 5 cycles
+  = 4 cycles                  = 5 cycles
 ```
 
-1,049,088 cycles at 60 MHz is 17.5 ms, which is exactly the 87.46 - 69.97
-gap. `-Os` counts down and compares against the counter, so the store is
-independent and drops into the slot. `-O2` compares the pointer against
-its limit, so the post-incrementing load feeds the compare that feeds the
-branch, and nothing can move.
-
-This is not a general `-O2` regression - `-O2` fills 58.0% of conditional
-slots against `-Os`'s 52.1%. It is one induction-variable choice in one
-hot loop. Worth knowing before chasing it: the article window is 99.95%
-`memset`, so this is 20% of a benchmark that is itself unrepresentative.
+`-Os` counts down, so the store is independent and drops into the slot.
+`-O2` compares the pointer, so the post-incrementing load feeds the
+compare that feeds the branch and nothing can move. Not a general `-O2`
+regression - `-O2` fills 58.0% of conditional slots against `-Os`'s
+52.1%. But the saving is one cycle of *loop overhead* per word on a pure
+bandwidth workload, and the model charges one cycle per store with no
+SDRAM wait states. On real memory that cycle amortises against stalls.
+Treat 20% as an upper bound. Not clearing the 4 MB survives contact with
+real SDRAM; making the loop 1 cycle tighter may not.
 
 **#5 - soft float.** 32,895 `__mulsf3` calls survive, down from gcc 3.3.2's
 233,164. The span is the tell: 3.3.2 called soft float continuously from
