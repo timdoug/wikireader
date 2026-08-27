@@ -206,12 +206,6 @@ SDRAM wait states. On real memory that cycle amortises against stalls.
 Treat 20% as an upper bound. Not clearing the 4 MB survives contact with
 real SDRAM; making the loop 1 cycle tighter may not.
 
-**#5 - soft float.** 32,895 `__mulsf3` calls survive, down from gcc 3.3.2's
-233,164. The span is the tell: 3.3.2 called soft float continuously from
-791 ms to 4618 ms, through idle and rendering both; gcc 16 touches it only
-in a 700 ms band during typing. Find what still computes in float and
-whether it needs to - `seconds_to_ticks` is one known caller.
-
 **#1 - the GCC testsuite has never been run.** The big one, and it is not
 performance. Everything here is validated by "one firmware renders
 identically", which is a single program exercising a fraction of the
@@ -239,6 +233,8 @@ wrong somewhere the test does not look.
 * **conditional-branch delay slots** (#3) - `TARGET_FLAGS_REGNUM` had been
   naming a register that does not exist, plus the same length pessimism on
   the ALU patterns. 49.7% -> 58.0% filled, against 3.3.2's 58.9%.
+* **soft float** (#5) - all of it was one unfoldable constant; see below.
+  Zero calls now.
 
 ## Known broken
 
@@ -257,14 +253,14 @@ reproduce run to run; they do not depend on host load.
 | | boot (insn) | article (insn) | kernel | `wiki.app` |
 |---|---:|---:|---:|---:|
 | gcc 3.3.2 `-Os` | 11,189,610 | 4,198,115 | 32,812 | 170,352 |
-| `-Os` absolute | 10,023,943 | 3,148,854 | 31,124 | 141,192 |
-| `-Os` relative | 10,029,985 | 3,148,830 | **31,008** | **141,308** |
-| `-O1` absolute | 9,557,074 | 3,148,832 | 32,848 | 152,984 |
-| `-O1` relative | 9,598,701 | 3,148,808 | 32,484 | 150,540 |
-| `-O2` absolute | 7,043,744 | 3,148,811 | 36,960 | 155,020 |
-| `-O2` relative | **7,030,467** | 3,148,800 | 36,840 | 154,268 |
-| `-O3` absolute | 7,328,463 | 3,148,802 | 39,428 | 181,000 |
-| `-O3` relative | 7,322,374 | **3,148,791** | 39,328 | 180,232 |
+| `-Os` absolute | 9,992,025 | 3,148,852 | 31,124 | 141,088 |
+| `-Os` relative | 10,064,387 | 3,148,830 | **31,008** | **141,236** |
+| `-O1` absolute | 9,541,429 | 3,148,831 | 32,848 | 152,916 |
+| `-O1` relative | 9,593,981 | 3,148,806 | 32,484 | 150,464 |
+| `-O2` absolute | 7,033,332 | 3,148,809 | 36,960 | 154,916 |
+| `-O2` relative | **7,026,873** | 3,148,796 | 36,840 | 154,156 |
+| `-O3` absolute | 7,316,115 | 3,148,802 | 39,428 | 180,912 |
+| `-O3` relative | 7,319,843 | **3,148,789** | 39,328 | 180,132 |
 
 Re-measured after #4, with a fresh card image per cell. Read the boot
 column with the polling-loop caveat above: it went *up* across the board
@@ -433,6 +429,38 @@ reachable when filling slots grew the error from two bytes to four and
 shrank spans onto the boundary. `qsort.c` is what finally could not
 reach. It fails loudly - gas says `operand out of range` - which is the
 one mercy in this area.
+
+## Soft float: all of it was one constant
+
+`__mulsf3` and `__fixsfsi` were the only floating point the firmware ever
+reached. Nothing else - `__divsf3`, `__gtsf2`, `__floatsisf`, `__muldf3`
+and the rest are linked but were never called once. The two that were ran
+34,264 times each, always in pairs, inside a single 700 ms band during
+typing: 4.68M instructions, 2.2% of everything executed, 137 instructions
+per pair.
+
+Every one came from `seconds_to_ticks`, which multiplies its argument by
+a compile-time enum constant. There is not one variable argument in the
+tree - `seconds_to_ticks(0.3)`, `seconds_to_ticks(2.1)`,
+`seconds_to_ticks(LINK_ACTIVATION_TIME_THRESHOLD)`, fourteen call sites,
+all literals. It was out of line in `wikilib.c` and called from four
+other translation units, so none of it could fold and each call spent 137
+instructions recomputing a constant.
+
+`static inline` in the header fixes it. Soft float drops to zero calls,
+worth 23.1 ms of the 2567 ms search window.
+
+**Keep the float multiply.** The obvious follow-up is to make it integer
+arithmetic, and that would change the answers: `2.1 * 60000000` is
+126,000,000 exactly but **125,999,992** in single precision, so the
+thresholds would shift. Inlining preserves the semantics because GCC
+folds in the target's own single precision - the binary contains
+`0x7829b78` and not `0x7829b80`, which is the check worth repeating if
+anyone touches this.
+
+The gcc 3.3.2 comparison in earlier notes said it called soft float 7x
+more often. That was never about code quality: 3.3.2 inlined less across
+the same boundary, so it made the same pointless calls more often.
 
 ## The entry-point bug, four times
 
