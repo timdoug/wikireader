@@ -1,0 +1,124 @@
+/*
+ * Watchdog timer.
+ *
+ * grifo arms it for twenty seconds and kicks it constantly, so the thing
+ * that matters is not the timeout firing but the timeout *not* firing when
+ * it should not. The trap is the clock gate: the suspend code leaves
+ * WDT_CKE out of the set of clocks it enables, so the counter stops for the
+ * whole two-minute suspend. Modelling the counter as "now minus the last
+ * kick" looks right and is wrong -- it banks the gated time and fires the
+ * instant the clock comes back, turning every suspend into a reset.
+ */
+#include <stdio.h>
+#include <string.h>
+
+#include "../src/mem.h"
+#include "../src/cmu.h"
+#include "../src/wdt.h"
+
+#define WD_WP    (REG_BASE + 0x660)
+#define WD_EN    (REG_BASE + 0x662)
+#define WD_COMP  (REG_BASE + 0x664)
+#define WD_CNT   (REG_BASE + 0x668)
+#define WD_CNTL  (REG_BASE + 0x66c)
+
+#define CMU_PROTECT   (REG_BASE + 0x1b24)
+#define CMU_GATEDCLK1 (REG_BASE + 0x1b04)
+
+#define WP_OFF   0x96
+#define RUNSTP   (1u << 4)
+#define NMIEN    (1u << 1)
+#define RESEN    (1u << 0)
+#define WDRESEN  (1u << 0)
+#define WDT_CKE  (1u << 9)
+
+static int fails;
+
+static void ok(const char *what, bool cond)
+{
+	printf("%-62s %s\n", what, cond ? "ok" : "FAILED");
+	if (!cond)
+		fails++;
+}
+
+int main(void)
+{
+	struct mem mem;
+	struct cmu cmu;
+	struct wdt w;
+	uint64_t clk = 0;
+
+	if (!mem_init(&mem))
+		return 1;
+	cmu_attach(&mem, &cmu);
+	wdt_attach(&mem, &w, &cmu, &clk);
+
+	/* The clock has to be running before the counter can count. */
+	mem_write(&mem, CMU_PROTECT, 4, 0x96);
+	mem_write(&mem, CMU_GATEDCLK1, 4, WDT_CKE);
+
+	/* Writes to the timeout are protected; the kick is not. */
+	mem_write(&mem, WD_COMP, 4, 1234);
+	ok("a protected write to COMP is rejected",
+	   mem_read(&mem, WD_COMP, 4) == 0 && w.blocked == 1);
+
+	mem_write(&mem, WD_WP, 2, WP_OFF);
+	mem_write(&mem, WD_COMP, 4, 1000);
+	mem_write(&mem, WD_EN, 2, RUNSTP | NMIEN | RESEN);
+	mem_write(&mem, WD_WP, 2, 0x00);
+	ok("after unlocking, COMP takes the value", mem_read(&mem, WD_COMP, 4) == 1000);
+	ok("and the register is protected again", ({
+		mem_write(&mem, WD_COMP, 4, 7);
+		mem_read(&mem, WD_COMP, 4) == 1000;
+	}));
+
+	/* The counter follows the clock. */
+	clk = 400;
+	wdt_poll(&w);
+	ok("the counter follows the clock", mem_read(&mem, WD_CNT, 4) == 400);
+	ok("and has not timed out yet", !w.expired);
+
+	/* A kick clears it, which is all Watchdog_KeepAlive does. */
+	mem_write(&mem, WD_CNTL, 2, WDRESEN);
+	ok("a kick clears the counter", mem_read(&mem, WD_CNT, 4) == 0);
+	ok("and is counted", w.kicks == 1);
+
+	/*
+	 * The gate. Time passing with the clock off must not be banked: this
+	 * is a whole suspend's worth of cycles, far past the timeout.
+	 */
+	mem_write(&mem, CMU_PROTECT, 4, 0x96);
+	mem_write(&mem, CMU_GATEDCLK1, 4, 0);        /* WDT_CKE off */
+	ok("a gated clock stops the watchdog", !wdt_running(&w));
+
+	clk += 50 * 1000;                            /* far beyond COMP */
+	wdt_poll(&w);
+	ok("time passing while gated does not time it out", !w.expired);
+	ok("and does not accumulate", mem_read(&mem, WD_CNT, 4) == 0);
+
+	mem_write(&mem, CMU_GATEDCLK1, 4, WDT_CKE);  /* resume */
+	wdt_poll(&w);
+	ok("re-enabling the clock does not bank the gated time", !w.expired);
+
+	/* Left alone with the clock on, it does fire. */
+	clk += 999;
+	wdt_poll(&w);
+	ok("just under the timeout is still quiet", !w.expired);
+	clk += 1;
+	wdt_poll(&w);
+	ok("reaching COMP without a kick times out", w.expired);
+	ok("and is counted once", w.timeouts == 1);
+
+	/* A stopped watchdog is a stopped watchdog. */
+	wdt_reset(&w);
+	mem_write(&mem, WD_WP, 2, WP_OFF);
+	mem_write(&mem, WD_COMP, 4, 100);
+	mem_write(&mem, WD_EN, 2, 0);                /* RUNSTP clear */
+	clk += 10000;
+	wdt_poll(&w);
+	ok("with RUNSTP clear it never fires", !w.expired);
+
+	mem_free(&mem);
+	printf("\n%s\n", fails ? "FAILURES" : "all watchdog tests passed");
+	return fails != 0;
+}

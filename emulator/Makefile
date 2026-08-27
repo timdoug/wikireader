@@ -7,7 +7,7 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/main.o
+OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/main.o
 
 .PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check difftest test-manual
 
@@ -16,10 +16,15 @@ all: wremu
 wremu: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(SDL_LIBS)
 
-# Header deps matter here: struct c33 is shared between translation units, so
-# a stale object compiled against an older layout silently corrupts state.
-src/%.o: src/%.c src/c33.h src/mem.h src/uart.h src/sdcard.h src/periph.h src/lcd.h src/display.h src/touch.h src/timer.h src/itc.h src/cmu.h src/port.h src/eeprom.h src/sdramc.h c33_forms.h
-	$(CC) $(CFLAGS) -c -o $@ $<
+# Header dependencies come from the compiler. They used to be a hand-written
+# list of every header, which is a list that goes stale: wdt.h was missing
+# from it, so changing a struct layout left objects compiled against the old
+# one and main.c read a different field than the device wrote. Nothing warns
+# about that -- the numbers are just wrong.
+src/%.o: src/%.c
+	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
+
+-include $(OBJS:.o=.d)
 
 # Regenerate the decode tables from binutils' disassembler. Requires
 # allinsn_full.txt, produced by disassembling all 65536 encodings with
@@ -58,6 +63,11 @@ test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.
 	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o $(SDL_LIBS)
 	/tmp/test_sd
 
+# Watchdog, and above all the clock gate that keeps it quiet in suspend.
+test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o $(SDL_LIBS)
+	/tmp/test_wdt
+
 # CMU protect gate and the 60 MHz the timebase depends on.
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
@@ -75,7 +85,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-irq test-lcd test-adc test-cmu test-display test-sd
+check: test test-irq test-lcd test-adc test-cmu test-display test-sd test-wdt
 
 clean:
-	rm -f wremu $(OBJS)
+	rm -f wremu $(OBJS) $(OBJS:.o=.d)

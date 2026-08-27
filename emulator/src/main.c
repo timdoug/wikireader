@@ -17,6 +17,7 @@
 #include "display.h"
 #include "touch.h"
 #include "timer.h"
+#include "wdt.h"
 #include "itc.h"
 #include "cmu.h"
 #include "port.h"
@@ -133,7 +134,8 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 			     struct port *port, struct itc *itc,
 			     struct sdramc *sdramc, struct lcd *lcd,
 			     struct touch *touch, struct timerblk *timer,
-			     struct sdcard *sd, struct eeprom *eeprom,
+			     struct sdcard *sd, struct wdt *wdt,
+			     struct eeprom *eeprom,
 			     const char *path, uint32_t entry, uint32_t boot_sp)
 {
 	/*
@@ -148,6 +150,7 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 	lcd_reset(lcd);
 	touch_reset(touch);
 	timer_reset(timer);
+	wdt_reset(wdt);
 	sd_reset(sd);
 	if (eeprom)
 		eeprom_deselect(eeprom);
@@ -501,9 +504,16 @@ int main(int argc, char **argv)
 		cpu.pcsample  = calloc(C33_PCBUCKETS, sizeof *cpu.pcsample);
 	if (boot_sp)
 		cpu.sr[SR_SP] = boot_sp;
-	mem.pc_src = &cpu.pc;
+	/*
+	 * Report the instruction being executed, not the one after it: a
+	 * diagnostic that names the wrong instruction is worse than none.
+	 */
+	mem.pc_src = &cpu.cur_pc;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
 	cpu.irq_ctx = &itc;
+
+	struct wdt wdt;
+	wdt_attach(&mem, &wdt, &cmu, &cpu.clk);
 
 	struct timerblk timer;
 	timer_attach(&mem, &timer, &cpu.clk, &itc);
@@ -565,7 +575,8 @@ int main(int argc, char **argv)
 				fprintf(stderr, "  [powered on]\n");
 				machine_power_on(&cpu, &mem, &port, &itc,
 						 &sdramc, &lcd, &touch, &timer,
-						 &sd, eeprom_path ? &eeprom : NULL,
+						 &sd, &wdt,
+						 eeprom_path ? &eeprom : NULL,
 						 path, entry, boot_sp);
 				powered = true;
 				disp.powered = true;
@@ -811,6 +822,16 @@ int main(int argc, char **argv)
 
 
 		timer_poll(&timer, &cpu);
+		wdt_poll(&wdt);
+		if (wdt.expired) {
+			/*
+			 * Twenty seconds without a kick. The real chip resets
+			 * here, so a guest that wedges never sits there
+			 * forever the way it used to.
+			 */
+			stop = "watchdog reset";
+			break;
+		}
 
 		/*
 		 * Idle: the core is in HALT waiting for an interrupt, so
@@ -1003,6 +1024,8 @@ done:
 	}
 
 	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
+	printf("--- wdt: %lu kicks, %lu timeouts, %lu writes blocked while"
+	       " protected ---\n", wdt.kicks, wdt.timeouts, wdt.blocked);
 	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows ---\n",
 	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
 	if (eeprom_path)

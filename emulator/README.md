@@ -564,6 +564,29 @@ and `make test-display` drives it with synthetic events -- no window, no
 video device -- covering the release-off-panel case, the clamping, and the
 counted power press.
 
+### The watchdog
+
+It was the busiest thing in the register map long after every other
+peripheral had been modelled: 118,882 writes in one session, all landing in
+an unclaimed hole. grifo arms it for twenty seconds with `RESEN` set and
+then kicks it from the main loop, the suspend path and around every card
+access. Unmodelled, a guest that wedges sits there forever; on the device
+the chip resets.
+
+Two things make it more than a register file. `REG_WD_WP` has to hold 0x96
+before `COMP` or `EN` will take a value, which is how `Watchdog_SetTimeout`
+brackets its writes. And the counter is gated: `WDT_CKE` is deliberately
+absent from the set of clocks the suspend code enables, so it stops for the
+whole two-minute suspend.
+
+That gate is the part worth stating plainly, because the obvious model is
+wrong. Counting as "now minus the last kick" reads correctly at every
+instant the clock is on, and quietly banks the entire suspend -- the first
+poll after the clock comes back sees two minutes of arrears against a
+twenty-second timeout and resets a device that was behaving perfectly. The
+counter accumulates only while the clock runs. `make test-wdt` covers it;
+switching back to the subtraction fails three of its cases.
+
 ### The card keeps what is written to it
 
 A card that forgets everything the moment the power goes is not a card, and
@@ -586,6 +609,24 @@ any command sniffing or a file writes itself into nonsense. `make test-sd`
 writes blocks composed entirely of command-shaped bytes and reads them back
 off the host file to keep that honest; putting the check back in the wrong
 order fails eight of its cases.
+
+### One read that goes nowhere
+
+Every session makes two four-byte reads of 0x00de0d74, which is outside
+every region. It is a firmware bug, not a hole in the memory map.
+
+The instruction is `xld.w %r5,[%r4+0x4]` in the application, the tail of
+`wiki_list[aActiveWikis[i].WikiInfoIdx].wiki_id`. Both base pointers are
+sound and `i` is bounds-checked against `nWikiCount`, but the index stored
+*inside* `aActiveWikis` is not checked at all, and at that moment it holds
+-3816505: `aActiveWikis` comes from `memory_allocate()`, which does not
+zero what it hands back. The computed address lands far below RAM. The
+emulator returns 0, the comparison fails, and the application carries on,
+which is why nothing looks wrong.
+
+Unmapped accesses now name the instruction that made them. They report
+`cur_pc` rather than `pc`, since the latter has already moved on and naming
+the wrong instruction is worse than naming none.
 
 ### Nothing to show until the controller says so
 

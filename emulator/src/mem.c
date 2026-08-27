@@ -113,7 +113,8 @@ uint32_t mem_read(void *ctx, uint32_t addr, unsigned size)
 
 	m->unmapped_reads++;
 	if (m->unmapped_reads <= 8)
-		fprintf(m->log, "  unmapped read  0x%08x size %u\n", addr, size);
+		fprintf(m->log, "  unmapped read  0x%08x size %u (pc=0x%08x)\n",
+			addr, size, m->pc_src ? *m->pc_src : 0);
 	return 0;
 }
 
@@ -142,6 +143,7 @@ void mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val)
 
 	m->unmapped_writes++;
 	if (m->unmapped_writes <= 8)
-		fprintf(m->log, "  unmapped write 0x%08x size %u = 0x%x\n",
-			addr, size, val);
+		fprintf(m->log, "  unmapped write 0x%08x size %u = 0x%x"
+			" (pc=0x%08x)\n", addr, size, val,
+			m->pc_src ? *m->pc_src : 0);
 }
