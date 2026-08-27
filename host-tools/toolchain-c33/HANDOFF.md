@@ -153,26 +153,30 @@ was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 
 ## The work queue, in the order agreed
 
-**#3 - conditional-branch delay slots.** Next. #4 is done, so the
-premise it rested on has already been tested: widening the set of eligible
-fillers did unlock more slots - filled slots are up 49% in `wiki.app` and
-77% in the kernel - but re-count `jreq.d`/`jrne.d` specifically before
-deciding there is anything left to get. Two things learned doing #4 that
-bear directly on this:
+**#6 - one unfilled slot in `memset` costs 20% of the article window.**
+The best-characterised win left, and it is not a backend bug.
 
-* **A call's slot and a jump's slot have different rules.** `call.d`
-  pushes the return address before the slot runs. There are now two
-  `define_delay`s for that reason; anything added here has to say which
-  one it belongs to.
-* **Measure cycles, not instructions.** Filling a slot does not remove an
-  instruction - the slot still executes - it removes a *cycle* of branch
-  penalty. Both headline benchmarks are counted in instructions and are
-  blind to it by construction.
+`-Os` runs that window in 69.97 ms where every other level takes 87.46 ms,
+at the same instruction count. It is one loop, 1,049,088 iterations:
 
-The residual after that is structural and will not go away: nearly every
-C33 ALU instruction writes the flags, so nothing can move across a compare
-into the branch that reads it, and the slot is non-annulling so reorg
-cannot speculate from the target either.
+```
+-Os                         -O2
+  sub    %r9,0x1              ld.w   [%r5]+,%r10
+  jrne.d                      cmp    %r5,%r9
+  ld.w   [%r11]+,%r10         jrne
+  = 1 + 2 + 1 = 4 cycles      = 1 + 1 + 3 = 5 cycles
+```
+
+1,049,088 cycles at 60 MHz is 17.5 ms, which is exactly the 87.46 - 69.97
+gap. `-Os` counts down and compares against the counter, so the store is
+independent and drops into the slot. `-O2` compares the pointer against
+its limit, so the post-incrementing load feeds the compare that feeds the
+branch, and nothing can move.
+
+This is not a general `-O2` regression - `-O2` fills 58.0% of conditional
+slots against `-Os`'s 52.1%. It is one induction-variable choice in one
+hot loop. Worth knowing before chasing it: the article window is 99.95%
+`memset`, so this is 20% of a benchmark that is itself unrepresentative.
 
 **#5 - soft float.** 32,895 `__mulsf3` calls survive, down from gcc 3.3.2's
 233,164. The span is the tell: 3.3.2 called soft float continuously from
@@ -204,6 +208,9 @@ wrong somewhere the test does not look.
 * **`-mno-long-calls` and `-O2` as defaults** - measured on both toolchains.
 * **honest `length` for moves** (#4) - see below; worth 0.86% of cycles,
   and it turned up a live `call.d` bug.
+* **conditional-branch delay slots** (#3) - `TARGET_FLAGS_REGNUM` had been
+  naming a register that does not exist, plus the same length pessimism on
+  the ALU patterns. 49.7% -> 58.0% filled, against 3.3.2's 58.9%.
 
 ## Known broken
 
@@ -222,14 +229,14 @@ reproduce run to run; they do not depend on host load.
 | | boot (insn) | article (insn) | kernel | `wiki.app` |
 |---|---:|---:|---:|---:|
 | gcc 3.3.2 `-Os` | 11,189,610 | 4,198,115 | 32,812 | 170,352 |
-| `-Os` absolute | 10,019,652 | 4,197,945 | **31,196** | **141,504** |
-| `-Os` relative | 10,034,073 | 4,197,923 | 31,072 | 141,632 |
-| `-O1` absolute | 9,596,684 | 3,148,828 | 32,904 | 153,292 |
-| `-O1` relative | 9,562,585 | 3,148,807 | 32,552 | 150,848 |
-| `-O2` absolute | 7,067,758 | 3,148,785 | 37,020 | 155,228 |
-| `-O2` relative | **7,043,045** | 3,148,773 | 36,900 | 154,456 |
-| `-O3` absolute | 7,329,815 | 3,148,780 | 39,464 | 181,160 |
-| `-O3` relative | 7,320,426 | **3,148,768** | 39,348 | 180,332 |
+| `-Os` absolute | 10,023,943 | 3,148,854 | 31,124 | 141,192 |
+| `-Os` relative | 10,029,985 | 3,148,830 | **31,008** | **141,308** |
+| `-O1` absolute | 9,557,074 | 3,148,832 | 32,848 | 152,984 |
+| `-O1` relative | 9,598,701 | 3,148,808 | 32,484 | 150,540 |
+| `-O2` absolute | 7,043,744 | 3,148,811 | 36,960 | 155,020 |
+| `-O2` relative | **7,030,467** | 3,148,800 | 36,840 | 154,268 |
+| `-O3` absolute | 7,328,463 | 3,148,802 | 39,428 | 181,000 |
+| `-O3` relative | 7,322,374 | **3,148,791** | 39,328 | 180,232 |
 
 Re-measured after #4, with a fresh card image per cell. Read the boot
 column with the polling-loop caveat above: it went *up* across the board
@@ -243,11 +250,11 @@ hoists the address computation, so the data area only pays for a symbol
 touched once. Keep `-medda32` (absolute) as the default; `-mno-edda32` now
 works but buys nothing.
 
-**Optimisation level does matter, and not uniformly.** `-Os` costs 33% on
-the article load (4.20M against 3.15M) - every other level gets the full
-win. `-O1` reaches that same article figure at nearly `-Os` size, but boots
-38% slower than `-O2`. `-O3` is worse than `-O2` on boot and 26 kB bigger,
-past gcc 3.3.2's own size.
+**Optimisation level does matter, and not uniformly.** `-O1` reaches the
+same article figure as `-O2` at nearly `-Os` size, but boots 36% slower.
+`-O3` is worse than `-O2` on boot and 26 kB bigger, past gcc 3.3.2's own
+size. `-Os` used to cost 33% on the article load; it no longer does, and
+its window is now the fastest of the four - see the delay-slot section.
 
 **`-O2` is the recommendation**: fastest boot, article load within 25
 instructions of the best, and `wiki.app` still 7% smaller than the
@@ -326,6 +333,78 @@ survive a length computed by `symbol_ref`. genattrtab substitutes the call
 and then compares it against `LENGTH_2`, an enumerator that does not exist
 for a numeric attribute. `(match_test "get_attr_length (insn) == 2")`
 means the same thing and compiles.
+
+## Delay slots: what finally filled them
+
+Conditional branches sat at 49.7% filled against gcc 3.3.2's 58.9%. The
+slot contents said why:
+
+| in a conditional slot | 3.3.2 | before | after |
+|---|---:|---:|---:|
+| `cmp` | 305 | 77 | - |
+| `add` | 110 | 11 | 67 |
+| `sub` | 69 | 40 | 40 |
+
+All of those write the flags, and reorg refuses to put a flag-writing
+insn in a slot whose branch reads the flags. On this machine that
+refusal is unnecessary: the branch has already decided whether it is
+taken by the time the slot runs - `cond()` is evaluated at the branch in
+`emulator/src/c33.c` - so the flags are dead and the slot is free to set
+up the *next* compare.
+
+`TARGET_FLAGS_REGNUM` is how a target says so, and reorg applies it only
+where the branch carries a `REG_DEAD` note for the register. It had been
+set to 32, inherited from the V850. `FIRST_PSEUDO_REGISTER` here is 22,
+so it named nothing and the relaxation had never once applied.
+
+That alone was worth +57 fills. `cmp` did not move, because
+`cmpsi_insn` declared six bytes for its immediate alternative - a compare
+against a constant was never narrow enough to be eligible. Fixing that
+across the ALU patterns is what closed the gap to 58.0%.
+
+### Three rules, not one
+
+Do not assume the ALU immediates behave like the loads. Measured:
+
+| | imm6 | one ext | else |
+|---|---|---|---|
+| `cmp` `and` `or` `xor` | signed, -32..31 | +/-2^18 | 6 |
+| `add` `sub` | unsigned, 0..63 | 0..2^19-1 | 6 |
+| shifts | no ext at all | - | - |
+
+`add` and `sub` print a negative constant as the opposite operation on
+its magnitude - `add %r4,-5` comes out as `xsub %r4,5` - so their width
+is that of `|v|`, not of a value the unsigned field could never hold.
+
+**Probe with `-mc33pe`.** The shift immediate is the one place the core
+matters: ADV and PE take the whole `imm5` in one instruction, the
+original C33 holds only 8 and gas reaches further by repeating it, so
+`sll %r4,31` is one instruction on our target and four on the base core.
+Every probe run for this work without the core flag got the base core's
+answer.
+
+### The branch range was wrong, and had been all along
+
+Short branches used a 256-byte threshold. The hardware reaches 254, so
+that looks like a one-step-too-generous bound and nothing more. It is
+worse than that: `(pc)` in a length attribute is
+`insn_current_reference_address`, which `final.cc` computes as
+
+```c
+return insn_last_address + insn_lengths[seq_uid] - align_fuzz (...);
+```
+
+ - `insn_lengths[seq_uid]` being the whole SEQUENCE, so the address
+*after* the branch and its delay slot. The C33 measures the displacement
+from the branch itself. Every forward branch was therefore modelled two
+bytes short, or four once its slot was filled, and the threshold is now
+252 to absorb it.
+
+This was latent from before any slot was ever filled; it only became
+reachable when filling slots grew the error from two bytes to four and
+shrank spans onto the boundary. `qsort.c` is what finally could not
+reach. It fails loudly - gas says `operand out of range` - which is the
+one mercy in this area.
 
 ## The entry-point bug, four times
 
