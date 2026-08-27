@@ -16,7 +16,8 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
-| `gcc.c-torture` | **runs**, ~98% of what is testable; found two wrong-code bugs the firmware could not reach |
+| `gcc.c-torture` execute | **100% of what is testable, at every optimisation level**; found four wrong-code bugs the firmware could not reach |
+| `gcc.c-torture` compile | 1975 of 2003 per level, one ICE, in generic GCC rather than the backend |
 
 ### binutils - finished
 
@@ -162,43 +163,148 @@ five instructions where 3.3.2 emitted four, because `HAVE_POST_INCREMENT`
 was never defined and GCC's auto-inc-dec pass was therefore off. Exactly
 5/4. Fixed; the window is now 140 instructions from 3.3.2's on 4.2 million.
 
-## The work queue, in the order agreed
+## #7 - the torture suite is at 100%
 
-**#7 - take the torture suite to 100%.** The next job, and now a
-well-defined one: `tests/FAILURES.md` lists all 72 remaining tests with
-which optimisation levels each fails at.
+Done. 1611 / 1615 / 1615 / 1615 of what is testable, zero failures at any
+level, verified by a clean full run. Detail, and the compile-mode
+residue, in `tests/FAILURES.md`.
 
-How to work it, in the order that pays:
+Three bugs and a stale library did it. Two of the three had nothing to do
+with codegen, which is the pattern worth remembering: on a port this
+young, "the compiler is wrong" is usually the *last* hypothesis to be
+worth testing.
 
-1. **17 fail at every level.** Those are the least likely to be
-   optimisation-dependent and the most likely to be one shared cause, the
-   way the relocation bug was. Start there.
-2. **Reduce before diagnosing.** Both bugs found so far collapsed to
-   about five lines of C. The harness makes that cheap: build one file
-   with `tests/runtime`, run `wremu -b 0x10000002`, read `%r4`.
-3. **A wild PC is the friendly failure.** `wremu` prints the last 64 PCs
-   with disassembly on a fault, which is how the epilogue bug was read
-   straight off the trace.
-4. **Re-run the whole suite after each fix.** The relocation fix moved
-   142 tests; the epilogue fix moved 1278 at `-O0`. Neither was
-   predictable from the one test that led to it.
+### libgcc was two days stale, and `make install` hid it
 
-Two leads already visible. `nest-stdar-1` and `pr43784` both FAULT, which
-points at nested functions or varargs -- and varargs has form here, since
-that is what exposed the relocation bug. And the `-O2`/`-Os` columns have
-13 `EXITnz` that `-O0`/`-O1` do not, so something in the optimised paths
-is wrong that the unoptimised ones do not reach.
+Every `long long` divide in the suite returned to garbage. `__moddi3`'s
+epilogue was
 
-**Do not trust the "looks like" column.** It is a grep over the source,
-not a diagnosis.
+```
+  ld.w  %sp,%r3      sp = fp
+  popn  %r3
+  ret
+```
 
-**Also worth doing once, cheaply:** run `gcc.dg` and `gcc.c-torture` at
-`-O3`, and run the compile suite at every level rather than just `-O2`.
-The compile run has never produced an ICE, which is worth confirming
-still holds as the backend changes.
+ - restoring `%sp` from the frame pointer but never giving back the 40
+bytes of frame, so `popn` read the saved registers from the wrong end and
+`ret` returned to whatever was there. That is exactly the epilogue bug
+fixed at the end of last session. The compiler had been rebuilt; libgcc
+had not, because libgcc's makefiles do not depend on `cc1`, and then
+`make install` copied the two-day-old archive with a **fresh timestamp**,
+so nothing about the tree looked stale.
 
-**#6 - the article-load benchmark is one 4 MB `memset`.** Not a compiler
-problem, and the most valuable thing on this list.
+The tell was that a freshly compiled function got the right epilogue and
+the one inside `libgcc.a` did not. Rebuild target libraries explicitly
+after any backend change:
+
+```sh
+cd .../build && rm -rf c33-epson-elf/libgcc c33-epson-elf/c33pe c33-epson-elf/c33adv \
+  && rm -f configure-target-libgcc all-target-libgcc install-target-libgcc \
+  && make all-target-libgcc && make install-target-libgcc
+```
+
+mini-libc needs the same treatment, and both must be rebuilt again after
+an *assembler* change: the addend lives in the `.o`.
+
+### The trampoline was still the V850's, verbatim
+
+```
+	jarl .+4,r12
+	ld.w 12[r12],r19
+	jmp [r12]
+```
+
+V850 mnemonics, V850 registers, V850 syntax. gas rejected all four
+instructions, so every nested function failed to assemble. Nothing had
+ever exercised it.
+
+The C33 has no PC-relative load and no way to read `%pc` into a general
+register. What it has is a `call` that pushes the return address *before*
+transferring, so calling the next instruction is a no-op jump whose only
+effect is to leave the trampoline's own address on the stack:
+
+```
+	 0  call  .+2
+	 2  ld.w  %r12,[%sp]     %r12 = trampoline + 2
+	 4  add   %sp,1          imm10 is scaled by 4 -- pops one word
+	 6  xld.w %r9,[%r12+14]  static chain
+	10  xld.w %r12,[%r12+18] the function
+	14  jp    %r12
+```
+
+`popn %r12` would have popped `%r0`-`%r12` and taken the caller's saved
+registers with it; there is no single-register pop.
+
+### A relocation addend counted the PC twice, but only for static functions
+
+`c33_elf_reloc` took its early-out - "there is an output bfd, so gas is
+writing the object and the reloc is being handed on; leave it alone" -
+only when the symbol was *not* a section symbol. That test is lifted from
+`bfd_elf_generic_reloc`, but that function returns `bfd_reloc_continue`
+in the section-symbol case and lets `bfd_install_relocation` finish,
+and `bfd_install_relocation` subtracts the reloc's own address only when
+`partial_inplace` is set. All 32 C33 howtos have it clear. Falling
+through to the final-link code instead left the addend holding a complete
+`symbol - PC`, which `ld` then relocated a second time.
+
+gas reduces every *local* symbol to a section symbol plus addend, so the
+visible rule was: a call to a global function is fine, the identical call
+to a `static` function in another section goes somewhere wild. At `-O2`
+GCC puts `main` in `.text.startup`, so `pr43784` called a static function
+0x24 bytes short of its entry.
+
+Note the shape of this one. The last session fixed a relocation bug in
+`md_apply_fix` with the same symptom, and it was tempting to assume that
+one had covered the ground. It had not: the earlier fix handled external
+symbols, and the addend for local ones was being rewritten later still,
+inside BFD, after `tc_gen_reloc` had already returned the right value. It
+took printing the addend at three successive points to find where it
+changed.
+
+### The harness was measuring itself
+
+Six things were being counted against the backend. `-fno-builtin` broke
+every test whose point is that a builtin folds - `20021127-1` defines an
+`llabs()` that calls `abort()` and passes only if GCC never emits the
+call. `dg-options` was ignored, so `930529-1` ran a loop past `INT_MAX`
+without `-fwrapv` and never came back. The instruction budget was 200M
+when `vla-dealloc-1` honestly needs 490M. And a block of 78 "failures"
+turned out to be the emulator failing to start under load, which read
+exactly like a compiler regression - hence the new `NORUN` status, which
+is never allowed to look like a timeout.
+
+**The firmware is unaffected by all of it.** `wiki.app` rebuilt with the
+fixed toolchain boots, types `LOVE`, and renders a screen **byte-
+identical** to the one built before these changes.
+
+## What is next
+
+1. **Re-run the compile suite.** `tests/run-torture.sh` carries
+   compile-mode changes - honouring `dg-do ... { target }`, treating a
+   `dg-error` test as passing when the compiler diagnoses rather than
+   crashes, and reporting unrecognised options and `__int128` as
+   unsupported - that were checked by hand against the 23 individual
+   failures but **have not been run over the suite**. Expect the 23 to
+   go; confirm nothing else moves.
+2. **`pr110266`, the one ICE.** In `expand_builtin_cexpi`, not in the
+   backend; needs a target with no C99 complex math *and* one that passes
+   `_Complex double` in memory. Either carry a local `builtins.cc` patch
+   or record it as a known upstream limitation. No program that can run
+   on this device is affected.
+3. **Re-measure the headline numbers.** Every figure in the table above
+   was taken with the stale `libgcc`, so anything touching `long long` or
+   soft float in the firmware was measured against broken code. The
+   screens are identical, so nothing user-visible changed, but the
+   instruction counts deserve a fresh pass.
+4. **Widen the net**: `-O3`, and `gcc.dg`. The torture suite has stopped
+   being the binding constraint.
+5. **`emulator/src/main.c` has debug scaffolding** left uncommitted from
+   an earlier session - a `WREMU_CP` env-gated block hard-coding
+   `0x10052482`. Not from this work; worth deleting.
+
+## #6 - the article-load benchmark is one 4 MB `memset`
+
+Not a compiler problem, and still the most valuable thing on the list.
 
 `init_render_article` clears the whole off-screen scroll buffer on every
 article:

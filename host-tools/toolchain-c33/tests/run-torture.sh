@@ -59,7 +59,31 @@ mkdir -p "${WORK}"
 # only pad the numbers: a test that wants <math.h>, or __int128, or an x86
 # register name, was never going to run here.
 unsupported_p() {
-	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|undefined reference|cannot find|'std(in|out|err)' undeclared" "$1"
+	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|invalid register name|unknown type name '__u?int128_t'|unrecognized command-line option|undefined reference|cannot find|'std(in|out|err)' undeclared" "$1"
+}
+
+# Tests that name the target they are for, in { dg-do compile { target ... } }.
+# We only have to recognise that the selector is not us: a triplet always has
+# a dash in it, and lp64 is plainly false on a 32-bit machine.  Effective
+# targets we do satisfy (int32plus, alloca, ...) are left alone -- guessing at
+# the whole dg effective-target vocabulary would throw away real coverage.
+wrong_target_p() {
+	local sel
+	sel=$(LC_ALL=C sed -n 's/.*{ *dg-do *[a-z]* *{ *target \([^}]*\)}.*/\1/p' "$1" | head -1)
+	case "${sel}" in
+	"")            return 1 ;;
+	*c33*)         return 1 ;;
+	*-*|*lp64*)    return 0 ;;
+	*)             return 1 ;;
+	esac
+}
+
+# A compile test carrying dg-error is meant to be rejected; the .exp driver
+# passes it when the expected diagnostics appear.  We do not match diagnostic
+# text, so the most this harness can honestly check is the thing it is here
+# for: that the compiler diagnosed rather than crashed.
+expects_error_p() {
+	grep -q "dg-error" "$1"
 }
 
 # Tests that build and run but need a libc feature mini-libc does not have,
@@ -103,6 +127,10 @@ one() {                                 # one <mode> <opt> <file>
 		echo "UNSUPPORTED ${opt} ${b}  (${why})"
 		return
 	fi
+	if wrong_target_p "$f"; then
+		echo "UNSUPPORTED ${opt} ${b}  (written for another target)"
+		return
+	fi
 	local dg; dg=$(dg_options "$f")
 
 	if [ "${mode}" = compile ]; then
@@ -110,6 +138,8 @@ one() {                                 # one <mode> <opt> <file>
 			echo "PASS ${opt} ${b}"
 		elif grep -qE "internal compiler error|Segmentation fault" "${o}.log"; then
 			echo "ICE ${opt} ${b}"
+		elif expects_error_p "$f"; then
+			echo "PASS ${opt} ${b}"
 		elif unsupported_p "${o}.log"; then
 			echo "UNSUPPORTED ${opt} ${b}"
 		else
@@ -157,7 +187,7 @@ one() {                                 # one <mode> <opt> <file>
 		echo "TIMEOUT ${opt} ${b}"
 	fi
 }
-export -f one dg_options unsupported_p skip_reason
+export -f one dg_options unsupported_p skip_reason wrong_target_p expects_error_p
 export WORK RT GCC EMU COMMON LIBS LIMIT
 
 for opt in "${opts[@]}"; do
