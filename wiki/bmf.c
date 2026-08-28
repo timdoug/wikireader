@@ -70,14 +70,22 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 	int font_header;
 	int bFound = 0;
 
+	// callers use Cmetrics for the space character even when this
+	// function fails, so never leave it holding stack garbage
 	if(font==NULL || font->fd < 0)
+	{
+		memset(Cmetrics,0,sizeof(charmetric_bmf));
 		return -1;
+	}
 
 	if (font->fd == FONT_FD_NOT_INITED)
 	{
 		font->fd = load_bmf(font);
 		if(font->fd < 0)
+		{
+			memset(Cmetrics,0,sizeof(charmetric_bmf));
 			return -1;
+		}
 	}
 	font_header =  sizeof(font_bmf_header);
 
@@ -108,7 +116,10 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 				return pres_bmfbm(val, font, bitmap, Cmetrics);
 			}
 			else
+			{
+				memset(Cmetrics,0,sizeof(charmetric_bmf));
 				return -1;
+			}
 		}
 
 		if (!bFound)
