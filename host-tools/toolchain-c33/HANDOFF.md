@@ -18,6 +18,8 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
 | `gcc.c-torture` execute | **1670 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
 | `gcc.c-torture` compile | 1973 of 2003 per set, zero failures, one ICE in generic GCC rather than the backend |
+| emulator, differentially | `emulator/difftest` now runs **both** toolchains; 200 programs each, five levels, all match |
+| ABI vs the 3.3.2 oracle | `tests/abi` cross-links the two compilers. **It reports mismatches - three known, unfixed, documented.** See "The ABI is wrong in three places" |
 
 ### binutils - finished
 
@@ -204,7 +206,22 @@ cd .../build && rm -rf c33-epson-elf/libgcc c33-epson-elf/c33pe c33-epson-elf/c3
 ```
 
 mini-libc needs the same treatment, and both must be rebuilt again after
-an *assembler* change: the addend lives in the `.o`.
+an *assembler* change (the addend lives in the `.o`) and after any **ABI**
+change.
+
+### And mini-libc's archive appends rather than replaces
+
+`mini-libc/Makefile` builds `libc.a` with `ar q` -- quick *append*. An
+incremental rebuild leaves the stale members in the archive **ahead of** the
+new ones, and the linker takes the first match, so the change appears to do
+nothing. `libc.a` doubling from 498 KB to 1,000 KB is the tell. `make clean`
+first, every time.
+
+That is the third variant of the same trap in one session, after the
+re-timestamped `libgcc` above and the ABI-stale libraries below. The general
+form is worth holding on to: **when a change appears to have no effect on
+this tree, suspect the build before the code.** Three times it presented as
+"the compiler is wrong".
 
 ### The trampoline was still the V850's, verbatim
 
@@ -298,7 +315,133 @@ The two `-O3` sets are the ones that lean hardest on the delay-slot filling
 and instruction-length model this port has been changing, so they were the
 most likely place for something to be hiding. Nothing was.
 
+### mini-libc's printf had two real bugs, and the compiler was right
+
+`pr78622` and `pr79327` had been skipped for wanting `%hhd` and `%#hho`.
+Both turned out to be mini-libc:
+
+```
+before                          after
+[%o of 8]       -> '0'   n=2    [%o of 8]       -> '10'   n=2
+[%hhd of 300]   -> '300' n=2    [%hhd of 300]   -> '44'   n=2
+```
+
+`%o` - and the BSD `%O`/`%U` spellings - never fetched an argument at all:
+the prefetch before the conversion dispatch covered only `u`, `x` and `X`,
+so `%o` formatted whatever `_ulong` last held **and consumed no vararg**,
+desynchronising every conversion after it in the same format string.
+Separately a second `h` just re-set `SHORTINT`.
+
+Look at the `n=` column: GCC's folded return value was already correct in
+both cases. `-fprintf-return-value` was right and the library was wrong,
+which is exactly what those two tests exist to detect. The firmware uses
+neither `%o` nor `%hh`, so nothing shipped was affected.
+
+### What running difftest with the new compiler bought
+
+`emulator/difftest` validated wremu only against code gcc 3.3.2 emits, and
+every torture result rests on wremu. `DT_TC` now selects the toolchain.
+200 programs at five levels match. The coverage measurement **contradicted
+the guess that motivated the run**:
+
+| over the same 40 programs at `-O2` | gcc 3.3.2 | gcc 16.2 |
+|---|---:|---:|
+| delay-slot forms | 7,081 | 3,546 |
+| **post-increment `[%rb]+`** | **0** | **370** |
+
+Delay slots were already covered - 3.3.2 fills them at a similar rate.
+**Post-increment addressing was covered not at all**, because
+`HAVE_POST_INCREMENT` was never defined in the old backend. It is also the
+addressing mode the article-load speedup rests on, so it was the worst
+thing to have had no independent check on.
+
+## The ABI is wrong in three places - the open work
+
+`tests/abi/run-abi.sh` builds the two halves of one program with the two
+toolchains in all four combinations and diffs the output. This is the one
+thing `gcc.c-torture` structurally cannot check: every test there is
+self-contained and compiled by a single compiler, so an ABI disagreement is
+invisible. It matters because the firmware links hand-written assembly and
+prebuilt objects from `ROOT_IMAGE/` built by gcc 3.3.2 and not rebuildable
+ - a mismatch there does not fail to link and does not crash, it silently
+passes the wrong value.
+
+It found three divergences immediately, all inherited from V850, each
+verified by reading 3.3.2's *callee* side rather than guessing from the
+caller:
+
+1. **64-bit arguments are being even-aligned.** They should not be:
+   `f(u32, unsigned long long, u32)` is `%r6, %r7:%r8, %r9`. We push the
+   third argument to the stack instead.
+2. **Aggregates over 8 bytes are passed by reference.** They go on the
+   stack *by value*, and - easy to miss - **consume no argument register**:
+   `h1(u32 a, struct S12 s, u32 b)` puts `a` in `%r6`, `s` at `[%sp+4]`,
+   and `b` in `%r7`. ABI.md had described the hidden pointer, which is how
+   a large struct is *returned*; the two had been conflated.
+3. **A 64-bit scalar in the last argument slot is split** half in `%r9` and
+   half on the stack. 3.3.2 does not split it.
+
+All three were implemented (`ca0821e7`), all four cross-link combinations
+agreed on 29 values, and `wiki.app` came out byte-identical. Then the full
+torture run failed `complex-7` and `pr59643`, and the change was reverted
+(`d64ce84d`).
+
+### Why it reverted, and what the next attempt should do differently
+
+The obstacle is not any of the three rules. It is that **rule 1 unmasks a
+code path that has never executed.** With the bogus alignment in place, an
+8-byte argument can never straddle the end of the argument registers.
+Remove it and an ordinary signature - `f(int, int, int, double)`, or
+`pr59643`'s `foo(double *, double *, double *, double, double, int)` -
+lands there. On that path the backend contradicts itself:
+`c33_function_arg` returns a full `DImode`/`DFmode` register pair while
+`c33_arg_partial_bytes` says four bytes are in registers.
+
+This is not an edge case and it is not about `-O3`; `-O3` is merely where
+the tests' call shapes got interesting enough to reach it.
+
+And 3.3.2 has **three different behaviours** in that one position:
+
+| in the last slot | 3.3.2 does | the backend needs |
+|---|---|---|
+| `long long` | `%r9:%r10`, one past the documented set | `function_arg` -> `REG(DImode, 9)`, `arg_partial_bytes` -> 0 |
+| `double` | wholly on the stack; the *next* argument keeps `%r9` | `function_arg` -> `NULL_RTX` **without advancing `nbytes`**, `arg_partial_bytes` -> 0 |
+| aggregate | same as `double` | the rule already written for rule 2 |
+
+The second row is the same "consumes no register" treatment rule 2 needs.
+Both pieces existed and were never connected - the reverted attempt made
+`arg_partial_bytes` return 0 for integers only and left `double` falling
+through to a 4-byte split while `function_arg` still returned a pair.
+
+Order of work, one step per verification pass, each independently
+revertable:
+
+1. Make `c33_arg_partial_bytes` and `c33_function_arg` agree. No ABI
+   change yet; torture should stay clean.
+2. Add the straddle rules from the table. `tests/abi` plus a full run.
+3. Remove the alignment (rule 1) - this is what unmasks everything.
+4. The aggregate rule (rule 2) last.
+
+`_Complex double` is deliberately left diverging: 3.3.2 passes it by value,
+we pass it by reference, and since it is *also* returned through a hidden
+pointer the two rules interact. The target has no complex math library and
+the firmware uses no `_Complex`, so it is not worth the register-allocation
+work. Recorded in ABI.md.
+
+**Rebuild `libgcc` and `mini-libc` after any ABI change.** Both go stale in
+a way nothing detects, and that cost a wrong diagnosis here: `va-arg-19/20/
+21/22` and `strncmp-1` looked like ABI regressions and were stale libgcc.
+
 ## What is next
+
+0. **Finish the ABI.** The section above has the plan. This is the only
+   known-wrong thing in the toolchain.
+
+0b. **One confirming full run.** The current tree is the compiler from
+   before the ABI attempt plus the printf fix. Both were verified -
+   the printf change against all 45 execute tests that call printf, which
+   is the complete affected set - but no single full run has been done on
+   this exact composition since the revert. It should be clean; confirm it.
 
 1. **`pr110266`, the one ICE.** Upstream's, in `expand_builtin_cexpi` -
    confirmed by experiment, see `tests/FAILURES.md`. Either carry a local
