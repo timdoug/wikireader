@@ -411,7 +411,7 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 			lcd_draw_buf.current_x = 0;
 			lcd_draw_buf.current_y += lcd_draw_buf.actual_height;
 			font_idx = c2 & 0x07;
-			if (font_idx > FONT_COUNT)
+			if (font_idx < 1 || font_idx > FONT_COUNT)
 				font_idx = DEFAULT_FONT_IDX;
 			lcd_draw_buf.pPcfFont = &pcfFonts[font_idx - 1];
 			lcd_draw_buf.line_height = c2 >> 3;
@@ -425,7 +425,7 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 			c2 = **pUTF8;
 			(*pUTF8)++;
 			font_idx = c2 & 0x07;
-			if (font_idx > FONT_COUNT)
+			if (font_idx < 1 || font_idx > FONT_COUNT)
 				font_idx = DEFAULT_FONT_IDX;
 			lcd_draw_buf.pPcfFont = &pcfFonts[font_idx - 1];
 			lcd_draw_buf.y_adjustment = ((signed char)c2 >> 3);
@@ -479,6 +479,8 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 			v_line_bottom -= lcd_draw_buf.y_adjustment;
 			if (v_line_bottom < 0)
 				v_line_bottom = 0;
+			if (v_line_bottom > LCD_BUF_HEIGHT_PIXELS)
+				v_line_bottom = LCD_BUF_HEIGHT_PIXELS;
 			if ((long)c2 > v_line_bottom)
 				c2 = (unsigned char)v_line_bottom;
 			buf_draw_vertical_line(v_line_bottom - (unsigned long)c2, v_line_bottom - 1);
@@ -521,7 +523,8 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 				nByteIdx = (lcd_draw_buf.current_x  + LCD_LEFT_MARGIN + lcd_draw_buf.x_adjustment) / 8;
 				for (i = 0; i < nHeight; i++)
 				{
-					memcpy(&lcd_draw_buf.screen_buf[nImageY * LCD_BUF_WIDTH_BYTES + nByteIdx], *pUTF8, nBytes);
+					if (nImageY < LCD_BUF_HEIGHT_PIXELS)
+						memcpy(&lcd_draw_buf.screen_buf[nImageY * LCD_BUF_WIDTH_BYTES + nByteIdx], *pUTF8, nBytes);
 					*pUTF8 += (nWidth + 7) / 8;
 					nImageY++;
 				}
@@ -530,7 +533,7 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 			{
 				for (i = 0; i < nHeight; i++)
 				{
-					for(j = 0; j < nWidth; j++)
+					for(j = 0; nImageY < LCD_BUF_HEIGHT_PIXELS && j < nWidth; j++)
 					{
 						nByteIdx = j / 8;
 						nBitIdx = 7 - (j % 8);
@@ -1045,8 +1048,10 @@ void render_wikipedia_license_text(void)
 		draw_lines = license_draw->lines;
 	else
 		draw_lines = LCD_BUF_HEIGHT_PIXELS - lcd_draw_buf.current_y;
+	if (draw_lines < 0)
+		draw_lines = 0;
 	memcpy(&lcd_draw_buf.screen_buf[lcd_draw_buf.current_y * LCD_BUF_WIDTH_BYTES], license_draw->buf, draw_lines * LCD_BUF_WIDTH_BYTES);
-	for (i = 0; i < license_draw->link_count; i++)
+	for (i = 0; i < license_draw->link_count && article_link_count < MAX_ARTICLE_LINKS; i++)
 	{
 		start_x = license_draw->links[i].start_xy & 0xFF;
 		start_y = (license_draw->links[i].start_xy >> 8) + lcd_draw_buf.current_y;
@@ -2563,6 +2568,8 @@ void extract_title_from_article(unsigned char *article_buf, unsigned char *title
 				break;
 			case ESC_2_NEW_LINE_SAME_FONT:
 				title[lenTitle++] = ' '; // append a blank for wrapped title
+				if (lenTitle >= MAX_TITLE_ACTUAL - 1)
+					bDone = 1;
 				break;
 			case ESC_3_NEW_LINE_WITH_FONT:
 				c2 = *article_buf++;
@@ -2713,7 +2720,7 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 		c2 = **p;
 		(*p)++;
 		font_idx = c2 & 0x07;
-		if (font_idx > FONT_COUNT)
+		if (font_idx < 1 || font_idx > FONT_COUNT)
 			font_idx = DEFAULT_FONT_IDX;
 		*pFont = &pcfFonts[font_idx - 1];
 		bNewLine = true;
@@ -2722,7 +2729,7 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 		c2 = **p;
 		(*p)++;
 		font_idx = c2 & 0x07;
-		if (font_idx > FONT_COUNT)
+		if (font_idx < 1 || font_idx > FONT_COUNT)
 			font_idx = DEFAULT_FONT_IDX;
 		*pFont = &pcfFonts[font_idx - 1];
 		break;
@@ -2775,7 +2782,7 @@ bool process_esc_code(unsigned char c, const unsigned char **p, pcffont_bmf_t **
 		if (*last_x == 0)
 			*last_x = LCD_EXTRA_LEFT_MARGIN_FOR_IMAGE;
 		else
-			++last_x;
+			++(*last_x);
 		for (i = 0; i < nHeight; i++)
 			*p += (nWidth + 7) / 8;
 		*last_x += nWidth;

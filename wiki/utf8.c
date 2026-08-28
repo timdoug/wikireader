@@ -44,7 +44,7 @@ ucs4_t UTF8_to_UCS4(const unsigned char **pUTF8)
 			else if ((c0 & 0xF0) == 0xE0) /* 3-byte UTF8 */
 			{
 				c1 = **pUTF8;
-				c2 = *(*pUTF8 + 1);
+				c2 = ((c1 & 0xC0) == 0x80) ? *(*pUTF8 + 1) : 0;
 				if ((c1 & 0xC0) == 0x80 && (c2 & 0xC0) == 0x80)
 				{
 					(*pUTF8) += 2;
@@ -53,11 +53,11 @@ ucs4_t UTF8_to_UCS4(const unsigned char **pUTF8)
 				else
 					c0 = 0; /* invalid UTF8 character */
 			}
-			else if ((c0 & 0xF1) == 0xF0) /* 4-byte UTF8 */
+			else if ((c0 & 0xF8) == 0xF0) /* 4-byte UTF8 */
 			{
 				c1 = **pUTF8;
-				c2 = *(*pUTF8 + 1);
-				c3 = *(*pUTF8 + 2);
+				c2 = ((c1 & 0xC0) == 0x80) ? *(*pUTF8 + 1) : 0;
+				c3 = ((c2 & 0xC0) == 0x80) ? *(*pUTF8 + 2) : 0;
 				if ((c1 & 0xC0) == 0x80 && (c2 & 0xC0) == 0x80 && (c3 & 0xC0) == 0x80)
 				{
 					(*pUTF8) += 3;
@@ -140,7 +140,7 @@ void get_first_utf8_char(unsigned char *out_utf8_char, const unsigned char *utf8
 		{
 			len = 3;
 		}
-		else if ((utf8_str[0] & 0xF1) == 0xF0) /* 4-byte UTF8 */
+		else if ((utf8_str[0] & 0xF8) == 0xF0) /* 4-byte UTF8 */
 		{
 			len = 4;
 		}
@@ -166,7 +166,7 @@ const unsigned char *next_utf8_char(const unsigned char *utf8_str)
 	{
 		len = 3;
 	}
-	else if ((utf8_str[0] & 0xF1) == 0xF0) /* 4-byte UTF8 */
+	else if ((utf8_str[0] & 0xF8) == 0xF0) /* 4-byte UTF8 */
 	{
 		len = 4;
 	}

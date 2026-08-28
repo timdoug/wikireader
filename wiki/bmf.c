@@ -81,7 +81,7 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 	}
 	font_header =  sizeof(font_bmf_header);
 
-	if(val <= 256)
+	if(val < 256)
 	{
 		memcpy(Cmetrics,font->charmetric+val*sizeof(charmetric_bmf)+font_header,sizeof(charmetric_bmf));
 	}

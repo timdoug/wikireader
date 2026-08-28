@@ -132,7 +132,7 @@ void guilib_buffer_invert_area(unsigned char *membuffer, int start_x, int start_
 			byte_mask2 = 0xFF;
 			byte_mask2 >>= r2;
 		}
-		if (r1 > 0 && end_x - start_x < 8 && r2 > 0)
+		if (r1 > 0 && start_x / 8 == end_x / 8 && r2 > 0)
 		{
 			byte_mask1 |= byte_mask2;
 			r2 = 0;
@@ -249,7 +249,7 @@ void guilib_buffer_clear_area(unsigned char *membuffer,
 			byte_mask2 = 0xFF;
 			byte_mask2 >>= r2;
 		}
-		if (r1 > 0 && end_x - start_x < 8 && r2 > 0)
+		if (r1 > 0 && start_x / 8 == end_x / 8 && r2 > 0)
 		{
 			byte_mask1 |= byte_mask2;
 			r2 = 0;
