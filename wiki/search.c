@@ -275,7 +275,7 @@ static void print_article_error()
 // check if null terminator exists
 int is_proper_string(const unsigned char *s, int len)
 {
-	while (len >= 0)
+	while (len > 0)
 	{
 		if (!*s)
 			return 1;
@@ -324,7 +324,7 @@ TITLE_SEARCH *locate_proper_title_search(unsigned char *buf_middle, int len)
 {
 	unsigned char *pBuf = buf_middle - 2; 	// including the possible null terminated last two bytes of the last TITLE_SEARCH
 	// for finding the proper TITLE_SEARCH pattern
-	int i = 0;
+	int i = 2;	// pBuf[0] and pBuf[1] are before the buffer; never read them
 	bool bFound = false;
 
 	while (!bFound && i < len + 2 - 8) // the pattern consists of 8 bytes
@@ -1367,7 +1367,10 @@ int search_remove_char(int bPopulate, unsigned long ev_time)
 	if (search_str_len == 0)
 		return -1;
 
-	if (wiki_keyboard_conversion_needed())
+	// per-language buffer can be empty with search_str_len > 0 when the
+	// search string survived a switch to a CJK wiki; fall through to the
+	// plain removal instead of indexing search_string_per_language[-1]
+	if (wiki_keyboard_conversion_needed() && search_str_per_language_len > 0)
 	{
 		if (!(search_string_per_language[search_str_per_language_len - 1] & 0x80))
 		{
@@ -1383,7 +1386,9 @@ int search_remove_char(int bPopulate, unsigned long ev_time)
 			       ((search_string_per_language[search_str_per_language_len - 1] & 0x80) &&
 				!(search_string_per_language[search_str_per_language_len - 1] & 0x40)))
 				search_str_per_language_len--;
-			search_string_per_language[--search_str_per_language_len] = '\0';
+			if (search_str_per_language_len > 0) // malformed UTF-8: nothing but continuation bytes
+				search_str_per_language_len--;
+			search_string_per_language[search_str_per_language_len] = '\0';
 			if (wiki_is_korean())
 				search_str_len = english_to_korean_phonetic(search_string, MAX_TITLE_SEARCH, search_string_per_language, &search_str_per_language_len);
 			else
@@ -1537,6 +1542,17 @@ int retrieve_article(long idx_article_with_wiki_id)
 
 			file_read(fd_dat, &dat_article_len, sizeof(dat_article_len));
 
+			// dat_article_len comes straight off the card: too small
+			// underflows the LZMA_PROPS_SIZE subtraction below, too
+			// large streams over the 512K compressed_buf
+			if (dat_article_len <= LZMA_PROPS_SIZE ||
+			    dat_article_len > MAX_COMPRESSED_ARTICLE)
+			{
+				file_close(fd_dat);
+				print_article_error();
+				return -1;
+			}
+
 			file_read(fd_dat, compressed_buf, dat_article_len);
 			file_close(fd_dat);
 
@@ -1586,6 +1602,8 @@ int retrieve_article(long idx_article_with_wiki_id)
 						len = 0;
 					else if (offset + len > file_buffer_len)
 						len = file_buffer_len - offset;
+					if (len >= FILE_BUFFER_SIZE) // keep room for the terminator
+						len = FILE_BUFFER_SIZE - 1;
 					memmove(file_buffer, &file_buffer[offset], len);
 					file_buffer[len] = '\0';
 					return 0;

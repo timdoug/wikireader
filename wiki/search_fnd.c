@@ -150,15 +150,21 @@ int copy_fnd_to_buf(long offset, unsigned char *buf, int len)
 				break;
 			}
 		}
+		// keep the read result signed: file_read returns a negative
+		// error code, which stored into the uint16_t len would pass
+		// the <= 0 test below as a huge valid length
+		ssize_t nRead = 0;
 		pFndBuf[idxFndBuf].len = 0;
 		if (nFndIdx < pPerWikiInfo[nCurrentWiki].nFndCount)
 		{
 			file_lseek(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx],
 				   blocked_offset - pPerWikiInfo[nCurrentWiki].offsetFndStart[nFndIdx]);
-			pFndBuf[idxFndBuf].len = file_read(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx],
-							   &pFndBuf[idxFndBuf].buf[0], FND_BUF_BLOCK_SIZE);
+			nRead = file_read(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx],
+					  &pFndBuf[idxFndBuf].buf[0], FND_BUF_BLOCK_SIZE);
+			if (nRead > 0)
+				pFndBuf[idxFndBuf].len = nRead;
 		}
-		if (nFndIdx >= pPerWikiInfo[nCurrentWiki].nFndCount || pFndBuf[idxFndBuf].len <= 0)
+		if (nFndIdx >= pPerWikiInfo[nCurrentWiki].nFndCount || nRead <= 0)
 		{
 			pFndBuf[idxFndBuf].offset = 0;
 			if (idxFndBuf != nIdxFndBufFirstUsed)
@@ -178,9 +184,12 @@ int copy_fnd_to_buf(long offset, unsigned char *buf, int len)
 		if (pFndBuf[idxFndBuf].len < FND_BUF_BLOCK_SIZE && nFndIdx < pPerWikiInfo[nCurrentWiki].nFndCount - 1)
 		{
 			file_lseek(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx + 1], 0);
-			pFndBuf[idxFndBuf].len += file_read(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx + 1],
-							    &pFndBuf[idxFndBuf].buf[pFndBuf[idxFndBuf].len], FND_BUF_BLOCK_SIZE - pFndBuf[idxFndBuf].len);
+			nRead = file_read(pPerWikiInfo[nCurrentWiki].fdFnd[nFndIdx + 1],
+					  &pFndBuf[idxFndBuf].buf[pFndBuf[idxFndBuf].len], FND_BUF_BLOCK_SIZE - pFndBuf[idxFndBuf].len);
+			if (nRead > 0)
+				pFndBuf[idxFndBuf].len += nRead;
 		}
+		pFndBuf[idxFndBuf].wiki_id = nCurrentWiki; // eviction rebuilds the key from this
 		pFndBuf[idxFndBuf].offset = blocked_offset;
 		element.key = nKey;
 		element.data_entry_idx = idxFndBuf;

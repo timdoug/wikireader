@@ -323,6 +323,8 @@ int split_insert (PBTREE btree, int node_idx, PBTREE_ELEMENT element) {
 		return 1;
 	else if (!BTREE_IS_VALID_NODE_IDX(btree->nodes[node_idx].parent_node_idx)) { // this node was the root
 		int new_root = get_free_node(btree);
+		if (!BTREE_IS_VALID_NODE_IDX(new_root)) // pool exhausted: nodes[-1] otherwise
+			return 0;
 		insert_zeroth_subtree(btree, new_root, node_idx);
 		btree->nodes[node_idx].parent_node_idx = new_root;
 		btree->nodes[new_node_idx].parent_node_idx = new_root;

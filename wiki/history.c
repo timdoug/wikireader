@@ -110,6 +110,7 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 	}
 
 	history_changed = HISTORY_SAVE_NORMAL;
+	i = 0; // the viewing-list shift above reuses i; restart the duplicate scan
 	while (!bFound && i < history_count)
 	{
 		if (idx_article == history_list[i].idx_article)

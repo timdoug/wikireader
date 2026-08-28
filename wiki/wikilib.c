@@ -1062,7 +1062,7 @@ static void handle_touch(event_t *ev)
 	{
 		key = keyboard_get_data(ev->touch.x, ev->touch.y);
 		if (ev->item_type == EVENT_TOUCH_UP) {
-			if (*key->key == 'Y' || *key->key == 'N' || *key->key == 'P')
+			if (key && (*key->key == 'Y' || *key->key == 'N' || *key->key == 'P'))
 			{
 				delay_us(100000 * 2);
 				keyboard_key_reset_invert(KEYBOARD_RESET_INVERT_NOW, 0);
