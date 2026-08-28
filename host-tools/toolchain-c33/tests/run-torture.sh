@@ -116,6 +116,24 @@ unsupported_p() {
 # the whole dg effective-target vocabulary would throw away real coverage.
 wrong_target_p() {
 	local sel
+
+	# "{ dg-skip-if ... { ! { i?86-*-* x86_64-*-* } } }" -- the test declaring
+	# itself to belong to other architectures only.  Exactly one test in the
+	# suite does this (990413-2, x87 inline asm), and we already reported it
+	# UNSUPPORTED -- but only because the compile failed with "invalid
+	# register name", which unsupported_p greps for.  Reading the test's own
+	# directive is the honest route; a diagnostic string is upstream's to
+	# change.  Deliberately narrow: it matches only the negated-triplet form.
+	# The plain "{ dg-skip-if ... { avr-*-* } }" spelling names targets to
+	# skip *on*, which is not us, and the "{ freestanding }" ones cover
+	# tests we now pass -- neither must start being skipped here.
+	sel=$(LC_ALL=C sed -n 's/.*{ *dg-skip-if [^{]*{ *! *{ \([^}]*\)}.*/\1/p' "$1" | head -1)
+	case "${sel}" in
+	"")            ;;
+	*c33*)         ;;
+	*-*)           return 0 ;;
+	esac
+
 	sel=$(LC_ALL=C sed -n 's/.*{ *dg-do *[a-z]* *{ *target \([^}]*\)}.*/\1/p' "$1" | head -1)
 	case "${sel}" in
 	"")            return 1 ;;
@@ -142,7 +160,19 @@ expects_error_p() {
 # away a dozen tests that do pass here.
 skip_reason() {
 	case "$1" in
-	920501-8|930513-1) echo "sprintf %f: mini-libc printf has no float" ;;
+	# mini-libc's printf has no %f, and it is staying that way.  Adding it
+	# pulls __adddf3/__subdf3 (858 bytes), __muldf3 (594), __divdf3 (348),
+	# the df comparison set and __fixdfsi into *every* program that links
+	# printf -- roughly 3 KB.  Neither wiki.app nor grifo.elf contains a
+	# single double soft-float symbol today, and no format string anywhere
+	# in samo-lib, wiki or host-tools uses %f, %e or %g.  Two tests is not
+	# worth 3 KB in the shipped library.
+	#
+	# Neither test is really about float formatting anyway: 920501-8 is a
+	# varargs test (a double in slot 2 then thirteen va_arg ints) and
+	# 930513-1 calls sprintf through a K&R-declared function pointer.  The
+	# argument passing both lean on is covered directly by tests/abi.
+	920501-8|930513-1) echo "sprintf %f: deliberate, see comment" ;;
 	# 20030125-1 checks that sin/floor fold; with no C99 libm declared, gcc
 	# folds them at -O0/-O2/-O3 and not at -O1/-Os/-Og -- four sets pass and
 	# three abort.  Upstream's own dg-require-effective-target c99_runtime

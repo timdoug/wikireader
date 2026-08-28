@@ -28,9 +28,44 @@ name.
 | `fopen`/`fclose`/`fscanf` on a real filesystem | `fprintf-2` `printf-2` `user-printf` |
 | `__int128` or decimal float | `pr105613` `pr80692` `pr84748` `pr93213` |
 | a C99 math library | `980709-1` `990826-0` `float-floor` `20030125-1` |
-| `%f` in printf | `920501-8` `930513-1` |
+| `%f` in printf - deliberately | `920501-8` `930513-1` |
 | `<sys/mman.h>` | `loop-2f` `loop-2g` |
 | x86 register names in `asm` | `990413-2` |
+
+`990413-2` is the only test in the whole suite that declares itself for
+other architectures with the negated form,
+`{ dg-skip-if "" { ! { i?86-*-* x86_64-*-* } } }`. Upstream's own runners do
+nothing special with it - DejaGnu reads the directive and never runs it, on
+aarch64 or anywhere else. We reached the same answer by a different route:
+the x87 asm constraints failed to compile with "invalid register name" and
+`unsupported_p` greps for that string. `wrong_target_p` now reads the
+directive instead. The outcome is unchanged; the reason it holds is no
+longer a diagnostic upstream is free to reword.
+
+### `%f` is a decision, not a gap
+
+mini-libc has no `%f` and is keeping it that way. Adding one pulls
+`__adddf3`/`__subdf3` (858 bytes), `__muldf3` (594), `__divdf3` (348), the
+`df` comparison set and `__fixdfsi` into **every program that links
+printf** - about 3 KB. Measured against the current build: neither
+`wiki.app` nor `grifo.elf` contains a single double soft-float symbol, and
+no format string anywhere in `samo-lib`, `wiki` or `host-tools` uses `%f`,
+`%e` or `%g`. Two tests is not worth 3 KB in the shipped library of a
+device with fixed flash.
+
+Neither test is really about float formatting in any case. `920501-8` is a
+varargs test - a `double` in argument slot 2 followed by thirteen
+`va_arg(ap, int)` - and `930513-1` calls `sprintf` through a K&R-declared
+function pointer. The argument passing they both lean on is covered
+directly, and against the 3.3.2 oracle, by `tests/abi`.
+
+If they are ever wanted, the way that does not touch the firmware is a
+`sprintf` in `tests/runtime/` shadowing mini-libc's, since a runtime object
+beats an archive member at link time. That buys the two results at the cost
+of testing a formatter the device does not have, which is weaker coverage
+than it looks.
+
+### Reading directives beats grepping diagnostics
 
 `20101011-1` used to be on this list for wanting `<signal.h>`. It does not:
 upstream ships `{ dg-additional-options "-DSIGNAL_SUPPRESS" { target { !
