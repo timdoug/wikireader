@@ -97,12 +97,13 @@ Fixed in `mini-libc/src/stdlib/vuprintf.c`. Both tests now pass at all
 seven option sets, the firmware builds, and `wiki.app` renders a screen
 identical to the build before the change.
 
-## compile - 1972/1973 of 2003 per set, one ICE, no failures
+## compile - 1973 of 2003 per set, no failures, no ICEs
 
 | | pass | ICE | fail | unsupported |
 |---|---:|---:|---:|---:|
-| `-O0` and `-Og -g` | 1972 | 1 | **0** | 30 |
-| the other five | 1973 | 0 | **0** | 30 |
+| every option set | **1973** | 0 | **0** | 30 |
+
+14,021 results. The ICE below is gone as of the argument-passing fix.
 
 The 30 unsupported are another architecture's `dg-options` (`-mavx`,
 `-march=skylake`, `-mcpu=603e`, `-pthread`), another architecture's
@@ -118,9 +119,13 @@ reclassify anything that passes. The only tests it can reach are the ones
 already failing to compile, which makes re-running just those a complete
 check rather than a sample.
 
-### The one ICE
+### The one ICE - which was ours, not upstream's
 
-`pr110266`, at `-O0` and `-Og -g` - the levels that do not fold the
+**Resolved.** `pr110266` now passes at all seven option sets. The analysis
+below is kept because the *mechanism* it describes was correct and the
+*conclusion* was wrong, which is the more useful thing to remember.
+
+It used to ICE at `-O0` and `-Og -g` - the levels that do not fold the
 guarding `if` away before expand:
 
 ```c
@@ -139,7 +144,8 @@ double PsyBufferUpdate (int n)
 internal compiler error: in expand_expr_addr_expr_1, at expr.cc:9343
 ```
 
-**It is upstream's, not ours**, and the evidence is direct:
+This was written up as **upstream's, not ours**. Every step of it is true
+except the one that mattered:
 
 * The failing code is entirely generic - `expand_builtin_cexpi` in
   `gcc/builtins.cc` calling into `gcc/expr.cc`. Nothing in `config/c33` is
@@ -158,11 +164,25 @@ internal compiler error: in expand_expr_addr_expr_1, at expr.cc:9343
   value **compiles fine**, so memory-passed aggregates are not broken in
   general.
 
-So the ABI is right (>8 bytes to memory, inherited from gcc 3.3.2) and the
-configuration is right; upstream simply has a path that assumes the
-`COMPLEX_EXPR` never needs an address. It cannot be fixed inside
-`config/c33` without lying about the target - claiming a `sincos` pattern
-or a C99 libm we do not have. Either carry a local `builtins.cc` patch
-forcing that rvalue into a temporary, or report it and leave it. No program
-that can run on this device is affected: there is no complex math library
-to call.
+The conclusion drawn from that was: "So the ABI is right (>8 bytes to memory,
+inherited from gcc 3.3.2) and the configuration is right; upstream simply has
+a path that assumes the `COMPLEX_EXPR` never needs an address."
+
+**The ABI was not right, and it was not inherited from gcc 3.3.2.** 3.3.2
+passes a `_Complex double` by value in `%r6`-`%r9`; the >8-bytes-to-memory
+rule was ours, a V850 inheritance via `c33_pass_by_reference`, and it is
+exactly what forced expand to take the address. With the argument-passing
+hooks corrected the value goes in registers and the path is never reached.
+
+Worth extracting, because the write-up reads as thorough and was wrong
+anyway:
+
+* The two controls (`__builtin_cexpif` compiles, a 16-byte struct return
+  compiles) were real and correctly interpreted. They isolated
+  *memory-passing of this particular rvalue* as the trigger - and then that
+  finding was used to exonerate the ABI rather than to interrogate it.
+* The one claim carrying the whole argument, "inherited from gcc 3.3.2", was
+  the only one never checked against the oracle. It would have taken one
+  probe.
+* An ICE reached through a target-dependent path is not upstream's until the
+  target's behaviour on that path has been compared with the oracle.

@@ -17,9 +17,9 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
 | `gcc.c-torture` execute | **1670 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
-| `gcc.c-torture` compile | 1973 of 2003 per set, zero failures, one ICE in generic GCC rather than the backend |
+| `gcc.c-torture` compile | **1973 of 2003 per set, zero failures, no ICEs** |
 | emulator, differentially | `emulator/difftest` now runs **both** toolchains; 200 programs each, five levels, all match |
-| ABI vs the 3.3.2 oracle | `tests/abi` cross-links the two compilers. **It reports mismatches - three known, unfixed, documented.** See "The ABI is wrong in three places" |
+| ABI vs the 3.3.2 oracle | `tests/abi` cross-links the two compilers in all four combinations. **All agree**, 36 values, five option levels. See "The ABI - fixed, and how it was over-thought" |
 
 ### binutils - finished
 
@@ -355,7 +355,7 @@ Delay slots were already covered - 3.3.2 fills them at a similar rate.
 addressing mode the article-load speedup rests on, so it was the worst
 thing to have had no independent check on.
 
-## The ABI is wrong in three places - the open work
+## The ABI - fixed, and how it was over-thought
 
 `tests/abi/run-abi.sh` builds the two halves of one program with the two
 toolchains in all four combinations and diffs the output. This is the one
@@ -366,99 +366,98 @@ prebuilt objects from `ROOT_IMAGE/` built by gcc 3.3.2 and not rebuildable
  - a mismatch there does not fail to link and does not crash, it silently
 passes the wrong value.
 
-It found three divergences immediately, all inherited from V850, each
-verified by reading 3.3.2's *callee* side rather than guessing from the
-caller:
+**All four combinations now agree**, on 36 values, at `-O0`, `-O1`, `-O2`,
+`-Os` and `-O3 -funroll-loops`. Both torture suites are clean at all seven
+option sets, and `wiki.app` renders a byte-identical screen.
 
-1. **64-bit arguments are being even-aligned.** They should not be:
-   `f(u32, unsigned long long, u32)` is `%r6, %r7:%r8, %r9`. We push the
-   third argument to the stack instead.
-2. **Aggregates over 8 bytes are passed by reference.** They go on the
-   stack *by value*, and - easy to miss - **consume no argument register**:
-   `h1(u32 a, struct S12 s, u32 b)` puts `a` in `%r6`, `s` at `[%sp+4]`,
-   and `b` in `%r7`. ABI.md had described the hidden pointer, which is how
-   a large struct is *returned*; the two had been conflated.
-3. **A 64-bit scalar in the last argument slot is split** half in `%r9` and
-   half on the stack. 3.3.2 does not split it.
+### The whole convention was in the tree the entire time
 
-All three were implemented (`ca0821e7`), all four cross-link combinations
-agreed on 29 values, and `wiki.app` came out byte-identical. Then the full
-torture run failed `complex-7` and `pr59643`, and the change was reverted
-(`d64ce84d`).
+`host-tools/gcc-3.3.2/gcc/config/c33/c33.c` contains `function_arg`, and
+`c33.h` contains `FUNCTION_ARG_ADVANCE`. Together they are about forty lines
+with EPSON's own numbered comments explaining each rule. Everything that was
+painstakingly reconstructed by probing - and got wrong twice - is stated
+there directly.
 
-### Why it reverted, and what the next attempt should do differently
+Two things hid it. ABI.md said the ABI "must be derived by probing", which
+was simply false and went unchallenged for the whole port. And `grep`
+treats these files as binary because of their extended-ASCII comments, so
+`grep FUNCTION_ARG c33.h` prints **nothing at all** and looks like an
+answer. Use `python3` or `grep -a` on anything under `gcc-3.3.2/`.
 
-The obstacle is not any of the three rules. It is that **rule 1 unmasks a
-code path that has never executed.** With the bogus alignment in place, an
-8-byte argument can never straddle the end of the argument registers.
-Remove it and an ordinary signature - `f(int, int, int, double)`, or
-`pr59643`'s `foo(double *, double *, double *, double, double, int)` -
-lands there. On that path the backend contradicts itself:
-`c33_function_arg` returns a full `DImode`/`DFmode` register pair while
-`c33_arg_partial_bytes` says four bytes are in registers.
+### What the three "divergences" actually were
 
-This is not an edge case and it is not about `-O3`; `-O3` is merely where
-the tests' call shapes got interesting enough to reach it.
+They were derived separately, looked unrelated, and needed three separate
+fixes. In the source they are three lines of one function:
 
-And 3.3.2 has **three different behaviours** in that one position:
+| reported as | actually |
+|---|---|
+| "64-bit arguments are being even-aligned" | 3.3.2 aligns too, but `BIGGEST_ALIGNMENT` is 32 so it is a **no-op for every type**. Our bug was an extra `size <= UNITS_PER_WORD &&` that sent 8-byte scalars down an `align = size` path. |
+| "aggregates over 8 bytes passed by reference" | `function_arg` returns 0 for **BLKmode**, any size. Not a size rule - a 3-byte struct is BLKmode and goes on the stack, a 4-byte one is `SImode` and goes in a register. |
+| "a 64-bit scalar in the last slot is split" | 3.3.2 has **no `FUNCTION_ARG_PARTIAL_NREGS` at all**. Nothing is ever split. `c33_arg_partial_bytes` returns 0, unconditionally. |
 
-| in the last slot | 3.3.2 does | the backend needs |
-|---|---|---|
-| `long long` | `%r9:%r10`, one past the documented set | `function_arg` -> `REG(DImode, 9)`, `arg_partial_bytes` -> 0 |
-| `double` | wholly on the stack; the *next* argument keeps `%r9` | `function_arg` -> `NULL_RTX` **without advancing `nbytes`**, `arg_partial_bytes` -> 0 |
-| aggregate | same as `double` | the rule already written for rule 2 |
+The previous attempt reverted because it tried to make `arg_partial_bytes`
+model straddling - a rule the ABI does not have. The "self-contradiction
+between `function_arg` and `arg_partial_bytes`" was real, and the fix was to
+delete one side of it rather than reconcile the two.
 
-The second row is the same "consumes no register" treatment rule 2 needs.
-Both pieces existed and were never connected - the reverted attempt made
-`arg_partial_bytes` return 0 for integers only and left `double` falling
-through to a 4-byte split while `function_arg` still returned a pair.
+`double` really is a special case, and the only one: a `DFmode` argument
+that would start in the last slot goes wholly on the stack and consumes no
+register, so the next argument still gets `%r9`, while a `long long` there
+takes `%r9:%r10`. That is `function_arg` step 5, three lines, mirrored in
+`FUNCTION_ARG_ADVANCE`.
 
-Order of work, one step per verification pass, each independently
-revertable:
+### Two things fell out of it
 
-1. Make `c33_arg_partial_bytes` and `c33_function_arg` agree. No ABI
-   change yet; torture should stay clean.
-2. Add the straddle rules from the table. `tests/abi` plus a full run.
-3. Remove the alignment (rule 1) - this is what unmasks everything.
-4. The aggregate rule (rule 2) last.
-
-`_Complex double` is deliberately left diverging: 3.3.2 passes it by value,
-we pass it by reference, and since it is *also* returned through a hidden
-pointer the two rules interact. The target has no complex math library and
-the firmware uses no `_Complex`, so it is not worth the register-allocation
-work. Recorded in ABI.md.
+* **The ICE went away.** `pr110266` ICEd in `expand_builtin_cexpi` and
+  `FAILURES.md` argued it was upstream's, on the grounds that a 16-byte
+  `_Complex double` is passed in memory "inherited from gcc 3.3.2". It is
+  not inherited: 3.3.2 passes it in `%r6`-`%r9`. Passing it in memory was
+  our bug and it was what forced expand to take the address of a
+  `COMPLEX_EXPR`. The compile suite now has no ICEs at any option set.
+* **`FUNCTION_ARG_REGNO_P` had to widen to `%r6`-`%r12`.** Because nothing
+  is split, an argument based at `%r9` runs into `%r10` and beyond
+  (a `_Complex long double` reaches `%r12`). `df` marks exactly the
+  registers satisfying that macro as defined on entry, so with it stopping
+  at `%r9`, `-frename-registers` took `%r10` as a scratch in a function
+  whose argument was still sitting in `%r9:%r10`. `complex-7` catches it;
+  it fails at `-O3 -funroll-loops` (which implies `-frename-registers`) and
+  passes with `-fno-rename-registers`. Nothing to do with unrolling.
 
 **Rebuild `libgcc` and `mini-libc` after any ABI change.** Both go stale in
-a way nothing detects, and that cost a wrong diagnosis here: `va-arg-19/20/
-21/22` and `strncmp-1` looked like ABI regressions and were stale libgcc.
+a way nothing detects, and that cost a wrong diagnosis: `va-arg-19/20/21/22`
+and `strncmp-1` looked like ABI regressions and were a stale libgcc.
+`gcc/rebuild.sh` now does the whole thing, libgcc forced, in one command.
 
 ## What is next
 
-0. **Finish the ABI.** The section above has the plan. This is the only
-   known-wrong thing in the toolchain.
+1. **Re-measure the headline numbers.** Every figure in the table above was
+   taken with the stale `libgcc`, so anything touching `long long` or soft
+   float in the firmware was measured against broken code. The ABI fix has
+   since changed argument placement as well. The screens are identical, so
+   nothing user-visible changed, but the instruction counts deserve a fresh
+   pass.
+2. **`gcc.dg`.** A different scale of job: those tests assert on diagnostic
+   text and line numbers, so it needs an actual DejaGnu driver rather than a
+   shell script. The torture suite has stopped being the binding constraint
+   on confidence, and this is what replaces it. It would also retire the
+   hand-rolled skip lists in `run-torture.sh`.
+3. **Debug info is emitted and untested.** DWARF replaced STABS and nothing
+   has ever loaded it. `readelf --debug-dump` on `wiki.app`, and a breakpoint
+   in a real debugger, would be the first check.
+4. **The three named skips.** `20030125-1`, `loop-2f/2g` and `20101011-1`
+   build and run and then abort, exactly as a miscompilation would. They are
+   skipped by name with a reason, and a real miscompilation in one of them
+   would look identical to the libc gap being claimed. That is the weakest
+   remaining claim in the test results.
+5. **`emulator/src/main.c` has debug scaffolding** left uncommitted from an
+   earlier session - a `WREMU_CP` env-gated block hard-coding `0x10052482`.
+   Not from this work; worth deleting.
 
-0b. **One confirming full run.** The current tree is the compiler from
-   before the ABI attempt plus the printf fix. Both were verified -
-   the printf change against all 45 execute tests that call printf, which
-   is the complete affected set - but no single full run has been done on
-   this exact composition since the revert. It should be clean; confirm it.
-
-1. **`pr110266`, the one ICE.** Upstream's, in `expand_builtin_cexpi` -
-   confirmed by experiment, see `tests/FAILURES.md`. Either carry a local
-   `builtins.cc` patch or report it and leave it. No program that can run
-   on this device is affected.
-2. **Re-measure the headline numbers.** Every figure in the table above
-   was taken with the stale `libgcc`, so anything touching `long long` or
-   soft float in the firmware was measured against broken code. The
-   screens are identical, so nothing user-visible changed, but the
-   instruction counts deserve a fresh pass.
-3. **`gcc.dg`.** A different scale of job: those tests assert on
-   diagnostic text and line numbers, so it needs an actual DejaGnu driver
-   rather than a shell script. The torture suite has stopped being the
-   binding constraint on confidence, and this is what replaces it.
-4. **`emulator/src/main.c` has debug scaffolding** left uncommitted from
-   an earlier session - a `WREMU_CP` env-gated block hard-coding
-   `0x10052482`. Not from this work; worth deleting.
+Both `/tmp` build trees were destroyed overnight by macOS's periodic purge
+partway through this session, which is why `gcc/rebuild.sh` and the test
+harnesses now default under `host-tools/toolchain-c33/work` instead. Nothing
+was lost - the backend sources live in `gcc/files/` precisely so the build
+tree is disposable - but do not put one back in `/tmp`.
 
 ## #6 - the article-load benchmark is one 4 MB `memset`
 

@@ -2,17 +2,28 @@
 
 Sources, in decreasing order of authority:
 
-1. **`s1c33.pdf`** - *S1C33 Family C33 PE Core Manual* (Epson, 182pp) in the
+1. **The 3.3.2 backend's own source**, extracted in the tree at
+   `host-tools/gcc-3.3.2/gcc/config/c33/`. `c33.c`'s `function_arg` and
+   `c33.h`'s `FUNCTION_ARG_ADVANCE` *are* the calling convention, written out
+   in about forty lines with EPSON's own numbered comments explaining each
+   rule. Read them before probing anything.
+2. **`s1c33.pdf`** - *S1C33 Family C33 PE Core Manual* (Epson, 182pp) in the
    repository root. The ISA reference: registers section 2, addressing modes section 5.5-5.6,
    branches section 5.14, per-instruction detail section 7. Section and page citations below
-   refer to this.
-2. **Empirical probing** - compiling probe functions with the original
+   refer to this. The manual documents the machine, not the ABI.
+3. **Empirical probing** - compiling probe functions with the original
    `c33-epson-elf-gcc` 3.3.2 in `host-tools/toolchain-install/bin` and reading
-   the generated assembly. This is where the *calling convention* comes from;
-   the manual documents the machine, not the ABI.
-3. The macros in the 3.3.2 backend (`gcc/config/c33/c33.h`, extracted from
-   `host-tools/toolchain-patches/0001-gcc-EPSON-modified-sources.patch`), used
-   as a cross-check.
+   the generated assembly. Good for confirming a reading of (1); a poor way to
+   *derive* the rules, because the interesting cases are the ones you do not
+   think to write a probe for.
+
+An earlier version of this file listed probing first and called the ABI
+something that "must be derived by probing". That was wrong, and it cost
+real time: the argument-passing rules were reconstructed one probe at a time,
+generalised from single samples, and got two of them backwards before anyone
+opened `c33.c`. Note that `grep` treats these files as binary - they contain
+extended-ASCII - so `grep FUNCTION_ARG c33.h` silently finds nothing even
+though the macro is right there. Use `python3` or `grep -a`.
 
 `id001557.pdf` (*S1C33E07 Technical Manual*, 1015pp) covers the peripherals and
 memory map - needed for the BSP and linker scripts, not for the backend.
@@ -69,16 +80,40 @@ target - see *Data areas* below.
   f(u32, unsigned long long, u32)   ->  %r6, %r7:%r8, %r9
   ```
 
-  V850, which this backend is a fork of, rounds the pair up to an 8-byte
-  boundary and would put it in `%r8:%r9`, pushing the third argument onto
-  the stack. Getting this wrong is invisible within one compilation -- both
-  halves agree with each other -- and only shows on a call to a 3.3.2-built
-  object.
-* **A 64-bit scalar in the last argument slot is not split**: it takes
-  `%r9` *and `%r10`*, one register past the documented set, and the callee
-  reads it from there. A fifth *scalar* argument still goes on the stack, so
-  `%r10` is not a fifth argument register -- this shape only. Caller and
-  callee agree, so it is the ABI whether or not it was intended.
+  `function_arg` does contain an alignment step -- `nbytes` is rounded up to
+  `TYPE_ALIGN (type)` -- but `BIGGEST_ALIGNMENT` is 32, so nothing on this
+  target can ever have an alignment larger than a word and **the rounding is
+  a no-op for every type**. Deriving the alignment from the argument's
+  *size* instead, as V850 does, puts the pair in `%r8:%r9` and pushes the
+  third argument onto the stack. That is invisible within one compilation --
+  both halves agree with each other -- and only shows on a call to a
+  3.3.2-built object.
+* **Nothing is ever split between registers and the stack.** The 3.3.2
+  backend does not define `FUNCTION_ARG_PARTIAL_NREGS` at all: an argument
+  is wholly in registers or wholly in memory, and `function_arg` alone
+  decides which. Any `TARGET_ARG_PARTIAL_BYTES` in the new backend must
+  therefore return 0 unconditionally; a hook that computes its own answer
+  will eventually contradict `function_arg`.
+* **An argument starting in the last slot runs past `%r9`.** Since nothing
+  is split, `function_arg` hands back a register of the argument's *full*
+  mode, and a multi-word mode based at `%r9` simply continues into `%r10`
+  and beyond. A `long long` takes `%r9:%r10`; a 16-byte `_Complex long
+  double` based at `%r9` reaches `%r12`. A following *scalar* argument still
+  goes on the stack, so these are not general argument registers -- but
+  `FUNCTION_ARG_REGNO_P` still has to cover `%r6`-`%r12`, or the later
+  passes do not know an incoming argument lives there. See the
+  `-frename-registers` note below.
+* **`double` is the exception, and only `double`.** A `DFmode` argument that
+  would start in the last slot goes *wholly on the stack* and consumes no
+  register at all, so the next argument still gets `%r9`. A `long long` in
+  exactly the same position takes `%r9:%r10`. Same size, same slot, opposite
+  rules -- `function_arg` special-cases `DFmode` and `FUNCTION_ARG_ADVANCE`
+  matches it:
+
+  ```
+  f(int, int, int, long long d, int e)   ->  d in %r9:%r10,  e on the stack
+  f(int, int, int, double    d, int e)   ->  d on the stack, e in %r9
+  ```
 * Floating point is **soft-float only**. `double a+b` compiles to a call to
   `__adddf3`, `float` to `__addsf3`, with the operands already in the integer
   argument registers.
@@ -87,8 +122,23 @@ target - see *Data areas* below.
 
 ### Structures
 
-* **<= 8 bytes**: passed and returned in registers. `struct { int a, b; }`
-  arrives in `%r6`/`%r7` and returns in `%r4`/`%r5`.
+The register/stack boundary for an aggregate is **not a size limit**. It is
+`function_arg`'s first test: `if (mode == BLKmode) return 0`. So the question
+is only whether GCC gave the record a scalar mode, which `compute_record_mode`
+does when the size matches a machine mode exactly. A 3-byte struct is BLKmode
+and goes on the stack; a 4-byte struct is `SImode` and goes in a register.
+
+| type | mode | where |
+|---|---|---|
+| `struct { char a,b,c; }` | BLK | stack |
+| `struct { int a; }` | SI | one register |
+| `struct { char a[5]; }` | BLK | stack |
+| `struct { int a,b; }` | DI | register pair |
+| `struct { int a; char b; }` | DI | register pair |
+| `struct { int a,b,c; }` | BLK | stack |
+
+* **A record with a scalar mode**: passed and returned in registers.
+  `struct { int a, b; }` arrives in `%r6`/`%r7` and returns in `%r4`/`%r5`.
 * **> 8 bytes, as a return value**: the caller supplies a hidden pointer to
   the return slot as the *first* argument in `%r6`, and the callee returns
   that same pointer in `%r4`. The 16-byte case observably uses `memcpy` to
@@ -106,53 +156,87 @@ target - see *Data areas* below.
   slot. This was originally documented as a hidden pointer, conflating it
   with the return convention above; the two are different.
 
-### Status: the three rules above are documented, not yet implemented
+### Status: implemented and verified
 
-`tests/abi/run-abi.sh` **currently reports mismatches**, and that is the
-honest state. The rules above are what the original compiler does, verified
-by probing both compilers and reading the callee side; the new backend does
-not yet reproduce them, and the attempt was reverted.
+`tests/abi/run-abi.sh` cross-links the two compilers in all four
+combinations and **all of them agree**, on 36 emitted values, at `-O0`,
+`-O1`, `-O2`, `-Os` and `-O3 -funroll-loops`. The full `gcc.c-torture`
+execute and compile suites pass at all seven option sets with zero failures,
+and `wiki.app` built with the fixed compiler renders a byte-identical screen.
 
-What went wrong is worth recording, because the first two rules are each a
-few lines and look easy:
+The whole convention is four hooks in `c33.cc`, and each one mirrors 3.3.2:
 
-* Removing the 8-byte alignment is correct in isolation, but it moves a
-  64-bit argument into the last register slot, where it *straddles* the end
-  of the argument registers. That path is `TARGET_ARG_PARTIAL_BYTES`, and
-  the backend is inconsistent there: `c33_function_arg` hands back a full
-  `DImode`/`DFmode` register pair while `c33_arg_partial_bytes` says only
-  four bytes are in registers. Nothing exercised the disagreement before,
-  because with the alignment in place no 8-byte argument could straddle.
-* The original compiler's own behaviour in that position is not one rule
-  but three: a `long long` takes `%r9:%r10`, one register past the
-  documented set; a `double` goes wholly on the stack and lets the *next*
-  argument keep `%r9`; and an aggregate does the same. Any fix has to model
-  all three.
-* `complex-7` and `pr59643` are the tests that catch it. They passed
-  throughout only because the old, wrong rule was self-consistent.
+| hook | rule |
+|---|---|
+| `c33_pass_by_reference` | always false - 3.3.2 has no such hook |
+| `c33_arg_partial_bytes` | always 0 - 3.3.2 has no `FUNCTION_ARG_PARTIAL_NREGS` |
+| `c33_function_arg` | BLKmode -> stack; align by `TYPE_ALIGN` (a no-op); `DFmode` past slot 3 -> stack; else `%r6 + nbytes/4` |
+| `c33_function_arg_advance` | BLKmode adds 0; `DFmode` past slot 3 adds 0; else the rounded mode size |
 
-So the order of work is: fix `c33_arg_partial_bytes` to agree with
-`c33_function_arg` first, then remove the alignment, then the aggregate
-rule, re-running `tests/abi` and the torture suite between each.
+Three things made this look much harder than it was, and are worth
+remembering:
 
-### Known divergence: `_Complex double` arguments
+* **The "spurious 8-byte alignment" was a misreading.** The alignment step
+  is 3.3.2's own and is correct; what was wrong was our extra condition
+  `size <= UNITS_PER_WORD && arg.type`, which sent every 8-byte typed scalar
+  down the `align = size` path. The fix is to delete the condition, not the
+  alignment.
+* **The apparent self-contradiction between `function_arg` and
+  `arg_partial_bytes` was not a design problem to solve.** 3.3.2 has no
+  partial-bytes hook at all, so the answer is simply 0. An earlier attempt
+  tried to make the two hooks agree by teaching `arg_partial_bytes` about
+  straddling, which is a rule the ABI does not have.
+* **The three "divergences" were symptoms of one cause.** They were derived
+  separately by probing and looked like three unrelated special cases
+  needing three separate fixes. In the source they are three lines of one
+  function.
 
-The original compiler passes a `_Complex double` **by value**, filling
-`%r6`-`%r9`. The new backend passes it **by reference**. This is the one
-argument-passing rule where the two deliberately disagree.
+### `_Complex double` is no longer a divergence - and it retired the ICE
 
-The reason is that a `_Complex double` is also *returned* through a hidden
-pointer in `%r6`, so a function taking and returning one has to allocate a
-hidden pointer and a 16-byte value out of four registers, and the two rules
-interact. Getting that exactly right is more work than the type is worth
-here: the target has no complex math library, nothing in the firmware uses
-`_Complex`, and passing by reference is self-consistent within a single
-compilation.
+An earlier version of this file recorded `_Complex double` as a deliberate
+divergence: 3.3.2 passes it by value in `%r6`-`%r9`, the new backend passed
+it by reference, and that was called acceptable because nothing on the
+device uses `_Complex`. Removing `c33_pass_by_reference` fixed it along with
+everything else, and the four-combination cross-link confirms it.
 
-Attempting it is what broke `complex-2`, `complex-6`, `complex-7`,
-`pr109040`, `pr109938`, `pr109986` and `pr126405-3` in the torture suite,
-which is how the interaction was noticed. If a reason to fix it ever
-appears, `tests/abi` is where the case belongs.
+That also silenced the only ICE in the compile suite. `pr110266` ICEd in
+`expand_builtin_cexpi` at `expr.cc:9343`, and `tests/FAILURES.md` argued at
+some length that it was upstream's bug, on the grounds that the 16-byte
+`_Complex double` was passed *in memory*, so expand had to take the address
+of a `COMPLEX_EXPR` rvalue and `get_inner_reference` cannot. The mechanism
+was right; the conclusion was not. Passing it in memory was **our** bug, and
+with the ABI fixed the value goes in registers and expand never needs its
+address. `pr110266` now passes at all seven option sets.
+
+The lesson is narrow and specific: an ICE reached through a target-dependent
+path is not upstream's until the target's own behaviour on that path has
+been checked against the oracle. "The ABI is right (>8 bytes to memory,
+inherited from gcc 3.3.2)" was asserted without checking, and it was the one
+load-bearing claim in the argument.
+
+### Why `FUNCTION_ARG_REGNO_P` has to cover `%r6`-`%r12`
+
+Getting the argument rules right made an old latent bug reachable, and it is
+the kind that only appears under one optimisation flag.
+
+`df` marks every register satisfying `FUNCTION_ARG_REGNO_P` as defined on
+entry to the function; that is what tells the later passes an incoming
+argument lives there. The macro said `6..9`, the documented set. But because
+nothing is split, an argument based at `%r9` continues into `%r10` and past
+it - so in `check_float (int, _Complex float a1, ..., a5)` the argument `a2`
+arrives in `%r9:%r10`, and `-frename-registers` cheerfully took `%r10` as a
+scratch:
+
+```
+	xld.w	%r10,[%sp+60]      ; regrename thinks %r10 is dead
+	...
+	ld.w	%r1,%r10           ; reads a2's high word -- now garbage
+```
+
+`complex-7` catches it. It aborts at `-O3 -funroll-loops` - which implies
+`-frename-registers` - and passes at plain `-O3`, at `-O3 -fweb`, and at
+`-O3 -funroll-loops -fno-rename-registers`. It is not about unrolling, and
+`complex-7` contains no loops.
 
 ## Stack frame
 
