@@ -20,10 +20,47 @@ never seen the emulator, and the emulator has never seen its output.
 DT_OPTS=-O0 ./run.sh 1 20     # a different instruction mix
 ```
 
+`DT_TC` selects which toolchain generates the target code. It defaults to
+the original, which is the stronger oracle -- it has never seen the
+emulator. Point it at the gcc 16 install to check the emulator against the
+instruction mix the *new* compiler emits:
+
+```
+DT_TC=/path/to/gccinstall/bin ./run.sh 1 40
+```
+
 ## Current state
 
 All programs match value for value across `-O0`, `-O1`, `-O2`, `-O3` and
-`-Os`.
+`-Os`, with **both** toolchains -- 200 programs each.
+
+### What the gcc 16 run added
+
+The emulator was differentially tested only against code gcc 3.3.2 emits,
+so anything the new compiler generates that the old one never did was
+running unchecked. Measured over the same 40 programs at `-O2`:
+
+| | gcc 3.3.2 | gcc 16.2 |
+|---|---:|---:|
+| instructions emitted | 49,715 | 27,258 |
+| delay-slot forms (`.d`) | 7,081 | 3,546 |
+| **post-increment (`[%rb]+`)** | **0** | **370** |
+| `ext` prefixes | 7,987 | 3,773 |
+
+Two of the three things worth knowing here contradict the guess that
+prompted the run:
+
+* **Delay slots were already covered.** 3.3.2 fills them at a similar rate
+  (14.2% of instructions against 16.2's 13.0%), so they were never the gap.
+* **Post-increment addressing was not covered at all.** 3.3.2 emits none --
+  `HAVE_POST_INCREMENT` was never defined in that backend -- so `ld.w
+  [%rb]+,%rd` had never been checked against an independent authority. It is
+  also precisely the addressing mode the article-load speedup rests on, so
+  it was the worst thing to have untested. 370 instances now match.
+* One opcode is newly reached: `rr`.
+
+The instruction counts are a side observation, not a benchmark: same
+programs, same `-O2`, 45% fewer instructions from the newer compiler.
 
 Getting there took finding and fixing a **bug in gcc 3.3.2**. Seed 49
 diverged because the compiler discards a narrowing signed cast when it

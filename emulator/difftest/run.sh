@@ -6,11 +6,20 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TC="$HERE/../../host-tools/toolchain-install/bin"
+# Which toolchain generates the target code.  Defaults to the original, which
+# is the stronger oracle -- it has never seen the emulator.  Point DT_TC at
+# the gcc 16 install to check the emulator against the instruction mix the
+# *new* compiler emits: filled delay slots, post-increment addressing and ext
+# prefixing that 3.3.2 never generated, and which the emulator has therefore
+# never been differentially tested on.
+TC="${DT_TC:-$HERE/../../host-tools/toolchain-install/bin}"
 WREMU="$HERE/../wremu"
 WORK="${DT_WORK:-/tmp/dt}"
 OPTS="${DT_OPTS:--O2}"
 NINSN="${DT_NINSN:-400000000}"
+
+# The two toolchains put libgcc in different places, so ask rather than guess.
+LIBGCC="$("$TC/c33-epson-elf-gcc" -mc33pe -print-libgcc-file-name)" || exit 2
 
 first="${1:-1}"
 last="${2:-$first}"
@@ -38,7 +47,7 @@ for seed in $(seq "$first" "$last"); do
 		echo "seed $seed: TARGET COMPILE FAILED"; sed -n 1,5p "$WORK/t$seed.cerr"; fail=$((fail+1)); continue
 	fi
 	if ! "$TC/c33-epson-elf-ld" -T "$HERE/runtime/target.lds" \
-		"$WORK/start.o" "$WORK/t$seed.o" -L"$TC/../lib/gcc-lib/c33-epson-elf/3.3.2" -lgcc \
+		"$WORK/start.o" "$WORK/t$seed.o" "$LIBGCC" \
 		-o "$WORK/t$seed.elf" 2>"$WORK/t$seed.lderr"; then
 		echo "seed $seed: LINK FAILED"; sed -n 1,5p "$WORK/t$seed.lderr"; fail=$((fail+1)); continue
 	fi
