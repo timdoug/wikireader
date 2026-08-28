@@ -339,3 +339,62 @@ for f in ('gas/configure.ac', 'gas/configure'):
     edit(f, gas_extra_objects)
 
 print('gas ext_remove wiring done')
+
+
+# -------- readelf: let it resolve relocations inside DWARF sections -----------
+# The whole point of moving off STABS was to get modern objdump/readelf on the
+# emulator work, and without this readelf refuses:
+#
+#   Error: Missing knowledge of 32-bit reloc types used in DWARF sections
+#          of machine number 107
+#   Warning: unable to apply unsupported reloc type 1 to section .debug_info
+#
+# 107 is EM_SE_C33, which upstream's include/elf/common.h has always had; what
+# is missing is C33 in readelf.c's own tables, which map a machine to the reloc
+# it uses for a 32-bit absolute address.  Debug sections are unlinked, so every
+# reference in .debug_info is a relocation -- unresolved, readelf shows zeroes
+# for every DIE's name and address.  The line table survives because it is
+# self-contained, which is why this looked fine at first glance.
+#
+# These live in readelf.c and not dwarf.c: dwarf.c is the shared consumer, and
+# readelf supplies the target knowledge through these predicates.
+
+def _insert_in_switch(s, funcname, body):
+    """Insert BODY at the top of the switch inside FUNCNAME.
+
+    Anchoring on a neighbouring "case EM_...:" does not work: str.replace
+    finds the first one in the whole 15,000-line file, which is a different
+    switch entirely.  That is how the first attempt silently added the C33
+    case to an unrelated function and changed nothing.
+    """
+    i = s.find(funcname + ' (Filedata')
+    if i < 0:
+        return None
+    j = s.find('    {\n', s.find('switch', i))
+    if j < 0:
+        return None
+    j += len('    {\n')
+    return s[:j] + body + s[j:]
+
+
+def readelf_32bit_abs(s):
+    if 'R_C33_32.  */' in s:
+        return None
+    return _insert_in_switch(s, 'is_32bit_abs_reloc',
+                             '    case EM_SE_C33:\n'
+                             '      return reloc_type == 1; /* R_C33_32.  */\n')
+
+
+edit('binutils/readelf.c', readelf_32bit_abs)
+
+
+def readelf_none(s):
+    if 'R_C33_NONE.  */' in s:
+        return None
+    return _insert_in_switch(s, 'is_none_reloc',
+                             '    case EM_SE_C33: /* R_C33_NONE.  */\n')
+
+
+edit('binutils/readelf.c', readelf_none)
+
+print('readelf DWARF reloc knowledge done')
