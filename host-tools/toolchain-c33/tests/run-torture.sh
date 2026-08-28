@@ -105,8 +105,28 @@ mkdir -p "${WORK}"
 # of these say anything about the backend, so reporting them as failures would
 # only pad the numbers: a test that wants <math.h>, or __int128, or an x86
 # register name, was never going to run here.
+# Library functions we knowingly do not provide.  Everything here is a
+# documented gap: stdio needs a filesystem, the math names need a libm.
+KNOWN_MISSING='fopen|freopen|fclose|fflush|fscanf|scanf|fgets|fgetc|getchar|fread|fseek|ftell|rewind|remove|rename|tmpnam|tmpfile|perror|feof|ferror|clearerr|setvbuf|setbuf|realloc|system|getenv|time|clock|mktime|localtime|signal|raise|kill|mmap|munmap|mprotect|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|exp|exp2|log|log2|log10|pow|sqrt|cbrt|hypot|floor|ceil|round|trunc|fmod|ldexp|frexp|modf|copysign|nan|nearbyint|rint'
+
 unsupported_p() {
-	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|invalid register name|unknown type name '__u?int128_t'|expected expression before '__int128'|before '__declspec'|unrecognized command-line option|undefined reference|cannot find|'std(in|out|err)' undeclared" "$1"
+	# An undefined reference is the dangerous case.  It used to be matched
+	# unconditionally, which meant a *backend* bug -- emitting a call to a
+	# libgcc helper that does not exist, or getting a libcall name wrong --
+	# was reported UNSUPPORTED rather than FAIL.  That is precisely the
+	# class of bug this port keeps producing, filed under "not our problem"
+	# by default.  So: a link failure is a gap only if every symbol it names
+	# is one we knowingly do not provide; anything else is a failure.
+	if LC_ALL=C grep -q "undefined reference" "$1"; then
+		if LC_ALL=C grep -oE "undefined reference to .[^']*'" "$1" |
+		   LC_ALL=C sed -e "s/.*to .//" -e "s/'\$//" |
+		   LC_ALL=C grep -qvE "^_*(${KNOWN_MISSING})\$"; then
+			return 1
+		fi
+		return 0
+	fi
+
+	grep -qE "No such file or directory|is not supported on this target|not supported for this target|unknown register name|invalid register name|unknown type name '__u?int128_t'|expected expression before '__int128'|before '__declspec'|unrecognized command-line option|cannot find" "$1"
 }
 
 # Tests that name the target they are for, in { dg-do compile { target ... } }.
@@ -147,8 +167,37 @@ wrong_target_p() {
 # passes it when the expected diagnostics appear.  We do not match diagnostic
 # text, so the most this harness can honestly check is the thing it is here
 # for: that the compiler diagnosed rather than crashed.
-expects_error_p() {
-	grep -q "dg-error" "$1"
+# Did the compile fail the way the test says it should?
+#
+# This used to be "does the file mention dg-error anywhere", which reported
+# PASS for *any* compile failure in such a file -- including one caused by a
+# backend bug that has nothing to do with the diagnostic being tested. Five
+# compile tests carry dg-error; all five currently produce the expected text,
+# but nothing was checking, so it could drift silently.  Now the log has to
+# match one of the messages the test actually asks for.
+# NB the loop reads from a here-document, not a pipe.  On the right of a pipe
+# it runs in a subshell, and a while loop that simply *ends* exits 0 -- so the
+# function returned true for every file, and every failed compile was reported
+# PASS.  That silently turned 10 tests per option set from UNSUPPORTED into
+# PASS before the full run caught it.
+expects_error_p() {                     # expects_error_p <source> <log>
+	local pat found=1
+	while IFS= read -r pat; do
+		[ -n "${pat}" ] || continue
+		# Only the diagnostic lines.  GCC's caret output echoes the
+		# offending source line, and that line is where dg-error lives --
+		# so matching the pattern against the whole log matches the
+		# directive quoting itself, and every failed compile looks
+		# expected.  "file:line:col: error: text" is the shape wanted.
+		if LC_ALL=C grep -E ': (error|warning|note): ' "$2" 2>/dev/null |
+		   LC_ALL=C grep -qE "${pat}"; then
+			found=0
+			break
+		fi
+	done <<EOF
+$(LC_ALL=C sed -n 's/.*dg-error *"\([^"]*\)".*/\1/p' "$1")
+EOF
+	return ${found}
 }
 
 # Tests that build and run but need a libc feature mini-libc does not have,
@@ -249,7 +298,7 @@ one() {                                 # one <mode> <opt> <file>
 			echo "PASS ${tag##*.} ${b}"
 		elif grep -qE "internal compiler error|Segmentation fault" "${o}.log"; then
 			echo "ICE ${tag##*.} ${b}"
-		elif expects_error_p "$f"; then
+		elif expects_error_p "$f" "${o}.log"; then
 			echo "PASS ${tag##*.} ${b}"
 		elif unsupported_p "${o}.log"; then
 			echo "UNSUPPORTED ${tag##*.} ${b}"
@@ -299,6 +348,7 @@ one() {                                 # one <mode> <opt> <file>
 	fi
 }
 export -f one opt_tag dg_options extra_options unsupported_p skip_reason wrong_target_p expects_error_p
+export KNOWN_MISSING
 export WORK RT GCC EMU COMMON LIBS LIMIT RT_OBJS
 
 for opt in "${opts[@]}"; do

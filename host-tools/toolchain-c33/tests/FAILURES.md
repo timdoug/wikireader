@@ -182,6 +182,91 @@ Fixed in `mini-libc/src/stdlib/vuprintf.c`. Both tests now pass at all
 seven option sets, the firmware builds, and `wiki.app` renders a screen
 identical to the build before the change.
 
+## How much to trust these numbers
+
+This harness is a shell script, not DejaGnu, and every classification in it
+is something someone wrote by hand. An audit of what it could be getting
+away with found three real problems, all now fixed, and left four things
+that are still soft. Recording both, because a suite that reports zero
+failures is exactly the kind of thing that stops being questioned.
+
+### What the pass criterion actually rests on
+
+A test passes if the emulator reaches the exit breakpoint with `%r4 == 0`.
+That is honest for a specific reason: **`abort` is defined in `crt0.s`**, not
+taken from mini-libc, and it exits with `%r4 == 0xdead`. A test object file
+beats an archive member at link time, so a torture test that calls `abort`
+ - which is how every one of them reports a wrong answer - can never be
+confused with success. Faults are matched separately, a non-zero status is
+reported as `EXITnn`, never reaching the breakpoint is `TIMEOUT`, and a run
+that produced no register dump at all is `NORUN` rather than being folded
+into `TIMEOUT`. No test source is ever edited.
+
+### Three things that were wrong
+
+* **`expects_error_p` did not check the error.** It was `grep -q dg-error`
+  on the *source*: any compile failure in a file that mentioned `dg-error`
+  anywhere was reported PASS, whatever the failure was. Five compile tests
+  carry `dg-error`; all five did produce the expected diagnostic, so nothing
+  was actually mis-scored - but nothing was checking, and a backend failure
+  in one of those files would have read as success. It now matches the log
+  against the messages the test asks for.
+
+  Fixing it introduced two worse bugs, both caught by running the full suite
+  rather than a subset, and both worth knowing about:
+
+  1. The matching loop was on the right-hand side of a pipe, so it ran in a
+     subshell, and a `while` loop that simply *ends* exits 0. The function
+     returned true for every file and **every failed compile became a PASS**
+ - 70 results, 10 tests per option set, silently moved from UNSUPPORTED
+     to PASS.
+  2. With that fixed, matching the pattern against the whole log still
+     passed a test that failed with entirely the wrong diagnostic. GCC's
+     caret output **echoes the offending source line**, and that line is
+     where `dg-error` lives - so the pattern was matching the directive
+     quoting itself. It now looks only at `file:line:col: error:` lines.
+
+  There is a negative test for this: a file that fails to compile with a
+  message it does not claim to expect must report FAIL, and does.
+
+* **`undefined reference` meant UNSUPPORTED, unconditionally.** This is the
+  one that mattered most. A backend that emits a call to a libgcc helper
+  that does not exist, or gets a libcall name wrong, produces exactly that
+  message - and it was being filed as "a gap in our libc, not our problem".
+  That is the class of bug this port keeps producing. A link failure now
+  counts as a gap only if **every** symbol it names is on an explicit list
+  of things we knowingly do not provide (`fopen`, `floor`, `mmap`, ...);
+  anything else is a FAIL. Verified by planting a call to a nonexistent
+  helper: it reports FAIL, where before it would have been UNSUPPORTED.
+
+* **Target selectors on `dg-` directives were ignored.** That cost
+  `20101011-1` for a whole session - see above. `990413-2` now classifies
+  from its own `dg-skip-if` rather than from a diagnostic string.
+
+### Four things that are still soft
+
+1. **`-w -fpermissive`.** All warnings off, and some errors downgraded. It
+   is what lets pre-C23 sources through at all, but it does mean the suite
+   is not checking that the compiler rejects what it should. Every "compile"
+   result is really "produced assembly without an ICE" - not "produced
+   *correct* assembly".
+2. **Three tests are skipped by name** - `920501-8`, `930513-1`,
+   `20030125-1`. They build, run and abort, which is indistinguishable from
+   a miscompilation. The reasons are recorded and are believed, but they are
+   believed rather than demonstrated. This is the weakest claim here.
+3. **`comp-goto-1` gets `-std=gnu89` that upstream does not give it.**
+   Upstream puts it in `dg-options` on most of the pre-ANSI tests and missed
+   this one; that is a judgement call we made, and it is us changing how a
+   test compiles in order to make it pass.
+4. **`wrong_target_p` guesses.** It has no model of dg's effective-target
+   vocabulary - it treats "contains a dash" as "is a target triplet" and
+   knows `lp64` is false. Effective targets we satisfy are deliberately left
+   alone rather than guessed at, but it is a heuristic.
+
+The real fix for most of 1-4 is a DejaGnu board file, which would make the
+directives authoritative instead of re-implemented. That is the largest
+single thing left on the testing side.
+
 ## compile - 1973 of 2003 per set, no failures, no ICEs
 
 | | pass | ICE | fail | unsupported |
