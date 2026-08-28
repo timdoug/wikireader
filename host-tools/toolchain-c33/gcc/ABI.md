@@ -61,7 +61,24 @@ target - see *Data areas* below.
   ```
 
 * 64-bit scalars (`long long`, `double`) occupy register **pairs**, low word
-  first: first in `%r6`/`%r7`, second in `%r8`/`%r9`. Returned in `%r4`/`%r5`.
+  first. Returned in `%r4`/`%r5`.
+* **There is no even-pair alignment.** A 64-bit argument starts at the next
+  free word, not the next free *even* word:
+
+  ```
+  f(u32, unsigned long long, u32)   ->  %r6, %r7:%r8, %r9
+  ```
+
+  V850, which this backend is a fork of, rounds the pair up to an 8-byte
+  boundary and would put it in `%r8:%r9`, pushing the third argument onto
+  the stack. Getting this wrong is invisible within one compilation -- both
+  halves agree with each other -- and only shows on a call to a 3.3.2-built
+  object.
+* **A 64-bit scalar in the last argument slot is not split**: it takes
+  `%r9` *and `%r10`*, one register past the documented set, and the callee
+  reads it from there. A fifth *scalar* argument still goes on the stack, so
+  `%r10` is not a fifth argument register -- this shape only. Caller and
+  callee agree, so it is the ABI whether or not it was intended.
 * Floating point is **soft-float only**. `double a+b` compiles to a call to
   `__adddf3`, `float` to `__addsf3`, with the operands already in the integer
   argument registers.
@@ -72,10 +89,22 @@ target - see *Data areas* below.
 
 * **<= 8 bytes**: passed and returned in registers. `struct { int a, b; }`
   arrives in `%r6`/`%r7` and returns in `%r4`/`%r5`.
-* **> 8 bytes**: passed in memory. The caller supplies a hidden pointer to the
-  return slot as the *first* argument in `%r6`, and the callee returns that
-  same pointer in `%r4`. The 16-byte case observably uses `memcpy` to populate
-  the slot.
+* **> 8 bytes, as a return value**: the caller supplies a hidden pointer to
+  the return slot as the *first* argument in `%r6`, and the callee returns
+  that same pointer in `%r4`. The 16-byte case observably uses `memcpy` to
+  populate the slot.
+* **> 8 bytes, as an argument**: copied onto the stack **by value** -- not by
+  hidden pointer -- and it **consumes no argument register**. Scalars and
+  large aggregates are two independent streams:
+
+  ```
+  h1(u32 a, struct S12 s, u32 b)  ->  a in %r6, s at [%sp+4], b in %r7
+  h2(struct S16 s, u32 b)         ->  s at [%sp+4], b in %r6
+  ```
+
+  Note `b` in `%r7` in the first case: the struct did not take a register
+  slot. This was originally documented as a hidden pointer, conflating it
+  with the return convention above; the two are different.
 
 ## Stack frame
 
