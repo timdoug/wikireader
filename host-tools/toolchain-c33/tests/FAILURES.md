@@ -11,13 +11,13 @@ Verified by a clean full run, 2026-08-27. Identical at all seven sets:
 
 | | pass | unsupported | fail |
 |---|---:|---:|---:|
-| every option set | **1668** | 24 | **0** |
+| every option set | **1670** | 22 | **0** |
 
 1692 tests each, 11,844 results. For scale, the baseline two passes ago was
 1553 / 1569 / 1534 / 1530 at four levels with 72 distinct tests failing, and
 before the runtime work below it was 1611-1615 with 77 unsupported.
 
-### The 24 that cannot run here
+### The 22 that cannot run here
 
 Nothing left in this list is about the backend, and none of it is cheap to
 recover - it is a libm, a filesystem, or a 128-bit integer type.
@@ -27,16 +27,22 @@ recover - it is a libm, a filesystem, or a 128-bit integer type.
 | `FILE *`, `stdout`/`stderr`, `fopen`/`fclose`/`fscanf` | `fprintf-1` `fprintf-2` `fprintf-chk-1` `printf-2` `user-printf` `vfprintf-1` `vfprintf-chk-1` `gofast` |
 | `__int128` or decimal float | `pr105613` `pr80692` `pr84748` `pr93213` |
 | a C99 math library | `980709-1` `990826-0` `float-floor` `20030125-1` |
-| `%f`, `%hhd` or `%#hhx` in printf | `920501-8` `930513-1` `pr78622` `pr79327` |
+| `%f` in printf | `920501-8` `930513-1` |
 | `<sys/mman.h>` | `loop-2f` `loop-2g` |
 | `<signal.h>` | `20101011-1` |
 | x86 register names in `asm` | `990413-2` |
 
 The harness detects the first six groups from the compiler's own
-diagnostics or from `{ dg-do ... { target ... } }`. The four printf ones
-build and run and then abort, exactly as a miscompilation would, so nothing
-in the output distinguishes them - they are named individually in
-`skip_reason()` in the harness, with what each wants.
+diagnostics or from `{ dg-do ... { target ... } }`. The last three build and
+run and then abort, exactly as a miscompilation would, so nothing in the
+output distinguishes them - they are named individually in `skip_reason()`
+in the harness, with what each wants. That list is the weakest thing here:
+a real miscompilation in one of those three would look identical to the
+libc gap we are claiming.
+
+`pr78622` and `pr79327` used to be on it and are not any more, because the
+libc gap they were blocked on turned out to be two real bugs in mini-libc's
+printf - see below.
 
 ### What made the difference: the runtime, not the compiler
 
@@ -61,6 +67,35 @@ it, and `tests/runtime/` now fills them:
   is written here. The C33 has no link register: `call` pushes the return
   address and `ret` pops it, so the buffer is `%r0`-`%r3`, `%sp`, and the
   word at `[%sp+0]` on entry.
+
+### Two real printf bugs, found by tests that could not run
+
+`pr78622` and `pr79327` were on the skip list for wanting `%hhd` and
+`%#hho`/`%#hhx`. Both turned out to be genuine bugs in mini-libc, and the
+compiler was right all along -- what the tests detect is GCC's computed
+`sprintf` return value disagreeing with what the library actually writes:
+
+```
+before                          after
+[%o of 8]       -> '0'   n=2    [%o of 8]       -> '10'   n=2
+[%#o of 8]      -> '0'   n=3    [%#o of 8]      -> '010'  n=3
+[%hhd of 300]   -> '300' n=2    [%hhd of 300]   -> '44'   n=2
+[%hhx of 0x1ff] -> '1ff' n=2    [%hhx of 0x1ff] -> 'ff'   n=2
+```
+
+Two separate faults. `%o` and the BSD `%O`/`%U` spellings never fetched
+their argument at all -- the prefetch covered only `u`, `x` and `X`, so
+`printf("%o", 8)` formatted whatever `_ulong` last held, and consumed no
+vararg, which desynchronised everything after it in the format. And a
+second `h` just set `SHORTINT` again, so `%hhd` behaved as `%hd`.
+
+Note the `n=` column: GCC's folded return value was correct in every case
+before the fix. `-fprintf-return-value` was right and the library was
+wrong, which is exactly what these two tests exist to catch.
+
+Fixed in `mini-libc/src/stdlib/vuprintf.c`. Both tests now pass at all
+seven option sets, the firmware builds, and `wiki.app` renders a screen
+identical to the build before the change.
 
 ## compile - 1972/1973 of 2003 per set, one ICE, no failures
 

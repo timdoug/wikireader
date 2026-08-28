@@ -155,6 +155,7 @@ static int __write_pad(char c, signed char howmany)
 #define	LADJUST		0x10		/* left adjustment */
 #define	ZEROPAD		0x20		/* zero (as opposed to blank) pad */
 #define	HEXPREFIX	0x40		/* add 0x or 0X prefix */
+#define	CHARINT		0x80		/* "hh": char integer (C99) */
 
 
 int vuprintf(int (*func)(int), const char *fmt0, va_list ap)
@@ -212,8 +213,17 @@ int vuprintf(int (*func)(int), const char *fmt0, va_list ap)
 rflag:
         ch = PRG_RDB(fmt++);
 reswitch:
-        if (ch=='u' || (ch|0x20)=='x')
+        /*
+         * Fetch the argument for the unsigned conversions.  'o' and the
+         * uppercase BSD spellings used to be missing here, so %o read
+         * whatever _ulong happened to hold -- printf("%o", 8) printed "0".
+         * The uppercase forms mean "long", and that has to be known before
+         * the fetch rather than in the handler below it.
+         */
+        if (ch=='u' || ch=='U' || ch=='o' || ch=='O' || (ch|0x20)=='x')
         {
+            if (ch=='U' || ch=='O')
+                flags |= LONGINT;
             if (flags&LONGINT)
             {
                 _ulong=va_arg(ap, unsigned long);
@@ -222,7 +232,9 @@ reswitch:
             {
                 register unsigned int _d;
                 _d=va_arg(ap, unsigned int);
-                _ulong = flags&SHORTINT ? (unsigned long)(unsigned short)_d : (unsigned long)_d;
+                _ulong = flags&CHARINT ? (unsigned long)(unsigned char)_d :
+                         flags&SHORTINT ? (unsigned long)(unsigned short)_d :
+                         (unsigned long)_d;
             }
         }
 
@@ -307,7 +319,9 @@ reswitch:
         }
         else if (ch=='h')
         {
-            flags |= SHORTINT;
+            /* A second h is C99's "hh": char rather than short.  It used
+               to just set SHORTINT again, so %hhd printed as %hd.  */
+            flags |= (flags & SHORTINT) ? CHARINT : SHORTINT;
             goto rflag;
         }
         else if (ch=='l')
@@ -333,7 +347,8 @@ reswitch:
             {
                 register int _d;
                 _d=va_arg(ap, int);
-                _ulong = flags&SHORTINT ? (long)(short)_d : (long)_d;
+                _ulong = flags&CHARINT ? (long)(signed char)_d :
+                         flags&SHORTINT ? (long)(short)_d : (long)_d;
             }
 
             if ((long)_ulong < 0)

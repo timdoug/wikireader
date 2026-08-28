@@ -139,8 +139,6 @@ expects_error_p() {
 skip_reason() {
 	case "$1" in
 	920501-8|930513-1) echo "sprintf %f: mini-libc printf has no float" ;;
-	pr79327)           echo "sprintf %#hho/%#hhx: mini-libc printf has no # or hh" ;;
-	pr78622)           echo "snprintf %hhd: mini-libc printf has no hh" ;;
 	# 20030125-1 checks that sin/floor fold; with no C99 libm declared, gcc
 	# folds them at -O0/-O2/-O3 and not at -O1/-Os/-Og -- four sets pass and
 	# three abort.  Upstream's own dg-require-effective-target c99_runtime
