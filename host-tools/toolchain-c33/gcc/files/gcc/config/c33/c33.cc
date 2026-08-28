@@ -110,13 +110,13 @@ c33_all_frame_related (rtx par)
    Specify whether to pass the argument by reference.  */
 
 static bool
-c33_pass_by_reference (cumulative_args_t, const function_arg_info &arg)
+c33_pass_by_reference (cumulative_args_t, const function_arg_info &)
 {
-  if (!TARGET_GCC_ABI)
-    return 0;
-
-  unsigned HOST_WIDE_INT size = arg.type_size_in_bytes ();
-  return size > 8;
+  /* Nothing is passed by reference.  gcc 3.3.2 has no pass-by-reference hook
+     at all: its FUNCTION_ARG returns 0 for BLKmode, which copies the
+     aggregate onto the stack *by value*.  Passing a hidden pointer instead
+     is a silent ABI break against every prebuilt object in ROOT_IMAGE.  */
+  return false;
 }
 
 /* Return an RTX to represent where argument ARG will be passed to a function.
@@ -132,19 +132,27 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
   if (!arg.named)
     return NULL_RTX;
 
-  size = arg.promoted_size_in_bytes ();
-  size = (size + UNITS_PER_WORD -1) & ~(UNITS_PER_WORD -1);
+  /* An aggregate with no scalar mode is copied onto the stack by value and
+     consumes no argument register -- scalars and aggregates are independent
+     streams, so h1(u32 a, struct S12 s, u32 b) puts b in %r7, not %r8.
+     Return before touching nbytes; see c33_function_arg_advance.  */
+  if (arg.mode == BLKmode)
+    return NULL_RTX;
 
+  size = GET_MODE_SIZE (arg.mode);
+
+  /* VOIDmode: the end-of-arguments marker.  Must not disturb nbytes.  */
   if (size < 1)
-    {
-      /* Once we have stopped using argument registers, do not start up again.  */
-      cum->nbytes = 4 * UNITS_PER_WORD;
-      return NULL_RTX;
-    }
+    return NULL_RTX;
 
+  /* BIGGEST_ALIGNMENT is 32, so TYPE_ALIGN can never exceed a word and this
+     rounding is a no-op for every real type -- which is exactly why an
+     8-byte scalar starts at the next free word rather than the next free
+     *even* word.  Deriving the alignment from the size instead (as V850
+     does) is what put a long long in %r8:%r9 where 3.3.2 uses %r7:%r8.  */
   if (!TARGET_GCC_ABI)
     align = UNITS_PER_WORD;
-  else if (size <= UNITS_PER_WORD && arg.type)
+  else if (arg.type)
     align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
   else
     align = size;
@@ -156,6 +164,15 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
 
   if (arg.type == NULL_TREE
       && cum->nbytes + size > 4 * UNITS_PER_WORD)
+    return NULL_RTX;
+
+  /* The one place the two 8-byte scalar modes disagree.  A double that would
+     start in the last slot goes wholly on the stack and consumes nothing, so
+     the next argument still gets %r9.  A long long in the same position is
+     passed in %r9:%r10 -- one register past the documented argument set.
+     Both are 3.3.2's behaviour, verified from its callee side.  */
+  if (TARGET_GCC_ABI && arg.mode == DFmode
+      && cum->nbytes >= 3 * UNITS_PER_WORD)
     return NULL_RTX;
 
   switch (cum->nbytes / UNITS_PER_WORD)
@@ -182,38 +199,18 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
 /* Return the number of bytes which must be put into registers
    for values which are part in registers and part in memory.  */
 static int
-c33_arg_partial_bytes (cumulative_args_t cum_v, const function_arg_info &arg)
+c33_arg_partial_bytes (cumulative_args_t, const function_arg_info &)
 {
-  CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
-  int size, align;
-
-  if (!arg.named)
-    return 0;
-
-  size = arg.promoted_size_in_bytes ();
-  if (size < 1)
-    size = 1;
-
-  if (!TARGET_GCC_ABI)
-    align = UNITS_PER_WORD;
-  else if (arg.type)
-    align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
-  else
-    align = size;
-
-  cum->nbytes = (cum->nbytes + align - 1) & ~ (align - 1);
-
-  if (cum->nbytes > 4 * UNITS_PER_WORD)
-    return 0;
-
-  if (cum->nbytes + size <= 4 * UNITS_PER_WORD)
-    return 0;
-
-  if (arg.type == NULL_TREE
-      && cum->nbytes + size > 4 * UNITS_PER_WORD)
-    return 0;
-
-  return 4 * UNITS_PER_WORD - cum->nbytes;
+  /* No argument is ever split between registers and the stack.  gcc 3.3.2
+     does not define FUNCTION_ARG_PARTIAL_NREGS at all, so an argument is
+     either wholly in registers or wholly in memory, and c33_function_arg
+     alone decides which.  The previous version of this hook computed its own
+     answer and contradicted c33_function_arg for an 8-byte scalar in the
+     last slot -- function_arg handed back a full register pair while this
+     said only four bytes were in registers.  Nothing caught it because the
+     bogus size-derived alignment meant no 8-byte argument could land
+     there.  */
+  return 0;
 }
 
 /* Update the data in CUM to advance over argument ARG.  */
@@ -225,14 +222,22 @@ c33_function_arg_advance (cumulative_args_t cum_v,
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
 
   if (!TARGET_GCC_ABI)
-    cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
-		    & -UNITS_PER_WORD);
-  else
-    cum->nbytes += (((arg.type && int_size_in_bytes (arg.type) > 8
-		      ? GET_MODE_SIZE (Pmode)
-		      : (HOST_WIDE_INT) arg.promoted_size_in_bytes ())
-		     + UNITS_PER_WORD - 1)
-		    & -UNITS_PER_WORD);
+    {
+      cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
+		      & -UNITS_PER_WORD);
+      return;
+    }
+
+  /* These two mirror the early returns in c33_function_arg: an argument that
+     went on the stack there consumes no register slot here.  */
+  if (arg.mode == BLKmode)
+    return;
+
+  if (arg.mode == DFmode && cum->nbytes >= 3 * UNITS_PER_WORD)
+    return;
+
+  cum->nbytes += ((GET_MODE_SIZE (arg.mode) + UNITS_PER_WORD - 1)
+		  & -UNITS_PER_WORD);
 }
 
 /* Return the high and low words of a CONST_DOUBLE */

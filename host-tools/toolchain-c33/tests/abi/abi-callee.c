@@ -56,6 +56,25 @@ u32 c_ll_straddle (u32 a, u32 b, u32 c, unsigned long long d)
 	return a + 2*b + 3*c + (u32)d + (u32)(d >> 32);
 }
 
+/*
+ * The same straddle for a double, which behaves *differently*: it goes
+ * wholly on the stack and consumes no register slot at all, so the int
+ * after it still gets %r9.  A long long in that position takes %r9:%r10.
+ * Same size, same slot, two different rules -- gcc 3.3.2's FUNCTION_ARG
+ * special-cases DFmode and only DFmode.  If the backend gets this wrong
+ * the two arguments swap places and neither is diagnosed.
+ */
+u32 c_d_straddle (u32 a, u32 b, u32 c, double d, u32 e)
+{
+	return a + 2*b + 3*c + (u32)(d * 4.0) + 5*e;
+}
+
+/* And the same shape one slot earlier, where the double *does* fit. */
+u32 c_d_fits (u32 a, u32 b, double d, u32 e)
+{
+	return a + 2*b + (u32)(d * 4.0) + 5*e;
+}
+
 /* --- floating point, which is soft on this target --- */
 double c_double (double a, double b) { return a * 2.0 + b; }
 float  c_float  (float a, float b)   { return a * 2.0f + b; }
@@ -69,6 +88,36 @@ u32 c_s16_by_value (struct S16 s, u32 x)
 {
 	return s.a + 2*s.b + 3*s.c + 4*s.d + 5*x;
 }
+
+/*
+ * Aggregates and scalars are two independent streams.  An aggregate with no
+ * scalar mode goes on the stack by value and consumes *no* argument
+ * register, so b below is in %r7 and not %r8.  Getting this wrong shifts
+ * every later scalar by one register.
+ */
+u32 c_s12_mid (u32 a, struct S12 s, u32 b)
+{
+	return a + 2*s.a + 3*s.b + 4*s.c + 5*b;
+}
+
+u32 c_s16_first (struct S16 s, u32 a, u32 b)
+{
+	return s.a + 2*s.b + 3*s.c + 4*s.d + 5*a + 6*b;
+}
+
+/*
+ * The register/stack boundary for aggregates is not "8 bytes" but "does
+ * GCC give this record a scalar mode".  S4 and S8 get SImode and DImode and
+ * travel in registers; S3 and S5 are BLKmode and go on the stack even
+ * though S3 is smaller than S4.
+ */
+struct S3 { char a, b, c; };
+struct S4 { int a; };
+struct S5 { char a[5]; };
+
+u32 c_s3 (u32 a, struct S3 s, u32 b) { return a + 2*s.a + 3*s.b + 4*s.c + 5*b; }
+u32 c_s4 (u32 a, struct S4 s, u32 b) { return a + 2*s.a + 5*b; }
+u32 c_s5 (u32 a, struct S5 s, u32 b) { return a + 2*s.a[0] + 3*s.a[4] + 5*b; }
 
 /* --- varargs --- */
 u32 c_varargs (u32 n, ...)

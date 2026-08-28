@@ -543,9 +543,24 @@ struct cum_arg { int nbytes; };
    allocated for it.  */
 #define REG_PARM_STACK_SPACE(DECL) 0
 
-/* 1 if N is a possible register number for function argument passing.  */
+/* 1 if N is a possible register number for function argument passing.
 
-#define FUNCTION_ARG_REGNO_P(N) (N >= 6 && N <= 9)
+   %r6-%r9 are the four documented argument registers, but an argument that
+   starts in the last slot is not split -- c33_function_arg hands back a
+   register of the argument's full mode, which can run off the end of that
+   set.  An 8-byte scalar starting at %r9 occupies %r9:%r10; a 16-byte
+   _Complex long double starting at %r9 reaches %r12.  gcc 3.3.2 does the
+   same and its caller and callee agree, so it is the ABI.
+
+   This macro has to describe that, not the documented set.  df marks every
+   register satisfying it as defined on entry to the function, and that is
+   what tells the later passes an incoming argument lives there.  With the
+   range stopping at %r9, -frename-registers helped itself to %r10 as a
+   scratch in a function whose second _Complex float argument was still
+   sitting in %r9:%r10 -- see complex-7, which aborts at -O3 -funroll-loops
+   (which implies -frename-registers) and passes without it.  */
+
+#define FUNCTION_ARG_REGNO_P(N) ((N) >= 6 && (N) <= 12)
 
 #define DEFAULT_PCC_STRUCT_RETURN 0
 

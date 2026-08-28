@@ -10,6 +10,9 @@
 struct S8  { int a, b; };
 struct S12 { int a, b, c; };
 struct S16 { int a, b, c, d; };
+struct S3  { char a, b, c; };
+struct S4  { int a; };
+struct S5  { char a[5]; };
 
 extern u32 c_args6 (u32, u32, u32, u32, u32, u32);
 extern u32 c_args10 (u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
@@ -25,6 +28,13 @@ extern struct S8 c_s8 (struct S8);
 extern struct S12 c_s12 (struct S12);
 extern struct S16 c_s16 (struct S16);
 extern u32 c_s16_by_value (struct S16, u32);
+extern u32 c_d_straddle (u32, u32, u32, double, u32);
+extern u32 c_d_fits (u32, u32, double, u32);
+extern u32 c_s12_mid (u32, struct S12, u32);
+extern u32 c_s16_first (struct S16, u32, u32);
+extern u32 c_s3 (u32, struct S3, u32);
+extern u32 c_s4 (u32, struct S4, u32);
+extern u32 c_s5 (u32, struct S5, u32);
 extern u32 c_varargs (u32, ...);
 extern u32 c_varargs_d (u32, ...);
 extern u32 c_clobber (u32, u32, u32, u32);
@@ -58,6 +68,8 @@ int main (void)
 	}
 	emit (c_ll_mixed (k, 0x1122334455667788ull, 9*k));
 	emit (c_ll_straddle (k, 2*k, 3*k, 0x99aabbccddeeff00ull));
+	emit (c_d_straddle (k, 2*k, 3*k, 6.25, 7*k));
+	emit (c_d_fits (k, 2*k, 6.25, 7*k));
 
 	{
 		double d = c_double (1.5 * k, 2.25);
@@ -81,6 +93,19 @@ int main (void)
 		struct S16 r = c_s16 (s);
 		emit ((u32) r.a); emit ((u32) r.b); emit ((u32) r.c); emit ((u32) r.d);
 		emit (c_s16_by_value (s, 5*k));
+		emit (c_s16_first (s, 6*k, 7*k));
+	}
+	{
+		struct S12 s = { (int)k, 2*(int)k, 3*(int)k };
+		emit (c_s12_mid (9*k, s, 11*k));
+	}
+	{
+		struct S3 s3 = { (char)k, (char)(2*k), (char)(3*k) };
+		struct S4 s4 = { 4*(int)k };
+		struct S5 s5 = { { (char)k, 0, 0, 0, (char)(5*k) } };
+		emit (c_s3 (7*k, s3, 8*k));
+		emit (c_s4 (7*k, s4, 8*k));
+		emit (c_s5 (7*k, s5, 8*k));
 	}
 
 	emit (c_varargs (4*k, 10*k, 20*k, 30*k, 40*k));
