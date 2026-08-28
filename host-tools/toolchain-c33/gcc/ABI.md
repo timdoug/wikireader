@@ -106,6 +106,54 @@ target - see *Data areas* below.
   slot. This was originally documented as a hidden pointer, conflating it
   with the return convention above; the two are different.
 
+### Status: the three rules above are documented, not yet implemented
+
+`tests/abi/run-abi.sh` **currently reports mismatches**, and that is the
+honest state. The rules above are what the original compiler does, verified
+by probing both compilers and reading the callee side; the new backend does
+not yet reproduce them, and the attempt was reverted.
+
+What went wrong is worth recording, because the first two rules are each a
+few lines and look easy:
+
+* Removing the 8-byte alignment is correct in isolation, but it moves a
+  64-bit argument into the last register slot, where it *straddles* the end
+  of the argument registers. That path is `TARGET_ARG_PARTIAL_BYTES`, and
+  the backend is inconsistent there: `c33_function_arg` hands back a full
+  `DImode`/`DFmode` register pair while `c33_arg_partial_bytes` says only
+  four bytes are in registers. Nothing exercised the disagreement before,
+  because with the alignment in place no 8-byte argument could straddle.
+* The original compiler's own behaviour in that position is not one rule
+  but three: a `long long` takes `%r9:%r10`, one register past the
+  documented set; a `double` goes wholly on the stack and lets the *next*
+  argument keep `%r9`; and an aggregate does the same. Any fix has to model
+  all three.
+* `complex-7` and `pr59643` are the tests that catch it. They passed
+  throughout only because the old, wrong rule was self-consistent.
+
+So the order of work is: fix `c33_arg_partial_bytes` to agree with
+`c33_function_arg` first, then remove the alignment, then the aggregate
+rule, re-running `tests/abi` and the torture suite between each.
+
+### Known divergence: `_Complex double` arguments
+
+The original compiler passes a `_Complex double` **by value**, filling
+`%r6`-`%r9`. The new backend passes it **by reference**. This is the one
+argument-passing rule where the two deliberately disagree.
+
+The reason is that a `_Complex double` is also *returned* through a hidden
+pointer in `%r6`, so a function taking and returning one has to allocate a
+hidden pointer and a 16-byte value out of four registers, and the two rules
+interact. Getting that exactly right is more work than the type is worth
+here: the target has no complex math library, nothing in the firmware uses
+`_Complex`, and passing by reference is self-consistent within a single
+compilation.
+
+Attempting it is what broke `complex-2`, `complex-6`, `complex-7`,
+`pr109040`, `pr109938`, `pr109986` and `pr126405-3` in the torture suite,
+which is how the interaction was noticed. If a reason to fix it ever
+appears, `tests/abi` is where the case belongs.
+
 ## Stack frame
 
 *Authoritative source: core manual section 2.4, pp. 7-9, and section 7 p. 64.*

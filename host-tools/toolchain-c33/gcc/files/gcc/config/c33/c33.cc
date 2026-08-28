@@ -106,31 +106,17 @@ c33_all_frame_related (rtx par)
   return par;
 }
 
-/* True when an aggregate is too big for the argument registers and is
-   therefore passed on the stack by value.  See c33_function_arg.  */
-
-static bool
-c33_big_aggregate_p (const function_arg_info &arg)
-{
-  return arg.type != NULL_TREE
-	 && AGGREGATE_TYPE_P (arg.type)
-	 && arg.type_size_in_bytes ().is_constant ()
-	 && arg.type_size_in_bytes ().to_constant () > 8;
-}
-
 /* Handle the TARGET_PASS_BY_REFERENCE target hook.
-
-   Nothing is passed by reference.  V850 handed anything over 8 bytes to the
-   callee as a hidden pointer; the C33 copies it onto the stack instead --
-   see c33_function_arg for the evidence and for the register-allocation
-   consequence.  ABI.md's "> 8 bytes: the caller supplies a hidden pointer"
-   describes how a large struct is *returned*, which is a different question
-   and still true.  */
+   Specify whether to pass the argument by reference.  */
 
 static bool
-c33_pass_by_reference (cumulative_args_t, const function_arg_info &)
+c33_pass_by_reference (cumulative_args_t, const function_arg_info &arg)
 {
-  return false;
+  if (!TARGET_GCC_ABI)
+    return 0;
+
+  unsigned HOST_WIDE_INT size = arg.type_size_in_bytes ();
+  return size > 8;
 }
 
 /* Return an RTX to represent where argument ARG will be passed to a function.
@@ -156,35 +142,12 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
       return NULL_RTX;
     }
 
-  /* No alignment: an argument starts at the next free word, whatever its
-     size.  V850 rounded an 8-byte argument up to an 8-byte boundary, which
-     put a long long or double into an even register pair; the C33 does not.
-     Verified against the original compiler, which passes
-
-        f (u32, unsigned long long, u32)   ->  %r6, %r7:%r8, %r9
-
-     with nothing skipped -- where the V850 rule would have moved the pair
-     to %r8:%r9 and pushed the third argument onto the stack.  Getting this
-     wrong is silent: both halves of a single compilation agree with each
-     other, and only a call across to a 3.3.2-built object goes wrong.
-
-     nbytes only ever advances by whole words, so rounding to anything at
-     or below UNITS_PER_WORD would be a no-op anyway.  */
-  align = UNITS_PER_WORD;
-
-  /* An aggregate over 8 bytes goes on the stack by value, and -- the part
-     that is easy to miss -- consumes no argument register at all.  The
-     original compiler runs two independent streams: scalars fill %r6-%r9 in
-     order while large aggregates accumulate on the stack.  Given
-
-	h1 (u32 a, struct S12 s, u32 b)
-
-     it passes a in %r6, s at [%sp+4], and b in **%r7** -- the struct did not
-     take a register slot.  Returning NULL_RTX here without touching
-     cum->nbytes is what reproduces that; c33_function_arg_advance leaves
-     nbytes alone for the same case.  */
-  if (c33_big_aggregate_p (arg))
-    return NULL_RTX;
+  if (!TARGET_GCC_ABI)
+    align = UNITS_PER_WORD;
+  else if (size <= UNITS_PER_WORD && arg.type)
+    align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
+  else
+    align = size;
 
   cum->nbytes = (cum->nbytes + align - 1) &~(align - 1);
 
@@ -231,12 +194,12 @@ c33_arg_partial_bytes (cumulative_args_t cum_v, const function_arg_info &arg)
   if (size < 1)
     size = 1;
 
-  /* Same rules as c33_function_arg: no alignment, and a large aggregate is
-     never split -- it goes on the stack whole.  */
-  if (c33_big_aggregate_p (arg))
-    return 0;
-
-  align = UNITS_PER_WORD;
+  if (!TARGET_GCC_ABI)
+    align = UNITS_PER_WORD;
+  else if (arg.type)
+    align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
+  else
+    align = size;
 
   cum->nbytes = (cum->nbytes + align - 1) & ~ (align - 1);
 
@@ -250,20 +213,6 @@ c33_arg_partial_bytes (cumulative_args_t cum_v, const function_arg_info &arg)
       && cum->nbytes + size > 4 * UNITS_PER_WORD)
     return 0;
 
-  /* A 64-bit scalar landing in the last argument slot is not split.  The
-     original compiler gives it %r9 *and %r10* -- past the end of the
-     argument registers -- and the callee reads it from there, so caller and
-     callee agree and it is the ABI whether or not it was intended.  Note
-     this is specific to a value that straddles the boundary: a fifth
-     scalar argument still goes on the stack, so %r10 is not simply a fifth
-     argument register.
-
-     Returning 0 here lets c33_function_arg hand back a DImode REG at %r9,
-     which is the %r9:%r10 pair.  */
-  if (size == 2 * UNITS_PER_WORD
-      && cum->nbytes == 3 * UNITS_PER_WORD)
-    return 0;
-
   return 4 * UNITS_PER_WORD - cum->nbytes;
 }
 
@@ -275,13 +224,15 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
 
-  /* A large aggregate is on the stack and took no register, so it must not
-     advance the register counter either.  */
-  if (c33_big_aggregate_p (arg))
-    return;
-
-  cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
-		  & -UNITS_PER_WORD);
+  if (!TARGET_GCC_ABI)
+    cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
+		    & -UNITS_PER_WORD);
+  else
+    cum->nbytes += (((arg.type && int_size_in_bytes (arg.type) > 8
+		      ? GET_MODE_SIZE (Pmode)
+		      : (HOST_WIDE_INT) arg.promoted_size_in_bytes ())
+		     + UNITS_PER_WORD - 1)
+		    & -UNITS_PER_WORD);
 }
 
 /* Return the high and low words of a CONST_DOUBLE */
