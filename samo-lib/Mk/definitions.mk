@@ -212,11 +212,21 @@ IMAGE2HEADER= ${HOST_TOOLS}/imagetool/image2header
 # Cross compiler definitions
 # ==========================
 
-export PATH:=${HOST_TOOLS}/toolchain-install/bin:${PATH}
+# Which toolchain builds the firmware.  Defaults to the original EPSON one.
+# Override to build with the gcc 16 / binutils 2.47 port:
+#   make TOOLCHAIN_BIN=$(pwd)/host-tools/toolchain-c33/work/install/bin ...
+TOOLCHAIN_BIN ?= ${HOST_TOOLS}/toolchain-install/bin
+export PATH:=${TOOLCHAIN_BIN}:${PATH}
 
 BUILD_PREFIX =
 
-CROSS = c33-epson-elf-
+# Name the tools by absolute path rather than relying on the PATH above.
+# macOS ships GNU Make 3.81, which runs a recipe line without a shell when it
+# contains no metacharacters -- and that direct exec searches the PATH make
+# inherited at startup, not the one the makefile just exported.  So the link
+# rules, which are plain command lines, failed with "c33-epson-elf-ld: No such
+# file or directory" while $(shell which c33-epson-elf-ld) found it happily.
+CROSS = ${TOOLCHAIN_BIN}/c33-epson-elf-
 
 # substitute cross compiler for mormal utilities
 # only if enabled

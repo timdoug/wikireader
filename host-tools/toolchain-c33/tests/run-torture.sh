@@ -14,9 +14,13 @@ set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 RT="${HERE}/runtime"
-GCC=${GCC:-/tmp/c33port/gccinstall/bin/c33-epson-elf-gcc}
+# Both default into ../work, which gcc/rebuild.sh populates and .gitignore
+# covers.  These used to point at /tmp; macOS purges /tmp nightly and gutted
+# the source tree overnight, so do not put a build tree back there.
+TCROOT="${HERE}/../work"
+GCC=${GCC:-${TCROOT}/install/bin/c33-epson-elf-gcc}
 EMU=${EMU:-$(cd "${HERE}/../../../emulator" && pwd)/wremu}
-SRC=${SRC:-/tmp/c33port/gcc-16.2.0/gcc/testsuite/gcc.c-torture}
+SRC=${SRC:-${TCROOT}/gcc-16.2.0/gcc/testsuite/gcc.c-torture}
 WORK=${WORK:-/tmp/c33torture}
 # Instruction budget per test.  Not a timing knob -- the emulator is
 # deterministic -- but a runaway detector.  It has to clear the slowest

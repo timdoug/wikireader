@@ -17,7 +17,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 DT="${HERE}/../../../../emulator/difftest"
 OLD=${OLD:-$(cd "${HERE}/../../../toolchain-install/bin" && pwd)}
-NEW=${NEW:-/tmp/c33port/gccinstall/bin}
+NEW=${NEW:-$(cd "${HERE}/../../work/install/bin" 2>/dev/null && pwd)}
 EMU=${EMU:-$(cd "${HERE}/../../../../emulator" && pwd)/wremu}
 WORK=${WORK:-/tmp/c33abi}
 OPTS=${OPTS:--O2}
