@@ -43,6 +43,87 @@ putchar (int c)
 }
 
 /* ------------------------------------------------------------------ *
+ * Streams
+ *
+ * mini-libc has the printf family but no streams at all.  These are the
+ * thinnest thing that lets a test say fprintf(stdout, ...): the FILE * is
+ * ignored and everything goes to the serial port.  See include/stdio.h for
+ * why that is enough, and for why fputc/fputs/fwrite have to exist even
+ * though no test names them.
+ * ------------------------------------------------------------------ */
+
+static FILE stdout_file, stderr_file, stdin_file;
+
+FILE *stdout = &stdout_file;
+FILE *stderr = &stderr_file;
+FILE *stdin  = &stdin_file;
+
+int
+vfprintf (FILE *stream, const char *format, va_list arguments)
+{
+  (void) stream;
+  return vuprintf (putchar, format, arguments);
+}
+
+int
+fprintf (FILE *stream, const char *format, ...)
+{
+  int n;
+  va_list args;
+
+  (void) stream;
+  va_start (args, format);
+  n = vuprintf (putchar, format, args);
+  va_end (args);
+  return n;
+}
+
+int
+fputc (int c, FILE *stream)
+{
+  (void) stream;
+  return putchar (c);
+}
+
+int
+putc (int c, FILE *stream)
+{
+  return fputc (c, stream);
+}
+
+/* fputs returns a nonnegative value on success, not the length.  */
+int
+fputs (const char *s, FILE *stream)
+{
+  (void) stream;
+  while (*s)
+    putchar (*s++);
+  return 0;
+}
+
+/* Returns the number of *items* written, not bytes.  */
+size_t
+fwrite (const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+  const unsigned char *p = ptr;
+  size_t total = size * nmemb;
+
+  (void) stream;
+  if (size == 0 || nmemb == 0)
+    return 0;
+  while (total--)
+    putchar (*p++);
+  return nmemb;
+}
+
+int
+fflush (FILE *stream)
+{
+  (void) stream;
+  return 0;
+}
+
+/* ------------------------------------------------------------------ *
  * grifo's serial console, which its allocator reports corruption through
  * ------------------------------------------------------------------ */
 

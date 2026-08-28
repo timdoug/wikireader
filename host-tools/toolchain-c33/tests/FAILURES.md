@@ -7,25 +7,25 @@ all seven of upstream's option sets: `-O0`, `-O1`, `-O2`,
 
 ## execute - nothing fails, at any level
 
-Verified by a clean full run, 2026-08-27. Identical at all seven sets:
+Verified by a clean full run, 2026-08-28. Identical at all seven sets:
 
 | | pass | unsupported | fail |
 |---|---:|---:|---:|
-| every option set | **1671** | 21 | **0** |
+| every option set | **1676** | 16 | **0** |
 
 1692 tests each, 11,844 results. For scale, the baseline two passes ago was
 1553 / 1569 / 1534 / 1530 at four levels with 72 distinct tests failing, and
 before the runtime work below it was 1611-1615 with 77 unsupported.
 
-### The 21 that cannot run here
+### The 16 that cannot run here
 
-Nothing left in this list is about the backend. Five of them are cheap to
-recover and worth it - see "What a real stdio would buy" below. The rest is
-a libm, a filesystem, a 128-bit integer type, or an x86 register name.
+Nothing left in this list is about the backend, and none of it is cheap:
+it is a libm, a filesystem, a 128-bit integer type, or an x86 register
+name.
 
 | what they need | tests |
 |---|---|
-| `FILE *`, `stdout`/`stderr`, `fopen`/`fclose`/`fscanf` | `fprintf-1` `fprintf-2` `fprintf-chk-1` `printf-2` `user-printf` `vfprintf-1` `vfprintf-chk-1` `gofast` |
+| `fopen`/`fclose`/`fscanf` on a real filesystem | `fprintf-2` `printf-2` `user-printf` |
 | `__int128` or decimal float | `pr105613` `pr80692` `pr84748` `pr93213` |
 | a C99 math library | `980709-1` `990826-0` `float-floor` `20030125-1` |
 | `%f` in printf | `920501-8` `930513-1` |
@@ -40,36 +40,47 @@ flag was never supplied. It passes at all seven sets. **"UNSUPPORTED" in
 this harness can mean "the directive was not read", not "the target cannot
 do this"** - the classifier is the thing to distrust first.
 
-### What a real stdio would buy: 5 of the remaining 8
+### Streams: five recovered, and they earn their place
 
-The `FILE *` row above is not one problem but two. Five of those tests need
-only a `stdout`/`stderr` that reaches `putchar`, which the runtime already
-has:
+That row used to hold eight tests and be labelled "needs `FILE *`". It was
+two problems wearing one label. Five of them wanted nothing but a `stdout`
+or `stderr` that reaches `putchar` - which the runtime already had - and
+used only `%c`, `%d` and `%s`, which mini-libc already formats correctly:
+`fprintf-1`, `fprintf-chk-1`, `vfprintf-1`, `vfprintf-chk-1`, `gofast`.
+They now pass at all seven sets.
 
-| test | needs | formats used |
-|---|---|---|
-| `fprintf-1` | `stdout`, `fprintf` | `%c %d %s` |
-| `fprintf-chk-1` | `stdout`, `vfprintf` | `%c %d %s` |
-| `vfprintf-1` | `stdout`, `vfprintf` | `%c %d %s` |
-| `vfprintf-chk-1` | `stdout`, `vfprintf` | `%c %d %s` |
-| `gofast` | `stderr`, `fprintf` | `%s` |
+`runtime.c` gains `stdout`/`stderr`/`stdin` and `fprintf`/`vfprintf` over
+`vuprintf(putchar, ...)`, with the `FILE *` ignored; `include/stdio.h`
+layers that onto mini-libc's via `#include_next`. Two things are worth
+knowing before touching it:
 
-Nothing there needs a format mini-libc does not already get right, and
-`vuprintf` already returns the character count, which is what `fprintf-1`
-asserts - eleven times, for `%c`, `%d`, `%s` and the empty string. That is
-the same class of check that caught the `%o` and `%hh` bugs, so these are
-worth having rather than merely countable. The `_chk` pair define
-`__vfprintf_chk` themselves and call plain `vfprintf`.
+* **`fputc`, `fputs`, `fwrite`, `putc` and `fflush` have to exist even
+  though no test names them.** GCC rewrites the printf family when the
+  format is simple - `fprintf(f, "s")` becomes `fputs`, `fprintf(f, "%c",
+  c)` becomes `fputc`. Omitting them turns a test that would have passed
+  into a link failure reported as UNSUPPORTED, which is the exact failure
+  mode this file exists to remove.
+* **The point of these tests is the return value, not the output.**
+  `fprintf-1` checks the count eleven times, over `%c`, `%d`, `%s` and the
+  empty string. GCC folds those counts at compile time under
+  `-fprintf-return-value`, so a disagreement between the folded constant
+  and what the library writes is a hard failure - the same check that
+  caught the `%o` and `%hh` bugs. Confirmed by reading the serial capture:
+  the emitted bytes match what the test intends, so it is running rather
+  than being folded away.
+
+The `_chk` pair define `__vfprintf_chk` themselves and call plain
+`vfprintf`, so they need nothing extra.
 
 The other three - `fprintf-2`, `printf-2`, `user-printf` - want
-`fopen`/`freopen`/`fscanf`/`remove`/`tmpnam` against a real filesystem.
-That is reachable: `samo-lib/fatfs` (`tff.c`, read-write) and
-`samo-lib/drivers` (`sd_spi.c`, `mmc.c`) are firmware code the emulator
-already models, and `libtinyfat.a` is prebuilt. The cost is not the
-filesystem, it is that **mini-libc has no `scanf` at all**, and that the
-harness runs tests in parallel against one image, so each test would need
-its own writable card and the runtime would need to bring up SD without
-grifo. Three tests for that is a poor trade; the five above are a good one.
+`fopen`/`freopen`/`fscanf`/`remove`/`tmpnam` against a real filesystem, and
+stay on the list. That is *reachable*: `samo-lib/fatfs` (`tff.c`,
+read-write) and `samo-lib/drivers` (`sd_spi.c`, `mmc.c`) are firmware code
+the emulator already models, and `libtinyfat.a` is prebuilt. The cost is
+not the filesystem. It is that **mini-libc has no `scanf` at all**, and
+that the harness runs tests in parallel against one card image, so each
+test would need its own writable card and the runtime would need to bring
+up SD without grifo. Three tests for that is a poor trade.
 
 Most of these are detected from the compiler's own diagnostics or from
 `{ dg-do ... { target ... } }`. Three are not: `920501-8`, `930513-1` and

@@ -16,7 +16,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 |---|---|
 | binutils 2.47 - bfd, opcodes, gas, ld | **done and validated byte-for-byte** |
 | GCC 16.2 backend | **runs the whole firmware**, output byte-identical to gcc 3.3.2, and beats it on every axis measured |
-| `gcc.c-torture` execute | **1670 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
+| `gcc.c-torture` execute | **1676 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
 | `gcc.c-torture` compile | **1973 of 2003 per set, zero failures, no ICEs** |
 | emulator, differentially | `emulator/difftest` now runs **both** toolchains; 200 programs each, five levels, all match |
 | ABI vs the 3.3.2 oracle | `tests/abi` cross-links the two compilers in all four combinations. **All agree**, 36 values, five option levels. See "The ABI - fixed, and how it was over-thought" |
