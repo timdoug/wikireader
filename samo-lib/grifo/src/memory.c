@@ -72,6 +72,7 @@ void Memory_initialise(void)
 {
 	static bool initialised = false;
 	if (!initialised) {
+		initialised = true;
 		// compile/link time check of thje structure size
 		if (PAGE_SIZE != sizeof(AllocationHeaderType)) {
 			void AllocationHeaderType_is_the_wrong_size(void);
@@ -176,6 +177,7 @@ void Memory_free(void *address, const char *tag)
 	if (MAGIC_0 != h->magic[0] ||
 	    MAGIC_1 != h->magic[1]) {
 		DisplayHeap("freeing: %p non-allocated memory: %s\n", address, tag);
+		return;  // the pointer just proved invalid; do not write through it
 	}
 
 	if (STATUS_free == h->status) {

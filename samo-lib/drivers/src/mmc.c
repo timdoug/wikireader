@@ -338,7 +338,11 @@ DSTATUS mmc_disk_initialize(BYTE drv)
 			ocr[n] = spi_receive();		// Get trailing return value of R7 resp
 		}
 		if (ocr[2] == 0x01 && ocr[3] == 0xAA) {	// The card can work at vdd range of 2.7-3.6V
-			while (timeout-- && send_cmd(ACMD41, 1UL << 30)) {
+			// pre-test so exhaustion leaves timeout at 0: the old
+			// post-decrement wrapped it to 0xFFFFFFFF, and the
+			// checks below then treated a dead card as ready
+			while (timeout && send_cmd(ACMD41, 1UL << 30)) {
+				timeout--;
 			}				// Wait for leaving idle state (ACMD41 with HCS bit)
 
 			if (timeout && send_cmd(CMD58, 0) == 0) {	// Check CCS bit in the OCR
@@ -354,7 +358,9 @@ DSTATUS mmc_disk_initialize(BYTE drv)
 		} else {
 			ty = 1; cmd = CMD1;		// MMC
 		}
-		while (timeout-- && send_cmd(cmd, 0));	// Wait for leaving idle state
+		while (timeout && send_cmd(cmd, 0)) {	// Wait for leaving idle state
+			timeout--;
+		}
 		if (!timeout || send_cmd(CMD16, 512) != 0) {		// Set R/W block length to 512
 			ty = 0;
 		}

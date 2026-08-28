@@ -122,10 +122,10 @@ void File_CloseAll(void)
 	AutoPowerUp();
 
 	for (i = 0; i < SizeOfArray(FileControlBlock); i++) {
-		File_close(i + 1);
+		File_close(i);  // handles are 0-based; i+1 left handle 0 unflushed
 	}
 	for (i = 0; i < SizeOfArray(DirectoryControlBlock); i++) {
-		File_CloseDirectory(i + 1);
+		File_CloseDirectory(i);
 	}
 	File_initialise();
 }
@@ -159,14 +159,20 @@ File_ErrorType File_size(const char *filename, unsigned long *length)
 
 	AutoPowerUp();
 	File_ErrorType rc = -f_stat(filename, &stat);
-	*length = stat.fsize;
+	if (FILE_ERROR_OK == rc) {
+		*length = stat.fsize;  // stat is not filled on failure
+	}
 	return rc;
 }
 
 
 File_ErrorType File_create(const char *filename, File_AccessType fam)
 {
-	return File_open(filename, fam | FILE_OPEN_CREATE | FILE_OPEN_TRUNCATE);
+	// FILE_OPEN_TRUNCATE alone maps to FA_CREATE_ALWAYS, which creates or
+	// truncates.  Adding FILE_OPEN_CREATE (FA_CREATE_NEW) made f_open fail
+	// with FR_EXIST whenever the file already existed, because FatFs
+	// checks the CREATE_NEW bit first.
+	return File_open(filename, fam | FILE_OPEN_TRUNCATE);
 }
 
 

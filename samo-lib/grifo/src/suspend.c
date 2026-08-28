@@ -364,7 +364,7 @@ int SuspendCode(void)
 		0;
 
 	// determine if timeout
-	register int timed_out = 0 != (REG_INT_F16T23 & (E16TC2 | F16TU2));
+	register int timed_out = 0 != (REG_INT_F16T23 & (F16TC2 | F16TU2));
 
 	// suppress timer2 interrupt
 	REG_INT_E16T23 &= ~(E16TC2 | E16TU2);

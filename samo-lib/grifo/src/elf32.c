@@ -175,11 +175,13 @@ ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 		n = File_read(handle, &sec, sizeof(sec));
 		if (n < 0) {
 			DEBUG_ELF(3, "ELF: section read: error=%ld\n", n);
-			continue;
+			rc = ELF32_DATA_READ_FAIL;  // a skipped section is a partial load
+			goto abort_close;
 		} else if (n != sizeof(sec)) {
 			DEBUG_ELF(3, "ELF: section read: read=%ld expected=%u\n",
 				  n, sizeof(sec));
-			continue;
+			rc = ELF32_DATA_READ_FAIL;
+			goto abort_close;
 		}
 
 		switch (sec.sh_type) {

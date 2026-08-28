@@ -25,13 +25,21 @@ void delay_us(unsigned int microsec)
 {
 	while (microsec--) {
 		// at 60 MHz this should take 1 micro second
+		//
+		// r4 and the flags are clobbered, and the asm says so: with no
+		// clobber list the compiler was free to keep a live value in
+		// r4 across the loop.  The label is a local "0:" because a
+		// named label is emitted once per expansion and fails to
+		// assemble as soon as the loop is unrolled or inlined twice.
 		asm volatile (
-			"\tld.w\t%r4, 7\n"
-			"delay_loop:\n"
+			"\tld.w\t%%r4, 7\n"
+			"0:\n"
 			"\tnop\n"
 			"\tnop\n"
-			"\tsub\t%r4, 1\n"
-			"\tjrne\tdelay_loop"
-			);
+			"\tsub\t%%r4, 1\n"
+			"\tjrne\t0b"
+			:
+			:
+			: "r4", "cc");
 	}
 }

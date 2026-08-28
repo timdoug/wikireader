@@ -167,19 +167,23 @@ int elf32_exec(const char *filename, int arg)
 	}
 
 	for (i = 0; i < hdr.e_shnum; i++) {
-		int rc = 0;
+		// note: this used to declare a second "int rc" here, so the
+		// error codes set inside the loop were assigned to a shadow
+		// and elf32_exec returned 0 for a partially loaded image
+		int frc = 0;
 		f_lseek(&file, hdr.e_shoff + sizeof(sec) * i);
-		if ((rc = f_read(&file, (uint8_t *) &sec, sizeof(sec), &r)) || r != sizeof(sec)) {
+		if ((frc = f_read(&file, (uint8_t *) &sec, sizeof(sec), &r)) || r != sizeof(sec)) {
 			if (DEBUG_ELF_LOAD) {
 				print("ELF: section read failed: rc=");
-				print_int(rc);
+				print_int(frc);
 				print(" read=");
 				print_int(r);
 				print(" expected=");
 				print_uint(sizeof(sec));
 				print("\n");
 			}
-			continue;
+			rc = -8;  // a skipped section is a partial load
+			goto abort_close;
 		}
 
 		switch (sec.sh_type) {

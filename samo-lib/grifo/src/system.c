@@ -67,6 +67,9 @@ void System_panic(const char *format, ...)
 	(void)Serial_vuprintf(format, arguments);
 	Serial_print("\nWaiting to power off\n");
 
+	va_end(arguments);
+	va_start(arguments, format); // a va_list cannot be walked twice
+
 	LCD_clear(LCD_WHITE);
 	LCD_print("System Panic:\n");
 	(void)LCD_vuprintf(format, arguments);

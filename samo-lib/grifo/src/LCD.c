@@ -467,7 +467,7 @@ LCD_ColourType LCD_Window_GetColour(void)
 void LCD_Window_Point(int x, int y)
 {
 	LCD_Window_MoveTo(x, y);
-	LCD_Window_SetPixel(x, y, ForegroundColour);
+	LCD_Window_SetPixel(x, y, WindowForegroundColour);
 }
 
 

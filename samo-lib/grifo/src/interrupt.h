@@ -43,6 +43,8 @@ static inline Interrupt_type Interrupt_disable(void)
 //+MakeSystemCalls: enter
 {
 	register int state;
+	// "memory" makes this a compiler barrier: without it the compiler
+	// may move non-volatile loads and stores across the critical section
 	asm volatile (
 		"ld.w\t%0, %%psr\n\t"
 		"xand\t%0, 0x010\n\t"
@@ -50,6 +52,7 @@ static inline Interrupt_type Interrupt_disable(void)
 		"psrclr\t4"
 		: "=r" (state)
 		:
+		: "memory"
 		);
 	return state;
 }
@@ -59,7 +62,7 @@ static inline void Interrupt_enable(Interrupt_type state)
 //+MakeSystemCalls: exit
 {
 	if (0 != state) {
-		asm volatile ("psrset\t4");
+		asm volatile ("psrset\t4" : : : "memory");
 	}
 }
 //-MakeSystemCalls: exit

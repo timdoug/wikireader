@@ -40,6 +40,7 @@ void Button_initialise(void)
 {
 	static bool initialised = false;
 	if (!initialised) {
+		initialised = true;
 		Event_initialise();
 
 		Interrupt_type state = Interrupt_disable();
