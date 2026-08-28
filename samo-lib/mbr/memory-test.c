@@ -81,7 +81,7 @@ int memory_test_const32(void * start, unsigned int length, uint32_t value)
 			puts(" A:");
 			print32((long)p - 4);
 			puts("=");
-			print32((uint32_t)p[-4]);
+			print32((uint32_t)p[-1]); // p already advanced; [-4] printed a cell 16 bytes away
 			puts("/");
 			print32((uint32_t)value);
 			errors++;

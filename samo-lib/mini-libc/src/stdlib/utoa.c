@@ -7,9 +7,9 @@
 #include <stdlib.h>
 
 char *utoa(unsigned num, char *str, int radix) {
-    char temp[17];  //an int can only be 16 bits long
+    char temp[33];  //an int is 32 bits on this target:
                     //at radix 2 (binary) the string
-                    //is at most 16 + 1 null long.
+                    //is at most 32 + 1 null long.
     int temp_loc = 0;
     int digit;
     int str_loc = 0;

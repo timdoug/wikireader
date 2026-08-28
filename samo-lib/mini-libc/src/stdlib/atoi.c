@@ -6,7 +6,9 @@
 int atoi( const char *p)
 {
     int sign = 0;
-    int res = 0;
+    unsigned int res = 0;   /* unsigned: the accumulate below must not be
+                               signed overflow, and "-2147483648" needs the
+                               wrap of the final negation to be defined */
 
     while(   *p==' '
              || *p=='\t'
@@ -34,6 +36,6 @@ int atoi( const char *p)
 
     if(sign) res = -res;
 
-    return res;
+    return (int)res;
 }
 

@@ -8,32 +8,29 @@
 
 char *itoa(int num, char *str, int radix) {
     char sign = 0;
-    char temp[17];  //an int can only be 16 bits long
-                    //at radix 2 (binary) the string
-                    //is at most 16 + 1 null long.
+    char temp[34];  //an int is 32 bits on this target: 32 binary digits,
+                    //a possible '-', and the null.
     int temp_loc = 0;
     int digit;
     int str_loc = 0;
+    unsigned int mag = (unsigned int)num;
 
-    //save sign for radix 10 conversion
+    //save sign for radix 10 conversion.  The negation is done unsigned:
+    //num = -num on INT_MIN is signed overflow.
     if (radix == 10 && num < 0) {
         sign = 1;
-        num = -num;
+        mag = -(unsigned int)num;
     }
-    
+
     //construct a backward string of the number.
     do {
-        digit = (unsigned int)num % radix;
-        if (digit < 10) 
+        digit = mag % radix;
+        if (digit < 10)
             temp[temp_loc++] = digit + '0';
         else
             temp[temp_loc++] = digit - 10 + 'A';
-        /* Was "((unsigned int)num) /= radix;", which relied on gcc's
-           cast-as-lvalue extension.  That was removed in gcc 4.0.  The
-           rewrite is exact: the cast only ever affected the division,
-           and the result was stored straight back into num.  */
-        num = (int)((unsigned int)num / radix);
-    } while ((unsigned int)num > 0);
+        mag = mag / radix;
+    } while (mag > 0);
 
     //now add the sign for radix 10
     if (radix == 10 && sign) {

@@ -286,7 +286,7 @@ ProcessReturnType process(int block, int status)
 				for (k = 0; k < header.count; ++k) {
 					print_char(MenuItem + 'A');
 					print(". ");
-					PrintName(header.name[k], sizeof(header.name));
+					PrintName(header.name[k], sizeof(header.name[k])); // one 32-byte name, not all 256 bytes of them
 					print_char('\n');
 					app[MenuItem].block = i;
 					app[MenuItem].offset = k;

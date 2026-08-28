@@ -45,6 +45,10 @@ register int ch;
 {
     register char *save;
 
+    /* C requires ch to be compared as a char: without the conversion,
+       values 128..255 (e.g. a UTF-8 lead byte) never match, because a
+       signed *p sign-extends to a different int. */
+    ch = (char)ch;
     for (save = NULL;; ++p)
     {
         if (*p == ch)

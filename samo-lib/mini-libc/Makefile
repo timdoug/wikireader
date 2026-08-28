@@ -58,7 +58,6 @@ CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-
 ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
 
 C_STRING_OPERATIONS = \
-    src/string/atol.o \
     src/string/bcmp.o \
     src/string/bcopy.o \
     src/string/bzero.o \
@@ -108,10 +107,12 @@ C_STRING_OPERATIONS = \
     src/string/tolower.o \
     src/string/toupper.o
 
+# qsort only: bsd/strtol and bsd/strtoul are older copies of the stdlib
+# ones with their ldiv() path compiled in -- and ldiv is declared but
+# defined nowhere, so whichever link picked those members failed.  The
+# archive also carried both copies (and two atol.o) because of "ar q".
 C_BSD_OPERATIONS = \
-    src/bsd/qsort.o \
-    src/bsd/strtol.o \
-    src/bsd/strtoul.o
+    src/bsd/qsort.o
 
 C_STD_LIB_OPERATIONS = \
     src/stdlib/abort.o \
@@ -148,8 +149,12 @@ all: $(TARGETS)
 	$(GCC) -M $(CFLAGS) $< > $(<:.c=.d)
 	$(GCC) $(CFLAGS) -c $< -o $(<:.c=.o)
 
+# rebuild from scratch with a symbol index: "ar q $^" appended the
+# stamp-lib marker file as an archive member and re-appended every
+# object on each rebuild
 lib/libc.a: stamp-lib $(C_STRING_OPERATIONS) $(C_BSD_OPERATIONS) $(C_STD_LIB_OPERATIONS)
-	$(AR) q lib/libc.a $^
+	$(RM) lib/libc.a
+	$(AR) rc lib/libc.a $(filter %.o,$^)
 
 stamp-lib:
 	${MKDIR} "${@:stamp-%=%}"

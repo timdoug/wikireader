@@ -51,6 +51,8 @@ static int mem_putchar_limited(int c)
 int vsnprintf(char *dest, size_t maxlen, const char *string, va_list ap)
 {
     int len;
+    if (maxlen == 0)   /* no room even for the terminator */
+        return 0;
     mem = dest;
     max_s_size = maxlen;
     len = vuprintf(mem_putchar_limited, string, ap);

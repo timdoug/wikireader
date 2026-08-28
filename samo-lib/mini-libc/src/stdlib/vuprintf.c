@@ -119,7 +119,7 @@ static int PRINT(const char * ptr, unsigned int len)
 #define PAD_SP(x) __write_pad(' ',x)
 #define PAD_0(x) __write_pad('0',x)
 
-static int __write_pad(char c, signed char howmany)
+static int __write_pad(char c, int howmany) /* signed char truncated widths over 127 */
 {
     for(;howmany>0;howmany--)
     {
@@ -166,21 +166,26 @@ int vuprintf(int (*func)(int), const char *fmt0, va_list ap)
     register char *cp;	/* handy char pointer (short term usage) */
     const char *fmark;	/* for remembering a place in fmt */
     register unsigned char flags;	/* flags as above */
-    signed char width;		/* width from format (%8d), or 0 */
-    signed char prec;		/* precision from format (%.3d), or -1 */
+    /* These six were 'signed char', sized for a 16-bit machine: a %s of
+       128+ bytes wrapped 'size' negative, and PRINT's unsigned length
+       parameter turned that into a ~4GB walk through memory.  Width and
+       precision over 127 similarly wrapped: %200d printed unpadded, and
+       %.*s with a wrapped precision lost its bound entirely. */
+    int width;		/* width from format (%8d), or 0 */
+    int prec;		/* precision from format (%.3d), or -1 */
     char sign;				/* sign prefix (' ', '+', '-', or \0) */
     unsigned long _ulong=0;	/* integer arguments %[diouxX] */
 #define OCT 8
 #define DEC 10
 #define HEX 16
     unsigned char base;		/* base for [diouxX] conversion */
-    signed char dprec;		/* a copy of prec if [diouxX], 0 otherwise */
-    signed char dpad;			/* extra 0 padding needed for integers */
-    signed char fieldsz;		/* field size expanded by sign, dpad etc */
+    int dprec;		/* a copy of prec if [diouxX], 0 otherwise */
+    int dpad;			/* extra 0 padding needed for integers */
+    int fieldsz;		/* field size expanded by sign, dpad etc */
     /* The initialization of 'size' is to suppress a warning that
        'size' might be used unitialized.  It seems gcc can't
        quite grok this spaghetti code ... */
-    signed char size = 0;		/* size of converted field or string */
+    int size = 0;		/* size of converted field or string */
     char buf[BUF];		/* space for %c, %[diouxX], %[eEfgG] */
     char ox[2];			/* space for 0x hex-prefix */
     
