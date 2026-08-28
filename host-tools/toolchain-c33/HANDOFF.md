@@ -428,30 +428,113 @@ a way nothing detects, and that cost a wrong diagnosis: `va-arg-19/20/21/22`
 and `strncmp-1` looked like ABI regressions and were a stale libgcc.
 `gcc/rebuild.sh` now does the whole thing, libgcc forced, in one command.
 
-## What is next
+## What is next: the DejaGnu board file
 
-1. **Re-measure the headline numbers.** Every figure in the table above was
-   taken with the stale `libgcc`, so anything touching `long long` or soft
-   float in the firmware was measured against broken code. The ABI fix has
-   since changed argument placement as well. The screens are identical, so
-   nothing user-visible changed, but the instruction counts deserve a fresh
-   pass.
-2. **`gcc.dg`.** A different scale of job: those tests assert on diagnostic
-   text and line numbers, so it needs an actual DejaGnu driver rather than a
-   shell script. The torture suite has stopped being the binding constraint
-   on confidence, and this is what replaces it. It would also retire the
-   hand-rolled skip lists in `run-torture.sh`.
-3. **Debug info is emitted and untested.** DWARF replaced STABS and nothing
-   has ever loaded it. `readelf --debug-dump` on `wiki.app`, and a breakpoint
-   in a real debugger, would be the first check.
-4. **The three named skips.** `20030125-1`, `loop-2f/2g` and `20101011-1`
-   build and run and then abort, exactly as a miscompilation would. They are
-   skipped by name with a reason, and a real miscompilation in one of them
-   would look identical to the libc gap being claimed. That is the weakest
-   remaining claim in the test results.
-5. **`emulator/src/main.c` has debug scaffolding** left uncommitted from an
-   earlier session - a `WREMU_CP` env-gated block hard-coding `0x10052482`.
-   Not from this work; worth deleting.
+This is the next piece of work, and it is well-scoped. Everything needed is
+already in the tree except DejaGnu itself.
+
+### Why
+
+`tests/run-torture.sh` re-implements DejaGnu's directive handling in `sed`,
+and the audit in `tests/FAILURES.md` found **three of those mechanisms
+wrong** - `dg-error` not checking the message, `undefined reference`
+defaulting to UNSUPPORTED, target selectors ignored. Two of the three were
+found only because a full run's totals moved. A board file makes upstream's
+own driver evaluate the directives, which retires all four remaining soft
+spots at once rather than one bug at a time.
+
+It also unlocks `gcc.dg` - **7,425 tests** in the top directory alone - which
+is where the diagnostic assertions live and which the shell harness
+structurally cannot run.
+
+### Prerequisites
+
+`runtest` is **not installed**. macOS ships `expect` 5.45 and `tclsh` but not
+DejaGnu:
+
+```sh
+brew install deja-gnu        # provides runtest
+```
+
+Present and confirmed: `gcc/testsuite/lib/{c-torture,gcc-dg,gcc,target-supports}.exp`,
+and the three entry points `gcc.c-torture/execute/execute.exp`,
+`gcc.c-torture/compile/compile.exp`, `gcc.dg/dg.exp`.
+
+### The three pieces
+
+1. **`tests/dejagnu/c33-sim.exp`** - the board. `load_generic_config "sim"`,
+   then `set_board_info` for compiler, `cflags` (`-mc33pe -mno-long-calls`
+   plus the two include paths), and `ldflags` (`-nostdlib -nostartfiles`, the
+   linker script, the four runtime objects, `libc.a`, `libgcc.a`). All of
+   these values are already spelled out in `run-torture.sh`'s `COMMON`,
+   `LIBS` and `build_runtime`.
+
+2. **`${board}_load`** - the only real work, and the `one()` function in
+   `run-torture.sh` is its specification. The contract is to return
+   `{pass|fail|unresolved} output`. The mapping is already established and
+   should be transliterated exactly, not redesigned:
+
+   | emulator state | verdict |
+   |---|---|
+   | `pc == 0x10000002` and `%r4 == 0` | pass |
+   | `pc == 0x10000002` and `%r4 == 0xdead` | fail (this is `abort()`) |
+   | `^fault:` in the output | fail |
+   | `pc == 0x10000002`, other `%r4` | fail (non-zero exit status) |
+   | no register dump at all | **unresolved**, never fail - the emulator did not run |
+   | otherwise | fail (ran past the instruction limit) |
+
+   `wremu -n 1000000000 -b 0x10000002`. The limit is a runaway detector, not
+   a timeout: `vla-dealloc-1` and `pr43220` honestly need ~490M at `-O0`.
+
+3. **Invocation** - a `site.exp` and a wrapper so
+   `runtest --tool gcc --target_board=c33-sim` finds the board and the
+   compiler. Worth a small script next to the board file, since the paths
+   (`work/install/bin`, `work/bu/install/bin`) are not standard.
+
+### Acceptance criterion
+
+**Reproduce the shell harness's numbers exactly** before trusting either:
+execute 1676 pass / 16 unsupported / 0 fail, and compile 1973 / 30 / 0, per
+option set, over upstream's seven sets. Any divergence is a finding about
+one harness or the other and should be run down rather than explained away -
+that cross-check is most of the value of doing this at all.
+
+So **do not delete `run-torture.sh`** on arrival. It produced every number
+currently trusted, it is much faster to iterate with, and it is the only
+independent check on the board file.
+
+### Gotchas carried over
+
+* Runtime objects (`crt0.o`, `setjmp.o`, `runtime.o`, `memory.o`) are built
+  **once per option set**, not once per test - 1692 tests otherwise rebuild
+  four files apiece.
+* `-w -fpermissive` is load-bearing for pre-C23 sources; dropping it will
+  fail hundreds of tests for reasons that are not the backend's.
+* Builtins must stay **on**. An earlier version passed `-fno-builtin` and
+  silently broke every test whose point is that a builtin folds.
+* `abort` is defined in `crt0.s`, not mini-libc, and that is what makes
+  `%r4 == 0xdead` trustworthy. Do not let the archive version win.
+
+## Also next, in rough order
+
+1. **Re-measure the headline numbers.** Every figure in the performance table
+   above was taken with the stale `libgcc`, and the ABI fix has since changed
+   argument placement. The screens are identical, so nothing user-visible
+   moved, but those numbers are stated as fact and are currently unverified.
+2. **Merge the two binutils prefixes.** The `readelf` DWARF fix is in
+   `work/bu/install`; everything else points at `work/install`, so the fixed
+   `readelf` is not on the default path. Rebuild one prefix with both, or
+   repoint the defaults.
+3. **Debug info beyond the line table.** The line table is now known good and
+   `.debug_info` resolves correctly on unlinked objects. Nothing has run a
+   real debugger, and `grifo.elf`/`wiki.app` link `--strip-all -s` so they
+   carry no debug sections at all - a separate decision about link flags.
+4. **The three named skips.** `20030125-1`, `920501-8`, `930513-1` build, run
+   and abort, exactly as a miscompilation would. The reasons are recorded and
+   believed rather than demonstrated. Weakest claim in the test results.
+5. **`emulator/src/main.c` debug scaffolding** - a `WREMU_CP` env-gated block
+   hard-coding `0x10052482`, left from an earlier session. Not from this work;
+   worth deleting.
 
 Both `/tmp` build trees were destroyed overnight by macOS's periodic purge
 partway through this session, which is why `gcc/rebuild.sh` and the test
