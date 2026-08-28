@@ -188,7 +188,7 @@ ReadCommands(const char *filename)
 				}
 				++item;
 				if (item >= SizeOfArray(MenuRecord)) {
-					return true;
+					return item; // a full menu is 9 entries, not "1"
 				}
 			}
 			break;
@@ -284,7 +284,7 @@ int CursorPosition(int x, int y)
 	y -= Y_START;
 	x -= X_START;
 
-	if (y < 0 || y < 0) {
+	if (x < 0 || y < 0) {
 		return -1;
 	}
 
