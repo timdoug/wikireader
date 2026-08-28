@@ -176,6 +176,15 @@ dg_options() {
 extra_options() {
 	case "$1" in
 	comp-goto-1) echo "-std=gnu89" ;;
+	# Upstream's own escape hatch for targets with no signals:
+	#   { dg-additional-options "-DSIGNAL_SUPPRESS" { target { ! signal } } }
+	# The harness applies dg-additional-options but ignores the target
+	# selector on them, so this one never got supplied and the test was
+	# filed as UNSUPPORTED for a missing <signal.h> it does not need.
+	# It passes at all seven sets with the flag.  Worth remembering that
+	# "UNSUPPORTED" here can mean "the harness did not read the directive",
+	# not "the target cannot do this".
+	20101011-1)  echo "-DSIGNAL_SUPPRESS" ;;
 	esac
 }
 

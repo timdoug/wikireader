@@ -11,16 +11,17 @@ Verified by a clean full run, 2026-08-27. Identical at all seven sets:
 
 | | pass | unsupported | fail |
 |---|---:|---:|---:|
-| every option set | **1670** | 22 | **0** |
+| every option set | **1671** | 21 | **0** |
 
 1692 tests each, 11,844 results. For scale, the baseline two passes ago was
 1553 / 1569 / 1534 / 1530 at four levels with 72 distinct tests failing, and
 before the runtime work below it was 1611-1615 with 77 unsupported.
 
-### The 22 that cannot run here
+### The 21 that cannot run here
 
-Nothing left in this list is about the backend, and none of it is cheap to
-recover - it is a libm, a filesystem, or a 128-bit integer type.
+Nothing left in this list is about the backend. Five of them are cheap to
+recover and worth it - see "What a real stdio would buy" below. The rest is
+a libm, a filesystem, a 128-bit integer type, or an x86 register name.
 
 | what they need | tests |
 |---|---|
@@ -29,16 +30,54 @@ recover - it is a libm, a filesystem, or a 128-bit integer type.
 | a C99 math library | `980709-1` `990826-0` `float-floor` `20030125-1` |
 | `%f` in printf | `920501-8` `930513-1` |
 | `<sys/mman.h>` | `loop-2f` `loop-2g` |
-| `<signal.h>` | `20101011-1` |
 | x86 register names in `asm` | `990413-2` |
 
-The harness detects the first six groups from the compiler's own
-diagnostics or from `{ dg-do ... { target ... } }`. The last three build and
-run and then abort, exactly as a miscompilation would, so nothing in the
-output distinguishes them - they are named individually in `skip_reason()`
-in the harness, with what each wants. That list is the weakest thing here:
-a real miscompilation in one of those three would look identical to the
-libc gap we are claiming.
+`20101011-1` used to be on this list for wanting `<signal.h>`. It does not:
+upstream ships `{ dg-additional-options "-DSIGNAL_SUPPRESS" { target { !
+signal } } }` for exactly this case, and the harness was applying
+`dg-additional-options` while ignoring the target selector on them, so the
+flag was never supplied. It passes at all seven sets. **"UNSUPPORTED" in
+this harness can mean "the directive was not read", not "the target cannot
+do this"** - the classifier is the thing to distrust first.
+
+### What a real stdio would buy: 5 of the remaining 8
+
+The `FILE *` row above is not one problem but two. Five of those tests need
+only a `stdout`/`stderr` that reaches `putchar`, which the runtime already
+has:
+
+| test | needs | formats used |
+|---|---|---|
+| `fprintf-1` | `stdout`, `fprintf` | `%c %d %s` |
+| `fprintf-chk-1` | `stdout`, `vfprintf` | `%c %d %s` |
+| `vfprintf-1` | `stdout`, `vfprintf` | `%c %d %s` |
+| `vfprintf-chk-1` | `stdout`, `vfprintf` | `%c %d %s` |
+| `gofast` | `stderr`, `fprintf` | `%s` |
+
+Nothing there needs a format mini-libc does not already get right, and
+`vuprintf` already returns the character count, which is what `fprintf-1`
+asserts - eleven times, for `%c`, `%d`, `%s` and the empty string. That is
+the same class of check that caught the `%o` and `%hh` bugs, so these are
+worth having rather than merely countable. The `_chk` pair define
+`__vfprintf_chk` themselves and call plain `vfprintf`.
+
+The other three - `fprintf-2`, `printf-2`, `user-printf` - want
+`fopen`/`freopen`/`fscanf`/`remove`/`tmpnam` against a real filesystem.
+That is reachable: `samo-lib/fatfs` (`tff.c`, read-write) and
+`samo-lib/drivers` (`sd_spi.c`, `mmc.c`) are firmware code the emulator
+already models, and `libtinyfat.a` is prebuilt. The cost is not the
+filesystem, it is that **mini-libc has no `scanf` at all**, and that the
+harness runs tests in parallel against one image, so each test would need
+its own writable card and the runtime would need to bring up SD without
+grifo. Three tests for that is a poor trade; the five above are a good one.
+
+Most of these are detected from the compiler's own diagnostics or from
+`{ dg-do ... { target ... } }`. Three are not: `920501-8`, `930513-1` and
+`20030125-1` build and run and then abort, exactly as a miscompilation
+would, so nothing in the output distinguishes them. They are named
+individually in `skip_reason()` with what each wants. That list is the
+weakest thing here: a real miscompilation in one of those three would look
+identical to the libc gap being claimed.
 
 `pr78622` and `pr79327` used to be on it and are not any more, because the
 libc gap they were blocked on turned out to be two real bugs in mini-libc's
