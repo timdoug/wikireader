@@ -141,6 +141,10 @@ skip_reason() {
 	920501-8|930513-1) echo "sprintf %f: mini-libc printf has no float" ;;
 	pr79327)           echo "sprintf %#hho/%#hhx: mini-libc printf has no # or hh" ;;
 	pr78622)           echo "snprintf %hhd: mini-libc printf has no hh" ;;
+	# 20030125-1 checks that sin/floor fold; with no C99 libm declared, gcc
+	# folds them at -O0/-O2/-O3 and not at -O1/-Os/-Og -- four sets pass and
+	# three abort.  Upstream's own dg-require-effective-target c99_runtime
+	# says not to run it here.
 	20030125-1)        echo "needs a C99 math library to fold sin/floor against" ;;
 	*)                 return 1 ;;
 	esac
