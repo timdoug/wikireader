@@ -818,6 +818,11 @@ typedef enum
 #undef  PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE   DWARF2_DEBUG
 #define DWARF2_DEBUGGING_INFO	   1
+/* C33 gas implements DWARF .file/.loc directives, including discriminators.
+   GCC's generic configure probe has no C33 instruction spelling and therefore
+   cannot discover this automatically.  */
+#define DWARF2_ASM_LINE_DEBUG_INFO 1
+#define DWARF2_ASM_VIEW_DEBUG_INFO 1
 
 #define DWARF2_FRAME_INFO          1
 #define DWARF2_UNWIND_INFO         0
