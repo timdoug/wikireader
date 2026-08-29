@@ -732,8 +732,6 @@ typedef enum
 /* Globalizing directive for a label.  */
 #define GLOBAL_ASM_OP "\t.global "
 
-#define ASM_PN_FORMAT "%s___%lu"
-
 /* This is how we tell the assembler that two symbols have the same value.  */
 
 #define ASM_OUTPUT_DEF(FILE,NAME1,NAME2) \

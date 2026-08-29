@@ -2500,8 +2500,8 @@ c33_asm_init_sections (void)
 
 static section *
 c33_select_section (tree exp,
-                     int reloc ATTRIBUTE_UNUSED,
-                     unsigned HOST_WIDE_INT align ATTRIBUTE_UNUSED)
+                     int reloc,
+                     unsigned HOST_WIDE_INT align)
 {
   if (TREE_CODE (exp) == VAR_DECL)
     {
@@ -2526,10 +2526,13 @@ c33_select_section (tree exp,
 	  return is_const ? rosdata_section : sdata_section;
 
         default:
-	  return is_const ? readonly_data_section : data_section;
+	  /* Preserve the generic ELF section selection for ordinary data.
+	     Besides choosing .data versus .rodata, it creates mergeable
+	     .rodata.cstN and .rodata.strN sections where appropriate.  */
+	  return default_elf_select_section (exp, reloc, align);
         }
     }
-  return readonly_data_section;
+  return default_elf_select_section (exp, reloc, align);
 }
 
 /* Worker function for TARGET_FUNCTION_VALUE_REGNO_P.  */
