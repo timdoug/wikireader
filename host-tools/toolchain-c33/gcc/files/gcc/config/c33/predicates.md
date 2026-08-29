@@ -505,5 +505,3 @@
 {
   return (GET_CODE (op) == IOR);
 })
-
-
