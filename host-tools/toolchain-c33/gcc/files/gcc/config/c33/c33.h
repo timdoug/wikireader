@@ -655,6 +655,15 @@ struct cum_arg
    for the C33 series, that's our primary concern.  */
 #define MOVE_RATIO(speed) 6
 
+/* A conditional branch costs two cycles when not taken and three when
+   taken (C33 PE Core manual, CLK entry for jr<cc>); a delayed branch costs
+   two cycles before accounting for its useful delay-slot instruction.
+   GCC's default cost of one therefore makes branches look as cheap as an
+   ordinary ALU instruction and suppresses profitable range-test folding.
+   Keep the size cost at one instruction, but use the architectural minimum
+   of two when optimizing for speed.  */
+#define BRANCH_COST(speed_p, predictable_p) ((speed_p) ? 2 : 1)
+
 /* Indirect calls are expensive, never turn a direct call
    into an indirect call.  */
 #define NO_FUNCTION_CSE 1
