@@ -23,7 +23,7 @@
 #define GCC_C33_PROTOS_H
 
 extern void   expand_prologue               (void);
-extern void   expand_epilogue               (void);
+extern void   expand_epilogue               (bool);
 extern int    c33_handle_pragma            (int (*)(void), void (*)(int), char *);
 extern int    compute_register_save_size    (long *);
 extern int    compute_frame_size            (poly_int64, long *);
@@ -37,6 +37,7 @@ extern bool        c33_dp_relative_address_p (rtx);
 extern bool        c33_short_memory_p (rtx);
 extern int         c33_move_length (rtx_insn *);
 extern bool        c33_uses_sp_p (rtx_insn *);
+extern void        c33_expand_untyped_call (rtx, rtx);
 extern int         c33_alu_length (rtx_insn *, int);
 extern int         c33_shift_length (rtx_insn *);
 #ifdef HAVE_MACHINE_MODES

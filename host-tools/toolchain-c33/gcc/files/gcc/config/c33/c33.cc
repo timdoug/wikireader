@@ -33,6 +33,7 @@
 #include "stringpool.h"
 #include "attribs.h"
 #include "insn-config.h"
+#include "optabs.h"
 #include "regs.h"
 #include "emit-rtl.h"
 #include "recog.h"
@@ -43,6 +44,7 @@
 #include "conditions.h"
 #include "output.h"
 #include "insn-attr.h"
+#include "explow.h"
 #include "expr.h"
 #include "cfgrtl.h"
 #include "builtins.h"
@@ -129,7 +131,7 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
   rtx result = NULL_RTX;
   int size, align;
 
-  if (!arg.named)
+  if (arg.end_marker_p ())
     return NULL_RTX;
 
   /* An aggregate with no scalar mode is copied onto the stack by value and
@@ -193,6 +195,21 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
       result = NULL_RTX;
     }
 
+  /* The historical C33 varargs ABI puts every anonymous argument on the
+     stack, whereas a prototyped call can put scalars in %r6-%r9.  Keep the
+     stack copy so existing va_arg implementations remain compatible, and
+     shadow the value in its typed-call register as well.  The NULL member
+     is GCC's standard PARALLEL notation for "also pass in memory".  */
+  if (!arg.named && result != NULL_RTX)
+    {
+      rtvec locations = rtvec_alloc (2);
+      RTVEC_ELT (locations, 0)
+	= gen_rtx_EXPR_LIST (VOIDmode, NULL_RTX, const0_rtx);
+      RTVEC_ELT (locations, 1)
+	= gen_rtx_EXPR_LIST (VOIDmode, result, const0_rtx);
+      return gen_rtx_PARALLEL (arg.mode, locations);
+    }
+
   return result;
 }
 
@@ -220,12 +237,44 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 			   const function_arg_info &arg)
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
+  unsigned int words;
+  bool in_registers;
+
+  if (arg.end_marker_p ())
+    return;
 
   if (!TARGET_GCC_ABI)
     {
       cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
 		      & -UNITS_PER_WORD);
       return;
+    }
+
+  words = (arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
+	  / UNITS_PER_WORD;
+
+  in_registers = (arg.mode != BLKmode
+		  && cum->nbytes <= 4 * UNITS_PER_WORD
+		  && !(arg.mode == DFmode
+		       && cum->nbytes >= 3 * UNITS_PER_WORD)
+		  && (arg.type != NULL_TREE
+		      || cum->nbytes + GET_MODE_SIZE (arg.mode)
+			 <= 4 * UNITS_PER_WORD));
+
+  /* Anonymous arguments always have a real stack slot.  Named arguments
+     contribute to this stream only when they did not fit in registers.
+     apply_shadow_mask marks stack words that the PARALLEL above duplicated
+     in argument registers and that an untyped call must therefore remove.  */
+  if (!arg.named || !in_registers)
+    {
+      if (!arg.named && in_registers
+	  && cum->stack_words + words <= 20)
+	{
+	  unsigned int word;
+	  for (word = 0; word < words; ++word)
+	    cum->apply_shadow_mask |= 1U << (cum->stack_words + word);
+	}
+      cum->stack_words += words;
     }
 
   /* These two mirror the early returns in c33_function_arg: an argument that
@@ -238,6 +287,131 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 
   cum->nbytes += ((GET_MODE_SIZE (arg.mode) + UNITS_PER_WORD - 1)
 		  & -UNITS_PER_WORD);
+}
+
+/* Every newly compiled call carries an __builtin_apply forwarding
+   descriptor in caller-clobbered %r5:
+
+       31       24 23    20 19                         0
+      +-----------+--------+----------------------------+
+      |    c3     | nwords |       shadow word mask     |
+      +-----------+--------+----------------------------+
+
+   The descriptor is deliberately harmless to ordinary callees.  Recording
+   it on all calls (not just variadic ones) also makes a typed call into a
+   function containing __builtin_apply_args unambiguous.  */
+
+static void
+c33_start_call_args (cumulative_args_t cum_v)
+{
+  CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
+  unsigned HOST_WIDE_INT descriptor = 0;
+  rtx reg = gen_rtx_REG (SImode, 5);
+
+  if (cum->stack_words <= 15)
+    descriptor = (HOST_WIDE_INT_UC (0xc3) << 24)
+		 | ((unsigned HOST_WIDE_INT) cum->stack_words << 20)
+		 | cum->apply_shadow_mask;
+
+  emit_move_insn (reg, gen_int_mode (descriptor, SImode));
+  emit_insn (gen_rtx_USE (VOIDmode, reg));
+}
+
+/* Remove the anonymous stack words that were also supplied in registers,
+   converting the incoming variadic layout into the layout expected by the
+   typed destination of __builtin_apply.  The loop is bounded by the count
+   in the authenticated descriptor, so it never reads beyond the caller's
+   actual argument stream.  */
+
+static void
+c33_compact_apply_stack (void)
+{
+  rtx descriptor = gen_rtx_REG (SImode, 5);
+  rtx magic = gen_reg_rtx (SImode);
+  rtx mask = gen_reg_rtx (SImode);
+  rtx count = gen_reg_rtx (SImode);
+  rtx bit = gen_reg_rtx (SImode);
+  rtx source = copy_to_mode_reg (Pmode, virtual_outgoing_args_rtx);
+  rtx dest = copy_to_mode_reg (Pmode, virtual_outgoing_args_rtx);
+  rtx word = gen_reg_rtx (SImode);
+  rtx_code_label *valid = gen_label_rtx ();
+  rtx_code_label *loop = gen_label_rtx ();
+  rtx_code_label *discard = gen_label_rtx ();
+  rtx_code_label *next = gen_label_rtx ();
+  rtx_code_label *done = gen_label_rtx ();
+
+  emit_insn (gen_andsi3 (magic, descriptor,
+			 gen_int_mode (HOST_WIDE_INT_UC (0xff000000),
+				       SImode)));
+  emit_cmp_and_jump_insns (magic,
+			  gen_int_mode (HOST_WIDE_INT_UC (0xc3000000),
+					SImode),
+			  EQ, NULL_RTX, SImode, true, valid);
+  emit_jump_insn (gen_jump (done));
+
+  emit_label (valid);
+  emit_insn (gen_andsi3 (mask, descriptor, GEN_INT (0xfffff)));
+  emit_insn (gen_lshrsi3 (count, descriptor, GEN_INT (20)));
+  emit_insn (gen_andsi3 (count, count, GEN_INT (15)));
+
+  emit_label (loop);
+  emit_cmp_and_jump_insns (count, const0_rtx, EQ, NULL_RTX, SImode,
+			  true, done);
+  emit_insn (gen_andsi3 (bit, mask, const1_rtx));
+  emit_cmp_and_jump_insns (bit, const0_rtx, NE, NULL_RTX, SImode,
+			  true, discard);
+
+  emit_move_insn (word, gen_rtx_MEM (SImode, source));
+  emit_move_insn (gen_rtx_MEM (SImode, dest), word);
+  emit_insn (gen_addsi3 (dest, dest, GEN_INT (UNITS_PER_WORD)));
+  emit_jump_insn (gen_jump (next));
+
+  emit_label (discard);
+  emit_label (next);
+  emit_insn (gen_addsi3 (source, source, GEN_INT (UNITS_PER_WORD)));
+  emit_insn (gen_lshrsi3 (mask, mask, const1_rtx));
+  emit_insn (gen_addsi3 (count, count, constm1_rtx));
+  emit_jump_insn (gen_jump (loop));
+
+  emit_label (done);
+}
+
+void
+c33_expand_untyped_call (rtx function, rtx result_vector)
+{
+  rtx saved_args[8];
+  unsigned int regno;
+  int i;
+
+  /* GCC restores the __builtin_apply argument registers before expanding
+     this pattern and records them as CALL_INSN_FUNCTION_USAGE.  Preserve
+     them across the control flow in c33_compact_apply_stack, then reload
+     them in one straight-line block immediately before the call.
+
+     Besides making the data flow explicit, this is required by GCC's SJLJ
+     exception expansion: find_first_parameter_load scans backwards from a
+     throwing call and expects to find every advertised argument-register
+     load before encountering a label.  Without these reloads it reaches the
+     compaction loop's exit label and ICEs for an untyped call that may
+     throw, as in harden-cfr-bret-except.c.  */
+  for (regno = 5; regno <= 12; ++regno)
+    saved_args[regno - 5]
+      = copy_to_mode_reg (SImode, gen_rtx_REG (SImode, regno));
+
+  c33_compact_apply_stack ();
+
+  for (regno = 5; regno <= 12; ++regno)
+    emit_move_insn (gen_rtx_REG (SImode, regno), saved_args[regno - 5]);
+
+  emit_call_insn (gen_call (function, const0_rtx));
+
+  for (i = 0; i < XVECLEN (result_vector, 0); ++i)
+    {
+      rtx set = XVECEXP (result_vector, 0, i);
+      emit_move_insn (SET_DEST (set), SET_SRC (set));
+    }
+
+  emit_insn (gen_blockage ());
 }
 
 /* Return the high and low words of a CONST_DOUBLE */
@@ -1709,7 +1883,7 @@ expand_prologue (void)
 }
 
 void
-expand_epilogue (void)
+expand_epilogue (bool sibcall_p)
 {
   long reg_saved = 0;
   unsigned int size = get_frame_size ();
@@ -1746,6 +1920,8 @@ expand_epilogue (void)
   /* ret pops the return address that call pushed (core manual 2.4.4);
      there is no link register to jump through.  An interrupt pushed PSR as
      well, so a handler has to leave through reti instead.  */
+  if (sibcall_p)
+    return;
   if (c33_interrupt_function_p (current_function_decl))
     emit_jump_insn (gen_return_interrupt ());
   else
@@ -2376,6 +2552,16 @@ c33_function_value (const_tree valtype,
   return gen_rtx_REG (TYPE_MODE (valtype), RV_REGNUM);
 }
 
+/* We can turn calls into sibling calls.  The sibling-call expanders preserve
+   an indirect destination in caller-clobbered %r14 before dismantling the
+   current frame.  */
+
+static bool
+c33_function_ok_for_sibcall (tree decl, tree)
+{
+  return !c33_interrupt_function_p (current_function_decl);
+}
+
 /* Implement TARGET_LIBCALL_VALUE.  */
 
 static rtx
@@ -2833,6 +3019,9 @@ c33_can_inline_p (tree caller, tree callee)
 #undef  TARGET_LIBCALL_VALUE
 #define TARGET_LIBCALL_VALUE c33_libcall_value
 
+#undef  TARGET_FUNCTION_OK_FOR_SIBCALL
+#define TARGET_FUNCTION_OK_FOR_SIBCALL c33_function_ok_for_sibcall
+
 #undef  TARGET_PROMOTE_PROTOTYPES
 #define TARGET_PROMOTE_PROTOTYPES hook_bool_const_tree_true
 
@@ -2853,6 +3042,9 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_FUNCTION_ARG_ADVANCE
 #define TARGET_FUNCTION_ARG_ADVANCE c33_function_arg_advance
+
+#undef  TARGET_START_CALL_ARGS
+#define TARGET_START_CALL_ARGS c33_start_call_args
 
 #undef  TARGET_CAN_ELIMINATE
 #define TARGET_CAN_ELIMINATE c33_can_eliminate

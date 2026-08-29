@@ -116,3 +116,10 @@
 (define_constraint "W"
   "@internal"
   (match_test "disp23_operand (op, VOIDmode)"))
+
+;; An indirect sibling-call target is copied here before the epilogue.  Keep
+;; the constraint singleton so optimization cannot coalesce it back into a
+;; callee-saved register that popn will overwrite.
+(define_register_constraint "Z" "SIBCALL_REGS"
+  "The caller-clobbered sibling-call target register, @code{%r14}."
+)

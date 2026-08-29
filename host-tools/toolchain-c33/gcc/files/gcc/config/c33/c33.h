@@ -297,7 +297,7 @@
 
 enum reg_class
 {
-  NO_REGS, EVEN_REGS, GENERAL_REGS, SP_REGS, BASE_REGS, ALL_REGS,
+  NO_REGS, SIBCALL_REGS, EVEN_REGS, GENERAL_REGS, SP_REGS, BASE_REGS, ALL_REGS,
   LIM_REG_CLASSES
 };
 
@@ -306,7 +306,7 @@ enum reg_class
 /* Give names of register classes as strings for dump file.  */
 
 #define REG_CLASS_NAMES							\
-{ "NO_REGS", "EVEN_REGS", "GENERAL_REGS", "SP_REGS", "BASE_REGS",	\
+{ "NO_REGS", "SIBCALL_REGS", "EVEN_REGS", "GENERAL_REGS", "SP_REGS", "BASE_REGS",	\
   "ALL_REGS", "LIM_REGS" }
 
 /* Define which registers fit in which classes.
@@ -335,6 +335,7 @@ enum reg_class
 #define REG_CLASS_CONTENTS                     \
 {                                              \
   { 0x00000000 }, /* NO_REGS       */          \
+  { 0x00004000 }, /* SIBCALL_REGS: %r14 */     \
   { 0x0030ffff }, /* EVEN_REGS   = GENERAL_REGS */ \
   { 0x0030ffff }, /* GENERAL_REGS: %r0-%r15 + .fp/.ap */ \
   { 0x00010000 }, /* SP_REGS:      %sp */      \
@@ -352,6 +353,7 @@ enum reg_class
    accept them.  Only %alr, %ahr and CC are genuinely unallocatable.  */
 #define REGNO_REG_CLASS(REGNO)						\
   ((REGNO) == STACK_POINTER_REGNUM ? SP_REGS				\
+   : (REGNO) == 14 ? SIBCALL_REGS					\
    : ((REGNO) < 16 || (REGNO) == FRAME_POINTER_REGNUM			\
       || (REGNO) == ARG_POINTER_REGNUM) ? GENERAL_REGS : NO_REGS)
 
@@ -530,14 +532,27 @@ enum reg_class
    such as FUNCTION_ARG to determine where the next arg should go.  */
 
 #define CUMULATIVE_ARGS struct cum_arg
-struct cum_arg { int nbytes; };
+struct cum_arg
+{
+  int nbytes;
+
+  /* New callers describe the actual stack argument stream in %r5.  This is
+     used only by __builtin_apply; normal variadic callees continue to see
+     every anonymous argument in its historical stack location.  */
+  unsigned int stack_words;
+  unsigned int apply_shadow_mask;
+};
 
 /* Initialize a variable CUM of type CUMULATIVE_ARGS
    for a call to a function whose data type is FNTYPE.
    For a library call, FNTYPE is 0.  */
 
 #define INIT_CUMULATIVE_ARGS(CUM, FNTYPE, LIBNAME, INDIRECT, N_NAMED_ARGS) \
-  do { (CUM).nbytes = 0; } while (0)
+  do {                                                                  \
+    (CUM).nbytes = 0;                                                   \
+    (CUM).stack_words = 0;                                              \
+    (CUM).apply_shadow_mask = 0;                                        \
+  } while (0)
 
 /* When a parameter is passed in a register, stack space is still
    allocated for it.  */
@@ -560,7 +575,7 @@ struct cum_arg { int nbytes; };
    sitting in %r9:%r10 -- see complex-7, which aborts at -O3 -funroll-loops
    (which implies -frename-registers) and passes without it.  */
 
-#define FUNCTION_ARG_REGNO_P(N) ((N) >= 6 && (N) <= 12)
+#define FUNCTION_ARG_REGNO_P(N) ((N) == 5 || ((N) >= 6 && (N) <= 12))
 
 #define DEFAULT_PCC_STRUCT_RETURN 0
 
