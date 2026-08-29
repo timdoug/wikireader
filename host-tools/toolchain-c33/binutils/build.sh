@@ -47,7 +47,7 @@ cd "${SRC}/build"
 	--target="${TARGET}" \
 	--prefix="${WORK}/install" \
 	--disable-nls --disable-werror --disable-gdb --disable-sim \
-	--disable-gprofng --disable-libctf
+	--disable-gprofng
 
 echo "==> building"
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
