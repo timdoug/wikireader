@@ -94,6 +94,25 @@ static int c33_elf_link_output_symbol_hook
 	   asection *, struct elf_link_hash_entry *);
 static bool c33_elf_section_from_shdr
   (bfd *, Elf_Internal_Shdr *, const char *, int);
+static bool c33_elf_sym_is_global
+  (bfd *, asymbol *);
+
+/* C33 represents its data-area common classes as real sections carrying
+   SEC_IS_COMMON.  A section symbol is always local in ELF, even when its
+   section has common semantics.  The generic classifier treats every symbol
+   in a common section as global; that puts the section symbol after sh_info
+   and creates an invalid symbol table.  Keep the generic common-symbol rule
+   for ordinary symbols, but exempt section symbols.  */
+static bool
+c33_elf_sym_is_global (bfd *abfd ATTRIBUTE_UNUSED, asymbol *sym)
+{
+  if ((sym->flags & BSF_SECTION_SYM) != 0)
+    return false;
+
+  return ((sym->flags & (BSF_GLOBAL | BSF_WEAK | BSF_GNU_UNIQUE)) != 0
+          || bfd_is_und_section (bfd_asymbol_section (sym))
+          || bfd_is_com_section (bfd_asymbol_section (sym)));
+}
 
 /* �V���{���̃����P�[�V������� */
 /* Note: It is REQUIRED that the 'type' value of each entry in this array
@@ -1398,7 +1417,11 @@ c33_elf_reloc (bfd * abfd ATTRIBUTE_UNUSED,
 static bool
 c33_elf_is_local_label_name (bfd * abfd ATTRIBUTE_UNUSED, const char * name)
 {
-  return ((name[0] == '_' && name[1] == '_' && name[2] == 'L'));
+  /* Keep the legacy compiler's __L convention, and accept the standard ELF
+     .L spelling used by modern GCC and GAS.  The latter is important for
+     section-symbol relocation policy and for discarding temporary symbols. */
+  return ((name[0] == '_' && name[1] == '_' && name[2] == 'L')
+          || _bfd_elf_is_local_label_name (abfd, name));
 }
 
 
@@ -1636,14 +1659,6 @@ c33_elf_relocate_section (struct bfd_link_info * info,
   symtab_hdr = & elf_tdata (input_bfd)->symtab_hdr;
   sym_hashes = elf_sym_hashes (input_bfd);
 
-  if (sym_hashes == NULL)
-    {
-      info->callbacks->warning
-	(info, "no hash table available", NULL, input_bfd, input_section, 0);
-
-      return false;
-    }
-  
   /* Reset the list of remembered HI16S relocs to empty.  */
   free_ah     = previous_ah;
   previous_ah = NULL;
@@ -1662,6 +1677,7 @@ c33_elf_relocate_section (struct bfd_link_info * info,
       struct elf_link_hash_entry * h;
       bfd_vma                      relocation;
       bfd_reloc_status_type        r;
+      bool                         unresolved_reloc = false;
 
       r_symndx = ELF32_R_SYM (rel->r_info);
       r_type   = ELF32_R_TYPE (rel->r_info);
@@ -1669,6 +1685,34 @@ c33_elf_relocate_section (struct bfd_link_info * info,
 
       if (bfd_link_relocatable (info))
 	{
+	  /* Relocations against symbols in discarded linkonce/COMDAT
+	     sections need the same cleanup as they do during a final link.
+	     In particular, debug relocations must be removed and emitted
+	     relocations must be changed to R_C33_NONE.  */
+	  h = NULL;
+	  sym = NULL;
+	  sec = NULL;
+	  if (r_symndx < symtab_hdr->sh_info)
+	    {
+	      sym = local_syms + r_symndx;
+	      sec = local_sections[r_symndx];
+	    }
+	  else if (sym_hashes != NULL)
+	    {
+	      h = sym_hashes[r_symndx - symtab_hdr->sh_info];
+	      while (h->root.type == bfd_link_hash_indirect
+		     || h->root.type == bfd_link_hash_warning)
+		h = (struct elf_link_hash_entry *) h->root.u.i.link;
+	      if (h->root.type == bfd_link_hash_defined
+		  || h->root.type == bfd_link_hash_defweak)
+		sec = h->root.u.def.section;
+	    }
+
+	  if (sec != NULL && discarded_section (sec))
+	    RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
+				       rel, 1, relend, R_C33_NONE,
+				       howto, 0, contents);
+
 	  /* This is a relocateable link.  We don't have to change
              anything, unless the reloc is against a section symbol,
              in which case we have to adjust according to where the
@@ -1694,9 +1738,10 @@ c33_elf_relocate_section (struct bfd_link_info * info,
 	{
 	  sym = local_syms + r_symndx;
 	  sec = local_sections[r_symndx];
-	  relocation = (sec->output_section->vma
-			+ sec->output_offset
-			+ sym->st_value);
+	  /* This also redirects references into SHF_MERGE sections to the
+	     surviving merged string/constant.  Computing output_offset by hand
+	     leaves a relocation pointing just past a discarded duplicate.  */
+	  relocation = _bfd_elf_rela_local_sym (output_bfd, sym, &sec, rel);
 #if 0
 	  {
 	    char * name;
@@ -1710,6 +1755,18 @@ fprintf (stderr, "local: sec: %s, sym: %s (%d), value: %x + %x + %x addend %x\n"
 	}
       else
 	{
+	  /* A file may validly contain only local symbols and relocations.
+	     Delay this check until a global relocation actually needs the
+	     hash table, as the V850 backend does.  */
+	  if (sym_hashes == NULL)
+	    {
+	      info->callbacks->warning
+		(info, "no hash table available", NULL, input_bfd,
+		 input_section, 0);
+
+	      return false;
+	    }
+
 	  h = sym_hashes[r_symndx - symtab_hdr->sh_info];
 	  
 	  while (h->root.type == bfd_link_hash_indirect
@@ -1735,18 +1792,43 @@ fprintf (stderr, "undefined: sec: %s, name: %s\n",
 	 sec->name, h->root.root.string);
 #endif
 	      relocation = 0;
+
+	      /* An undefined weak function has address zero.  Absolute
+		 relocations can encode that normally, but a C33 short
+		 PC-relative call from the linked image cannot reach address
+		 zero.  Such calls are guarded by a zero-address test and are
+		 never executed.  Leave their zero placeholder untouched rather
+		 than issuing a spurious range diagnostic for dead call code.  */
+	      if (howto->pc_relative)
+		unresolved_reloc = true;
 	    }
 	  else
 	    {
 	      (*info->callbacks->undefined_symbol)
 		(info, h->root.root.string, input_bfd,
 		 input_section, rel->r_offset, true);
+
+	      /* The callback above has already diagnosed the unresolved
+		 symbol.  Do not then relocate its placeholder value of zero:
+		 for a PC-relative short call that manufactures a huge negative
+		 displacement and emits a second, bogus "out of range" warning.
+		 Other ELF backends likewise leave an unresolved relocation
+		 untouched after reporting it.  */
+	      unresolved_reloc = true;
 #if 0
 fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 #endif
 	      relocation = 0;
 	    }
 	}
+
+      if (sec != NULL && discarded_section (sec))
+	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
+					 rel, 1, relend, R_C33_NONE,
+					 howto, 0, contents);
+
+      if (unresolved_reloc)
+	continue;
 
       /* FIXME: We should use the addend, but the COFF relocations
          don't.  */
@@ -1920,7 +2002,11 @@ c33_elf_copy_private_bfd_data (bfd * ibfd, bfd * obfd)
   elf_gp (obfd) = elf_gp (ibfd);
   elf_elfheader (obfd)->e_flags = elf_elfheader (ibfd)->e_flags;
   elf_flags_init (obfd) = true;
-  return true;
+
+  /* Preserve generic ELF metadata as well, notably EI_OSABI and object
+     attributes.  Bypassing this base hook made objcopy/strip turn GNU ELF
+     inputs into System V objects and lose GNU section semantics.  */
+  return _bfd_elf_copy_private_bfd_data (ibfd, obfd);
 }
 
 
@@ -2158,7 +2244,7 @@ static void
 c33_elf_symbol_processing (bfd * abfd, asymbol * asym)
 {
   elf_symbol_type * elfsym = (elf_symbol_type *) asym;
-  unsigned short index;
+  unsigned int index;
   
   index = elfsym->internal_elf_sym.st_shndx;
 
@@ -2279,7 +2365,7 @@ c33_elf_add_symbol_hook (bfd * abfd,
                          asection ** secp,
                          bfd_vma * valp)
 {
-  int index = sym->st_shndx;
+  unsigned int index = sym->st_shndx;
   
   /* If the section index is an "ordinary" index, then it may
      refer to a c33 specific section created by the assembler.
@@ -2575,6 +2661,7 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 #define elf_backend_link_output_symbol_hook 	c33_elf_link_output_symbol_hook
 #define elf_backend_section_from_shdr		c33_elf_section_from_shdr
 #define elf_backend_fake_sections		c33_elf_fake_sections
+#define elf_backend_sym_is_global		c33_elf_sym_is_global
 
 #define elf_backend_can_gc_sections 1
 
@@ -2587,9 +2674,10 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 #define bfd_elf32_bfd_set_private_flags		c33_elf_set_private_flags
 #define bfd_elf32_bfd_print_private_bfd_data	c33_elf_print_private_bfd_data
 
-/* change leading_char for map file  T.Tazaki 2003/12/09 >>> */
-//#define elf_symbol_leading_char			'_'
-#define elf_symbol_leading_char			'#'
-/* change T.Tazaki 2003/12/09 <<< */
+/* C33 ELF uses the symbol spelling emitted by GCC verbatim.  The legacy
+   backend used '#' here as a map-file workaround, but modern ld treats any
+   nonzero value as a real ABI prefix.  That prevented generation of normal
+   __start_/__stop_ symbols (and disagreed with USER_LABEL_PREFIX in GCC).  */
+#define elf_symbol_leading_char			0
 
 #include "elf32-target.h"
