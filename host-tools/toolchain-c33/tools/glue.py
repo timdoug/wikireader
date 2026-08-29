@@ -415,4 +415,30 @@ def readelf_none(s):
 
 edit('binutils/readelf.c', readelf_none)
 
+
+def readelf_reloc_names(s):
+    changed = False
+    if 'rtype = elf_c33_reloc_type (type);' in s:
+        s = s.replace('rtype = elf_c33_reloc_type (type);',
+                      'rtype = c33_reloc_type (type);')
+        changed = True
+    if '#include "elf/c33.h"' not in s:
+        s = s.replace('#include "elf/csky.h"\n',
+                      '#include "elf/csky.h"\n#include "elf/c33.h"\n', 1)
+        changed = True
+    if 'rtype = c33_reloc_type (type);' not in s:
+        updated = _insert_in_switch(
+            s, 'dump_relocations',
+            '    case EM_SE_C33:\n'
+            '      rtype = c33_reloc_type (type);\n'
+            '      break;\n\n')
+        if updated is None:
+            return None
+        s = updated
+        changed = True
+    return s if changed else None
+
+
+edit('binutils/readelf.c', readelf_reloc_names)
+
 print('readelf DWARF reloc knowledge done')
