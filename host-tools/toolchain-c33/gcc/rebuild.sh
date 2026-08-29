@@ -46,7 +46,12 @@ fi
 echo "==> installing C33 backend sources"
 for f in $(cd "${HERE}/files" && find . -type f); do
 	mkdir -p "${SRC}/$(dirname "${f}")"
-	cp "${HERE}/files/${f}" "${SRC}/${f}"
+	# Preserving the timestamp of an identical destination matters here:
+	# c33.h is included through tm.h by almost every GCC source file, so a
+	# blind cp turns a one-file backend edit into a full compiler rebuild.
+	if [ ! -f "${SRC}/${f}" ] || ! cmp -s "${HERE}/files/${f}" "${SRC}/${f}"; then
+		cp "${HERE}/files/${f}" "${SRC}/${f}"
+	fi
 done
 
 echo "==> registering the c33 target"
