@@ -65,10 +65,12 @@ done
 
 mkdir -p "${SRC}/build"
 cd "${SRC}/build"
-if [ ! -f Makefile ]; then
+if [ ! -f Makefile ] \
+	|| ! grep -q -- '--enable-initfini-array' gcc/configargs.h 2>/dev/null; then
 	echo "==> configuring"
 	../configure --target=c33-epson-elf --prefix="${PREFIX}" \
 		--enable-languages=c --without-headers --with-newlib \
+		--enable-initfini-array \
 		--disable-libssp --disable-libquadmath --disable-libatomic \
 		--disable-libgomp --disable-nls --disable-shared --disable-threads \
 		${CONFIG_MATH}

@@ -74,6 +74,7 @@ done
 	--prefix="${WORK}/install" \
 	--enable-languages=c \
 	--without-headers --with-newlib \
+	--enable-initfini-array \
 	--disable-libssp --disable-libquadmath --disable-libatomic \
 	--disable-libgomp --disable-nls --disable-shared --disable-threads \
 	${CONFIG_MATH}

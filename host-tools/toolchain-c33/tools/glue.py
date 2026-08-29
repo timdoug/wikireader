@@ -192,6 +192,24 @@ def ld_make(s):
 for f in ('ld/Makefile.am', 'ld/Makefile.in'):
     edit(f, ld_make)
 
+
+# elf.em's SEPARATE_CODE setting means a target must never combine code and
+# data, even for an explicit -N/OMAGIC link.  C33 only needs the normal
+# separate-code policy as its default, while still honoring -N and
+# -z noseparate-code.  Allow an emulation to select that default independently
+# of the configure-wide DEFAULT_LD_Z_SEPARATE_CODE value.
+def ld_default_separate_code(s):
+    if 'DEFAULT_SEPARATE_CODE}' in s:
+        return None
+    return s.replace(
+        '  link_info.separate_code = DEFAULT_LD_Z_SEPARATE_CODE;\n',
+        '  link_info.separate_code = `if test '
+        '"x${DEFAULT_SEPARATE_CODE}" = xyes; then echo true; '
+        'else echo DEFAULT_LD_Z_SEPARATE_CODE; fi`;\n', 1)
+
+
+edit('ld/emultempl/elf.em', ld_default_separate_code)
+
 print('changed:')
 for c in changed:
     print('  +', c)
