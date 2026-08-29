@@ -45,11 +45,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 
 /* Flags for the st_other field */
-#define V850_OTHER_SDA		0x01	/* symbol had SDA relocations */
-#define V850_OTHER_ZDA		0x02	/* symbol had ZDA relocations */
-#define V850_OTHER_TDA		0x04	/* symbol had TDA relocations */
-#define V850_OTHER_TDA_BYTE	0x08	/* symbol had TDA byte relocations */
-#define V850_OTHER_ERROR	0x80	/* symbol had an error reported */
+#define C33_OTHER_SDA		0x01	/* symbol had SDA relocations */
+#define C33_OTHER_ZDA		0x02	/* symbol had ZDA relocations */
+#define C33_OTHER_TDA		0x04	/* symbol had TDA relocations */
+#define C33_OTHER_TDA_BYTE	0x08	/* symbol had TDA byte relocations */
+#define C33_OTHER_ERROR		0x80	/* symbol had an error reported */
 
 /* C33 relocations */
 #include "elf/reloc-macros.h"
@@ -96,15 +96,15 @@ END_RELOC_NUMBERS (R_C33_max)
    values have a special meaning.  */
 
 /* Small data area common symbol.  */
-#define SHN_C33_COMM	0xff00
-#define SHN_C33_GCOMM	0xff01
-#define SHN_C33_SCOMM	0xff02
-#define SHN_C33_TCOMM	0xff03
-#define SHN_C33_ZCOMM	0xff04
-#define SHN_C33_GBSS	0xff05
-#define SHN_C33_SBSS	0xff06
-#define SHN_C33_TBSS	0xff07
-#define SHN_C33_ZBSS	0xff08
+#define SHN_C33_COMM	(SHN_LORESERVE + 0)
+#define SHN_C33_GCOMM	(SHN_LORESERVE + 1)
+#define SHN_C33_SCOMM	(SHN_LORESERVE + 2)
+#define SHN_C33_TCOMM	(SHN_LORESERVE + 3)
+#define SHN_C33_ZCOMM	(SHN_LORESERVE + 4)
+#define SHN_C33_GBSS	(SHN_LORESERVE + 5)
+#define SHN_C33_SBSS	(SHN_LORESERVE + 6)
+#define SHN_C33_TBSS	(SHN_LORESERVE + 7)
+#define SHN_C33_ZBSS	(SHN_LORESERVE + 8)
 
 
 /* Processor specific section types.  */
@@ -123,5 +123,3 @@ END_RELOC_NUMBERS (R_C33_max)
 
 
 #endif /* _ELF_C33_H */
-
-

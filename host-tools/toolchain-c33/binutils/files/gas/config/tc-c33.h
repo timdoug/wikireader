@@ -72,6 +72,9 @@ extern void cons_fix_new_c33 (fragS *, int, int, expressionS *,
 extern const struct relax_type md_relax_table[];
 #define TC_GENERIC_RELAX_TABLE md_relax_table
 
+/* Every C33 instruction is at least one 16-bit word.  */
+#define DWARF2_LINE_MIN_INSN_LENGTH 2
+
 /* This section must be in the small data area (pointed to by GP).  */
 #define SHF_C33_GPREL		0x10000000
 
@@ -88,4 +91,3 @@ extern const struct relax_type md_relax_table[];
 extern long c33_pcrel_from_section ();
 
 #define LEX_PCT  LEX_BEGIN_NAME	/* %��L���ɂ��� */
-

@@ -49,10 +49,6 @@
 #define ZGP_REG     14      /* GP register */
 #define GP_REG      15      /* GP register */
 
-/* Temporarily holds the reloc in a cons expression.  */
-static bfd_reloc_code_real_type hold_cons_reloc;
-
-
 
 /* Structure to hold information about predefined registers.  */
 struct reg_name
@@ -67,7 +63,7 @@ struct reg_name
 const char comment_chars[] = ";";
 
 /* Characters which start a comment at the beginning of a line.  */
-const char line_comment_chars[] = "";
+const char line_comment_chars[] = "#";
 
 /* Characters which may be used to separate multiple commands on a 
    single line.  */
@@ -172,12 +168,24 @@ c33_comm (int area)
     symbolP = symbol_find_or_make (name);
     *p = c;
   
-/*  if (S_IS_DEFINED (symbolP) && ! S_IS_COMMON (symbolP))  */
-    if (S_IS_DEFINED (symbolP) )
+    if ((S_IS_DEFINED (symbolP) || symbol_equated_p (symbolP))
+        && ! S_IS_COMMON (symbolP))
     {
-        as_bad (_("Ignoring attempt to re-define symbol"));
-        ignore_rest_of_line ();
-        return;
+        /* A symbol assigned with .set is deliberately volatile and may be
+           assigned a final common definition.  Preserve its earlier value
+           for fixups which already reference it, as modern s_comm_internal
+           does, then continue with the new symbol.  */
+        if (! S_IS_VOLATILE (symbolP))
+        {
+            as_bad (_("Ignoring attempt to re-define symbol"));
+            ignore_rest_of_line ();
+            return;
+        }
+        symbolP = symbol_clone (symbolP, 1);
+        S_SET_SEGMENT (symbolP, undefined_section);
+        S_SET_VALUE (symbolP, 0);
+        symbol_set_frag (symbolP, &zero_address_frag);
+        S_CLEAR_VOLATILE (symbolP);
     }
   
     if (S_GET_VALUE (symbolP) != 0)
@@ -782,7 +790,10 @@ c33_comm (int area)
 /* The target specific pseudo-ops which we support.  */
 const pseudo_typeS md_pseudo_table[] =
 {
-  {"comm",    c33_comm,    AREA_CDA},
+  /* Leave standard ELF .comm to obj-elf.c.  The C33-specific common-data
+     areas remain available through .gcomm/.scomm/.tcomm/.zcomm.  Treating
+     ordinary .comm as a target section lost SHN_COMMON semantics and broke
+     symbol types, section links, and generic linker/objcopy behavior.  */
   {"gcomm",   c33_comm,    AREA_GDA},
   {"scomm",   c33_comm,    AREA_SDA},
   {"tcomm",   c33_comm,    AREA_TDA},
@@ -4568,6 +4579,12 @@ md_assemble (char * str)
 
     input_line_pointer = str;
 
+    /* Associate source locations with the start of each instruction.  The
+       legacy backend predated GAS-generated DWARF line tables and omitted
+       this hook entirely.  It must precede frag_more/frag_var because those
+       operations can close the current fragment.  */
+    dwarf2_emit_insn (0);
+
     /* Write out the instruction. */
 
     if (relaxable && fc > 0)
@@ -4747,6 +4764,13 @@ arelent *
 tc_gen_reloc (asection * seg, fixS * fixp)
 {
   arelent * reloc;
+
+  /* Gas uses BFD_RELOC_NONE for bookkeeping fixups created by DWARF
+     location views.  It is a request to emit no object relocation, not an
+     unknown C33 relocation.  Modern backends return NULL for it; diagnosing
+     it here made otherwise valid `.loc ... view' input fail at writeout.  */
+  if (fixp->fx_r_type == BFD_RELOC_NONE)
+    return NULL;
   
   reloc              = (arelent *) xmalloc (sizeof (arelent));
   reloc->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
@@ -4893,6 +4917,14 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
 
             switch (fixp->fx_r_type)
             {
+            case BFD_RELOC_16:
+                /* Generic two-byte data directives carry an ordinary
+                   integer, not a C33 instruction field.  The legacy port
+                   handled byte and word-sized data but accidentally left
+                   resolved 16-bit forward expressions as zero.  */
+                insn = value;
+                break;
+
             case BFD_RELOC_C33_AH:  /* @ah (25:13) */   /* NO USE : Absolute symbol */
                 
                 insn += ((value >> 13) & 0x1fff);
@@ -5103,8 +5135,10 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
 bfd_reloc_code_real_type
 parse_cons_expression_c33 (expressionS * exp)
 {
+  bfd_reloc_code_real_type reloc;
+
   /* See if there's a reloc prefix like hi() we have to handle.  */
-  hold_cons_reloc = c33_reloc_prefix ();
+  reloc = c33_reloc_prefix ();
 
   /* Do normal expression parsing.  */
   expression (exp);
@@ -5113,11 +5147,11 @@ parse_cons_expression_c33 (expressionS * exp)
      i.e. BFD_RELOC_NONE) from a real reloc.  Returning BFD_RELOC_UNUSED here
      would send plain constants down emit_expr_with_reloc's relocation path,
      which returns early and never writes the value -- ".short 16" emitted
-     zeroes.  hold_cons_reloc is still set for cons_fix_new_c33.  */
-  if (hold_cons_reloc == BFD_RELOC_UNUSED)
+     zeroes.  */
+  if (reloc == BFD_RELOC_UNUSED)
     return TC_PARSE_CONS_RETURN_NONE;
 
-  return hold_cons_reloc;
+  return reloc;
 }
 
 /* Create a fixup for a cons expression.  If parse_cons_expression_c33
@@ -5125,22 +5159,27 @@ parse_cons_expression_c33 (expressionS * exp)
    appropriate one based on the size of the expression.  */
 void
 cons_fix_new_c33 (fragS * frag, int where, int size, expressionS *exp,
-		  bfd_reloc_code_real_type r ATTRIBUTE_UNUSED)
+		  bfd_reloc_code_real_type reloc)
 {
-  if (hold_cons_reloc == BFD_RELOC_UNUSED)
+  /* Honor the relocation passed by the caller.  In addition to values
+     returned by parse_cons_expression_c33, gas itself calls this hook while
+     building DWARF sections.  The old global hold_cons_reloc made those
+     internal calls inherit stale parser state and create relocation type 0
+     fixups.  */
+  if (reloc == TC_PARSE_CONS_RETURN_NONE)
     {
       if (size == 4)
-    hold_cons_reloc = BFD_RELOC_32;
+        reloc = BFD_RELOC_32;
       if (size == 2)
-    hold_cons_reloc = BFD_RELOC_16;
+        reloc = BFD_RELOC_16;
       if (size == 1)
-    hold_cons_reloc = BFD_RELOC_8;
+        reloc = BFD_RELOC_8;
     }
 
   if (exp != NULL)
-    fix_new_exp (frag, where, size, exp, 0, hold_cons_reloc);
+    fix_new_exp (frag, where, size, exp, 0, reloc);
   else
-    fix_new (frag, where, size, NULL, 0, 0, hold_cons_reloc);
+    fix_new (frag, where, size, NULL, 0, 0, reloc);
 }
 
 bool
