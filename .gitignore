@@ -19,6 +19,7 @@ KERNEL*
 *.elf
 stamp-*
 /image*
+/screen.pgm
 work*
 *.xml
 log

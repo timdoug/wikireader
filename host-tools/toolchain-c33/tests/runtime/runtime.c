@@ -1,5 +1,5 @@
 /*
- * Runtime support for the gcc.c-torture harness.
+ * Runtime support for the C33 DejaGnu board.
  *
  * Everything here exists because a torture test referenced a symbol that
  * mini-libc does not define, so the test could not be linked and got
@@ -178,7 +178,11 @@ malloc (size_t size)
   return Memory_allocate (size, "malloc");
 }
 
-void
+/* This is test-board fallback support, not part of the program under test.
+ * Let a testcase provide its own free implementation (pr59330 does so to
+ * exercise IPA behavior) without creating a multiple-definition link error.
+ */
+void __attribute__ ((weak))
 free (void *p)
 {
   /*

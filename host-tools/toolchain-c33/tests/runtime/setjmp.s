@@ -1,4 +1,4 @@
-/* setjmp/longjmp for the torture harness.
+/* setjmp/longjmp for the C33 DejaGnu board.
  *
  * Nothing in the firmware has an equivalent, so unlike the allocator this
  * is written for the occasion.  It only has to preserve what the C33 ABI

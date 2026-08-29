@@ -1,5 +1,5 @@
 /*
- * <stdio.h> for the torture harness only.
+ * <stdio.h> for the C33 DejaGnu board only.
  *
  * mini-libc has a printf family but no streams: no stdout, no stderr, no
  * fprintf.  Its own <stdio.h> does declare a FILE type, so this header

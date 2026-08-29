@@ -1,0 +1,40 @@
+# Site configuration for the C33 GCC testsuite.
+#
+# Start with GCC's generated build-site settings.  Full check-gcc sub-suites
+# need host compiler, plugin, multilib, and build-tree paths which focused
+# torture runs do not exercise.
+if {[info exists env(C33_BUILD_SITE)] && [file isfile $env(C33_BUILD_SITE)]} {
+    source $env(C33_BUILD_SITE)
+} else {
+    set host_triplet aarch64-apple-darwin
+    set build_triplet aarch64-apple-darwin
+    set target_triplet c33-epson-elf
+    set target_alias c33-epson-elf
+}
+
+# The generated file assumes `make check-gcc` has already created its build
+# testsuite directory.  The wrapper uses its own ignored result directory.
+if {[info exists env(C33_OBJDIR)] && $env(C33_OBJDIR) ne ""} {
+    set tmpdir $env(C33_OBJDIR)
+}
+
+# The generated site describes make check inside GCC's build directory, but
+# this wrapper tests the installed compiler from an isolated result objdir.
+# Let plugin.exp use the installed plugin headers instead of deriving a bogus
+# build path from that result directory.
+unset -nocomplain TESTING_IN_BUILD_TREE
+# Likewise, the generated TEST_GCC_EXEC_PREFIX is for xgcc in the build tree.
+# Exporting it while invoking the installed gcc-ar hides the installed
+# libexec directory and leaves the LTO plugin as an unresolved basename.
+unset -nocomplain TEST_GCC_EXEC_PREFIX
+
+if {[info exists env(C33_GCOV)]} {
+    set GCOV_UNDER_TEST $env(C33_GCOV)
+}
+
+set boards_dir [list [file normalize [file dirname [info script]]]]
+
+if {[info exists env(C33_GCC)]} {
+    set GCC_UNDER_TEST $env(C33_GCC)
+    set TOOL_EXECUTABLE $env(C33_GCC)
+}

@@ -1,0 +1,311 @@
+# DejaGnu board for the WikiReader C33 emulator.
+
+global env
+
+foreach var {C33_GCC C33_EMU C33_LIBC C33_LIBGCC C33_RUNTIME_DIR C33_RT C33_LIBC_INC} {
+    if {![info exists env($var)] || $env($var) eq ""} {
+	perror "c33-sim: run-dejagnu.sh did not set $var"
+	return
+    }
+}
+
+# Load the standard simulator protocol, then override this board's load and
+# compile operations below.  The board-specific procedures take precedence
+# over sim_load/default_target_compile in DejaGnu's dispatch.
+load_generic_config "sim"
+source [file join [file dirname [info script]] macos-local-exec.exp]
+
+set_board_info compiler $env(C33_GCC)
+# This is an installed, libsanitizer-disabled compiler rather than an in-tree
+# build with target runtime libraries.  Cache the empty build-tree multilib
+# root so sanitizer drivers do not call Tcl `exec --print-multi-lib`; `exec'
+# is unusable in the macOS Expect build (POSIX EPERM), while the normal
+# DejaGnu compiler path deliberately uses `spawn' and works correctly.
+set_board_info multitop ""
+set_board_info cflags \
+    "-mc33pe -mno-long-calls -I$env(C33_RT)/include -I$env(C33_LIBC_INC)"
+set_board_info obj_format elf
+set_board_info ldscript ""
+set_board_info mathlib ""
+set_board_info noargs 1
+set_board_info gdb,nosignals 1
+set_board_info gcc,signal_suppress 1
+set_board_info is_simulator 1
+
+# This target has the freestanding mini-libc used by the firmware, not a
+# hosted C library.  GCC's hostedlib selectors use this effective target to
+# skip tests that require the full standard library.
+proc check_effective_target_freestanding {} {
+    return 1
+}
+
+# builtins-config.h assumes that an otherwise unknown target has a complete
+# C99 library.  The C33 firmware runtime deliberately has no libm, so that
+# generic probe gives the wrong answer and enables compile-time optimization
+# tests for float and long-double entry points that the target does not
+# provide.  Report the actual target-library capability here.
+proc check_effective_target_c99_runtime {} {
+    return 0
+}
+
+proc c33_runtime_ldflags {} {
+    global env
+    set dir $env(C33_RUNTIME_DIR)
+    # libgcc helpers such as emutls introduce libc references.  Repeat the
+    # static libc archive after libgcc, as GCC's normal link specs do, so the
+    # linker can satisfy references that did not exist on its first scan.
+    return [join [list \
+	-nostdlib -nostartfiles -Wl,--no-warn-rwx-segments \
+	"-T" "$env(C33_RT)/test.lds" \
+	"$dir/crt0.o" "$dir/setjmp.o" "$dir/runtime.o" "$dir/memory.o" \
+	"$env(C33_LIBC)" "$env(C33_LIBGCC)" "$env(C33_LIBC)"] " "]
+}
+
+set_board_info ldflags [c33_runtime_ldflags]
+
+# gcc.c-torture's execute.exp and compile.exp deliberately pass -w for old
+# sources that GCC 16 otherwise diagnoses under modern C rules.  Do not let
+# that driver-supplied blanket flag defeat a torture source which explicitly
+# asserts diagnostics.  Other drivers own their options: in particular, a
+# gcc.dg test's explicit dg-options "-w" must remain intact.
+proc c33_torture_diagnostic_test_p {sources} {
+    foreach source $sources {
+	if {![file isfile $source]
+	    || [string first "/gcc.c-torture/" $source] < 0} {
+	    continue
+	}
+	set fd [open $source r]
+	set text [read $fd]
+	close $fd
+	if {[regexp {dg-(warning|bogus|message|note)} $text]} {
+	    return 1
+	}
+    }
+    return 0
+}
+
+proc c33_enable_diagnostics {options} {
+    set adjusted {}
+    foreach option $options {
+	regsub -all {(^|[[:space:]])-w([[:space:]]|$)} $option {\1\2} option
+	lappend adjusted $option
+    }
+    return $adjusted
+}
+
+# Some old execute tests predate effective-target requirements and assume a
+# hosted libm, while two exercise floating-point printf that mini-libc omits
+# deliberately.  Report those runtime gaps as unsupported before linking;
+# they are not compiler failures.
+proc c33_runtime_gap {sources} {
+    foreach source $sources {
+	# Link-only and LTO tests pass object files and archives here.  Only
+	# source-language files can contain the include directive below; opening
+	# a multi-gigabyte archive as Tcl text overflows the 32-bit string length
+	# in the macOS Tcl 8.5 used by DejaGnu.
+	set extension [file extension $source]
+	if {[lsearch -exact {.c .i .cc .C .cpp .cxx .ii .m .mm} $extension] < 0
+	    || ![file isfile $source]} {
+	    continue
+	}
+	set tail [file tail $source]
+	if {$tail eq "920501-8.c" || $tail eq "930513-1.c"} {
+	    return "mini-libc deliberately omits floating-point printf"
+	}
+	if {$tail eq "920810-1.c"} {
+	    return "mini-libc deliberately omits %g floating-point printf"
+	}
+	set fd [open $source r]
+	set text [read $fd]
+	close $fd
+	if {[regexp {#[[:space:]]*include[[:space:]]*<math\.h>} $text]} {
+	    return "C33 test runtime has no math.h or libm"
+	}
+    }
+    return ""
+}
+
+proc c33_known_missing_runtime {output} {
+    if {[regexp {cannot find -lm([[:space:]:]|$)} $output]} {
+	return "C33 test runtime has no libm"
+    }
+    set known {
+	fopen freopen fclose fflush fscanf scanf fgets fgetc getchar fread
+	fseek ftell rewind remove rename tmpnam tmpfile perror feof ferror
+	clearerr setvbuf setbuf realloc system getenv time clock mktime
+	localtime signal raise kill mmap munmap mprotect sin cos tan asin acos
+	atan atan2 sinh cosh tanh exp exp2 log log2 log10 pow sqrt cbrt hypot
+	floor ceil round trunc fmod ldexp frexp modf copysign nan nearbyint rint
+	fmax fmaxl ilogb ilogbl
+    }
+    # C99 supplies float and long-double variants of these libm entry points,
+    # plus integer-conversion families with l/ll result prefixes.  Keep the
+    # stem list here rather than enumerating every spelling in `known'.
+    set math_stems {
+	sin cos tan asin acos atan atan2 sinh cosh tanh exp exp2 log log2
+	log10 pow sqrt cbrt hypot floor ceil round trunc fmod ldexp frexp modf
+	copysign nan nearbyint rint fmax ilogb lceil llceil lfloor llfloor
+	lround llround lrint llrint
+    }
+    set found {}
+    set guards {}
+    set matches [regexp -all -inline {undefined reference to [`']([^']+)'} $output]
+    foreach {whole symbol} $matches {
+	set symbol [string trimleft $symbol _]
+	set is_math 0
+	foreach stem $math_stems {
+	    if {$symbol eq $stem || $symbol eq "${stem}f" || $symbol eq "${stem}l"} {
+		set is_math 1
+		break
+	    }
+	}
+	if {[lsearch -exact $known $symbol] >= 0 || $is_math
+	    || [string match "gcov_*" $symbol]} {
+	    lappend found $symbol
+	} elseif {[string match "link_error_*" $symbol]} {
+	    # GCC builtin-folding tests use unresolved guard calls to prove that
+	    # an optimization occurred.  If the same link also lacks real runtime
+	    # entry points, the guard cannot be evaluated independently; retain it
+	    # only as contingent evidence and classify from `found' below.
+	    lappend guards $symbol
+	} else {
+	    return ""
+	}
+    }
+    if {[llength $found] == 0} {
+	return ""
+    }
+    return "C33 test runtime omits: [join [lsort -unique $found] {, }]"
+}
+
+# wremu writes loader and machine-state diagnostics around the target's UART
+# stream.  DejaGnu's load protocol expects only target-program output on a
+# successful run (dg-output and dg-output-file compare this string).  Keep the
+# full transcript for failure diagnostics, but isolate the bytes between the
+# loader's entry-point line and the sentinel-break report for passing runs.
+proc c33_program_output {output} {
+    if {![regexp -line -indices {^entry point:.*$} $output entry]} {
+	return $output
+    }
+    set start [expr {[lindex $entry 1] + 1}]
+    while {$start < [string length $output]
+	   && [string first [string index $output $start] "\r\n"] >= 0} {
+	incr start
+    }
+    set stop [string first "\r\nBREAK at " $output $start]
+    if {$stop < 0} {
+	set stop [string first "\nBREAK at " $output $start]
+    }
+    if {$stop < 0} {
+	return $output
+    }
+    return [string range $output $start [expr {$stop - 1}]]
+}
+
+proc c33-sim_compile {source destfile type options} {
+    global board_info env
+    set board [target_info name]
+    set saved_cflags $board_info($board,cflags)
+    set extra_cflags ""
+
+    foreach file $source {
+	if {[string first "/gcc.c-torture/" $file] >= 0} {
+	    append extra_cflags " -fpermissive"
+	    break
+	}
+    }
+
+    # Missing headers are a prerequisite failure for compile-only tests too,
+    # not just for executable links (matrix-3.c and matrix-4.c both include
+    # <math.h> under dg-do compile).  c33_runtime_gap only matches explicit
+    # source-level dependencies, so apply it uniformly before compilation.
+    set gap [c33_runtime_gap $source]
+    if {$gap ne ""} {
+	return "::unsupported::$gap"
+    }
+
+    set board_info($board,cflags) "$saved_cflags$extra_cflags"
+
+    if {[c33_torture_diagnostic_test_p $source]} {
+	set options [c33_enable_diagnostics $options]
+    }
+
+    set code [catch {
+	default_target_compile $source $destfile $type $options
+    } result opts]
+    set board_info($board,cflags) $saved_cflags
+    if {$code} {
+	return -options $opts $result
+    }
+    if {$type eq "executable"} {
+	set gap [c33_known_missing_runtime $result]
+	if {$gap ne ""} {
+	    return "::unsupported::$gap"
+	}
+    }
+    return $result
+}
+
+# A C33 torture test exits by reaching crt0.s's sentinel breakpoint.  abort()
+# reaches the same PC with r4 == 0xdead, so it cannot be mistaken for success.
+proc c33-sim_load {dest prog args} {
+    global env timeout
+
+    if {![file exists $prog]} {
+	return [list unresolved "c33-sim: executable does not exist: $prog"]
+    }
+
+    if {[info exists env(C33_LIMIT)] && $env(C33_LIMIT) ne ""} {
+	set base_limit $env(C33_LIMIT)
+    } else {
+        set base_limit 3200000000
+    }
+    if {[info exists env(C33_HOST_TIMEOUT)] && $env(C33_HOST_TIMEOUT) ne ""} {
+	set base_host_timeout $env(C33_HOST_TIMEOUT)
+    } else {
+	set base_host_timeout 300
+    }
+
+    # GCC's timeout.exp folds dg-timeout and dg-timeout-factor into
+    # timeout_value.  The raw Expect `timeout' variable is not adjusted for
+    # target_load, so consulting it alone silently discards per-test factors
+    # (inline-mem-cpy-cmp-1 then stops at the 3.2-billion base budget despite
+    # requesting a factor of two).  Scale both watchdogs from GCC's official
+    # value, retaining the raw variable only as a compatibility fallback.
+    if {[llength [info commands timeout_value]] != 0} {
+	set test_timeout [timeout_value]
+    } elseif {[info exists timeout]} {
+	set test_timeout $timeout
+    } else {
+	set test_timeout $base_host_timeout
+    }
+    set host_timeout $base_host_timeout
+    if {$test_timeout > $host_timeout} {
+	set host_timeout $test_timeout
+    }
+    set limit [expr {wide($base_limit) * $host_timeout / $base_host_timeout}]
+
+    set command [list $env(C33_EMU) -n $limit -b 0x10000002 $prog]
+    set state [local_exec $command "" "" $host_timeout]
+    set output [lindex $state 1]
+
+    if {![regexp -line {^pc=([[:xdigit:]]+)} $output unused pc]} {
+	return [list unresolved $output]
+    }
+    if {![regexp -line {^r4[[:space:]]+([[:xdigit:]]+)} $output unused r4]} {
+	return [list unresolved $output]
+    }
+
+    set pc [string tolower $pc]
+    set r4 [string tolower $r4]
+    if {$pc eq "10000002" && $r4 eq "00000000"} {
+	return [list pass [c33_program_output $output]]
+    }
+    if {$pc eq "10000002" && $r4 eq "0000dead"} {
+	return [list fail $output]
+    }
+    if {[regexp -line {^fault:} $output]} {
+	return [list fail $output]
+    }
+    return [list fail $output]
+}

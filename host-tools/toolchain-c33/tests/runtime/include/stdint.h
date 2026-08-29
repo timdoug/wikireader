@@ -1,5 +1,5 @@
 /*
- * <stdint.h> for the torture harness only.
+ * <stdint.h> for the C33 DejaGnu board only.
  *
  * mini-libc has no stdint.h, and gcc's installed one is just a wrapper that
  * reaches for the system header unless __STDC_HOSTED__ is 0.  Setting that

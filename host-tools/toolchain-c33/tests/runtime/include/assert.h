@@ -1,5 +1,5 @@
 /*
- * <assert.h> for the torture harness only.
+ * <assert.h> for the C33 DejaGnu board only.
  *
  * mini-libc has no assert(), and the firmware does not want one -- it has
  * fatal_error() instead.  But a couple of dozen gcc.c-torture tests include

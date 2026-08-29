@@ -1,0 +1,12 @@
+# Local board for the C33 binutils tests.  Binutils exercises host-built tools
+# and inspects C33 objects; unlike the GCC board, it does not run target code.
+
+load_generic_config "unix"
+source [file join [file dirname [info script]] macos-local-exec.exp]
+
+# gas/config/default.exp creates this with Tcl `exec mkdir', which is the
+# broken host operation this board exists to avoid.
+file mkdir tmpdir
+
+# ld/config/default.exp otherwise discovers this with a direct Tcl exec.
+set HOSTING_EMU "-m c33"

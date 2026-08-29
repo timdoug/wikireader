@@ -1,0 +1,192 @@
+# Homebrew's Expect 5.45.4 build on macOS 26 cannot use Tcl's exec/open-pipe
+# machinery: even `exec true' fails with POSIX EPERM while attempting to
+# create Tcl's private stderr file.  DejaGnu's stock local_exec uses that
+# machinery whenever a command has redirected input or output, which makes
+# GCC probes and the binutils suites lose their output files.  Run the shell
+# under Expect instead and let the shell perform redirection.  This retains
+# the normal timeout and exit-status semantics without changing any test.
+
+if {[info commands dejagnu_local_exec] eq ""} {
+    rename local_exec dejagnu_local_exec
+}
+
+if {[info commands dejagnu_remote_download] eq ""} {
+    rename remote_download dejagnu_remote_download
+}
+if {[info commands dejagnu_remote_upload] eq ""} {
+    rename remote_upload dejagnu_remote_upload
+}
+
+proc c33_local_copy {source destination operation} {
+    if {$destination eq "" || $source eq $destination} {
+	return $source
+    }
+    if {[catch {file copy -force -- $source $destination} output]} {
+	perror "$operation of $source to $destination: $output"
+	return ""
+    }
+    return $destination
+}
+
+proc remote_download {dest source args} {
+    if {$dest eq "host" || $dest eq "build"} {
+	set destination [expr {[llength $args] ? [lindex $args 0] :
+				       [file tail $source]}]
+	return [c33_local_copy $source $destination "local download"]
+    }
+    return [dejagnu_remote_download $dest $source {*}$args]
+}
+
+proc remote_upload {dest source args} {
+    if {$dest eq "host" || $dest eq "build"} {
+	set destination [expr {[llength $args] ? [lindex $args 0] :
+				       [file tail $source]}]
+	return [c33_local_copy $source $destination "local upload"]
+    }
+    return [dejagnu_remote_upload $dest $source {*}$args]
+}
+
+proc c33_shell_quote {text} {
+    return "'[string map [list ' '\\''] $text]'"
+}
+
+proc c33_shell_command {commandline} {
+    set rendered ""
+    foreach word $commandline {
+	# remote_exec represents commands as Tcl lists (not shell strings),
+	# notably `sh -c {command with redirections}'.  Re-quote every argv
+	# element for the outer shell while preserving redirection operators in
+	# the few callers that pass them without an explicit `sh -c'.
+	if {[regexp {^([0-9]*[<>]|[0-9]*>&|[|;&])} $word]} {
+	    append rendered " $word"
+	} else {
+	    append rendered " [c33_shell_quote $word]"
+	}
+    }
+    return [string trimleft $rendered]
+}
+
+proc local_exec {commandline inp outp command_timeout} {
+    set shell_command [c33_shell_command $commandline]
+    if {$inp ne ""} {
+	append shell_command " < [c33_shell_quote $inp]"
+    }
+    if {$outp ne ""} {
+	append shell_command " > [c33_shell_quote $outp] 2>&1"
+    }
+
+    set launch [catch {
+	spawn -noecho -ignore SIGHUP /bin/sh -c $shell_command
+    } message]
+    if {$launch} {
+	return [list -1 "spawn failed: $message"]
+    }
+
+    set child $spawn_id
+    set output ""
+    set timed_out 0
+    expect {
+	-i $child -timeout $command_timeout -re ".+" {
+	    append output $expect_out(buffer)
+	    exp_continue -continue_timer
+	}
+	timeout {
+	    set timed_out 1
+	    warning "program timed out"
+	}
+	eof {}
+    }
+
+    if {$timed_out} {
+	catch {close -i $child}
+	catch {wait -i $child}
+	return [list 1 $output]
+    }
+
+    set wait_result [wait -i $child]
+    if {[lindex $wait_result 2] == 0} {
+	set status [lindex $wait_result 3]
+    } else {
+	set status 1
+    }
+    if {$outp ne ""} {
+	set output ""
+    }
+    return [list $status $output]
+}
+
+# A few upstream drivers invoke Tcl `exec' directly for pipelines instead of
+# going through remote_exec/local_exec.  Route those through the same spawn
+# implementation.  Support the two Tcl exec switches used by DejaGnu and
+# preserve CHILDSTATUS so callers which intentionally test a failing command
+# continue to behave normally.
+if {[info commands dejagnu_tcl_exec] eq ""} {
+    rename exec dejagnu_tcl_exec
+}
+
+proc exec {args} {
+    set command $args
+    while {[llength $command] > 0} {
+	set option [lindex $command 0]
+	if {$option eq "-ignorestderr"} {
+	    set command [lrange $command 1 end]
+	    continue
+	}
+	if {$option eq "--"} {
+	    set command [lrange $command 1 end]
+	}
+	break
+    }
+    if {[llength $command] == 0} {
+	return -code error "wrong # args: should be \"exec ?switches? arg ?arg ...?\""
+    }
+
+    set result [local_exec $command "" "" 300]
+    set status [lindex $result 0]
+    set output [string map [list "\r\n" "\n"] [lindex $result 1]]
+    set output [string trimright $output "\n"]
+    if {$status != 0} {
+	return -code error -errorcode [list CHILDSTATUS 0 $status] $output
+    }
+    return $output
+}
+
+# GCC's scan-symbol and demangled-dump helpers bypass exec/local_exec and use
+# Tcl's `open "| command" r` pipeline form directly.  That reaches the same
+# broken macOS pipe implementation and fails before the tool is launched.
+# Execute read-only pipelines through the spawn-based helper above, then hand
+# their captured output back as an ordinary anonymous temporary channel.
+if {[info commands dejagnu_tcl_open] eq ""} {
+    rename open dejagnu_tcl_open
+}
+set c33_pipeline_serial 0
+
+proc open {filename args} {
+    if {[string length $filename] > 0
+	&& [string index $filename 0] eq "|"} {
+	set mode [expr {[llength $args] ? [lindex $args 0] : "r"}]
+	if {$mode ne "r"} {
+	    return [dejagnu_tcl_open $filename {*}$args]
+	}
+
+	set command [string trim [string range $filename 1 end]]
+	set result [local_exec [list /bin/sh -c $command] "" "" 300]
+	set status [lindex $result 0]
+	set output [lindex $result 1]
+	if {$status != 0} {
+	    return -code error -errorcode [list CHILDSTATUS 0 $status] $output
+	}
+
+	global c33_pipeline_serial
+	incr c33_pipeline_serial
+	set path [file join [pwd] ".c33-pipeline-[pid]-$c33_pipeline_serial"]
+	set channel [dejagnu_tcl_open $path w+]
+	file delete -force -- $path
+	fconfigure $channel -translation binary
+	puts -nonewline $channel $output
+	seek $channel 0
+	return $channel
+    }
+
+    return [dejagnu_tcl_open $filename {*}$args]
+}
