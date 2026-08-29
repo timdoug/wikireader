@@ -153,6 +153,12 @@
 /* The stack goes in 32-bit lumps.  */
 #define STACK_BOUNDARY 		BIGGEST_ALIGNMENT
 
+/* Keep the caller's outgoing-argument base 16-byte aligned.  A call pushes
+   one return-address word, so the backend rounds normal frames such that the
+   post-prologue stack pointer (and hence outgoing argument area) regains this
+   alignment.  This is needed for explicitly over-aligned stack arguments.  */
+#define PREFERRED_STACK_BOUNDARY 128
+
 /* Allocation boundary (in *bits*) for the code of a function.
    16 is the minimum boundary; 32 would give better performance.  */
 /* Instructions are 2-byte aligned (core manual 5.1).  */
@@ -812,6 +818,7 @@ typedef enum
    there by call (core manual 2.4.4).  There is no register holding it, so
    the DWARF return column is a fake one past the real registers.  */
 
+#define INCOMING_FRAME_SP_OFFSET  UNITS_PER_WORD
 #define INCOMING_RETURN_ADDR_RTX   gen_rtx_MEM (Pmode, stack_pointer_rtx)
 #define DWARF_FRAME_RETURN_COLUMN  FIRST_PSEUDO_REGISTER
 

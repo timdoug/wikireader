@@ -1959,9 +1959,20 @@ expand_epilogue (bool sibcall_p)
 int
 compute_frame_size (poly_int64 size, long * p_reg_saved)
 {
-  return (size
-	  + compute_register_save_size (p_reg_saved)
-	  + crtl->outgoing_args_size);
+  poly_int64 frame_size = (size
+			   + compute_register_save_size (p_reg_saved)
+			   + crtl->outgoing_args_size);
+
+  /* A normal call pushes a four-byte return address.  If the caller's stack
+     pointer is 16-byte aligned before the call, the callee enters at 12 mod
+     16.  Round the complete normal frame to 12 mod 16 so that its outgoing
+     argument base is aligned again.  Interrupt entry has a different stack
+     layout and does not participate in this calling convention.  */
+  if (!crtl->is_leaf && !c33_interrupt_function_p (current_function_decl))
+    frame_size = ((frame_size + UNITS_PER_WORD + 15) & -16)
+		 - UNITS_PER_WORD;
+
+  return frame_size;
 }
 
 static int
