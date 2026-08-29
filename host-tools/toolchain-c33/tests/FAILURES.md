@@ -1,9 +1,9 @@
 # gcc.c-torture: what fails
 
-Regenerate with `tests/run-torture.sh execute` and `... compile`. Both run
-all seven of upstream's option sets: `-O0`, `-O1`, `-O2`,
-`-O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions`,
-`-O3 -g`, `-Os`, `-Og -g`.
+This file preserves the bootstrap shell runner's historical results and the
+bugs found while qualifying the C33 DejaGnu board. The shell runner has been
+retired. Current results come from `dejagnu/run-dejagnu.sh` and DejaGnu's
+standard `gcc.sum` and `gcc.log` files.
 
 ## execute - nothing fails, at any level
 
@@ -184,11 +184,10 @@ identical to the build before the change.
 
 ## How much to trust these numbers
 
-This harness is a shell script, not DejaGnu, and every classification in it
-is something someone wrote by hand. An audit of what it could be getting
-away with found three real problems, all now fixed, and left four things
-that are still soft. Recording both, because a suite that reports zero
-failures is exactly the kind of thing that stops being questioned.
+The retired harness was a shell script rather than DejaGnu, and every
+classification in it was written by hand. Its audit found three real
+problems and four remaining soft spots. These notes explain why its totals
+must not be treated as current results.
 
 ### What the pass criterion actually rests on
 
@@ -243,7 +242,7 @@ into `TIMEOUT`. No test source is ever edited.
   `20101011-1` for a whole session - see above. `990413-2` now classifies
   from its own `dg-skip-if` rather than from a diagnostic string.
 
-### Four things that are still soft
+### Four things that remained soft in the shell harness
 
 1. **`-w -fpermissive`.** All warnings off, and some errors downgraded. It
    is what lets pre-C23 sources through at all, but it does mean the suite
@@ -263,9 +262,16 @@ into `TIMEOUT`. No test source is ever edited.
    knows `lp64` is false. Effective targets we satisfy are deliberately left
    alone rather than guessed at, but it is a heuristic.
 
-The real fix for most of 1-4 is a DejaGnu board file, which would make the
-directives authoritative instead of re-implemented. That is the largest
-single thing left on the testing side.
+The real fix for most of 1-4 is implemented in `dejagnu/`. GCC's own
+driver evaluates the directives, selectively re-enables warnings for tests
+that assert diagnostics, and uses an explicit runtime-capability boundary.
+It found additional shell-harness classification errors: three compile tests
+were skipped only because their basenames collide with execute-only skips,
+`! llp64` was read backwards, and requirements for weak aliases, retained
+sections, profiling, and option-specific skips were ignored. The DejaGnu
+wrapper follows GCC's default and runs expensive tests only when requested.
+The bootstrap harness was removed after this cross-check; upstream DejaGnu
+results are authoritative.
 
 ## compile - 1973 of 2003 per set, no failures, no ICEs
 

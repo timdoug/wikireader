@@ -82,8 +82,10 @@ target - see *Data areas* below.
 
   `function_arg` does contain an alignment step -- `nbytes` is rounded up to
   `TYPE_ALIGN (type)` -- but `BIGGEST_ALIGNMENT` is 32, so nothing on this
-  target can ever have an alignment larger than a word and **the rounding is
-  a no-op for every type**. Deriving the alignment from the argument's
+  target has a natural alignment larger than a word and **the rounding is
+  a no-op for every ordinary type**. An explicit `aligned` attribute can
+  still request more; see the stack-alignment rule below. Deriving the
+  register alignment from the argument's
   *size* instead, as V850 does, puts the pair in `%r8:%r9` and pushes the
   third argument onto the stack. That is invisible within one compilation --
   both halves agree with each other -- and only shows on a call to a
@@ -119,6 +121,46 @@ target - see *Data areas* below.
   argument registers.
 * `char`/`short` arguments are promoted to `int`. Narrow return values are
   sign-extended by the callee (`ld.b %r4,%r4`).
+* The hardware stack minimum remains four bytes, but the modern compiler
+  preserves a **16-byte outgoing-argument base**. Since `call` pushes a
+  four-byte return address, a normal callee enters at 12 modulo 16 and a
+  non-leaf frame is rounded to 12 modulo 16 to restore alignment before its
+  own calls. Incoming stack arguments still begin at `[%sp+4]`; this extends
+  the old ABI without moving ordinary parameters. It is what makes a
+  `struct __attribute__((aligned(16)))` arrive at its promised alignment
+  (`gcc.dg/pr84877.c`).
+
+### Variadic forwarding and `__builtin_apply`
+
+The historical ABI puts every anonymous argument on the stack.  A typed
+call, however, puts eligible scalars in the register stream above.  That
+difference is fine for `va_arg`, but it used to make `__builtin_apply`
+fundamentally lossy: after entry to a variadic forwarding function, GCC no
+longer knew which stack words a typed destination would expect in registers.
+
+New callers add a backward-compatible forwarding extension:
+
+* every anonymous argument remains in its historical stack slot;
+* an eligible anonymous scalar is also shadowed into the register that the
+  same argument would occupy in a typed call; and
+* caller-clobbered `%r5` carries a versioned descriptor containing the actual
+  stack-word count and a mask of the shadowed words.
+
+Existing variadic callees ignore the shadow registers and `%r5`, so their
+observable ABI is unchanged.  `__builtin_apply_args` saves `%r5` together
+with the ordinary argument registers.  C33's `untyped_call` expansion then
+authenticates the descriptor and compacts only the duplicated words out of
+the copied outgoing stack block before calling the typed destination.
+
+The initial descriptor represents up to 15 actual stack words (60 bytes);
+larger forwarding calls retain the old stack ABI but do not carry a valid
+compaction descriptor.  This covers the upstream apply tests, whose declared
+copy bound is 64 bytes but whose actual stream is seven words.  Extending the
+descriptor is an ABI-versioned change rather than a test-harness exception.
+
+The upstream `builtin-apply` and stack-alignment families provide 107 focused
+verdicts across normal, PIC and optimization variants; all pass without a
+target skip.
 
 ### Structures
 

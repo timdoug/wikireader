@@ -428,51 +428,51 @@ a way nothing detects, and that cost a wrong diagnosis: `va-arg-19/20/21/22`
 and `strncmp-1` looked like ABI regressions and were a stale libgcc.
 `gcc/rebuild.sh` now does the whole thing, libgcc forced, in one command.
 
-## What is next: the DejaGnu board file
+## The DejaGnu board file - done
 
-This is the next piece of work, and it is well-scoped. Everything needed is
-already in the tree except DejaGnu itself.
+Implemented in `tests/dejagnu/`. `run-dejagnu.sh` builds the freestanding C33
+test runtime and invokes GCC's own `execute.exp`, `compile.exp`, or `gcc.dg`
+driver. `c33-sim.exp` supplies compiler/link flags and maps the emulator
+register dump to standard DejaGnu verdicts. See `tests/dejagnu/README.md` for
+usage.
+
+DejaGnu is now the sole GCC testsuite harness. The bootstrap shell runner and
+its comparison-only option matrix and result summarizer were removed after
+the board was qualified. Test selection, optimization matrices, directives,
+and reporting now come from the upstream GCC drivers.
 
 ### Why
 
-`tests/run-torture.sh` re-implements DejaGnu's directive handling in `sed`,
+The bootstrap runner re-implemented DejaGnu's directive handling in `sed`,
 and the audit in `tests/FAILURES.md` found **three of those mechanisms
-wrong** - `dg-error` not checking the message, `undefined reference`
-defaulting to UNSUPPORTED, target selectors ignored. Two of the three were
-found only because a full run's totals moved. A board file makes upstream's
-own driver evaluate the directives, which retires all four remaining soft
-spots at once rather than one bug at a time.
+wrong**: `dg-error` did not check the message, `undefined reference`
+defaulted to UNSUPPORTED, and target selectors were ignored. The board makes
+upstream's own driver evaluate the directives.
 
 It also unlocks `gcc.dg` - **7,425 tests** in the top directory alone - which
 is where the diagnostic assertions live and which the shell harness
 structurally cannot run.
 
-### Prerequisites
+### Prerequisites and invocation
 
-`runtest` is **not installed**. macOS ships `expect` 5.45 and `tclsh` but not
-DejaGnu:
+macOS ships `expect` 5.45 and `tclsh` but not DejaGnu.  Install it with:
 
 ```sh
 brew install deja-gnu        # provides runtest
 ```
 
-Present and confirmed: `gcc/testsuite/lib/{c-torture,gcc-dg,gcc,target-supports}.exp`,
-and the three entry points `gcc.c-torture/execute/execute.exp`,
-`gcc.c-torture/compile/compile.exp`, `gcc.dg/dg.exp`.
+Then use `tests/dejagnu/run-dejagnu.sh`; it supplies the site file, board path,
+compiler path and generated runtime objects.
 
 ### The three pieces
 
 1. **`tests/dejagnu/c33-sim.exp`** - the board. `load_generic_config "sim"`,
    then `set_board_info` for compiler, `cflags` (`-mc33pe -mno-long-calls`
    plus the two include paths), and `ldflags` (`-nostdlib -nostartfiles`, the
-   linker script, the four runtime objects, `libc.a`, `libgcc.a`). All of
-   these values are already spelled out in `run-torture.sh`'s `COMMON`,
-   `LIBS` and `build_runtime`.
+   linker script, the four runtime objects, `libc.a`, `libgcc.a`).
 
-2. **`${board}_load`** - the only real work, and the `one()` function in
-   `run-torture.sh` is its specification. The contract is to return
-   `{pass|fail|unresolved} output`. The mapping is already established and
-   should be transliterated exactly, not redesigned:
+2. **`${board}_load`** - invokes the emulator and returns
+   `{pass|fail|unresolved} output`:
 
    | emulator state | verdict |
    |---|---|
@@ -483,25 +483,170 @@ and the three entry points `gcc.c-torture/execute/execute.exp`,
    | no register dump at all | **unresolved**, never fail - the emulator did not run |
    | otherwise | fail (ran past the instruction limit) |
 
-   `wremu -n 1000000000 -b 0x10000002`. The limit is a runaway detector, not
-   a timeout: `vla-dealloc-1` and `pr43220` honestly need ~490M at `-O0`.
+   `wremu -n 3200000000 -b 0x10000002`. The limit is a runaway detector, not
+   a timeout: `vla-dealloc-1` and `pr43220` honestly need ~490M at `-O0`, and
+   `pr97459-6` needs exactly 3,033,306,485 instructions. Its focused standard
+   replay passes both verdicts at the 3.2B ceiling.
 
-3. **Invocation** - a `site.exp` and a wrapper so
-   `runtest --tool gcc --target_board=c33-sim` finds the board and the
+3. **Invocation** - `site.exp` and `run-dejagnu.sh` make
+   `runtest --tool gcc --target_board=c33-sim` find the board and the
    compiler. Worth a small script next to the board file, since the paths
    (`work/install/bin`, `work/bu/install/bin`) are not standard.
 
-### Acceptance criterion
+### Qualification result
 
-**Reproduce the shell harness's numbers exactly** before trusting either:
-execute 1676 pass / 16 unsupported / 0 fail, and compile 1973 / 30 / 0, per
-option set, over upstream's seven sets. Any divergence is a finding about
-one harness or the other and should be run down rather than explained away -
-that cross-check is most of the value of doing this at all.
+The board was cross-checked against the retired bootstrap runner across its
+seven option sets. Every result delta was investigated; each came from the
+bootstrap runner mishandling a directive, target selector, or requirement.
+Focused execution, compilation-error, warning, signal, runtime-gap, and
+`gcc.dg` tests then passed through DejaGnu. The standard `gcc.sum` and
+`gcc.log` files are now authoritative.
 
-So **do not delete `run-torture.sh`** on arrival. It produced every number
-currently trusted, it is much faster to iterate with, and it is the only
-independent check on the board file.
+An unfiltered `./run-dejagnu.sh all` completed on 2026-08-28. It recorded
+145,212 expected passes, 1,836 unexpected failures, 4 unexpected successes,
+921 expected failures, 1,198 unresolved tests, and 6,107 unsupported tests.
+The preserved result is `tests/dejagnu/work/full-20260828-2130/` (ignored by
+git). This is a broad discovery baseline, not a claim that all 1,836 raw
+assertions are compiler defects.
+
+The major repeated families include 1,048 UBSan assertions without a target
+sanitizer runtime and 189 analyzer assertions against mini-libc rather than a
+hosted libc. These are external prerequisites, not evidence for 1,237 distinct
+backend bugs. They remain visible; the board does not override
+`c99_runtime` or `untyped_assembly` to hide them.
+
+The focused backend/binutils results resolved after that baseline now include:
+
+* `execute/builtins/complex-1.c` failed to link at `-O0`, `-O3 -g`, and
+  `-Og -g`. C33 BFD's `c33_elf_relocate_section` rejects `sym_hashes == NULL`
+  before checking whether a relocation is local; V850 delays that check until
+  the global-symbol branch. Debug sections containing only local relocations
+  trigger this. The check is now delayed to the global-symbol branch, the
+  patched binutils were installed into the active compiler prefix, and the
+  focused test passes all 16 verdicts.
+* Undefined non-weak globals no longer have their placeholder zero value
+  applied after ld has reported the undefined reference, so short PC-relative
+  calls no longer add a bogus out-of-range warning. PC-relative relocations
+  against undefined weak symbols are likewise left untouched; absolute weak
+  references still resolve to zero. `visibility-22.c` now passes both focused
+  verdicts without a linker warning, and the final exact-source ld suite
+  remains clean at 479 passes, 13 expected failures, 28 untested, and 235
+  unsupported tests.
+* `gcc.dg/sibcall-{3,4,9,10}.c` failed because the C33 backend had no sibling
+  call patterns. The backend now dismantles the current frame and jumps
+  directly with `sjp` or `xjp`; the focused `sibcall-*.c` run records 18
+  passes and zero failures.
+* `gcc.dg/pr84877.c` showed that an explicitly 16-byte-aligned aggregate
+  arrived on the stack at 12 modulo 16. Normal C33 frames now compensate for
+  the return-address word pushed by `call`, preserving a 16-byte outgoing
+  argument base; the focused test records two passes. The same model fixes
+  the DWARF incoming CFA offset.
+* C33's `__builtin_apply`/`__builtin_return` forwarding ABI now preserves the
+  variadic stack representation while carrying typed scalar locations in a
+  versioned descriptor. The complete focused apply/return and stack-alignment
+  run has 107 passes and no failures.
+* Precompiled headers pass all 1,254 focused verdicts with no failures.
+* The backend now reports C33's documented conditional-branch cost (two
+  cycles not taken, three taken) instead of GCC's generic one-instruction
+  cost. `reassoc-{33,34,35,36}.c` and `update-threading.c` gain all 14
+  focused compile, execution, and optimization passes.
+* The normal call expanders now validate function addresses in pointer mode.
+  They previously used the called byte object's `QImode`, rejected every
+  symbolic target, and forced all direct calls through a register. Focused
+  probes now emit `scall` and `xcall` directly; `weak/typeof-2.c` passes all 8
+  assertions, the full weak-symbol driver all 93, and `tree-ssa/loop-1.c` all
+  5. The post-fix core execution driver records 24,260 passes, 251 legitimate
+  unsupported results, and zero failures or unresolved cases across all 1,692
+  sources and their standard optimization/LTO variants.
+* GCC is now configured with `--enable-initfini-array`. It emits typed,
+  priority-suffixed init/fini-array sections; ld retains and consolidates
+  them, orders priority 100 before 200, and supplies hidden start/end
+  boundaries. Upstream `constructor-1.c` compiles and links; executing it
+  remains a crt-startup responsibility outside this GCC/binutils scope.
+
+The exact-source binutils qualification is clean: gas records 320 passes and
+10 unsupported tests; the binutils utilities record 240 passes, 18 untested,
+and 17 unsupported; and ld records 479 passes, 13 expected failures, 28
+untested, and 235 unsupported, with zero unexpected failures in all three.
+The tested tools are installed in the active GCC prefix.
+
+Two apparent arithmetic failures were board-budget findings. The wrapper had
+silently enabled `GCC_TEST_RUN_EXPENSIVE`, and the standard `pr97459-*` cases
+need as many as 3,033,306,485 emulator instructions with the current compiler
+while still producing the correct answer. Expensive tests now follow GCC's
+default (opt in explicitly), and the deterministic board ceiling is 3.2
+billion instructions.
+
+The second broad run exposed two macOS DejaGnu transport bugs rather than
+toolchain defects. GCC's symbol scanners use Tcl's `open "| command"` directly,
+so the spawn-based compatibility layer now covers read-only pipelines as well
+as `exec` and `local_exec`; LTO `20081212-1` passes its `scan-symbol` check.
+Also, the board's pre-link runtime classifier had opened every link input as
+text. LTO `pr122515` therefore tried to read its intentional 2.88 GB archive
+into Tcl 8.5 and aborted at the 32-bit string limit. The classifier now reads
+only source-language files. The exact test completes with 11 passes and one
+standard `memory full` unsupported link for its 320 MB extracted data object,
+and cleans up its multi-gigabyte artifacts.
+
+The post-fix complete `gcc.dg/lto/lto.exp` qualification records 1,651
+expected passes, 34 unsupported tests, and no failures or unresolved cases.
+The unsupported set includes explicit missing-libm and hosted-libgcov links;
+unrelated undefined symbols are still failures.
+
+The next `gcc.dg/torture` replay found and fixed three independent issues.
+C33's untyped-call expander now preserves `%r5`-`%r12` across its stack-
+compaction control flow and reloads them immediately before the call.  This
+lets SJLJ exception expansion locate every advertised parameter load instead
+of ICEing at a loop label; `harden-cfr-bret-except.c` passes all 21 assertions,
+the full `harden-cfr-bret*.c` family all 204, and the neighboring focused
+apply/return/stack-alignment replay all 163.  GCC's generic exception code and
+the upstream tests were not changed.
+
+The board now obtains per-test execution limits from GCC's `timeout_value`
+helper rather than Expect's unscaled raw `timeout`.  Consequently upstream
+`dg-timeout-factor` directives scale both the host watchdog and deterministic
+instruction budget.  `inline-mem-cpy-cmp-1.c -O0`, which needs exactly
+3,433,401,134 instructions and used to stop at 3.2 billion, now passes; its
+complete focused matrix has 28 passes.  The DejaGnu runtime's allocator
+fallback `free` is weak so a testcase may supply its own definition;
+`pr59330.c` now passes all 14 compile and execution verdicts.  These are board
+support changes, not firmware changes.
+
+The torture driver was then exhaustively replayed in path-qualified
+partitions.  No GCC/backend failure remains.  The one intentionally visible
+failure is `pr47917.c -O0`, which reaches mini-libc's non-conforming
+`snprintf`; every optimized and LTO variant passes.  Compile-only sources that
+actually include the absent `<math.h>` are now classified before compilation,
+and the complete `matrix-*` family reports 48 unsupported verdicts.  C99 libm
+symbol variants and their contingent `link_error_*` guards are likewise
+classified only when the failed link contains no unrelated undefined symbol.
+
+The IPA driver has no demonstrated compiler failure either.  The two ICF
+count scans find every requested equality plus one valid extra equality from
+mini-libc's header-defined `abs` and `labs`, whose types are both 32-bit on
+C33.  The remaining execution failures are the documented external crt
+constructor requirement (`pr70306`) and formatted-output behavior
+(`pr96040`); a tail replay records 151 passes, two such failures, and two
+unsupported tests.
+
+The remaining compiler-only scan mismatches are also evidence-backed there:
+the ICF count includes the valid 32-bit `abs`/`labs` pair, `pr87954` uses a
+different widened-multiply dump spelling, `ifcvt-4` assumes conditional-move
+support C33 lacks, `stack-usage-1` omits C33's 16-byte save block from its
+accepted sizes, and `inline5`'s scan omits C33's `;` comment marker from one
+of its stop classes. `readelf` confirms `inline5` has the correct abstract,
+inlined, and out-of-line DIE graph. None is skipped or made to pass by editing
+an upstream test.
+
+All remaining findings are tracked in `tests/DEJAGNU-TODO.md`. The active
+scope is GCC and binutils correctness plus harness execution. Firmware,
+mini-libc, crt startup, target services, and emulator feature work require
+separate approval; their tests remain useful external-prerequisite signals.
+
+Running the full suite also established two necessary board details: mini-libc
+and runtime headers must be global board flags (freestanding `<stdint.h>` must
+work), and the compiler's `bin/` directory must be on `PATH` so upstream probes
+can find `c33-epson-elf-objdump` and recognize ELF weak/alias support.
 
 ### Gotchas carried over
 
@@ -521,17 +666,17 @@ independent check on the board file.
    above was taken with the stale `libgcc`, and the ABI fix has since changed
    argument placement. The screens are identical, so nothing user-visible
    moved, but those numbers are stated as fact and are currently unverified.
-2. **Merge the two binutils prefixes.** The `readelf` DWARF fix is in
-   `work/bu/install`; everything else points at `work/install`, so the fixed
-   `readelf` is not on the default path. Rebuild one prefix with both, or
-   repoint the defaults.
+2. **Keep the binutils prefixes merged.** The exact-source `work/bu` build is
+   installed in active `work/install` and all three binutils suites are clean.
+   Future rebuilds must repeat that installation or build directly into one
+   prefix.
 3. **Debug info beyond the line table.** The line table is now known good and
    `.debug_info` resolves correctly on unlinked objects. Nothing has run a
    real debugger, and `grifo.elf`/`wiki.app` link `--strip-all -s` so they
    carry no debug sections at all - a separate decision about link flags.
-4. **The three named skips.** `20030125-1`, `920501-8`, `930513-1` build, run
-   and abort, exactly as a miscompilation would. The reasons are recorded and
-   believed rather than demonstrated. Weakest claim in the test results.
+4. **Implement the skipped runtime capabilities.** The C99 libm and
+   floating-point printf tests are classified accurately now, but remain
+   explicit implementation debt in `tests/DEJAGNU-TODO.md`.
 5. **`emulator/src/main.c` debug scaffolding** - a `WREMU_CP` env-gated block
    hard-coding `0x10052482`, left from an earlier session. Not from this work;
    worth deleting.
@@ -843,12 +988,12 @@ The gcc 3.3.2 comparison in earlier notes said it called soft float 7x
 more often. That was never about code quality: 3.3.2 inlined less across
 the same boundary, so it made the same pointless calls more often.
 
-## The testsuite, at last
+## The testsuite bootstrap (historical)
 
-`gcc.c-torture`, run against the emulator. There is no DejaGnu board and
-no newlib for this target, so `tests/run-torture.sh` drives it directly:
-compile, link against `tests/runtime` and mini-libc, run under `wremu`,
-read the answer out of the register dump.
+This section records the initial `gcc.c-torture` bring-up under the retired
+shell runner. The current testsuite uses `tests/dejagnu/`; its `gcc.sum` and
+`gcc.log` are authoritative. The old numbers and diagnoses below remain useful
+as history of the compiler and runtime bugs found during bootstrap.
 
 **compile: 1964 of 2003 pass, and not one ICE.** The 39 are old sources
 that modern C rejects outright - `redefinition of 'foo'` and friends -
