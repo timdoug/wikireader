@@ -1,0 +1,34 @@
+diff --git a/gcc/analyzer/region-model-manager.h b/gcc/analyzer/region-model-manager.h
+--- a/gcc/analyzer/region-model-manager.h
++++ b/gcc/analyzer/region-model-manager.h
+@@ -122,7 +122,7 @@ public:
+   const errno_region *get_errno_region () const { return &m_errno_region; }
+   const function_region *get_region_for_fndecl (tree fndecl);
+   const label_region *get_region_for_label (tree label);
+-  const decl_region *get_region_for_global (tree expr);
++  const region *get_region_for_global (tree expr);
+   const region *get_field_region (const region *parent, tree field);
+   const region *get_element_region (const region *parent,
+ 				    tree element_type,
+diff --git a/gcc/analyzer/region-model-manager.cc b/gcc/analyzer/region-model-manager.cc
+--- a/gcc/analyzer/region-model-manager.cc
++++ b/gcc/analyzer/region-model-manager.cc
+@@ -1691,12 +1691,18 @@ region_model_manager::get_region_for_label (tree label)
+ 
+ /* Return the region for EXPR, creating it if necessary.  */
+ 
+-const decl_region *
++const region *
+ region_model_manager::get_region_for_global (tree expr)
+ {
+   gcc_assert (VAR_P (expr));
+ 
++  /* Some embedded C libraries expose errno as a direct global rather than
++     through an accessor function.  Use the analyzer's errno region for both
++     ABIs so known functions which set errno update subsequent reads.  */
++  if (DECL_NAME (expr) && id_equal (DECL_NAME (expr), "errno"))
++    return &m_errno_region;
++
+   decl_region **slot = m_globals_map.get (expr);
+   if (slot)
+     return *slot;
