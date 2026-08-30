@@ -445,6 +445,10 @@ void c33_reset(struct c33 *c, uint32_t entry)
 	 */
 	memset(c, 0, offsetof(struct c33, reset_barrier__));
 	c->pc = entry;
+	/* Fixed cold-reset values from Core Manual sections 2.5, 2.7, 2.8. */
+	c->sr[SR_TTBR] = 0x00c00000;
+	c->sr[SR_IDIR] = 0x06000000; /* PE type; revision/model is unspecified */
+	c->sr[SR_DBBR] = 0x00060000;
 }
 
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority)

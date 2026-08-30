@@ -402,6 +402,11 @@ displacements are `sign8`, `int` takes `imm2`, software exception n is
 vector 12+n relative to TTBR, and that more than two `ext` prefixes raises
 an exception.
 
+Cold reset also installs the architectural register values from sections
+2.5, 2.7, and 2.8: TTBR is `0x00c00000`, IDIR identifies a PE core with
+type byte `0x06`, and the read-only DBBR is `0x00060000`. The model/revision
+byte in IDIR is left zero because the S1C33E07 manual does not specify it.
+
 One caveat for anyone reading the manual: its prose says `cmp` takes its
 immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
 and gcc emits a redundant `ext 0x0` before `xor %r6,0x30` when it wants +48

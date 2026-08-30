@@ -42,6 +42,19 @@ static void check(const char *what, uint32_t got, uint32_t want)
 	}
 }
 
+static void test_reset_registers(void)
+{
+	struct c33 c = {0};
+
+	c33_reset(&c, ENTRY);
+	printf("\ncold reset registers\n");
+	check("caller-selected entry is loaded into PC", c.pc, ENTRY);
+	check("PSR reset value", c.sr[SR_PSR], 0);
+	check("TTBR reset value", c.sr[SR_TTBR], 0x00c00000);
+	check("IDIR identifies a C33 PE core", c.sr[SR_IDIR], 0x06000000);
+	check("DBBR fixed value", c.sr[SR_DBBR], 0x00060000);
+}
+
 static struct c33 init(unsigned vector)
 {
 	struct c33 c;
@@ -131,6 +144,7 @@ int main(void)
 		{ 0x8e10, "scan1" },
 	};
 
+	test_reset_registers();
 	for (unsigned i = 0; i < sizeof undefined / sizeof undefined[0]; i++)
 		test_undefined(undefined[i].word, undefined[i].name);
 	test_ext();
