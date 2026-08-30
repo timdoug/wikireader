@@ -145,6 +145,9 @@ proc c33_runtime_gap {sources {options {}}} {
 	if {$tail eq "20020312-2.c"} {
 	    return "test has no C33 PIC-register definition"
 	}
+	if {$tail eq "builtins-58.c" || $tail eq "fold-round-1.c"} {
+	    return "C33 target has no C99 math runtime"
+	}
 	if {$tail eq "pr118224.c"} {
 	    return "C33 test allocator does not reject overflowing allocation sizes"
 	}
