@@ -115,6 +115,23 @@ static void jumps(void)
 	check("jpr.d first selects its delay slot", c.pc, ENTRY + 2);
 	c33_step(&c);
 	check("jpr.d branches after the slot", c.pc, ENTRY + 0x20);
+
+	c = init(0x0740);                    /* ret.d */
+	c.sr[SR_SP] = 0x300;
+	tw(NULL, 0x300, 4, 0x240);
+	tw(NULL, ENTRY + 2, 2, 0x0000);      /* nop delay slot */
+	c33_step(&c);
+	check("ret.d pops its return address", c.sr[SR_SP], 0x304);
+	check("ret.d first selects its delay slot", c.pc, ENTRY + 2);
+	c33_step(&c);
+	check("ret.d returns after the slot", c.pc, 0x240);
+
+	c = init(0x0440);                    /* retd */
+	tw(NULL, 0x6000c, 4, 0x12345678);
+	tw(NULL, 0x60008, 4, 0x240);
+	c33_step(&c);
+	check("retd restores R0 from the debug save area", c.r[0], 0x12345678);
+	check("retd restores PC from the debug save area", c.pc, 0x240);
 }
 
 int main(void)

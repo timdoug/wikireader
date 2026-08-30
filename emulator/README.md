@@ -453,7 +453,8 @@ showed it. `make test-irq` now pins it deterministically.
 
 `make test-isa` covers the documented operations which none of the four
 firmware images happen to execute: carry/borrow and overflow edge cases for
-`adc` and `sbc`, both byte-order swaps, and immediate and delayed `jpr`.
+`adc` and `sbc`, both byte-order swaps, immediate and delayed `jpr`, delayed
+`ret`, and restoration from the architecturally fixed debug save area.
 
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: `slp` resumes immediately rather than waiting for its clock

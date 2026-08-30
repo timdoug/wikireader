@@ -386,7 +386,7 @@ static bool is_delayed(uint8_t op)
 	case OP_JREQ_D: case OP_JRNE_D: case OP_JRGT_D: case OP_JRGE_D:
 	case OP_JRLT_D: case OP_JRLE_D: case OP_JRUGT_D: case OP_JRUGE_D:
 	case OP_JRULT_D: case OP_JRULE_D: case OP_JP_D: case OP_CALL_D:
-	case OP_JPR_D:
+	case OP_JPR_D: case OP_RET_D:
 		return true;
 	default:
 		return false;
@@ -412,8 +412,9 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
 	case OP_MLT_W: case OP_MLTU_W:          return 7;
 	case OP_MLT_H: case OP_MLTU_H:          return 5;
 	case OP_BRK:                            return 9;
-	case OP_HALT: case OP_SLP: case OP_RETI: return 5;
+	case OP_HALT: case OP_SLP: case OP_RETI: case OP_RETD: return 5;
 	case OP_RET:                            return 4;
+	case OP_RET_D:                          return 3;
 	case OP_PSRSET: case OP_PSRCLR:         return 3;
 	case OP_PUSH:                           return 2;
 	case OP_PUSHN: case OP_POPN:            return (unsigned)nreg + 1;
@@ -1117,8 +1118,19 @@ void c33_step(struct c33 *c)
 
 	case OP_RET:
 		c->pc = rd(c, c->sr[SR_SP], 4);
-		c->sr[SR_SP] += 4;
+		if (!c->access_fault)
+			c->sr[SR_SP] += 4;
 		break;
+
+	case OP_RET_D: {
+		uint32_t target = rd(c, c->sr[SR_SP], 4);
+		if (!c->access_fault) {
+			c->sr[SR_SP] += 4;
+			c->delay_pending = true;
+			c->delay_target = target;
+		}
+		break;
+	}
 
 	case OP_JPR:
 	case OP_JPR_D: {
@@ -1314,6 +1326,13 @@ void c33_step(struct c33 *c)
 		c->sr[SR_SP] += 4;
 		c->pc = rd(c, c->sr[SR_SP], 4);
 		c->sr[SR_SP] += 4;
+		break;
+
+	case OP_RETD:
+		/* Debug save area layout, Core Manual retd instruction page. */
+		c->r[0] = rd(c, c->sr[SR_DBBR] + 0x0c, 4);
+		if (!c->access_fault)
+			c->pc = rd(c, c->sr[SR_DBBR] + 0x08, 4);
 		break;
 
 	default:
