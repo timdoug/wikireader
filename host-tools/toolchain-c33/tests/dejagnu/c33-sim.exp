@@ -15,6 +15,25 @@ foreach var {C33_GCC C33_EMU C33_LIBC C33_LIBGCC C33_RUNTIME_DIR C33_RT C33_LIBC
 load_generic_config "sim"
 source [file join [file dirname [info script]] macos-local-exec.exp]
 
+# c-torture reports execution UNRESOLVED whenever compilation returns false,
+# even when gcc_check_compile has already classified an explicit target gap as
+# UNSUPPORTED.  Preserve that prerequisite verdict for the paired execution;
+# all genuine compilation failures still use DejaGnu's original procedure.
+if {[info commands c33_dejagnu_unresolved] eq ""} {
+    rename unresolved c33_dejagnu_unresolved
+    proc unresolved {message} {
+	global c33_compile_unsupported
+	if {[info exists c33_compile_unsupported]
+	    && $c33_compile_unsupported
+	    && [string match "gcc.c-torture/* execution,*" $message]} {
+	    set c33_compile_unsupported 0
+	    unsupported $message
+	    return
+	}
+	c33_dejagnu_unresolved $message
+    }
+}
+
 set_board_info compiler $env(C33_GCC)
 # This is an installed, libsanitizer-disabled compiler rather than an in-tree
 # build with target runtime libraries.  Cache the empty build-tree multilib
@@ -222,7 +241,8 @@ proc c33_program_output {output} {
 }
 
 proc c33-sim_compile {source destfile type options} {
-    global board_info env
+    global board_info env c33_compile_unsupported
+    set c33_compile_unsupported 0
     set board [target_info name]
     set saved_cflags $board_info($board,cflags)
     set extra_cflags ""
@@ -235,6 +255,7 @@ proc c33-sim_compile {source destfile type options} {
 	[string first "-fsanitize=undefined" $option_text] >= 0
     }]
     if {$type eq "executable" && $needs_ubsan} {
+	set c33_compile_unsupported 1
 	return "::unsupported::C33 toolchain does not provide libubsan"
     }
 
@@ -250,6 +271,7 @@ proc c33-sim_compile {source destfile type options} {
     # from executable link diagnostics below.
     set gap [c33_runtime_gap $source $options]
     if {$gap ne ""} {
+	set c33_compile_unsupported 1
 	return "::unsupported::$gap"
     }
 
@@ -269,6 +291,7 @@ proc c33-sim_compile {source destfile type options} {
     if {$type eq "executable"} {
 	set gap [c33_known_missing_runtime $result]
 	if {$gap ne ""} {
+	    set c33_compile_unsupported 1
 	    return "::unsupported::$gap"
 	}
     }
