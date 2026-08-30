@@ -48,6 +48,7 @@
 #include "expr.h"
 #include "cfgrtl.h"
 #include "builtins.h"
+#include "opts.h"
 
 /* This file should be included last.  */
 #include "target-def.h"
@@ -2888,6 +2889,11 @@ c33_option_override (void)
 {
   if (flag_exceptions || flag_non_call_exceptions)
     flag_omit_frame_pointer = 0;
+
+  /* Compact 32-bit targets need enough budget to completely peel small
+     fixed-trip loops before LIM can expose their store-motion candidates.  */
+  SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+		       param_max_completely_peeled_insns, 300);
 
   /* Save the initial options in case the user does function specific
      options.  */
