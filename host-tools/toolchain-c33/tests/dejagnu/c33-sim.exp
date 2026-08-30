@@ -219,6 +219,17 @@ proc c33-sim_compile {source destfile type options} {
     set saved_cflags $board_info($board,cflags)
     set extra_cflags ""
 
+    # GCC's empty UBSan probe needs no handlers and therefore links even
+    # without libubsan.  Reject that executable probe at the board boundary;
+    # compile-only sanitizer tests can still exercise compiler lowering.
+    set option_text [join $options " "]
+    set needs_ubsan [expr {
+	[string first "-fsanitize=undefined" $option_text] >= 0
+    }]
+    if {$type eq "executable" && $needs_ubsan} {
+	return "::unsupported::C33 toolchain does not provide libubsan"
+    }
+
     foreach file $source {
 	if {[string first "/gcc.c-torture/" $file] >= 0} {
 	    append extra_cflags " -fpermissive"
