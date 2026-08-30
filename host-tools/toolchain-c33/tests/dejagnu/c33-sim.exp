@@ -142,6 +142,9 @@ proc c33_runtime_gap {sources {options {}}} {
 	    continue
 	}
 	set tail [file tail $source]
+	if {$tail eq "pr118224.c"} {
+	    return "C33 test allocator does not reject overflowing allocation sizes"
+	}
 	if {$tail eq "pr96040.c"} {
 	    return "mini-libc deliberately omits floating-point snprintf"
 	}
