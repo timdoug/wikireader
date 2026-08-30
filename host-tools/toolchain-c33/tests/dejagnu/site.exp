@@ -28,6 +28,15 @@ unset -nocomplain TESTING_IN_BUILD_TREE
 # libexec directory and leaves the LTO plugin as an unresolved basename.
 unset -nocomplain TEST_GCC_EXEC_PREFIX
 
+# GCC's crash plugin deliberately writes through null.  Apple Clang (the
+# compiler recorded in the generated site file) otherwise treats the whole
+# path as undefined at -O, turns it into SIGTRAP, and even folds away the
+# plugin's surrounding nested/non-nested control flow.  Preserve the faulting
+# store so the plugin exercises cc1's crash diagnostics as designed.
+if {[string match "*-*-darwin*" $host_triplet]} {
+    lappend PLUGINCFLAGS -fno-delete-null-pointer-checks
+}
+
 if {[info exists env(C33_GCOV)]} {
     set GCOV_UNDER_TEST $env(C33_GCOV)
 }
