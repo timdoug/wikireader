@@ -20,7 +20,7 @@
  * test that faults or runs away is reported as that rather than hanging.
  */
 
-	.section .text.exit,"ax"
+	.section .text.c33_test_exit,"ax"
 	.global exit
 	.global _exit
 /* mini-libc declares exit() as __asm__("__stop_progExec__") -- see
@@ -51,7 +51,9 @@ _start:
 	ld.w	%r7, 0			/* argv */
 	xcall	main
 
-	ld.w	%r6, %r4		/* main returned in %r4; exit wants %r6 */
+	ld.w	%r6, %r4		/* run destructors and preserve status */
+	xcall	_runtime_fini
+	ld.w	%r6, %r4		/* exit wants the status in %r6 */
 	xjp	exit
 
 /* abort() -- a distinctive status, so a failing test is never confused

@@ -163,13 +163,32 @@ Serial_printf (const char *format, ...)
  * ------------------------------------------------------------------ */
 
 extern char __heap_start[], __heap_end[];
+typedef void (*array_function) (void);
+extern array_function __init_array_start[], __init_array_end[];
+extern array_function __fini_array_start[], __fini_array_end[];
 
 /* Called from crt0.s before main.  */
 void
 _runtime_init (void)
 {
+  array_function *fn;
+
   Memory_initialise ();
   Memory_SetHeap ((uint32_t) __heap_start, (uint32_t) __heap_end);
+
+  for (fn = __init_array_start; fn != __init_array_end; ++fn)
+    (*fn) ();
+}
+
+/* Run destructors in reverse registration order and retain main's status.  */
+int
+_runtime_fini (int status)
+{
+  array_function *fn;
+
+  for (fn = __fini_array_end; fn != __fini_array_start; )
+    (*--fn) ();
+  return status;
 }
 
 void *
