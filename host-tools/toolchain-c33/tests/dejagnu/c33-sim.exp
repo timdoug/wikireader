@@ -48,6 +48,13 @@ proc check_effective_target_c99_runtime {} {
     return 0
 }
 
+# Profile-driven tests require target libgcov and a persistent filesystem for
+# transferring .gcda files back to the build host.  This bare-metal board has
+# neither, even though GCC's generic unknown-ELF fallback assumes profiling.
+proc check_profiling_available {test_what} {
+    return 0
+}
+
 proc c33_runtime_ldflags {} {
     global env
     set dir $env(C33_RUNTIME_DIR)
