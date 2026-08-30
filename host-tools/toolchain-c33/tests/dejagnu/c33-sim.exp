@@ -251,6 +251,17 @@ proc c33-sim_compile {source destfile type options} {
     # without libubsan.  Reject that executable probe at the board boundary;
     # compile-only sanitizer tests can still exercise compiler lowering.
     set option_text [join $options " "]
+
+    # gcc.misc-tests/gcov runs target-generated .gcda files through the host
+    # gcov tool.  Even its compile-only cases invoke that final step.  The C33
+    # board has neither target libgcov nor persistent file transfer support.
+    foreach file $source {
+	if {[string first "/gcc.misc-tests/gcov-" $file] >= 0} {
+	    set c33_compile_unsupported 1
+	    return "::unsupported::C33 target has no libgcov or persistent filesystem"
+	}
+    }
+
     set needs_ubsan [expr {
 	[string first "-fsanitize=undefined" $option_text] >= 0
     }]
