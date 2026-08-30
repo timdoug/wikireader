@@ -151,6 +151,7 @@ static uint32_t sp_disp(struct c33 *c, uint32_t base, unsigned width,
 #define VECTOR_ADDRESS_MISALIGNED 6
 
 static void take_irq(struct c33 *c);
+static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc);
 /*
  * Executed-opcode histogram, most-used first.
  *
@@ -225,9 +226,9 @@ static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 		return false;
 
 	c->misaligned_hits++;
-	/* Exceptions are not maskable by IL: enter at the top level. */
-	c33_raise_irq(c, VECTOR_ADDRESS_MISALIGNED, 15);
-	take_irq(c);
+	c->access_fault = true;
+	/* The faulting load is retried after reti (Core Manual 6.3.5). */
+	take_exception(c, VECTOR_ADDRESS_MISALIGNED, c->cur_pc);
 	return true;
 }
 
@@ -514,6 +515,26 @@ static void take_irq(struct c33 *c)
 	c->irqs_taken++;
 }
 
+/*
+ * Enter a synchronous processor exception.  Unlike a maskable external
+ * interrupt, this path neither consults the interrupt controller nor tests
+ * or rewrites PSR.IL.  Core Manual 6.3.3 specifies the common frame: save PC
+ * then PSR, clear IE, and load the handler from TTBR + vector * 4.
+ */
+static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
+{
+	uint32_t target = c->bus.read(c->bus.ctx,
+				      c->sr[SR_TTBR] + vector * 4, 4);
+
+	c->sr[SR_SP] -= 4;
+	c->bus.write(c->bus.ctx, c->sr[SR_SP], 4, return_pc);
+	c->sr[SR_SP] -= 4;
+	c->bus.write(c->bus.ctx, c->sr[SR_SP], 4, c->sr[SR_PSR]);
+	c->sr[SR_PSR] &= ~PSR_IE;
+	c->pc = target;
+	c->delay_pending = false;
+}
+
 static void fault(struct c33 *c, const char *why)
 {
 	if (!c->fault) {
@@ -592,6 +613,7 @@ void c33_step(struct c33 *c)
 		take_irq(c);
 
 	uint32_t at = c->pc;
+	c->access_fault = false;
 
 	/* A syscall has returned once execution resumes past its .short. */
 	if (c->trace_syscalls && c->sysret_pc && at == c->sysret_pc) {
@@ -632,9 +654,13 @@ void c33_step(struct c33 *c)
 			memcpy(&insn, p + (at - base), 2);
 		} else {
 			insn = (uint16_t)rd(c, at, 2);
+			if (c->access_fault)
+				return;
 		}
 	} else {
 		insn = (uint16_t)rd(c, at, 2);
+		if (c->access_fault)
+			return;
 	}
 	c->last_insn = insn;
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
@@ -660,7 +686,16 @@ void c33_step(struct c33 *c)
 
 	switch (op) {
 	case OP_INVALID:
-		fault(c, "illegal instruction");
+	case OP_DIV0S: case OP_DIV0U: case OP_DIV1: case OP_DIV2S: case OP_DIV3S:
+	case OP_MAC: case OP_MIRROR: case OP_SCAN0: case OP_SCAN1:
+		/*
+		 * The latter nine instructions exist on older C33 cores but are
+		 * explicitly removed from PE (S1C33E07 Table I.5.3.5).  An
+		 * undefined word is recorded in IDIR, acts as a nop, and vectors
+		 * through TTBR + 0x0c with the following PC saved (6.3.9).
+		 */
+		c->sr[SR_IDIR] = (c->sr[SR_IDIR] & 0xffff0000u) | insn;
+		take_exception(c, 3, c->pc);
 		break;
 
 	/* ---- ext prefix ------------------------------------------------ */
@@ -676,8 +711,8 @@ void c33_step(struct c33 *c)
 				 * manual B.3. Vector 2 is the ext exception.
 				 */
 				c->n_ext = 0;
-				c33_raise_irq(c, 2, 15);   /* ext exception */
-				take_irq(c);
+				/* Save the first prefix, not the third (6.3.10). */
+				take_exception(c, 2, c->cur_pc - 4);
 			}
 			return;   /* prefixes never complete an instruction */
 		}
@@ -716,24 +751,34 @@ void c33_step(struct c33 *c)
 			c->r[a] = c->r[b];
 		} else if ((f->shape_id == SHAPE_R_LRB)) {
 			/* an ext prefix turns [%rs] into [%rs+imm] */
-			c->r[a] = rd(c, c->r[b] + imm_ext(c, 0, 0), 4);
+			uint32_t v = rd(c, c->r[b] + imm_ext(c, 0, 0), 4);
+			if (!c->access_fault)
+				c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_R_LRBP)) {
-			c->r[a] = rd(c, c->r[b], 4);
-			c->r[b] += 4;
+			uint32_t v = rd(c, c->r[b], 4);
+			if (!c->access_fault) {
+				c->r[a] = v;
+				c->r[b] += 4;
+			}
 		} else if ((f->shape_id == SHAPE_LRB_R)) {
 			wr(c, c->r[a] + imm_ext(c, 0, 0), 4, c->r[b]);
 		} else if ((f->shape_id == SHAPE_LRBP_R)) {
 			wr(c, c->r[a], 4, c->r[b]);
-			c->r[a] += 4;
+			if (!c->access_fault)
+				c->r[a] += 4;
 		} else if ((f->shape_id == SHAPE_R_LSPPIB)) {
-			c->r[a] = rd(c, c->sr[SR_SP] +
-				     sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+			uint32_t v = rd(c, c->sr[SR_SP] +
+					sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+			if (!c->access_fault)
+				c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_LSPPIB_R)) {
 			wr(c, c->sr[SR_SP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
 		} else if ((f->shape_id == SHAPE_R_LDPPIB)) {
-			c->r[a] = rd(c, c->sr[SR_DP] +
-				     sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+			uint32_t v = rd(c, c->sr[SR_DP] +
+					sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+			if (!c->access_fault)
+				c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_LDPPIB_R)) {
 			wr(c, c->sr[SR_DP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
@@ -764,25 +809,28 @@ void c33_step(struct c33 *c)
 		} else if ((f->shape_id == SHAPE_R_LRB) || (f->shape_id == SHAPE_R_LRBP)) {
 			uint32_t off = (f->shape_id == SHAPE_R_LRB) ? imm_ext(c, 0, 0) : 0;
 			uint32_t v = rd(c, c->r[b] + off, sz);
-			if (sext)
+			if (sext && !c->access_fault)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
-			c->r[a] = v;
-			if ((f->shape_id == SHAPE_R_LRBP))
-				c->r[b] += sz;
+			if (!c->access_fault) {
+				c->r[a] = v;
+				if ((f->shape_id == SHAPE_R_LRBP))
+					c->r[b] += sz;
+			}
 		} else if ((f->shape_id == SHAPE_LRB_R) || (f->shape_id == SHAPE_LRBP_R)) {
 			uint32_t off = (f->shape_id == SHAPE_LRB_R) ? imm_ext(c, 0, 0) : 0;
 			wr(c, c->r[a] + off, sz, c->r[b]);
-			if ((f->shape_id == SHAPE_LRBP_R))
+			if ((f->shape_id == SHAPE_LRBP_R) && !c->access_fault)
 				c->r[a] += sz;
 		} else if ((f->shape_id == SHAPE_R_LSPPIB)) {
 			uint32_t v = rd(c, c->sr[SR_SP] +
 					sp_disp(c, (uint32_t)b, f->f[1].width, sz),
 					sz);
-			if (sext)
+			if (sext && !c->access_fault)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
-			c->r[a] = v;
+			if (!c->access_fault)
+				c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_LSPPIB_R)) {
 			wr(c, c->sr[SR_SP] +
 			   sp_disp(c, (uint32_t)a, f->f[0].width, sz), sz, c->r[b]);
@@ -1181,7 +1229,7 @@ void c33_step(struct c33 *c)
 	c->n_ext = 0;
 
 	/* Retire a pending delay-slot branch after its slot has executed. */
-	if (was_delayed && !c->halted) {
+	if (was_delayed && c->delay_pending && !c->halted) {
 		c->delay_pending = false;
 		c->pc = delay_to;
 	}

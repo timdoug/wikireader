@@ -413,7 +413,19 @@ because it is a debugging aid rather than something the firmware needs,
 but running the whole boot and a search with it enabled reports zero
 misaligned accesses, which independently exercises the `[%sp+imm]` scaling
 and `ext` composition rules -- getting either wrong produces unaligned word
-accesses almost immediately.
+accesses almost immediately. A rejected access now leaves its destination
+and post-increment register untouched, as required by 6.3.5's rule that the
+faulting instruction is retried after `reti`.
+
+Synchronous processor exceptions have their own entry path rather than
+being promoted to priority-15 hardware interrupts. They bypass IE, IL, and
+the interrupt controller; push PC and PSR; clear IE without changing IL;
+and fetch their handler from TTBR. `make test-exception` checks that frame,
+the different saved PCs for alignment, undefined-instruction, and third-
+`ext` exceptions, and IDIR's recorded instruction. It also checks the nine
+instructions which Table I.5.3.5 says PE removed (`div0s` through `div3s`,
+`mac`, `mirror`, `scan0`, and `scan1`): their old-core encodings correctly
+take the undefined-instruction vector on PE.
 
 Interrupts are deferred until an `ext` sequence completes, per 5.6.3:
 "exception handling ... is not started for other exceptions until after the
@@ -432,11 +444,10 @@ keypress at exactly the wrong cycle, which is why a headless boot never
 showed it. `make test-irq` now pins it deterministically.
 
 Known divergences from the manual, none of which the firmware exercises on
-the boot path: `slp` resumes immediately rather than halting until an
-interrupt, `halt` stops the emulator outright, traps are not masked between
-a `.d` branch and its delay slot, and `jpr`, `swap`, `swaph`, `adc`, `sbc`
-and the coprocessor instructions are unimplemented (none appear in any of
-the four firmware images).
+the boot path: `slp` resumes immediately rather than waiting for its clock
+change, traps are not masked between a `.d` branch and its delay slot, and
+`jpr`, `swap`, `swaph`, `adc`, `sbc` and the coprocessor instructions are
+unimplemented (none appear in any of the four firmware images).
 
 ### Interrupt priority
 

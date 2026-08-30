@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/main.o
 
-.PHONY: all clean tables test test-irq test-lcd test-adc test-cmu check difftest test-manual
+.PHONY: all clean tables test test-irq test-exception test-lcd test-adc test-cmu check difftest test-manual
 
 all: wremu
 
@@ -41,6 +41,11 @@ test: c33_forms.h
 test-irq: tools/test_irq.c src/c33.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o
 	/tmp/test_irq
+
+# Synchronous exception entry, saved PCs, IDIR, and PE-removed opcodes.
+test-exception: tools/test_exception.c src/c33.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_exception tools/test_exception.c src/c33.o
+	/tmp/test_exception
 
 # LCD sub-window (PIP) compositing, against grifo's own window arithmetic.
 test-lcd: tools/test_lcd.c src/lcd.o src/mem.o
@@ -85,7 +90,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-irq test-lcd test-adc test-cmu test-display test-sd test-wdt
+check: test test-irq test-exception test-lcd test-adc test-cmu test-display test-sd test-wdt
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)
