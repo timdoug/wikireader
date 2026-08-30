@@ -93,10 +93,10 @@ proc c33_enable_diagnostics {options} {
     return $adjusted
 }
 
-# Some old execute tests predate effective-target requirements and assume a
-# hosted libm, while two exercise floating-point printf that mini-libc omits
-# deliberately.  Report those runtime gaps as unsupported before linking;
-# they are not compiler failures.
+# Some old execute tests predate effective-target requirements, while two
+# exercise floating-point printf that mini-libc omits deliberately.  Report
+# source-specific runtime gaps before linking; general libm gaps are detected
+# from the link diagnostics so compile-only math tests remain testable.
 proc c33_runtime_gap {sources {options {}}} {
     foreach source $sources {
 	# Link-only and LTO tests pass object files and archives here.  Only
@@ -125,12 +125,6 @@ proc c33_runtime_gap {sources {options {}}} {
 	}
 	if {$tail eq "920810-1.c"} {
 	    return "mini-libc deliberately omits %g floating-point printf"
-	}
-	set fd [open $source r]
-	set text [read $fd]
-	close $fd
-	if {[regexp {#[[:space:]]*include[[:space:]]*<math\.h>} $text]} {
-	    return "C33 test runtime has no math.h or libm"
 	}
     }
     return ""
@@ -237,10 +231,9 @@ proc c33-sim_compile {source destfile type options} {
 	}
     }
 
-    # Missing headers are a prerequisite failure for compile-only tests too,
-    # not just for executable links (matrix-3.c and matrix-4.c both include
-    # <math.h> under dg-do compile).  c33_runtime_gap only matches explicit
-    # source-level dependencies, so apply it uniformly before compilation.
+    # Source-specific runtime gaps can be known before compilation.  Apply
+    # those uniformly; general missing-library dependencies are classified
+    # from executable link diagnostics below.
     set gap [c33_runtime_gap $source $options]
     if {$gap ne ""} {
 	return "::unsupported::$gap"
