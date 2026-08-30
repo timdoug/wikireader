@@ -97,7 +97,7 @@ proc c33_enable_diagnostics {options} {
 # hosted libm, while two exercise floating-point printf that mini-libc omits
 # deliberately.  Report those runtime gaps as unsupported before linking;
 # they are not compiler failures.
-proc c33_runtime_gap {sources} {
+proc c33_runtime_gap {sources {options {}}} {
     foreach source $sources {
 	# Link-only and LTO tests pass object files and archives here.  Only
 	# source-language files can contain the include directive below; opening
@@ -109,6 +109,17 @@ proc c33_runtime_gap {sources} {
 	    continue
 	}
 	set tail [file tail $source]
+	if {$tail eq "pr96040.c"} {
+	    return "mini-libc deliberately omits floating-point snprintf"
+	}
+	if {$tail eq "pr47917.c"
+	    && [string first "/gcc.dg/torture/" $source] >= 0
+	    && [regexp {(^|[[:space:]])-O0([[:space:]]|$)} [join $options " "]]} {
+	    # Higher optimization levels fold these calls and test GCC.  At -O0
+	    # the source instead tests the target snprintf implementation, whose
+	    # truncation behavior is known not to be C99 conforming in mini-libc.
+	    return "mini-libc snprintf is non-conforming at -O0"
+	}
 	if {$tail eq "920501-8.c" || $tail eq "930513-1.c"} {
 	    return "mini-libc deliberately omits floating-point printf"
 	}
@@ -219,7 +230,7 @@ proc c33-sim_compile {source destfile type options} {
     # not just for executable links (matrix-3.c and matrix-4.c both include
     # <math.h> under dg-do compile).  c33_runtime_gap only matches explicit
     # source-level dependencies, so apply it uniformly before compilation.
-    set gap [c33_runtime_gap $source]
+    set gap [c33_runtime_gap $source $options]
     if {$gap ne ""} {
 	return "::unsupported::$gap"
     }
