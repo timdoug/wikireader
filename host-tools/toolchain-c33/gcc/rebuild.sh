@@ -57,6 +57,19 @@ done
 echo "==> registering the c33 target"
 python3 "${HERE}/tools/gcc-glue.py" "${SRC}"
 
+echo "==> applying GCC correctness patches"
+for patchfile in "${HERE}"/patches/*.patch; do
+	if patch -d "${SRC}" -p1 --forward --dry-run --silent < "${patchfile}"; then
+		patch -d "${SRC}" -p1 --forward --silent < "${patchfile}"
+	elif patch -d "${SRC}" -p1 --reverse --dry-run --silent < "${patchfile}"; then
+		# Already applied in this persistent work tree.
+		:
+	else
+		echo "cannot apply ${patchfile}" >&2
+		exit 1
+	fi
+done
+
 CONFIG_MATH=""
 for lib in gmp mpfr libmpc; do
 	p=$(brew --prefix "${lib}" 2>/dev/null || true)

@@ -1,0 +1,21 @@
+diff --git a/gcc/diagnostics/context.cc b/gcc/diagnostics/context.cc
+--- a/gcc/diagnostics/context.cc
++++ b/gcc/diagnostics/context.cc
+@@ -1461,12 +1461,13 @@ context::report_diagnostic (diagnostic_info *diagnostic)
+   if (diagnostic->m_kind == kind::ice || diagnostic->m_kind == kind::ice_nobt)
+     {
+-      /* When not checking, ICEs are converted to fatal errors when an
+-	 error has already occurred.  This is counteracted by
+-	 abort_on_error.  */
++      /* When not checking, top-level ICEs are converted to fatal errors when
++	 an error has already occurred.  Preserve deliberately nested ICEs so
++	 every output sink can finish the surrounding diagnostic.  */
+       if (!CHECKING_P
+ 	  && (diagnostic_count (kind::error) > 0
+ 	      || diagnostic_count (kind::sorry) > 0)
+-	  && !m_abort_on_error)
++	  && !m_abort_on_error
++	  && m_diagnostic_groups.m_diagnostic_nesting_level == 0)
+ 	{
+ 	  expanded_location s
+ 	    = expand_location (diagnostic_location (diagnostic));
