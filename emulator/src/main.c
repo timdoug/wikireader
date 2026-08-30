@@ -57,6 +57,11 @@ static void usage(const char *p)
 /* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
 #define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
 
+static bool cmu_slp_auto_wake_cb(void *ctx)
+{
+	return cmu_slp_auto_wake(ctx);
+}
+
 /*
  * Hand whatever the window collected to the emulated hardware.
  *
@@ -510,6 +515,8 @@ int main(int argc, char **argv)
 	mem.pc_src = &cpu.cur_pc;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
 	cpu.irq_ctx = &itc;
+	cpu.slp_auto_wake = cmu_slp_auto_wake_cb;
+	cpu.slp_ctx = &cmu;
 
 	struct wdt wdt;
 	wdt_attach(&mem, &wdt, &cmu, &cpu.clk);

@@ -46,6 +46,34 @@ static struct c33 init(uint16_t insn)
 	return c;
 }
 
+static bool auto_wake(void *ctx)
+{
+	return *(bool *)ctx;
+}
+
+static void sleep_modes(void)
+{
+	struct c33 c;
+	bool automatic;
+
+	printf("\nslp\n");
+	c = init(0x0040);                    /* slp */
+	c33_step(&c);
+	check("core slp waits without an SoC auto-wake", c.sleeping, 1);
+	c = init(0x0040);
+	automatic = true;
+	c.slp_auto_wake = auto_wake;
+	c.slp_ctx = &automatic;
+	c33_step(&c);
+	check("clock-switch slp resumes automatically", c.sleeping, 0);
+	c = init(0x0040);
+	automatic = false;
+	c.slp_auto_wake = auto_wake;
+	c.slp_ctx = &automatic;
+	c33_step(&c);
+	check("interrupt-wait slp remains asleep", c.sleeping, 1);
+}
+
 static void arithmetic(void)
 {
 	struct c33 c;
@@ -139,6 +167,7 @@ int main(void)
 	arithmetic();
 	swaps();
 	jumps();
+	sleep_modes();
 	if (fails) {
 		printf("\nFAILURES: %d\n", fails);
 		return 1;

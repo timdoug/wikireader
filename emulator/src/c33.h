@@ -120,6 +120,9 @@ struct c33 {
 	   enabled, so a request cancelled before it is taken is dropped. */
 	bool   (*irq_enabled)(void *ctx, unsigned vector);
 	void    *irq_ctx;
+	/* SoC clock logic decides whether slp auto-wakes for a clock switch. */
+	bool   (*slp_auto_wake)(void *ctx);
+	void    *slp_ctx;
 	/* log each grifo syscall (int 1) by name as it is issued */
 	bool     trace_syscalls;
 	bool     profile;            /* count executed instructions per opcode */

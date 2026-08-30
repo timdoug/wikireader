@@ -28,6 +28,7 @@
 #define OFF_GATEDCLK1  (0x1b04u - CMU_BASE)
 #define OFF_CLKCNTL    (0x1b08u - CMU_BASE)
 #define OFF_PLL        (0x1b0cu - CMU_BASE)
+#define OFF_OPT        (0x1b14u - CMU_BASE)
 #define OFF_PROTECT    (0x1b24u - CMU_BASE)
 
 #define PROTECT_OFF    0x96
@@ -44,6 +45,7 @@
 /* PLL fields. */
 #define PLLN(v)        ((((v) >> 4) & 0xf) + 1)    /* PLLN_X1 == 0 */
 #define PLLPOWR        (1u << 0)
+#define WAKEUPWT       (1u << 0)
 
 static bool cmu_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		     bool is_write)
@@ -97,6 +99,12 @@ uint32_t cmu_mclk_hz(const struct cmu *c)
 		 */
 		return OSC3_HZ / PLLINDIV(clkcntl) * PLLN(pll);
 	}
+}
+
+bool cmu_slp_auto_wake(const struct cmu *c)
+{
+	/* Zero is the E07's automatic clock-switch wake mode. */
+	return !(c->reg[OFF_OPT / 4] & WAKEUPWT);
 }
 
 void cmu_attach(struct mem *m, struct cmu *c)

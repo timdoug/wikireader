@@ -60,6 +60,8 @@ int main(void)
 {
 	mem_init(&mem);
 	cmu_attach(&mem, &cmu);
+	check("reset WAKEUPWT auto-wakes clock-switch SLEEP",
+	      cmu_slp_auto_wake(&cmu), 1);
 
 	/* Reset state is locked, so a write without unlocking is discarded. */
 	wr(0x1b08, GRIFO_CLKCNTL);
@@ -69,7 +71,12 @@ int main(void)
 	wr(0x1b24, CMU_PROTECT_OFF);
 	wr(0x1b08, GRIFO_CLKCNTL);
 	wr(0x1b0c, GRIFO_PLL);
+	wr(0x1b14, 1);              /* WAKEUPWT: wait for an interrupt */
 	check("write after unlocking takes effect", rd(0x1b08), GRIFO_CLKCNTL);
+	check("WAKEUPWT keeps the CPU in SLEEP", cmu_slp_auto_wake(&cmu), 0);
+	wr(0x1b14, 0);              /* automatic clock-switch wake */
+	check("clearing WAKEUPWT enables automatic wake",
+	      cmu_slp_auto_wake(&cmu), 1);
 
 	/* grifo's own arithmetic: 48 MHz / 8 = 6 MHz reference, x10 = 60 MHz. */
 	check("PLL reference is 48 MHz / 8", OSC3_HZ / 8, 6000000);

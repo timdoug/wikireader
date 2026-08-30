@@ -26,5 +26,7 @@ struct cmu {
 void cmu_attach(struct mem *m, struct cmu *c);
 /* System clock in Hz implied by the current register contents. */
 uint32_t cmu_mclk_hz(const struct cmu *c);
+/* True when WAKEUPWT selects automatic cancellation of SLEEP. */
+bool cmu_slp_auto_wake(const struct cmu *c);
 
 #endif /* CMU_H */

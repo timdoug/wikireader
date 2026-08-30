@@ -806,12 +806,12 @@ void c33_step(struct c33 *c)
 
 	case OP_SLP:
 		/*
-		 * Not a stop: grifo's CMU_initialise uses slp deliberately to
-		 * switch clocks ("set up so slp instruction can be used to
-		 * switch clocks", samo-lib/grifo/src/CMU.c). On hardware the
-		 * core sleeps only until the new clock is stable. With no
-		 * power management to model, resuming immediately is correct.
+		 * S1C33E07 III.1.11.2: WAKEUPWT=0 auto-wakes after the clock
+		 * switch; WAKEUPWT=1 waits for reset or an interrupt. With no
+		 * SoC callback, retain the core manual's ordinary sleep behavior.
 		 */
+		if (!c->slp_auto_wake || !c->slp_auto_wake(c->slp_ctx))
+			c->sleeping = true;
 		break;
 
 	/* ---- moves and loads ------------------------------------------- */

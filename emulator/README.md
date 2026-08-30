@@ -359,7 +359,8 @@ later confirmed against the S1C33E07 Technical Manual:
 * `add`/`sub %sp,imm10` counts **words**. `[%sp+imm]` scales the short field
   by the access size, but an ext-composed displacement is a plain **byte**
   offset.
-* `slp` is not a halt: `CMU_initialise` uses it deliberately to switch clocks.
+* `slp` follows CMU `WAKEUPWT`: clock-switch mode auto-wakes, while ordinary
+  SLEEP mode waits for a wake source. `CMU_initialise` uses the former.
 
 ### Checked against the C33 PE Core manual
 
@@ -457,9 +458,8 @@ firmware images happen to execute: carry/borrow and overflow edge cases for
 `ret`, and restoration from the architecturally fixed debug save area.
 
 Known divergences from the manual, none of which the firmware exercises on
-the boot path: `slp` resumes immediately rather than waiting for its clock
-change, illegal delay-slot instructions have no explicit unstable-state
-model, and the coprocessor instructions are unimplemented because no
+the boot path: illegal delay-slot instructions have no explicit unstable-
+state model, and the coprocessor instructions are unimplemented because no
 coprocessor is attached.
 
 ### Interrupt priority
