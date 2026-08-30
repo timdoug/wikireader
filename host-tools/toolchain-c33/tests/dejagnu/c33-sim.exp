@@ -55,6 +55,13 @@ proc check_profiling_available {test_what} {
     return 0
 }
 
+# GCC probes structure musttail support with a C++ translation unit because
+# C++ has stricter return-value constraints.  This toolchain is C-only, so
+# the generic probe cannot create its RTL dump; scalar C musttail remains on.
+proc check_effective_target_struct_musttail {} {
+    return 0
+}
+
 proc c33_runtime_ldflags {} {
     global env
     set dir $env(C33_RUNTIME_DIR)
