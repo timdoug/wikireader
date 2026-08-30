@@ -36,6 +36,7 @@ long atol (const char *);
 
 void *malloc (size_t) __attribute__((malloc));
 void *calloc (size_t, size_t) __attribute__((malloc));
+void *realloc (void *, size_t);
 void free (void *);
 void *bsearch (const void *, const void *, size_t, size_t,
 	       int (*) (const void *, const void *));
@@ -46,6 +47,10 @@ int rand_r (unsigned int *);
 
 /* POSIX, used by GCC's analyzer diagnostic-path tests.  */
 long random (void);
+char *getenv (const char *);
+int putenv (char *);
+int setenv (const char *, const char *, int);
+int unsetenv (const char *);
 
 /* Legacy mini-libc extensions used by the board runtime.  */
 char *itoa (int, char *, int);

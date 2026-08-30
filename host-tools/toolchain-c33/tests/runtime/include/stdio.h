@@ -1,8 +1,8 @@
 /*
  * <stdio.h> for the C33 DejaGnu board only.
  *
- * mini-libc has a printf family but no streams: no stdout, no stderr, no
- * fprintf.  Keep this declaration-only overlay self-contained rather than
+ * mini-libc has a printf family but no complete stream implementation.  Keep
+ * this declaration-only overlay self-contained rather than
  * including mini-libc's header: upstream preprocessor tests deliberately use
  * strict C90/C11 modes, while that legacy header contains extensions which
  * are unrelated to the program under test.
@@ -21,6 +21,17 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+
+#define EOF (-1)
+#define BUFSIZ 1024
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+#ifndef __C33_SSIZE_T_DEFINED
+#define __C33_SSIZE_T_DEFINED
+typedef long ssize_t;
+#endif
 
 typedef struct
 {
@@ -61,5 +72,35 @@ int fputs (const char *, FILE *);
 int putc (int, FILE *);
 size_t fwrite (const void *, size_t, size_t, FILE *);
 int fflush (FILE *);
+
+/* Declaration-only stream surface for compile-time and analyzer tests.  The
+   board classifies links which require these absent mini-libc routines as
+   unsupported.  */
+FILE *fopen (const char *, const char *);
+FILE *freopen (const char *, const char *, FILE *);
+int fclose (FILE *);
+size_t fread (void *, size_t, size_t, FILE *);
+char *fgets (char *, int, FILE *);
+int fgetc (FILE *);
+int getc (FILE *);
+int getchar (void);
+int ungetc (int, FILE *);
+int fscanf (FILE *, const char *, ...) __attribute__((format (scanf, 2, 3)));
+int scanf (const char *, ...) __attribute__((format (scanf, 1, 2)));
+int sscanf (const char *, const char *, ...)
+  __attribute__((format (scanf, 2, 3)));
+int vfscanf (FILE *, const char *, va_list);
+int vscanf (const char *, va_list);
+int vsscanf (const char *, const char *, va_list);
+int fseek (FILE *, long, int);
+long ftell (FILE *);
+void rewind (FILE *);
+void clearerr (FILE *);
+int feof (FILE *);
+int ferror (FILE *);
+int fileno (FILE *);
+void perror (const char *);
+int remove (const char *);
+int rename (const char *, const char *);
 
 #endif
