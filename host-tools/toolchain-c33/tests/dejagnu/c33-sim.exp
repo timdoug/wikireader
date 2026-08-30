@@ -67,9 +67,10 @@ proc check_effective_target_c99_runtime {} {
     return 0
 }
 
-# Profile-driven tests require target libgcov and a persistent filesystem for
-# transferring .gcda files back to the build host.  This bare-metal board has
-# neither, even though GCC's generic unknown-ELF fallback assumes profiling.
+# Profile-driven tests require a complete target libgcov writer and a
+# persistent filesystem for transferring .gcda files back to the build host.
+# C33 only has libgcov's freestanding counter/merge subset, even though GCC's
+# generic unknown-ELF fallback assumes profiling.
 proc check_profiling_available {test_what} {
     return 0
 }
@@ -266,7 +267,7 @@ proc c33-sim_compile {source destfile type options} {
 
     # gcc.misc-tests/gcov runs target-generated .gcda files through the host
     # gcov tool.  Even its compile-only cases invoke that final step.  The C33
-    # board has neither target libgcov nor persistent file transfer support.
+    # board has neither a target gcda writer nor persistent file transfer.
     foreach file $source {
 	if {[string first "/gcc.misc-tests/gcov-" $file] >= 0} {
 	    set c33_compile_unsupported 1

@@ -98,6 +98,35 @@ GCC's object-format probes, and long-double `fmaxl`/`ilogbl` libm gaps were not
 classified. The last correction was verified by a focused rerun after the
 baseline, so the baseline retains nine now-obsolete `cdivchkld.c` failures.
 
+A second unfiltered run completed on 2026-08-30 under
+`work/full-post-fixes2-20260829/`:
+
+```text
+# of expected passes        144950
+# of unexpected failures        39
+# of unexpected successes        1
+# of expected failures          924
+# of unresolved testcases       261
+# of unsupported tests         6166
+```
+
+Those 39 failures collapse to 15 source-level findings. Focused follow-up
+fixed the 24 missing float-range diagnostics, three profile-driver failures,
+one coverage-driver failure, two hosted-runtime executions, two failed-link
+classifications, two incorrect C99-runtime assumptions, and the old torture
+driver's unsupported-to-unresolved cascade. The 261 unresolved verdicts were
+entirely profile/gcov, IEEE-libm, and failed-prerequisite cascades; the affected
+focused drivers now have none.
+The remaining compiler-only scan mismatches are documented in
+`../DEJAGNU-TODO.md` and remain visible rather than changing upstream tests.
+
+The focused post-fix `gcc.dg/dg.exp` replay in
+`work/gcc-dg-post-fixes-20260830/` records 39,358 passes, four unexpected
+failures, 534 XFAIL, and 1,037 unsupported tests, with no unresolved result.
+All execution tests pass; the four remaining results are compile-time
+diagnostic, dump-text, or stack-accounting expectation mismatches documented
+in `../DEJAGNU-TODO.md`.
+
 Missing capabilities remain implementation work even when DejaGnu reports
 them unsupported. The concrete backlog and acceptance tests are in
 [`../DEJAGNU-TODO.md`](../DEJAGNU-TODO.md).

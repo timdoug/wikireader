@@ -509,11 +509,33 @@ The preserved result is `tests/dejagnu/work/full-20260828-2130/` (ignored by
 git). This is a broad discovery baseline, not a claim that all 1,836 raw
 assertions are compiler defects.
 
-The major repeated families include 1,048 UBSan assertions without a target
-sanitizer runtime and 189 analyzer assertions against mini-libc rather than a
-hosted libc. These are external prerequisites, not evidence for 1,237 distinct
-backend bugs. They remain visible; the board does not override
-`c99_runtime` or `untyped_assembly` to hide them.
+A second unfiltered run completed on 2026-08-30 in
+`tests/dejagnu/work/full-post-fixes2-20260829/`: 144,950 passes, 39 unexpected
+failures, one XPASS, 924 XFAIL, 261 unresolved, and 6,166 unsupported. Those
+39 failures represented 15 sources, not 39 compiler bugs.
+
+Focused fixes after that run recover 34 failures and every unresolved family.
+A declaration-only `<math.h>` exposes compile-time diagnostics without
+pretending libm exists. The board reports the absent UBSan runtime, complete
+gcda writer/filesystem, C++ structure-musttail probe, and hosted allocation,
+formatted-output, PIC-register, and `div` prerequisites precisely. The old
+C-torture driver no longer turns an explicitly unsupported compilation into
+an unresolved execution. Analyzer declarations are complete, and GCC's
+analyzer recognizes direct global `errno` implementations used by embedded
+libcs.
+
+Five compiler-only results remain visible because inspection shows correct
+output: `ifcvt-4` assumes conditional moves C33 lacks; `pr87954` expects `*w`
+while GCC prints its actual widening multiply as `w*`; `stack-usage-1` omits
+C33's 16-byte saved-register block; `debug/dwarf2/inline5` has a regex that
+crosses C33 `;` comments despite correct decoded DWARF; and `pr126464`
+executes correctly but warns for `1e4000L` because C33 `long double` is
+binary64. Upstream tests remain unchanged.
+
+The post-fix `gcc.dg/dg.exp` replay in
+`tests/dejagnu/work/gcc-dg-post-fixes-20260830/` confirms 39,358 passes, the
+four non-DWARF mismatches above, 534 XFAIL, 1,037 unsupported tests, and no
+unresolved result. Every execution test in that replay passes.
 
 The focused backend/binutils results resolved after that baseline now include:
 
@@ -613,21 +635,18 @@ fallback `free` is weak so a testcase may supply its own definition;
 support changes, not firmware changes.
 
 The torture driver was then exhaustively replayed in path-qualified
-partitions.  No GCC/backend failure remains.  The one intentionally visible
-failure is `pr47917.c -O0`, which reaches mini-libc's non-conforming
-`snprintf`; every optimized and LTO variant passes.  Compile-only sources that
-actually include the absent `<math.h>` are now classified before compilation,
-and the complete `matrix-*` family reports 48 unsupported verdicts.  C99 libm
-symbol variants and their contingent `link_error_*` guards are likewise
-classified only when the failed link contains no unrelated undefined symbol.
+partitions. No GCC/backend failure remains. `pr47917.c -O0` reaches
+mini-libc's non-conforming `snprintf` and is reported as that explicit runtime
+prerequisite; every optimized and LTO variant passes. Compile-only sources use
+the declaration-only test `<math.h>`, while executable libm dependencies and
+their contingent `link_error_*` guards are classified only when the failed
+link contains no unrelated undefined symbol. The complete IEEE replay records
+1,060 passes and 66 unsupported tests with no failure or unresolved result.
 
-The IPA driver has no demonstrated compiler failure either.  The two ICF
-count scans find every requested equality plus one valid extra equality from
-mini-libc's header-defined `abs` and `labs`, whose types are both 32-bit on
-C33.  The remaining execution failures are the documented external crt
-constructor requirement (`pr70306`) and formatted-output behavior
-(`pr96040`); a tail replay records 151 passes, two such failures, and two
-unsupported tests.
+The IPA driver has no demonstrated compiler failure either. External crt and
+formatted-output prerequisites are reported explicitly. The complete focused
+driver records 807 passes, four XFAIL, and 13 unsupported tests with no
+unexpected result.
 
 The remaining compiler-only scan mismatches are also evidence-backed there:
 the ICF count includes the valid 32-bit `abs`/`labs` pair, `pr87954` uses a

@@ -5,9 +5,17 @@ DejaGnu run. The historical baseline is
 `dejagnu/work/full-20260828-2130/gcc.sum`: 145,212 expected passes and 1,836
 unexpected failures. It predates all fixes below and is not the current
 status. Raw assertion counts are useful for measuring progress, but one source
-repeated across option sets is normally one root cause. A new unfiltered
-baseline is deliberately deferred until the focused failure families are
-finished.
+repeated across option sets is normally one root cause.
+
+The second unfiltered run, `dejagnu/work/full-post-fixes2-20260829/gcc.sum`,
+completed with 144,950 passes, 39 unexpected failures, one XPASS, 924 XFAIL,
+261 unresolved, and 6,166 unsupported. Focused fixes since that run remove 34
+of the 39 failures and every unresolved family. The post-fix `gcc.dg/dg.exp`
+replay records 39,358 passes, four unexpected failures, 534 XFAIL, and 1,037
+unsupported tests, with no unresolved result. Its four failures are the
+evidence-backed `ifcvt-4`, `pr126464`, `pr87954`, and `stack-usage-1`
+mismatches described below; the fifth known mismatch is in the separate
+`gcc.dg/debug/dwarf2` driver.
 
 ## Scope
 
@@ -67,11 +75,10 @@ Already classified baseline executions are not backend defects:
   execute emitted constructor/destructor arrays.
 * `loop-interchange-1.c` and `loop-interchange-1b.c` allocate about 14 MiB,
   beyond the current 8 MiB test memory map.
-* `torture/matrix-{3,4}.c` include the hosted `<math.h>` even though they are
-  compile-only matrix-flattening tests; the freestanding library has no such
-  header.  Source prerequisite checks now apply to compile-only tests too, so
-  all six `matrix-*` sources produce 48 explicit unsupported verdicts rather
-  than two sources failing compilation.
+* Compile-only math tests use the board's declaration-only `<math.h>` and can
+  exercise GCC without libm. Executable links are still classified from their
+  missing math symbols. This recovered the 26 warning/compile assertions in
+  `float-range-{3,5}.c` without adding a target math implementation.
 * `torture/builtin-convert-2.c` uses `builtins-config.h`'s hosted-runtime
   heuristic to enable C99 math calls, then requires the absent libm. The
   board's `c99_runtime` result cannot affect that source-level `#ifdef`.
@@ -82,35 +89,30 @@ Already classified baseline executions are not backend defects:
   changed.
 
 The post-fix `gcc.dg/torture` driver has been exhaustively replayed in
-path-qualified partitions.  No GCC/backend failure remains.  The sole visible
-failure is `pr47917.c -O0`, which reaches mini-libc's non-conforming `snprintf`;
-all optimized and LTO variants pass because GCC performs the expected folds.
-It remains visible rather than being hidden behind a test-name exception.
+path-qualified partitions. No GCC/backend failure remains. `pr47917.c -O0`
+reaches mini-libc's non-conforming `snprintf` and is reported as that explicit
+runtime prerequisite; all optimized and LTO variants pass because GCC
+performs the expected folds.
 
-The IPA driver is likewise fully classified.  Its expected folds and
-executions pass except for four external assertions: `ipa-icf-{12,13}.c` find
-all requested equalities plus the genuine additional equality between
-mini-libc's header-defined `abs` and `labs` (both are 32-bit on C33), while
-`pr70306.c` needs crt constructor iteration and `pr96040.c` needs conforming
-formatted output.  None is a missed IPA optimization or backend error.
+The IPA driver is likewise fully classified. Its expected folds and
+executions pass; external constructor and formatted-output prerequisites are
+reported explicitly. The complete focused driver records 807 passes, four
+XFAIL, and 13 unsupported tests with no unexpected result.
 
-The current replay of the old top-level `gcc.dg` failures has 37 failing
-source names (61 assertions), down from 48 sources/72 assertions before the
-latest fixes. They split as follows:
+The second unfiltered run exposed 39 failures across 15 sources. Focused
+follow-up recovered 34: 26 float-range diagnostic assertions, three
+tree-profile compilations, the coverage-driver check, `20020312-2`,
+`pr118224`, `strlenopt-68`, `struct-ret-libc`, and the two tests whose source
+assumes a hosted C99 math runtime. Profile, bprob, and gcov drivers now honor
+the board's lack of a gcda writer/filesystem; the IEEE torture driver preserves
+unsupported compilation prerequisites instead of adding unresolved execution
+verdicts. Structure-musttail tests no longer run a C++ capability probe through
+this C-only compiler.
 
-* missing headers/library surface: `alias-11`, the three atomic multi-TU
-  tests, C90/C99 header tests, float-range/math tests, `spellcheck-inttypes`,
-  `sso-14`, and `struct-ret-libc`;
-* missing libm/C99 math implementation: `builtins-58`, `builtins-67`,
-  `fold-round-1`, `pr120638`, `pr36584`, `pr41963`, and related math scans;
-* external execution services: hosted libgcov output (`20020201-1`), crt
-  constructors (`constructor-1`), allocator semantics (`pr118224`), and
-  formatted/string runtime behavior (`strlenopt-68`);
-* target-insensitive optimization scans with correct generated behavior:
-  `ifcvt-4`, `pr87954`, and `stack-usage-1`; and
-* no remaining GCC/backend item in this replay; the former `builtin-apply2`
-  and stack-alignment failures are fixed by the forwarding ABI extension
-  recorded below.
+Five evidence-backed compiler-only mismatches remain visible: `ifcvt-4`,
+`pr87954`, `stack-usage-1`, `debug/dwarf2/inline5`, and `pr126464`. The last
+executes correctly; its only failure is the expected overflow warnings from
+`1e4000L` on C33's ABI-valid binary64 `long double`.
 
 `dg-output-file-1` is no longer in that list: successful simulator loads now
 return only the target UART stream to DejaGnu, while retaining the full
@@ -226,7 +228,6 @@ is outside the current GCC/binutils task:
   (`libgcov.a` itself is built and installed, including the counter and merge
   machinery, but the freestanding build has no `__gcov_exit` writer);
 * C33 sanitizer runtimes and their language-runtime dependencies;
-* analyzer-facing hosted-libc declarations and attributes;
 * crt startup execution of constructor/destructor arrays; and
 * emulator semihosting, persistent files, or a thread/TLS model.
 
@@ -304,11 +305,6 @@ not evidence of incorrect C33 output:
   `*w`, or `WIDEN_MULT_PLUS_EXPR`.
 * `ifcvt-4.c` expects a multi-set conditional conversion. C33 has no
   conditional-move instruction and correctly retains a branch.
-* `tree-ssa/pr83403-{1,2}.c` perform all ten requested store-motion folds when
-  compiled with `--param max-completely-peeled-insns=250`. GCC's default is
-  200, and the upstream tests already add 300 for several 32-bit targets but
-  do not know C33. Raising the compiler's global peeling budget solely for
-  these scans would be a tuning-policy change, not a correctness fix.
 * `stack-usage-1.c` reports 272 bytes: the requested 256-byte object plus the
   16-byte `%r0`-through-`%r3` callee-save block. The generic scan accepts only
   256 or 264 unless a target-specific size is listed.
@@ -319,6 +315,9 @@ not evidence of incorrect C33 output:
   second comment-stopping character class omits C33's `;` assembler comment
   marker, so it traverses the two `DW_AT_abstract_origin` comments and counts
   all three variable DIE annotations. The emitted DWARF is not malformed.
+* `pr126464.c` executes successfully. Its excess diagnostics are correct
+  overflow warnings for `1e4000L`, because C33 `long double` is binary64; the
+  source was written around targets whose long double range exceeds double.
 
 These tests have not been edited or skipped. Revisit a case only if inspection
 shows incorrect code, ABI behavior, or malformed debug information rather
