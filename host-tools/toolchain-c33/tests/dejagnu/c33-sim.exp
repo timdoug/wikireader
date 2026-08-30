@@ -174,7 +174,7 @@ proc c33_known_missing_runtime {output} {
 	localtime signal raise kill mmap munmap mprotect sin cos tan asin acos
 	atan atan2 sinh cosh tanh exp exp2 log log2 log10 pow sqrt cbrt hypot
 	floor ceil round trunc fmod ldexp frexp modf copysign nan nearbyint rint
-	fmax fmaxl ilogb ilogbl
+	fmax fmaxl ilogb ilogbl div ldiv
     }
     # C99 supplies float and long-double variants of these libm entry points,
     # plus integer-conversion families with l/ll result prefixes.  Keep the
