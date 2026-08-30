@@ -416,13 +416,12 @@ immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
 and gcc emits a redundant `ext 0x0` before `xor %r6,0x30` when it wants +48
 precisely because a bare 0x30 would sign-extend. The operand table is right.
 
-`-A` turns on the address misaligned exception (vector 6): halfword and
-word accesses must sit on their natural boundary. It is off by default
-because it is a debugging aid rather than something the firmware needs,
-but running the whole boot and a search with it enabled reports zero
-misaligned accesses, which independently exercises the `[%sp+imm]` scaling
-and `ext` composition rules -- getting either wrong produces unaligned word
-accesses almost immediately. A rejected access now leaves its destination
+The address misaligned exception (vector 6) is architectural: halfword and
+word accesses must sit on their natural boundary, so it is always enabled.
+`-A` remains accepted for command-line compatibility. A full boot and search
+report zero misaligned accesses, independently exercising `[%sp+imm]`
+scaling and `ext` composition -- getting either wrong produces unaligned
+word accesses almost immediately. A rejected access leaves its destination
 and post-increment register untouched, as required by 6.3.5's rule that the
 faulting instruction is retried after `reti`.
 

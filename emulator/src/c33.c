@@ -222,7 +222,7 @@ void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
 
 static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 {
-	if (!c->check_alignment || sz < 2 || (a & (sz - 1)) == 0)
+	if (sz < 2 || (a & (sz - 1)) == 0)
 		return false;
 
 	c->misaligned_hits++;

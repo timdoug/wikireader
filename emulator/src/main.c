@@ -32,7 +32,7 @@ static void usage(const char *p)
 		"  -n N   stop after N instructions (default 1000000; unlimited with -g)\n"
 		"  -m     trace unclaimed MMIO register accesses\n"
 		"  -s     trace grifo syscalls by name\n"
-		"  -A     trap misaligned halfword/word accesses (vector 6)\n"
+		"  -A     accepted for compatibility; alignment traps are always on\n"
 		"  -g     show the panel in a live SDL2 window\n"
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
@@ -177,7 +177,6 @@ int main(int argc, char **argv)
 	bool trace_mmio = false;
 	bool trace_syscalls = false;
 	bool gui = false; int gui_scale = 3;
-	bool check_align = false;
 	bool profile = false;
 	bool card_readonly = false;
 	bool pc_profile = false;
@@ -294,8 +293,9 @@ int main(int argc, char **argv)
 			trace_mmio = true;
 		else if (!strcmp(argv[i], "-s"))
 			trace_syscalls = true;
-		else if (!strcmp(argv[i], "-A"))
-			check_align = true;
+		else if (!strcmp(argv[i], "-A")) {
+			/* Compatibility: alignment traps are now architectural. */
+		}
 		else if (!strcmp(argv[i], "-P"))
 			profile = true;
 		else if (!strcmp(argv[i], "-H"))
@@ -495,7 +495,6 @@ int main(int argc, char **argv)
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
-	cpu.check_alignment = check_align;
 	/* A -Y window starts closed; reaching prof_start opens it. */
 	cpu.profile = (prof_start || prof_ms1 > 0) ? false : profile;
 	cpu.pc_profile = (prof_start || prof_ms1 > 0) ? false : pc_profile;

@@ -156,7 +156,6 @@ static void test_ext(void)
 static void test_misaligned(void)
 {
 	struct c33 c = init(6);
-	c.check_alignment = true;
 	c.r[0] = 0xfeedface;
 	c.r[1] = 0x1001;
 	tw(NULL, ENTRY, 2, 0x3010);         /* ld.w %r0,[%r1] */

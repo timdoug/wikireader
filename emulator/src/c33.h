@@ -122,7 +122,6 @@ struct c33 {
 	void    *irq_ctx;
 	/* log each grifo syscall (int 1) by name as it is issued */
 	bool     trace_syscalls;
-	bool     check_alignment;   /* raise vector 6 on misaligned access */
 	bool     profile;            /* count executed instructions per opcode */
 	/* Executed instructions per 1K of address space, for finding hot code. */
 	bool     pc_profile;
