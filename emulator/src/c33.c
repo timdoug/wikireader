@@ -323,6 +323,42 @@ static void set_sub_flags(struct c33 *c, uint32_t a, uint32_t b)
 	c->sr[SR_PSR] = p;
 }
 
+static void set_adc_flags(struct c33 *c, uint32_t a, uint32_t b,
+			  unsigned carry, uint64_t result)
+{
+	int64_t signed_result = (int64_t)(int32_t)a + (int32_t)b + carry;
+	uint32_t r = (uint32_t)result;
+	uint32_t p = c->sr[SR_PSR] & ~(PSR_N | PSR_Z | PSR_C | PSR_V);
+
+	if (r == 0)
+		p |= PSR_Z;
+	if (r & 0x80000000u)
+		p |= PSR_N;
+	if (result >> 32)
+		p |= PSR_C;
+	if (signed_result > INT32_MAX || signed_result < INT32_MIN)
+		p |= PSR_V;
+	c->sr[SR_PSR] = p;
+}
+
+static void set_sbc_flags(struct c33 *c, uint32_t a, uint32_t b,
+			  unsigned borrow, uint64_t subtrahend)
+{
+	int64_t signed_result = (int64_t)(int32_t)a - (int32_t)b - borrow;
+	uint32_t r = a - (uint32_t)subtrahend;
+	uint32_t p = c->sr[SR_PSR] & ~(PSR_N | PSR_Z | PSR_C | PSR_V);
+
+	if (r == 0)
+		p |= PSR_Z;
+	if (r & 0x80000000u)
+		p |= PSR_N;
+	if ((uint64_t)a < subtrahend)
+		p |= PSR_C;
+	if (signed_result > INT32_MAX || signed_result < INT32_MIN)
+		p |= PSR_V;
+	c->sr[SR_PSR] = p;
+}
+
 /* Condition codes used by the jr<cc> family. */
 static bool cond(const struct c33 *c, uint8_t op)
 {
@@ -875,6 +911,22 @@ void c33_step(struct c33 *c)
 	}
 
 	/* ---- arithmetic ------------------------------------------------- */
+	case OP_ADC: {
+		unsigned carry = !!(c->sr[SR_PSR] & PSR_C);
+		uint64_t s = (uint64_t)c->r[a] + c->r[b] + carry;
+		set_adc_flags(c, c->r[a], c->r[b], carry, s);
+		c->r[a] = (uint32_t)s;
+		break;
+	}
+
+	case OP_SBC: {
+		unsigned borrow = !!(c->sr[SR_PSR] & PSR_C);
+		uint64_t subtrahend = (uint64_t)c->r[b] + borrow;
+		set_sbc_flags(c, c->r[a], c->r[b], borrow, subtrahend);
+		c->r[a] -= (uint32_t)subtrahend;
+		break;
+	}
+
 	case OP_ADD:
 		if ((f->shape_id == SHAPE_R_R)) {
 			if (c->n_ext) {
@@ -1068,6 +1120,18 @@ void c33_step(struct c33 *c)
 		c->sr[SR_SP] += 4;
 		break;
 
+	case OP_JPR:
+	case OP_JPR_D: {
+		uint32_t target = at + c->r[a];
+		if (op == OP_JPR_D) {
+			c->delay_pending = true;
+			c->delay_target = target;
+		} else {
+			c->pc = target;
+		}
+		break;
+	}
+
 	case OP_JREQ: case OP_JREQ_D: case OP_JRNE: case OP_JRNE_D:
 	case OP_JRGT: case OP_JRGT_D: case OP_JRGE: case OP_JRGE_D:
 	case OP_JRLT: case OP_JRLT_D: case OP_JRLE: case OP_JRLE_D:
@@ -1112,6 +1176,22 @@ void c33_step(struct c33 *c)
 			r = (uint32_t)((c->r[a] & 0xffff) * (c->r[b] & 0xffff));
 		c->sr[SR_ALR] = r;
 		c->sr[SR_AHR] = 0;
+		break;
+	}
+
+	case OP_SWAP: {
+		uint32_t v = c->r[b];
+		c->r[a] = ((v & 0x000000ffu) << 24) |
+			  ((v & 0x0000ff00u) << 8)  |
+			  ((v & 0x00ff0000u) >> 8)  |
+			  ((v & 0xff000000u) >> 24);
+		break;
+	}
+
+	case OP_SWAPH: {
+		uint32_t v = c->r[b];
+		c->r[a] = ((v & 0x00ff00ffu) << 8) |
+			  ((v & 0xff00ff00u) >> 8);
 		break;
 	}
 

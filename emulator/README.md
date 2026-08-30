@@ -451,11 +451,15 @@ and the indirect `ret` that follows jumped to address 0. It needed a real
 keypress at exactly the wrong cycle, which is why a headless boot never
 showed it. `make test-irq` now pins it deterministically.
 
+`make test-isa` covers the documented operations which none of the four
+firmware images happen to execute: carry/borrow and overflow edge cases for
+`adc` and `sbc`, both byte-order swaps, and immediate and delayed `jpr`.
+
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: `slp` resumes immediately rather than waiting for its clock
-change, traps are not masked between a `.d` branch and its delay slot, and
-`jpr`, `swap`, `swaph`, `adc`, `sbc` and the coprocessor instructions are
-unimplemented (none appear in any of the four firmware images).
+change, illegal delay-slot instructions have no explicit unstable-state
+model, and the coprocessor instructions are unimplemented because no
+coprocessor is attached.
 
 ### Interrupt priority
 
