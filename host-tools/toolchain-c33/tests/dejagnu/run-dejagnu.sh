@@ -35,7 +35,6 @@ export C33_BUILD_SITE=${GCC_BUILD_SITE:-${TCROOT}/gcc-16.2.0/build/gcc/site.exp}
 
 GCC_TESTSUITE=${SRC:-${TCROOT}/gcc-16.2.0/gcc/testsuite}
 OBJDIR=${WORK:-${HERE}/work/results}
-export C33_OBJDIR=${OBJDIR}
 GRIFO=${GRIFO:-${REPO}/samo-lib/grifo}
 export DEJAGNU=${HERE}/site.exp
 
@@ -54,6 +53,11 @@ if ! command -v runtest >/dev/null 2>&1; then
 fi
 
 mkdir -p "${C33_RUNTIME_DIR}" "${OBJDIR}"
+# Drivers which build multi-source executables reuse objdir in output paths.
+# Make it absolute before changing directory below so a relative WORK value
+# cannot turn those paths into an unintended nested directory.
+OBJDIR=$(cd "${OBJDIR}" && pwd)
+export C33_OBJDIR=${OBJDIR}
 
 build_runtime() {
 	"${C33_GCC}" -mc33pe -mno-long-calls -O0 -c \
