@@ -2,10 +2,10 @@
  * <stdio.h> for the C33 DejaGnu board only.
  *
  * mini-libc has a printf family but no streams: no stdout, no stderr, no
- * fprintf.  Its own <stdio.h> does declare a FILE type, so this header
- * layers the stream half on top of it rather than replacing it --
- * ${RT}/include comes before ${LIBC}/include on the harness command line,
- * so #include_next reaches mini-libc's.
+ * fprintf.  Keep this declaration-only overlay self-contained rather than
+ * including mini-libc's header: upstream preprocessor tests deliberately use
+ * strict C90/C11 modes, while that legacy header contains extensions which
+ * are unrelated to the program under test.
  *
  * Both streams go to the same serial port, and the FILE * argument is
  * ignored throughout.  That is enough for the tests that use it: they
@@ -19,10 +19,27 @@
 #ifndef TORTURE_STDIO_H
 #define TORTURE_STDIO_H
 
-#include_next <stdio.h>
-
 #include <stdarg.h>
 #include <stddef.h>
+
+typedef struct
+{
+  unsigned char opaque;
+} FILE;
+
+int uprintf (int (*) (int), const char *, ...)
+  __attribute__((format (printf, 2, 3)));
+int snprintf (char *, size_t, const char *, ...)
+  __attribute__((format (printf, 3, 4)));
+int sprintf (char *, const char *, ...)
+  __attribute__((format (printf, 2, 3)));
+int printf (const char *, ...) __attribute__((format (printf, 1, 2)));
+int vuprintf (int (*) (int), const char *, va_list);
+int vsnprintf (char *, size_t, const char *, va_list);
+int vsprintf (char *, const char *, va_list);
+int vprintf (const char *, va_list);
+int puts (const char *);
+int putchar (int);
 
 extern FILE *stdout;
 extern FILE *stderr;
