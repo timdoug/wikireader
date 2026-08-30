@@ -181,10 +181,10 @@ failed constraint checking.
   The V850 needed shift pairs and `zxb`/`sxh`; all of that is gone.
 * **Multiply**: `mlt.w`/`mlt.h`/`mltu.h` into the `%ahr:%alr` pair, then
   `ld.w %rd,%alr` for the low half.
-* **Divide**: no patterns at all, deliberately. The C33 divide is a
-  multi-step `div0s`/`div1`/`div2s` sequence that does not fit one insn, and
-  the original toolchain did not use it either -- patch 0003 in
-  `host-tools/toolchain-patches` switches its libgcc to the C implementations.
+* **Divide**: no patterns at all, deliberately. Older C33 cores have the
+  multi-step `div0s`/`div1`/`div2s` sequence, but Table I.5.3.5 removes it
+  from PE. Patch 0003 in `host-tools/toolchain-patches` had already switched
+  EPSON's PE libgcc from that invalid assembly to the C implementations.
   With no `divmodsi4`, GCC calls `__divsi3`.
 * **Comments are `;`**, not `#`, including the `APP`/`NO_APP` markers around
   inline asm.
