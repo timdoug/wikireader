@@ -1235,11 +1235,10 @@ const struct c33_opcode c33_pe_opcodes32[] =
 { "rl",     OP_CLASS4_2(0x9c),      OP_CLASS4_2_MASK,       {RD,IMM5},          0,  7}, /* PE */
 { "xrl",    OP_CLASS4_2(0x9c),      OP_CLASS4_2_MASK,       {RD,IMM5},          0,  7},
 
-{ "scan0",  OP_CLASS4_2(0x8a),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
-{ "scan1",  OP_CLASS4_2(0x8e),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
 { "swaph",  OP_CLASS4_2(0x9a),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0}, /* PE */
 { "swap",   OP_CLASS4_2(0x92),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
-{ "mirror", OP_CLASS4_2(0x96),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
+/* S1C33E07 Technical Manual, Table I.5.3.5: PE removes the
+   divide-step, mac, mirror, scan0 and scan1 instructions.  */
 //{ "div0s",  OP_CLASS4_2(0x8b),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
 //{ "div0u",  OP_CLASS4_2(0x8f),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
 //{ "div1",   OP_CLASS4_2(0x93),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
@@ -1267,7 +1266,6 @@ const struct c33_opcode c33_pe_opcodes32[] =
 { "mltu.h", OP_CLASS5(0xa6),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
 { "mlt.w",  OP_CLASS5(0xaa),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
 { "mltu.w", OP_CLASS5(0xae),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
-{ "mac",    OP_CLASS5(0xb2),        OP_CLASS5_MASK,         {RS2},              0,  0},
 { "ld.c",   OP_CLASS5(0xb1),        OP_CLASS5_MASK,         {RD,IMM5},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "ld.c",   OP_CLASS5(0xb5),        OP_CLASS5_MASK,         {IMM5,RS},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* PE */	/* add T.Tazaki 2004/07/07 */
@@ -2093,11 +2091,10 @@ const struct c33_opcode c33_pe_opcodes[] =
 { "rl",     OP_CLASS4_2(0x9c),      OP_CLASS4_2_MASK,       {RD,IMM5},          0,  7}, /* PE */
 { "xrl",    OP_CLASS4_2(0x9c),      OP_CLASS4_2_MASK,       {RD,IMM5},          0,  7},
 
-{ "scan0",  OP_CLASS4_2(0x8a),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
-{ "scan1",  OP_CLASS4_2(0x8e),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
 { "swaph",  OP_CLASS4_2(0x9a),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0}, /* PE */
 { "swap",   OP_CLASS4_2(0x92),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
-{ "mirror", OP_CLASS4_2(0x96),      OP_CLASS4_2_MASK,       {RD,RS2},           0,  0},
+/* S1C33E07 Technical Manual, Table I.5.3.5: PE removes the
+   divide-step, mac, mirror, scan0 and scan1 instructions.  */
 //{ "div0s",  OP_CLASS4_2(0x8b),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
 //{ "div0u",  OP_CLASS4_2(0x8f),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
 //{ "div1",   OP_CLASS4_2(0x93),      OP_CLASS4_2_MASK,       {RS2},              0,  0},
@@ -2121,7 +2118,6 @@ const struct c33_opcode c33_pe_opcodes[] =
 { "mltu.h", OP_CLASS5(0xa6),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
 { "mlt.w",  OP_CLASS5(0xaa),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
 { "mltu.w", OP_CLASS5(0xae),        OP_CLASS5_MASK,         {RD,RS2},           0,  0},
-{ "mac",    OP_CLASS5(0xb2),        OP_CLASS5_MASK,         {RS2},              0,  0},
 { "ld.c",   OP_CLASS5(0xb1),        OP_CLASS5_MASK,         {RD,IMM5},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "ld.c",   OP_CLASS5(0xb5),        OP_CLASS5_MASK,         {IMM5,RS},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* PE */	/* add T.Tazaki 2004/07/07 */
