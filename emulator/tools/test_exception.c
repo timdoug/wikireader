@@ -55,6 +55,43 @@ static void test_reset_registers(void)
 	check("DBBR fixed value", c.sr[SR_DBBR], 0x00060000);
 }
 
+static struct c33 run_sreg(uint16_t insn, uint32_t r0)
+{
+	struct c33 c;
+
+	memset(&c, 0, sizeof c);
+	memset(ram, 0, sizeof ram);
+	c.bus.read = tr;
+	c.bus.write = tw;
+	c33_reset(&c, ENTRY);
+	c.r[0] = r0;
+	tw(NULL, ENTRY, 2, insn);
+	c33_step(&c);
+	return c;
+}
+
+static void test_special_registers(void)
+{
+	struct c33 c;
+
+	printf("\nspecial-register constraints\n");
+	c = run_sreg(0xa4f0, 0);             /* ld.w %r0,%pc */
+	check("PC transfer reads the following address", c.r[0], ENTRY + 2);
+	c = run_sreg(0xa000, ~0u);           /* ld.w %psr,%r0 */
+	check("unused PSR bits remain zero", c.sr[SR_PSR],
+	      PSR_IL_MASK | PSR_IE | PSR_C | PSR_V | PSR_Z | PSR_N);
+	c = run_sreg(0xa001, 0x1234567b);     /* ld.w %sp,%r0 */
+	check("SP remains word aligned", c.sr[SR_SP], 0x12345678);
+	c = run_sreg(0xa008, 0x123457ff);     /* ld.w %ttbr,%r0 */
+	check("TTBR remains 1K aligned", c.sr[SR_TTBR], 0x12345400);
+	c = run_sreg(0xa00a, ~0u);           /* ld.w %idir,%r0 */
+	check("IDIR is read-only", c.sr[SR_IDIR], 0x06000000);
+	c = run_sreg(0xa00b, ~0u);           /* ld.w %dbbr,%r0 */
+	check("DBBR is read-only", c.sr[SR_DBBR], 0x00060000);
+	c = run_sreg(0xa00f, 0x12345678);     /* ld.w %pc,%r0 */
+	check("PC is read-only", c.pc, ENTRY + 2);
+}
+
 static struct c33 init(unsigned vector)
 {
 	struct c33 c;
@@ -145,6 +182,7 @@ int main(void)
 	};
 
 	test_reset_registers();
+	test_special_registers();
 	for (unsigned i = 0; i < sizeof undefined / sizeof undefined[0]; i++)
 		test_undefined(undefined[i].word, undefined[i].name);
 	test_ext();

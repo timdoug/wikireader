@@ -539,6 +539,36 @@ static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 	c->delay_pending = false;
 }
 
+/* Architectural restrictions on the special-register transfer forms. */
+static uint32_t read_sreg(const struct c33 *c, unsigned reg)
+{
+	/* ld.w %rd,%pc reads the address following that ld.w (section 2.2). */
+	return reg == SR_PC ? c->pc : c->sr[reg];
+}
+
+static void write_sreg(struct c33 *c, unsigned reg, uint32_t value)
+{
+	switch (reg) {
+	case SR_PSR:
+		c->sr[reg] = value & (PSR_IL_MASK | PSR_IE | PSR_C |
+					PSR_V | PSR_Z | PSR_N);
+		break;
+	case SR_SP:
+		c->sr[reg] = value & ~3u;
+		break;
+	case SR_TTBR:
+		c->sr[reg] = value & ~0x3ffu;
+		break;
+	case SR_IDIR:
+	case SR_DBBR:
+	case SR_PC:
+		break;                  /* read-only */
+	default:
+		c->sr[reg] = value;
+		break;
+	}
+}
+
 static void fault(struct c33 *c, const char *why)
 {
 	if (!c->fault) {
@@ -788,10 +818,10 @@ void c33_step(struct c33 *c)
 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
 		} else if (f->sreg == 1) {
 			/* ld.w %sreg,%rN  (0xa00N): index is bits 3:0 */
-			c->sr[insn & 0xf] = c->r[a];
+			write_sreg(c, insn & 0xf, c->r[a]);
 		} else if (f->sreg == 2) {
 			/* ld.w %rN,%sreg  (0xa4N0): index is bits 7:4 */
-			c->r[a] = c->sr[(insn >> 4) & 0xf];
+			c->r[a] = read_sreg(c, (insn >> 4) & 0xf);
 		} else {
 			fault(c, "unhandled ld.w form");
 		}

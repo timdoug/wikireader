@@ -406,6 +406,10 @@ Cold reset also installs the architectural register values from sections
 2.5, 2.7, and 2.8: TTBR is `0x00c00000`, IDIR identifies a PE core with
 type byte `0x06`, and the read-only DBBR is `0x00060000`. The model/revision
 byte in IDIR is left zero because the S1C33E07 manual does not specify it.
+Special-register transfers enforce the same register definitions: unused
+PSR bits read as zero, SP stays word aligned, TTBR stays 1K aligned, IDIR,
+DBBR, and PC ignore writes, and reading PC produces the address immediately
+after the `ld.w` as section 2.2 specifies.
 
 One caveat for anyone reading the manual: its prose says `cmp` takes its
 immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
