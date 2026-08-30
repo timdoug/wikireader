@@ -175,7 +175,7 @@
 
 /* Define this if move instructions will actually fail to work
    when given unaligned data.  */
-#define STRICT_ALIGNMENT  (!TARGET_NO_STRICT_ALIGN)
+#define STRICT_ALIGNMENT  1
 
 /* Define this as 1 if `char' should by default be signed; else as 0.
 

@@ -76,10 +76,6 @@ mjump-tables-in-data-section
 Target Mask(JUMP_TABLES_IN_DATA_SECTION)
 Put jump tables in .data rather than .text.
 
-mno-strict-align
-Target RejectNegative Mask(NO_STRICT_ALIGN)
-Do not enforce strict alignment.
-
 mdebug
 Target Undocumented Mask(DEBUG)
 Enable backend debugging.

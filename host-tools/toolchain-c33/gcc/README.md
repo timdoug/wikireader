@@ -191,6 +191,10 @@ failed constraint checking.
 * **ALU immediates are `n`, not `i`.** With `i` a symbol could reach an
   immediate alternative and produce `xadd %r5,ButtonBuffer`, which is not an
   instruction.
+* **Alignment is always strict.** The inherited V850 `-mno-strict-align`
+  option emitted `ld.w` at byte-aligned packed fields, but C33 PE raises the
+  mandatory vector-6 exception instead of completing such an access. The
+  option is therefore not exposed by this target, matching Epson GCC 3.3.2.
 
 Deleted rather than converted, because the C33 has no equivalent:
 

@@ -35,9 +35,6 @@ UrlSuffix(gcc/C33-Options.html#index-mspace)
 mtda=
 UrlSuffix(gcc/C33-Options.html#index-mtda)
 
-mno-strict-align
-UrlSuffix(gcc/C33-Options.html#index-mno-strict-align-6)
-
 mjump-tables-in-data-section
 UrlSuffix(gcc/C33-Options.html#index-mjump-tables-in-data-section)
 
@@ -91,4 +88,3 @@ UrlSuffix(gcc/C33-Options.html#index-mgcc-abi)
 
 m8byte-align
 UrlSuffix(gcc/C33-Options.html#index-m8byte-align)
-
