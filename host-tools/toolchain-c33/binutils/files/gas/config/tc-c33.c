@@ -5029,8 +5029,7 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
                     lNumber = value;
                     /* over signed 22bit ? */
                         if ((lNumber - 2) > 0x1ffffe || (lNumber - 2 ) < -0x200000 ) 
-                        as_warn_where (fixp->fx_file, fixp->fx_line, _("operand out of range"));
-                        /* as_bad_where = ERROR */
+                        as_bad_where (fixp->fx_file, fixp->fx_line, _("operand out of range"));
                 }
                 g_where_rh = 0xffffffff;
                 insn += (((value - 2) >> 9) & 0x1fff);
@@ -5043,8 +5042,7 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
                     lNumber = value;
                     /* over signed 8bit ? */
                         if (lNumber > 254 || lNumber < -256)
-                        as_warn_where (fixp->fx_file, fixp->fx_line, _("operand out of range"));
-                        /* as_bad_where = ERROR */
+                        as_bad_where (fixp->fx_file, fixp->fx_line, _("operand out of range"));
                 }
                 g_where_rh = 0xffffffff;
                 g_where_rm = 0xffffffff;

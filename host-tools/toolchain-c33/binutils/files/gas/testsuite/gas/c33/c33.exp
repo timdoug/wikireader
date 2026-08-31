@@ -10,5 +10,6 @@ if [istarget c33-*-*] {
     gas_test_error "pe-mirror.s" "-mc33pe" "C33 PE rejects removed mirror"
     gas_test_error "pe-scan0.s" "-mc33pe" "C33 PE rejects removed scan0"
     gas_test_error "pe-scan1.s" "-mc33pe" "C33 PE rejects removed scan1"
+    gas_test_error "sjp-range.s" "-mc33pe" "C33 rejects out-of-range sign22 jumps"
     run_dump_test "pe-added"
 }
