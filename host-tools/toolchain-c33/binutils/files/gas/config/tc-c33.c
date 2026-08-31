@@ -4174,8 +4174,15 @@ md_assemble (char * str)
                                 expression (& ex);
 
                                 iNumber = ex.X_add_number;
-                                    
-                                if (operand->range <= 6){
+
+                                /* ext preserves the natural-alignment low
+                                   bits as zero for SP halfword/word forms.  */
+                                if (ex.X_op == O_constant
+                                    && opcode->specialFlag > 1
+                                    && iNumber % opcode->specialFlag != 0) {
+                                    errmsg = _("misaligned stack displacement");
+                                }
+                                else if (operand->range <= 6){
                                     /* EMPTY */
                                 }
                                 else if (operand->range == 32) {

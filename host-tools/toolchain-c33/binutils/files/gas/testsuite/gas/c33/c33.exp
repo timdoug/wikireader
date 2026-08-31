@@ -11,5 +11,7 @@ if [istarget c33-*-*] {
     gas_test_error "pe-scan0.s" "-mc33pe" "C33 PE rejects removed scan0"
     gas_test_error "pe-scan1.s" "-mc33pe" "C33 PE rejects removed scan1"
     gas_test_error "sjp-range.s" "-mc33pe" "C33 rejects out-of-range sign22 jumps"
+    gas_test_error "sp-align-h.s" "-mc33pe" "C33 rejects misaligned xld.h stack displacement"
+    gas_test_error "sp-align-w.s" "-mc33pe" "C33 rejects misaligned xld.w stack displacement"
     run_dump_test "pe-added"
 }
