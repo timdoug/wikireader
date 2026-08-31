@@ -65,7 +65,7 @@ LIBS += ${DRIVERS_LIB}
 LIBS += ${FATFS_LIB}
 LIBS += ${DRIVERS_LIB}
 LIBS += ${MINI_LIBC_LIB}
-LIBS += $(shell ${CC} -print-libgcc-file-name)
+LIBS += $(shell ${CC} $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
 LDFLAGS = -static --strip-all -s --no-gc-sections -N -L${MINI_LIBC}
 
