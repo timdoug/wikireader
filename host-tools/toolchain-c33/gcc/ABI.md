@@ -460,6 +460,14 @@ The 3.3.2 machine description models this minimally:
 One slot, no annul-true, no annul-false. The replacement backend can keep the
 same shape; `define_delay` still exists in modern GCC.
 
+The PE manual further requires a slot instruction to take one cycle, avoid
+memory, and need no `ext`.  GCC 3.3.2 enforces this per move alternative: its
+register moves are eligible and its loads and stores are not.  The modern
+port briefly reduced that policy to instruction length alone, which let a
+two-byte `ld.w [%rN],%rM` or `ld.w %rM,[%rN]` enter a slot.  The current
+`in_delay_slot` attribute checks both length and the load/store type; the
+`delay-slot-memory.c` target test covers both directions.
+
 ## Assembler output requirements
 
 * Emit `.size NAME,.-NAME`. The 3.3.2 backend emits `.size .NAME,.-.NAME` with
