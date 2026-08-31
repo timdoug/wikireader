@@ -13,6 +13,7 @@
 
 #include "c33.h"
 #include "../c33_forms.h"
+#include "../c33_pe_valid.h"
 #include "../c33_syscalls.h"
 
 /* ---- operand extraction --------------------------------------------- */
@@ -405,26 +406,10 @@ static bool is_delayed(uint8_t op)
 	}
 }
 
-/*
- * The generated decoder is deliberately the union of the STD, ADV and PE
- * instruction sets.  Most instructions removed from PE have their own
- * opcode enum and are rejected in c33_step's undefined-instruction cases,
- * but a few ADV encodings reuse a mnemonic which PE also implements.
- * Recognizing the mnemonic is therefore not sufficient to admit the form.
- *
- * The PE opcode table has no class-7 instructions (the %dp-relative memory
- * family), and the PE Core Manual documents only ext imm13.  The class-0
- * add-to-DP form is likewise an Advanced-core instruction.
- */
-static bool pe_encoding_valid(uint16_t insn, const struct c33_form *f)
+/* Operand forms come from the all-core table; validity comes from PE ELF. */
+static bool pe_encoding_valid(uint16_t insn)
 {
-	if ((insn & 0xe000u) == 0xe000u)
-		return false;
-	if (f->op == OP_ADD && f->shape_id == SHAPE_R_DP)
-		return false;
-	if (f->op == OP_EXT && f->shape_id != SHAPE_I)
-		return false;
-	return true;
+	return (c33_pe_valid[insn >> 3] & (1u << (insn & 7))) != 0;
 }
 
 /*
@@ -827,7 +812,7 @@ void c33_step(struct c33 *c)
 	}
 	c->last_insn = insn;
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
-	uint8_t op = pe_encoding_valid(insn, f) ? f->op : OP_INVALID;
+	uint8_t op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
 	if (c->profile)
 		c->opcount[op]++;
 	if (c->pc_profile) {

@@ -29,8 +29,9 @@ src/%.o: src/%.c
 # Regenerate the decode tables from binutils' disassembler. Requires
 # allinsn_full.txt, produced by disassembling all 65536 encodings with
 # c33-epson-elf-objdump (see tools/gen_forms.py).
-tables: allinsn_full.txt
+tables: allinsn_full.txt allinsn_pe.txt
 	python3 tools/gen_forms.py allinsn_full.txt c33_forms.h
+	python3 tools/gen_pe_valid.py allinsn_pe.txt c33_pe_valid.h
 
 # Check the generated tables still agree with binutils on real firmware.
 test: c33_forms.h

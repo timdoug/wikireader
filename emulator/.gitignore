@@ -16,6 +16,7 @@ screen.png
 # without needing the cross toolchain.
 allinsn.txt
 allinsn_full.txt
+allinsn_pe.txt
 allinsn.bin
 *-full.txt
 ref-*.txt

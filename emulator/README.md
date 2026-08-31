@@ -303,6 +303,7 @@ directory such as `enquote/`.
 | `src/cmu.c` | clock management unit, protect gate, derived MCLK |
 | `src/periph.c` | ADC |
 | `c33_forms.h` | **generated** decode tables |
+| `c33_pe_valid.h` | **generated** PE valid-encoding bitmap |
 | `c33_syscalls.h` | **generated** syscall names |
 | `tools/` | table generators and ISA-fitting scripts |
 | `difftest/` | differential tests against the real cross compiler |
@@ -320,7 +321,13 @@ python3 -c "import struct;open('/tmp/allinsn.bin','wb').write(
 c33-epson-elf-objdump -D -b binary -m c33 /tmp/allinsn.bin \
     | grep -E '^ *[0-9a-f]+:' > allinsn_full.txt
 
-make tables          # -> c33_forms.h
+# Put the same words in a PE ELF so objdump selects the PE opcode table.
+printf '\t.text\n\t.incbin "/tmp/allinsn.bin"\n' > /tmp/allinsn-pe.s
+c33-epson-elf-as -mc33pe -o /tmp/allinsn-pe.o /tmp/allinsn-pe.s
+c33-epson-elf-objdump -d /tmp/allinsn-pe.o \
+    | grep -E '^ *[0-9a-f]+:' > allinsn_pe.txt
+
+make tables          # -> c33_forms.h and c33_pe_valid.h
 make test            # check the tables against real firmware
 ```
 
@@ -331,12 +338,14 @@ and operand shape. `tools/fit_ext.py` and `tools/fit_data_ext.py` fit how
 
 ## Notes on the ISA
 
-The decoder is generated from binutils' own disassembler rather than from
-the opcode table in `c33-opc.c`, because the two disagree. `c33-dis.c` has
-`c33_opcodes` commented out and decodes with a hand-written switch; the
-assembler table is missing forms the disassembler emits, such as the
-`srl`/`sll`/`sra` family at `0x23xx` where the immediate is a single 5-bit
-field rather than the two `IMM4` families the table lists.
+The operand decoder is generated from binutils' raw-binary disassembly, whose
+Advanced-mode fallback contains every operand form the executor needs. A
+separate bitmap comes from a PE ELF disassembly and prevents reserved or
+other-core words from inheriting those forms. `.short` and binutils' `***`
+invalid-field marker are rejected, except for the `ld.w` special-register and
+`pushs`/`pops` selections which the manual explicitly defines as no-ops. The
+PE manual independently checks every encoding selected by its 90 documented
+opcode patterns.
 
 Several semantics were measured against real firmware rather than assumed,
 after the obvious reading turned out to be wrong. All of the following were

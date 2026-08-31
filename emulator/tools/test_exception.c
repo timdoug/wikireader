@@ -206,6 +206,7 @@ int main(void)
 		uint16_t word;
 		const char *name;
 	} undefined[] = {
+		{ 0x0001, "reserved nop encoding" },
 		{ 0x0300, "invalid encoding" },
 		{ 0x8b10, "div0s" }, { 0x8f10, "div0u" },
 		{ 0x9310, "div1" },  { 0x9710, "div2s" },
