@@ -418,14 +418,12 @@ static bool pe_encoding_valid(uint16_t insn, const struct c33_form *f)
 /*
  * Cycle costs, from the CLK line of each entry in the C33 PE Core manual.
  *
- * Per-form variation within a mnemonic is not modelled: the manual gives
- * loads as one cycle register-to-register and two for some memory forms,
- * and this uses the lower figure plus one when an ext prefix is present,
- * which is the documented adjustment. ext itself is listed as "zero or one
- * cycle depending on the instruction queue status"; one is charged here as
- * the upper bound, so elapsed time errs slightly long rather than short.
+ * ext itself is listed as "zero or one cycle depending on the instruction
+ * queue status"; one is charged here as the upper bound, so elapsed time
+ * errs slightly long rather than short.
  */
-static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
+static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
+			   uint16_t insn, bool branched, bool had_ext)
 {
 	unsigned n;
 
@@ -439,9 +437,12 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
 	case OP_RET_D:                          return 3;
 	case OP_PSRSET: case OP_PSRCLR:         return 3;
 	case OP_PUSH:                           return 2;
-	case OP_PUSHN: case OP_POPN:            return (unsigned)nreg + 1;
-	case OP_PUSHS: case OP_POPS:            return nreg == 2 ? 3 : 2;
-	case OP_LD_W:                           if (nreg == 2) return 3; break;
+	case OP_PUSHN: case OP_POPN:            return (insn & 0xfu) + 2;
+	case OP_PUSHS: case OP_POPS:            return (insn & 0xfu) == SR_AHR ? 3 : 2;
+	case OP_LD_W:
+		if (f->sreg == 1 && (insn & 0xfu) == SR_PSR)
+			return 3;
+		break;
 	case OP_BSET: case OP_BCLR: case OP_BNOT: return had_ext ? 4 : 3;
 	case OP_BTST:                           return had_ext ? 3 : 2;
 	case OP_CALL:                           return 4;
@@ -449,6 +450,15 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
 	case OP_JP: case OP_JPR:                return 3;
 	case OP_JP_D: case OP_JPR_D:            return 2;
 	case OP_EXT:                            return 1;
+	default:
+		break;
+	}
+
+	/* Post-increment and SP-relative transfers always take two clocks. */
+	switch (f->shape_id) {
+	case SHAPE_R_LRBP: case SHAPE_LRBP_R:
+	case SHAPE_R_LSPPIB: case SHAPE_LSPPIB_R:
+		return 2;
 	default:
 		break;
 	}
@@ -1410,16 +1420,7 @@ void c33_step(struct c33 *c)
 	 * prefixes into the following instruction.
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
-	int nreg = 0;
-	if (op == OP_PUSHN || op == OP_POPN)
-		nreg = a + 1;
-	else if (op == OP_PUSHS || op == OP_POPS) {
-		unsigned sreg = insn & 0xf;
-		nreg = sreg == SR_ALR ? 1 : sreg == SR_AHR ? 2 : 0;
-	}
-	if (op == OP_LD_W && f->sreg == 1 && (insn & 0xf) == SR_PSR)
-		nreg = 2;              /* cycle_cost: 1 normally, 3 for PSR */
-	c->clk += cycle_cost(op, c->pc != pc_before, had_ext, nreg);
+	c->clk += cycle_cost(op, f, insn, c->pc != pc_before, had_ext);
 
 	if (c->n_ext) {
 		/*

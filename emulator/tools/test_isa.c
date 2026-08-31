@@ -170,6 +170,35 @@ static void special_stack(void)
 	      c.sr[SR_LCO], 0x55555555);
 }
 
+static void memory_timing(void)
+{
+	static const struct {
+		uint16_t insn;
+		const char *name;
+	} two_clock[] = {
+		{ 0x2110, "ld.b %r0,[%r1]+" },
+		{ 0x3510, "ld.b [%r1]+,%r0" },
+		{ 0x4000, "ld.b %r0,[%sp+0]" },
+		{ 0x5400, "ld.b [%sp+0],%r0" },
+		{ 0x3110, "ld.w %r0,[%r1]+" },
+		{ 0x3d10, "ld.w [%r1]+,%r0" },
+		{ 0x5000, "ld.w %r0,[%sp+0]" },
+		{ 0x5c00, "ld.w [%sp+0],%r0" },
+	};
+	struct c33 c;
+	char what[80];
+
+	printf("\nmemory timing\n");
+	for (unsigned i = 0; i < sizeof two_clock / sizeof two_clock[0]; i++) {
+		c = init(two_clock[i].insn);
+		c.r[1] = 0x200;
+		c.sr[SR_SP] = 0x200;
+		c33_step(&c);
+		snprintf(what, sizeof what, "%s takes two clocks", two_clock[i].name);
+		check(what, c.clk, 2);
+	}
+}
+
 static void jumps(void)
 {
 	struct c33 c;
@@ -240,6 +269,7 @@ int main(void)
 	arithmetic();
 	swaps();
 	special_stack();
+	memory_timing();
 	jumps();
 	debug_exception();
 	sleep_modes();
