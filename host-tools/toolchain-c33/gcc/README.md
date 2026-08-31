@@ -272,7 +272,8 @@ Two files GCC needs that are easy to forget, because they live outside
    not correctness: the `bset`/`bclr`/`btst` bit operations, and using the
    short unextended encodings where the operand provably fits (today we emit
    the `x` form and let the assembler narrow it, which is right but makes the
-   `length` attribute pessimistic).
+   `length` attribute pessimistic). The documented `swaph` instruction is
+   selected for both Advanced and PE cores; STD retains the shift sequence.
 5. ~~**Data areas.**~~ Done. C33 `%r15`-relative addressing is implemented;
    `-medda32` selects absolute addressing and remains the measured default.
 6. ~~**Delay slots.**~~ Done. Unconditional and conditional branch slots are
