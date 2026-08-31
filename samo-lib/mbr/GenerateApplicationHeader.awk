@@ -2,25 +2,27 @@
 
 BEGIN {
         NAME_LENGTH = 32
-        for (i = 0; i < NAME_LENGTH; ++i) {
-                padding = padding "\0"
-        }
         n = 0
-        name[0] = substr("No Name" padding, 0, NAME_LENGTH)
+        name[0] = "No Name"
 }
 
 END {
-        printf("SAMO%c\0\0\0", n)
+        printf("SAMO%c%c%c%c", n, 0, 0, 0)
         for (i = 0; i < n; ++i) {
-                printf(name[i])
+                title = substr(name[i], 1, NAME_LENGTH)
+                printf("%s", title)
+                for (j = length(title); j < NAME_LENGTH; ++j) {
+                        printf("%c", 0)
+                }
         }
 }
 
 /^[[:space:]]*#[[:space:]]*define[[:space:]]+APPLICATION_TITLE[[:digit:]]*[[:space:]]+/ {
-        line = gensub("^.*APPLICATION_TITLE[[:digit:]]*[[:space:]]*\"", "", 1, $0)
-        line = gensub("\".*$", "", 1, line)
+        line = $0
+        sub("^.*APPLICATION_TITLE[[:digit:]]*[[:space:]]*\"", "", line)
+        sub("\".*$", "", line)
         if ("" != line) {
-                name[n] = substr(line padding, 0, NAME_LENGTH)
+                name[n] = line
                 n = n + 1
         }
 }

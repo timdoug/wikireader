@@ -132,14 +132,13 @@ stack before mbr's first call, so the ROM must.
 Everything after that is real firmware. Building the FLASH image needs
 
 ```
-make AWK="python3 samo-lib/mbr/GenerateApplicationHeader.py" mbr
+make AWK=awk mbr
 ```
 
-which produces `samo-lib/mbr/flash.rom`. The `AWK` override is because the
-original header generator uses `gensub()`, a gawk extension;
-`GenerateApplicationHeader.py` is a drop-in that needs only Python. The
-image assembler `host-tools/flash07/image07` was Python 2 and has been
-ported.
+which produces `samo-lib/mbr/flash.rom`. The `AWK` override selects the
+system awk; the header generator is POSIX awk and emits its binary NUL
+padding portably. The image assembler `host-tools/flash07/image07` was
+Python 2 and has been ported.
 
 This required modelling three things the ELF path never touched: the I/O
 ports, because the SPI chip selects live there (`port.c` -- SD is port 5

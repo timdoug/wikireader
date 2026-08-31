@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Application header generator, a drop-in for the gawk script.
+"""Application header generator, an alternative to the awk script.
 
 The Makefile invokes it as
 
     $(AWK) -f GenerateApplicationHeader.awk foo.c
 
-so the -f and its argument are accepted and ignored. Exists because the awk
-version uses gensub(), a gawk extension, and gawk is not everywhere.
+so the -f and its argument are accepted and ignored.
 
 Header layout, matching menu.c:
 
@@ -14,11 +13,8 @@ Header layout, matching menu.c:
              uint32_t count;
              char names[count][32]; }
 
-Note on a discrepancy: the awk original writes each name with
-substr(name, 0, 32). gawk clamps a start index below one to one but keeps
-the end position, so that yields 31 characters, not 32, while menu.c reads
-NameType[32]. Names after the first would be read shifted. This emits 32,
-matching the C structure that consumes it.
+Both generators emit 32-byte names, matching the C structure that consumes
+the header.
 """
 
 import re
