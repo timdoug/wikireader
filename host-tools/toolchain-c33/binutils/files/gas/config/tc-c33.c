@@ -1895,9 +1895,9 @@ c33_insert_operand (unsigned long insn,
                         c33_sprint_value (buf, lval);
               
                     if (file == (char *) NULL)
-                        as_warn (err, buf, min, max);
+                        as_bad (err, buf, min, max);
                     else
-                        as_warn_where (file, line, err, buf, min, max);
+                        as_bad_where (file, line, err, buf, min, max);
                 }
                 else
                 {
@@ -1929,9 +1929,9 @@ c33_insert_operand (unsigned long insn,
                             c33_sprint_value (buf, lval);
                   
                         if (file == (char *) NULL)
-                            as_warn (err, buf, min, max);
+                            as_bad (err, buf, min, max);
                         else
-                            as_warn_where (file, line, err, buf, min, max);
+                            as_bad_where (file, line, err, buf, min, max);
                     }
                 }
             }
@@ -1957,9 +1957,9 @@ c33_insert_operand (unsigned long insn,
                         c33_sprint_value (buf, lval);
 
                     if (file == (char *) NULL)
-                        as_warn (err, buf, min, max);
+                        as_bad (err, buf, min, max);
                     else
-                        as_warn_where (file, line, err, buf, min, max);
+                        as_bad_where (file, line, err, buf, min, max);
                 }
             }
         }

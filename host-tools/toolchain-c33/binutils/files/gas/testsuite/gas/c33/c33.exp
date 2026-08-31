@@ -13,5 +13,6 @@ if [istarget c33-*-*] {
     gas_test_error "sjp-range.s" "-mc33pe" "C33 rejects out-of-range sign22 jumps"
     gas_test_error "sp-align-h.s" "-mc33pe" "C33 rejects misaligned xld.h stack displacement"
     gas_test_error "sp-align-w.s" "-mc33pe" "C33 rejects misaligned xld.w stack displacement"
+    run_list_test "operand-range" "-mc33pe" "C33 rejects out-of-range immediate fields"
     run_dump_test "pe-added"
 }
