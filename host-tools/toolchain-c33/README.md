@@ -118,6 +118,12 @@ enormous unrelated churn.
   `g_iAdvance`/`g_iPE`/`g_iMedda32` globals moved out of `gas/as.c` and into
   `tc-c33.c`, using gas's own `md_longopts`/`md_parse_option`. That removes an
   invasive patch to a shared file.
+* The S1C33E07 manual's Table I.5.3.5 removes the older core's `div0s`,
+  `div0u`, `div1`, `div2s`, and `div3s` encodings.  The old GCC tree still
+  contains divide-step assembly as unused source, but its active PE `t-c33`
+  builds generic C division and the installed 3.3.2 `libgcc.a` contains none
+  of these instructions.  Both the preserved and current PE assemblers
+  reject all five; the tests make that manual requirement explicit.
 * `ext_remove.c` is wired in through gas's `extra_objects` mechanism, the same
   way `bfin` pulls in its parser.
 * `ld` now uses the standard `elf` emulation template. EPSON's

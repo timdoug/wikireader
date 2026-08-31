@@ -1,6 +1,11 @@
 # C33 PE architecture tests.
 
 if [istarget c33-*-*] {
+    gas_test_error "pe-div0s.s" "-mc33pe" "C33 PE rejects removed div0s"
+    gas_test_error "pe-div0u.s" "-mc33pe" "C33 PE rejects removed div0u"
+    gas_test_error "pe-div1.s" "-mc33pe" "C33 PE rejects removed div1"
+    gas_test_error "pe-div2s.s" "-mc33pe" "C33 PE rejects removed div2s"
+    gas_test_error "pe-div3s.s" "-mc33pe" "C33 PE rejects removed div3s"
     gas_test_error "pe-mac.s" "-mc33pe" "C33 PE rejects removed mac"
     gas_test_error "pe-mirror.s" "-mc33pe" "C33 PE rejects removed mirror"
     gas_test_error "pe-scan0.s" "-mc33pe" "C33 PE rejects removed scan0"
