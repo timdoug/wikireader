@@ -88,12 +88,14 @@ def main(argv):
             continue
         got = {mnem(w) for w in range(65536)
                if all(f"{w:04X}"[i] == c.upper() for i, c in fixed)}
-        # A pattern's wildcards can span more than the one form it documents,
-        # so the mnemonic being present is what matters.
-        if want in got:
+        # The underscores are operand fields, not unspecified opcode bits:
+        # every encoding selected by the documented pattern must therefore
+        # decode to this mnemonic.  Merely finding WANT in GOT would hide an
+        # overlap or precedence error in part of the operand space.
+        if got == {want}:
             agree += 1
         else:
-            problems.append((form, pat, want, sorted(got)[:4]))
+            problems.append((form, pat, want, sorted(got)))
 
     print(f"documented forms checked : {agree + len(problems)}")
     print(f"  agree                  : {agree}")
