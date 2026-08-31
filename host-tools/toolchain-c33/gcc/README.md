@@ -269,8 +269,8 @@ Two files GCC needs that are easy to forget, because they live outside
    value that is true for this target at the top of `c33.h`; simplifying the
    code that reads them is cleanup still owed.
 4. ~~**`c33.md`.**~~ Done - see above. What is left of it is optimisation,
-   not correctness: the `btst` bit test and displaced forms of the implemented
-   `bset`/`bclr`/`bnot` operations, and using the
+   not correctness: displaced forms of the implemented `btst`, `bset`,
+   `bclr`, and `bnot` operations, and using the
    short unextended encodings where the operand provably fits (today we emit
    the `x` form and let the assembler narrow it, which is right but makes the
    `length` attribute pessimistic). The documented `swaph` instruction is
