@@ -25,6 +25,12 @@ static int32_t fld(uint16_t insn, const struct c33_field *f)
 	return v;
 }
 
+/* Instructions are 16 bits, so every value loaded into PC loses bit 0. */
+static uint32_t pc_value(uint32_t value)
+{
+	return value & ~1u;
+}
+
 /*
  * Combine any pending ext prefixes with a base immediate of the given width.
  * Consumes the prefixes.
@@ -514,7 +520,7 @@ void c33_reset(struct c33 *c, uint32_t entry)
 	 * every field added after that was silently zeroed on reset.
 	 */
 	memset(c, 0, offsetof(struct c33, reset_barrier__));
-	c->pc = entry;
+	c->pc = pc_value(entry);
 	/* Fixed cold-reset values from Core Manual sections 2.5, 2.7, 2.8. */
 	c->sr[SR_TTBR] = 0x00c00000;
 	c->sr[SR_IDIR] = 0x06000000; /* PE type; revision/model is unspecified */
@@ -585,7 +591,7 @@ static void take_irq(struct c33 *c)
 	c->sr[SR_PSR] &= ~PSR_IE;
 	c->sr[SR_PSR] = (c->sr[SR_PSR] & ~PSR_IL_MASK) |
 			(c->irq_priority << PSR_IL_SHIFT);
-	c->pc = target;
+	c->pc = pc_value(target);
 	c->irqs_taken++;
 }
 
@@ -605,7 +611,7 @@ static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 	c->sr[SR_SP] -= 4;
 	c->bus.write(c->bus.ctx, c->sr[SR_SP], 4, c->sr[SR_PSR]);
 	c->sr[SR_PSR] &= ~PSR_IE;
-	c->pc = target;
+	c->pc = pc_value(target);
 	c->delay_pending = false;
 }
 
@@ -1160,7 +1166,7 @@ void c33_step(struct c33 *c)
 		uint32_t target;
 		if ((f->shape_id == SHAPE_R)) {
 			/* Register branch targets always have their LSB handled as 0. */
-			target = c->r[a] & ~1u;
+			target = pc_value(c->r[a]);
 			c->n_ext = 0;
 		} else {
 			/* PC-relative, word displacement, measured from the
@@ -1190,13 +1196,13 @@ void c33_step(struct c33 *c)
 	}
 
 	case OP_RET:
-		c->pc = rd(c, c->sr[SR_SP], 4);
+		c->pc = pc_value(rd(c, c->sr[SR_SP], 4));
 		if (!c->access_fault)
 			c->sr[SR_SP] += 4;
 		break;
 
 	case OP_RET_D: {
-		uint32_t target = rd(c, c->sr[SR_SP], 4);
+		uint32_t target = pc_value(rd(c, c->sr[SR_SP], 4));
 		if (!c->access_fault) {
 			c->sr[SR_SP] += 4;
 			c->delay_pending = true;
@@ -1208,7 +1214,7 @@ void c33_step(struct c33 *c)
 	case OP_JPR:
 	case OP_JPR_D: {
 		/* jpr likewise treats its signed register displacement as even. */
-		uint32_t target = at + (c->r[a] & ~1u);
+		uint32_t target = at + pc_value(c->r[a]);
 		if (op == OP_JPR_D) {
 			c->delay_pending = true;
 			c->delay_target = target;
@@ -1355,7 +1361,7 @@ void c33_step(struct c33 *c)
 		wr(c, c->sr[SR_DBBR] + 0x08, 4, c->pc);
 		wr(c, c->sr[SR_DBBR] + 0x0c, 4, c->r[0]);
 		if (!c->access_fault) {
-			c->pc = rd(c, c->sr[SR_DBBR], 4);
+			c->pc = pc_value(rd(c, c->sr[SR_DBBR], 4));
 			if (!c->access_fault)
 				c->debug_mode = true;
 		}
@@ -1408,14 +1414,14 @@ void c33_step(struct c33 *c)
 		c->sr[SR_SP] -= 4;
 		wr(c, c->sr[SR_SP], 4, c->sr[SR_PSR]);
 		c->sr[SR_PSR] &= ~PSR_IE;               /* enter with ints off */
-		c->pc = target;
+		c->pc = pc_value(target);
 		break;
 	}
 
 	case OP_RETI:
 		c->sr[SR_PSR] = rd(c, c->sr[SR_SP], 4);
 		c->sr[SR_SP] += 4;
-		c->pc = rd(c, c->sr[SR_SP], 4);
+		c->pc = pc_value(rd(c, c->sr[SR_SP], 4));
 		c->sr[SR_SP] += 4;
 		break;
 
@@ -1423,7 +1429,7 @@ void c33_step(struct c33 *c)
 		/* Debug save area layout, Core Manual retd instruction page. */
 		c->r[0] = rd(c, c->sr[SR_DBBR] + 0x0c, 4);
 		if (!c->access_fault) {
-			c->pc = rd(c, c->sr[SR_DBBR] + 0x08, 4);
+			c->pc = pc_value(rd(c, c->sr[SR_DBBR] + 0x08, 4));
 			if (!c->access_fault)
 				c->debug_mode = false;
 		}

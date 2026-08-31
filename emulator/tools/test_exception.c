@@ -46,7 +46,7 @@ static void test_reset_registers(void)
 {
 	struct c33 c = {0};
 
-	c33_reset(&c, ENTRY);
+	c33_reset(&c, ENTRY | 1u);
 	printf("\ncold reset registers\n");
 	check("caller-selected entry is loaded into PC", c.pc, ENTRY);
 	check("PSR reset value", c.sr[SR_PSR], 0);
@@ -112,7 +112,7 @@ static struct c33 init(unsigned vector)
 	c.sr[SR_SP] = STACK;
 	c.sr[SR_PSR] = PSR_IE | (15u << PSR_IL_SHIFT);
 	c.sr[SR_IDIR] = 0x06120000;
-	tw(NULL, TTBR + vector * 4, 4, HANDLER);
+	tw(NULL, TTBR + vector * 4, 4, HANDLER | 1u);
 	tw(NULL, HANDLER, 2, 0x0000);       /* nop */
 	return c;
 }
