@@ -98,7 +98,18 @@ OBJECTS += watchdog.o
 #OBJECTS +=
 
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
+
+# Benchmark and hardware fallback switch.  The default production build uses
+# DMA; SD_DMA=NO leaves today's MMC driver unchanged but does not register the
+# Grifo backend, so its existing PIO path handles block payloads.
+SD_DMA ?= YES
+ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
+CFLAGS += -DSD_DMA_ENABLED=1
+else
+SD_DMA_OBJECT =
+CFLAGS += -DSD_DMA_ENABLED=0
+endif
 
 .PHONY: all
 all:  ${TARGETS}

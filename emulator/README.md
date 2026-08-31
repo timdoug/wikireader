@@ -919,24 +919,57 @@ screen matched PIO byte-for-byte.
 
 The earlier 913-block/48-PIO result was wrong.  Those 48 were speculative
 CMD18 sectors generated after the firmware had raised the card's chip select;
-the card model now releases MISO and stops the stream while deselected.  A
-current hardware-style boot reads 956 real blocks: 97 PIO blocks belong to
-the pre-kernel MBR/menu/file-loader, and all 859 blocks handled by the
-kernel's production driver use DMA.  It finishes with 439,808 HSDMA and
-438,949 IDMA transfers, zero invalid
-descriptors, and zero receive overflows.
+the card model now releases MISO and stops the stream while deselected.
 
-The old 39.7% PIO/DMA timing comparison predated the SDRAM model and is no
-longer quoted as a hardware-time result.  A direct ELF boot still gives the
-useful SPI/DMA pipeline invariant of exactly 20,472 cycles for each of its
-859 blocks, but that convenience path deliberately skips hardware SDRAM
-initialisation and therefore does not enable SDRAM waits.  In the full boot,
-where the firmware configures the controller, 956 mixed boot and kernel
-payloads average 46,096.7 MCLK cycles (35,288 minimum, 49,930 maximum), and
-the controller contributes 69,383,619 wait cycles in the
-`-n 300000000` run.  A new matched PIO-versus-DMA run under this model is
-needed before stating a replacement speedup; real hardware is still needed
-to calibrate absolute card latency.
+For a matched comparison, `SD_DMA=NO` builds the current kernel without
+registering the DMA backend; the same MMC implementation then takes its PIO
+fallback.  `SD_DMA=YES` is the production default.  Three read-only clones of
+the same card were populated with either the shipped gcc 3.3.2 binaries or
+the same gcc 16.2 applications and one of these two kernels.  All used the
+same current MBR/menu/file-loader and stopped on the first `Event_wait` after
+wiki startup:
+
+| firmware | first stable screen | executed work | SD blocks |
+| --- | ---: | ---: | ---: |
+| shipped gcc 3.3.2, PIO | 2363.4 ms | 61,364,514 | 951 |
+| gcc 16.2, PIO | 2370.6 ms | 56,406,351 | 954 |
+| gcc 16.2, DMA | 2374.3 ms | 40,340,531 | 962 |
+
+All three framebuffers have SHA-256
+`a6cbc0ca51927f95647794f922efc67ae2d5a254b65f4d0e5b3186cc89c9b232`.
+This milestone is deliberately deadline-bound: after entering the kernel,
+each build takes almost exactly two seconds because the firmware waits for
+that time.  DMA therefore spends less of the interval working and more of it
+idle; it cuts executed work by 28.5% versus the matching PIO build without
+reducing this particular wall time.  An earlier initialization milestone not
+hidden by the wait reaches the wiki's first `File_initialise` at 905.9 ms for
+stock, 893.6 ms for gcc 16.2 PIO, and 773.0 ms for gcc 16.2 DMA.
+
+Opening the first result after typing `LOVE` is a better sustained-I/O
+measurement.  From `search_open_article` through successful decompression,
+both gcc 16.2 runs read the same 395 blocks:
+
+| current kernel path | article data + LZMA | executed work |
+| --- | ---: | ---: |
+| PIO | 3831.4 ms | 64,395,028 |
+| DMA | 3629.3 ms | 55,589,491 |
+
+DMA saves 202.1 ms (5.3%) and 13.7% of the instructions.  Its exact transfer
+delta is 202,240 HSDMA and 201,845 IDMA operations: 512 and 511 respectively
+for every block.  The final article framebuffer is byte-identical to PIO and
+to the shipped app (SHA-256
+`a59583436dad5898832f30f0815f662361a6b7710bc7d089429d05bc88bd58ca`).
+The shipped app is not used as an article-timing baseline because that
+operation also exposes two unmapped reads and 256 out-of-range writes just
+above DSTRAM; it happens to render correctly, but it is not a clean
+execution.  Current firmware produces none of those accesses.
+
+These are predictions from the documented 60 MHz MCLK, SPI, DMA, and SDRAM
+timing models.  A direct ELF boot still gives the useful SPI/DMA pipeline
+invariant of exactly 20,472 cycles per block, but deliberately skips hardware
+SDRAM initialization.  Real hardware remains necessary to calibrate absolute
+SD-card latency and the conservative cross-bank SDRAM behavior described
+below.
 
 ### SDRAM and external-bus timing
 
