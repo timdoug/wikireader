@@ -35,8 +35,10 @@
 #define PROTECT_OFF    0x96
 
 /* CLKCNTL fields (samo-lib/include/regs.h). */
-#define PLLINDIV(v)    ((((v) >> 20) & 0xf) + 1)   /* PLLINDIV_1 == 0 */
 #define OSC3DIV_SHIFT  8
+#define MCLKDIV        (1u << 12)
+#define SOSC3          (1u << 1)
+#define SOSC1          (1u << 0)
 #define OSCSEL(v)      (((v) >> 2) & 0x3)
 #define OSCSEL_OSC3    0
 #define OSCSEL_OSC1    1
@@ -81,25 +83,38 @@ uint32_t cmu_mclk_hz(const struct cmu *c)
 {
 	uint32_t clkcntl = c->reg[OFF_CLKCNTL / 4];
 	uint32_t pll = c->reg[OFF_PLL / 4];
+	uint32_t hz;
 
 	switch (OSCSEL(clkcntl)) {
 	case OSCSEL_OSC1:
-		return OSC1_HZ;
+		hz = clkcntl & SOSC1 ? OSC1_HZ : 0;
+		break;
 	case OSCSEL_OSC3:
-	case OSCSEL_OSC3X:
-		return OSC3_HZ;
+	case OSCSEL_OSC3X: {
+		static const uint8_t div[8] = { 1, 2, 4, 8, 16, 32, 1, 1 };
+		unsigned setting = (clkcntl >> OSC3DIV_SHIFT) & 0x7;
+		hz = clkcntl & SOSC3 ? OSC3_HZ / div[setting] : 0;
+		break;
+	}
 	case OSCSEL_PLL:
 	default:
-		if (!(pll & PLLPOWR))
-			return 0;          /* PLL selected but not powered */
+		if (!(pll & PLLPOWR) || !(clkcntl & SOSC3)) {
+			hz = 0;           /* PLL or its source is not powered */
+			break;
+		}
 		/*
 		 * The reference is OSC3 divided by PLLINDIV, and the output
 		 * is that multiplied by PLLN. grifo's 48 MHz / 8 x 10 gives
 		 * 60 MHz; PLLV sets the VCO divider, which the manual's own
 		 * worked figures fold into the same result.
 		 */
-		return OSC3_HZ / PLLINDIV(clkcntl) * PLLN(pll);
+		unsigned setting = (clkcntl >> 20) & 0xf;
+		unsigned indiv = setting <= 9 ? setting + 1 : 8;
+		hz = OSC3_HZ / indiv * PLLN(pll);
+		break;
 	}
+
+	return hz / (clkcntl & MCLKDIV ? 2 : 1);
 }
 
 bool cmu_slp_auto_wake(const struct cmu *c)

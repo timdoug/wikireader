@@ -21,9 +21,12 @@
 #define PLLINDIV_8    (7 << 20)
 #define LCDCDIV_12    (11 << 16)
 #define OSC3DIV_32    (5 << 8)
+#define MCLKDIV       (1 << 12)
 #define OSCSEL_PLL    (3 << 2)
+#define OSCSEL_OSC3   (2 << 2)
 #define OSCSEL_OSC1   (1 << 2)
 #define SOSC3         (1 << 1)
+#define SOSC1         (1 << 0)
 
 #define PLLCS         (0 << 22)
 #define PLLBYP        (0 << 21)
@@ -117,9 +120,20 @@ int main(void)
 
 	/* Selecting a different source changes the derived frequency. */
 	wr(0x1b24, CMU_PROTECT_OFF);
-	wr(0x1b08, (GRIFO_CLKCNTL & ~(3 << 2)) | OSCSEL_OSC1);
+	wr(0x1b08, (GRIFO_CLKCNTL & ~(3 << 2)) | OSCSEL_OSC1 | SOSC1);
 	check("selecting OSC1 gives the 32768 Hz watch crystal",
 	      cmu_mclk_hz(&cmu), OSC1_HZ);
+
+	wr(0x1b08, OSCSEL_OSC3 | SOSC3 | OSC3DIV_32);
+	check("OSC3DIV divides the 48 MHz crystal by 32",
+	      cmu_mclk_hz(&cmu), OSC3_HZ / 32);
+	wr(0x1b08, OSCSEL_OSC3 | SOSC3 | OSC3DIV_32 | MCLKDIV);
+	check("MCLKDIV halves the selected system clock",
+	      cmu_mclk_hz(&cmu), OSC3_HZ / 64);
+	wr(0x1b08, OSCSEL_OSC3 | OSC3DIV_32);
+	check("a stopped OSC3 cannot drive MCLK", cmu_mclk_hz(&cmu), 0);
+	wr(0x1b08, OSCSEL_OSC1);
+	check("a stopped OSC1 cannot drive MCLK", cmu_mclk_hz(&cmu), 0);
 
 	wr(0x1b08, GRIFO_CLKCNTL);
 	wr(0x1b0c, GRIFO_PLL & ~PLLPOWR);
