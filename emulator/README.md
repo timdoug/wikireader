@@ -455,7 +455,9 @@ showed it. `make test-irq` now pins it deterministically.
 `make test-isa` covers the documented operations which none of the four
 firmware images happen to execute: carry/borrow and overflow edge cases for
 `adc` and `sbc`, both byte-order swaps, immediate and delayed `jpr`, delayed
-`ret`, and restoration from the architecturally fixed debug save area.
+`ret`, and the `brk`/`retd` debug-exception path. The latter checks the fixed
+debug save area and that ordinary interrupts remain pending throughout debug
+mode, as required by section 6.5.
 
 Known divergences from the manual, none of which the firmware exercises on
 the boot path: illegal delay-slot instructions have no explicit unstable-

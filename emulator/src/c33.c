@@ -679,7 +679,7 @@ void c33_step(struct c33 *c)
 	 * in grifo's syscall return made it load from 0xd4ec instead, which
 	 * read as zero and sent an indirect ret to address 0.
 	 */
-	if (c->irq_pending && (c->sr[SR_PSR] & PSR_IE) &&
+	if (c->irq_pending && !c->debug_mode && (c->sr[SR_PSR] & PSR_IE) &&
 	    !c->delay_pending && !c->n_ext)
 		take_irq(c);
 
@@ -1270,6 +1270,23 @@ void c33_step(struct c33 *c)
 			c->sr[SR_PSR] &= ~(1u << a);
 		break;
 
+	case OP_BRK:
+		/*
+		 * Software debug exception, Core Manual sections 6.5 and 7:
+		 * save the following PC and R0 in the fixed debug area, then
+		 * branch through its vector.  This is deliberately not the normal
+		 * exception stack frame.  Hardware and NMI interrupts remain
+		 * pending while the processor is in debug mode.
+		 */
+		wr(c, c->sr[SR_DBBR] + 0x08, 4, c->pc);
+		wr(c, c->sr[SR_DBBR] + 0x0c, 4, c->r[0]);
+		if (!c->access_fault) {
+			c->pc = rd(c, c->sr[SR_DBBR], 4);
+			if (!c->access_fault)
+				c->debug_mode = true;
+		}
+		break;
+
 	/*
 	 * Software interrupt -- grifo's syscall mechanism. A stub is:
 	 *
@@ -1331,8 +1348,11 @@ void c33_step(struct c33 *c)
 	case OP_RETD:
 		/* Debug save area layout, Core Manual retd instruction page. */
 		c->r[0] = rd(c, c->sr[SR_DBBR] + 0x0c, 4);
-		if (!c->access_fault)
+		if (!c->access_fault) {
 			c->pc = rd(c, c->sr[SR_DBBR] + 0x08, 4);
+			if (!c->access_fault)
+				c->debug_mode = false;
+		}
 		break;
 
 	default:

@@ -162,11 +162,42 @@ static void jumps(void)
 	check("retd restores PC from the debug save area", c.pc, 0x240);
 }
 
+static void debug_exception(void)
+{
+	struct c33 c = init(0x0400);          /* brk */
+
+	printf("\nbrk/retd\n");
+	c.r[0] = 0x12345678;
+	c.sr[SR_PSR] = PSR_IE;
+	tw(NULL, 0x60000, 4, 0x200);         /* debug vector */
+	tw(NULL, 0x200, 2, 0x0440);          /* retd */
+	tw(NULL, ENTRY + 2, 2, 0x0000);      /* resumed nop */
+	c33_step(&c);
+	check("brk saves the following PC", tr(NULL, 0x60008, 4), ENTRY + 2);
+	check("brk saves R0", tr(NULL, 0x6000c, 4), 0x12345678);
+	check("brk loads the fixed debug vector", c.pc, 0x200);
+	check("brk enters debug mode", c.debug_mode, 1);
+	check("brk takes its documented nine clocks", c.clk, 9);
+
+	/* Normal interrupts are not accepted inside a debug exception. */
+	c.sr[SR_TTBR] = 0x300;
+	tw(NULL, 0x304, 4, 0x280);
+	tw(NULL, 0x280, 2, 0x0000);
+	c33_raise_irq(&c, 1, 7);
+	c33_step(&c);                         /* execute retd, not the IRQ */
+	check("interrupt stays pending through retd", c.irqs_taken, 0);
+	check("retd leaves debug mode", c.debug_mode, 0);
+	check("retd returns to the saved PC", c.pc, ENTRY + 2);
+	c33_step(&c);                         /* IRQ can now be accepted */
+	check("pending interrupt is accepted after retd", c.irqs_taken, 1);
+}
+
 int main(void)
 {
 	arithmetic();
 	swaps();
 	jumps();
+	debug_exception();
 	sleep_modes();
 	if (fails) {
 		printf("\nFAILURES: %d\n", fails);

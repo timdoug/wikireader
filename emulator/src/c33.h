@@ -97,6 +97,7 @@ struct c33 {
 	unsigned long irqs_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	bool     access_fault; /* current memory access took an exception */
+	bool     debug_mode;   /* brk/debug exception active until retd */
 	uint64_t cycles;      /* instructions retired */
 	uint64_t clk;         /* MCLK cycles, per the manual's CLK lines */
 	bool     halted;
