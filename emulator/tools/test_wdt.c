@@ -63,10 +63,11 @@ int main(void)
 	   mem_read(&mem, WD_COMP, 4) == 0 && w.blocked == 1);
 
 	mem_write(&mem, WD_WP, 2, WP_OFF);
-	mem_write(&mem, WD_COMP, 4, 1000);
+	mem_write(&mem, WD_COMP, 4, 0xc00003e8);
 	mem_write(&mem, WD_EN, 2, RUNSTP | NMIEN | RESEN);
 	mem_write(&mem, WD_WP, 2, 0x00);
-	ok("after unlocking, COMP takes the value", mem_read(&mem, WD_COMP, 4) == 1000);
+	ok("COMP implements its documented 30-bit width",
+	   mem_read(&mem, WD_COMP, 4) == 1000);
 	ok("and the register is protected again", ({
 		mem_write(&mem, WD_COMP, 4, 7);
 		mem_read(&mem, WD_COMP, 4) == 1000;
@@ -106,7 +107,11 @@ int main(void)
 	ok("just under the timeout is still quiet", !w.expired);
 	clk += 1;
 	wdt_poll(&w);
-	ok("reaching COMP without a kick times out", w.expired);
+	ok("reaching CMPDT is still within the cycle", !w.expired);
+	clk += 1;
+	wdt_poll(&w);
+	ok("the CMPDT + 1 clock times out", w.expired);
+	ok("a comparison match resets the up-counter", wdt_count(&w) == 0);
 	ok("and is counted once", w.timeouts == 1);
 
 	/* A stopped watchdog is a stopped watchdog. */

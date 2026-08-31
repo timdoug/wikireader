@@ -68,11 +68,18 @@ static void accrue(struct wdt *w)
 
 void wdt_poll(struct wdt *w)
 {
+	uint64_t period;
+
 	accrue(w);
-	if (w->expired || !w->comp || !wdt_running(w))
+	if (w->expired || !wdt_running(w))
 		return;
-	if (w->count < w->comp)
+
+	/* CMPDT is the last count in the cycle: 0 through CMPDT are
+	 * CMPDT + 1 clocks, after which hardware resets the counter. */
+	period = (uint64_t)w->comp + 1;
+	if (w->count < period)
 		return;
+	w->count %= period;
 	/*
 	 * RESEN is set, and grifo's comment says reset takes priority over the
 	 * NMI, so the run loop treats this as a reset rather than a vector.
@@ -111,7 +118,7 @@ static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				return true;
 			}
 			if (reg == OFF_COMP)
-				w->comp = *val;
+				w->comp = *val & 0x3fffffffu;
 			else
 				w->en = *val;
 			return true;
