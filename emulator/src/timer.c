@@ -25,6 +25,10 @@
 #define OFF_TC5        (0x7acu - T16_BASE)
 #define OFF_CNT_PAUSE  (0x7dcu - T16_BASE)
 
+#define PAUSE0         (1u << 0)
+#define PAUSE5         (1u << 5)
+#define TICK_PAUSE     (PAUSE0 | PAUSE5)
+
 /* Channel 2, the suspend wake timer. */
 #define OFF_CR2A       (0x790u - T16_BASE)
 #define OFF_CTL2       (0x796u - T16_BASE)
@@ -92,15 +96,20 @@ void timer_use_wallclock(struct timerblk *t)
 	t->t0_ns = mono_ns();
 }
 
-static uint32_t now(struct timerblk *t)
+static uint64_t raw_now(struct timerblk *t)
 {
 	if (t->wallclock) {
 		uint64_t us = (mono_ns() - t->t0_ns) / 1000ull;
-		return (uint32_t)(us * TICKS_PER_MICROSECOND);
+		return us * TICKS_PER_MICROSECOND;
 	}
 	if (!t->cycles)
 		return 0;
-	return (uint32_t)(*t->cycles / CYCLES_PER_TICK);
+	return *t->cycles / CYCLES_PER_TICK;
+}
+
+static uint32_t now(struct timerblk *t)
+{
+	return (uint32_t)(raw_now(t) - t->tick_bias);
 }
 
 void timer_poll(struct timerblk *t, struct c33 *cpu)
@@ -124,8 +133,18 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	uint32_t reg = off - T16_BASE;
 
 	if (is_write) {
-		if (reg == OFF_CNT_PAUSE)
-			t->paused = (*val != 0);
+		if (reg == OFF_CNT_PAUSE) {
+			/* Tick_get pauses the cascaded timer 0/5 pair to read a
+			 * coherent 32-bit value. Capture when both channels stop,
+			 * then exclude the stopped interval when they resume. */
+			bool pause = (*val & TICK_PAUSE) == TICK_PAUSE;
+			if (pause && !t->paused)
+				t->latched = now(t);
+			else if (!pause && t->paused)
+				t->tick_bias = raw_now(t) - t->latched;
+			t->paused = pause;
+			*val &= 0x3f;       /* only PAUSE0..PAUSE5 exist */
+		}
 		if (reg / 2 < 0x80 / 2)
 			t->reg[reg / 2] = (uint16_t)*val;
 		if (reg == OFF_CLKCTL_2)
@@ -169,7 +188,7 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		t->reads++;
 		return true;
 	default:
-		*val = 0;
+		*val = reg / 2 < 0x80 / 2 ? t->reg[reg / 2] : 0;
 		return true;
 	}
 }
@@ -179,12 +198,12 @@ void timer_reset(struct timerblk *t)
 	const uint64_t *cycles = t->cycles;
 	const struct itc *itc = t->itc;
 	bool wall = t->wallclock;
-	uint64_t t0 = t->t0_ns;
 	memset(t, 0, sizeof *t);
 	t->cycles = cycles;
 	t->itc = itc;
 	t->wallclock = wall;
-	t->t0_ns = t0;
+	if (wall)
+		t->t0_ns = mono_ns();
 }
 
 void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,

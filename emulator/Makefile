@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/main.o
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu check difftest test-manual
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer check difftest test-manual
 
 all: wremu
 
@@ -83,6 +83,11 @@ test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
 	/tmp/test_cmu
 
+# Cascaded timer 0/5 reads and the per-channel count-pause register.
+test-timer: tools/test_timer.c src/timer.o src/c33.o src/itc.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/itc.o src/mem.o
+	/tmp/test_timer
+
 # Differential test against the real cross compiler: the same C source
 # compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both
 # ways, outputs diffed. Needs host-tools/toolchain-install.
@@ -95,7 +100,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-display test-sd test-wdt
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-display test-sd test-wdt
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

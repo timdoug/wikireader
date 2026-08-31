@@ -12,6 +12,7 @@ struct timerblk {
 	const uint64_t *cycles;   /* points at cpu.cycles */
 	uint32_t latched;
 	bool     paused;
+	uint64_t tick_bias;      /* raw ticks excluded while the pair is paused */
 	unsigned long reads;
 	/*
 	 * Interactive runs derive the tick from wall-clock time instead of
