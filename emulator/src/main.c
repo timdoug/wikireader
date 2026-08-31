@@ -840,6 +840,10 @@ int main(int argc, char **argv)
 			stop = "watchdog reset";
 			break;
 		}
+		if (wdt.nmi_pending) {
+			c33_raise_nmi(&cpu);
+			wdt.nmi_pending = false;
+		}
 
 		/*
 		 * Idle: the core is in HALT waiting for an interrupt, so
@@ -853,7 +857,7 @@ int main(int argc, char **argv)
 		 * clock straight to whatever is due next, which costs nothing
 		 * and is what the guest would have seen anyway.
 		 */
-		if (cpu.sleeping && !cpu.irq_pending) {
+		if (cpu.sleeping && !cpu.irq_pending && !cpu.nmi_pending) {
 			if (disp.open) {
 				if (!display_update(&disp)) {
 					stop = "window closed";
@@ -873,7 +877,7 @@ int main(int argc, char **argv)
 				 * slice -- otherwise every click pays up to
 				 * IDLE_WAIT_MS before anything happens.
 				 */
-				if (cpu.irq_pending)
+				if (cpu.irq_pending || cpu.nmi_pending)
 					continue;
 				display_idle_wait(&disp, IDLE_WAIT_MS);
 				/*

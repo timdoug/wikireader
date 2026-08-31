@@ -26,7 +26,8 @@ struct wdt {
 	const struct cmu *cmu;   /* for WDT_CKE: a gated clock does not count */
 	const uint64_t *clk;
 
-	bool          expired;   /* latched for the run loop to act on */
+	bool          expired;   /* reset output is asserted */
+	bool          nmi_pending; /* NMI output pulse awaits CPU delivery */
 	unsigned long kicks, timeouts;
 	unsigned long blocked;   /* writes rejected by the protect register */
 };

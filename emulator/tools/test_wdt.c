@@ -111,8 +111,43 @@ int main(void)
 	clk += 1;
 	wdt_poll(&w);
 	ok("the CMPDT + 1 clock times out", w.expired);
+	ok("both enabled outputs also assert NMI", w.nmi_pending);
 	ok("a comparison match resets the up-counter", wdt_count(&w) == 0);
 	ok("and is counted once", w.timeouts == 1);
+
+	/* Output selection is independent of counting; reset has priority in
+	 * the machine loop only when both signals are asserted. */
+	wdt_reset(&w);
+	mem_write(&mem, WD_WP, 2, WP_OFF);
+	mem_write(&mem, WD_COMP, 4, 31);
+	mem_write(&mem, WD_EN, 2, RUNSTP | NMIEN);
+	mem_write(&mem, WD_CNTL, 2, WDRESEN);
+	clk += 32;
+	wdt_poll(&w);
+	ok("NMI-only mode asserts NMI", w.nmi_pending);
+	ok("NMI-only mode does not request reset", !w.expired);
+
+	wdt_reset(&w);
+	mem_write(&mem, WD_WP, 2, WP_OFF);
+	mem_write(&mem, WD_COMP, 4, 31);
+	mem_write(&mem, WD_EN, 2, RUNSTP | RESEN);
+	mem_write(&mem, WD_CNTL, 2, WDRESEN);
+	clk += 32;
+	wdt_poll(&w);
+	ok("reset-only mode requests reset", w.expired);
+	ok("reset-only mode does not assert NMI", !w.nmi_pending);
+
+	wdt_reset(&w);
+	mem_write(&mem, WD_WP, 2, WP_OFF);
+	mem_write(&mem, WD_COMP, 4, 31);
+	mem_write(&mem, WD_EN, 2, RUNSTP);
+	mem_write(&mem, WD_CNTL, 2, WDRESEN);
+	clk += 32;
+	wdt_poll(&w);
+	ok("disabled outputs request neither reset nor NMI",
+	   !w.expired && !w.nmi_pending);
+	ok("a match still resets the counter with outputs disabled",
+	   wdt_count(&w) == 0);
 
 	/* A stopped watchdog is a stopped watchdog. */
 	wdt_reset(&w);

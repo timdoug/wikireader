@@ -80,12 +80,11 @@ void wdt_poll(struct wdt *w)
 	if (w->count < period)
 		return;
 	w->count %= period;
-	/*
-	 * RESEN is set, and grifo's comment says reset takes priority over the
-	 * NMI, so the run loop treats this as a reset rather than a vector.
-	 */
 	w->timeouts++;
-	w->expired = true;
+	if (w->en & NMIEN)
+		w->nmi_pending = true;
+	if (w->en & RESEN)
+		w->expired = true;
 }
 
 static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
