@@ -155,7 +155,9 @@ failed constraint checking.
   of forcing the address into a register.
 * **Frames deeper than 4092 bytes** go through `add_sp_big`, which is
   `ld.w %r14,%sp` / `xadd %r14,n` / `ld.w %sp,%r14`. The previous
-  `add_sp_reg` emitted `add %rN,%sp`, which is not an instruction.
+  `add_sp_reg` emitted `add %rN,%sp`, which is not an instruction. Its length
+  follows the narrowed middle operation: eight bytes through a 19-bit delta,
+  ten beyond it.
 * **V850 interrupt machinery deleted** (~290 lines): `callt_save_interrupt`,
   `save_all_interrupt` and the rest were for its `ep`/`gp`/`callt` model and
   its 32 registers, named registers that do not exist here, and were
