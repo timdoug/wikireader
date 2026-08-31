@@ -21,7 +21,9 @@
 #include "sdramc.h"
 
 #define OFF_INI  ((0x1600u - SDRAMC_BASE) / 4)
+#define OFF_CTL  ((0x1604u - SDRAMC_BASE) / 4)
 #define OFF_REF  ((0x1608u - SDRAMC_BASE) / 4)
+#define OFF_APP  ((0x1610u - SDRAMC_BASE) / 4)
 
 #define SDON    (1u << 4)   /* controller enable        R/W */
 #define SDEN    (1u << 3)   /* initialized flag         R   */
@@ -54,14 +56,20 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		if (i == OFF_REF) {
-			s->reg[i] = *val & ~SELDO;   /* SELDO is read-only */
+			s->reg[i] = *val & 0x01ff0fffu; /* SELDO/reserved read zero */
 		} else if (i == OFF_INI) {
 			/* SDEN is not writable; the MRS command raises it. */
-			s->reg[i] = *val & ~SDEN;
+			s->reg[i] = *val & 0x17u;
+			if (!(*val & SDON))
+				s->initialised = false;
 			if ((*val & SDON) && (*val & INIMRS))
 				s->initialised = true;
+		} else if (i == OFF_CTL) {
+			s->reg[i] = *val & 0x000037f7u;
+		} else if (i == OFF_APP) {
+			s->reg[i] = *val & 0x8000003fu;
 		} else {
-			s->reg[i] = *val;
+			return true;             /* 0x160c is not a register */
 		}
 		s->writes++;
 		return true;
@@ -80,6 +88,10 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 void sdramc_reset(struct sdramc *s)
 {
 	memset(s, 0, sizeof *s);
+	/* S1C33E07 Technical Manual register tables, init. column. */
+	s->reg[OFF_CTL] = 0x000000e0u;      /* tRC/tRFC/tXSR = 15 cycles */
+	s->reg[OFF_REF] = 0x007f008cu;      /* self/auto-refresh counters */
+	s->reg[OFF_APP] = 0x00000008u;      /* CAS latency 2 */
 }
 
 void sdramc_attach(struct mem *m, struct sdramc *s)
