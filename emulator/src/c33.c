@@ -418,7 +418,7 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
 	case OP_PSRSET: case OP_PSRCLR:         return 3;
 	case OP_PUSH:                           return 2;
 	case OP_PUSHN: case OP_POPN:            return (unsigned)nreg + 1;
-	case OP_PUSHS: case OP_POPS:            return 2;
+	case OP_PUSHS: case OP_POPS:            return nreg == 2 ? 3 : 2;
 	case OP_BSET: case OP_BCLR: case OP_BNOT: return had_ext ? 4 : 3;
 	case OP_BTST:                           return had_ext ? 3 : 2;
 	case OP_CALL:                           return 4;
@@ -1217,24 +1217,25 @@ void c33_step(struct c33 *c)
 
 	/* ---- push/pop of a special register ------------------------------ */
 	/*
-	 * pushs/pops move a *range* of special registers, mirroring pushn:
-	 * "Push special registers %ss-ALR onto the stack" and "Pop data for
-	 * special registers %sd-ALR off the stack" (S1C33E07 manual, Table
-	 * I.5.3.4). ALR is special register 2, so the range runs down to it,
-	 * with the lowest-numbered register ending at [sp+0].
+ * pushs/pops move ALR alone or the AHR:ALR pair, with ALR at [sp+0].
+ * Although the four-bit encoding can name every special register, the
+ * instruction pages permit only ALR and AHR and explicitly define every
+ * other value as a no-op.
 	 */
 	case OP_PUSHS:
-		for (int i = (int)(insn & 0xf); i >= SR_ALR; i--) {
-			c->sr[SR_SP] -= 4;
-			wr(c, c->sr[SR_SP], 4, c->sr[i]);
-		}
+		if ((insn & 0xf) == SR_ALR || (insn & 0xf) == SR_AHR)
+			for (int i = (int)(insn & 0xf); i >= SR_ALR; i--) {
+				c->sr[SR_SP] -= 4;
+				wr(c, c->sr[SR_SP], 4, c->sr[i]);
+			}
 		break;
 
 	case OP_POPS:
-		for (int i = SR_ALR; i <= (int)(insn & 0xf); i++) {
-			c->sr[i] = rd(c, c->sr[SR_SP], 4);
-			c->sr[SR_SP] += 4;
-		}
+		if ((insn & 0xf) == SR_ALR || (insn & 0xf) == SR_AHR)
+			for (int i = SR_ALR; i <= (int)(insn & 0xf); i++) {
+				c->sr[i] = rd(c, c->sr[SR_SP], 4);
+				c->sr[SR_SP] += 4;
+			}
 		break;
 
 	/* ---- bit operations on a byte in memory -------------------------- */
@@ -1375,8 +1376,14 @@ void c33_step(struct c33 *c)
 	 * prefixes into the following instruction.
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
-	c->clk += cycle_cost(op, c->pc != pc_before, had_ext,
-			     (op == OP_PUSHN || op == OP_POPN) ? a + 1 : 0);
+	int nreg = 0;
+	if (op == OP_PUSHN || op == OP_POPN)
+		nreg = a + 1;
+	else if (op == OP_PUSHS || op == OP_POPS) {
+		unsigned sreg = insn & 0xf;
+		nreg = sreg == SR_ALR ? 1 : sreg == SR_AHR ? 2 : 0;
+	}
+	c->clk += cycle_cost(op, c->pc != pc_before, had_ext, nreg);
 
 	if (c->n_ext) {
 		/*

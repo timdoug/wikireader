@@ -127,6 +127,49 @@ static void swaps(void)
 	check("swaph swaps bytes within halfwords", c.r[0], 0x65872143);
 }
 
+static void special_stack(void)
+{
+	struct c33 c;
+
+	printf("\npushs/pops\n");
+	c = init(0x0093);                    /* pushs %ahr */
+	c.sr[SR_SP] = 0x300;
+	c.sr[SR_ALR] = 0x11111111;
+	c.sr[SR_AHR] = 0x22222222;
+	c33_step(&c);
+	check("pushs %ahr saves both registers", c.sr[SR_SP], 0x2f8);
+	check("pushs leaves ALR at the new stack top",
+	      tr(NULL, 0x2f8, 4), 0x11111111);
+	check("pushs saves AHR above ALR", tr(NULL, 0x2fc, 4), 0x22222222);
+	check("pushs %ahr takes three clocks", c.clk, 3);
+
+	c = init(0x00d3);                    /* pops %ahr */
+	c.sr[SR_SP] = 0x300;
+	tw(NULL, 0x300, 4, 0x33333333);
+	tw(NULL, 0x304, 4, 0x44444444);
+	c33_step(&c);
+	check("pops %ahr restores ALR", c.sr[SR_ALR], 0x33333333);
+	check("pops %ahr restores AHR", c.sr[SR_AHR], 0x44444444);
+	check("pops %ahr consumes two words", c.sr[SR_SP], 0x308);
+	check("pops %ahr takes three clocks", c.clk, 3);
+
+	c = init(0x0094);                    /* invalid pushs %lco */
+	c.sr[SR_SP] = 0x300;
+	c.sr[SR_LCO] = 0x55555555;
+	c33_step(&c);
+	check("pushs of a non-ALR/AHR register is a no-op", c.sr[SR_SP], 0x300);
+	check("invalid pushs writes no stack data", tr(NULL, 0x2fc, 4), 0);
+
+	c = init(0x00d4);                    /* invalid pops %lco */
+	c.sr[SR_SP] = 0x300;
+	c.sr[SR_LCO] = 0x55555555;
+	tw(NULL, 0x300, 4, 0xaaaaaaaa);
+	c33_step(&c);
+	check("pops of a non-ALR/AHR register is a no-op", c.sr[SR_SP], 0x300);
+	check("invalid pops leaves its named register alone",
+	      c.sr[SR_LCO], 0x55555555);
+}
+
 static void jumps(void)
 {
 	struct c33 c;
@@ -196,6 +239,7 @@ int main(void)
 {
 	arithmetic();
 	swaps();
+	special_stack();
 	jumps();
 	debug_exception();
 	sleep_modes();
