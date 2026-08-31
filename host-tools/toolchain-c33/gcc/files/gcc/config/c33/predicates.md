@@ -89,7 +89,7 @@
 
 ;; Return true if OP is a valid call operand.
 
-;; A symbol is always a valid call target: scall reaches +/-4MB and xcall the
+;; A symbol is always a valid call target: scall reaches +/-2 MiB and xcall the
 ;; whole address space, so -mlong-calls picks a wider instruction rather than
 ;; forcing the address into a register the way the V850 had to.
 (define_predicate "call_address_operand"

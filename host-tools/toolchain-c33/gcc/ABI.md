@@ -418,7 +418,8 @@ Three traps for the backend:
    respect the resulting alignment restrictions.
 
 PC-relative branch displacements are `sign8 x 2` (bit 0 always 0), extending to
-22 or 32 bits.
+22 or 32 bits.  The 22-bit quantity includes that fixed low bit, so its reach is
+-2,097,152 through +2,097,150 bytes (a 4 MiB-wide range, not +/-4 MiB).
 
 Consequences:
 
