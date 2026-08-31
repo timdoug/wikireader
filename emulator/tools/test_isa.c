@@ -285,6 +285,34 @@ static void memory_timing(void)
 	}
 }
 
+static void postincrement_aliases(void)
+{
+	static const struct {
+		uint16_t insn;
+		unsigned size;
+		const char *name;
+	} cases[] = {
+		{ 0x2111, 1, "ld.b" },
+		{ 0x2511, 1, "ld.ub" },
+		{ 0x2911, 2, "ld.h" },
+		{ 0x2d11, 2, "ld.uh" },
+		{ 0x3111, 4, "ld.w" },
+	};
+	struct c33 c;
+	char what[80];
+
+	printf("\npostincrement register aliases\n");
+	for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+		c = init(cases[i].insn);
+		c.r[1] = 0x200;
+		tw(NULL, 0x200, cases[i].size, ~0u);
+		c33_step(&c);
+		snprintf(what, sizeof what, "%s writeback wins when rd equals rb",
+			 cases[i].name);
+		check(what, c.r[1], 0x200 + cases[i].size);
+	}
+}
+
 static void jumps(void)
 {
 	struct c33 c;
@@ -370,6 +398,7 @@ int main(void)
 	swaps();
 	special_stack();
 	memory_timing();
+	postincrement_aliases();
 	jumps();
 	debug_exception();
 	sleep_modes();

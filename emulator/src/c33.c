@@ -886,10 +886,12 @@ void c33_step(struct c33 *c)
 			if (!c->access_fault)
 				c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_R_LRBP)) {
-			uint32_t v = rd(c, c->r[b], 4);
+			uint32_t addr = c->r[b];
+			uint32_t v = rd(c, addr, 4);
 			if (!c->access_fault) {
-				c->r[a] = v;
-				c->r[b] += 4;
+				c->r[b] = addr + 4;
+				if (a != b)
+					c->r[a] = v;
 			}
 		} else if ((f->shape_id == SHAPE_LRB_R)) {
 			wr(c, c->r[a] + imm_ext(c, 0, 0), 4, c->r[b]);
@@ -941,14 +943,19 @@ void c33_step(struct c33 *c)
 			c->r[a] = v;
 		} else if ((f->shape_id == SHAPE_R_LRB) || (f->shape_id == SHAPE_R_LRBP)) {
 			uint32_t off = (f->shape_id == SHAPE_R_LRB) ? imm_ext(c, 0, 0) : 0;
-			uint32_t v = rd(c, c->r[b] + off, sz);
+			uint32_t addr = c->r[b] + off;
+			uint32_t v = rd(c, addr, sz);
 			if (sext && !c->access_fault)
 				v = sz == 1 ? (uint32_t)(int8_t)v
 					    : (uint32_t)(int16_t)v;
 			if (!c->access_fault) {
-				c->r[a] = v;
-				if ((f->shape_id == SHAPE_R_LRBP))
-					c->r[b] += sz;
+				if ((f->shape_id == SHAPE_R_LRBP)) {
+					c->r[b] = addr + sz;
+					if (a != b)
+						c->r[a] = v;
+				} else {
+					c->r[a] = v;
+				}
 			}
 		} else if ((f->shape_id == SHAPE_LRB_R) || (f->shape_id == SHAPE_LRBP_R)) {
 			uint32_t off = (f->shape_id == SHAPE_LRB_R) ? imm_ext(c, 0, 0) : 0;
