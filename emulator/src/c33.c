@@ -1259,7 +1259,6 @@ void c33_step(struct c33 *c)
 		else
 			r = (uint32_t)((c->r[a] & 0xffff) * (c->r[b] & 0xffff));
 		c->sr[SR_ALR] = r;
-		c->sr[SR_AHR] = 0;
 		break;
 	}
 

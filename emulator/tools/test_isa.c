@@ -175,6 +175,44 @@ static void swaps(void)
 	check("swaph swaps bytes within halfwords", c.r[0], 0x65872143);
 }
 
+static void multiply(void)
+{
+	struct c33 c;
+
+	printf("\nmultiply\n");
+	c = init(0xa210);                    /* mlt.h %r0,%r1 */
+	c.r[0] = 0xfffffffe;
+	c.r[1] = 3;
+	c.sr[SR_AHR] = 0x12345678;
+	c.sr[SR_PSR] = PSR_C | PSR_V;
+	c33_step(&c);
+	check("mlt.h writes signed product to ALR", c.sr[SR_ALR], 0xfffffffa);
+	check("mlt.h leaves AHR unchanged", c.sr[SR_AHR], 0x12345678);
+	check("mlt.h leaves flags unchanged", c.sr[SR_PSR], PSR_C | PSR_V);
+
+	c = init(0xa610);                    /* mltu.h %r0,%r1 */
+	c.r[0] = 0xfffffffe;
+	c.r[1] = 3;
+	c.sr[SR_AHR] = 0x87654321;
+	c33_step(&c);
+	check("mltu.h writes unsigned product to ALR", c.sr[SR_ALR], 0x2fffa);
+	check("mltu.h leaves AHR unchanged", c.sr[SR_AHR], 0x87654321);
+
+	c = init(0xaa10);                    /* mlt.w %r0,%r1 */
+	c.r[0] = 0xfffffffe;
+	c.r[1] = 3;
+	c33_step(&c);
+	check("mlt.w writes signed product low word", c.sr[SR_ALR], 0xfffffffa);
+	check("mlt.w writes signed product high word", c.sr[SR_AHR], 0xffffffff);
+
+	c = init(0xae10);                    /* mltu.w %r0,%r1 */
+	c.r[0] = 0xfffffffe;
+	c.r[1] = 3;
+	c33_step(&c);
+	check("mltu.w writes unsigned product low word", c.sr[SR_ALR], 0xfffffffa);
+	check("mltu.w writes unsigned product high word", c.sr[SR_AHR], 2);
+}
+
 static void special_stack(void)
 {
 	struct c33 c;
@@ -316,6 +354,7 @@ int main(void)
 {
 	arithmetic();
 	extended_register_forms();
+	multiply();
 	swaps();
 	special_stack();
 	memory_timing();
