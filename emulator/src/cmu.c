@@ -28,6 +28,7 @@
 #define OFF_GATEDCLK1  (0x1b04u - CMU_BASE)
 #define OFF_CLKCNTL    (0x1b08u - CMU_BASE)
 #define OFF_PLL        (0x1b0cu - CMU_BASE)
+#define OFF_SSCG       (0x1b10u - CMU_BASE)
 #define OFF_OPT        (0x1b14u - CMU_BASE)
 #define OFF_PROTECT    (0x1b24u - CMU_BASE)
 
@@ -107,9 +108,21 @@ bool cmu_slp_auto_wake(const struct cmu *c)
 	return !(c->reg[OFF_OPT / 4] & WAKEUPWT);
 }
 
-void cmu_attach(struct mem *m, struct cmu *c)
+void cmu_reset(struct cmu *c)
 {
 	memset(c, 0, sizeof *c);
+
+	/* S1C33E07 Technical Manual, CMU register tables, init. column. */
+	c->reg[OFF_GATEDCLK0 / 4] = 0x00000008; /* DSTRAM_CKE */
+	c->reg[OFF_GATEDCLK1 / 4] = 0x3f0fffff; /* every implemented clock on */
+	c->reg[OFF_CLKCNTL / 4] = 0x00770003;   /* both OSCs on, /8 defaults */
+	c->reg[OFF_PLL / 4] = 0x00101804;       /* fixed analogue defaults */
+	c->reg[OFF_SSCG / 4] = 0x0000f000;      /* interval timer default */
+}
+
+void cmu_attach(struct mem *m, struct cmu *c)
+{
+	cmu_reset(c);
 	/*
 	 * Reset state is locked, matching the hardware: the first thing every
 	 * driver does is write 0x96.

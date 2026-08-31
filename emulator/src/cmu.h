@@ -24,6 +24,8 @@ struct cmu {
 };
 
 void cmu_attach(struct mem *m, struct cmu *c);
+/* Restore documented power-on values without re-registering the device. */
+void cmu_reset(struct cmu *c);
 /* System clock in Hz implied by the current register contents. */
 uint32_t cmu_mclk_hz(const struct cmu *c);
 /* True when WAKEUPWT selects automatic cancellation of SLEEP. */

@@ -60,12 +60,24 @@ int main(void)
 {
 	mem_init(&mem);
 	cmu_attach(&mem, &cmu);
+	check("GATEDCLK0 has its documented reset value", rd(0x1b00),
+	      0x00000008);
+	check("GATEDCLK1 has its documented reset value", rd(0x1b04),
+	      0x3f0fffff);
+	check("CLKCNTL has its documented reset value", rd(0x1b08),
+	      0x00770003);
+	check("PLL has its documented reset value", rd(0x1b0c),
+	      0x00101804);
+	check("SSCG has its documented reset value", rd(0x1b10),
+	      0x0000f000);
+	check("reset clock source is the 48 MHz OSC3", cmu_mclk_hz(&cmu),
+	      OSC3_HZ);
 	check("reset WAKEUPWT auto-wakes clock-switch SLEEP",
 	      cmu_slp_auto_wake(&cmu), 1);
 
 	/* Reset state is locked, so a write without unlocking is discarded. */
 	wr(0x1b08, GRIFO_CLKCNTL);
-	check("write while protected is discarded", rd(0x1b08), 0);
+	check("write while protected is discarded", rd(0x1b08), 0x00770003);
 	check("and is counted as blocked", cmu.blocked, 1);
 
 	wr(0x1b24, CMU_PROTECT_OFF);
@@ -96,6 +108,12 @@ int main(void)
 	wr(0x1b04, 0xffffffff);
 	check("re-locking blocks writes again", cmu.blocked, before + 1);
 	check("and the register is unchanged", rd(0x1b04), 0x15);
+
+	/* A board power cycle resets both register contents and protection. */
+	cmu_reset(&cmu);
+	check("power cycle restores GATEDCLK1", rd(0x1b04), 0x3f0fffff);
+	wr(0x1b04, 0);
+	check("power cycle restores write protection", rd(0x1b04), 0x3f0fffff);
 
 	/* Selecting a different source changes the derived frequency. */
 	wr(0x1b24, CMU_PROTECT_OFF);

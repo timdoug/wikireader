@@ -137,6 +137,7 @@ static void deliver_input(struct display *disp, struct port *port,
  */
 static void machine_power_on(struct c33 *cpu, struct mem *mem,
 			     struct port *port, struct itc *itc,
+			     struct cmu *cmu,
 			     struct sdramc *sdramc, struct lcd *lcd,
 			     struct touch *touch, struct timerblk *timer,
 			     struct sdcard *sd, struct wdt *wdt,
@@ -150,6 +151,7 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 	mem_clear_ram(mem);
 
 	itc_reset(itc);
+	cmu_reset(cmu);
 	port_reset(port);
 	sdramc_reset(sdramc);
 	lcd_reset(lcd);
@@ -582,6 +584,7 @@ int main(int argc, char **argv)
 				power_presses_seen = disp.power_presses;
 				fprintf(stderr, "  [powered on]\n");
 				machine_power_on(&cpu, &mem, &port, &itc,
+						 &cmu,
 						 &sdramc, &lcd, &touch, &timer,
 						 &sd, &wdt,
 						 eeprom_path ? &eeprom : NULL,
