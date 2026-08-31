@@ -22,6 +22,8 @@
 #define IVRAM_SIZE   (12u * 1024)
 #define DSTRAM_BASE  0x00084000u
 #define DSTRAM_SIZE  (2u * 1024)
+#define CHIP_ID_BASE 0x00020000u
+#define CHIP_ID_SIZE 4u
 #define SDRAM_BASE   0x10000000u
 #define SDRAM_SIZE   (32u * 1024 * 1024)
 

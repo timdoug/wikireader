@@ -81,6 +81,22 @@ static bool mmio(struct mem *m, uint32_t a, unsigned size, uint32_t *v,
 	return true;   /* swallow unclaimed register accesses */
 }
 
+/*
+ * Fixed identification bytes, S1C33E07 Technical Manual I.5.2:
+ * C33 PE little-endian core, S1C33E series, model E07, version 0x21.
+ */
+static bool chip_id(uint32_t addr, unsigned size, uint32_t *value)
+{
+	static const uint8_t id[CHIP_ID_SIZE] = { 0x06, 0x0e, 0x07, 0x21 };
+
+	if (addr < CHIP_ID_BASE || addr - CHIP_ID_BASE > CHIP_ID_SIZE - size)
+		return false;
+	*value = 0;
+	for (unsigned k = 0; k < size; k++)
+		*value |= (uint32_t)id[addr - CHIP_ID_BASE + k] << (8 * k);
+	return true;
+}
+
 uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len)
 {
 	if (addr >= SDRAM_BASE && addr < SDRAM_BASE + SDRAM_SIZE) {
@@ -108,6 +124,8 @@ uint32_t mem_read(void *ctx, uint32_t addr, unsigned size)
 		memcpy(&v, p, size);        /* host is little-endian, as is c33 */
 		return v;
 	}
+	if (size <= CHIP_ID_SIZE && chip_id(addr, size, &v))
+		return v;
 	if (mmio(m, addr, size, &v, false))
 		return v;
 
@@ -138,6 +156,8 @@ void mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val)
 		memcpy(p, &val, size);
 		return;
 	}
+	if (size <= CHIP_ID_SIZE && chip_id(addr, size, &val))
+		return;                    /* identification area is read-only */
 	if (mmio(m, addr, size, &val, true))
 		return;
 

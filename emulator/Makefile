@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/main.o
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port test-dma check difftest test-manual
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma check difftest test-manual
 
 all: wremu
 
@@ -94,6 +94,11 @@ test-sdramc: tools/test_sdramc.c src/sdramc.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_sdramc tools/test_sdramc.c src/sdramc.o src/mem.o
 	/tmp/test_sdramc
 
+# Fixed CPU/product/model/version bytes at the documented identification area.
+test-chipid: tools/test_chipid.c src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_chipid tools/test_chipid.c src/mem.o
+	/tmp/test_chipid
+
 # GPIO reset masks and the modeled key/power interrupt inputs.
 test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
@@ -116,7 +121,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port test-display test-sd test-wdt test-dma
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-wdt test-dma
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)
