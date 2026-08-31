@@ -249,6 +249,8 @@ static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 {
 	if (misaligned(c, a, sz))
 		return 0;
+	if (c->bus.wait)
+		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_READ, a, sz, c->clk);
 
 	/* Same region cache as the fetch path; see c33_step. */
 	if (a >= c->data_lo && a < c->data_hi && c->data_hi - a >= sz) {
@@ -275,6 +277,8 @@ static void wr(struct c33 *c, uint32_t a, unsigned sz, uint32_t v)
 {
 	if (misaligned(c, a, sz))
 		return;
+	if (c->bus.wait)
+		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_WRITE, a, sz, c->clk);
 	c->bus.write(c->bus.ctx, a, sz, v);
 }
 
@@ -774,6 +778,8 @@ void c33_step(struct c33 *c)
 	}
 
 	c->cur_pc = at;
+	if (c->bus.wait)
+		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
 
 	/*
 	 * Fetch fast path.

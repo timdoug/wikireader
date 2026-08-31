@@ -505,9 +505,13 @@ int main(int argc, char **argv)
 
 	struct c33 cpu;
 	memset(&cpu, 0, sizeof cpu);
-	cpu.bus = (struct c33_bus){ mem_read, mem_write,
-				   (uint8_t *(*)(void *, uint32_t, uint32_t *, uint32_t *))mem_region,
-				   &mem };
+	cpu.bus = (struct c33_bus){
+		.read = mem_read,
+		.write = mem_write,
+		.region = (uint8_t *(*)(void *, uint32_t, uint32_t *, uint32_t *))mem_region,
+		.wait = mem_wait,
+		.ctx = &mem,
+	};
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
@@ -1070,6 +1074,17 @@ done:
 	       " %lu invalid descriptor tables, %llu minimum bus cycles ---\n",
 	       dma.hsdma_transfers, dma.idma_transfers,
 	       dma.invalid_descriptors, dma.bus_cycles);
+	printf("--- sdram: %llu wait cycles, %llu refreshes, %llu self-refresh exits;"
+	       " IQB %llu/%llu hit/miss, DQB %llu/%llu hit/miss,"
+	       " %llu writes ---\n",
+	       (unsigned long long)sdramc.wait_cycles,
+	       (unsigned long long)sdramc.refreshes,
+	       (unsigned long long)sdramc.self_refresh_exits,
+	       (unsigned long long)sdramc.iq_hits,
+	       (unsigned long long)sdramc.iq_misses,
+	       (unsigned long long)sdramc.dq_hits,
+	       (unsigned long long)sdramc.dq_misses,
+	       (unsigned long long)sdramc.writes_timed);
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
 		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);

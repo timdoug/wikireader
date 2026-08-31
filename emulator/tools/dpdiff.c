@@ -24,7 +24,11 @@ static bool load_machine(struct machine *m, const char *path)
 	if (!elf_load(&m->mem, path, err, sizeof err)) {
 		fprintf(stderr, "%s: %s\n", path, err); return false;
 	}
-	m->cpu.bus = (struct c33_bus){ mem_read, mem_write, &m->mem };
+	m->cpu.bus = (struct c33_bus){
+		.read = mem_read,
+		.write = mem_write,
+		.ctx = &m->mem,
+	};
 	m->mem.pc_src = &m->cpu.pc;
 	return true;
 }

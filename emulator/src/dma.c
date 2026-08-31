@@ -7,8 +7,8 @@
  * HSDMA Ch.2 performs the inverse memory-to-SPI path for block writes.
  *
  * Each documented memory/I/O access consumes at least one CPU-AHB clock.
- * SDRAM and external-memory wait states are deliberately not folded into
- * that minimum; the controller-specific timing model can add them later.
+ * The memory timing callback adds SDRAMC queue, row, refresh, and shared-bus
+ * waits before that minimum bus phase.
  */
 
 #include <string.h>
@@ -96,8 +96,10 @@ static uint32_t advance(uint32_t addr, unsigned mode, unsigned size)
 
 static uint32_t dma_read(struct dma *d, uint32_t addr, unsigned size)
 {
-	if (d->clock)
+	if (d->clock) {
+		*d->clock += mem_wait(d->mem, MEM_DMA_READ, addr, size, *d->clock);
 		++*d->clock;
+	}
 	d->bus_cycles++;
 	return mem_read(d->mem, addr, size);
 }
@@ -105,8 +107,10 @@ static uint32_t dma_read(struct dma *d, uint32_t addr, unsigned size)
 static void dma_write(struct dma *d, uint32_t addr, unsigned size,
 		      uint32_t value)
 {
-	if (d->clock)
+	if (d->clock) {
+		*d->clock += mem_wait(d->mem, MEM_DMA_WRITE, addr, size, *d->clock);
 		++*d->clock;
+	}
 	d->bus_cycles++;
 	mem_write(d->mem, addr, size, value);
 }

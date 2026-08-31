@@ -26,6 +26,27 @@ static void check(const char *what, uint32_t got, uint32_t want)
 	}
 }
 
+static void check64(const char *what, uint64_t got, uint64_t want)
+{
+	printf("%-62s %s\n", what, got == want ? "ok" : "FAIL");
+	if (got != want) {
+		printf("    got %llu, wanted %llu\n",
+		       (unsigned long long)got, (unsigned long long)want);
+		fails++;
+	}
+}
+
+static void timing_setup(struct mem *mem, struct sdramc *s, uint32_t app,
+			 uint32_t refresh)
+{
+	sdramc_reset(s);
+	mem_write(mem, CTL, 4, 0x37e2); /* tRP=4, tRAS=8, tRC=15, 16 MiB */
+	mem_write(mem, REF, 4, refresh);
+	mem_write(mem, APP, 4, app);
+	mem_write(mem, INI, 4, SDON | INIMRS);
+	mem_write(mem, INI, 4, SDON);
+}
+
 int main(void)
 {
 	struct mem mem;
@@ -64,6 +85,60 @@ int main(void)
 	      SELEN | SELDO);
 	mem_write(&mem, REF, 4, 0);
 	check("leaving self-refresh clears SELDO", mem_read(&mem, REF, 4), 0);
+
+	/*
+	 * Manual II.4.1.3 and II.4.2: CAS2, tRCD4, an eight-halfword
+	 * instruction slot, and a two-halfword data buffer. Times passed to
+	 * mem_wait are the CPU's MCLK count after preceding operations.
+	 */
+	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
+	check64("cold IQB fetch waits tRCD + CAS + first data",
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 7);
+	check64("next prefetched IQB halfword has no wait",
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE + 2, 2, 8), 0);
+	check64("next IQB line waits only CAS after previous burst",
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE + 16, 2, 14), 3);
+	check64("cold 32-bit DQB read waits for both burst halfwords",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 24), 4);
+	check64("DQB hit inserts no SDRAM wait",
+		mem_wait(&mem, MEM_DMA_READ, SDRAM_BASE + 0x102, 2, 28), 0);
+	check64("32-bit write takes two individual bus operations",
+		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE + 0x100, 4, 28), 2);
+	check64("write flushes matching DQB data",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 30), 4);
+	check64("changing row observes precharge and activation timings",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 34), 12);
+	check64("IQB hit counter records buffered instruction fetch",
+		sdramc.iq_hits, 1);
+	check64("DQB hits include DMA reads",
+		sdramc.dq_hits, 1);
+
+	/* DBF makes one SDCLK half of an MCLK; waits round up to whole MCLKs. */
+	timing_setup(&mem, &sdramc, 0x8000002b, 0x00000fff);
+	check64("double-frequency cold fetch is four MCLKs",
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 4);
+
+	/* AURCO begins at zero: 0x8c therefore expires every 141 SDCLKs. */
+	timing_setup(&mem, &sdramc, 0x8000000b, 0x0000008c);
+	check64("prime DQB before refresh",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 8);
+	check64("due auto-refresh adds tRP + tRFC before a cold read",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 145), 23);
+	check64("auto-refresh counter records the issued refresh",
+		sdramc.refreshes, 1);
+
+	/* SELCO=127 expires before AURCO=140, as configured by grifo. */
+	timing_setup(&mem, &sdramc, 0x8000000b,
+		     SELEN | (0x7f << 16) | 0x8c);
+	check64("prime DQB before self-refresh",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 8);
+	check64("buffer hit does not wake SDRAM from self-refresh",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 140), 0);
+	check64("buffer hit records no self-refresh exit",
+		sdramc.self_refresh_exits, 0);
+	check64("self-refresh exit adds tXSR+1 before a cold read",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 140), 24);
+	check64("self-refresh exit is counted", sdramc.self_refresh_exits, 1);
 
 	sdramc_reset(&sdramc);
 	check("power cycle restores the refresh counters",

@@ -17,6 +17,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "mem.h"
+
 /* Special register file, indices as encoded in ld.w %sreg,%rN (0xa00N). */
 enum c33_sreg {
 	SR_PSR = 0, SR_SP = 1, SR_ALR = 2, SR_AHR = 3,
@@ -53,6 +55,8 @@ struct c33_bus {
 	 * always. Leave NULL and everything still works, just slower.
 	 */
 	uint8_t *(*region)(void *ctx, uint32_t addr, uint32_t *base, uint32_t *len);
+	uint64_t (*wait)(void *ctx, enum mem_access access, uint32_t addr,
+			 unsigned size, uint64_t now);
 	void     *ctx;
 };
 

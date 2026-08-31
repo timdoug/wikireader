@@ -32,6 +32,18 @@
 
 struct mem;
 
+/* Masters and access types seen by the external-memory timing model. */
+enum mem_access {
+	MEM_CPU_FETCH,
+	MEM_CPU_READ,
+	MEM_CPU_WRITE,
+	MEM_DMA_READ,
+	MEM_DMA_WRITE,
+};
+
+typedef uint64_t (*mem_wait_fn)(void *ctx, enum mem_access access,
+				uint32_t addr, unsigned size, uint64_t now);
+
 /* A peripheral claims a register range; return true if the access was handled. */
 typedef bool (*mmio_fn)(void *ctx, uint32_t off, unsigned size,
 			uint32_t *val, bool is_write);
@@ -49,6 +61,8 @@ struct mem {
 	uint8_t *a0ram, *ivram, *dstram, *sdram;
 	struct mmio_dev dev[MAX_MMIO];
 	unsigned ndev;
+	mem_wait_fn wait;
+	void       *wait_ctx;
 
 	/* diagnostics */
 	unsigned long unmapped_reads, unmapped_writes;
@@ -72,6 +86,9 @@ void mem_free(struct mem *m);
 void mem_clear_ram(struct mem *m);
 void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
 		  mmio_fn fn, void *ctx);
+void mem_set_timing(struct mem *m, mem_wait_fn fn, void *ctx);
+uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
+		  unsigned size, uint64_t now);
 
 /*
  * Host pointer for a mapped address, plus the bounds of the region it falls

@@ -36,6 +36,19 @@ void mem_add_mmio(struct mem *m, const char *name, uint32_t off, uint32_t len,
 	m->dev[m->ndev++] = (struct mmio_dev){ name, off, len, fn, ctx };
 }
 
+void mem_set_timing(struct mem *m, mem_wait_fn fn, void *ctx)
+{
+	m->wait = fn;
+	m->wait_ctx = ctx;
+}
+
+uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
+		  unsigned size, uint64_t now)
+{
+	struct mem *m = ctx;
+	return m->wait ? m->wait(m->wait_ctx, access, addr, size, now) : 0;
+}
+
 /* Resolve an address to a host pointer, or NULL if not plain RAM. */
 /*
  * Host pointer for a mapped guest address, or NULL.
