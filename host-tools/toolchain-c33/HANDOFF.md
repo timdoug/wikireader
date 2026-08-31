@@ -235,22 +235,26 @@ V850 mnemonics, V850 registers, V850 syntax. gas rejected all four
 instructions, so every nested function failed to assemble. Nothing had
 ever exercised it.
 
-The C33 has no PC-relative load and no way to read `%pc` into a general
-register. What it has is a `call` that pushes the return address *before*
-transferring, so calling the next instruction is a no-op jump whose only
-effect is to leave the trampoline's own address on the stack:
+GCC 3.3.2 disabled C33 trampolines entirely (`TRAMPOLINE_SIZE 0`), although
+its assembler already accepted the PE manual's documented PC-read form.  The
+first replacement template missed that form and used a working but unnecessary
+`call`/stack-pop sequence.  The current template follows the manual's leaf
+subroutine example: `ld.w %rd,%pc` reads the following address when it is a
+delayed-slot instruction, so a jump to that same address obtains the
+trampoline's PC without touching the caller's stack:
 
 ```
-	 0  call  .+2
-	 2  ld.w  %r12,[%sp]     %r12 = trampoline + 2
-	 4  add   %sp,1          imm10 is scaled by 4 -- pops one word
-	 6  xld.w %r9,[%r12+14]  static chain
-	10  xld.w %r12,[%r12+18] the function
-	14  jp    %r12
+	 0  jp.d  .+4
+	 2  ld.w  %r12,%pc       %r12 = trampoline + 4
+	 4  xld.w %r9,[%r12+12]  static chain at trampoline + 16
+	 8  xld.w %r12,[%r12+16] function at trampoline + 20
+	12  jp    %r12
+	14  .short 0             alignment padding
 ```
 
-`popn %r12` would have popped `%r0`-`%r12` and taken the caller's saved
-registers with it; there is no single-register pop.
+The established 24-byte trampoline size and its two patched data offsets are
+unchanged.  Both old and current GAS accept the documented pair, and upstream
+`gcc.dg/trampoline-1.c` executes under wremu with this template.
 
 ### A relocation addend counted the PC twice, but only for static functions
 

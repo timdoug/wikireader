@@ -2613,27 +2613,23 @@ c33_conditional_register_usage (void)
 /* Worker function for TARGET_ASM_TRAMPOLINE_TEMPLATE.
 
    A trampoline has to load two words that are only known once it has been
-   built on the stack, so it needs its own address -- and the core has no
-   PC-relative load, nor any way to read %pc into a general register.
-
-   What it does have is a call that pushes the return address before
-   transferring (core manual 2.4.4).  So calling the very next instruction
-   is a no-op jump whose only effect is to leave this trampoline's address
-   on the stack, where an ordinary load can pick it up.  %sp is then put
-   back by hand; there is no single-register pop, and popn %r12 would pop
-   %r0-%r12 and take the caller's saved registers with it.
+   built on the stack, so it needs its own address.  The PE manual's leaf
+   subroutine example supplies the intended sequence: ld.w %rd,%pc reads
+   the following address when used in a delayed slot.  Jumping to that same
+   following address makes the pair a position-independent PC read without
+   touching the caller's stack.
 
    %r12 is scratch: call-clobbered, not an argument register, and not the
    register the caller used to reach here (that one is dead by now).  The
    static chain goes in %r9, which the 3.3.2 ABI shares with the fourth
    argument -- see ABI.md; that is inherited, not chosen here.
 
-	 0  call  .+2		 %sp -> address of the ld.w below
-	 2  ld.w  %r12,[%sp]	 %r12 = trampoline + 2
-	 4  add   %sp,1		 imm10 is scaled by 4, so this pops one word
-	 6  xld.w %r9,[%r12+14]	 = trampoline + 16, the static chain
-	10  xld.w %r12,[%r12+18] = trampoline + 20, the function
-	14  jp    %r12
+	 0  jp.d  .+4
+	 2  ld.w  %r12,%pc	 %r12 = trampoline + 4
+	 4  xld.w %r9,[%r12+12]	 = trampoline + 16, the static chain
+	 8  xld.w %r12,[%r12+16] = trampoline + 20, the function
+	12  jp    %r12
+	14  .short 0		 alignment padding
 	16  .long 0		 patched by c33_trampoline_init
 	20  .long 0
 
@@ -2642,12 +2638,12 @@ c33_conditional_register_usage (void)
 static void
 c33_asm_trampoline_template (FILE *f)
 {
-  fprintf (f, "\tcall\t.+2\n");
-  fprintf (f, "\tld.w\t%%r12,[%%sp]\n");
-  fprintf (f, "\tadd\t%%sp,1\n");
-  fprintf (f, "\txld.w\t%%r%d,[%%r12+14]\n", STATIC_CHAIN_REGNUM);
-  fprintf (f, "\txld.w\t%%r12,[%%r12+18]\n");
+  fprintf (f, "\tjp.d\t.+4\n");
+  fprintf (f, "\tld.w\t%%r12,%%pc\n");
+  fprintf (f, "\txld.w\t%%r%d,[%%r12+12]\n", STATIC_CHAIN_REGNUM);
+  fprintf (f, "\txld.w\t%%r12,[%%r12+16]\n");
   fprintf (f, "\tjp\t%%r12\n");
+  fprintf (f, "\t.short\t0\n");
   fprintf (f, "\t.long\t0\n");
   fprintf (f, "\t.long\t0\n");
 }
