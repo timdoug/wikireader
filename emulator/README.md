@@ -144,10 +144,14 @@ This required modelling three things the ELF path never touched: the I/O
 ports, because the SPI chip selects live there (`port.c` -- SD is port 5
 bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
 serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
-(`sdramc.c`), because the boot path spins on its initialise flag.
+(`sdramc.c`), because the boot path spins on its initialise flag.  The fixed
+identification area at `0x20000` also returns the manual's four bytes -- C33
+PE little-endian core, S1C33E series, E07 model, version `0x21` -- so the boot
+menu identifies the actual emulated part rather than reading an address-map
+hole.
 
-The whole chain works. `-n 300000000` reaches the rendered keyboard, in a
-bit over two seconds:
+The whole chain works. `-n 300000000` reaches the rendered keyboard in a
+few host seconds:
 
 ```
 load: kernel.elf
@@ -203,7 +207,7 @@ offset 1.
 
 The chain first took about 8 billion instructions where the ELF path
 reached the same screen in 600 million. It now takes **300 million**, and a
-full hardware boot runs in a bit over two seconds.
+full hardware boot runs in a few host seconds with SDRAM timing enabled.
 
 The cost was not I/O: both paths did nearly identical card traffic, 587
 commands against 538. It was not the boot stages either -- `-H` put 98% of
@@ -862,9 +866,9 @@ taken on faith.
 The same decoder applies `OSC3DIV`, `MCLKDIV`, and oscillator power state;
 after the suspend path selects OSC3/32 it reports the documented **1.5 MHz**.
 
-A full boot makes 17 CMU writes with **zero** blocked, which is the check
-that the protect polarity is the right way round -- had it been inverted,
-all 17 would have been rejected.
+A current full boot makes 34 CMU writes with **zero** blocked, which is the
+check that the protect polarity is the right way round -- had it been
+inverted, all 34 would have been rejected.
 
 `make test-cmu` replays grifo's register values and checks the derived
 frequency, the protect gate in both directions, and that a
@@ -891,9 +895,8 @@ run at that exact event time, not at the following CPU polling boundary.
 DMA timing counts the manual's bus phases at a minimum of one MCLK each.
 Dual-address HSDMA performs a source read and destination write.  Single-
 transfer IDMA reads four control words, transfers the byte, then writes four
-control words back: ten phases.  This is a documented lower bound, not a
-claim that every SDRAM access completes in one cycle; SDRAM wait states and
-refresh contention are not yet charged to either CPU or DMA memory accesses.
+control words back: ten phases.  CPU and DMA SDRAM accesses additionally go
+through the shared SDRAMC timing model described below.
 
 `make test-dma` reproduces the driver's register sequence.  A valid setup
 receives 512 bytes using 512 HSDMA and 511 IDMA transfers.  With the DMA
@@ -914,18 +917,58 @@ aligned control table in SDRAM.  A boot, suspend/resume, and typed search
 completed with zero invalid descriptors or SPI overflows, and its rendered
 screen matched PIO byte-for-byte.
 
-A matched gcc 16 run now times the 512-byte payload itself, excluding token,
-CRC, and card response latency.  Across 913 completed blocks, PIO averaged
-35,395.6 MCLK cycles (589.9 us at 60 MHz).  The DMA build averaged 21,358.6
-cycles (356.0 us), **39.7% less elapsed model time**, while executing 5.23
-million fewer CPU instructions.  Its 865 DMA-served blocks take exactly
-20,472 cycles (341.2 us); 48 blocks in this workload still follow the PIO
-path.  End-to-end startup still reaches the first `Event_wait` at 2000.2 ms
-in both builds because the application deliberately waits for that deadline.
-The useful improvement is visible in I/O phases: the interval to the final
-`File_initialise` hit falls from 321.3 to 234.3 ms.  Real hardware is still
-needed to calibrate SDRAM contention and SD-card response latency, but this
-is now an elapsed-cycle result rather than an instruction-count proxy.
+The earlier 913-block/48-PIO result was wrong.  Those 48 were speculative
+CMD18 sectors generated after the firmware had raised the card's chip select;
+the card model now releases MISO and stops the stream while deselected.  A
+current hardware-style boot reads 956 real blocks: 97 PIO blocks belong to
+the pre-kernel MBR/menu/file-loader, and all 859 blocks handled by the
+kernel's production driver use DMA.  It finishes with 439,808 HSDMA and
+438,949 IDMA transfers, zero invalid
+descriptors, and zero receive overflows.
+
+The old 39.7% PIO/DMA timing comparison predated the SDRAM model and is no
+longer quoted as a hardware-time result.  A direct ELF boot still gives the
+useful SPI/DMA pipeline invariant of exactly 20,472 cycles for each of its
+859 blocks, but that convenience path deliberately skips hardware SDRAM
+initialisation and therefore does not enable SDRAM waits.  In the full boot,
+where the firmware configures the controller, 956 mixed boot and kernel
+payloads average 46,096.7 MCLK cycles (35,288 minimum, 49,930 maximum), and
+the controller contributes 69,383,619 wait cycles in the
+`-n 300000000` run.  A new matched PIO-versus-DMA run under this model is
+needed before stating a replacement speedup; real hardware is still needed
+to calibrate absolute card latency.
+
+### SDRAM and external-bus timing
+
+The SDRAMC is no longer just a register stub.  Once real firmware has set
+`SDON`, completed MRS, and enabled `APPON`, every CPU fetch/read/write and DMA
+read/write in SDRAM is charged on the common MCLK timeline.  The model derives
+bank, row, and column geometry from `ADDRC`; enforces the programmed `tRP`/
+`tRCD`, `tRAS`, `tRC`/`tRFC`/`tXSR`, CAS latency, burst length two, and `DBF`;
+and serialises transactions on the external bus.  Event servicing gives DMA
+its documented priority over a CPU request at the same deadline.  LCDC
+priority does not create traffic here because the WikiReader keeps its
+framebuffer in IVRAM.
+
+This is deliberately conservative about the manual's bank-interleaved
+optimization: it tracks independently active rows in all four banks, but does
+not yet overlap one bank's ACT/READ command latency with another bank's data
+burst.  Such a workload may therefore be charged too much time.  The current
+firmware boot validates the queues, refresh, CPU/DMA contention, and ordinary
+same-bank/row-change paths; exact cross-bank overlap still needs refinement or
+hardware calibration.
+
+The two alternating 8-halfword IQB slots and mandatory two-halfword DQB are
+modelled separately.  Hits have no SDRAM cycle or wait, misses fetch their
+documented burst, and writes flush overlapping buffered data.  The AURCO and
+SELCO counters drive auto-refresh and self-refresh; an on-chip queue hit does
+not spuriously wake SDRAM, while the next real miss pays `tXSR + 1`.
+
+`make test-sdramc` checks exact waits for cold and buffered reads, row
+changes, writes, normal/DBF clocks, refresh, and self-refresh.  A full modern
+FLASH boot reaches the rendered application with the model active.  Direct
+ELF loading intentionally leaves it inactive because that debugging shortcut
+does not execute the board's SDRAM setup.
 
 ### Peripherals still taken on trust
 
@@ -933,19 +976,22 @@ The peripherals above have been checked against the S1C33E07 register
 descriptions. T16's six counters, eight prescaler choices, count pause,
 advanced-only counter/DA16/INITOL writes, comparison buffering and loading,
 CMU clock gates, compare interrupts, and the board's timer-0-to-timer-5
-cascade now have focused manual-derived tests. The SDRAMC's
-reset values, writable masks, initialization status, and self-refresh status
-are checked likewise. GPIO tests cover documented register masks, interrupt
-reset state, port selection, polarity, and key-comparator transitions for the
-modeled P03 and P60-P62 inputs. What has not: T16 fine-mode output waveforms
+cascade now have focused manual-derived tests. The SDRAMC's reset values,
+writable masks, initialization status, geometry, queue buffers, programmed
+waits, writes, refresh, and self-refresh are checked likewise. The fixed chip
+identification bytes have their own read-only mapping test. GPIO tests cover
+documented register masks, interrupt reset state, port selection, polarity,
+and key-comparator transitions for the modeled P03 and P60-P62 inputs. What
+has not: T16 fine-mode output waveforms
 and external timer pins other than the WikiReader's TM0-to-EXCL5 route, the SD
 card's own command set (an SD Association spec, not an Epson one), the
-remaining alternate-pin functions and unconnected port inputs, unused DMA
-modes and trigger sources, and the RTC block the firmware never touches.
+remaining alternate-pin functions and unconnected port inputs, and unused DMA
+modes and trigger sources. The RTC block is intentionally out of scope because
+the WikiReader firmware never touches it.
 
 `make check` runs the decoder comparison against binutils plus the focused
-core, interrupt, display, storage, watchdog, clock, ADC, timer, SDRAMC, and
-the WikiReader's dormant SPI-DMA pipeline.
+core, interrupt, display, storage, watchdog, clock, ADC, timer, SDRAMC, chip
+identification, and the WikiReader's SPI-DMA pipeline.
 
 ## Caveats
 

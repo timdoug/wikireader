@@ -19,6 +19,7 @@ and gives the `emulator/` work modern `objdump`/`readelf`.
 | `gcc.c-torture` execute | **1676 of 1692, zero failures, at all seven of upstream's option sets**; found four wrong-code bugs the firmware could not reach |
 | `gcc.c-torture` compile | **1973 of 2003 per set, zero failures, no ICEs** |
 | emulator, differentially | `emulator/difftest` now runs **both** toolchains; 200 programs each, five levels, all match |
+| emulator, hardware model | full FLASH boot reaches the app with documented chip ID, SDRAM queues/refresh/bus waits, and SD DMA active |
 | ABI vs the 3.3.2 oracle | `tests/abi` cross-links the two compilers in all four combinations. **All agree**, 36 values, five option levels. See "The ABI - fixed, and how it was over-thought" |
 
 ### binutils - finished
@@ -99,15 +100,23 @@ into Grifo.  A direct rebuilt-Grifo run reached `init` with 442,880 HSDMA and
 overflows.  The same link layout also builds with gcc 3.3.2, and every boot
 application entry remains exactly `0x200`.
 
-The emulator now schedules SPI from the live `BPT`, `MCBR`, and `SPI_WAIT`
-registers and charges the manual's minimum HSDMA/IDMA bus phases.  In matched
-gcc 16 runs, a 512-byte PIO payload averages 35,395.6 MCLK cycles (589.9 us
-at 60 MHz); the DMA build averages 21,358.6 (356.0 us), 39.7% less.  The
-DMA-served blocks are exactly 20,472 cycles each.  The full startup still
-lands on its deliberate 2000.2-ms deadline, but the interval to the final
-`File_initialise` hit falls from 321.3 to 234.3 ms.  SDRAM wait states and
-refresh contention remain unmodelled for both CPU and DMA, so hardware must
-still calibrate the absolute numbers.
+The emulator schedules SPI from the live `BPT`, `MCBR`, and `SPI_WAIT`
+registers and charges the manual's HSDMA/IDMA bus phases.  It now also charges
+CPU and DMA accesses through the documented SDRAMC geometry, row timings,
+IQB/DQB, auto/self-refresh counters, and shared external bus.  The old 39.7%
+PIO/DMA figure predated that model and is intentionally retired pending a new
+matched run.  A direct ELF run's 20,472 cycles per DMA block remains a useful
+pipeline invariant, but direct loading skips SDRAM setup and is not an
+absolute hardware-time benchmark.
+
+The old report of 48 kernel PIO blocks was also a card-model bug: speculative
+CMD18 data continued while chip select was high.  With deselection fixed, a
+full FLASH boot has 97 PIO blocks entirely in the pre-kernel loader and all
+859 blocks handled by the kernel's production driver use DMA.  The full run
+reaches the application with zero invalid descriptors and zero receive
+overflows.  Its mixed 956 payloads average 46,096.7 MCLK cycles with the
+SDRAM model active; real hardware must
+still calibrate absolute card latency.
 
 The menu is now the tightest boot component: its BSS ends at `0x1fee`, only
 18 bytes below the end of A0.  It fits, but future menu growth needs an
@@ -119,22 +128,23 @@ This is the part to keep hold of, because it is easy to overstate.
 
 * **Instruction counts are exact.** They are counts of `c33_step` calls,
   deterministic, and unaffected by host load or thermals.
-* **Milliseconds are a model.** `cpu.clk` comes from `cycle_cost()`, a
-  per-opcode table from the manual. It charges **one cycle per load and
-  models no SDRAM wait states at all**, and always charges 1 for `ext`
-  though the manual says 0 or 1. So memory-heavy wins - `memset`,
-  post-increment, delay slots - are the ones most likely overstated.
-  In modelled time the same two headline figures are -29% and -17%.
+* **Milliseconds are a model.** `cpu.clk` comes from the manual-derived
+  per-opcode table plus the new SDRAMC/bus model. It now charges the board's
+  programmed CAS/row/refresh waits and IQB/DQB behavior, but card latency and
+  unexercised arbitration cases still need hardware calibration. The timing
+  percentages in the table above were captured before this change and must
+  not be quoted as current measurements. Instruction counts remain valid.
 * **The user-visible number is smaller still.** What a person feels is the
   stall - how long the UI stops answering. Tap-to-article is 129 ms -> 108 ms,
-  about -16%. Everything else they touch moves by a few ms.
+  about -16% in the pre-SDRAMC measurements. Everything else they touched
+  moved by a few ms. These timing values are historical too.
 * **The worst stall on the device does not move at all**: 201 ms of
   `Delay_microseconds` + `Timer_get` + `Watchdog_KeepAlive`, a calibrated
   busy-wait, longer than the article load itself. No compiler can touch it.
 * **"Boot" here is not the boot you sit through.** The measured window is
   kernel entry -> app main loop on the ELF path, about 230 ms. The real
   device first runs mask ROM, `mbr`, the boot menu with its timeout and
-  `file-loader`; full flash boot measured ~2.4 s earlier. This work
+  `file-loader`; full flash boot measured ~2.4 s in the older model. This work
   improved roughly a tenth of what a user waits for.
 
 * **The article-load window is 99.95% `memset`.** 3,147,357 of 3,148,785
@@ -735,9 +745,10 @@ can find `c33-epson-elf-objdump` and recognize ELF weak/alias support.
 ## Also next, in rough order
 
 1. **Re-measure the headline numbers.** Every figure in the performance table
-   above was taken with the stale `libgcc`, and the ABI fix has since changed
-   argument placement. The screens are identical, so nothing user-visible
-   moved, but those numbers are stated as fact and are currently unverified.
+   above was taken with the stale `libgcc`, before the SDRAMC timing model,
+   and before the ABI fix changed argument placement. The screens are
+   identical, so nothing user-visible moved, but the timing numbers are
+   explicitly historical and currently unverified.
 2. **Keep the binutils prefixes merged.** The exact-source `work/bu` build is
    installed in active `work/install` and all three binutils suites are clean.
    Future rebuilds must repeat that installation or build directly into one
@@ -749,9 +760,6 @@ can find `c33-epson-elf-objdump` and recognize ELF weak/alias support.
 4. **Implement the skipped runtime capabilities.** The C99 libm and
    floating-point printf tests are classified accurately now, but remain
    explicit implementation debt in `tests/DEJAGNU-TODO.md`.
-5. **`emulator/src/main.c` debug scaffolding** - a `WREMU_CP` env-gated block
-   hard-coding `0x10052482`, left from an earlier session. Not from this work;
-   worth deleting.
 
 Both `/tmp` build trees were destroyed overnight by macOS's periodic purge
 partway through this session, which is why `gcc/rebuild.sh` and the test
@@ -807,11 +815,12 @@ number here.** It is one loop, 1,049,088 iterations:
 `-O2` compares the pointer, so the post-incrementing load feeds the
 compare that feeds the branch and nothing can move. Not a general `-O2`
 regression - `-O2` fills 58.0% of conditional slots against `-Os`'s
-52.1%. But the saving is one cycle of *loop overhead* per word on a pure
-bandwidth workload, and the model charges one cycle per store with no
-SDRAM wait states. On real memory that cycle amortises against stalls.
-Treat 20% as an upper bound. Not clearing the 4 MB survives contact with
-real SDRAM; making the loop 1 cycle tighter may not.
+52.1%. But the historical saving was one cycle of *loop overhead* per word
+on a pure bandwidth workload, measured before SDRAM waits existed. The new
+model amortises that cycle against queue and bus stalls, so the 20% figure
+must be re-measured and must not be treated as a hardware result. Not clearing
+the 4 MB survives contact with real SDRAM; making the loop 1 cycle tighter
+may not.
 
 ### Done this session, for context
 
