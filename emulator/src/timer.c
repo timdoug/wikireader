@@ -24,6 +24,7 @@
 #define OFF_TC0        (0x784u - T16_BASE)
 #define OFF_TC5        (0x7acu - T16_BASE)
 #define OFF_CNT_PAUSE  (0x7dcu - T16_BASE)
+#define OFF_ADVMODE    (0x7deu - T16_BASE)
 
 #define PAUSE0         (1u << 0)
 #define PAUSE5         (1u << 5)
@@ -31,10 +32,26 @@
 
 /* Channel 2, the suspend wake timer. */
 #define OFF_CR2A       (0x790u - T16_BASE)
+#define OFF_CR2B       (0x792u - T16_BASE)
 #define OFF_CTL2       (0x796u - T16_BASE)
 #define OFF_CLKCTL_2   (0x7e4u - T16_BASE)
 
 #define PRUNx          (1u << 0)     /* run/stop */
+#define PRESETx        (1u << 1)     /* write-only counter reset command */
+#define T16ADV         (1u << 0)
+
+#define CTL_STORED     0x017du       /* D8, D[6:2], D0; D1 reads zero */
+
+static bool is_ctl(uint32_t reg)
+{
+	return reg <= (0x7aeu - T16_BASE) && (reg & 7) == 6;
+}
+
+static bool is_clkctl(uint32_t reg)
+{
+	return reg >= (0x7e0u - T16_BASE) &&
+	       reg <= (0x7eau - T16_BASE) && !(reg & 1);
+}
 /*
  * The prescaler select is a power-of-two divider of MCLK; suspend.c picks
  * P16TSx_MCLK_DIV_4096 and computes its reload as
@@ -134,6 +151,9 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		if (reg == OFF_CNT_PAUSE) {
+			/* Full-sync pause writes do nothing in standard mode. */
+			if (!(t->reg[OFF_ADVMODE / 2] & T16ADV))
+				return true;
 			/* Tick_get pauses the cascaded timer 0/5 pair to read a
 			 * coherent 32-bit value. Capture when both channels stop,
 			 * then exclude the stopped interval when they resume. */
@@ -143,18 +163,28 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			else if (!pause && t->paused)
 				t->tick_bias = raw_now(t) - t->latched;
 			t->paused = pause;
-			*val &= 0x3f;       /* only PAUSE0..PAUSE5 exist */
+			t->reg[reg / 2] = (uint16_t)*val & 0x3f;
+			return true;
 		}
-		if (reg / 2 < 0x80 / 2)
+		if (reg == OFF_ADVMODE) {
+			t->reg[reg / 2] = (uint16_t)*val & T16ADV;
+			return true;
+		}
+		if (is_ctl(reg))
+			t->reg[reg / 2] = (uint16_t)*val & CTL_STORED;
+		else if (is_clkctl(reg))
+			t->reg[reg / 2] = (uint16_t)*val & 0x000f;
+		else if (reg / 2 < 0x80 / 2)
 			t->reg[reg / 2] = (uint16_t)*val;
 		if (reg == OFF_CLKCTL_2)
-			t->clkctl2 = (uint16_t)*val;
+			t->clkctl2 = t->reg[reg / 2];
 		if (reg == OFF_CTL2) {
 			/* Starting the timer arms the wake-up deadline. */
-			if ((*val & PRUNx) && !t->t2_running) {
-				uint64_t n = t->reg[OFF_CR2A / 2];
+			if ((t->reg[reg / 2] & PRUNx) && !t->t2_running) {
+				uint64_t n = t->reg[OFF_CR2B / 2];
 				t->t2_running = true;
-				uint64_t span = (uint64_t)n * T2_PRESCALE;
+				/* The counter runs from zero through CRB inclusive. */
+				uint64_t span = (n + 1) * T2_PRESCALE;
 				/*
 				 * Development knob: the firmware asks for a
 				 * 120 s suspend timeout, which is a long wait
@@ -167,7 +197,7 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				if (sc && atoi(sc) > 1)
 					span /= (unsigned)atoi(sc);
 				t->t2_deadline = (t->cycles ? *t->cycles : 0) + span;
-			} else if (!(*val & PRUNx)) {
+			} else if (!(t->reg[reg / 2] & PRUNx)) {
 				t->t2_running = false;
 			}
 		}
@@ -187,8 +217,19 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		*val = (t->latched >> 16) & 0xffff;
 		t->reads++;
 		return true;
+	case OFF_CNT_PAUSE:
+		*val = t->reg[reg / 2] & 0x003f;
+		return true;
+	case OFF_ADVMODE:
+		*val = t->reg[reg / 2] & T16ADV;
+		return true;
 	default:
-		*val = reg / 2 < 0x80 / 2 ? t->reg[reg / 2] : 0;
+		if (is_ctl(reg))
+			*val = t->reg[reg / 2] & CTL_STORED;
+		else if (is_clkctl(reg))
+			*val = t->reg[reg / 2] & 0x000f;
+		else
+			*val = reg / 2 < 0x80 / 2 ? t->reg[reg / 2] : 0;
 		return true;
 	}
 }
