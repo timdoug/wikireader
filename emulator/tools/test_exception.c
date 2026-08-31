@@ -90,6 +90,13 @@ static void test_special_registers(void)
 	check("DBBR is read-only", c.sr[SR_DBBR], 0x00060000);
 	c = run_sreg(0xa00f, 0x12345678);     /* ld.w %pc,%r0 */
 	check("PC is read-only", c.pc, ENTRY + 2);
+	c = run_sreg(0xa004, 0x12345678);     /* ld.w reserved-4,%r0 */
+	check("write to a reserved special register is a nop", c.sr[SR_LCO], 0);
+	c = run_sreg(0xa440, 0x12345678);     /* ld.w %r0,reserved-4 */
+	check("read from a reserved special register is a nop",
+	      c.r[0], 0x12345678);
+	c = run_sreg(0xa000, PSR_IE);         /* ld.w %psr,%r0 */
+	check("write to PSR takes three clocks", c.clk, 3);
 }
 
 static struct c33 init(unsigned vector)

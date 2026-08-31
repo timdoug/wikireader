@@ -410,7 +410,9 @@ byte in IDIR is left zero because the S1C33E07 manual does not specify it.
 Special-register transfers enforce the same register definitions: unused
 PSR bits read as zero, SP stays word aligned, TTBR stays 1K aligned, IDIR,
 DBBR, and PC ignore writes, and reading PC produces the address immediately
-after the `ld.w` as section 2.2 specifies.
+after the `ld.w` as section 2.2 specifies. Encodings for special registers
+which do not exist on PE execute as no-ops rather than exposing the decoder's
+all-core register names.
 
 One caveat for anyone reading the manual: its prose says `cmp` takes its
 immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,

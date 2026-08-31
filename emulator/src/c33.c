@@ -419,6 +419,7 @@ static unsigned cycle_cost(uint8_t op, bool branched, bool had_ext, int nreg)
 	case OP_PUSH:                           return 2;
 	case OP_PUSHN: case OP_POPN:            return (unsigned)nreg + 1;
 	case OP_PUSHS: case OP_POPS:            return nreg == 2 ? 3 : 2;
+	case OP_LD_W:                           if (nreg == 2) return 3; break;
 	case OP_BSET: case OP_BCLR: case OP_BNOT: return had_ext ? 4 : 3;
 	case OP_BTST:                           return had_ext ? 3 : 2;
 	case OP_CALL:                           return 4;
@@ -577,10 +578,20 @@ static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 }
 
 /* Architectural restrictions on the special-register transfer forms. */
-static uint32_t read_sreg(const struct c33 *c, unsigned reg)
+static bool read_sreg(const struct c33 *c, unsigned reg, uint32_t *value)
 {
-	/* ld.w %rd,%pc reads the address following that ld.w (section 2.2). */
-	return reg == SR_PC ? c->pc : c->sr[reg];
+	switch (reg) {
+	case SR_PSR: case SR_SP: case SR_ALR: case SR_AHR:
+	case SR_TTBR: case SR_IDIR: case SR_DBBR:
+		*value = c->sr[reg];
+		return true;
+	case SR_PC:
+		/* ld.w %rd,%pc reads the following address (section 2.2). */
+		*value = c->pc;
+		return true;
+	default:
+		return false;
+	}
 }
 
 static void write_sreg(struct c33 *c, unsigned reg, uint32_t value)
@@ -596,13 +607,16 @@ static void write_sreg(struct c33 *c, unsigned reg, uint32_t value)
 	case SR_TTBR:
 		c->sr[reg] = value & ~0x3ffu;
 		break;
+	case SR_ALR:
+	case SR_AHR:
+		c->sr[reg] = value;
+		break;
 	case SR_IDIR:
 	case SR_DBBR:
 	case SR_PC:
-		break;                  /* read-only */
+		break;                  /* read-only, or PC's defined no-op write */
 	default:
-		c->sr[reg] = value;
-		break;
+		break;                  /* not a PE special register: instruction nop */
 	}
 }
 
@@ -866,7 +880,9 @@ void c33_step(struct c33 *c)
 			write_sreg(c, insn & 0xf, c->r[a]);
 		} else if (f->sreg == 2) {
 			/* ld.w %rN,%sreg  (0xa4N0): index is bits 7:4 */
-			c->r[a] = read_sreg(c, (insn >> 4) & 0xf);
+			uint32_t value;
+			if (read_sreg(c, (insn >> 4) & 0xf, &value))
+				c->r[a] = value;
 		} else {
 			fault(c, "unhandled ld.w form");
 		}
@@ -1383,6 +1399,8 @@ void c33_step(struct c33 *c)
 		unsigned sreg = insn & 0xf;
 		nreg = sreg == SR_ALR ? 1 : sreg == SR_AHR ? 2 : 0;
 	}
+	if (op == OP_LD_W && f->sreg == 1 && (insn & 0xf) == SR_PSR)
+		nreg = 2;              /* cycle_cost: 1 normally, 3 for PSR */
 	c->clk += cycle_cost(op, c->pc != pc_before, had_ext, nreg);
 
 	if (c->n_ext) {
