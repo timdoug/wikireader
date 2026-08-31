@@ -85,8 +85,8 @@ test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	/tmp/test_cmu
 
 # Cascaded timer 0/5 reads and the per-channel count-pause register.
-test-timer: tools/test_timer.c src/timer.o src/c33.o src/itc.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/itc.o src/mem.o
+test-timer: tools/test_timer.c src/timer.o src/c33.o src/itc.o src/cmu.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/itc.o src/cmu.o src/mem.o
 	/tmp/test_timer
 
 # SDRAM controller reset values, status flags, and register masks.

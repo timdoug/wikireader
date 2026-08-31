@@ -79,14 +79,24 @@ int main(void)
 	 * values keep coincidentally equal firmware settings from hiding swaps. */
 	itc.reg[0x261 - ITC_BASE] = 5u << 4; /* port input 3 */
 	itc.reg[0x262 - ITC_BASE] = 3u;      /* key input 0 */
-	itc.reg[0x267 - ITC_BASE] = 2u;      /* 16-bit timer 2 */
+	itc.reg[0x266 - ITC_BASE] = (2u << 4) | 1u; /* timers 0/1 */
+	itc.reg[0x267 - ITC_BASE] = (4u << 4) | 3u; /* timers 2/3 */
+	itc.reg[0x268 - ITC_BASE] = (6u << 4) | 5u; /* timers 4/5 */
 	itc.reg[0x26a - ITC_BASE] = (4u << 4) | 6u;
 	check("port input 3 reads PP23L[6:4]", itc_priority(&itc, 19), 5);
 	check("key input 0 reads PK01L[2:0]", itc_priority(&itc, 20), 3);
 	check("timer 2 compare B reads P16T23[2:0]",
-	      itc_priority(&itc, 38), 2);
+	      itc_priority(&itc, 38), 3);
 	check("timer 2 compare A shares P16T23[2:0]",
-	      itc_priority(&itc, 39), 2);
+	      itc_priority(&itc, 39), 3);
+	for (unsigned channel = 0; channel < 6; channel++) {
+		unsigned b = 30 + 4 * channel;
+		snprintf(buf, sizeof buf, "timer %u uses its documented priority field",
+			 channel);
+		check(buf, itc_priority(&itc, b), channel + 1);
+		check("comparison A shares its channel's priority",
+		      itc_priority(&itc, b + 1), channel + 1);
+	}
 	check("serial 0 reads PSI01_PAD[6:4]", itc_priority(&itc, 57), 4);
 	check("serial 1 reads PSI01_PAD[2:0]", itc_priority(&itc, 61), 6);
 
@@ -100,6 +110,29 @@ int main(void)
 		snprintf(buf, sizeof buf, "serial vector %u sets cause bit %u",
 			 serial_vectors[i], serial_bits[i]);
 		check(buf, itc.reg[0x286 - ITC_BASE], 1u << serial_bits[i]);
+	}
+
+	/* Every timer channel has adjacent B/A cause and enable bits. */
+	for (unsigned channel = 0; channel < 6; channel++) {
+		unsigned b = 30 + 4 * channel;
+		unsigned reg = 0x282 + channel / 2;
+		unsigned bit = 2 + 4 * (channel & 1);
+		itc_reset(&itc);
+		itc_set_flag(&itc, b);
+		snprintf(buf, sizeof buf, "timer %u compare B sets its cause bit",
+			 channel);
+		check(buf, itc.reg[reg - ITC_BASE], 1u << bit);
+		itc_set_flag(&itc, b + 1);
+		snprintf(buf, sizeof buf, "timer %u compare A sets the adjacent bit",
+			 channel);
+		check(buf, itc.reg[reg - ITC_BASE], 3u << bit);
+		itc.reg[reg - 0x10 - ITC_BASE] = 1u << bit;
+		check("comparison B observes its enable bit", itc_enabled(&itc, b), 1);
+		check("comparison A has a distinct enable bit",
+		      itc_enabled(&itc, b + 1), 0);
+		itc.reg[reg - 0x10 - ITC_BASE] |= 1u << (bit + 1);
+		check("comparison A observes its enable bit",
+		      itc_enabled(&itc, b + 1), 1);
 	}
 
 	/* Cause-register writes follow the reset mode selected at 0x30029f. */

@@ -4,17 +4,26 @@
 #include "../src/mem.h"
 #include "../src/timer.h"
 
+#define CR0A       (REG_BASE + 0x780)
+#define CR0B       (REG_BASE + 0x782)
 #define TC0        (REG_BASE + 0x784)
+#define CTL0       (REG_BASE + 0x786)
 #define CR1A       (REG_BASE + 0x788)
 #define TC1        (REG_BASE + 0x78c)
 #define CTL1       (REG_BASE + 0x78e)
+#define TC2        (REG_BASE + 0x794)
 #define TC5        (REG_BASE + 0x7ac)
+#define CR5A       (REG_BASE + 0x7a8)
+#define CR5B       (REG_BASE + 0x7aa)
+#define CTL5       (REG_BASE + 0x7ae)
 #define CR2A       (REG_BASE + 0x790)
 #define CR2B       (REG_BASE + 0x792)
 #define CTL2       (REG_BASE + 0x796)
 #define CNT_PAUSE  (REG_BASE + 0x7dc)
 #define ADVMODE    (REG_BASE + 0x7de)
 #define CLKCTL2    (REG_BASE + 0x7e4)
+#define CLKCTL0    (REG_BASE + 0x7e0)
+#define CLKCTL5    (REG_BASE + 0x7ea)
 #define DA16_0     (REG_BASE + 0x7d0)
 #define PAUSE0     (1u << 0)
 #define PAUSE2     (1u << 2)
@@ -23,6 +32,10 @@
 #define PRUN       (1u << 0)
 #define SELCRB     (1u << 5)
 #define INITOL     (1u << 8)
+#define PTM         (1u << 2)
+#define CKSL        (1u << 3)
+#define OUTINV      (1u << 4)
+#define P16TON      (1u << 3)
 
 static int fails;
 
@@ -52,7 +65,7 @@ int main(void)
 
 	if (!mem_init(&mem))
 		return 1;
-	timer_attach(&mem, &timer, &clk, NULL);
+	timer_attach(&mem, &timer, &clk, NULL, NULL);
 
 	mem_write(&mem, CNT_PAUSE, 2, PAUSE5 | PAUSE0);
 	check("count pause is read-only in standard mode",
@@ -106,7 +119,21 @@ int main(void)
 	check("DA16 writes its low six bits to timer 2's selected CR A",
 	      mem_read(&mem, CR2A, 2), 0x000d);
 
-	check("running timer reflects the MCLK count", tick_get(&mem), 100);
+	/* The board routes timer 0's inverted B edge into timer 5's input. */
+	mem_write(&mem, CR0A, 2, 0x7fff);
+	mem_write(&mem, CR0B, 2, 0xffff);
+	mem_write(&mem, CLKCTL0, 2, P16TON);
+	mem_write(&mem, CTL0, 2, OUTINV | PTM | PRESET);
+	mem_write(&mem, CR5A, 2, 0x7fff);
+	mem_write(&mem, CR5B, 2, 0xffff);
+	mem_write(&mem, CLKCTL5, 2, P16TON);
+	mem_write(&mem, CTL5, 2, CKSL | PRESET);
+	mem_write(&mem, CNT_PAUSE, 2, PAUSE5 | PAUSE0);
+	mem_write(&mem, CTL0, 2, OUTINV | PTM | PRUN);
+	mem_write(&mem, CTL5, 2, CKSL | PRUN);
+	mem_write(&mem, CNT_PAUSE, 2, 0);
+	clk = 200;
+	check("running timer 0 reflects elapsed MCLK clocks", tick_get(&mem), 100);
 	check("Tick_get releases both paused channels",
 	      mem_read(&mem, CNT_PAUSE, 2), 0);
 
@@ -126,6 +153,9 @@ int main(void)
 	clk = 1100;
 	check("an unrelated channel pause does not stop timer 0/5",
 	      mem_read(&mem, TC0, 2), 200);
+	clk += 65536;
+	check("timer 0's rising B edge clocks external timer 5",
+	      tick_get(&mem), 0x000100c8);
 
 	mem_write(&mem, CTL2, 2, PRESET);
 	check("the PRESET command always reads back zero",
@@ -135,9 +165,24 @@ int main(void)
 	      mem_read(&mem, CLKCTL2, 2), 0x000f);
 	mem_write(&mem, CR2A, 2, 5);
 	mem_write(&mem, CR2B, 2, 9);
-	mem_write(&mem, CTL2, 2, PRUN);
-	check("timer 2 uses comparison B and counts it inclusively",
-	      (uint32_t)(timer.t2_deadline - clk), 10u * 4096u * 32u);
+	mem_write(&mem, CTL0, 2, 0);
+	mem_write(&mem, CTL5, 2, 0);
+	mem_write(&mem, CTL2, 2, PRESET | PRUN);
+	clk += 10u * 4096u;
+	check("timer 2 resets after counting through comparison B",
+	      mem_read(&mem, TC2, 2), 0);
+	check("timer 2 records its comparison B match", timer.fires[2][1], 1);
+
+	/* OSC3 is 48 MHz; OSC3/32 is 1.5 MHz against the raw 60 MHz clock. */
+	struct cmu cmu;
+	cmu_reset(&cmu);
+	cmu.reg[(0x1b08 - CMU_BASE) / 4] = (5u << 8) | (1u << 1);
+	timer.cmu = &cmu;
+	mem_write(&mem, CR2A, 2, 0);
+	mem_write(&mem, CR2B, 2, 9);
+	mem_write(&mem, CTL2, 2, PRESET | PRUN);
+	check("OSC3/32 scales the timer against the 60 MHz raw timebase",
+	      (uint32_t)(timer.next_deadline - clk), 10u * 4096u * 40u);
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all timer tests passed");

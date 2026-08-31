@@ -77,6 +77,12 @@ int main(void)
 	      OSC3_HZ);
 	check("reset WAKEUPWT auto-wakes clock-switch SLEEP",
 	      cmu_slp_auto_wake(&cmu), 1);
+	for (unsigned channel = 0; channel < 6; channel++) {
+		char label[80];
+		snprintf(label, sizeof label, "timer %u clock is supplied after reset",
+			 channel);
+		check(label, cmu_t16_enabled(&cmu, channel), 1);
+	}
 
 	/* Reset state is locked, so a write without unlocking is discarded. */
 	wr(0x1b08, GRIFO_CLKCNTL);
@@ -98,6 +104,9 @@ int main(void)
 	check("system clock is 60 MHz", cmu_mclk_hz(&cmu), 60000000);
 	check("which is the tick timer's 60 counts per microsecond",
 	      cmu_mclk_hz(&cmu) / 1000000, 60);
+	wr(0x1b04, 1u << 15);       /* only TM2_CKE */
+	check("TM2_CKE supplies timer 2", cmu_t16_enabled(&cmu, 2), 1);
+	check("a cleared TM0_CKE gates timer 0", cmu_t16_enabled(&cmu, 0), 0);
 
 	/* Read-modify-write must preserve bits: CMU_enable1 does |= mask. */
 	wr(0x1b04, 0x00000005);

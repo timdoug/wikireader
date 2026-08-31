@@ -123,6 +123,12 @@ bool cmu_slp_auto_wake(const struct cmu *c)
 	return !(c->reg[OFF_OPT / 4] & WAKEUPWT);
 }
 
+bool cmu_t16_enabled(const struct cmu *c, unsigned channel)
+{
+	return channel < 6 &&
+	       (c->reg[OFF_GATEDCLK1 / 4] & (1u << (13u + channel))) != 0;
+}
+
 void cmu_reset(struct cmu *c)
 {
 	memset(c, 0, sizeof *c);

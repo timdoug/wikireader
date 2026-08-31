@@ -30,5 +30,7 @@ void cmu_reset(struct cmu *c);
 uint32_t cmu_mclk_hz(const struct cmu *c);
 /* True when WAKEUPWT selects automatic cancellation of SLEEP. */
 bool cmu_slp_auto_wake(const struct cmu *c);
+/* Whether MCLK is supplied to one of the six 16-bit timer channels. */
+bool cmu_t16_enabled(const struct cmu *c, unsigned channel);
 
 #endif /* CMU_H */

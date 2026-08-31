@@ -528,7 +528,7 @@ int main(int argc, char **argv)
 	wdt_attach(&mem, &wdt, &cmu, &cpu.clk);
 
 	struct timerblk timer;
-	timer_attach(&mem, &timer, &cpu.clk, &itc);
+	timer_attach(&mem, &timer, &cpu.clk, &itc, &cmu);
 	/*
 	 * With a window, measure time the way the person holding the mouse
 	 * does. Headless runs keep the cycle-derived tick so they stay
@@ -896,8 +896,8 @@ int main(int argc, char **argv)
 				continue;
 			}
 			unsigned long long next = limit;
-			if (timer.t2_running && timer.t2_deadline < next)
-				next = timer.t2_deadline;
+			if (timer.deadline_valid && timer.next_deadline < next)
+				next = timer.next_deadline;
 			/*
 			 * Until the anchor fires the scripted times have not
 			 * been rebased, so they are not deadlines yet -- and

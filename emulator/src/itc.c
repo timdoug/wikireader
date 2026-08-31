@@ -19,7 +19,9 @@
 /* Priority register offsets within the block, from samo-lib/include/regs.h. */
 #define PP23L      (0x261u - ITC_BASE)   /* port input 2 low, input 3 high */
 #define PK01L      (0x262u - ITC_BASE)   /* key input 0 low, input 1 high */
+#define P16T01     (0x266u - ITC_BASE)   /* timer 0 low, timer 1 high */
 #define P16T23     (0x267u - ITC_BASE)   /* timer 2 low, timer 3 high */
+#define P16T45     (0x268u - ITC_BASE)   /* timer 4 low, timer 5 high */
 #define PSI01_PAD  (0x26au - ITC_BASE)   /* serial ch0 bits 6:4, ch1 bits 2:0 */
 
 /*
@@ -38,13 +40,17 @@
 #define RST_RESET  (0x29fu - ITC_BASE)
 #define RSTONLY    (1u << 0)
 
+#define F16T01     (0x282u - ITC_BASE)   /* 16-bit timer 0-1 causes */
 #define F16T23     (0x283u - ITC_BASE)   /* 16-bit timer 2-3 causes */
+#define F16T45     (0x284u - ITC_BASE)   /* 16-bit timer 4-5 causes */
 #define FSIF01     (0x286u - ITC_BASE)   /* serial ch0-1 causes */
 
 /* Enable registers, one bit per cause. */
 #define EK01_EP03  (0x270u - ITC_BASE)   /* key input and port causes */
 #define FK01_FP03  (0x280u - ITC_BASE)
+#define E16T01     (0x272u - ITC_BASE)
 #define E16T23     (0x273u - ITC_BASE)
+#define E16T45     (0x274u - ITC_BASE)
 #define ESIF01     (0x276u - ITC_BASE)
 
 /* Vector numbers from samo-lib/grifo/src/vector.h. */
@@ -85,14 +91,17 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 unsigned itc_priority(const struct itc *t, unsigned vector)
 {
+	if (vector >= 30 && vector <= 51 &&
+	    ((vector - 30) % 4u) < 2u) {
+		unsigned channel = (vector - 30) / 4u;
+		static const uint8_t preg[] = { P16T01, P16T23, P16T45 };
+		return (t->reg[preg[channel / 2]] >> (channel & 1u ? 4 : 0)) & 0x7;
+	}
 	switch (vector) {
 	case 19:
 		return (t->reg[PP23L] >> 4) & 0x7; /* port input 3 */
 	case 20:
 		return t->reg[PK01L] & 0x7;        /* key input 0 */
-	case 38:
-	case 39:
-		return t->reg[P16T23] & 0x7;       /* timer 2, compare B/A */
 	case VEC_SERIAL0_ERR:
 	case VEC_SERIAL0_RX:
 	case VEC_SERIAL0_TX:
@@ -117,11 +126,17 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
  */
 bool itc_enabled(const struct itc *t, unsigned vector)
 {
+	if (vector >= 30 && vector <= 51 &&
+	    ((vector - 30) % 4u) < 2u) {
+		unsigned channel = (vector - 30) / 4u;
+		unsigned is_a = (vector - 30) & 1u;
+		static const uint8_t ereg[] = { E16T01, E16T23, E16T45 };
+		return (t->reg[ereg[channel / 2]] &
+			(1u << (2u + 4u * (channel & 1u) + is_a))) != 0;
+	}
 	switch (vector) {
 	case 19: return (t->reg[EK01_EP03] & (1u << 3)) != 0; /* port input 3 */
 	case 20: return (t->reg[EK01_EP03] & (1u << 4)) != 0; /* key input 0 */
-	case 38: return (t->reg[E16T23] & (1u << 2)) != 0;  /* timer 2 cmp B */
-	case 39: return (t->reg[E16T23] & (1u << 3)) != 0;  /* timer 2 cmp A */
 	case 56: return (t->reg[ESIF01] & (1u << 0)) != 0;  /* serial 0 error */
 	case 57: return (t->reg[ESIF01] & (1u << 1)) != 0;  /* serial 0 rx    */
 	case 58: return (t->reg[ESIF01] & (1u << 2)) != 0;  /* serial 0 tx    */
@@ -134,11 +149,17 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 
 static bool itc_flagged(const struct itc *t, unsigned vector)
 {
+	if (vector >= 30 && vector <= 51 &&
+	    ((vector - 30) % 4u) < 2u) {
+		unsigned channel = (vector - 30) / 4u;
+		unsigned is_a = (vector - 30) & 1u;
+		static const uint8_t freg[] = { F16T01, F16T23, F16T45 };
+		return (t->reg[freg[channel / 2]] &
+			(1u << (2u + 4u * (channel & 1u) + is_a))) != 0;
+	}
 	switch (vector) {
 	case 19: return (t->reg[FK01_FP03] & (1u << 3)) != 0;
 	case 20: return (t->reg[FK01_FP03] & (1u << 4)) != 0;
-	case 38: return (t->reg[F16T23] & (1u << 2)) != 0;
-	case 39: return (t->reg[F16T23] & (1u << 3)) != 0;
 	case 56: return (t->reg[FSIF01] & (1u << 0)) != 0;
 	case 57: return (t->reg[FSIF01] & (1u << 1)) != 0;
 	case 58: return (t->reg[FSIF01] & (1u << 2)) != 0;
@@ -154,7 +175,8 @@ bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 	/* Table III.2.1.1.1 is ordered from highest to lowest fixed priority.
 	 * Keeping the first vector on a tie implements that documented order. */
 	static const uint8_t vectors[] = {
-		19, 20, 38, 39, 56, 57, 58, 60, 61, 62
+		19, 20, 30, 31, 34, 35, 38, 39, 42, 43, 46, 47, 50, 51,
+		56, 57, 58, 60, 61, 62
 	};
 	bool found = false;
 	unsigned best = 0;
@@ -177,11 +199,18 @@ bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 
 void itc_set_flag(struct itc *t, unsigned vector)
 {
+	if (vector >= 30 && vector <= 51 &&
+	    ((vector - 30) % 4u) < 2u) {
+		unsigned channel = (vector - 30) / 4u;
+		unsigned is_a = (vector - 30) & 1u;
+		static const uint8_t freg[] = { F16T01, F16T23, F16T45 };
+		t->reg[freg[channel / 2]] |=
+			1u << (2u + 4u * (channel & 1u) + is_a);
+		return;
+	}
 	switch (vector) {
 	case 19: t->reg[FK01_FP03] |= 1u << 3; break;  /* port input 3 */
 	case 20: t->reg[FK01_FP03] |= 1u << 4; break;  /* key input 0 */
-	case 38: t->reg[F16T23] |= 1u << 2; break;  /* timer 2 comparison B */
-	case 39: t->reg[F16T23] |= 1u << 3; break;  /* timer 2 comparison A */
 	case 56: case 57: case 58:
 	case 60: case 61: case 62:
 		/* error/rx/tx are bits 0/1/2 for ch0 and 3/4/5 for ch1. */

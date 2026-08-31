@@ -244,8 +244,10 @@ more pieces. Each one hid the next:
   because `Suspend` disables interrupts before halting.
 * `SELDO` in the SDRAM refresh register is modelled, because the relocated
   suspend code enables self-refresh and spins until it reads back.
-* 16-bit timer 2 is modelled as a wake source, because that is what the
-  suspend path arms before halting.
+* All six 16-bit timers count from their selected internal prescaler, or an
+  external edge where the board supplies one. Compare A/B causes use their
+  documented ITC flags, enables, priorities, and fixed ordering, so timer 2
+  can wake the suspend path without a special interrupt shortcut.
 
 * The **cause-of-interrupt flag registers** at 0x280..0x28f are
   write-1-to-clear, not storage: "The flag that has been set can be reset by
@@ -261,10 +263,11 @@ more pieces. Each one hid the next:
   live one and take it down with it, which is how a stray timer wake-up ate
   the touch interrupts.
 * The wake timer runs from **OSC3/32**, because the suspend code switches
-  the clock down before arming it. That is the other factor in the
-  firmware's own reload, `(MCLK / 32 / 4096) * seconds`. Modelling only the
-  4096 made the timeout fire 32 times early, so the device decided it had
-  been idle for two minutes and powered off.
+  the clock down before arming it. The timer now consumes the MCLK frequency
+  decoded by the CMU rather than a timer-2 constant. In particular, OSC3 is
+  48 MHz, so OSC3/32 is 1.5 MHz; against the emulator's 60 MHz raw timeline
+  that is a factor of 40, not 32. The old factor made the intended 120-second
+  timeout expire after 96 seconds.
 
 The lesson from the port bug still stands, twice over: the reset state of an
 I/O port is a property of the board, not a convenient default. The manual
@@ -853,9 +856,10 @@ but the configuration is decoded, which lets the emulator's timebase be
 checked instead of assumed. grifo programs `OSCSEL_PLL` with the PLL at
 48 MHz / 8 x 10, and `cmu_mclk_hz()` reads **60 MHz** back out of the
 registers the firmware actually wrote. That is exactly the 60 MHz that
-`Tick_TicksPerMicroSecond` and `TIMER_CountsPerMicroSecond` assume and that
-`CYCLES_PER_TICK` in `src/timer.c` is scaled to, so the timebase is now
-derived from the hardware configuration rather than taken on faith.
+`Tick_TicksPerMicroSecond` and `TIMER_CountsPerMicroSecond` assume. T16
+converts that raw timeline through the live CMU frequency and each channel's
+prescaler, so its timebase is derived from hardware configuration rather than
+taken on faith.
 The same decoder applies `OSC3DIV`, `MCLKDIV`, and oscillator power state;
 after the suspend path selects OSC3/32 it reports the documented **1.5 MHz**.
 
@@ -870,16 +874,18 @@ read-modify-write preserves previously enabled clocks.
 ### Peripherals still taken on trust
 
 The peripherals above have been checked against the S1C33E07 register
-descriptions. T16 count pause, advanced-only counter/DA16/INITOL writes,
-comparison-register buffering, PRESET loading, control commands, and the
-timer-2 wake period now have focused manual-derived tests. The SDRAMC's
+descriptions. T16's six counters, eight prescaler choices, count pause,
+advanced-only counter/DA16/INITOL writes, comparison buffering and loading,
+CMU clock gates, compare interrupts, and the board's timer-0-to-timer-5
+cascade now have focused manual-derived tests. The SDRAMC's
 reset values, writable masks, initialization status, and self-refresh status
 are checked likewise. GPIO tests cover documented register masks, interrupt
 reset state, port selection, polarity, and key-comparator transitions for the
-modeled P03 and P60-P62 inputs. What has not: timer channels the firmware does
-not use, the SD card's own command set (an SD Association spec, not an Epson
-one), the remaining alternate-pin functions and unconnected port inputs, and
-DMA and RTC blocks the firmware never touches.
+modeled P03 and P60-P62 inputs. What has not: T16 fine-mode output waveforms
+and external timer pins other than the WikiReader's TM0-to-EXCL5 route, the SD
+card's own command set (an SD Association spec, not an Epson one), the
+remaining alternate-pin functions and unconnected port inputs, and DMA and
+RTC blocks the firmware never touches.
 
 `make check` runs the decoder comparison against binutils plus the focused
 core, interrupt, display, storage, watchdog, clock, ADC, timer, and SDRAMC
