@@ -1310,7 +1310,8 @@ c33_select_cc_mode (enum rtx_code cond, rtx op0, rtx op1)
       && (GET_CODE (op0) == PLUS || GET_CODE (op0) == MINUS
 	  || GET_CODE (op0) == NEG || GET_CODE (op0) == AND
 	  || GET_CODE (op0) == IOR || GET_CODE (op0) == XOR
-	  || GET_CODE (op0) == NOT || GET_CODE (op0) == ASHIFT))
+	  || GET_CODE (op0) == NOT || GET_CODE (op0) == ASHIFT
+	  || GET_CODE (op0) == LSHIFTRT || GET_CODE (op0) == ASHIFTRT))
     return CCNZmode;
 
   return CCmode;
