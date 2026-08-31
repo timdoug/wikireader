@@ -2551,7 +2551,10 @@ md_assemble (char * str)
                                 }
                                 else if (operand->range == 22) {
                                     if (operand->flags & C33_OPERAND_PC){
-                                        if (-256 <= iNumber && iNumber <= 254){
+                                        if ((iNumber & 1) != 0) {
+                                            errmsg = _("branch displacement is not halfword aligned");
+                                        }
+                                        else if (-256 <= iNumber && iNumber <= 254){
                                             ex.X_add_number = (iNumber >> 1) & 0xff;    /* sign22(8:1) */
                                         }
                                         else if ((-2097152 <= iNumber && iNumber < -256) ||
@@ -2570,7 +2573,10 @@ md_assemble (char * str)
                                 else if (operand->range == 32){
                                     /* jp,call */
                                     if (operand->flags & C33_OPERAND_PC){
-                                        if (-256 <= iNumber && iNumber <= 254){
+                                        if ((iNumber & 1) != 0) {
+                                            errmsg = _("branch displacement is not halfword aligned");
+                                        }
+                                        else if (-256 <= iNumber && iNumber <= 254){
                                             ex.X_add_number = (iNumber >> 1) & 0xff;    /* sign32(8:1) */
                                         }
                                         else if ((-2097152 <= iNumber && iNumber < -256) ||
@@ -5017,6 +5023,9 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
 //                  g_pwhere_rm = 0;
 //              }
                 
+                if ((value & 1) != 0)
+                    as_bad_where (fixp->fx_file, fixp->fx_line,
+                                  _("branch target is not halfword aligned"));
                 insn += ((value >> 1) & 0xff);
                 break;
 
@@ -5054,6 +5063,9 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
                 g_where_rh = 0xffffffff;
                 g_where_rm = 0xffffffff;
                 
+                if ((value & 1) != 0)
+                    as_bad_where (fixp->fx_file, fixp->fx_line,
+                                  _("branch target is not halfword aligned"));
                 insn += ((value >> 1) & 0xff);
                 break;
 
@@ -5068,6 +5080,9 @@ md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
                 if (iNumber > 254 || iNumber < -256)
                      as_bad_where (fixp->fx_file, fixp->fx_line, _("operand out of range"));
 
+                if ((value & 1) != 0)
+                    as_bad_where (fixp->fx_file, fixp->fx_line,
+                                  _("branch target is not halfword aligned"));
                 insn += ((value >> 1) & 0xff);
                 break;
                     

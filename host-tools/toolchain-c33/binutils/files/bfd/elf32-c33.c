@@ -1006,6 +1006,8 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 		case R_C33_S_RL: /* LABEL-PC(31:22) */ /* add T.Tazaki 2002.05.02 */
 						/* sign8=sign32(8:1) sign32(0)=0 */
 			insn = bfd_get_16(abfd, address);
+			if ((addend & 1) != 0)
+				return bfd_reloc_outofrange;
 
 			/* if exist @rm before ext ? */
 			if (g_symbol_mask_rm_address != (address - 2)){
@@ -1856,6 +1858,8 @@ fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 	  switch (r)
 	    {
 	    case bfd_reloc_overflow:
+	    case bfd_reloc_outofrange:
+	      /* Both statuses mean the requested value cannot be encoded.  */
 	      (*info->callbacks->reloc_overflow)
 		(info, (h ? &h->root : NULL), name, howto->name,
 		 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
@@ -1866,11 +1870,6 @@ fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 		(info, name, input_bfd, input_section,
 		 rel->r_offset, true);
 	      break;
-
-	    case bfd_reloc_outofrange:
-//	      msg = _("internal error: out of range error");		/* Change T.Tazaki 2003/11/18 */
-	      msg = _("out of range error");						/* Change T.Tazaki 2003/11/18 */
-	      goto common_error;
 
 	    case bfd_reloc_notsupported:
 	      msg = _("internal error: unsupported relocation error");
