@@ -1242,13 +1242,15 @@ void c33_step(struct c33 *c)
 	case OP_JRULT: case OP_JRULT_D: case OP_JRULE: case OP_JRULE_D: {
 		int32_t d = disp_ext(c, (uint32_t)a, f->f[0].width);
 		uint32_t target = at + ((uint32_t)d << 1);
-		if (cond(c, op)) {
-			if (is_delayed(op)) {
-				c->delay_pending = true;
-				c->delay_target = target;
-			} else {
-				c->pc = target;
-			}
+		bool taken = cond(c, op);
+		if (is_delayed(op)) {
+			/* The branch-to-slot window masks interrupts even when the
+			 * condition is false.  In that case retiring the slot selects
+			 * the instruction after it, just as sequential execution would. */
+			c->delay_pending = true;
+			c->delay_target = taken ? target : at + 4;
+		} else if (taken) {
+			c->pc = target;
 		}
 		break;
 	}

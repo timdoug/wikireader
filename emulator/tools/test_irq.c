@@ -169,6 +169,49 @@ int main(void)
 		      e.irqs_taken, 1);
 	}
 
+	/*
+	 * No interrupt is accepted between a delayed branch and its slot,
+	 * whether or not a conditional branch is taken (Core Manual 5.14.2).
+	 */
+	for (unsigned taken = 0; taken <= 1; taken++) {
+		struct c33 e;
+		memset(&e, 0, sizeof e);
+		e.bus.read = tr; e.bus.write = tw;
+		c33_reset(&e, ENTRY);
+		e.sr[SR_TTBR] = TTBR;
+		e.sr[SR_SP] = 0x10000;
+		e.sr[SR_PSR] = PSR_IE | (taken ? PSR_Z : 0);
+		tw(NULL, TTBR + VECTOR * 4, 4, HANDLER);
+
+		/* jreq.d +8 ; add %r0,1 ; nop ; nop */
+		tw(NULL, ENTRY + 0, 2, 0x1904);
+		tw(NULL, ENTRY + 2, 2, 0x6010);
+		tw(NULL, ENTRY + 4, 2, 0x0000);
+		tw(NULL, ENTRY + 8, 2, 0x0000);
+
+		c33_step(&e);                     /* delayed branch */
+		snprintf(buf, sizeof buf, "%s delayed branch opens a slot",
+			 taken ? "taken" : "untaken");
+		check(buf, e.delay_pending, 1);
+
+		c33_raise_irq(&e, VECTOR, 7);
+		c33_step(&e);                     /* protected slot */
+		snprintf(buf, sizeof buf, "%s delayed slot executes before IRQ",
+			 taken ? "taken" : "untaken");
+		check(buf, e.r[0], 1);
+		snprintf(buf, sizeof buf, "%s delayed slot defers IRQ",
+			 taken ? "taken" : "untaken");
+		check(buf, e.irqs_taken, 0);
+		snprintf(buf, sizeof buf, "%s delayed branch selects next PC",
+			 taken ? "taken" : "untaken");
+		check(buf, e.pc, taken ? ENTRY + 8 : ENTRY + 4);
+
+		c33_step(&e);                     /* interrupt may now land */
+		snprintf(buf, sizeof buf, "%s branch accepts IRQ after slot",
+			 taken ? "taken" : "untaken");
+		check(buf, e.irqs_taken, 1);
+	}
+
 	printf("\n%s\n", fails ? "FAILURES" : "all interrupt tests passed");
 	return fails != 0;
 }
