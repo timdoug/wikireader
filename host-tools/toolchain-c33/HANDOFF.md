@@ -1285,10 +1285,9 @@ In dependency order. Steps 1-2 are done; see `gcc/README.md` for detail.
 3. **`c33.opt`** - swap in `gcc/c33.opt.planned`, renaming the `TARGET_*`
    masks it drops throughout `c33.cc`/`c33.h`, and delete V850's `e1`/`e2`/
    `e3v5` core variants.
-4. ~~**`c33.md`**~~ - done. What remains of it is optimisation: the
-   `bset`/`bclr`/`btst` bit operations, and picking short unextended
-   encodings where the operand provably fits instead of always emitting the
-   `x` form and letting the assembler narrow it.
+4. ~~**`c33.md`**~~ - done. The C33-specific memory bit operations select
+   bare and displaced forms, exclude the nonexistent `%sp` and
+   post-increment encodings, and report exact 0/13/26-bit extension lengths.
 5. **Data areas** - retarget V850's `__gp`-relative addressing to C33's
    `%r15`-relative default data area, with `-medda32` selecting absolute
    addressing. `ep_memory_operand` is currently stubbed out and belongs here.

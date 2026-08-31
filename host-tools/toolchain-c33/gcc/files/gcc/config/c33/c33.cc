@@ -48,6 +48,7 @@
 #include "expr.h"
 #include "cfgrtl.h"
 #include "builtins.h"
+#include "rtl-iter.h"
 #include "opts.h"
 
 /* This file should be included last.  */
@@ -1123,6 +1124,22 @@ c33_mem_length (rtx mem)
     /* No imm6 to concatenate with, so one ext carries all 13 bits.  */
     return d <= 8191 ? 4 : 6;
   }
+}
+
+/* Bytes needed for a bset/bclr/bnot/btst memory operation.  These patterns
+   have different RTL shapes, so find their single MEM rather than depending
+   on an operand number.  The ext ranges match an ordinary byte load from a
+   general base: 0, 13, or 26 displacement bits.  */
+
+int
+c33_bit_length (rtx_insn *insn)
+{
+  subrtx_iterator::array_type array;
+  FOR_EACH_SUBRTX (iter, array, PATTERN (insn), NONCONST)
+    if (MEM_P (*iter))
+      return c33_mem_length (const_cast<rtx> (*iter));
+
+  gcc_unreachable ();
 }
 
 /* The constant second operand of INSN's arithmetic, or NULL_RTX if it has
@@ -2758,6 +2775,32 @@ c33_short_memory_p (rtx op)
      nothing in a delay slot should be touching it anyway.  */
   return ((REG_P (addr) || SUBREG_P (addr))
 	  && !(REG_P (addr) && REGNO (addr) == STACK_POINTER_REGNUM));
+}
+
+/* True when MEM has one of the addresses accepted by the bit-operation
+   encoding.  xbit accepts %r0-%r15 with a 26-bit unsigned displacement, or
+   an absolute address, but has neither a %sp nor a post-increment form.  */
+
+bool
+c33_bit_memory_p (rtx op)
+{
+  if (!MEM_P (op))
+    return false;
+
+  rtx addr = XEXP (op, 0);
+  if (GET_CODE (addr) == POST_INC)
+    return false;
+
+  if (GET_CODE (addr) == PLUS)
+    addr = XEXP (addr, 0);
+
+  if (SUBREG_P (addr))
+    addr = SUBREG_REG (addr);
+
+  if (REG_P (addr))
+    return REGNO (addr) != STACK_POINTER_REGNUM;
+
+  return CONSTANT_ADDRESS_P (addr);
 }
 
 /* Implement TARGET_LEGITIMATE_ADDRESS_P.  */

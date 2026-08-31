@@ -163,6 +163,14 @@
   return exact_log2 ((~mask) & 0xff) >= 0;
 })
 
+;; A byte location addressable by the bit-operation encoding.  Unlike an
+;; ordinary load/store, xbit has no %sp or post-increment form.
+(define_predicate "bit_memory_operand"
+  (match_code "mem")
+{
+  return c33_bit_memory_p (op);
+})
+
 ;; Return nonzero if the given RTX is suitable for collapsing into a
 ;; jump to a function prologue.
 

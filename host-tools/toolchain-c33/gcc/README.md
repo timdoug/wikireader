@@ -202,14 +202,14 @@ Deleted rather than converted, because the C33 has no equivalent:
 * `setf` and everything built on it -- `cstoresi4`, `*setcc_insn`, `*sasf`,
   and the whole `movsicc` family. GCC materialises these with a branch
   instead, which is what the 3.3.2 backend did.
-* V850's `set1`/`clr1`/`not1`/`tst1` bit operations on memory. The C33 has
-  `bset`/`bclr`/`bnot`/`btst`, but with a different operand shape (base
-  register plus a 3-bit bit number), so they need writing rather than
-  retemplating. Dropping them costs code size, not correctness -- GCC falls
-  back to load/or/store. Worth revisiting.
 * The `switch` instruction; `casesi` expands to a plain `tablejump`.
 * ~290 lines of V850 interrupt machinery, and the `TARGET_C33E2_UP`
   three-operand shifts.
+
+The C33-specific `bset`/`bclr`/`bnot`/`btst` patterns have since been written
+from scratch.  They select both bare and displaced general-register forms,
+account for the exact 0/13/26-bit extension length, and reject the nonexistent
+stack-pointer and post-increment forms.
 
 ### Two ordering traps
 
@@ -268,13 +268,11 @@ Two files GCC needs that are easy to forget, because they live outside
    `-mgcc-abi` and the rest. The flags those masks fed are pinned to the
    value that is true for this target at the top of `c33.h`; simplifying the
    code that reads them is cleanup still owed.
-4. ~~**`c33.md`.**~~ Done - see above. What is left of it is optimisation,
-   not correctness: displaced forms of the implemented `btst`, `bset`,
-   `bclr`, and `bnot` operations, and using the
-   short unextended encodings where the operand provably fits (today we emit
-   the `x` form and let the assembler narrow it, which is right but makes the
-   `length` attribute pessimistic). The documented `swaph` instruction is
-   selected for both Advanced and PE cores; STD retains the shift sequence.
+4. ~~**`c33.md`.**~~ Done - see above. The memory bit operations now select
+   bare and displaced forms with exact lengths, and short unextended
+   encodings are used wherever the operand provably fits. The documented
+   `swaph` instruction is selected for both Advanced and PE cores; STD retains
+   the shift sequence.
 5. ~~**Data areas.**~~ Done. C33 `%r15`-relative addressing is implemented;
    `-medda32` selects absolute addressing and remains the measured default.
 6. ~~**Delay slots.**~~ Done. Unconditional and conditional branch slots are
