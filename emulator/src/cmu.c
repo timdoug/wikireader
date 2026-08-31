@@ -129,6 +129,12 @@ bool cmu_t16_enabled(const struct cmu *c, unsigned channel)
 	       (c->reg[OFF_GATEDCLK1 / 4] & (1u << (13u + channel))) != 0;
 }
 
+bool cmu_dma_enabled(const struct cmu *c)
+{
+	/* S1C33E07 Technical Manual III.1: DMA_CKE is GATEDCLK1 D1. */
+	return (c->reg[OFF_GATEDCLK1 / 4] & (1u << 1)) != 0;
+}
+
 void cmu_reset(struct cmu *c)
 {
 	memset(c, 0, sizeof *c);

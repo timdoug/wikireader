@@ -376,6 +376,8 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 					sd->xfers, out, sd->rxd,
 					sd->collecting ? " (cmd)" : "");
 			sd->xfers++;
+			if (sd->dma_event)
+				sd->dma_event(sd->dma_ctx);
 		}
 		return true;   /* control registers accepted silently */
 	}
@@ -395,6 +397,12 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		*val = 0;
 		return true;
 	}
+}
+
+void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx)
+{
+	sd->dma_event = fn;
+	sd->dma_ctx = ctx;
 }
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,

@@ -871,6 +871,35 @@ all 17 would have been rejected.
 frequency, the protect gate in both directions, and that a
 read-modify-write preserves previously enabled clocks.
 
+### The dormant SD-card DMA path
+
+The linked production firmware uses `drivers/src/mmc.c` and never programs
+DMA.  The tree also contains an older, disabled `sd_spi.c`/`sd_api.c` path
+which attempted 512-byte SPI transfers with HSDMA channels 2 and 3 and IDMA
+channel 0x24.  The emulator implements the manual-defined dual-address,
+byte-wide, single-transfer behavior used by that path, including SPI request
+selection, channel priority, counters, address updates, terminal enable-bit
+clearing, IDMA descriptor writeback, and `DMA_CKE`.
+
+`make test-dma` reproduces the driver's register sequence.  A valid setup
+receives 512 bytes using 512 HSDMA and 511 IDMA transfers.  With the DMA
+clock gated, with global IDMA left disabled, or with a descriptor table in
+the manual-forbidden A0 RAM, it stops after the first CPU-initiated SPI byte.
+This is intentionally not yet a model of unused HSDMA single-address pins or
+every IDMA link/block combination.
+
+Testing the disabled driver against this model found several independent
+integration defects rather than intermittent controller behavior.  Its
+global IDMA enable is commented out; current clock setup omits `DMA_CKE`; a
+current low-RAM descriptor symbol needs absolute (`-medda32`) rather than
+default data-pointer-relative addressing; and its multi-sector read DMA spans
+the per-sector CRC, filler, and token bytes.  After correcting those in a
+temporary firmware tree, it booted reliably.  Removing an unconditional 1 ms
+per-sector delay reduced the emulated CPU work to reach the wiki from about
+5.9 million instructions with PIO to 3.4 million with DMA.  This is a CPU-work
+comparison, not a real-time speed claim: the emulator does not yet model SPI
+shift time or DMA bus occupancy.
+
 ### Peripherals still taken on trust
 
 The peripherals above have been checked against the S1C33E07 register
@@ -884,12 +913,12 @@ reset state, port selection, polarity, and key-comparator transitions for the
 modeled P03 and P60-P62 inputs. What has not: T16 fine-mode output waveforms
 and external timer pins other than the WikiReader's TM0-to-EXCL5 route, the SD
 card's own command set (an SD Association spec, not an Epson one), the
-remaining alternate-pin functions and unconnected port inputs, and DMA and
-RTC blocks the firmware never touches.
+remaining alternate-pin functions and unconnected port inputs, unused DMA
+modes and trigger sources, and the RTC block the firmware never touches.
 
 `make check` runs the decoder comparison against binutils plus the focused
-core, interrupt, display, storage, watchdog, clock, ADC, timer, and SDRAMC
-tests.
+core, interrupt, display, storage, watchdog, clock, ADC, timer, SDRAMC, and
+the WikiReader's dormant SPI-DMA pipeline.
 
 ## Caveats
 

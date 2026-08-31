@@ -7,9 +7,9 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/main.o
+OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/main.o
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port check difftest test-manual
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port test-dma check difftest test-manual
 
 all: wremu
 
@@ -99,6 +99,11 @@ test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
 	/tmp/test_port
 
+# Documented SPI DMA pipeline, including representative failure modes.
+test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o
+	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o
+	/tmp/test_dma
+
 # Differential test against the real cross compiler: the same C source
 # compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both
 # ways, outputs diffed. Needs host-tools/toolchain-install.
@@ -111,7 +116,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port test-display test-sd test-wdt
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-port test-display test-sd test-wdt test-dma
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

@@ -23,6 +23,7 @@
 #include "port.h"
 #include "eeprom.h"
 #include "sdramc.h"
+#include "dma.h"
 
 static void usage(const char *p)
 {
@@ -141,6 +142,7 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 			     struct sdramc *sdramc, struct lcd *lcd,
 			     struct touch *touch, struct timerblk *timer,
 			     struct sdcard *sd, struct wdt *wdt,
+			     struct dma *dma,
 			     struct eeprom *eeprom,
 			     const char *path, uint32_t entry, uint32_t boot_sp)
 {
@@ -159,6 +161,7 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 	touch_reset(touch);
 	timer_reset(timer);
 	wdt_reset(wdt);
+	dma_reset(dma);
 	sd_reset(sd);
 	if (eeprom)
 		eeprom_deselect(eeprom);
@@ -450,6 +453,9 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	sd.trace = trace_mmio;
+
+	struct dma dma;
+	dma_attach(&mem, &dma, &itc, &cmu, &sd);
 	if (card)
 		fprintf(stderr, "card: %s (%llu blocks)\n", card,
 			(unsigned long long)sd.blocks);
@@ -589,6 +595,7 @@ int main(int argc, char **argv)
 						 &cmu, &periph,
 						 &sdramc, &lcd, &touch, &timer,
 						 &sd, &wdt,
+						 &dma,
 						 eeprom_path ? &eeprom : NULL,
 						 path, entry, boot_sp);
 				powered = true;
@@ -1045,6 +1052,10 @@ done:
 	       " protected ---\n", wdt.kicks, wdt.timeouts, wdt.blocked);
 	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows ---\n",
 	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
+	printf("--- dma: %lu HSDMA transfers, %lu IDMA transfers,"
+	       " %lu invalid descriptor tables ---\n",
+	       dma.hsdma_transfers, dma.idma_transfers,
+	       dma.invalid_descriptors);
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
 		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);

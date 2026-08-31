@@ -32,5 +32,7 @@ uint32_t cmu_mclk_hz(const struct cmu *c);
 bool cmu_slp_auto_wake(const struct cmu *c);
 /* Whether MCLK is supplied to one of the six 16-bit timer channels. */
 bool cmu_t16_enabled(const struct cmu *c, unsigned channel);
+/* Whether MCLK is supplied to the shared IDMA/HSDMA controller. */
+bool cmu_dma_enabled(const struct cmu *c);
 
 #endif /* CMU_H */

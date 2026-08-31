@@ -11,6 +11,8 @@
 
 #define SD_RESP_MAX 600      /* token + 512 data + CRC, with headroom */
 
+typedef void (*sd_dma_event_fn)(void *ctx);
+
 struct sdcard {
 	/*
 	 * The SPI controller is shared. Chip select decides which device a
@@ -65,6 +67,10 @@ struct sdcard {
 	bool trace;
 	bool trace_bytes;   /* per-byte SPI log; very verbose */
 	unsigned long xfers;
+
+	/* A completed full-duplex byte raises both SPI DMA request causes. */
+	sd_dma_event_fn dma_event;
+	void            *dma_ctx;
 };
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
@@ -72,5 +78,6 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
 void sd_close(struct sdcard *sd);
 /* Return the card to its just-powered state, keeping the image open. */
 void sd_reset(struct sdcard *sd);
+void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx);
 
 #endif /* SDCARD_H */
