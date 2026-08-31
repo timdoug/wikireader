@@ -1011,8 +1011,9 @@ void c33_step(struct c33 *c)
 			c->r[a] = (uint32_t)s;
 		} else if ((f->shape_id == SHAPE_SP_I)) {
 			/* imm10 counts words: SP must stay 4-aligned for popn
-			 * and ld.w [%sp+n]. objdump prints the raw field. */
-			c->sr[SR_SP] += imm_ext(c, (uint32_t)a, f->f[0].width) * 4;
+			 * and ld.w [%sp+n]. objdump prints the raw field.  ext is
+			 * explicitly unusable for this form and acts as a nop. */
+			c->sr[SR_SP] += (uint32_t)a * 4;
 		} else if ((f->shape_id == SHAPE_R_DP)) {
 			c->r[a] += c->sr[SR_DP];
 		} else {
@@ -1035,7 +1036,8 @@ void c33_step(struct c33 *c)
 			set_sub_flags(c, c->r[a], i);
 			c->r[a] -= i;
 		} else if ((f->shape_id == SHAPE_SP_I)) {
-			c->sr[SR_SP] -= imm_ext(c, (uint32_t)a, f->f[0].width) * 4;
+			/* As with add %sp, ext does not extend this operand. */
+			c->sr[SR_SP] -= (uint32_t)a * 4;
 		} else {
 			fault(c, "unhandled sub form");
 		}

@@ -144,6 +144,20 @@ static void extended_register_forms(void)
 	check("ext; or uses rs and immediate", c.r[0], 7);
 	c = run_extended_register(0x3a10, 99, 6); /* xor %r0,%r1 */
 	check("ext; xor uses rs and immediate", c.r[0], 7);
+
+	/* The manual marks ext unusable for both SP arithmetic forms. */
+	c = init(0xc001);                       /* ext 1 */
+	tw(NULL, ENTRY + 2, 2, 0x8001);        /* add %sp,1 */
+	c.sr[SR_SP] = 0x200;
+	c33_step(&c);
+	c33_step(&c);
+	check("ext is a nop before add %sp,imm10", c.sr[SR_SP], 0x204);
+	c = init(0xc001);
+	tw(NULL, ENTRY + 2, 2, 0x8401);        /* sub %sp,1 */
+	c.sr[SR_SP] = 0x200;
+	c33_step(&c);
+	c33_step(&c);
+	check("ext is a nop before sub %sp,imm10", c.sr[SR_SP], 0x1fc);
 }
 
 static void swaps(void)
