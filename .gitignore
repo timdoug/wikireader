@@ -8,6 +8,7 @@
 moc_*
 *.dSYM
 *.d
+!host-tools/toolchain-c33/binutils/files/gas/testsuite/gas/c33/*.d
 *.asm33
 gcc
 gcc-*
