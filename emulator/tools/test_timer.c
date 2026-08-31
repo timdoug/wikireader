@@ -5,6 +5,9 @@
 #include "../src/timer.h"
 
 #define TC0        (REG_BASE + 0x784)
+#define CR1A       (REG_BASE + 0x788)
+#define TC1        (REG_BASE + 0x78c)
+#define CTL1       (REG_BASE + 0x78e)
 #define TC5        (REG_BASE + 0x7ac)
 #define CR2A       (REG_BASE + 0x790)
 #define CR2B       (REG_BASE + 0x792)
@@ -12,11 +15,14 @@
 #define CNT_PAUSE  (REG_BASE + 0x7dc)
 #define ADVMODE    (REG_BASE + 0x7de)
 #define CLKCTL2    (REG_BASE + 0x7e4)
+#define DA16_0     (REG_BASE + 0x7d0)
 #define PAUSE0     (1u << 0)
 #define PAUSE2     (1u << 2)
 #define PAUSE5     (1u << 5)
 #define PRESET     (1u << 1)
 #define PRUN       (1u << 0)
+#define SELCRB     (1u << 5)
+#define INITOL     (1u << 8)
 
 static int fails;
 
@@ -54,6 +60,51 @@ int main(void)
 	mem_write(&mem, ADVMODE, 2, 0xffff);
 	check("only T16ADV survives in the mode register",
 	      mem_read(&mem, ADVMODE, 2), 1);
+
+	/* Advanced-only fields must remain inert until advanced mode is set. */
+	mem_write(&mem, ADVMODE, 2, 0);
+	mem_write(&mem, TC1, 2, 0x1234);
+	check("counter writes are ignored in standard mode",
+	      mem_read(&mem, TC1, 2), 0);
+	mem_write(&mem, CTL1, 2, INITOL);
+	check("INITOL writes are ignored in standard mode",
+	      mem_read(&mem, CTL1, 2), 0);
+	mem_write(&mem, DA16_0, 2, 0xabcd);
+	check("DA16 writes are ignored in standard mode",
+	      mem_read(&mem, DA16_0, 2), 0);
+	mem_write(&mem, ADVMODE, 2, 1);
+	mem_write(&mem, TC1, 2, 0x1234);
+	check("counter writes are accepted in advanced mode",
+	      mem_read(&mem, TC1, 2), 0x1234);
+	mem_write(&mem, CTL1, 2, INITOL);
+	check("INITOL writes are accepted in advanced mode",
+	      mem_read(&mem, CTL1, 2), INITOL);
+
+	/* SELCRB exposes a separate bank and PRESET loads it atomically. */
+	mem_write(&mem, CR1A, 2, 0x1111);
+	mem_write(&mem, CTL1, 2, SELCRB);
+	check("comparison buffer starts independently from active data",
+	      mem_read(&mem, CR1A, 2), 0);
+	mem_write(&mem, CR1A, 2, 0x2222);
+	mem_write(&mem, CTL1, 2, SELCRB | PRESET);
+	check("PRESET remains a write-only command",
+	      mem_read(&mem, CTL1, 2), SELCRB);
+	mem_write(&mem, CTL1, 2, 0);
+	check("PRESET loads the comparison buffer into the active register",
+	      mem_read(&mem, CR1A, 2), 0x2222);
+	check("PRESET resets the selected timer counter",
+	      mem_read(&mem, TC1, 2), 0);
+
+	/* DA16 follows each destination timer's active/buffer selection. */
+	mem_write(&mem, CTL1, 2, SELCRB);
+	mem_write(&mem, CTL2, 2, 0);
+	mem_write(&mem, DA16_0, 2, 0xabcd);
+	check("DA16 stores its complete source value", mem_read(&mem, DA16_0, 2),
+	      0xabcd);
+	check("DA16 writes its high ten bits to timer 1's selected CR A",
+	      mem_read(&mem, CR1A, 2), 0x02af);
+	check("DA16 writes its low six bits to timer 2's selected CR A",
+	      mem_read(&mem, CR2A, 2), 0x000d);
 
 	check("running timer reflects the MCLK count", tick_get(&mem), 100);
 	check("Tick_get releases both paused channels",

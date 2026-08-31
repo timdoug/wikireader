@@ -27,6 +27,14 @@ struct timerblk {
 	 * Without this the machine suspends and never comes back.
 	 */
 	uint16_t reg[0x80 / 2];      /* T16 block, by halfword */
+	/*
+	 * Comparison registers have a separately addressable staging buffer.
+	 * CTLx.SELCRB selects which bank the CRxA/CRxB MMIO addresses expose;
+	 * PRESET or comparison B copies the buffer into the active bank.
+	 */
+	uint16_t compare[6][2];
+	uint16_t compare_buffer[6][2];
+	uint16_t count[6];
 	uint16_t clkctl2;
 	bool     t2_running;
 	uint64_t t2_deadline;        /* in MCLK cycles */

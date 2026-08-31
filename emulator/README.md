@@ -870,8 +870,9 @@ read-modify-write preserves previously enabled clocks.
 ### Peripherals still taken on trust
 
 The peripherals above have been checked against the S1C33E07 register
-descriptions. T16 count pause, advanced-mode gating, control commands, and
-the timer-2 wake period now have focused manual-derived tests. The SDRAMC's
+descriptions. T16 count pause, advanced-only counter/DA16/INITOL writes,
+comparison-register buffering, PRESET loading, control commands, and the
+timer-2 wake period now have focused manual-derived tests. The SDRAMC's
 reset values, writable masks, initialization status, and self-refresh status
 are checked likewise. GPIO tests cover documented register masks, interrupt
 reset state, port selection, polarity, and key-comparator transitions for the

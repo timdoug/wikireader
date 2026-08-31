@@ -23,6 +23,8 @@
 
 #define OFF_TC0        (0x784u - T16_BASE)
 #define OFF_TC5        (0x7acu - T16_BASE)
+#define OFF_DA16_0     (0x7d0u - T16_BASE)
+#define OFF_DA16_2     (0x7d4u - T16_BASE)
 #define OFF_CNT_PAUSE  (0x7dcu - T16_BASE)
 #define OFF_ADVMODE    (0x7deu - T16_BASE)
 
@@ -38,6 +40,8 @@
 
 #define PRUNx          (1u << 0)     /* run/stop */
 #define PRESETx        (1u << 1)     /* write-only counter reset command */
+#define SELCRBx        (1u << 5)     /* comparison register buffer select */
+#define INITOLx        (1u << 8)     /* advanced-mode initial output */
 #define T16ADV         (1u << 0)
 
 #define CTL_STORED     0x017du       /* D8, D[6:2], D0; D1 reads zero */
@@ -51,6 +55,59 @@ static bool is_clkctl(uint32_t reg)
 {
 	return reg >= (0x7e0u - T16_BASE) &&
 	       reg <= (0x7eau - T16_BASE) && !(reg & 1);
+}
+
+static bool is_channel_reg(uint32_t reg)
+{
+	return reg < 6u * 8u && !(reg & 1);
+}
+
+static unsigned channel_number(uint32_t reg)
+{
+	return reg / 8u;
+}
+
+static unsigned channel_reg_number(uint32_t reg)
+{
+	return (reg & 7u) / 2u;
+}
+
+static bool advanced(const struct timerblk *t)
+{
+	return (t->reg[OFF_ADVMODE / 2] & T16ADV) != 0;
+}
+
+static uint16_t *comparison_address(struct timerblk *t, unsigned channel,
+				    unsigned which)
+{
+	uint16_t ctl = t->reg[(channel * 8u + 6u) / 2u];
+	return (ctl & SELCRBx) ? &t->compare_buffer[channel][which]
+				 : &t->compare[channel][which];
+}
+
+static void preset_channel(struct timerblk *t, unsigned channel)
+{
+	t->count[channel] = 0;
+	if (t->reg[(channel * 8u + 6u) / 2u] & SELCRBx) {
+		t->compare[channel][0] = t->compare_buffer[channel][0];
+		t->compare[channel][1] = t->compare_buffer[channel][1];
+	}
+}
+
+static bool is_da16(uint32_t reg)
+{
+	return reg >= OFF_DA16_0 && reg <= OFF_DA16_2 && !(reg & 1);
+}
+
+static void write_da16(struct timerblk *t, uint32_t reg, uint16_t value)
+{
+	static const unsigned timer_a[] = { 1, 3, 5 };
+	static const unsigned timer_b[] = { 2, 4, 0 };
+	unsigned pair = (reg - OFF_DA16_0) / 2u;
+
+	t->reg[reg / 2] = value;
+	*comparison_address(t, timer_a[pair], 0) = value >> 6;
+	*comparison_address(t, timer_b[pair], 0) = value & 0x3f;
 }
 /*
  * The prescaler select is a power-of-two divider of MCLK; suspend.c picks
@@ -170,8 +227,37 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			t->reg[reg / 2] = (uint16_t)*val & T16ADV;
 			return true;
 		}
-		if (is_ctl(reg))
-			t->reg[reg / 2] = (uint16_t)*val & CTL_STORED;
+		if (is_da16(reg)) {
+			/* DA16 data writes are disabled in standard mode. */
+			if (advanced(t))
+				write_da16(t, reg, (uint16_t)*val);
+			return true;
+		}
+		if (is_channel_reg(reg)) {
+			unsigned channel = channel_number(reg);
+			unsigned subreg = channel_reg_number(reg);
+
+			if (subreg < 2) {
+				*comparison_address(t, channel, subreg) =
+					(uint16_t)*val;
+				return true;
+			}
+			if (subreg == 2) {
+				/* Counter writes are enabled only in advanced mode. */
+				if (advanced(t))
+					t->count[channel] = (uint16_t)*val;
+				return true;
+			}
+
+			uint16_t stored = (uint16_t)*val & CTL_STORED;
+			/* INITOL is likewise writable only in advanced mode. */
+			if (!advanced(t))
+				stored = (stored & ~INITOLx) |
+					 (t->reg[reg / 2] & INITOLx);
+			t->reg[reg / 2] = stored;
+			if (*val & PRESETx)
+				preset_channel(t, channel);
+		}
 		else if (is_clkctl(reg))
 			t->reg[reg / 2] = (uint16_t)*val & 0x000f;
 		else if (reg / 2 < 0x80 / 2)
@@ -181,7 +267,7 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		if (reg == OFF_CTL2) {
 			/* Starting the timer arms the wake-up deadline. */
 			if ((t->reg[reg / 2] & PRUNx) && !t->t2_running) {
-				uint64_t n = t->reg[OFF_CR2B / 2];
+				uint64_t n = t->compare[2][1];
 				t->t2_running = true;
 				/* The counter runs from zero through CRB inclusive. */
 				uint64_t span = (n + 1) * T2_PRESCALE;
@@ -224,7 +310,18 @@ static bool timer_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		*val = t->reg[reg / 2] & T16ADV;
 		return true;
 	default:
-		if (is_ctl(reg))
+		if (is_channel_reg(reg)) {
+			unsigned channel = channel_number(reg);
+			unsigned subreg = channel_reg_number(reg);
+
+			if (subreg < 2)
+				*val = *comparison_address(t, channel, subreg);
+			else if (subreg == 2)
+				*val = t->count[channel];
+			else
+				*val = t->reg[reg / 2] & CTL_STORED;
+		}
+		else if (is_ctl(reg))
 			*val = t->reg[reg / 2] & CTL_STORED;
 		else if (is_clkctl(reg))
 			*val = t->reg[reg / 2] & 0x000f;
