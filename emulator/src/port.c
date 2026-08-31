@@ -143,8 +143,6 @@ void port_reset(struct port *p)
 	 * speed, which is most of where a boot's instructions were going.
 	 */
 	/*
-	 * Bits 3 and 5 idle high, bit 4 deliberately does not.
-	 *
 	 * All three have pull-ups per REG_MISC_PUP6, so the accurate reset
 	 * value is 0x38. But bit 4 is what grifo's Suspend() tests:
 	 *

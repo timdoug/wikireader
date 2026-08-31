@@ -491,10 +491,12 @@ field. Serial ch0's priority is bits 6:4 of 0x26a and ch1's is bits 2:0;
 the touch panel therefore runs at priority 7, which the emulator now reads
 out of the register the firmware wrote instead of hard-coding.
 
-Sources whose priority register is not decoded report 7, so they are never
-masked -- the previous behaviour. In a normal boot nothing is masked in
-practice, because only one source is ever pending and IL is back to 0 by
-the time the next packet arrives.
+For simultaneous modeled causes, the controller presents the highest
+programmed priority and uses the manual's fixed table order to break ties.
+Accepting an interrupt does not erase its cause flag; lower-priority causes
+remain pending and are presented after the handler clears the first one.
+`make test-irq` covers this arbitration as well as enable and cause-bit
+mapping. Sources outside the modeled peripheral set retain priority 7.
 
 ### LCD controller
 
@@ -767,7 +769,8 @@ stating because it is **not** grifo's numbering, which is 0 random, 1
 search, 2 history (`button.c`); the display maps position to code. `-N`
 takes grifo's code, not the screen position. Codes are grifo's own numbering from
 `button.c` -- "0=random, 1=search, 2=history". The power button is separate,
-on a P03 port interrupt, and is not modelled.
+on the falling edge of P03, and is modeled through its port interrupt and
+the external power-latch behavior.
 
 ### Serial and SPI status registers
 
@@ -809,7 +812,10 @@ ch1 gives 19.96 C, and 512 on ch2 gives a 23.5 V STN bias.
 The channel status register is modelled rather than wired to "always done".
 `ADFx` is raised by a conversion and, per the manual, "reset to 0 when the
 converted data is read"; `OWEx` in the high half flags a sweep landing on
-unread data. The sweep covers `CS[2:0]` to `CE[2:0]` from `TRIG_CHNL`, which
+unread data and remains latched until software writes zero. Result buffers
+hold reset zero until a conversion latches data, read-only fields ignore
+writes, reserved bits read zero, and the documented nonzero reset values are
+restored on every power cycle. The sweep covers `CS[2:0]` to `CE[2:0]` from `TRIG_CHNL`, which
 grifo programs as 0x1000 -- channels 0 to 2, exactly the three `ScanADC`
 reads. That agreement is a cross-check in itself: a full boot does 13
 conversions with zero overwrite errors, which would not hold if the sweep
@@ -839,6 +845,8 @@ registers the firmware actually wrote. That is exactly the 60 MHz that
 `Tick_TicksPerMicroSecond` and `TIMER_CountsPerMicroSecond` assume and that
 `CYCLES_PER_TICK` in `src/timer.c` is scaled to, so the timebase is now
 derived from the hardware configuration rather than taken on faith.
+The same decoder applies `OSC3DIV`, `MCLKDIV`, and oscillator power state;
+after the suspend path selects OSC3/32 it reports the documented **1.5 MHz**.
 
 A full boot makes 17 CMU writes with **zero** blocked, which is the check
 that the protect polarity is the right way round -- had it been inverted,
@@ -851,14 +859,17 @@ read-modify-write preserves previously enabled clocks.
 ### Peripherals still taken on trust
 
 The peripherals above have been checked against the S1C33E07 register
-descriptions. What has not: the T16 timer block beyond the two count
-registers `Tick_get` reads, the SD card's own command set (which is an SD
-Association spec, not an Epson one), the port/pin configuration registers,
-and the DMA and RTC blocks the firmware never touches. These were written
-from the driver sources in samo-lib and from what the firmware demanded.
+descriptions. T16 count pause, advanced-mode gating, control commands, and
+the timer-2 wake period now have focused manual-derived tests. The SDRAMC's
+reset values, writable masks, initialization status, and self-refresh status
+are checked likewise. What has not: timer channels the firmware does not use,
+the SD card's own command set (an SD Association spec, not an Epson one), the
+full port/pin configuration matrix, and DMA and RTC blocks the firmware never
+touches.
 
-`make check` runs the decoder comparison against binutils plus the four
-peripheral test programs.
+`make check` runs the decoder comparison against binutils plus the focused
+core, interrupt, display, storage, watchdog, clock, ADC, timer, and SDRAMC
+tests.
 
 ## Caveats
 

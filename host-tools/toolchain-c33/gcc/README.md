@@ -63,10 +63,11 @@ suggests a genuine codegen difference rather than an artefact.
 
 ### Optimisation levels
 
-`-Os` wins outright and is what the firmware uses: smallest *and* fastest
-to idle. `-O3` costs 41% more code for nothing measurable. **`-O1` is
-broken** -- the kernel jumps to `pc=0x12` with a wild stack before printing
-anything. That is a real backend bug, still un-diagnosed.
+All tested `-Os`, `-O1`, `-O2`, and `-O3` combinations, with both absolute
+and `%r15`-relative data addressing, build and boot. The earlier `-O1`
+failure was an entry-point/linker-script defect, not a backend bug. Current
+measurements select `-O2` as the best overall default; see `../HANDOFF.md`
+for the complete size and instruction-count matrix.
 
 ### A firmware quirk this surfaced
 
@@ -272,11 +273,10 @@ Two files GCC needs that are easy to forget, because they live outside
    short unextended encodings where the operand provably fits (today we emit
    the `x` form and let the assembler narrow it, which is right but makes the
    `length` attribute pessimistic).
-5. **Data areas.** Retarget V850's `__gp`-relative addressing to C33's
-   `%r15`-relative default data area, with `-medda32` selecting absolute
-   addressing instead.
-6. **Delay slots.** V850 has none; C33 has one non-annulling slot. Add
-   `define_delay` - `or1k.md` has the identical shape.
+5. ~~**Data areas.**~~ Done. C33 `%r15`-relative addressing is implemented;
+   `-medda32` selects absolute addressing and remains the measured default.
+6. ~~**Delay slots.**~~ Done. Unconditional and conditional branch slots are
+   described, scheduled, and covered by firmware and focused tests.
 7. **Assembler output.** Symbols have no leading underscore and comments are
    `;` - both done. `.size NAME,.-NAME` comes out right, unlike the 3.3.2
    backend's `.size .NAME,.-.NAME` (see the main README).
@@ -287,9 +287,9 @@ Two files GCC needs that are easy to forget, because they live outside
    GCC's own generic C implementations, which is what the original toolchain
    settled on too (patch 0003 in `host-tools/toolchain-patches`).
 
-9. **Currently untested: does it run?** Everything so far is checked by
-   compiling, assembling and linking. Nothing has been executed. The next
-   milestone is running the output under `emulator/`.
+9. ~~**Execute it.**~~ Done. The firmware boots and renders bit-exactly, the
+   differential suite executes compiler output against native references,
+   and the upstream DejaGnu execution suites run through the board file.
 
 ## Testing
 
