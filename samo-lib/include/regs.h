@@ -407,8 +407,8 @@
 /* Intelligent DMA */
 #define REG_IDMABASE0		*((REG_TYPE_16 *) (REG_BASE + 0x1100))
 #define REG_IDMABASE1		*((REG_TYPE_16 *) (REG_BASE + 0x1102))
-#define REG_IDMA_START		*((REG_TYPE_16 *) (REG_BASE + 0x1104))
-#define REG_IDMA_EN		*((REG_TYPE_16 *) (REG_BASE + 0x1105))
+#define REG_IDMA_START		*((REG_TYPE_8 *) (REG_BASE + 0x1104))
+#define REG_IDMA_EN		*((REG_TYPE_8 *) (REG_BASE + 0x1105))
 
 #define REG_HS0_CNT		*((REG_TYPE_16 *) (REG_BASE + 0x1120))
 #define REG_HS0_CTRL		*((REG_TYPE_16 *) (REG_BASE + 0x1122))
@@ -1124,4 +1124,3 @@
 #define DMA_DISABLED (0 << 0)
 
 #endif /* REGS_H */
-
