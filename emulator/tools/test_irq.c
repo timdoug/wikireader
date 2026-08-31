@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "../src/c33.h"
+#include "../src/itc.h"
 
 #define TTBR    0x400u
 #define VECTOR  61u
@@ -71,6 +72,22 @@ static struct c33 run(unsigned il, unsigned prio)
 int main(void)
 {
 	char buf[128];
+	struct itc itc = {0};
+
+	/* Each source must use its own documented priority field.  Distinct
+	 * values keep coincidentally equal firmware settings from hiding swaps. */
+	itc.reg[0x261 - ITC_BASE] = 5u << 4; /* port input 3 */
+	itc.reg[0x262 - ITC_BASE] = 3u;      /* key input 0 */
+	itc.reg[0x267 - ITC_BASE] = 2u;      /* 16-bit timer 2 */
+	itc.reg[0x26a - ITC_BASE] = (4u << 4) | 6u;
+	check("port input 3 reads PP23L[6:4]", itc_priority(&itc, 19), 5);
+	check("key input 0 reads PK01L[2:0]", itc_priority(&itc, 20), 3);
+	check("timer 2 compare B reads P16T23[2:0]",
+	      itc_priority(&itc, 38), 2);
+	check("timer 2 compare A shares P16T23[2:0]",
+	      itc_priority(&itc, 39), 2);
+	check("serial 0 reads PSI01_PAD[6:4]", itc_priority(&itc, 57), 4);
+	check("serial 1 reads PSI01_PAD[2:0]", itc_priority(&itc, 61), 6);
 
 	/* Acceptance is strictly greater-than, at every boundary. */
 	for (unsigned il = 0; il <= 7; il++) {

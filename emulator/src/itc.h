@@ -17,7 +17,7 @@ struct itc {
 
 void itc_attach(struct mem *m, struct itc *t);
 void itc_reset(struct itc *t);
-/* Configured priority (0-7) for an interrupt vector, or 0 if unknown. */
+/* Configured priority (0-7) for an interrupt vector; 7 if not decoded. */
 unsigned itc_priority(const struct itc *t, unsigned vector);
 /* Record that an interrupt cause occurred, for the cause-flag registers. */
 void itc_set_flag(struct itc *t, unsigned vector);

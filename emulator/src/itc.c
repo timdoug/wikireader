@@ -17,6 +17,9 @@
 #include "itc.h"
 
 /* Priority register offsets within the block, from samo-lib/include/regs.h. */
+#define PP23L      (0x261u - ITC_BASE)   /* port input 2 low, input 3 high */
+#define PK01L      (0x262u - ITC_BASE)   /* key input 0 low, input 1 high */
+#define P16T23     (0x267u - ITC_BASE)   /* timer 2 low, timer 3 high */
 #define PSI01_PAD  (0x26au - ITC_BASE)   /* serial ch0 bits 6:4, ch1 bits 2:0 */
 
 /*
@@ -40,7 +43,6 @@
 /* Enable registers, one bit per cause. */
 #define EK01_EP03  (0x270u - ITC_BASE)   /* key input and port causes */
 #define FK01_FP03  (0x280u - ITC_BASE)
-#define PK01L      (0x262u - ITC_BASE)
 #define E16T23     (0x273u - ITC_BASE)
 #define ESIF01     (0x276u - ITC_BASE)
 
@@ -82,13 +84,17 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 unsigned itc_priority(const struct itc *t, unsigned vector)
 {
 	switch (vector) {
+	case 19:
+		return (t->reg[PP23L] >> 4) & 0x7; /* port input 3 */
+	case 20:
+		return t->reg[PK01L] & 0x7;        /* key input 0 */
+	case 38:
+	case 39:
+		return t->reg[P16T23] & 0x7;       /* timer 2, compare B/A */
 	case VEC_SERIAL0_ERR:
 	case VEC_SERIAL0_RX:
 	case VEC_SERIAL0_TX:
 		return (t->reg[PSI01_PAD] >> 4) & 0x7;
-	case 19:
-	case 20:
-		return t->reg[PK01L] & 0x7;        /* key/port input priority */
 	case VEC_SERIAL1_ERR:
 	case VEC_SERIAL1_RX:
 	case VEC_SERIAL1_TX:

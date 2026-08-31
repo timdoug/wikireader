@@ -38,8 +38,8 @@ test: c33_forms.h
 	cat ref-*.txt | /tmp/test_decode
 
 # Interrupt priority (PSR.IL) rules, per the C33 PE Core manual.
-test-irq: tools/test_irq.c src/c33.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o
+test-irq: tools/test_irq.c src/c33.o src/itc.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o src/itc.o src/mem.o
 	/tmp/test_irq
 
 # Core instruction semantics not exercised by the firmware images.
