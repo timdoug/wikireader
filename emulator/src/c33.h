@@ -89,12 +89,16 @@ struct c33 {
 	unsigned long misaligned_hits;
 	bool     sleeping;           /* in HALT, waiting for an interrupt */
 	unsigned long sleep_cycles;
+	bool     sp_initialized;     /* NMI is masked until SP is first loaded */
+	bool     nmi_pending;
+	bool     nmi_active;         /* multiple NMI exceptions are prohibited */
 	bool     irq_pending;
 	unsigned irq_vector;
 	unsigned irq_priority;
 	unsigned long irqs_masked;
 	unsigned long opcount[256];
 	unsigned long irqs_taken;
+	unsigned long nmis_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
 	bool     access_fault; /* current memory access took an exception */
 	bool     debug_mode;   /* brk/debug exception active until retd */
@@ -136,6 +140,7 @@ struct c33 {
 void     c33_reset(struct c33 *c, uint32_t entry);
 /* Request a hardware interrupt; taken when PSR.IE is set. */
 void     c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
+void     c33_raise_nmi(struct c33 *c);
 /* Print the executed-opcode histogram gathered under c->profile. */
 void     c33_dump_profile(const struct c33 *c, FILE *out);
 /*

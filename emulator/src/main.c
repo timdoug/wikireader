@@ -170,8 +170,10 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 	}
 
 	c33_reset(cpu, entry);
-	if (boot_sp)
+	if (boot_sp) {
 		cpu->sr[SR_SP] = boot_sp;
+		cpu->sp_initialized = true;
+	}
 }
 
 int main(int argc, char **argv)

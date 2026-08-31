@@ -162,6 +162,7 @@ static uint32_t sp_disp(struct c33 *c, uint32_t base, unsigned width,
 #define VECTOR_ADDRESS_MISALIGNED 6
 
 static void take_irq(struct c33 *c);
+static void take_nmi(struct c33 *c);
 static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc);
 /*
  * Executed-opcode histogram, most-used first.
@@ -550,6 +551,15 @@ void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority)
 	c->irq_priority = priority;
 }
 
+void c33_raise_nmi(struct c33 *c)
+{
+	/* The NMI input is hardware-masked until software establishes a stack.
+	 * It is also not accepted recursively or while handling a debug break. */
+	if (!c->sp_initialized || c->nmi_active || c->debug_mode)
+		return;
+	c->nmi_pending = true;
+}
+
 /*
  * Take a pending hardware interrupt. The frame matches the software trap
  * exactly -- return PC then PSR -- because grifo's handlers are ordinary
@@ -620,6 +630,14 @@ static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 	c->delay_pending = false;
 }
 
+static void take_nmi(struct c33 *c)
+{
+	c->nmi_pending = false;
+	take_exception(c, 7, c->pc);
+	c->nmi_active = true;
+	c->nmis_taken++;
+}
+
 /* Architectural restrictions on the special-register transfer forms. */
 static bool read_sreg(const struct c33 *c, unsigned reg, uint32_t *value)
 {
@@ -645,6 +663,7 @@ static void write_sreg(struct c33 *c, unsigned reg, uint32_t value)
 		break;
 	case SR_SP:
 		c->sr[reg] = value & ~3u;
+		c->sp_initialized = true;
 		break;
 	case SR_TTBR:
 		c->sr[reg] = value & ~0x3ffu;
@@ -708,9 +727,11 @@ void c33_step(struct c33 *c)
 		 * the taking of it that IE gates. This matters because grifo
 		 * suspends with interrupts disabled and expects to be woken.
 		 */
-		if (c->irq_pending) {
+		if (c->nmi_pending || c->irq_pending) {
 			c->sleeping = false;
-			if (c->sr[SR_PSR] & PSR_IE)
+			if (c->nmi_pending)
+				take_nmi(c);
+			else if (c->sr[SR_PSR] & PSR_IE)
 				take_irq(c);
 		}
 		return;
@@ -735,9 +756,12 @@ void c33_step(struct c33 *c)
 	 * in grifo's syscall return made it load from 0xd4ec instead, which
 	 * read as zero and sent an indirect ret to address 0.
 	 */
-	if (c->irq_pending && !c->debug_mode && (c->sr[SR_PSR] & PSR_IE) &&
-	    !c->delay_pending && !c->n_ext)
-		take_irq(c);
+	if (!c->debug_mode && !c->delay_pending && !c->n_ext) {
+		if (c->nmi_pending)
+			take_nmi(c);
+		else if (c->irq_pending && (c->sr[SR_PSR] & PSR_IE))
+			take_irq(c);
+	}
 
 	uint32_t at = c->pc;
 	c->access_fault = false;
@@ -1444,6 +1468,8 @@ void c33_step(struct c33 *c)
 		c->pc = pc_value(target);
 		c->sr[SR_PSR] = psr_value(status);
 		c->sr[SR_SP] = sp + 8;
+		/* Any reti unmasks NMI, including one used by a nested exception. */
+		c->nmi_active = false;
 		break;
 	}
 

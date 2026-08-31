@@ -19,6 +19,7 @@
 
 #define TTBR    0x400u
 #define VECTOR  61u
+#define NMI_VECTOR 7u
 #define HANDLER 0x9000u
 #define ENTRY   0x1000u
 
@@ -210,6 +211,45 @@ int main(void)
 		snprintf(buf, sizeof buf, "%s branch accepts IRQ after slot",
 			 taken ? "taken" : "untaken");
 		check(buf, e.irqs_taken, 1);
+	}
+
+	/* NMI has its own acceptance rules (Core Manual 6.3.6). */
+	{
+		struct c33 e;
+		memset(&e, 0, sizeof e);
+		e.bus.read = tr; e.bus.write = tw;
+		c33_reset(&e, ENTRY);
+		e.sr[SR_TTBR] = TTBR;
+		tw(NULL, TTBR + NMI_VECTOR * 4, 4, HANDLER);
+		tw(NULL, ENTRY, 2, 0x0000);
+		c33_raise_nmi(&e);
+		c33_step(&e);
+		check("NMI is masked until SP has been initialized", e.nmis_taken, 0);
+
+		/* ld.w %sp,%r0 is the architectural event that unmasks NMI. */
+		tw(NULL, e.pc, 2, 0xa001);
+		e.r[0] = 0x10000;
+		c33_step(&e);
+		check("loading SP enables NMI acceptance", e.sp_initialized, 1);
+		e.sr[SR_PSR] = 15u << PSR_IL_SHIFT; /* IE clear, all IRQ levels masked */
+		uint32_t resume = e.pc;
+		c33_raise_nmi(&e);
+		c33_step(&e);
+		check("NMI ignores IE and IL", e.nmis_taken, 1);
+		check("NMI does not rewrite IL",
+		      (e.sr[SR_PSR] & PSR_IL_MASK) >> PSR_IL_SHIFT, 15);
+		check("NMI saves the unexecuted instruction",
+		      tr(NULL, e.sr[SR_SP] + 4, 4) == resume, 1);
+		check("NMI branches through vector 7", e.pc == HANDLER + 2, 1);
+
+		c33_raise_nmi(&e);
+		check("a second NMI is suppressed during NMI handling",
+		      e.nmi_pending, 0);
+		tw(NULL, e.pc, 2, 0x04c0);          /* reti */
+		c33_step(&e);
+		check("reti unmasks NMI", e.nmi_active, 0);
+		c33_raise_nmi(&e);
+		check("NMI can be requested again after reti", e.nmi_pending, 1);
 	}
 
 	printf("\n%s\n", fails ? "FAILURES" : "all interrupt tests passed");
