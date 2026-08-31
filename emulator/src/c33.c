@@ -204,8 +204,8 @@ void c33_dump_pcprofile(const struct c33 *c, FILE *out)
 			c->pcbuckets[best],
 			total ? 100.0 * c->pcbuckets[best] / total : 0.0);
 		((struct c33 *)c)->pcbuckets[best] = 0;
-	}
-}
+		}
+		}
 
 void c33_dump_pcprofile_full(const struct c33 *c, FILE *out)
 {
@@ -1022,8 +1022,14 @@ void c33_step(struct c33 *c)
 
 	case OP_SUB:
 		if ((f->shape_id == SHAPE_R_R)) {
-			set_sub_flags(c, c->r[a], c->r[b]);
-			c->r[a] -= c->r[b];
+			if (c->n_ext) {
+				uint32_t i = imm_ext(c, 0, 0);
+				set_sub_flags(c, c->r[b], i);
+				c->r[a] = c->r[b] - i;
+			} else {
+				set_sub_flags(c, c->r[a], c->r[b]);
+				c->r[a] -= c->r[b];
+			}
 		} else if ((f->shape_id == SHAPE_R_I)) {
 			uint32_t i = imm_ext(c, (uint32_t)b, f->f[1].width);
 			set_sub_flags(c, c->r[a], i);
@@ -1036,8 +1042,14 @@ void c33_step(struct c33 *c)
 		break;
 
 	case OP_CMP:
-		if ((f->shape_id == SHAPE_R_R))
-			set_sub_flags(c, c->r[a], c->r[b]);
+		if ((f->shape_id == SHAPE_R_R)) {
+			if (c->n_ext) {
+				uint32_t i = imm_ext(c, 0, 0);
+				set_sub_flags(c, c->r[b], i);
+			} else {
+				set_sub_flags(c, c->r[a], c->r[b]);
+			}
+		}
 		else if ((f->shape_id == SHAPE_R_I))
 			set_sub_flags(c, c->r[a],
 				      imm_ext_s(c, (uint32_t)b, f->f[1].width));
@@ -1049,8 +1061,14 @@ void c33_step(struct c33 *c)
 	case OP_OR:
 	case OP_XOR: {
 		uint32_t rhs;
-		if ((f->shape_id == SHAPE_R_R))
-			rhs = c->r[b];
+		if ((f->shape_id == SHAPE_R_R)) {
+			if (c->n_ext) {
+				rhs = imm_ext(c, 0, 0);
+				c->r[a] = c->r[b];
+			} else {
+				rhs = c->r[b];
+			}
+		}
 		else if ((f->shape_id == SHAPE_R_I))
 			rhs = imm_ext_s(c, (uint32_t)b, f->f[1].width);
 		else { fault(c, "unhandled logic form"); break; }

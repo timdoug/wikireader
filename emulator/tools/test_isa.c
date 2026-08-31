@@ -112,6 +112,40 @@ static void arithmetic(void)
 	check("sbc wrapped subtrahend flags", c.sr[SR_PSR], PSR_C);
 }
 
+static struct c33 run_extended_register(uint16_t insn, uint32_t rd,
+					uint32_t rs)
+{
+	struct c33 c = init(0xc001);          /* ext 1 */
+
+	tw(NULL, ENTRY + 2, 2, insn);
+	c.r[0] = rd;
+	c.r[1] = rs;
+	c33_step(&c);
+	c33_step(&c);
+	return c;
+}
+
+static void extended_register_forms(void)
+{
+	struct c33 c;
+
+	printf("\nextended register forms\n");
+	c = run_extended_register(0x2210, 99, 42); /* add %r0,%r1 */
+	check("ext; add uses rs + immediate", c.r[0], 43);
+	c = run_extended_register(0x2610, 99, 42); /* sub %r0,%r1 */
+	check("ext; sub uses rs - immediate", c.r[0], 41);
+	c = run_extended_register(0x2a10, 1, 2);  /* cmp %r0,%r1 */
+	check("ext; cmp compares rs with immediate", c.sr[SR_PSR] & 0xf,
+	      0);
+	check("ext; cmp does not change rd", c.r[0], 1);
+	c = run_extended_register(0x3210, 99, 6); /* and %r0,%r1 */
+	check("ext; and uses rs and immediate", c.r[0], 0);
+	c = run_extended_register(0x3610, 99, 6); /* or %r0,%r1 */
+	check("ext; or uses rs and immediate", c.r[0], 7);
+	c = run_extended_register(0x3a10, 99, 6); /* xor %r0,%r1 */
+	check("ext; xor uses rs and immediate", c.r[0], 7);
+}
+
 static void swaps(void)
 {
 	struct c33 c;
@@ -267,6 +301,7 @@ static void debug_exception(void)
 int main(void)
 {
 	arithmetic();
+	extended_register_forms();
 	swaps();
 	special_stack();
 	memory_timing();
