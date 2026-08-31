@@ -1159,7 +1159,8 @@ void c33_step(struct c33 *c)
 	case OP_JP_D: {
 		uint32_t target;
 		if ((f->shape_id == SHAPE_R)) {
-			target = c->r[a];
+			/* Register branch targets always have their LSB handled as 0. */
+			target = c->r[a] & ~1u;
 			c->n_ext = 0;
 		} else {
 			/* PC-relative, word displacement, measured from the
@@ -1206,7 +1207,8 @@ void c33_step(struct c33 *c)
 
 	case OP_JPR:
 	case OP_JPR_D: {
-		uint32_t target = at + c->r[a];
+		/* jpr likewise treats its signed register displacement as even. */
+		uint32_t target = at + (c->r[a] & ~1u);
 		if (op == OP_JPR_D) {
 			c->delay_pending = true;
 			c->delay_target = target;

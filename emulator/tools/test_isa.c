@@ -291,16 +291,28 @@ static void jumps(void)
 
 	printf("\njpr/jpr.d\n");
 	c = init(0x02c1);                    /* jpr %r1 */
-	c.r[1] = 0x20;
+	c.r[1] = 0x21;
 	c33_step(&c);
-	check("jpr adds its register to the instruction PC", c.pc, ENTRY + 0x20);
+	check("jpr ignores the register's low bit", c.pc, ENTRY + 0x20);
 	c = init(0x03c1);                    /* jpr.d %r1 */
-	c.r[1] = 0x20;
+	c.r[1] = 0x21;
 	tw(NULL, ENTRY + 2, 2, 0x0000);      /* nop delay slot */
 	c33_step(&c);
 	check("jpr.d first selects its delay slot", c.pc, ENTRY + 2);
 	c33_step(&c);
-	check("jpr.d branches after the slot", c.pc, ENTRY + 0x20);
+	check("jpr.d ignores the register's low bit", c.pc, ENTRY + 0x20);
+
+	c = init(0x0681);                    /* jp %r1 */
+	c.r[1] = 0x241;
+	c33_step(&c);
+	check("jp ignores the register's low bit", c.pc, 0x240);
+	c = init(0x0601);                    /* call %r1 */
+	c.r[1] = 0x241;
+	c.sr[SR_SP] = 0x300;
+	c33_step(&c);
+	check("call ignores the register's low bit", c.pc, 0x240);
+	check("call still saves its even return address",
+	      tr(NULL, 0x2fc, 4), ENTRY + 2);
 
 	c = init(0x0740);                    /* ret.d */
 	c.sr[SR_SP] = 0x300;
