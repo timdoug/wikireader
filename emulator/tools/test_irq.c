@@ -121,6 +121,27 @@ int main(void)
 	mem_write(&mem, REG_BASE + 0x286, 1, 0x12);
 	check("cause flags are writable when RSTONLY is clear",
 	      mem_read(&mem, REG_BASE + 0x286, 1), 0x12);
+
+	/* Simultaneous causes are retained and arbitrated, not overwritten. */
+	itc_reset(&itc);
+	mem_write(&mem, REG_BASE + 0x273, 1, 1u << 2); /* timer 2 cmp B */
+	mem_write(&mem, REG_BASE + 0x276, 1, 1u << 4); /* serial 1 rx */
+	mem_write(&mem, REG_BASE + 0x267, 1, 5);       /* timer priority 5 */
+	mem_write(&mem, REG_BASE + 0x26a, 1, 3);       /* serial priority 3 */
+	itc_set_flag(&itc, 61);
+	itc_set_flag(&itc, 38);
+	unsigned vector = 0, priority = 0;
+	check("higher-priority simultaneous cause wins arbitration",
+	      itc_next_irq(&itc, &vector, &priority) && vector == 38 &&
+	      priority == 5, 1);
+	mem_write(&mem, REG_BASE + 0x283, 1, 1u << 2);
+	check("lower-priority cause remains pending afterward",
+	      itc_next_irq(&itc, &vector, &priority) && vector == 61 &&
+	      priority == 3, 1);
+	mem_write(&mem, REG_BASE + 0x267, 1, 3);       /* equal priorities */
+	itc_set_flag(&itc, 38);
+	check("documented fixed order breaks equal-priority ties",
+	      itc_next_irq(&itc, &vector, &priority) && vector == 38, 1);
 	mem_free(&mem);
 
 	/* Acceptance is strictly greater-than, at every boundary. */

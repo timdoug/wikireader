@@ -518,6 +518,7 @@ int main(int argc, char **argv)
 	 */
 	mem.pc_src = &cpu.cur_pc;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
+	cpu.irq_poll = (bool (*)(void *, unsigned *, unsigned *))itc_next_irq;
 	cpu.irq_ctx = &itc;
 	cpu.slp_auto_wake = cmu_slp_auto_wake_cb;
 	cpu.slp_ctx = &cmu;

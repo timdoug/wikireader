@@ -23,5 +23,7 @@ unsigned itc_priority(const struct itc *t, unsigned vector);
 void itc_set_flag(struct itc *t, unsigned vector);
 /* True if this cause is enabled in the interrupt controller. */
 bool itc_enabled(const struct itc *t, unsigned vector);
+/* Highest-priority enabled, flagged source; fixed table order breaks ties. */
+bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority);
 
 #endif /* ITC_H */

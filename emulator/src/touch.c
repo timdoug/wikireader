@@ -114,15 +114,18 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 	push_byte(t, pressed ? 0x01 : 0x00);
 
 	t->events++;
+	itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
 	c33_raise_irq(cpu, CTP_IRQ_VECTOR, itc_priority(t->itc, CTP_IRQ_VECTOR));
 }
 
 /* Re-assert the interrupt while bytes remain, so the handler drains the FIFO. */
 void touch_poll(struct touch *t, struct c33 *cpu)
 {
-	if (t->head != t->tail)
+	if (t->head != t->tail) {
+		itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
 		c33_raise_irq(cpu, CTP_IRQ_VECTOR,
 			      itc_priority(t->itc, CTP_IRQ_VECTOR));
+	}
 }
 
 /*

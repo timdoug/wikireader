@@ -124,6 +124,8 @@ struct c33 {
 	/* Optional: asks the interrupt controller whether a cause is still
 	   enabled, so a request cancelled before it is taken is dropped. */
 	bool   (*irq_enabled)(void *ctx, unsigned vector);
+	/* Optional interrupt-controller arbitration for simultaneous causes. */
+	bool   (*irq_poll)(void *ctx, unsigned *vector, unsigned *priority);
 	void    *irq_ctx;
 	/* SoC clock logic decides whether slp auto-wakes for a clock switch. */
 	bool   (*slp_auto_wake)(void *ctx);

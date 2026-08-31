@@ -132,6 +132,49 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 	}
 }
 
+static bool itc_flagged(const struct itc *t, unsigned vector)
+{
+	switch (vector) {
+	case 19: return (t->reg[FK01_FP03] & (1u << 3)) != 0;
+	case 20: return (t->reg[FK01_FP03] & (1u << 4)) != 0;
+	case 38: return (t->reg[F16T23] & (1u << 2)) != 0;
+	case 39: return (t->reg[F16T23] & (1u << 3)) != 0;
+	case 56: return (t->reg[FSIF01] & (1u << 0)) != 0;
+	case 57: return (t->reg[FSIF01] & (1u << 1)) != 0;
+	case 58: return (t->reg[FSIF01] & (1u << 2)) != 0;
+	case 60: return (t->reg[FSIF01] & (1u << 3)) != 0;
+	case 61: return (t->reg[FSIF01] & (1u << 4)) != 0;
+	case 62: return (t->reg[FSIF01] & (1u << 5)) != 0;
+	default: return false;
+	}
+}
+
+bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
+{
+	/* Table III.2.1.1.1 is ordered from highest to lowest fixed priority.
+	 * Keeping the first vector on a tie implements that documented order. */
+	static const uint8_t vectors[] = {
+		19, 20, 38, 39, 56, 57, 58, 60, 61, 62
+	};
+	bool found = false;
+	unsigned best = 0;
+
+	for (unsigned i = 0; i < sizeof vectors / sizeof vectors[0]; i++) {
+		unsigned v = vectors[i];
+		unsigned p;
+		if (!itc_flagged(t, v) || !itc_enabled(t, v))
+			continue;
+		p = itc_priority(t, v);
+		if (p == 0 || (found && p <= best))
+			continue;
+		found = true;
+		best = p;
+		*vector = v;
+		*priority = p;
+	}
+	return found;
+}
+
 void itc_set_flag(struct itc *t, unsigned vector)
 {
 	switch (vector) {

@@ -695,6 +695,18 @@ void c33_step(struct c33 *c)
 	if (c->halted)
 		return;
 
+	/* The ITC keeps every cause flag pending and continuously presents the
+	 * highest-priority enabled one. Refreshing here lets a later, higher
+	 * priority cause replace the current request without losing either. */
+	if (c->irq_poll) {
+		unsigned vector, priority;
+		c->irq_pending = c->irq_poll(c->irq_ctx, &vector, &priority);
+		if (c->irq_pending) {
+			c->irq_vector = vector;
+			c->irq_priority = priority;
+		}
+	}
+
 	/*
 	 * Asleep in HALT: retire no instructions, but let time pass so the
 	 * timers keep running and a pending interrupt can arrive. The cycle
