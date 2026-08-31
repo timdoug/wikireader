@@ -36,7 +36,7 @@ static bool lcd_items(void);
 
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType hardware_test(int block, int status)
+APPLICATION_ENTRY ReturnType hardware_test(int block, int status)
 {
 	APPLICATION_INITIALISE();
 	{

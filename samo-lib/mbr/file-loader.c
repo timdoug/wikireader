@@ -47,7 +47,7 @@ static const struct {
 };
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType file_loader(int block, int status)
+APPLICATION_ENTRY ReturnType file_loader(int block, int status)
 {
 	APPLICATION_INITIALISE();
 

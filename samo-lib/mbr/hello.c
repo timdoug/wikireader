@@ -31,7 +31,7 @@ int y;
 unsigned char d;
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType hello(int block, int status)
+APPLICATION_ENTRY ReturnType hello(int block, int status)
 {
 	APPLICATION_INITIALISE();
 

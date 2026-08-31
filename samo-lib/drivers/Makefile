@@ -68,6 +68,14 @@ OBJECTS += tick.o
 
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
 
+# The A0 file loader has only 7680 bytes after its 512-byte header.  Keep the
+# SD path compact, and split driver functions so that its link can discard
+# write/ioctl and unused formatting helpers.  Other firmware retains every
+# function it references, including the read-write paths.
+BOOT_OPT ?= -Os
+${BUILD_PREFIX}mmc.o: OPT = ${BOOT_OPT}
+${BUILD_OBJECTS}: CFLAGS += -ffunction-sections -fdata-sections
+
 .PHONY: all
 all:  ${TARGETS}
 

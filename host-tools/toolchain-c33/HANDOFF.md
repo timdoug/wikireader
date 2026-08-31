@@ -66,6 +66,43 @@ time for the same 113M instructions - **1.3% from the compiler and 0.9%
 from `seconds_to_ticks`**. Read the next section before quoting any of
 this.
 
+### The 8 KiB A0 boot stages
+
+The reported gcc 16 `file-loader` overflow at `-Os` was partly a stale mixed
+build: changing `OPT` does not invalidate existing objects or archives.  A
+fully clean comparison still found a real code-size difference, but both
+builds fit:
+
+| clean `file-loader`, before boot-stage tuning | gcc 3.3.2 | gcc 16.2 |
+|---|---:|---:|
+| live A0 bytes (from `0x200`) | 6,728 | 7,424 |
+| A0 headroom | 952 | 256 |
+
+There is no missing gcc 3.3 switch: its C33 backend simply emits denser code
+for these sources.  Of the 696-byte live-size gap, `mmc.o` accounts for 472
+bytes and `elf32.o` for 202; `print.o` adds 82, while modern gcc makes `tff.o`
+66 bytes smaller.  `-Oz` is identical to `-Os` on this backend.
+
+The fix keeps normal SDRAM firmware at the faster `-O2`, but gives the MBR
+and A0 applications their own `BOOT_OPT=-Os`.  Driver and boot objects use
+function/data sections, and A0 links garbage-collect unreachable routines.
+This removes the file loader's unused SD write/ioctl and formatting code
+without disabling those features in firmware that uses them.  Application
+entry functions have a kept first section because the hardware MBR calls
+address `0x200` directly rather than consulting an ELF entry point.
+
+After tuning, gcc 16's `file-loader` occupies 7,293 initialized bytes and
+7,309 live A0 bytes, leaving 131 bytes in its flash slot and 371 bytes in A0.
+The complete 64 KiB `flash.rom` builds and boots through the menu and loader
+into Grifo.  A direct rebuilt-Grifo run reached `init` with 442,880 HSDMA and
+442,015 IDMA transfers, zero invalid descriptor tables, and zero SD receive
+overflows.  The same link layout also builds with gcc 3.3.2, and every boot
+application entry remains exactly `0x200`.
+
+The menu is now the tightest boot component: its BSS ends at `0x1fee`, only
+18 bytes below the end of A0.  It fits, but future menu growth needs an
+explicit size check or a layout change.
+
 ### Read those numbers correctly
 
 This is the part to keep hold of, because it is easy to overstate.

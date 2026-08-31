@@ -124,7 +124,7 @@ void battery_status(void);
 
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType menu(int block, int status)
+APPLICATION_ENTRY ReturnType menu(int block, int status)
 {
 	ProcessReturnType result;
 

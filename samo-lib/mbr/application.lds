@@ -22,7 +22,8 @@ SECTIONS
 
         .text 0x200 :
         {
-                *(.text) ;
+                KEEP(*(.text.application_entry)) ;
+                *(.text .text.*) ;
         } > a0ram
 
         __START_text = LOADADDR(.text);
@@ -30,7 +31,7 @@ SECTIONS
 
         .rodata :
         {
-                *(.rodata) ;
+                *(.rodata .rodata.*) ;
         } > a0ram
 
         __START_rodata =  LOADADDR(.rodata);
@@ -38,7 +39,7 @@ SECTIONS
 
         .data :
         {
-                *(.data) ;
+                *(.data .data.*) ;
         } > a0ram
 
         __START_data =  LOADADDR(.data);
@@ -46,7 +47,7 @@ SECTIONS
 
 	.bss :
         {
-                *(.bss) ;
+                *(.bss .bss.* COMMON) ;
         } > a0ram
 
         __START_bss = LOADADDR(.bss);

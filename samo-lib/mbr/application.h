@@ -36,6 +36,9 @@
 #define ARRAY_SIZE(a) (sizeof((a)) / sizeof((a)[0]))
 #endif
 
+/* The MBR calls address 0x200 directly; it does not consult an ELF entry. */
+#define APPLICATION_ENTRY __attribute__((section(".text.application_entry")))
+
 #if !defined(APPLICATION_TITLE)
 #error "APPLICATION_TITLE must be defined before including application.h"
 #endif
@@ -72,7 +75,6 @@
 	} while (0)
 
 
-__attribute__ ((packed))
 typedef struct {
 	unsigned int block;
 	unsigned int status;

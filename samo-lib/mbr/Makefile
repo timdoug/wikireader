@@ -69,6 +69,14 @@ LIBS += $(shell ${CC} $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
 LDFLAGS = -static --strip-all -s --no-gc-sections -N -L${MINI_LIBC}
 
+# Unlike the SDRAM applications, these boot stages must fit in the 8 KiB A0
+# RAM (and the MBR itself in 512 bytes).  Compile them for size and let each
+# application link retain only the call graph rooted at its fixed entry.
+BOOT_OPT ?= -Os
+BOOT_APPLICATION_OBJECTS = version.o menu.o hello.o memory-test.o hw-test.o file-loader.o rs232-loader.o
+mbr.o ${BOOT_APPLICATION_OBJECTS}: OPT = ${BOOT_OPT}
+${BOOT_APPLICATION_OBJECTS}: CFLAGS += -ffunction-sections -fdata-sections
+
 INCLUDES = -I${FATFS_INCLUDE}
 INCLUDES += -I${FATFS_CONFIG_INCLUDE}
 INCLUDES += -I${MINI_LIBC_INCLUDE}
@@ -101,13 +109,13 @@ flash.rom: ${FLASH_ROM_MAP_FILE} ${TARGETS} all-applications
 	${IMAGE07} --image-file="$@" --map-file="${FLASH_ROM_MAP_FILE}"
 
 mbr.elf: mbr.o
-	${CC} -o $@ ${LDFLAGS} $^ -Wl,'-Ttext=0',-Map,${@:.elf=.map}
+	${LD} -o $@ ${LDFLAGS} $^ -Ttext=0 -Map ${@:.elf=.map}
 	${OBJDUMP} --disassemble-all $@ > ${@:.elf=.dump}
 
 mbr: mbr.elf
 	${RM} "$@"
 	${OBJCOPY} ${OBJCOPY_FLAGS} ${OBJCOPY_SECTIONS}	 --set-start=0 $< $@
-	@c=$$(wc --bytes < "$@") ; \
+	@c=$$(wc -c < "$@") ; \
 	echo mbr size = $${c} bytes, max = 512 bytes ; \
 	if [ "$${c}" -gt 512 ]; then ${RM} "$@"; exit 99; fi
 
@@ -151,6 +159,15 @@ $(call MAKE_APP,hw-test)
 $(call MAKE_APP,file-loader)
 $(call MAKE_APP,rs232-loader)
 
+APP_LDFLAGS := $(filter-out --no-gc-sections,${LDFLAGS}) --gc-sections
+version.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=RevisionNumber
+menu.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=menu
+hello.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=hello
+memory-test.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=mem
+hw-test.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=hardware_test
+file-loader.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=file_loader
+rs232-loader.elf: LDFLAGS := ${APP_LDFLAGS} --undefined=rs232_loader
+
 # rule to build all above applications
 
 .PHONY: all-applications
@@ -191,7 +208,7 @@ clean:
 	${RM} *.o *.elf *.d *.p *.asm33 *.header *.map *.rom *.dump splash.png
 
 # application headers
-%.header: %.c
+%.header: %.c GenerateApplicationHeader.awk
 	${AWK} -f GenerateApplicationHeader.awk "$<" >"$@"
 
 include ${MK_DIR}/rules.mk

@@ -86,7 +86,7 @@ typedef struct {
 void rs232_elf_load(void);
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType rs232_loader(int block, int status)
+APPLICATION_ENTRY ReturnType rs232_loader(int block, int status)
 {
 	APPLICATION_INITIALISE();
 	rs232_elf_load();
@@ -157,4 +157,3 @@ void rs232_elf_load(void)
 	exec = (void *)hdr->e_entry;
 	((void (*) (void))exec) ();
 }
-

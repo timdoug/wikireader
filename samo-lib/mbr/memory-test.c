@@ -46,7 +46,7 @@ void memory_test(void *start, unsigned int length);
 void memory_check(void *start, unsigned int length);
 
 // this must be the first executable code as the loader executes from the first program address
-ReturnType mem(int block, int status)
+APPLICATION_ENTRY ReturnType mem(int block, int status)
 {
 	APPLICATION_INITIALISE();
 	{
