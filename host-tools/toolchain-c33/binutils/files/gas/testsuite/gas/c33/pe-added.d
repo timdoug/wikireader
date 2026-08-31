@@ -11,3 +11,4 @@ Disassembly of section .text:
  +2:\t.*swaph +%r0,%r1.*
  +4:\t.*adc +%r0,%r1.*
  +6:\t.*sbc +%r0,%r1.*
+ +8:\t.*ld.w +%pc,%r0.*

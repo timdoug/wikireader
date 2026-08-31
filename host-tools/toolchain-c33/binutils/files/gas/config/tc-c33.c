@@ -932,6 +932,7 @@ static const struct reg_name pe_load_system_registers[] =
 {
     { "%ahr",   3 },
     { "%alr",   2 },
+    { "%pc",    15 },       /* PE manual: valid, defined no-op write */
     { "%psr",   0 },
     { "%sp",    1 },
     { "%ttbr",  8 },
