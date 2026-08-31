@@ -240,6 +240,16 @@ platform" note in `doc/README.toolchain`, but note it is hardening - no
 specific miscompilation was traced to it, and the visible disassembly garbage
 above turned out to be the styled-printf issue instead.
 
+### Objdump ignored the selected C33 core
+
+Gas records Standard, Advanced, and PE mode in the top byte of ELF `e_flags`,
+but `c33-dis.c` always selected the Advanced opcode table. Consequently the
+nine divide, MAC, mirror, and scan encodings removed by the PE manual were
+printed as valid PE instructions. Objdump now selects the table recorded in
+the ELF header; raw binaries retain the historical Advanced-mode fallback.
+Focused tests verify that PE renders all nine words as `.short` while Standard
+mode retains their instruction mnemonics.
+
 ## Comparing against the original
 
 Build the original toolchain first (root `Makefile`, `toolchain` target); it

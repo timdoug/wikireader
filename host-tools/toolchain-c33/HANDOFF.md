@@ -590,11 +590,13 @@ The focused backend/binutils results resolved after that baseline now include:
   boundaries. Upstream `constructor-1.c` compiles and links; executing it
   remains a crt-startup responsibility outside this GCC/binutils scope.
 
-The exact-source binutils qualification is clean: gas records 320 passes and
+The exact-source binutils qualification is clean: gas records 338 passes and
 10 unsupported tests; the binutils utilities record 240 passes, 18 untested,
 and 17 unsupported; and ld records 479 passes, 13 expected failures, 28
 untested, and 235 unsupported, with zero unexpected failures in all three.
-The tested tools are installed in the active GCC prefix.
+The tested tools are installed in the active GCC prefix. Objdump now selects
+the Standard, Advanced, or PE opcode table from ELF `e_flags`; regression
+tests cover the nine instructions the PE manual removes.
 
 Two apparent arithmetic failures were board-budget findings. The wrapper had
 silently enabled `GCC_TEST_RUN_EXPENSIVE`, and the standard `pr97459-*` cases

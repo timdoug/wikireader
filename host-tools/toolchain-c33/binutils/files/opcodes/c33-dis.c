@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #include <stdint.h>
 #include "opcode/c33.h" 
 #include "dis-asm.h"
+#include "elf-bfd.h"
 #include "opintl.h"
 
 static const char *const c33_reg_names[] =
@@ -271,8 +272,25 @@ disassemble (bfd_vma memaddr,
              struct disassemble_info *info,
              unsigned long insn)
 {
-/*  struct c33_opcode *          op = (struct c33_opcode *)c33_opcodes; */
-  struct c33_opcode *          op = (struct c33_opcode *)c33_advance_opcodes; /* tazaki 2001.12.05 */
+  const struct c33_opcode *op = c33_advance_opcodes;
+
+  /*
+   * Gas records the selected core as 'P' (PE), 'A' (ADV), or zero (STD)
+   * in the top byte of e_flags.  The old disassembler ignored it and
+   * always used the ADV table, so undefined PE words were printed as the
+   * div/mac/scan/mirror instructions that the PE manual removes.
+   * Preserve ADV as the fallback for raw binaries with no ELF owner.
+   */
+  if (info->flavour == bfd_target_elf_flavour
+      && info->section != NULL && info->section->owner != NULL)
+    {
+      unsigned int mode = elf_elfheader (info->section->owner)->e_flags >> 24;
+
+      if (mode == 'P')
+        op = c33_pe_opcodes;
+      else if (mode == 0)
+        op = c33_opcodes;
+    }
 
   const struct c33_operand *   operand;
   int                           match = 0;

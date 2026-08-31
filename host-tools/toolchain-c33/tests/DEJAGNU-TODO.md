@@ -145,14 +145,17 @@ external runtime work and is not hidden by a skip.
 
 The current exact-source binutils suites have no unexpected failures:
 
-* gas: 320 passes and 10 unsupported tests;
+* gas: 338 passes and 10 unsupported tests;
 * binutils utilities: 240 passes, 18 untested, and 17 unsupported tests; and
 * ld: 479 passes, 13 expected failures, 28 untested, and 235 unsupported
   tests.
 
 These totals include the C33 assembler, BFD, readelf, linker-script,
 start/stop-symbol, init-array, build-id, section-discard, and local-relocation
-fixes. The tested binutils are installed into the active GCC prefix.
+fixes. They also cover ELF-mode-aware disassembly: PE objects reject and
+display as data the nine legacy instructions removed by the PE manual, while
+Standard objects retain them. The tested binutils are installed into the
+active GCC prefix.
 
 Undefined-symbol diagnostics are also fixed: ld does not apply a non-weak
 undefined symbol's placeholder zero relocation after reporting it, and it
