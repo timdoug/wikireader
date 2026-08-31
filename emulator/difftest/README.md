@@ -123,8 +123,9 @@ containing no `div.w` at all appears to contain thirty of them.
 
 | | distinct opcodes |
 | --- | --- |
-| c33 ISA table | 104 |
-| implemented here | 68 |
+| all-core binutils ISA table | 104 |
+| valid on C33 PE | 77 |
+| implemented here | 74 |
 | executed by a firmware boot and search | 53 |
 | executed by the differential tests | 48 |
 | **executed by at least one of the two** | **57** |
@@ -141,10 +142,12 @@ Implemented but still never executed by either: `bnot` `brk` `btst` `jpr`
 worth flagging - its operand range was corrected against the manual, and
 that correction still has no runtime evidence behind it.
 
-The 36 unimplemented opcodes are the MAC, divide-step, saturate, scan and
-coprocessor families. None appears in any firmware image and gcc 3.3.2 does
-not emit them, so they are a real but inert gap: they would matter for other
-C33 software, not for this device.
+The all-core table also names 27 operations which are not C33 PE
+instructions: nine STD instructions explicitly removed from PE and 18
+ADV-only operations. They now take PE's undefined-instruction exception;
+they are not emulator feature gaps. The only valid PE operations not
+implemented are the three coprocessor opcodes (`ld.c` in two directions,
+`do.c`, and `ld.cf`), because the S1C33E07 has no attached coprocessor model.
 
 ## Layout
 

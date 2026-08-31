@@ -436,6 +436,13 @@ instructions which Table I.5.3.5 says PE removed (`div0s` through `div3s`,
 `mac`, `mirror`, `scan0`, and `scan1`): their old-core encodings correctly
 take the undefined-instruction vector on PE.
 
+The generated decoder contains the union of binutils' STD, ADV, and PE
+tables. The executor separately rejects all 18 ADV-only operations (`div.w`,
+the extended MAC/multiply family, `loop`/`repeat`/`retm`, and saturating
+arithmetic) through that same undefined-instruction path. This distinction
+matters because recognizing a word as an ADV mnemonic is not evidence that a
+PE processor can execute it.
+
 Interrupts are deferred until an `ext` sequence completes, per 5.6.3:
 "exception handling ... is not started for other exceptions until after the
 target instruction to be extended is executed". This one bites in practice
@@ -875,9 +882,10 @@ Three checks are independent of that inference.
   It is fixed in `host-tools/toolchain-patches/0008-*` and written up in
   `difftest/compiler-bugs/`; the firmware never triggered it.
 
-Between the firmware and the differential tests, 57 of the 68 implemented
-opcodes are known to execute (`wremu -P`). See `difftest/README.md` for what
-the remaining 11, and the 36 unimplemented opcodes, actually are.
+Between the firmware and the differential tests, 57 of the 74 implemented
+PE opcodes are known to execute (`wremu -P`). Focused core tests cover more;
+see `difftest/README.md` for the distinction between valid PE operations,
+non-PE words recognized by the all-core decoder, and the coprocessor gap.
 
 ### Drawing
 

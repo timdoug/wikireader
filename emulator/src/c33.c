@@ -759,9 +759,17 @@ void c33_step(struct c33 *c)
 	case OP_INVALID:
 	case OP_DIV0S: case OP_DIV0U: case OP_DIV1: case OP_DIV2S: case OP_DIV3S:
 	case OP_MAC: case OP_MIRROR: case OP_SCAN0: case OP_SCAN1:
+	case OP_DIV_W: case OP_DIVU_W: case OP_LOOP:
+	case OP_MAC_HW: case OP_MAC_W: case OP_MAC1_H: case OP_MAC1_HW:
+	case OP_MAC1_W: case OP_MACCLR: case OP_MLT_HW: case OP_REPEAT:
+	case OP_RETM: case OP_SAT_B: case OP_SAT_H: case OP_SAT_UB:
+	case OP_SAT_UH: case OP_SAT_UW: case OP_SAT_W:
 		/*
-		 * The latter nine instructions exist on older C33 cores but are
-		 * explicitly removed from PE (S1C33E07 Table I.5.3.5).  An
+		 * Nine instructions exist on the STD core but are explicitly
+		 * removed from PE (S1C33E07 Table I.5.3.5).  The remaining cases
+		 * above are ADV-only instructions which likewise are not in the PE
+		 * instruction table.  The disassembler-derived decoder recognizes
+		 * all core variants, so the PE executor must reject both groups.  An
 		 * undefined word is recorded in IDIR, acts as a nop, and vectors
 		 * through TTBR + 0x0c with the following PC saved (6.3.9).
 		 */

@@ -178,6 +178,16 @@ int main(void)
 		{ 0x9b00, "div3s" }, { 0xb210, "mac" },
 		{ 0x9610, "mirror" }, { 0x8a10, "scan0" },
 		{ 0x8e10, "scan1" },
+		/* Decoded by the all-core binutils table, but ADV-only. */
+		{ 0x0250, "div.w" },  { 0x0210, "divu.w" },
+		{ 0xb900, "loop" },   { 0x0140, "mac.hw" },
+		{ 0x0100, "mac.w" },  { 0xa700, "mac1.h" },
+		{ 0xab00, "mac1.hw" }, { 0xb300, "mac1.w" },
+		{ 0x0180, "macclr" }, { 0xa300, "mlt.hw" },
+		{ 0x0280, "repeat" }, { 0x06c0, "retm" },
+		{ 0x9e00, "sat.b" },  { 0xb600, "sat.h" },
+		{ 0x9f00, "sat.ub" }, { 0xb700, "sat.uh" },
+		{ 0xbe00, "sat.uw" }, { 0xbd00, "sat.w" },
 	};
 
 	test_reset_registers();
