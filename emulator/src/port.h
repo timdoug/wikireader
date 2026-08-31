@@ -8,9 +8,9 @@
 #include "c33.h"
 #include "itc.h"
 
-/* I/O port block, REG_BASE+0x380..0x3bf. */
+/* I/O port block, REG_BASE+0x380..0x3d5. */
 #define PORT_BASE 0x0380u
-#define PORT_LEN  0x0060u    /* through the key-input comparator at 0x3d4 */
+#define PORT_LEN  0x0056u    /* through SMPK1 at 0x3d5 */
 
 #define OFF_P5D   (0x38au - PORT_BASE)
 
@@ -48,6 +48,10 @@
 
 #define OFF_SCPK0 (0x3d2u - PORT_BASE)
 #define OFF_SMPK0 (0x3d4u - PORT_BASE)
+#define OFF_KSEL  (0x3d0u - PORT_BASE)
+#define OFF_PSEL  (0x3c0u - PORT_BASE)
+#define OFF_PPOL  (0x3c2u - PORT_BASE)
+#define OFF_PEL   (0x3c3u - PORT_BASE)
 #define VECTOR_KEY_INPUT_0 20
 
 struct port {

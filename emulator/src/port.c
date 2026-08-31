@@ -1,10 +1,9 @@
 /*
  * I/O ports (REG_BASE+0x380).
  *
- * Only the data registers matter here, and only because two of the bits are
- * SPI chip selects: port 5 bit 0 is the SD card and bit 2 is the serial
- * EEPROM (samo.h and boards/samo_a1.h). Without these the emulator cannot
- * tell which device the SPI controller is talking to.
+ * The data registers provide the SPI chip selects and modeled board inputs.
+ * Control registers retain their documented writable bits and configure the
+ * key and power-switch interrupt paths.
  *
  * They have to read back what was written, for the same reason the interrupt
  * priority and clock registers do: the drivers set and clear these bits with
@@ -23,6 +22,39 @@
 
 #include "port.h"
 
+/* Writable bits from the GPIO register tables; holes and reserved bits are 0. */
+static uint8_t port_reg_mask(uint32_t i)
+{
+	if (i <= 0x13) {
+		if (i == 0x0f)
+			return 0;
+		if (i == 0x06 || i == 0x07)
+			return 0x7f;
+		if (i == 0x0e)
+			return 0x1f;
+		if (i == 0x10 || i == 0x11)
+			return 0x3f;
+		return 0xff;
+	}
+	if (i >= 0x20 && i <= 0x33) {
+		if (i == 0x27)
+			return 0x3f;
+		if (i == 0x2f)
+			return 0x03;
+		if (i == 0x31)
+			return 0x0f;
+		return 0xff;
+	}
+	if (i >= 0x40 && i <= 0x47)
+		return 0xff;
+	switch (i) {
+	case 0x50: return 0x77;
+	case 0x52: case 0x54: return 0x1f;
+	case 0x53: case 0x55: return 0x0f;
+	default: return 0;
+	}
+}
+
 static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		      bool is_write)
 {
@@ -34,8 +66,12 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		uint8_t p6_before = p->reg[OFF_P6D];
-		for (unsigned k = 0; k < size; k++)
-			p->reg[i + k] = (uint8_t)(*val >> (8 * k));
+		for (unsigned k = 0; k < size; k++) {
+			uint8_t mask = port_reg_mask(i + k);
+			uint8_t v = (uint8_t)(*val >> (8 * k));
+			p->reg[i + k] = (p->reg[i + k] & (uint8_t)~mask)
+					    | (v & mask);
+		}
 		p->writes++;
 
 		/*
@@ -57,7 +93,8 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	}
 	*val = 0;
 	for (unsigned k = 0; k < size; k++)
-		*val |= (uint32_t)p->reg[i + k] << (8 * k);
+		*val |= (uint32_t)(p->reg[i + k] & port_reg_mask(i + k))
+			<< (8 * k);
 	return true;
 }
 
@@ -72,29 +109,32 @@ bool port_cs_low(const struct port *p, unsigned bit)
  * the current state back to SCPK0, so this stays quiet until something
  * actually changes.
  */
-static void kint_check(struct port *p, struct c33 *cpu)
+static bool kint0_matches(const struct port *p)
 {
 	uint8_t mask = p->reg[OFF_SMPK0];
-	if (!mask)
-		return;
-	if ((p->reg[OFF_P6D] & mask) == (p->reg[OFF_SCPK0] & mask))
-		return;
+	return (p->reg[OFF_P6D] & mask) == (p->reg[OFF_SCPK0] & mask);
+}
+
+static void raise_input(struct port *p, struct c33 *cpu, unsigned vector)
+{
 	if (p->itc)
-		itc_set_flag((struct itc *)p->itc, VECTOR_KEY_INPUT_0);
-	c33_raise_irq(cpu, VECTOR_KEY_INPUT_0,
-		      p->itc ? itc_priority(p->itc, VECTOR_KEY_INPUT_0) : 7);
+		itc_set_flag((struct itc *)p->itc, vector);
+	c33_raise_irq(cpu, vector, p->itc ? itc_priority(p->itc, vector) : 7);
 }
 
 void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
 {
 	if (n > 2)
 		return;
+	bool selected = (p->reg[OFF_KSEL] & 0x07) == 0x04;
+	bool was_match = kint0_matches(p);
 	if (pressed)
 		p->reg[OFF_P6D] |= (uint8_t)(1u << n);
 	else
 		p->reg[OFF_P6D] &= (uint8_t)~(1u << n);
 	p->button_events++;
-	kint_check(p, cpu);
+	if (selected && was_match && !kint0_matches(p))
+		raise_input(p, cpu, VECTOR_KEY_INPUT_0);
 }
 
 /*
@@ -110,18 +150,24 @@ void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
  */
 void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
 {
+	bool was_high = (p->reg[OFF_P0D] & (1u << POWER_BIT)) != 0;
 	if (pressed)
 		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);   /* active low */
 	else
 		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);
 	p->button_events++;
 
-	if (!pressed)
-		return;                       /* the edge is the press */
-	if (p->itc)
-		itc_set_flag((struct itc *)p->itc, VECTOR_PORT_INPUT_3);
-	c33_raise_irq(cpu, VECTOR_PORT_INPUT_3,
-		      p->itc ? itc_priority(p->itc, VECTOR_PORT_INPUT_3) : 7);
+	bool is_high = !pressed;
+	bool rising = !was_high && is_high;
+	bool falling = was_high && !is_high;
+	bool polarity_high = (p->reg[OFF_PPOL] & (1u << 3)) != 0;
+	bool edge = (p->reg[OFF_PEL] & (1u << 3)) != 0;
+	bool selected = (p->reg[OFF_PSEL] & 0xc0) == 0;
+	bool triggered = edge ? (polarity_high ? rising : falling)
+			      : (is_high == polarity_high);
+
+	if (selected && triggered)
+		raise_input(p, cpu, VECTOR_PORT_INPUT_3);
 }
 
 /* Reset state without re-registering the device. */
@@ -131,17 +177,6 @@ void port_reset(struct port *p)
 	memset(p, 0, sizeof *p);
 	p->itc = keep;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
-	/*
-	 * Port 6: the three buttons on bits 0..2 read 0 when not held, but
-	 * bits 3..5 have pull-ups (REG_MISC_PUP6 in boards/samo_a1.h) and so
-	 * idle high. Bit 4 matters more than it looks: grifo's Suspend()
-	 * begins
-	 *
-	 *     if (0 == (REG_P6_P6D & 0x10)) return;   // in CTP receive
-	 *
-	 * so with it low the idle loop never suspends and spins at full
-	 * speed, which is most of where a boot's instructions were going.
-	 */
 	/*
 	 * All three have pull-ups per REG_MISC_PUP6, so the accurate reset
 	 * value is 0x38. But bit 4 is what grifo's Suspend() tests:
@@ -160,6 +195,9 @@ void port_reset(struct port *p)
 	 */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
+	/* Port input interrupts reset to rising-edge selection. */
+	p->reg[OFF_PPOL] = p->reg[OFF_PEL] = 0xff;
+	p->reg[OFF_PPOL + 4] = p->reg[OFF_PEL + 4] = 0xff;
 }
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc)

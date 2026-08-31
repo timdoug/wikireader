@@ -551,7 +551,9 @@ the application sees a complete press and release however briefly the
 switch is touched, and nothing anywhere measures duration. The pin is
 active low and edge triggered (`REG_PINTPOL_SPP07` clears SPPT3,
 `REG_PINTEL_SEPT07` sets SEPT3), so it idles high and pressing pulls it
-down.
+down. The emulator now derives that edge from the programmed select,
+polarity, and edge/level registers; their documented rising-edge reset state
+is covered separately from grifo's falling-edge configuration.
 
 What happens next is the interesting part. `power_off()` in
 `boards/samo_a1.h` does not stop the processor -- it drives P63 as an
@@ -862,10 +864,12 @@ The peripherals above have been checked against the S1C33E07 register
 descriptions. T16 count pause, advanced-mode gating, control commands, and
 the timer-2 wake period now have focused manual-derived tests. The SDRAMC's
 reset values, writable masks, initialization status, and self-refresh status
-are checked likewise. What has not: timer channels the firmware does not use,
-the SD card's own command set (an SD Association spec, not an Epson one), the
-full port/pin configuration matrix, and DMA and RTC blocks the firmware never
-touches.
+are checked likewise. GPIO tests cover documented register masks, interrupt
+reset state, port selection, polarity, and key-comparator transitions for the
+modeled P03 and P60-P62 inputs. What has not: timer channels the firmware does
+not use, the SD card's own command set (an SD Association spec, not an Epson
+one), the remaining alternate-pin functions and unconnected port inputs, and
+DMA and RTC blocks the firmware never touches.
 
 `make check` runs the decoder comparison against binutils plus the focused
 core, interrupt, display, storage, watchdog, clock, ADC, timer, and SDRAMC
