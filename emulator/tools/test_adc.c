@@ -77,6 +77,18 @@ int main(void)
 {
 	mem_init(&mem);
 	periph_attach(&mem, &adc);
+	check("EN_SMPL_STAT has its documented reset value",
+	      rd(0x544), 0x0310);
+	check("per-channel interrupt masks reset enabled",
+	      rd(0x55c), 0x001f);
+
+	wr(0x520, 0x000f);
+	wr(0x544, 0);
+	wr(0x55c, 0);
+	periph_reset(&adc);
+	check("power-on resets the A/D clock control", rd(0x520), 0);
+	check("power-on restores EN_SMPL_STAT", rd(0x544), 0x0310);
+	check("power-on restores per-channel masks", rd(0x55c), 0x001f);
 
 	/* Every channel must fit the converter's 10 bits. */
 	for (unsigned ch = 0; ch < AD_CHANNELS; ch++) {

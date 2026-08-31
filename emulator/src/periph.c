@@ -46,6 +46,11 @@
 #define OFF_EN_SMPL_STAT (0x544u - AD_BLOCK)
 #define OFF_END          (0x546u - AD_BLOCK)
 #define OFF_CH0_BUF      (0x548u - AD_BLOCK)
+#define OFF_CH04_INTMASK (0x55cu - AD_BLOCK)
+
+/* Reset values from the S1C33E07 Technical Manual register tables. */
+#define EN_SMPL_STAT_RESET 0x0310u
+#define CH04_INTMASK_RESET 0x001fu
 
 #define ADSTART     (1u << 1)   /* EN_SMPL_STAT bit 1 starts a conversion */
 
@@ -138,9 +143,16 @@ static bool adc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	return true;
 }
 
-void periph_attach(struct mem *m, struct periph *p)
+void periph_reset(struct periph *p)
 {
 	memset(p, 0, sizeof *p);
+	p->reg[OFF_EN_SMPL_STAT / 2] = EN_SMPL_STAT_RESET;
+	p->reg[OFF_CH04_INTMASK / 2] = CH04_INTMASK_RESET;
+}
+
+void periph_attach(struct mem *m, struct periph *p)
+{
+	periph_reset(p);
 	mem_add_mmio(m, "adc-clk", AD_CLKCTL, 2, adc_mmio, p);
 	mem_add_mmio(m, "adc", AD_BLOCK, AD_BLOCK_LEN, adc_mmio, p);
 }

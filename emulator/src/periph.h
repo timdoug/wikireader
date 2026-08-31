@@ -28,6 +28,7 @@ struct periph {
 	unsigned long overwrites;
 };
 
+void periph_reset(struct periph *p);
 void periph_attach(struct mem *m, struct periph *p);
 /* Converter count for a channel, exposed for testing. */
 uint16_t adc_count(unsigned channel);
