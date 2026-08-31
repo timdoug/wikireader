@@ -6,8 +6,9 @@
  * 0xff byte to SPI TX after each receive request to generate the next clock.
  * HSDMA Ch.2 performs the inverse memory-to-SPI path for block writes.
  *
- * Transfers happen synchronously here because the SPI model completes a byte
- * in its TXD store.  A pending-event loop avoids 512 nested callback frames.
+ * Each documented memory/I/O access consumes at least one CPU-AHB clock.
+ * SDRAM and external-memory wait states are deliberately not folded into
+ * that minimum; the controller-specific timing model can add them later.
  */
 
 #include <string.h>
@@ -93,6 +94,23 @@ static uint32_t advance(uint32_t addr, unsigned mode, unsigned size)
 	return addr;
 }
 
+static uint32_t dma_read(struct dma *d, uint32_t addr, unsigned size)
+{
+	if (d->clock)
+		++*d->clock;
+	d->bus_cycles++;
+	return mem_read(d->mem, addr, size);
+}
+
+static void dma_write(struct dma *d, uint32_t addr, unsigned size,
+		      uint32_t value)
+{
+	if (d->clock)
+		++*d->clock;
+	d->bus_cycles++;
+	mem_write(d->mem, addr, size, value);
+}
+
 static bool valid_dual_address(uint32_t addr, unsigned size);
 
 static bool hs_transfer(struct dma *d, unsigned ch)
@@ -133,8 +151,9 @@ static bool hs_transfer(struct dma *d, unsigned ch)
 		return false;
 
 	d->reg[HS_TF(ch)] = 0;
-	value = mem_read(d->mem, src, size);
-	mem_write(d->mem, dst, size, value);
+	/* Dual-address HSDMA is one source and one destination bus phase. */
+	value = dma_read(d, src, size);
+	dma_write(d, dst, size, value);
 	d->hsdma_transfers++;
 
 	src = advance(src, smode, size);
@@ -187,10 +206,11 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 		return false;
 	}
 
-	ctl = mem_read(d->mem, desc, 4);
-	count = mem_read(d->mem, desc + 4, 4);
-	src = mem_read(d->mem, desc + 8, 4);
-	dst = mem_read(d->mem, desc + 12, 4);
+	/* Single-transfer IDMA loads all four control words on every trigger. */
+	ctl = dma_read(d, desc, 4);
+	count = dma_read(d, desc + 4, 4);
+	src = dma_read(d, desc + 8, 4);
+	dst = dma_read(d, desc + 12, 4);
 	size = transfer_size((ctl >> 16) & 3);
 	smode = (ctl >> 12) & 7;
 	dmode = (ctl >> 8) & 7;
@@ -203,16 +223,18 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 	/* The dormant WikiReader path uses one transfer for each SPI request. */
 	if (transfer_mode != 0)
 		return false;
-	value = mem_read(d->mem, src, size);
-	mem_write(d->mem, dst, size, value);
+	value = dma_read(d, src, size);
+	dma_write(d, dst, size, value);
 	d->idma_transfers++;
 	src = advance(src, smode, size);
 	dst = advance(dst, dmode, size);
 	count--;
 
-	mem_write(d->mem, desc + 4, 4, count);
-	mem_write(d->mem, desc + 8, 4, src);
-	mem_write(d->mem, desc + 12, 4, dst);
+	/* The unchanged control word is also part of the four-word writeback. */
+	dma_write(d, desc, 4, ctl);
+	dma_write(d, desc + 4, 4, count);
+	dma_write(d, desc + 8, 4, src);
+	dma_write(d, desc + 12, 4, dst);
 	*terminal = count == 0;
 	return true;
 }
@@ -329,11 +351,18 @@ void dma_reset(struct dma *d)
 	struct mem *m = d->mem;
 	struct itc *itc = d->itc;
 	const struct cmu *cmu = d->cmu;
+	uint64_t *clock = d->clock;
 	memset(d, 0, sizeof *d);
 	d->mem = m;
 	d->itc = itc;
 	d->cmu = cmu;
+	d->clock = clock;
 	put32(d, IDMA_BASE_LO, 0x200003a0u);
+}
+
+void dma_set_clock(struct dma *d, uint64_t *clock)
+{
+	d->clock = clock;
 }
 
 void dma_attach(struct mem *m, struct dma *d, struct itc *itc,

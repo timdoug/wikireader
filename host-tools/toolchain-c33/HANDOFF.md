@@ -99,6 +99,16 @@ into Grifo.  A direct rebuilt-Grifo run reached `init` with 442,880 HSDMA and
 overflows.  The same link layout also builds with gcc 3.3.2, and every boot
 application entry remains exactly `0x200`.
 
+The emulator now schedules SPI from the live `BPT`, `MCBR`, and `SPI_WAIT`
+registers and charges the manual's minimum HSDMA/IDMA bus phases.  In matched
+gcc 16 runs, a 512-byte PIO payload averages 35,395.6 MCLK cycles (589.9 us
+at 60 MHz); the DMA build averages 21,358.6 (356.0 us), 39.7% less.  The
+DMA-served blocks are exactly 20,472 cycles each.  The full startup still
+lands on its deliberate 2000.2-ms deadline, but the interval to the final
+`File_initialise` hit falls from 321.3 to 234.3 ms.  SDRAM wait states and
+refresh contention remain unmodelled for both CPU and DMA, so hardware must
+still calibrate the absolute numbers.
+
 The menu is now the tightest boot component: its BSS ends at `0x1fee`, only
 18 bytes below the end of A0.  It fits, but future menu growth needs an
 explicit size check or a layout change.

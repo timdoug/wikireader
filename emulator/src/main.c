@@ -511,6 +511,9 @@ int main(int argc, char **argv)
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
+	/* SPI and DMA deadlines use the same MCLK-cycle timeline as the CPU. */
+	sd_set_clock(&sd, &cpu.clk);
+	dma_set_clock(&dma, &cpu.clk);
 	/* A -Y window starts closed; reaching prof_start opens it. */
 	cpu.profile = (prof_start || prof_ms1 > 0) ? false : profile;
 	cpu.pc_profile = (prof_start || prof_ms1 > 0) ? false : pc_profile;
@@ -606,6 +609,9 @@ int main(int argc, char **argv)
 			display_idle_wait(&disp, IDLE_WAIT_MS);
 			continue;
 		}
+
+		/* Complete an SPI character before the CPU observes its status. */
+		sd_poll(&sd);
 
 		/*
 		 * Repaint and pump SDL events periodically. 200k instructions
@@ -1052,10 +1058,18 @@ done:
 	       " protected ---\n", wdt.kicks, wdt.timeouts, wdt.blocked);
 	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows ---\n",
 	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
+	printf("--- spi: %lu characters, %llu shift cycles, %llu enforced wait cycles ---\n",
+	       sd.xfers, sd.shift_cycles, sd.wait_cycles);
+	if (sd.payloads_timed)
+		printf("--- sd payload: %lu blocks, %.1f average MCLK cycles"
+		       " (%llu min, %llu max) ---\n",
+		       sd.payloads_timed,
+		       (double)sd.payload_cycles / sd.payloads_timed,
+		       sd.payload_min, sd.payload_max);
 	printf("--- dma: %lu HSDMA transfers, %lu IDMA transfers,"
-	       " %lu invalid descriptor tables ---\n",
+	       " %lu invalid descriptor tables, %llu minimum bus cycles ---\n",
 	       dma.hsdma_transfers, dma.idma_transfers,
-	       dma.invalid_descriptors);
+	       dma.invalid_descriptors, dma.bus_cycles);
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
 		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);

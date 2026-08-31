@@ -58,10 +58,28 @@ struct sdcard {
 	bool      readonly;       /* image opened without write access */
 
 	/* SPI controller state */
+	uint32_t  spi_ctl1;
+	uint32_t  spi_wait;
+	uint8_t   txd;
 	uint8_t   rxd;
+	bool      busy;
 	bool      rdff;
 	bool      rdof;             /* receive data overflow, D3 of SPI_STAT */
+	uint64_t *clock;             /* MCLK-cycle timeline, optional in unit tests */
+	uint64_t  deadline;          /* completion of the current SPI character */
+	uint64_t  next_start;        /* end of the mandatory inter-character wait */
+	uint64_t  character_cycles;
 	unsigned long overflows;
+	unsigned long long shift_cycles;
+	unsigned long long wait_cycles;
+
+	/* Exact first-data-bit through last-data-bit timing for queued blocks. */
+	bool      block_timing;
+	int       block_first_pos, block_last_pos;
+	uint64_t  block_start;
+	unsigned long payloads_timed;
+	unsigned long long payload_cycles;
+	unsigned long long payload_min, payload_max;
 
 	unsigned long commands, blocks_read, blocks_written;
 	bool trace;
@@ -79,5 +97,8 @@ void sd_close(struct sdcard *sd);
 /* Return the card to its just-powered state, keeping the image open. */
 void sd_reset(struct sdcard *sd);
 void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx);
+/* Attach the guest MCLK timeline and complete transfers that have come due. */
+void sd_set_clock(struct sdcard *sd, uint64_t *clock);
+void sd_poll(struct sdcard *sd);
 
 #endif /* SDCARD_H */

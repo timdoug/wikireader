@@ -27,6 +27,8 @@
 
 #define OFF_RXD    0x00
 #define OFF_TXD    0x04
+#define OFF_CTL1   0x08
+#define OFF_WAIT   0x10
 #define OFF_STAT   0x14
 
 /*
@@ -38,13 +40,9 @@
  *   D3 RDOF  receive data overflow
  *   D2 RDFF  receive data full
  *
- * BSYF must read 0: sd_spi.c brackets each byte with
- * "while ((SPI_STATUS & 0x40) != 0)" and would spin forever otherwise.
- * A transfer here completes inside the store to TXD, so the bus is never
- * busy by the time the next instruction reads the status.
- *
  * MFEF cannot occur -- this is the only master on the bus.
  */
+#define BSYF       (1u << 6)   /* transfer busy */
 #define RDFF       (1u << 2)   /* receive data full  */
 #define RDOF       (1u << 3)   /* receive data overflow */
 #define TDEF       (1u << 4)   /* transmit data empty */
@@ -61,6 +59,7 @@ static void push(struct sdcard *sd, uint8_t b)
 static void respond(struct sdcard *sd, uint8_t r1)
 {
 	sd->resp_len = sd->resp_pos = 0;
+	sd->block_timing = false;
 	push(sd, 0xFF);          /* Ncr: at least one idle byte before R1 */
 	push(sd, r1);
 }
@@ -96,8 +95,11 @@ static void queue_block(struct sdcard *sd, uint32_t blk)
 			blk, buf[0], buf[1], buf[2], buf[510], buf[511],
 			buf[510], buf[511]);
 	push(sd, TOKEN_DATA);
+	sd->block_first_pos = sd->resp_len;
 	for (int i = 0; i < 512; i++)
 		push(sd, buf[i]);
+	sd->block_last_pos = sd->resp_len - 1;
+	sd->block_timing = true;
 	push(sd, 0xFF);          /* CRC16, unchecked by the driver */
 	push(sd, 0xFF);
 }
@@ -253,6 +255,27 @@ static void finish_block(struct sdcard *sd)
 		sd->awaiting_token = false;
 }
 
+static uint8_t pop_response(struct sdcard *sd)
+{
+	int pos = sd->resp_pos++;
+
+	if (sd->clock && sd->block_timing) {
+		if (pos == sd->block_first_pos)
+			sd->block_start = sd->deadline - sd->character_cycles;
+		if (pos == sd->block_last_pos) {
+			uint64_t elapsed = sd->deadline - sd->block_start;
+			sd->payload_cycles += elapsed;
+			if (!sd->payloads_timed || elapsed < sd->payload_min)
+				sd->payload_min = elapsed;
+			if (elapsed > sd->payload_max)
+				sd->payload_max = elapsed;
+			sd->payloads_timed++;
+			sd->block_timing = false;
+		}
+	}
+	return sd->resp[pos];
+}
+
 /* One SPI byte exchange: host sends `out`, card returns a byte. */
 static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 {
@@ -279,7 +302,7 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 
 	if (sd->awaiting_token) {
 		if (sd->resp_pos < sd->resp_len)
-			return sd->resp[sd->resp_pos++];
+			return pop_response(sd);
 		if (out == 0xFE || out == 0xFC) {    /* single / multi start */
 			sd->receiving = true;
 			sd->wlen = 0;
@@ -302,6 +325,7 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 	 */
 	if (sd->streaming && (out & 0xC0) == 0x40) {
 		sd->resp_len = sd->resp_pos = 0;
+		sd->block_timing = false;
 		sd->streaming = false;
 		sd->collecting = true;
 		sd->cmdlen = 0;
@@ -310,7 +334,7 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 	}
 
 	if (sd->resp_pos < sd->resp_len)
-		return sd->resp[sd->resp_pos++];
+		return pop_response(sd);
 
 	/*
 	 * A command frame starts with bit7 clear and bit6 set. This must be
@@ -329,9 +353,100 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 	if (sd->streaming) {
 		sd->resp_len = sd->resp_pos = 0;
 		queue_block(sd, sd->stream_blk++);
-		return sd->resp[sd->resp_pos++];
+		return pop_response(sd);
 	}
 	return 0xFF;
+}
+
+static unsigned spi_divider(const struct sdcard *sd)
+{
+	/* MCBR[2:0]: MCLK / (4 * 2^MCBR), manual table V.2.4.1. */
+	return 4u << ((sd->spi_ctl1 >> 4) & 7u);
+}
+
+static unsigned spi_bits(const struct sdcard *sd)
+{
+	/* BPT[4:0] stores the number of bits minus one. */
+	return ((sd->spi_ctl1 >> 10) & 0x1fu) + 1u;
+}
+
+static void complete_spi(struct sdcard *sd)
+{
+	uint8_t out = sd->txd;
+
+	/* Overrun occurs when a newly shifted character replaces unread RXD. */
+	if (sd->rdff) {
+		sd->rdof = true;
+		sd->overflows++;
+	}
+
+	/*
+	 * Route by chip select. The FLASH driver frames a transaction with
+	 * EEPROM_CS_LO/HI, so releasing the select resets its command state.
+	 */
+	bool ee = sd->eeprom && sd->port &&
+		  port_cs_low(sd->port, CS_EEPROM_BIT);
+	if (!ee && sd->eeprom_selected && sd->eeprom)
+		eeprom_deselect(sd->eeprom);
+	sd->eeprom_selected = ee;
+
+	if (ee)
+		sd->rxd = eeprom_exchange(sd->eeprom, out);
+	else
+		sd->rxd = sd_xfer(sd, out);
+	sd->busy = false;
+	sd->rdff = true;
+	if (sd->trace_bytes)
+		fprintf(stderr, "   spi[%02lu] -> %02x  <- %02x%s\n",
+			sd->xfers, out, sd->rxd,
+			sd->collecting ? " (cmd)" : "");
+	sd->xfers++;
+	if (sd->dma_event)
+		sd->dma_event(sd->dma_ctx);
+}
+
+static void start_spi(struct sdcard *sd, uint8_t out)
+{
+	sd->txd = out;
+	if (!sd->clock) {
+		complete_spi(sd);
+		return;
+	}
+
+	uint64_t now = *sd->clock;
+	uint64_t start = now > sd->next_start ? now : sd->next_start;
+	uint64_t duration = (uint64_t)spi_bits(sd) * spi_divider(sd);
+	sd->wait_cycles += start - now;
+	sd->shift_cycles += duration;
+	sd->character_cycles = duration;
+	sd->deadline = start + duration;
+	sd->busy = true;
+}
+
+void sd_poll(struct sdcard *sd)
+{
+	if (!sd->clock || !sd->busy || *sd->clock < sd->deadline)
+		return;
+	uint64_t observed = *sd->clock;
+	uint64_t completion = sd->deadline;
+
+	/*
+	 * SPI_WAIT stores wait clocks minus one. Its clock is the divided SPI
+	 * clock, not MCLK. A sufficiently slow CPU or DMA response naturally
+	 * hides this delay; start_spi() only charges the part still outstanding.
+	 */
+	uint64_t wait = ((uint64_t)(sd->spi_wait & 0xffffu) + 1u) *
+			spi_divider(sd);
+	sd->next_start = completion + wait;
+	/*
+	 * The shift completed at its deadline, not at the next CPU instruction
+	 * boundary where we happened to poll it. Run the DMA callback on that
+	 * exact event time, then merge any bus stall back into the CPU timeline.
+	 */
+	*sd->clock = completion;
+	complete_spi(sd);
+	if (*sd->clock < observed)
+		*sd->clock = observed;
 }
 
 static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
@@ -339,45 +454,20 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 {
 	struct sdcard *sd = ctx;
 	uint32_t reg = off - SPI_BASE;
+	sd_poll(sd);
 
 	if (is_write) {
 		if (reg == OFF_TXD) {
 			uint8_t out = (uint8_t)(*val & 0xff);
-			/*
-			 * "If the SPI Receive Data Register is overwritten
-			 * when RDFF = 1 (the received data has not been read
-			 * yet), RDOF is set to 1." Nothing in the firmware
-			 * reads RDOF, but a driver that exchanges a byte
-			 * without collecting the previous one is a real bug,
-			 * so count it.
-			 */
-			if (sd->rdff) {
-				sd->rdof = true;
-				sd->overflows++;
-			}
-			/*
-			 * Route by chip select. The FLASH driver frames a
-			 * transaction with EEPROM_CS_LO/HI, so releasing the
-			 * select has to reset its command state machine.
-			 */
-			bool ee = sd->eeprom && sd->port &&
-				  port_cs_low(sd->port, CS_EEPROM_BIT);
-			if (!ee && sd->eeprom_selected && sd->eeprom)
-				eeprom_deselect(sd->eeprom);
-			sd->eeprom_selected = ee;
-
-			if (ee)
-				sd->rxd = eeprom_exchange(sd->eeprom, out);
-			else
-				sd->rxd = sd_xfer(sd, out);
-			sd->rdff = true;
-			if (sd->trace_bytes)
-				fprintf(stderr, "   spi[%02lu] -> %02x  <- %02x%s\n",
-					sd->xfers, out, sd->rxd,
-					sd->collecting ? " (cmd)" : "");
-			sd->xfers++;
-			if (sd->dma_event)
-				sd->dma_event(sd->dma_ctx);
+			/* Firmware observes TDEF/RDFF before writing another byte. */
+			if (!sd->busy)
+				start_spi(sd, out);
+		} else if (reg == OFF_CTL1) {
+			/* Implemented fields are D14:8 and D6:0; D7 is reserved. */
+			sd->spi_ctl1 = *val & 0x7f7fu;
+		} else if (reg == OFF_WAIT) {
+			/* The manual defines 1..65536 SPI clocks via value + 1. */
+			sd->spi_wait = *val & 0xffffu;
 		}
 		return true;   /* control registers accepted silently */
 	}
@@ -391,7 +481,14 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		sd->rdof = false;
 		return true;
 	case OFF_STAT:
-		*val = TDEF | (sd->rdff ? RDFF : 0) | (sd->rdof ? RDOF : 0);
+		*val = (sd->busy ? BSYF : TDEF) |
+		       (sd->rdff ? RDFF : 0) | (sd->rdof ? RDOF : 0);
+		return true;
+	case OFF_CTL1:
+		*val = sd->spi_ctl1;
+		return true;
+	case OFF_WAIT:
+		*val = sd->spi_wait;
 		return true;
 	default:
 		*val = 0;
@@ -403,6 +500,11 @@ void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx)
 {
 	sd->dma_event = fn;
 	sd->dma_ctx = ctx;
+}
+
+void sd_set_clock(struct sdcard *sd, uint64_t *clock)
+{
+	sd->clock = clock;
 }
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
@@ -442,6 +544,12 @@ void sd_reset(struct sdcard *sd)
 	sd->collecting = false;
 	sd->resp_len = sd->resp_pos = 0;
 	sd->idle = true;
+	sd->spi_ctl1 = 0;
+	sd->spi_wait = 0;
+	sd->busy = false;
+	sd->deadline = sd->next_start = 0;
+	sd->character_cycles = 0;
+	sd->block_timing = false;
 	sd->rdff = sd->rdof = false;
 	sd->rxd = 0xff;
 	sd->eeprom_selected = false;

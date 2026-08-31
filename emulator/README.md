@@ -881,6 +881,20 @@ byte-wide, single-transfer behavior used by the backend, including SPI
 request selection, channel priority, counters, address updates, terminal
 enable-bit clearing, IDMA descriptor writeback, and `DMA_CKE`.
 
+SPI characters are scheduled on the guest MCLK timeline from the live
+`BPT`, `MCBR`, and `SPI_WAIT` registers.  The production setting is eight
+bits at MCLK/4; `SPI_WAIT=0` still means the manual-defined one divided-clock
+minimum between characters.  `BSYF`, `TDEF`, `RDFF`, and `RDOF` change at
+the scheduled completion rather than inside the TXD store.  DMA callbacks
+run at that exact event time, not at the following CPU polling boundary.
+
+DMA timing counts the manual's bus phases at a minimum of one MCLK each.
+Dual-address HSDMA performs a source read and destination write.  Single-
+transfer IDMA reads four control words, transfers the byte, then writes four
+control words back: ten phases.  This is a documented lower bound, not a
+claim that every SDRAM access completes in one cycle; SDRAM wait states and
+refresh contention are not yet charged to either CPU or DMA memory accesses.
+
 `make test-dma` reproduces the driver's register sequence.  A valid setup
 receives 512 bytes using 512 HSDMA and 511 IDMA transfers.  With the DMA
 clock gated, with global IDMA left disabled, or with a descriptor table in
@@ -898,10 +912,20 @@ per-sector CRC, filler, and token bytes.  The production backend instead
 keeps the newer MMC protocol layer's per-sector framing and places its
 aligned control table in SDRAM.  A boot, suspend/resume, and typed search
 completed with zero invalid descriptors or SPI overflows, and its rendered
-screen matched PIO byte-for-byte.  The earlier experimental path reduced CPU
-work to reach the wiki from about 5.9 million instructions with PIO to 3.4
-million with DMA.  This is not a real-time speed claim: the emulator does not
-yet model SPI shift time or DMA bus occupancy.
+screen matched PIO byte-for-byte.
+
+A matched gcc 16 run now times the 512-byte payload itself, excluding token,
+CRC, and card response latency.  Across 913 completed blocks, PIO averaged
+35,395.6 MCLK cycles (589.9 us at 60 MHz).  The DMA build averaged 21,358.6
+cycles (356.0 us), **39.7% less elapsed model time**, while executing 5.23
+million fewer CPU instructions.  Its 865 DMA-served blocks take exactly
+20,472 cycles (341.2 us); 48 blocks in this workload still follow the PIO
+path.  End-to-end startup still reaches the first `Event_wait` at 2000.2 ms
+in both builds because the application deliberately waits for that deadline.
+The useful improvement is visible in I/O phases: the interval to the final
+`File_initialise` hit falls from 321.3 to 234.3 ms.  Real hardware is still
+needed to calibrate SDRAM contention and SD-card response latency, but this
+is now an elapsed-cycle result rather than an instruction-count proxy.
 
 ### Peripherals still taken on trust
 

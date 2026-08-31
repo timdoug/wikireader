@@ -18,6 +18,7 @@ struct dma {
 	struct mem    *mem;
 	struct itc    *itc;
 	const struct cmu *cmu;
+	uint64_t *clock;
 	uint8_t reg[DMA_LEN];
 
 	bool servicing;
@@ -26,10 +27,12 @@ struct dma {
 	unsigned long hsdma_transfers;
 	unsigned long idma_transfers;
 	unsigned long invalid_descriptors;
+	unsigned long long bus_cycles;
 };
 
 void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 		const struct cmu *cmu, struct sdcard *sd);
 void dma_reset(struct dma *d);
+void dma_set_clock(struct dma *d, uint64_t *clock);
 
 #endif /* DMA_H */
