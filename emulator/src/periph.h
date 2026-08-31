@@ -20,9 +20,13 @@
 
 struct periph {
 	uint16_t reg[0x10];         /* AD block, 0x540..0x55f, by halfword */
+	uint16_t data[AD_CHANNELS]; /* latched advanced-mode results */
+	uint16_t add;               /* standard-mode result register */
 	uint16_t clkctl;
 	uint8_t  adf;               /* conversion-complete flags, one per ch */
 	uint8_t  owe;               /* overwrite-error flags, one per ch */
+	uint8_t  add_adf;           /* standard-mode completion flag */
+	uint8_t  add_owe;           /* standard-mode overwrite flag */
 	unsigned long adc_writes;
 	unsigned long conversions;
 	unsigned long overwrites;

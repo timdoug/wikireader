@@ -46,13 +46,24 @@
 #define OFF_EN_SMPL_STAT (0x544u - AD_BLOCK)
 #define OFF_END          (0x546u - AD_BLOCK)
 #define OFF_CH0_BUF      (0x548u - AD_BLOCK)
+#define OFF_UPPER        (0x558u - AD_BLOCK)
+#define OFF_LOWER        (0x55au - AD_BLOCK)
 #define OFF_CH04_INTMASK (0x55cu - AD_BLOCK)
+#define OFF_ADVMODE      (0x55eu - AD_BLOCK)
 
 /* Reset values from the S1C33E07 Technical Manual register tables. */
 #define EN_SMPL_STAT_RESET 0x0310u
 #define CH04_INTMASK_RESET 0x001fu
 
 #define ADSTART     (1u << 1)   /* EN_SMPL_STAT bit 1 starts a conversion */
+#define ADENABLE    (1u << 2)
+#define ADF         (1u << 3)
+#define OWE         (1u << 0)
+#define CONTINUOUS  (1u << 5)   /* TRIG_CHNL conversion mode */
+
+#define CLKCTL_WRITABLE  0x000fu
+#define TRIG_WRITABLE    0x3f38u
+#define CTRL_WRITABLE    0xf376u
 
 /*
  * TRIG_CHNL selects the range of channels a single conversion sweeps:
@@ -76,70 +87,152 @@ uint16_t adc_count(unsigned channel)
 	}
 }
 
+static void adc_convert(struct periph *p)
+{
+	uint16_t chnl = p->reg[OFF_TRIG_CHNL / 2];
+	unsigned first = CS(chnl), last = CE(chnl);
+	uint8_t swept = 0;
+
+	if (last >= AD_CHANNELS)
+		last = AD_CHANNELS - 1;
+	for (unsigned ch = first; ch <= last; ch++) {
+		swept |= 1u << ch;
+		p->data[ch] = adc_count(ch);
+
+		/* The standard register is overwritten once per channel. */
+		if (p->add_adf)
+			p->add_owe = 1;
+		p->add = p->data[ch];
+		p->add_adf = 1;
+	}
+
+	if (p->adf & swept) {
+		p->owe |= p->adf & swept;
+		p->overwrites++;
+	}
+	p->adf |= swept;
+	p->conversions++;
+
+	/* Normal mode stops after one selected-channel sweep. */
+	if (!(chnl & CONTINUOUS))
+		p->reg[OFF_EN_SMPL_STAT / 2] &= ~ADSTART;
+}
+
+static uint16_t adc_read_reg(struct periph *p, uint32_t reg)
+{
+	uint32_t idx = reg / 2;
+
+	switch (reg) {
+	case OFF_ADD:
+		return p->add;
+	case OFF_EN_SMPL_STAT:
+		return (p->reg[idx] & CTRL_WRITABLE) |
+		       (p->add_adf ? ADF : 0) | (p->add_owe ? OWE : 0);
+	case OFF_END:
+		return (uint16_t)p->adf | ((uint16_t)p->owe << 8);
+	case OFF_UPPER:
+	case OFF_LOWER:
+		return p->reg[idx] & 0x03ff;
+	case OFF_CH04_INTMASK:
+		return p->reg[idx] & 0x001f;
+	case OFF_ADVMODE:
+		return p->reg[idx] & 0x0100;
+	default:
+		if (reg >= OFF_CH0_BUF &&
+		    reg < OFF_CH0_BUF + AD_CHANNELS * 2)
+			return p->data[(reg - OFF_CH0_BUF) / 2];
+		return idx < 0x10 ? p->reg[idx] : 0;
+	}
+}
+
+static void adc_write_reg(struct periph *p, uint32_t reg, uint16_t value,
+			  uint16_t lanes)
+{
+	uint32_t idx = reg / 2;
+	uint16_t mask;
+
+	switch (reg) {
+	case OFF_ADD:
+		return;                         /* read-only */
+	case OFF_TRIG_CHNL:
+		mask = TRIG_WRITABLE & lanes;
+		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
+		return;
+	case OFF_EN_SMPL_STAT:
+		mask = CTRL_WRITABLE & lanes;
+		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
+		if ((lanes & OWE) && !(value & OWE))
+			p->add_owe = 0;               /* write zero to clear */
+		if ((p->reg[idx] & (ADSTART | ADENABLE)) ==
+		    (ADSTART | ADENABLE) &&
+		    !(p->reg[OFF_TRIG_CHNL / 2] & (3u << 3)))
+			adc_convert(p);
+		return;
+	case OFF_END:
+		/* OWEx is write-zero-to-clear; ADFx is read-only. */
+		p->owe &= ~((~value & lanes) >> 8) & 0x1f;
+		return;
+	case OFF_UPPER:
+	case OFF_LOWER:
+		mask = 0x03ff & lanes;
+		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
+		return;
+	case OFF_CH04_INTMASK:
+		mask = 0x001f & lanes;
+		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
+		return;
+	case OFF_ADVMODE:
+		mask = 0x0100 & lanes;
+		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
+		return;
+	default:
+		return;                         /* buffers/gaps are read-only */
+	}
+}
+
 static bool adc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		     bool is_write)
 {
 	struct periph *p = ctx;
 
-	if (off == AD_CLKCTL) {
-		if (is_write)
-			p->clkctl = (uint16_t)*val, p->adc_writes++;
-		else
-			*val = p->clkctl;
+	if (off == AD_CLKCTL || off == AD_CLKCTL + 1) {
+		uint16_t lanes = size == 1 ? (off & 1 ? 0xff00 : 0x00ff) : 0xffff;
+		uint16_t value = size == 1 && (off & 1) ? *val << 8 : *val;
+
+		if (is_write) {
+			uint16_t mask = CLKCTL_WRITABLE & lanes;
+			p->clkctl = (p->clkctl & ~mask) | (value & mask);
+			p->adc_writes++;
+		} else {
+			*val = size == 1 && (off & 1) ? p->clkctl >> 8 : p->clkctl;
+		}
 		return true;
 	}
 
-	uint32_t reg = off - AD_BLOCK;
-	uint32_t idx = reg / 2;
+	if (off < AD_BLOCK || off >= AD_BLOCK + AD_BLOCK_LEN ||
+	    (size != 1 && size != 2))
+		return false;
+
+	uint32_t reg = (off - AD_BLOCK) & ~1u;
+	uint16_t lanes = size == 1 ? (off & 1 ? 0xff00 : 0x00ff) : 0xffff;
+	uint16_t value = size == 1 && (off & 1) ? *val << 8 : *val;
 
 	if (is_write) {
 		p->adc_writes++;
-		if (reg == OFF_EN_SMPL_STAT && (*val & ADSTART)) {
-			/*
-			 * Starting a conversion overwrites every channel
-			 * buffer. Any channel whose previous result was never
-			 * read takes an overwrite error.
-			 */
-			uint16_t chnl = p->reg[OFF_TRIG_CHNL / 2];
-			unsigned first = CS(chnl), last = CE(chnl);
-			uint8_t swept = 0;
-
-			if (last >= AD_CHANNELS)
-				last = AD_CHANNELS - 1;
-			for (unsigned ch = first; ch <= last; ch++)
-				swept |= 1u << ch;
-
-			/*
-			 * A channel whose previous result was never read is
-			 * overwritten by this sweep, which is what OWEx
-			 * records. Channels outside the sweep keep whatever
-			 * they had.
-			 */
-			if (p->adf & swept) {
-				p->owe |= p->adf & swept;
-				p->overwrites++;
-			}
-			p->adf |= swept;
-			p->conversions++;
-		}
-		if (idx < 0x10)
-			p->reg[idx] = (uint16_t)*val;
+		adc_write_reg(p, reg, value, lanes);
 		return true;
 	}
 
-	if (reg == OFF_END) {
-		*val = (uint32_t)p->adf | ((uint32_t)p->owe << 8);
-		return true;
-	}
+	uint16_t result = adc_read_reg(p, reg);
+	*val = size == 1 && (off & 1) ? result >> 8 : result;
+
 	if (reg >= OFF_CH0_BUF && reg < OFF_CH0_BUF + AD_CHANNELS * 2) {
 		unsigned ch = (reg - OFF_CH0_BUF) / 2;
-		*val = adc_count(ch);
 		/* "ADFx is reset to 0 when the converted data is read." */
 		p->adf &= ~(1u << ch);
-		p->owe &= ~(1u << ch);
-		return true;
+	} else if (reg == OFF_ADD) {
+		p->add_adf = 0;
 	}
-	*val = idx < 0x10 ? p->reg[idx] : 0;
 	return true;
 }
 

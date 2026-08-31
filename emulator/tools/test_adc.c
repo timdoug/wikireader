@@ -59,6 +59,8 @@ static void range(const char *what, long v, long lo, long hi)
 
 static uint32_t rd(uint32_t a)       { return mem_read(&mem, 0x300000u + a, 2); }
 static void     wr(uint32_t a, uint32_t v) { mem_write(&mem, 0x300000u + a, 2, v); }
+static uint32_t rd8(uint32_t a)      { return mem_read(&mem, 0x300000u + a, 1); }
+static void     wr8(uint32_t a, uint32_t v) { mem_write(&mem, 0x300000u + a, 1, v); }
 
 /* StartADC(), transcribed. */
 static void start_adc(void)
@@ -89,6 +91,16 @@ int main(void)
 	check("power-on resets the A/D clock control", rd(0x520), 0);
 	check("power-on restores EN_SMPL_STAT", rd(0x544), 0x0310);
 	check("power-on restores per-channel masks", rd(0x55c), 0x001f);
+	check("result buffers reset empty", rd(0x548), 0);
+	wr(0x548, 0x03ff);
+	check("writes to result buffers are ignored", rd(0x548), 0);
+	wr(0x520, 0xffff);
+	check("reserved clock-control bits read zero", rd(0x520), 0x000f);
+
+	/* ADST is not accepted while the converter itself is disabled. */
+	wr(0x544, 0x0302);
+	check("a trigger with ADE clear performs no conversion", rd(0x546), 0);
+	periph_reset(&adc);
 
 	/* Every channel must fit the converter's 10 bits. */
 	for (unsigned ch = 0; ch < AD_CHANNELS; ch++) {
@@ -98,6 +110,13 @@ int main(void)
 	}
 
 	start_adc();
+	check("normal-mode conversion clears ADST", rd(0x544) & 0x02, 0);
+	check("standard result reports completion", rd(0x544) & 0x08, 0x08);
+	check("standard result holds the final selected channel",
+	      rd(0x540), adc_count(2));
+	check("reading standard result clears its ADF", rd(0x544) & 0x08, 0);
+	wr(0x540, 0x03ff);
+	check("writes to standard result are ignored", rd(0x540), adc_count(2));
 	long a0 = rd(0x548), a1 = rd(0x54a), a2 = rd(0x54c);
 
 	check("ADF2 is set by the conversion and cleared by reading CH2",
@@ -139,6 +158,16 @@ int main(void)
 	      adc.overwrites > before, 1);
 	check("OWE appears in the high half of the status register",
 	      (rd(0x546) >> 8) & 0x1f, 0x18);
+	rd(0x54e);
+	check("reading a result leaves its OWE latched",
+	      (rd(0x546) >> 8) & 0x1f, 0x18);
+	wr(0x546, 0xffff);
+	check("writing one does not clear OWE", (rd(0x546) >> 8) & 0x1f, 0x18);
+	wr8(0x547, 0x00);
+	check("writing zero clears OWE through a byte access",
+	      (rd(0x546) >> 8) & 0x1f, 0);
+	wr8(0x55f, 0x01);
+	check("high-byte writes select advanced mode", rd8(0x55f), 0x01);
 
 	printf("\n%s\n", fails ? "FAILURES" : "all ADC tests passed");
 	return fails != 0;
