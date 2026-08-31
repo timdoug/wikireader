@@ -871,15 +871,16 @@ all 17 would have been rejected.
 frequency, the protect gate in both directions, and that a
 read-modify-write preserves previously enabled clocks.
 
-### The dormant SD-card DMA path
+### The SD-card DMA path
 
-The linked production firmware uses `drivers/src/mmc.c` and never programs
-DMA.  The tree also contains an older, disabled `sd_spi.c`/`sd_api.c` path
-which attempted 512-byte SPI transfers with HSDMA channels 2 and 3 and IDMA
-channel 0x24.  The emulator implements the manual-defined dual-address,
-byte-wide, single-transfer behavior used by that path, including SPI request
-selection, channel priority, counters, address updates, terminal enable-bit
-clearing, IDMA descriptor writeback, and `DMA_CKE`.
+The production `drivers/src/mmc.c` path uses a Grifo-only DMA backend for
+block reads.  HSDMA channel 3 drains SPI RX into memory while hardware IDMA
+channel 0x24 writes dummy bytes to SPI TX to generate the remaining clocks.
+Small A0-RAM boot stages do not register the backend and retain the compact
+PIO loop.  The emulator implements the manual-defined dual-address,
+byte-wide, single-transfer behavior used by the backend, including SPI
+request selection, channel priority, counters, address updates, terminal
+enable-bit clearing, IDMA descriptor writeback, and `DMA_CKE`.
 
 `make test-dma` reproduces the driver's register sequence.  A valid setup
 receives 512 bytes using 512 HSDMA and 511 IDMA transfers.  With the DMA
@@ -888,17 +889,20 @@ the manual-forbidden A0 RAM, it stops after the first CPU-initiated SPI byte.
 This is intentionally not yet a model of unused HSDMA single-address pins or
 every IDMA link/block combination.
 
-Testing the disabled driver against this model found several independent
+The implementation came from auditing the older, disabled
+`sd_spi.c`/`sd_api.c` path.  Testing it against this model found independent
 integration defects rather than intermittent controller behavior.  Its
-global IDMA enable is commented out; current clock setup omits `DMA_CKE`; a
-current low-RAM descriptor symbol needs absolute (`-medda32`) rather than
-default data-pointer-relative addressing; and its multi-sector read DMA spans
-the per-sector CRC, filler, and token bytes.  After correcting those in a
-temporary firmware tree, it booted reliably.  Removing an unconditional 1 ms
-per-sector delay reduced the emulated CPU work to reach the wiki from about
-5.9 million instructions with PIO to 3.4 million with DMA.  This is a CPU-work
-comparison, not a real-time speed claim: the emulator does not yet model SPI
-shift time or DMA bus occupancy.
+global IDMA enable was commented out; clock setup omitted `DMA_CKE`; its
+low-RAM descriptor symbol needed absolute (`-medda32`) rather than default
+data-pointer-relative addressing; and its multi-sector read DMA spanned the
+per-sector CRC, filler, and token bytes.  The production backend instead
+keeps the newer MMC protocol layer's per-sector framing and places its
+aligned control table in SDRAM.  A boot, suspend/resume, and typed search
+completed with zero invalid descriptors or SPI overflows, and its rendered
+screen matched PIO byte-for-byte.  The earlier experimental path reduced CPU
+work to reach the wiki from about 5.9 million instructions with PIO to 3.4
+million with DMA.  This is not a real-time speed claim: the emulator does not
+yet model SPI shift time or DMA bus occupancy.
 
 ### Peripherals still taken on trust
 

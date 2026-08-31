@@ -62,6 +62,9 @@ DSTATUS Stat = STA_NOINIT;	// Disk status
 static
 BYTE CardType;			// b0:MMC, b1:SDv1, b2:SDv2, b3:Block addressing
 
+/* Grifo registers its DMA backend; small boot stages leave this unset. */
+static mmc_spi_receive_dma_fn spi_receive_dma;
+
 
 //--------------------------------------------------------------------------
 // Exchange a byte via SPI  (Platform dependent)
@@ -152,10 +155,15 @@ static BOOL rcvr_datablock(BYTE *buff, UINT byte_count)
 		return FALSE;				// If not valid data token, return with error
 	}
 
-	do {						// Receive the data block into buffer
-		*buff++ = spi_receive();
-		*buff++ = spi_receive();
-	} while ((byte_count -= 2) != 0);
+	if ((REG_CMU_GATEDCLK1 & DMA_CKE) && byte_count > 1 &&
+	    spi_receive_dma != 0) {
+		spi_receive_dma(buff, byte_count);
+	} else {
+		do {					// Receive the data block into buffer
+			*buff++ = spi_receive();
+			*buff++ = spi_receive();
+		} while ((byte_count -= 2) != 0);
+	}
 	(void)spi_receive();				// Discard CRC
 	(void)spi_receive();
 
@@ -256,6 +264,11 @@ static BYTE send_cmd(BYTE cmd, DWORD arg)
 //==========================================================================
 // Public Functions
 //==========================================================================
+
+void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma)
+{
+	spi_receive_dma = receive_dma;
+}
 
 
 //--------------------------------------------------------------------------
@@ -369,6 +382,8 @@ DSTATUS mmc_disk_initialize(BYTE drv)
 	release_spi();
 
 	if (ty) {					// Initialization succeded
+		if (spi_receive_dma != 0)
+			REG_SPI_CTL1 |= RXDE | TXDE;
 		Stat &= ~STA_NOINIT;			// Clear STA_NOINIT
 		goto out;
 	}

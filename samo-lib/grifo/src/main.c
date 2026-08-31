@@ -37,6 +37,7 @@
 #include "interrupt.h"
 #include "memory.h"
 #include "serial.h"
+#include "sd_dma.h"
 #include "suspend.h"
 #include "syscall.h"
 #include "system.h"
@@ -69,6 +70,7 @@ int main(void)
 
 	// ensure MCU clocks are set up
 	CMU_initialise();
+	SD_DMA_initialise();
 
 	// main part of system
 	process();

@@ -141,7 +141,7 @@ void CMU_initialise(void)
 			//CARD_CKE |
 			ADC_CKE |        // turn off initially? (in suspend?)
 			ITC_CKE |
-			//DMA_CKE |
+			DMA_CKE |        // SD-card block reads use HSDMA and IDMA
 			//RTCSAPB_CKE |
 			0;
 

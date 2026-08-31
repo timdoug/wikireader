@@ -98,6 +98,7 @@ OBJECTS += watchdog.o
 #OBJECTS +=
 
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
+SD_DMA_OBJECT = build/sd_dma.o
 
 .PHONY: all
 all:  ${TARGETS}
@@ -131,8 +132,8 @@ lib/libgrifo.a: stamp-lib stubs/stamp stubs/stamp-source
 	${AR} r "$@" stubs/*.o
 	${TOUCH} "$@"
 
-grifo.elf: build/main.o lds/grifo.lds ${LIBS}
-	$(LD) -o $@ ${LDFLAGS} build/main.o ${LIBS} -T lds/${@:.elf=.lds} -Map ${@:.elf=.map}
+grifo.elf: build/main.o ${SD_DMA_OBJECT} lds/grifo.lds ${LIBS}
+	$(LD) -o $@ ${LDFLAGS} build/main.o ${SD_DMA_OBJECT} ${LIBS} -T lds/${@:.elf=.lds} -Map ${@:.elf=.map}
 	${STRIP} --strip-unneeded --strip-debug \
 		--remove-section=.internal --remove-section=.lcd \
 		--remove-section=.user_area --remove-section=.descriptor "$@"

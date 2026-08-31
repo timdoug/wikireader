@@ -26,6 +26,9 @@ typedef enum {
 	RES_PARERR,		/* 4: Invalid Parameter */
 } DRESULT;
 
+typedef void (*mmc_spi_receive_dma_fn)(BYTE *buff, UINT byte_count);
+
+void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma);
 
 DSTATUS mmc_disk_initialize(BYTE drv);
 DRESULT mmc_disk_read(BYTE drv, BYTE *buff, DWORD sector, BYTE count);
