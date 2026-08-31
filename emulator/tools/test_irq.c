@@ -73,6 +73,7 @@ int main(void)
 {
 	char buf[128];
 	struct itc itc = {0};
+	struct mem mem;
 
 	/* Each source must use its own documented priority field.  Distinct
 	 * values keep coincidentally equal firmware settings from hiding swaps. */
@@ -88,6 +89,39 @@ int main(void)
 	      itc_priority(&itc, 39), 2);
 	check("serial 0 reads PSI01_PAD[6:4]", itc_priority(&itc, 57), 4);
 	check("serial 1 reads PSI01_PAD[2:0]", itc_priority(&itc, 61), 6);
+
+	/* Serial causes have distinct error/rx/tx bits on each channel. */
+	static const unsigned serial_vectors[] = { 56, 57, 58, 60, 61, 62 };
+	static const unsigned serial_bits[] = { 0, 1, 2, 3, 4, 5 };
+	for (unsigned i = 0; i < sizeof serial_vectors / sizeof serial_vectors[0];
+	     i++) {
+		itc_reset(&itc);
+		itc_set_flag(&itc, serial_vectors[i]);
+		snprintf(buf, sizeof buf, "serial vector %u sets cause bit %u",
+			 serial_vectors[i], serial_bits[i]);
+		check(buf, itc.reg[0x286 - ITC_BASE], 1u << serial_bits[i]);
+	}
+
+	/* Cause-register writes follow the reset mode selected at 0x30029f. */
+	if (!mem_init(&mem)) {
+		fprintf(stderr, "cannot allocate memory for ITC MMIO tests\n");
+		return 1;
+	}
+	itc_attach(&mem, &itc);
+	check("interrupt mode register resets to DEN/IDMA/RST-only",
+	      mem_read(&mem, REG_BASE + 0x29f, 1), 0x07);
+	itc_set_flag(&itc, 61);
+	mem_write(&mem, REG_BASE + 0x286, 1, 0);
+	check("zero leaves a cause set in reset-only mode",
+	      mem_read(&mem, REG_BASE + 0x286, 1), 1u << 4);
+	mem_write(&mem, REG_BASE + 0x286, 1, 1u << 4);
+	check("one clears a cause in reset-only mode",
+	      mem_read(&mem, REG_BASE + 0x286, 1), 0);
+	mem_write(&mem, REG_BASE + 0x29f, 1, 0); /* ordinary read/write mode */
+	mem_write(&mem, REG_BASE + 0x286, 1, 0x12);
+	check("cause flags are writable when RSTONLY is clear",
+	      mem_read(&mem, REG_BASE + 0x286, 1), 0x12);
+	mem_free(&mem);
 
 	/* Acceptance is strictly greater-than, at every boundary. */
 	for (unsigned il = 0; il <= 7; il++) {

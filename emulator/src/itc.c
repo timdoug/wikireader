@@ -25,9 +25,8 @@
 /*
  * Cause-of-interrupt flag registers, 0x280..0x28f.
  *
- * These are write-1-to-clear, not plain storage: "The flag that has been
- * set can be reset by writing" (S1C33E07 Technical Manual, 0x300283), and
- * samo-lib says the same in passing -- "1 => reset flag bit".
+ * RSTONLY selects whether these are write-1-to-clear or plain storage.
+ * It resets set, and samo-lib describes that mode as "1 => reset flag bit".
  *
  * Getting this wrong is not subtle. grifo's resume path decides why it
  * woke by reading the timer 2 flags, and it clears them before halting
@@ -36,6 +35,8 @@
  */
 #define FLAG_LO    (0x280u - ITC_BASE)
 #define FLAG_HI    (0x290u - ITC_BASE)
+#define RST_RESET  (0x29fu - ITC_BASE)
+#define RSTONLY    (1u << 0)
 
 #define F16T23     (0x283u - ITC_BASE)   /* 16-bit timer 2-3 causes */
 #define FSIF01     (0x286u - ITC_BASE)   /* serial ch0-1 causes */
@@ -67,7 +68,8 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		for (unsigned k = 0; k < size; k++) {
 			uint32_t a = i + k;
 			uint8_t v = (uint8_t)(*val >> (8 * k));
-			if (a >= FLAG_LO && a < FLAG_HI)
+			if (a >= FLAG_LO && a < FLAG_HI &&
+			    (t->reg[RST_RESET] & RSTONLY))
 				t->reg[a] &= (uint8_t)~v;   /* write 1 to clear */
 			else
 				t->reg[a] = v;
@@ -139,7 +141,9 @@ void itc_set_flag(struct itc *t, unsigned vector)
 	case 39: t->reg[F16T23] |= 1u << 3; break;  /* timer 2 comparison A */
 	case 56: case 57: case 58:
 	case 60: case 61: case 62:
-		t->reg[FSIF01] |= 1u << (vector - 56 < 3 ? 0 : 4);
+		/* error/rx/tx are bits 0/1/2 for ch0 and 3/4/5 for ch1. */
+		t->reg[FSIF01] |= 1u << (vector < 59 ? vector - 56
+							 : vector - 57);
 		break;
 	default: break;
 	}
@@ -149,6 +153,8 @@ void itc_set_flag(struct itc *t, unsigned vector)
 void itc_reset(struct itc *t)
 {
 	memset(t, 0, sizeof *t);
+	/* DENONLY, IDMAONLY and RSTONLY all reset set (manual 0x30029f). */
+	t->reg[RST_RESET] = 0x07;
 }
 
 void itc_attach(struct mem *m, struct itc *t)
