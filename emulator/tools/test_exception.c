@@ -13,10 +13,15 @@
 
 static uint8_t ram[0x20000];
 static int fails;
+static bool trace_word_reads;
+static uint32_t word_reads[4];
+static unsigned n_word_reads;
 
 static uint32_t tr(void *ctx, uint32_t a, unsigned sz)
 {
 	uint32_t v = 0;
+	if (trace_word_reads && sz == 4 && n_word_reads < 4)
+		word_reads[n_word_reads++] = a;
 	for (unsigned i = 0; i < sz; i++)
 		v |= (uint32_t)ram[(a + i) & 0x1ffff] << (8 * i);
 	return v;
@@ -173,6 +178,28 @@ static void test_misaligned(void)
 	check("misalignment is not a host fault", c.halted, 0);
 }
 
+static void test_reti(void)
+{
+	struct c33 c = init(0);
+	uint32_t allowed = PSR_IL_MASK | PSR_IE | PSR_C |
+			   PSR_V | PSR_Z | PSR_N;
+
+	tw(NULL, ENTRY, 2, 0x04c0);          /* reti */
+	tw(NULL, STACK, 4, ~0u);             /* saved PSR */
+	tw(NULL, STACK + 4, 4, 0x1235);      /* saved PC, deliberately odd */
+	n_word_reads = 0;
+	trace_word_reads = true;
+	c33_step(&c);
+	trace_word_reads = false;
+	printf("\nreti\n");
+	check("reti reads the saved PC first", word_reads[0], STACK + 4);
+	check("reti reads the saved PSR second", word_reads[1], STACK);
+	check("reti clears the restored PC's low bit", c.pc, 0x1234);
+	check("reti keeps unused PSR bits zero", c.sr[SR_PSR], allowed);
+	check("reti consumes the complete exception frame", c.sr[SR_SP], STACK + 8);
+	check("reti takes its documented five clocks", c.clk, 5);
+}
+
 int main(void)
 {
 	static const struct {
@@ -208,6 +235,7 @@ int main(void)
 		test_undefined(undefined[i].word, undefined[i].name);
 	test_ext();
 	test_misaligned();
+	test_reti();
 
 	printf("\n%s\n", fails ? "FAILURES" : "all exception tests passed");
 	return fails != 0;

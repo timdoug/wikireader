@@ -31,6 +31,11 @@ static uint32_t pc_value(uint32_t value)
 	return value & ~1u;
 }
 
+static uint32_t psr_value(uint32_t value)
+{
+	return value & (PSR_IL_MASK | PSR_IE | PSR_C | PSR_V | PSR_Z | PSR_N);
+}
+
 /*
  * Combine any pending ext prefixes with a base immediate of the given width.
  * Consumes the prefixes.
@@ -636,8 +641,7 @@ static void write_sreg(struct c33 *c, unsigned reg, uint32_t value)
 {
 	switch (reg) {
 	case SR_PSR:
-		c->sr[reg] = value & (PSR_IL_MASK | PSR_IE | PSR_C |
-					PSR_V | PSR_Z | PSR_N);
+		c->sr[reg] = psr_value(value);
 		break;
 	case SR_SP:
 		c->sr[reg] = value & ~3u;
@@ -1418,12 +1422,20 @@ void c33_step(struct c33 *c)
 		break;
 	}
 
-	case OP_RETI:
-		c->sr[SR_PSR] = rd(c, c->sr[SR_SP], 4);
-		c->sr[SR_SP] += 4;
-		c->pc = pc_value(rd(c, c->sr[SR_SP], 4));
-		c->sr[SR_SP] += 4;
+	case OP_RETI: {
+		/* The manual orders these reads PC first, then PSR, then SP update. */
+		uint32_t sp = c->sr[SR_SP];
+		uint32_t target = rd(c, sp + 4, 4);
+		if (c->access_fault)
+			break;
+		uint32_t status = rd(c, sp, 4);
+		if (c->access_fault)
+			break;
+		c->pc = pc_value(target);
+		c->sr[SR_PSR] = psr_value(status);
+		c->sr[SR_SP] = sp + 8;
 		break;
+	}
 
 	case OP_RETD:
 		/* Debug save area layout, Core Manual retd instruction page. */
