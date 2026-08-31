@@ -154,6 +154,15 @@
   return 1;
 })
 
+;; A byte mask with exactly one zero bit, for bclr.
+(define_predicate "clear_bit_mask_operand"
+  (match_code "const_int")
+{
+  unsigned HOST_WIDE_INT mask = (unsigned HOST_WIDE_INT) INTVAL (op) & 0xff;
+
+  return exact_log2 ((~mask) & 0xff) >= 0;
+})
+
 ;; Return nonzero if the given RTX is suitable for collapsing into a
 ;; jump to a function prologue.
 
