@@ -318,6 +318,14 @@ static void jumps(void)
 	struct c33 c;
 
 	printf("\njpr/jpr.d\n");
+	c = init(0x1801);                    /* jreq 1: target is fallthrough PC */
+	c.sr[SR_PSR] = PSR_Z;
+	c33_step(&c);
+	check("taken branch to fallthrough still takes three clocks", c.clk, 3);
+	c = init(0x1801);
+	c33_step(&c);
+	check("untaken branch to fallthrough takes two clocks", c.clk, 2);
+
 	c = init(0x02c1);                    /* jpr %r1 */
 	c.r[1] = 0x21;
 	c33_step(&c);

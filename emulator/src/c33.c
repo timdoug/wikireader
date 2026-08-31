@@ -434,7 +434,7 @@ static bool pe_encoding_valid(uint16_t insn, const struct c33_form *f)
  * errs slightly long rather than short.
  */
 static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
-			   uint16_t insn, bool branched, bool had_ext)
+			   uint16_t insn, bool conditional_taken, bool had_ext)
 {
 	unsigned n;
 
@@ -481,7 +481,7 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 	case OP_JREQ: case OP_JRNE: case OP_JRGT: case OP_JRGE:
 	case OP_JRLT: case OP_JRLE: case OP_JRUGT: case OP_JRUGE:
 	case OP_JRULT: case OP_JRULE:
-		return branched ? 3 : 2;
+		return conditional_taken ? 3 : 2;
 	default:
 		break;
 	}
@@ -806,7 +806,7 @@ void c33_step(struct c33 *c)
 	int32_t a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0;
 	int32_t b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0;
 	bool had_ext = c->n_ext != 0;
-	uint32_t pc_before = c->pc;
+	bool conditional_taken = false;
 
 	bool was_delayed = c->delay_pending;
 	uint32_t delay_to = c->delay_target;
@@ -1243,6 +1243,7 @@ void c33_step(struct c33 *c)
 		int32_t d = disp_ext(c, (uint32_t)a, f->f[0].width);
 		uint32_t target = at + ((uint32_t)d << 1);
 		bool taken = cond(c, op);
+		conditional_taken = taken;
 		if (is_delayed(op)) {
 			/* The branch-to-slot window masks interrupts even when the
 			 * condition is false.  In that case retiring the slot selects
@@ -1468,7 +1469,7 @@ void c33_step(struct c33 *c)
 	 * prefixes into the following instruction.
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
-	c->clk += cycle_cost(op, f, insn, c->pc != pc_before, had_ext);
+	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext);
 
 	if (c->n_ext) {
 		/*
