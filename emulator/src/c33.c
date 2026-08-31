@@ -394,6 +394,28 @@ static bool is_delayed(uint8_t op)
 }
 
 /*
+ * The generated decoder is deliberately the union of the STD, ADV and PE
+ * instruction sets.  Most instructions removed from PE have their own
+ * opcode enum and are rejected in c33_step's undefined-instruction cases,
+ * but a few ADV encodings reuse a mnemonic which PE also implements.
+ * Recognizing the mnemonic is therefore not sufficient to admit the form.
+ *
+ * The PE opcode table has no class-7 instructions (the %dp-relative memory
+ * family), and the PE Core Manual documents only ext imm13.  The class-0
+ * add-to-DP form is likewise an Advanced-core instruction.
+ */
+static bool pe_encoding_valid(uint16_t insn, const struct c33_form *f)
+{
+	if ((insn & 0xe000u) == 0xe000u)
+		return false;
+	if (f->op == OP_ADD && f->shape_id == SHAPE_R_DP)
+		return false;
+	if (f->op == OP_EXT && f->shape_id != SHAPE_I)
+		return false;
+	return true;
+}
+
+/*
  * Cycle costs, from the CLK line of each entry in the C33 PE Core manual.
  *
  * Per-form variation within a mnemonic is not modelled: the manual gives
@@ -749,7 +771,7 @@ void c33_step(struct c33 *c)
 	}
 	c->last_insn = insn;
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
-	uint8_t op = f->op;
+	uint8_t op = pe_encoding_valid(insn, f) ? f->op : OP_INVALID;
 	if (c->profile)
 		c->opcount[op]++;
 	if (c->pc_profile) {
@@ -793,24 +815,20 @@ void c33_step(struct c33 *c)
 
 	/* ---- ext prefix ------------------------------------------------ */
 	case OP_EXT:
-		if ((f->shape_id == SHAPE_I)) {
-			if (c->n_ext < 2) {
-				c->ext[c->n_ext++] = (uint32_t)a;
-			} else {
-				/*
-				 * "this processor has come to generate an
-				 * exception when ... more than two ext
-				 * instructions are described" -- S1C33E07
-				 * manual B.3. Vector 2 is the ext exception.
-				 */
-				c->n_ext = 0;
-				/* Save the first prefix, not the third (6.3.10). */
-				take_exception(c, 2, c->cur_pc - 4);
-			}
-			return;   /* prefixes never complete an instruction */
+		if (c->n_ext < 2) {
+			c->ext[c->n_ext++] = (uint32_t)a;
+		} else {
+			/*
+			 * "this processor has come to generate an
+			 * exception when ... more than two ext
+			 * instructions are described" -- S1C33E07
+			 * manual B.3. Vector 2 is the ext exception.
+			 */
+			c->n_ext = 0;
+			/* Save the first prefix, not the third (6.3.10). */
+			take_exception(c, 2, c->cur_pc - 4);
 		}
-		fault(c, "unsupported ext form");
-		break;
+		return;   /* prefixes never complete an instruction */
 
 	case OP_NOP:
 		break;

@@ -195,6 +195,11 @@ int main(void)
 		{ 0x9e00, "sat.b" },  { 0xb600, "sat.h" },
 		{ 0x9f00, "sat.ub" }, { 0xb700, "sat.uh" },
 		{ 0xbe00, "sat.uw" }, { 0xbd00, "sat.w" },
+		/* ADV forms which share a mnemonic with a valid PE instruction. */
+		{ 0x0340, "add %r0,%dp" },
+		{ 0x3b40, "conditional ext" }, { 0x3f10, "register ext" },
+		{ 0xe000, "ld.b %r0,[%dp+0]" },
+		{ 0xf400, "ld.b [%dp+0],%r0" },
 	};
 
 	test_reset_registers();
