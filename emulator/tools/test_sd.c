@@ -108,6 +108,7 @@ int main(void)
 {
 	struct mem mem;
 	struct sdcard sd;
+	struct port port;
 	uint8_t a[512], b[512];
 
 	fill(a, 1);
@@ -117,7 +118,10 @@ int main(void)
 	make_image();
 	if (!mem_init(&mem))
 		return 1;
-	if (!sd_attach(&mem, &sd, IMG, NULL, NULL, false)) {
+	memset(&port, 0, sizeof port);
+	port_reset(&port);
+	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
+	if (!sd_attach(&mem, &sd, IMG, &port, NULL, false)) {
 		printf("cannot attach card image\n");
 		return 1;
 	}
@@ -162,6 +166,24 @@ int main(void)
 	ok("a command after STOP_TRAN is understood, not eaten as data",
 	   settle(&mem) == 0x00);
 
+	/* Discard that unread CMD17 response, then exercise a CMD18 stream. */
+	port.reg[OFF_P5D] |= (uint8_t)(1u << CS_SDCARD_BIT);
+	ok("a deselected card releases MISO", xchg(&mem, 0xff) == 0xff);
+	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
+	command(&mem, 18, 3);
+	ok("CMD18 is accepted", settle(&mem) == 0x00);
+	while (xchg(&mem, 0xff) != 0xfe)
+		;
+	for (int i = 0; i < 512 + 2; i++)
+		xchg(&mem, 0xff);
+	{
+		unsigned long blocks = sd.blocks_read;
+		port.reg[OFF_P5D] |= (uint8_t)(1u << CS_SDCARD_BIT);
+		ok("deselecting CMD18 does not prefetch another sector",
+		   xchg(&mem, 0xff) == 0xff && sd.blocks_read == blocks);
+		port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
+	}
+
 	sd_close(&sd);
 	mem_free(&mem);
 
@@ -169,7 +191,9 @@ int main(void)
 	make_image();
 	if (!mem_init(&mem))
 		return 1;
-	if (!sd_attach(&mem, &sd, IMG, NULL, NULL, true))
+	port_reset(&port);
+	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
+	if (!sd_attach(&mem, &sd, IMG, &port, NULL, true))
 		return 1;
 	ok("a card opened read-only says so", sd.readonly);
 	command(&mem, 24, 7);

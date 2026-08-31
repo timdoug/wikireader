@@ -10,9 +10,8 @@
  *     }
  *
  * so each TXD store clocks exactly one byte in both directions. We model the
- * card as a byte-stream state machine: framing comes from the command bytes
- * themselves (bit7 clear, bit6 set) rather than from chip select, which is
- * enough for the FatFs-style driver in samo-lib/drivers/src/mmc.c.
+ * card as a byte-stream state machine. Port 5 bit 0 is its active-low chip
+ * select; while deselected, MISO is released and reads back as 0xff.
  *
  * We report an SDHC card (OCR CCS set), so command arguments are block
  * numbers rather than byte offsets.
@@ -380,20 +379,35 @@ static void complete_spi(struct sdcard *sd)
 		sd->overflows++;
 	}
 
-	/*
-	 * Route by chip select. The FLASH driver frames a transaction with
-	 * EEPROM_CS_LO/HI, so releasing the select resets its command state.
-	 */
+	/* Route the shared SPI bus by the two active-low chip selects. */
 	bool ee = sd->eeprom && sd->port &&
 		  port_cs_low(sd->port, CS_EEPROM_BIT);
+	bool card = !sd->port || port_cs_low(sd->port, CS_SDCARD_BIT);
 	if (!ee && sd->eeprom_selected && sd->eeprom)
 		eeprom_deselect(sd->eeprom);
 	sd->eeprom_selected = ee;
 
-	if (ee)
+	if (ee) {
 		sd->rxd = eeprom_exchange(sd->eeprom, out);
-	else
+	} else if (card) {
 		sd->rxd = sd_xfer(sd, out);
+	} else {
+		/*
+		 * Deselect aborts a queued response or data phase. In particular,
+		 * release_spi() raises CS and clocks one byte before CMD12; a real
+		 * card then releases MISO. Keeping a CMD18 stream alive here made
+		 * wait_ready() drain an unrequested sector using CPU PIO.
+		 */
+		sd->cmdlen = 0;
+		sd->collecting = false;
+		sd->resp_len = sd->resp_pos = 0;
+		sd->streaming = false;
+		sd->awaiting_token = false;
+		sd->receiving = false;
+		sd->write_multi = false;
+		sd->block_timing = false;
+		sd->rxd = 0xff;
+	}
 	sd->busy = false;
 	sd->rdff = true;
 	if (sd->trace_bytes)
