@@ -135,6 +135,12 @@ framebuffers are byte-identical. Milliseconds are predictions from the 60 MHz
 MCLK, SPI, DMA, and SDRAM models; real hardware must calibrate absolute card
 latency and cross-bank SDRAM overlap.
 
+The production DMA backend waits in HALT for HSDMA3 terminal count instead of
+polling its enable bit. A fixed 300-million-cycle boot/search/article run drops
+from 160,069,719 to 151,391,234 executed instructions and from 6094.8 to
+6015.4 modeled ms. Both paths read 915 blocks, perform identical DMA transfers,
+and render identical screens.
+
 The pre-kernel MBR/menu/file-loader still reads by PIO. Kernel block reads use
 DMA; card writes remain PIO. The file-loader fits A0 with 371 bytes of live
 headroom. The menu is tighter: its BSS ends 18 bytes below the end of A0.

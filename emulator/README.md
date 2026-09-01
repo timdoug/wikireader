@@ -13,8 +13,9 @@ The combined emulator, toolchain, firmware, and next-work status is in
   `wiki.app` boot from the current FLASH and card images.
 - Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
   article, and scrolling framebuffers for the exercised workflows.
-- Kernel block reads use the documented SPI HSDMA/IDMA pipeline. Pre-kernel
-  reads and all card writes remain PIO.
+- Kernel block reads use the documented SPI HSDMA/IDMA pipeline and wait in
+  HALT for the channel-3 terminal-count cause. Pre-kernel reads and all card
+  writes remain PIO.
 - `make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
   display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO, and chip
   identification.
@@ -140,6 +141,12 @@ application is not a clean article timing baseline because it performs two
 unmapped reads and 256 writes immediately above DSTRAM during this operation;
 current firmware performs none.
 
+The production DMA path sleeps until HSDMA3 reports terminal count instead of
+polling its enable bit. In a fixed 300-million-cycle boot/search/article run,
+that reduces executed work from 160,069,719 to 151,391,234 instructions and
+modeled time from 6094.8 to 6015.4 ms. Both paths read 915 blocks, perform the
+same 468,480 HSDMA and 467,565 IDMA transfers, and produce identical screens.
+
 Build the matched modern kernel paths with `SD_DMA=YES` (default) or
 `SD_DMA=NO`. Firmware Makefiles default to the original compiler, so select
 the modern prefix explicitly when required:
@@ -181,8 +188,11 @@ The production read backend uses HSDMA channel 3 for SPI RX and IDMA channel
 `0x24` to write dummy TX bytes. The model covers the dual-address, byte-wide,
 single-transfer behavior used by firmware: request selection, priority,
 counters, address updates, terminal enable clearing, descriptor writeback,
-clock gating, and global IDMA enable. One 512-byte block performs 512 HSDMA
-and 511 IDMA transfers. Unused DMA modes and trigger sources are not modeled.
+clock gating, global IDMA enable, and the terminal interrupt cause. HSDMA and
+IDMA continue while the CPU is in HALT; the enabled channel-3 cause wakes the
+CPU without entering a handler while PSR.IE is clear. One 512-byte block
+performs 512 HSDMA and 511 IDMA transfers. Unused DMA modes and trigger sources
+are not modeled.
 
 ### Peripherals
 
