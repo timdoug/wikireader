@@ -1,150 +1,111 @@
 # C33 DejaGnu board
 
 This directory connects GCC's standard DejaGnu testsuite to the installed C33
-cross-compiler and `emulator/wremu`. DejaGnu is the sole test harness: GCC's
-own drivers select tests and optimization options, interpret `dg-*`
-directives, and write the result summaries.
+cross-compiler and `emulator/wremu`. It supersedes the retired handwritten
+test harness.
 
-The C33-specific pieces are limited to normal target integration:
+GCC's own drivers select sources and optimization variants, interpret
+`dg-*` directives, and produce the authoritative `gcc.sum` and `gcc.log`.
+No upstream test is rewritten.
 
-- `c33-sim.exp` supplies target flags, links the freestanding test runtime,
-  invokes the emulator, and translates its exit register into a DejaGnu
-  verdict.
-- `site.exp` locates the board and cross-compiler.
-- `run-dejagnu.sh` builds the target runtime and provides convenient paths to
-  `runtest`.
+## Components
 
-## Usage
+- `c33-sim.exp`: target flags, freestanding runtime linkage, emulator
+  execution, runtime-prerequisite classification, and exit-status mapping.
+- `site.exp`: board and cross-compiler location.
+- `run-dejagnu.sh`: runtime build and convenient `runtest` invocation.
+- `../runtime/`: crt entry, `setjmp`, test services, and linker script used
+  only by DejaGnu execution tests.
 
-Install DejaGnu once on macOS:
+## Prerequisites
 
 ```sh
 brew install deja-gnu
 ```
 
-Then run from this directory:
+Build and install the modern compiler, binutils, libgcc, mini-libc, and
+`emulator/wremu` before running the board.
+
+## Usage
+
+From this directory:
 
 ```sh
-./run-dejagnu.sh all
 ./run-dejagnu.sh execute
 ./run-dejagnu.sh compile
-./run-dejagnu.sh gcc.dg dg.exp=20010516-1.c
+./run-dejagnu.sh gcc.dg
+./run-dejagnu.sh all
 ```
 
-`all` passes no test selector to `runtest`, so DejaGnu discovers and runs the
-complete GCC C testsuite for the C33 board. The narrower modes are useful for
-reproducing and iterating on one family.
-
-A focused torture test uses the entry-point basename, not its full path:
+`all` passes no selector and discovers the complete GCC C testsuite. Narrow
+runs are preferred while diagnosing a source:
 
 ```sh
 ./run-dejagnu.sh execute execute.exp=pr61725.c
 ./run-dejagnu.sh compile compile.exp=20030305-1.c
-```
-
-The same basename rule applies to multi-file LTO tests:
-
-```sh
+./run-dejagnu.sh gcc.dg dg.exp=20010516-1.c
+./run-dejagnu.sh all dg-torture.exp=inline-mem-cmp-1.c
 ./run-dejagnu.sh all lto.exp=pr122515_0.c
 ```
 
-`GCC`, `EMU`, `TCROOT`, `SRC`, `WORK`, `LIMIT`, `HOST_TIMEOUT`, `LIBC`, and
-`RUNTIME_DIR` can override the defaults. Generated runtime objects and results
-go under `work/`, which is ignored.
+Selectors use the entry-point basename, including multi-file LTO tests.
 
-The authoritative output is DejaGnu's standard `gcc.sum` and `gcc.log` in the
-selected `WORK` directory. The wrapper does not replace or reinterpret those
-results. GCC's intentionally enormous cases follow the upstream default and
-are skipped. Set the nonempty environment variable `GCC_TEST_RUN_EXPENSIVE=1`
-to opt into them; even the string `0` is nonempty and therefore enables them.
+Results and generated objects go under ignored `work/` by default.
+`GCC`, `GCOV`, `EMU`, `TCROOT`, `SRC`, `WORK`, `LIMIT`,
+`HOST_TIMEOUT`, `LIBC`, and `RUNTIME_DIR` override their corresponding
+defaults.
 
-The macOS compatibility layer covers DejaGnu command execution and GCC's
-direct read-only Tcl pipelines without modifying upstream tests. Runtime-gap
-classification reads only source-language inputs; link-time `.o` and `.a`
-files must never be opened as Tcl text. This matters for upstream LTO
-`pr122515`, which deliberately creates a 2.88 GB archive.
+GCC's intentionally enormous tests follow the upstream default and are not
+enabled automatically:
 
-The complete post-fix `gcc.dg/lto/lto.exp` run records 1,651 expected passes,
-34 unsupported tests, and no failures or unresolved cases.
-
-GCC 16.2 has no standalone `libgcc/testsuite`; its `libgcc` `check` target is
-empty. The execution suites cover the installed `libgcc.a` through generated
-integer, soft-float, conversion, and complex-arithmetic helper calls.
-
-## Full-run baseline
-
-The first unfiltered run completed on 2026-08-28 under
-`work/full-20260828-2130/`:
-
-```text
-# of expected passes        145212
-# of unexpected failures      1836
-# of unexpected successes        4
-# of expected failures          921
-# of unresolved testcases      1198
-# of unsupported tests         6107
+```sh
+GCC_TEST_RUN_EXPENSIVE=1 ./run-dejagnu.sh all
 ```
 
-Those raw counts are not 1,836 independent C33 code-generation bugs. The
-largest families are sanitizer tests without a target sanitizer runtime,
-analyzer tests whose hosted-library assumptions do not match mini-libc, gcov
-tests without the matching host-side tool, and repeated assertions from one
-source/option matrix. Preserve `gcc.sum` and `gcc.log` and group failures by
-source before drawing conclusions.
+Any nonempty value enables them, including `0`.
 
-The run found and fixed three board integration omissions: target headers were
-not globally visible, the matching binutils directory was not on `PATH` for
-GCC's object-format probes, and long-double `fmaxl`/`ilogbl` libm gaps were not
-classified. The last correction was verified by a focused rerun after the
-baseline, so the baseline retains nine now-obsolete `cdivchkld.c` failures.
+## Verdict contract
 
-A second unfiltered run completed on 2026-08-30 under
-`work/full-post-fixes2-20260829/`:
+Execution runs the program in `wremu` with a deterministic instruction
+limit. Reaching the exit breakpoint with `%r4 == 0` passes.
 
-```text
-# of expected passes        144950
-# of unexpected failures        39
-# of unexpected successes        1
-# of expected failures          924
-# of unresolved testcases       261
-# of unsupported tests         6166
-```
+- `%r4 == 0xdead` is the test runtime's `abort()` and fails.
+- faults, nonzero exits, and exhausted instruction budgets fail;
+- output without a register dump is unresolved because execution did not
+  complete; and
+- a missing external target capability is unsupported only when every missing
+  symbol belongs to an explicit known-runtime category.
 
-Those 39 failures collapse to 15 source-level findings. Focused follow-up
-fixed the 24 missing float-range diagnostics, three profile-driver failures,
-one coverage-driver failure, two hosted-runtime executions, two failed-link
-classifications, two incorrect C99-runtime assumptions, and the old torture
-driver's unsupported-to-unresolved cascade. The 261 unresolved verdicts were
-entirely profile/gcov, IEEE-libm, and failed-prerequisite cascades; the affected
-focused drivers now have none.
-The remaining compiler-only scan mismatches are documented in
-`../DEJAGNU-TODO.md` and remain visible rather than changing upstream tests.
+An unknown undefined symbol is a failure. This prevents a missing or misspelled
+compiler-generated libgcc helper from being hidden as a libc limitation.
 
-The focused post-fix `gcc.dg/dg.exp` replay in
-`work/gcc-dg-post-fixes-20260830/` records 39,358 passes, four unexpected
-failures, 534 XFAIL, and 1,037 unsupported tests, with no unresolved result.
-All execution tests pass; the four remaining results are compile-time
-diagnostic, dump-text, or stack-accounting expectation mismatches documented
-in `../DEJAGNU-TODO.md`.
+Runtime objects are built once per option set. Builtins remain enabled.
+Legacy C tests retain the standard `-w -fpermissive` compatibility flags.
+The board uses GCC's standard `timeout_value`, so per-test
+`dg-timeout-factor` scales both the host watchdog and emulator budget.
 
-Missing capabilities remain implementation work even when DejaGnu reports
-them unsupported. The concrete backlog and acceptance tests are in
+The macOS compatibility layer supports GCC drivers that open read-only Tcl
+pipelines. Runtime-gap inspection is restricted to source-language inputs;
+large LTO objects and archives are never opened as Tcl text.
+
+## Current focused results
+
+| Driver | Result |
+| --- | --- |
+| `gcc.c-torture/execute` | 24,260 passes, 251 legitimate unsupported, zero failures or unresolved |
+| `gcc.dg/torture` | no demonstrated GCC/backend failure |
+| IPA | 807 passes, 4 XFAIL, 13 unsupported, no unexpected |
+| LTO | 1,651 passes, 34 unsupported, zero failures or unresolved |
+| `gcc.dg/dg.exp` | 39,358 passes, 4 documented target-dependent mismatches, 534 XFAIL, 1,037 unsupported, no unresolved |
+
+The final complete post-fix run is pending. Historical raw full-run counts are
+not current status; preserve the next `gcc.sum` and `gcc.log` and triage
+only its fresh unexpected results.
+
+The remaining target-dependent mismatches, optional compiler features, and
+external runtime boundary are documented in
 [`../DEJAGNU-TODO.md`](../DEJAGNU-TODO.md).
 
-## Target-runtime boundary
-
-The board reports tests requiring deliberately absent hosted facilities as
-unsupported. These include filesystem operations, libm, and floating-point
-`printf`. Unknown linker symbols remain failures so a bad compiler-generated
-libcall cannot be hidden as a runtime limitation.
-
-For execution tests, `c33-sim_load` runs:
-
-```text
-wremu -n 3200000000 -b 0x10000002 program
-```
-
-Reaching `pc=10000002` with `r4=00000000` passes. `r4=0000dead` is the
-runtime's `abort()` and fails; faults, nonzero exits, and instruction-limit
-stops also fail. Output with no register dump is unresolved because the
-emulator did not complete.
+GCC 16.2 has no standalone libgcc testsuite in this configuration. GCC
+execution tests cover the installed `libgcc.a` through generated integer,
+soft-float, conversion, complex-arithmetic, and forwarding helper calls.

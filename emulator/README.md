@@ -1,159 +1,69 @@
 # wremu - WikiReader full-system emulator
 
-Emulates the WikiReader's Epson C33 (S1C33) SoC well enough to boot the real
-firmware from a real card image: `kernel.elf` (grifo) loads `init.app`, which
-chains to `wiki.app`, which mounts a FAT32 SD card, renders to a 240x208
-panel, and answers taps on its on-screen keyboard.
+`wremu` boots the WikiReader's Epson S1C33E07 firmware from ELF files or
+through the serial-FLASH boot chain, attaches a FAT32 card image, and presents
+the 240x208 touch display through SDL2.
 
-```
-$ ./wremu -g -c images/wrcard.img images/grifo.elf
-Grifo starting
-init starting
-starting wiki app
-Display version.txt
-VERSION: 20260823
-```
+The combined emulator, toolchain, firmware, and next-work status is in
+[`../host-tools/toolchain-c33/HANDOFF.md`](../host-tools/toolchain-c33/HANDOFF.md).
 
-Typing `LOVE` on the keyboard returns real article titles out of
-`enquote/wiki.pfx` / `wiki.idx` / `wiki.fnd`.
+## Status
 
-## Building
+- The mask-ROM effect, MBR, menu, file-loader, kernel, `init.app`, and
+  `wiki.app` boot from the current FLASH and card images.
+- Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
+  article, and scrolling framebuffers for the exercised workflows.
+- Kernel block reads use the documented SPI HSDMA/IDMA pipeline. Pre-kernel
+  reads and all card writes remain PIO.
+- `make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
+  display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO, and chip
+  identification.
+- Firmware and differential programs retire 57 of the 74 implemented PE
+  operations. Focused core tests cover most remaining forms.
+- Headless execution is deterministic and runs at about 80 million target
+  instructions per host second.
 
-```
+Timing is derived from the documented 60 MHz MCLK and the programmed SPI,
+DMA, timer, and SDRAM registers. Absolute SD-card latency and cross-bank
+SDRAM overlap still require hardware calibration.
+
+## Build and test
+
+```sh
+cd emulator
 make
+make check
 ```
 
-Needs SDL2 (`brew install sdl2`) for the window. Everything else is plain C.
-The generated decode tables are committed, so the c33 cross toolchain is
-**not** required to build the emulator - only to regenerate those tables or
-to rebuild the firmware itself.
+SDL2 is required for the window (`brew install sdl2`). Generated C33 decode
+tables are committed, so the cross-compiler is not required for a normal
+emulator build.
 
-## Running
+`make check` runs all focused model tests. `make difftest` runs the generated
+native-versus-C33 execution comparison; see
+[`difftest/README.md`](difftest/README.md).
 
-```
+## Run
+
+Direct kernel ELF boot is convenient for debugging:
+
+```sh
 ./wremu -g -c images/wrcard.img images/grifo.elf
 ```
 
-The window opens with the device **off**, as it would be sitting on a
-shelf: press **P**, or click the power symbol, to turn it on.
+Hardware-style boot uses the serial FLASH image:
 
-Click keys with the mouse; that is the touch panel. Below it is the bezel,
-laid out like the device: a WikiReader wordmark and three round buttons
-reading **search**, **history**, **random** left to right. Click them, or
-use keys **1**, **2**, **3** in that same order. To their right is a small
-power symbol -- clickable, or **P** -- drawn smaller and set apart because
-on the case it is on the edge rather than the bezel. `Q` or `Esc` quits.
-
-| flag | meaning |
-| --- | --- |
-| `-g`, `-S N` | SDL2 window, scale factor (default 3) |
-| `-c FILE` | attach a FAT32 card image |
-| `-R` | open the card image read-only, so a run cannot change it |
-| `-e FILE` | attach the serial FLASH and boot through it, as the hardware does |
-| `-n N` | stop after N instructions (unlimited with `-g`) |
-| `-s` | trace grifo syscalls by name, with call sites and return values |
-| `-K cycle,TEXT` | type TEXT on the on-screen keyboard |
-| `-T x,y,cycle` | tap a pixel |
-| `-N code,cycle` | press a button: 0 random, 1 search, 2 history, 3 power |
-| `-G x,y0,y1,cycle` | drag vertically, for the scroll path |
-| `-b ADDR` | breakpoint: registers plus recent PCs |
-| `-W ADDR` | write watchpoint |
-| `-V VAL` | watch stores of a byte value |
-| `-D ADDR -L N -O FILE` | memory dump, optionally to a binary file |
-| `-t N` | disassemble the first N instructions |
-| `-m` | trace unclaimed MMIO registers |
-| `-P` | histogram of opcodes actually executed |
-| `-H` | histogram of where time is spent, by address |
-| `-X ADDR[,NAME]` | count entries to ADDR without stopping, and report the longest gaps between them |
-| `-Y A,B` | profile only between the first hits of A and B |
-| `-y M,N` | profile only between guest times M and N, in ms |
-| `-F FILE` | write every non-empty profile bucket to FILE, for diffing two runs |
-| `-Z ADDR` | time the whole input script from the first hit of ADDR |
-| `WREMU_SUSPEND_DIV=N` | (env) divide the 120 s suspend timeout by N |
-
-`-s` is usually the fastest way in: it turns a hang into a named syscall,
-a call site and a return value.
-
-### Measuring, without fooling yourself
-
-Comparing two builds of the same firmware needs more care than it looks.
-
-**`-n` is not a stopwatch.** It counts `cpu.cycles`, which the headless idle
-path also advances when it fast-forwards to the next deadline. A run that
-waits more looks like a run that computed more. The summary separates them:
-
-```
---- work: 219633709 instructions executed, 180366291 idle, 7973.0 ms guest ---
+```sh
+./wremu -g -e ../samo-lib/mbr/flash.rom -c images/wrcard.img
 ```
 
-**Absolute cycle numbers are not a fair script.** `-T x,y,cycle` fires at an
-instruction count, so a build that boots in fewer instructions gets the tap
-delivered at a different point in its own progress, and the two runs are no
-longer the same interaction. `-Z ADDR` rebases the whole script -- `-K`,
-`-T`, `-G`, `-N` -- onto the first time the guest reaches ADDR.
+With a window, the device initially appears powered off. Press `P` or click
+the power symbol. Click the touch panel, use `1`, `2`, and `3` for the random,
+search, and history buttons, and use `Q` or `Esc` to quit.
 
-**Call counts are not work.** The idle loop here busy-spins until a 2 s
-suspend timeout, so a *faster* build racks up *more* calls to `Event_get`
-and everything the poll loop touches. What that costs the person holding the
-device is the gap between polls, which `-X` reports:
+Typical boot output is:
 
-```
---- probe Event_get   257853 hits  first ... last ... ---
-      stalls:  201.4ms(8400k@4794ms)  130.3ms(5322k@2794ms)  21.6ms(959k@2061ms)
-```
-
-**Whole-run profiles say nothing.** The hot code over a whole run is always
-the idle loop. `-Y A,B` and `-y M,N` restrict the profile to one phase, and
-`-F` writes every bucket so two runs can be diffed function by function --
-which is how a 25% regression in an article load was traced to a single
-missing addressing mode in `memset`.
-
-## Booting the way the hardware does
-
-`./wremu -e flash.rom -c card.img` starts where the device starts, instead
-of loading `grifo.elf` straight off the host filesystem.
-
-The real chain has four stages before any application runs:
-
-| stage | lives in | |
-| --- | --- | --- |
-| mask ROM | burned into the S1C33E07 | Epson's, not in this repo |
-| `mbr` | serial FLASH offset 0x1 | `samo-lib/mbr/mbr.c`, linked at 0 |
-| `menu` | serial FLASH 0x300 | boot menu, auto-boots on timeout |
-| `file-loader` | serial FLASH 0x2300 | reads `kernel.elf` off the card |
-
-Only the first cannot be run: it is silicon we do not have, so the emulator
-reproduces its *effect* -- copy the first 512 bytes of the FLASH to RAM 0,
-set the stack to the top of internal RAM, jump to 0. Those numbers are not
-guesses: `SAMO_A1.mapfile-default` places `mbr` at FLASH offset 1,
-`mbr.elf` is linked with `-Ttext=0`, and nothing in samo-lib sets up a
-stack before mbr's first call, so the ROM must.
-
-Everything after that is real firmware. Building the FLASH image needs
-
-```
-make AWK=awk mbr
-```
-
-which produces `samo-lib/mbr/flash.rom`. The `AWK` override selects the
-system awk; the header generator is POSIX awk and emits its binary NUL
-padding portably. The image assembler `host-tools/flash07/image07` was
-Python 2 and has been ported.
-
-This required modelling three things the ELF path never touched: the I/O
-ports, because the SPI chip selects live there (`port.c` -- SD is port 5
-bit 0, FLASH is bit 2) and the drivers set them with read-modify-write; the
-serial FLASH itself (`eeprom.c`, a PM25LV512); and the SDRAM controller
-(`sdramc.c`), because the boot path spins on its initialise flag.  The fixed
-identification area at `0x20000` also returns the manual's four bytes -- C33
-PE little-endian core, S1C33E series, E07 model, version `0x21` -- so the boot
-menu identifies the actual emulated part rather than reading an address-map
-hole.
-
-The whole chain works. `-n 300000000` reaches the rendered keyboard in a
-few host seconds:
-
-```
+```text
 load: kernel.elf
 Grifo starting
 init starting
@@ -161,1063 +71,240 @@ starting wiki app
 VERSION: 20260823
 ```
 
-Before that the boot menu comes up over the serial console with live
-readings from the emulated ADC, and auto-boots on timeout as the hardware
-does:
+Typing `LOVE` on the keyboard returns article titles from the attached wiki
+data.
 
-```
-BAT: 3079 mV      TMP: 19 DegC      LCD: 23462 mV
-menu? -\|/...
-```
+### Useful options
 
-### Where the stack goes, and why it matters
-
-Getting this working came down to one number the manual does not give.
-
-The boot flowchart (D.4.2) is explicit about everything else: read the
-status register, issue READ with a 32-bit address, load 512 bytes to the
-start of A0RAM, jump to 0. It says nothing about a stack -- and the PE Core
-manual says SP "becomes indeterminate when it is initialized upon reset",
-with software expected to set it. But `mbr` never does: `master_boot`
-begins `pushn %r3`, using whatever it was given. So the mask ROM must leave
-a working stack, and the emulator has to pick the same one.
-
-The top of A0RAM is the obvious guess and it is wrong. `mbr` loads every
-application with `FLASH_read(0x200, EEPROM_PAYLOAD_SIZE, ...)`, which writes
-0x200 to 0x1F00 regardless of how big the application actually is, leaving
-256 bytes below an 8K stack top. FatFs alone needs more than that:
-`FATFS` embeds a 512-byte sector window, and `elf32_exec` puts one on the
-stack. The symptom was a `dirbase` of 0x80409 -- an address, not a cluster
-number -- and a read of sector 2,151,983,104.
-
-The stack lives at the top of IVRAM instead. That is internal memory,
-available before SDRAM is initialised, and does not collide with the
-application A0RAM is full of.
-
-### The offset-by-one
-
-The FLASH map places `mbr` at EEPROM offset 1, not 0, which looks like a
-mistake until the manual explains it: "The SPI-EEPROM boot sequence issues
-a 32-bit address regardless of the EEPROM size." The PM25LV512 takes a
-three-byte address, so it begins clocking out data during the fourth
-address byte, and the boot ROM discards it. The 512 bytes it keeps start at
-offset 1.
-
-### Suspend, and the 27x it was worth
-
-The chain first took about 8 billion instructions where the ELF path
-reached the same screen in 600 million. It now takes **300 million**, and a
-full hardware boot runs in a few host seconds with SDRAM timing enabled.
-
-The cost was not I/O: both paths did nearly identical card traffic, 587
-commands against 538. It was not the boot stages either -- `-H` put 98% of
-the time inside grifo, not in mbr, menu or file-loader. At 64-byte
-resolution the map named the functions:
-
-```
-vuprintf 24%   Event_get 22%   ELF32_load 16%   Event_wait 14%   Suspend 15%
-```
-
-`Event_wait`, `Suspend` and `Event_get` are the idle loop, and they were
-half the total. The device was spinning where it should have been asleep,
-because of this, at the top of `Suspend`:
-
-```c
-// if in CTP receive sequence
-if (0 == (REG_P6_P6D & 0x10)) {
-	return;
-}
-```
-
-Port 6 was initialised here to all zeros so the three buttons on bits 0..2
-would read as not held. But `REG_MISC_PUP6` in `boards/samo_a1.h` enables
-pull-ups on bits 3, 4 and 5, so those idle **high**. With bit 4 low,
-`Suspend` concludes a touch packet is arriving and returns immediately,
-every time, and the idle loop runs flat out instead of suspending.
-
-Setting bit 4 high is the accurate thing and gives the 27x. It also makes
-the machine deaf until the rest of suspend is modelled, which took five
-more pieces. Each one hid the next:
-
-* `halt` now parks the core until an interrupt instead of stopping the
-  emulator, and wakes on a request **regardless of `IE`**, which is what
-  the manual specifies -- "interrupt signals are able to cancel HALT and
-  SLEEP modes even if the IE flag in PSR or the interrupt enable bits in
-  the interrupt controller are set to disable interrupts". That matters
-  because `Suspend` disables interrupts before halting.
-* `SELDO` in the SDRAM refresh register is modelled, because the relocated
-  suspend code enables self-refresh and spins until it reads back.
-* All six 16-bit timers count from their selected internal prescaler, or an
-  external edge where the board supplies one. Compare A/B causes use their
-  documented ITC flags, enables, priorities, and fixed ordering, so timer 2
-  can wake the suspend path without a special interrupt shortcut.
-
-* The **cause-of-interrupt flag registers** at 0x280..0x28f are
-  write-1-to-clear, not storage: "The flag that has been set can be reset by
-  writing". Treated as storage, the resume path's own attempt to clear the
-  timer flags set them instead, so the firmware always concluded it had
-  timed out and called `System_PowerOff()`.
-* Interrupt delivery is **gated on the controller's enable bits**, and a
-  cause that is disabled is refused at the point it is raised rather than
-  when it is taken. The resume path disables and clears the timer 2
-  interrupt before re-enabling interrupts, and delivering it anyway landed
-  in grifo's "Panic: undefined interrupt". Refusing it late was not enough
-  either: there is one pending slot, so a doomed request would displace a
-  live one and take it down with it, which is how a stray timer wake-up ate
-  the touch interrupts.
-* The wake timer runs from **OSC3/32**, because the suspend code switches
-  the clock down before arming it. The timer now consumes the MCLK frequency
-  decoded by the CMU rather than a timer-2 constant. In particular, OSC3 is
-  48 MHz, so OSC3/32 is 1.5 MHz; against the emulator's 60 MHz raw timeline
-  that is a factor of 40, not 32. The old factor made the intended 120-second
-  timeout expire after 96 seconds.
-
-The lesson from the port bug still stands, twice over: the reset state of an
-I/O port is a property of the board, not a convenient default. The manual
-lists these registers as "Ext." precisely because they read the external
-pin, and the pull-ups are in the board header. The second lesson is that a
-register can be more accurate in isolation and still be a regression, until
-the rest of the model catches up -- this one was a regression for several
-hours before it became a 27x speedup.
-
-## Making a card image
-
-```
-hdiutil create -size 512m -fs "MS-DOS FAT32" -volname WIKIREADER \
-    -layout NONE -format UDRW -srcfolder ~/wikireader-card -o wrcard
-mv wrcard.dmg emulator/images/wrcard.img
-```
-
-The card directory is what `make install` produces: `kernel.elf`, `init.app`,
-`wiki.app`, the `.bmf` fonts, `wiki.inf`, and a `<lang><suffix>/` data
-directory such as `enquote/`.
-
-## Layout
-
-| path | |
+| Option | Purpose |
 | --- | --- |
-| `src/c33.[ch]` | CPU: decode, execute, traps, interrupts |
-| `src/mem.[ch]` | memory map and MMIO dispatch |
-| `src/elf.c` | ELF32 loader |
-| `src/uart.c` | EFSIF0 serial console |
-| `src/sdcard.c` | SPI controller and an SD card in SPI mode |
-| `src/lcd.c` | LCD controller, framebuffer capture |
-| `src/display.c` | SDL2 window |
-| `src/touch.c` | EFSIF1 touch panel, keyboard geometry |
-| `src/timer.c` | 60 MHz tick timer (cascaded T16 ch0/ch5) |
-| `src/itc.c` | interrupt controller registers and priorities |
-| `src/cmu.c` | clock management unit, protect gate, derived MCLK |
-| `src/periph.c` | ADC |
-| `c33_forms.h` | **generated** decode tables |
-| `c33_pe_valid.h` | **generated** PE valid-encoding bitmap |
-| `c33_syscalls.h` | **generated** syscall names |
-| `tools/` | table generators and ISA-fitting scripts |
-| `difftest/` | differential tests against the real cross compiler |
+| `-g`, `-S N` | Open the SDL window at scale `N` (default 3). |
+| `-c FILE` | Attach a FAT32 card image. |
+| `-R` | Keep the card image read-only. |
+| `-e FILE` | Attach serial FLASH and use the hardware boot path. |
+| `-n N` | Stop after `N` target cycles/instructions; the GUI defaults to unlimited. |
+| `-s` | Trace grifo syscalls with call sites and return values. |
+| `-K cycle,TEXT` | Type text on the on-screen keyboard. |
+| `-T x,y,cycle` | Tap a pixel. |
+| `-G x,y0,y1,cycle` | Drag vertically. |
+| `-N code,cycle` | Press random/search/history/power (`0`-`3`). |
+| `-b ADDR`, `-W ADDR` | Break on execution or a write. |
+| `-D ADDR -L N -O FILE` | Dump target memory. |
+| `-m` | Trace unclaimed MMIO accesses. |
+| `-P` | Report retired-opcode counts. |
+| `-H` | Profile executed addresses. |
+| `-X ADDR[,NAME]` | Count entries and report the longest gaps. |
+| `-Y A,B`, `-y M,N` | Limit profiling by address or guest-time interval. |
+| `-F FILE` | Write non-empty profile buckets for comparison. |
+| `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
 
-## Regenerating the decode tables
+`WREMU_SUSPEND_DIV=N` shortens the firmware's 120-second suspend interval
+for testing without modifying the guest.
 
-Only needed if the ISA tables change. Requires the c33 toolchain
-(`c33-epson-elf-objdump`), which is built by the top-level `make toolchain`
-on a 32-bit Linux host.
+### Benchmarking
 
-```
-# every 16-bit encoding, disassembled by binutils
-python3 -c "import struct;open('/tmp/allinsn.bin','wb').write(
-    b''.join(struct.pack('<H',i) for i in range(65536)))"
-c33-epson-elf-objdump -D -b binary -m c33 /tmp/allinsn.bin \
-    | grep -E '^ *[0-9a-f]+:' > allinsn_full.txt
+Use `-Z` to align scripted input to a guest milestone. Absolute `-T`/`-K`
+cycle numbers do not produce comparable interactions when two firmware builds
+reach the UI at different rates. Use `-Y` or `-y` to exclude idle polling
+from profiles.
 
-# Put the same words in a PE ELF so objdump selects the PE opcode table.
-printf '\t.text\n\t.incbin "/tmp/allinsn.bin"\n' > /tmp/allinsn-pe.s
-c33-epson-elf-as -mc33pe -o /tmp/allinsn-pe.o /tmp/allinsn-pe.s
-c33-epson-elf-objdump -d /tmp/allinsn-pe.o \
-    | grep -E '^ *[0-9a-f]+:' > allinsn_pe.txt
+The summary separates executed instructions from fast-forwarded idle cycles:
 
-make tables          # -> c33_forms.h and c33_pe_valid.h
-make test            # check the tables against real firmware
+```text
+--- work: 219633709 instructions executed, 180366291 idle, 7973.0 ms guest ---
 ```
 
-`tools/derive_fields.py` solves each operand field for
-`(shift, width, signed, bias)` by grouping encodings that share a mnemonic
-and operand shape. `tools/fit_ext.py` and `tools/fit_data_ext.py` fit how
-`ext` prefixes compose, which is measured rather than assumed - see below.
+Current matched measurements are:
 
-## Notes on the ISA
+| Firmware/path | First stable screen | Executed work |
+| --- | ---: | ---: |
+| shipped GCC 3.3.2, PIO | 2363.4 ms | 61,364,514 |
+| GCC 16.2, PIO | 2370.6 ms | 56,406,351 |
+| GCC 16.2, DMA | 2374.3 ms | 40,340,531 |
 
-The operand decoder is generated from binutils' raw-binary disassembly, whose
-Advanced-mode fallback contains every operand form the executor needs. A
-separate bitmap comes from a PE ELF disassembly and prevents reserved or
-other-core words from inheriting those forms. `.short` and binutils' `***`
-invalid-field marker are rejected, except for the `ld.w` special-register and
-`pushs`/`pops` selections which the manual explicitly defines as no-ops. The
-PE manual independently checks every encoding selected by its 90 documented
-opcode patterns.
+The screen is held by a deliberate two-second firmware deadline, so DMA's
+28.5% work reduction becomes idle time. The earlier first
+`File_initialise` milestone is 905.9 ms, 893.6 ms, and 773.0 ms respectively.
 
-Several semantics were measured against real firmware rather than assumed,
-after the obvious reading turned out to be wrong. All of the following were
-later confirmed against the S1C33E07 Technical Manual:
+Opening the first result for `LOVE` is a sustained-I/O comparison. Both
+modern paths read the same 395 blocks:
 
-* `call` pushes the return address to the **stack**. r15 is the global data
-  pointer (`__dp`), not a link register.
-* `pushn %rN` saves **r0..rN**, with r0 ending at `[sp+0]`. grifo's syscall
-  handler indexes that frame directly, so the order is observable.
-* Two `ext` prefixes on a branch use only bits **12:3** of the first
-  prefix, discarding its low three bits rather than shifting them in:
-  `imm13(12:3) = sign32(31:22)`, `imm13 = sign32(21:9)`,
-  `sign8 = sign32(8:1)`. Fitting this from firmware alone gave a shift of
-  18 over 29 bits, which agrees on every real branch only because the
-  assembler zeroes those three bits; the C33 PE Core manual gives the
-  actual rule.
-* `add`/`sub` zero-extend their 6-bit immediate; `cmp`/`and`/`ld.w`
-  sign-extend. The assembler picks the opposite mnemonic instead of a
-  negative immediate for the first pair.
-* `add`/`sub %sp,imm10` counts **words**. `[%sp+imm]` scales the short field
-  by the access size, but an ext-composed displacement is a plain **byte**
-  offset.
-* `slp` follows CMU `WAKEUPWT`: clock-switch mode auto-wakes, while ordinary
-  SLEEP mode waits for a wake source. `CMU_initialise` uses the former.
-
-### Checked against the C33 PE Core manual
-
-The PE Core manual has the encodings the S1C33E07 manual defers to, and
-confirms the addressing rules derived here: `[%sp+imm6]` scales the
-immediate by the access size ("for word data transfers... four times the
-6-bit immediate"), an ext-prefixed `[%rb]` adds the composed immediate
-directly as a byte displacement, and PC-relative branches add twice the
-`sign8`. It also confirms the imm6/sign6 extension widths (19-bit with one
-prefix, 32-bit with two) and that the MSB of `sign6` is data rather than
-sign when a prefix is present.
-
-It also documents the PSR layout, which had been guessed here: psrset's
-imm5 "indicates a bit number, with values 0, 1, 2, 3, and 4 representing
-bits 0 (N), 1 (Z), 2 (V), 3 (C), and 4 (IE)". The guess happened to be
-right.
-
-Every instruction entry's Function line was checked too -- pushn is
-"repeated for rN = rs to r0", reti is "pc <- W[sp+4], psr <- W[sp],
-sp <- sp+8", ld.b's ext forms use [sp+imm19]/[sp+imm32] as plain offsets,
-shift counts are "0 to 31" -- and all matched.
-
-It corrected two things. One is the two-prefix branch case above. The other
-came from the per-instruction flag tables ("Flag IE C V Z N"), which were
-extracted for all 57 documented mnemonics and checked against this
-implementation. Everything matched -- add/sub/cmp update C V Z N while
-their %sp,imm10 forms update nothing, shifts and rotates update only Z and
-N, btst only Z, int clears IE, and multiplies, loads, stack operations and
-branches touch no flags -- except that the logical operations are listed as
-"- - 0 <-> <->": they force V to zero. That is now `set_nz_clrv`.
-
-### Checked against the S1C33E07 Technical Manual
-
-The manual confirms the ABI exactly as reverse-engineered here: `pushn %rs`
-pushes "general-purpose registers %rs-%r0", %r0..%r3 are callee-saved, %r4
-holds the return value, %r6..%r9 pass arguments, and %r15 is the default
-data area pointer. It also confirms `ld.w %rd,sign6` is sign-extended,
-`add`/`sub` take `imm6`/`imm10` (unsigned), `ext` carries `imm13`, branch
-displacements are `sign8`, `int` takes `imm2`, software exception n is
-vector 12+n relative to TTBR, and that more than two `ext` prefixes raises
-an exception.
-
-Cold reset also installs the architectural register values from sections
-2.5, 2.7, and 2.8: TTBR is `0x00c00000`, IDIR identifies a PE core with
-type byte `0x06`, and the read-only DBBR is `0x00060000`. The model/revision
-byte in IDIR is left zero because the S1C33E07 manual does not specify it.
-Special-register transfers enforce the same register definitions: unused
-PSR bits read as zero, SP stays word aligned, TTBR stays 1K aligned, IDIR,
-DBBR, and PC ignore writes, and reading PC produces the address immediately
-after the `ld.w` as section 2.2 specifies. Encodings for special registers
-which do not exist on PE execute as no-ops rather than exposing the decoder's
-all-core register names.
-
-One caveat for anyone reading the manual: its prose says `cmp` takes its
-immediate "zero-extended", but its own operand table lists `cmp %rd,sign6`,
-and gcc emits a redundant `ext 0x0` before `xor %r6,0x30` when it wants +48
-precisely because a bare 0x30 would sign-extend. The operand table is right.
-
-The address misaligned exception (vector 6) is architectural: halfword and
-word accesses must sit on their natural boundary, so it is always enabled.
-`-A` remains accepted for command-line compatibility. A full boot and search
-report zero misaligned accesses, independently exercising `[%sp+imm]`
-scaling and `ext` composition -- getting either wrong produces unaligned
-word accesses almost immediately. A rejected access leaves its destination
-and post-increment register untouched, as required by 6.3.5's rule that the
-faulting instruction is retried after `reti`.
-
-Synchronous processor exceptions have their own entry path rather than
-being promoted to priority-15 hardware interrupts. They bypass IE, IL, and
-the interrupt controller; push PC and PSR; clear IE without changing IL;
-and fetch their handler from TTBR. `make test-exception` checks that frame,
-the different saved PCs for alignment, undefined-instruction, and third-
-`ext` exceptions, and IDIR's recorded instruction. It also checks the nine
-instructions which Table I.5.3.5 says PE removed (`div0s` through `div3s`,
-`mac`, `mirror`, `scan0`, and `scan1`): their old-core encodings correctly
-take the undefined-instruction vector on PE.
-
-The generated decoder contains the union of binutils' STD, ADV, and PE
-tables. The executor separately rejects all 18 ADV-only operations (`div.w`,
-the extended MAC/multiply family, `loop`/`repeat`/`retm`, and saturating
-arithmetic) through that same undefined-instruction path. This distinction
-matters because recognizing a word as an ADV mnemonic is not evidence that a
-PE processor can execute it.
-
-Interrupts are deferred until an `ext` sequence completes, per 5.6.3:
-"exception handling ... is not started for other exceptions until after the
-target instruction to be extended is executed". This one bites in practice
-rather than in theory. grifo's syscall return composes a 32-bit address
-from two prefixes:
-
-```
-ext 0x200 ; ext 0x353 ; ld.w %r0,0x2c    ->  0x1000d4ec <saved_pc>
-```
-
-A touch interrupt landing between the two prefixes used to discard the
-first, so the load came from `0xd4ec`, read as zero from unmapped memory,
-and the indirect `ret` that follows jumped to address 0. It needed a real
-keypress at exactly the wrong cycle, which is why a headless boot never
-showed it. `make test-irq` now pins it deterministically.
-
-`make test-isa` covers the documented operations which none of the four
-firmware images happen to execute: carry/borrow and overflow edge cases for
-`adc` and `sbc`, both byte-order swaps, immediate and delayed `jpr`, delayed
-`ret`, the valid and reserved `pushs`/`pops` forms, and the `brk`/`retd`
-debug-exception path. The latter checks the fixed debug save area and that
-ordinary interrupts remain pending throughout debug mode, as required by
-section 6.5.
-
-Known divergences from the manual, none of which the firmware exercises on
-the boot path: illegal delay-slot instructions have no explicit unstable-
-state model, and the coprocessor instructions are unimplemented because no
-coprocessor is attached.
-
-### Interrupt priority
-
-The PSR's IL[3:0] field (bits 11-8) is modelled per the PE Core manual: a
-maskable request is accepted only when its priority is *strictly greater*
-than IL, and IL is then raised to that priority until `reti` restores the
-saved PSR. `make test-irq` checks all 64 (IL, priority) combinations plus
-the IE gate, the saved-PSR contents and the pushed return address.
-
-Priorities come from the interrupt controller's own registers rather than
-being assumed. `src/itc.c` backs REG_BASE+0x200..0x2ff with a register file,
-which the drivers need anyway because they read-modify-write it --
-grifo's `CTP_initialise` does `REG_INT_PSI01_PAD |= SERIAL_CH1_INT_PRI_7`,
-so a register that read back as zero would silently drop the neighbouring
-field. Serial ch0's priority is bits 6:4 of 0x26a and ch1's is bits 2:0;
-the touch panel therefore runs at priority 7, which the emulator now reads
-out of the register the firmware wrote instead of hard-coding.
-
-For simultaneous modeled causes, the controller presents the highest
-programmed priority and uses the manual's fixed table order to break ties.
-Accepting an interrupt does not erase its cause flag; lower-priority causes
-remain pending and are presented after the handler clears the first one.
-`make test-irq` covers this arbitration as well as enable and cause-bit
-mapping. Sources outside the modeled peripheral set retain priority 7.
-
-### LCD controller
-
-The panel is composited through `lcd_pixel()`, which the PGM writer, the
-ASCII dump and the SDL window all share.
-
-The main window is read from `MADD` with a line stride of `MLADD` words.
-The manual's own worked example is this exact device: "if the LCD width and
-image width are 240 pixels in 1-bpp mode, MWLADR[9:0] = 240 x 1 / 32 = 7.5
-[words]. In this case, MWLADR[9:0] must be set to 8. Furthermore, the image
-must be prepared in 256 (8 x 32) pixels wide." That is where the padded
-32-byte stride comes from, and it agrees with grifo's `LCD_BUFFER_WIDTH`.
-
-The Picture-in-Picture Plus sub-window is now composited: when `PIPEN`
-(SSP bit 31) is set, `SADD` replaces the main window inside the rectangle
-given by `SSP`/`SEP`. This is how grifo's `LCD_Window` draws popups, and it
-was previously not modelled at all -- the emulator rendered only `MADD`, so
-a window would simply not have appeared. In 1-bpp mode the X registers count
-32-pixel words while Y counts lines, and the sub-window has no line-offset
-register of its own: its stride is its own width, `PIPXEND - PIPXST + 1`
-words, which is exactly what grifo assumes.
-
-`make test-lcd` drives the registers the way `LCD_Window()` does, writes
-pixels the way `WindowPos()` does, and checks all 128x60 of them composite
-where grifo put them, that the window does not leak outside its rectangle,
-that clearing `PIPEN` restores the main window, and that `MLADD` drives the
-stride.
-
-The manual has a typo here worth knowing about: its example prints
-"PIPYEND[9:0] = 60 + 120 lines -1 = 180 lines (= 0xB3)", but 0xB3 is 179,
-which is what its own formula gives and what grifo computes.
-
-The firmware writes no LCDC register at all on the boot path -- grifo takes
-the framebuffer address from a linker symbol, and the bootloader has already
-programmed the timing, mode and power registers before `kernel.elf` is
-entered. That is why `MADD` is pre-loaded at attach and why `PS`/`DMD` are
-not interpreted: modelling `PSAVE` from a register that reads as its reset
-value of zero would blank a panel the hardware has running.
-
-### Powering off
-
-The power switch is not one of the three front buttons. It is P03 with its
-own port interrupt, vector 19, rather than a member of the key comparator
-the others share, so it is modelled separately. In the window it is the
-small power symbol to the right of the three, deliberately unlike them
-because the case puts it on an edge; it can also be pressed with **P** or
-`-N 3,cycle`.
-
-A tap is enough; there is no press-and-hold. `Button_PowerInterrupt` queues
-a `BUTTON_DOWN` and a `BUTTON_UP` together from the single falling edge, so
-the application sees a complete press and release however briefly the
-switch is touched, and nothing anywhere measures duration. The pin is
-active low and edge triggered (`REG_PINTPOL_SPP07` clears SPPT3,
-`REG_PINTEL_SEPT07` sets SEPT3), so it idles high and pressing pulls it
-down. The emulator now derives that edge from the programmed select,
-polarity, and edge/level registers; their documented rising-edge reset state
-is covered separately from grifo's falling-edge configuration.
-
-What happens next is the interesting part. `power_off()` in
-`boards/samo_a1.h` does not stop the processor -- it drives P63 as an
-output and toggles it forever, expecting circuitry outside the chip to
-notice and cut the rails:
-
-```c
-for (;;) {
-	REG_P6_P6D |= (1 << 3);              /* P63 high */
-	for (i = 0; i < POWER_OFF_CYCLES; ++i) asm volatile ("nop");
-	REG_P6_P6D &= ~(1 << 3);             /* P63 low  */
-	for (i = 0; i < POWER_OFF_CYCLES; ++i) asm volatile ("nop");
-}
-```
-
-Nothing in software ever returns from that. Before this was modelled the
-emulator simply ran the loop, which is why an unattended run used to sit at
-full CPU indefinitely: `SUSPEND_AUTO_POWER_OFF_SECONDS` is 120, so after
-two idle minutes the firmware shuts down and the emulator spun on the
-toggle from then on. `src/port.c` now recognises P63 being driven and
-toggled, which is what the hardware does.
-
-That path is reachable both ways: pressing the power switch, which makes
-wiki.app save its history and call `power_off()`, and the idle timeout. A
-run left alone reaches it at about 132 emulated seconds, and takes under
-two seconds of real time to get there.
-
-### Letting go outside the panel
-
-Dragging to scroll and releasing outside the window used to work in one
-direction only. Scrolling the text down means dragging upwards, so the
-pointer leaves by the top edge; scrolling up means dragging downwards, and
-it leaves by the bottom, over the bezel. The mouse is captured either way,
-so the release does arrive -- but the handler dropped any mouse event below
-the panel as "not a touch", which is right for a press and wrong for a
-release. The finger was never lifted, so the scroll held the drag instead
-of coasting.
-
-A release now ends the touch wherever the pointer has got to, and
-coordinates are pinned to the edge of the glass, since a panel cannot
-report a position it does not have.
-
-This is the second bug in the window rather than in anything the guest can
-see, and scripted runs could not have caught either: `-T` and `-G` call
-`touch_post()` directly, so nothing between an SDL event and that call was
-ever exercised. `display_handle_event()` is now split out of the poll loop
-and `make test-display` drives it with synthetic events -- no window, no
-video device -- covering the release-off-panel case, the clamping, and the
-counted power press.
-
-### The watchdog
-
-It was the busiest thing in the register map long after every other
-peripheral had been modelled: 118,882 writes in one session, all landing in
-an unclaimed hole. grifo arms it for twenty seconds with `RESEN` set and
-then kicks it from the main loop, the suspend path and around every card
-access. Unmodelled, a guest that wedges sits there forever; on the device
-the chip resets.
-
-Two things make it more than a register file. `REG_WD_WP` has to hold 0x96
-before `COMP` or `EN` will take a value, which is how `Watchdog_SetTimeout`
-brackets its writes. And the counter is gated: `WDT_CKE` is deliberately
-absent from the set of clocks the suspend code enables, so it stops for the
-whole two-minute suspend.
-
-That gate is the part worth stating plainly, because the obvious model is
-wrong. Counting as "now minus the last kick" reads correctly at every
-instant the clock is on, and quietly banks the entire suspend -- the first
-poll after the clock comes back sees two minutes of arrears against a
-twenty-second timeout and resets a device that was behaving perfectly. The
-counter accumulates only while the clock runs. `make test-wdt` covers it;
-switching back to the subtraction fails three of its cases.
-
-### The card keeps what is written to it
-
-A card that forgets everything the moment the power goes is not a card, and
-the guest has things worth keeping: `history_list_save()` writes `wiki.hst`
-whenever the device is switched off and the history has changed. So the
-image is opened for update and block writes go straight through to it.
-
-grifo is built with `FATFS_MODE = read-write`, and `mmc_disk_write` uses
-CMD24 for one block and CMD25 for a run of them, each block sent as a start
-token, 512 bytes, two CRC bytes and then a data response from the card:
-0x05 accepted, 0x0d write error. `-R` opens the image read-only and answers
-0x0d, which is the honest reply -- the guest sees the failure rather than
-losing the data quietly. The regression runs use it so a sweep cannot
-change the reference image out from under the next one.
-
-The trap in the write path is that block data is arbitrary. A byte in the
-middle of an article can have bit 7 clear and bit 6 set, which is exactly
-the shape of a command frame, so the data phase has to be recognised before
-any command sniffing or a file writes itself into nonsense. `make test-sd`
-writes blocks composed entirely of command-shaped bytes and reads them back
-off the host file to keep that honest; putting the check back in the wrong
-order fails eight of its cases.
-
-### One read that goes nowhere
-
-Every session makes two four-byte reads of 0x00de0d74, which is outside
-every region. It is a firmware bug, not a hole in the memory map.
-
-The instruction is `xld.w %r5,[%r4+0x4]` in the application, the tail of
-`wiki_list[aActiveWikis[i].WikiInfoIdx].wiki_id`. Both base pointers are
-sound and `i` is bounds-checked against `nWikiCount`, but the index stored
-*inside* `aActiveWikis` is not checked at all, and at that moment it holds
--3816505: `aActiveWikis` comes from `memory_allocate()`, which does not
-zero what it hands back. The computed address lands far below RAM. The
-emulator returns 0, the comparison fails, and the application carries on,
-which is why nothing looks wrong.
-
-Unmapped accesses now name the instruction that made them. They report
-`cur_pc` rather than `pc`, since the latter has already moved on and naming
-the wrong instruction is worse than naming none.
-
-### Nothing to show until the controller says so
-
-Powering back on flashed the previous screen for a moment. Two reasons, both
-of them the emulator being less careful than the board.
-
-The framebuffer is ordinary RAM, and cutting the power loses it, so
-`machine_power_on()` clears every RAM region before placing the boot image.
-And the panel is not driven until the controller is told to drive it:
-`LCD_initialise` (`samo-lib/drivers/src/lcd.c`) parks `REG_LCDC_PS` in
-`PSAVE_POWER_SAVE`, programs the timing and the framebuffer address, and
-only then selects `PSAVE_NORMAL`. Until that last write there is nothing on
-the glass, so the window now draws the same blank grey it uses for an off
-device. An off machine and an uninitialised controller look alike because
-neither is refreshing the panel.
-
-### Off is a state, not an exit
-
-Powering a device off does not make it stop existing, so with a window open
-the emulator does not exit either. It marks the machine off, blanks the
-panel to the flat grey of an LCD with nothing driving it, and keeps
-pumping events. Pressing the power switch again calls `machine_power_on()`,
-which resets every device, re-places the boot image -- the mask ROM copy
-out of the serial FLASH under `-e`, otherwise the ELF -- and restarts the
-core at the entry point. So a window comes up **off**, exactly like a
-device on a shelf, and the first thing to do is press **P**.
-
-Headless runs have nobody to press the switch, so they come up powered and
-still end at power-off. Every scripted test depends on that.
-
-Two things about that switch are easy to get wrong, and both were. The
-off-state check has to be the **first** thing in the run loop: the periodic
-event pump further down hands whatever the window collected to the port, so
-with the check below it a press was delivered to a machine that was not
-running and discarded, and the button appeared dead. And a press cannot be
-sampled, only counted -- a quick click's down and up can arrive in the same
-poll, which leaves `button_pressed` false. `display.c` counts press edges in
-`power_presses` and the loop consumes the count, so no press is lost. The
-count is resynchronised when the firmware powers the device off, or the
-press that caused the shutdown would turn it straight back on.
-
-Getting this right needed one more fix. `c33_reset` used to clear the whole
-CPU structure and then restore, by hand, the few fields that are host-side
-wiring rather than machine state. That list was wrong three times, and the
-third time cost a real bug: the first power-on wiped `irq_enabled`, the hook
-that asks the interrupt controller whether a cause is still enabled, so the
-timer 2 wake-up that ends a suspend was delivered instead of withdrawn. It
-landed in grifo's default vector and printed `Panic: undefined interrupt`.
-The struct now has a `reset_barrier__` marker: reset zeroes the machine
-state above it and never touches the wiring below, so a field added later
-cannot be silently lost.
-
-The suspend timeout is two minutes, which is a long time to wait when the
-thing being debugged is at the far end of it. `WREMU_SUSPEND_DIV=12` divides
-the span the firmware programs into timer 2, turning it into ten seconds,
-without changing a byte of the guest.
-
-### Why the panel reports on change, not continuously
-
-Worth knowing before "improving" the touch model.
-
-An earlier version streamed a packet on every poll while the mouse was
-held, reasoning that a finger sitting still must keep reporting so the
-scroll momentum decays to zero. That is wrong, and it silently breaks
-tapping links inside an article.
-
-`wikilib` arms a link with `set_article_link_number()`, which resets its
-activation timer on **every** touch event, and `check_invert_link()` will
-not promote the link to activated until `LINK_ACTIVATION_TIME_THRESHOLD`
-(0.1 s) has passed without one. A stream re-arms that timer forever, so no
-link ever activates and the release does nothing. Search and the keyboard
-keep working, which makes it look like a link-specific bug rather than a
-touch one.
-
-The hardware cannot stream either, which is the clinching argument: six
-bytes at `CTP_BPS` (9600), eight data bits with start and stop, is 6.25 ms
-per packet, so even back-to-back packets on a real device would break the
-same 0.1 s threshold. The panel must go quiet when nothing moves.
-
-Momentum still works, because the speed is computed on release from the
-last few recorded positions and the time since them -- pausing before
-letting go produces a small number without needing any packets to say so.
-
-That 6.25 ms is also enforced as a floor on how fast the emulator will emit
-packets. Events are deferred rather than dropped.
-
-### The front buttons
-
-The three buttons are P60..P62, and they do not simply appear in a port
-register: the firmware arms a key-input comparator and takes an interrupt.
-`REG_KINTCOMP_SMPK0` selects which bits participate, `SCPK0` holds the
-state last seen, and KINT0 (vector 20) is raised whenever the two stop
-matching. grifo's handler re-arms by writing the current state back, so a
-held button does not retrigger.
-
-`src/port.c` models that, and the interrupt controller knows KINT0's enable
-(EK0), flag (FK0) and priority bits.
-
-In the window they are round buttons on a bezel below the panel, in the
-order they appear on the case: search, history, random. That is worth
-stating because it is **not** grifo's numbering, which is 0 random, 1
-search, 2 history (`button.c`); the display maps position to code. `-N`
-takes grifo's code, not the screen position. Codes are grifo's own numbering from
-`button.c` -- "0=random, 1=search, 2=history". The power button is separate,
-on the falling edge of P03, and is modeled through its port interrupt and
-the external power-latch behavior.
-
-### Serial and SPI status registers
-
-Both status registers were checked field by field against the manual.
-
-EFSIF (0x300Bx2) has one trap in it: `TENDx` (D5) is called the
-"transmit-completion flag", but 1 means transmission is *in progress* and 0
-means it finished. `suspend.c` tests `if (0 != (STATUS & TENDx))` precisely
-to catch a transmit still running, so reporting 0 is what says "idle". The
-FIFO-occupancy field `RXDxNUM` (D[7:6]) is now reported too -- 0 encodes
-"1 or 0" bytes, then 2, 3, 4 -- though nothing in the firmware reads it.
-The error flags `FERx`/`PERx`/`OERx` stay clear, and the writes the drivers
-label "clear errors" are accepted; neither of these links can frame,
-parity or overrun.
-
-SPI (0x301714) matches the manual on offsets and bit positions. `BSYF` (D6)
-must read 0 or `sd_spi.c` spins forever: it brackets every byte with
-`while ((SPI_STATUS & 0x40) != 0)`, and a transfer here completes inside
-the store to TXD. `MFEF` cannot occur with a single bus master. `RDOF` (D3)
-is now modelled -- set when TXD is written while a byte is still unread,
-cleared by reading RXD -- and reported at exit. A full boot and search does
-1831 commands with zero overflows, which independently confirms the driver
-reads RXD after every exchange.
-
-### A/D converter
-
-This one had a real bug. The S1C33E07 has a "5-ch. 10-bit A/D converter"
-and grifo agrees -- `analog.c` defines `ADC_FULL_SCALE` as 1024 -- but the
-device returned 0x800 on every channel, which is twice full scale. Run
-through grifo's own conversions that comes out as a battery of 9.2 V and a
-temperature of **-154 C**, and wiki.app puts the temperature on screen
-(`wiki/keyboard.c:617` reads `ANALOG_TEMPERATURE_CENTI_CELCIUS`).
-
-Each channel now returns a count derived by inverting grifo's formulas, so
-the numbers the firmware computes are physically sensible: 832 on ch0 gives
-2799 mV of battery (`samo_a1.h` calls 3000 mV full and 2250 mV low), 502 on
-ch1 gives 19.96 C, and 512 on ch2 gives a 23.5 V STN bias.
-
-The channel status register is modelled rather than wired to "always done".
-`ADFx` is raised by a conversion and, per the manual, "reset to 0 when the
-converted data is read"; `OWEx` in the high half flags a sweep landing on
-unread data and remains latched until software writes zero. Result buffers
-hold reset zero until a conversion latches data, read-only fields ignore
-writes, reserved bits read zero, and the documented nonzero reset values are
-restored on every power cycle. The sweep covers `CS[2:0]` to `CE[2:0]` from `TRIG_CHNL`, which
-grifo programs as 0x1000 -- channels 0 to 2, exactly the three `ScanADC`
-reads. That agreement is a cross-check in itself: a full boot does 13
-conversions with zero overwrite errors, which would not hold if the sweep
-range and the read set disagreed.
-
-`make test-adc` runs grifo's conversions over the presented counts and
-checks the results land in physically sensible ranges, plus the flag
-behaviour and the sweep range.
-
-### Clock management unit
-
-CMU writes used to be swallowed. Two things made that wrong.
-
-`CMU_enable1()` does `REG_CMU_GATEDCLK1 |= mask`, so a register reading back
-as zero silently turns off every clock enabled earlier -- the same
-read-modify-write hazard as the interrupt priority register. And writes are
-gated: `CMU_PROTECT` takes 0x96 to unlock and 0x00 to lock, and every driver
-brackets its accesses with that pair. `src/cmu.c` now backs the block with a
-register file and honours the gate, so a missing unlock shows up as a
-rejected write instead of taking effect anyway.
-
-The clock tree is still not simulated -- there is one instruction stream --
-but the configuration is decoded, which lets the emulator's timebase be
-checked instead of assumed. grifo programs `OSCSEL_PLL` with the PLL at
-48 MHz / 8 x 10, and `cmu_mclk_hz()` reads **60 MHz** back out of the
-registers the firmware actually wrote. That is exactly the 60 MHz that
-`Tick_TicksPerMicroSecond` and `TIMER_CountsPerMicroSecond` assume. T16
-converts that raw timeline through the live CMU frequency and each channel's
-prescaler, so its timebase is derived from hardware configuration rather than
-taken on faith.
-The same decoder applies `OSC3DIV`, `MCLKDIV`, and oscillator power state;
-after the suspend path selects OSC3/32 it reports the documented **1.5 MHz**.
-
-A current full boot makes 34 CMU writes with **zero** blocked, which is the
-check that the protect polarity is the right way round -- had it been
-inverted, all 34 would have been rejected.
-
-`make test-cmu` replays grifo's register values and checks the derived
-frequency, the protect gate in both directions, and that a
-read-modify-write preserves previously enabled clocks.
-
-### The SD-card DMA path
-
-The production `drivers/src/mmc.c` path uses a Grifo-only DMA backend for
-block reads.  HSDMA channel 3 drains SPI RX into memory while hardware IDMA
-channel 0x24 writes dummy bytes to SPI TX to generate the remaining clocks.
-Small A0-RAM boot stages do not register the backend and retain the compact
-PIO loop.  The emulator implements the manual-defined dual-address,
-byte-wide, single-transfer behavior used by the backend, including SPI
-request selection, channel priority, counters, address updates, terminal
-enable-bit clearing, IDMA descriptor writeback, and `DMA_CKE`.
-
-SPI characters are scheduled on the guest MCLK timeline from the live
-`BPT`, `MCBR`, and `SPI_WAIT` registers.  The production setting is eight
-bits at MCLK/4; `SPI_WAIT=0` still means the manual-defined one divided-clock
-minimum between characters.  `BSYF`, `TDEF`, `RDFF`, and `RDOF` change at
-the scheduled completion rather than inside the TXD store.  DMA callbacks
-run at that exact event time, not at the following CPU polling boundary.
-
-DMA timing counts the manual's bus phases at a minimum of one MCLK each.
-Dual-address HSDMA performs a source read and destination write.  Single-
-transfer IDMA reads four control words, transfers the byte, then writes four
-control words back: ten phases.  CPU and DMA SDRAM accesses additionally go
-through the shared SDRAMC timing model described below.
-
-`make test-dma` reproduces the driver's register sequence.  A valid setup
-receives 512 bytes using 512 HSDMA and 511 IDMA transfers.  With the DMA
-clock gated, with global IDMA left disabled, or with a descriptor table in
-the manual-forbidden A0 RAM, it stops after the first CPU-initiated SPI byte.
-This is intentionally not yet a model of unused HSDMA single-address pins or
-every IDMA link/block combination.
-
-The implementation came from auditing the older, disabled
-`sd_spi.c`/`sd_api.c` path.  Testing it against this model found independent
-integration defects rather than intermittent controller behavior.  Its
-global IDMA enable was commented out; clock setup omitted `DMA_CKE`; its
-low-RAM descriptor symbol needed absolute (`-medda32`) rather than default
-data-pointer-relative addressing; and its multi-sector read DMA spanned the
-per-sector CRC, filler, and token bytes.  The production backend instead
-keeps the newer MMC protocol layer's per-sector framing and places its
-aligned control table in SDRAM.  A boot, suspend/resume, and typed search
-completed with zero invalid descriptors or SPI overflows, and its rendered
-screen matched PIO byte-for-byte.
-
-The earlier 913-block/48-PIO result was wrong.  Those 48 were speculative
-CMD18 sectors generated after the firmware had raised the card's chip select;
-the card model now releases MISO and stops the stream while deselected.
-
-For a matched comparison, `SD_DMA=NO` builds the current kernel without
-registering the DMA backend; the same MMC implementation then takes its PIO
-fallback.  `SD_DMA=YES` is the production default.  Three read-only clones of
-the same card were populated with either the shipped gcc 3.3.2 binaries or
-the same gcc 16.2 applications and one of these two kernels.  All used the
-same current MBR/menu/file-loader and stopped on the first `Event_wait` after
-wiki startup:
-
-| firmware | first stable screen | executed work | SD blocks |
-| --- | ---: | ---: | ---: |
-| shipped gcc 3.3.2, PIO | 2363.4 ms | 61,364,514 | 951 |
-| gcc 16.2, PIO | 2370.6 ms | 56,406,351 | 954 |
-| gcc 16.2, DMA | 2374.3 ms | 40,340,531 | 962 |
-
-All three framebuffers have SHA-256
-`a6cbc0ca51927f95647794f922efc67ae2d5a254b65f4d0e5b3186cc89c9b232`.
-This milestone is deliberately deadline-bound: after entering the kernel,
-each build takes almost exactly two seconds because the firmware waits for
-that time.  DMA therefore spends less of the interval working and more of it
-idle; it cuts executed work by 28.5% versus the matching PIO build without
-reducing this particular wall time.  An earlier initialization milestone not
-hidden by the wait reaches the wiki's first `File_initialise` at 905.9 ms for
-stock, 893.6 ms for gcc 16.2 PIO, and 773.0 ms for gcc 16.2 DMA.
-
-Opening the first result after typing `LOVE` is a better sustained-I/O
-measurement.  From `search_open_article` through successful decompression,
-both gcc 16.2 runs read the same 395 blocks:
-
-| current kernel path | article data + LZMA | executed work |
+| Kernel path | Article data and LZMA | Executed work |
 | --- | ---: | ---: |
 | PIO | 3831.4 ms | 64,395,028 |
 | DMA | 3629.3 ms | 55,589,491 |
 
-DMA saves 202.1 ms (5.3%) and 13.7% of the instructions.  Its exact transfer
-delta is 202,240 HSDMA and 201,845 IDMA operations: 512 and 511 respectively
-for every block.  The final article framebuffer is byte-identical to PIO and
-to the shipped app (SHA-256
-`a59583436dad5898832f30f0815f662361a6b7710bc7d089429d05bc88bd58ca`).
-The shipped app is not used as an article-timing baseline because that
-operation also exposes two unmapped reads and 256 out-of-range writes just
-above DSTRAM; it happens to render correctly, but it is not a clean
-execution.  Current firmware produces none of those accesses.
+DMA saves 202.1 modeled ms (5.3%) and 13.7% of instructions. The final PIO,
+DMA, and shipped-application framebuffers are byte-identical. The shipped
+application is not a clean article timing baseline because it performs two
+unmapped reads and 256 writes immediately above DSTRAM during this operation;
+current firmware performs none.
 
-These are predictions from the documented 60 MHz MCLK, SPI, DMA, and SDRAM
-timing models.  A direct ELF boot still gives the useful SPI/DMA pipeline
-invariant of exactly 20,472 cycles per block, but deliberately skips hardware
-SDRAM initialization.  Real hardware remains necessary to calibrate absolute
-SD-card latency and the conservative cross-bank SDRAM behavior described
-below.
+Build the matched modern kernel paths with `SD_DMA=YES` (default) or
+`SD_DMA=NO`. Firmware Makefiles default to the original compiler, so select
+the modern prefix explicitly when required:
 
-### SDRAM and external-bus timing
+```sh
+make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" \
+    SD_DMA=YES <target>
+```
 
-The SDRAMC is no longer just a register stub.  Once real firmware has set
-`SDON`, completed MRS, and enabled `APPON`, every CPU fetch/read/write and DMA
-read/write in SDRAM is charged on the common MCLK timeline.  The model derives
-bank, row, and column geometry from `ADDRC`; enforces the programmed `tRP`/
-`tRCD`, `tRAS`, `tRC`/`tRFC`/`tXSR`, CAS latency, burst length two, and `DBF`;
-and serialises transactions on the external bus.  Event servicing gives DMA
-its documented priority over a CPU request at the same deadline.  LCDC
-priority does not create traffic here because the WikiReader keeps its
-framebuffer in IVRAM.
+## Hardware model
 
-This is deliberately conservative about the manual's bank-interleaved
-optimization: it tracks independently active rows in all four banks, but does
-not yet overlap one bank's ACT/READ command latency with another bank's data
-burst.  Such a workload may therefore be charged too much time.  The current
-firmware boot validates the queues, refresh, CPU/DMA contention, and ordinary
-same-bank/row-change paths; exact cross-bank overlap still needs refinement or
-hardware calibration.
+### CPU and memory
 
-The two alternating 8-halfword IQB slots and mandatory two-halfword DQB are
-modelled separately.  Hits have no SDRAM cycle or wait, misses fetch their
-documented burst, and writes flush overlapping buffered data.  The AURCO and
-SELCO counters drive auto-refresh and self-refresh; an on-chip queue hit does
-not spuriously wake SDRAM, while the next real miss pays `tXSR + 1`.
+The core implements the documented C33 PE instruction set, `ext` composition,
+delay slots, condition flags, special registers, strict natural alignment,
+synchronous exceptions, debug exceptions, and prioritized interrupts. Cold
+reset establishes TTBR `0x00c00000`, a PE IDIR type byte of `0x06`, and DBBR
+`0x00060000`.
 
-`make test-sdramc` checks exact waits for cold and buffered reads, row
-changes, writes, normal/DBF clocks, refresh, and self-refresh.  A full modern
-FLASH boot reaches the rendered application with the model active.  Direct
-ELF loading intentionally leaves it inactive because that debugging shortcut
-does not execute the board's SDRAM setup.
+The generated decoder contains the union of Standard, Advanced, and PE
+binutils tables. A separate PE-valid bitmap rejects the nine Standard
+instructions removed from PE and the 18 Advanced-only operations. The
+coprocessor forms are intentionally absent because the S1C33E07 has no
+attached coprocessor.
 
-### Peripherals still taken on trust
+SDRAM timing is active after firmware programs `SDON`, MRS, and `APPON`.
+The model derives geometry and waits from SDRAMC registers, tracks active
+rows, queue buffers, refresh, and self-refresh, and puts CPU and DMA accesses
+on a shared MCLK timeline. It conservatively serializes command and data
+phases across banks instead of modeling all documented bank interleaving.
 
-The peripherals above have been checked against the S1C33E07 register
-descriptions. T16's six counters, eight prescaler choices, count pause,
-advanced-only counter/DA16/INITOL writes, comparison buffering and loading,
-CMU clock gates, compare interrupts, and the board's timer-0-to-timer-5
-cascade now have focused manual-derived tests. The SDRAMC's reset values,
-writable masks, initialization status, geometry, queue buffers, programmed
-waits, writes, refresh, and self-refresh are checked likewise. The fixed chip
-identification bytes have their own read-only mapping test. GPIO tests cover
-documented register masks, interrupt reset state, port selection, polarity,
-and key-comparator transitions for the modeled P03 and P60-P62 inputs. What
-has not: T16 fine-mode output waveforms
-and external timer pins other than the WikiReader's TM0-to-EXCL5 route, the SD
-card's own command set (an SD Association spec, not an Epson one), the
-remaining alternate-pin functions and unconnected port inputs, and unused DMA
-modes and trigger sources. The RTC block is intentionally out of scope because
-the WikiReader firmware never touches it.
+### Storage and DMA
 
-`make check` runs the decoder comparison against binutils plus the focused
-core, interrupt, display, storage, watchdog, clock, ADC, timer, SDRAMC, chip
-identification, and the WikiReader's SPI-DMA pipeline.
+The SD card operates in SPI mode. Character completion follows live `BPT`,
+`MCBR`, and `SPI_WAIT` values and updates `BSYF`, `TDEF`, `RDFF`, and `RDOF`
+at the scheduled event.
 
-## Caveats
+The production read backend uses HSDMA channel 3 for SPI RX and IDMA channel
+`0x24` to write dummy TX bytes. The model covers the dual-address, byte-wide,
+single-transfer behavior used by firmware: request selection, priority,
+counters, address updates, terminal enable clearing, descriptor writeback,
+clock gating, and global IDMA enable. One 512-byte block performs 512 HSDMA
+and 511 IDMA transfers. Unused DMA modes and trigger sources are not modeled.
 
-Running the firmware proves it is self-consistent under this model of the
-ISA, not that it would boot on hardware. Taken alone that would be close to
-circular: the emulator was built by inferring semantics from the same
-binaries it runs, so a misreading shared between the two would not show up.
+### Peripherals
 
-Three checks are independent of that inference.
+The current model includes:
 
-* The **decoder** is validated instruction for instruction against binutils'
-  own disassembler over all four firmware images - 65,605 instructions,
-  exact match.
-* The **manuals**: every documented mnemonic's flag table and Function line
-  was checked against this implementation, along with the register
-  descriptions for the interrupt controller, LCDC, serial, SPI, ADC and CMU.
-* The **cross compiler**, via `difftest/`: the same C source compiled by
-  c33-epson-elf-gcc 3.3.2 and by the host compiler, run both ways, outputs
-  diffed. 180 random programs across five optimisation levels match value
-  for value. The compiler has never seen the emulator and the emulator has
-  never seen its output, so agreement is evidence rather than consistency.
-  The one divergence that survived reduction turned out to be a **gcc 3.3.2
-  bug** - it discards a narrowing signed cast when reassociating a multiply.
-  It is fixed in `host-tools/toolchain-patches/0008-*` and written up in
-  `difftest/compiler-bugs/`; the firmware never triggered it.
+- interrupt-controller priorities and read/modify/write register behavior;
+- LCD control, framebuffer capture, and SDL touch/front-button input;
+- EFSIF UART, SPI status, and serial FLASH;
+- GPIO selection, polarity, edge/level input, and the board's power control;
+- six T16 channels, prescalers, comparison buffering, interrupts, and the
+  timer-0-to-timer-5 cascade used by firmware;
+- CMU protection, clock gates, oscillator/divider decoding, and derived MCLK;
+- ADC sweep/status behavior with physically plausible board values;
+- watchdog reset; and
+- the S1C33E07 fixed chip-identification bytes.
 
-Between the firmware and the differential tests, 57 of the 74 implemented
-PE opcodes are known to execute (`wremu -P`). Focused core tests cover more;
-see `difftest/README.md` for the distinction between valid PE operations,
-non-PE words recognized by the all-core decoder, and the coprocessor gap.
+The GUI uses wall-clock time for human input. Headless runs use deterministic
+instruction- and event-derived guest time and fast-forward blocked intervals.
 
-### Drawing
+The RTC, unused alternate pins, unconnected inputs, unused timer waveforms,
+and unused DMA triggers are intentionally out of scope because WikiReader
+firmware does not use them.
 
-Three things keep an idle window nearly free, and the first two were not
-enough on their own.
+## Validation basis
 
-**Repaints are paced by the wall clock, not the guest.** The repaint used
-to be driven by guest cycles -- once every 200k -- which at emulation speed
-is several hundred presents a second. Nothing on a 240x208 panel needs more
-than sixty.
+The model is checked against sources independent of the firmware being run:
 
-**The bezel is a texture.** Drawn live it is several hundred draw calls a
-frame, because every lit pixel of the 3x5 font is its own rectangle and
-each button outline is a stack of lines. It changes only when a button goes
-down, so it is rendered once and blitted after that.
+- binutils disassembly agrees with the decoder on 65,605 instructions across
+  the firmware images;
+- all 90 opcode patterns extracted from the C33 PE Core manual agree with the
+  generated table;
+- instruction semantics, exception behavior, reset values, and modeled MMIO
+  registers are covered by manual-derived focused tests; and
+- 40 generated defined C programs at each of five optimization levels - 200
+  target runs per compiler - match native execution under both GCC 3.3.2 and
+  GCC 16.2.
 
-**The window is high-DPI and scaled nearest-neighbour.** Without
-`SDL_WINDOW_ALLOW_HIGHDPI` the backing store is at window size and the
-compositor upscales it to a Retina panel, which looks soft -- most
-obviously on a still screen, where there is time to notice. With it, SDL
-scales, and at an integer factor with `SDL_HINT_RENDER_SCALE_QUALITY` at
-nearest it stays sharp. A one-bit panel wants hard pixel edges;
-interpolating between them is only blur.
+See [`difftest/README.md`](difftest/README.md) for generated-program and ISA
+coverage details.
 
-**Presents are synchronised to the display.** Without vsync the emulator
-hands over a new frame whenever it has one and the display scans out part
-of the old buffer and part of the new -- a thin seam along an edge. It is
-an odd bug to chase because it only shows while frames are actually being
-presented, so it appears when the guest draws and vanishes when the screen
-settles, and it **cannot be screenshotted**: a screenshot copies the
-composited surface, which is intact, while tearing happens afterwards
-during scanout. Waiting for the refresh is the right pacing for a window
-anyway, and since unchanged frames are skipped before that point, an idle
-screen never waits.
+## Boot images
 
-**Unchanged frames are not presented at all.** This is the one that
-mattered. Nothing draws to an idle panel, so those sixty frames a second
-were sixty identical uploads. `lcd_fingerprint()` hashes the framebuffer
-bytes -- 6656 of them, plus the sub-window when PIP is on -- and the
-repaint is skipped when nothing has moved.
+Hardware-style boot reproduces the mask ROM's externally visible effect:
+copy the first 512 bytes of serial FLASH to RAM, set the internal-RAM stack,
+and enter the MBR. All later stages execute their real firmware:
 
-Measured on an idle window: **0.6%** of a core for the emulator and no
-measurable addition to the compositor, against 20% and 40-odd before. A
-run reports its own figures -- update calls against presents -- and a
-settled screen presents a handful of times in thousands of calls.
+| Stage | Location |
+| --- | --- |
+| mask-ROM effect | emulator startup |
+| MBR | serial FLASH offset `0x1` |
+| menu | serial FLASH offset `0x300` |
+| file-loader | serial FLASH offset `0x2300` |
+| kernel and applications | FAT32 card |
 
-Note that "idle" means the device is idle. Using the interface wakes it,
-and a woken machine emulates at full speed, as it should.
+Build the FLASH image from the repository root with:
 
-### Idling
+```sh
+make AWK=awk mbr
+```
 
-The core spends most of its life in HALT waiting for an interrupt, and for
-a while the emulator ground through that a cycle at a time, pinning a host
-core to do nothing.
+A card directory contains `kernel.elf`, `init.app`, `wiki.app`, fonts,
+`wiki.inf`, and a language data directory such as `enquote/`. On macOS a
+512 MiB image can be made with:
 
-It now skips it, differently in each mode. Headless, the guest clock jumps
-straight to whatever is due next -- the suspend wake timer, or a scripted
-tap or keypress -- since nothing can happen before then anyway. A five
-billion instruction run finishes in about 1.5 seconds, because nearly all
-of it was idle. `-n` counts guest cycles, so it still bounds the run the
-same way; the report says how many were skipped rather than spun.
+```sh
+hdiutil create -size 512m -fs "MS-DOS FAT32" -volname WIKIREADER \
+    -layout NONE -format UDRW -srcfolder /path/to/wikireader-card -o wrcard
+mv wrcard.dmg emulator/images/wrcard.img
+```
 
-With a window the tick comes from the wall clock, so instead of jumping it
-hands the time back to the operating system in 10 ms slices, repainting and
-pumping events at about 100 Hz. That is well inside what a click needs, and
-the guest clock is advanced by the elapsed amount so limits and scripted
-input keep their meaning. An idle window costs a few percent of a core
-rather than all of one.
+## Decoder regeneration
 
-## Speed
+Regeneration is needed only when the ISA tables change and requires a C33
+binutils installation. Disassemble all 65,536 words once as the all-core raw
+binary and once in a PE ELF, place the listings in `allinsn_full.txt` and
+`allinsn_pe.txt`, then run:
 
-About 80M instructions/sec, a little under 2x the real device. Getting there
-was three changes, all found by profiling rather than by guessing:
+```sh
+make tables
+make test
+make test-manual
+```
 
-* **No text in the execute path.** Operand shapes are interned to integers
-  by the table generator. They used to be compared with `strcmp` against the
-  shape string objdump prints -- a disassembler artifact reused as the
-  semantic discriminator. Since forms are tested as an if/else chain, a
-  common instruction like `ld.w` walked several string compares on every
-  execution, and it profiled as the single hottest thing in the interpreter.
-  The instruction word fully determines the semantics; nothing about that
-  should involve English. The `ld.w` special-register forms were the last
-  holdout -- they were recognised with `strncmp` prefix tests -- and are now
-  classified into a `sreg` field when the tables are built.
+`tools/derive_fields.py` solves operand fields; `tools/fit_ext.py` and
+`tools/fit_data_ext.py` verify prefix composition. Generated tables are
+committed and are generation-time artifacts, not runtime dependencies.
 
-### Two authorities for the decoder
+## Remaining opportunities
 
-The 65,536-entry table is not a claim that the ISA has 65,536 instructions.
-It has 231 forms; the table is a flattened lookup from instruction word to
-form index, which for a fixed-width 16-bit encoding is one load instead of a
-mask-and-compare cascade. 64,448 words map to something and 1,088 are
-invalid, which is itself a statement about how dense the encoding is.
+1. Add independent runtime cases for implemented stack-special and indirect
+   jump forms not retired by firmware or generated C tests.
+2. Refine cross-bank SDRAM command/data overlap from the manual.
+3. Calibrate absolute SD latency and the timing model on physical hardware.
+4. Automate reproducible stock/modern/PIO/DMA card-image benchmarks.
+5. Model illegal delay-slot unstable behavior if a real workload needs it.
 
-The real problem with deriving it from binutils was different: binutils was
-the *only* authority. A bug in its disassembler would be reproduced here
-exactly, and "matches binutils on 65,605 instructions" could never detect
-it. The PE Core manual documents each instruction's encoding as a bit
-diagram plus a hex pattern with don't-care nibbles -- `add %rd, %rs` is
-`0x22__`. `make test-manual` reads those out of the PDF and checks the table
-against them: **90 documented forms, 90 agree, 0 disagree.**
+Do not add unused SoC peripherals solely for completeness.
 
-That covers the opcode structure. It does not cover operand field extents,
-which come from the field solver and are checked against binutils' operand
-printing instead -- so the two authorities overlap rather than nest.
+## Layout
 
-### What binutils is and is not used for
+| Path | Purpose |
+| --- | --- |
+| `src/c33.[ch]` | CPU execution, traps, and interrupt entry |
+| `src/mem.[ch]` | memory map and MMIO dispatch |
+| `src/elf.c` | ELF32 loader |
+| `src/sdcard.c`, `src/dma.c` | SPI SD card and DMA |
+| `src/sdramc.c` | SDRAM controller and timing |
+| `src/lcd.c`, `src/display.c`, `src/touch.c` | panel and input |
+| `src/itc.c`, `src/cmu.c`, `src/timer.c` | interrupts, clocks, and timers |
+| `src/port.c`, `src/periph.c`, `src/wdt.c` | GPIO, ADC, and watchdog |
+| `c33_forms.h`, `c33_pe_valid.h` | generated decode data |
+| `tools/` | generators and focused model tests |
+| `difftest/` | native-versus-C33 execution tests |
 
-It is a **generation-time** authority, not a runtime dependency. The tables
-were derived by disassembling all 65,536 encodings and solving each operand
-field for `(shift, width, signed, bias)`, because the ISA documentation is
-incomplete and binutils' own assembler table disagrees with its
-disassembler. That derivation is also what validates the decoder, exactly,
-on 65,605 instructions. The generated header is committed, so building the
-emulator needs no toolchain.
+## Known boundaries
 
-What was wrong was letting the *shape of that derivation* reach the
-executor. Two vestiges are now gone: the `strcmp` discrimination above, and
-a `bias` field carried in every operand descriptor -- the solver looks for
-one, and the answer is zero for all 330 fields in the ISA, so it was pure
-residue of the discovery process. The generator asserts that invariant now
-instead of paying for it at runtime.
-
-`struct c33_form` went from 48 bytes to 24 as a result. That did **not**
-make anything faster -- the table was 11K, comfortably cached either way --
-but it is the right shape: an executor wants form index to semantics, not a
-printer's decomposition into mnemonic plus operand syntax.
-* **A region cache for fetch and load.** Every access went through an
-  indirect call into `mem_read` and a walk of the memory map. Caching the
-  region the PC or the data pointer currently sits in turns the common case
-  into a bounds check and a load.
-* **A byte-wide decode table.** `c33_form_of` was `uint16_t[65536]`, exactly
-  128K, exactly the L1 data cache on the machines this runs on, so every
-  decode thrashed it. There are only 231 forms, so a byte does.
-
-One thing that turned out not to matter: `-O3` and `-mcpu=native` are within
-noise of `-O2`.
-
-Timing is not wall-clock paced, but it is cycle-based rather than
-per-instruction: each instruction charges the MCLK cycles given by its CLK
-line in the C33 PE Core manual, and the tick timer counts those. Real
-firmware runs at about 1.36 cycles per instruction. Per-form variation
-within a mnemonic is not modelled, and `ext` is charged one cycle where the
-manual says "zero or one depending on the instruction queue status", so
-elapsed time errs slightly long.
-
-With a window the tick comes from wall-clock time instead of the
-instruction count (`timer_use_wallclock`). Headless runs keep the
-cycle-derived tick, which is deterministic and reproducible, but under a
-human's hand it is wrong: this build runs at about 0.75x real time, so a
-one-second drag looks like 0.75 s to the firmware. wikilib derives
-`finger_move_speed` as pixels per tick, so the scroll momentum came out
-inflated by the same factor -- and since the ratio moves with host load and
-with what the firmware is doing, the fling felt inconsistent rather than
-merely fast. Interactively the user's seconds are the ones the application
-should be measuring.
-
-Emulated seconds now pass fast enough to reach the application's idle
-behaviour, which is worth knowing but is less dramatic than it sounds.
-After two idle seconds `wikilib_run` calls `history_list_save` at the
-NORMAL level, and after five at the POWER_OFF level -- that is a *save
-level*, not a shutdown, meaning "save thoroughly, as you would before
-losing power". It then blocks in `event_wait` until something happens.
-The real `power_off()` is reached from exactly one place, a physical
-BUTTON_POWER release, so an idle device sits there with the page still on
-screen. Measured: screen content is unchanged from 200M through 1.6B
-instructions, about 35 emulated seconds.
+- Illegal instructions in delay slots do not have an explicit unstable-state
+  model.
+- Cross-bank SDRAM traffic is intentionally conservative.
+- Absolute storage timing is a prediction until measured on hardware.
+- Direct ELF boot skips the board's SDRAM initialization, so hardware timing
+  comparisons should use the FLASH boot path.
+- An emulator/firmware match alone is not proof of silicon behavior; the
+  manual, binutils, focused model tests, and differential runs provide the
+  independent checks above.

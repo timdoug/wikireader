@@ -1,306 +1,172 @@
-# C33 GCC backend
+# GCC 16.2 C33 backend
 
-Target: **GCC 16.2**. See [`ABI.md`](ABI.md) for the ABI and ISA specification
-this is being written against.
+This directory contains the GCC 16.2 backend for the Seiko Epson C33 family.
+The WikiReader uses the S1C33E07 PE core.
 
-## Status: runs the WikiReader firmware; measured against gcc 3.3.2
+The implementation status shared with binutils and the emulator is summarized
+in [`../HANDOFF.md`](../HANDOFF.md). The normative target description is
+[`ABI.md`](ABI.md).
 
-The whole firmware -- kernel *and* `wiki.app` -- builds with gcc 16.2 and runs
-in `emulator/`, booting from `flash.rom` off a FAT32 card.
+## Status
 
-**Rendering is bit-exact.** Search results, article view and scrolled article
-are all pixel-identical to the gcc 3.3.2 build (0.00% residual once scroll
-offset is accounted for).
+The backend and libgcc build as a freestanding `c33-epson-elf` C toolchain.
+It builds every WikiReader stage, including the 8 KiB A0 boot applications,
+kernel, `init.app`, and `wiki.app`. The resulting firmware boots through the
+current full-system emulator and renders the tested screens identically to the
+shipped GCC 3.3.2 firmware.
 
-### Size
+There is no known wrong-code failure in a supported C or ABI feature.
 
-| | gcc 3.3.2 | gcc 16.2 | |
-|---|---:|---:|---|
-| `wiki.app` stripped | 170,976 | 144,020 | -16% |
-| `kernel.elf` stripped | 35,412 | 31,956 | -10% |
-| 170 files at `-Os`, static | 113,465 insns | 105,779 | -6.8% |
-| - memory operations | 38,102 | 35,193 | -7.6% |
+Implemented target facilities include:
 
-### Speed
+- Standard, Advanced, and PE core selection with link-incompatible multilibs;
+- register classes for the general registers, `%sp`, and address bases;
+- C33 argument, return, aggregate, variadic, and stack-frame conventions;
+- short and long direct calls, indirect calls, sibling calls, and returns;
+- delayed branches and scheduling of the one non-annulling delay slot;
+- exact 0/13/26-bit `ext` prefix selection and branch lengths;
+- byte, halfword, word, stack-relative, absolute, `%r15`-relative, and
+  post-increment memory forms;
+- strict alignment and PE's mandatory address-error behavior;
+- arithmetic, logic, shifts, rotates, multiply, bit operations, comparisons,
+  branches, jump tables, software interrupts, and interrupt returns;
+- generic libgcc integer division and soft-float helpers;
+- stack trampolines and GCC's `__builtin_apply` / `__builtin_return`;
+- ELF init/fini arrays, mergeable constants and strings, weak symbols, LTO,
+  precompiled headers, DWARF 2, and CTF; and
+- three installed libgcc multilibs, one for each C33 core variant.
 
-| workload | gcc 3.3.2 | gcc 16.2 | |
-|---|---:|---:|---|
-| boot + app load + first render | 146.1M cyc | 140.1M cyc | 4.1% faster |
-| article load + render (wall) | 53.4M cyc | 59.6M cyc | 11.7% *longer* |
+The backend deliberately does not expose PE instructions that do not exist:
+the older divide-step, MAC, mirror, scan, conditional-move, and V850-specific
+operations are not generated.
 
-The article-load number is **not a code-generation regression**. Tracing
-syscalls across the load shows every call that does real work is identical to
-the call:
+## Build
 
-| syscall | gcc 3.3.2 | gcc 16.2 |
-|---|---:|---:|
-| `lcd_set_pixel` | 15,824 | 15,824 |
-| `file_read` | 135 | 135 |
-| `memory_allocate` | 29 | 29 |
-| `lcd_framebuffer_get`/`set_byte` | 608 / 608 | 608 / 608 |
-| `directory_exists` | 40 | 40 |
-| **`timer_get`** | 282,557 | **612,827** |
-| **`event_get`** | 96,422 | **207,850** |
-
-The only difference is polling, and it is a clean 2.17x on both poll calls.
-That is `Event_wait`'s loop -- `Event_get`, `Suspend`, repeat -- spun more
-times *because the loop body is faster*, while the external event it waits on
-(SD I/O, a timer tick) takes the same wall time either way.
-
-The PC profile agrees: the idle path is ~29% of the window for this compiler
-(`Suspend` 18.8%, timer 6.4%, `delay_us` 4.1%) against ~17% for gcc 3.3.2,
-while *app* code is a smaller share (22.6% vs 28.1%). More time waiting, less
-time working.
-
-So the wall-clock figure is measuring the idle loop, not the compiler. A fair
-comparison needs cycles spent outside `Suspend`/`Event_wait`, which the
-current tooling does not separate cleanly.
-
-**One thing worth chasing.** `memchr` (3.4%) and `memset` (2.9%) are in this
-compiler's top twelve buckets and not in gcc 3.3.2's. That is 6.3% of the
-window in two mini-libc routines, and it is the one place the profile
-suggests a genuine codegen difference rather than an artefact.
-
-### Optimisation levels
-
-All tested `-Os`, `-O1`, `-O2`, and `-O3` combinations, with both absolute
-and `%r15`-relative data addressing, build and boot. The earlier `-O1`
-failure was an entry-point/linker-script defect, not a backend bug. Current
-measurements select `-O2` as the best overall default; see `../HANDOFF.md`
-for the complete size and instruction-count matrix.
-
-### A firmware quirk this surfaced
-
-Scroll distance depends on CPU speed: the same scripted drag scrolls ~26%
-further on the faster build, consistently across a 6x range of drag lengths.
-The app appears to scroll a fixed increment per touch event processed rather
-than tracking touch position, so a faster CPU changes the feel. Worth
-knowing independently of this port.
-
-### Three bugs that only running could find
-
-Compiling, assembling and linking all succeeded while every one of these was
-present.
-
-* **`main` was not at the entry point.** gcc 4 and later split functions into
-  `.text.startup`, `.text.unlikely` and friends; `grifo.lds` matched only
-  `build/main.o(*.text)`, so `main` - which is what sets up `%sp` - went to
-  `.text.startup` and some other function landed at `0x10000000`. The first
-  `push` ran with `%sp` still zero. The script now takes
-  `build/main.o(.text.startup .text.startup.*)` first.
-
-* **Jump tables were emitted as zeroes.** This port inherited V850's
-  2-byte PC-relative case vectors (`.short .Lx-.Ltab`). The EPSON assembler
-  emits **0** for a `.short` whose value is a difference of labels that appear
-  *later* in the file - which is always true of a jump table. Every `switch`
-  therefore branched to the same place. The bug is in the original assembler
-  too, which is why the 3.3.2 backend used `CASE_VECTOR_MODE Pmode` and
-  absolute `.long` entries; this port now does the same. Worth fixing in gas
-  eventually, but nothing has ever depended on the `.short` form working.
-
-  This is what broke the touch input: the touch ISR's state machine ran
-  `1,2,3,4,5,6` instead of `1,2,3,4,5,0`, never reaching the case that queues
-  an event, so `Event_wait` blocked forever and the display never updated.
-
-* Plus the `.text.startup` and linker-script issues above, neither of which
-  any amount of static checking would have surfaced.
-
-### The LRA bug, and what it actually was
-
-The previous note here guessed that the arg pointer was being forced into a
-pseudo during expand. It was not. The real cause was a missing register
-class.
-
-`%sp` is architecturally a *system* register on the C33, not one of `%r0`-`%r15`,
-so this port had left it out of `GENERAL_REGS` -- and `BASE_REG_CLASS` was
-`GENERAL_REGS`. But `[%sp+imm6]` is a perfectly good address, and LRA decides
-whether an eliminable register may be a base by folding it to its elimination
-target and asking for class membership: `in_class_p` calls
-`lra_eliminate_reg_if_possible`, which substitutes `ep->to_rtx` and **drops the
-offset**. So the question LRA asked about `[.ap + 4]` was "is `%sp` in the base
-class?", the answer was no, and it reloaded the base into a pseudo. The reload
-insn `r36 = .ap` then failed the same test for the same reason, and it recursed
-until it hit the 90-reload limit.
-
-The 3.3.2 backend had this right: a `SP_REGS` class holding just `%sp`, and
-`BASE_REGS` as the union with `GENERAL_REGS`. That structure is now restored,
-along with the `f` (`SP_REGS`) and `b` (`BASE_REGS`) constraint letters.
-
-Moving `%sp` needs instructions too, and they exist: `ld.w %rd,%sp` and
-`ld.w %sp,%rs` are the special-register forms (`RD,SS` and `SD,RS2`), two
-bytes each. They are alternatives of `*movsi_internal` rather than separate
-patterns -- as separate patterns with `match_operand` predicates they had the
-same shape as any register move, won recog for every reg-to-reg copy, and then
-failed constraint checking.
-
-### Done since
-
-* **Register classes**: `SP_REGS` and `BASE_REGS` added, `BASE_REG_CLASS` is
-  now `BASE_REGS`, `REGNO_REG_CLASS` reports `SP_REGS` for `%sp`.
-* **Register names carry the `%` prefix**, as the C33 assembler requires.
-  `REGISTER_PREFIX` is defined so `asm()` operands may be written either way.
-* **`output_move_single` rewritten** for the C33's single suffixed `ld`
-  instruction: destination first, `ld.w %rd,%rs` for a copy, `[%rb]`,
-  `[%rb]+` and `[%rb+disp]` for memory, `xld.w` where the operand may need
-  `ext` prefixes. The V850's `mov`/`movea`/`movhi`/`st` are gone, as is the
-  `%.` zero register, which this target does not have.
-* **`c33_print_operand_address` rewritten**: `%sp+4`, not `4[sp]`. Brackets
-  belong to the template, matching the 3.3.2 backend.
-* **No more HIGH/LO_SUM splitting.** `xld.w %rd,imm32` takes the whole 32-bit
-  range, so `movsi_source_operand` is just `general_operand` now.
-* **Call patterns rewritten**: `scall`/`xcall` for a symbol, `call %rb`
-  indirect, and no clobber -- the C33 pushes the return address on the stack,
-  and V850's `(clobber (reg:SI 31))` named a *pseudo* here, which postreload
-  rejects outright. `-mlong-calls` now selects the wider instruction instead
-  of forcing the address into a register.
-* **Frames deeper than 4092 bytes** go through `add_sp_big`, which is
-  `ld.w %r14,%sp` / `xadd %r14,n` / `ld.w %sp,%r14`. The previous
-  `add_sp_reg` emitted `add %rN,%sp`, which is not an instruction. Its length
-  follows the narrowed middle operation: eight bytes through a 19-bit delta,
-  ten beyond it.
-* **V850 interrupt machinery deleted** (~290 lines): `callt_save_interrupt`,
-  `save_all_interrupt` and the rest were for its `ep`/`gp`/`callt` model and
-  its 32 registers, named registers that do not exist here, and were
-  unreachable -- nothing in `c33.cc` ever generated them. Replaced with a
-  `reti` pattern, which the epilogue now uses for interrupt handlers.
-
-### Done in the instruction-set conversion
-
-* **Arithmetic**: `add %rd,%rs` / `sub %rd,%rs`, two-operand with the source
-  tied to the destination. Immediates go through `xadd`/`xsub`, which take a
-  32-bit value; the immediate is *unsigned*, so a negative constant flips the
-  mnemonic. `neg` is `not %rd,%rs` then `add %rd,1` -- there is no hardwired
-  zero register to subtract from.
-* **Logic**: `and`/`or`/`xor`/`not`, with `xand`/`xoor`/`xxor`/`xnot` for
-  immediates. Note the spelling of `xoor`.
-* **Shifts**: `sll`/`srl`/`sra` and their `x` forms.
-* **Compare and branch**: `cmp %rd,%rs`, `xcmp` for an immediate, and
-  `jr<cc>` / `sjr<cc>` / `xjr<cc>` selected by displacement range (2, 4 and 6
-  bytes). Unconditional is `jp`/`sjp`/`xjp`. Unlike the V850 there is never a
-  need to invert a condition and jump over an unconditional jump.
-* **Extensions**: `ld` is a converting move -- the suffix gives the source
-  width and signedness and the result fills the destination -- so
-  `zero_extendqisi2` is one `ld.ub`, from a register or straight from memory.
-  The V850 needed shift pairs and `zxb`/`sxh`; all of that is gone.
-* **Multiply**: `mlt.w`/`mlt.h`/`mltu.h` into the `%ahr:%alr` pair, then
-  `ld.w %rd,%alr` for the low half.
-* **Divide**: no patterns at all, deliberately. Older C33 cores have the
-  multi-step `div0s`/`div1`/`div2s` sequence, but Table I.5.3.5 removes it
-  from PE. Patch 0003 in `host-tools/toolchain-patches` had already switched
-  EPSON's PE libgcc from that invalid assembly to the C implementations.
-  With no `divmodsi4`, GCC calls `__divsi3`.
-* **Comments are `;`**, not `#`, including the `APP`/`NO_APP` markers around
-  inline asm.
-* **ALU immediates are `n`, not `i`.** With `i` a symbol could reach an
-  immediate alternative and produce `xadd %r5,ButtonBuffer`, which is not an
-  instruction.
-* **Alignment is always strict.** The inherited V850 `-mno-strict-align`
-  option emitted `ld.w` at byte-aligned packed fields, but C33 PE raises the
-  mandatory vector-6 exception instead of completing such an access. The
-  option is therefore not exposed by this target, matching Epson GCC 3.3.2.
-
-Deleted rather than converted, because the C33 has no equivalent:
-
-* `setf` and everything built on it -- `cstoresi4`, `*setcc_insn`, `*sasf`,
-  and the whole `movsicc` family. GCC materialises these with a branch
-  instead, which is what the 3.3.2 backend did.
-* The `switch` instruction; `casesi` expands to a plain `tablejump`.
-* ~290 lines of V850 interrupt machinery, and the `TARGET_C33E2_UP`
-  three-operand shifts.
-
-The C33-specific `bset`/`bclr`/`bnot`/`btst` patterns have since been written
-from scratch.  They select both bare and displaced general-register forms,
-account for the exact 0/13/26-bit extension length, and reject the nonexistent
-stack-pointer and post-increment forms.
-
-### Two ordering traps
-
-Both cost real time, and both are consequences of `%sp` joining a register
-class:
-
-* **`register_operand` accepts `%sp` now**, so a generic `addsi3` will claim
-  `(set (reg sp) (plus (reg sp) N))` and then fail constraint checking. The
-  `add_sp_imm` patterns have to come *first* in `c33.md`. Generic code
-  (argument pushing, alloca, stack probes) reaches the stack pointer through
-  `gen_addsi3`, which after splitting is the same set wrapped in a parallel
-  with a CC clobber, so that shape needs its own pattern too.
-* **A pattern whose predicates match the same shape as a more general one
-  wins recog if it comes first, then fails constraints.** Two `*movsi_from_sp`
-  / `*movsi_to_sp` patterns written with `match_operand` and an `f` constraint
-  looked specific but were not: their *predicates* were just
-  `register_operand`, so they captured every register copy. Pin hard registers
-  literally -- `(reg:SI SP_REGNUM)`.
-
-## Why V850 is the base
-
-The 3.3.2 C33 backend is a V850 fork - the sources say so repeatedly ("Quoted
-from v850", "According to V850"). V850 is still maintained upstream and still
-carries the two things that are hardest to write from scratch for this target:
-the small data area machinery and `-mlong-calls`. Its `v850-modes.def` also
-defines exactly the `CCZ`/`CCNZ` pair that C33's PSR needs.
-
-The fork is heavily diverged (only 7% of `c33.c` is verbatim V850), so this is
-not a rebase - V850 supplies the *architecture of the solutions*, and the C33
-specifics get written on top. See the fork analysis in `ABI.md`.
-
-## Building
+Build binutils and the complete compiler into the common prefix:
 
 ```sh
-tools/gcc-glue.py <gcc-source-tree>     # registers c33 in config.gcc
-# copy files/ over the tree, then:
-../configure --target=c33-epson-elf --enable-languages=c \
-             --without-headers --with-newlib --disable-libssp ...
-make all-gcc
+# From the repository root.
+host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
+host-tools/toolchain-c33/gcc/rebuild.sh
 ```
 
-The C33 assembler must be on `PATH` - build binutils first
-(`../binutils/build.sh`).
+The compiler is:
 
-Two files GCC needs that are easy to forget, because they live outside
-`gcc/config/`: `gcc/common/config/c33/c33-common.cc` and
-`gcc/config/c33/c33.opt.urls`. Both are in `files/`.
+```text
+host-tools/toolchain-c33/work/install/bin/c33-epson-elf-gcc
+```
 
-## Next steps, in dependency order
+`rebuild.sh` copies the maintained backend into a pristine GCC 16.2 source
+tree, registers the target, applies the focused generic-GCC patches, builds
+the compiler, and rebuilds all libgcc multilibs from scratch.
 
-1. ~~**Registers.**~~ Done - see above.
-2. ~~**Return mechanism.**~~ Done - see above.
-3. ~~**`c33.opt`.**~~ Done. `-mc33`/`-mc33adv`/`-mc33pe` (aliases of
-   `-mcore=`), `-medda32`, `-memcpy`, `-mlong-calls`. V850's `e1`/`e2`/`e3v5`
-   core ladder is gone, along with `-mep`, `-mprolog-function`, `-mghs`,
-   `-mgcc-abi` and the rest. The flags those masks fed are pinned to the
-   value that is true for this target at the top of `c33.h`; simplifying the
-   code that reads them is cleanup still owed.
-4. ~~**`c33.md`.**~~ Done - see above. The memory bit operations now select
-   bare and displaced forms with exact lengths, and short unextended
-   encodings are used wherever the operand provably fits. The documented
-   `swaph` instruction is selected for both Advanced and PE cores; STD retains
-   the shift sequence.
-5. ~~**Data areas.**~~ Done. C33 `%r15`-relative addressing is implemented;
-   `-medda32` selects absolute addressing and remains the measured default.
-6. ~~**Delay slots.**~~ Done. Unconditional and conditional branch slots are
-   described, scheduled, and covered by firmware and focused tests.
-7. **Assembler output.** Symbols have no leading underscore and comments are
-   `;` - both done. `.size NAME,.-NAME` comes out right, unlike the 3.3.2
-   backend's `.size .NAME,.-.NAME` (see the main README).
+`build.sh` stops after `all-gcc` and exists for compiler bring-up. Do not use
+it when validating firmware or ABI changes because it does not provide a
+fresh installed libgcc.
 
-8. **libgcc.** Done. Built as three multilibs, one per core, because the
-   cores are not link-compatible -- the assembler stamps the variant into
-   `e_flags` and the linker refuses to mix them. Integer division comes from
-   GCC's own generic C implementations, which is what the original toolchain
-   settled on too (patch 0003 in `host-tools/toolchain-patches`).
+Firmware Makefiles require explicit selection of this prefix:
 
-9. ~~**Execute it.**~~ Done. The firmware boots and renders bit-exactly, the
-   differential suite executes compiler output against native references,
-   and the upstream DejaGnu execution suites run through the board file.
+```sh
+make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
+```
 
-## Testing
+Clean the affected firmware objects and libraries after changing compiler,
+optimization level, ABI hooks, or target flags.
 
-The original compiler is available as an oracle at
-`host-tools/toolchain-install/bin/c33-epson-elf-gcc`, and 143 files under
-`samo-lib` and `wiki` compile with it.
+## Target options
 
-Do not expect byte-identical output - 20+ years of optimiser changes make that
-unrealistic. Use the oracle for **ABI conformance**: argument registers, frame
-layout, struct passing, callee-saved sets. `ABI.md` lists the probe programs
-that pin each of those down. For correctness, run the output under the
-emulator in `emulator/`.
+| Option | Meaning |
+| --- | --- |
+| `-mc33`, `-mc33adv`, `-mc33pe` | Select the core and matching multilib. |
+| `-mcore=...` | Equivalent core-selection spelling. |
+| `-mno-long-calls` | Prefer direct short calls and jumps where range permits. |
+| `-mlong-calls` | Use long direct call/jump forms. |
+| `-medda32` | Use absolute data addressing. |
+| `-memcpy` | Retained C33 target option. |
+
+The firmware currently uses `-mc33pe -mno-long-calls -medda32 -O2`.
+Boot stages use `-Os` and section garbage collection to fit A0.
+
+## ABI validation
+
+The original GCC 3.3.2 compiler is an oracle for the binary interface, not for
+optimized instruction sequences. `tests/abi/run-abi.sh` builds old/old,
+new/new, old-callee/new-caller, and new-callee/old-caller programs. All four
+combinations agree across five tested optimization levels.
+
+The probes cover scalar and aggregate arguments, stack arguments, return
+values, alignment, complex values, variadic calls, and forwarding through
+`__builtin_apply`. Details and expected register layouts are in
+[`ABI.md`](ABI.md).
+
+## Correctness validation
+
+- `gcc.c-torture/execute`: 24,260 passes, 251 legitimate unsupported
+  results, zero failures or unresolved cases across all 1,692 sources and
+  their standard option variants.
+- `gcc.dg/torture`: exhaustively replayed with no GCC/backend failure.
+- IPA: 807 passes, four expected failures, 13 external-prerequisite
+  unsupported results, and no unexpected result.
+- LTO: 1,651 passes, 34 unsupported external prerequisites, and no failures
+  or unresolved cases.
+- `gcc.dg/dg.exp`: the post-fix focused replay has 39,358 passes, four
+  target-dependent scan/diagnostic mismatches, 534 expected failures, 1,037
+  unsupported results, and no unresolved case.
+- Differential tests compile the same 200 generated programs with GCC 3.3.2
+  and GCC 16.2 at five optimization levels and compare execution with a native
+  reference; all match.
+- Complete modern firmware boots and renders the tested UI and article views
+  byte-identically to the shipped firmware.
+
+The final unfiltered post-fix GCC run has not yet been performed. Use fresh
+results from that run - not historical raw failures - as the next broad backlog.
+See [`../tests/DEJAGNU-TODO.md`](../tests/DEJAGNU-TODO.md).
+
+## Remaining work
+
+### Validation
+
+1. Run an unstripped C33 program under a real debugger and verify stepping,
+   frames, arguments, variables, and unwinding.
+2. Add independent runtime coverage for valid implemented PE operations not
+   emitted by firmware or current differential programs.
+3. Run the complete post-fix DejaGnu suite when the multi-hour qualification
+   is desired.
+4. Audit Darwin intentional-crash, SARIF, and diagnostic-path tests as host
+   integration, without suppressing them.
+
+### Optional compiler features
+
+- `__int128`: define the ABI, alignment, argument/return behavior, TImode
+  moves and arithmetic, and libgcc helpers.
+- atomics: define interrupt, lock, and visibility semantics and enable
+  libatomic; the target has no native compare-and-swap or thread model.
+- heap trampolines: provide allocation and executable-memory runtime hooks.
+
+These are new target features, not regressions in the supported ABI.
+
+### External runtime boundary
+
+Executable tests requiring libm, floating-point `printf`, hosted files,
+process/environment/time/signal APIs, sanitizer runtimes, persistent gcov
+output, constructor-array startup, semihosting, or threads remain external
+runtime work. They must not be hidden as compiler passes or implemented in
+firmware without separate approval.
+
+## Source layout
+
+```text
+files/gcc/config/c33/          backend implementation and machine description
+files/gcc/common/config/c33/   common option handling
+files/libgcc/config/c33/       target libgcc configuration
+patches/                       focused generic-GCC correctness patches
+probes/                        ABI derivation sources
+ABI.md                         target ABI and ISA contract
+build.sh                       compiler-only bring-up build
+rebuild.sh                     complete compiler and libgcc build/install
+```
+
+The backend started from GCC's maintained V850 structure because the original
+EPSON C33 compiler was itself a V850 fork. C33 instruction selection, register
+classes, ABI hooks, relocations, options, frames, and core distinctions are
+implemented explicitly; V850-only behavior is not part of the target.

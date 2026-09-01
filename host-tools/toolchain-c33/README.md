@@ -1,289 +1,132 @@
-# Modern toolchain for the Seiko Epson C33 (S1C33)
+# Modern GNU toolchain for Seiko Epson C33
 
-**New here? Read [`HANDOFF.md`](HANDOFF.md) first** - it covers both halves,
-how to rebuild everything, and what is left to do. This file is the binutils
-detail.
+This directory forward-ports EPSON's C33 support from binutils 2.10.1 and
+GCC 3.3.2 to binutils 2.47 and GCC 16.2.
 
-Forward-port of the EPSON C33 GNU toolchain from its original
-binutils 2.10.1 / gcc 3.3.2 base (see `host-tools/toolchain-patches/`)
-to current upstream releases.
-
-## Why
-
-The original toolchain is from 2000-2002 and carries real limitations:
-
-* It only works correctly on a **32-bit host** (see `doc/README.toolchain`).
-* It emits **STABS** debug info, which GCC removed in 13.
-* binutils 2.10.1 predates most of modern BFD, so `objdump`/`readelf` are
-  missing 25 years of features that the `emulator/` work would benefit from.
+Start with [`HANDOFF.md`](HANDOFF.md) for the combined toolchain, firmware,
+emulator, and next-work summary. The target contract is
+[`gcc/ABI.md`](gcc/ABI.md).
 
 ## Status
 
-| Component | State |
-|---|---|
-| `bfd` (`cpu-c33.c`, `elf32-c33.c`) | builds clean against binutils 2.47 |
-| `opcodes` (`c33-opc.c`, `c33-dis.c`) | builds clean |
-| `binutils` (`objdump`, `readelf`, ...) | **builds; reads and disassembles real WikiReader ELFs** |
-| `gas` (`tc-c33.c`, `ext_remove.c`) | builds; assembles and relocates correctly |
-| `ld` (emulation, script template) | builds and links |
-| GCC backend | builds; most simple code compiles, calls and stack args ICE in LRA - see [`gcc/README.md`](gcc/README.md) |
+The installed `c33-epson-elf-*` toolchain builds and runs the complete
+WikiReader firmware.
 
-A complete `c33-epson-elf-*` toolchain builds and installs.
+| Component | Current state |
+| --- | --- |
+| BFD and ELF | C33 objects, relocations, common sections, local-symbol merging, CTF, plugins, and all three core flags work. |
+| gas | C33 Standard, Advanced, and PE assembly, `ext` prefixes, constants, relocations, and DWARF location views work. |
+| ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. |
+| objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core. |
+| GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
+
+The exact-source binutils testsuites have no unexpected failures:
+
+| Suite | Results |
+| --- | --- |
+| gas | 338 passes, 10 unsupported |
+| binutils | 240 passes, 18 untested, 17 unsupported |
+| ld | 479 passes, 13 expected failures, 28 untested, 235 unsupported |
+
+Unsupported cases are generic-suite features not supplied by this target;
+they are not hidden C33 failures.
+
+## Build and install
+
+Use one prefix for binutils, GCC, and libgcc:
+
+```sh
+# From the repository root.
+host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
+host-tools/toolchain-c33/gcc/rebuild.sh
+```
+
+The result is installed under:
+
+```text
+host-tools/toolchain-c33/work/install/
+```
+
+`gcc/rebuild.sh` is preferred over the bring-up-only `gcc/build.sh`: it
+builds and installs the compiler and forcibly refreshes every libgcc multilib.
+
+Firmware Makefiles default to the original EPSON compiler. Select GCC 16.2
+explicitly:
+
+```sh
+make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
+```
+
+Clean the relevant firmware component when switching toolchains or ABI flags;
+Make does not encode compiler identity in object-file dependencies.
 
 ## Validation against the original toolchain
 
-The original binutils 2.10.1 / gcc 3.3.2 toolchain builds on modern macOS from
-`host-tools/toolchain-patches/` and installs to `host-tools/toolchain-install/`.
-That gives a byte-for-byte reference, and the new assembler was checked against
-it:
-
-| Corpus | Result |
-|---|---|
-| 86 hand-written `samo-lib/**/*.s` | `.text`, relocations and `.data` **all byte-identical** |
-| 143 files compiled to `.s` by the original gcc 3.3.2 | `.text` **all 143 byte-identical** |
-| relocations on those 143 | 123 identical; 20 differ only in representation |
-| ELF header `e_machine` and `e_flags`, all 229 | **identical** |
-
-The header comparison was added late, and its absence mattered: for a long
-time this table read "byte-for-byte validated" while the assembler was
-setting neither `e_machine` nor the core byte in `e_flags`. Nothing noticed
-until the firmware refused to link. If you add a check here, write down what
-it does not cover.
-
-The 20 differing files are not a defect. Modern gas reduces references to local
-symbols to `.text+offset`, where the 2.10.1 assembler kept the named symbol -
-same type, same offset, different spelling of the target. Linking all 20 both
-ways produces **identical final `.text`**.
-
-Reproduce with the comparison recipe in *Comparing against the original*, below.
-
-Verified:
-
-* `objdump -d ROOT_IMAGE/kernel.elf` produces correct output, and `objcopy
-  -I elf32-c33 -O binary`, `nm` and `size` all work on the shipped binaries.
-* **86 of 87** `samo-lib` `.s` files assemble. The one failure,
-  `forth/trailer.s`, is `cat`-ed onto a generated `forth.s` (`forth/Makefile:95`)
-  and is never assembled standalone.
-* Those 86 objects emit **3380** relocations across 7 distinct types, all
-  readable by `objdump -r`. The `ext`-split triples come out balanced
-  (`S_RH`/`S_RM`/`S_RL` at 120 each, `H`/`M`/`L` at 84 each), which is the
-  expected shape - one relocation per instruction word of the prefix sequence.
-* `ext` encoding is correct: `xld.w %r4, 0x12345678` becomes `ext 0x246`
-  (bits 31:19), `ext 0x1159` (bits 18:6), `ld.w %r4,0x38` (bits 5:0).
-* Cross-file linking resolves: `xcall extfunc` and `xld.w %r4, extdata`
-  both land on the right addresses.
-
-## Building
+The original toolchain installs to `host-tools/toolchain-install/`:
 
 ```sh
-host-tools/toolchain-c33/binutils/build.sh
+make toolchain
 ```
 
-This downloads a pristine binutils tarball, drops in `binutils/files/`,
-registers the target via `tools/glue.py`, then configures and builds.
-Nothing here modifies the upstream tarball in a way that needs
-maintainer-mode autotools.
+It remains an assembler and ABI oracle. The modern assembler comparison covers:
+
+- 86 hand-written firmware assembly sources: identical `.text`, `.data`,
+  relocations, `e_machine`, and C33 core flags;
+- 143 sources emitted by GCC 3.3.2: identical `.text`; and
+- 20 local-relocation spelling differences that link to identical code.
+
+Run it with:
+
+```sh
+host-tools/toolchain-c33/tools/compare-with-oracle.sh
+```
+
+Compare sections and linked results, not complete object files: modern and
+legacy ELF containers legitimately differ in section and symbol-table layout.
+
+Additional independent checks are:
+
+- cross-linked old/new ABI probes in `tests/abi/`;
+- GCC's standard DejaGnu drivers in `tests/dejagnu/`;
+- generated native-versus-C33 execution in `emulator/difftest/`; and
+- full firmware boot and UI comparison in `emulator/`.
+
+## Supported target contract
+
+- target triplet: `c33-epson-elf`;
+- cores: `-mc33`, `-mc33adv`, and `-mc33pe`;
+- PE is the WikiReader core and uses strict natural alignment;
+- `-mno-long-calls` selects direct short calls when range permits;
+- `-medda32` selects absolute data addressing; the alternative is C33
+  `%r15`-relative data addressing;
+- comments use `;`, symbols have no leading underscore, and ELF uses
+  `EM_SE_C33` (107);
+- core type is recorded in ELF `e_flags`, and incompatible core objects do
+  not link;
+- PE software division comes from generic C libgcc helpers because the PE core
+  removes the older divide-step instructions.
+
+See [`gcc/ABI.md`](gcc/ABI.md) for registers, frames, arguments, returns,
+variadic forwarding, relocations, instruction extension, and exception rules.
 
 ## Layout
 
-* `binutils/files/` - the C33-specific sources. These are *ours*; they are
-  shipped whole rather than as patches.
-* `tools/glue.py` - registers `c33` across the shared upstream files
-  (`config.bfd`, `archures.c`, `targets.c`, `reloc.c`, `configure.tgt`,
-  the `Makefile.am`/`Makefile.in` pairs, ...). Idempotent.
-* `tools/modernize.py` - the mechanical pre-ANSI C converter: `PARAMS(())`
-  removal, K&R definitions to ANSI prototypes, and BFD's `boolean` to `bool`.
-
-`glue.py` edits both `Makefile.am` and the generated `Makefile.in` (likewise
-`configure.ac` and `configure`). That is deliberate: binutils 2.47 ships files
-generated by automake 1.15.1, and regenerating with a current automake produces
-enormous unrelated churn.
-
-## Notes on the port
-
-* `EM_SE_C33` (107) is **already allocated upstream** in
-  `include/elf/common.h`, and existing WikiReader binaries carry
-  `e_machine=107`, so the port is binary-compatible with the old toolchain.
-  Modern BFD takes this straight from `ELF_MACHINE_CODE`, so unlike the EPSON
-  patch we need no hack in `bfd/elf.c`.
-* The BFD target vector was renamed `bfd_elf32_c33_vec` to `c33_elf32_vec`
-  to match the modern naming convention.
-* The five special common sections (`.comm`, `.gcomm`, `.scomm`, `.tcomm`,
-  `.zcomm`) moved from runtime initialisation to the static
-  `BFD_FAKE_SECTION`/`GLOBAL_SYM_INIT` form.
-* `c33_elf_gc_mark_hook` was identical to the generic
-  `_bfd_elf_gc_mark_hook`, and `gc_sweep_hook` no longer exists upstream;
-  both were dropped in favour of the defaults.
-* Target options (`-mc33adv`, `-mc33pe`, `-medda32`, `-mc33_ext`) and the
-  `g_iAdvance`/`g_iPE`/`g_iMedda32` globals moved out of `gas/as.c` and into
-  `tc-c33.c`, using gas's own `md_longopts`/`md_parse_option`. That removes an
-  invasive patch to a shared file.
-* The S1C33E07 manual's Table I.5.3.5 removes the older core's `div0s`,
-  `div0u`, `div1`, `div2s`, and `div3s` encodings.  The old GCC tree still
-  contains divide-step assembly as unused source, but its active PE `t-c33`
-  builds generic C division and the installed 3.3.2 `libgcc.a` contains none
-  of these instructions.  Both the preserved and current PE assemblers
-  reject all five; the tests make that manual requirement explicit.
-* `ext_remove.c` is wired in through gas's `extra_objects` mechanism, the same
-  way `bfin` pulls in its parser.
-* `ld` now uses the standard `elf` emulation template. EPSON's
-  `emultempl/c33.em` was a verbatim copy of the old *generic* template with no
-  C33-specific behaviour, so it was dropped.
-* `md_apply_fix3` became `md_apply_fix` and returns `void`.
-* Most of the apparent churn in the EPSON binutils patch is reformatting.
-  Normalised for whitespace, the invasive changes to shared files are about
-  600 lines total, with zero deletions.
-
-## Fixed during the port
-
-### The ELF header was never written (e_machine and the core byte in e_flags)
-
-Objects came out with `e_machine` 0 instead of `EM_SE_C33` (107), and with
-`e_flags` 0 instead of carrying the core variant in its top byte - `'P'` for
-PE, `'A'` for ADV. The linker refuses to mix cores, so the first attempt to
-link the firmware died with *"Cannot link STD object ... with PE object"*.
-
-Both were set by the original toolchain, but from *shared* files that modern
-binutils has changed out from under it: `gas/as.c` reopened the finished
-object and poked byte 39, and `bfd/elf.c` had a hand-added case in the
-architecture-to-machine switch. Neither survives. They are now done properly,
-via `elf_tc_final_processing` in `tc-c33.c` and `ELF_MACHINE_CODE` in
-`elf32-c33.c` - the latter had a "do not change to EM_SE_C33" comment which
-was true only while that `bfd/elf.c` patch existed.
-
-### The linker crashed on a null function pointer
-
-`bfd_arch_info_type` gained a `fill` callback between `scan` and `next` at
-some point after 2.10.1. `cpu-c33.c`'s positional initialiser still compiled,
-but put the `next` *pointer* into `fill`'s slot. `default_data_link_order`
-calls `arch_info->fill` to pad an alignment gap, so linking crashed - but only
-for object combinations that happen to need padding, which is why it took a
-firmware-sized link to surface.
-
-
-### Every relocation was silently dropped (howto sizes were still log2)
-
-This was the big one. All 32 `HOWTO` entries in `elf32-c33.c` carried the
-historical log2 size encoding, as their own comment advertised:
-
-```c
-	 1,			/* size (0 = byte, 1 = short, 2 = long) */
+```text
+binutils/build.sh           pristine binutils 2.47 build/install
+binutils/files/             C33 BFD, gas, ld, opcodes, and testsuite sources
+gcc/rebuild.sh              complete GCC 16.2 and libgcc build/install
+gcc/files/                  C33 GCC backend sources
+gcc/patches/                focused upstream GCC correctness patches
+gcc/ABI.md                  target ABI and ISA contract
+gcc/README.md               GCC-specific status and validation
+tests/abi/                  old/new cross-link tests
+tests/dejagnu/              standard GCC board and runner
+tests/DEJAGNU-TODO.md       current test and feature backlog
+tools/glue.py               registers C33 in a pristine binutils tree
+tools/gcc-glue.py           registers C33 in a pristine GCC tree
+tools/compare-with-oracle.sh assembler comparison
 ```
 
-Modern BFD changed `reloc_howto_struct.size` to be a plain **byte count**, and
-`bfd_get_reloc_size` just returns it. So every C33 relocation misreported its
-width - `R_C33_JP` claimed 1 byte instead of 2, `R_C33_32` claimed 2 instead
-of 4.
-
-The damage was invisible because `tc-c33.c`'s fixup emission loop has two
-silent no-ops:
-
-```c
-if (!reloc_howto)      { ; }   /* abort() commented out in 2001 */
-else { size = bfd_get_reloc_size (reloc_howto);
-       if (size != 2)  { ; }   /* likewise */
-```
-
-so a wrong size meant the fixup was quietly discarded - no relocation, no
-diagnostic, and an operand field left as zero. `call tgt` assembled to
-`call 0x0`.
-
-All 32 entries are now in bytes. Branches resolve, and `xcall`/`xjp`/`xld.w`
-against externals emit the correct `R_C33_S_RH/S_RM/S_RL` and `R_C33_H/M/L`
-triples - one per instruction word of the `ext` prefix sequence.
-
-### `.short`/`.word` constants assembled as zero
-
-`parse_cons_expression_c33` returned `hold_cons_reloc` directly. Modern gas
-distinguishes "no reloc prefix" - `TC_PARSE_CONS_RETURN_NONE`, which is
-`BFD_RELOC_NONE` - from a real relocation, and `BFD_RELOC_UNUSED` is neither.
-Returning it sent plain constants into `emit_expr_with_reloc`'s relocation
-branch, which calls `emit_expr_fix` and **returns early**, so the value was
-never written. `.short 16` emitted `0x0000`.
-
-Caught only by the byte-for-byte comparison above: `grifo/stubs/exit.s` is
-`int 1` followed by `.short 16`, and the missing `push %r0` showed up
-immediately.
-
-### Uninitialised `reloc` in the operand loop
-
-`md_assemble`'s per-operand loop declared `bfd_reloc_code_real_type reloc;`
-with no initialiser. Only some operand forms assign it, so the rest inherited
-stack garbage. It now starts as `BFD_RELOC_UNUSED`, which is what the emission
-loop expects as "encode the operand index as a pseudo-reloc and resolve it in
-`md_apply_fix`".
-
-### Symbol names ran into the operand column
-
-`find_symbolname_for_address` captures `print_address_func` output by
-temporarily swapping `info->fprintf_func` for a buffer-writing stub. Modern
-binutils routes address printing through `fprintf_styled_func` instead, so the
-interception missed and the address escaped to the real stream, concatenated
-onto the operand that had just been printed:
-
-```
-before:  call 0x1b1000044e <CMU_initialise>   xcall 0x436 (0x1000044E)
-after:   call 0x1b                            xcall 0x436 (0x1000044E) <CMU_initialise>
-```
-
-Fixed by adding a styled stub and swapping `fprintf_styled_func` as well.
-
-### `UINT32` was 64 bits wide
-
-`c33-dis.c` had `typedef unsigned long UINT32;` (likewise `ADDR`). On an LP64
-host that is 64 bits, so values representing the C33's 32-bit word did not wrap
-the way the target does. These are now `uint32_t`, with the `%lx`/`%lX` formats
-narrowed to match.
-
-This is a plausible contributor to the "GCC does not work correctly on 64 bit
-platform" note in `doc/README.toolchain`, but note it is hardening - no
-specific miscompilation was traced to it, and the visible disassembly garbage
-above turned out to be the styled-printf issue instead.
-
-### Objdump ignored the selected C33 core
-
-Gas records Standard, Advanced, and PE mode in the top byte of ELF `e_flags`,
-but `c33-dis.c` always selected the Advanced opcode table. Consequently the
-nine divide, MAC, mirror, and scan encodings removed by the PE manual were
-printed as valid PE instructions. Objdump now selects the table recorded in
-the ELF header; raw binaries retain the historical Advanced-mode fallback.
-Focused tests verify that PE renders all nine words as `.short` while Standard
-mode retains their instruction mnemonics.
-
-## Comparing against the original
-
-Build the original toolchain first (root `Makefile`, `toolchain` target); it
-lands in `host-tools/toolchain-install/bin`. Then, for any `.s` file:
-
-```sh
-OLD=host-tools/toolchain-install/bin
-NEW=host-tools/toolchain-c33/binutils/work/binutils-2.47/build
-
-$OLD/c33-epson-elf-as -mc33pe -o old.o file.s
-$NEW/gas/as-new       -mc33pe -o new.o file.s
-
-# compare the code, not the container: ELF headers, section order and symtab
-# layout all differ legitimately between 2.10.1 and 2.47
-$OLD/c33-epson-elf-objcopy -O binary --only-section=.text old.o old.bin
-$NEW/binutils/objcopy      -O binary --only-section=.text new.o new.bin
-cmp old.bin new.bin
-```
-
-Comparing whole `.o` files is not meaningful and will always differ.
-
-## Note for the GCC backend work
-
-The gcc 3.3.2 C33 backend emits a malformed function size directive - a stray
-leading `.` on the symbol:
-
-```
-	.size	.labs,.-.labs        <-- should be    .size labs,.-labs
-```
-
-binutils 2.10.1 accepted it and quietly did the wrong thing: it invented an
-*undefined* symbol `.labs` carrying size 12 and left the real `labs` at size 0.
-Modern gas rejects it outright (`.size expression for .labs does not evaluate
-to a constant`), which is the better behaviour.
-
-21 of the 143 compiled test files hit this. It is a defect in the old compiler,
-not in the assembler - the replacement backend must emit `.size NAME,.-NAME`.
+Build trees live under `host-tools/toolchain-c33/work/` and are disposable.
+The maintained target sources live under `binutils/files/`, `gcc/files/`,
+and `gcc/patches/`.

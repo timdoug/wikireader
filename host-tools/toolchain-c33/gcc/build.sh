@@ -1,12 +1,11 @@
 #!/bin/sh
-# Build the (in-progress) C33 GCC backend from a pristine upstream tarball
-# plus this directory's sources.
+# Build the C33 GCC backend from a pristine upstream tarball plus this
+# directory's sources.
 #
 #   ./build.sh [workdir]
 #
-# NB this currently builds a compiler that works for simple functions but
-# ICEs on calls and stack arguments -- see README.md.  It is here so the
-# edit/build/test loop is reproducible, not because the result is usable.
+# This stops after all-gcc for a quick compiler edit/build/test loop. Use
+# rebuild.sh for an installed compiler with freshly rebuilt libgcc multilibs.
 #
 # Build binutils first: the GCC build needs c33-epson-elf-as on PATH.
 

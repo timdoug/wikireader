@@ -1,341 +1,139 @@
-# C33 GCC/binutils DejaGnu backlog
+# C33 GCC/binutils test backlog
 
-This is the implementation backlog exposed by the first unfiltered GCC 16.2
-DejaGnu run. The historical baseline is
-`dejagnu/work/full-20260828-2130/gcc.sum`: 145,212 expected passes and 1,836
-unexpected failures. It predates all fixes below and is not the current
-status. Raw assertion counts are useful for measuring progress, but one source
-repeated across option sets is normally one root cause.
-
-The second unfiltered run, `dejagnu/work/full-post-fixes2-20260829/gcc.sum`,
-completed with 144,950 passes, 39 unexpected failures, one XPASS, 924 XFAIL,
-261 unresolved, and 6,166 unsupported. Focused fixes since that run remove 34
-of the 39 failures and every unresolved family. The post-fix `gcc.dg/dg.exp`
-replay records 39,358 passes, four unexpected failures, 534 XFAIL, and 1,037
-unsupported tests, with no unresolved result. Its four failures are the
-evidence-backed `ifcvt-4`, `pr126464`, `pr87954`, and `stack-usage-1`
-mismatches described below; the fifth known mismatch is in the separate
-`gcc.dg/debug/dwarf2` driver.
+This file contains only current findings and future work. Historical run
+totals are not a backlog: the next complete post-fix run is the authority.
 
 ## Scope
 
-The current task is correctness of the C33 GCC backend and C33 binutils.
-Changes needed only to execute and classify the upstream tests in DejaGnu are
-also in scope. Do not implement firmware, mini-libc, crt startup, target
-services, or emulator features without asking first.
+The active scope is correctness of the C33 GCC backend, C33 binutils, and the
+DejaGnu integration required to execute and classify upstream tests.
 
-Tests blocked by one of those external prerequisites remain visible below.
-They are not GCC/binutils implementation work, and they must not be made to
-pass by changing an upstream test or by adding a target-specific skip.
+Do not modify upstream tests, add target-specific skips for real failures, or
+turn unknown link errors into unsupported results. Firmware, mini-libc, crt
+startup, hosted target services, and new emulator facilities require separate
+approval.
 
-## P0: GCC backend and ABI correctness
+## Current qualification
 
-### Inline string operations: fixed and qualified
+| Suite | Current focused result |
+| --- | --- |
+| `gcc.c-torture/execute` | 24,260 passes, 251 legitimate unsupported, zero failures or unresolved cases across all 1,692 sources and standard variants |
+| `gcc.dg/torture` | Exhaustively replayed; no GCC/backend failure remains |
+| IPA | 807 passes, 4 XFAIL, 13 external-prerequisite unsupported, no unexpected result |
+| LTO | 1,651 passes, 34 external-prerequisite unsupported, no failures or unresolved cases |
+| `gcc.dg/dg.exp` | 39,358 passes, 4 target-dependent mismatches, 534 XFAIL, 1,037 unsupported, no unresolved cases |
+| gas | 338 passes, 10 unsupported, no unexpected result |
+| binutils | 240 passes, 18 untested, 17 unsupported, no unexpected result |
+| ld | 479 passes, 13 XFAIL, 28 untested, 235 unsupported, no unexpected result |
+| ABI cross-link | All old/new caller/callee combinations agree |
 
-`gcc.dg/torture/inline-mem-cmp-1.c` passes all 21 focused verdicts, and
-`inline-mem-cpy-cmp-1.c` passes all 28.  The latter's `-O0` execution needs
-3,433,401,134 emulator instructions.  It used to stop at the board's
-3.2-billion base budget even though the upstream source requests
-`dg-timeout-factor 2`: target loading incorrectly consulted Expect's raw
-`timeout` variable, which does not include GCC's per-test factor.  The board
-now uses GCC's standard `timeout_value` helper to scale both the host watchdog
-and deterministic instruction budget.  No upstream source was changed.
+The complete unfiltered GCC suite has not been rerun since the focused fixes.
+When it is run, preserve `gcc.sum` and `gcc.log`, group findings by source
+and option set, and investigate only fresh unexpected results.
 
-```sh
-./run-dejagnu.sh all dg-torture.exp=inline-mem-cmp-1.c
-./run-dejagnu.sh all dg-torture.exp=inline-mem-cpy-cmp-1.c
-```
+No compact non-sanitizer execution family from the previous full run remains
+unclassified. Long standard tests are supported by the deterministic
+3.2-billion-instruction board ceiling and GCC's normal per-test timeout
+factor.
 
-### Remaining execution regressions
+## Visible compiler-only mismatches
 
-No compact non-sanitizer execution family from the baseline remains
-unclassified. Continue
-from fresh failures in the next broad run rather than assuming every old raw
-failure is still reproducible.
+These results stay visible. Current evidence does not show incorrect C33 code
+or malformed debug information:
 
-For each source, first separate wrong code, an assembler/linker defect, a
-compiler diagnostic defect, a test-execution problem, and an external runtime
-prerequisite. Do not add ignore entries.
-
-Already classified baseline executions are not backend defects:
-
-* `pr112344.c` was forced into upstream's expensive mode by the wrapper and
-  exceeds the simulator budget outside `-O2`/`-O3`; the wrapper no longer
-  enables expensive tests by default.
-* `pr97459-{1,2,3,4,5,6}.c` produce correct arithmetic. With the current
-  compiler, the slowest standard variant (`pr97459-6.c`) needs 3,033,306,485
-  emulator instructions, so the deterministic board ceiling is 3.2 billion
-  rather than the original one billion.
-* `pr47917.c`, `pr79800.c`, `builtin-sprintf.c`, `strlenopt-68.c`,
-  `pr78965.c`, and `ipa/pr96040.c` exercise missing `snprintf`/floating-format
-  runtime behavior.
-* `pr118224.c` exercises allocator failure and overflow semantics supplied by
-  the test runtime.
-* `ipa/pr70306.c`, `constructor-1.c`, and `initpri1*.c` need crt startup to
-  execute emitted constructor/destructor arrays.
-* `loop-interchange-1.c` and `loop-interchange-1b.c` allocate about 14 MiB,
-  beyond the current 8 MiB test memory map.
-* Compile-only math tests use the board's declaration-only `<math.h>` and can
-  exercise GCC without libm. Executable links are still classified from their
-  missing math symbols. This recovered the 26 warning/compile assertions in
-  `float-range-{3,5}.c` without adding a target math implementation.
-* `torture/builtin-convert-2.c` uses `builtins-config.h`'s hosted-runtime
-  heuristic to enable C99 math calls, then requires the absent libm. The
-  board's `c99_runtime` result cannot affect that source-level `#ifdef`.
-* `torture/pr59330.c` deliberately defines `free`.  The DejaGnu-only runtime's
-  allocator fallback is now weak, as board support must allow a program under
-  test to override it.  The focused upstream matrix passes all 14 compile and
-  execution verdicts; neither the firmware runtime nor the upstream test was
-  changed.
-
-The post-fix `gcc.dg/torture` driver has been exhaustively replayed in
-path-qualified partitions. No GCC/backend failure remains. `pr47917.c -O0`
-reaches mini-libc's non-conforming `snprintf` and is reported as that explicit
-runtime prerequisite; all optimized and LTO variants pass because GCC
-performs the expected folds.
-
-The IPA driver is likewise fully classified. Its expected folds and
-executions pass; external constructor and formatted-output prerequisites are
-reported explicitly. The complete focused driver records 807 passes, four
-XFAIL, and 13 unsupported tests with no unexpected result.
-
-The second unfiltered run exposed 39 failures across 15 sources. Focused
-follow-up recovered 34: 26 float-range diagnostic assertions, three
-tree-profile compilations, the coverage-driver check, `20020312-2`,
-`pr118224`, `strlenopt-68`, `struct-ret-libc`, and the two tests whose source
-assumes a hosted C99 math runtime. Profile, bprob, and gcov drivers now honor
-the board's lack of a gcda writer/filesystem; the IEEE torture driver preserves
-unsupported compilation prerequisites instead of adding unresolved execution
-verdicts. Structure-musttail tests no longer run a C++ capability probe through
-this C-only compiler.
-
-Five evidence-backed compiler-only mismatches remain visible: `ifcvt-4`,
-`pr87954`, `stack-usage-1`, `debug/dwarf2/inline5`, and `pr126464`. The last
-executes correctly; its only failure is the expected overflow warnings from
-`1e4000L` on C33's ABI-valid binary64 `long double`.
-
-`dg-output-file-1` is no longer in that list: successful simulator loads now
-return only the target UART stream to DejaGnu, while retaining the full
-emulator transcript for failures.
-
-## P1: binutils and target-format correctness
-
-### Thread-local storage
-
-GCC's existing single-thread `emutls` path works. The ten old
-`gcc.dg/debug/tls-1.c` failures came from static archive order: libc was
-scanned before `libgcc` introduced its `memcpy` reference. The DejaGnu board
-now repeats libc after libgcc, like GCC's normal specs, and all ten variants
-pass. A native multi-thread C33 TLS ABI, relocations, thread-pointer setup and
-an emulator thread model would be a separate feature, not a requirement for
-the current compiler tests.
-
-### Constructors: compiler/linker portion
-
-Fixed. GCC is configured with `--enable-initfini-array`, including rebuilds of
-an existing work tree, and emits typed `.init_array.N`/`.fini_array.N`
-sections. The updated linker retains and consolidates them, defines hidden
-`__init_array_{start,end}` and `__fini_array_{start,end}` boundaries, and
-orders priority 100 before priority 200 in a focused link probe. GCC's
-`constructor-1.c` now compiles and links; its execution still fails because
-the test crt does not iterate those arrays. Adding that startup behavior is
-external runtime work and is not hidden by a skip.
-
-### Full binutils qualification
-
-The current exact-source binutils suites have no unexpected failures:
-
-* gas: 338 passes and 10 unsupported tests;
-* binutils utilities: 240 passes, 18 untested, and 17 unsupported tests; and
-* ld: 479 passes, 13 expected failures, 28 untested, and 235 unsupported
-  tests.
-
-These totals include the C33 assembler, BFD, readelf, linker-script,
-start/stop-symbol, init-array, build-id, section-discard, and local-relocation
-fixes. They also cover ELF-mode-aware disassembly: PE objects reject and
-display as data the nine legacy instructions removed by the PE manual, while
-Standard objects retain them. The tested binutils are installed into the
-active GCC prefix.
-
-Undefined-symbol diagnostics are also fixed: ld does not apply a non-weak
-undefined symbol's placeholder zero relocation after reporting it, and it
-does not range-check an unreachable PC-relative call to an undefined weak
-symbol. Absolute undefined-weak references still resolve to zero.
-`gcc.dg/visibility-22.c` passes both focused verdicts, and the full ld totals
-above remain unchanged and free of unexpected results.
-
-### macOS DejaGnu large-file and pipeline transport
-
-Fixed. The compatibility layer now handles GCC drivers which directly open a
-read-only Tcl pipeline, so LTO `20081212-1` passes `scan-symbol`. The board's
-runtime-gap classifier also restricts source inspection to source-language
-files. It previously opened LTO `pr122515`'s 2.88 GB archive as text and
-overflowed Tcl 8.5 before the link. The focused upstream replay now completes
-with 11 passes and one legitimate `memory full` unsupported result for the
-320 MB extracted object. Explicit `-lm` failures and undefined `__gcov_*`
-services are classified as the external runtime prerequisites documented
-below; unrelated undefined symbols continue to fail.
-
-The complete post-fix LTO driver is clean: 1,651 expected passes, 34
-unsupported tests, and zero failures or unresolved cases.
-
-### CTF and optional debug formats
-
-Fixed. Binutils now builds libctf, and the focused ordinary debug replay has
-212 passes. C33 gas also supports assembler-generated DWARF location views:
-its cons-expression hook now honors the relocation passed by gas instead of
-reusing stale global parser state. The hierarchical discriminator tests and
-`debug/dwarf2/pr53948.c` pass. `debug/dwarf2/inline5.c` still emits three
-target-dependent lexical variable DIE matches where the generic scan expects
-one; the generated debug info is otherwise accepted and this has not been
-shown to be malformed.
-
-### Plugins and crash diagnostics
-
-Installed plugin headers are now used correctly; the focused plugin run has
-869 passes. Remaining failures concentrate in intentional compiler-crash,
-SARIF, and diagnostic-path behavior on Darwin. Audit these as host GCC
-integration failures without suppressing them.
-
-## P2: explicit compiler feature debt
-
-These are not silently dismissed as "unsupported." They are real possible
-extensions, but each needs an ABI/runtime design before implementation:
-
-* `__int128`: define the C33 ABI representation, argument/return convention,
-  alignment, TImode moves and arithmetic lowering, and the required libgcc
-  helpers. Most 32-bit GCC targets do not expose this type, so its absence is
-  not a regression in the existing C33 contract, but it remains an explicit
-  feature opportunity.
-* atomics: C33 has no native compare-and-swap or thread model. Supporting the
-  atomic suites requires enabling/building libatomic and defining how locks,
-  interrupt exclusion, and multi-thread visibility work on the target; the
-  compiler is currently configured `--disable-libatomic`.
-* heap trampolines: ordinary stack trampolines work and
-  `gcc.dg/trampoline-1.c` executes successfully. GCC's separate heap
-  trampoline method needs an allocator/executable-memory policy and target
-  runtime entry points.
-
-Treat these as implementation projects, not as reasons to weaken effective
-target probes. They are lower priority than demonstrated wrong code in an
-already supported feature.
-
-## External prerequisites - ask before implementing
-
-These failures are useful coverage signals, but their missing implementation
-is outside the current GCC/binutils task:
-
-* mini-libc/libm, including C99 math and floating-point `printf`;
-* hosted file, environment, time, signal, and process APIs;
-* hosted libgcov termination/file output plus persistent `.gcda` transport
-  (`libgcov.a` itself is built and installed, including the counter and merge
-  machinery, but the freestanding build has no `__gcov_exit` writer);
-* C33 sanitizer runtimes and their language-runtime dependencies;
-* crt startup execution of constructor/destructor arrays; and
-* emulator semihosting, persistent files, or a thread/TLS model.
-
-Do not add stubs merely to turn these results green. Classify the prerequisite
-with evidence, leave the result visible, and ask before implementing anything
-in this section.
-
-## Fixed from the baseline
-
-These are implementation fixes, not unsupported classifications:
-
-* C33 variadic calls now retain their historical stack representation while
-  shadowing typed scalar locations and carrying a versioned forwarding
-  descriptor in caller-clobbered `%r5`.  C33's `untyped_call` compacts the
-  copied stack stream from that descriptor.  The complete focused upstream
-  `builtin-apply` and stack-alignment run has 107 passes and zero failures;
-  no skip or upstream test change is involved.
-
-* GCC is configured for ELF init/fini arrays. Focused object and link probes
-  verify typed priority sections, linker retention and priority ordering, and
-  hidden array boundaries. Only crt iteration remains external.
-
-* C33 BFD now permits local-only relocation sections without a global symbol
-  hash. `builtins.exp=complex-1.c` passes all 16 verdicts.
-* C33's speed branch cost now reflects the core manual: conditional branches
-  cost at least two cycles, not GCC's generic one. The focused
-  `reassoc-{33,34,35,36}.c` and `update-threading.c` replays now pass all 14
-  compile, execution, and optimization assertions.
-* Ordinary direct calls now test their symbolic address in pointer mode, not
-  the called memory object's `QImode`. The old mismatch forced every direct
-  call through a register. Focused assembly probes emit `scall` in short-call
-  mode and `xcall` in long-call mode; `weak/typeof-2.c` passes all 8 assertions
-  and `tree-ssa/loop-1.c` all 5. The complete weak-symbol driver passes all 93
-  assertions.
-  The complete post-fix `gcc.c-torture/execute` qualification records 24,260
-  passes, 251 legitimate unsupported results, and zero failures or unresolved
-  cases across all 1,692 sources and their upstream option variants.
-* GCC now emits direct sibling calls after restoring the current frame. Both
-  short (`sjp`) and long (`xjp`) forms are implemented; the focused
-  `gcc.dg/sibcall-*.c` run has 18 passes and zero failures.
-* GCC now preserves a 16-byte outgoing-argument boundary across C33's
-  stack-pushed return address. `gcc.dg/pr84877.c` passes, and the DWARF CFA now
-  describes the return-address word with `INCOMING_FRAME_SP_OFFSET`.
-* The DejaGnu wrapper exposes target headers globally, puts matching binutils
-  on `PATH`, finds the prefixed gcov, recognizes ELF weak aliases, and uses
-  installed plugin headers from isolated result directories. It also follows
-  GCC's standard expensive-test default instead of enabling those cases
-  silently.
-* GCC uses normal dotted private symbols, recognizes byte/halfword loads from
-  `%sp`, and selects standard ELF mergeable constant/string sections.
-* C33 BFD keeps section symbols local even for the port's common-section
-  encodings, uses modern reserved section indices, and resolves local
-  relocations through BFD's merge-aware helper. These fix `pr83100-2`,
-  `pr43557-1`, LTO `pr83719`, and LTO `pr50199`; the selected old LTO family
-  now has 86 passes and zero failures.
-* C33 gas's cons-expression hook uses the caller-supplied relocation and
-  handles no-relocation bookkeeping fixups, enabling DWARF `.loc` views.
-* Binutils builds libctf; old `-gctf` link warnings are gone.
-* The board preserves an explicit test `-w`, reports the actual C99 runtime
-  capability, links libc/libgcc archives in resolvable order, and separates
-  emulator diagnostics from target program output.
-* Precompiled headers pass their complete focused suite: 1,254 passes and no
-  failures.
-
-## Remaining compiler-only scan mismatches
-
-The following focused failures remain visible, but their requested scan is
-not evidence of incorrect C33 output:
-
-* `ipa-icf-12.c` and `ipa-icf-13.c` find one extra valid identical-function
-  pair: mini-libc's inline `abs` and `labs` are identical because C33 `int`
-  and `long` are both 32 bits. The expected `gcd`/`nsd` folds also occur.
-* `pr87954.c` performs the requested widened multiply once; GCC's dump prints
-  it as `w*`, while the test's target-independent expression accepts `*`,
-  `*w`, or `WIDEN_MULT_PLUS_EXPR`.
-* `ifcvt-4.c` expects a multi-set conditional conversion. C33 has no
+- `ifcvt-4.c`: expects multi-set conditional conversion. C33 has no
   conditional-move instruction and correctly retains a branch.
-* `stack-usage-1.c` reports 272 bytes: the requested 256-byte object plus the
-  16-byte `%r0`-through-`%r3` callee-save block. The generic scan accepts only
-  256 or 264 unless a target-specific size is listed.
-* `debug/dwarf2/inline5.c` emits three lexical-variable DIE matches where the
-  generic scan expects one. `readelf --debug-dump=info` confirms the correct
-  graph: one abstract block/variable, one inlined concrete instance pointing
-  to them, and one out-of-line concrete instance pointing to them. The scan's
-  second comment-stopping character class omits C33's `;` assembler comment
-  marker, so it traverses the two `DW_AT_abstract_origin` comments and counts
-  all three variable DIE annotations. The emitted DWARF is not malformed.
-* `pr126464.c` executes successfully. Its excess diagnostics are correct
-  overflow warnings for `1e4000L`, because C33 `long double` is binary64; the
-  source was written around targets whose long double range exceeds double.
+- `pr87954.c`: performs the widened multiply once; the C33 dump spells it
+  `w*`, outside the generic scan's accepted spellings.
+- `stack-usage-1.c`: reports 272 bytes - the requested 256-byte object plus
+  C33's 16-byte `%r0`-`%r3` save block. The generic accepted-size list
+  omits this ABI.
+- `debug/dwarf2/inline5.c`: the emitted graph contains one abstract
+  variable, one inlined instance, and one out-of-line instance. The scan
+  counts comments because one character class omits C33's `;` comment
+  marker; `readelf` confirms the graph is valid.
+- `pr126464.c`: executes successfully. Its additional overflow warnings are
+  correct because C33 `long double` is ABI-valid binary64 and `1e4000L`
+  overflows it.
 
-These tests have not been edited or skipped. Revisit a case only if inspection
-shows incorrect code, ABI behavior, or malformed debug information rather
-than a target-dependent count or spelling.
+`ipa-icf-12.c` and `ipa-icf-13.c` can also report one extra valid identical
+pair: C33 `int` and `long` are both 32 bits, so mini-libc's `abs` and
+`labs` bodies are identical. The requested folds still occur.
 
-## Definition of done
+Revisit these only if new inspection demonstrates wrong code, an ABI error,
+or malformed debug information. Do not edit or skip the upstream source to
+change the count.
 
-A GCC/binutils item is complete when:
+## Target feature opportunities
 
-1. the implementation fix is understood and covered by focused upstream
-   DejaGnu tests;
-2. both relevant C33 variants (for example short/long calls or multilibs) are
-   checked where applicable;
-3. the upstream test is unchanged and no result was hidden by a board skip;
-4. the next broad run shows the expected reduction without new regressions.
+These are explicit implementation projects, not excuses to weaken target
+feature probes:
 
-An external prerequisite is complete only after the user separately
-authorizes that non-GCC/binutils work.
+### `__int128`
+
+Define the C33 representation, alignment, argument/return convention, TImode
+moves and arithmetic lowering, and required libgcc helpers. Most 32-bit GCC
+targets do not expose this type, so its absence is not a regression in the
+existing C33 ABI.
+
+### Atomics
+
+C33 has no native compare-and-swap and this toolchain has no thread model.
+Supporting the atomic suites requires a defined interrupt/lock/visibility
+model and an enabled libatomic. The compiler is currently configured with
+`--disable-libatomic`.
+
+### Heap trampolines
+
+Ordinary stack trampolines work and `gcc.dg/trampoline-1.c` executes.
+GCC's separate heap-trampoline method needs allocator, lifetime, and
+executable-memory runtime hooks.
+
+## Toolchain validation opportunities
+
+- Exercise an unstripped C33 executable with a real debugger. Line tables and
+  ordinary DWARF info are valid, but stepping, unwinding, variables, and
+  frames have not been qualified end to end.
+- Audit intentional compiler-crash, SARIF, and diagnostic-path behavior on
+  Darwin as host GCC integration.
+- Add independent runtime coverage for implemented PE operations not emitted
+  by firmware or current differential programs, especially stack-special and
+  indirect-jump forms.
+- Run the final complete post-fix GCC suite.
+
+## External target-runtime prerequisites
+
+These are accurately reported as unsupported only when the failed test names
+no unrelated missing symbol:
+
+- C99 libm and floating-point `printf`;
+- hosted file, environment, time, signal, and process APIs;
+- persistent `.gcda` output and `__gcov_exit` transport;
+- sanitizer runtimes and their language-runtime dependencies;
+- crt iteration of emitted constructor/destructor arrays; and
+- semihosting, persistent host files, or a thread/TLS runtime.
+
+`libgcov.a` is built and installed, including counter and merge machinery;
+the freestanding target lacks the termination writer and persistent
+transport. GCC emits and ld retains correctly ordered init/fini arrays; only
+crt iteration is missing. Single-thread emulated TLS works; a native
+multi-thread TLS ABI is a separate feature.
+
+Do not add stubs solely to turn these results green. Ask before implementing
+anything in this section.
+
+## Triage rules
+
+For every fresh unexpected result, distinguish:
+
+1. wrong generated code or ABI behavior;
+2. assembler, linker, or object-format behavior;
+3. incorrect compiler diagnostics;
+4. DejaGnu execution or classification failure;
+5. a documented external runtime prerequisite; or
+6. a target-dependent scan expectation.
+
+An implementation item is complete only when its cause is understood, a
+focused upstream test passes without source modification or a skip, relevant
+core/call/multilib variants are checked, and the next broad run shows no
+regression.
