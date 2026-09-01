@@ -913,8 +913,27 @@ int main(int argc, char **argv)
 				continue;
 			}
 			unsigned long long next = limit;
-			if (timer.deadline_valid && timer.next_deadline < next)
-				next = timer.next_deadline;
+			/*
+			 * Peripheral deadlines are on the MCLK timeline. DMA bus
+			 * phases advance that clock without retiring CPU cycles, so
+			 * an absolute MCLK deadline cannot be compared directly with
+			 * cpu.cycles. Convert the remaining clock delay to a cycle
+			 * target; otherwise the error grows after every DMA transfer.
+			 */
+			if (timer.deadline_valid) {
+				uint64_t delay = timer.next_deadline > cpu.clk ?
+					timer.next_deadline - cpu.clk : 0;
+				uint64_t due = cpu.cycles + delay;
+				if (due < next)
+					next = due;
+			}
+			if (sd.busy) {
+				uint64_t delay = sd.deadline > cpu.clk ?
+					sd.deadline - cpu.clk : 0;
+				uint64_t due = cpu.cycles + delay;
+				if (due < next)
+					next = due;
+			}
 			/*
 			 * Until the anchor fires the scripted times have not
 			 * been rebased, so they are not deadlines yet -- and
