@@ -4,17 +4,26 @@
 # The firmware writes back to the card (history, settings), so every run must
 # start from the same snapshot or results drift between invocations.
 #
-# usage: run-firmware-test.sh <wiki.app> <output.txt> [keys]
+# usage: run-firmware-test.sh <wiki.app> <output.txt> [keys] [wremu options...]
 set -e
 
 APP="$1"
 OUT="$2"
 KEYS="${3:-LOVE}"
+if [ "$#" -ge 3 ]; then
+	shift 3
+else
+	shift "$#"
+fi
+WREMU_ARGS=("$@")
+LIMIT="${LIMIT:-500000000}"
+KEY_AT="${KEY_AT:-120000000}"
 
 SNAP="${CARD_SNAPSHOT:-/tmp/card_snap.img}"
 IMG=$(mktemp /tmp/card_test.XXXXXX.img)
 MNT=$(mktemp -d /tmp/wrmnt.XXXXXX)
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+GRIFO="${GRIFO:-$HERE/../samo-lib/grifo/grifo.elf}"
 
 cleanup() {
 	diskutil unmount force "$MNT" >/dev/null 2>&1 || true
@@ -43,5 +52,11 @@ DEV=
 # Both shift with the app's size, so any code change moves them.  A diff here
 # only means something when both sides have settled (~46 non-blank lines for
 # a search that returns hits).
-"$HERE/wremu" -c "$IMG" -n 500000000 -K 120000000,"$KEYS" "$HERE/images/grifo.elf" 2>&1 \
-	| sed -n '/lcd:/,/serial output/p' > "$OUT"
+if [ "${FULL_OUTPUT:-NO}" = YES ]; then
+	"$HERE/wremu" -R -c "$IMG" -n "$LIMIT" -K "$KEY_AT,$KEYS" \
+		"${WREMU_ARGS[@]}" "$GRIFO" > "$OUT" 2>&1
+else
+	"$HERE/wremu" -R -c "$IMG" -n "$LIMIT" -K "$KEY_AT,$KEYS" \
+		"${WREMU_ARGS[@]}" "$GRIFO" 2>&1 \
+		| sed -n '/lcd:/,/serial output/p' > "$OUT"
+fi
