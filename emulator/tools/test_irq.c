@@ -79,12 +79,18 @@ int main(void)
 	 * values keep coincidentally equal firmware settings from hiding swaps. */
 	itc.reg[0x261 - ITC_BASE] = 5u << 4; /* port input 3 */
 	itc.reg[0x262 - ITC_BASE] = 3u;      /* key input 0 */
+	itc.reg[0x263 - ITC_BASE] = (2u << 4) | 1u; /* HSDMA 0/1 */
+	itc.reg[0x264 - ITC_BASE] = (4u << 4) | 3u; /* HSDMA 2/3 */
 	itc.reg[0x266 - ITC_BASE] = (2u << 4) | 1u; /* timers 0/1 */
 	itc.reg[0x267 - ITC_BASE] = (4u << 4) | 3u; /* timers 2/3 */
 	itc.reg[0x268 - ITC_BASE] = (6u << 4) | 5u; /* timers 4/5 */
 	itc.reg[0x26a - ITC_BASE] = (4u << 4) | 6u;
 	check("port input 3 reads PP23L[6:4]", itc_priority(&itc, 19), 5);
 	check("key input 0 reads PK01L[2:0]", itc_priority(&itc, 20), 3);
+	for (unsigned channel = 0; channel < 4; channel++) {
+		snprintf(buf, sizeof buf, "HSDMA %u uses its priority field", channel);
+		check(buf, itc_priority(&itc, 22 + channel), channel + 1);
+	}
 	check("timer 2 compare B reads P16T23[2:0]",
 	      itc_priority(&itc, 38), 3);
 	check("timer 2 compare A shares P16T23[2:0]",
@@ -99,6 +105,17 @@ int main(void)
 	}
 	check("serial 0 reads PSI01_PAD[6:4]", itc_priority(&itc, 57), 4);
 	check("serial 1 reads PSI01_PAD[2:0]", itc_priority(&itc, 61), 6);
+
+	/* HSDMA channels use adjacent cause and enable bits. */
+	for (unsigned channel = 0; channel < 4; channel++) {
+		itc_reset(&itc);
+		itc_set_flag(&itc, 22 + channel);
+		snprintf(buf, sizeof buf, "HSDMA %u sets its completion cause", channel);
+		check(buf, itc.reg[0x281 - ITC_BASE], 1u << channel);
+		itc.reg[0x271 - ITC_BASE] = 1u << channel;
+		check("HSDMA observes its interrupt enable bit",
+		      itc_enabled(&itc, 22 + channel), 1);
+	}
 
 	/* Serial causes have distinct error/rx/tx bits on each channel. */
 	static const unsigned serial_vectors[] = { 56, 57, 58, 60, 61, 62 };
@@ -226,6 +243,28 @@ int main(void)
 	c33_raise_irq(&d, VECTOR, 7);
 	c33_step(&d);
 	check("IE=0 blocks even the highest priority", d.irqs_taken == 0, 1);
+
+	/* An enabled HSDMA cause releases HALT even while PSR.IE is clear. */
+	memset(&d, 0, sizeof d);
+	d.bus.read = tr; d.bus.write = tw;
+	c33_reset(&d, ENTRY);
+	d.sr[SR_TTBR] = TTBR;
+	d.sr[SR_SP] = 0x10000;
+	d.sr[SR_PSR] = 0;
+	itc_reset(&itc);
+	itc.reg[0x264 - ITC_BASE] = 7u << 4;
+	itc.reg[0x271 - ITC_BASE] = 1u << 3;
+	d.irq_poll = (bool (*)(void *, unsigned *, unsigned *))itc_next_irq;
+	d.irq_ctx = &itc;
+	tw(NULL, ENTRY, 2, 0x0080);          /* halt */
+	tw(NULL, ENTRY + 2, 2, 0x0000);      /* nop */
+	c33_step(&d);
+	check("HALT sleeps before DMA completion", d.sleeping, 1);
+	itc_set_flag(&itc, 25);
+	c33_step(&d);
+	check("HSDMA completion releases HALT with IE clear", d.sleeping, 0);
+	check("IE-clear wake does not enter the DMA vector", d.irqs_taken, 0);
+	check("wake resumes at the instruction after HALT", d.pc, ENTRY + 2);
 
 	/*
 	 * An interrupt must not be taken part-way through an ext sequence.

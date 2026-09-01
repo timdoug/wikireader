@@ -19,6 +19,8 @@
 /* Priority register offsets within the block, from samo-lib/include/regs.h. */
 #define PP23L      (0x261u - ITC_BASE)   /* port input 2 low, input 3 high */
 #define PK01L      (0x262u - ITC_BASE)   /* key input 0 low, input 1 high */
+#define PHSD01L    (0x263u - ITC_BASE)   /* HSDMA 0 low, HSDMA 1 high */
+#define PHSD23L    (0x264u - ITC_BASE)   /* HSDMA 2 low, HSDMA 3 high */
 #define P16T01     (0x266u - ITC_BASE)   /* timer 0 low, timer 1 high */
 #define P16T23     (0x267u - ITC_BASE)   /* timer 2 low, timer 3 high */
 #define P16T45     (0x268u - ITC_BASE)   /* timer 4 low, timer 5 high */
@@ -44,9 +46,11 @@
 #define F16T23     (0x283u - ITC_BASE)   /* 16-bit timer 2-3 causes */
 #define F16T45     (0x284u - ITC_BASE)   /* 16-bit timer 4-5 causes */
 #define FSIF01     (0x286u - ITC_BASE)   /* serial ch0-1 causes */
+#define FDMA       (0x281u - ITC_BASE)   /* HSDMA 0-3 and IDMA causes */
 
 /* Enable registers, one bit per cause. */
 #define EK01_EP03  (0x270u - ITC_BASE)   /* key input and port causes */
+#define EDMA       (0x271u - ITC_BASE)   /* HSDMA 0-3 and IDMA enables */
 #define FK01_FP03  (0x280u - ITC_BASE)
 #define E16T01     (0x272u - ITC_BASE)
 #define E16T23     (0x273u - ITC_BASE)
@@ -91,6 +95,11 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 unsigned itc_priority(const struct itc *t, unsigned vector)
 {
+	if (vector >= 22 && vector <= 25) {
+		unsigned channel = vector - 22;
+		unsigned reg = channel < 2 ? PHSD01L : PHSD23L;
+		return (t->reg[reg] >> (channel & 1u ? 4 : 0)) & 0x7;
+	}
 	if (vector >= 30 && vector <= 51 &&
 	    ((vector - 30) % 4u) < 2u) {
 		unsigned channel = (vector - 30) / 4u;
@@ -126,6 +135,8 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
  */
 bool itc_enabled(const struct itc *t, unsigned vector)
 {
+	if (vector >= 22 && vector <= 25)
+		return (t->reg[EDMA] & (1u << (vector - 22))) != 0;
 	if (vector >= 30 && vector <= 51 &&
 	    ((vector - 30) % 4u) < 2u) {
 		unsigned channel = (vector - 30) / 4u;
@@ -149,6 +160,8 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 
 static bool itc_flagged(const struct itc *t, unsigned vector)
 {
+	if (vector >= 22 && vector <= 25)
+		return (t->reg[FDMA] & (1u << (vector - 22))) != 0;
 	if (vector >= 30 && vector <= 51 &&
 	    ((vector - 30) % 4u) < 2u) {
 		unsigned channel = (vector - 30) / 4u;
@@ -175,7 +188,8 @@ bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 	/* Table III.2.1.1.1 is ordered from highest to lowest fixed priority.
 	 * Keeping the first vector on a tie implements that documented order. */
 	static const uint8_t vectors[] = {
-		19, 20, 30, 31, 34, 35, 38, 39, 42, 43, 46, 47, 50, 51,
+		19, 20, 22, 23, 24, 25,
+		30, 31, 34, 35, 38, 39, 42, 43, 46, 47, 50, 51,
 		56, 57, 58, 60, 61, 62
 	};
 	bool found = false;
@@ -199,6 +213,10 @@ bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 
 void itc_set_flag(struct itc *t, unsigned vector)
 {
+	if (vector >= 22 && vector <= 25) {
+		t->reg[FDMA] |= 1u << (vector - 22);
+		return;
+	}
 	if (vector >= 30 && vector <= 51 &&
 	    ((vector - 30) % 4u) < 2u) {
 		unsigned channel = (vector - 30) / 4u;

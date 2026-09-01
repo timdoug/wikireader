@@ -123,6 +123,7 @@ int main(void)
 	assert(dma.bus_cycles == 512u * 2u + 511u * 10u);
 	assert(clock == 20474);
 	assert((mem_read(&m, REG(0x115c), 2) & 1) == 0);
+	assert(mem_read(&m, REG(0x0281), 1) & (1u << 3));
 	assert(mem_read(&m, table + 0x244, 4) == 0);
 	for (unsigned i = 0; i < 512; i++)
 		assert(mem_read(&m, dst + i, 1) == 0xff);
