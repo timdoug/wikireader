@@ -6,10 +6,13 @@
 #include <mmc.h>
 #include <regs.h>
 
+#include "interrupt.h"
 #include "sd_dma.h"
 
 #define SPI_IDMA_CHANNEL 0x24
 #define SPI_IDMA_ENABLE  (1 << 4)
+#define HSDMA3_INTERRUPT (1 << 3)
+#define HSDMA3_PRIORITY  (7 << 4)
 #define SPI_RXD_ADDRESS  (REG_BASE + 0x1700)
 #define SPI_TXD_ADDRESS  (REG_BASE + 0x1704)
 
@@ -30,6 +33,7 @@ static void receive_dma(BYTE *buff, UINT byte_count)
 	struct idma_descriptor *descriptor = &idma_table[SPI_IDMA_CHANNEL];
 	DWORD table_address = (DWORD)idma_table;
 	DWORD buffer_address = (DWORD)buff;
+	Interrupt_type interrupt_state;
 
 	/* HSDMA3 drains byte-wide SPI RXD into incrementing memory. */
 	REG_HS_CNTLMODE = HSDMAADV;
@@ -61,10 +65,19 @@ static void receive_dma(BYTE *buff, UINT byte_count)
 	REG_IDMAEN_DELCDC_DESIF2_DESPI |= SPI_IDMA_ENABLE;
 	REG_IDMA_EN = 1;
 
+	/*
+	 * HSDMA continues in HALT and sets FHDM3 at terminal count. Keep IE
+	 * clear across the flag check so completion cannot race the halt; an
+	 * enabled ITC cause still wakes HALT without entering its vector.
+	 */
+	interrupt_state = Interrupt_disable();
+	REG_INT_FDMA = HSDMA3_INTERRUPT;
 	REG_HS3_EN = DMA_ENABLED;
 	REG_SPI_TXD = 0xff;
-	while (REG_HS3_EN & DMA_ENABLED)
-		;
+	while (!(REG_INT_FDMA & HSDMA3_INTERRUPT))
+		asm volatile ("halt" : : : "memory");
+	REG_INT_FDMA = HSDMA3_INTERRUPT;
+	Interrupt_enable(interrupt_state);
 
 	REG_IDMAEN_DELCDC_DESIF2_DESPI &= ~SPI_IDMA_ENABLE;
 	REG_IDMAREQ_RLCDC_RSIF2_RSPI &= ~SPI_IDMA_ENABLE;
@@ -73,5 +86,10 @@ static void receive_dma(BYTE *buff, UINT byte_count)
 
 void SD_DMA_initialise(void)
 {
+	Interrupt_type interrupt_state = Interrupt_disable();
+	REG_INT_PHSD23L = (REG_INT_PHSD23L & 0x0f) | HSDMA3_PRIORITY;
+	REG_INT_FDMA = HSDMA3_INTERRUPT;
+	REG_INT_EDMA |= HSDMA3_INTERRUPT;
+	Interrupt_enable(interrupt_state);
 	mmc_set_spi_receive_dma(receive_dma);
 }

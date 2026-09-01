@@ -72,9 +72,6 @@ int main(void)
 
 	// ensure MCU clocks are set up
 	CMU_initialise();
-#if SD_DMA_ENABLED
-	SD_DMA_initialise();
-#endif
 
 	// main part of system
 	process();
@@ -100,6 +97,9 @@ void process(void)
 {
 	// critical initialisations
 	Vector_initialise();
+#if SD_DMA_ENABLED
+	SD_DMA_initialise();
+#endif
 	//*Suspend_initialise();
 	Watchdog_initialise();
 	Serial_initialise();
