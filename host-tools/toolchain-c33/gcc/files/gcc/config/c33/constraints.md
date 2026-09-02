@@ -91,6 +91,16 @@
   (and (match_code "mem")
        (match_test "c33_short_memory_p (op)")))
 
+;; The bit instructions address memory through a general base register only;
+;; they cannot encode %sp.  bit_memory_operand accepts a pseudo before
+;; allocation, so the operands must carry a constraint that matches the
+;; predicate -- a bare "m" lets reload settle on a %sp-relative frame slot
+;; that the predicate then rejects, leaving the insn unsplittable in final.
+(define_memory_constraint "Y"
+  "Memory usable by the bit instructions: a non-%sp base, optionally displaced."
+  (and (match_code "mem")
+       (match_test "c33_bit_memory_p (op)")))
+
 (define_constraint "R"
   "@internal"
   (match_test "special_symbolref_operand (op, VOIDmode)"))
