@@ -42,13 +42,12 @@ lzma
 
   Decompression library used by the wiki-app program.
 
-mahatma
+grifo
 
-  Startup code for the wiki-app program, this produces the statically
-  linked WikiReader application that is installed on the SD card as
-  kernel.elf This only contains some interface code between the
-  drivers and the higher level application (in the wiki-app directory
-  one level up).
+  The WikiReader kernel.  Its build installs grifo.elf on the SD card as
+  kernel.elf; init.app and wiki.app are separate applications using its
+  system-call interface.  Kernel block reads use SPI HSDMA/IDMA by default;
+  SD_DMA=NO selects the matched PIO path for comparison.
 
 mbr
 
@@ -87,4 +86,3 @@ Mk
 scripts
 
   Some scripts used during early testing
-

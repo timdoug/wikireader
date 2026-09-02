@@ -1,6 +1,11 @@
 A way to use a 32 bit system on 64 bit host
 ===========================================
 
+HISTORICAL: this is a workaround for building the original GCC 3.3.2 port.
+The maintained GCC 16.2 C33 toolchain builds natively on 64-bit hosts; see
+host-tools/toolchain-c33/README.md.  The recipe below is retained only for
+reproducing the legacy compiler.
+
 1. install schroot and debootstrap
 ----------------------------------
 

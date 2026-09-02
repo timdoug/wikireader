@@ -85,7 +85,12 @@ optimization level, ABI hooks, or target flags.
 | `-memcpy` | Retained C33 target option. |
 
 The firmware currently uses `-mc33pe -mno-long-calls -medda32 -O2`.
-Boot stages use `-Os` and section garbage collection to fit A0.
+Boot stages use `-Os` and section garbage collection to fit A0. A current
+full-FLASH A/B retains `-O2` for the runtime: `-Os` makes the installed
+kernel/init/wiki files 9.1% smaller and retires 5.2% fewer instructions in
+article retrieval, but is 3.2% slower under the current SDRAM/bus timing
+model. See [`../HANDOFF.md`](../HANDOFF.md) for the complete measurements and
+hardware-calibration caveat.
 
 ## ABI validation
 

@@ -145,6 +145,28 @@ The pre-kernel MBR/menu/file-loader still reads by PIO. Kernel block reads use
 DMA; card writes remain PIO. The file-loader fits A0 with 371 bytes of live
 headroom. The menu is tighter: its BSS ends 18 bytes below the end of A0.
 
+### GCC 16 optimization benchmark
+
+A clean full-FLASH `LOVE` search/article A/B rebuilt the complete runtime stack
+(`kernel.elf`, `init.app`, and `wiki.app`) at either `-O2` or `-Os`. The A0
+MBR/menu/file-loader remained at their required `-Os` in both images. Each run
+repeated exactly, and the final framebuffers have the same SHA-256 digest.
+
+| Metric | `-O2` | `-Os` | `-Os` change |
+| --- | ---: | ---: | ---: |
+| installed runtime files | 215,172 B | 195,664 B | -9.1% |
+| reset to wiki main loop | 786.7 ms | 798.3 ms | +1.5% |
+| article interval, instructions | 55,588,282 | 52,724,316 | -5.2% |
+| article interval, modeled time | 3680.09 ms | 3796.75 ms | +3.2% |
+| reset to article completion, instructions | 136,677,103 | 132,298,914 | -3.2% |
+| reset to article completion, modeled time | 11860.6 ms | 12057.8 ms | +1.7% |
+| modeled SDRAM wait cycles | 343,337,791 | 361,692,295 | +5.3% |
+
+Keep `-O2` as the runtime default. On the current model, `-Os` executes less
+code but loses more time to SDRAM/bus stalls. This is a medium-confidence
+ordering, not a hardware measurement: absolute SD latency and conservative
+cross-bank overlap still need physical calibration.
+
 ## Known boundaries
 
 ### Toolchain feature debt

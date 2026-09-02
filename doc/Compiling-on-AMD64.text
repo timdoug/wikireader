@@ -1,6 +1,11 @@
 Compiling toolchain and source on an AMD64/IA64 system
 ======================================================
 
+HISTORICAL: this is a workaround for the original GCC 3.3.2 port.  The
+maintained GCC 16.2 C33 toolchain builds natively on 64-bit hosts; see
+host-tools/toolchain-c33/README.md.  The recipe below is retained only for
+reproducing the legacy compiler.
+
 NOTE: This method has be superseded by using schroot
       as described in the file:  Using-schroot.text
 

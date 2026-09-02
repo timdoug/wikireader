@@ -41,12 +41,11 @@ GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 &
 
 # Optimisation level, overridable so the toolchain work can A/B it.
 #
-# -O2 rather than -Os.  On gcc 16 the size setting costs 33% on an article
-# load -- 4.20M instructions against 3.15M -- and buys about 1% of image
-# size; -O3 is slower again on boot and larger than the original toolchain's
-# output.  On gcc 3.3.2 the choice is a wash: -O2 takes 0.17% off boot and
-# puts about 1% back onto both images.  Measured across
-# {-Os,-O1,-O2,-O3} x {absolute,%r15-relative}, see toolchain-c33/HANDOFF.md.
+# Keep -O2 after a current full-FLASH gcc 16 A/B.  -Os makes the installed
+# kernel/init/wiki files 9.1% smaller and retires 5.2% fewer instructions in
+# article retrieval, but the current SDRAM/bus model predicts 3.2% more time.
+# Both variants repeat exactly and render identically.  See
+# host-tools/toolchain-c33/HANDOFF.md for measurements and hardware caveats.
 OPT ?= -O2
 
 # scall reaches +/-4MB and the largest image here is 158kB, so -mlong-calls
@@ -174,4 +173,3 @@ clean:
 	${RM} -r lib
 
 -include $(wildcard *.d) dummy
-

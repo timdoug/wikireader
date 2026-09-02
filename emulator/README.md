@@ -147,6 +147,34 @@ that reduces executed work from 160,069,719 to 151,391,234 instructions and
 modeled time from 6094.8 to 6015.4 ms. Both paths read 915 blocks, perform the
 same 468,480 HSDMA and 467,565 IDMA transfers, and produce identical screens.
 
+A separate clean full-FLASH A/B rebuilt the whole GCC 16 runtime stack at
+`-O2` or `-Os`; the size-constrained MBR/menu/file-loader stayed at `-Os` in
+both images. The installed file sizes are:
+
+| Runtime file | `-O2` | `-Os` | `-Os` change |
+| --- | ---: | ---: | ---: |
+| `kernel.elf` | 49,876 B | 43,408 B | -13.0% |
+| `init.app` | 2,368 B | 2,208 B | -6.8% |
+| `wiki.app` | 162,928 B | 150,048 B | -7.9% |
+| total | 215,172 B | 195,664 B | -9.1% |
+
+The same `LOVE` workflow produced:
+
+| Metric | `-O2` | `-Os` | `-Os` change |
+| --- | ---: | ---: | ---: |
+| reset to wiki main loop | 786.7 ms | 798.3 ms | +1.5% |
+| article interval, instructions | 55,588,282 | 52,724,316 | -5.2% |
+| article interval, modeled time | 3680.09 ms | 3796.75 ms | +3.2% |
+| reset to article completion, instructions | 136,677,103 | 132,298,914 | -3.2% |
+| reset to article completion, modeled time | 11860.6 ms | 12057.8 ms | +1.7% |
+| SDRAM wait cycles | 343,337,791 | 361,692,295 | +5.3% |
+
+Both variants repeated cycle-for-cycle and produced the same final framebuffer
+(SHA-256 `5d024db6c27fd91b88099d21a002077b2d876893ba1af4a1dd07f8f2424529f0`).
+`-Os` retires fewer instructions, but its extra modeled SDRAM/bus stalls make
+the article interval 3.2% slower, so `-O2` remains the runtime default. Treat
+that small ordering as medium confidence until physical timing calibration.
+
 Build the matched modern kernel paths with `SD_DMA=YES` (default) or
 `SD_DMA=NO`. Firmware Makefiles default to the original compiler, so select
 the modern prefix explicitly when required:

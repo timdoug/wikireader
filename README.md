@@ -1,6 +1,20 @@
 # Wikireader build utilities
 This repo (and docker container) contain the tools necessary to build an updated wikireader image.
 
+## Modern firmware, toolchain, and emulator
+
+The maintained C33 path uses binutils 2.47 and GCC 16.2 and builds the complete
+WikiReader firmware. The full-system emulator boots the serial-FLASH chain and
+SD-card applications, including the DMA-enabled kernel. Start with
+[`host-tools/toolchain-c33/HANDOFF.md`](host-tools/toolchain-c33/HANDOFF.md) for
+current status, validation, performance results, known boundaries, and next
+work; see [`emulator/README.md`](emulator/README.md) for emulator use.
+
+The original binutils 2.10.1 / GCC 3.3.2 build remains available as an ABI and
+assembler oracle. The older build notes under `doc/` describe that legacy path
+and its historical 32-bit-host workaround, not a requirement of the modern
+toolchain.
+
 ## Differences between this and the original wikireader repo
 * This repo includes an updated fork of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) script built specifically for the wikireader. This file is used to dedupe and generate the plaintext XML and makes processing MUCH faster.
 * The docker container is pre-built with everything you need.
