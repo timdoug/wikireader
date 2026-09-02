@@ -67,26 +67,38 @@ static int read_u64(const ZIM_ARCHIVE *archive, uint64_t offset,
 static int read_cstring(const ZIM_ARCHIVE *archive, uint64_t *offset,
 			char *text, size_t capacity)
 {
+	unsigned char chunk[64];
 	size_t used = 0;
 	int truncated = 0;
 
 	if (!capacity)
 		return ZIM_ERR_RANGE;
 	for (;;) {
-		unsigned char c;
-		int rc = read_exact(archive, *offset, &c, 1);
+		size_t amount;
+		size_t i;
+		int rc;
+
+		if (*offset >= archive->io.size)
+			return ZIM_ERR_RANGE;
+		amount = sizeof(chunk);
+		if ((uint64_t)amount > archive->io.size - *offset)
+			amount = (size_t)(archive->io.size - *offset);
+		rc = read_exact(archive, *offset, chunk, amount);
 		if (rc)
 			return rc;
-		(*offset)++;
-		if (!c)
-			break;
-		if (used + 1 < capacity)
-			text[used++] = (char)c;
-		else
-			truncated = 1;
+		for (i = 0; i < amount; i++) {
+			if (!chunk[i]) {
+				*offset += i + 1;
+				text[used] = '\0';
+				return truncated ? ZIM_ERR_TRUNCATED : ZIM_OK;
+			}
+			if (used + 1 < capacity)
+				text[used++] = (char)chunk[i];
+			else
+				truncated = 1;
+		}
+		*offset += amount;
 	}
-	text[used] = '\0';
-	return truncated ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
 static int compare_dirent_path(char name_space, const char *path,
