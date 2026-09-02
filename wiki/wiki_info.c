@@ -32,7 +32,11 @@
 #include "guilib.h"
 
 WIKI_LIST wiki_list_default[] = {
+#ifdef ZIM_APP
+	{1, 1, WIKI_CAT_ENCYCLOPAEDIA, "en", "zim", KEYBOARD_CHAR, "ZIM"},
+#else
 	{1, 1, WIKI_CAT_ENCYCLOPAEDIA, "en", "enpedia", KEYBOARD_CHAR, ""},
+#endif
 };
 
 WIKI_LIST *wiki_list;
@@ -200,7 +204,13 @@ void init_wiki_info(void)
 	ssize_t nLineChars;
 
 	nWikiCount = 0;
+#ifdef ZIM_APP
+	/* The ZIM application has one fixed data directory. The native wiki
+	 * catalog describes a different storage format and must not be mixed in. */
+	fd = -1;
+#else
 	fd = file_open("wiki.inf", FILE_OPEN_READ);
+#endif
 	if (fd >= 0)
 	{
 		unsigned int nTempWikiList = 0;

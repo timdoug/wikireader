@@ -21,6 +21,7 @@ KERNEL*
 stamp-*
 /image*
 /screen.pgm
+/*.zim
 work*
 *.xml
 log
