@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/main.o
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma check difftest test-manual
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual
 
 all: wremu
 
@@ -109,6 +109,24 @@ test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o 
 	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o
 	/tmp/test_dma
 
+# Direct kernel boot reaches init promptly even though the CPU sleeps between
+# SPI DMA bytes. This catches accidentally stretching each byte to a GUI poll.
+test-gui-dma: wremu images/wrcard.img images/grifo.elf
+	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 5000000 \
+		-c images/wrcard.img images/grifo.elf > /tmp/test_gui_dma.log 2>&1
+	grep -q 'init starting' /tmp/test_gui_dma.log
+
+# Exercise the same boot chain used by the live GUI. Besides advancing short
+# SPI deadlines promptly, this verifies that the loader enables the LCD and
+# that SDL presents a non-initial frame.
+test-gui-boot: wremu images/wrcard.img ../samo-lib/mbr/flash.rom
+	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 10000000 \
+		-e ../samo-lib/mbr/flash.rom -c images/wrcard.img \
+		> /tmp/test_gui_boot.log 2>&1
+	grep -Eq -- '--- lcd: [1-9][0-9]* register writes' /tmp/test_gui_boot.log
+	grep -Eq -- '--- display: [0-9]+ update calls, [2-9][0-9]* presents' \
+		/tmp/test_gui_boot.log
+
 # Differential test against the real cross compiler: the same C source
 # compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both
 # ways, outputs diffed. Needs host-tools/toolchain-install.
@@ -121,7 +139,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-wdt test-dma
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-wdt test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

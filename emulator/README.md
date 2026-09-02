@@ -46,16 +46,19 @@ native-versus-C33 execution comparison; see
 
 ## Run
 
-Direct kernel ELF boot is convenient for debugging:
+Direct kernel ELF boot is convenient for CPU and firmware debugging, but it
+skips the file-loader's peripheral handoff:
 
 ```sh
-./wremu -g -c images/wrcard.img images/grifo.elf
+./wremu -c images/wrcard.img images/grifo.elf
 ```
 
-Hardware-style boot uses the serial FLASH image:
+Use the serial-FLASH boot chain for the live panel. It performs the real LCD
+controller initialization before loading the kernel:
 
 ```sh
-./wremu -g -e ../samo-lib/mbr/flash.rom -c images/wrcard.img
+./wremu -g -N 3,1000000 -e ../samo-lib/mbr/flash.rom \
+    -c images/wrcard.img
 ```
 
 With a window, the device initially appears powered off. Press `P` or click
