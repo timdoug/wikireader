@@ -144,15 +144,19 @@ static int find_entry(ZIM_FAT_VOLUME *volume, uint32_t directory_cluster,
 	return 1;
 }
 
-int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
-		    void *opaque, const char directory[11],
-		    const char filename[11])
+int zim_fat_open_83_progress(ZIM_FAT_FILE *file,
+			     zim_sector_read_fn read_sectors, void *opaque,
+			     const char directory[11], const char filename[11],
+			     zim_fat_progress_fn progress,
+			     void *progress_opaque)
 {
 	uint32_t directory_cluster;
 	uint32_t ignored_size;
 	uint32_t file_cluster;
 	uint32_t cluster_bytes;
 	uint32_t i;
+	uint32_t progress_step;
+	uint32_t next_progress;
 	unsigned char attributes;
 
 	if (!file || !read_sectors || !directory || !filename)
@@ -176,6 +180,12 @@ int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
 	file->clusters = malloc((size_t)file->cluster_count * sizeof(uint32_t));
 	if (!file->clusters)
 		return -1;
+	progress_step = file->cluster_count / 100;
+	if (!progress_step)
+		progress_step = 1;
+	next_progress = progress_step;
+	if (progress)
+		progress(progress_opaque, 0, file->cluster_count);
 	for (i = 0; i < file->cluster_count; i++) {
 		if (file_cluster < 2 || file_cluster >= FAT32_END) {
 			zim_fat_close(file);
@@ -187,8 +197,21 @@ int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
 			zim_fat_close(file);
 			return -1;
 		}
+		if (progress &&
+		    (i + 1 >= next_progress || i + 1 == file->cluster_count)) {
+			progress(progress_opaque, i + 1, file->cluster_count);
+			next_progress += progress_step;
+		}
 	}
 	return 0;
+}
+
+int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
+		    void *opaque, const char directory[11],
+		    const char filename[11])
+{
+	return zim_fat_open_83_progress(file, read_sectors, opaque, directory,
+					filename, NULL, NULL);
 }
 
 static int read_cached_sector(ZIM_FAT_FILE *file, uint32_t sector,

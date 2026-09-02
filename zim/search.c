@@ -24,6 +24,10 @@
 #include "zim_html.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
+#define ARCHIVE_PROGRESS_X 30
+#define ARCHIVE_PROGRESS_Y 118
+#define ARCHIVE_PROGRESS_WIDTH 180
+#define ARCHIVE_PROGRESS_HEIGHT 10
 
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
@@ -41,6 +45,7 @@ static unsigned char search_string[MAX_TITLE_SEARCH];
 static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
+static unsigned int archive_progress_pixels;
 
 bool search_string_changed;
 bool search_string_changed_remove;
@@ -80,6 +85,49 @@ static int device_read_at(void *opaque, uint64_t offset, void *buffer,
 			       length);
 }
 
+static void archive_progress(void *opaque, uint32_t completed, uint32_t total)
+{
+	unsigned char *framebuffer = lcd_get_framebuffer();
+	unsigned int inner_width = ARCHIVE_PROGRESS_WIDTH - 2;
+	unsigned int pixels;
+	unsigned int x;
+	unsigned int y;
+	(void)opaque;
+
+	if (!total)
+		return;
+	if (!completed) {
+		archive_progress_pixels = 0;
+		for (x = ARCHIVE_PROGRESS_X;
+		     x < ARCHIVE_PROGRESS_X + ARCHIVE_PROGRESS_WIDTH; x++) {
+			guilib_buffer_set_pixel(framebuffer, (int)x,
+						ARCHIVE_PROGRESS_Y);
+			guilib_buffer_set_pixel(framebuffer, (int)x,
+						ARCHIVE_PROGRESS_Y +
+						ARCHIVE_PROGRESS_HEIGHT - 1);
+		}
+		for (y = ARCHIVE_PROGRESS_Y + 1;
+		     y < ARCHIVE_PROGRESS_Y + ARCHIVE_PROGRESS_HEIGHT - 1; y++) {
+			guilib_buffer_set_pixel(framebuffer, ARCHIVE_PROGRESS_X,
+						(int)y);
+			guilib_buffer_set_pixel(framebuffer,
+						ARCHIVE_PROGRESS_X +
+						ARCHIVE_PROGRESS_WIDTH - 1, (int)y);
+		}
+		return;
+	}
+	pixels = (unsigned int)(((uint64_t)completed * inner_width) / total);
+	if (pixels > inner_width)
+		pixels = inner_width;
+	for (x = archive_progress_pixels; x < pixels; x++)
+		for (y = ARCHIVE_PROGRESS_Y + 1;
+		     y < ARCHIVE_PROGRESS_Y + ARCHIVE_PROGRESS_HEIGHT - 1; y++)
+			guilib_buffer_set_pixel(framebuffer,
+						ARCHIVE_PROGRESS_X + 1 + (int)x,
+						(int)y);
+	archive_progress_pixels = pixels;
+}
+
 static void open_archive(int wiki_index)
 {
 	ZIM_IO io;
@@ -89,8 +137,9 @@ static void open_archive(int wiki_index)
 		return;
 	if (archive_file.clusters)
 		zim_fat_close(&archive_file);
-	if (zim_fat_open_83(&archive_file, device_read_sectors, NULL,
-			    "ZIM        ", "WIKI    ZIM"))
+	if (zim_fat_open_83_progress(&archive_file, device_read_sectors, NULL,
+				     "ZIM        ", "WIKI    ZIM",
+				     archive_progress, NULL))
 		fatal_error("zim/wiki.zim not found");
 	io.read_at = device_read_at;
 	io.opaque = &archive_file;

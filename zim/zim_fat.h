@@ -10,6 +10,8 @@
 
 typedef int (*zim_sector_read_fn)(void *opaque, uint32_t sector,
 				  void *buffer, uint32_t count);
+typedef void (*zim_fat_progress_fn)(void *opaque, uint32_t completed,
+				    uint32_t total);
 
 typedef struct {
 	zim_sector_read_fn read_sectors;
@@ -39,6 +41,11 @@ typedef struct {
 int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
 		    void *opaque, const char directory[11],
 		    const char filename[11]);
+int zim_fat_open_83_progress(ZIM_FAT_FILE *file,
+			     zim_sector_read_fn read_sectors, void *opaque,
+			     const char directory[11], const char filename[11],
+			     zim_fat_progress_fn progress,
+			     void *progress_opaque);
 int zim_fat_read_at(ZIM_FAT_FILE *file, uint64_t offset,
 		    void *buffer, size_t length);
 void zim_fat_close(ZIM_FAT_FILE *file);

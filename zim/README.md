@@ -41,14 +41,17 @@ the card layout above, run it from the repository root with:
 ```
 
 `-N 3,1000000` presses the emulated power switch once. Initial archive setup
-takes roughly ten seconds in the emulator before the keyboard appears.
+scans the archive's FAT chain once and reports that work with a progress bar.
+The current real-boot profile reaches search rendering after about 6.1 seconds
+of modeled guest time; emulator wall time depends on the host and timing mode.
 
 ## Implemented
 
 - ZIM 6 header, path index, and `X/listing/titleOrdered/v1` title index
 - prefix search without a generated sidecar index
 - redirects, uncompressed clusters, and Zstandard clusters
-- fragmented FAT32 files through a one-time cluster map and direct sector I/O
+- fragmented FAT32 files through a one-time cluster map, batched FAT-table
+  reads, and cached direct sector I/O
 - HTML text extraction with structural breaks for headings and paragraphs,
   plus lists and linearized tables
 - UTF-8/entity handling and font-metric word wrapping into the existing
