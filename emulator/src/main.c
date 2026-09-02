@@ -1012,9 +1012,9 @@ int main(int argc, char **argv)
 	}
 
 done:
-	if (stop && strcmp(stop, "breakpoint")) {
-		printf("\n%s\n", stop);
-		printf("last %d PCs before running away:\n", RING);
+	if (stop && strcmp(stop, "breakpoint") &&
+	    strcmp(stop, "window closed") && strcmp(stop, "powered off")) {
+		printf("\nlast %d PCs before %s:\n", RING, stop);
 		for (unsigned i = 0; i < RING; i++) {
 			uint32_t p = ring[(rn + i) % RING];
 			c33_disasm(&cpu, p, dis, sizeof dis);
@@ -1152,6 +1152,8 @@ done:
 			printf("  %08x  %s\n", pp, dis);
 		}
 	}
+	else if (stop)
+		printf("stop reason: %s\n", stop);
 	else if (cpu.halted)
 		printf("cpu halted cleanly\n");
 	else
