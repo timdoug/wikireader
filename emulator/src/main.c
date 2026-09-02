@@ -880,6 +880,22 @@ int main(int argc, char **argv)
 		 * and is what the guest would have seen anyway.
 		 */
 		if (cpu.sleeping && !cpu.irq_pending && !cpu.nmi_pending) {
+			/*
+			 * A GUI uses wall-clock pacing for human-scale timer waits, but
+			 * SPI characters are only a handful of MCLK cycles apart.  Do
+			 * not turn each DMA byte into one 10 ms window poll: a 512-byte
+			 * sector then takes seconds and firmware appears to hang while
+			 * mounting the card.  Advance to the SPI deadline exactly as the
+			 * headless path does; the next loop completes the byte and lets
+			 * the DMA pipeline schedule the following one.
+			 */
+			if (disp.open && sd.busy && sd.deadline > cpu.clk) {
+				uint64_t skip = sd.deadline - cpu.clk;
+				cpu.cycles += skip;
+				cpu.clk += skip;
+				idle_skipped += skip;
+				continue;
+			}
 			if (disp.open) {
 				if (!display_update(&disp)) {
 					stop = "window closed";
