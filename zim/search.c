@@ -310,7 +310,8 @@ int check_search_string_change(void)
 
 void search_reload(int flag)
 {
-	unsigned int display_count = keyboard_get_mode() == KEYBOARD_NONE ?
+	int keyboard_mode = keyboard_get_mode();
+	unsigned int display_count = keyboard_mode == KEYBOARD_NONE ?
 		NUMBER_OF_FIRST_PAGE_RESULTS : NUMBER_OF_RESULTS_KEYBOARD;
 	unsigned int y = RESULT_START;
 	unsigned int i;
@@ -318,7 +319,11 @@ void search_reload(int flag)
 	(void)flag;
 
 	guilib_fb_lock();
-	guilib_clear();
+	if (keyboard_mode == KEYBOARD_NONE)
+		guilib_clear();
+	else
+		guilib_clear_area(0, 0, LCD_BUF_WIDTH_PIXELS - 1,
+				  LCD_HEIGHT - KEYBOARD_HEIGHT - 1);
 	if (!search_length) {
 		draw_logo_or_type_a_word(0, 35, 239,
 					LCD_HEIGHT - KEYBOARD_HEIGHT - 1);
@@ -344,7 +349,6 @@ void search_reload(int flag)
 			      results.title[i], ustrlen(results.title[i]), 0);
 		y += RESULT_HEIGHT;
 	}
-	keyboard_paint();
 	guilib_fb_unlock();
 }
 
@@ -355,8 +359,32 @@ void search_result_display(void)
 
 void search_to_be_reloaded(int operation, int reload_flag)
 {
-	if (operation == SEARCH_TO_BE_RELOADED_SET)
-		search_reload(reload_flag);
+	static int pending;
+	static int pending_flag;
+
+	switch (operation) {
+	case SEARCH_TO_BE_RELOADED_CLEAR:
+		pending = 0;
+		break;
+	case SEARCH_TO_BE_RELOADED_SET:
+		if (reload_flag == SEARCH_RELOAD_NORMAL &&
+		    keyboard_key_inverted() > 0) {
+			pending = 1;
+			pending_flag = reload_flag;
+		} else {
+			search_reload(reload_flag);
+			pending = 0;
+		}
+		break;
+	case SEARCH_TO_BE_RELOADED_CHECK:
+		if (pending && keyboard_key_inverted() <= 0) {
+			search_reload(pending_flag);
+			pending = 0;
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 void search_open_article(int selection)
