@@ -180,10 +180,33 @@ int zim_fat_open_83(ZIM_FAT_FILE *file, zim_sector_read_fn read_sectors,
 	return 0;
 }
 
-int zim_fat_read_at(const ZIM_FAT_FILE *file, uint64_t offset,
+static int read_cached_sector(ZIM_FAT_FILE *file, uint32_t sector,
+			      const unsigned char **data)
+{
+	unsigned int i;
+	unsigned int slot;
+
+	for (i = 0; i < ZIM_FAT_DATA_CACHE_COUNT; i++) {
+		if (file->data_cache_valid[i] &&
+		    file->cached_data_sector[i] == sector) {
+			*data = file->data_cache[i];
+			return 0;
+		}
+	}
+	slot = file->next_data_cache;
+	if (read_one(&file->volume, sector, file->data_cache[slot]))
+		return -1;
+	file->cached_data_sector[slot] = sector;
+	file->data_cache_valid[slot] = 1;
+	file->next_data_cache = (unsigned char)((slot + 1) %
+		ZIM_FAT_DATA_CACHE_COUNT);
+	*data = file->data_cache[slot];
+	return 0;
+}
+
+int zim_fat_read_at(ZIM_FAT_FILE *file, uint64_t offset,
 		    void *destination, size_t length)
 {
-	unsigned char scratch[FAT_SECTOR_SIZE];
 	unsigned char *output = destination;
 	uint32_t sector_index;
 	uint32_t sector_offset;
@@ -214,12 +237,13 @@ int zim_fat_read_at(const ZIM_FAT_FILE *file, uint64_t offset,
 			amount = (size_t)count * FAT_SECTOR_SIZE;
 			sector_index += count;
 		} else {
-			if (read_one(&file->volume, sector, scratch))
+			const unsigned char *cached;
+			if (read_cached_sector(file, sector, &cached))
 				return -1;
 			amount = FAT_SECTOR_SIZE - sector_offset;
 			if (amount > length)
 				amount = length;
-			memcpy(output, scratch + sector_offset, amount);
+			memcpy(output, cached + sector_offset, amount);
 			sector_offset = 0;
 			sector_index++;
 		}

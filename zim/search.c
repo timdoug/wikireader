@@ -76,7 +76,7 @@ static int device_read_sectors(void *opaque, uint32_t sector, void *buffer,
 static int device_read_at(void *opaque, uint64_t offset, void *buffer,
 			  size_t length)
 {
-	return zim_fat_read_at((const ZIM_FAT_FILE *)opaque, offset, buffer,
+	return zim_fat_read_at((ZIM_FAT_FILE *)opaque, offset, buffer,
 			       length);
 }
 

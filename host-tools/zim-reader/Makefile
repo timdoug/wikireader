@@ -21,8 +21,13 @@ zimfatdump: zimfatdump.c ../../zim/zim_archive.c ../../zim/zim_archive.h \
 	$(CC) $(CFLAGS) -o $@ zimfatdump.c ../../zim/zim_archive.c \
 		../../zim/zim_fat.c
 
-check: zimdump
+
+fat-cache-test: fat-cache-test.c ../../zim/zim_fat.c ../../zim/zim_fat.h
+	$(CC) $(CFLAGS) -o $@ fat-cache-test.c ../../zim/zim_fat.c
+
+check: zimdump fat-cache-test
+	./fat-cache-test
 	./check.sh
 
 clean:
-	rm -f zimdump zimfatdump zstddeclib.o
+	rm -f zimdump zimfatdump fat-cache-test zstddeclib.o
