@@ -45,6 +45,7 @@ static unsigned char search_string[MAX_TITLE_SEARCH];
 static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
+static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
 static unsigned int archive_progress_pixels;
 
 bool search_string_changed;
@@ -311,6 +312,9 @@ int check_search_string_change(void)
 void search_reload(int flag)
 {
 	int keyboard_mode = keyboard_get_mode();
+	unsigned char *framebuffer = lcd_get_framebuffer();
+	unsigned char *render_buffer = framebuffer;
+	int buffered = keyboard_mode != KEYBOARD_NONE && search_length;
 	unsigned int display_count = keyboard_mode == KEYBOARD_NONE ?
 		NUMBER_OF_FIRST_PAGE_RESULTS : NUMBER_OF_RESULTS_KEYBOARD;
 	unsigned int y = RESULT_START;
@@ -321,9 +325,17 @@ void search_reload(int flag)
 	guilib_fb_lock();
 	if (keyboard_mode == KEYBOARD_NONE)
 		guilib_clear();
-	else
+	else if (buffered) {
+		render_buffer = (unsigned char *)search_render_buffer;
+		memcpy(render_buffer, framebuffer, LCD_BUFFER_SIZE_BYTES);
+		guilib_buffer_clear_area(render_buffer, LCD_WIDTH, LCD_HEIGHT,
+					 LCD_BUFFER_WIDTH_BYTES, 0, 0,
+					 LCD_BUF_WIDTH_PIXELS - 1,
+					 LCD_HEIGHT - KEYBOARD_HEIGHT - 1);
+	} else {
 		guilib_clear_area(0, 0, LCD_BUF_WIDTH_PIXELS - 1,
 				  LCD_HEIGHT - KEYBOARD_HEIGHT - 1);
+	}
 	if (!search_length) {
 		draw_logo_or_type_a_word(0, 35, 239,
 					LCD_HEIGHT - KEYBOARD_HEIGHT - 1);
@@ -332,8 +344,17 @@ void search_reload(int flag)
 		return;
 	}
 	search_prefix(prefix);
-	render_string_right(SEARCH_HEADING_FONT_IDX, LCD_LEFT_MARGIN,
-			    LCD_TOP_MARGIN + 2, prefix, ustrlen(prefix), 0);
+	if (buffered)
+		buf_render_string_right(render_buffer,
+					LCD_BUF_WIDTH_PIXELS - LCD_LEFT_MARGIN,
+					LCD_HEIGHT, LCD_BUFFER_WIDTH_BYTES,
+					SEARCH_HEADING_FONT_IDX,
+					LCD_LEFT_MARGIN, LCD_TOP_MARGIN + 2,
+					prefix, ustrlen(prefix), 0);
+	else
+		render_string_right(SEARCH_HEADING_FONT_IDX, LCD_LEFT_MARGIN,
+				    LCD_TOP_MARGIN + 2, prefix,
+				    ustrlen(prefix), 0);
 	article_link_count = 0;
 	is_title_in_result_list(0, NULL);
 	for (i = 0; i < results.count && i < display_count; i++) {
@@ -345,10 +366,21 @@ void search_reload(int flag)
 				LCD_BUF_WIDTH_PIXELS | ((end_y - 2) << 8);
 			articleLink[article_link_count++].article_id = results.article[i];
 		}
-		render_string(SEARCH_LIST_FONT_IDX, LCD_LEFT_MARGIN, y,
-			      results.title[i], ustrlen(results.title[i]), 0);
+		if (buffered)
+			buf_render_string(render_buffer, LCD_BUF_WIDTH_PIXELS,
+					  LCD_BUFFER_WIDTH_BYTES,
+					  SEARCH_LIST_FONT_IDX, LCD_LEFT_MARGIN,
+					  y, results.title[i],
+					  ustrlen(results.title[i]), 0);
+		else
+			render_string(SEARCH_LIST_FONT_IDX, LCD_LEFT_MARGIN, y,
+				      results.title[i],
+				      ustrlen(results.title[i]), 0);
 		y += RESULT_HEIGHT;
 	}
+	if (buffered)
+		memcpy(framebuffer, render_buffer,
+		       (LCD_HEIGHT - KEYBOARD_HEIGHT) * LCD_BUFFER_WIDTH_BYTES);
 	guilib_fb_unlock();
 }
 
@@ -367,6 +399,11 @@ void search_to_be_reloaded(int operation, int reload_flag)
 		pending = 0;
 		break;
 	case SEARCH_TO_BE_RELOADED_SET:
+		/* A key event requests a heading-only repaint before the lookup.
+		 * Keep the old complete frame until the result-bearing repaint is
+		 * ready instead of showing a transient mixture of both searches. */
+		if (reload_flag == SEARCH_RELOAD_NO_POPULATE)
+			break;
 		if (reload_flag == SEARCH_RELOAD_NORMAL &&
 		    keyboard_key_inverted() > 0) {
 			pending = 1;
