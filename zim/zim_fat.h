@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+#define ZIM_FAT_TABLE_CACHE_SECTORS 8
 #define ZIM_FAT_DATA_CACHE_COUNT 4
 
 typedef int (*zim_sector_read_fn)(void *opaque, uint32_t sector,
@@ -19,9 +20,9 @@ typedef struct {
 	uint32_t root_cluster;
 	uint32_t sectors_per_cluster;
 	uint32_t sectors_per_fat;
-	uint32_t cached_fat_sector;
-	unsigned char fat_cache[512];
-	int fat_cache_valid;
+	uint32_t cached_fat_byte_offset;
+	uint32_t cached_fat_bytes;
+	unsigned char fat_cache[ZIM_FAT_TABLE_CACHE_SECTORS * 512];
 } ZIM_FAT_VOLUME;
 
 typedef struct {

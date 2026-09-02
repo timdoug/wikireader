@@ -78,14 +78,25 @@ static int next_cluster(ZIM_FAT_VOLUME *volume, uint32_t cluster,
 			uint32_t *next)
 {
 	uint32_t byte_offset = cluster * 4;
-	uint32_t sector = volume->fat_start + byte_offset / FAT_SECTOR_SIZE;
-	if (!volume->fat_cache_valid || volume->cached_fat_sector != sector) {
-		if (read_one(volume, sector, volume->fat_cache))
+	uint32_t cache_offset = byte_offset - volume->cached_fat_byte_offset;
+
+	if (cache_offset >= volume->cached_fat_bytes) {
+		uint32_t sector = volume->fat_start +
+			byte_offset / FAT_SECTOR_SIZE;
+		uint32_t count = ZIM_FAT_TABLE_CACHE_SECTORS;
+		uint32_t fat_end = volume->fat_start + volume->sectors_per_fat;
+
+		if (count > fat_end - sector)
+			count = fat_end - sector;
+		if (!count || volume->read_sectors(volume->opaque, sector,
+						volume->fat_cache, count))
 			return -1;
-		volume->cached_fat_sector = sector;
-		volume->fat_cache_valid = 1;
+		volume->cached_fat_byte_offset =
+			(sector - volume->fat_start) * FAT_SECTOR_SIZE;
+		volume->cached_fat_bytes = count * FAT_SECTOR_SIZE;
+		cache_offset = byte_offset - volume->cached_fat_byte_offset;
 	}
-	*next = get_le32(volume->fat_cache + byte_offset % FAT_SECTOR_SIZE) &
+	*next = get_le32(volume->fat_cache + cache_offset) &
 		0x0fffffffUL;
 	return 0;
 }
