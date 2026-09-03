@@ -18,7 +18,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-FATFS_MODE = read-write
+FATFS_MODE = modern
 
 # +++START_UPDATE_MAKEFILE: Start of auto included code
 # The text between the +++ and --- tags is copied by the

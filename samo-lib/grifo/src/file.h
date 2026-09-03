@@ -49,6 +49,7 @@ typedef enum {
 	FILE_ERROR_NOT_ENABLED		= -10,
 	FILE_ERROR_NO_FILESYSTEM	= -11,
 	FILE_ERROR_INVALID_OBJECT	= -12,
+	FILE_ERROR_NOT_ENOUGH_CORE	= -13,
 //-MakeSystemCalls: error
 } File_ErrorType;
 
@@ -69,6 +70,8 @@ ssize_t File_read(int handle, void *buffer, size_t length);
 ssize_t File_write(int handle, void *buffer, size_t length);
 File_ErrorType File_sync(int handle);
 File_ErrorType File_lseek(int handle, unsigned long pos);
+File_ErrorType File_fastseek(int handle, unsigned long *table,
+			     unsigned long entries);
 //File_ErrorType File_ltell(int handle, unsigned long *pos); // not available yet
 
 //File_ErrorType File_ChangeDirectory(const char *directoryname);

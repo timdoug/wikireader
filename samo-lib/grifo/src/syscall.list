@@ -258,7 +258,9 @@
  (114 File_write ("ssize_t" "file_write" "int handle" "void *buffer" "size_t length"))
  (115 File_sync ("file_error_t" "file_sync" "int handle"))
  (116 File_lseek ("file_error_t" "file_lseek" "int handle" "unsigned long pos"))
- ;;(117 File_ltell ("file_error_t" "file_ltell" "int handle" "unsigned long *pos"))
+ (117 File_fastseek ("file_error_t" "file_fastseek" "int handle"
+                     "unsigned long *table" "unsigned long entries"))
+ ;;(118 File_ltell ("file_error_t" "file_ltell" "int handle" "unsigned long *pos"))
 
  ;;(120 File_ChangeDirectory ("file_error_t" "directory_chdir" "const char *directoryname"))
  ;;(121 File_CurrentDirectory ("file_error_t" "directory_cwd" "char *directoryname" "size_t length"))

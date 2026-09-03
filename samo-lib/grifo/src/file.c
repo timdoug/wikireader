@@ -23,7 +23,7 @@
 
 #include <string.h>
 
-#include <tff.h>
+#include <ff.h>
 #include <diskio.h>
 
 #include "file.h"
@@ -52,6 +52,60 @@ static DirectoryType DirectoryControlBlock[64];
 static FATFS TheFileSystem;
 
 
+static File_ErrorType FatResult(FRESULT result)
+{
+	switch (result) {
+	case FR_OK:
+		return FILE_ERROR_OK;
+	case FR_NOT_READY:
+		return FILE_ERROR_NOT_READY;
+	case FR_NO_FILE:
+		return FILE_ERROR_NO_FILE;
+	case FR_NO_PATH:
+		return FILE_ERROR_NO_PATH;
+	case FR_INVALID_NAME:
+		return FILE_ERROR_INVALID_NAME;
+	case FR_INVALID_DRIVE:
+		return FILE_ERROR_INVALID_DRIVE;
+	case FR_DENIED:
+		return FILE_ERROR_DENIED;
+	case FR_EXIST:
+		return FILE_ERROR_EXIST;
+	case FR_WRITE_PROTECTED:
+		return FILE_ERROR_WRITE_PROTECTED;
+	case FR_NOT_ENABLED:
+		return FILE_ERROR_NOT_ENABLED;
+	case FR_NO_FILESYSTEM:
+		return FILE_ERROR_NO_FILESYSTEM;
+	case FR_INVALID_OBJECT:
+		return FILE_ERROR_INVALID_OBJECT;
+	case FR_NOT_ENOUGH_CORE:
+		return FILE_ERROR_NOT_ENOUGH_CORE;
+	case FR_DISK_ERR:
+	case FR_INT_ERR:
+	default:
+		return FILE_ERROR_RW_ERROR;
+	}
+}
+
+
+static File_ErrorType DiskResult(DRESULT result)
+{
+	switch (result) {
+	case RES_OK:
+		return FILE_ERROR_OK;
+	case RES_WRPRT:
+		return FILE_ERROR_WRITE_PROTECTED;
+	case RES_NOTRDY:
+		return FILE_ERROR_NOT_READY;
+	case RES_ERROR:
+	case RES_PARERR:
+	default:
+		return FILE_ERROR_RW_ERROR;
+	}
+}
+
+
 void File_initialise(void)
 {
 	size_t i = 0;
@@ -68,7 +122,7 @@ void File_initialise(void)
 		disk_ioctl(0, CTRL_POWER, &b);
 		disk_initialize(0);
 	}
-	f_mount(0, &TheFileSystem);  // only possible value is zero
+	f_mount(&TheFileSystem, "", 1);
 }
 
 
@@ -137,7 +191,7 @@ File_ErrorType File_rename(const char *OldFilename, const char *NewFilename)
 		return FILE_ERROR_INVALID_NAME;
 	}
 	AutoPowerUp();
-	return -f_rename(OldFilename, NewFilename);
+	return FatResult(f_rename(OldFilename, NewFilename));
 }
 
 File_ErrorType File_delete(const char *filename)
@@ -146,7 +200,7 @@ File_ErrorType File_delete(const char *filename)
 		return FILE_ERROR_INVALID_NAME;
 	}
 	AutoPowerUp();
-	return -f_unlink(filename);
+	return FatResult(f_unlink(filename));
 }
 
 
@@ -158,7 +212,7 @@ File_ErrorType File_size(const char *filename, unsigned long *length)
 	FILINFO stat;
 
 	AutoPowerUp();
-	File_ErrorType rc = -f_stat(filename, &stat);
+	File_ErrorType rc = FatResult(f_stat(filename, &stat));
 	if (FILE_ERROR_OK == rc) {
 		*length = stat.fsize;  // stat is not filled on failure
 	}
@@ -178,6 +232,8 @@ File_ErrorType File_create(const char *filename, File_AccessType fam)
 
 File_ErrorType File_open(const char *filename, File_AccessType fam)
 {
+	File_ErrorType result;
+
 	if (NULL == filename) {
 		return FILE_ERROR_INVALID_NAME;
 	}
@@ -186,12 +242,13 @@ File_ErrorType File_open(const char *filename, File_AccessType fam)
 	for (i = 0; i < SizeOfArray(FileControlBlock); i++) {
 		if (!FileControlBlock[i].IsOpen) {
 			AutoPowerUp();
-			File_ErrorType rc = -f_open(&FileControlBlock[i].file, filename, fam);
-			if (FILE_ERROR_OK == rc) {
+			result = FatResult(f_open(&FileControlBlock[i].file,
+						  filename, (BYTE)fam));
+			if (FILE_ERROR_OK == result) {
 				FileControlBlock[i].IsOpen = true;
 				return i;  // handle 0...
 			}
-			break;
+			return result;
 		}
 	}
 	return FILE_ERROR_DENIED;
@@ -206,7 +263,10 @@ File_ErrorType File_close(int handle)
 		return FILE_ERROR_INVALID_OBJECT;
 	}
 	AutoPowerUp();
-	return -f_close(&file->file);
+	File_ErrorType result = FatResult(f_close(&file->file));
+	if (result == FILE_ERROR_OK)
+		file->IsOpen = false;
+	return result;
 }
 
 
@@ -220,7 +280,8 @@ ssize_t File_read(int handle, void *buffer, size_t length)
 
 	AutoPowerUp();
 	unsigned int count;
-	File_ErrorType rc = -f_read(&file->file, buffer, length, &count);
+	File_ErrorType rc = FatResult(f_read(&file->file, buffer, length,
+					       &count));
 	if (FILE_ERROR_OK == rc) {
 		return count;
 	}
@@ -238,7 +299,8 @@ ssize_t File_write(int handle, void *buffer, size_t length)
 
 	AutoPowerUp();
 	unsigned int count;
-	File_ErrorType rc = -f_write(&file->file, buffer, length, &count);
+	File_ErrorType rc = FatResult(f_write(&file->file, buffer, length,
+						&count));
 	if (FILE_ERROR_OK == rc) {
 		return count;
 	}
@@ -255,7 +317,7 @@ File_ErrorType File_sync(int handle)
 	}
 
 	AutoPowerUp();
-	return -f_sync(&file->file);
+	return FatResult(f_sync(&file->file));
 }
 
 
@@ -268,7 +330,32 @@ File_ErrorType File_lseek(int handle, unsigned long pos)
 	}
 
 	AutoPowerUp();
-	return -f_lseek(&file->file, pos);
+	return FatResult(f_lseek(&file->file, pos));
+}
+
+
+File_ErrorType File_fastseek(int handle, unsigned long *table,
+			     unsigned long entries)
+{
+	FileType *file = ValidateFileHandle(handle);
+	File_ErrorType result;
+
+	if (NULL == file)
+		return FILE_ERROR_INVALID_OBJECT;
+	if (NULL == table)
+		return FILE_ERROR_INVALID_NAME;
+	if (entries < 4) {
+		table[0] = 4;
+		return FILE_ERROR_NOT_ENOUGH_CORE;
+	}
+
+	AutoPowerUp();
+	table[0] = entries;
+	file->file.cltbl = (DWORD *)table;
+	result = FatResult(f_lseek(&file->file, CREATE_LINKMAP));
+	if (result != FILE_ERROR_OK)
+		file->file.cltbl = NULL;
+	return result;
 }
 
 
@@ -282,7 +369,7 @@ File_ErrorType File_CreateDirectory(const char *directoryname)
 	}
 
 	AutoPowerUp();
-	return -f_mkdir(directoryname);
+	return FatResult(f_mkdir(directoryname));
 }
 
 
@@ -294,9 +381,9 @@ bool File_DirectoryExists(const char *directoryname)
 	}
 
 	AutoPowerUp();
-	File_ErrorType rc = -f_opendir(&dir, directoryname);
+	File_ErrorType rc = FatResult(f_opendir(&dir, directoryname));
 	if (FILE_ERROR_OK == rc) {
-		//f_dirclose(&dir);
+		f_closedir(&dir);
 		return true;
 	}
 
@@ -306,6 +393,8 @@ bool File_DirectoryExists(const char *directoryname)
 
 File_ErrorType File_OpenDirectory(const char *directoryname)
 {
+	File_ErrorType result;
+
 	if (NULL == directoryname) {
 		return FILE_ERROR_INVALID_NAME;
 	}
@@ -314,12 +403,13 @@ File_ErrorType File_OpenDirectory(const char *directoryname)
 	for (i = 0; i < SizeOfArray(DirectoryControlBlock); i++) {
 		if (!DirectoryControlBlock[i].IsOpen) {
 			AutoPowerUp();
-			File_ErrorType rc = -f_opendir(&DirectoryControlBlock[i].directory, directoryname);
-			if (FILE_ERROR_OK == rc) {
+			result = FatResult(f_opendir(
+				&DirectoryControlBlock[i].directory, directoryname));
+			if (FILE_ERROR_OK == result) {
 				DirectoryControlBlock[i].IsOpen = true;
 				return i; // 0...
 			}
-			break;
+			return result;
 		}
 	}
 	return FILE_ERROR_DENIED;
@@ -334,10 +424,10 @@ File_ErrorType File_CloseDirectory(int handle)
 		return FILE_ERROR_INVALID_OBJECT;
 	}
 
-	// rc = -f_dirclose(&directory->directory);
-	directory->IsOpen = false;
-
-	return FILE_ERROR_OK;
+	File_ErrorType result = FatResult(f_closedir(&directory->directory));
+	if (result == FILE_ERROR_OK)
+		directory->IsOpen = false;
+	return result;
 }
 
 
@@ -352,7 +442,7 @@ ssize_t File_ReadDirectory(int handle, void *buffer, size_t length)
 	FILINFO info;
 
 	AutoPowerUp();
-	File_ErrorType rc = -f_readdir(&directory->directory, &info);
+	File_ErrorType rc = FatResult(f_readdir(&directory->directory, &info));
 	if (FILE_ERROR_OK == rc){
 		size_t count = strlen(info.fname);
 
@@ -371,12 +461,12 @@ ssize_t File_ReadDirectory(int handle, void *buffer, size_t length)
 File_ErrorType File_AbsoluteRead(unsigned long sector, void *buffer, int count)
 {
 	AutoPowerUp();
-	return -disk_read(0, buffer, sector, count);
+	return DiskResult(disk_read(0, buffer, sector, (UINT)count));
 }
 
 
 File_ErrorType File_AbsoluteWrite(unsigned long sector, const void *buffer, int count)
 {
 	AutoPowerUp();
-	return -disk_write(0, buffer, sector, count);
+	return DiskResult(disk_write(0, buffer, sector, (UINT)count));
 }
