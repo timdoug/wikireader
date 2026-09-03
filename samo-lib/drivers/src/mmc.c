@@ -22,6 +22,7 @@
 #include <samo.h>
 #include <diskio.h>
 #include <mmc.h>
+#include <mmc_csd.h>
 #include <delay.h>
 #include "ff_config.h"
 
@@ -548,8 +549,7 @@ DRESULT mmc_disk_ioctl(BYTE drv, BYTE ctrl, void *buff)
 		case GET_SECTOR_COUNT :			// Get number of sectors on the disk (DWORD)
 			if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
 				if ((csd[0] >> 6) == 1) {	// SDC ver 2.00
-					csize = csd[9] + ((WORD)csd[8] << 8) + 1;
-					*(DWORD*)buff = (DWORD)csize << 10;
+					*(DWORD*)buff = mmc_csd_v2_sector_count(csd);
 				} else {		// SDC ver 1.XX or MMC
 					n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
 					csize = (csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1;

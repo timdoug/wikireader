@@ -15,6 +15,7 @@
 
 #include "../src/mem.h"
 #include "../src/sdcard.h"
+#include "../../samo-lib/drivers/include/mmc_csd.h"
 
 #define SPI_TXD  (REG_BASE + 0x1704)
 #define SPI_RXD  (REG_BASE + 0x1700)
@@ -58,6 +59,23 @@ static uint8_t settle(struct mem *m)
 			return r;
 	}
 	return r;
+}
+
+static bool read_register(struct mem *m, uint8_t idx, uint8_t reg[16])
+{
+	command(m, idx, 0);
+	if (settle(m) != 0x00)
+		return false;
+	for (int i = 0; i < 8; i++) {
+		if (xchg(m, 0xff) == 0xfe) {
+			for (int j = 0; j < 16; j++)
+				reg[j] = xchg(m, 0xff);
+			xchg(m, 0xff);
+			xchg(m, 0xff);
+			return true;
+		}
+	}
+	return false;
 }
 
 /*
@@ -113,7 +131,6 @@ int main(void)
 
 	fill(a, 1);
 	fill(b, 200);
-
 	/* A single block, written and read straight back off the host file. */
 	make_image();
 	if (!mem_init(&mem))
@@ -126,6 +143,16 @@ int main(void)
 		return 1;
 	}
 	ok("an image opened for update is not write protected", !sd.readonly);
+	{
+		/* 64 GiB: C_SIZE bit 16 is the part the old driver dropped. */
+		uint8_t csd[16];
+		sd.blocks = 134217728ULL;
+		ok("an SDXC-sized CSD register can be read",
+		   read_register(&mem, 9, csd));
+		ok("CSD v2 capacity retains the SDXC-sized upper bits",
+		   mmc_csd_v2_sector_count(csd) == 134217728UL);
+		sd.blocks = BLOCKS;
+	}
 
 	command(&mem, 24, 7);                /* WRITE_BLOCK, block 7 */
 	ok("CMD24 is accepted", settle(&mem) == 0x00);
