@@ -16,7 +16,8 @@ and its historical 32-bit-host workaround, not a requirement of the modern
 toolchain.
 
 An experimental [`zim.app`](zim/README.md) storage-backend fork reads standard
-ZIM 6 archives directly while retaining the original WikiReader interface.
+ZIM 6 archives through the kernel's FatFs R0.16 service while retaining the
+original WikiReader interface.
 
 ## Differences between this and the original wikireader repo
 * This repo includes an updated fork of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) script built specifically for the wikireader. This file is used to dedupe and generate the plaintext XML and makes processing MUCH faster.

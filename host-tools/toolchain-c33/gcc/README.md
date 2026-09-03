@@ -122,6 +122,9 @@ values, alignment, complex values, variadic calls, and forwarding through
   reference; all match.
 - Complete modern firmware boots and renders the tested UI and article views
   byte-identically to the shipped firmware.
+- The C33-specific target directory has 408 expected passes and four
+  unsupported results. Its regression coverage includes rejection of indexed
+  addresses for bit instructions, preventing recursive reload-pseudo growth.
 
 The final unfiltered post-fix GCC run has not yet been performed. Use fresh
 results from that run - not historical raw failures - as the next broad backlog.

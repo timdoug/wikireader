@@ -14,9 +14,9 @@ zim/wiki.zim
 zim/wiki.nls
 ```
 
-`XML-Licenses/en/wiki.nls` is suitable for the second file. The fixed 8.3
-names are intentional: the application's direct FAT32 mapper does not depend
-on long-filename support.
+`XML-Licenses/en/wiki.nls` is suitable for the second file. These paths fit
+8.3 names because the firmware's small FatFs configuration intentionally
+disables long-filename support.
 
 ## Build
 
@@ -26,9 +26,13 @@ make TOOLCHAIN_BIN="$PWD/../host-tools/toolchain-c33/work/install/bin" \
     SIMULATE=NO OPT=-O2
 ```
 
-The result is `zim/zim.app`. The current GCC 16.2 build is about 224 KiB on
+The result is `zim/zim.app`. The current GCC 16.2 build is 224,056 bytes on
 disk. The included Zstandard decoder accounts for about 71 KiB of target
 code.
+
+This app requires the current `samo-lib/grifo/grifo.elf`: syscall 117 exposes
+FatFs fast seek to applications. Install that kernel as `kernel.elf` and
+`zim.app` as `wiki.app` on the same card image.
 
 ## Emulator
 
@@ -41,17 +45,21 @@ the card layout above, run it from the repository root with:
 ```
 
 `-N 3,1000000` presses the emulated power switch once. Initial archive setup
-scans the archive's FAT chain once and reports that work with a progress bar.
-The current real-boot profile reaches search rendering after about 6.1 seconds
-of modeled guest time; emulator wall time depends on the host and timing mode.
+shows `Opening ZIM archive...` while FatFs scans the file's cluster chain once.
+On the current 944 MiB test archive that scan takes about 3.57 seconds of
+modeled guest time and reaches the ZIM parser at 4.79 seconds after reset. The
+archive is contiguous, so its resulting fast-seek map occupies only four
+32-bit words. Emulator wall time depends on the host and timing mode.
 
 ## Implemented
 
 - ZIM 6 header, path index, and `X/listing/titleOrdered/v1` title index
 - prefix search without a generated sidecar index
 - redirects, uncompressed clusters, and Zstandard clusters
-- fragmented FAT32 files through a one-time cluster map, batched FAT-table
-  reads, and cached direct sector I/O
+- standard Grifo/FatFs R0.16 file access, including a compact fast-seek map
+  that also handles fragmented files
+- a four-sector application cache for repeated small, unaligned ZIM index
+  reads
 - HTML text extraction with structural breaks for headings and paragraphs,
   plus lists and linearized tables
 - UTF-8/entity handling and font-metric word wrapping into the existing
@@ -68,8 +76,8 @@ article all succeed.
 - Article links are displayed as text but are not yet clickable.
 - Images, CSS, and JavaScript are omitted; a `nopic` archive is the appropriate
   input for the current renderer.
-- The Grifo/FAT interfaces and this mapper use 32-bit sizes, so one archive
-  must be smaller than 4 GiB.
+- The Grifo/FatFs interfaces use 32-bit sizes, so one archive must be smaller
+  than 4 GiB.
 - A decoded HTML article must fit the 512 KiB article input buffer.
 - Legacy LZMA-compressed ZIM clusters are not implemented.
 - Search follows the ZIM title ordering and currently applies only the

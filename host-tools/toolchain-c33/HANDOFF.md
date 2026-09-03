@@ -16,9 +16,9 @@ the complete WikiReader firmware.
 | Area | Status |
 | --- | --- |
 | binutils 2.47 | Assembler, linker, BFD, objdump, readelf, CTF, plugins, relocations, and all three C33 core modes work. Exact-source gas/binutils/ld suites have no unexpected failures. |
-| GCC 16.2 | Builds the kernel, boot applications, `init.app`, and `wiki.app`; short/long calls, delay slots, `%r15` data addressing, strict alignment, soft-float, variadic forwarding, sibling calls, trampolines, and three core multilibs are implemented. |
+| GCC 16.2 | Builds the kernel, boot applications, `init.app`, and `wiki.app`; short/long calls, delay slots, `%r15` data addressing, strict alignment, soft-float, variadic forwarding, sibling calls, trampolines, and three core multilibs are implemented. Bit-memory operands are restricted to the base-plus-constant forms the ISA can encode. |
 | ABI | New and original objects cross-call in all four compiler combinations and agree at five optimization levels. |
-| Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. |
+| Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo now uses FatFs R0.16 and provides its standard compact fast-seek map to applications. |
 | Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. |
 | DejaGnu | The standard GCC board is authoritative. Focused execution suites are clean; the final post-fix unfiltered run is still pending. |
 
@@ -95,6 +95,8 @@ host-tools/toolchain-c33/tools/compare-with-oracle.sh
 - ABI cross-linking: all four old/new caller/callee combinations agree.
 - Differential execution: 200 generated programs per compiler across
   `-O0`, `-O1`, `-O2`, `-O3`, and `-Os` match native reference results.
+- The focused C33 target directory reports 408 expected passes and four
+  unsupported results, including the indexed bit-memory reload regression.
 
 Useful focused checks:
 
@@ -144,6 +146,11 @@ and render identical screens.
 The pre-kernel MBR/menu/file-loader still reads by PIO. Kernel block reads use
 DMA; card writes remain PIO. The file-loader fits A0 with 371 bytes of live
 headroom. The menu is tighter: its BSS ends 18 bytes below the end of A0.
+
+Grifo's file service uses FatFs R0.16. The ZIM reader uses that service rather
+than parsing FAT32 itself and asks FatFs to build its fast-seek map at startup.
+The current contiguous 944 MiB archive needs a 16-byte map and has been tested
+through full FLASH boot, prefix search, and article rendering.
 
 ### GCC 16 optimization benchmark
 
