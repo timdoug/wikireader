@@ -2446,7 +2446,9 @@ int buf_draw_bmf_char(unsigned char *buf, int buf_width_pixels, int buf_width_by
 	pPcfFont = &pcfFonts[font];
 
 	pres_bmfbm(u, pPcfFont, &bitmap, &Cmetrics);
-	if (bitmap == NULL)
+	/* A space has advance width but intentionally no bitmap.  Match
+	 * draw_bmf_char(): it is valid and must not terminate the string. */
+	if (bitmap == NULL && u != 32)
 	{
 		return -1;
 	}
