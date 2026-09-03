@@ -2778,8 +2778,9 @@ c33_short_memory_p (rtx op)
 }
 
 /* True when MEM has one of the addresses accepted by the bit-operation
-   encoding.  xbit accepts %r0-%r15 with a 26-bit unsigned displacement, or
-   an absolute address, but has neither a %sp nor a post-increment form.  */
+   encoding.  xbit accepts %r0-%r15 with a 26-bit unsigned constant
+   displacement, or an absolute address, but has neither register-indexed,
+   %sp nor post-increment forms.  */
 
 bool
 c33_bit_memory_p (rtx op)
@@ -2792,7 +2793,14 @@ c33_bit_memory_p (rtx op)
     return false;
 
   if (GET_CODE (addr) == PLUS)
-    addr = XEXP (addr, 0);
+    {
+      rtx offset = XEXP (addr, 1);
+      if (!CONST_INT_P (offset)
+	  || INTVAL (offset) < 0
+	  || INTVAL (offset) >= (HOST_WIDE_INT) 1 << 26)
+	return false;
+      addr = XEXP (addr, 0);
+    }
 
   if (SUBREG_P (addr))
     addr = SUBREG_REG (addr);
