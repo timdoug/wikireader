@@ -54,6 +54,9 @@ INCLUDES += -I${DRIVERS_INCLUDE}
 INCLUDES += -I${MINI_LIBC_INCLUDE}
 INCLUDES += -Ibuild -Icommon
 
+# FatFs exFAT uses 64-bit file sizes and requires C99 declarations.
+CFLAGS += -std=gnu99
+
 LIBS += build/libinternal.a
 LIBS += ${FATFS_LIB}
 LIBS += ${MINI_LIBC_LIB}

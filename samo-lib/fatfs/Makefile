@@ -65,6 +65,7 @@ build-$(strip ${1}): Makefile
 	@echo INCLUDES = $${INCLUDES} | sed 's@\.\./\.\./@../../../@g' >> $$@/Makefile
 	@echo vpath %.c ../src >> $$@/Makefile
 	@echo INCLUDES := -I../config/c33/$(strip ${1})/ $${INCLUDES} >> $$@/Makefile
+	@echo CFLAGS += $(if $(filter modern,$(strip ${1})),-std=gnu99) >> $$@/Makefile
 	@echo TARGETS = all >> $$@/Makefile
 	@echo include $${SAMO_LIB}/Mk/rules.mk >> $$@/Makefile
 endef
@@ -98,6 +99,7 @@ $(call MAKE_RULE,read-write,GetFATTime.o)
 # FatFs R0.16 for Grifo. The legacy variants remain available to the compact
 # boot loaders and Forth firmware until those consumers are migrated.
 $(call MAKE_RULE,modern,ff.o)
+$(call MAKE_RULE,modern,ffunicode.o)
 
 clean:
 	$(RM) *.[do] *.asm33

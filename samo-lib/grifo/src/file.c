@@ -48,8 +48,13 @@ typedef struct {
 
 static DirectoryType DirectoryControlBlock[64];
 
-// state for the entire file system
-static FATFS TheFileSystem;
+// logical volume 0 is the boot FAT32 partition; volume 1 is exFAT content
+static FATFS TheFileSystem[2];
+
+PARTITION VolToPart[FF_VOLUMES] = {
+	{ 0, 0 },
+	{ 0, 2 },
+};
 
 
 static File_ErrorType FatResult(FRESULT result)
@@ -116,13 +121,15 @@ void File_initialise(void)
 	for (i = 0; i < SizeOfArray(DirectoryControlBlock); i++) {
 		DirectoryControlBlock[i].IsOpen = false;
 	}
-	memset(&TheFileSystem, 0, sizeof(TheFileSystem));
+	memset(TheFileSystem, 0, sizeof(TheFileSystem));
 	{
 		uint8_t b = 0;
 		disk_ioctl(0, CTRL_POWER, &b);
 		disk_initialize(0);
 	}
-	f_mount(&TheFileSystem, "", 1);
+	f_mount(&TheFileSystem[0], "0:", 1);
+	/* A one-partition legacy card remains valid; volume 1 can be absent. */
+	f_mount(&TheFileSystem[1], "1:", 1);
 }
 
 
