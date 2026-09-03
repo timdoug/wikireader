@@ -102,7 +102,7 @@ SECTIONS
 
     .rodata : {
          __START_rodata = . ;
-         *(.rodata)
+         *(.rodata .rodata.*)
     } > ksdram
     __END_rodata = . ;
 
@@ -159,4 +159,20 @@ SECTIONS
     __START_heap = (__END_program + 1023) & (~ 1023);
     __END_heap = __MAIN_STACK_LIMIT & (~ 1023);
     __SIZE_heap = __END_heap - __START_heap;
+
+    /* Debugging metadata has no target-memory footprint.  Give it the
+       conventional zero VMA explicitly so orphan placement cannot make a
+       larger modern build appear to overflow ksdram. */
+    .debug_aranges  0 : { *(.debug_aranges) }
+    .debug_pubnames 0 : { *(.debug_pubnames) }
+    .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
+    .debug_abbrev   0 : { *(.debug_abbrev) }
+    .debug_line     0 : { *(.debug_line .debug_line.*) }
+    .debug_frame    0 : { *(.debug_frame) }
+    .debug_str      0 : { *(.debug_str) }
+    .debug_loc      0 : { *(.debug_loc) }
+    .debug_ranges   0 : { *(.debug_ranges) }
+    .comment        0 : { *(.comment) }
+    .stab           0 : { *(.stab) }
+    .stabstr        0 : { *(.stabstr) }
 }
