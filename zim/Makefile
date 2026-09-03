@@ -43,7 +43,7 @@ SOURCES += zim_alloc.c
 SOURCES += zim_archive.c
 SOURCES += zim_article.c
 SOURCES += zim_blob.c
-SOURCES += zim_fat.c
+SOURCES += zim_file.c
 SOURCES += zim_html.c
 SOURCES += zstddeclib.c
 

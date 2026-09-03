@@ -20,15 +20,10 @@
 #include "zim_archive.h"
 #include "zim_article.h"
 #include "zim_blob.h"
-#include "zim_fat.h"
+#include "zim_file.h"
 #include "zim_html.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
-#define ARCHIVE_PROGRESS_X 30
-#define ARCHIVE_PROGRESS_Y 118
-#define ARCHIVE_PROGRESS_WIDTH 180
-#define ARCHIVE_PROGRESS_HEIGHT 10
-
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
 	uint32_t article[NUMBER_OF_FIRST_PAGE_RESULTS];
@@ -38,7 +33,7 @@ typedef struct {
 } ZIM_RESULTS;
 
 static ZIM_ARCHIVE archive;
-static ZIM_FAT_FILE archive_file;
+static ZIM_FILE archive_file;
 static int archive_wiki = -1;
 static ZIM_RESULTS results;
 static unsigned char search_string[MAX_TITLE_SEARCH];
@@ -46,7 +41,6 @@ static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
 static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
-static unsigned int archive_progress_pixels;
 
 bool search_string_changed;
 bool search_string_changed_remove;
@@ -72,61 +66,10 @@ static void print_article_error(void)
 	guilib_fb_unlock();
 }
 
-static int device_read_sectors(void *opaque, uint32_t sector, void *buffer,
-			       uint32_t count)
-{
-	(void)opaque;
-	return sector_read(sector, buffer, (int)count) == FILE_ERROR_OK ? 0 : -1;
-}
-
 static int device_read_at(void *opaque, uint64_t offset, void *buffer,
 			  size_t length)
 {
-	return zim_fat_read_at((ZIM_FAT_FILE *)opaque, offset, buffer,
-			       length);
-}
-
-static void archive_progress(void *opaque, uint32_t completed, uint32_t total)
-{
-	unsigned char *framebuffer = lcd_get_framebuffer();
-	unsigned int inner_width = ARCHIVE_PROGRESS_WIDTH - 2;
-	unsigned int pixels;
-	unsigned int x;
-	unsigned int y;
-	(void)opaque;
-
-	if (!total)
-		return;
-	if (!completed) {
-		archive_progress_pixels = 0;
-		for (x = ARCHIVE_PROGRESS_X;
-		     x < ARCHIVE_PROGRESS_X + ARCHIVE_PROGRESS_WIDTH; x++) {
-			guilib_buffer_set_pixel(framebuffer, (int)x,
-						ARCHIVE_PROGRESS_Y);
-			guilib_buffer_set_pixel(framebuffer, (int)x,
-						ARCHIVE_PROGRESS_Y +
-						ARCHIVE_PROGRESS_HEIGHT - 1);
-		}
-		for (y = ARCHIVE_PROGRESS_Y + 1;
-		     y < ARCHIVE_PROGRESS_Y + ARCHIVE_PROGRESS_HEIGHT - 1; y++) {
-			guilib_buffer_set_pixel(framebuffer, ARCHIVE_PROGRESS_X,
-						(int)y);
-			guilib_buffer_set_pixel(framebuffer,
-						ARCHIVE_PROGRESS_X +
-						ARCHIVE_PROGRESS_WIDTH - 1, (int)y);
-		}
-		return;
-	}
-	pixels = (unsigned int)(((uint64_t)completed * inner_width) / total);
-	if (pixels > inner_width)
-		pixels = inner_width;
-	for (x = archive_progress_pixels; x < pixels; x++)
-		for (y = ARCHIVE_PROGRESS_Y + 1;
-		     y < ARCHIVE_PROGRESS_Y + ARCHIVE_PROGRESS_HEIGHT - 1; y++)
-			guilib_buffer_set_pixel(framebuffer,
-						ARCHIVE_PROGRESS_X + 1 + (int)x,
-						(int)y);
-	archive_progress_pixels = pixels;
+	return zim_file_read_at((ZIM_FILE *)opaque, offset, buffer, length);
 }
 
 static void open_archive(int wiki_index)
@@ -134,13 +77,11 @@ static void open_archive(int wiki_index)
 	ZIM_IO io;
 	int rc;
 
-	if (archive_file.clusters && archive_wiki == wiki_index)
+	if (archive_file.open && archive_wiki == wiki_index)
 		return;
-	if (archive_file.clusters)
-		zim_fat_close(&archive_file);
-	if (zim_fat_open_83_progress(&archive_file, device_read_sectors, NULL,
-				     "ZIM        ", "WIKI    ZIM",
-				     archive_progress, NULL))
+	if (archive_file.open)
+		zim_file_close(&archive_file);
+	if (zim_file_open(&archive_file, "zim/wiki.zim"))
 		fatal_error("zim/wiki.zim not found");
 	io.read_at = device_read_at;
 	io.opaque = &archive_file;
@@ -203,12 +144,12 @@ static void populate_results(void)
 
 void search_init(void)
 {
-	if (!archive_file.clusters) {
+	if (!archive_file.open) {
 		static const unsigned char message[] = "Opening ZIM archive...";
 
-		/* Building the FAT cluster map is the only long startup step.  Put
-		 * something on the panel before it begins so a valid boot does not
-		 * look like a dead device. */
+		/* Building FatFs's compact link map is the only long startup step.
+		 * Put something on the panel before it begins so a valid boot does
+		 * not look like a dead device. */
 		guilib_fb_lock();
 		guilib_clear();
 		render_string(SEARCH_LIST_FONT_IDX, -1, 94, message,
