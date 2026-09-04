@@ -20138,6 +20138,10 @@ size_t ZSTD_decompressStream_simpleArgs (
  * ZSTD_decompressSequences implementations. You can't force in both directions
  * at the same time.
  */
+#if defined(__c33__) && !defined(ZSTD_FORCE_DECOMPRESS_SEQUENCES_LONG)
+#  define ZSTD_FORCE_DECOMPRESS_SEQUENCES_SHORT
+#endif
+
 #if defined(ZSTD_FORCE_DECOMPRESS_SEQUENCES_SHORT) && \
     defined(ZSTD_FORCE_DECOMPRESS_SEQUENCES_LONG)
 #error "Cannot force the use of the short and the long ZSTD_decompressSequences variants!"
