@@ -170,7 +170,9 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 		}
 		if (font->glyph_slots)
 		{
-			unsigned int slot = val % font->glyph_slots;
+			/* glyph_slots is always BMF_GLYPH_CACHE_SLOTS, a power of
+			 * two; the C33 has no divide instruction. */
+			unsigned int slot = val & (font->glyph_slots - 1);
 			record = font->glyph_cache + slot * sizeof(charmetric_bmf);
 			tag = &font->glyph_tags[slot];
 			loaded = (*tag == val + 1);
