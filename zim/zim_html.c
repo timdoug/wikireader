@@ -72,6 +72,48 @@ static void put_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
 		put_byte(out, *bytes++);
 }
 
+/* Append a run of plain text bytes with a single bookkeeping update.  Matches
+ * put_byte: bytes are stored while they leave room for the terminator, and
+ * the length keeps counting so truncation is still detected. */
+static void put_text(TEXT_OUTPUT *out, const unsigned char *bytes,
+		     size_t count)
+{
+	size_t room = out->used + 1 < out->capacity ?
+		out->capacity - 1 - out->used : 0;
+	size_t store = count < room ? count : room;
+	unsigned char *destination = out->text + out->used;
+	size_t k;
+
+	for (k = 0; k < store; k++)
+		destination[k] = bytes[k];
+	if (count >= 2) {
+		out->previous = bytes[count - 2];
+		out->last = bytes[count - 1];
+	} else {
+		out->previous = out->last;
+		out->last = bytes[0];
+	}
+	out->used += count;
+}
+
+/* Bytes that end a run of plain text: tag and entity starts, whitespace, and
+ * control bytes.  Everything else, including all of UTF-8, is copied as is.
+ * Keeping every space out of runs preserves the invariant that the output
+ * never holds two consecutive spaces, which put_newline's trimming relies on. */
+static unsigned char html_run_end[256];
+static int html_run_end_ready;
+
+static void html_run_end_init(void)
+{
+	unsigned int c;
+
+	if (html_run_end_ready)
+		return;
+	for (c = 0; c < 256; c++)
+		html_run_end[c] = c <= ' ' || c == '<' || c == '&';
+	html_run_end_ready = 1;
+}
+
 static void put_record_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
 			     size_t count)
 {
@@ -283,16 +325,73 @@ static size_t decode_entity(const unsigned char *input, size_t length,
 	return 1;
 }
 
-static int block_tag(const unsigned char *name, size_t length)
+/* Every element name the converter reacts to.  One classification per tag
+ * replaces a chain of up to twenty string comparisons. */
+enum html_tag {
+	TAG_OTHER = 0,
+	TAG_BODY,
+	TAG_MAIN,
+	TAG_STYLE,
+	TAG_SCRIPT,
+	TAG_A,
+	TAG_IMG,
+	TAG_LI,
+	TAG_BR,
+	TAG_TD,
+	TAG_TH,
+	TAG_P,
+	TAG_HEADING,
+	TAG_BLOCK
+};
+
+static enum html_tag classify_tag(const unsigned char *name, size_t length)
 {
-	return name_equal(name, length, "p") || name_equal(name, length, "div") ||
-		name_equal(name, length, "section") ||
-		name_equal(name, length, "table") || name_equal(name, length, "tr") ||
-		name_equal(name, length, "ul") || name_equal(name, length, "ol") ||
-		name_equal(name, length, "dl") || name_equal(name, length, "dd") ||
-		name_equal(name, length, "dt") || name_equal(name, length, "blockquote") ||
-		(length == 2 && ascii_lower(name[0]) == 'h' &&
-		 name[1] >= '1' && name[1] <= '6');
+	unsigned char first = ascii_lower(name[0]);
+
+	switch (length) {
+	case 1:
+		if (first == 'a') return TAG_A;
+		if (first == 'p') return TAG_P;
+		return TAG_OTHER;
+	case 2:
+		if (first == 'h' && name[1] >= '1' && name[1] <= '6')
+			return TAG_HEADING;
+		if (name_equal(name, length, "li")) return TAG_LI;
+		if (name_equal(name, length, "br")) return TAG_BR;
+		if (name_equal(name, length, "td")) return TAG_TD;
+		if (name_equal(name, length, "th")) return TAG_TH;
+		if (name_equal(name, length, "tr") ||
+		    name_equal(name, length, "ul") ||
+		    name_equal(name, length, "ol") ||
+		    name_equal(name, length, "dl") ||
+		    name_equal(name, length, "dd") ||
+		    name_equal(name, length, "dt"))
+			return TAG_BLOCK;
+		return TAG_OTHER;
+	case 3:
+		if (name_equal(name, length, "img")) return TAG_IMG;
+		if (name_equal(name, length, "div")) return TAG_BLOCK;
+		return TAG_OTHER;
+	case 4:
+		if (name_equal(name, length, "body")) return TAG_BODY;
+		if (name_equal(name, length, "main")) return TAG_MAIN;
+		return TAG_OTHER;
+	case 5:
+		if (name_equal(name, length, "style")) return TAG_STYLE;
+		if (name_equal(name, length, "table")) return TAG_BLOCK;
+		return TAG_OTHER;
+	case 6:
+		if (name_equal(name, length, "script")) return TAG_SCRIPT;
+		return TAG_OTHER;
+	case 7:
+		if (name_equal(name, length, "section")) return TAG_BLOCK;
+		return TAG_OTHER;
+	case 10:
+		if (name_equal(name, length, "blockquote")) return TAG_BLOCK;
+		return TAG_OTHER;
+	default:
+		return TAG_OTHER;
+	}
 }
 
 static int html_to_text(const unsigned char *html, size_t html_size,
@@ -314,17 +413,21 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 	out.last = 0;
 	out.previous = 0;
 	out.pending_space = 0;
+	html_run_end_init();
 	while (i < html_size) {
 		if (html[i] == '<') {
 			size_t tag_start;
 			size_t tag_end;
 			size_t attributes_start;
 			size_t attributes_end;
+			enum html_tag tag;
 			int closing = 0;
 
 			if (i + 3 < html_size && !memcmp(html + i, "<!--", 4)) {
 				size_t end = i + 4;
-				while (end + 2 < html_size && memcmp(html + end, "-->", 3))
+				while (end + 2 < html_size &&
+				       !(html[end] == '-' && html[end + 1] == '-' &&
+					 html[end + 2] == '>'))
 					end++;
 				if (end + 2 >= html_size)
 					break;
@@ -345,18 +448,28 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 				i++;
 			tag_end = i;
 			attributes_start = i;
-			while (i < html_size && html[i] != '>') i++;
+			{
+				/* Attribute bytes are most of a Kiwix page; scan them
+				 * with pointers so the loop stays a few instructions. */
+				const unsigned char *scan = html + i;
+				const unsigned char *limit = html + html_size;
+
+				while (scan < limit && *scan != '>')
+					scan++;
+				i = (size_t)(scan - html);
+			}
 			attributes_end = i;
 			if (i < html_size) i++;
 			if (tag_start == tag_end)
 				continue;
-			if (name_equal(html + tag_start, tag_end - tag_start, "body")) {
+			tag = classify_tag(html + tag_start, tag_end - tag_start);
+			if (tag == TAG_BODY) {
 				in_body = !closing;
 				continue;
 			}
 			if (!in_body)
 				continue;
-			if (name_equal(html + tag_start, tag_end - tag_start, "main")) {
+			if (tag == TAG_MAIN) {
 				if (closing && in_main)
 					break;
 				in_main = !closing;
@@ -364,8 +477,7 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			}
 			if (!in_main)
 				continue;
-			if (name_equal(html + tag_start, tag_end - tag_start, "style") ||
-			    name_equal(html + tag_start, tag_end - tag_start, "script")) {
+			if (tag == TAG_STYLE || tag == TAG_SCRIPT) {
 				if (closing && suppress)
 					suppress--;
 				else if (!closing)
@@ -374,8 +486,10 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			}
 			if (suppress)
 				continue;
-			if (include_links &&
-			    name_equal(html + tag_start, tag_end - tag_start, "a")) {
+			switch (tag) {
+			case TAG_A:
+				if (!include_links)
+					break;
 				if (closing) {
 					if (in_link) {
 						unsigned char marker = ZIM_TEXT_LINK_END_MARKER;
@@ -391,34 +505,50 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 						html + attributes_start,
 						attributes_end - attributes_start);
 				}
-			} else if (include_images && !closing &&
-			    name_equal(html + tag_start, tag_end - tag_start, "img")) {
-				put_image(&out, html + attributes_start,
-					  attributes_end - attributes_start);
-			} else if (!closing && name_equal(html + tag_start, tag_end - tag_start, "li")) {
-				put_newline(&out, 0);
-				put_byte(&out, '*');
-				put_byte(&out, ' ');
-			} else if (name_equal(html + tag_start, tag_end - tag_start, "br")) {
-				put_newline(&out, 0);
-			} else if (!closing &&
-				   (name_equal(html + tag_start, tag_end - tag_start, "td") ||
-				    name_equal(html + tag_start, tag_end - tag_start, "th"))) {
-				put_space_if_needed(&out);
-				if (out.used && out.last != '\n') {
-					put_byte(&out, '|');
+				break;
+			case TAG_IMG:
+				if (include_images && !closing)
+					put_image(&out, html + attributes_start,
+						  attributes_end - attributes_start);
+				break;
+			case TAG_LI:
+				if (!closing) {
+					put_newline(&out, 0);
+					put_byte(&out, '*');
 					put_byte(&out, ' ');
 				}
-			} else if (block_tag(html + tag_start, tag_end - tag_start)) {
-				put_newline(&out, closing &&
-					    (name_equal(html + tag_start, tag_end - tag_start, "p") ||
-					     (tag_end - tag_start == 2 &&
-					      ascii_lower(html[tag_start]) == 'h')));
+				break;
+			case TAG_BR:
+				put_newline(&out, 0);
+				break;
+			case TAG_TD:
+			case TAG_TH:
+				if (!closing) {
+					put_space_if_needed(&out);
+					if (out.used && out.last != '\n') {
+						put_byte(&out, '|');
+						put_byte(&out, ' ');
+					}
+				}
+				break;
+			case TAG_P:
+			case TAG_HEADING:
+				put_newline(&out, closing);
+				break;
+			case TAG_BLOCK:
+				put_newline(&out, 0);
+				break;
+			default:
+				break;
 			}
 			continue;
 		}
 		if (!in_body || !in_main || suppress) {
-			i++;
+			/* Nothing outside <main> or inside style/script is emitted;
+			 * jump straight to the next tag. */
+			do
+				i++;
+			while (i < html_size && html[i] != '<');
 			continue;
 		}
 		if (html[i] == '&') {
@@ -441,6 +571,19 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 				continue;
 			}
 		}
+		{
+			size_t start = i;
+
+			while (i < html_size && !html_run_end[html[i]])
+				i++;
+			if (i > start) {
+				put_space_if_needed(&out);
+				put_text(&out, html + start, i - start);
+				continue;
+			}
+		}
+		/* Whitespace, a control byte, or an ampersand that did not
+		 * decode as an entity. */
 		if (ascii_space(html[i]))
 			out.pending_space = 1;
 		else if (html[i] >= 0x20) {

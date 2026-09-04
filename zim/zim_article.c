@@ -21,11 +21,34 @@ static int append_byte(unsigned char *output, size_t capacity, size_t *used,
 static int append_bytes(unsigned char *output, size_t capacity, size_t *used,
 			const unsigned char *bytes, size_t count)
 {
+	unsigned char *destination;
+	size_t k;
+
 	if (count > capacity - *used)
 		return -1;
-	memcpy(output + *used, bytes, count);
+	/* Words average a handful of bytes; a call into the library memcpy
+	 * costs more than copying them here. */
+	destination = output + *used;
+	for (k = 0; k < count; k++)
+		destination[k] = bytes[k];
 	*used += count;
 	return 0;
+}
+
+/* Bytes that end a word: space, newline, and the three record markers. */
+static unsigned char word_break[256];
+static int word_break_ready;
+
+static void word_break_init(void)
+{
+	if (word_break_ready)
+		return;
+	word_break[' '] = 1;
+	word_break['\n'] = 1;
+	word_break[ZIM_TEXT_LINK_START_MARKER] = 1;
+	word_break[ZIM_TEXT_LINK_END_MARKER] = 1;
+	word_break[ZIM_TEXT_IMAGE_MARKER] = 1;
+	word_break_ready = 1;
 }
 
 static int next_width(int font, const unsigned char *text, size_t remaining,
@@ -39,6 +62,29 @@ static int next_width(int font, const unsigned char *text, size_t remaining,
 		bytes = 1;
 	*character_size = (size_t)bytes;
 	return width;
+}
+
+/* Nearly every measured byte is ASCII, and measuring one through the generic
+ * UTF-8 decode and glyph-record lookup costs about sixty instructions.  Font
+ * metrics never change once loaded, so memoize the 7-bit widths per font. */
+static signed char ascii_width_cache[FONT_COUNT][128];
+static unsigned char ascii_width_ready[FONT_COUNT];
+
+static const signed char *ascii_widths(int font)
+{
+	signed char *widths = ascii_width_cache[font - 1];
+	unsigned int c;
+
+	if (!ascii_width_ready[font - 1]) {
+		for (c = 0; c < 128; c++) {
+			unsigned char byte = (unsigned char)c;
+			size_t size;
+			int width = next_width(font, &byte, 1, &size);
+			widths[c] = (signed char)(width > 127 ? 127 : width);
+		}
+		ascii_width_ready[font - 1] = 1;
+	}
+	return widths;
 }
 
 static int emit_newline(unsigned char *output, size_t capacity, size_t *used,
@@ -58,13 +104,24 @@ static int emit_newline(unsigned char *output, size_t capacity, size_t *used,
 
 static int word_width(int font, const unsigned char *word, size_t length)
 {
+	const signed char *ascii = ascii_widths(font);
+	const unsigned char *p = word;
+	const unsigned char *end = word + length;
 	int width = 0;
-	size_t offset = 0;
-	while (offset < length) {
-		size_t character_size;
-		width += next_width(font, word + offset, length - offset,
-				    &character_size);
-		offset += character_size;
+
+	while (p < end) {
+		unsigned char c = *p;
+
+		if (c < 0x80) {
+			width += ascii[c];
+			p++;
+		} else {
+			size_t character_size;
+
+			width += next_width(font, p, (size_t)(end - p),
+					    &character_size);
+			p += character_size;
+		}
 	}
 	return width;
 }
@@ -127,6 +184,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 
 	if (!text || !article || !article_size || capacity <= sizeof(header))
 		return -1;
+	word_break_init();
 	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
 	if (!links)
 		return -1;
@@ -258,21 +316,15 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			had_space = 1;
 			input++;
 		}
-		if (input >= text_size || text[input] == '\n' ||
-		    text[input] == ZIM_TEXT_LINK_START_MARKER ||
-		    text[input] == ZIM_TEXT_LINK_END_MARKER ||
-		    text[input] == ZIM_TEXT_IMAGE_MARKER)
+		if (input >= text_size || word_break[text[input]])
 			continue;
 		word_start = input;
-		while (input < text_size && text[input] != ' ' &&
-		       text[input] != '\n' && text[input] != ZIM_TEXT_LINK_START_MARKER &&
-		       text[input] != ZIM_TEXT_LINK_END_MARKER &&
-		       text[input] != ZIM_TEXT_IMAGE_MARKER)
+		while (input < text_size && !word_break[text[input]])
 			input++;
 		word_length = input - word_start;
 		width = word_width(font, text + word_start, word_length);
 		if (x && had_space)
-			space_width = word_width(font, (const unsigned char *)" ", 1);
+			space_width = ascii_widths(font)[' '];
 		if (x && x + space_width + width > ARTICLE_TEXT_WIDTH) {
 			if (finish_link_segment(article, capacity, &used, links,
 						&link_count, link_id, &segment_x,
