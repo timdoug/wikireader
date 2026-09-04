@@ -1,6 +1,7 @@
 /* Convert normalized ZIM text to the WikiReader's pre-wrapped article stream. */
 #include "zim_article.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "lcd_buf_draw.h"
@@ -68,33 +69,109 @@ static int word_width(int font, const unsigned char *word, size_t length)
 	return width;
 }
 
-int zim_text_to_article_images(const unsigned char *text, size_t text_size,
-			       unsigned char *article, size_t capacity,
-			       size_t *article_size,
-			       ZIM_ARTICLE_IMAGE image, void *image_opaque)
+static int finish_link_segment(unsigned char *article, size_t capacity,
+			       size_t *used, ARTICLE_LINK *links,
+			       size_t *link_count, uint32_t link_id,
+			       int *segment_x, int x, int y, int line_height)
+{
+	ARTICLE_LINK *record;
+	int width;
+
+	if (*segment_x < 0 || !link_id)
+		return 0;
+	width = x - *segment_x;
+	if (width <= 0) {
+		*segment_x = -1;
+		return 0;
+	}
+	if (*link_count >= MAX_ARTICLE_LINKS) {
+		*segment_x = -1;
+		return 0;
+	}
+	if (width > 255 ||
+	    append_byte(article, capacity, used, ESC_10_HORIZONTAL_LINE) ||
+	    append_byte(article, capacity, used, (unsigned char)width))
+		return -1;
+	record = &links[(*link_count)++];
+	record->start_xy = (uint32_t)*segment_x | (uint32_t)y << 8;
+	record->end_xy = (uint32_t)(x - 1) |
+		(uint32_t)(y + line_height - 1) << 8;
+	record->article_id = link_id;
+	*segment_x = -1;
+	return 0;
+}
+
+int zim_text_to_article_images_links(const unsigned char *text,
+				     size_t text_size,
+				     unsigned char *article, size_t capacity,
+				     size_t *article_size,
+				     ZIM_ARTICLE_IMAGE image,
+				     void *image_opaque,
+				     ZIM_ARTICLE_LINK link,
+				     void *link_opaque)
 {
 	ARTICLE_HEADER header;
+	ARTICLE_LINK *links;
 	size_t input = 0;
 	size_t used = sizeof(header);
+	size_t link_count = 0;
 	int font = TITLE_FONT_IDX;
 	int x = 0;
+	int y = 0;
+	int line_height;
+	int actual_height;
 	int first_line = 1;
+	uint32_t link_id = 0;
+	int segment_x = -1;
 	int rc;
 
 	if (!text || !article || !article_size || capacity <= sizeof(header))
+		return -1;
+	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
+	if (!links)
 		return -1;
 	memset(&header, 0, sizeof(header));
 	header.offset_article = sizeof(header);
 	memcpy(article, &header, sizeof(header));
 	rc = emit_newline(article, capacity, &used, font, 1);
 	if (rc)
-		return -1;
+		goto error;
+	line_height = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
+	actual_height = line_height;
 
 	while (input < text_size) {
 		size_t word_start;
 		size_t word_length;
 		int width;
 		int space_width = 0;
+		int had_space = 0;
+
+		if (text[input] == ZIM_TEXT_LINK_START_MARKER) {
+			size_t path_length;
+
+			if (finish_link_segment(article, capacity, &used, links,
+						&link_count, link_id, &segment_x,
+						x, y, line_height) ||
+			    text_size - input < 3)
+				goto error;
+			path_length = text[input + 1] |
+				(size_t)text[input + 2] << 8;
+			if (path_length > text_size - input - 3)
+				goto error;
+			link_id = link ? link(link_opaque, text + input + 3,
+					      path_length) : 0;
+			input += 3 + path_length;
+			continue;
+		}
+		if (text[input] == ZIM_TEXT_LINK_END_MARKER) {
+			if (finish_link_segment(article, capacity, &used, links,
+						&link_count, link_id, &segment_x,
+						x, y, line_height))
+				goto error;
+			link_id = 0;
+			input++;
+			continue;
+		}
 
 		if (text[input] == ZIM_TEXT_IMAGE_MARKER) {
 			unsigned int requested_width;
@@ -112,15 +189,23 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 				(size_t)text[input + 6] << 8;
 			record_length = 7 + path_length;
 			if (record_length > text_size - input)
-				return -1;
+				goto error;
 			if (image && capacity - used >= 4) {
 				uint8_t image_width;
 				uint16_t image_height;
 				size_t bitmap_size;
 
-				if (x && emit_newline(article, capacity, &used,
-						      font, 0))
-					return -1;
+				if (x) {
+					if (finish_link_segment(article, capacity, &used,
+								links, &link_count,
+								link_id, &segment_x,
+								x, y, line_height) ||
+					    emit_newline(article, capacity, &used,
+							 font, 0))
+						goto error;
+					y += actual_height;
+					actual_height = line_height;
+				}
 				x = 0;
 				if (!image(image_opaque, text + input + 7,
 					   path_length, requested_width,
@@ -128,15 +213,19 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 					   capacity - used - 4, &image_width,
 					   &image_height, &bitmap_size)) {
 					if (bitmap_size > capacity - used - 4)
-						return -1;
+						goto error;
 					article[used++] = ESC_14_BITMAP;
 					article[used++] = image_width;
 					article[used++] = (unsigned char)image_height;
 					article[used++] = (unsigned char)(image_height >> 8);
 					used += bitmap_size;
+					if (line_height < (int)image_height + 1)
+						actual_height = (int)image_height + 3;
 					if (emit_newline(article, capacity, &used,
 							 font, 0))
-						return -1;
+						goto error;
+					y += actual_height;
+					actual_height = line_height;
 				}
 			}
 			input += record_length;
@@ -144,39 +233,62 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 		}
 
 		if (text[input] == '\n') {
+			if (finish_link_segment(article, capacity, &used, links,
+						&link_count, link_id, &segment_x,
+						x, y, line_height))
+				goto error;
 			input++;
+			y += actual_height;
 			if (first_line) {
 				font = DEFAULT_FONT_IDX;
 				first_line = 0;
 				rc = emit_newline(article, capacity, &used, font, 1);
+				line_height = pcfFonts[font - 1].Fmetrics.linespace +
+					LINE_SPACE_ADDON;
 			} else {
 				rc = emit_newline(article, capacity, &used, font, 0);
 			}
 			if (rc)
-				return -1;
+				goto error;
+			actual_height = line_height;
 			x = 0;
 			continue;
 		}
-		while (input < text_size && text[input] == ' ')
+		while (input < text_size && text[input] == ' ') {
+			had_space = 1;
 			input++;
-		if (input >= text_size || text[input] == '\n')
+		}
+		if (input >= text_size || text[input] == '\n' ||
+		    text[input] == ZIM_TEXT_LINK_START_MARKER ||
+		    text[input] == ZIM_TEXT_LINK_END_MARKER ||
+		    text[input] == ZIM_TEXT_IMAGE_MARKER)
 			continue;
 		word_start = input;
-		while (input < text_size && text[input] != ' ' && text[input] != '\n')
+		while (input < text_size && text[input] != ' ' &&
+		       text[input] != '\n' && text[input] != ZIM_TEXT_LINK_START_MARKER &&
+		       text[input] != ZIM_TEXT_LINK_END_MARKER &&
+		       text[input] != ZIM_TEXT_IMAGE_MARKER)
 			input++;
 		word_length = input - word_start;
 		width = word_width(font, text + word_start, word_length);
-		if (x)
+		if (x && had_space)
 			space_width = word_width(font, (const unsigned char *)" ", 1);
 		if (x && x + space_width + width > ARTICLE_TEXT_WIDTH) {
-			if (emit_newline(article, capacity, &used, font, 0))
-				return -1;
+			if (finish_link_segment(article, capacity, &used, links,
+						&link_count, link_id, &segment_x,
+						x, y, line_height) ||
+			    emit_newline(article, capacity, &used, font, 0))
+				goto error;
+			y += actual_height;
+			actual_height = line_height;
 			x = 0;
 			space_width = 0;
 		}
 		if (space_width) {
+			if (link_id && segment_x < 0)
+				segment_x = x;
 			if (append_byte(article, capacity, &used, ' '))
-				return -1;
+				goto error;
 			x += space_width;
 		}
 		while (word_length) {
@@ -185,22 +297,60 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 							 word_length,
 							 &character_size);
 			if (x && x + character_width > ARTICLE_TEXT_WIDTH) {
-				if (emit_newline(article, capacity, &used, font, 0))
-					return -1;
+				if (finish_link_segment(article, capacity, &used, links,
+								&link_count, link_id,
+								&segment_x, x, y,
+								line_height) ||
+					    emit_newline(article, capacity, &used,
+							 font, 0))
+					goto error;
+				y += actual_height;
+				actual_height = line_height;
 				x = 0;
 			}
+			if (link_id && segment_x < 0)
+				segment_x = x;
 			if (append_bytes(article, capacity, &used, text + word_start,
 					 character_size))
-				return -1;
+				goto error;
 			x += character_width;
 			word_start += character_size;
 			word_length -= character_size;
 		}
 	}
+	if (finish_link_segment(article, capacity, &used, links, &link_count,
+				link_id, &segment_x, x, y, line_height))
+		goto error;
 	if (append_byte(article, capacity, &used, '\0'))
-		return -1;
+		goto error;
+	while (link_count && link_count * sizeof(*links) > capacity - used)
+		link_count--;
+	memmove(article + sizeof(header) + link_count * sizeof(*links),
+		article + sizeof(header), used - sizeof(header));
+	header.article_link_count = (uint16_t)link_count;
+	header.offset_article = (uint32_t)(sizeof(header) +
+		link_count * sizeof(*links));
+	memcpy(article, &header, sizeof(header));
+	if (link_count)
+		memcpy(article + sizeof(header), links,
+		       link_count * sizeof(*links));
+	used += link_count * sizeof(*links);
 	*article_size = used;
+	free(links);
 	return 0;
+
+error:
+	free(links);
+	return -1;
+}
+
+int zim_text_to_article_images(const unsigned char *text, size_t text_size,
+			       unsigned char *article, size_t capacity,
+			       size_t *article_size,
+			       ZIM_ARTICLE_IMAGE image, void *image_opaque)
+{
+	return zim_text_to_article_images_links(text, text_size, article,
+		capacity, article_size, image, image_opaque, NULL, NULL);
 }
 
 int zim_text_to_article(const unsigned char *text, size_t text_size,

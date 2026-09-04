@@ -42,9 +42,19 @@ zimfatdump: zimfatdump.c ../../zim/zim_archive.c ../../zim/zim_archive.h \
 fat-cache-test: fat-cache-test.c ../../zim/zim_fat.c ../../zim/zim_fat.h
 	$(CC) $(CFLAGS) -o $@ fat-cache-test.c ../../zim/zim_fat.c
 
-check: zimdump fat-cache-test
+article-link-test: article-link-test.c ../../zim/zim_article.c \
+		../../zim/zim_article.h ../../zim/zim_html.c ../../zim/zim_html.h \
+		../../zim/zim_link.c ../../zim/zim_link.h
+	$(CC) $(CFLAGS) -DGRIFO_SIMULATOR=1 -Wno-macro-redefined \
+		-I../../wiki -I../../samo-lib/include \
+		-I../../samo-lib/grifo/include -I../../samo-lib/grifo/common \
+		-o $@ article-link-test.c \
+		../../zim/zim_article.c ../../zim/zim_html.c ../../zim/zim_link.c
+
+check: zimdump fat-cache-test article-link-test
 	./fat-cache-test
+	./article-link-test
 	./check.sh
 
 clean:
-	rm -f zimdump zimfatdump fat-cache-test zstddeclib.o
+	rm -f zimdump zimfatdump fat-cache-test article-link-test zstddeclib.o

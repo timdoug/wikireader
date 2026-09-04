@@ -111,12 +111,18 @@ int b_show_scroll_bar = 0;
 long saved_idx_article = 0;
 long saved_prev_idx_article = 0;
 static ARTICLE_STREAM_PREPARE article_stream_prepare;
+static ARTICLE_LINK_HANDLER article_link_handler;
 static int article_stream_height;
 static int scroll_bar_visible;
 
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
 {
 	article_stream_prepare = prepare;
+}
+
+void set_article_link_handler(ARTICLE_LINK_HANDLER handler)
+{
+	article_link_handler = handler;
 }
 
 void set_article_stream_height(int height)
@@ -1819,7 +1825,10 @@ void display_retrieved_article(long idx_article)
 	{
 		memcpy(&articleLink[article_link_count],file_buffer+offset,sizeof(ARTICLE_LINK));
 		nLinkWikiId = articleLink[article_link_count].article_id >> 24;
-		if (((!nArticleWikiId || nArticleWikiId == nCurrentWikiId || get_wiki_idx_from_id(nArticleWikiId) >= 0) && !nLinkWikiId) ||
+		if ((article_link_handler &&
+		     article_link_handler((long)articleLink[article_link_count].article_id,
+					  0)) ||
+		    ((!nArticleWikiId || nArticleWikiId == nCurrentWikiId || get_wiki_idx_from_id(nArticleWikiId) >= 0) && !nLinkWikiId) ||
 		    (nLinkWikiId && get_wiki_idx_from_id(nLinkWikiId) >= 0))
 		{
 			if (nArticleWikiId && !nLinkWikiId)
@@ -2350,6 +2359,10 @@ void open_article_link(int x,int y)
 	if(article_link_number >= 0)
 	{
 		idx_article = articleLink[article_link_number].article_id;
+		if (article_link_handler)
+			idx_article = article_link_handler(idx_article, 1);
+		if (!idx_article)
+			return;
 		if (idx_article == EXTERNAL_ARTICLE_LINK)
 		{
 			idx_article = wiki_lang_link_search(externalLink[article_link_number].link_str);
@@ -2364,10 +2377,16 @@ void open_article_link_with_link_number(int article_link_number)
 {
 	long idx;
 
-	if (article_link_number < 0 || articleLink[article_link_number].article_id <= 0)
+	if (article_link_number < 0)
 		return;
 	display_first_page = 0; // use this to disable scrolling until the first page of the linked article is loaded
-	idx = articleLink[article_link_number].article_id;
+	idx = (long)articleLink[article_link_number].article_id;
+	if (article_link_handler)
+		idx = article_link_handler(idx, 1);
+	if (!idx) {
+		display_first_page = 1;
+		return;
+	}
 	if (idx == RESTRICTED_MARK_LINK)
 	{
 		delay_us(100000);

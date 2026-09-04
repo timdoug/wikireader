@@ -23,6 +23,7 @@
 #include "zim_file.h"
 #include "zim_html.h"
 #include "zim_image.h"
+#include "zim_link.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -36,6 +37,9 @@
 #define IMAGE_PROGRESS_BLOB_START 5
 #define IMAGE_PROGRESS_BLOB_END 30
 #define IMAGE_PROGRESS_DECODE_END 99
+#define ZIM_DEFERRED_LINK_TAG 0xfe000000U
+#define ZIM_DEFERRED_LINK_MASK 0xff000000U
+#define ZIM_DEFERRED_LINK_INDEX_MASK 0x00ffffffU
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
 	uint32_t article[NUMBER_OF_FIRST_PAGE_RESULTS];
@@ -63,11 +67,20 @@ typedef struct {
 	size_t bitmap_size;
 } ZIM_DEFERRED_IMAGE;
 
+typedef struct {
+	const unsigned char *path;
+	size_t path_length;
+} ZIM_DEFERRED_LINK;
+
 static ZIM_DEFERRED_IMAGE *deferred_images;
 static size_t deferred_image_count;
 static size_t deferred_image_capacity;
 static size_t deferred_image_next;
 static size_t article_text_size;
+static ZIM_DEFERRED_LINK *deferred_links;
+static size_t deferred_link_count;
+static size_t deferred_link_capacity;
+static char current_article_path[ZIM_DIRENT_TEXT_MAX];
 extern int display_first_page;
 
 static void article_blob_progress(void *opaque, uint64_t completed,
@@ -174,6 +187,79 @@ static int grow_deferred_images(void)
 	deferred_images = images;
 	deferred_image_capacity = capacity;
 	return 0;
+}
+
+static int grow_deferred_links(void)
+{
+	ZIM_DEFERRED_LINK *links;
+	size_t capacity;
+
+	if (deferred_link_count < deferred_link_capacity)
+		return 0;
+	if (deferred_link_capacity >= MAX_ARTICLE_LINKS)
+		return -1;
+	capacity = deferred_link_capacity ? deferred_link_capacity * 2 : 32;
+	if (capacity > MAX_ARTICLE_LINKS)
+		capacity = MAX_ARTICLE_LINKS;
+	links = memory_allocate(capacity * sizeof(*links), "zim-links");
+	if (!links)
+		return -1;
+	if (deferred_link_count)
+		memcpy(links, deferred_links,
+		       deferred_link_count * sizeof(*links));
+	if (deferred_links)
+		memory_free(deferred_links, "zim-links");
+	deferred_links = links;
+	deferred_link_capacity = capacity;
+	return 0;
+}
+
+static uint32_t article_link(void *opaque, const unsigned char *path,
+			     size_t path_length)
+{
+	ZIM_DEFERRED_LINK *deferred;
+	size_t i;
+	(void)opaque;
+
+	if (!path_length || path_length >= ZIM_DIRENT_TEXT_MAX || path[0] == '#')
+		return 0;
+	for (i = 0; i < path_length && path[i] != '/' && path[i] != '?' &&
+	     path[i] != '#'; i++)
+		if (path[i] == ':')
+			return 0;
+	if (grow_deferred_links())
+		return 0;
+	deferred = &deferred_links[deferred_link_count];
+	deferred->path = path;
+	deferred->path_length = path_length;
+	deferred_link_count++;
+	return ZIM_DEFERRED_LINK_TAG | (uint32_t)deferred_link_count;
+}
+
+static long handle_article_link(long article_id, int resolve)
+{
+	uint32_t id = (uint32_t)article_id;
+	uint32_t encoded_index;
+	ZIM_DIRENT dirent;
+	char path[ZIM_DIRENT_TEXT_MAX];
+	int rc;
+
+	if ((id & ZIM_DEFERRED_LINK_MASK) != ZIM_DEFERRED_LINK_TAG)
+		return article_id;
+	encoded_index = id & ZIM_DEFERRED_LINK_INDEX_MASK;
+	if (!encoded_index || encoded_index > deferred_link_count)
+		return 0;
+	if (!resolve)
+		return article_id;
+	if (zim_link_normalize(current_article_path,
+			       deferred_links[encoded_index - 1].path,
+			       deferred_links[encoded_index - 1].path_length,
+			       path, sizeof(path)))
+		return 0;
+	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
+	if (rc && rc != ZIM_ERR_TRUNCATED)
+		return 0;
+	return (long)dirent.path_index + 1;
 }
 
 static int article_image(void *opaque, const unsigned char *source_path,
@@ -382,6 +468,7 @@ static void populate_results(void)
 void search_init(void)
 {
 	set_article_stream_prepare(prepare_article_image);
+	set_article_link_handler(handle_article_link);
 	if (!archive_file.open) {
 		static const unsigned char message[] = "Opening ZIM archive...";
 
@@ -655,6 +742,7 @@ void get_article_title_from_idx(long index, unsigned char *title)
 
 int retrieve_article(long encoded_index)
 {
+	ARTICLE_HEADER article_header;
 	ZIM_DIRENT dirent;
 	uint32_t index = (uint32_t)encoded_index & 0x00ffffff;
 	size_t raw_size;
@@ -678,6 +766,11 @@ int retrieve_article(long encoded_index)
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		goto error;
+	if (zim_archive_resolve_redirect(&archive, &dirent))
+		goto error;
+	strncpy(current_article_path, dirent.path,
+		sizeof(current_article_path) - 1);
+	current_article_path[sizeof(current_article_path) - 1] = '\0';
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
 					    ZIM_RAW_BUFFER_SIZE, &raw_size,
@@ -692,11 +785,19 @@ int retrieve_article(long encoded_index)
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
+	deferred_link_count = 0;
 	article_text_size = text_size;
-	if (zim_text_to_article_images(text_buffer, text_size, file_buffer,
-				       FILE_BUFFER_SIZE, &article_size,
-				       article_image, NULL))
+	if (zim_text_to_article_images_links(text_buffer, text_size, file_buffer,
+					     FILE_BUFFER_SIZE, &article_size,
+					     article_image, NULL,
+					     article_link, NULL))
 		goto error;
+	memcpy(&article_header, file_buffer, sizeof(article_header));
+	if (article_header.offset_article < sizeof(article_header))
+		goto error;
+	for (index = 0; index < deferred_image_count; index++)
+		deferred_images[index].stream += article_header.offset_article -
+			sizeof(article_header);
 	article_height = zim_article_stream_height(file_buffer, article_size);
 	if (article_height < 0)
 		goto error;

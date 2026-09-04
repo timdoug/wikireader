@@ -49,6 +49,7 @@ SOURCES += zim_blob.c
 SOURCES += zim_file.c
 SOURCES += zim_html.c
 SOURCES += zim_image.c
+SOURCES += zim_link.c
 SOURCES += zstddeclib.c
 
 # Portable libwebp decoder only: no encoder, SIMD, threads, mux, or demux.

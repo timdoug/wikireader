@@ -282,9 +282,11 @@ typedef struct _ARTICLE_RENDER_INFO
 } ARTICLE_RENDER_INFO, *PARTICLE_RENDER_INFO;
 
 typedef void (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
+typedef long (*ARTICLE_LINK_HANDLER)(long article_id, int resolve);
 
 void init_lcd_draw_buf();
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare);
+void set_article_link_handler(ARTICLE_LINK_HANDLER handler);
 void set_article_stream_height(int height);
 void repaint_current_article(void);
 char* FontFile(int id);

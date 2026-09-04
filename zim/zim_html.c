@@ -72,6 +72,17 @@ static void put_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
 		put_byte(out, *bytes++);
 }
 
+static void put_record_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
+			     size_t count)
+{
+	size_t available = out->used < out->capacity ?
+		out->capacity - out->used : 0;
+
+	if (count <= available)
+		memcpy(out->text + out->used, bytes, count);
+	out->used += count;
+}
+
 static int attribute_value(const unsigned char *attributes, size_t length,
 			   const char *wanted,
 			   const unsigned char **value, size_t *value_length)
@@ -167,6 +178,38 @@ static void put_image(TEXT_OUTPUT *out, const unsigned char *attributes,
 	put_newline(out, 0);
 }
 
+static int internal_href(const unsigned char *href, size_t length)
+{
+	size_t i;
+
+	if (!length || href[0] == '#' ||
+	    (length >= 2 && href[0] == '/' && href[1] == '/'))
+		return 0;
+	for (i = 0; i < length && href[i] != '/' && href[i] != '?' &&
+	     href[i] != '#'; i++)
+		if (href[i] == ':')
+			return 0;
+	return 1;
+}
+
+static int put_link_start(TEXT_OUTPUT *out, const unsigned char *attributes,
+			  size_t length)
+{
+	const unsigned char *href;
+	size_t href_length;
+	unsigned char record[3];
+
+	if (!attribute_value(attributes, length, "href", &href, &href_length) ||
+	    href_length > 65535 || !internal_href(href, href_length))
+		return 0;
+	record[0] = ZIM_TEXT_LINK_START_MARKER;
+	record[1] = (unsigned char)href_length;
+	record[2] = (unsigned char)(href_length >> 8);
+	put_record_bytes(out, record, sizeof(record));
+	put_record_bytes(out, href, href_length);
+	return 1;
+}
+
 static size_t encode_utf8(uint32_t value, unsigned char bytes[4])
 {
 	if (value <= 0x7f) {
@@ -254,13 +297,14 @@ static int block_tag(const unsigned char *name, size_t length)
 
 static int html_to_text(const unsigned char *html, size_t html_size,
 			unsigned char *text, size_t capacity,
-			size_t *text_size, int include_images)
+			size_t *text_size, int include_images, int include_links)
 {
 	TEXT_OUTPUT out;
 	size_t i = 0;
 	int in_body = 0;
 	int in_main = 0;
 	int suppress = 0;
+	int in_link = 0;
 
 	if (!html || (!text && capacity) || !text_size)
 		return ZIM_ERR_RANGE;
@@ -330,7 +374,24 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			}
 			if (suppress)
 				continue;
-			if (include_images && !closing &&
+			if (include_links &&
+			    name_equal(html + tag_start, tag_end - tag_start, "a")) {
+				if (closing) {
+					if (in_link) {
+						unsigned char marker = ZIM_TEXT_LINK_END_MARKER;
+						put_record_bytes(&out, &marker, 1);
+					}
+					in_link = 0;
+				} else {
+					if (in_link) {
+						unsigned char marker = ZIM_TEXT_LINK_END_MARKER;
+						put_record_bytes(&out, &marker, 1);
+					}
+					in_link = put_link_start(&out,
+						html + attributes_start,
+						attributes_end - attributes_start);
+				}
+			} else if (include_images && !closing &&
 			    name_equal(html + tag_start, tag_end - tag_start, "img")) {
 				put_image(&out, html + attributes_start,
 					  attributes_end - attributes_start);
@@ -403,12 +464,12 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 		     unsigned char *text, size_t capacity,
 		     size_t *text_size)
 {
-	return html_to_text(html, html_size, text, capacity, text_size, 0);
+	return html_to_text(html, html_size, text, capacity, text_size, 0, 0);
 }
 
 int zim_html_to_text_images(const unsigned char *html, size_t html_size,
 			    unsigned char *text, size_t capacity,
 			    size_t *text_size)
 {
-	return html_to_text(html, html_size, text, capacity, text_size, 1);
+	return html_to_text(html, html_size, text, capacity, text_size, 1, 1);
 }

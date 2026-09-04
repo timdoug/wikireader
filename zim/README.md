@@ -94,6 +94,9 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - continuous image work that services pending drags at decoder checkpoints,
   with stale consecutive motion samples collapsed to the newest position
   without restarting decompression or decoding
+- underlined internal article links using the native WikiReader hit-testing
+  and history flow; targets are resolved on tap, including relative paths,
+  percent-encoded UTF-8, and redirects, with query/fragment suffixes ignored
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
@@ -116,7 +119,8 @@ RGB intermediate buffer.
 
 ## Current limits
 
-- Article links are displayed as text but are not yet clickable.
+- Same-page fragment scrolling and external web, telephone, email, and map
+  links are intentionally not handled by the offline reader.
 - CSS and JavaScript are omitted.
 - Image-rich articles lazily decode every useful image whose placeholder fits
   in the 512 KiB article stream. Images requested below 80 by 40 pixels,
