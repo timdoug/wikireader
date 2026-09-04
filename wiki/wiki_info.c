@@ -30,6 +30,9 @@
 #include "search.h"
 #include "search_fnd.h"
 #include "guilib.h"
+#ifdef ZIM_APP
+#include "zim_catalog.h"
+#endif
 
 WIKI_LIST wiki_list_default[] = {
 #ifdef ZIM_APP
@@ -313,6 +316,31 @@ void init_wiki_info(void)
 			}
 		}
 	}
+#ifdef ZIM_APP
+	/* One catalog entry per archive found on the card.  The shared nls
+	 * strings live in the boot volume's zim/ directory for all of them. */
+	{
+		int found = zim_catalog_scan();
+
+		if (found > 0)
+		{
+			wiki_list = (WIKI_LIST *)memory_allocate(sizeof(WIKI_LIST) * found, "wiki_list");
+			if (!wiki_list)
+				fatal_error("out of memory for the archive list");
+			for (i = 0; (int)i < found; i++)
+			{
+				memset(&wiki_list[i], 0, sizeof(WIKI_LIST));
+				wiki_list[i].wiki_serial_id = i + 1;
+				wiki_list[i].wiki_id = i + 1;
+				wiki_list[i].wiki_cat = WIKI_CAT_ENCYCLOPAEDIA;
+				strcpy(wiki_list[i].wiki_lang, "en");
+				strcpy(wiki_list[i].wiki_folder, "zim");
+				wiki_list[i].wiki_default_keyboard = KEYBOARD_CHAR;
+			}
+			nWikiList = found;
+		}
+	}
+#endif
 	if (!nWikiList)
 	{
 		wiki_list = wiki_list_default;
@@ -324,7 +352,12 @@ void init_wiki_info(void)
 	memset(baWikiActive, 0, sizeof(bool) * nWikiList);
 	for (i = 0; i < nWikiList; i++)
 	{
+#ifdef ZIM_APP
+		/* The archive was found on the card; the folder only holds nls text. */
+		if (1)
+#else
 		if (directory_exists(wiki_list[i].wiki_folder))
+#endif
 		{
 			baWikiActive[i] = true;
 			nWikiCount++;
@@ -371,6 +404,16 @@ void init_wiki_info(void)
 				const unsigned char *p = get_nls_key_value("positioner", pWikiIni, lenWikiIni);
 				if (*p)
 					bShowPositioner = atoi((const char *)p);
+#ifdef ZIM_APP
+				/* The archive set can change between boots, so remember
+				 * the chosen file by path rather than by position. */
+				p = get_nls_key_value("zim_path", pWikiIni, lenWikiIni);
+				if (*p && zim_catalog_find((const char *)p) >= 0)
+				{
+					nCurrentWiki = zim_catalog_find((const char *)p);
+				}
+				else
+#endif
 				p = get_nls_key_value("wiki_id", pWikiIni, lenWikiIni);
 				if (*p)
 				{
@@ -702,6 +745,9 @@ void wiki_selection(void)
 
 const unsigned char *get_wiki_name(int idx)
 {
+#ifdef ZIM_APP
+	return zim_catalog_title(aActiveWikis[idx].WikiInfoIdx);
+#else
 	int nTempCurrentWiki = nCurrentWiki;
 	const unsigned char *pName;
 
@@ -709,12 +755,26 @@ const unsigned char *get_wiki_name(int idx)
 	pName = get_nls_text("wiki_name");
 	nCurrentWiki = nTempCurrentWiki;
 	return pName;
+#endif
 }
 
 // I think this will only work if get_wiki_name has just been called
 const unsigned char *get_wiki_extra_name(int idx)
 {
+#ifdef ZIM_APP
+	/* Archive size, so two editions of the same title can be told apart. */
+	static unsigned char size_text[16];
+	uint64_t megabytes = zim_catalog_size(aActiveWikis[idx].WikiInfoIdx) >> 20;
+
+	if (megabytes >= 1024)
+		sprintf((char *)size_text, "(%lu.%lu GB)", (unsigned long)(megabytes / 1024),
+			(unsigned long)((megabytes % 1024) * 10 / 1024));
+	else
+		sprintf((char *)size_text, "(%lu MB)", (unsigned long)megabytes);
+	return size_text;
+#else
 	return wiki_list[aActiveWikis[idx].WikiInfoIdx].wiki_menu_extra;
+#endif
 }
 
 // pWikiIni    = start of storage
@@ -804,6 +864,10 @@ void set_wiki(int idx)
 		char sWikiId[10];
 		sprintf(sWikiId, "%d", get_wiki_serial_id_from_idx(nCurrentWiki));
 		wiki_ini_insert_keypair("wiki_id", sWikiId);
+#ifdef ZIM_APP
+		if (zim_catalog_path(aActiveWikis[nCurrentWiki].WikiInfoIdx))
+			wiki_ini_insert_keypair("zim_path", zim_catalog_path(aActiveWikis[nCurrentWiki].WikiInfoIdx));
+#endif
 		debug_printf("write to: %s = '%s'\n", WIKI_INI_NAME, pWikiIni);
 		bool write_eol = true;
 		unsigned int i;

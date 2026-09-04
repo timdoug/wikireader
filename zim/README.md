@@ -14,16 +14,24 @@ partition 1 (FAT32): normal ROOT_IMAGE files
                      kernel.elf = current Grifo kernel
                      wiki.app   = zim.app
                      zim/wiki.nls
-partition 2 (exFAT): wiki.zim
+partition 2 (exFAT): one or more *.zim files, any names
 ```
 
 The FAT32 boot partition preserves the mask-ROM and loader's existing boot
 contract. The ZIM reader mounts the second partition as FatFs volume `1:` and
-opens `1:/wiki.zim`. exFAT permits archives larger than FAT32's 4 GiB file
-limit and, for a contiguous file, avoids walking a large FAT chain at startup.
+scans its root, and the boot volume's `zim/` directory, for `*.zim` files.
+exFAT permits archives larger than FAT32's 4 GiB file limit and, for a
+contiguous file, avoids walking a large FAT chain at startup.
 
-For compatibility, a single FAT32 partition with `zim/wiki.zim` still works
-for archives smaller than 4 GiB.
+With more than one archive the keyboard shows the globe key of the original
+reader; it opens a list of the archives' own titles and sizes, and the choice
+is written to `wiki.ini` on the boot volume so the next boot returns to it.
+History entries remember which archive they came from and switch to it when
+reopened. A single archive under any name, including the old `wiki.zim`, is
+opened directly.
+
+For compatibility, a single FAT32 partition with `zim/*.zim` still works for
+archives smaller than 4 GiB.
 
 ## Build
 
@@ -45,10 +53,13 @@ provides fast seek plus 64-bit file size and seek calls.
 On macOS, after building Grifo and the app:
 
 ```sh
-./zim/make-card-image \
+./zim/make-card-image /tmp/wikireader-zim-card.dmg \
     wikipedia_en-simple_all_nopic_2026-06.zim \
-    /tmp/wikireader-zim-card.dmg
+    wikivoyage_en_all_maxi_2026-06.zim
 ```
+
+Every archive named is copied to the exFAT volume under its own name. The
+older `ZIM_FILE OUTPUT.dmg` argument order still works for a single archive.
 
 The script refuses to overwrite an existing image and verifies that the
 device it repartitions is the virtual disk image it just attached. It does not
@@ -74,6 +85,9 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 ## Implemented
 
 - ZIM 6 header, path index, and `X/listing/titleOrdered/v1` title index
+- several archives per card, chosen from a list of their `M/Title` metadata
+  through the original reader's wiki-selection screen, with the choice
+  persisted by path
 - prefix search without a generated sidecar index
 - redirects, uncompressed clusters, and Zstandard clusters
 - standard Grifo/FatFs R0.16 file access, including exFAT, 64-bit file

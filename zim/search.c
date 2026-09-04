@@ -20,6 +20,7 @@
 #include "zim_archive.h"
 #include "zim_article.h"
 #include "zim_blob.h"
+#include "zim_catalog.h"
 #include "zim_file.h"
 #include "zim_html.h"
 #include "zim_image.h"
@@ -647,9 +648,12 @@ static void open_archive(int wiki_index)
 	article_cache_flush();
 	if (archive_file.open)
 		zim_file_close(&archive_file);
-	if (zim_file_open(&archive_file, "1:/wiki.zim") &&
-	    zim_file_open(&archive_file, "zim/wiki.zim"))
-		fatal_error("wiki.zim not found");
+	if (zim_catalog_path(wiki_index)) {
+		if (zim_file_open(&archive_file, zim_catalog_path(wiki_index)))
+			fatal_error("cannot open %s", zim_catalog_path(wiki_index));
+	} else if (zim_file_open(&archive_file, "1:/wiki.zim") &&
+		   zim_file_open(&archive_file, "zim/wiki.zim"))
+		fatal_error("no .zim archive found");
 	io.read_at = device_read_at;
 	io.opaque = &archive_file;
 	io.size = archive_file.size;
@@ -999,6 +1003,15 @@ int retrieve_article(long encoded_index)
 	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
+	/* History entries carry the archive they came from in the top byte. */
+	if ((uint32_t)encoded_index >> 24) {
+		int wiki_index = get_wiki_idx_from_id((int)((uint32_t)encoded_index >> 24));
+
+		if (wiki_index < 0)
+			goto error;
+		if (wiki_index != nCurrentWiki)
+			set_wiki(wiki_index);
+	}
 	if (!index || index > archive.entry_count)
 		goto error;
 	if (!raw_buffer)
