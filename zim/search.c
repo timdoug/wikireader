@@ -345,6 +345,9 @@ static int prepare_article_image(unsigned char *stream)
 			draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
+#ifdef ZIM_TRACE_HASH
+		memory_debug("image decoded");
+#endif
 		goto out;
 	}
 	deferred_progress_framebuffer = lcd_get_framebuffer();
@@ -848,6 +851,9 @@ int retrieve_article(long encoded_index)
 		deferred_images[index].stream += article_header.offset_article -
 			sizeof(article_header);
 	set_article_stream_height(article_height);
+#ifdef ZIM_TRACE_HASH
+	memory_debug("article ready");
+#endif
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 	restricted_article = 0;
 	current_article_wiki_id = 0;
