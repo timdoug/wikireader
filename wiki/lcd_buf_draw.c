@@ -41,7 +41,7 @@
 #define MAX_SCROLL_SECONDS 3
 #define LIST_SCROLL_SPEED_FRICTION 0.3
 #define ARTICLE_SCROLL_SPEED_FRICTION 0.3
-#define SCROLL_UNIT_SECOND 0.1
+#define SCROLL_UNIT_SECOND (1.0 / 30.0)
 #define LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.1
 #define LIST_LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.35
 #define RESTRICTED_MARK_LINK 0xFFFFFF
@@ -114,6 +114,14 @@ static ARTICLE_STREAM_PREPARE article_stream_prepare;
 static ARTICLE_LINK_HANDLER article_link_handler;
 static int article_stream_height;
 static int scroll_bar_visible;
+static unsigned char *lcd_default_framebuffer;
+static unsigned char *direct_view_source;
+#define SCROLL_OVERLAY_X 224
+#define SCROLL_OVERLAY_WIDTH 32
+#define SCROLL_OVERLAY_ROW_BYTES (SCROLL_OVERLAY_WIDTH / 8)
+static uint32_t direct_view_scroll_overlay[2]
+	[SCROLL_OVERLAY_ROW_BYTES * LCD_HEIGHT / sizeof(uint32_t)];
+static unsigned int direct_view_scroll_overlay_next;
 
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
 {
@@ -150,31 +158,39 @@ static long scroll_bar_content_height(void)
 	return content_height;
 }
 
-static int paint_scroll_bar(unsigned char *buffer)
+static int scroll_bar_geometry(int *bar_pos, int *bar_len)
 {
 	long content_height = scroll_bar_content_height();
+
+	if (content_height < LCD_HEIGHT)
+		return 0;
+	*bar_len = LCD_HEIGHT * LCD_HEIGHT / content_height;
+	if (*bar_len > LCD_HEIGHT)
+		*bar_len = LCD_HEIGHT;
+	else if (*bar_len < MIN_BAR_LEN)
+		*bar_len = MIN_BAR_LEN;
+	if (content_height > LCD_HEIGHT)
+		*bar_pos = (LCD_HEIGHT - *bar_len) * lcd_draw_cur_y_pos /
+			(content_height - LCD_HEIGHT);
+	else
+		*bar_pos = 0;
+	if (*bar_pos < 0)
+		*bar_pos = 0;
+	else if (*bar_pos + *bar_len > LCD_HEIGHT)
+		*bar_pos = LCD_HEIGHT - *bar_len;
+	return 1;
+}
+
+static int paint_scroll_bar(unsigned char *buffer)
+{
 	int bar_len;
 	int bar_pos;
 	int i;
 	int byte_idx;
 	unsigned char pixels;
 
-	if (content_height < LCD_HEIGHT)
+	if (!scroll_bar_geometry(&bar_pos, &bar_len))
 		return 0;
-	bar_len = LCD_HEIGHT * LCD_HEIGHT / content_height;
-	if (bar_len > LCD_HEIGHT)
-		bar_len = LCD_HEIGHT;
-	else if (bar_len < MIN_BAR_LEN)
-		bar_len = MIN_BAR_LEN;
-	if (content_height > LCD_HEIGHT)
-		bar_pos = (LCD_HEIGHT - bar_len) * lcd_draw_cur_y_pos /
-			(content_height - LCD_HEIGHT);
-	else
-		bar_pos = 0;
-	if (bar_pos < 0)
-		bar_pos = 0;
-	else if (bar_pos + bar_len > LCD_HEIGHT)
-		bar_pos = LCD_HEIGHT - bar_len;
 
 	for (i = 0; i < LCD_HEIGHT; i++) {
 		pixels = bar_pos <= i && i < bar_pos + bar_len ? 0x07 : 0;
@@ -182,6 +198,47 @@ static int paint_scroll_bar(unsigned char *buffer)
 		buffer[byte_idx] = (buffer[byte_idx] & 0xf0) | pixels;
 	}
 	return 1;
+}
+
+static int prepare_direct_scroll_overlay(unsigned char *source)
+{
+	unsigned char *overlay;
+	int bar_len;
+	int bar_pos;
+	int i;
+	unsigned char pixels;
+
+	direct_view_scroll_overlay_next ^= 1;
+	overlay = (unsigned char *)direct_view_scroll_overlay[
+		direct_view_scroll_overlay_next];
+	scroll_bar_visible = scroll_bar_geometry(&bar_pos, &bar_len);
+	for (i = 0; i < LCD_HEIGHT; i++) {
+		((uint32_t *)overlay)[i] = *(uint32_t *)(source +
+			i * LCD_BUFFER_WIDTH_BYTES + SCROLL_OVERLAY_X / 8);
+		pixels = scroll_bar_visible && bar_pos <= i &&
+			i < bar_pos + bar_len ? 0x07 : 0;
+		overlay[i * SCROLL_OVERLAY_ROW_BYTES +
+			(236 - SCROLL_OVERLAY_X) / 8] =
+			(overlay[i * SCROLL_OVERLAY_ROW_BYTES +
+			 (236 - SCROLL_OVERLAY_X) / 8] & 0xf0) | pixels;
+	}
+	lcd_window_set_buffer((uint32_t *)overlay);
+	return scroll_bar_visible;
+}
+
+static void finish_direct_view(void)
+{
+	unsigned char *source = direct_view_source;
+
+	if (!source)
+		return;
+	lcd_window_disable();
+	scroll_bar_visible = 0;
+	/* Leave the ordinary framebuffer current outside a gesture.  Much of
+	 * the original UI quite reasonably draws through lcd_get_framebuffer(). */
+	memcpy(lcd_default_framebuffer, source, framebuffer_size());
+	lcd_set_framebuffer((uint32_t *)lcd_default_framebuffer);
+	direct_view_source = NULL;
 }
 
 void show_scroll_bar(int bShow)
@@ -192,6 +249,17 @@ void show_scroll_bar(int bShow)
 
 	if (bShow > 0) {
 		scroll_bar_visible = paint_scroll_bar(framebuffer);
+		return;
+	}
+	if (direct_view_source) {
+		guilib_fb_lock();
+		finish_direct_view();
+		if (display_mode == DISPLAY_MODE_ARTICLE &&
+		    (language_link_count || restricted_article) &&
+		    (lcd_draw_cur_y_pos == article_start_y_pos ||
+		     lcd_draw_cur_y_pos == 0))
+			draw_language_link_arrow();
+		guilib_fb_unlock();
 		return;
 	}
 	if (!scroll_bar_visible || !lcd_draw_buf.screen_buf)
@@ -234,6 +302,7 @@ void init_lcd_draw_buf()
 	if (!lcd_draw_buf_inited)
 	{
 		framebuffersize = framebuffer_size();
+		lcd_default_framebuffer = lcd_get_framebuffer();
 		framebuffer_copy = (unsigned char*)memory_allocate(framebuffersize, "bufdraw1");
 		lcd_draw_buf.screen_buf = (unsigned char *)memory_allocate(LCD_BUF_WIDTH_BYTES * LCD_BUF_HEIGHT_PIXELS, "bufdraw2");
 		if (!framebuffer_copy || !lcd_draw_buf.screen_buf)
@@ -686,38 +755,42 @@ void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link)
 	(void)b_repaint_invert_link; // *** unused argument
 	int framebuffersize;
 	unsigned char *source;
-	unsigned char saved_scroll_edge[LCD_HEIGHT];
-	int i;
-	int byte_idx;
 	framebuffersize = framebuffer_size();
 	source = buf + (pos < 0 ? 0 : pos) * LCD_BUFFER_WIDTH / 8;
 
 	guilib_fb_lock();
 	//guilib_clear();
 
-	/* Compose the overlay in the viewport before its one LCD copy. Saving
-	 * just the affected byte in each row avoids a second full-screen copy
-	 * on every drag packet while keeping the article backing buffer clean. */
-	if (b_show_scroll_bar) {
-		for (i = 0; i < LCD_HEIGHT; i++) {
-			byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
-			saved_scroll_edge[i] = source[byte_idx];
-		}
-		scroll_bar_visible = paint_scroll_bar(source);
+	/* The LCD controller manual explicitly supports vertical scrolling by
+	 * changing MADD to a line within a larger SDRAM image.  While a gesture
+	 * is active, point it straight at the article buffer rather than copying
+	 * all 6,656 display bytes for every touch report.  Keep the scroll
+	 * indicator in a double-buffered LCD sub-window so it never disappears
+	 * between viewport changes and never modifies the article backing data. */
+	if (b_show_scroll_bar && buf == lcd_draw_buf.screen_buf && pos >= 0 &&
+	    !((uintptr_t)source & 3) &&
+	    (direct_view_source ||
+	     lcd_window(SCROLL_OVERLAY_X, 0, SCROLL_OVERLAY_WIDTH,
+			LCD_HEIGHT) == SCROLL_OVERLAY_ROW_BYTES * LCD_HEIGHT)) {
+		scroll_bar_visible = prepare_direct_scroll_overlay(source);
+		direct_view_source = source;
+		lcd_set_framebuffer((uint32_t *)source);
+		lcd_window_enable();
 	} else {
-		scroll_bar_visible = 0;
-	}
-	memcpy(lcd_get_framebuffer(), source, framebuffersize);
-	if (scroll_bar_visible)
-		for (i = 0; i < LCD_HEIGHT; i++) {
-			byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
-			source[byte_idx] = saved_scroll_edge[i];
+		if (direct_view_source) {
+			finish_direct_view();
 		}
+		scroll_bar_visible = 0;
+		memcpy(lcd_default_framebuffer, source, framebuffersize);
+	}
 	if (display_mode == DISPLAY_MODE_ARTICLE && (language_link_count || restricted_article) && (pos == article_start_y_pos || pos == 0))
 	{
+		if (direct_view_source)
+			finish_direct_view();
 		draw_language_link_arrow();
-		if (scroll_bar_visible)
-			paint_scroll_bar(lcd_get_framebuffer());
+		if (b_show_scroll_bar)
+			scroll_bar_visible = paint_scroll_bar(
+				lcd_get_framebuffer());
 	}
 //	if (b_repaint_invert_link)
 //		repaint_invert_link();
@@ -1141,6 +1214,7 @@ void render_wikipedia_license_text(void)
 
 int render_article_with_pcf()
 {
+	int prepare_status;
 
 	if (!article_buf_pointer)
 		return 0;
@@ -1151,8 +1225,12 @@ int render_article_with_pcf()
 	    !request_display_next_page &&
 	    lcd_draw_buf.current_y > lcd_draw_cur_y_pos + 2 * LCD_HEIGHT)
 		return 0;
-	if (article_stream_prepare)
-		article_stream_prepare((unsigned char *)article_buf_pointer);
+	if (article_stream_prepare) {
+		prepare_status = article_stream_prepare(
+			(unsigned char *)article_buf_pointer);
+		if (prepare_status)
+			return prepare_status > 0;
+	}
 
 	buf_draw_UTF8_str(&article_buf_pointer);
 	if(stop_render_article == 1 && display_first_page == 1)

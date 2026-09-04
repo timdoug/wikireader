@@ -281,7 +281,10 @@ typedef struct _ARTICLE_RENDER_INFO
 	pcffont_bmf_t *pPcfFont;
 } ARTICLE_RENDER_INFO, *PARTICLE_RENDER_INFO;
 
-typedef void (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
+/* The storage backend may prepare an expensive stream object incrementally.
+ * Zero means ready, positive means run another slice, and negative means
+ * paused until another event changes the interaction state. */
+typedef int (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
 typedef long (*ARTICLE_LINK_HANDLER)(long article_id, int resolve);
 
 void init_lcd_draw_buf();

@@ -76,12 +76,20 @@ static ZIM_DEFERRED_IMAGE *deferred_images;
 static size_t deferred_image_count;
 static size_t deferred_image_capacity;
 static size_t deferred_image_next;
+static ZIM_IMAGE_DECODER *deferred_image_decoder;
+static uint8_t deferred_decode_width;
+static uint16_t deferred_decode_height;
+static size_t deferred_decode_bitmap_size;
+static unsigned char deferred_saved_bar[2 * LCD_BUFFER_WIDTH_BYTES];
+static unsigned char *deferred_progress_framebuffer;
 static size_t article_text_size;
 static ZIM_DEFERRED_LINK *deferred_links;
 static size_t deferred_link_count;
 static size_t deferred_link_capacity;
 static char current_article_path[ZIM_DIRENT_TEXT_MAX];
 extern int display_first_page;
+extern int finger_touched;
+extern long finger_move_speed;
 
 static void article_blob_progress(void *opaque, uint64_t completed,
 				  uint64_t total)
@@ -304,29 +312,45 @@ static int article_image(void *opaque, const unsigned char *source_path,
 	return 0;
 }
 
-static void prepare_article_image(unsigned char *stream)
+static int prepare_article_image(unsigned char *stream)
 {
 	ZIM_DEFERRED_IMAGE *deferred;
 	ZIM_DIRENT dirent;
 	char path[ZIM_DIRENT_TEXT_MAX];
-	unsigned char saved_bar[2 * LCD_BUFFER_WIDTH_BYTES];
-	unsigned char *framebuffer;
 	size_t webp_size;
-	size_t bitmap_size;
-	uint8_t width;
-	uint16_t height;
 	int rc;
 
 	if (deferred_image_next >= deferred_image_count)
-		return;
+		return 0;
 	/* Placeholders and metadata are emitted in the same order. Keep a cursor
 	 * instead of searching every image for every article-stream token. */
 	deferred = &deferred_images[deferred_image_next];
 	if (deferred->stream != stream)
-		return;
-	framebuffer = lcd_get_framebuffer();
-	memcpy(saved_bar, framebuffer + LCD_BUFFER_WIDTH_BYTES,
-	       sizeof(saved_bar));
+		return 0;
+	if (deferred_image_decoder) {
+		/* Give an already queued gesture ownership of the UI before
+		 * beginning another decoder slice.  The decoder state remains live
+		 * and resumes after direct and kinetic scrolling have stopped. */
+		wikilib_service_pending_touch_events();
+		if (finger_touched || finger_move_speed)
+			return -1;
+		rc = zim_image_decoder_step(deferred_image_decoder);
+		if (rc > 0)
+			return 1;
+		if (rc < 0 || deferred_decode_width != deferred->width ||
+		    deferred_decode_height != deferred->height ||
+		    deferred_decode_bitmap_size != deferred->bitmap_size)
+			memset(stream + 4, 0, deferred->bitmap_size);
+		else
+			draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
+		zim_image_decoder_destroy(deferred_image_decoder);
+		deferred_image_decoder = NULL;
+		goto out;
+	}
+	deferred_progress_framebuffer = lcd_get_framebuffer();
+	memcpy(deferred_saved_bar,
+	       deferred_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
+	       sizeof(deferred_saved_bar));
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
 	memcpy(path, deferred->path, deferred->path_length);
@@ -342,17 +366,16 @@ static void prepare_article_image(unsigned char *stream)
 	if (rc)
 		goto out;
 	draw_progress_bar(IMAGE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
-	rc = zim_webp_to_bitmap_progress(raw_buffer, webp_size, deferred->width,
-					 deferred->height, stream + 4,
-					 deferred->bitmap_size, &width, &height,
-					 &bitmap_size, image_decode_progress,
-					 NULL);
-	if (rc ||
-	    width != deferred->width || height != deferred->height ||
-	    bitmap_size != deferred->bitmap_size)
-		memset(stream + 4, 0, deferred->bitmap_size);
-	else
-		draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
+	deferred_image_decoder = zim_image_decoder_create(raw_buffer, webp_size,
+		deferred->width, deferred->height, stream + 4,
+		deferred->bitmap_size, &deferred_decode_width,
+		&deferred_decode_height, &deferred_decode_bitmap_size,
+		image_decode_progress, NULL);
+	if (!deferred_image_decoder)
+		goto out;
+	if (finger_touched || finger_move_speed)
+		return -1;
+	return 1;
 
 out:
 	deferred_image_next++;
@@ -360,8 +383,9 @@ out:
 	if (display_first_page)
 		repaint_current_article();
 	else
-		memcpy(framebuffer + LCD_BUFFER_WIDTH_BYTES, saved_bar,
-		       sizeof(saved_bar));
+		memcpy(deferred_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
+		       deferred_saved_bar, sizeof(deferred_saved_bar));
+	return 0;
 }
 
 bool search_string_changed;
@@ -783,6 +807,10 @@ int retrieve_article(long encoded_index)
 	if (rc)
 		goto error;
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
+	if (deferred_image_decoder) {
+		zim_image_decoder_destroy(deferred_image_decoder);
+		deferred_image_decoder = NULL;
+	}
 	deferred_image_count = 0;
 	deferred_image_next = 0;
 	deferred_link_count = 0;

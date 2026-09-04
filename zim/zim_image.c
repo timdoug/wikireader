@@ -15,7 +15,28 @@
 #include <grifo.h>
 #endif
 
-#define ZIM_WEBP_INPUT_CHUNK 1024
+/* Incremental decoding is also the cooperative scheduling boundary for the
+ * single-core firmware.  Large chunks make a drag wait behind tens of
+ * milliseconds of WebP work; 128 bytes keeps touch handling close to a video
+ * frame without changing the decoder state or restarting the image. */
+#define ZIM_WEBP_INPUT_CHUNK 128
+
+struct zim_image_decoder {
+	const unsigned char *webp;
+	size_t webp_size;
+	size_t offset;
+	WebPDecoderConfig config;
+	WebPIDecoder *decoder;
+	unsigned int width;
+	unsigned int height;
+	unsigned char *bitmap;
+	size_t capacity;
+	uint8_t *width_out;
+	uint16_t *height_out;
+	size_t *bitmap_size;
+	ZIM_IMAGE_PROGRESS progress;
+	void *progress_opaque;
+};
 
 static void keep_alive(void)
 {
@@ -167,6 +188,136 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 	return 0;
 }
 
+ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
+					     size_t webp_size,
+					     unsigned int requested_width,
+					     unsigned int requested_height,
+					     unsigned char *bitmap,
+					     size_t capacity,
+					     uint8_t *width_out,
+					     uint16_t *height_out,
+					     size_t *bitmap_size,
+					     ZIM_IMAGE_PROGRESS progress,
+					     void *progress_opaque)
+{
+	ZIM_IMAGE_DECODER *state;
+	unsigned int width;
+	unsigned int height;
+
+	if (!webp || !webp_size || !bitmap || !width_out || !height_out ||
+	    !bitmap_size)
+		return NULL;
+	state = calloc(1, sizeof(*state));
+	if (!state || !WebPInitDecoderConfig(&state->config))
+		goto error;
+	if (WebPGetFeatures(webp, webp_size, &state->config.input) !=
+		VP8_STATUS_OK || state->config.input.width <= 0 ||
+	    state->config.input.height <= 0 || state->config.input.has_animation)
+		goto error;
+	fit_dimensions((unsigned int)state->config.input.width,
+		       (unsigned int)state->config.input.height,
+		       requested_width, requested_height, &width, &height);
+	if ((size_t)((width + 7) / 8) * height > capacity)
+		goto error;
+	state->config.output.colorspace = MODE_RGBA;
+	state->config.options.use_scaling =
+		width != (unsigned int)state->config.input.width ||
+		height != (unsigned int)state->config.input.height;
+	state->config.options.scaled_width = (int)width;
+	state->config.options.scaled_height = (int)height;
+	state->config.options.no_fancy_upsampling = 1;
+	state->config.options.use_threads = 0;
+	/* Lossy WebP is already YUV. Dither its luma plane directly instead of
+	 * spending target cycles and memory upsampling chroma into RGBA. The
+	 * lossless decoder requires an RGB output mode. */
+	if (state->config.input.format == 1)
+		state->config.output.colorspace = state->config.input.has_alpha ?
+			MODE_YUVA : MODE_YUV;
+	state->decoder = WebPIDecode(NULL, 0, &state->config);
+	if (!state->decoder)
+		goto error;
+	state->webp = webp;
+	state->webp_size = webp_size;
+	state->width = width;
+	state->height = height;
+	state->bitmap = bitmap;
+	state->capacity = capacity;
+	state->width_out = width_out;
+	state->height_out = height_out;
+	state->bitmap_size = bitmap_size;
+	state->progress = progress;
+	state->progress_opaque = progress_opaque;
+	return state;
+
+error:
+	if (state) {
+		WebPIDelete(state->decoder);
+		WebPFreeDecBuffer(&state->config.output);
+		free(state);
+	}
+	return NULL;
+}
+
+int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
+{
+	VP8StatusCode decode_status;
+	int result;
+
+	if (!state || state->offset >= state->webp_size)
+		return -1;
+	{
+		size_t amount = state->webp_size - state->offset;
+		if (amount > ZIM_WEBP_INPUT_CHUNK)
+			amount = ZIM_WEBP_INPUT_CHUNK;
+		decode_status = WebPIAppend(state->decoder,
+			state->webp + state->offset, amount);
+		state->offset += amount;
+		keep_alive();
+		if (state->progress)
+			state->progress(state->progress_opaque,
+				state->offset * 80 / state->webp_size, 100);
+		if (decode_status != VP8_STATUS_SUSPENDED &&
+		    !(decode_status == VP8_STATUS_OK &&
+		      state->offset == state->webp_size))
+			return -1;
+	}
+	if (decode_status == VP8_STATUS_SUSPENDED)
+		return 1;
+	if (WebPIsRGBMode(state->config.output.colorspace)) {
+		result = dither_atkinson(state->config.output.u.RGBA.rgba,
+				    state->width, state->height,
+				    state->config.output.u.RGBA.stride, 1,
+				    NULL, 0, state->bitmap, state->capacity,
+				    state->bitmap_size, state->progress,
+				    state->progress_opaque);
+		if (result)
+			return -1;
+	} else {
+		result = dither_atkinson(state->config.output.u.YUVA.y,
+				   state->width, state->height,
+				   state->config.output.u.YUVA.y_stride, 0,
+				   state->config.output.u.YUVA.a,
+				   state->config.output.u.YUVA.a_stride,
+				   state->bitmap, state->capacity,
+				   state->bitmap_size, state->progress,
+				   state->progress_opaque);
+		if (result)
+			return -1;
+	}
+	*state->width_out = (uint8_t)state->width;
+	*state->height_out = (uint16_t)state->height;
+	return 0;
+}
+
+void zim_image_decoder_destroy(ZIM_IMAGE_DECODER *state)
+{
+	if (!state)
+		return;
+	WebPIDelete(state->decoder);
+	WebPFreeDecBuffer(&state->config.output);
+	free(state);
+}
+
 int zim_webp_to_bitmap_progress(const unsigned char *webp, size_t webp_size,
 				unsigned int requested_width,
 				unsigned int requested_height,
@@ -176,81 +327,18 @@ int zim_webp_to_bitmap_progress(const unsigned char *webp, size_t webp_size,
 				ZIM_IMAGE_PROGRESS progress,
 				void *progress_opaque)
 {
-	WebPDecoderConfig config;
-	unsigned int width;
-	unsigned int height;
-	WebPIDecoder *decoder = NULL;
-	size_t offset = 0;
-	VP8StatusCode decode_status = VP8_STATUS_SUSPENDED;
-	int result = -1;
+	ZIM_IMAGE_DECODER *decoder;
+	int result;
 
-	if (!webp || !webp_size || !bitmap || !width_out || !height_out ||
-	    !bitmap_size || !WebPInitDecoderConfig(&config))
-		return -1;
-	if (WebPGetFeatures(webp, webp_size, &config.input) != VP8_STATUS_OK ||
-	    config.input.width <= 0 || config.input.height <= 0 ||
-	    config.input.has_animation)
-		goto out;
-	fit_dimensions((unsigned int)config.input.width,
-		       (unsigned int)config.input.height,
-		       requested_width, requested_height, &width, &height);
-	if ((size_t)((width + 7) / 8) * height > capacity)
-		goto out;
-	config.output.colorspace = MODE_RGBA;
-	config.options.use_scaling = width != (unsigned int)config.input.width ||
-		height != (unsigned int)config.input.height;
-	config.options.scaled_width = (int)width;
-	config.options.scaled_height = (int)height;
-	config.options.no_fancy_upsampling = 1;
-	config.options.use_threads = 0;
-	/* Lossy WebP is already YUV. Dither its luma plane directly instead of
-	 * spending target cycles and memory upsampling chroma into RGBA. The
-	 * lossless decoder requires an RGB output mode. */
-	if (config.input.format == 1)
-		config.output.colorspace = config.input.has_alpha ?
-			MODE_YUVA : MODE_YUV;
-	decoder = WebPIDecode(NULL, 0, &config);
+	decoder = zim_image_decoder_create(webp, webp_size, requested_width,
+		requested_height, bitmap, capacity, width_out, height_out,
+		bitmap_size, progress, progress_opaque);
 	if (!decoder)
-		goto out;
-	while (offset < webp_size) {
-		size_t amount = webp_size - offset;
-		if (amount > ZIM_WEBP_INPUT_CHUNK)
-			amount = ZIM_WEBP_INPUT_CHUNK;
-		decode_status = WebPIAppend(decoder, webp + offset, amount);
-		offset += amount;
-		keep_alive();
-		if (progress)
-			progress(progress_opaque, offset * 80 / webp_size, 100);
-		if (decode_status != VP8_STATUS_SUSPENDED &&
-		    !(decode_status == VP8_STATUS_OK && offset == webp_size))
-			goto out;
-	}
-	if (decode_status != VP8_STATUS_OK)
-		goto out;
-	if (WebPIsRGBMode(config.output.colorspace)) {
-		result = dither_atkinson(config.output.u.RGBA.rgba, width, height,
-				    config.output.u.RGBA.stride, 1, NULL, 0,
-				    bitmap, capacity, bitmap_size, progress,
-				    progress_opaque);
-		if (result)
-			goto out;
-	} else {
-		result = dither_atkinson(config.output.u.YUVA.y, width, height,
-				   config.output.u.YUVA.y_stride, 0,
-				   config.output.u.YUVA.a,
-				   config.output.u.YUVA.a_stride,
-				   bitmap, capacity, bitmap_size, progress,
-				   progress_opaque);
-		if (result)
-			goto out;
-	}
-	*width_out = (uint8_t)width;
-	*height_out = (uint16_t)height;
-	result = 0;
-
-out:
-	WebPIDelete(decoder);
-	WebPFreeDecBuffer(&config.output);
+		return -1;
+	do {
+		result = zim_image_decoder_step(decoder);
+	} while (result > 0);
+	zim_image_decoder_destroy(decoder);
 	return result;
 }
 

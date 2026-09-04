@@ -314,8 +314,10 @@ size_t LCD_Window(int x, int y, int width, int height)
 	x = (x + 31) & ~31;
 	width = (width + 31) & ~31;
 
-	if (x + width >= LCD_BUFFER_WIDTH ||
-	    y + height>= LCD_BUFFER_HEIGHT) {
+	/* x + width and y + height are exclusive ends.  Equality therefore
+	 * describes a window ending exactly at the buffer edge, not overflow. */
+	if (x + width > LCD_BUFFER_WIDTH ||
+	    y + height > LCD_BUFFER_HEIGHT) {
 		return 0;
 	}
 
