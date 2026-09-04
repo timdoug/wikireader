@@ -1,0 +1,118 @@
+#!/bin/sh
+# Build a dual-volume WikiReader disk image for the ZIM reader.
+
+set -eu
+
+usage()
+{
+	cat <<EOF
+usage: $(basename "$0") ZIM_FILE OUTPUT.dmg
+
+Create an MBR disk image with:
+  partition 1: 64 MiB FAT32 boot volume
+  partition 2: exFAT volume containing /wiki.zim
+
+The current GCC 16 Grifo kernel, init application, and zim.app must already
+be built. This command is for macOS and requires hdiutil and diskutil.
+EOF
+	exit "${1:-0}"
+}
+
+[ "$#" -eq 2 ] || usage 2
+
+zim_file=$1
+output=$2
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root_dir=$(dirname -- "$script_dir")
+kernel="$root_dir/samo-lib/grifo/grifo.elf"
+init_app="$root_dir/samo-lib/grifo/applications/init/init.app"
+zim_app="$root_dir/zim/zim.app"
+nls="$root_dir/XML-Licenses/en/wiki.nls"
+
+case "$output" in
+	*.dmg) ;;
+	*) echo "error: output name must end in .dmg" >&2; exit 2 ;;
+esac
+
+[ -f "$zim_file" ] || { echo "error: ZIM not found: $zim_file" >&2; exit 2; }
+[ ! -e "$output" ] || { echo "error: output already exists: $output" >&2; exit 2; }
+for required in "$kernel" "$init_app" "$zim_app" "$nls"; do
+	[ -f "$required" ] || {
+		echo "error: required build output not found: $required" >&2
+		exit 2
+	}
+done
+
+command -v hdiutil >/dev/null 2>&1 || {
+	echo "error: hdiutil is required (macOS only)" >&2
+	exit 2
+}
+command -v diskutil >/dev/null 2>&1 || {
+	echo "error: diskutil is required (macOS only)" >&2
+	exit 2
+}
+
+zim_bytes=$(stat -f %z "$zim_file")
+# Reserve the 64 MiB boot partition plus ample exFAT metadata and copy slack.
+image_mib=$(( (zim_bytes + 256 * 1024 * 1024 + 1024 * 1024 - 1) / (1024 * 1024) ))
+boot_label="WRBOOT$$"
+content_label="WRZIM$$"
+device=
+
+detach_image()
+{
+	if [ -n "$device" ]; then
+		hdiutil detach "$device" >/dev/null 2>&1 || true
+		device=
+	fi
+}
+trap detach_image 0
+trap 'exit 1' HUP INT TERM
+
+echo "Creating ${image_mib} MiB image..."
+hdiutil create -size "${image_mib}m" -layout MBRSPUD -fs ExFAT \
+	-volname "$content_label" -type UDIF -o "$output" >/dev/null
+
+attach_output=$(hdiutil attach -nomount "$output")
+device=$(printf '%s\n' "$attach_output" | awk 'NR == 1 { print $1 }')
+case "$device" in
+	/dev/disk[0-9]*) ;;
+	*) echo "error: could not identify attached disk image" >&2; exit 1 ;;
+esac
+
+# Never pass an unverified host disk to partitionDisk.
+disk_info=$(diskutil info "$device")
+printf '%s\n' "$disk_info" | grep -Eq 'Device / Media Name: +Disk Image$' || {
+	echo "error: attached device is not identified as a disk image: $device" >&2
+	exit 1
+}
+printf '%s\n' "$disk_info" | grep -Eq 'Virtual: +Yes$' || {
+	echo "error: attached device is not virtual: $device" >&2
+	exit 1
+}
+
+echo "Partitioning $device..."
+diskutil partitionDisk "$device" MBR \
+	FAT32 "$boot_label" 64M \
+	ExFAT "$content_label" R >/dev/null
+
+boot_mount=$(diskutil info "${device}s1" | sed -n 's/^ *Mount Point: *//p')
+content_mount=$(diskutil info "${device}s2" | sed -n 's/^ *Mount Point: *//p')
+[ -d "$boot_mount" ] || { echo "error: boot volume did not mount" >&2; exit 1; }
+[ -d "$content_mount" ] || { echo "error: content volume did not mount" >&2; exit 1; }
+
+echo "Installing firmware..."
+cp -R "$root_dir/ROOT_IMAGE/." "$boot_mount/"
+cp "$kernel" "$boot_mount/kernel.elf"
+cp "$init_app" "$boot_mount/init.app"
+cp "$zim_app" "$boot_mount/wiki.app"
+mkdir -p "$boot_mount/zim"
+cp "$nls" "$boot_mount/zim/wiki.nls"
+
+echo "Copying $(basename "$zim_file") to exFAT content volume..."
+cp "$zim_file" "$content_mount/wiki.zim"
+sync
+
+detach_image
+trap - 0 HUP INT TERM
+echo "Created $output"
