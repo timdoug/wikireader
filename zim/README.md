@@ -80,6 +80,15 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
   positions, and compact fast-seek maps for contiguous or fragmented files
 - a four-sector application cache for repeated small, unaligned ZIM index
   reads
+- a decoded-cluster cache: the most recently used Zstandard cluster stays
+  decoded in memory together with its live decoder, so a blob below the
+  decoded frontier is a copy and a blob beyond it just continues the stream.
+  Articles are path-ordered, so history navigation and many link follows land
+  in the cached cluster. The HTML converter reads straight from the cache
+  without an intermediate copy. Zstandard's stable output mode is only
+  correct when the buffer holds the whole frame, so the buffer is sized above
+  the common 2 MiB Kiwix cluster and re-sized once if the offset table
+  reports a larger cluster; clusters above 8 MiB use a windowed fallback
 - HTML text extraction with structural breaks for headings and paragraphs,
   plus lists and linearized tables
 - inline WebP photographs, maps, and drawings, scaled for the display,
@@ -101,6 +110,26 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
   lookup, cluster decompression, conversion, and wrapping milestones
+- draw-buffer clearing limited to the rows the previous article touched
+  instead of the whole 3.8 MiB off-screen buffer
+
+## Article load cost
+
+Opening `Cat` from the Simple English archive in `wremu` (modeled guest time
+from the tap to the first painted page) breaks down as follows. The article is
+blob 29 of 84 in a 2 MiB cluster, so 872 KiB of neighbours must be decoded
+first; that decode is the floor set by the archive's cluster size.
+
+| Phase | Time |
+| --- | ---: |
+| Zstandard decode of the cluster prefix | ~2.2 s |
+| HTML to text | ~0.15 s |
+| word wrap and stream height | ~0.18 s |
+| clear, render, paint first page | ~0.05 s |
+
+Reopening an article from the same cluster skips the decode entirely.
+`host-tools/zim-reader/make check` verifies the cached, continued, truncated,
+and zero-copy blob paths against an independent whole-cluster decode.
 
 The repository test archive
 `wikipedia_en-simple_all_nopic_2026-06.zim` has 401,965 directory entries,
