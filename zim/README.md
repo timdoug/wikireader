@@ -88,6 +88,12 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - lazy image decoding and bounded article pre-rendering: the first visible
   image is loaded before presentation, while later images are decoded only as
   scrolling approaches them
+- a stable full-article scrollbar derived from the packed stream layout and
+  composited into each repaint, plus per-image progress for archive
+  extraction, WebP decoding, and dithering
+- continuous image work that services pending drags at decoder checkpoints,
+  with stale consecutive motion samples collapsed to the newest position
+  without restarting decompression or decoding
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
@@ -112,10 +118,11 @@ RGB intermediate buffer.
 
 - Article links are displayed as text but are not yet clickable.
 - CSS and JavaScript are omitted.
-- Image-rich articles decode at most six useful images. Images requested below
-  80 by 40 pixels, unsupported image formats, and compressed image blobs larger
-  than the 512 KiB work buffer are skipped. Lazy placeholders currently require
-  the HTML image to provide both width and height. Current Kiwix archives
+- Image-rich articles lazily decode every useful image whose placeholder fits
+  in the 512 KiB article stream. Images requested below 80 by 40 pixels,
+  unsupported image formats, and compressed image blobs larger than the 512
+  KiB work buffer are skipped. Lazy placeholders currently require the HTML
+  image to provide both width and height. Current Kiwix archives
   commonly store assets named `.jpg` or `.png` as WebP internally; the decoder
   detects the content rather than relying on the filename suffix.
 - A decoded HTML article must fit the 512 KiB article input buffer.

@@ -285,6 +285,8 @@ typedef void (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
 
 void init_lcd_draw_buf();
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare);
+void set_article_stream_height(int height);
+void repaint_current_article(void);
 char* FontFile(int id);
 void buf_draw_UTF8_str(const unsigned char **sUTF8);
 void buf_draw_horizontal_line(unsigned long start_x, unsigned long end_x);

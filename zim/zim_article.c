@@ -210,3 +210,95 @@ int zim_text_to_article(const unsigned char *text, size_t text_size,
 	return zim_text_to_article_images(text, text_size, article, capacity,
 					  article_size, NULL, NULL);
 }
+
+static void measure_newline(int *y, int *line_height, int *actual_height,
+			    int new_line_height)
+{
+	*y += *actual_height;
+	if (new_line_height >= 0)
+		*line_height = new_line_height;
+	*actual_height = *line_height;
+	if (*y + *line_height >= LCD_BUF_HEIGHT_PIXELS)
+		*y = LCD_BUF_HEIGHT_PIXELS - *line_height - 1;
+}
+
+int zim_article_stream_height(const unsigned char *article,
+			      size_t article_size)
+{
+	ARTICLE_HEADER header;
+	size_t offset;
+	int y = 0;
+	int line_height = 0;
+	int actual_height = 0;
+
+	if (!article || article_size < sizeof(header))
+		return -1;
+	memcpy(&header, article, sizeof(header));
+	if (header.offset_article < sizeof(header) ||
+	    header.offset_article >= article_size)
+		return -1;
+	offset = header.offset_article;
+	while (offset < article_size) {
+		unsigned int code = article[offset++];
+		unsigned int value;
+
+		if (!code)
+			return y;
+		if (code > MAX_ESC_CHAR)
+			continue;
+		switch (code) {
+		case ESC_0_SPACE_LINE:
+			if (offset >= article_size) return -1;
+			measure_newline(&y, &line_height, &actual_height,
+					article[offset++]);
+			break;
+		case ESC_1_NEW_LINE_DEFAULT_FONT:
+			measure_newline(&y, &line_height, &actual_height,
+				pcfFonts[DEFAULT_FONT_IDX - 1].Fmetrics.linespace +
+				LINE_SPACE_ADDON);
+			break;
+		case ESC_2_NEW_LINE_SAME_FONT:
+			measure_newline(&y, &line_height, &actual_height, -1);
+			break;
+		case ESC_3_NEW_LINE_WITH_FONT:
+			if (offset >= article_size) return -1;
+			value = article[offset++];
+			measure_newline(&y, &line_height, &actual_height,
+					(int)(value >> 3));
+			break;
+		case ESC_4_CHANGE_FONT:
+		case ESC_7_FORWARD:
+		case ESC_8_BACKWARD:
+		case ESC_9_Y_ADJUSTMENT:
+		case ESC_10_HORIZONTAL_LINE:
+		case ESC_11_VERTICAL_LINE:
+			if (offset >= article_size) return -1;
+			offset++;
+			break;
+		case ESC_12_FULL_HORIZONTAL_LINE:
+			y += actual_height;
+			line_height = 1;
+			actual_height = 1;
+			break;
+		case ESC_14_BITMAP: {
+			unsigned int width;
+			unsigned int height;
+			size_t bytes;
+
+			if (article_size - offset < 3) return -1;
+			width = article[offset++];
+			height = article[offset++];
+			height |= (unsigned int)article[offset++] << 8;
+			bytes = (size_t)((width + 7) / 8) * height;
+			if (bytes > article_size - offset) return -1;
+			offset += bytes;
+			if (line_height < (int)height + 1)
+				actual_height = (int)height + 3;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+	return -1;
+}

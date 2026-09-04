@@ -1382,6 +1382,38 @@ out:
 	return;
 }
 
+static void coalesce_touch_motion(event_t *event)
+{
+	event_t pending;
+
+	if (event->item_type != EVENT_TOUCH_MOTION)
+		return;
+	while (event_peek(&pending) == EVENT_TOUCH_MOTION)
+		event_get(event);
+}
+
+void wikilib_service_pending_touch_events(void)
+{
+	event_t event;
+	int type;
+
+	/* Image decompression and decoding stay in progress, but their regular
+	 * checkpoints can still move the visible viewport. Preserve gesture
+	 * boundaries, collapse only redundant intermediate motion reports, and
+	 * leave TOUCH_UP for the main loop so a tap cannot navigate recursively
+	 * while an image decoder still owns the current article buffers. */
+	for (;;) {
+		type = event_peek(&event);
+		if (type == EVENT_TOUCH_UP)
+			return;
+		if (type != EVENT_TOUCH_DOWN && type != EVENT_TOUCH_MOTION)
+			return;
+		event_get(&event);
+		coalesce_touch_motion(&event);
+		handle_touch(&event);
+	}
+}
+
 int wikilib_init (void)
 {
 	init_lcd_draw_buf();
@@ -1544,6 +1576,11 @@ int wikilib_run(void)
 		case EVENT_TOUCH_DOWN:
 		case EVENT_TOUCH_MOTION:
 		case EVENT_TOUCH_UP:
+			/* Rendering can briefly outlive several panel reports. Replaying
+			 * every stale intermediate motion makes the page visibly trail the
+			 * finger; only the newest consecutive coordinate is actionable.
+			 * Do not consume DOWN or UP, since those delimit the gesture. */
+			coalesce_touch_motion(&ev);
 			handle_touch(&ev);
 			last_event_time = ev.time_stamp;
 			break;

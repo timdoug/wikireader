@@ -21,4 +21,7 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 			       size_t *article_size,
 			       ZIM_ARTICLE_IMAGE image, void *image_opaque);
 
+int zim_article_stream_height(const unsigned char *article,
+			      size_t article_size);
+
 #endif

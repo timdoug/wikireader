@@ -79,7 +79,8 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 			   unsigned int height, int stride, int rgba,
 			   const unsigned char *alpha, int alpha_stride,
 			   unsigned char *bitmap, size_t capacity,
-			   size_t *bitmap_size)
+			   size_t *bitmap_size, ZIM_IMAGE_PROGRESS progress,
+			   void *progress_opaque)
 {
 	size_t row_bytes = (width + 7) / 8;
 	size_t required = row_bytes * height;
@@ -152,20 +153,28 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 			row2 = old;
 			memset(row2, 0, (size_t)(width + 4) * sizeof(*row2));
 		}
-		if (!(y & 15))
+		if (!(y & 15)) {
 			keep_alive();
+			if (progress)
+				progress(progress_opaque, 80 + (size_t)y * 20 /
+					 height, 100);
+		}
 	}
 	free(errors);
 	*bitmap_size = required;
+	if (progress)
+		progress(progress_opaque, 100, 100);
 	return 0;
 }
 
-int zim_webp_to_bitmap(const unsigned char *webp, size_t webp_size,
-		       unsigned int requested_width,
-		       unsigned int requested_height,
-		       unsigned char *bitmap, size_t capacity,
-		       uint8_t *width_out, uint16_t *height_out,
-		       size_t *bitmap_size)
+int zim_webp_to_bitmap_progress(const unsigned char *webp, size_t webp_size,
+				unsigned int requested_width,
+				unsigned int requested_height,
+				unsigned char *bitmap, size_t capacity,
+				uint8_t *width_out, uint16_t *height_out,
+				size_t *bitmap_size,
+				ZIM_IMAGE_PROGRESS progress,
+				void *progress_opaque)
 {
 	WebPDecoderConfig config;
 	unsigned int width;
@@ -210,6 +219,8 @@ int zim_webp_to_bitmap(const unsigned char *webp, size_t webp_size,
 		decode_status = WebPIAppend(decoder, webp + offset, amount);
 		offset += amount;
 		keep_alive();
+		if (progress)
+			progress(progress_opaque, offset * 80 / webp_size, 100);
 		if (decode_status != VP8_STATUS_SUSPENDED &&
 		    !(decode_status == VP8_STATUS_OK && offset == webp_size))
 			goto out;
@@ -217,16 +228,21 @@ int zim_webp_to_bitmap(const unsigned char *webp, size_t webp_size,
 	if (decode_status != VP8_STATUS_OK)
 		goto out;
 	if (WebPIsRGBMode(config.output.colorspace)) {
-		if (dither_atkinson(config.output.u.RGBA.rgba, width, height,
+		result = dither_atkinson(config.output.u.RGBA.rgba, width, height,
 				    config.output.u.RGBA.stride, 1, NULL, 0,
-				    bitmap, capacity, bitmap_size))
+				    bitmap, capacity, bitmap_size, progress,
+				    progress_opaque);
+		if (result)
 			goto out;
-	} else if (dither_atkinson(config.output.u.YUVA.y, width, height,
+	} else {
+		result = dither_atkinson(config.output.u.YUVA.y, width, height,
 				   config.output.u.YUVA.y_stride, 0,
 				   config.output.u.YUVA.a,
 				   config.output.u.YUVA.a_stride,
-				   bitmap, capacity, bitmap_size)) {
-		goto out;
+				   bitmap, capacity, bitmap_size, progress,
+				   progress_opaque);
+		if (result)
+			goto out;
 	}
 	*width_out = (uint8_t)width;
 	*height_out = (uint16_t)height;
@@ -236,4 +252,16 @@ out:
 	WebPIDelete(decoder);
 	WebPFreeDecBuffer(&config.output);
 	return result;
+}
+
+int zim_webp_to_bitmap(const unsigned char *webp, size_t webp_size,
+		       unsigned int requested_width,
+		       unsigned int requested_height,
+		       unsigned char *bitmap, size_t capacity,
+		       uint8_t *width_out, uint16_t *height_out,
+		       size_t *bitmap_size)
+{
+	return zim_webp_to_bitmap_progress(webp, webp_size, requested_width,
+		requested_height, bitmap, capacity, width_out, height_out,
+		bitmap_size, NULL, NULL);
 }

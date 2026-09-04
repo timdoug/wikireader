@@ -96,6 +96,7 @@ void drawline_in_framebuffer_copy(unsigned char *buffer,int start_x,int start_y,
 void buf_draw_char_external(LCD_DRAW_BUF *lcd_draw_buf_external,ucs4_t u,int start_x,int end_x,int start_y,int end_y);
 void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link);
 void repaint_invert_link(void);
+void draw_language_link_arrow(void);
 char* FontFile(int idx);
 int framebuffer_size();
 int framebuffer_width();
@@ -110,65 +111,96 @@ int b_show_scroll_bar = 0;
 long saved_idx_article = 0;
 long saved_prev_idx_article = 0;
 static ARTICLE_STREAM_PREPARE article_stream_prepare;
+static int article_stream_height;
+static int scroll_bar_visible;
 
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
 {
 	article_stream_prepare = prepare;
 }
 
-#define MIN_BAR_LEN 20
-void show_scroll_bar(int bShow)
+void set_article_stream_height(int height)
 {
+	article_stream_height = height > 0 ? height : 0;
+}
+
+#define MIN_BAR_LEN 20
+static long scroll_bar_content_height(void)
+{
+	long content_height = lcd_draw_buf.current_y;
+
+	if (article_stream_height && display_mode == DISPLAY_MODE_ARTICLE) {
+		long expected_height = article_start_y_pos + article_stream_height;
+		WIKI_LICENSE_DRAW *license_draw = wiki_license_draw();
+
+		expected_height += SPACE_BEFORE_LICENSE_TEXT;
+		if (license_draw)
+			expected_height += license_draw->lines;
+		if (expected_height > LCD_BUF_HEIGHT_PIXELS)
+			expected_height = LCD_BUF_HEIGHT_PIXELS;
+		if (expected_height > content_height)
+			content_height = expected_height;
+	}
+	return content_height;
+}
+
+static int paint_scroll_bar(unsigned char *buffer)
+{
+	long content_height = scroll_bar_content_height();
 	int bar_len;
 	int bar_pos;
 	int i;
 	int byte_idx;
-	char c;
-	static char frame_bytes[LCD_HEIGHT];
-	static int b_frame_bytes;
+	unsigned char pixels;
 
-	if (lcd_draw_buf.current_y < LCD_HEIGHT)
-		return;
-	if (bShow <= 0)
-	{
-		if (b_frame_bytes)
-		{
-			for (i = 0; i < LCD_HEIGHT; i++)
-			{
-				byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
-				lcd_framebuffer_set_byte(byte_idx, frame_bytes[i]);
-			}
-			b_frame_bytes = 0;
-		}
-	}
+	if (content_height < LCD_HEIGHT)
+		return 0;
+	bar_len = LCD_HEIGHT * LCD_HEIGHT / content_height;
+	if (bar_len > LCD_HEIGHT)
+		bar_len = LCD_HEIGHT;
+	else if (bar_len < MIN_BAR_LEN)
+		bar_len = MIN_BAR_LEN;
+	if (content_height > LCD_HEIGHT)
+		bar_pos = (LCD_HEIGHT - bar_len) * lcd_draw_cur_y_pos /
+			(content_height - LCD_HEIGHT);
 	else
-	{
-		bar_len = LCD_HEIGHT * LCD_HEIGHT / lcd_draw_buf.current_y;
-		if (bar_len > LCD_HEIGHT)
-			bar_len = LCD_HEIGHT;
-		else if (bar_len < MIN_BAR_LEN)
-			bar_len = MIN_BAR_LEN;
-		if (lcd_draw_buf.current_y > LCD_HEIGHT)
-			bar_pos = (LCD_HEIGHT - bar_len) * lcd_draw_cur_y_pos / (lcd_draw_buf.current_y - LCD_HEIGHT);
-		else
-			bar_pos = 0;
-		if (bar_pos < 0)
-			bar_pos = 0;
-		else if (bar_pos + bar_len > LCD_HEIGHT)
-			bar_pos = LCD_HEIGHT - bar_len;
+		bar_pos = 0;
+	if (bar_pos < 0)
+		bar_pos = 0;
+	else if (bar_pos + bar_len > LCD_HEIGHT)
+		bar_pos = LCD_HEIGHT - bar_len;
 
-		for (i = 0; i < LCD_HEIGHT; i++)
-		{
-			if (bar_pos <= i && i < bar_pos + bar_len)
-				c = 0x07;
-			else
-				c = 0;
-			byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
-			frame_bytes[i] = lcd_framebuffer_get_byte(byte_idx);
-			lcd_framebuffer_set_byte(byte_idx, (frame_bytes[i] & 0xF0) | c);
-		}
-		b_frame_bytes = 1;
+	for (i = 0; i < LCD_HEIGHT; i++) {
+		pixels = bar_pos <= i && i < bar_pos + bar_len ? 0x07 : 0;
+		byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
+		buffer[byte_idx] = (buffer[byte_idx] & 0xf0) | pixels;
 	}
+	return 1;
+}
+
+void show_scroll_bar(int bShow)
+{
+	unsigned char *framebuffer = lcd_get_framebuffer();
+	int i;
+	int byte_idx;
+
+	if (bShow > 0) {
+		scroll_bar_visible = paint_scroll_bar(framebuffer);
+		return;
+	}
+	if (!scroll_bar_visible || !lcd_draw_buf.screen_buf)
+		return;
+	for (i = 0; i < LCD_HEIGHT; i++) {
+		byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
+		framebuffer[byte_idx] = lcd_draw_buf.screen_buf[
+			(lcd_draw_cur_y_pos + i) * LCD_BUF_WIDTH_BYTES + 236 / 8];
+	}
+	scroll_bar_visible = 0;
+	if (display_mode == DISPLAY_MODE_ARTICLE &&
+	    (language_link_count || restricted_article) &&
+	    (lcd_draw_cur_y_pos == article_start_y_pos ||
+	     lcd_draw_cur_y_pos == 0))
+		draw_language_link_arrow();
 }
 
 void load_all_fonts()
@@ -647,21 +679,48 @@ void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link)
 {
 	(void)b_repaint_invert_link; // *** unused argument
 	int framebuffersize;
+	unsigned char *source;
+	unsigned char saved_scroll_edge[LCD_HEIGHT];
+	int i;
+	int byte_idx;
 	framebuffersize = framebuffer_size();
+	source = buf + (pos < 0 ? 0 : pos) * LCD_BUFFER_WIDTH / 8;
 
 	guilib_fb_lock();
 	//guilib_clear();
 
-	memcpy(lcd_get_framebuffer(),buf+(pos < 0 ? 0 : pos)*LCD_BUFFER_WIDTH/8,framebuffersize);
+	/* Compose the overlay in the viewport before its one LCD copy. Saving
+	 * just the affected byte in each row avoids a second full-screen copy
+	 * on every drag packet while keeping the article backing buffer clean. */
+	if (b_show_scroll_bar) {
+		for (i = 0; i < LCD_HEIGHT; i++) {
+			byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
+			saved_scroll_edge[i] = source[byte_idx];
+		}
+		scroll_bar_visible = paint_scroll_bar(source);
+	} else {
+		scroll_bar_visible = 0;
+	}
+	memcpy(lcd_get_framebuffer(), source, framebuffersize);
+	if (scroll_bar_visible)
+		for (i = 0; i < LCD_HEIGHT; i++) {
+			byte_idx = (236 + LCD_BUFFER_WIDTH * i) / 8;
+			source[byte_idx] = saved_scroll_edge[i];
+		}
 	if (display_mode == DISPLAY_MODE_ARTICLE && (language_link_count || restricted_article) && (pos == article_start_y_pos || pos == 0))
 	{
 		draw_language_link_arrow();
+		if (scroll_bar_visible)
+			paint_scroll_bar(lcd_get_framebuffer());
 	}
 //	if (b_repaint_invert_link)
 //		repaint_invert_link();
-	if (b_show_scroll_bar)
-		show_scroll_bar(1);
 	guilib_fb_unlock();
+}
+
+void repaint_current_article(void)
+{
+	repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 1);
 }
 
 void buf_draw_horizontal_line(unsigned long start_x, unsigned long end_x)
@@ -1450,7 +1509,8 @@ void display_article_with_pcf(int y_move)
 		request_display_next_page = 1;
 		request_y_pos = lcd_draw_cur_y_pos + y_move + LCD_HEIGHT;
 
-		display_str(get_nls_text("please_wait"));
+		if (!article_stream_prepare)
+			display_str(get_nls_text("please_wait"));
 
 		return;
 	}

@@ -25,12 +25,17 @@
 #include "zim_image.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
-#define ZIM_MAX_ARTICLE_IMAGES 6
 #define ZIM_MIN_IMAGE_WIDTH 80
 #define ZIM_MIN_IMAGE_HEIGHT 40
+#define ZIM_MIN_IMAGE_STREAM_SIZE 5 /* four-byte header plus one bitmap byte */
+#define ZIM_MAX_DEFERRED_IMAGES (FILE_BUFFER_SIZE / ZIM_MIN_IMAGE_STREAM_SIZE)
+#define ZIM_INITIAL_DEFERRED_IMAGES 8
 #define ARTICLE_PROGRESS_LIMIT 100
 #define ARTICLE_PROGRESS_BLOB_START 10
 #define ARTICLE_PROGRESS_BLOB_END 75
+#define IMAGE_PROGRESS_BLOB_START 5
+#define IMAGE_PROGRESS_BLOB_END 30
+#define IMAGE_PROGRESS_DECODE_END 99
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
 	uint32_t article[NUMBER_OF_FIRST_PAGE_RESULTS];
@@ -51,15 +56,19 @@ static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
 
 typedef struct {
 	unsigned char *stream;
-	char path[ZIM_DIRENT_TEXT_MAX];
+	const unsigned char *path;
+	size_t path_length;
 	uint8_t width;
 	uint16_t height;
 	size_t bitmap_size;
-	int decoded;
 } ZIM_DEFERRED_IMAGE;
 
-static ZIM_DEFERRED_IMAGE deferred_images[ZIM_MAX_ARTICLE_IMAGES];
-static unsigned int deferred_image_count;
+static ZIM_DEFERRED_IMAGE *deferred_images;
+static size_t deferred_image_count;
+static size_t deferred_image_capacity;
+static size_t deferred_image_next;
+static size_t article_text_size;
+extern int display_first_page;
 
 static void article_blob_progress(void *opaque, uint64_t completed,
 				  uint64_t total)
@@ -78,9 +87,43 @@ static void article_blob_progress(void *opaque, uint64_t completed,
 	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
 }
 
+static void image_progress_range(size_t completed, size_t total,
+				 unsigned int start, unsigned int end)
+{
+	unsigned int progress = start;
+
+	if (total) {
+		if (completed >= total)
+			progress = end;
+		else
+			progress += (unsigned int)(completed * (end - start) /
+						 total);
+	}
+	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
+}
+
+static void image_blob_progress(void *opaque, uint64_t completed,
+				uint64_t total)
+{
+	(void)opaque;
+	wikilib_service_pending_touch_events();
+	image_progress_range((size_t)completed, (size_t)total,
+			     IMAGE_PROGRESS_BLOB_START, IMAGE_PROGRESS_BLOB_END);
+}
+
+static void image_decode_progress(void *opaque, size_t completed,
+				  size_t total)
+{
+	(void)opaque;
+	wikilib_service_pending_touch_events();
+	image_progress_range(completed, total, IMAGE_PROGRESS_BLOB_END,
+			     IMAGE_PROGRESS_DECODE_END);
+}
+
 static int normalize_image_path(const unsigned char *source_path,
 				size_t source_path_length,
-				char path[ZIM_DIRENT_TEXT_MAX])
+				const unsigned char **path,
+				size_t *path_length)
 {
 	const unsigned char *start = source_path;
 	size_t length = source_path_length;
@@ -94,17 +137,43 @@ static int normalize_image_path(const unsigned char *source_path,
 		start++;
 		length--;
 	}
-	if (!length || length >= ZIM_DIRENT_TEXT_MAX)
-		return -1;
-	memcpy(path, start, length);
-	path[length] = '\0';
-	for (i = 0; path[i]; i++) {
-		if (path[i] == '?' || path[i] == '#') {
-			path[i] = '\0';
+	for (i = 0; i < length; i++) {
+		if (start[i] == '?' || start[i] == '#') {
+			length = i;
 			break;
 		}
 	}
-	return path[0] ? 0 : -1;
+	if (!length || length >= ZIM_DIRENT_TEXT_MAX)
+		return -1;
+	*path = start;
+	*path_length = length;
+	return 0;
+}
+
+static int grow_deferred_images(void)
+{
+	ZIM_DEFERRED_IMAGE *images;
+	size_t capacity;
+
+	if (deferred_image_count < deferred_image_capacity)
+		return 0;
+	if (deferred_image_capacity >= ZIM_MAX_DEFERRED_IMAGES)
+		return -1;
+	capacity = deferred_image_capacity ? deferred_image_capacity * 2 :
+		ZIM_INITIAL_DEFERRED_IMAGES;
+	if (capacity > ZIM_MAX_DEFERRED_IMAGES)
+		capacity = ZIM_MAX_DEFERRED_IMAGES;
+	images = memory_allocate(capacity * sizeof(*images), "zim-images");
+	if (!images)
+		return -1;
+	if (deferred_image_count)
+		memcpy(images, deferred_images,
+		       deferred_image_count * sizeof(*images));
+	if (deferred_images)
+		memory_free(deferred_images, "zim-images");
+	deferred_images = images;
+	deferred_image_capacity = capacity;
+	return 0;
 }
 
 static int article_image(void *opaque, const unsigned char *source_path,
@@ -116,69 +185,97 @@ static int article_image(void *opaque, const unsigned char *source_path,
 			 size_t *bitmap_size)
 {
 	ZIM_DEFERRED_IMAGE *deferred;
+	const unsigned char *path;
+	size_t path_length;
 	(void)opaque;
 
 	/* Kiwix thumbnails carry both dimensions. Requiring them lets us reserve
 	 * an exact-size blank bitmap without touching or decoding the asset. */
 	if (!requested_width || !requested_height ||
 	    requested_width < ZIM_MIN_IMAGE_WIDTH ||
-	    requested_height < ZIM_MIN_IMAGE_HEIGHT ||
-	    deferred_image_count >= ZIM_MAX_ARTICLE_IMAGES)
+	    requested_height < ZIM_MIN_IMAGE_HEIGHT)
 		return -1;
-	deferred = &deferred_images[deferred_image_count];
 	if (normalize_image_path(source_path, source_path_length,
-				 deferred->path) ||
+				 &path, &path_length) ||
 	    zim_image_fit_dimensions(requested_width, requested_height,
 				     requested_width, requested_height,
 				     width, height, bitmap_size) ||
-	    *bitmap_size > capacity)
+	    *bitmap_size > capacity || grow_deferred_images())
 		return -1;
+	deferred = &deferred_images[deferred_image_count];
 	memset(bitmap, 0, *bitmap_size);
 	deferred->stream = bitmap - 4;
+	deferred->path = path;
+	deferred->path_length = path_length;
 	deferred->width = *width;
 	deferred->height = *height;
 	deferred->bitmap_size = *bitmap_size;
-	deferred->decoded = 0;
 	deferred_image_count++;
-	draw_progress_bar(85 + (int)(deferred_image_count * 13 /
-					 ZIM_MAX_ARTICLE_IMAGES), ARTICLE_PROGRESS_LIMIT);
+	if (article_text_size && source_path >= text_buffer &&
+	    (size_t)(source_path - text_buffer) < article_text_size)
+		draw_progress_bar(85 + (int)((source_path - text_buffer) * 13 /
+					 article_text_size), ARTICLE_PROGRESS_LIMIT);
 	return 0;
 }
 
 static void prepare_article_image(unsigned char *stream)
 {
-	unsigned int i;
+	ZIM_DEFERRED_IMAGE *deferred;
+	ZIM_DIRENT dirent;
+	char path[ZIM_DIRENT_TEXT_MAX];
+	unsigned char saved_bar[2 * LCD_BUFFER_WIDTH_BYTES];
+	unsigned char *framebuffer;
+	size_t webp_size;
+	size_t bitmap_size;
+	uint8_t width;
+	uint16_t height;
+	int rc;
 
-	for (i = 0; i < deferred_image_count; i++) {
-		ZIM_DEFERRED_IMAGE *deferred = &deferred_images[i];
-		ZIM_DIRENT dirent;
-		size_t webp_size;
-		size_t bitmap_size;
-		uint8_t width;
-		uint16_t height;
-		int rc;
-
-		if (deferred->stream != stream || deferred->decoded)
-			continue;
-		deferred->decoded = 1;
-		watchdog(WATCHDOG_KEY);
-		rc = zim_archive_find_path(&archive, 'C', deferred->path,
-					   &dirent);
-		if (rc && rc != ZIM_ERR_TRUNCATED)
-			return;
-		rc = zim_archive_read_blob(&archive, &dirent, raw_buffer,
-					   ZIM_RAW_BUFFER_SIZE, &webp_size);
-		if (rc)
-			return;
-		if (zim_webp_to_bitmap(raw_buffer, webp_size, deferred->width,
-				       deferred->height, stream + 4,
-				       deferred->bitmap_size, &width, &height,
-				       &bitmap_size) ||
-		    width != deferred->width || height != deferred->height ||
-		    bitmap_size != deferred->bitmap_size)
-			memset(stream + 4, 0, deferred->bitmap_size);
+	if (deferred_image_next >= deferred_image_count)
 		return;
-	}
+	/* Placeholders and metadata are emitted in the same order. Keep a cursor
+	 * instead of searching every image for every article-stream token. */
+	deferred = &deferred_images[deferred_image_next];
+	if (deferred->stream != stream)
+		return;
+	framebuffer = lcd_get_framebuffer();
+	memcpy(saved_bar, framebuffer + LCD_BUFFER_WIDTH_BYTES,
+	       sizeof(saved_bar));
+	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
+	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
+	memcpy(path, deferred->path, deferred->path_length);
+	path[deferred->path_length] = '\0';
+	watchdog(WATCHDOG_KEY);
+	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
+	if (rc && rc != ZIM_ERR_TRUNCATED)
+		goto out;
+	draw_progress_bar(IMAGE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
+	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
+					    ZIM_RAW_BUFFER_SIZE, &webp_size,
+					    image_blob_progress, NULL);
+	if (rc)
+		goto out;
+	draw_progress_bar(IMAGE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
+	rc = zim_webp_to_bitmap_progress(raw_buffer, webp_size, deferred->width,
+					 deferred->height, stream + 4,
+					 deferred->bitmap_size, &width, &height,
+					 &bitmap_size, image_decode_progress,
+					 NULL);
+	if (rc ||
+	    width != deferred->width || height != deferred->height ||
+	    bitmap_size != deferred->bitmap_size)
+		memset(stream + 4, 0, deferred->bitmap_size);
+	else
+		draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
+
+out:
+	deferred_image_next++;
+	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
+	if (display_first_page)
+		repaint_current_article();
+	else
+		memcpy(framebuffer + LCD_BUFFER_WIDTH_BYTES, saved_bar,
+		       sizeof(saved_bar));
 }
 
 bool search_string_changed;
@@ -564,7 +661,9 @@ int retrieve_article(long encoded_index)
 	size_t text_size;
 	size_t article_size;
 	int rc;
+	int article_height;
 
+	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
 	if (!index || index > archive.entry_count)
@@ -592,11 +691,16 @@ int retrieve_article(long encoded_index)
 		goto error;
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
+	deferred_image_next = 0;
+	article_text_size = text_size;
 	if (zim_text_to_article_images(text_buffer, text_size, file_buffer,
 				       FILE_BUFFER_SIZE, &article_size,
 				       article_image, NULL))
 		goto error;
-	(void)article_size;
+	article_height = zim_article_stream_height(file_buffer, article_size);
+	if (article_height < 0)
+		goto error;
+	set_article_stream_height(article_height);
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 	restricted_article = 0;
 	current_article_wiki_id = 0;

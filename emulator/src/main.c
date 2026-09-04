@@ -55,8 +55,8 @@ static void usage(const char *p)
 /* grifo's numbering: 0 random, 1 search, 2 history, 3 power. */
 #define BUTTON_POWER_CODE 3
 
-/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz cycles. */
-#define CTP_PACKET_CYCLES  ((60000000ull * 6 * 10) / 9600)
+/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz MCLK ticks. */
+#define CTP_PACKET_MCLK  ((60000000ull * 6 * 10) / 9600)
 
 static bool cmu_slp_auto_wake_cb(void *ctx)
 {
@@ -100,10 +100,10 @@ static void deliver_input(struct display *disp, struct port *port,
 	 * hardware cannot stream either, for the 6.25 ms reason above.
 	 */
 	if (disp->touch_pending &&
-	    cpu->cycles - *last_post < CTP_PACKET_CYCLES) {
+	    cpu->clk - *last_post < CTP_PACKET_MCLK) {
 		/* too soon; it goes out next time round */
 	} else if (disp->touch_pending) {
-		*last_post = cpu->cycles;
+		*last_post = cpu->clk;
 		disp->touch_pending = false;
 		touch_post(touch, cpu, disp->touch_x, disp->touch_y,
 			   disp->touch_pressed);
@@ -204,6 +204,7 @@ int main(int argc, char **argv)
 /* Total span of a scripted drag, from its first packet to its last. */
 #define DRAG_SPAN    (16UL * 300000UL)
 	unsigned long long last_touch_post = 0;
+	unsigned long long next_gui_pump = 0;
 	unsigned long long idle_skipped = 0;
 	/*
 	 * About 100 Hz while idle: fast enough that a click still feels
@@ -617,11 +618,11 @@ int main(int argc, char **argv)
 		/* Complete an SPI character before the CPU observes its status. */
 		sd_poll(&sd);
 
-		/*
-		 * Repaint and pump SDL events periodically. 200k instructions
-		 * is frequent enough to feel live without the event pump
-		 * dominating run time.
-		 */
+		/* Repaint and pump SDL events periodically. The interpreter's
+		 * throughput varies sharply with the instruction mix and the SDRAM
+		 * model, so a 200k-instruction interval could become about 30 ms of
+		 * host time while drawing. The cheap calls are rejected by the
+		 * display's own 120 Hz limiter before it fingerprints the panel. */
 		/*
 		 * Scripted typing: each key is a press then a release, spaced
 		 * far enough apart for the application to consume the events.
@@ -708,7 +709,8 @@ int main(int argc, char **argv)
 		if (tap_x >= 0 && (cpu.cycles % 100000) == 0)
 			touch_poll(&touch, &cpu);
 
-		if (disp.open && (cpu.cycles % 200000) == 0) {
+		if (disp.open && executed >= next_gui_pump) {
+			next_gui_pump = executed + 20000;
 			if (!display_update(&disp)) {
 				stop = "window closed";
 				break;
