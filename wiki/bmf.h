@@ -161,4 +161,5 @@ typedef struct pcffont_bmf pcffont_bmf_t;
 
 int load_bmf(pcffont_bmf_t *font);
 int pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cmetrics);
+int bmf_char_width(ucs4_t val, pcffont_bmf_t *font);
 #endif /* _PCF_H */

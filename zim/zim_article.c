@@ -291,6 +291,18 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				goto error;
 			x += space_width;
 		}
+		/* Most words fit intact after the line-break decision above.  Their
+		 * width is already known, so copy the word once instead of measuring
+		 * every character a second time and calling memcpy per code point. */
+		if (width <= ARTICLE_TEXT_WIDTH - x) {
+			if (link_id && segment_x < 0)
+				segment_x = x;
+			if (append_bytes(article, capacity, &used,
+					 text + word_start, word_length))
+				goto error;
+			x += width;
+			continue;
+		}
 		while (word_length) {
 			size_t character_size;
 			int character_width = next_width(font, text + word_start,

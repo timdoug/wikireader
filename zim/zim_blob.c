@@ -11,7 +11,13 @@
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
+#define ZIM_DIRECT_OUTPUT_LIMIT (4 * 1024 * 1024)
+#define ZSTD_MAX_BLOCK_SIZE (128 * 1024)
 #define ZIM_OFFSET_TABLE_LIMIT (4 * 1024 * 1024)
+#define ZSTD_CONTENTSIZE_UNKNOWN (~0ULL)
+#define ZSTD_CONTENTSIZE_ERROR (~1ULL)
+/* ZSTD_d_stableOutBuffer in the pinned vendored decoder. */
+#define ZSTD_D_STABLE_OUT_BUFFER 1001
 
 /* The vendored decoder is deliberately headerless. Keep the small public
  * streaming interface here so host and freestanding builds use the same code. */
@@ -33,6 +39,10 @@ extern size_t ZSTD_initDStream(ZSTD_DStream *stream);
 extern size_t ZSTD_decompressStream(ZSTD_DStream *stream,
 				    ZSTD_outBuffer *output,
 				    ZSTD_inBuffer *input);
+extern unsigned long long ZSTD_getFrameContentSize(const void *source,
+						   size_t source_size);
+extern size_t ZSTD_DCtx_setParameter(ZSTD_DStream *stream, int parameter,
+				     int value);
 extern unsigned ZSTD_isError(size_t code);
 
 static uint32_t get_le32(const unsigned char *p)
@@ -165,7 +175,8 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 	ZSTD_DStream *stream = NULL;
 	ZSTD_inBuffer input = { NULL, 0, 0 };
 	ZSTD_outBuffer output;
-	uint64_t compressed_pos = cluster_start + 1;
+	uint64_t compressed_start = cluster_start + 1;
+	uint64_t compressed_pos = compressed_start;
 	uint64_t output_offset = 0;
 	uint64_t blob_start = 0;
 	uint64_t blob_end = 0;
@@ -174,6 +185,10 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 	size_t offset_size = extended ? 8 : 4;
 	size_t table_need;
 	size_t table_have = 0;
+	size_t direct_output_size = 0;
+	unsigned long long frame_content_size = ZSTD_CONTENTSIZE_ERROR;
+	int direct_output = 0;
+	int may_restart_direct = 0;
 	int range_known = 0;
 	int result = ZIM_ERR_FORMAT;
 
@@ -183,18 +198,71 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 		return ZIM_ERR_RANGE;
 	table_need = (size_t)table_need64;
 	input_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
-	output_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
 	offset_table = malloc(table_need);
 	stream = ZSTD_createDStream();
-	if (!input_buffer || !output_buffer || !offset_table || !stream) {
+	if (!input_buffer || !offset_table || !stream) {
 		result = ZIM_ERR_IO;
 		goto out;
 	}
+
+	/* Read the frame header before configuring the decoder.  In its default
+	 * streaming mode Zstd decodes into an internal ring and copies every byte
+	 * into the caller's output buffer.  When the complete frame size is known
+	 * and modest, a stable output buffer lets it use that memory as its history
+	 * directly.  The old 64 KiB path remains the low-memory and oversized
+	 * fallback, and initially discovers blob bounds for unknown-size frames. */
+	if (compressed_pos >= cluster_end)
+		goto out;
+	input.size = (cluster_end - compressed_pos > ZIM_STREAM_BUFFER_SIZE) ?
+		ZIM_STREAM_BUFFER_SIZE : (size_t)(cluster_end - compressed_pos);
+	result = read_exact(archive, compressed_pos, input_buffer, input.size);
+	if (result)
+		goto out;
+	compressed_pos += input.size;
+	input.src = input_buffer;
+	input.pos = 0;
+	{
+		frame_content_size =
+			ZSTD_getFrameContentSize(input_buffer, input.size);
+
+		if (frame_content_size != ZSTD_CONTENTSIZE_UNKNOWN &&
+		    frame_content_size != ZSTD_CONTENTSIZE_ERROR &&
+		    frame_content_size > 0 &&
+		    frame_content_size <= ZIM_DIRECT_OUTPUT_LIMIT &&
+		    frame_content_size <= (unsigned long long)(size_t)-1) {
+			direct_output_size = (size_t)frame_content_size;
+			output_buffer = malloc(direct_output_size);
+			if (output_buffer &&
+			    !ZSTD_isError(ZSTD_DCtx_setParameter(
+				    stream, ZSTD_D_STABLE_OUT_BUFFER, 1)))
+				direct_output = 1;
+			else {
+				free(output_buffer);
+				output_buffer = NULL;
+			}
+		} else if (frame_content_size == ZSTD_CONTENTSIZE_UNKNOWN)
+			may_restart_direct = 1;
+	}
+	if (!direct_output) {
+		output_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
+		direct_output_size = ZIM_STREAM_BUFFER_SIZE;
+	}
+	if (!output_buffer) {
+		result = ZIM_ERR_IO;
+		goto out;
+	}
+	output.dst = output_buffer;
+	output.size = direct_output_size;
+	output.pos = 0;
 	if (ZSTD_isError(ZSTD_initDStream(stream)))
 		goto out;
 
 	for (;;) {
 		size_t remaining;
+		size_t previous_output_pos;
+		size_t produced;
+		const unsigned char *produced_data;
+		uint64_t produced_offset;
 
 		if (input.pos == input.size) {
 			size_t amount;
@@ -213,18 +281,24 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 			input.pos = 0;
 		}
 
-		output.dst = output_buffer;
-		output.size = ZIM_STREAM_BUFFER_SIZE;
-		output.pos = 0;
+		if (!direct_output)
+			output.pos = 0;
+		previous_output_pos = output.pos;
 		remaining = ZSTD_decompressStream(stream, &output, &input);
 		if (ZSTD_isError(remaining))
 			goto out;
+		produced = direct_output ? output.pos - previous_output_pos :
+			output.pos;
+		produced_data = output_buffer +
+			(direct_output ? previous_output_pos : 0);
+		produced_offset = direct_output ? previous_output_pos :
+			output_offset;
 
 		if (!range_known && table_have < table_need) {
-			size_t amount = output.pos;
+			size_t amount = produced;
 			if (amount > table_need - table_have)
 				amount = table_need - table_have;
-			memcpy(offset_table + table_have, output_buffer, amount);
+			memcpy(offset_table + table_have, produced_data, amount);
 			table_have += amount;
 			if (table_have == table_need) {
 				first_offset = extended ? get_le64(offset_table) :
@@ -249,14 +323,54 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 				}
 				*blob_size = (size_t)(blob_end - blob_start);
 				range_known = 1;
+
+				/* Kiwix commonly omits the frame content size.  The
+				 * cluster's offset table still tells us how far we must
+				 * decode for this blob.  Restart once with enough stable
+				 * output for that range and one complete Zstd block; a
+				 * block containing blob_end may extend beyond it. */
+				if (may_restart_direct && blob_end > 0 &&
+				    blob_end <= ZIM_DIRECT_OUTPUT_LIMIT &&
+				    blob_end <= (uint64_t)(size_t)-1 -
+					ZSTD_MAX_BLOCK_SIZE) {
+					ZSTD_DStream *new_stream = ZSTD_createDStream();
+					size_t new_size = (size_t)blob_end +
+						ZSTD_MAX_BLOCK_SIZE;
+					unsigned char *new_output = malloc(new_size);
+
+					may_restart_direct = 0;
+					if (new_stream && new_output &&
+					    !ZSTD_isError(ZSTD_DCtx_setParameter(
+						    new_stream,
+						    ZSTD_D_STABLE_OUT_BUFFER, 1)) &&
+					    !ZSTD_isError(ZSTD_initDStream(new_stream))) {
+						ZSTD_freeDStream(stream);
+						free(output_buffer);
+						stream = new_stream;
+						output_buffer = new_output;
+						direct_output_size = new_size;
+						direct_output = 1;
+						output.dst = output_buffer;
+						output.size = direct_output_size;
+						output.pos = 0;
+						input.src = input_buffer;
+						input.size = 0;
+						input.pos = 0;
+						compressed_pos = compressed_start;
+						output_offset = 0;
+						continue;
+					}
+					ZSTD_freeDStream(new_stream);
+					free(new_output);
+				}
 			}
 		}
 
 		if (range_known) {
-			uint64_t completed = output_offset + output.pos;
+			uint64_t completed = produced_offset + produced;
 
 			copy_output_range(buffer, capacity, blob_start, blob_end,
-					  output_offset, output_buffer, output.pos);
+					  produced_offset, produced_data, produced);
 			if (completed > blob_end)
 				completed = blob_end;
 			if (progress)
@@ -268,7 +382,8 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 				goto out;
 			}
 		}
-		output_offset += output.pos;
+		if (!direct_output)
+			output_offset += produced;
 		if (!remaining)
 			goto out;
 	}

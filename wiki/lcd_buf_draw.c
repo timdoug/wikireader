@@ -1073,19 +1073,13 @@ int get_UTF8_char_width(int idxFont, const unsigned char **pContent, long *lenCo
 {
 	ucs4_t u;
 	const unsigned char *pBase;
-	charmetric_bmf Cmetrics;
-	bmf_bm_t *bitmap = NULL;
 
 	pBase = *pContent;
 	u = UTF8_to_UCS4(pContent);
 	*nCharBytes = *pContent - pBase;
 	*lenContent -= *nCharBytes;
 
-	pres_bmfbm(u, &pcfFonts[idxFont - 1], &bitmap, &Cmetrics);
-	if (bitmap == NULL && u != 32)
-		return 0;
-	else
-		return  Cmetrics.widthDevice;
+	return bmf_char_width(u, &pcfFonts[idxFont - 1]);
 }
 
 bool is_word_break(ucs4_t u)

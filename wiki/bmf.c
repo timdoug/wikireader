@@ -63,6 +63,34 @@ int load_bmf(pcffont_bmf_t *font)
 	return fd;
 }
 
+int bmf_char_width(ucs4_t val, pcffont_bmf_t *font)
+{
+	const charmetric_bmf *metric;
+	bmf_bm_t *bitmap = NULL;
+	charmetric_bmf copied;
+
+	if (!font || font->fd < 0)
+		return 0;
+	if (font->fd == FONT_FD_NOT_INITED) {
+		font->fd = load_bmf(font);
+		if (font->fd < 0)
+			return 0;
+	}
+
+	/* load_bmf() brings the first 256 fixed-size records into memory.  Width
+	 * measurement needs only two signed bytes, not the record's 48-byte
+	 * bitmap, so avoid copying the whole record for every measured glyph. */
+	if (val < 256) {
+		metric = (const charmetric_bmf *)(font->charmetric +
+			val * sizeof(*metric) + sizeof(font_bmf_header));
+		return (val == 32 || metric->width > 0) ?
+			metric->widthDevice : 0;
+	}
+
+	pres_bmfbm(val, font, &bitmap, &copied);
+	return bitmap ? copied.widthDevice : 0;
+}
+
 int
 pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cmetrics)
 {

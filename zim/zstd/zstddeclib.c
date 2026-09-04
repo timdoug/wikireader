@@ -1131,7 +1131,61 @@ MEM_STATIC unsigned MEM_isLittleEndian(void)
 #endif
 }
 
-#if defined(MEM_FORCE_MEMORY_ACCESS) && (MEM_FORCE_MEMORY_ACCESS==2)
+#if defined(__c33__)
+
+/* The C33 traps naturally unaligned halfword and word accesses.  GCC lowers
+ * the aligned(1) helpers below to calls to the general overlap-safe memcpy,
+ * which is particularly costly for Zstd's frequent 2-, 4-, and 8-byte reads.
+ * Spell out little-endian byte accesses so they remain safe and compile to
+ * the C33's native byte-load/store instructions. */
+MEM_STATIC U16 MEM_read16(const void* memPtr)
+{
+    const BYTE* p = (const BYTE*)memPtr;
+    return (U16)((U16)p[0] | (U16)p[1] << 8);
+}
+
+MEM_STATIC U32 MEM_read32(const void* memPtr)
+{
+    const BYTE* p = (const BYTE*)memPtr;
+    return (U32)p[0] | (U32)p[1] << 8 |
+           (U32)p[2] << 16 | (U32)p[3] << 24;
+}
+
+MEM_STATIC U64 MEM_read64(const void* memPtr)
+{
+    const BYTE* p = (const BYTE*)memPtr;
+    return (U64)MEM_read32(p) | (U64)MEM_read32(p + 4) << 32;
+}
+
+MEM_STATIC size_t MEM_readST(const void* memPtr)
+{
+    return (size_t)MEM_read32(memPtr);
+}
+
+MEM_STATIC void MEM_write16(void* memPtr, U16 value)
+{
+    BYTE* p = (BYTE*)memPtr;
+    p[0] = (BYTE)value;
+    p[1] = (BYTE)(value >> 8);
+}
+
+MEM_STATIC void MEM_write32(void* memPtr, U32 value)
+{
+    BYTE* p = (BYTE*)memPtr;
+    p[0] = (BYTE)value;
+    p[1] = (BYTE)(value >> 8);
+    p[2] = (BYTE)(value >> 16);
+    p[3] = (BYTE)(value >> 24);
+}
+
+MEM_STATIC void MEM_write64(void* memPtr, U64 value)
+{
+    BYTE* p = (BYTE*)memPtr;
+    MEM_write32(p, (U32)value);
+    MEM_write32(p + 4, (U32)(value >> 32));
+}
+
+#elif defined(MEM_FORCE_MEMORY_ACCESS) && (MEM_FORCE_MEMORY_ACCESS==2)
 
 /* violates C standard, by lying on structure alignment.
 Only use if no other choice to achieve best performance on target platform */
@@ -14823,6 +14877,13 @@ static UNUSED_ATTR const U32 OF_defaultNormLog = OF_DEFAULTNORMLOG;
 static void ZSTD_copy8(void* dst, const void* src) {
 #if defined(ZSTD_ARCH_ARM_NEON)
     vst1_u8((uint8_t*)dst, vld1_u8((const uint8_t*)src));
+#elif defined(__c33__)
+    const BYTE* s = (const BYTE*)src;
+    BYTE* d = (BYTE*)dst;
+    BYTE b0 = s[0], b1 = s[1], b2 = s[2], b3 = s[3];
+    BYTE b4 = s[4], b5 = s[5], b6 = s[6], b7 = s[7];
+    d[0] = b0; d[1] = b1; d[2] = b2; d[3] = b3;
+    d[4] = b4; d[5] = b5; d[6] = b6; d[7] = b7;
 #else
     ZSTD_memcpy(dst, src, 8);
 #endif
@@ -14838,6 +14899,17 @@ static void ZSTD_copy16(void* dst, const void* src) {
     vst1q_u8((uint8_t*)dst, vld1q_u8((const uint8_t*)src));
 #elif defined(ZSTD_ARCH_X86_SSE2)
     _mm_storeu_si128((__m128i*)dst, _mm_loadu_si128((const __m128i*)src));
+#elif defined(__c33__)
+    const BYTE* s = (const BYTE*)src;
+    BYTE* d = (BYTE*)dst;
+    BYTE b0 = s[0], b1 = s[1], b2 = s[2], b3 = s[3];
+    BYTE b4 = s[4], b5 = s[5], b6 = s[6], b7 = s[7];
+    BYTE b8 = s[8], b9 = s[9], b10 = s[10], b11 = s[11];
+    BYTE b12 = s[12], b13 = s[13], b14 = s[14], b15 = s[15];
+    d[0] = b0; d[1] = b1; d[2] = b2; d[3] = b3;
+    d[4] = b4; d[5] = b5; d[6] = b6; d[7] = b7;
+    d[8] = b8; d[9] = b9; d[10] = b10; d[11] = b11;
+    d[12] = b12; d[13] = b13; d[14] = b14; d[15] = b15;
 #elif defined(__clang__)
     ZSTD_memmove(dst, src, 16);
 #else
@@ -20075,7 +20147,16 @@ size_t ZSTD_decompressStream_simpleArgs (
 /*_*******************************************************
 *  Memory operations
 **********************************************************/
-static void ZSTD_copy4(void* dst, const void* src) { ZSTD_memcpy(dst, src, 4); }
+static void ZSTD_copy4(void* dst, const void* src) {
+#if defined(__c33__)
+    const BYTE* s = (const BYTE*)src;
+    BYTE* d = (BYTE*)dst;
+    BYTE b0 = s[0], b1 = s[1], b2 = s[2], b3 = s[3];
+    d[0] = b0; d[1] = b1; d[2] = b2; d[3] = b3;
+#else
+    ZSTD_memcpy(dst, src, 4);
+#endif
+}
 
 
 /*-*************************************************************
