@@ -10,6 +10,10 @@
 #define ZIM_TEXT_IMAGE_MARKER 0x1f
 #define ZIM_TEXT_LINK_START_MARKER 0x1e
 #define ZIM_TEXT_LINK_END_MARKER 0x1d
+/* An element id that same-page links may target: marker, little-endian id
+ * length, and the id bytes.  Links whose href begins with '#' are emitted as
+ * ordinary link records whose path keeps the leading '#'. */
+#define ZIM_TEXT_ANCHOR_MARKER 0x1c
 
 /* Extract readable UTF-8 text from an article. Structural elements become
  * newlines; scripts, styles, markup, and images are omitted. */

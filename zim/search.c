@@ -87,6 +87,21 @@ static size_t article_text_size;
 static ZIM_DEFERRED_LINK *deferred_links;
 static size_t deferred_link_count;
 static size_t deferred_link_capacity;
+
+/* Same-page link targets: element ids recorded by the wrapper together with
+ * the stream position of the line they start. */
+typedef struct {
+	const unsigned char *id;
+	size_t id_length;
+	int y;
+} ZIM_DEFERRED_ANCHOR;
+
+#define ZIM_MAX_DEFERRED_ANCHORS 2048
+static ZIM_DEFERRED_ANCHOR *deferred_anchors;
+static size_t deferred_anchor_count;
+static size_t deferred_anchor_capacity;
+extern int lcd_draw_cur_y_pos;
+extern int article_start_y_pos;
 static char current_article_path[ZIM_DIRENT_TEXT_MAX];
 
 /*
@@ -115,6 +130,12 @@ typedef struct {
 } CACHED_LINK;
 
 typedef struct {
+	uint32_t id_offset;
+	uint32_t id_length;
+	int32_t y;
+} CACHED_ANCHOR;
+
+typedef struct {
 	uint32_t index;          /* article index as passed to retrieve_article; 0 = empty */
 	unsigned int age;        /* larger is more recent */
 	unsigned char *data;     /* stream, text, images, links */
@@ -124,6 +145,7 @@ typedef struct {
 	size_t image_count;
 	size_t image_next;
 	size_t link_count;
+	size_t anchor_count;
 	int height;
 	char path[ZIM_DIRENT_TEXT_MAX];
 } ARTICLE_CACHE_ENTRY;
@@ -274,6 +296,96 @@ static int grow_deferred_links(void)
 	return 0;
 }
 
+static int grow_deferred_anchors(void)
+{
+	ZIM_DEFERRED_ANCHOR *anchors;
+	size_t capacity;
+
+	if (deferred_anchor_count < deferred_anchor_capacity)
+		return 0;
+	if (deferred_anchor_capacity >= ZIM_MAX_DEFERRED_ANCHORS)
+		return -1;
+	capacity = deferred_anchor_capacity ? deferred_anchor_capacity * 2 : 64;
+	if (capacity > ZIM_MAX_DEFERRED_ANCHORS)
+		capacity = ZIM_MAX_DEFERRED_ANCHORS;
+	anchors = memory_allocate(capacity * sizeof(*anchors), "zim-anchors");
+	if (!anchors)
+		return -1;
+	if (deferred_anchor_count)
+		memcpy(anchors, deferred_anchors,
+		       deferred_anchor_count * sizeof(*anchors));
+	if (deferred_anchors)
+		memory_free(deferred_anchors, "zim-anchors");
+	deferred_anchors = anchors;
+	deferred_anchor_capacity = capacity;
+	return 0;
+}
+
+static void article_anchor(void *opaque, const unsigned char *id,
+			   size_t id_length, int y)
+{
+	(void)opaque;
+	if (!id_length || grow_deferred_anchors())
+		return;
+	deferred_anchors[deferred_anchor_count].id = id;
+	deferred_anchors[deferred_anchor_count].id_length = id_length;
+	deferred_anchors[deferred_anchor_count].y = y;
+	deferred_anchor_count++;
+}
+
+static int hex_value(unsigned char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* Compare a percent-encoded fragment, without its '#', to a raw element id. */
+static int fragment_matches(const unsigned char *fragment, size_t length,
+			    const unsigned char *id, size_t id_length)
+{
+	size_t f = 0;
+	size_t i = 0;
+
+	while (f < length && i < id_length) {
+		unsigned char c = fragment[f];
+
+		if (c == '%' && f + 2 < length && hex_value(fragment[f + 1]) >= 0 &&
+		    hex_value(fragment[f + 2]) >= 0) {
+			c = (unsigned char)(hex_value(fragment[f + 1]) * 16 +
+					    hex_value(fragment[f + 2]));
+			f += 3;
+		} else {
+			f++;
+		}
+		if (c != id[i++])
+			return 0;
+	}
+	return f == length && i == id_length;
+}
+
+/* Scroll the displayed article so the anchor's line is at the top. */
+static int scroll_to_fragment(const unsigned char *fragment, size_t length)
+{
+	size_t i;
+
+	for (i = 0; i < deferred_anchor_count; i++) {
+		if (fragment_matches(fragment, length, deferred_anchors[i].id,
+				     deferred_anchors[i].id_length)) {
+			int target = deferred_anchors[i].y + article_start_y_pos;
+
+#ifdef ZIM_TRACE_HASH
+			debug_printf("fragment -> stream y %d (from %d)\n",
+				     deferred_anchors[i].y, lcd_draw_cur_y_pos);
+#endif
+			display_article_with_pcf(target - lcd_draw_cur_y_pos);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static uint32_t article_link(void *opaque, const unsigned char *path,
 			     size_t path_length)
 {
@@ -281,7 +393,9 @@ static uint32_t article_link(void *opaque, const unsigned char *path,
 	size_t i;
 	(void)opaque;
 
-	if (!path_length || path_length >= ZIM_DIRENT_TEXT_MAX || path[0] == '#')
+	if (!path_length || path_length >= ZIM_DIRENT_TEXT_MAX)
+		return 0;
+	if (path[0] == '#' && path_length < 2)
 		return 0;
 	for (i = 0; i < path_length && path[i] != '/' && path[i] != '?' &&
 	     path[i] != '#'; i++)
@@ -311,6 +425,13 @@ static long handle_article_link(long article_id, int resolve)
 		return 0;
 	if (!resolve)
 		return article_id;
+	if (deferred_links[encoded_index - 1].path[0] == '#') {
+		/* Same page: scroll instead of loading; 0 tells the caller
+		 * there is no article to open. */
+		scroll_to_fragment(deferred_links[encoded_index - 1].path + 1,
+				   deferred_links[encoded_index - 1].path_length - 1);
+		return 0;
+	}
 	if (zim_link_normalize(current_article_path,
 			       deferred_links[encoded_index - 1].path,
 			       deferred_links[encoded_index - 1].path_length,
@@ -508,7 +629,8 @@ static void article_cache_store_current(void)
 	current_article_valid = 0;
 	images_at = align_up(current_article_size) + align_up(article_text_size);
 	links_at = images_at + deferred_image_count * sizeof(CACHED_IMAGE);
-	needed = links_at + deferred_link_count * sizeof(CACHED_LINK);
+	needed = links_at + deferred_link_count * sizeof(CACHED_LINK) +
+		deferred_anchor_count * sizeof(CACHED_ANCHOR);
 	if (needed > ARTICLE_CACHE_BYTES)
 		return;
 	for (i = 0; i < ARTICLE_CACHE_ENTRIES; i++)
@@ -546,6 +668,16 @@ static void article_cache_store_current(void)
 						  text_buffer);
 		links[i].path_length = (uint32_t)deferred_links[i].path_length;
 	}
+	{
+		CACHED_ANCHOR *anchors = (CACHED_ANCHOR *)(links + deferred_link_count);
+
+		for (i = 0; i < deferred_anchor_count; i++) {
+			anchors[i].id_offset = (uint32_t)(deferred_anchors[i].id -
+							  text_buffer);
+			anchors[i].id_length = (uint32_t)deferred_anchors[i].id_length;
+			anchors[i].y = deferred_anchors[i].y;
+		}
+	}
 	entry->index = current_article_index;
 	entry->age = ++article_cache_clock;
 	entry->bytes = needed;
@@ -554,6 +686,7 @@ static void article_cache_store_current(void)
 	entry->image_count = deferred_image_count;
 	entry->image_next = deferred_image_next;
 	entry->link_count = deferred_link_count;
+	entry->anchor_count = deferred_anchor_count;
 	entry->height = current_article_height;
 	memcpy(entry->path, current_article_path, sizeof(entry->path));
 	article_cache_bytes += needed;
@@ -588,6 +721,12 @@ static int article_cache_restore(uint32_t index)
 	}
 	deferred_image_count = 0;
 	deferred_link_count = 0;
+	while (deferred_anchor_capacity < entry->anchor_count) {
+		deferred_anchor_count = deferred_anchor_capacity;
+		if (grow_deferred_anchors())
+			return 0;
+	}
+	deferred_anchor_count = 0;
 	memcpy(file_buffer, entry->data, entry->stream_size);
 	memcpy(text_buffer, entry->data + align_up(entry->stream_size),
 	       entry->text_size);
@@ -606,9 +745,20 @@ static int article_cache_restore(uint32_t index)
 		deferred_links[i].path = text_buffer + links[i].path_offset;
 		deferred_links[i].path_length = links[i].path_length;
 	}
+	{
+		const CACHED_ANCHOR *anchors =
+			(const CACHED_ANCHOR *)(links + entry->link_count);
+
+		for (i = 0; i < entry->anchor_count; i++) {
+			deferred_anchors[i].id = text_buffer + anchors[i].id_offset;
+			deferred_anchors[i].id_length = anchors[i].id_length;
+			deferred_anchors[i].y = anchors[i].y;
+		}
+	}
 	deferred_image_count = entry->image_count;
 	deferred_image_next = entry->image_next;
 	deferred_link_count = entry->link_count;
+	deferred_anchor_count = entry->anchor_count;
 	article_text_size = entry->text_size;
 	memcpy(current_article_path, entry->path, sizeof(current_article_path));
 	set_article_stream_height(entry->height);
@@ -1078,11 +1228,13 @@ int retrieve_article(long encoded_index)
 	deferred_image_count = 0;
 	deferred_image_next = 0;
 	deferred_link_count = 0;
+	deferred_anchor_count = 0;
 	article_text_size = text_size;
 	if (zim_text_to_article_images_links(text_buffer, text_size, file_buffer,
 					     FILE_BUFFER_SIZE, &article_size,
 					     article_image, NULL,
-					     article_link, NULL, &article_height))
+					     article_link, NULL,
+					     article_anchor, NULL, &article_height))
 		goto error;
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))

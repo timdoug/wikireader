@@ -43,12 +43,15 @@ static void put_byte(TEXT_OUTPUT *out, unsigned char c)
 	out->used++;
 }
 
+/* Records (anchors, links, images) do not count as text: out->last stays 0
+ * until a visible byte has been written, so a record ahead of the title does
+ * not push the title off the first line. */
 static void put_space_if_needed(TEXT_OUTPUT *out)
 {
 	if (!out->pending_space)
 		return;
 	out->pending_space = 0;
-	if (out->used && out->last != '\n' && out->last != ' ')
+	if (out->last && out->last != '\n' && out->last != ' ')
 		put_byte(out, ' ');
 }
 
@@ -59,9 +62,9 @@ static void put_newline(TEXT_OUTPUT *out, int paragraph)
 		out->used--;
 		out->last = out->previous;
 	}
-	if (out->used && out->last != '\n')
+	if (out->last && out->last != '\n')
 		put_byte(out, '\n');
-	if (paragraph && out->used && out->previous != '\n')
+	if (paragraph && out->last && out->previous != '\n')
 		put_byte(out, '\n');
 }
 
@@ -224,9 +227,10 @@ static int internal_href(const unsigned char *href, size_t length)
 {
 	size_t i;
 
-	if (!length || href[0] == '#' ||
-	    (length >= 2 && href[0] == '/' && href[1] == '/'))
+	if (!length || (length >= 2 && href[0] == '/' && href[1] == '/'))
 		return 0;
+	if (href[0] == '#')
+		return length >= 2;
 	for (i = 0; i < length && href[i] != '/' && href[i] != '?' &&
 	     href[i] != '#'; i++)
 		if (href[i] == ':')
@@ -250,6 +254,186 @@ static int put_link_start(TEXT_OUTPUT *out, const unsigned char *attributes,
 	put_record_bytes(out, record, sizeof(record));
 	put_record_bytes(out, href, href_length);
 	return 1;
+}
+
+/* The attributes every element is checked for, found in one pass rather
+ * than one scan per name: id for anchors, class and style for skipping. */
+typedef struct {
+	const unsigned char *id;
+	size_t id_length;
+	const unsigned char *class_value;
+	size_t class_length;
+	const unsigned char *style;
+	size_t style_length;
+} TAG_ATTRIBUTES;
+
+static void scan_tag_attributes(const unsigned char *attributes, size_t length,
+				TAG_ATTRIBUTES *found)
+{
+	size_t i = 0;
+
+	memset(found, 0, sizeof(*found));
+	while (i < length) {
+		size_t name_start;
+		size_t name_end;
+		size_t start;
+		unsigned char quote = 0;
+
+		while (i < length && ascii_space(attributes[i])) i++;
+		name_start = i;
+		while (i < length && !ascii_space(attributes[i]) &&
+		       attributes[i] != '=' && attributes[i] != '>') i++;
+		name_end = i;
+		while (i < length && ascii_space(attributes[i])) i++;
+		if (i >= length || attributes[i] != '=') {
+			while (i < length && !ascii_space(attributes[i])) i++;
+			continue;
+		}
+		i++;
+		while (i < length && ascii_space(attributes[i])) i++;
+		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
+			quote = attributes[i++];
+		start = i;
+		if (quote) {
+			while (i < length && attributes[i] != quote) i++;
+		} else {
+			while (i < length && !ascii_space(attributes[i]) &&
+			       attributes[i] != '>') i++;
+		}
+		switch (name_end - name_start) {
+		case 2:
+			if (!found->id && name_equal(attributes + name_start, 2, "id")) {
+				found->id = attributes + start;
+				found->id_length = i - start;
+			}
+			break;
+		case 5:
+			if (!found->class_value &&
+			    name_equal(attributes + name_start, 5, "class")) {
+				found->class_value = attributes + start;
+				found->class_length = i - start;
+			} else if (!found->style &&
+				   name_equal(attributes + name_start, 5, "style")) {
+				found->style = attributes + start;
+				found->style_length = i - start;
+			}
+			break;
+		default:
+			break;
+		}
+		if (quote && i < length) i++;
+	}
+}
+
+/* Record an element id so a same-page link can find its line later.  Parsoid
+ * stamps every element with an id like "mwAQ"; those are never link targets
+ * and would triple the record count, so they are left out. */
+static void put_anchor(TEXT_OUTPUT *out, const unsigned char *id,
+		       size_t id_length)
+{
+	unsigned char record[3];
+	size_t i;
+
+	if (!id_length || id_length > 65535)
+		return;
+	if (id_length >= 3 && id[0] == 'm' && id[1] == 'w') {
+		for (i = 2; i < id_length; i++)
+			if (!((id[i] >= 'A' && id[i] <= 'Z') ||
+			      (id[i] >= 'a' && id[i] <= 'z') ||
+			      (id[i] >= '0' && id[i] <= '9')))
+				break;
+		if (i == id_length)
+			return;
+	}
+	record[0] = ZIM_TEXT_ANCHOR_MARKER;
+	record[1] = (unsigned char)id_length;
+	record[2] = (unsigned char)(id_length >> 8);
+	put_record_bytes(out, record, sizeof(record));
+	put_record_bytes(out, id, id_length);
+}
+
+/* Elements whose content is navigation, editing chrome, or hidden, and so
+ * has no place on a small offline screen. */
+static int class_word_skipped(const unsigned char *word, size_t length)
+{
+	/* Dispatch on the first letter: most class words are checked against
+	 * nothing at all, and the rest against one or two candidates. */
+	switch (ascii_lower(word[0])) {
+	case 'n':
+		return name_equal(word, length, "navbox") ||
+			name_equal(word, length, "navbox-styles") ||
+			name_equal(word, length, "noprint");
+	case 'v':
+		return name_equal(word, length, "vertical-navbox");
+	case 'm':
+		return name_equal(word, length, "mw-editsection") ||
+			name_equal(word, length, "mw-jump-link") ||
+			name_equal(word, length, "mw-hidden-catlinks") ||
+			name_equal(word, length, "mw-indicators") ||
+			name_equal(word, length, "mw-empty-elt");
+	case 'p':
+		return name_equal(word, length, "printfooter");
+	case 'c':
+		return name_equal(word, length, "catlinks");
+	case 's':
+		return name_equal(word, length, "sistersitebox");
+	default:
+		return 0;
+	}
+}
+
+static int element_skipped(const TAG_ATTRIBUTES *found)
+{
+	const unsigned char *value;
+	size_t value_length;
+	size_t i;
+
+	if (found->class_value) {
+		size_t start = 0;
+
+		value = found->class_value;
+		value_length = found->class_length;
+		for (i = 0; i <= value_length; i++) {
+			if (i == value_length || ascii_space(value[i])) {
+				if (i > start &&
+				    class_word_skipped(value + start, i - start))
+					return 1;
+				start = i + 1;
+			}
+		}
+	}
+	if (found->style) {
+		/* "display:none", with optional space after the colon */
+		value = found->style;
+		value_length = found->style_length;
+		for (i = 0; i + 12 <= value_length; i++) {
+			if (name_equal(value + i, 8, "display:")) {
+				size_t j = i + 8;
+
+				while (j < value_length && ascii_space(value[j]))
+					j++;
+				if (j + 4 <= value_length &&
+				    name_equal(value + j, 4, "none"))
+					return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+/* Elements that never have a closing tag. */
+static int void_element(const unsigned char *name, size_t length)
+{
+	static const char *const voids[] = {
+		"br", "hr", "img", "input", "meta", "link", "wbr", "area",
+		"base", "col", "embed", "param", "source", "track"
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(voids) / sizeof(voids[0]); i++)
+		if (name_equal(name, length, voids[i]))
+			return 1;
+	return 0;
 }
 
 static size_t encode_utf8(uint32_t value, unsigned char bytes[4])
@@ -403,6 +587,7 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 	int in_body = 0;
 	int in_main = 0;
 	int suppress = 0;
+	int skip_depth = 0;
 	int in_link = 0;
 
 	if (!html || (!text && capacity) || !text_size)
@@ -486,6 +671,38 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			}
 			if (suppress)
 				continue;
+			/* Skipped elements swallow everything until their own
+			 * closing tag, counting nested elements on the way. */
+			if (skip_depth) {
+				int self_closing = attributes_end > attributes_start &&
+					html[attributes_end - 1] == '/';
+
+				if (closing)
+					skip_depth--;
+				else if (!self_closing &&
+					 !void_element(html + tag_start, tag_end - tag_start))
+					skip_depth++;
+				continue;
+			}
+			if (!closing && attributes_end > attributes_start) {
+				TAG_ATTRIBUTES found;
+
+				scan_tag_attributes(html + attributes_start,
+						    attributes_end - attributes_start,
+						    &found);
+				if (element_skipped(&found)) {
+					int self_closing =
+						html[attributes_end - 1] == '/';
+
+					if (!self_closing &&
+					    !void_element(html + tag_start,
+							  tag_end - tag_start))
+						skip_depth = 1;
+					continue;
+				}
+				if (include_links && found.id)
+					put_anchor(&out, found.id, found.id_length);
+			}
 			switch (tag) {
 			case TAG_A:
 				if (!include_links)
@@ -543,7 +760,7 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			}
 			continue;
 		}
-		if (!in_body || !in_main || suppress) {
+		if (!in_body || !in_main || suppress || skip_depth) {
 			/* Nothing outside <main> or inside style/script is emitted;
 			 * jump straight to the next tag. */
 			do

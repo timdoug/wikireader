@@ -43,7 +43,8 @@ enum {
 	CLASS_NEWLINE,
 	CLASS_LINK_START,
 	CLASS_LINK_END,
-	CLASS_IMAGE
+	CLASS_IMAGE,
+	CLASS_ANCHOR
 };
 static unsigned char word_break[256];
 static int word_break_ready;
@@ -57,6 +58,7 @@ static void word_break_init(void)
 	word_break[ZIM_TEXT_LINK_START_MARKER] = CLASS_LINK_START;
 	word_break[ZIM_TEXT_LINK_END_MARKER] = CLASS_LINK_END;
 	word_break[ZIM_TEXT_IMAGE_MARKER] = CLASS_IMAGE;
+	word_break[ZIM_TEXT_ANCHOR_MARKER] = CLASS_ANCHOR;
 	word_break_ready = 1;
 }
 
@@ -196,6 +198,8 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				     void *image_opaque,
 				     ZIM_ARTICLE_LINK link,
 				     void *link_opaque,
+				     ZIM_ARTICLE_ANCHOR anchor,
+				     void *anchor_opaque,
 				     int *stream_height)
 {
 	ARTICLE_HEADER header;
@@ -267,6 +271,20 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				goto error;
 			link_id = 0;
 			input++;
+			continue;
+		}
+		if (class == CLASS_ANCHOR) {
+			size_t id_length;
+
+			if (text_size - input < 3)
+				goto error;
+			id_length = text[input + 1] | (size_t)text[input + 2] << 8;
+			if (id_length > text_size - input - 3)
+				goto error;
+			if (anchor)
+				anchor(anchor_opaque, text + input + 3, id_length,
+				       x ? y + actual_height : y);
+			input += 3 + id_length;
 			continue;
 		}
 
@@ -455,7 +473,8 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 			       ZIM_ARTICLE_IMAGE image, void *image_opaque)
 {
 	return zim_text_to_article_images_links(text, text_size, article,
-		capacity, article_size, image, image_opaque, NULL, NULL, NULL);
+		capacity, article_size, image, image_opaque, NULL, NULL, NULL,
+		NULL, NULL);
 }
 
 int zim_text_to_article(const unsigned char *text, size_t text_size,

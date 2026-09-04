@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* memmem */
 #include <stdio.h>
 #include <string.h>
 
@@ -26,9 +27,26 @@ static uint32_t resolve_link(void *opaque, const unsigned char *path,
 			     size_t length)
 {
 	const char expected[] = "../New%20York";
+	const char fragment[] = "#Later";
 	(void)opaque;
+	if (length == sizeof(fragment) - 1 &&
+	    !memcmp(path, fragment, sizeof(fragment) - 1))
+		return 1234;
 	return length == sizeof(expected) - 1 &&
 		!memcmp(path, expected, sizeof(expected) - 1) ? 1234 : 0;
+}
+
+static int anchor_calls;
+static int anchor_y;
+
+static void note_anchor(void *opaque, const unsigned char *id,
+			size_t id_length, int y)
+{
+	(void)opaque;
+	if (id_length == 5 && !memcmp(id, "Later", 5)) {
+		anchor_calls++;
+		anchor_y = y;
+	}
 }
 
 int main(void)
@@ -36,8 +54,13 @@ int main(void)
 	static const unsigned char html[] =
 		"<body><main><h1>Title</h1><p>See "
 		"<a href=\"../New%20York\">New York has a deliberately long link"
-		"</a> after <a href=\"https://example.com\">external</a>."
-		"</p></main></body>";
+		"</a> after <a href=\"https://example.com\">external</a>"
+		" and <a href=\"#Later\">below</a>."
+		"</p><div class=\"navbox\"><table><tr><td>NAVJUNK</td></tr></table>"
+		"</div><span style=\"display: none\">HIDDEN</span>"
+		"<span class=\"mw-editsection\">[edit]</span>"
+		"<div class=\"mw-heading\"><h2 id=\"Later\">Later</h2></div>"
+		"<p id=\"mwAQ\">Body</p></main></body>";
 	unsigned char normalized[512];
 	unsigned char article[1024];
 	size_t normalized_size;
@@ -54,17 +77,27 @@ int main(void)
 				    sizeof(normalized), &normalized_size))
 		return 1;
 	if (!memchr(normalized, ZIM_TEXT_LINK_START_MARKER, normalized_size) ||
-	    !memchr(normalized, ZIM_TEXT_LINK_END_MARKER, normalized_size))
+	    !memchr(normalized, ZIM_TEXT_LINK_END_MARKER, normalized_size) ||
+	    !memchr(normalized, ZIM_TEXT_ANCHOR_MARKER, normalized_size))
 		return 2;
+	if (memmem(normalized, normalized_size, "NAVJUNK", 7) ||
+	    memmem(normalized, normalized_size, "HIDDEN", 6) ||
+	    memmem(normalized, normalized_size, "[edit]", 6) ||
+	    !memmem(normalized, normalized_size, "Later", 5) ||
+	    !memmem(normalized, normalized_size, "Body", 4) ||
+	    memmem(normalized, normalized_size, "mwAQ", 4))
+		return 9;
 	if (zim_text_to_article_images_links(normalized, normalized_size,
 			article, sizeof(article), &article_size, NULL, NULL,
-			resolve_link, NULL, &height))
+			resolve_link, NULL, note_anchor, NULL, &height))
 		return 3;
+	if (anchor_calls != 1 || anchor_y <= 0 || anchor_y >= height)
+		return 10;
 	if (height <= 0 ||
 	    height != zim_article_stream_height(article, article_size))
 		return 7;
 	memcpy(&header, article, sizeof(header));
-	if (header.article_link_count < 2 || header.article_link_count > 8 ||
+	if (header.article_link_count < 3 || header.article_link_count > 8 ||
 	    header.offset_article != sizeof(header) +
 		header.article_link_count * sizeof(ARTICLE_LINK) ||
 	    header.offset_article >= article_size)
@@ -90,6 +123,6 @@ int main(void)
 			       strlen("../../D&amp;E"), path, sizeof(path)) ||
 	    strcmp(path, "D&E"))
 		return 8;
-	puts("PASS: HTML links become wrapped WikiReader link rectangles");
+	puts("PASS: HTML links, same-page anchors, and skipped navigation markup");
 	return 0;
 }

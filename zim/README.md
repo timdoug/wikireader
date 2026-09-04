@@ -120,6 +120,15 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - underlined internal article links using the native WikiReader hit-testing
   and history flow; targets are resolved on tap, including relative paths,
   percent-encoded UTF-8, and redirects, with query/fragment suffixes ignored
+- same-page links: footnote markers, "see section" links, and tables of
+  contents scroll to their target. Element ids are recorded as anchors while
+  wrapping, together with the line they start, and a tapped `#fragment` is
+  matched against them after percent-decoding
+- navigation and editing chrome is dropped: navboxes, edit-section links,
+  jump links, category footers, printfooters, sister-site boxes, empty
+  elements, and anything styled `display:none`. References, infoboxes,
+  hatnotes, and tables of contents are kept. For `Cat` this halves the line
+  count while keeping every paragraph and citation
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
@@ -220,8 +229,9 @@ RGB intermediate buffer.
 
 ## Current limits
 
-- Same-page fragment scrolling and external web, telephone, email, and map
-  links are intentionally not handled by the offline reader.
+- External web, telephone, email, and map links are intentionally not
+  handled by the offline reader. A link to another article with a fragment
+  opens that article at its top.
 - CSS and JavaScript are omitted.
 - Image-rich articles lazily decode every useful image whose placeholder fits
   in the 512 KiB article stream. Images requested below 80 by 40 pixels,
