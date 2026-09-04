@@ -113,6 +113,34 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - draw-buffer clearing limited to the rows the previous article touched
   instead of the whole 3.8 MiB off-screen buffer
 
+## Memory budget
+
+Production boards (revision V4 and later, or revision 6) configure the SDRAM
+controller for 16 MB; only early boards have 32 MB. Addresses past the
+configured size alias onto low memory, so the kernel now sets the heap limit
+from `ram_size()` instead of the linker script's 32 MB constant, and `wremu`
+models the same aliasing once the controller is enabled. Firmware that grows
+past the configured size therefore corrupts itself in the emulator exactly as
+it would on the device.
+
+With `ZIM_TRACE_HASH` the app prints the allocator's block list after each
+article and image. On a 16 MB board the heap runs from the end of the program
+to 15 MB, about 14.2 MB, and after opening an article the app holds:
+
+| Allocation | Size |
+| --- | ---: |
+| off-screen article draw buffer | 4.0 MB |
+| decoded-cluster cache with its Zstandard state | 2.9 MB |
+| article stream, raw, and text buffers | 1.5 MB |
+| fonts: four small fonts resident, three large fonts as 2048-glyph caches | 0.7 MB |
+| per-line render info and everything else | 0.7 MB |
+| **allocated** | **9.3 MB** |
+| free | 4.9 MB |
+
+The three CJK "all" fonts used to be reserved at their full 3.6 MB file size
+each and filled lazily; that alone put the app 3 MB past the end of a 16 MB
+board, masked until now by the emulator's flat 32 MB window.
+
 ## Article load cost
 
 Opening `Cat` from the Simple English archive in `wremu` (modeled guest time
