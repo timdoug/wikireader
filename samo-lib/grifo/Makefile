@@ -135,11 +135,12 @@ include/grifo.h stubs/stamp-source build/syscall.table: stamp-include stamp-buil
 	  --verbose
 	${TOUCH} stubs/stamp-source
 
-stubs/stamp-objects: $(addsuffix .o, $(basename $(wildcard stubs/*.s)))
+stubs/stamp-objects: stubs/stamp-source
+	# Expand after syscall generation so new stubs are included on a clean build.
+	${MAKE} $(addsuffix .o, $(basename $(wildcard stubs/*.s)))
 	${TOUCH} "$@"
 
-stubs/stamp: stamp-stubs
-	${MAKE} stubs/stamp-objects
+stubs/stamp: stamp-stubs stubs/stamp-objects
 	${TOUCH} "$@"
 
 # this should depend on lib, but make always rebuilds in that case; why?
