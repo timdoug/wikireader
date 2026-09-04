@@ -14921,6 +14921,28 @@ static void ZSTD_copy16(void* dst, const void* src) {
 }
 #define COPY16(d,s) do { ZSTD_copy16(d,s); d+=16; s+=16; } while (0)
 
+#if defined(__c33__)
+/* Wide over-copy is profitable on targets with vector or unaligned word loads.
+ * C33 must instead issue one load and one store for every byte, so copy only
+ * the literals the sequence actually contains.  Retain memmove semantics for
+ * the rare case where the in-output literal buffer catches the destination. */
+FORCE_INLINE_TEMPLATE void
+ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
+{
+    if (dst > src && dst < src + length) {
+        size_t i = length;
+        while (i != 0) {
+            --i;
+            dst[i] = src[i];
+        }
+    } else {
+        size_t i;
+        for (i = 0; i < length; ++i)
+            dst[i] = src[i];
+    }
+}
+#endif
+
 #define WILDCOPY_OVERLENGTH 32
 #define WILDCOPY_VECLEN 16
 
@@ -21157,10 +21179,14 @@ size_t ZSTD_execSequence(BYTE* op,
      * We likely don't need the full 32-byte wildcopy.
      */
     assert(WILDCOPY_OVERLENGTH >= 16);
+#if defined(__c33__)
+    ZSTD_copyLiteralsC33(op, *litPtr, sequence.litLength);
+#else
     ZSTD_copy16(op, (*litPtr));
     if (UNLIKELY(sequence.litLength > 16)) {
         ZSTD_wildcopy(op + 16, (*litPtr) + 16, sequence.litLength - 16, ZSTD_no_overlap);
     }
+#endif
     op = oLitEnd;
     *litPtr = iLitEnd;   /* update for next sequence */
 
@@ -21250,10 +21276,14 @@ size_t ZSTD_execSequenceSplitLitBuffer(BYTE* op,
      * We likely don't need the full 32-byte wildcopy.
      */
     assert(WILDCOPY_OVERLENGTH >= 16);
+#if defined(__c33__)
+    ZSTD_copyLiteralsC33(op, *litPtr, sequence.litLength);
+#else
     ZSTD_copy16(op, (*litPtr));
     if (UNLIKELY(sequence.litLength > 16)) {
         ZSTD_wildcopy(op+16, (*litPtr)+16, sequence.litLength-16, ZSTD_no_overlap);
     }
+#endif
     op = oLitEnd;
     *litPtr = iLitEnd;   /* update for next sequence */
 
