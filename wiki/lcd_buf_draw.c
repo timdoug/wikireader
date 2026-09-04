@@ -109,6 +109,12 @@ int stop_render_article = 0;
 int b_show_scroll_bar = 0;
 long saved_idx_article = 0;
 long saved_prev_idx_article = 0;
+static ARTICLE_STREAM_PREPARE article_stream_prepare;
+
+void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
+{
+	article_stream_prepare = prepare;
+}
 
 #define MIN_BAR_LEN 20
 void show_scroll_bar(int bShow)
@@ -1073,6 +1079,15 @@ int render_article_with_pcf()
 
 	if (!article_buf_pointer)
 		return 0;
+	/* A storage backend may leave expensive objects in the article stream
+	 * deferred. Keep one screen rendered ahead of the visible viewport and
+	 * resume naturally when display_article_with_pcf() requests more. */
+	if (article_stream_prepare && display_first_page &&
+	    !request_display_next_page &&
+	    lcd_draw_buf.current_y > lcd_draw_cur_y_pos + 2 * LCD_HEIGHT)
+		return 0;
+	if (article_stream_prepare)
+		article_stream_prepare((unsigned char *)article_buf_pointer);
 
 	buf_draw_UTF8_str(&article_buf_pointer);
 	if(stop_render_article == 1 && display_first_page == 1)

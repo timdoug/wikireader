@@ -26,7 +26,6 @@
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MAX_ARTICLE_IMAGES 6
-#define ZIM_MAX_IMAGE_ATTEMPTS 8
 #define ZIM_MIN_IMAGE_WIDTH 80
 #define ZIM_MIN_IMAGE_HEIGHT 40
 #define ARTICLE_PROGRESS_LIMIT 100
@@ -49,8 +48,18 @@ static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
 static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
-static unsigned int image_attempts;
-static unsigned int images_rendered;
+
+typedef struct {
+	unsigned char *stream;
+	char path[ZIM_DIRENT_TEXT_MAX];
+	uint8_t width;
+	uint16_t height;
+	size_t bitmap_size;
+	int decoded;
+} ZIM_DEFERRED_IMAGE;
+
+static ZIM_DEFERRED_IMAGE deferred_images[ZIM_MAX_ARTICLE_IMAGES];
+static unsigned int deferred_image_count;
 
 static void article_blob_progress(void *opaque, uint64_t completed,
 				  uint64_t total)
@@ -69,33 +78,14 @@ static void article_blob_progress(void *opaque, uint64_t completed,
 	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
 }
 
-static int article_image(void *opaque, const unsigned char *source_path,
-			 size_t source_path_length,
-			 unsigned int requested_width,
-			 unsigned int requested_height,
-			 unsigned char *bitmap, size_t capacity,
-			 uint8_t *width, uint16_t *height,
-			 size_t *bitmap_size)
+static int normalize_image_path(const unsigned char *source_path,
+				size_t source_path_length,
+				char path[ZIM_DIRENT_TEXT_MAX])
 {
-	char path[ZIM_DIRENT_TEXT_MAX];
 	const unsigned char *start = source_path;
 	size_t length = source_path_length;
-	ZIM_DIRENT dirent;
-	size_t webp_size;
-	int rc;
-	(void)opaque;
+	size_t i;
 
-	/* Tiny flags and UI glyphs dominate Wikivoyage pages but are not useful
-	 * on this display. Keep the scarce decode time and article bytes for
-	 * photographs, maps, and diagrams. */
-	if ((requested_width && requested_width < ZIM_MIN_IMAGE_WIDTH) ||
-	    (requested_height && requested_height < ZIM_MIN_IMAGE_HEIGHT) ||
-	    image_attempts >= ZIM_MAX_IMAGE_ATTEMPTS ||
-	    images_rendered >= ZIM_MAX_ARTICLE_IMAGES)
-		return -1;
-	image_attempts++;
-	draw_progress_bar(85 + (int)(image_attempts * 13 /
-					 ZIM_MAX_IMAGE_ATTEMPTS), ARTICLE_PROGRESS_LIMIT);
 	while (length >= 2 && start[0] == '.' && start[1] == '/') {
 		start += 2;
 		length -= 2;
@@ -104,32 +94,91 @@ static int article_image(void *opaque, const unsigned char *source_path,
 		start++;
 		length--;
 	}
-	if (!length || length >= sizeof(path))
+	if (!length || length >= ZIM_DIRENT_TEXT_MAX)
 		return -1;
 	memcpy(path, start, length);
 	path[length] = '\0';
-	{
-		size_t i;
-		for (i = 0; path[i]; i++) {
-			if (path[i] == '?' || path[i] == '#') {
-				path[i] = '\0';
-				break;
-			}
+	for (i = 0; path[i]; i++) {
+		if (path[i] == '?' || path[i] == '#') {
+			path[i] = '\0';
+			break;
 		}
 	}
-	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
-	if (rc && rc != ZIM_ERR_TRUNCATED)
+	return path[0] ? 0 : -1;
+}
+
+static int article_image(void *opaque, const unsigned char *source_path,
+			 size_t source_path_length,
+			 unsigned int requested_width,
+			 unsigned int requested_height,
+			 unsigned char *bitmap, size_t capacity,
+			 uint8_t *width, uint16_t *height,
+			 size_t *bitmap_size)
+{
+	ZIM_DEFERRED_IMAGE *deferred;
+	(void)opaque;
+
+	/* Kiwix thumbnails carry both dimensions. Requiring them lets us reserve
+	 * an exact-size blank bitmap without touching or decoding the asset. */
+	if (!requested_width || !requested_height ||
+	    requested_width < ZIM_MIN_IMAGE_WIDTH ||
+	    requested_height < ZIM_MIN_IMAGE_HEIGHT ||
+	    deferred_image_count >= ZIM_MAX_ARTICLE_IMAGES)
 		return -1;
-	rc = zim_archive_read_blob(&archive, &dirent, raw_buffer,
-				   ZIM_RAW_BUFFER_SIZE, &webp_size);
-	if (rc)
+	deferred = &deferred_images[deferred_image_count];
+	if (normalize_image_path(source_path, source_path_length,
+				 deferred->path) ||
+	    zim_image_fit_dimensions(requested_width, requested_height,
+				     requested_width, requested_height,
+				     width, height, bitmap_size) ||
+	    *bitmap_size > capacity)
 		return -1;
-	if (zim_webp_to_bitmap(raw_buffer, webp_size, requested_width,
-			       requested_height, bitmap, capacity, width, height,
-			       bitmap_size))
-		return -1;
-	images_rendered++;
+	memset(bitmap, 0, *bitmap_size);
+	deferred->stream = bitmap - 4;
+	deferred->width = *width;
+	deferred->height = *height;
+	deferred->bitmap_size = *bitmap_size;
+	deferred->decoded = 0;
+	deferred_image_count++;
+	draw_progress_bar(85 + (int)(deferred_image_count * 13 /
+					 ZIM_MAX_ARTICLE_IMAGES), ARTICLE_PROGRESS_LIMIT);
 	return 0;
+}
+
+static void prepare_article_image(unsigned char *stream)
+{
+	unsigned int i;
+
+	for (i = 0; i < deferred_image_count; i++) {
+		ZIM_DEFERRED_IMAGE *deferred = &deferred_images[i];
+		ZIM_DIRENT dirent;
+		size_t webp_size;
+		size_t bitmap_size;
+		uint8_t width;
+		uint16_t height;
+		int rc;
+
+		if (deferred->stream != stream || deferred->decoded)
+			continue;
+		deferred->decoded = 1;
+		watchdog(WATCHDOG_KEY);
+		rc = zim_archive_find_path(&archive, 'C', deferred->path,
+					   &dirent);
+		if (rc && rc != ZIM_ERR_TRUNCATED)
+			return;
+		rc = zim_archive_read_blob(&archive, &dirent, raw_buffer,
+					   ZIM_RAW_BUFFER_SIZE, &webp_size);
+		if (rc)
+			return;
+		if (zim_webp_to_bitmap(raw_buffer, webp_size, deferred->width,
+				       deferred->height, stream + 4,
+				       deferred->bitmap_size, &width, &height,
+				       &bitmap_size) ||
+		    width != deferred->width || height != deferred->height ||
+		    bitmap_size != deferred->bitmap_size)
+			memset(stream + 4, 0, deferred->bitmap_size);
+		return;
+	}
 }
 
 bool search_string_changed;
@@ -235,6 +284,7 @@ static void populate_results(void)
 
 void search_init(void)
 {
+	set_article_stream_prepare(prepare_article_image);
 	if (!archive_file.open) {
 		static const unsigned char message[] = "Opening ZIM archive...";
 
@@ -541,8 +591,7 @@ int retrieve_article(long encoded_index)
 	if (rc)
 		goto error;
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
-	image_attempts = 0;
-	images_rendered = 0;
+	deferred_image_count = 0;
 	if (zim_text_to_article_images(text_buffer, text_size, file_buffer,
 				       FILE_BUFFER_SIZE, &article_size,
 				       article_image, NULL))

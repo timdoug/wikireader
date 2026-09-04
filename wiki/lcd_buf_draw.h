@@ -281,7 +281,10 @@ typedef struct _ARTICLE_RENDER_INFO
 	pcffont_bmf_t *pPcfFont;
 } ARTICLE_RENDER_INFO, *PARTICLE_RENDER_INFO;
 
+typedef void (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
+
 void init_lcd_draw_buf();
+void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare);
 char* FontFile(int id);
 void buf_draw_UTF8_str(const unsigned char **sUTF8);
 void buf_draw_horizontal_line(unsigned long start_x, unsigned long end_x);

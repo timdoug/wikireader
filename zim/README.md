@@ -85,6 +85,9 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - inline WebP photographs, maps, and drawings, scaled for the display,
   composited onto white, and Atkinson-dithered into the native one-bit article
   bitmap format
+- lazy image decoding and bounded article pre-rendering: the first visible
+  image is loaded before presentation, while later images are decoded only as
+  scrolling approaches them
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
@@ -98,10 +101,12 @@ article all succeed.
 
 Image support has also been exercised end to end with
 `wikivoyage_en_all_maxi_2026-06.zim`: the emulator searched for and opened
-Paris, decoded six WebP assets (including lossy and alpha-bearing images), and
-displayed a 226-pixel-wide dithered photograph inline with the article. In the
-detailed hardware timing model this image-heavy article took about 40 seconds
-from selection to display, with the progress bar active throughout.
+Paris and displayed a 226-pixel-wide dithered photograph inline with the
+article. In the detailed hardware timing model the initial screen appears 16.60
+seconds after selection, down from 40.35 seconds when all six images were
+decoded eagerly. Lossy images are decoded directly to scaled luma/alpha; the
+first photograph's decode falls from 3.64 to 2.44 modeled seconds without an
+RGB intermediate buffer.
 
 ## Current limits
 
@@ -109,9 +114,10 @@ from selection to display, with the progress bar active throughout.
 - CSS and JavaScript are omitted.
 - Image-rich articles decode at most six useful images. Images requested below
   80 by 40 pixels, unsupported image formats, and compressed image blobs larger
-  than the 512 KiB work buffer are skipped. Current Kiwix archives commonly
-  store assets named `.jpg` or `.png` as WebP internally; the decoder detects
-  the content rather than relying on the filename suffix.
+  than the 512 KiB work buffer are skipped. Lazy placeholders currently require
+  the HTML image to provide both width and height. Current Kiwix archives
+  commonly store assets named `.jpg` or `.png` as WebP internally; the decoder
+  detects the content rather than relying on the filename suffix.
 - A decoded HTML article must fit the 512 KiB article input buffer.
 - Legacy LZMA-compressed ZIM clusters are not implemented.
 - Search follows the ZIM title ordering and currently applies only the
