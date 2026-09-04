@@ -811,6 +811,18 @@ int retrieve_article(long encoded_index)
 		raw = raw_buffer;
 	}
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
+#ifdef ZIM_TRACE_HASH
+	/* Build with OPT="-O2 -DZIM_TRACE_HASH" to check decoder changes: the
+	 * FNV-1a of the decoded article appears on the serial console. */
+	{
+		uint32_t hash = 2166136261u;
+		size_t k;
+		for (k = 0; k < raw_size; k++)
+			hash = (hash ^ raw[k]) * 16777619u;
+		debug_printf("article fnv %08lx size %lu\n", (unsigned long)hash,
+			     (unsigned long)raw_size);
+	}
+#endif
 	rc = zim_html_to_text_images(raw, raw_size, text_buffer,
 				     FILE_BUFFER_SIZE, &text_size);
 	if (rc)

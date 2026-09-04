@@ -14964,10 +14964,50 @@ static void ZSTD_copy16(void* dst, const void* src) {
 #define COPY16(d,s) do { ZSTD_copy16(d,s); d+=16; s+=16; } while (0)
 
 #if defined(__c33__)
-/* Wide over-copy is profitable on targets with vector or unaligned word loads.
- * C33 must instead issue one load and one store for every byte, so copy only
- * the literals the sequence actually contains.  Retain memmove semantics for
- * the rare case where the in-output literal buffer catches the destination. */
+/* GCC emits five instructions per byte for a C byte-copy loop on the C33 and
+ * never uses post-increment loads.  These loops move each byte with one
+ * load/store pair, strictly in address order, so they are also valid for
+ * overlapping LZ matches with any offset of at least one byte. */
+FORCE_INLINE_TEMPLATE void
+ZSTD_copyBytesC33(BYTE* dst, const BYTE* src, size_t length)
+{
+    unsigned int scratch;
+
+    if (length >= 4) {
+        size_t quads = length >> 2;
+        __asm__ volatile (
+            "1:\n\t"
+            "ld.ub\t%3, [%1]+\n\t"
+            "ld.b\t[%0]+, %3\n\t"
+            "ld.ub\t%3, [%1]+\n\t"
+            "ld.b\t[%0]+, %3\n\t"
+            "ld.ub\t%3, [%1]+\n\t"
+            "ld.b\t[%0]+, %3\n\t"
+            "ld.ub\t%3, [%1]+\n\t"
+            "sub\t%2, 1\n\t"
+            "ld.b\t[%0]+, %3\n\t"
+            "jrne\t1b"
+            : "+r"(dst), "+r"(src), "+r"(quads), "=&r"(scratch)
+            :
+            : "memory");
+        length &= 3;
+    }
+    if (length) {
+        __asm__ volatile (
+            "1:\n\t"
+            "ld.ub\t%3, [%1]+\n\t"
+            "sub\t%2, 1\n\t"
+            "ld.b\t[%0]+, %3\n\t"
+            "jrne\t1b"
+            : "+r"(dst), "+r"(src), "+r"(length), "=&r"(scratch)
+            :
+            : "memory");
+    }
+}
+
+/* Copy only the literals the sequence actually contains rather than Zstd's
+ * vector-sized over-copy.  Retain memmove semantics for the rare case where
+ * the in-output literal buffer catches the destination. */
 FORCE_INLINE_TEMPLATE void
 ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
 {
@@ -14978,9 +15018,7 @@ ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
             dst[i] = src[i];
         }
     } else {
-        size_t i;
-        for (i = 0; i < length; ++i)
-            dst[i] = src[i];
+        ZSTD_copyBytesC33(dst, src, length);
     }
 }
 
@@ -14998,10 +15036,7 @@ ZSTD_copyMatchC33(BYTE* dst, const BYTE* src, size_t length)
             length -= 8;
         }
     }
-    while (length != 0) {
-        *dst++ = *src++;
-        --length;
-    }
+    ZSTD_copyBytesC33(dst, src, length);
 }
 #endif
 
