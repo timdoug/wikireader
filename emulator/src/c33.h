@@ -73,6 +73,13 @@ struct c33 {
 	bool     delay_pending;
 	uint32_t delay_target;
 
+	/*
+	 * Region caches below are dropped whenever *region_epoch changes; the
+	 * memory map bumps it when the SDRAM controller changes its decoded
+	 * size, which moves the alias windows the pointers describe.
+	 */
+	const unsigned *region_epoch;
+	unsigned region_epoch_seen;
 	/* cached fetch region: [fetch_lo, fetch_hi) maps to fetch_ptr */
 	uint8_t *fetch_ptr;
 	uint32_t fetch_lo, fetch_hi;

@@ -791,6 +791,11 @@ void c33_step(struct c33 *c)
 	 * than a copy, so writes through the bus stay visible.
 	 */
 	uint16_t insn;
+	if (c->region_epoch && *c->region_epoch != c->region_epoch_seen) {
+		c->region_epoch_seen = *c->region_epoch;
+		c->fetch_lo = c->fetch_hi = 0;
+		c->data_lo = c->data_hi = 0;
+	}
 	/*
 	 * Written to avoid wrapping: "at + 2 <= fetch_hi" would be true for
 	 * an address near 0xffffffff, letting a wild PC index far outside the

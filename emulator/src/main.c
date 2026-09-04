@@ -532,6 +532,7 @@ int main(int argc, char **argv)
 	 * diagnostic that names the wrong instruction is worse than none.
 	 */
 	mem.pc_src = &cpu.cur_pc;
+	cpu.region_epoch = &mem.sdram_epoch;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
 	cpu.irq_poll = (bool (*)(void *, unsigned *, unsigned *))itc_next_irq;
 	cpu.irq_ctx = &itc;

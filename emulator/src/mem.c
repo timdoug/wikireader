@@ -60,10 +60,27 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
  * firmware never generated an address like that, so this sat unnoticed
  * until the boot ROM path ran code against uninitialised hardware.
  */
+void mem_set_sdram_size(struct mem *m, uint32_t bytes)
+{
+	if (bytes >= SDRAM_SIZE || (bytes & (bytes - 1)))
+		bytes = 0;
+	if (m->sdram_alias != bytes) {
+		m->sdram_alias = bytes;
+		m->sdram_epoch++;
+	}
+}
+
 static uint8_t *ram_ptr(struct mem *m, uint32_t a, unsigned size)
 {
-	if (a >= SDRAM_BASE && a - SDRAM_BASE <= SDRAM_SIZE - size)
-		return m->sdram + (a - SDRAM_BASE);
+	if (a >= SDRAM_BASE && a - SDRAM_BASE <= SDRAM_SIZE - size) {
+		uint32_t off = a - SDRAM_BASE;
+		if (m->sdram_alias) {
+			off &= m->sdram_alias - 1;
+			if (off > m->sdram_alias - size)
+				return NULL;
+		}
+		return m->sdram + off;
+	}
 	if (a <= A0RAM_SIZE - size)
 		return m->a0ram + a;
 	if (a >= IVRAM_BASE && a - IVRAM_BASE <= IVRAM_SIZE - size)
@@ -113,6 +130,12 @@ static bool chip_id(uint32_t addr, unsigned size, uint32_t *value)
 uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len)
 {
 	if (addr >= SDRAM_BASE && addr < SDRAM_BASE + SDRAM_SIZE) {
+		if (m->sdram_alias) {
+			/* Each alias window maps linearly onto the same cells. */
+			*base = SDRAM_BASE + ((addr - SDRAM_BASE) & ~(m->sdram_alias - 1));
+			*len = m->sdram_alias;
+			return m->sdram;
+		}
 		*base = SDRAM_BASE; *len = SDRAM_SIZE; return m->sdram;
 	}
 	if (addr < A0RAM_SIZE) {

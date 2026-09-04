@@ -37,6 +37,8 @@ struct sdramc {
 		uint64_t ready[2];
 	} dq;
 
+	struct mem *mem;   /* receives the configured size for address aliasing */
+
 	/* Diagnostics: controller transactions, not host memory copies. */
 	uint64_t accesses[5];
 	uint64_t wait_cycles;

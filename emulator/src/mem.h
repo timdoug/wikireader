@@ -59,6 +59,15 @@ struct mmio_dev {
 
 struct mem {
 	uint8_t *a0ram, *ivram, *dstram, *sdram;
+	/*
+	 * SDRAM size selected by the controller's ADDRC field, or 0 before the
+	 * controller is enabled.  The chip only decodes that many address bits,
+	 * so a 16 MB board aliases 0x11000000 onto 0x10000000; firmware that
+	 * outgrows the configured size must fail here the way it does on
+	 * hardware.  Bumped in epoch so cached region pointers are dropped.
+	 */
+	uint32_t sdram_alias;
+	unsigned sdram_epoch;
 	struct mmio_dev dev[MAX_MMIO];
 	unsigned ndev;
 	mem_wait_fn wait;
@@ -78,6 +87,8 @@ struct mem {
 
 bool mem_init(struct mem *m);
 void mem_free(struct mem *m);
+/* bytes must be a power of two below the full window, or 0 for no aliasing. */
+void mem_set_sdram_size(struct mem *m, uint32_t bytes);
 /*
  * Clear every RAM region. Cutting the power to the board loses all of it,
  * so a machine coming back on must not find the last session's contents --

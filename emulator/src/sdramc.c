@@ -85,6 +85,24 @@ static unsigned cas(const struct sdramc *s)
 	return v ? v : 2; /* 00 is reserved; retain the reset-safe latency. */
 }
 
+/*
+ * Tell the memory map how much SDRAM the controller decodes.  Only once the
+ * device is on line: direct ELF boots never program the controller and must
+ * keep the flat window.
+ */
+static void publish_size(struct sdramc *s)
+{
+	uint32_t bytes = 0;
+
+	if (s->initialised && (s->reg[OFF_INI] & SDON) &&
+	    (s->reg[OFF_APP] & APPON)) {
+		const struct geometry *g = &geometry[s->reg[OFF_CTL] & 7];
+		bytes = (uint32_t)g->banks << (g->row_bits + g->col_bits + 1);
+	}
+	if (s->mem)
+		mem_set_sdram_size(s->mem, bytes);
+}
+
 static void empty_queues(struct sdramc *s)
 {
 	for (unsigned i = 0; i < 4; i++)
@@ -343,6 +361,7 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			s->last_sdram_access = 0;
 			s->self_refresh = false;
 		}
+		publish_size(s);
 		if (i == OFF_REF) {
 			s->next_refresh = 0;
 			if (!(*val & SELEN))
@@ -364,15 +383,20 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 /* Reset state without re-registering the device. */
 void sdramc_reset(struct sdramc *s)
 {
+	struct mem *m = s->mem;
+
 	memset(s, 0, sizeof *s);
+	s->mem = m;
 	/* S1C33E07 Technical Manual register tables, init. column. */
 	s->reg[OFF_CTL] = 0x000000e0u;      /* tRC/tRFC/tXSR = 15 cycles */
 	s->reg[OFF_REF] = 0x007f008cu;      /* self/auto-refresh counters */
 	s->reg[OFF_APP] = 0x00000008u;      /* CAS latency 2 */
+	publish_size(s);                    /* back to the flat window */
 }
 
 void sdramc_attach(struct mem *m, struct sdramc *s)
 {
+	s->mem = m;
 	sdramc_reset(s);
 	mem_add_mmio(m, "sdramc", SDRAMC_BASE, SDRAMC_LEN, sdramc_mmio, s);
 	mem_set_timing(m, sdramc_wait, s);
