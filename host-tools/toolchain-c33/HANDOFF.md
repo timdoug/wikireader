@@ -18,7 +18,7 @@ the complete WikiReader firmware.
 | binutils 2.47 | Assembler, linker, BFD, objdump, readelf, CTF, plugins, relocations, and all three C33 core modes work. Exact-source gas/binutils/ld suites have no unexpected failures. |
 | GCC 16.2 | Builds the kernel, boot applications, `init.app`, and `wiki.app`; short/long calls, delay slots, `%r15` data addressing, strict alignment, soft-float, variadic forwarding, sibling calls, trampolines, and three core multilibs are implemented. Bit-memory operands are restricted to the base-plus-constant forms the ISA can encode. |
 | ABI | New and original objects cross-call in all four compiler combinations and agree at five optimization levels. |
-| Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo now uses FatFs R0.16 and provides its standard compact fast-seek map to applications. |
+| Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo uses FatFs R0.16 with FAT32/exFAT, multiple volumes, compact fast-seek maps, and 64-bit file positions. |
 | Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. |
 | DejaGnu | The standard GCC board is authoritative. Focused execution suites are clean; the final post-fix unfiltered run is still pending. |
 
@@ -147,10 +147,20 @@ The pre-kernel MBR/menu/file-loader still reads by PIO. Kernel block reads use
 DMA; card writes remain PIO. The file-loader fits A0 with 371 bytes of live
 headroom. The menu is tighter: its BSS ends 18 bytes below the end of A0.
 
-Grifo's file service uses FatFs R0.16. The ZIM reader uses that service rather
-than parsing FAT32 itself and asks FatFs to build its fast-seek map at startup.
-The current contiguous 944 MiB archive needs a 16-byte map and has been tested
-through full FLASH boot, prefix search, and article rendering.
+The ZIM reader uses Grifo's FatFs service rather than parsing a filesystem
+itself. Its preferred card layout keeps the boot chain on a small FAT32 first
+partition and stores `wiki.zim` on a second exFAT partition. A contiguous
+exFAT file produces its 16-byte seek map directly from filesystem metadata;
+fragmented files still use FatFs's normal chain traversal. The existing
+single-volume FAT32 layout remains a fallback for archives below 4 GiB.
+
+The current contiguous 944 MiB archive has been tested through full FLASH
+boot, prefix search, and article rendering. With current binaries, direct
+Grifo boot reaches the ZIM parser at 667.9 modeled ms from exFAT versus 1793.5
+ms from FAT32; the latter reads 1,889 FAT sectors to construct its seek map.
+The 64-bit path also opens a 4.5 GiB exFAT test archive whose live path index
+was relocated to byte 4,300,000,000, proving an actual seek and read above the
+4 GiB boundary. `zim/make-card-image` creates the dual-volume image on macOS.
 
 ### GCC 16 optimization benchmark
 
@@ -226,6 +236,8 @@ These are not GCC/binutils correctness bugs and require separate approval:
 6. Run the complete post-fix DejaGnu suite when the multi-hour validation is
    wanted, then treat its fresh failures as the only broad-suite backlog.
 7. Add link-time A0 size assertions, especially for the menu.
+8. Exercise the ZIM reader with a complete full-English archive and replace
+   its fixed 512 KiB decoded-article buffer if real articles exceed it.
 
 ## Source layout
 
