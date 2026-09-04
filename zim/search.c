@@ -24,6 +24,9 @@
 #include "zim_html.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
+#define ARTICLE_PROGRESS_LIMIT 100
+#define ARTICLE_PROGRESS_BLOB_START 10
+#define ARTICLE_PROGRESS_BLOB_END 75
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
 	uint32_t article[NUMBER_OF_FIRST_PAGE_RESULTS];
@@ -41,6 +44,23 @@ static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
 static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
+
+static void article_blob_progress(void *opaque, uint64_t completed,
+				  uint64_t total)
+{
+	unsigned int progress = ARTICLE_PROGRESS_BLOB_START;
+	(void)opaque;
+	if (total) {
+		if (completed >= total) {
+			progress = ARTICLE_PROGRESS_BLOB_END;
+		} else {
+			progress += (unsigned int)
+				(completed * (ARTICLE_PROGRESS_BLOB_END -
+				 ARTICLE_PROGRESS_BLOB_START) / total);
+		}
+	}
+	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
+}
 
 bool search_string_changed;
 bool search_string_changed_remove;
@@ -425,6 +445,8 @@ int retrieve_article(long encoded_index)
 	size_t article_size;
 	int rc;
 
+	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
+	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
 	if (!index || index > archive.entry_count)
 		goto error;
 	if (!raw_buffer)
@@ -433,26 +455,33 @@ int retrieve_article(long encoded_index)
 		text_buffer = memory_allocate(FILE_BUFFER_SIZE, "zim-text");
 	if (!raw_buffer || !text_buffer)
 		goto error;
+	draw_progress_bar(5, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		goto error;
-	rc = zim_archive_read_blob(&archive, &dirent, raw_buffer,
-				   ZIM_RAW_BUFFER_SIZE, &raw_size);
+	draw_progress_bar(ARTICLE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
+	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
+					    ZIM_RAW_BUFFER_SIZE, &raw_size,
+					    article_blob_progress, NULL);
 	if (rc)
 		goto error;
+	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_html_to_text(raw_buffer, raw_size, text_buffer,
 			      FILE_BUFFER_SIZE, &text_size);
 	if (rc)
 		goto error;
+	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
 	if (zim_text_to_article(text_buffer, text_size, file_buffer,
 				FILE_BUFFER_SIZE, &article_size))
 		goto error;
 	(void)article_size;
+	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 	restricted_article = 0;
 	current_article_wiki_id = 0;
 	return 0;
 
 error:
+	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	print_article_error();
 	return -1;
 }

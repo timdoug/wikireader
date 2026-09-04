@@ -83,6 +83,8 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
   plus lists and linearized tables
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
+- the original WikiReader top-edge progress bar, driven by actual article
+  lookup, cluster decompression, conversion, and wrapping milestones
 
 The repository test archive
 `wikipedia_en-simple_all_nopic_2026-06.zim` has 401,965 directory entries,

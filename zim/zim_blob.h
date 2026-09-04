@@ -4,6 +4,9 @@
 
 #include "zim_archive.h"
 
+typedef void (*ZIM_BLOB_PROGRESS)(void *opaque, uint64_t completed,
+				  uint64_t total);
+
 int zim_archive_resolve_redirect(const ZIM_ARCHIVE *archive,
 				 ZIM_DIRENT *dirent);
 
@@ -14,5 +17,13 @@ int zim_archive_read_blob(const ZIM_ARCHIVE *archive,
 			  const ZIM_DIRENT *dirent,
 			  void *buffer, size_t capacity,
 			  size_t *blob_size);
+
+/* As above, reporting decompression/read work as it advances. */
+int zim_archive_read_blob_progress(const ZIM_ARCHIVE *archive,
+				   const ZIM_DIRENT *dirent,
+				   void *buffer, size_t capacity,
+				   size_t *blob_size,
+				   ZIM_BLOB_PROGRESS progress,
+				   void *progress_opaque);
 
 #endif

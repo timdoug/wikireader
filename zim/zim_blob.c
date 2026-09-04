@@ -108,7 +108,9 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 				  uint64_t cluster_end,
 				  uint8_t extended,
 				  void *buffer, size_t capacity,
-				  size_t *blob_size)
+				  size_t *blob_size,
+				  ZIM_BLOB_PROGRESS progress,
+				  void *progress_opaque)
 {
 	unsigned char offsets[16];
 	uint64_t offset_size = extended ? 8 : 4;
@@ -135,12 +137,16 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 		return ZIM_ERR_RANGE;
 	*blob_size = (size_t)length;
 	amount = *blob_size < capacity ? *blob_size : capacity;
+	if (progress)
+		progress(progress_opaque, 0, length);
 	if (amount) {
 		rc = read_exact(archive, cluster_start + 1 + start,
 				buffer, amount);
 		if (rc)
 			return rc;
 	}
+	if (progress)
+		progress(progress_opaque, amount, length);
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
@@ -149,7 +155,9 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 			  uint64_t cluster_start, uint64_t cluster_end,
 			  uint8_t extended,
 			  void *buffer, size_t capacity,
-			  size_t *blob_size)
+			  size_t *blob_size,
+			  ZIM_BLOB_PROGRESS progress,
+			  void *progress_opaque)
 {
 	unsigned char *input_buffer = NULL;
 	unsigned char *output_buffer = NULL;
@@ -245,10 +253,16 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 		}
 
 		if (range_known) {
+			uint64_t completed = output_offset + output.pos;
+
 			copy_output_range(buffer, capacity, blob_start, blob_end,
 					  output_offset, output_buffer, output.pos);
+			if (completed > blob_end)
+				completed = blob_end;
+			if (progress)
+				progress(progress_opaque, completed, blob_end);
 			if (blob_start == blob_end ||
-			    output_offset + output.pos >= blob_end) {
+			    completed >= blob_end) {
 				result = capacity < *blob_size ?
 					ZIM_ERR_TRUNCATED : ZIM_OK;
 				goto out;
@@ -267,10 +281,12 @@ out:
 	return result;
 }
 
-int zim_archive_read_blob(const ZIM_ARCHIVE *archive,
-			  const ZIM_DIRENT *source_dirent,
-			  void *buffer, size_t capacity,
-			  size_t *blob_size)
+int zim_archive_read_blob_progress(const ZIM_ARCHIVE *archive,
+				   const ZIM_DIRENT *source_dirent,
+				   void *buffer, size_t capacity,
+				   size_t *blob_size,
+				   ZIM_BLOB_PROGRESS progress,
+				   void *progress_opaque)
 {
 	ZIM_DIRENT dirent;
 	uint64_t cluster_start;
@@ -293,9 +309,20 @@ int zim_archive_read_blob(const ZIM_ARCHIVE *archive,
 	if (compression == 1)
 		return read_uncompressed_blob(archive, &dirent, cluster_start,
 					      cluster_end, extended, buffer,
-					      capacity, blob_size);
+					      capacity, blob_size, progress,
+					      progress_opaque);
 	if (compression == 5)
 		return read_zstd_blob(archive, &dirent, cluster_start, cluster_end,
-				      extended, buffer, capacity, blob_size);
+				      extended, buffer, capacity, blob_size,
+				      progress, progress_opaque);
 	return ZIM_ERR_UNSUPPORTED;
+}
+
+int zim_archive_read_blob(const ZIM_ARCHIVE *archive,
+			  const ZIM_DIRENT *source_dirent,
+			  void *buffer, size_t capacity,
+			  size_t *blob_size)
+{
+	return zim_archive_read_blob_progress(archive, source_dirent, buffer,
+					      capacity, blob_size, NULL, NULL);
 }

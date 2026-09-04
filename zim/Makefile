@@ -20,7 +20,7 @@ vpath %.c ${ROOT_DIR}/wiki ${ROOT_DIR}/zim/zstd
 vpath %.png ${ROOT_DIR}/wiki
 vpath %.xpm ${ROOT_DIR}/wiki
 INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim
-CFLAGS += -DZIM_APP=1 -DNDEBUG
+CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG
 
 SOURCES += zim.c
 SOURCES += Alloc.c
