@@ -122,12 +122,19 @@ first; that decode is the floor set by the archive's cluster size.
 
 | Phase | Time |
 | --- | ---: |
-| Zstandard decode of the cluster prefix | ~2.2 s |
+| Zstandard decode of the cluster prefix | ~2.14 s |
 | HTML to text | ~0.15 s |
-| word wrap and stream height | ~0.18 s |
+| word wrap, including the stream height | ~0.15 s |
 | clear, render, paint first page | ~0.05 s |
 
 Reopening an article from the same cluster skips the decode entirely.
+
+The first photograph in the Wikivoyage `Paris` article decodes in about 1.6 s
+of modeled time, down from 2.4 s: the WebP rescaler's 64-bit fixed-point
+multiplies use the core's `mltu.w` instead of libgcc, VP8 bit reading uses a
+log table instead of a software count-leading-zeros, and the in-loop
+deblocking filter is skipped because one-bit dithering hides its effect. The
+remaining image cost is VP8 coefficient decoding, the rescaler, and dithering.
 `host-tools/zim-reader/make check` verifies the cached, continued, truncated,
 and zero-copy blob paths against an independent whole-cluster decode.
 
