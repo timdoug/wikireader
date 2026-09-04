@@ -14941,6 +14941,26 @@ ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
             dst[i] = src[i];
     }
 }
+
+/* Preserve LZ forward-copy behavior while avoiding Zstd's vector-sized
+ * over-copy.  Eight-byte chunks are safe once source and destination are at
+ * least eight bytes apart; close repeats and the tail advance byte by byte. */
+FORCE_INLINE_TEMPLATE void
+ZSTD_copyMatchC33(BYTE* dst, const BYTE* src, size_t length)
+{
+    if ((size_t)(dst - src) >= 8) {
+        while (length >= 8) {
+            ZSTD_copy8(dst, src);
+            dst += 8;
+            src += 8;
+            length -= 8;
+        }
+    }
+    while (length != 0) {
+        *dst++ = *src++;
+        --length;
+    }
+}
 #endif
 
 #define WILDCOPY_OVERLENGTH 32
@@ -21213,6 +21233,10 @@ size_t ZSTD_execSequence(BYTE* op,
     assert(match >= prefixStart);
     assert(sequence.matchLength >= 1);
 
+#if defined(__c33__)
+    ZSTD_copyMatchC33(op, match, sequence.matchLength);
+    return sequenceLength;
+#else
     /* Nearly all offsets are >= WILDCOPY_VECLEN bytes, which means we can use wildcopy
      * without overlap checking.
      */
@@ -21235,6 +21259,7 @@ size_t ZSTD_execSequence(BYTE* op,
         ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength - 8, ZSTD_overlap_src_before_dst);
     }
     return sequenceLength;
+#endif
 }
 
 HINT_INLINE
@@ -21309,6 +21334,10 @@ size_t ZSTD_execSequenceSplitLitBuffer(BYTE* op,
     assert(match >= prefixStart);
     assert(sequence.matchLength >= 1);
 
+#if defined(__c33__)
+    ZSTD_copyMatchC33(op, match, sequence.matchLength);
+    return sequenceLength;
+#else
     /* Nearly all offsets are >= WILDCOPY_VECLEN bytes, which means we can use wildcopy
      * without overlap checking.
      */
@@ -21331,6 +21360,7 @@ size_t ZSTD_execSequenceSplitLitBuffer(BYTE* op,
         ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength-8, ZSTD_overlap_src_before_dst);
     }
     return sequenceLength;
+#endif
 }
 
 
