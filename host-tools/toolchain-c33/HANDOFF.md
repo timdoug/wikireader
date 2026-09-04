@@ -160,7 +160,11 @@ Grifo boot reaches the ZIM parser at 667.9 modeled ms from exFAT versus 1793.5
 ms from FAT32; the latter reads 1,889 FAT sectors to construct its seek map.
 The 64-bit path also opens a 4.5 GiB exFAT test archive whose live path index
 was relocated to byte 4,300,000,000, proving an actual seek and read above the
-4 GiB boundary. `zim/make-card-image` creates the dual-volume image on macOS.
+4 GiB boundary. Image-rich ZIMs are supported through a portable WebP decoder:
+assets are scaled to the display, alpha-composited on white, Atkinson-dithered,
+and embedded in the original one-bit article stream. A full-FLASH Wikivoyage
+test opened Paris and rendered six images with no watchdog timeout.
+`zim/make-card-image` creates the dual-volume image on macOS.
 
 ### GCC 16 optimization benchmark
 
@@ -238,6 +242,8 @@ These are not GCC/binutils correctness bugs and require separate approval:
 7. Add link-time A0 size assertions, especially for the menu.
 8. Exercise the ZIM reader with a complete full-English archive and replace
    its fixed 512 KiB decoded-article buffer if real articles exceed it.
+9. Decode article images lazily or cache them; six-image Wikivoyage pages are
+   correct but take about 40 modeled seconds to prepare on the C33.
 
 ## Source layout
 

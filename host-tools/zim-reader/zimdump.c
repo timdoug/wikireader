@@ -10,6 +10,7 @@
 #include "zim_archive.h"
 #include "zim_blob.h"
 #include "zim_html.h"
+#include "zim_image.h"
 
 typedef struct {
 	FILE *file;
@@ -32,8 +33,9 @@ static void usage(const char *name)
 		"       %s ARCHIVE title TITLE-PREFIX [COUNT]\n"
 		"       %s ARCHIVE path NAMESPACE PATH\n"
 		"       %s ARCHIVE blob NAMESPACE PATH\n"
-		"       %s ARCHIVE text NAMESPACE PATH\n",
-		name, name, name, name, name);
+		"       %s ARCHIVE text NAMESPACE PATH\n"
+		"       %s ARCHIVE image-info NAMESPACE PATH\n",
+		name, name, name, name, name, name);
 }
 
 static void print_dirent(uint32_t ordinal, const ZIM_DIRENT *dirent)
@@ -122,12 +124,14 @@ int main(int argc, char **argv)
 		}
 		print_dirent(dirent.path_index, &dirent);
 		status = 0;
-	} else if ((!strcmp(argv[2], "blob") || !strcmp(argv[2], "text")) &&
+	} else if ((!strcmp(argv[2], "blob") || !strcmp(argv[2], "text") ||
+		    !strcmp(argv[2], "image-info")) &&
 		   argc == 5 && strlen(argv[3]) == 1) {
 		ZIM_DIRENT dirent;
 		unsigned char *blob;
 		size_t blob_size;
 		int as_text = !strcmp(argv[2], "text");
+		int as_image = !strcmp(argv[2], "image-info");
 		rc = zim_archive_find_path(&archive, argv[3][0], argv[4], &dirent);
 		if (rc && rc != ZIM_ERR_TRUNCATED) {
 			fprintf(stderr, "%c/%s: %s\n", argv[3][0], argv[4],
@@ -153,7 +157,36 @@ int main(int argc, char **argv)
 			free(blob);
 			goto out;
 		}
-		if (as_text) {
+		if (as_image) {
+			unsigned char bitmap[((226 + 7) / 8) * 280];
+			uint8_t width;
+			uint16_t height;
+			size_t bitmap_size;
+			size_t i;
+			size_t black = 0;
+
+			rc = zim_webp_to_bitmap(blob, blob_size, 226, 0, bitmap,
+						 sizeof(bitmap), &width, &height,
+						 &bitmap_size);
+			free(blob);
+			if (rc) {
+				fprintf(stderr, "%c/%s: WebP decode failed\n",
+					argv[3][0], argv[4]);
+				goto out;
+			}
+			for (i = 0; i < bitmap_size; i++) {
+				unsigned char bits = bitmap[i];
+				while (bits) {
+					black += bits & 1;
+					bits >>= 1;
+				}
+			}
+			printf("%u x %u, %zu bytes, %zu black pixels\n",
+			       (unsigned int)width, (unsigned int)height,
+			       bitmap_size, black);
+			status = 0;
+			goto out;
+		} else if (as_text) {
 			unsigned char *plain = malloc(blob_size + 1);
 			size_t plain_size;
 			if (!plain) {

@@ -33,8 +33,9 @@ make TOOLCHAIN_BIN="$PWD/../host-tools/toolchain-c33/work/install/bin" \
     SIMULATE=NO OPT=-O2
 ```
 
-The result is `zim/zim.app`. The included Zstandard decoder accounts for about
-71 KiB of target code.
+The result is `zim/zim.app`. The app includes portable Zstandard and WebP
+decoders because both formats must be decoded by the C33 itself; host libraries
+cannot be linked into target firmware.
 
 This app requires the current `samo-lib/grifo/grifo.elf`. Its FatFs interface
 provides fast seek plus 64-bit file size and seek calls.
@@ -81,6 +82,9 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
   reads
 - HTML text extraction with structural breaks for headings and paragraphs,
   plus lists and linearized tables
+- inline WebP photographs, maps, and drawings, scaled for the display,
+  composited onto white, and Atkinson-dithered into the native one-bit article
+  bitmap format
 - UTF-8/entity handling and font-metric word wrapping into the existing
   WikiReader article stream
 - the original WikiReader top-edge progress bar, driven by actual article
@@ -92,11 +96,22 @@ The repository test archive
 against it in `wremu`; searching for `CAT`, opening `Cat`, and rendering the
 article all succeed.
 
+Image support has also been exercised end to end with
+`wikivoyage_en_all_maxi_2026-06.zim`: the emulator searched for and opened
+Paris, decoded six WebP assets (including lossy and alpha-bearing images), and
+displayed a 226-pixel-wide dithered photograph inline with the article. In the
+detailed hardware timing model this image-heavy article took about 40 seconds
+from selection to display, with the progress bar active throughout.
+
 ## Current limits
 
 - Article links are displayed as text but are not yet clickable.
-- Images, CSS, and JavaScript are omitted; a `nopic` archive is the appropriate
-  input for the current renderer.
+- CSS and JavaScript are omitted.
+- Image-rich articles decode at most six useful images. Images requested below
+  80 by 40 pixels, unsupported image formats, and compressed image blobs larger
+  than the 512 KiB work buffer are skipped. Current Kiwix archives commonly
+  store assets named `.jpg` or `.png` as WebP internally; the decoder detects
+  the content rather than relying on the filename suffix.
 - A decoded HTML article must fit the 512 KiB article input buffer.
 - Legacy LZMA-compressed ZIM clusters are not implemented.
 - Search follows the ZIM title ordering and currently applies only the

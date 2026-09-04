@@ -65,6 +65,108 @@ static void put_newline(TEXT_OUTPUT *out, int paragraph)
 		put_byte(out, '\n');
 }
 
+static void put_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
+		      size_t count)
+{
+	while (count--)
+		put_byte(out, *bytes++);
+}
+
+static int attribute_value(const unsigned char *attributes, size_t length,
+			   const char *wanted,
+			   const unsigned char **value, size_t *value_length)
+{
+	size_t i = 0;
+
+	while (i < length) {
+		size_t name_start;
+		size_t name_end;
+		size_t start;
+		unsigned char quote = 0;
+
+		while (i < length && ascii_space(attributes[i])) i++;
+		name_start = i;
+		while (i < length && !ascii_space(attributes[i]) &&
+		       attributes[i] != '=' && attributes[i] != '>') i++;
+		name_end = i;
+		while (i < length && ascii_space(attributes[i])) i++;
+		if (i >= length || attributes[i] != '=') {
+			while (i < length && !ascii_space(attributes[i])) i++;
+			continue;
+		}
+		i++;
+		while (i < length && ascii_space(attributes[i])) i++;
+		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
+			quote = attributes[i++];
+		start = i;
+		if (quote) {
+			while (i < length && attributes[i] != quote) i++;
+		} else {
+			while (i < length && !ascii_space(attributes[i]) &&
+			       attributes[i] != '>') i++;
+		}
+		if (name_equal(attributes + name_start, name_end - name_start,
+			       wanted)) {
+			*value = attributes + start;
+			*value_length = i - start;
+			return 1;
+		}
+		if (quote && i < length) i++;
+	}
+	return 0;
+}
+
+static unsigned int decimal_attribute(const unsigned char *value,
+				      size_t length)
+{
+	unsigned int result = 0;
+	size_t i;
+
+	if (!length)
+		return 0;
+	for (i = 0; i < length; i++) {
+		if (value[i] < '0' || value[i] > '9' || result > 6553)
+			return 0;
+		result = result * 10 + value[i] - '0';
+	}
+	return result <= 65535 ? result : 0;
+}
+
+static void put_image(TEXT_OUTPUT *out, const unsigned char *attributes,
+		      size_t length)
+{
+	const unsigned char *src;
+	const unsigned char *dimension;
+	size_t src_length;
+	size_t dimension_length;
+	unsigned int width = 0;
+	unsigned int height = 0;
+	unsigned char record[7];
+
+	if (!attribute_value(attributes, length, "src", &src, &src_length) ||
+	    !src_length || src_length > 65535 ||
+	    (src_length >= 5 && !memcmp(src, "data:", 5)))
+		return;
+	if (attribute_value(attributes, length, "width", &dimension,
+			    &dimension_length))
+		width = decimal_attribute(dimension, dimension_length);
+	if (attribute_value(attributes, length, "height", &dimension,
+			    &dimension_length))
+		height = decimal_attribute(dimension, dimension_length);
+
+	put_newline(out, 0);
+	record[0] = ZIM_TEXT_IMAGE_MARKER;
+	record[1] = (unsigned char)width;
+	record[2] = (unsigned char)(width >> 8);
+	record[3] = (unsigned char)height;
+	record[4] = (unsigned char)(height >> 8);
+	record[5] = (unsigned char)src_length;
+	record[6] = (unsigned char)(src_length >> 8);
+	put_bytes(out, record, sizeof(record));
+	put_bytes(out, src, src_length);
+	put_newline(out, 0);
+}
+
 static size_t encode_utf8(uint32_t value, unsigned char bytes[4])
 {
 	if (value <= 0x7f) {
@@ -150,9 +252,9 @@ static int block_tag(const unsigned char *name, size_t length)
 		 name[1] >= '1' && name[1] <= '6');
 }
 
-int zim_html_to_text(const unsigned char *html, size_t html_size,
-		     unsigned char *text, size_t capacity,
-		     size_t *text_size)
+static int html_to_text(const unsigned char *html, size_t html_size,
+			unsigned char *text, size_t capacity,
+			size_t *text_size, int include_images)
 {
 	TEXT_OUTPUT out;
 	size_t i = 0;
@@ -172,6 +274,8 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 		if (html[i] == '<') {
 			size_t tag_start;
 			size_t tag_end;
+			size_t attributes_start;
+			size_t attributes_end;
 			int closing = 0;
 
 			if (i + 3 < html_size && !memcmp(html + i, "<!--", 4)) {
@@ -196,7 +300,9 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 				(html[i] >= '0' && html[i] <= '9')))
 				i++;
 			tag_end = i;
+			attributes_start = i;
 			while (i < html_size && html[i] != '>') i++;
+			attributes_end = i;
 			if (i < html_size) i++;
 			if (tag_start == tag_end)
 				continue;
@@ -224,7 +330,11 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 			}
 			if (suppress)
 				continue;
-			if (!closing && name_equal(html + tag_start, tag_end - tag_start, "li")) {
+			if (include_images && !closing &&
+			    name_equal(html + tag_start, tag_end - tag_start, "img")) {
+				put_image(&out, html + attributes_start,
+					  attributes_end - attributes_start);
+			} else if (!closing && name_equal(html + tag_start, tag_end - tag_start, "li")) {
 				put_newline(&out, 0);
 				put_byte(&out, '*');
 				put_byte(&out, ' ');
@@ -287,4 +397,18 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 		text[terminator] = '\0';
 	}
 	return out.used + 1 > capacity ? ZIM_ERR_TRUNCATED : ZIM_OK;
+}
+
+int zim_html_to_text(const unsigned char *html, size_t html_size,
+		     unsigned char *text, size_t capacity,
+		     size_t *text_size)
+{
+	return html_to_text(html, html_size, text, capacity, text_size, 0);
+}
+
+int zim_html_to_text_images(const unsigned char *html, size_t html_size,
+			    unsigned char *text, size_t capacity,
+			    size_t *text_size)
+{
+	return html_to_text(html, html_size, text, capacity, text_size, 1);
 }

@@ -100,6 +100,7 @@ void *malloc(size_t size);
 void *calloc(size_t nmemb, size_t size);
 void free(void *p);
 void *bsearch(const void *, const void *, size_t, size_t, register int (*compar)(const void *, const void *));
+void qsort(void *, size_t, size_t, int (*compar)(const void *, const void *));
 
 void abort(void);
 

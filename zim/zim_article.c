@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "lcd_buf_draw.h"
+#include "zim_html.h"
 
 #define ARTICLE_TEXT_WIDTH (LCD_BUF_WIDTH_PIXELS - LCD_LEFT_MARGIN * 2)
 
@@ -67,9 +68,10 @@ static int word_width(int font, const unsigned char *word, size_t length)
 	return width;
 }
 
-int zim_text_to_article(const unsigned char *text, size_t text_size,
-			unsigned char *article, size_t capacity,
-			size_t *article_size)
+int zim_text_to_article_images(const unsigned char *text, size_t text_size,
+			       unsigned char *article, size_t capacity,
+			       size_t *article_size,
+			       ZIM_ARTICLE_IMAGE image, void *image_opaque)
 {
 	ARTICLE_HEADER header;
 	size_t input = 0;
@@ -93,6 +95,53 @@ int zim_text_to_article(const unsigned char *text, size_t text_size,
 		size_t word_length;
 		int width;
 		int space_width = 0;
+
+		if (text[input] == ZIM_TEXT_IMAGE_MARKER) {
+			unsigned int requested_width;
+			unsigned int requested_height;
+			size_t path_length;
+			size_t record_length;
+
+			if (text_size - input < 7)
+				return -1;
+			requested_width = text[input + 1] |
+				(unsigned int)text[input + 2] << 8;
+			requested_height = text[input + 3] |
+				(unsigned int)text[input + 4] << 8;
+			path_length = text[input + 5] |
+				(size_t)text[input + 6] << 8;
+			record_length = 7 + path_length;
+			if (record_length > text_size - input)
+				return -1;
+			if (image && capacity - used >= 4) {
+				uint8_t image_width;
+				uint16_t image_height;
+				size_t bitmap_size;
+
+				if (x && emit_newline(article, capacity, &used,
+						      font, 0))
+					return -1;
+				x = 0;
+				if (!image(image_opaque, text + input + 7,
+					   path_length, requested_width,
+					   requested_height, article + used + 4,
+					   capacity - used - 4, &image_width,
+					   &image_height, &bitmap_size)) {
+					if (bitmap_size > capacity - used - 4)
+						return -1;
+					article[used++] = ESC_14_BITMAP;
+					article[used++] = image_width;
+					article[used++] = (unsigned char)image_height;
+					article[used++] = (unsigned char)(image_height >> 8);
+					used += bitmap_size;
+					if (emit_newline(article, capacity, &used,
+							 font, 0))
+						return -1;
+				}
+			}
+			input += record_length;
+			continue;
+		}
 
 		if (text[input] == '\n') {
 			input++;
@@ -152,4 +201,12 @@ int zim_text_to_article(const unsigned char *text, size_t text_size,
 		return -1;
 	*article_size = used;
 	return 0;
+}
+
+int zim_text_to_article(const unsigned char *text, size_t text_size,
+			unsigned char *article, size_t capacity,
+			size_t *article_size)
+{
+	return zim_text_to_article_images(text, text_size, article, capacity,
+					  article_size, NULL, NULL);
 }

@@ -1,0 +1,14 @@
+Portable libwebp decoder for the WikiReader
+============================================
+
+This directory contains the decoder-only subset of libwebp 1.6.0 from
+https://chromium.googlesource.com/webm/libwebp at tag v1.6.0, commit
+`4fa21912338357f89e4fd51cf2368325b59e9bd9`.
+
+Only the generic C decoder, its utility code, and public headers are retained.
+The encoder, mux/demux libraries, examples, tests, platform SIMD paths, and
+threaded decoding are not part of the firmware build. `src/webp/config.h` is a
+small freestanding configuration for this subset.
+
+The upstream copyright and license are in COPYING. PATENTS contains the
+upstream patent grant.

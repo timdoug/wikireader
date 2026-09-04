@@ -17,10 +17,13 @@ ICON = YES
 SIMULATE = NO
 
 vpath %.c ${ROOT_DIR}/wiki ${ROOT_DIR}/zim/zstd
+vpath %.c ${ROOT_DIR}/zim/webp/src/dec
+vpath %.c ${ROOT_DIR}/zim/webp/src/dsp
+vpath %.c ${ROOT_DIR}/zim/webp/src/utils
 vpath %.png ${ROOT_DIR}/wiki
 vpath %.xpm ${ROOT_DIR}/wiki
-INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim
-CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG
+INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim -I${ROOT_DIR}/zim/webp
+CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG -DHAVE_CONFIG_H
 
 SOURCES += zim.c
 SOURCES += Alloc.c
@@ -45,7 +48,39 @@ SOURCES += zim_article.c
 SOURCES += zim_blob.c
 SOURCES += zim_file.c
 SOURCES += zim_html.c
+SOURCES += zim_image.c
 SOURCES += zstddeclib.c
+
+# Portable libwebp decoder only: no encoder, SIMD, threads, mux, or demux.
+SOURCES += alpha_dec.c
+SOURCES += buffer_dec.c
+SOURCES += frame_dec.c
+SOURCES += idec_dec.c
+SOURCES += io_dec.c
+SOURCES += quant_dec.c
+SOURCES += tree_dec.c
+SOURCES += vp8_dec.c
+SOURCES += vp8l_dec.c
+SOURCES += webp_dec.c
+SOURCES += alpha_processing.c
+SOURCES += cpu.c
+SOURCES += dec.c
+SOURCES += dec_clip_tables.c
+SOURCES += filters.c
+SOURCES += lossless.c
+SOURCES += rescaler.c
+SOURCES += upsampling.c
+SOURCES += yuv.c
+SOURCES += bit_reader_utils.c
+SOURCES += color_cache_utils.c
+SOURCES += filters_utils.c
+SOURCES += huffman_utils.c
+SOURCES += palette.c
+SOURCES += quant_levels_dec_utils.c
+SOURCES += random_utils.c
+SOURCES += rescaler_utils.c
+SOURCES += thread_utils.c
+SOURCES += utils.c
 
 IMAGES += keyboard_123.png
 IMAGES += keyboard_abc2_jp.png

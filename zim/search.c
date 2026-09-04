@@ -22,8 +22,13 @@
 #include "zim_blob.h"
 #include "zim_file.h"
 #include "zim_html.h"
+#include "zim_image.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
+#define ZIM_MAX_ARTICLE_IMAGES 6
+#define ZIM_MAX_IMAGE_ATTEMPTS 8
+#define ZIM_MIN_IMAGE_WIDTH 80
+#define ZIM_MIN_IMAGE_HEIGHT 40
 #define ARTICLE_PROGRESS_LIMIT 100
 #define ARTICLE_PROGRESS_BLOB_START 10
 #define ARTICLE_PROGRESS_BLOB_END 75
@@ -44,6 +49,8 @@ static int search_length;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
 static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
+static unsigned int image_attempts;
+static unsigned int images_rendered;
 
 static void article_blob_progress(void *opaque, uint64_t completed,
 				  uint64_t total)
@@ -60,6 +67,69 @@ static void article_blob_progress(void *opaque, uint64_t completed,
 		}
 	}
 	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
+}
+
+static int article_image(void *opaque, const unsigned char *source_path,
+			 size_t source_path_length,
+			 unsigned int requested_width,
+			 unsigned int requested_height,
+			 unsigned char *bitmap, size_t capacity,
+			 uint8_t *width, uint16_t *height,
+			 size_t *bitmap_size)
+{
+	char path[ZIM_DIRENT_TEXT_MAX];
+	const unsigned char *start = source_path;
+	size_t length = source_path_length;
+	ZIM_DIRENT dirent;
+	size_t webp_size;
+	int rc;
+	(void)opaque;
+
+	/* Tiny flags and UI glyphs dominate Wikivoyage pages but are not useful
+	 * on this display. Keep the scarce decode time and article bytes for
+	 * photographs, maps, and diagrams. */
+	if ((requested_width && requested_width < ZIM_MIN_IMAGE_WIDTH) ||
+	    (requested_height && requested_height < ZIM_MIN_IMAGE_HEIGHT) ||
+	    image_attempts >= ZIM_MAX_IMAGE_ATTEMPTS ||
+	    images_rendered >= ZIM_MAX_ARTICLE_IMAGES)
+		return -1;
+	image_attempts++;
+	draw_progress_bar(85 + (int)(image_attempts * 13 /
+					 ZIM_MAX_IMAGE_ATTEMPTS), ARTICLE_PROGRESS_LIMIT);
+	while (length >= 2 && start[0] == '.' && start[1] == '/') {
+		start += 2;
+		length -= 2;
+	}
+	while (length && *start == '/') {
+		start++;
+		length--;
+	}
+	if (!length || length >= sizeof(path))
+		return -1;
+	memcpy(path, start, length);
+	path[length] = '\0';
+	{
+		size_t i;
+		for (i = 0; path[i]; i++) {
+			if (path[i] == '?' || path[i] == '#') {
+				path[i] = '\0';
+				break;
+			}
+		}
+	}
+	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
+	if (rc && rc != ZIM_ERR_TRUNCATED)
+		return -1;
+	rc = zim_archive_read_blob(&archive, &dirent, raw_buffer,
+				   ZIM_RAW_BUFFER_SIZE, &webp_size);
+	if (rc)
+		return -1;
+	if (zim_webp_to_bitmap(raw_buffer, webp_size, requested_width,
+			       requested_height, bitmap, capacity, width, height,
+			       bitmap_size))
+		return -1;
+	images_rendered++;
+	return 0;
 }
 
 bool search_string_changed;
@@ -466,13 +536,16 @@ int retrieve_article(long encoded_index)
 	if (rc)
 		goto error;
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
-	rc = zim_html_to_text(raw_buffer, raw_size, text_buffer,
-			      FILE_BUFFER_SIZE, &text_size);
+	rc = zim_html_to_text_images(raw_buffer, raw_size, text_buffer,
+				     FILE_BUFFER_SIZE, &text_size);
 	if (rc)
 		goto error;
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
-	if (zim_text_to_article(text_buffer, text_size, file_buffer,
-				FILE_BUFFER_SIZE, &article_size))
+	image_attempts = 0;
+	images_rendered = 0;
+	if (zim_text_to_article_images(text_buffer, text_size, file_buffer,
+				       FILE_BUFFER_SIZE, &article_size,
+				       article_image, NULL))
 		goto error;
 	(void)article_size;
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
