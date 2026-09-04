@@ -41,7 +41,8 @@
  * sizeof(word) MUST BE A POWER OF TWO
  * SO THAT wmask BELOW IS ALL ONES
  */
-typedef	int word;		/* "word" used for optimal copy speed */
+typedef	unsigned int word;	/* "word" used for optimal copy speed */
+typedef	unsigned long uptr;	/* pointer bits for alignment arithmetic */
 
 #define	wsize	sizeof(word)
 #define	wmask	(wsize - 1)
@@ -50,6 +51,13 @@ typedef	int word;		/* "word" used for optimal copy speed */
  * Copy a block of memory, handling overlap.
  * This is the routine that actually implements
  * (the portable versions of) bcopy, memcpy, and memmove.
+ *
+ * The C33 traps every unaligned word access, so the original byte loop for
+ * operands with differing alignment cost about five instructions per byte.
+ * Forward copies of that kind now align the destination and assemble each
+ * destination word from two aligned source words instead.  The aligned
+ * source reads may touch up to three bytes on either side of the requested
+ * range, but never outside the aligned words that contain requested bytes.
  */
 #ifdef MEMCOPY
 void *
@@ -80,19 +88,46 @@ register size_t length;
 #define	TLOOP(s) if (t) TLOOP1(s)
 #define	TLOOP1(s) do { s; } while (--t)
 
-    if ((unsigned int)dst < (unsigned int)src)
+    if ((uptr)dst < (uptr)src)
     {
         /*
          * Copy forward.
          */
-        t = (int)src;	/* only need low bits */
-        if ((t | (int)dst) & wmask)
+        t = (uptr)src;	/* only need low bits */
+        if ((t | (uptr)dst) & wmask)
         {
+            if (((t ^ (uptr)dst) & wmask) && length >= 2 * wsize + wmask)
+            {
+                /*
+                 * Alignments differ.  Align the destination, then
+                 * shift pairs of aligned source words into place.
+                 */
+                unsigned int shift;
+                const word *wp;
+                word cur;
+
+                t = (0 - (uptr)dst) & wmask;
+                length -= t;
+                TLOOP(*dst++ = *src++);
+                shift = ((uptr)src & wmask) * 8;
+                wp = (const word *)((uptr)src & ~(uptr)wmask);
+                cur = *wp++;
+                t = length / wsize;
+                src += t * wsize;
+                TLOOP1(word next = *wp++;
+                       *(word *)dst = (cur >> shift) |
+                                      (next << (8 * wsize - shift));
+                       cur = next;
+                       dst += wsize);
+                t = length & wmask;
+                TLOOP(*dst++ = *src++);
+                goto done;
+            }
             /*
              * Try to align operands.  This cannot be done
              * unless the low bits match.
              */
-            if ((t ^ (int)dst) & wmask || length < wsize)
+            if ((t ^ (uptr)dst) & wmask || length < wsize)
                 t = length;
             else
                 t = wsize - (t & wmask);
@@ -103,7 +138,7 @@ register size_t length;
          * Copy whole words, then mop up any trailing bytes.
          */
         t = length / wsize;
-        TLOOP(*(word *)dst = *(word *)src; src += wsize; dst += wsize);
+        TLOOP(*(word *)dst = *(const word *)src; src += wsize; dst += wsize);
         t = length & wmask;
         TLOOP(*dst++ = *src++);
     }
@@ -116,10 +151,10 @@ register size_t length;
          */
         src += length;
         dst += length;
-        t = (int)src;
-        if ((t | (int)dst) & wmask)
+        t = (uptr)src;
+        if ((t | (uptr)dst) & wmask)
         {
-            if ((t ^ (int)dst) & wmask || length <= wsize)
+            if ((t ^ (uptr)dst) & wmask || length <= wsize)
                 t = length;
             else
                 t &= wmask;
@@ -127,7 +162,7 @@ register size_t length;
             TLOOP1(*--dst = *--src);
         }
         t = length / wsize;
-        TLOOP(src -= wsize; dst -= wsize; *(word *)dst = *(word *)src);
+        TLOOP(src -= wsize; dst -= wsize; *(word *)dst = *(const word *)src);
         t = length & wmask;
         TLOOP(*--dst = *--src);
     }
