@@ -122,19 +122,34 @@ first; that decode is the floor set by the archive's cluster size.
 
 | Phase | Time |
 | --- | ---: |
-| Zstandard decode of the cluster prefix | ~2.14 s |
+| Zstandard decode of the cluster prefix | ~2.15 s |
 | HTML to text | ~0.15 s |
 | word wrap, including the stream height | ~0.15 s |
 | clear, render, paint first page | ~0.05 s |
 
-Reopening an article from the same cluster skips the decode entirely.
+Reopening an article from the same cluster skips the decode entirely. The
+decoder's byte copies are post-increment assembly loops; on this core a C
+byte loop costs five instructions per byte. Modeled time for the whole load
+moves by about 3% between builds with code layout, because the emulated
+16-byte instruction queue is sensitive to where hot loops fall, so compare
+instruction counts (about 27.6 million for this article) rather than
+milliseconds when judging small changes.
 
-The first photograph in the Wikivoyage `Paris` article decodes in about 1.6 s
+The first photograph in the Wikivoyage `Paris` article decodes in about 1.3 s
 of modeled time, down from 2.4 s: the WebP rescaler's 64-bit fixed-point
 multiplies use the core's `mltu.w` instead of libgcc, VP8 bit reading uses a
-log table instead of a software count-leading-zeros, and the in-loop
-deblocking filter is skipped because one-bit dithering hides its effect. The
-remaining image cost is VP8 coefficient decoding, the rescaler, and dithering.
+log table instead of a software count-leading-zeros and assembles its 24-bit
+window from byte loads, the fixed 8- and 16-byte macroblock copies and fills
+move whole words, the U and V planes are not rescaled because only luma is
+dithered, the in-loop deblocking filter is skipped because one-bit dithering
+hides its effect, and Atkinson error diffusion writes two values per pixel
+instead of seven read-modify-writes. Output is pixel-identical throughout.
+The remaining image cost is VP8 coefficient decoding, luma rescaling,
+dithering, and the inverse transform.
+
+Building with `OPT="-O2 -DZIM_TRACE_HASH"` prints the FNV-1a hash and size of
+each decoded article on the serial console, which the emulator echoes; compare
+it with `zimdump ... blob` output on the host when changing the decoders.
 `host-tools/zim-reader/make check` verifies the cached, continued, truncated,
 and zero-copy blob paths against an independent whole-cluster decode.
 
