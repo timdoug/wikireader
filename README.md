@@ -17,7 +17,9 @@ toolchain.
 
 An experimental [`zim.app`](zim/README.md) storage-backend fork reads standard
 ZIM 6 archives through the kernel's FatFs R0.16 service while retaining the
-original WikiReader interface.
+original WikiReader interface. Its preferred card layout keeps boot files on
+FAT32 and stores the archive on a second exFAT partition, including archives
+larger than 4 GiB.
 
 ## Differences between this and the original wikireader repo
 * This repo includes an updated fork of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) script built specifically for the wikireader. This file is used to dedupe and generate the plaintext XML and makes processing MUCH faster.

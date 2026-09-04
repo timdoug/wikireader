@@ -6,17 +6,24 @@ scrolling UI while reading a standard ZIM 6 archive directly.
 
 ## Card layout
 
-Install `zim.app` as `wiki.app` and place the archive and English UI strings
-at:
+The preferred layout uses an MBR-partitioned card with a small FAT32 first
+partition and an exFAT second partition:
 
 ```text
-zim/wiki.zim
-zim/wiki.nls
+partition 1 (FAT32): normal ROOT_IMAGE files
+                     kernel.elf = current Grifo kernel
+                     wiki.app   = zim.app
+                     zim/wiki.nls
+partition 2 (exFAT): wiki.zim
 ```
 
-`XML-Licenses/en/wiki.nls` is suitable for the second file. These paths fit
-8.3 names because the firmware's small FatFs configuration intentionally
-disables long-filename support.
+The FAT32 boot partition preserves the mask-ROM and loader's existing boot
+contract. The ZIM reader mounts the second partition as FatFs volume `1:` and
+opens `1:/wiki.zim`. exFAT permits archives larger than FAT32's 4 GiB file
+limit and, for a contiguous file, avoids walking a large FAT chain at startup.
+
+For compatibility, a single FAT32 partition with `zim/wiki.zim` still works
+for archives smaller than 4 GiB.
 
 ## Build
 
@@ -26,38 +33,50 @@ make TOOLCHAIN_BIN="$PWD/../host-tools/toolchain-c33/work/install/bin" \
     SIMULATE=NO OPT=-O2
 ```
 
-The result is `zim/zim.app`. The current GCC 16.2 build is 224,056 bytes on
-disk. The included Zstandard decoder accounts for about 71 KiB of target
-code.
+The result is `zim/zim.app`. The included Zstandard decoder accounts for about
+71 KiB of target code.
 
-This app requires the current `samo-lib/grifo/grifo.elf`: syscall 117 exposes
-FatFs fast seek to applications. Install that kernel as `kernel.elf` and
-`zim.app` as `wiki.app` on the same card image.
+This app requires the current `samo-lib/grifo/grifo.elf`. Its FatFs interface
+provides fast seek plus 64-bit file size and seek calls.
+
+## Create a card image
+
+On macOS, after building Grifo and the app:
+
+```sh
+./zim/make-card-image \
+    wikipedia_en-simple_all_nopic_2026-06.zim \
+    /tmp/wikireader-zim-card.dmg
+```
+
+The script refuses to overwrite an existing image and verifies that the
+device it repartitions is the virtual disk image it just attached. It does not
+write to a physical SD card.
 
 ## Emulator
 
-Once a FAT32 card image contains `zim.app` as `wiki.app` and the files from
-the card layout above, run it from the repository root with:
+Run the generated image from the repository root with:
 
 ```sh
 ./emulator/wremu -g -S 3 -R -N 3,1000000 \
     -e samo-lib/mbr/flash.rom -c /tmp/wikireader-zim-card.dmg
 ```
 
-`-N 3,1000000` presses the emulated power switch once. Initial archive setup
-shows `Opening ZIM archive...` while FatFs scans the file's cluster chain once.
-On the current 944 MiB test archive that scan takes about 3.57 seconds of
-modeled guest time and reaches the ZIM parser at 4.79 seconds after reset. The
-archive is contiguous, so its resulting fast-seek map occupies only four
-32-bit words. Emulator wall time depends on the host and timing mode.
+`-N 3,1000000` presses the emulated power switch once. Emulator wall time
+depends on the host and timing mode.
+
+With the current 944 MiB test archive and current firmware, the parser is
+entered after 0.668 seconds of modeled guest time from a direct Grifo boot on
+the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
+1.794 seconds because constructing its seek map reads 1,889 FAT sectors.
 
 ## Implemented
 
 - ZIM 6 header, path index, and `X/listing/titleOrdered/v1` title index
 - prefix search without a generated sidecar index
 - redirects, uncompressed clusters, and Zstandard clusters
-- standard Grifo/FatFs R0.16 file access, including a compact fast-seek map
-  that also handles fragmented files
+- standard Grifo/FatFs R0.16 file access, including exFAT, 64-bit file
+  positions, and compact fast-seek maps for contiguous or fragmented files
 - a four-sector application cache for repeated small, unaligned ZIM index
   reads
 - HTML text extraction with structural breaks for headings and paragraphs,
@@ -76,9 +95,13 @@ article all succeed.
 - Article links are displayed as text but are not yet clickable.
 - Images, CSS, and JavaScript are omitted; a `nopic` archive is the appropriate
   input for the current renderer.
-- The Grifo/FatFs interfaces use 32-bit sizes, so one archive must be smaller
-  than 4 GiB.
 - A decoded HTML article must fit the 512 KiB article input buffer.
 - Legacy LZMA-compressed ZIM clusters are not implemented.
 - Search follows the ZIM title ordering and currently applies only the
   MediaWiki first-letter capitalization rule, not full Unicode case folding.
+
+The 64-bit path has been tested in the emulator with a 4.5 GiB exFAT file and
+with its live ZIM path-index table relocated to byte 4,300,000,000, forcing a
+successful seek and read above 4 GiB. A complete 49 GB English archive has not
+yet been exercised, and unusually large individual articles remain subject to
+the 512 KiB decoded-article limit.
