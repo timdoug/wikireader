@@ -116,13 +116,16 @@ test-gui-dma: wremu images/wrcard.img images/grifo.elf
 		-c images/wrcard.img images/grifo.elf > /tmp/test_gui_dma.log 2>&1
 	grep -q 'init starting' /tmp/test_gui_dma.log
 
-# Exercise the same boot chain used by the live GUI. Besides advancing short
-# SPI deadlines promptly, this verifies that the loader enables the LCD and
-# that SDL presents a non-initial frame.
+# Exercise the same boot chain used by the live GUI. Continue through the
+# loader/kernel handoff and the kernel's first DMA reads: SDRAM descriptor
+# traffic can move MCLK past an SPI deadline, which must not add a GUI poll
+# delay to every byte.
 test-gui-boot: wremu images/wrcard.img ../samo-lib/mbr/flash.rom
-	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 10000000 \
+	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 25000000 \
 		-e ../samo-lib/mbr/flash.rom -c images/wrcard.img \
 		> /tmp/test_gui_boot.log 2>&1
+	grep -q 'Grifo starting' /tmp/test_gui_boot.log
+	grep -q 'init starting' /tmp/test_gui_boot.log
 	grep -Eq -- '--- lcd: [1-9][0-9]* register writes' /tmp/test_gui_boot.log
 	grep -Eq -- '--- display: [0-9]+ update calls, [2-9][0-9]* presents' \
 		/tmp/test_gui_boot.log

@@ -889,11 +889,19 @@ int main(int argc, char **argv)
 			 * headless path does; the next loop completes the byte and lets
 			 * the DMA pipeline schedule the following one.
 			 */
-			if (disp.open && sd.busy && sd.deadline > cpu.clk) {
-				uint64_t skip = sd.deadline - cpu.clk;
-				cpu.cycles += skip;
-				cpu.clk += skip;
-				idle_skipped += skip;
+			if (disp.open && sd.busy) {
+				if (sd.deadline > cpu.clk) {
+					uint64_t skip = sd.deadline - cpu.clk;
+					cpu.cycles += skip;
+					cpu.clk += skip;
+					idle_skipped += skip;
+				}
+				/*
+				 * DMA descriptor writeback can move MCLK beyond the
+				 * next SPI deadline. Poll that already-due byte at the
+				 * top of the loop instead of charging it a 10 ms GUI
+				 * sleep.
+				 */
 				continue;
 			}
 			if (disp.open) {
