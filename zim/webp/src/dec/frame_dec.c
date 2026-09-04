@@ -51,6 +51,27 @@ static void Copy32b(uint8_t* const dst, const uint8_t* const src) {
   memcpy(dst, src, 4);
 }
 
+#if defined(__c33__)
+// The fixed 8- and 16-byte row copies between the macroblock work area and
+// the row caches become a library call each on the C33.  All of these
+// buffers are word aligned in practice, so move whole words and only fall
+// back to memcpy when an address is not.
+typedef uint32_t __attribute__((__may_alias__)) C33Word;
+static WEBP_INLINE void CopyRow(uint8_t* dst, const uint8_t* src, int n) {
+  if ((((uintptr_t)dst | (uintptr_t)src) & 3) == 0) {
+    C33Word* const d = (C33Word*)dst;
+    const C33Word* const s = (const C33Word*)src;
+    int i;
+    for (i = 0; i < n / 4; ++i) d[i] = s[i];
+  } else {
+    memcpy(dst, src, n);
+  }
+}
+#define ROW_COPY(dst, src, n) CopyRow((dst), (src), (n))
+#else
+#define ROW_COPY(dst, src, n) memcpy((dst), (src), (n))
+#endif
+
 static WEBP_INLINE void DoTransform(uint32_t bits, const int16_t* const src,
                                     uint8_t* const dst) {
   switch (bits >> 30) {
@@ -132,9 +153,9 @@ static void ReconstructRow(const VP8Decoder* const dec,
       int n;
 
       if (mb_y > 0) {
-        memcpy(y_dst - BPS, top_yuv[0].y, 16);
-        memcpy(u_dst - BPS, top_yuv[0].u, 8);
-        memcpy(v_dst - BPS, top_yuv[0].v, 8);
+        ROW_COPY(y_dst - BPS, top_yuv[0].y, 16);
+        ROW_COPY(u_dst - BPS, top_yuv[0].u, 8);
+        ROW_COPY(v_dst - BPS, top_yuv[0].v, 8);
       }
 
       // predict and add residuals
@@ -178,9 +199,9 @@ static void ReconstructRow(const VP8Decoder* const dec,
 
       // stash away top samples for next block
       if (mb_y < dec->mb_h - 1) {
-        memcpy(top_yuv[0].y, y_dst + 15 * BPS, 16);
-        memcpy(top_yuv[0].u, u_dst +  7 * BPS,  8);
-        memcpy(top_yuv[0].v, v_dst +  7 * BPS,  8);
+        ROW_COPY(top_yuv[0].y, y_dst + 15 * BPS, 16);
+        ROW_COPY(top_yuv[0].u, u_dst +  7 * BPS,  8);
+        ROW_COPY(top_yuv[0].v, v_dst +  7 * BPS,  8);
       }
     }
     // Transfer reconstructed samples from yuv_b cache to final destination.
@@ -191,11 +212,11 @@ static void ReconstructRow(const VP8Decoder* const dec,
       uint8_t* const u_out = dec->cache_u + mb_x * 8 + uv_offset;
       uint8_t* const v_out = dec->cache_v + mb_x * 8 + uv_offset;
       for (j = 0; j < 16; ++j) {
-        memcpy(y_out + j * dec->cache_y_stride, y_dst + j * BPS, 16);
+        ROW_COPY(y_out + j * dec->cache_y_stride, y_dst + j * BPS, 16);
       }
       for (j = 0; j < 8; ++j) {
-        memcpy(u_out + j * dec->cache_uv_stride, u_dst + j * BPS, 8);
-        memcpy(v_out + j * dec->cache_uv_stride, v_dst + j * BPS, 8);
+        ROW_COPY(u_out + j * dec->cache_uv_stride, u_dst + j * BPS, 8);
+        ROW_COPY(v_out + j * dec->cache_uv_stride, v_dst + j * BPS, 8);
       }
     }
   }

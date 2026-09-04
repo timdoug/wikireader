@@ -201,17 +201,49 @@ static void TM16_C(uint8_t* dst)  { TrueMotion(dst, 16); }
 //------------------------------------------------------------------------------
 // 16x16
 
+#if defined(__c33__)
+// The prediction fills below are fixed 8- and 16-byte memcpy/memset calls on
+// rows of the word-aligned macroblock work area.  Each became a library call
+// on the C33; store whole words instead when the row address allows it.
+typedef uint32_t __attribute__((__may_alias__)) C33Word;
+static WEBP_INLINE void FillRow(uint8_t* dst, int value, int n) {
+  if (((uintptr_t)dst & 3) == 0) {
+    const uint32_t v = (uint32_t)(value & 0xff) * 0x01010101u;
+    C33Word* const d = (C33Word*)dst;
+    int i;
+    for (i = 0; i < n / 4; ++i) d[i] = v;
+  } else {
+    memset(dst, value, n);
+  }
+}
+static WEBP_INLINE void CopyRowDsp(uint8_t* dst, const uint8_t* src, int n) {
+  if ((((uintptr_t)dst | (uintptr_t)src) & 3) == 0) {
+    C33Word* const d = (C33Word*)dst;
+    const C33Word* const s = (const C33Word*)src;
+    int i;
+    for (i = 0; i < n / 4; ++i) d[i] = s[i];
+  } else {
+    memcpy(dst, src, n);
+  }
+}
+#define ROW_FILL(dst, v, n) FillRow((dst), (v), (n))
+#define ROW_COPY(dst, src, n) CopyRowDsp((dst), (src), (n))
+#else
+#define ROW_FILL(dst, v, n) memset((dst), (v), (n))
+#define ROW_COPY(dst, src, n) memcpy((dst), (src), (n))
+#endif
+
 static void VE16_C(uint8_t* dst) {     // vertical
   int j;
   for (j = 0; j < 16; ++j) {
-    memcpy(dst + j * BPS, dst - BPS, 16);
+    ROW_COPY(dst + j * BPS, dst - BPS, 16);
   }
 }
 
 static void HE16_C(uint8_t* dst) {     // horizontal
   int j;
   for (j = 16; j > 0; --j) {
-    memset(dst, dst[-1], 16);
+    ROW_FILL(dst, dst[-1], 16);
     dst += BPS;
   }
 }
@@ -219,7 +251,7 @@ static void HE16_C(uint8_t* dst) {     // horizontal
 static WEBP_INLINE void Put16(int v, uint8_t* dst) {
   int j;
   for (j = 0; j < 16; ++j) {
-    memset(dst + j * BPS, v, 16);
+    ROW_FILL(dst + j * BPS, v, 16);
   }
 }
 
@@ -433,14 +465,14 @@ VP8PredFunc VP8PredLuma4[NUM_BMODES];
 static void VE8uv_C(uint8_t* dst) {    // vertical
   int j;
   for (j = 0; j < 8; ++j) {
-    memcpy(dst + j * BPS, dst - BPS, 8);
+    ROW_COPY(dst + j * BPS, dst - BPS, 8);
   }
 }
 
 static void HE8uv_C(uint8_t* dst) {    // horizontal
   int j;
   for (j = 0; j < 8; ++j) {
-    memset(dst, dst[-1], 8);
+    ROW_FILL(dst, dst[-1], 8);
     dst += BPS;
   }
 }
@@ -449,7 +481,7 @@ static void HE8uv_C(uint8_t* dst) {    // horizontal
 static WEBP_INLINE void Put8x8uv(uint8_t value, uint8_t* dst) {
   int j;
   for (j = 0; j < 8; ++j) {
-    memset(dst + j * BPS, value, 8);
+    ROW_FILL(dst + j * BPS, value, 8);
   }
 }
 

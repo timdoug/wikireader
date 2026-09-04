@@ -78,12 +78,23 @@ void VP8LoadNewBytes(VP8BitReader* WEBP_RESTRICT const br) {
       : [p_buf]"r"(p_buf)
       : "memory", "at"
     );
+#elif defined(__c33__) && (BITS == 24)
+    // No unaligned loads and no byte swap on the C33: the memcpy became a
+    // library call for every refill.  Assemble the big-endian window from
+    // three byte loads instead.
+    const lbit_t in_bits = ((lbit_t)br->buf[0] << 24) |
+                           ((lbit_t)br->buf[1] << 16) |
+                           ((lbit_t)br->buf[2] << 8);
+#define VP8_C33_PRESWAPPED 1
 #else
     lbit_t in_bits;
     memcpy(&in_bits, br->buf, sizeof(in_bits));
 #endif
     br->buf += BITS >> 3;
-#if !defined(WORDS_BIGENDIAN)
+#if defined(VP8_C33_PRESWAPPED)
+#undef VP8_C33_PRESWAPPED
+    bits = in_bits >> (32 - BITS);
+#elif !defined(WORDS_BIGENDIAN)
 #if (BITS > 32)
     bits = BSwap64(in_bits);
     bits >>= 64 - BITS;

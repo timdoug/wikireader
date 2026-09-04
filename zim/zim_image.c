@@ -96,6 +96,28 @@ int zim_image_fit_dimensions(unsigned int source_width,
 	return 0;
 }
 
+/* WebP's Y plane is studio-range BT.601.  The RGB grayscale weights reduce to
+ * this luma expansion, avoiding chroma upsampling and RGB conversion. */
+static unsigned char luma_gray[256];
+static int luma_gray_ready;
+
+static void luma_gray_init(void)
+{
+	unsigned int v;
+
+	if (luma_gray_ready)
+		return;
+	for (v = 0; v < 256; v++) {
+		if (v <= 16)
+			luma_gray[v] = 0;
+		else if (v >= 235)
+			luma_gray[v] = 255;
+		else
+			luma_gray[v] = (unsigned char)(((v - 16) * 149 + 64) >> 7);
+	}
+	luma_gray_ready = 1;
+}
+
 static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 			   unsigned int height, int stride, int rgba,
 			   const unsigned char *alpha, int alpha_stride,
@@ -116,6 +138,7 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 	errors = calloc((size_t)(width + 4) * 3, sizeof(*errors));
 	if (!errors)
 		return -1;
+	luma_gray_init();
 	memset(bitmap, 0, required);
 	row0 = errors;
 	row1 = errors + width + 4;
@@ -124,10 +147,23 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 		const unsigned char *pixel = pixels + (size_t)y * stride;
 		const unsigned char *alpha_pixel = alpha ?
 			alpha + (size_t)y * alpha_stride : NULL;
+		unsigned char *out = bitmap + (size_t)y * row_bytes;
+		unsigned int mask = 0x80;
+		/* Atkinson taps for pixel x: (x+1,y) (x+2,y) (x-1,y+1) (x,y+1)
+		 * (x+1,y+1) (x,y+2), each an eighth of the error.  Instead of
+		 * seven read-modify-writes per pixel, carry the two same-row
+		 * contributions in registers, finalize row1[x] with the last three
+		 * errors in one update, and write row2[x+1] once.  Integer sums
+		 * commute, so the output is identical to the direct form. */
+		const int *in = row0 + 1;
+		int *next = row1;
+		int *after = row2 + 1;
+		int error_1 = 0; /* error of pixel x-1 */
+		int error_2 = 0; /* error of pixel x-2 */
 		unsigned int x;
-		for (x = 0; x < width; x++, pixel += rgba ? 4 : 1) {
-			unsigned int opacity = rgba ? pixel[3] :
-				(alpha_pixel ? alpha_pixel[x] : 255);
+
+		for (x = 0; x < width; x++) {
+			unsigned int opacity;
 			int gray;
 			int value;
 			int quantized;
@@ -136,43 +172,49 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 			if (rgba) {
 				gray = (77 * pixel[0] + 150 * pixel[1] +
 					29 * pixel[2] + 128) >> 8;
+				opacity = pixel[3];
+				pixel += 4;
 			} else {
-				/* WebP's Y plane is studio-range BT.601. The RGB
-				 * grayscale weights reduce to this luma expansion,
-				 * avoiding chroma upsampling and RGB conversion. */
-				if (pixel[0] <= 16)
-					gray = 0;
-				else if (pixel[0] >= 235)
+				gray = luma_gray[*pixel++];
+				opacity = alpha_pixel ? alpha_pixel[x] : 255;
+			}
+			if (opacity != 255) {
+				if (!opacity)
 					gray = 255;
 				else
-					gray = ((pixel[0] - 16) * 149 + 64) >> 7;
+					gray = (gray * (int)opacity +
+						255 * (255 - (int)opacity) + 127) / 255;
 			}
-			if (!opacity)
-				gray = 255;
-			else if (opacity != 255)
-				gray = (gray * (int)opacity +
-					255 * (255 - (int)opacity) + 127) / 255;
-			value = gray + row0[x + 1];
+			value = gray + *in++ + error_1 + error_2;
 			if (value < 0) value = 0;
 			if (value > 255) value = 255;
 			quantized = value < 128 ? 0 : 255;
 			if (!quantized)
-				bitmap[(size_t)y * row_bytes + x / 8] |=
-					(unsigned char)(0x80U >> (x & 7));
+				*out |= (unsigned char)mask;
+			mask >>= 1;
+			if (!mask) {
+				mask = 0x80;
+				out++;
+			}
 			error = (value - quantized) / 8;
-			row0[x + 2] += error;
-			row0[x + 3] += error;
-			row1[x] += error;
-			row1[x + 1] += error;
-			row1[x + 2] += error;
-			row2[x + 1] += error;
+			*next++ += error + error_1 + error_2;
+			*after++ = error;
+			error_2 = error_1;
+			error_1 = error;
 		}
+		/* Contributions that spill past the last pixel, and the row2
+		 * entries the direct form would have left at zero. */
+		next[0] += error_1 + error_2;
+		next[1] += error_1;
+		row2[0] = 0;
+		row2[width + 1] = 0;
+		row2[width + 2] = 0;
+		row2[width + 3] = 0;
 		{
 			int *old = row0;
 			row0 = row1;
 			row1 = row2;
 			row2 = old;
-			memset(row2, 0, (size_t)(width + 4) * sizeof(*row2));
 		}
 		if (!(y & 15)) {
 			keep_alive();
@@ -233,9 +275,12 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	/* Lossy WebP is already YUV. Dither its luma plane directly instead of
 	 * spending target cycles and memory upsampling chroma into RGBA. The
 	 * lossless decoder requires an RGB output mode. */
-	if (state->config.input.format == 1)
+	if (state->config.input.format == 1) {
 		state->config.output.colorspace = state->config.input.has_alpha ?
 			MODE_YUVA : MODE_YUV;
+		/* Only the Y plane (and alpha) is dithered; do not rescale U/V. */
+		state->config.options.luma_only = 1;
+	}
 	state->decoder = WebPIDecode(NULL, 0, &state->config);
 	if (!state->decoder)
 		goto error;

@@ -460,8 +460,11 @@ struct WebPDecoderOptions {
   int dithering_strength;             // dithering strength (0=Off, 100=full)
   int flip;                           // if true, flip output vertically
   int alpha_dithering_strength;       // alpha dithering strength in [0..100]
+  int luma_only;                      // WikiReader: with scaling to a YUV(A)
+                                      // output, leave the U and V planes
+                                      // unwritten and skip their rescaling
 
-  uint32_t pad[5];                    // padding for later use
+  uint32_t pad[4];                    // padding for later use
 };
 
 // Main object storing the configuration for advanced decoding.

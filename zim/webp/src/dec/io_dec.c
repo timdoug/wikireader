@@ -271,8 +271,10 @@ static int EmitRescaledYUV(const VP8Io* const io, WebPDecParams* const p) {
                  io->a, io->width, io->mb_w, mb_h, 0);
   }
   num_lines_out = Rescale(io->y, io->y_stride, mb_h, scaler);
-  Rescale(io->u, io->uv_stride, uv_mb_h, p->scaler_u);
-  Rescale(io->v, io->uv_stride, uv_mb_h, p->scaler_v);
+  if (p->options == NULL || !p->options->luma_only) {
+    Rescale(io->u, io->uv_stride, uv_mb_h, p->scaler_u);
+    Rescale(io->v, io->uv_stride, uv_mb_h, p->scaler_v);
+  }
   return num_lines_out;
 }
 
