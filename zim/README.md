@@ -112,6 +112,11 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
   lookup, cluster decompression, conversion, and wrapping milestones
 - draw-buffer clearing limited to the rows the previous article touched
   instead of the whole 3.8 MiB off-screen buffer
+- a finished-article cache: leaving an article keeps its wrapped stream, with
+  whatever images were decoded into it, plus the text its link and image
+  tables point into. Returning to one of the last four articles through
+  history repaints in about 50 ms instead of decoding, converting, wrapping,
+  and decoding images again; the cache is capped at 2.5 MiB in total
 
 ## Memory budget
 
@@ -135,7 +140,8 @@ to 15 MB, about 14.2 MB, and after opening an article the app holds:
 | fonts: four small fonts resident, three large fonts as 2048-glyph caches | 0.7 MB |
 | per-line render info and everything else | 0.7 MB |
 | **allocated** | **9.3 MB** |
-| free | 4.9 MB |
+| finished-article cache, grows on use | up to 2.5 MB |
+| free | 4.9 MB before the article cache fills |
 
 The three CJK "all" fonts used to be reserved at their full 3.6 MB file size
 each and filled lazily; that alone put the app 3 MB past the end of a 16 MB
@@ -155,8 +161,10 @@ first; that decode is the floor set by the archive's cluster size.
 | word wrap, including the stream height | ~0.15 s |
 | clear, render, paint first page | ~0.05 s |
 
-Reopening an article from the same cluster skips the decode entirely. The
-decoder's byte copies are post-increment assembly loops; on this core a C
+Reopening an article from the same cluster skips the decode entirely, and
+reopening one of the last four articles through history skips everything: the
+revisit measured 8 ms in `retrieve_article` and a fully painted page 53 ms
+after the tap. The decoder's byte copies are post-increment assembly loops; on this core a C
 byte loop costs five instructions per byte. Modeled time for the whole load
 moves by about 3% between builds with code layout, because the emulated
 16-byte instruction queue is sensitive to where hot loops fall, so compare

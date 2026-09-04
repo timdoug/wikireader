@@ -87,6 +87,57 @@ static ZIM_DEFERRED_LINK *deferred_links;
 static size_t deferred_link_count;
 static size_t deferred_link_capacity;
 static char current_article_path[ZIM_DIRENT_TEXT_MAX];
+
+/*
+ * Finished-article cache.  Leaving an article snapshots everything a revisit
+ * needs: the wrapped stream (with whatever images have been decoded into
+ * it), the normalized text the link and image paths point into, both
+ * tables with their pointers turned into offsets, the path, and the height.
+ * Coming back through history then costs a copy instead of a cluster decode,
+ * conversion, wrap, and image decode.
+ */
+#define ARTICLE_CACHE_ENTRIES 4
+#define ARTICLE_CACHE_BYTES (5u << 19) /* 2.5 MiB across all entries */
+
+typedef struct {
+	uint32_t stream_offset;
+	uint32_t path_offset;
+	uint32_t path_length;
+	uint32_t bitmap_size;
+	uint16_t height;
+	uint8_t width;
+} CACHED_IMAGE;
+
+typedef struct {
+	uint32_t path_offset;
+	uint32_t path_length;
+} CACHED_LINK;
+
+typedef struct {
+	uint32_t index;          /* article index as passed to retrieve_article; 0 = empty */
+	unsigned int age;        /* larger is more recent */
+	unsigned char *data;     /* stream, text, images, links */
+	size_t bytes;
+	size_t stream_size;
+	size_t text_size;
+	size_t image_count;
+	size_t image_next;
+	size_t link_count;
+	int height;
+	char path[ZIM_DIRENT_TEXT_MAX];
+} ARTICLE_CACHE_ENTRY;
+
+static ARTICLE_CACHE_ENTRY article_cache[ARTICLE_CACHE_ENTRIES];
+static unsigned int article_cache_clock;
+static size_t article_cache_bytes;
+/* The article currently in file_buffer, if retrieve_article completed it. */
+static int current_article_valid;
+static uint32_t current_article_index;
+static size_t current_article_size;
+static int current_article_height;
+/* display_link_article zeroes file_buffer[0] before asking for the next
+ * article, which is when the outgoing one is snapshotted; keep its header. */
+static ARTICLE_HEADER current_article_header;
 extern int display_first_page;
 extern int finger_touched;
 extern long finger_move_speed;
@@ -405,6 +456,170 @@ extern int restricted_article;
 extern int current_article_wiki_id;
 extern long saved_idx_article;
 
+static size_t align_up(size_t value)
+{
+	return (value + 3) & ~(size_t)3;
+}
+
+static void article_cache_drop(ARTICLE_CACHE_ENTRY *entry)
+{
+	if (!entry->index)
+		return;
+	article_cache_bytes -= entry->bytes;
+	memory_free(entry->data, "zim-articles");
+	memset(entry, 0, sizeof(*entry));
+}
+
+static void article_cache_flush(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARTICLE_CACHE_ENTRIES; i++)
+		article_cache_drop(&article_cache[i]);
+	current_article_valid = 0;
+}
+
+static ARTICLE_CACHE_ENTRY *article_cache_oldest(void)
+{
+	ARTICLE_CACHE_ENTRY *oldest = &article_cache[0];
+	unsigned int i;
+
+	for (i = 1; i < ARTICLE_CACHE_ENTRIES; i++)
+		if (!article_cache[i].index ||
+		    (oldest->index && article_cache[i].age < oldest->age))
+			oldest = &article_cache[i];
+	return oldest;
+}
+
+/* Snapshot the article in file_buffer before another one replaces it. */
+static void article_cache_store_current(void)
+{
+	ARTICLE_CACHE_ENTRY *entry;
+	CACHED_IMAGE *images;
+	CACHED_LINK *links;
+	size_t images_at;
+	size_t links_at;
+	size_t needed;
+	size_t i;
+
+	if (!current_article_valid)
+		return;
+	current_article_valid = 0;
+	images_at = align_up(current_article_size) + align_up(article_text_size);
+	links_at = images_at + deferred_image_count * sizeof(CACHED_IMAGE);
+	needed = links_at + deferred_link_count * sizeof(CACHED_LINK);
+	if (needed > ARTICLE_CACHE_BYTES)
+		return;
+	for (i = 0; i < ARTICLE_CACHE_ENTRIES; i++)
+		if (article_cache[i].index == current_article_index)
+			article_cache_drop(&article_cache[i]);
+	for (;;) {
+		entry = article_cache_oldest();
+		if (!entry->index || article_cache_bytes + needed <= ARTICLE_CACHE_BYTES)
+			break;
+		article_cache_drop(entry);
+	}
+	if (entry->index)
+		article_cache_drop(entry);
+	entry->data = memory_allocate(needed, "zim-articles");
+	if (!entry->data)
+		return;
+	memcpy(entry->data, file_buffer, current_article_size);
+	memcpy(entry->data, &current_article_header, sizeof(current_article_header));
+	memcpy(entry->data + align_up(current_article_size), text_buffer,
+	       article_text_size);
+	images = (CACHED_IMAGE *)(entry->data + images_at);
+	for (i = 0; i < deferred_image_count; i++) {
+		images[i].stream_offset = (uint32_t)(deferred_images[i].stream -
+						     file_buffer);
+		images[i].path_offset = (uint32_t)(deferred_images[i].path -
+						   text_buffer);
+		images[i].path_length = (uint32_t)deferred_images[i].path_length;
+		images[i].bitmap_size = (uint32_t)deferred_images[i].bitmap_size;
+		images[i].height = deferred_images[i].height;
+		images[i].width = deferred_images[i].width;
+	}
+	links = (CACHED_LINK *)(entry->data + links_at);
+	for (i = 0; i < deferred_link_count; i++) {
+		links[i].path_offset = (uint32_t)(deferred_links[i].path -
+						  text_buffer);
+		links[i].path_length = (uint32_t)deferred_links[i].path_length;
+	}
+	entry->index = current_article_index;
+	entry->age = ++article_cache_clock;
+	entry->bytes = needed;
+	entry->stream_size = current_article_size;
+	entry->text_size = article_text_size;
+	entry->image_count = deferred_image_count;
+	entry->image_next = deferred_image_next;
+	entry->link_count = deferred_link_count;
+	entry->height = current_article_height;
+	memcpy(entry->path, current_article_path, sizeof(entry->path));
+	article_cache_bytes += needed;
+}
+
+/* Bring a cached article back into file_buffer; 1 on success. */
+static int article_cache_restore(uint32_t index)
+{
+	ARTICLE_CACHE_ENTRY *entry = NULL;
+	const CACHED_IMAGE *images;
+	const CACHED_LINK *links;
+	size_t i;
+
+	for (i = 0; i < ARTICLE_CACHE_ENTRIES; i++)
+		if (article_cache[i].index == index)
+			entry = &article_cache[i];
+	if (!entry)
+		return 0;
+	deferred_image_count = 0;
+	deferred_image_next = 0;
+	deferred_link_count = 0;
+	/* The grow helpers only enlarge when the table is full. */
+	while (deferred_image_capacity < entry->image_count) {
+		deferred_image_count = deferred_image_capacity;
+		if (grow_deferred_images())
+			return 0;
+	}
+	while (deferred_link_capacity < entry->link_count) {
+		deferred_link_count = deferred_link_capacity;
+		if (grow_deferred_links())
+			return 0;
+	}
+	deferred_image_count = 0;
+	deferred_link_count = 0;
+	memcpy(file_buffer, entry->data, entry->stream_size);
+	memcpy(text_buffer, entry->data + align_up(entry->stream_size),
+	       entry->text_size);
+	images = (const CACHED_IMAGE *)(entry->data +
+		align_up(entry->stream_size) + align_up(entry->text_size));
+	for (i = 0; i < entry->image_count; i++) {
+		deferred_images[i].stream = file_buffer + images[i].stream_offset;
+		deferred_images[i].path = text_buffer + images[i].path_offset;
+		deferred_images[i].path_length = images[i].path_length;
+		deferred_images[i].bitmap_size = images[i].bitmap_size;
+		deferred_images[i].height = images[i].height;
+		deferred_images[i].width = images[i].width;
+	}
+	links = (const CACHED_LINK *)(images + entry->image_count);
+	for (i = 0; i < entry->link_count; i++) {
+		deferred_links[i].path = text_buffer + links[i].path_offset;
+		deferred_links[i].path_length = links[i].path_length;
+	}
+	deferred_image_count = entry->image_count;
+	deferred_image_next = entry->image_next;
+	deferred_link_count = entry->link_count;
+	article_text_size = entry->text_size;
+	memcpy(current_article_path, entry->path, sizeof(current_article_path));
+	set_article_stream_height(entry->height);
+	entry->age = ++article_cache_clock;
+	current_article_valid = 1;
+	current_article_index = index;
+	current_article_size = entry->stream_size;
+	current_article_height = entry->height;
+	memcpy(&current_article_header, file_buffer, sizeof(current_article_header));
+	return 1;
+}
+
 static void print_article_error(void)
 {
 	unsigned char message[80];
@@ -429,6 +644,7 @@ static void open_archive(int wiki_index)
 	if (archive_file.open && archive_wiki == wiki_index)
 		return;
 	zim_blob_cache_reset();
+	article_cache_flush();
 	if (archive_file.open)
 		zim_file_close(&archive_file);
 	if (zim_file_open(&archive_file, "1:/wiki.zim") &&
@@ -791,6 +1007,21 @@ int retrieve_article(long encoded_index)
 		text_buffer = memory_allocate(FILE_BUFFER_SIZE, "zim-text");
 	if (!raw_buffer || !text_buffer)
 		goto error;
+	if (deferred_image_decoder) {
+		zim_image_decoder_destroy(deferred_image_decoder);
+		deferred_image_decoder = NULL;
+	}
+	article_cache_store_current();
+	if (article_cache_restore(index)) {
+#ifdef ZIM_TRACE_HASH
+		debug_printf("article cache hit %lu history y %ld\n",
+			     (unsigned long)index, history_get_y_pos());
+#endif
+		draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
+		restricted_article = 0;
+		current_article_wiki_id = 0;
+		return 0;
+	}
 	draw_progress_bar(5, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
@@ -831,10 +1062,6 @@ int retrieve_article(long encoded_index)
 	if (rc)
 		goto error;
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
-	if (deferred_image_decoder) {
-		zim_image_decoder_destroy(deferred_image_decoder);
-		deferred_image_decoder = NULL;
-	}
 	deferred_image_count = 0;
 	deferred_image_next = 0;
 	deferred_link_count = 0;
@@ -851,7 +1078,14 @@ int retrieve_article(long encoded_index)
 		deferred_images[index].stream += article_header.offset_article -
 			sizeof(article_header);
 	set_article_stream_height(article_height);
+	current_article_valid = 1;
+	current_article_index = (uint32_t)encoded_index & 0x00ffffff;
+	current_article_size = article_size;
+	current_article_height = article_height;
+	current_article_header = article_header;
 #ifdef ZIM_TRACE_HASH
+	debug_printf("article %lu history y %ld\n", (unsigned long)index,
+		     history_get_y_pos());
 	memory_debug("article ready");
 #endif
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
