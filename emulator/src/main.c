@@ -25,6 +25,10 @@
 #include "sdramc.h"
 #include "dma.h"
 
+/* Scripted taps and button presses accepted on the command line. */
+#define NSCRIPT 8
+static unsigned long hold_cycles = 2000000UL;
+
 static void usage(const char *p)
 {
 	fprintf(stderr,
@@ -192,15 +196,18 @@ int main(int argc, char **argv)
 	bool gui = false; int gui_scale = 3;
 	bool profile = false;
 	bool card_readonly = false;
+	if (getenv("WREMU_HOLD_MS"))
+		hold_cycles = strtoul(getenv("WREMU_HOLD_MS"), NULL, 0) * 60000UL;
 	bool pc_profile = false;
-	int tap_x = -1, tap_y = -1; unsigned long tap_at = 0;
-	bool tap_down_done = false, tap_up_done = false;
+	/* Scripted taps and button presses; each -T/-N adds one. */
+	struct script_tap { int x, y; unsigned long at; bool down_done, up_done; };
+	struct script_btn { int code; unsigned long at; bool down_done, up_done; };
+	struct script_tap taps[NSCRIPT]; unsigned ntaps = 0;
+	struct script_btn btns[NSCRIPT]; unsigned nbtns = 0;
 	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
 	const char *eeprom_path = NULL;
-	int btn_code = -1; unsigned long btn_at = 0;
-	bool btn_down_done = false, btn_up_done = false;
-/* How long a scripted press is held before release. */
-#define HOLD_CYCLES  2000000UL
+/* How long a scripted press is held before release; WREMU_HOLD_MS overrides. */
+#define HOLD_CYCLES  hold_cycles
 /* Total span of a scripted drag, from its first packet to its last. */
 #define DRAG_SPAN    (16UL * 300000UL)
 	unsigned long long last_touch_post = 0;
@@ -323,12 +330,18 @@ int main(int argc, char **argv)
 			if (*a == ',') type_text = a + 1;
 		}
 		else if (!strcmp(argv[i], "-T") && i + 1 < argc) {
-			/* scripted tap: -T x,y,cycle */
-			sscanf(argv[++i], "%d,%d,%lu", &tap_x, &tap_y, &tap_at);
+			/* scripted tap: -T x,y,cycle (repeatable) */
+			struct script_tap t = { -1, -1, 0, false, false };
+			sscanf(argv[++i], "%d,%d,%lu", &t.x, &t.y, &t.at);
+			if (t.x >= 0 && ntaps < NSCRIPT)
+				taps[ntaps++] = t;
 		}
 		else if (!strcmp(argv[i], "-N") && i + 1 < argc) {
-			/* scripted button: -N code,cycle  (0 random 1 search 2 history) */
-			sscanf(argv[++i], "%d,%lu", &btn_code, &btn_at);
+			/* scripted button: -N code,cycle  (0 random 1 search 2 history 3 power), repeatable */
+			struct script_btn b = { -1, 0, false, false };
+			sscanf(argv[++i], "%d,%lu", &b.code, &b.at);
+			if (b.code >= 0 && nbtns < NSCRIPT)
+				btns[nbtns++] = b;
 		}
 		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
 			/* scripted drag: -G x,y0,y1,cycle */
@@ -591,10 +604,12 @@ int main(int argc, char **argv)
 			 * how the scripted test passed while a real click did
 			 * nothing at all.
 			 */
-			if (btn_code == BUTTON_POWER_CODE && !btn_down_done &&
-			    cpu.cycles >= btn_at) {
-				btn_down_done = btn_up_done = true;
-				disp.power_presses++;
+			for (unsigned k = 0; k < nbtns; k++) {
+				if (btns[k].code == BUTTON_POWER_CODE &&
+				    !btns[k].down_done && cpu.cycles >= btns[k].at) {
+					btns[k].down_done = btns[k].up_done = true;
+					disp.power_presses++;
+				}
 			}
 
 			if (disp.power_presses != power_presses_seen) {
@@ -675,39 +690,43 @@ int main(int argc, char **argv)
 		 * counter can pause across an idle stretch, and an equality
 		 * test then fires more than once.
 		 */
-		if (script_armed && btn_code >= 0 && !btn_down_done &&
-		    cpu.cycles >= btn_at) {
-			btn_down_done = true;
-			fprintf(stderr, "  [button %d down]\n", btn_code);
-			if (btn_code == BUTTON_POWER_CODE)
-				port_power_button(&port, &cpu, true);
-			else
-				port_button(&port, &cpu, (unsigned)btn_code, true);
-		}
-		if (btn_code >= 0 && btn_down_done && !btn_up_done &&
-		    cpu.cycles >= btn_at + HOLD_CYCLES) {
-			btn_up_done = true;
-			fprintf(stderr, "  [button %d up]\n", btn_code);
-			if (btn_code == BUTTON_POWER_CODE)
-				port_power_button(&port, &cpu, false);
-			else
-				port_button(&port, &cpu, (unsigned)btn_code, false);
+		for (unsigned k = 0; k < nbtns; k++) {
+			struct script_btn *b = &btns[k];
+			if (script_armed && !b->down_done && cpu.cycles >= b->at) {
+				b->down_done = true;
+				fprintf(stderr, "  [button %d down]\n", b->code);
+				if (b->code == BUTTON_POWER_CODE)
+					port_power_button(&port, &cpu, true);
+				else
+					port_button(&port, &cpu, (unsigned)b->code, true);
+			}
+			if (b->down_done && !b->up_done &&
+			    cpu.cycles >= b->at + HOLD_CYCLES) {
+				b->up_done = true;
+				fprintf(stderr, "  [button %d up]\n", b->code);
+				if (b->code == BUTTON_POWER_CODE)
+					port_power_button(&port, &cpu, false);
+				else
+					port_button(&port, &cpu, (unsigned)b->code, false);
+			}
 		}
 
-		/* scripted tap for testing without a window */
-		if (script_armed && tap_x >= 0 && !tap_down_done &&
-		    cpu.cycles >= tap_at) {
-			tap_down_done = true;
-			fprintf(stderr, "  [tap down at %d,%d]\n", tap_x, tap_y);
-			touch_post(&touch, &cpu, tap_x, tap_y, true);
+		/* scripted taps for testing without a window */
+		for (unsigned k = 0; k < ntaps; k++) {
+			struct script_tap *t = &taps[k];
+			if (script_armed && !t->down_done && cpu.cycles >= t->at) {
+				t->down_done = true;
+				fprintf(stderr, "  [tap down at %d,%d]\n", t->x, t->y);
+				touch_post(&touch, &cpu, t->x, t->y, true);
+			}
+			if (t->down_done && !t->up_done &&
+			    cpu.cycles >= t->at + HOLD_CYCLES) {
+				t->up_done = true;
+				fprintf(stderr, "  [tap up]\n");
+				touch_post(&touch, &cpu, t->x, t->y, false);
+			}
 		}
-		if (tap_x >= 0 && tap_down_done && !tap_up_done &&
-		    cpu.cycles >= tap_at + HOLD_CYCLES) {
-			tap_up_done = true;
-			fprintf(stderr, "  [tap up]\n");
-			touch_post(&touch, &cpu, tap_x, tap_y, false);
-		}
-		if (tap_x >= 0 && (cpu.cycles % 100000) == 0)
+		if (ntaps && (cpu.cycles % 100000) == 0)
 			touch_poll(&touch, &cpu);
 
 		if (disp.open && executed >= next_gui_pump) {
@@ -802,9 +821,9 @@ int main(int argc, char **argv)
 			fprintf(stderr, "  [anchor 0x%08x at %llu, script rebased]\n",
 				anchor, (unsigned long long)cpu.cycles);
 			type_at += cpu.cycles;
-			if (tap_x >= 0)  tap_at  += cpu.cycles;
+			for (unsigned k = 0; k < ntaps; k++) taps[k].at += cpu.cycles;
 			if (drag_x >= 0) drag_at += cpu.cycles;
-			if (btn_code >= 0) btn_at += cpu.cycles;
+			for (unsigned k = 0; k < nbtns; k++) btns[k].at += cpu.cycles;
 		}
 
 		for (unsigned k = 0; armed && k < nbp; k++) {
@@ -980,23 +999,27 @@ int main(int argc, char **argv)
 			 * press to the end of the run.
 			 */
 			if (script_armed) {
-			if (tap_x >= 0 && !tap_down_done && tap_at > cpu.cycles &&
-			    tap_at < next)
-				next = tap_at;
-			if (tap_x >= 0 && tap_down_done && !tap_up_done &&
-			    tap_at + HOLD_CYCLES > cpu.cycles &&
-			    tap_at + HOLD_CYCLES < next)
-				next = tap_at + HOLD_CYCLES;
+			for (unsigned k = 0; k < ntaps; k++) {
+				const struct script_tap *t = &taps[k];
+				if (!t->down_done && t->at > cpu.cycles && t->at < next)
+					next = t->at;
+				if (t->down_done && !t->up_done &&
+				    t->at + HOLD_CYCLES > cpu.cycles &&
+				    t->at + HOLD_CYCLES < next)
+					next = t->at + HOLD_CYCLES;
+			}
 			if (drag_x >= 0 && drag_at + DRAG_SPAN > cpu.cycles &&
 			    drag_at < next)
 				next = drag_at > cpu.cycles ? drag_at : cpu.cycles + 1;
-			if (btn_code >= 0 && !btn_down_done && btn_at > cpu.cycles &&
-			    btn_at < next)
-				next = btn_at;
-			if (btn_code >= 0 && btn_down_done && !btn_up_done &&
-			    btn_at + HOLD_CYCLES > cpu.cycles &&
-			    btn_at + HOLD_CYCLES < next)
-				next = btn_at + HOLD_CYCLES;
+			for (unsigned k = 0; k < nbtns; k++) {
+				const struct script_btn *b = &btns[k];
+				if (!b->down_done && b->at > cpu.cycles && b->at < next)
+					next = b->at;
+				if (b->down_done && !b->up_done &&
+				    b->at + HOLD_CYCLES > cpu.cycles &&
+				    b->at + HOLD_CYCLES < next)
+					next = b->at + HOLD_CYCLES;
+			}
 			}
 			if (next > cpu.cycles) {
 				uint64_t skip = next - cpu.cycles;

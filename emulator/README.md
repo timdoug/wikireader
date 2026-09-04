@@ -89,9 +89,9 @@ data.
 | `-n N` | Stop after `N` target cycles/instructions; the GUI defaults to unlimited. |
 | `-s` | Trace grifo syscalls with call sites and return values. |
 | `-K cycle,TEXT` | Type text on the on-screen keyboard. |
-| `-T x,y,cycle` | Tap a pixel. |
+| `-T x,y,cycle` | Tap a pixel; repeatable, up to eight. |
 | `-G x,y0,y1,cycle` | Drag vertically. |
-| `-N code,cycle` | Press random/search/history/power (`0`-`3`). |
+| `-N code,cycle` | Press random/search/history/power (`0`-`3`); repeatable, up to eight. |
 | `-b ADDR`, `-W ADDR` | Break on execution or a write. |
 | `-D ADDR -L N -O FILE` | Dump target memory. |
 | `-m` | Trace unclaimed MMIO accesses. |
@@ -103,7 +103,8 @@ data.
 | `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
 
 `WREMU_SUSPEND_DIV=N` shortens the firmware's 120-second suspend interval
-for testing without modifying the guest.
+for testing without modifying the guest. `WREMU_HOLD_MS=N` changes how long
+scripted taps and presses are held before release (default 33 ms).
 
 ### Benchmarking
 
