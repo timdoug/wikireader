@@ -827,7 +827,7 @@ int retrieve_article(long encoded_index)
 	if (zim_text_to_article_images_links(text_buffer, text_size, file_buffer,
 					     FILE_BUFFER_SIZE, &article_size,
 					     article_image, NULL,
-					     article_link, NULL))
+					     article_link, NULL, &article_height))
 		goto error;
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))
@@ -835,9 +835,6 @@ int retrieve_article(long encoded_index)
 	for (index = 0; index < deferred_image_count; index++)
 		deferred_images[index].stream += article_header.offset_article -
 			sizeof(article_header);
-	article_height = zim_article_stream_height(file_buffer, article_size);
-	if (article_height < 0)
-		goto error;
 	set_article_stream_height(article_height);
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 	restricted_article = 0;

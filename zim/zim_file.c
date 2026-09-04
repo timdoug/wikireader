@@ -66,25 +66,20 @@ int zim_file_open(ZIM_FILE *file, const char *path)
 static int read_cached_page(ZIM_FILE *file, uint32_t page,
 			    const unsigned char **data)
 {
-	unsigned int i;
-	unsigned int slot;
+	unsigned int slot = page % ZIM_FILE_CACHE_PAGES;
 	uint64_t offset = (uint64_t)page * ZIM_FILE_PAGE_SIZE;
 	size_t length = ZIM_FILE_PAGE_SIZE;
 
-	for (i = 0; i < ZIM_FILE_CACHE_PAGES; i++) {
-		if (file->cache_valid[i] && file->cached_page[i] == page) {
-			*data = file->cache[i];
-			return 0;
-		}
+	if (file->cache_valid[slot] && file->cached_page[slot] == page) {
+		*data = file->cache[slot];
+		return 0;
 	}
 	if (length > file->size - offset)
 		length = file->size - offset;
-	slot = file->next_cache;
 	if (read_exact(file, offset, file->cache[slot], length))
 		return -1;
 	file->cached_page[slot] = page;
 	file->cache_valid[slot] = 1;
-	file->next_cache = (unsigned char)((slot + 1) % ZIM_FILE_CACHE_PAGES);
 	*data = file->cache[slot];
 	return 0;
 }

@@ -25,6 +25,8 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 			       size_t *article_size,
 			       ZIM_ARTICLE_IMAGE image, void *image_opaque);
 
+/* stream_height, when non-NULL, receives the same value
+ * zim_article_stream_height() would compute for the produced stream. */
 int zim_text_to_article_images_links(const unsigned char *text,
 				     size_t text_size,
 				     unsigned char *article, size_t capacity,
@@ -32,7 +34,8 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				     ZIM_ARTICLE_IMAGE image,
 				     void *image_opaque,
 				     ZIM_ARTICLE_LINK link,
-				     void *link_opaque);
+				     void *link_opaque,
+				     int *stream_height);
 
 int zim_article_stream_height(const unsigned char *article,
 			      size_t article_size);

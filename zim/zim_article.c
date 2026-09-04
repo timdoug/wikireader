@@ -35,7 +35,16 @@ static int append_bytes(unsigned char *output, size_t capacity, size_t *used,
 	return 0;
 }
 
-/* Bytes that end a word: space, newline, and the three record markers. */
+/* Bytes that end a word: space, newline, and the three record markers.  The
+ * class value also tells the main loop which record follows. */
+enum {
+	CLASS_WORD = 0,
+	CLASS_SPACE,
+	CLASS_NEWLINE,
+	CLASS_LINK_START,
+	CLASS_LINK_END,
+	CLASS_IMAGE
+};
 static unsigned char word_break[256];
 static int word_break_ready;
 
@@ -43,11 +52,11 @@ static void word_break_init(void)
 {
 	if (word_break_ready)
 		return;
-	word_break[' '] = 1;
-	word_break['\n'] = 1;
-	word_break[ZIM_TEXT_LINK_START_MARKER] = 1;
-	word_break[ZIM_TEXT_LINK_END_MARKER] = 1;
-	word_break[ZIM_TEXT_IMAGE_MARKER] = 1;
+	word_break[' '] = CLASS_SPACE;
+	word_break['\n'] = CLASS_NEWLINE;
+	word_break[ZIM_TEXT_LINK_START_MARKER] = CLASS_LINK_START;
+	word_break[ZIM_TEXT_LINK_END_MARKER] = CLASS_LINK_END;
+	word_break[ZIM_TEXT_IMAGE_MARKER] = CLASS_IMAGE;
 	word_break_ready = 1;
 }
 
@@ -87,24 +96,45 @@ static const signed char *ascii_widths(int font)
 	return widths;
 }
 
+/* Mirror of the renderer's vertical bookkeeping, advanced as the stream is
+ * emitted so the article height is known without a second pass over it.
+ * Must stay identical to measure_newline() below. */
+typedef struct {
+	int y;
+	int line_height;
+	int actual_height;
+} HEIGHT_TRACK;
+
+static void track_newline(HEIGHT_TRACK *track, int new_line_height)
+{
+	track->y += track->actual_height;
+	if (new_line_height >= 0)
+		track->line_height = new_line_height;
+	track->actual_height = track->line_height;
+	if (track->y + track->line_height >= LCD_BUF_HEIGHT_PIXELS)
+		track->y = LCD_BUF_HEIGHT_PIXELS - track->line_height - 1;
+}
+
 static int emit_newline(unsigned char *output, size_t capacity, size_t *used,
-			int font, int explicit_font)
+			int font, int explicit_font, HEIGHT_TRACK *track)
 {
 	int line_space = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
 	if (line_space > 31)
 		line_space = 31;
 	if (explicit_font) {
+		track_newline(track, line_space);
 		return append_byte(output, capacity, used,
 				   ESC_3_NEW_LINE_WITH_FONT) ||
 			append_byte(output, capacity, used,
 				    (unsigned char)((line_space << 3) | font));
 	}
+	track_newline(track, -1);
 	return append_byte(output, capacity, used, ESC_2_NEW_LINE_SAME_FONT);
 }
 
-static int word_width(int font, const unsigned char *word, size_t length)
+static int word_width(int font, const signed char *ascii,
+		      const unsigned char *word, size_t length)
 {
-	const signed char *ascii = ascii_widths(font);
 	const unsigned char *p = word;
 	const unsigned char *end = word + length;
 	int width = 0;
@@ -165,10 +195,13 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				     ZIM_ARTICLE_IMAGE image,
 				     void *image_opaque,
 				     ZIM_ARTICLE_LINK link,
-				     void *link_opaque)
+				     void *link_opaque,
+				     int *stream_height)
 {
 	ARTICLE_HEADER header;
 	ARTICLE_LINK *links;
+	HEIGHT_TRACK track = { 0, 0, 0 };
+	const signed char *ascii;
 	size_t input = 0;
 	size_t used = sizeof(header);
 	size_t link_count = 0;
@@ -182,6 +215,13 @@ int zim_text_to_article_images_links(const unsigned char *text,
 	int segment_x = -1;
 	int rc;
 
+/* A link segment is only open while segment_x >= 0, so the common case
+ * skips the call entirely. */
+#define FINISH_LINK_SEGMENT() \
+	(segment_x >= 0 && finish_link_segment(article, capacity, &used, links, \
+					       &link_count, link_id, &segment_x, \
+					       x, y, line_height))
+
 	if (!text || !article || !article_size || capacity <= sizeof(header))
 		return -1;
 	word_break_init();
@@ -191,26 +231,27 @@ int zim_text_to_article_images_links(const unsigned char *text,
 	memset(&header, 0, sizeof(header));
 	header.offset_article = sizeof(header);
 	memcpy(article, &header, sizeof(header));
-	rc = emit_newline(article, capacity, &used, font, 1);
+	rc = emit_newline(article, capacity, &used, font, 1, &track);
 	if (rc)
 		goto error;
 	line_height = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
 	actual_height = line_height;
+	ascii = ascii_widths(font);
 
 	while (input < text_size) {
+		const unsigned char *scan;
+		const unsigned char *limit;
 		size_t word_start;
 		size_t word_length;
 		int width;
 		int space_width = 0;
 		int had_space = 0;
+		unsigned char class = word_break[text[input]];
 
-		if (text[input] == ZIM_TEXT_LINK_START_MARKER) {
+		if (class == CLASS_LINK_START) {
 			size_t path_length;
 
-			if (finish_link_segment(article, capacity, &used, links,
-						&link_count, link_id, &segment_x,
-						x, y, line_height) ||
-			    text_size - input < 3)
+			if (FINISH_LINK_SEGMENT() || text_size - input < 3)
 				goto error;
 			path_length = text[input + 1] |
 				(size_t)text[input + 2] << 8;
@@ -221,24 +262,22 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			input += 3 + path_length;
 			continue;
 		}
-		if (text[input] == ZIM_TEXT_LINK_END_MARKER) {
-			if (finish_link_segment(article, capacity, &used, links,
-						&link_count, link_id, &segment_x,
-						x, y, line_height))
+		if (class == CLASS_LINK_END) {
+			if (FINISH_LINK_SEGMENT())
 				goto error;
 			link_id = 0;
 			input++;
 			continue;
 		}
 
-		if (text[input] == ZIM_TEXT_IMAGE_MARKER) {
+		if (class == CLASS_IMAGE) {
 			unsigned int requested_width;
 			unsigned int requested_height;
 			size_t path_length;
 			size_t record_length;
 
 			if (text_size - input < 7)
-				return -1;
+				goto error;
 			requested_width = text[input + 1] |
 				(unsigned int)text[input + 2] << 8;
 			requested_height = text[input + 3] |
@@ -254,12 +293,9 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				size_t bitmap_size;
 
 				if (x) {
-					if (finish_link_segment(article, capacity, &used,
-								links, &link_count,
-								link_id, &segment_x,
-								x, y, line_height) ||
+					if (FINISH_LINK_SEGMENT() ||
 					    emit_newline(article, capacity, &used,
-							 font, 0))
+							 font, 0, &track))
 						goto error;
 					y += actual_height;
 					actual_height = line_height;
@@ -279,8 +315,10 @@ int zim_text_to_article_images_links(const unsigned char *text,
 					used += bitmap_size;
 					if (line_height < (int)image_height + 1)
 						actual_height = (int)image_height + 3;
+					if (track.line_height < (int)image_height + 1)
+						track.actual_height = (int)image_height + 3;
 					if (emit_newline(article, capacity, &used,
-							 font, 0))
+							 font, 0, &track))
 						goto error;
 					y += actual_height;
 					actual_height = line_height;
@@ -290,21 +328,22 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			continue;
 		}
 
-		if (text[input] == '\n') {
-			if (finish_link_segment(article, capacity, &used, links,
-						&link_count, link_id, &segment_x,
-						x, y, line_height))
+		if (class == CLASS_NEWLINE) {
+			if (FINISH_LINK_SEGMENT())
 				goto error;
 			input++;
 			y += actual_height;
 			if (first_line) {
 				font = DEFAULT_FONT_IDX;
 				first_line = 0;
-				rc = emit_newline(article, capacity, &used, font, 1);
+				rc = emit_newline(article, capacity, &used, font, 1,
+						  &track);
 				line_height = pcfFonts[font - 1].Fmetrics.linespace +
 					LINE_SPACE_ADDON;
+				ascii = ascii_widths(font);
 			} else {
-				rc = emit_newline(article, capacity, &used, font, 0);
+				rc = emit_newline(article, capacity, &used, font, 0,
+						  &track);
 			}
 			if (rc)
 				goto error;
@@ -312,24 +351,27 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			x = 0;
 			continue;
 		}
-		while (input < text_size && text[input] == ' ') {
+		if (class == CLASS_SPACE) {
 			had_space = 1;
-			input++;
+			do
+				input++;
+			while (input < text_size && text[input] == ' ');
+			if (input >= text_size || word_break[text[input]])
+				continue;
 		}
-		if (input >= text_size || word_break[text[input]])
-			continue;
 		word_start = input;
-		while (input < text_size && !word_break[text[input]])
-			input++;
+		scan = text + input;
+		limit = text + text_size;
+		while (scan < limit && !word_break[*scan])
+			scan++;
+		input = (size_t)(scan - text);
 		word_length = input - word_start;
-		width = word_width(font, text + word_start, word_length);
+		width = word_width(font, ascii, text + word_start, word_length);
 		if (x && had_space)
-			space_width = ascii_widths(font)[' '];
+			space_width = ascii[' '];
 		if (x && x + space_width + width > ARTICLE_TEXT_WIDTH) {
-			if (finish_link_segment(article, capacity, &used, links,
-						&link_count, link_id, &segment_x,
-						x, y, line_height) ||
-			    emit_newline(article, capacity, &used, font, 0))
+			if (FINISH_LINK_SEGMENT() ||
+			    emit_newline(article, capacity, &used, font, 0, &track))
 				goto error;
 			y += actual_height;
 			actual_height = line_height;
@@ -345,7 +387,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		}
 		/* Most words fit intact after the line-break decision above.  Their
 		 * width is already known, so copy the word once instead of measuring
-		 * every character a second time and calling memcpy per code point. */
+		 * every character a second time. */
 		if (width <= ARTICLE_TEXT_WIDTH - x) {
 			if (link_id && segment_x < 0)
 				segment_x = x;
@@ -361,12 +403,9 @@ int zim_text_to_article_images_links(const unsigned char *text,
 							 word_length,
 							 &character_size);
 			if (x && x + character_width > ARTICLE_TEXT_WIDTH) {
-				if (finish_link_segment(article, capacity, &used, links,
-								&link_count, link_id,
-								&segment_x, x, y,
-								line_height) ||
-					    emit_newline(article, capacity, &used,
-							 font, 0))
+				if (FINISH_LINK_SEGMENT() ||
+				    emit_newline(article, capacity, &used,
+						 font, 0, &track))
 					goto error;
 				y += actual_height;
 				actual_height = line_height;
@@ -382,8 +421,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			word_length -= character_size;
 		}
 	}
-	if (finish_link_segment(article, capacity, &used, links, &link_count,
-				link_id, &segment_x, x, y, line_height))
+	if (FINISH_LINK_SEGMENT())
 		goto error;
 	if (append_byte(article, capacity, &used, '\0'))
 		goto error;
@@ -400,12 +438,15 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		       link_count * sizeof(*links));
 	used += link_count * sizeof(*links);
 	*article_size = used;
+	if (stream_height)
+		*stream_height = track.y;
 	free(links);
 	return 0;
 
 error:
 	free(links);
 	return -1;
+#undef FINISH_LINK_SEGMENT
 }
 
 int zim_text_to_article_images(const unsigned char *text, size_t text_size,
@@ -414,7 +455,7 @@ int zim_text_to_article_images(const unsigned char *text, size_t text_size,
 			       ZIM_ARTICLE_IMAGE image, void *image_opaque)
 {
 	return zim_text_to_article_images_links(text, text_size, article,
-		capacity, article_size, image, image_opaque, NULL, NULL);
+		capacity, article_size, image, image_opaque, NULL, NULL, NULL);
 }
 
 int zim_text_to_article(const unsigned char *text, size_t text_size,

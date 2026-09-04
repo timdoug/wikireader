@@ -6,7 +6,10 @@
 #include <stddef.h>
 
 #define ZIM_FILE_PAGE_SIZE 512
-#define ZIM_FILE_CACHE_PAGES 4
+/* Direct-mapped by page number.  Each keystroke repeats a binary search over
+ * the title listing whose upper levels touch the same pages every time, so a
+ * cache this size keeps all but the last few probes off the card. */
+#define ZIM_FILE_CACHE_PAGES 256
 
 typedef struct {
 	int handle;
@@ -15,7 +18,6 @@ typedef struct {
 	uint32_t cached_page[ZIM_FILE_CACHE_PAGES];
 	unsigned char cache[ZIM_FILE_CACHE_PAGES][ZIM_FILE_PAGE_SIZE];
 	unsigned char cache_valid[ZIM_FILE_CACHE_PAGES];
-	unsigned char next_cache;
 	unsigned char open;
 } ZIM_FILE;
 

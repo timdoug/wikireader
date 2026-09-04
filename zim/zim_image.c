@@ -226,6 +226,9 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	state->config.options.scaled_width = (int)width;
 	state->config.options.scaled_height = (int)height;
 	state->config.options.no_fancy_upsampling = 1;
+	/* The in-loop deblocking filter costs a large share of lossy decode
+	 * time and its smoothing vanishes under one-bit dithering. */
+	state->config.options.bypass_filtering = 1;
 	state->config.options.use_threads = 0;
 	/* Lossy WebP is already YUV. Dither its luma plane directly instead of
 	 * spending target cycles and memory upsampling chroma into RGBA. The

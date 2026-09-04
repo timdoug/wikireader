@@ -46,6 +46,7 @@ int main(void)
 	ARTICLE_LINK links[8];
 	char path[512];
 	unsigned int i;
+	int height;
 
 	for (i = 0; i < FONT_COUNT; i++)
 		pcfFonts[i].Fmetrics.linespace = 10;
@@ -57,8 +58,11 @@ int main(void)
 		return 2;
 	if (zim_text_to_article_images_links(normalized, normalized_size,
 			article, sizeof(article), &article_size, NULL, NULL,
-			resolve_link, NULL))
+			resolve_link, NULL, &height))
 		return 3;
+	if (height <= 0 ||
+	    height != zim_article_stream_height(article, article_size))
+		return 7;
 	memcpy(&header, article, sizeof(header));
 	if (header.article_link_count < 2 || header.article_link_count > 8 ||
 	    header.offset_article != sizeof(header) +
