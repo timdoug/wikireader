@@ -1,3 +1,6 @@
 /zimdump
 /zimfatdump
 /zstddeclib.o
+/blob-cache-test
+/fat-cache-test
+/article-link-test

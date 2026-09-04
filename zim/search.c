@@ -425,6 +425,7 @@ static void open_archive(int wiki_index)
 
 	if (archive_file.open && archive_wiki == wiki_index)
 		return;
+	zim_blob_cache_reset();
 	if (archive_file.open)
 		zim_file_close(&archive_file);
 	if (zim_file_open(&archive_file, "1:/wiki.zim") &&
@@ -769,6 +770,7 @@ int retrieve_article(long encoded_index)
 	ARTICLE_HEADER article_header;
 	ZIM_DIRENT dirent;
 	uint32_t index = (uint32_t)encoded_index & 0x00ffffff;
+	const unsigned char *raw;
 	size_t raw_size;
 	size_t text_size;
 	size_t article_size;
@@ -796,13 +798,20 @@ int retrieve_article(long encoded_index)
 		sizeof(current_article_path) - 1);
 	current_article_path[sizeof(current_article_path) - 1] = '\0';
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
-	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
-					    ZIM_RAW_BUFFER_SIZE, &raw_size,
+	/* Convert straight out of the decoded-cluster cache when possible; the
+	 * copy into raw_buffer is only needed for uncompressed clusters. */
+	rc = zim_archive_view_blob_progress(&archive, &dirent, &raw, &raw_size,
 					    article_blob_progress, NULL);
-	if (rc)
-		goto error;
+	if (rc) {
+		rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
+						    ZIM_RAW_BUFFER_SIZE, &raw_size,
+						    article_blob_progress, NULL);
+		if (rc)
+			goto error;
+		raw = raw_buffer;
+	}
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
-	rc = zim_html_to_text_images(raw_buffer, raw_size, text_buffer,
+	rc = zim_html_to_text_images(raw, raw_size, text_buffer,
 				     FILE_BUFFER_SIZE, &text_size);
 	if (rc)
 		goto error;

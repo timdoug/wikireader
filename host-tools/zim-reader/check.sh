@@ -23,5 +23,9 @@ printf '%s\n' "$info" | grep '^title listing:' >/dev/null
 	grep 'free content online encyclopedia' >/dev/null
 ./zimdump "$archive" text C USA |
 	grep '^United States$' >/dev/null
+./zimdump "$archive" text C Cat |
+	grep '^Cat (Felis catus)$' >/dev/null
+
+./blob-cache-test "$archive" 40
 
 echo "PASS: ZIM indexes, redirects, Zstandard extraction, and HTML conversion"

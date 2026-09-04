@@ -11,9 +11,17 @@
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
-#define ZIM_DIRECT_OUTPUT_LIMIT (4 * 1024 * 1024)
-#define ZSTD_MAX_BLOCK_SIZE (128 * 1024)
 #define ZIM_OFFSET_TABLE_LIMIT (4 * 1024 * 1024)
+/* Kiwix closes a cluster once it holds 2 MiB, so one blob may push a cluster
+ * somewhat past that.  Sizing the first attempt above the common case avoids
+ * a second decode of the leading blocks for nearly every cluster. */
+#ifndef ZIM_CLUSTER_GUESS_SIZE
+#define ZIM_CLUSTER_GUESS_SIZE ((2u << 20) + (512u << 10))
+#endif
+/* Larger clusters are decoded through a 64 KiB window instead of being kept. */
+#ifndef ZIM_CLUSTER_LIMIT
+#define ZIM_CLUSTER_LIMIT (8u << 20)
+#endif
 #define ZSTD_CONTENTSIZE_UNKNOWN (~0ULL)
 #define ZSTD_CONTENTSIZE_ERROR (~1ULL)
 /* ZSTD_d_stableOutBuffer in the pinned vendored decoder. */
@@ -45,6 +53,39 @@ extern size_t ZSTD_DCtx_setParameter(ZSTD_DStream *stream, int parameter,
 				     int value);
 extern unsigned ZSTD_isError(size_t code);
 
+/*
+ * The most recently touched Zstandard cluster stays decoded in memory together
+ * with its live decoder.  Articles are stored path-ordered, so a cluster holds
+ * dozens of neighbouring pages; history navigation and many link follows land
+ * in the cluster that was just decoded.  Blobs below the decoded frontier are
+ * a memcpy, and blobs beyond it continue the existing stream rather than
+ * starting the frame again.
+ *
+ * Zstandard's stable output mode writes directly into this buffer, which must
+ * therefore be large enough for the whole frame.  Kiwix omits the frame
+ * content size, so the buffer is first sized by a generous guess and re-sized
+ * exactly once if the leading offset table reports a larger cluster.
+ */
+typedef struct {
+	int valid;
+	const void *archive_id;
+	uint64_t cluster_start;
+	uint64_t cluster_end;
+	uint64_t compressed_pos;
+	ZSTD_DStream *stream;
+	unsigned char *input;
+	ZSTD_inBuffer in;
+	unsigned char *output;
+	size_t capacity;
+	size_t decoded;
+	size_t table_size;
+	size_t total;
+	size_t offset_size;
+	int finished;
+} ZIM_CLUSTER;
+
+static ZIM_CLUSTER cluster;
+
 static uint32_t get_le32(const unsigned char *p)
 {
 	return (uint32_t)p[0] | (uint32_t)p[1] << 8 |
@@ -54,6 +95,11 @@ static uint32_t get_le32(const unsigned char *p)
 static uint64_t get_le64(const unsigned char *p)
 {
 	return (uint64_t)get_le32(p) | (uint64_t)get_le32(p + 4) << 32;
+}
+
+static uint64_t get_offset(const unsigned char *p, size_t offset_size)
+{
+	return offset_size == 8 ? get_le64(p) : get_le32(p);
 }
 
 static int read_exact(const ZIM_ARCHIVE *archive, uint64_t offset,
@@ -137,8 +183,8 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 	rc = read_exact(archive, table_pos, offsets, (size_t)offset_size * 2);
 	if (rc)
 		return rc;
-	start = extended ? get_le64(offsets) : get_le32(offsets);
-	end = extended ? get_le64(offsets + 8) : get_le32(offsets + 4);
+	start = get_offset(offsets, (size_t)offset_size);
+	end = get_offset(offsets + offset_size, (size_t)offset_size);
 	if (end < start || start > cluster_end - cluster_start - 1 ||
 	    end > cluster_end - cluster_start - 1)
 		return ZIM_ERR_FORMAT;
@@ -160,14 +206,174 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
-static int read_zstd_blob(const ZIM_ARCHIVE *archive,
-			  const ZIM_DIRENT *dirent,
-			  uint64_t cluster_start, uint64_t cluster_end,
-			  uint8_t extended,
-			  void *buffer, size_t capacity,
-			  size_t *blob_size,
-			  ZIM_BLOB_PROGRESS progress,
-			  void *progress_opaque)
+static void cluster_release(void)
+{
+	ZSTD_freeDStream(cluster.stream);
+	free(cluster.output);
+	free(cluster.input);
+	memset(&cluster, 0, sizeof(cluster));
+}
+
+void zim_blob_cache_reset(void)
+{
+	cluster_release();
+}
+
+static int cluster_fill_input(const ZIM_ARCHIVE *archive)
+{
+	size_t amount;
+	int rc;
+
+	/* The frame must end inside its cluster. */
+	if (cluster.compressed_pos >= cluster.cluster_end)
+		return ZIM_ERR_FORMAT;
+	amount = ZIM_STREAM_BUFFER_SIZE;
+	if ((uint64_t)amount > cluster.cluster_end - cluster.compressed_pos)
+		amount = (size_t)(cluster.cluster_end - cluster.compressed_pos);
+	rc = read_exact(archive, cluster.compressed_pos, cluster.input, amount);
+	if (rc)
+		return rc;
+	cluster.compressed_pos += amount;
+	cluster.in.src = cluster.input;
+	cluster.in.size = amount;
+	cluster.in.pos = 0;
+	return ZIM_OK;
+}
+
+/* Decode until at least `target` bytes of the cluster are present. */
+static int cluster_advance(const ZIM_ARCHIVE *archive, size_t target,
+			   ZIM_BLOB_PROGRESS progress, void *progress_opaque,
+			   uint64_t report_total)
+{
+	while (cluster.decoded < target && !cluster.finished) {
+		ZSTD_outBuffer out;
+		size_t remaining;
+		int rc;
+
+		if (cluster.in.pos == cluster.in.size) {
+			rc = cluster_fill_input(archive);
+			if (rc)
+				return rc;
+		}
+		out.dst = cluster.output;
+		out.size = cluster.capacity;
+		out.pos = cluster.decoded;
+		remaining = ZSTD_decompressStream(cluster.stream, &out,
+						  &cluster.in);
+		if (ZSTD_isError(remaining))
+			return ZIM_ERR_FORMAT;
+		cluster.decoded = out.pos;
+		if (!remaining)
+			cluster.finished = 1;
+		if (progress)
+			progress(progress_opaque,
+				 cluster.decoded < report_total ?
+				 cluster.decoded : report_total, report_total);
+	}
+	return cluster.decoded >= target ? ZIM_OK : ZIM_ERR_FORMAT;
+}
+
+/* Start decoding a cluster.  A zero capacity sizes the output from the frame
+ * header when present and from ZIM_CLUSTER_GUESS_SIZE otherwise. */
+static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
+			uint64_t cluster_end, uint8_t extended,
+			size_t capacity)
+{
+	unsigned long long content_size;
+	int rc;
+
+	cluster_release();
+	cluster.input = malloc(ZIM_STREAM_BUFFER_SIZE);
+	cluster.stream = ZSTD_createDStream();
+	if (!cluster.input || !cluster.stream) {
+		cluster_release();
+		return ZIM_ERR_IO;
+	}
+	cluster.archive_id = archive->io.opaque;
+	cluster.cluster_start = cluster_start;
+	cluster.cluster_end = cluster_end;
+	cluster.compressed_pos = cluster_start + 1;
+	cluster.offset_size = extended ? 8 : 4;
+	rc = cluster_fill_input(archive);
+	if (rc) {
+		cluster_release();
+		return rc;
+	}
+	if (!capacity) {
+		content_size = ZSTD_getFrameContentSize(cluster.input,
+							cluster.in.size);
+		if (content_size == ZSTD_CONTENTSIZE_UNKNOWN ||
+		    content_size == ZSTD_CONTENTSIZE_ERROR)
+			capacity = ZIM_CLUSTER_GUESS_SIZE;
+		else if (content_size <= ZIM_CLUSTER_LIMIT)
+			capacity = (size_t)content_size;
+		else {
+			cluster_release();
+			return ZIM_ERR_RANGE;
+		}
+	}
+	cluster.output = malloc(capacity);
+	if (!cluster.output ||
+	    ZSTD_isError(ZSTD_DCtx_setParameter(cluster.stream,
+						ZSTD_D_STABLE_OUT_BUFFER, 1)) ||
+	    ZSTD_isError(ZSTD_initDStream(cluster.stream))) {
+		cluster_release();
+		return ZIM_ERR_IO;
+	}
+	cluster.capacity = capacity;
+	cluster.valid = 1;
+	return ZIM_OK;
+}
+
+/* Decode the leading blob offset table.  ZIM_ERR_RANGE with cluster.total set
+ * means the cluster is larger than the current output buffer. */
+static int cluster_read_table(const ZIM_ARCHIVE *archive)
+{
+	uint64_t first_offset;
+	uint64_t total;
+	int rc;
+
+	if (cluster.total)
+		return cluster.total > cluster.capacity ? ZIM_ERR_RANGE : ZIM_OK;
+	rc = cluster_advance(archive, cluster.offset_size, NULL, NULL, 0);
+	if (rc)
+		return rc;
+	first_offset = get_offset(cluster.output, cluster.offset_size);
+	if (first_offset < 2 * cluster.offset_size ||
+	    first_offset % cluster.offset_size ||
+	    first_offset > ZIM_OFFSET_TABLE_LIMIT ||
+	    first_offset > cluster.capacity)
+		return ZIM_ERR_FORMAT;
+	rc = cluster_advance(archive, (size_t)first_offset, NULL, NULL, 0);
+	if (rc)
+		return rc;
+	total = get_offset(cluster.output + (size_t)first_offset -
+			   cluster.offset_size, cluster.offset_size);
+	if (total < first_offset || total > (uint64_t)(size_t)-1)
+		return ZIM_ERR_FORMAT;
+	cluster.table_size = (size_t)first_offset;
+	cluster.total = (size_t)total;
+	return cluster.total > cluster.capacity ? ZIM_ERR_RANGE : ZIM_OK;
+}
+
+static int cluster_matches(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
+			   uint64_t cluster_end)
+{
+	return cluster.valid && cluster.archive_id == archive->io.opaque &&
+		cluster.cluster_start == cluster_start &&
+		cluster.cluster_end == cluster_end;
+}
+
+/* Fallback for clusters that cannot be held whole: decode through a 64 KiB
+ * window and keep only the requested range. */
+static int read_zstd_blob_streaming(const ZIM_ARCHIVE *archive,
+				    const ZIM_DIRENT *dirent,
+				    uint64_t cluster_start, uint64_t cluster_end,
+				    uint8_t extended,
+				    void *buffer, size_t capacity,
+				    size_t *blob_size,
+				    ZIM_BLOB_PROGRESS progress,
+				    void *progress_opaque)
 {
 	unsigned char *input_buffer = NULL;
 	unsigned char *output_buffer = NULL;
@@ -175,94 +381,36 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 	ZSTD_DStream *stream = NULL;
 	ZSTD_inBuffer input = { NULL, 0, 0 };
 	ZSTD_outBuffer output;
-	uint64_t compressed_start = cluster_start + 1;
-	uint64_t compressed_pos = compressed_start;
+	uint64_t compressed_pos = cluster_start + 1;
 	uint64_t output_offset = 0;
 	uint64_t blob_start = 0;
 	uint64_t blob_end = 0;
-	uint64_t first_offset;
 	uint64_t table_need64;
 	size_t offset_size = extended ? 8 : 4;
 	size_t table_need;
 	size_t table_have = 0;
-	size_t direct_output_size = 0;
-	unsigned long long frame_content_size = ZSTD_CONTENTSIZE_ERROR;
-	int direct_output = 0;
-	int may_restart_direct = 0;
 	int range_known = 0;
 	int result = ZIM_ERR_FORMAT;
 
 	table_need64 = ((uint64_t)dirent->blob_number + 2) * offset_size;
-	if (table_need64 > ZIM_OFFSET_TABLE_LIMIT ||
-	    table_need64 > (uint64_t)(size_t)-1)
+	if (table_need64 > ZIM_OFFSET_TABLE_LIMIT)
 		return ZIM_ERR_RANGE;
 	table_need = (size_t)table_need64;
 	input_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
+	output_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
 	offset_table = malloc(table_need);
 	stream = ZSTD_createDStream();
-	if (!input_buffer || !offset_table || !stream) {
+	if (!input_buffer || !output_buffer || !offset_table || !stream) {
 		result = ZIM_ERR_IO;
 		goto out;
 	}
-
-	/* Read the frame header before configuring the decoder.  In its default
-	 * streaming mode Zstd decodes into an internal ring and copies every byte
-	 * into the caller's output buffer.  When the complete frame size is known
-	 * and modest, a stable output buffer lets it use that memory as its history
-	 * directly.  The old 64 KiB path remains the low-memory and oversized
-	 * fallback, and initially discovers blob bounds for unknown-size frames. */
-	if (compressed_pos >= cluster_end)
-		goto out;
-	input.size = (cluster_end - compressed_pos > ZIM_STREAM_BUFFER_SIZE) ?
-		ZIM_STREAM_BUFFER_SIZE : (size_t)(cluster_end - compressed_pos);
-	result = read_exact(archive, compressed_pos, input_buffer, input.size);
-	if (result)
-		goto out;
-	compressed_pos += input.size;
-	input.src = input_buffer;
-	input.pos = 0;
-	{
-		frame_content_size =
-			ZSTD_getFrameContentSize(input_buffer, input.size);
-
-		if (frame_content_size != ZSTD_CONTENTSIZE_UNKNOWN &&
-		    frame_content_size != ZSTD_CONTENTSIZE_ERROR &&
-		    frame_content_size > 0 &&
-		    frame_content_size <= ZIM_DIRECT_OUTPUT_LIMIT &&
-		    frame_content_size <= (unsigned long long)(size_t)-1) {
-			direct_output_size = (size_t)frame_content_size;
-			output_buffer = malloc(direct_output_size);
-			if (output_buffer &&
-			    !ZSTD_isError(ZSTD_DCtx_setParameter(
-				    stream, ZSTD_D_STABLE_OUT_BUFFER, 1)))
-				direct_output = 1;
-			else {
-				free(output_buffer);
-				output_buffer = NULL;
-			}
-		} else if (frame_content_size == ZSTD_CONTENTSIZE_UNKNOWN)
-			may_restart_direct = 1;
-	}
-	if (!direct_output) {
-		output_buffer = malloc(ZIM_STREAM_BUFFER_SIZE);
-		direct_output_size = ZIM_STREAM_BUFFER_SIZE;
-	}
-	if (!output_buffer) {
-		result = ZIM_ERR_IO;
-		goto out;
-	}
-	output.dst = output_buffer;
-	output.size = direct_output_size;
-	output.pos = 0;
 	if (ZSTD_isError(ZSTD_initDStream(stream)))
 		goto out;
+	output.dst = output_buffer;
+	output.size = ZIM_STREAM_BUFFER_SIZE;
 
 	for (;;) {
 		size_t remaining;
-		size_t previous_output_pos;
-		size_t produced;
-		const unsigned char *produced_data;
-		uint64_t produced_offset;
 
 		if (input.pos == input.size) {
 			size_t amount;
@@ -275,44 +423,32 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 					    input_buffer, amount);
 			if (result)
 				goto out;
+			result = ZIM_ERR_FORMAT;
 			compressed_pos += amount;
 			input.src = input_buffer;
 			input.size = amount;
 			input.pos = 0;
 		}
-
-		if (!direct_output)
-			output.pos = 0;
-		previous_output_pos = output.pos;
+		output.pos = 0;
 		remaining = ZSTD_decompressStream(stream, &output, &input);
 		if (ZSTD_isError(remaining))
 			goto out;
-		produced = direct_output ? output.pos - previous_output_pos :
-			output.pos;
-		produced_data = output_buffer +
-			(direct_output ? previous_output_pos : 0);
-		produced_offset = direct_output ? previous_output_pos :
-			output_offset;
 
-		if (!range_known && table_have < table_need) {
-			size_t amount = produced;
+		if (!range_known) {
+			size_t amount = output.pos;
 			if (amount > table_need - table_have)
 				amount = table_need - table_have;
-			memcpy(offset_table + table_have, produced_data, amount);
+			memcpy(offset_table + table_have, output_buffer, amount);
 			table_have += amount;
 			if (table_have == table_need) {
-				first_offset = extended ? get_le64(offset_table) :
-					get_le32(offset_table);
-				blob_start = extended ?
-					get_le64(offset_table +
-						 (size_t)dirent->blob_number * 8) :
-					get_le32(offset_table +
-						 (size_t)dirent->blob_number * 4);
-				blob_end = extended ?
-					get_le64(offset_table +
-						 ((size_t)dirent->blob_number + 1) * 8) :
-					get_le32(offset_table +
-						 ((size_t)dirent->blob_number + 1) * 4);
+				uint64_t first_offset =
+					get_offset(offset_table, offset_size);
+				blob_start = get_offset(offset_table +
+					(size_t)dirent->blob_number * offset_size,
+					offset_size);
+				blob_end = get_offset(offset_table +
+					((size_t)dirent->blob_number + 1) * offset_size,
+					offset_size);
 				if (first_offset < table_need ||
 				    first_offset % offset_size ||
 				    blob_start < first_offset || blob_end < blob_start)
@@ -323,67 +459,24 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 				}
 				*blob_size = (size_t)(blob_end - blob_start);
 				range_known = 1;
-
-				/* Kiwix commonly omits the frame content size.  The
-				 * cluster's offset table still tells us how far we must
-				 * decode for this blob.  Restart once with enough stable
-				 * output for that range and one complete Zstd block; a
-				 * block containing blob_end may extend beyond it. */
-				if (may_restart_direct && blob_end > 0 &&
-				    blob_end <= ZIM_DIRECT_OUTPUT_LIMIT &&
-				    blob_end <= (uint64_t)(size_t)-1 -
-					ZSTD_MAX_BLOCK_SIZE) {
-					ZSTD_DStream *new_stream = ZSTD_createDStream();
-					size_t new_size = (size_t)blob_end +
-						ZSTD_MAX_BLOCK_SIZE;
-					unsigned char *new_output = malloc(new_size);
-
-					may_restart_direct = 0;
-					if (new_stream && new_output &&
-					    !ZSTD_isError(ZSTD_DCtx_setParameter(
-						    new_stream,
-						    ZSTD_D_STABLE_OUT_BUFFER, 1)) &&
-					    !ZSTD_isError(ZSTD_initDStream(new_stream))) {
-						ZSTD_freeDStream(stream);
-						free(output_buffer);
-						stream = new_stream;
-						output_buffer = new_output;
-						direct_output_size = new_size;
-						direct_output = 1;
-						output.dst = output_buffer;
-						output.size = direct_output_size;
-						output.pos = 0;
-						input.src = input_buffer;
-						input.size = 0;
-						input.pos = 0;
-						compressed_pos = compressed_start;
-						output_offset = 0;
-						continue;
-					}
-					ZSTD_freeDStream(new_stream);
-					free(new_output);
-				}
 			}
 		}
-
 		if (range_known) {
-			uint64_t completed = produced_offset + produced;
+			uint64_t completed = output_offset + output.pos;
 
 			copy_output_range(buffer, capacity, blob_start, blob_end,
-					  produced_offset, produced_data, produced);
+					  output_offset, output_buffer, output.pos);
 			if (completed > blob_end)
 				completed = blob_end;
 			if (progress)
 				progress(progress_opaque, completed, blob_end);
-			if (blob_start == blob_end ||
-			    completed >= blob_end) {
+			if (completed >= blob_end) {
 				result = capacity < *blob_size ?
 					ZIM_ERR_TRUNCATED : ZIM_OK;
 				goto out;
 			}
 		}
-		if (!direct_output)
-			output_offset += produced;
+		output_offset += output.pos;
 		if (!remaining)
 			goto out;
 	}
@@ -394,6 +487,135 @@ out:
 	free(output_buffer);
 	free(input_buffer);
 	return result;
+}
+
+/* Make one blob of a Zstandard cluster available in the cache.  On success
+ * the blob occupies cluster.output[*blob_start, *blob_end).  On any failure
+ * the cache is released so the caller can fall back to windowed decoding. */
+static int cached_blob(const ZIM_ARCHIVE *archive,
+		       const ZIM_DIRENT *dirent,
+		       uint64_t cluster_start, uint64_t cluster_end,
+		       uint8_t extended,
+		       size_t *blob_start, size_t *blob_end,
+		       ZIM_BLOB_PROGRESS progress,
+		       void *progress_opaque)
+{
+	const unsigned char *table;
+	uint64_t start;
+	uint64_t end;
+	int rc;
+
+	if (!cluster_matches(archive, cluster_start, cluster_end)) {
+		rc = cluster_open(archive, cluster_start, cluster_end, extended,
+				  0);
+		if (rc)
+			goto fail;
+	}
+	rc = cluster_read_table(archive);
+	if (rc == ZIM_ERR_RANGE && cluster.total &&
+	    cluster.total <= ZIM_CLUSTER_LIMIT) {
+		/* Rare: the cluster outgrew the guess.  Start over with an
+		 * exactly sized buffer; the offset table is only a few KiB in. */
+		rc = cluster_open(archive, cluster_start, cluster_end, extended,
+				  cluster.total);
+		if (!rc)
+			rc = cluster_read_table(archive);
+	}
+	if (rc)
+		goto fail;
+
+	rc = ZIM_ERR_FORMAT;
+	if (((uint64_t)dirent->blob_number + 2) * cluster.offset_size >
+	    cluster.table_size)
+		goto fail;
+	table = cluster.output + (size_t)dirent->blob_number * cluster.offset_size;
+	start = get_offset(table, cluster.offset_size);
+	end = get_offset(table + cluster.offset_size, cluster.offset_size);
+	if (start < cluster.table_size || end < start || end > cluster.total)
+		goto fail;
+	if (progress)
+		progress(progress_opaque,
+			 cluster.decoded < end ? cluster.decoded : end, end);
+	rc = cluster_advance(archive, (size_t)end, progress, progress_opaque,
+			     end);
+	if (rc)
+		goto fail;
+	if (progress)
+		progress(progress_opaque, end, end);
+	*blob_start = (size_t)start;
+	*blob_end = (size_t)end;
+	return ZIM_OK;
+
+fail:
+	cluster_release();
+	return rc;
+}
+
+static int read_zstd_blob(const ZIM_ARCHIVE *archive,
+			  const ZIM_DIRENT *dirent,
+			  uint64_t cluster_start, uint64_t cluster_end,
+			  uint8_t extended,
+			  void *buffer, size_t capacity,
+			  size_t *blob_size,
+			  ZIM_BLOB_PROGRESS progress,
+			  void *progress_opaque)
+{
+	size_t blob_start;
+	size_t blob_end;
+	size_t amount;
+
+	/* Whatever goes wrong with the cached whole-cluster decode, the
+	 * windowed path is the authority: it either succeeds or reports why. */
+	if (cached_blob(archive, dirent, cluster_start, cluster_end, extended,
+			&blob_start, &blob_end, progress, progress_opaque))
+		return read_zstd_blob_streaming(archive, dirent, cluster_start,
+						cluster_end, extended, buffer,
+						capacity, blob_size, progress,
+						progress_opaque);
+	*blob_size = blob_end - blob_start;
+	amount = *blob_size < capacity ? *blob_size : capacity;
+	if (amount)
+		memcpy(buffer, cluster.output + blob_start, amount);
+	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
+}
+
+int zim_archive_view_blob_progress(const ZIM_ARCHIVE *archive,
+				   const ZIM_DIRENT *source_dirent,
+				   const unsigned char **data,
+				   size_t *blob_size,
+				   ZIM_BLOB_PROGRESS progress,
+				   void *progress_opaque)
+{
+	ZIM_DIRENT dirent;
+	uint64_t cluster_start;
+	uint64_t cluster_end;
+	uint8_t compression;
+	uint8_t extended;
+	size_t blob_start;
+	size_t blob_end;
+	int rc;
+
+	if (!archive || !source_dirent || !data || !blob_size)
+		return ZIM_ERR_RANGE;
+	*data = NULL;
+	*blob_size = 0;
+	dirent = *source_dirent;
+	rc = zim_archive_resolve_redirect(archive, &dirent);
+	if (rc)
+		return rc;
+	rc = zim_archive_blob_location(archive, &dirent, &cluster_start,
+				       &cluster_end, &compression, &extended);
+	if (rc)
+		return rc;
+	if (compression != 5)
+		return ZIM_ERR_UNSUPPORTED;
+	rc = cached_blob(archive, &dirent, cluster_start, cluster_end, extended,
+			 &blob_start, &blob_end, progress, progress_opaque);
+	if (rc)
+		return rc;
+	*data = cluster.output + blob_start;
+	*blob_size = blob_end - blob_start;
+	return ZIM_OK;
 }
 
 int zim_archive_read_blob_progress(const ZIM_ARCHIVE *archive,

@@ -19,7 +19,7 @@ WEBP_SOURCES = $(WEBP_DECODER_SOURCES) $(WEBP_DSP_SOURCES) \
 
 .PHONY: all clean check
 
-all: zimdump zimfatdump
+all: zimdump zimfatdump blob-cache-test
 
 zimdump: zimdump.c ../../zim/zim_archive.c ../../zim/zim_archive.h \
 		../../zim/zim_blob.c ../../zim/zim_blob.h \
@@ -39,6 +39,12 @@ zimfatdump: zimfatdump.c ../../zim/zim_archive.c ../../zim/zim_archive.h \
 		../../zim/zim_fat.c
 
 
+blob-cache-test: blob-cache-test.c ../../zim/zim_archive.c \
+		../../zim/zim_archive.h ../../zim/zim_blob.c ../../zim/zim_blob.h \
+		zstddeclib.o
+	$(CC) $(CFLAGS) -o $@ blob-cache-test.c ../../zim/zim_archive.c \
+		../../zim/zim_blob.c zstddeclib.o
+
 fat-cache-test: fat-cache-test.c ../../zim/zim_fat.c ../../zim/zim_fat.h
 	$(CC) $(CFLAGS) -o $@ fat-cache-test.c ../../zim/zim_fat.c
 
@@ -51,10 +57,11 @@ article-link-test: article-link-test.c ../../zim/zim_article.c \
 		-o $@ article-link-test.c \
 		../../zim/zim_article.c ../../zim/zim_html.c ../../zim/zim_link.c
 
-check: zimdump fat-cache-test article-link-test
+check: zimdump blob-cache-test fat-cache-test article-link-test
 	./fat-cache-test
 	./article-link-test
 	./check.sh
 
 clean:
-	rm -f zimdump zimfatdump fat-cache-test article-link-test zstddeclib.o
+	rm -f zimdump zimfatdump blob-cache-test fat-cache-test article-link-test \
+		zstddeclib.o
