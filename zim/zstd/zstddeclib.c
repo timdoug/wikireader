@@ -1138,15 +1138,25 @@ MEM_STATIC unsigned MEM_isLittleEndian(void)
  * which is particularly costly for Zstd's frequent 2-, 4-, and 8-byte reads.
  * Spell out little-endian byte accesses so they remain safe and compile to
  * the C33's native byte-load/store instructions. */
+typedef U16 __attribute__((__may_alias__)) MEM_c33_half;
+
+/* Halfword loads only need even addresses, which half of the bit-stream
+ * reload positions satisfy; the odd ones fall back to byte composition. */
 MEM_STATIC U16 MEM_read16(const void* memPtr)
 {
     const BYTE* p = (const BYTE*)memPtr;
+    if (((size_t)p & 1) == 0)
+        return *(const MEM_c33_half*)p;
     return (U16)((U16)p[0] | (U16)p[1] << 8);
 }
 
 MEM_STATIC U32 MEM_read32(const void* memPtr)
 {
     const BYTE* p = (const BYTE*)memPtr;
+    if (((size_t)p & 1) == 0) {
+        const MEM_c33_half* h = (const MEM_c33_half*)p;
+        return (U32)h[0] | (U32)h[1] << 16;
+    }
     return (U32)p[0] | (U32)p[1] << 8 |
            (U32)p[2] << 16 | (U32)p[3] << 24;
 }
@@ -2149,11 +2159,43 @@ MEM_STATIC unsigned ZSTD_NbCommonBytes(size_t val)
     }
 }
 
+#if defined(__c33__)
+/* The C33 PE core has no bit-scan instruction, so the builtin becomes a
+ * libgcc loop.  Entropy table construction calls this per symbol per block;
+ * two table lookups are far cheaper. */
+MEM_STATIC unsigned ZSTD_highbit32(U32 val)
+{
+    static const BYTE log2Table[256] = {
+        0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+        6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+        6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+        6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+        6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+    };
+    unsigned shift = 0;
+    assert(val != 0);
+    if (val >= 0x10000) { val >>= 16; shift = 16; }
+    if (val >= 0x100)   { val >>= 8;  shift += 8; }
+    return shift + log2Table[val];
+}
+#else
 MEM_STATIC unsigned ZSTD_highbit32(U32 val)   /* compress, dictBuilder, decodeCorpus */
 {
     assert(val != 0);
     return 31 - ZSTD_countLeadingZeros32(val);
 }
+#endif
 
 /* ZSTD_rotateRight_*():
  * Rotates a bitfield to the right by "count" bits.

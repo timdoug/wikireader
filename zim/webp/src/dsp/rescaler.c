@@ -23,8 +23,33 @@
 // Implementations of critical functions ImportRow / ExportRow
 
 #define ROUNDER (WEBP_RESCALER_ONE >> 1)
+#if defined(__c33__)
+// GCC has no 32x32->64 multiply pattern for the C33 and calls the generic
+// 64-bit __muldi3 for every pixel.  The core's mltu.w leaves the full product
+// in ALR/AHR, which is exactly the high word (plus rounding) needed here.
+static WEBP_INLINE uint32_t C33MultHigh(uint32_t x, uint32_t y,
+                                        uint32_t* const low) {
+  uint32_t lo, hi;
+  __asm__ ("mltu.w\t%2, %3\n\tld.w\t%0, %%alr\n\tld.w\t%1, %%ahr"
+           : "=r"(lo), "=r"(hi) : "r"(x), "r"(y));
+  *low = lo;
+  return hi;
+}
+static WEBP_INLINE uint32_t C33MultFix(uint32_t x, uint32_t y) {
+  uint32_t lo;
+  const uint32_t hi = C33MultHigh(x, y, &lo);
+  return hi + (lo >> (WEBP_RESCALER_RFIX - 1));
+}
+static WEBP_INLINE uint32_t C33MultFixFloor(uint32_t x, uint32_t y) {
+  uint32_t lo;
+  return C33MultHigh(x, y, &lo);
+}
+#define MULT_FIX(x, y) C33MultFix((uint32_t)(x), (uint32_t)(y))
+#define MULT_FIX_FLOOR(x, y) C33MultFixFloor((uint32_t)(x), (uint32_t)(y))
+#else
 #define MULT_FIX(x, y) (((uint64_t)(x) * (y) + ROUNDER) >> WEBP_RESCALER_RFIX)
 #define MULT_FIX_FLOOR(x, y) (((uint64_t)(x) * (y)) >> WEBP_RESCALER_RFIX)
+#endif
 
 //------------------------------------------------------------------------------
 // Row import

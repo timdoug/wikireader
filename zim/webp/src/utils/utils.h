@@ -120,7 +120,9 @@ static WEBP_INLINE void PutLE32(uint8_t* const data, uint32_t val) {
 }
 
 // use GNU builtins where available.
-#if defined(__GNUC__) && \
+// The C33 PE core has no bit-scan instruction, so __builtin_clz becomes a
+// libgcc call on the hottest path of VP8 bit reading.  Use the table version.
+#if defined(__GNUC__) && !defined(__c33__) && \
     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4)
 // Returns (int)floor(log2(n)). n must be > 0.
 static WEBP_INLINE int BitsLog2Floor(uint32_t n) {

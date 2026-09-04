@@ -24,6 +24,9 @@ vpath %.png ${ROOT_DIR}/wiki
 vpath %.xpm ${ROOT_DIR}/wiki
 INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim -I${ROOT_DIR}/zim/webp
 CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG -DHAVE_CONFIG_H
+# The shared rules disable builtins for the 2003 compiler.  With GCC 16 they
+# let fixed-size memcpy/memset calls in the decoders and renderer be inlined.
+CFLAGS += -fbuiltin
 
 SOURCES += zim.c
 SOURCES += Alloc.c
