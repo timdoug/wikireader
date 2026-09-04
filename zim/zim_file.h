@@ -10,7 +10,7 @@
 
 typedef struct {
 	int handle;
-	uint32_t size;
+	uint64_t size;
 	uint32_t *link_map;
 	uint32_t cached_page[ZIM_FILE_CACHE_PAGES];
 	unsigned char cache[ZIM_FILE_CACHE_PAGES][ZIM_FILE_PAGE_SIZE];

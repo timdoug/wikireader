@@ -81,8 +81,9 @@ static void open_archive(int wiki_index)
 		return;
 	if (archive_file.open)
 		zim_file_close(&archive_file);
-	if (zim_file_open(&archive_file, "zim/wiki.zim"))
-		fatal_error("zim/wiki.zim not found");
+	if (zim_file_open(&archive_file, "1:/wiki.zim") &&
+	    zim_file_open(&archive_file, "zim/wiki.zim"))
+		fatal_error("wiki.zim not found");
 	io.read_at = device_read_at;
 	io.opaque = &archive_file;
 	io.size = archive_file.size;
