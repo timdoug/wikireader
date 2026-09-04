@@ -212,7 +212,18 @@ void System_chain(const char *command)
 		// need to reset everything here
 		File_CloseAll();
 		extern char __MAIN_STACK_LIMIT;  // the address of this give lowest sp value
-		Memory_SetHeap(FinalAddress, (uint32_t)&__MAIN_STACK_LIMIT);
+		uint32_t heap_limit = (uint32_t)&__MAIN_STACK_LIMIT;
+		// The linker script assumes 32 MB of SDRAM, but production boards are
+		// configured for 16 MB and addresses past that alias onto low memory.
+		// Keep the heap, and the megabyte below the (aliased) stack, inside
+		// the configured size.
+		if (ram_size() != 0) {
+			uint32_t ram_limit = (uint32_t)SDRAM_START + ram_size() - (1024 * 1024);
+			if (ram_limit < heap_limit) {
+				heap_limit = ram_limit;
+			}
+		}
+		Memory_SetHeap(FinalAddress, heap_limit);
 
 		Watchdog_KeepAlive(WATCHDOG_KEY);
 
