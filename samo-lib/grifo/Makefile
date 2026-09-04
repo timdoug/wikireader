@@ -54,9 +54,6 @@ INCLUDES += -I${DRIVERS_INCLUDE}
 INCLUDES += -I${MINI_LIBC_INCLUDE}
 INCLUDES += -Ibuild -Icommon
 
-# FatFs exFAT uses 64-bit file sizes and requires C99 declarations.
-CFLAGS += -std=gnu99
-
 LIBS += build/libinternal.a
 LIBS += ${FATFS_LIB}
 LIBS += ${MINI_LIBC_LIB}
@@ -101,6 +98,11 @@ OBJECTS += watchdog.o
 #OBJECTS +=
 
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
+
+# FatFs exFAT uses 64-bit file sizes and requires C99 declarations.  Keep the
+# setting local to its sole consumer so the historical startup code retains
+# the dialect it was written for.
+build/file.o: CFLAGS += -std=gnu99
 
 # Benchmark and hardware fallback switch.  The default production build uses
 # DMA; SD_DMA=NO leaves today's MMC driver unchanged but does not register the

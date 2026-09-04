@@ -227,6 +227,21 @@ File_ErrorType File_size(const char *filename, unsigned long *length)
 }
 
 
+File_ErrorType File_size64(const char *filename, uint64_t *length)
+{
+	FILINFO stat;
+	File_ErrorType rc;
+
+	if (NULL == filename || NULL == length)
+		return FILE_ERROR_INVALID_NAME;
+	AutoPowerUp();
+	rc = FatResult(f_stat(filename, &stat));
+	if (FILE_ERROR_OK == rc)
+		*length = stat.fsize;
+	return rc;
+}
+
+
 File_ErrorType File_create(const char *filename, File_AccessType fam)
 {
 	// FILE_OPEN_TRUNCATE alone maps to FA_CREATE_ALWAYS, which creates or
@@ -336,6 +351,17 @@ File_ErrorType File_lseek(int handle, unsigned long pos)
 		return FILE_ERROR_INVALID_OBJECT;
 	}
 
+	AutoPowerUp();
+	return FatResult(f_lseek(&file->file, pos));
+}
+
+
+File_ErrorType File_lseek64(int handle, uint64_t pos)
+{
+	FileType *file = ValidateFileHandle(handle);
+
+	if (NULL == file)
+		return FILE_ERROR_INVALID_OBJECT;
 	AutoPowerUp();
 	return FatResult(f_lseek(&file->file, pos));
 }

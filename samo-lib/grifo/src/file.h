@@ -61,6 +61,7 @@ void File_CloseAll(void);
 File_ErrorType File_rename(const char *OldFilename, const char *NewFilename);
 File_ErrorType File_delete(const char *filename);
 File_ErrorType File_size(const char *filename, unsigned long *length);
+File_ErrorType File_size64(const char *filename, uint64_t *length);
 
 File_ErrorType File_create(const char *filename, File_AccessType fam);
 
@@ -70,6 +71,7 @@ ssize_t File_read(int handle, void *buffer, size_t length);
 ssize_t File_write(int handle, void *buffer, size_t length);
 File_ErrorType File_sync(int handle);
 File_ErrorType File_lseek(int handle, unsigned long pos);
+File_ErrorType File_lseek64(int handle, uint64_t pos);
 File_ErrorType File_fastseek(int handle, unsigned long *table,
 			     unsigned long entries);
 //File_ErrorType File_ltell(int handle, unsigned long *pos); // not available yet

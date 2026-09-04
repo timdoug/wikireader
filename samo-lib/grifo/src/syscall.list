@@ -250,6 +250,7 @@
  (101 File_rename ("file_error_t" "file_rename" "const char *OldFilename" "const char *NewFilename"))
  (102 File_delete ("file_error_t" "file_delete" "const char *filename"))
  (103 File_size ("file_error_t" "file_size"" const char *filename" "unsigned long *length"))
+ (104 File_size64 ("file_error_t" "file_size64" "const char *filename" "uint64_t *length"))
 
  (110 File_create ("file_error_t" "file_create" "const char *filename" "file_access_t fam"))
  (111 File_open ("file_error_t" "file_open" "const char *filename" "file_access_t fam"))
@@ -260,7 +261,7 @@
  (116 File_lseek ("file_error_t" "file_lseek" "int handle" "unsigned long pos"))
  (117 File_fastseek ("file_error_t" "file_fastseek" "int handle"
                      "unsigned long *table" "unsigned long entries"))
- ;;(118 File_ltell ("file_error_t" "file_ltell" "int handle" "unsigned long *pos"))
+ (118 File_lseek64 ("file_error_t" "file_lseek64" "int handle" "uint64_t pos"))
 
  ;;(120 File_ChangeDirectory ("file_error_t" "directory_chdir" "const char *directoryname"))
  ;;(121 File_CurrentDirectory ("file_error_t" "directory_cwd" "char *directoryname" "size_t length"))
