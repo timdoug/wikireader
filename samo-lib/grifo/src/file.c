@@ -383,6 +383,24 @@ File_ErrorType File_fastseek(int handle, unsigned long *table,
 	}
 
 	AutoPowerUp();
+	/* exFAT records an unfragmented file as a contiguous extent.  FatFs'
+	 * generic CREATE_LINKMAP path still visits every cluster even though
+	 * get_fat() merely synthesizes the next cluster for this status. */
+	if (file->file.obj.fs->fs_type == FS_EXFAT &&
+	    file->file.obj.stat == 2 && file->file.obj.sclust != 0) {
+		uint64_t cluster_bytes =
+			(uint64_t)file->file.obj.fs->csize * FF_MAX_SS;
+		uint64_t cluster_count =
+			(file->file.obj.objsize + cluster_bytes - 1) /
+			cluster_bytes;
+
+		table[0] = 4;
+		table[1] = (DWORD)cluster_count;
+		table[2] = file->file.obj.sclust;
+		table[3] = 0;
+		file->file.cltbl = (DWORD *)table;
+		return FILE_ERROR_OK;
+	}
 	table[0] = entries;
 	file->file.cltbl = (DWORD *)table;
 	result = FatResult(f_lseek(&file->file, CREATE_LINKMAP));
