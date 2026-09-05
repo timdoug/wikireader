@@ -994,10 +994,20 @@ static int search_cursor_next(ZIM_DIRENT *dirent)
 	return 0;
 }
 
+/* Whether another result follows, without consuming it. */
+static int search_cursor_peek(void)
+{
+	ZIM_DIRENT dirent;
+	SEARCH_CURSOR saved = cursor;
+	int more = search_cursor_next(&dirent);
+
+	cursor = saved;
+	return more;
+}
+
 static void populate_results(void)
 {
 	ZIM_DIRENT dirent;
-	SEARCH_CURSOR saved;
 
 	results.count = 0;
 	results.selected = -1;
@@ -1011,10 +1021,7 @@ static void populate_results(void)
 		results.title[results.count][MAX_TITLE_ACTUAL - 1] = '\0';
 		results.count++;
 	}
-	/* Peek for a further page without consuming it. */
-	saved = cursor;
-	more_search_results = search_cursor_next(&dirent);
-	cursor = saved;
+	more_search_results = search_cursor_peek();
 #ifdef ZIM_TRACE_HASH
 	debug_printf("search '%s' -> %u variants, %lu results, first '%s' index %lu\n",
 		     search_string, cursor.count, (unsigned long)results.count,
@@ -1179,6 +1186,11 @@ void search_reload(int flag)
 		render_string_right(SEARCH_HEADING_FONT_IDX, LCD_LEFT_MARGIN,
 				    LCD_TOP_MARGIN + 2, prefix,
 				    ustrlen(prefix), 0);
+	/* While the keyboard is up, render_search_result_with_pcf sees no
+	 * first page to continue from and clears more_search_results; the
+	 * full-page list pages on from here, so ask the cursor again. */
+	if (keyboard_mode == KEYBOARD_NONE)
+		more_search_results = search_cursor_peek();
 	article_link_count = 0;
 	is_title_in_result_list(0, NULL);
 	for (i = 0; i < results.count && i < display_count; i++) {
