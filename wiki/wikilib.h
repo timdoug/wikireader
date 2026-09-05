@@ -50,6 +50,19 @@
 #define ARTICLE_BROWSE		2
 #define PHONE_STYLE_KEYIN_BEFORE_COMMIT_TIME 1.5
 
+/* Settings, history, password, and keyboard-temperature files on the boot
+ * volume.  The ZIM reader keeps its own set so it can share a card with the
+ * original wiki.app. */
+#ifdef ZIM_APP
+#define APP_FILE_PREFIX "zim"
+#else
+#define APP_FILE_PREFIX "wiki"
+#endif
+#define APP_INI_FILE APP_FILE_PREFIX ".ini"
+#define APP_HISTORY_FILE APP_FILE_PREFIX ".hst"
+#define APP_PASSWORD_FILE APP_FILE_PREFIX ".pas"
+#define APP_TEMPERATURE_FILE APP_FILE_PREFIX ".tem"
+
 enum display_mode_e {
 
 	DISPLAY_MODE_INDEX,

@@ -10,12 +10,25 @@ The preferred layout uses an MBR-partitioned card with a small FAT32 first
 partition and an exFAT second partition:
 
 ```text
-partition 1 (FAT32): normal ROOT_IMAGE files
+partition 1 (FAT32): normal ROOT_IMAGE files (wiki.app, forth, licences...)
                      kernel.elf = current Grifo kernel
-                     wiki.app   = zim.app
+                     init.app   = current launcher
+                     init.ini   = launcher entries for zim.app and wiki.app
+                     zim.app, zim.ico
                      zim/wiki.nls
 partition 2 (exFAT): one or more *.zim files, any names
 ```
+
+The reader is a peer of the stock `wiki.app`: it has its own launcher entry
+and icon (the Kiwix kiwi, from the CC BY-SA 4.0 `Kiwix_logo_v3.svg` on
+Wikimedia Commons, thresholded to 64 by 64 one-bit pixels in `zim.xpm`), and
+keeps its settings, history, password, and keyboard state in `zim.ini`,
+`zim.hst`, `zim.pas`, and `zim.tem`, so both applications can live on one card
+without treading on each other's files. With two `init.ini` entries the
+launcher shows both icons at power on and a tap starts that application; a
+single entry boots straight into it, so delete the `wiki.app` line for an
+unattended boot. (Holding a front button while switching on is already taken
+by the boot loader in flash, which uses it to start forth or the calculator.)
 
 The FAT32 boot partition preserves the mask-ROM and loader's existing boot
 contract. The ZIM reader mounts the second partition as FatFs volume `1:` and
@@ -25,7 +38,7 @@ contiguous file, avoids walking a large FAT chain at startup.
 
 With more than one archive the keyboard shows the globe key of the original
 reader; it opens a list of the archives' own titles and sizes, and the choice
-is written to `wiki.ini` on the boot volume so the next boot returns to it.
+is written to `zim.ini` on the boot volume so the next boot returns to it.
 History entries remember which archive they came from and switch to it when
 reopened. A single archive under any name, including the old `wiki.zim`, is
 opened directly.
@@ -60,6 +73,9 @@ On macOS, after building Grifo and the app:
 
 Every archive named is copied to the exFAT volume under its own name. The
 older `ZIM_FILE OUTPUT.dmg` argument order still works for a single archive.
+The boot volume receives the stock `ROOT_IMAGE` contents, the current kernel
+and launcher, `zim.app` with `zim.ico`, and an `init.ini` listing the reader
+first and the stock `wiki.app` second.
 
 The script refuses to overwrite an existing image and verifies that the
 device it repartitions is the virtual disk image it just attached. It does not

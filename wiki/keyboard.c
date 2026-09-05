@@ -657,7 +657,7 @@ void get_temperature_mode()
 	int fd;
 	char sWikiTem[10];
 	int m;
-	fd = file_open("wiki.tem", FILE_OPEN_READ);
+	fd = file_open(APP_TEMPERATURE_FILE, FILE_OPEN_READ);
 	if (fd < 0)
 	{
 		temperature_mode = temperature_mode_default;
@@ -678,9 +678,9 @@ void set_temperature_mode()
 	int fd;
 	char sWikiTem[10];
 
-	fd = file_open("wiki.tem", FILE_OPEN_WRITE);
+	fd = file_open(APP_TEMPERATURE_FILE, FILE_OPEN_WRITE);
 	if (fd < 0)
-		fd = file_create("wiki.tem", FILE_OPEN_WRITE);
+		fd = file_create(APP_TEMPERATURE_FILE, FILE_OPEN_WRITE);
 	if (fd >= 0)
 	{
 		sprintf(sWikiTem, "%d\n", temperature_mode);

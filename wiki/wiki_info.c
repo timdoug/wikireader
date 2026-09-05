@@ -57,7 +57,7 @@ int rendered_wiki_selection_count = -1;
 int current_article_wiki_id = 0;
 
 // store the wiki.ini file contents
-#define WIKI_INI_NAME "wiki.ini"
+#define WIKI_INI_NAME APP_INI_FILE
 unsigned char *pWikiIni = NULL;
 #define MIN_WIKI_INI_ALLOCATION 32
 unsigned long sizeWikiIni = 0;  // the number of bytes allocated to pWikiIni

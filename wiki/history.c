@@ -190,7 +190,7 @@ void history_list_init(void)
 
 	memset((void *)history_list, 0, sizeof(history_list));
 	history_count = 0;
-	fd_hst = file_open("wiki.hst", FILE_OPEN_READ);
+	fd_hst = file_open(APP_HISTORY_FILE, FILE_OPEN_READ);
 	if (fd_hst >= 0)
 	{
 		while ((len = file_read(fd_hst, (void *)&history_list[history_count], sizeof(HISTORY))) >= sizeof(HISTORY) &&
@@ -214,9 +214,9 @@ int history_list_save(int level)
 	{
 		if (level == HISTORY_SAVE_POWER_OFF || history_changed == HISTORY_SAVE_NORMAL)
 		{
-			fd_hst = file_open("wiki.hst", FILE_OPEN_WRITE);
+			fd_hst = file_open(APP_HISTORY_FILE, FILE_OPEN_WRITE);
 			if (fd_hst < 0)
-				fd_hst = file_create("wiki.hst", FILE_OPEN_WRITE);
+				fd_hst = file_create(APP_HISTORY_FILE, FILE_OPEN_WRITE);
 			if (fd_hst >= 0)
 			{
 				file_write(fd_hst, (void *)history_list, sizeof(HISTORY) * MAX_HISTORY);

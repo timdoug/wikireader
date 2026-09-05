@@ -307,9 +307,9 @@ void save_password(int flag)
 	int fd;
 	SHA1Context sha;
 
-	fd = file_open("wiki.pas", FILE_OPEN_WRITE);
+	fd = file_open(APP_PASSWORD_FILE, FILE_OPEN_WRITE);
 	if (fd < 0)
-		fd = file_create("wiki.pas", FILE_OPEN_WRITE);
+		fd = file_create(APP_PASSWORD_FILE, FILE_OPEN_WRITE);
 	if (fd >= 0)
 	{
 		if (password_str_len > 0)
@@ -522,7 +522,7 @@ int init_article_filter(void)
 
 	if (restriction_filter_off == -1)
 	{
-		fd = file_open("wiki.pas", FILE_OPEN_READ);
+		fd = file_open(APP_PASSWORD_FILE, FILE_OPEN_READ);
 		if (fd >= 0)
 		{
 			len = file_read(fd, restriction_pass1, 20);
@@ -572,7 +572,7 @@ int check_restriction(void)
 	init_filtering = 0;
 	if (restriction_filter_off == -1)
 	{
-		fd = file_open("wiki.pas", FILE_OPEN_READ);
+		fd = file_open(APP_PASSWORD_FILE, FILE_OPEN_READ);
 		if (fd >= 0)
 		{
 			len = file_read(fd, restriction_pass1, 20);
