@@ -1192,29 +1192,10 @@ static void handle_touch(event_t *ev)
 				finger_move_speed = 0;
 			else
 			{
+				/* The coast starts at the finger's own speed, in pixels per
+				 * second over the last few reports; scroll_article() decays it. */
 				finger_move_speed = (float)diff_y * ((float)seconds_to_ticks(1) / (float)diff_ticks);
-				if (labs(finger_move_speed) > SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD)
-				{
-					if (finger_move_speed > 0)
-					{
-						if (display_mode == DISPLAY_MODE_ARTICLE)
-							finger_move_speed = ARTICLE_SMOOTH_SCROLL_SPEED_FACTOR *
-								(finger_move_speed - SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD);
-						else
-							finger_move_speed = LIST_SMOOTH_SCROLL_SPEED_FACTOR *
-								(finger_move_speed - SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD);
-					}
-					else
-					{
-						if (display_mode == DISPLAY_MODE_ARTICLE)
-							finger_move_speed = ARTICLE_SMOOTH_SCROLL_SPEED_FACTOR *
-								(finger_move_speed + SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD);
-						else
-							finger_move_speed = LIST_SMOOTH_SCROLL_SPEED_FACTOR *
-								(finger_move_speed + SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD);
-					}
-				}
-				else
+				if (labs(finger_move_speed) <= SMOOTH_SCROLL_ACTIVATION_SPPED_THRESHOLD)
 					finger_move_speed = 0;
 			}
 

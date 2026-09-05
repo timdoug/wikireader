@@ -939,6 +939,19 @@ WIKI_LICENSE_DRAW *wiki_license_draw()
 	int start_x, start_y, end_x, end_y;
 	int i;
 
+	/* The footer depends only on the archive.  Rendering it means opening
+	 * wiki.ftr and drawing every glyph, about 50 ms, and the scroll bar asks
+	 * for its height on every frame of a scroll, so keep the last result. */
+	static int drawn_for_wiki = -1;
+	if (pWikiLicenseDraw->buf && drawn_for_wiki == wiki_idx)
+		return pWikiLicenseDraw;
+	drawn_for_wiki = wiki_idx;
+	if (pWikiLicenseDraw->buf)
+	{
+		memory_free(pWikiLicenseDraw->buf, "wikinfo5");
+		pWikiLicenseDraw->buf = NULL;
+	}
+
 	if (wiki_idx >= 0)
 		nCurrentWiki = wiki_idx;
 

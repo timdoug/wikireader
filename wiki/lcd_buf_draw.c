@@ -38,10 +38,16 @@
 #include "utf8.h"
 #include "highlight.h"
 
-#define MAX_SCROLL_SECONDS 3
-#define LIST_SCROLL_SPEED_FRICTION 0.3
-#define ARTICLE_SCROLL_SPEED_FRICTION 0.3
-#define SCROLL_UNIT_SECOND (1.0 / 30.0)
+/* Kinetic scrolling after a flick: a frame every 1/60 s, with the velocity
+ * decaying by a fixed factor per frame so that it falls to 1/e in about
+ * 0.45 s.  A flick at v pixels per second therefore coasts about 0.45 v
+ * pixels: one screen for a modest flick, two or three for a hard one.  The
+ * old code stepped at 30 Hz and kept 30% of the speed per step, which ended
+ * the coast within four frames. */
+#define FLING_FRAME_SECONDS (1.0 / 60.0)
+#define FLING_DECAY_PER_FRAME 0.9636f
+#define FLING_MIN_SPEED 24
+#define FLING_MAX_FRAMES_PER_STEP 6
 #define LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.1
 #define LIST_LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.35
 /* Sentinel ids just below the top of the article index space. */
@@ -1255,11 +1261,12 @@ int render_article_with_pcf()
 	if (!article_buf_pointer)
 		return 0;
 	/* A storage backend may leave expensive objects in the article stream
-	 * deferred. Keep one screen rendered ahead of the visible viewport and
-	 * resume naturally when display_article_with_pcf() requests more. */
+	 * deferred. Keep a few screens rendered ahead of the visible viewport,
+	 * enough for a flick to coast into, and resume naturally when
+	 * display_article_with_pcf() requests more. */
 	if (article_stream_prepare && display_first_page &&
 	    !request_display_next_page &&
-	    lcd_draw_buf.current_y > lcd_draw_cur_y_pos + 2 * LCD_HEIGHT)
+	    lcd_draw_buf.current_y > lcd_draw_cur_y_pos + 4 * LCD_HEIGHT)
 		return 0;
 	if (article_stream_prepare) {
 		prepare_status = article_stream_prepare(
@@ -1666,27 +1673,17 @@ void display_article_with_pcf(int y_move)
 	display_first_page = 1;
 }
 
-float scroll_speed()
-{
-	float speed = 0;
-
-	if (finger_move_speed)
-	{
-		if (display_mode == DISPLAY_MODE_ARTICLE)
-			speed = (float)finger_move_speed * ARTICLE_SCROLL_SPEED_FRICTION;
-		else
-			speed = (float)finger_move_speed * LIST_SCROLL_SPEED_FRICTION;
-		// integer abs() would truncate the fraction away; compare directly
-		if (speed < 1 / SCROLL_UNIT_SECOND && speed > -1 / SCROLL_UNIT_SECOND)
-			speed = 0;
-	}
-	return speed;
-}
-
 void scroll_article(void)
 {
-	unsigned long time_now, delay_time;
-
+	/* Fractional position and the integer position it was derived from;
+	 * when something else moved the view, restart from the real position. */
+	static float fling_position;
+	static long fling_anchor = -1;
+	unsigned long time_now, delay_time, frame_ticks;
+	unsigned long frames;
+	float velocity;
+	long limit;
+	long new_pos;
 
 	if(finger_move_speed == 0)
 		return;
@@ -1701,50 +1698,70 @@ void scroll_article(void)
 
 	time_now = timer_get();
 	delay_time = time_diff(time_now, time_scroll_article_last);
+	frame_ticks = seconds_to_ticks(FLING_FRAME_SECONDS);
+	frames = delay_time / frame_ticks;
+	if (frames == 0)
+		return;
+	/* Keep the frame phase rather than restarting it, so a late loop pass
+	 * does not stretch the following frame too. */
+	time_scroll_article_last += frames * frame_ticks;
+	if (frames > FLING_MAX_FRAMES_PER_STEP)
+		frames = FLING_MAX_FRAMES_PER_STEP;
 
-	if (delay_time >= seconds_to_ticks(SCROLL_UNIT_SECOND))
+	if (fling_anchor != lcd_draw_cur_y_pos)
+		fling_position = (float)lcd_draw_cur_y_pos;
+	velocity = (float)finger_move_speed;
+	while (frames--)
 	{
-		time_scroll_article_last = time_now;
+		fling_position += velocity * (float)FLING_FRAME_SECONDS;
+		velocity *= FLING_DECAY_PER_FRAME;
+	}
+	finger_move_speed = (velocity > -FLING_MIN_SPEED && velocity < FLING_MIN_SPEED) ?
+		0 : (long)velocity;
+	new_pos = (long)(fling_position + (fling_position >= 0 ? 0.5f : -0.5f));
 
-		if (finger_move_speed)
+	limit = bShowLanguageLinks ? 0 : article_start_y_pos;
+	if (new_pos < limit)
+	{
+		new_pos = limit;
+		finger_move_speed = 0;
+	}
+	else if (bShowLanguageLinks && new_pos >= article_start_y_pos)
+	{
+		bShowLanguageLinks = 0;
+	}
+	if (!bShowLanguageLinks && new_pos > lcd_draw_buf.current_y - LCD_HEIGHT)
+	{
+		/* The rendered part ends here.  At the end of the article stop; if
+		 * more is still being laid out, wait for it without losing speed. */
+		new_pos = lcd_draw_buf.current_y - LCD_HEIGHT;
+		if (new_pos < limit)
+			new_pos = limit;
+		if (!article_buf_pointer)
+			finger_move_speed = 0;
+		fling_position = (float)new_pos;
+	}
+	if (finger_move_speed == 0)
+		fling_position = (float)new_pos;
+	fling_anchor = new_pos;
+
+	if (new_pos != lcd_draw_cur_y_pos)
+	{
+		lcd_draw_cur_y_pos = new_pos;
+		if (display_mode == DISPLAY_MODE_ARTICLE)
 		{
-			article_scroll_increment = (float)finger_move_speed * ((float)delay_time / (float)seconds_to_ticks(1));
-			finger_move_speed = scroll_speed();
-			lcd_draw_cur_y_pos += article_scroll_increment;
-			if(lcd_draw_cur_y_pos < article_start_y_pos)
-			{
-				if (!bShowLanguageLinks)
-					lcd_draw_cur_y_pos = article_start_y_pos;
-				else if (lcd_draw_cur_y_pos < 0)
-					lcd_draw_cur_y_pos = 0;
-			}
-			else if (bShowLanguageLinks)
-			{
-				if (lcd_draw_cur_y_pos >= article_start_y_pos)
-				{
-					bShowLanguageLinks = 0;
-				}
-			}
-			else if (lcd_draw_cur_y_pos > lcd_draw_buf.current_y - LCD_HEIGHT)
-			{
-				lcd_draw_cur_y_pos = lcd_draw_buf.current_y - LCD_HEIGHT;
-			}
-			if (display_mode == DISPLAY_MODE_ARTICLE)
-			{
-				if (lcd_draw_cur_y_pos > article_start_y_pos)
-					history_log_y_pos(lcd_draw_cur_y_pos - article_start_y_pos);
-				else
-					history_log_y_pos(0);
-			}
+			if (lcd_draw_cur_y_pos > article_start_y_pos)
+				history_log_y_pos(lcd_draw_cur_y_pos - article_start_y_pos);
+			else
+				history_log_y_pos(0);
 		}
-
 		repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 1);
+	}
 
-		if (finger_move_speed == 0 && b_show_scroll_bar)
-		{
-			b_show_scroll_bar = 0;
-			show_scroll_bar(0); // clear scroll bar
-		}
+	if (finger_move_speed == 0 && b_show_scroll_bar)
+	{
+		b_show_scroll_bar = 0;
+		show_scroll_bar(0); // clear scroll bar
 	}
 }
 
