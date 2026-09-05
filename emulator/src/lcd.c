@@ -57,8 +57,13 @@ static bool lcd_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		l->reg[idx] = *val;
-		if (off - LCDC_BASE == OFF_MADD)
+		if (off - LCDC_BASE == OFF_MADD) {
 			l->fb_addr = *val;
+			if (l->trace)
+				fprintf(stderr, "  [lcd madd %08x at %llu us]\n",
+					(unsigned)*val,
+					l->clk ? (unsigned long long)(*l->clk / 60) : 0ULL);
+		}
 		l->writes++;
 		return true;
 	}
@@ -130,7 +135,12 @@ bool lcd_driving(const struct lcd *l)
 
 void lcd_reset(struct lcd *l)
 {
+	const uint64_t *clk = l->clk;
+	bool trace = l->trace;
+
 	memset(l, 0, sizeof *l);
+	l->clk = clk;
+	l->trace = trace;
 	/*
 	 * grifo does not publish the framebuffer through MADD: LCD.c's
 	 * LCD_ResetFrameBuffer() loads the linker symbol directly

@@ -204,19 +204,22 @@ int main(int argc, char **argv)
 	bool card_readonly = false;
 	if (getenv("WREMU_HOLD_MS"))
 		hold_cycles = strtoul(getenv("WREMU_HOLD_MS"), NULL, 0) * 60000UL;
+	unsigned long drag_spacing = 300000UL;
+	if (getenv("WREMU_DRAG_MS"))
+		drag_spacing = strtoul(getenv("WREMU_DRAG_MS"), NULL, 0) * 60000UL;
 	bool pc_profile = false;
 	/* Scripted taps and button presses; each -T/-N adds one. */
 	struct script_tap { int x, y; unsigned long at; bool down_done, up_done; };
 	struct script_btn { int code; unsigned long at; bool down_done, up_done; };
 	struct script_tap taps[NSCRIPT]; unsigned ntaps = 0;
 	struct script_btn btns[NSCRIPT]; unsigned nbtns = 0;
-	struct script_drag { int x, y0, y1; unsigned long at; bool announced; };
+	struct script_drag { int x, y0, y1; unsigned long at; bool announced;
+	unsigned step; };
 	struct script_drag drags[NSCRIPT]; unsigned ndrags = 0;
 	const char *eeprom_path = NULL;
 /* How long a scripted press is held before release; WREMU_HOLD_MS overrides. */
 #define HOLD_CYCLES  hold_cycles
 /* Total span of a scripted drag, from its first packet to its last. */
-#define DRAG_SPAN    (16UL * 300000UL)
 	unsigned long long last_touch_post = 0;
 	unsigned long long next_gui_pump = 0;
 	unsigned long long idle_skipped = 0;
@@ -352,7 +355,7 @@ int main(int argc, char **argv)
 		}
 		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
 			/* scripted drag: -G x,y0,y1,cycle (repeatable) */
-			struct script_drag g = { -1, 0, 0, 0, false };
+			struct script_drag g = { -1, 0, 0, 0, false, 0 };
 			sscanf(argv[++i], "%d,%d,%d,%lu", &g.x, &g.y0, &g.y1, &g.at);
 			if (g.x >= 0 && ndrags < NSCRIPT)
 				drags[ndrags++] = g;
@@ -566,6 +569,8 @@ int main(int argc, char **argv)
 
 	struct timerblk timer;
 	timer_attach(&mem, &timer, &cpu.clk, &itc, &cmu);
+	lcd.clk = &cpu.clk;
+	lcd.trace = getenv("WREMU_LCD_TRACE") != NULL;
 	/*
 	 * With a window, measure time the way the person holding the mouse
 	 * does. Headless runs keep the cycle-derived tick so they stay
@@ -679,13 +684,19 @@ int main(int argc, char **argv)
 		 * makes this a drag rather than a tap.
 		 */
 #define DRAG_STEPS   16
-#define DRAG_SPACING 300000UL
+		/* WREMU_DRAG_MS stretches a scripted drag: milliseconds per
+		 * step instead of the default 5, for slow-finger tests. */
+		/*
+		 * Edge triggered like taps and buttons: a step is due once the
+		 * counter has passed its time.  An earlier exact-multiple test
+		 * only fired when an instruction happened to end on the boundary,
+		 * so steps arrived late and at random while the guest was busy.
+		 */
 		for (unsigned k2 = 0; k2 < ndrags; k2++) {
 			struct script_drag *g = &drags[k2];
-			if (script_armed && cpu.cycles >= g->at &&
-			    cpu.cycles <= g->at + DRAG_STEPS * DRAG_SPACING &&
-			    ((cpu.cycles - g->at) % DRAG_SPACING) == 0) {
-				unsigned long k = (cpu.cycles - g->at) / DRAG_SPACING;
+			if (script_armed && g->step <= DRAG_STEPS &&
+			    cpu.cycles >= g->at + g->step * drag_spacing) {
+				unsigned long k = g->step++;
 				int y = g->y0 + (int)((g->y1 - g->y0) * (int)k) / DRAG_STEPS;
 				bool down = k < DRAG_STEPS;
 				if (!g->announced) {
@@ -693,6 +704,9 @@ int main(int argc, char **argv)
 					fprintf(stderr, "  [drag %d,%d -> %d,%d]\n",
 						g->x, g->y0, g->x, g->y1);
 				}
+				if (getenv("WREMU_TOUCH_TRACE"))
+					fprintf(stderr, "  [drag step %lu y %d at %llu]\n",
+						k, y, (unsigned long long)cpu.cycles);
 				touch_post(&touch, &cpu, g->x, y, down);
 			}
 		}
@@ -1025,8 +1039,11 @@ int main(int argc, char **argv)
 			}
 			for (unsigned k = 0; k < ndrags; k++) {
 				const struct script_drag *g = &drags[k];
-				if (g->at + DRAG_SPAN > cpu.cycles && g->at < next)
-					next = g->at > cpu.cycles ? g->at : cpu.cycles + 1;
+				if (g->step <= DRAG_STEPS) {
+					unsigned long long due = g->at + g->step * drag_spacing;
+					if (due < next)
+						next = due > cpu.cycles ? due : cpu.cycles + 1;
+				}
 			}
 			for (unsigned k = 0; k < nbtns; k++) {
 				const struct script_btn *b = &btns[k];

@@ -115,8 +115,16 @@ after the window opens, in panel pixels; an item of the form
 `-g -N 3,1000000` to switch the device on and `-n` to end the run and write
 `screen.pgm`. Scripted `-N` presses are timed in guest cycles, which advance
 at roughly a third of wall-clock rate while the window idles.
-`WREMU_TOUCH_TRACE=1` logs each packet the window hands to the touch panel,
-and `WREMU_WALLCLOCK=1` gives a headless run the window's wall-clock tick.
+`WREMU_TOUCH_TRACE=1` logs each packet the window hands to the touch panel
+and each scripted drag step, and `WREMU_WALLCLOCK=1` gives a headless run the
+window's wall-clock tick. `WREMU_DRAG_MS=N` spaces the sixteen steps of a
+scripted `-G` drag N units apart instead of 5 (the unit is the `-G` cycle
+count, which is instructions retired, so the guest time depends on the
+firmware's work per instruction). `WREMU_LCD_TRACE=1` logs every write of the
+LCD controller's framebuffer address with the MCLK time; while the firmware
+scrolls by repointing that address, this is one line per displayed frame and
+the cleanest way to measure scrolling frame rate, since it costs the guest
+nothing (a serial trace inside the firmware stalls it for tens of ms a line).
 
 ### Benchmarking
 
