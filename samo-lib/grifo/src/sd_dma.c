@@ -25,23 +25,21 @@
 #define DMA_TIMEOUT_POLLS 400000UL
 
 /*
- * The register sequence comes from the 2009 driver samo-lib/drivers/src/
- * sd_spi.c, written by Epson Shanghai for this board.  It differs from the
- * first Grifo backend in two places, and a kernel with that backend never
- * reached init.app on a real WikiReader while a PIO kernel did:
+ * The first Grifo backend slept in HALT for the HSDMA channel-3 terminal
+ * count cause.  In the emulator that cause woke the core; on a real
+ * WikiReader (stock 2009 flash, 2026-09-05) it never did, and the kernel
+ * hung on the boot splash.  Polling the flag instead, both this register
+ * sequence and the one from the 2009 Epson Shanghai driver in
+ * samo-lib/drivers/src/sd_spi.c completed every block on hardware.
  *
- *   - it never writes the IDMA enable register (0x301105); the request and
- *     enable bits in the interrupt controller alone let hardware IDMA feed
- *     the dummy transmit bytes
- *   - it waits by polling the HSDMA channel's enable bit, which the
- *     controller clears at terminal count, not by sleeping on the ITC flag
- *
- * SD_DMA_LEGACY_SEQUENCE=1 follows that driver exactly; 0 keeps the first
- * backend's sequence.  Either way the wait is bounded, and on a timeout the
- * engines are stopped and the caller is told how many bytes of the block
- * are complete so the byte-at-a-time SPI loop can finish it; DMA is then
- * left off for the rest of the session.  SD_DMA_status() describes what
- * happened, for the serial console and the dma.txt file on the boot volume.
+ * SD_DMA_LEGACY_SEQUENCE=1 follows that 2009 driver exactly: no write to
+ * the IDMA enable register (0x301105), completion read from the channel
+ * enable bit.  0 keeps the Grifo sequence, which the emulator models.
+ * Either way the wait is bounded, and on a timeout the engines are stopped
+ * and the caller is told how many bytes of the block are complete so the
+ * byte-at-a-time SPI loop can finish it; DMA is then left off for the rest
+ * of the session.  SD_DMA_status() describes what happened, for the serial
+ * console and the dma.txt file on the boot volume.
  */
 #ifndef SD_DMA_LEGACY_SEQUENCE
 #define SD_DMA_LEGACY_SEQUENCE 0
@@ -192,16 +190,28 @@ const char *SD_DMA_status(void)
 	return dma_status;
 }
 
-/* Leave a note on the boot volume for a device without a serial cable. */
+/* Leave a note on the boot volume for a device without a serial cable,
+ * rewriting it only when it changes so an ordinary boot writes nothing. */
 void SD_DMA_report(void)
 {
 	const char *status = SD_DMA_status();
-	int handle = File_create("dma.txt", FILE_OPEN_WRITE);
+	size_t length = strlen(status);
+	char previous[sizeof(dma_status) + 1];
+	int handle;
 
 	Serial_printf("%s\n", status);
+	handle = File_open("dma.txt", FILE_OPEN_READ);
+	if (handle >= 0) {
+		ssize_t got = File_read(handle, previous, sizeof(previous));
+		File_close(handle);
+		if (got == (ssize_t)length + 1 &&
+		    !memcmp(previous, status, length) && previous[length] == '\n')
+			return;
+	}
+	handle = File_create("dma.txt", FILE_OPEN_WRITE);
 	if (handle < 0)
 		return;
-	File_write(handle, (void *)status, strlen(status));
+	File_write(handle, (void *)status, length);
 	File_write(handle, "\n", 1);
 	File_close(handle);
 }

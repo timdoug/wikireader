@@ -105,12 +105,12 @@ BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
 build/file.o: CFLAGS += -std=gnu99
 
 # SD block payloads by HSDMA/IDMA (SD_DMA=YES) or by the MMC driver's own
-# byte-at-a-time SPI loop (NO).  The DMA path runs in the emulator but on a
-# real board (stock 2009 flash, 8 GB card, 2026-09-05) the kernel never got
-# as far as init.app with it, and swapping in a SD_DMA=NO kernel booted, so
-# the emulator's DMA model is forgiving something the silicon is not.  Keep
-# PIO the default until the DMA driver has been debugged on hardware.
-SD_DMA ?= NO
+# byte-at-a-time SPI loop (NO).  On a real board (stock 2009 flash, 8 GB
+# card, 2026-09-05) the first DMA backend hung on the boot splash because it
+# slept in HALT for the HSDMA terminal-count interrupt, which never woke the
+# core; with the bounded poll in src/sd_dma.c both register sequences
+# completed every block of the mount on hardware, so DMA is the default.
+SD_DMA ?= YES
 # SD_DMA_LEGACY=YES programs the engines exactly as the 2009 sd_spi.c did;
 # see the note in src/sd_dma.c.
 SD_DMA_LEGACY ?= NO
