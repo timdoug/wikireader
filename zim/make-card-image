@@ -6,7 +6,7 @@ set -eu
 usage()
 {
 	cat <<EOF
-usage: $(basename "$0") OUTPUT.dmg ZIM_FILE...
+usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... ZIM_FILE...
        $(basename "$0") ZIM_FILE OUTPUT.dmg
 
 Create an MBR disk image with:
@@ -14,6 +14,11 @@ Create an MBR disk image with:
                zim.app and its icon; init.ini lists zim.app and wiki.app,
                so the launcher offers both at power on
   partition 2: exFAT volume containing every ZIM_FILE under its own name
+
+--wiki DIR copies a native WikiReader data set (a folder such as enpedia or
+enquote holding wiki.idx, wiki.fnd, wiki*.dat, ...) onto the boot volume,
+which grows to hold it, so the stock wiki.app in the launcher has something to
+open.  The folder name must be one listed in ROOT_IMAGE/wiki.inf.
 
 With several archives the reader offers a choice through the keyboard's globe
 key and remembers the selection.
@@ -30,6 +35,37 @@ case "$1" in
 	*.dmg) output=$1; shift ;;
 	*) zim_first=$1; output=$2; shift 2; set -- "$zim_first" "$@" ;;
 esac
+# Separate --wiki DIR pairs from the archives (one directory per line).
+native_dirs=
+native_bytes=0
+zim_files=
+for arg in "$@"; do
+	if [ -n "${want_dir:-}" ]; then
+		[ -d "$arg" ] && [ -f "$arg/wiki.idx" ] || {
+			echo "error: --wiki $arg is not a native data set directory" >&2
+			exit 2
+		}
+		native_dirs="${native_dirs}${arg}
+"
+		native_bytes=$(( native_bytes + $(du -sk "$arg" | cut -f1) * 1024 ))
+		want_dir=
+	elif [ "$arg" = "--wiki" ]; then
+		want_dir=1
+	else
+		zim_files="${zim_files}${arg}
+"
+	fi
+done
+[ -z "${want_dir:-}" ] || usage 2
+set --
+old_ifs=$IFS
+IFS='
+'
+for zim_file in $zim_files; do
+	set -- "$@" "$zim_file"
+done
+IFS=$old_ifs
+[ "$#" -ge 1 ] || usage 2
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root_dir=$(dirname -- "$script_dir")
 kernel="$root_dir/samo-lib/grifo/grifo.elf"
@@ -67,8 +103,11 @@ zim_bytes=0
 for zim_file in "$@"; do
 	zim_bytes=$(( zim_bytes + $(stat -f %z "$zim_file") ))
 done
-# Reserve the 64 MiB boot partition plus ample exFAT metadata and copy slack.
-image_mib=$(( (zim_bytes + 256 * 1024 * 1024 + 1024 * 1024 - 1) / (1024 * 1024) ))
+# The boot partition holds the stock files, the apps, and any native data
+# sets; the 64 MiB floor leaves room for history and settings.
+boot_mib=$(( 64 + (native_bytes + native_bytes / 20 + 1024 * 1024 - 1) / (1024 * 1024) ))
+# Add ample exFAT metadata and copy slack for the archives.
+image_mib=$(( boot_mib + (zim_bytes + 192 * 1024 * 1024 + 1024 * 1024 - 1) / (1024 * 1024) ))
 boot_label="WRBOOT$$"
 content_label="WRZIM$$"
 device=
@@ -107,7 +146,7 @@ printf '%s\n' "$disk_info" | grep -Eq 'Virtual: +Yes$' || {
 
 echo "Partitioning $device..."
 diskutil partitionDisk "$device" MBR \
-	FAT32 "$boot_label" 64M \
+	FAT32 "$boot_label" "${boot_mib}M" \
 	ExFAT "$content_label" R >/dev/null
 
 boot_mount=$(diskutil info "${device}s1" | sed -n 's/^ *Mount Point: *//p')
@@ -128,6 +167,14 @@ cp "$nls" "$boot_mount/zim/wiki.nls"
 # the wiki.app line for an unattended boot straight into the reader.
 printf '%s\n' 'zim.ico : zim.app started-from-init' \
 	'wiki.ico : wiki.app started-from-init' > "$boot_mount/init.ini"
+
+IFS='
+'
+for native_dir in $native_dirs; do
+	echo "Copying $(basename "$native_dir") data set to the boot volume..."
+	cp -R "$native_dir" "$boot_mount/$(basename "$native_dir")"
+done
+IFS=$old_ifs
 
 for zim_file in "$@"; do
 	echo "Copying $(basename "$zim_file") to exFAT content volume..."

@@ -77,6 +77,21 @@ The boot volume receives the stock `ROOT_IMAGE` contents, the current kernel
 and launcher, `zim.app` with `zim.ico`, and an `init.ini` listing the reader
 first and the stock `wiki.app` second.
 
+The stock app needs a data set in the original format, which this repository
+does not contain (the `host-tools/offline-renderer` pipeline that makes one
+wants PHP 5, Python 2, and a MediaWiki dump). If you have such a folder from a
+WikiReader card or download, `enpedia` or `enquote` for example with
+`wiki.idx`, `wiki.fnd`, `wiki.pfx`, `wiki.nls`, and `wiki*.dat` inside, pass it
+with `--wiki DIR` and the FAT32 volume grows to hold it:
+
+```sh
+./zim/make-card-image /tmp/card.dmg --wiki /path/to/enquote \
+    wikivoyage_en_all_maxi_2026-06.zim
+```
+
+The folder name must match a line in `ROOT_IMAGE/wiki.inf`; the stock app
+lists every folder it finds there and starts on the one `wiki.ini` names.
+
 The script refuses to overwrite an existing image and verifies that the
 device it repartitions is the virtual disk image it just attached. It does not
 write to a physical SD card.
