@@ -19,7 +19,8 @@ the complete WikiReader firmware.
 | GCC 16.2 | Builds the kernel, boot applications, `init.app`, and `wiki.app`; short/long calls, delay slots, `%r15` data addressing, strict alignment, soft-float, variadic forwarding, sibling calls, trampolines, and three core multilibs are implemented. Bit-memory operands are restricted to the base-plus-constant forms the ISA can encode. |
 | ABI | New and original objects cross-call in all four compiler combinations and agree at five optimization levels. |
 | Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo uses FatFs R0.16 with FAT32/exFAT, multiple volumes, compact fast-seek maps, and 64-bit file positions. |
-| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. |
+| Hardware | Run on a real WikiReader with its stock 2009 flash on 2026-09-05 from an 8 GB card: the factory loader loads the gcc 16 kernel; the launcher, ZIM reader (two archives), stock `wiki.app` on a Wikiquote data set, SD DMA, suspend/resume, scrolling, and history across a power cycle all work. Two hardware-only defects were found and fixed (see below). |
+| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. Known divergence: it wakes a HALTed core on the HSDMA terminal-count cause; the silicon does not. |
 | DejaGnu | The standard GCC board is authoritative. Focused execution suites are clean; the final post-fix unfiltered run is still pending. |
 
 There is no known wrong-code failure in a supported C or ABI feature. The
@@ -55,7 +56,19 @@ make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
 
 Do not mix objects or archives from the two compilers in an incremental
 firmware build. Clean the affected component when changing compiler,
-optimization level, ABI code, or multilib.
+optimization level, ABI code, or multilib. The firmware Makefiles do not
+track flag changes either: after changing a `-D` define, `touch` the sources
+that use it.
+
+A complete rebuild from source, as done on 2026-09-05 for the first card that
+went onto hardware: move `host-tools/toolchain-c33/work` aside, keep only the
+two tarballs, run the two scripts above (about 19 CPU-minutes), then
+`make -C <dir> clean` for `samo-lib/{mini-libc,fatfs,drivers,grifo}`, `wiki`,
+and `zim`, and rebuild in that order with `TOOLCHAIN_BIN` set. The kernel came
+out byte-identical to the incremental build. `samo-lib/grifo clean` removes
+the generated `grifo/include/grifo.h`, which the host `zim-reader` tests
+include, so run those after the kernel is rebuilt. `samo-lib/mbr` (the
+emulator's `flash.rom`) needs gawk; the device uses its factory flash.
 
 The shipped compiler remains available as an ABI and assembler oracle:
 
@@ -137,22 +150,42 @@ framebuffers are byte-identical. Milliseconds are predictions from the 60 MHz
 MCLK, SPI, DMA, and SDRAM models; real hardware must calibrate absolute card
 latency and cross-bank SDRAM overlap.
 
-The production DMA backend waits in HALT for HSDMA3 terminal count instead of
-polling its enable bit. A fixed 300-million-cycle boot/search/article run drops
-from 160,069,719 to 151,391,234 executed instructions and from 6094.8 to
-6015.4 modeled ms. Both paths read 915 blocks, perform identical DMA transfers,
-and render identical screens.
+The DMA backend originally waited in HALT for the HSDMA3 terminal-count
+cause. In the emulator that cause wakes the core; on the real chip it never
+did, and the first DMA kernel hung on the boot splash while a PIO kernel
+booted. The backend now polls the flag with a 20 ms bound; on a timeout it
+stops the engines, finishes the block byte by byte with exact accounting of
+what arrived, disables DMA for the session, and leaves `dma.txt` on the boot
+volume describing the fallback (a healthy boot writes nothing). On hardware
+every block of the mount and of the following session completed by DMA. The
+2009 Epson Shanghai register sequence in `samo-lib/drivers/src/sd_spi.c`,
+which differs only in never writing the IDMA enable register, also worked.
+
+The second hardware-only defect was in grifo's suspend code: gcc 16 spilled
+the three saved CMU registers to the stack, which lives in the SDRAM the code
+had just switched off, so resume restored garbage clocks. The values now live
+in A0 RAM scratch, and the grifo link fails if `.suspend_text` references
+`%sp`. Rule for both: the emulator does not know which interrupt causes wake
+HALT, and it forgives accesses to a switched-off SDRAM; do not sleep on a DMA
+completion cause, and keep suspend-path state out of SDRAM.
 
 The pre-kernel MBR/menu/file-loader still reads by PIO. Kernel block reads use
 DMA; card writes remain PIO. The file-loader fits A0 with 371 bytes of live
 headroom. The menu is tighter: its BSS ends 18 bytes below the end of A0.
 
 The ZIM reader uses Grifo's FatFs service rather than parsing a filesystem
-itself. Its preferred card layout keeps the boot chain on a small FAT32 first
-partition and stores `wiki.zim` on a second exFAT partition. A contiguous
-exFAT file produces its 16-byte seek map directly from filesystem metadata;
-fragmented files still use FatFs's normal chain traversal. The existing
-single-volume FAT32 layout remains a fallback for archives below 4 GiB.
+itself. Its card layout keeps the boot chain on a FAT32 first partition, with
+`zim.app` and its Kiwix icon beside the stock `wiki.app` in `init.ini`, and
+stores any number of `*.zim` archives on a second exFAT partition, chosen at
+run time through the original wiki-selection screen. A contiguous exFAT file
+produces its 16-byte seek map directly from filesystem metadata; fragmented
+files still use FatFs's normal chain traversal. The single-volume FAT32
+layout remains a fallback for archives below 4 GiB. `zim/make-card-image
+--wiki DIR` also installs a native data set for the stock app. The complete
+124 GB English Wikipedia archive (27.2 M entries) runs in the emulator; that
+needed 27-bit article ids, per-capitalization prefix probes, and a placeholder
+budget so picture-heavy articles fit the 512 KiB stream. It has not yet been
+written to a card.
 
 The current contiguous 944 MiB archive has been tested through full FLASH
 boot, prefix search, and article rendering. With current binaries, direct
@@ -218,7 +251,14 @@ These are not GCC/binutils correctness bugs and require separate approval:
 ### Emulator boundaries
 
 - The SDRAM model serializes cross-bank command/data phases conservatively.
-- Absolute SD-card response latency needs measurement on a real device.
+- Absolute SD-card response latency needs measurement on a real device; the
+  device now boots, so a timed article load against `SD_DMA=NO` would
+  calibrate it.
+- HALT wake-up: the model wakes the core on any enabled ITC cause, including
+  the HSDMA terminal count, which the hardware did not do. Firmware should
+  poll DMA completion.
+- SDRAM with the controller's application unit off: accesses return the
+  underlying cells in the model; the hardware returns nothing useful.
 - Firmware plus differential tests execute 57 of 74 implemented PE
   operations; focused core tests cover most of the remainder. Targeted
   independent coverage of stack-special and indirect-jump forms is still
@@ -231,18 +271,22 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-1. Make modern-vs-legacy firmware toolchain selection explicit and resistant
-   to stale mixed objects.
-2. Add targeted independent runtime coverage for the implemented PE
+1. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
+   hardware checklist; time a Cat load on hardware with `SD_DMA=YES` and
+   `SD_DMA=NO` to calibrate the SD model.
+2. Make modern-vs-legacy firmware toolchain selection explicit and resistant
+   to stale mixed objects, and make the firmware Makefiles notice flag
+   changes.
+3. Speed up `zim_html_to_text_images` (1.75 s for a 728 KB article, a third
+   of the decode time for far less data) if full-English loads feel slow.
+4. Add targeted independent runtime coverage for the implemented PE
    operations not reached by firmware or differential programs.
-3. Exercise an unstripped C33 program with a real debugger and verify
+5. Exercise an unstripped C33 program with a real debugger and verify
    stepping, frames, arguments, and variables.
-4. Automate the stock/modern/PIO/DMA card-image benchmark.
-5. Refine documented cross-bank SDRAM overlap; keep absolute timing claims
-   conditional on hardware calibration.
-6. Run the complete post-fix DejaGnu suite when the multi-hour validation is
+6. Refine documented cross-bank SDRAM overlap once hardware timings exist.
+7. Run the complete post-fix DejaGnu suite when the multi-hour validation is
    wanted, then treat its fresh failures as the only broad-suite backlog.
-7. Add link-time A0 size assertions, especially for the menu.
+8. Add link-time A0 size assertions, especially for the menu.
 8. Exercise the ZIM reader with a complete full-English archive and replace
    its fixed 512 KiB decoded-article buffer if real articles exceed it.
 9. Consider a small decoded-image cache if navigation repeatedly revisits the

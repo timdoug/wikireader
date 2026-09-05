@@ -99,7 +99,9 @@ and opens the Love article, and the kiwi still opens the ZIM reader.
 
 The script refuses to overwrite an existing image and verifies that the
 device it repartitions is the virtual disk image it just attached. It does not
-write to a physical SD card.
+write to a physical SD card. Keep finished images somewhere other than `/tmp`:
+macOS clears it periodically, and a 124 GB image takes half an hour to
+rebuild.
 
 ## Emulator
 
