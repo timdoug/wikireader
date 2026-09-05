@@ -90,7 +90,12 @@ with `--wiki DIR` and the FAT32 volume grows to hold it:
 ```
 
 The folder name must match a line in `ROOT_IMAGE/wiki.inf`; the stock app
-lists every folder it finds there and starts on the one `wiki.ini` names.
+lists every folder it finds there, and the script points `wiki.ini` at the
+first data set it installs. When `wiki/wiki.app` has been built from this tree
+(`cd wiki && make TOOLCHAIN_BIN=...`), the script installs that instead of the
+2019 release build in `ROOT_IMAGE`. Verified in the emulator with a Wikiquote
+data set: the launcher's WikiReader icon starts the stock app, "love" finds
+and opens the Love article, and the kiwi still opens the ZIM reader.
 
 The script refuses to overwrite an existing image and verifies that the
 device it repartitions is the virtual disk image it just attached. It does not

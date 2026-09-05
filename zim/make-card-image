@@ -158,6 +158,9 @@ echo "Installing firmware..."
 cp -R "$root_dir/ROOT_IMAGE/." "$boot_mount/"
 cp "$kernel" "$boot_mount/kernel.elf"
 cp "$init_app" "$boot_mount/init.app"
+# Prefer a wiki.app built from this tree, which matches the kernel; the
+# ROOT_IMAGE copy is the 2019 release build.
+[ ! -f "$root_dir/wiki/wiki.app" ] || cp "$root_dir/wiki/wiki.app" "$boot_mount/wiki.app"
 cp "$zim_app" "$boot_mount/zim.app"
 cp "$zim_icon" "$boot_mount/zim.ico"
 mkdir -p "$boot_mount/zim"
@@ -175,6 +178,14 @@ for native_dir in $native_dirs; do
 	cp -R "$native_dir" "$boot_mount/$(basename "$native_dir")"
 done
 IFS=$old_ifs
+# The stock app numbers data sets by their line in wiki.inf and starts on
+# the one wiki.ini names; point it at the first data set installed.
+first_native=$(printf '%s' "$native_dirs" | head -n 1)
+if [ -n "$first_native" ]; then
+	wiki_id=$(grep -n -m 1 "^ *[A-Z]*, *[a-z]*, *$(basename "$first_native") *," \
+		"$boot_mount/wiki.inf" | cut -d: -f1)
+	[ -z "$wiki_id" ] || echo "wiki_id=$wiki_id" > "$boot_mount/wiki.ini"
+fi
 
 for zim_file in "$@"; do
 	echo "Copying $(basename "$zim_file") to exFAT content volume..."
