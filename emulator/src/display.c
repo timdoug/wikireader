@@ -488,11 +488,18 @@ void display_handle_event(struct display *d, const SDL_Event *ev)
 
 
 /*
- * Synthetic clicks for exercising the window's input path without a hand
- * on the mouse: WREMU_GUI_CLICKS="x,y,at_ms[,hold_ms];..." in panel pixels
- * and wall-clock milliseconds since the window opened.
+ * Synthetic input for exercising the window's own path without a hand on the
+ * mouse.  WREMU_GUI_CLICKS holds ';'-separated items in panel pixels and
+ * wall-clock milliseconds since the window opened:
+ *   x,y,at_ms[,hold_ms]        a left click held hold_ms (default 80)
+ *   d:x,y0,y1,at_ms[,ms]       a drag from y0 to y1 taking ms (default 300)
  */
-struct gui_click { int x, y; unsigned at, hold; bool down_done, up_done; };
+struct gui_click {
+	int x, y, y1;
+	unsigned at, hold;
+	bool drag, down_done, up_done;
+	unsigned last_motion;
+};
 static struct gui_click gui_clicks[16];
 static unsigned n_gui_clicks;
 static unsigned gui_open_ms;
@@ -503,9 +510,20 @@ static void gui_clicks_parse(void)
 	while (s && *s && n_gui_clicks < 16) {
 		struct gui_click *c = &gui_clicks[n_gui_clicks];
 		int n = 0;
-		c->hold = 80;
-		if (sscanf(s, "%d,%d,%u,%u%n", &c->x, &c->y, &c->at, &c->hold, &n) < 3)
-			break;
+		memset(c, 0, sizeof *c);
+		if (s[0] == 'd' && s[1] == ':') {
+			c->drag = true;
+			c->hold = 300;
+			if (sscanf(s + 2, "%d,%d,%d,%u,%u%n", &c->x, &c->y, &c->y1,
+				   &c->at, &c->hold, &n) < 4)
+				break;
+			n += 2;
+		} else {
+			c->hold = 80;
+			if (sscanf(s, "%d,%d,%u,%u%n", &c->x, &c->y, &c->at,
+				   &c->hold, &n) < 3)
+				break;
+		}
 		n_gui_clicks++;
 		s += n;
 		if (*s == ';') s++;
@@ -513,26 +531,48 @@ static void gui_clicks_parse(void)
 	gui_open_ms = SDL_GetTicks();
 }
 
+static void gui_push_mouse(struct display *d, Uint32 type, int x, int y)
+{
+	SDL_Event ev;
+	memset(&ev, 0, sizeof ev);
+	ev.type = type;
+	if (type == SDL_MOUSEMOTION) {
+		ev.motion.x = x * d->scale;
+		ev.motion.y = y * d->scale;
+		ev.motion.state = SDL_BUTTON_LMASK;
+	} else {
+		ev.button.button = SDL_BUTTON_LEFT;
+		ev.button.x = x * d->scale;
+		ev.button.y = y * d->scale;
+	}
+	SDL_PushEvent(&ev);
+}
+
 static void gui_clicks_pump(struct display *d)
 {
 	unsigned now = SDL_GetTicks() - gui_open_ms;
 	for (unsigned i = 0; i < n_gui_clicks; i++) {
 		struct gui_click *c = &gui_clicks[i];
-		SDL_Event ev;
-		memset(&ev, 0, sizeof ev);
-		ev.button.button = SDL_BUTTON_LEFT;
-		ev.button.x = c->x * d->scale;
-		ev.button.y = c->y * d->scale;
 		if (!c->down_done && now >= c->at) {
 			c->down_done = true;
-			ev.type = SDL_MOUSEBUTTONDOWN;
-			fprintf(stderr, "  [gui click down %d,%d at %u ms]\n", c->x, c->y, now);
-			SDL_PushEvent(&ev);
+			c->last_motion = now;
+			fprintf(stderr, "  [gui %s down %d,%d at %u ms]\n",
+				c->drag ? "drag" : "click", c->x, c->y, now);
+			gui_push_mouse(d, SDL_MOUSEBUTTONDOWN, c->x, c->y);
 		} else if (c->down_done && !c->up_done && now >= c->at + c->hold) {
 			c->up_done = true;
-			ev.type = SDL_MOUSEBUTTONUP;
-			fprintf(stderr, "  [gui click up at %u ms]\n", now);
-			SDL_PushEvent(&ev);
+			int y = c->drag ? c->y1 : c->y;
+			if (c->drag)
+				gui_push_mouse(d, SDL_MOUSEMOTION, c->x, y);
+			fprintf(stderr, "  [gui %s up %d,%d at %u ms]\n",
+				c->drag ? "drag" : "click", c->x, y, now);
+			gui_push_mouse(d, SDL_MOUSEBUTTONUP, c->x, y);
+		} else if (c->drag && c->down_done && !c->up_done &&
+			   now - c->last_motion >= 16) {
+			c->last_motion = now;
+			int y = c->y + (int)((long)(c->y1 - c->y) *
+					     (long)(now - c->at) / (long)c->hold);
+			gui_push_mouse(d, SDL_MOUSEMOTION, c->x, y);
 		}
 	}
 }
