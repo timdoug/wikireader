@@ -26,7 +26,10 @@ typedef enum {
 	RES_PARERR,		/* 4: Invalid Parameter */
 } DRESULT;
 
-typedef void (*mmc_spi_receive_dma_fn)(BYTE *buff, UINT byte_count);
+/* Receive byte_count bytes of a data block by DMA.  Returns how many bytes
+ * at the start of buff are complete (the caller reads the rest itself), or
+ * -1 when the transfer is beyond recovery and the block must be failed. */
+typedef int (*mmc_spi_receive_dma_fn)(BYTE *buff, UINT byte_count);
 
 void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma);
 

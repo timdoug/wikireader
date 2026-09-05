@@ -111,9 +111,15 @@ build/file.o: CFLAGS += -std=gnu99
 # the emulator's DMA model is forgiving something the silicon is not.  Keep
 # PIO the default until the DMA driver has been debugged on hardware.
 SD_DMA ?= NO
+# SD_DMA_LEGACY=YES programs the engines exactly as the 2009 sd_spi.c did;
+# see the note in src/sd_dma.c.
+SD_DMA_LEGACY ?= NO
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
 CFLAGS += -DSD_DMA_ENABLED=1
+ifeq (YES,$(strip ${SD_DMA_LEGACY}))
+CFLAGS += -DSD_DMA_LEGACY_SEQUENCE=1
+endif
 else
 SD_DMA_OBJECT =
 CFLAGS += -DSD_DMA_ENABLED=0

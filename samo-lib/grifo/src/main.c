@@ -130,6 +130,10 @@ void process(void)
 
 	File_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
+#if SD_DMA_ENABLED
+	SD_DMA_report();
+	Watchdog_KeepAlive(WATCHDOG_KEY);
+#endif
 
 	Suspend_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);

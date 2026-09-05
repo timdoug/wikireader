@@ -158,12 +158,16 @@ static BOOL rcvr_datablock(BYTE *buff, UINT byte_count)
 
 	if ((REG_CMU_GATEDCLK1 & DMA_CKE) && byte_count > 1 &&
 	    spi_receive_dma != 0) {
-		spi_receive_dma(buff, byte_count);
-	} else {
-		do {					// Receive the data block into buffer
-			*buff++ = spi_receive();
-			*buff++ = spi_receive();
-		} while ((byte_count -= 2) != 0);
+		int done = spi_receive_dma(buff, byte_count);
+		if (done < 0) {
+			return FALSE;			// block lost
+		}
+		buff += done;
+		byte_count -= (UINT)done;
+	}
+	while (byte_count != 0) {			// Receive the rest into buffer
+		*buff++ = spi_receive();
+		byte_count--;
 	}
 	(void)spi_receive();				// Discard CRC
 	(void)spi_receive();
