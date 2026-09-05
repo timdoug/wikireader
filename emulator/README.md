@@ -240,11 +240,15 @@ The production read backend uses HSDMA channel 3 for SPI RX and IDMA channel
 `0x24` to write dummy TX bytes. The model covers the dual-address, byte-wide,
 single-transfer behavior used by firmware: request selection, priority,
 counters, address updates, terminal enable clearing, descriptor writeback,
-clock gating, global IDMA enable, and the terminal interrupt cause. HSDMA and
-IDMA continue while the CPU is in HALT; the enabled channel-3 cause wakes the
-CPU without entering a handler while PSR.IE is clear. One 512-byte block
-performs 512 HSDMA and 511 IDMA transfers. Unused DMA modes and trigger sources
-are not modeled.
+clock gating, global IDMA enable, and the terminal interrupt cause. One
+512-byte block performs 512 HSDMA and 511 IDMA transfers. Unused DMA modes and
+trigger sources are not modeled.
+
+Known divergence: the model lets the channel-3 terminal-count cause wake a
+HALTed core. A real WikiReader (stock 2009 flash) never woke, and a kernel
+that slept on that cause hung on the boot splash. The kernel now polls the
+flag, which works on both. Do not rely on the emulator to tell you which
+interrupt causes wake HALT.
 
 ### Peripherals
 

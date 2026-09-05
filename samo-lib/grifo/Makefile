@@ -108,18 +108,12 @@ build/file.o: CFLAGS += -std=gnu99
 # byte-at-a-time SPI loop (NO).  On a real board (stock 2009 flash, 8 GB
 # card, 2026-09-05) the first DMA backend hung on the boot splash because it
 # slept in HALT for the HSDMA terminal-count interrupt, which never woke the
-# core; with the bounded poll in src/sd_dma.c both register sequences
-# completed every block of the mount on hardware, so DMA is the default.
+# core; with the bounded poll in src/sd_dma.c DMA runs on hardware and is
+# the default.  NO keeps the byte-at-a-time fallback as the only path.
 SD_DMA ?= YES
-# SD_DMA_LEGACY=YES programs the engines exactly as the 2009 sd_spi.c did;
-# see the note in src/sd_dma.c.
-SD_DMA_LEGACY ?= NO
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
 CFLAGS += -DSD_DMA_ENABLED=1
-ifeq (YES,$(strip ${SD_DMA_LEGACY}))
-CFLAGS += -DSD_DMA_LEGACY_SEQUENCE=1
-endif
 else
 SD_DMA_OBJECT =
 CFLAGS += -DSD_DMA_ENABLED=0

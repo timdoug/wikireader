@@ -268,6 +268,17 @@ decoded eagerly. Lossy images are decoded directly to scaled luma/alpha; the
 first photograph's decode falls from 3.64 to 2.44 modeled seconds without an
 RGB intermediate buffer.
 
+## Hardware status
+
+Run on a real WikiReader with its stock 2009 flash on 2026-09-05, from an
+8 GB card written with `dd` from the dual-archive image: the factory loader
+loads the kernel, the launcher shows both icons, the reader searches, opens
+articles, follows links, coasts after a flick, and keeps history across a
+power cycle. Two things only the hardware caught, both fixed: the suspend
+code's saved clock registers had been spilled to SDRAM (gcc 16), and the SD
+DMA backend slept in HALT for a completion interrupt that never woke the
+core. The 124 GB full English archive has not yet been tried on a card.
+
 ## Current limits
 
 - External web, telephone, email, and map links are intentionally not

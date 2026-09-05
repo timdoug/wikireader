@@ -25,26 +25,19 @@
 #define DMA_TIMEOUT_POLLS 400000UL
 
 /*
- * The first Grifo backend slept in HALT for the HSDMA channel-3 terminal
- * count cause.  In the emulator that cause woke the core; on a real
- * WikiReader (stock 2009 flash, 2026-09-05) it never did, and the kernel
- * hung on the boot splash.  Polling the flag instead, both this register
- * sequence and the one from the 2009 Epson Shanghai driver in
- * samo-lib/drivers/src/sd_spi.c completed every block on hardware.
- *
- * SD_DMA_LEGACY_SEQUENCE=1 follows that 2009 driver exactly: no write to
- * the IDMA enable register (0x301105), completion read from the channel
- * enable bit.  0 keeps the Grifo sequence, which the emulator models.
- * Either way the wait is bounded, and on a timeout the engines are stopped
- * and the caller is told how many bytes of the block are complete so the
- * byte-at-a-time SPI loop can finish it; DMA is then left off for the rest
- * of the session.  SD_DMA_status() describes what happened, for the serial
- * console and the dma.txt file on the boot volume.
+ * Waiting for the transfer: the first backend slept in HALT for the HSDMA
+ * channel-3 terminal-count cause.  In the emulator that cause woke the
+ * core; on a real WikiReader (stock 2009 flash, 2026-09-05) it never did,
+ * and the kernel hung on the boot splash.  Polling the flag works on the
+ * hardware, as does the register sequence of the 2009 Epson Shanghai driver
+ * in samo-lib/drivers/src/sd_spi.c, which differs only in never writing the
+ * IDMA enable register.  The wait is bounded; on a timeout the engines are
+ * stopped and the caller is told how many bytes of the block are complete
+ * so the byte-at-a-time SPI loop can finish it, and DMA stays off for the
+ * rest of the session.  A healthy boot leaves no trace; a fallback or a
+ * failure is printed and written to dma.txt on the boot volume for a
+ * device without a serial cable.
  */
-#ifndef SD_DMA_LEGACY_SEQUENCE
-#define SD_DMA_LEGACY_SEQUENCE 0
-#endif
-
 struct idma_descriptor {
 	DWORD control;
 	DWORD count;
@@ -100,9 +93,6 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	REG_HSDMA_HTGR2 = (REG_HSDMA_HTGR2 & 0x0f) | 0x90;
 	REG_INT_FSIF2_FSPI = 0x30;
 	REG_HS3_TF = 1;
-#if SD_DMA_LEGACY_SEQUENCE
-	REG_HS3_EN = DMA_ENABLED;
-#endif
 
 	/* IDMA supplies every dummy transmit byte after the CPU's first one. */
 	REG_IDMA_EN = 0;
@@ -114,27 +104,18 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	descriptor->destination = SPI_TXD_ADDRESS;
 	REG_IDMAREQ_RLCDC_RSIF2_RSPI |= SPI_IDMA_ENABLE;
 	REG_IDMAEN_DELCDC_DESIF2_DESPI |= SPI_IDMA_ENABLE;
-#if !SD_DMA_LEGACY_SEQUENCE
 	REG_IDMA_EN = 1;
 	REG_INT_FDMA = HSDMA3_INTERRUPT;
 	REG_HS3_EN = DMA_ENABLED;
-#endif
 
 	start = Timer_get();
 	REG_SPI_TXD = 0xff;
 	for (;;) {
-#if SD_DMA_LEGACY_SEQUENCE
-		if (!(REG_HS3_EN & DMA_ENABLED)) {
-			complete = 1;
-			break;
-		}
-#else
 		if (REG_INT_FDMA & HSDMA3_INTERRUPT) {
 			REG_INT_FDMA = HSDMA3_INTERRUPT;
 			complete = 1;
 			break;
 		}
-#endif
 		if (Timer_get() - start > DMA_TIMEOUT_TICKS ||
 		    ++polls > DMA_TIMEOUT_POLLS)
 			break;
@@ -175,43 +156,34 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	Serial_printf("SD DMA: timeout after %lu blocks with %u of %u bytes; PIO from now on\n",
 		      dma_blocks, transmitted, byte_count);
 	snprintf(dma_status, sizeof(dma_status),
-		 "dma: fallback after %lu blocks, %u of %u bytes arrived (sequence %s)",
-		 dma_blocks, transmitted, byte_count,
-		 SD_DMA_LEGACY_SEQUENCE ? "2009" : "grifo");
+		 "dma: fallback after %lu blocks, %u of %u bytes arrived",
+		 dma_blocks, transmitted, byte_count);
 	return (int)transmitted;
 }
 
 const char *SD_DMA_status(void)
 {
 	if (!dma_given_up)
-		snprintf(dma_status, sizeof(dma_status),
-			 "dma: ok, %lu blocks (sequence %s)", dma_blocks,
-			 SD_DMA_LEGACY_SEQUENCE ? "2009" : "grifo");
+		snprintf(dma_status, sizeof(dma_status), "dma: ok, %lu blocks",
+			 dma_blocks);
 	return dma_status;
 }
 
-/* Leave a note on the boot volume for a device without a serial cable,
- * rewriting it only when it changes so an ordinary boot writes nothing. */
+/* A healthy boot removes any old note; a fallback or failure leaves one. */
 void SD_DMA_report(void)
 {
 	const char *status = SD_DMA_status();
-	size_t length = strlen(status);
-	char previous[sizeof(dma_status) + 1];
 	int handle;
 
 	Serial_printf("%s\n", status);
-	handle = File_open("dma.txt", FILE_OPEN_READ);
-	if (handle >= 0) {
-		ssize_t got = File_read(handle, previous, sizeof(previous));
-		File_close(handle);
-		if (got == (ssize_t)length + 1 &&
-		    !memcmp(previous, status, length) && previous[length] == '\n')
-			return;
+	if (!dma_given_up) {
+		File_delete("dma.txt");
+		return;
 	}
 	handle = File_create("dma.txt", FILE_OPEN_WRITE);
 	if (handle < 0)
 		return;
-	File_write(handle, (void *)status, length);
+	File_write(handle, (void *)status, strlen(status));
 	File_write(handle, "\n", 1);
 	File_close(handle);
 }
