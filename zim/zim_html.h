@@ -28,4 +28,14 @@ int zim_html_to_text_images(const unsigned char *html, size_t html_size,
 			    unsigned char *text, size_t capacity,
 			    size_t *text_size);
 
+/* Called about thirty times through the input with bytes consumed so far. */
+typedef void (*ZIM_HTML_PROGRESS)(void *opaque, size_t done, size_t total);
+
+int zim_html_to_text_images_progress(const unsigned char *html,
+				     size_t html_size,
+				     unsigned char *text, size_t capacity,
+				     size_t *text_size,
+				     ZIM_HTML_PROGRESS progress,
+				     void *progress_opaque);
+
 #endif

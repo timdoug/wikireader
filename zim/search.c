@@ -32,9 +32,13 @@
 #define ZIM_MIN_IMAGE_STREAM_SIZE 5 /* four-byte header plus one bitmap byte */
 #define ZIM_MAX_DEFERRED_IMAGES (FILE_BUFFER_SIZE / ZIM_MIN_IMAGE_STREAM_SIZE)
 #define ZIM_INITIAL_DEFERRED_IMAGES 8
+/* Bar segments, proportioned to where a big article's time goes: the
+ * cluster decode dominates, converting the HTML is next, wrapping is short. */
 #define ARTICLE_PROGRESS_LIMIT 100
-#define ARTICLE_PROGRESS_BLOB_START 10
-#define ARTICLE_PROGRESS_BLOB_END 75
+#define ARTICLE_PROGRESS_BLOB_START 3
+#define ARTICLE_PROGRESS_BLOB_END 70
+#define ARTICLE_PROGRESS_HTML_END 90
+#define ARTICLE_PROGRESS_WRAP_END 99
 #define IMAGE_PROGRESS_BLOB_START 5
 #define IMAGE_PROGRESS_BLOB_END 30
 #define IMAGE_PROGRESS_DECODE_END 99
@@ -187,19 +191,32 @@ static void article_blob_progress(void *opaque, uint64_t completed,
 	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
 }
 
-static void image_progress_range(size_t completed, size_t total,
-				 unsigned int start, unsigned int end)
+static void progress_range(size_t completed, size_t total, int start, int end)
 {
-	unsigned int progress = start;
+	int progress = start;
 
 	if (total) {
 		if (completed >= total)
 			progress = end;
 		else
-			progress += (unsigned int)(completed * (end - start) /
-						 total);
+			progress += (int)((uint64_t)completed * (uint64_t)(end - start) /
+					  total);
 	}
-	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
+	draw_progress_bar(progress, ARTICLE_PROGRESS_LIMIT);
+}
+
+static void article_html_progress(void *opaque, size_t done, size_t total)
+{
+	(void)opaque;
+	progress_range(done, total, ARTICLE_PROGRESS_BLOB_END,
+		       ARTICLE_PROGRESS_HTML_END);
+}
+
+static void article_wrap_progress(void *opaque, size_t done, size_t total)
+{
+	(void)opaque;
+	progress_range(done, total, ARTICLE_PROGRESS_HTML_END,
+		       ARTICLE_PROGRESS_WRAP_END);
 }
 
 static void image_blob_progress(void *opaque, uint64_t completed,
@@ -207,8 +224,8 @@ static void image_blob_progress(void *opaque, uint64_t completed,
 {
 	(void)opaque;
 	wikilib_service_pending_touch_events();
-	image_progress_range((size_t)completed, (size_t)total,
-			     IMAGE_PROGRESS_BLOB_START, IMAGE_PROGRESS_BLOB_END);
+	progress_range((size_t)completed, (size_t)total,
+		       IMAGE_PROGRESS_BLOB_START, IMAGE_PROGRESS_BLOB_END);
 }
 
 static void image_decode_progress(void *opaque, size_t completed,
@@ -216,7 +233,7 @@ static void image_decode_progress(void *opaque, size_t completed,
 {
 	(void)opaque;
 	wikilib_service_pending_touch_events();
-	image_progress_range(completed, total, IMAGE_PROGRESS_BLOB_END,
+	progress_range(completed, total, IMAGE_PROGRESS_BLOB_END,
 			     IMAGE_PROGRESS_DECODE_END);
 }
 
@@ -572,10 +589,6 @@ static int article_image(void *opaque, const unsigned char *source_path,
 	deferred->height = *height;
 	deferred->bitmap_size = *bitmap_size;
 	deferred_image_count++;
-	if (article_text_size && source_path >= text_buffer &&
-	    (size_t)(source_path - text_buffer) < article_text_size)
-		draw_progress_bar(85 + (int)((source_path - text_buffer) * 13 /
-					 article_text_size), ARTICLE_PROGRESS_LIMIT);
 	return 0;
 }
 
@@ -1364,7 +1377,7 @@ int retrieve_article(long encoded_index)
 		current_article_wiki_id = 0;
 		return 0;
 	}
-	draw_progress_bar(5, ARTICLE_PROGRESS_LIMIT);
+	draw_progress_bar(2, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		FAIL();
@@ -1399,23 +1412,26 @@ int retrieve_article(long encoded_index)
 			     (unsigned long)raw_size);
 	}
 #endif
-	rc = zim_html_to_text_images(raw, raw_size, text_buffer,
-				     FILE_BUFFER_SIZE, &text_size);
+	rc = zim_html_to_text_images_progress(raw, raw_size, text_buffer,
+					      FILE_BUFFER_SIZE, &text_size,
+					      article_html_progress, NULL);
 	if (rc)
 		FAIL();
-	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
+	draw_progress_bar(ARTICLE_PROGRESS_HTML_END, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
 	deferred_link_count = 0;
 	deferred_anchor_count = 0;
 	article_text_size = text_size;
 	image_budget = article_image_budget(text_buffer, text_size);
-	if (zim_text_to_article_images_links(text_buffer, text_size, file_buffer,
-					     FILE_BUFFER_SIZE, &article_size,
-					     article_image, NULL,
-					     article_link, NULL,
-					     article_anchor, NULL, &article_height))
+	if (zim_text_to_article_images_links_progress(text_buffer, text_size,
+					     file_buffer, FILE_BUFFER_SIZE,
+					     &article_size, article_image, NULL,
+					     article_link, NULL, article_anchor,
+					     NULL, &article_height,
+					     article_wrap_progress, NULL))
 		FAIL();
+	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))
 		FAIL();

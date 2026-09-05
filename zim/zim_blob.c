@@ -219,6 +219,15 @@ void zim_blob_cache_reset(void)
 	cluster_release();
 }
 
+/* Compressed bytes handed to the decoder per call.  Each slice is one
+ * progress report of roughly 80 ms of decoding, so a 260 KB Kiwix cluster
+ * moves the bar about sixty times instead of four; the extra
+ * ZSTD_decompressStream calls are cheap. */
+#define ZIM_CLUSTER_INPUT_SLICE (4u << 10)
+#if ZIM_CLUSTER_INPUT_SLICE > ZIM_STREAM_BUFFER_SIZE
+#error "the input slice must fit the stream buffer"
+#endif
+
 static int cluster_fill_input(const ZIM_ARCHIVE *archive)
 {
 	size_t amount;
@@ -227,7 +236,7 @@ static int cluster_fill_input(const ZIM_ARCHIVE *archive)
 	/* The frame must end inside its cluster. */
 	if (cluster.compressed_pos >= cluster.cluster_end)
 		return ZIM_ERR_FORMAT;
-	amount = ZIM_STREAM_BUFFER_SIZE;
+	amount = ZIM_CLUSTER_INPUT_SLICE;
 	if ((uint64_t)amount > cluster.cluster_end - cluster.compressed_pos)
 		amount = (size_t)(cluster.cluster_end - cluster.compressed_pos);
 	rc = read_exact(archive, cluster.compressed_pos, cluster.input, amount);

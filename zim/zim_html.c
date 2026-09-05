@@ -578,12 +578,18 @@ static enum html_tag classify_tag(const unsigned char *name, size_t length)
 	}
 }
 
+#define HTML_PROGRESS_STEPS 32
+#define HTML_PROGRESS_MIN_STEP 4096
+
 static int html_to_text(const unsigned char *html, size_t html_size,
 			unsigned char *text, size_t capacity,
-			size_t *text_size, int include_images, int include_links)
+			size_t *text_size, int include_images, int include_links,
+			ZIM_HTML_PROGRESS progress, void *progress_opaque)
 {
 	TEXT_OUTPUT out;
 	size_t i = 0;
+	size_t progress_step = html_size / HTML_PROGRESS_STEPS;
+	size_t next_report;
 	int in_body = 0;
 	int in_main = 0;
 	int suppress = 0;
@@ -599,7 +605,14 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 	out.previous = 0;
 	out.pending_space = 0;
 	html_run_end_init();
+	if (progress_step < HTML_PROGRESS_MIN_STEP)
+		progress_step = HTML_PROGRESS_MIN_STEP;
+	next_report = progress_step;
 	while (i < html_size) {
+		if (progress && i >= next_report) {
+			progress(progress_opaque, i, html_size);
+			next_report = i + progress_step;
+		}
 		if (html[i] == '<') {
 			size_t tag_start;
 			size_t tag_end;
@@ -824,12 +837,25 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 		     unsigned char *text, size_t capacity,
 		     size_t *text_size)
 {
-	return html_to_text(html, html_size, text, capacity, text_size, 0, 0);
+	return html_to_text(html, html_size, text, capacity, text_size, 0, 0,
+			    NULL, NULL);
 }
 
 int zim_html_to_text_images(const unsigned char *html, size_t html_size,
 			    unsigned char *text, size_t capacity,
 			    size_t *text_size)
 {
-	return html_to_text(html, html_size, text, capacity, text_size, 1, 1);
+	return html_to_text(html, html_size, text, capacity, text_size, 1, 1,
+			    NULL, NULL);
+}
+
+int zim_html_to_text_images_progress(const unsigned char *html,
+				     size_t html_size,
+				     unsigned char *text, size_t capacity,
+				     size_t *text_size,
+				     ZIM_HTML_PROGRESS progress,
+				     void *progress_opaque)
+{
+	return html_to_text(html, html_size, text, capacity, text_size, 1, 1,
+			    progress, progress_opaque);
 }

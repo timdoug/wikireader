@@ -190,6 +190,9 @@ static int finish_link_segment(unsigned char *article, size_t capacity,
 	return 0;
 }
 
+#define WRAP_PROGRESS_STEPS 24
+#define WRAP_PROGRESS_MIN_STEP 4096
+
 int zim_text_to_article_images_links(const unsigned char *text,
 				     size_t text_size,
 				     unsigned char *article, size_t capacity,
@@ -202,7 +205,30 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				     void *anchor_opaque,
 				     int *stream_height)
 {
+	return zim_text_to_article_images_links_progress(text, text_size,
+			article, capacity, article_size, image, image_opaque,
+			link, link_opaque, anchor, anchor_opaque, stream_height,
+			NULL, NULL);
+}
+
+int zim_text_to_article_images_links_progress(const unsigned char *text,
+					      size_t text_size,
+					      unsigned char *article,
+					      size_t capacity,
+					      size_t *article_size,
+					      ZIM_ARTICLE_IMAGE image,
+					      void *image_opaque,
+					      ZIM_ARTICLE_LINK link,
+					      void *link_opaque,
+					      ZIM_ARTICLE_ANCHOR anchor,
+					      void *anchor_opaque,
+					      int *stream_height,
+					      ZIM_ARTICLE_PROGRESS progress,
+					      void *progress_opaque)
+{
 	ARTICLE_HEADER header;
+	size_t progress_step = text_size / WRAP_PROGRESS_STEPS;
+	size_t next_report;
 	ARTICLE_LINK *links;
 	HEIGHT_TRACK track = { 0, 0, 0 };
 	const signed char *ascii;
@@ -249,6 +275,9 @@ int zim_text_to_article_images_links(const unsigned char *text,
 	line_height = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
 	actual_height = line_height;
 	ascii = ascii_widths(font);
+	if (progress_step < WRAP_PROGRESS_MIN_STEP)
+		progress_step = WRAP_PROGRESS_MIN_STEP;
+	next_report = progress_step;
 
 	while (input < text_size) {
 		const unsigned char *scan;
@@ -263,6 +292,10 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		committed = used;
 		committed_links = link_count;
 		committed_track = track;
+		if (progress && input >= next_report) {
+			progress(progress_opaque, input, text_size);
+			next_report = input + progress_step;
+		}
 		if (class == CLASS_LINK_START) {
 			size_t path_length;
 

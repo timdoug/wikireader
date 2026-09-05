@@ -3333,6 +3333,9 @@ extern void draw_progress_bar(int progressCount, int limit)
 		}
 		if (x != last_x) {
 			last_x = x;
+#ifdef ZIM_TRACE_HASH
+			debug_printf("bar %d at %lu ms\n", x, timer_get() / 60000);
+#endif
 			lcd_colour_t save = lcd_set_colour(LCD_BLACK);
 			lcd_move_to(0, 1);
 			lcd_line_to(x, 1);

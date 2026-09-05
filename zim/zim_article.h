@@ -44,6 +44,24 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				     void *anchor_opaque,
 				     int *stream_height);
 
+/* Called about twenty-five times through the text with bytes consumed. */
+typedef void (*ZIM_ARTICLE_PROGRESS)(void *opaque, size_t done, size_t total);
+
+int zim_text_to_article_images_links_progress(const unsigned char *text,
+					      size_t text_size,
+					      unsigned char *article,
+					      size_t capacity,
+					      size_t *article_size,
+					      ZIM_ARTICLE_IMAGE image,
+					      void *image_opaque,
+					      ZIM_ARTICLE_LINK link,
+					      void *link_opaque,
+					      ZIM_ARTICLE_ANCHOR anchor,
+					      void *anchor_opaque,
+					      int *stream_height,
+					      ZIM_ARTICLE_PROGRESS progress,
+					      void *progress_opaque);
+
 int zim_article_stream_height(const unsigned char *article,
 			      size_t article_size);
 
