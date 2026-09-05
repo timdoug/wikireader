@@ -90,7 +90,7 @@ data.
 | `-s` | Trace grifo syscalls with call sites and return values. |
 | `-K cycle,TEXT` | Type text on the on-screen keyboard. |
 | `-T x,y,cycle` | Tap a pixel; repeatable, up to eight. |
-| `-G x,y0,y1,cycle` | Drag vertically. |
+| `-G x,y0,y1,cycle` | Drag vertically; repeatable, up to eight. |
 | `-N code,cycle` | Press random/search/history/power (`0`-`3`); repeatable, up to eight. |
 | `-b ADDR`, `-W ADDR` | Break on execution or a write. |
 | `-D ADDR -L N -O FILE` | Dump target memory. |

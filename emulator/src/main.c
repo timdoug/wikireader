@@ -204,7 +204,8 @@ int main(int argc, char **argv)
 	struct script_btn { int code; unsigned long at; bool down_done, up_done; };
 	struct script_tap taps[NSCRIPT]; unsigned ntaps = 0;
 	struct script_btn btns[NSCRIPT]; unsigned nbtns = 0;
-	int drag_x = -1, drag_y0 = 0, drag_y1 = 0; unsigned long drag_at = 0;
+	struct script_drag { int x, y0, y1; unsigned long at; bool announced; };
+	struct script_drag drags[NSCRIPT]; unsigned ndrags = 0;
 	const char *eeprom_path = NULL;
 /* How long a scripted press is held before release; WREMU_HOLD_MS overrides. */
 #define HOLD_CYCLES  hold_cycles
@@ -344,9 +345,11 @@ int main(int argc, char **argv)
 				btns[nbtns++] = b;
 		}
 		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
-			/* scripted drag: -G x,y0,y1,cycle */
-			sscanf(argv[++i], "%d,%d,%d,%lu",
-			       &drag_x, &drag_y0, &drag_y1, &drag_at);
+			/* scripted drag: -G x,y0,y1,cycle (repeatable) */
+			struct script_drag g = { -1, 0, 0, 0, false };
+			sscanf(argv[++i], "%d,%d,%d,%lu", &g.x, &g.y0, &g.y1, &g.at);
+			if (g.x >= 0 && ndrags < NSCRIPT)
+				drags[ndrags++] = g;
 		}
 		else if (!strcmp(argv[i], "-S") && i + 1 < argc)
 			gui_scale = (int)strtoul(argv[++i], NULL, 0);
@@ -670,18 +673,23 @@ int main(int argc, char **argv)
 		 */
 #define DRAG_STEPS   16
 #define DRAG_SPACING 300000UL
-		if (script_armed && drag_x >= 0 && cpu.cycles >= drag_at &&
-		    cpu.cycles <= drag_at + DRAG_STEPS * DRAG_SPACING &&
-		    ((cpu.cycles - drag_at) % DRAG_SPACING) == 0) {
-			unsigned long k = (cpu.cycles - drag_at) / DRAG_SPACING;
-			int y = drag_y0 + (int)((drag_y1 - drag_y0) * (int)k) / DRAG_STEPS;
-			bool down = k < DRAG_STEPS;
-			if (k == 0)
-				fprintf(stderr, "  [drag %d,%d -> %d,%d]\n",
-					drag_x, drag_y0, drag_x, drag_y1);
-			touch_post(&touch, &cpu, drag_x, y, down);
+		for (unsigned k2 = 0; k2 < ndrags; k2++) {
+			struct script_drag *g = &drags[k2];
+			if (script_armed && cpu.cycles >= g->at &&
+			    cpu.cycles <= g->at + DRAG_STEPS * DRAG_SPACING &&
+			    ((cpu.cycles - g->at) % DRAG_SPACING) == 0) {
+				unsigned long k = (cpu.cycles - g->at) / DRAG_SPACING;
+				int y = g->y0 + (int)((g->y1 - g->y0) * (int)k) / DRAG_STEPS;
+				bool down = k < DRAG_STEPS;
+				if (!g->announced) {
+					g->announced = true;
+					fprintf(stderr, "  [drag %d,%d -> %d,%d]\n",
+						g->x, g->y0, g->x, g->y1);
+				}
+				touch_post(&touch, &cpu, g->x, y, down);
+			}
 		}
-		if (drag_x >= 0 && (cpu.cycles % 100000) == 0)
+		if (ndrags && (cpu.cycles % 100000) == 0)
 			touch_poll(&touch, &cpu);
 
 		/*
@@ -822,7 +830,7 @@ int main(int argc, char **argv)
 				anchor, (unsigned long long)cpu.cycles);
 			type_at += cpu.cycles;
 			for (unsigned k = 0; k < ntaps; k++) taps[k].at += cpu.cycles;
-			if (drag_x >= 0) drag_at += cpu.cycles;
+			for (unsigned k = 0; k < ndrags; k++) drags[k].at += cpu.cycles;
 			for (unsigned k = 0; k < nbtns; k++) btns[k].at += cpu.cycles;
 		}
 
@@ -1008,9 +1016,11 @@ int main(int argc, char **argv)
 				    t->at + HOLD_CYCLES < next)
 					next = t->at + HOLD_CYCLES;
 			}
-			if (drag_x >= 0 && drag_at + DRAG_SPAN > cpu.cycles &&
-			    drag_at < next)
-				next = drag_at > cpu.cycles ? drag_at : cpu.cycles + 1;
+			for (unsigned k = 0; k < ndrags; k++) {
+				const struct script_drag *g = &drags[k];
+				if (g->at + DRAG_SPAN > cpu.cycles && g->at < next)
+					next = g->at > cpu.cycles ? g->at : cpu.cycles + 1;
+			}
 			for (unsigned k = 0; k < nbtns; k++) {
 				const struct script_btn *b = &btns[k];
 				if (!b->down_done && b->at > cpu.cycles && b->at < next)
