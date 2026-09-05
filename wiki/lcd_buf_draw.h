@@ -290,6 +290,7 @@ typedef long (*ARTICLE_LINK_HANDLER)(long article_id, int resolve);
 void init_lcd_draw_buf();
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare);
 void set_article_link_handler(ARTICLE_LINK_HANDLER handler);
+void set_article_initial_y_pos(long y_pos);
 void set_article_stream_height(int height);
 void repaint_current_article(void);
 char* FontFile(int id);

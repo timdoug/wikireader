@@ -138,6 +138,16 @@ void set_article_stream_height(int height)
 	article_stream_height = height > 0 ? height : 0;
 }
 
+/* A one-shot scroll position for the next article to be displayed, in
+ * stream pixels; negative means none.  A link carrying a fragment sets it
+ * once the target article's anchors are known. */
+static long article_initial_y_pos = -1;
+
+void set_article_initial_y_pos(long y_pos)
+{
+	article_initial_y_pos = y_pos;
+}
+
 #define MIN_BAR_LEN 20
 static long scroll_bar_content_height(void)
 {
@@ -1828,7 +1838,12 @@ void display_retrieved_article(long idx_article)
 	unsigned int start_x, end_x, start_y, end_y;
 
 	nArticleWikiId = idx_article >> 24;
-	if (last_display_mode == DISPLAY_MODE_HISTORY)
+	if (article_initial_y_pos >= 0)
+	{
+		init_render_article(article_initial_y_pos);
+		article_initial_y_pos = -1;
+	}
+	else if (last_display_mode == DISPLAY_MODE_HISTORY)
 	{
 		init_render_article(history_get_y_pos());
 		bKeepPos = 1;

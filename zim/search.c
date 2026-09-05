@@ -100,6 +100,10 @@ typedef struct {
 static ZIM_DEFERRED_ANCHOR *deferred_anchors;
 static size_t deferred_anchor_count;
 static size_t deferred_anchor_capacity;
+/* Fragment of a "Path#fragment" link being followed, applied once the
+ * target article's anchors exist. */
+static unsigned char pending_fragment[128];
+static size_t pending_fragment_length;
 extern int lcd_draw_cur_y_pos;
 extern int article_start_y_pos;
 static char current_article_path[ZIM_DIRENT_TEXT_MAX];
@@ -365,25 +369,69 @@ static int fragment_matches(const unsigned char *fragment, size_t length,
 	return f == length && i == id_length;
 }
 
-/* Scroll the displayed article so the anchor's line is at the top. */
-static int scroll_to_fragment(const unsigned char *fragment, size_t length)
+static int find_anchor(const unsigned char *fragment, size_t length)
 {
 	size_t i;
 
-	for (i = 0; i < deferred_anchor_count; i++) {
+	for (i = 0; i < deferred_anchor_count; i++)
 		if (fragment_matches(fragment, length, deferred_anchors[i].id,
-				     deferred_anchors[i].id_length)) {
-			int target = deferred_anchors[i].y + article_start_y_pos;
+				     deferred_anchors[i].id_length))
+			return (int)i;
+	return -1;
+}
 
+/* Scroll the displayed article so the anchor's line is at the top. */
+static int scroll_to_fragment(const unsigned char *fragment, size_t length)
+{
+	int i = find_anchor(fragment, length);
+
+	if (i < 0)
+		return 0;
 #ifdef ZIM_TRACE_HASH
-			debug_printf("fragment -> stream y %d (from %d)\n",
-				     deferred_anchors[i].y, lcd_draw_cur_y_pos);
+	debug_printf("fragment -> stream y %d (from %d)\n",
+		     deferred_anchors[i].y, lcd_draw_cur_y_pos);
 #endif
-			display_article_with_pcf(target - lcd_draw_cur_y_pos);
-			return 1;
+	display_article_with_pcf(deferred_anchors[i].y + article_start_y_pos -
+				 lcd_draw_cur_y_pos);
+	return 1;
+}
+
+/* Remember the fragment of a link to another article. */
+static void note_pending_fragment(const unsigned char *path, size_t length)
+{
+	size_t i;
+
+	pending_fragment_length = 0;
+	for (i = 0; i < length; i++) {
+		if (path[i] == '#') {
+			size_t n = length - i - 1;
+
+			if (n && n < sizeof(pending_fragment)) {
+				memcpy(pending_fragment, path + i + 1, n);
+				pending_fragment_length = n;
+			}
+			return;
 		}
 	}
-	return 0;
+}
+
+/* Once the new article's anchors are known, hand its first display the
+ * position of the fragment that was followed. */
+static void apply_pending_fragment(void)
+{
+	int i;
+
+	if (!pending_fragment_length)
+		return;
+	i = find_anchor(pending_fragment, pending_fragment_length);
+	pending_fragment_length = 0;
+	if (i >= 0) {
+#ifdef ZIM_TRACE_HASH
+		debug_printf("opening at fragment, stream y %d\n",
+			     deferred_anchors[i].y);
+#endif
+		set_article_initial_y_pos(deferred_anchors[i].y);
+	}
 }
 
 static uint32_t article_link(void *opaque, const unsigned char *path,
@@ -437,6 +485,8 @@ static long handle_article_link(long article_id, int resolve)
 			       deferred_links[encoded_index - 1].path_length,
 			       path, sizeof(path)))
 		return 0;
+	note_pending_fragment(deferred_links[encoded_index - 1].path,
+			      deferred_links[encoded_index - 1].path_length);
 	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		return 0;
@@ -1180,6 +1230,7 @@ int retrieve_article(long encoded_index)
 		debug_printf("article cache hit %lu history y %ld\n",
 			     (unsigned long)index, history_get_y_pos());
 #endif
+		apply_pending_fragment();
 		draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 		restricted_article = 0;
 		current_article_wiki_id = 0;
@@ -1248,6 +1299,7 @@ int retrieve_article(long encoded_index)
 	current_article_size = article_size;
 	current_article_height = article_height;
 	current_article_header = article_header;
+	apply_pending_fragment();
 #ifdef ZIM_TRACE_HASH
 	debug_printf("article %lu history y %ld\n", (unsigned long)index,
 		     history_get_y_pos());
@@ -1259,6 +1311,7 @@ int retrieve_article(long encoded_index)
 	return 0;
 
 error:
+	pending_fragment_length = 0;
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	print_article_error();
 	return -1;
