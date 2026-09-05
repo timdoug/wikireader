@@ -486,11 +486,65 @@ void display_handle_event(struct display *d, const SDL_Event *ev)
 	}
 }
 
+
+/*
+ * Synthetic clicks for exercising the window's input path without a hand
+ * on the mouse: WREMU_GUI_CLICKS="x,y,at_ms[,hold_ms];..." in panel pixels
+ * and wall-clock milliseconds since the window opened.
+ */
+struct gui_click { int x, y; unsigned at, hold; bool down_done, up_done; };
+static struct gui_click gui_clicks[16];
+static unsigned n_gui_clicks;
+static unsigned gui_open_ms;
+
+static void gui_clicks_parse(void)
+{
+	const char *s = getenv("WREMU_GUI_CLICKS");
+	while (s && *s && n_gui_clicks < 16) {
+		struct gui_click *c = &gui_clicks[n_gui_clicks];
+		int n = 0;
+		c->hold = 80;
+		if (sscanf(s, "%d,%d,%u,%u%n", &c->x, &c->y, &c->at, &c->hold, &n) < 3)
+			break;
+		n_gui_clicks++;
+		s += n;
+		if (*s == ';') s++;
+	}
+	gui_open_ms = SDL_GetTicks();
+}
+
+static void gui_clicks_pump(struct display *d)
+{
+	unsigned now = SDL_GetTicks() - gui_open_ms;
+	for (unsigned i = 0; i < n_gui_clicks; i++) {
+		struct gui_click *c = &gui_clicks[i];
+		SDL_Event ev;
+		memset(&ev, 0, sizeof ev);
+		ev.button.button = SDL_BUTTON_LEFT;
+		ev.button.x = c->x * d->scale;
+		ev.button.y = c->y * d->scale;
+		if (!c->down_done && now >= c->at) {
+			c->down_done = true;
+			ev.type = SDL_MOUSEBUTTONDOWN;
+			fprintf(stderr, "  [gui click down %d,%d at %u ms]\n", c->x, c->y, now);
+			SDL_PushEvent(&ev);
+		} else if (c->down_done && !c->up_done && now >= c->at + c->hold) {
+			c->up_done = true;
+			ev.type = SDL_MOUSEBUTTONUP;
+			fprintf(stderr, "  [gui click up at %u ms]\n", now);
+			SDL_PushEvent(&ev);
+		}
+	}
+}
+
 bool display_update(struct display *d)
 {
 	if (!d->open)
 		return true;
 
+	if (!gui_open_ms)
+		gui_clicks_parse();
+	gui_clicks_pump(d);
 	SDL_Event ev;
 	while (SDL_PollEvent(&ev))
 		display_handle_event(d, &ev);

@@ -76,9 +76,12 @@ struct c33 {
 	/*
 	 * Region caches below are dropped whenever *region_epoch changes; the
 	 * memory map bumps it when the SDRAM controller changes its decoded
-	 * size, which moves the alias windows the pointers describe.
+	 * size, which moves the alias windows the pointers describe. The
+	 * pointer itself is wiring and lives past the reset barrier: when it
+	 * was up here, a power-on reset in the window zeroed it, the caches
+	 * were never dropped again, and grifo's suspend code read stale
+	 * copies of its stack through the old 16 MB alias window.
 	 */
-	const unsigned *region_epoch;
 	unsigned region_epoch_seen;
 	/* cached fetch region: [fetch_lo, fetch_hi) maps to fetch_ptr */
 	uint8_t *fetch_ptr;
@@ -132,6 +135,7 @@ struct c33 {
 	char     reset_barrier__[0];
 
 	struct c33_bus bus;
+	const unsigned *region_epoch;
 	/* Optional: asks the interrupt controller whether a cause is still
 	   enabled, so a request cancelled before it is taken is dropped. */
 	bool   (*irq_enabled)(void *ctx, unsigned vector);

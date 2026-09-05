@@ -106,6 +106,15 @@ data.
 for testing without modifying the guest. `WREMU_HOLD_MS=N` changes how long
 scripted taps and presses are held before release (default 33 ms).
 
+The window has its own input path (SDL events, wall-clock timers, a power-on
+reset when the device is switched on), so a bug seen only with the mouse may
+not reproduce under `-T`/`-K`. `WREMU_GUI_CLICKS="x,y,at_ms[,hold_ms];..."`
+pushes synthetic left clicks through that path at wall-clock milliseconds
+after the window opens, in panel pixels; combine with `-g -N 3,1000000` to
+switch the device on and `-n` to end the run and write `screen.pgm`.
+`WREMU_TOUCH_TRACE=1` logs each packet the window hands to the touch panel,
+and `WREMU_WALLCLOCK=1` gives a headless run the window's wall-clock tick.
+
 ### Benchmarking
 
 Use `-Z` to align scripted input to a guest milestone. Absolute `-T`/`-K`

@@ -109,6 +109,12 @@ static void deliver_input(struct display *disp, struct port *port,
 	} else if (disp->touch_pending) {
 		*last_post = cpu->clk;
 		disp->touch_pending = false;
+		if (getenv("WREMU_TOUCH_TRACE"))
+			fprintf(stderr, "  [touch %s %d,%d at %llu%s]\n",
+				disp->touch_pressed ? "down" : "up",
+				disp->touch_x, disp->touch_y,
+				(unsigned long long)cpu->cycles,
+				cpu->sleeping ? ", core halted" : "");
 		touch_post(touch, cpu, disp->touch_x, disp->touch_y,
 			   disp->touch_pressed);
 	} else {
@@ -563,9 +569,10 @@ int main(int argc, char **argv)
 	/*
 	 * With a window, measure time the way the person holding the mouse
 	 * does. Headless runs keep the cycle-derived tick so they stay
-	 * deterministic.
+	 * deterministic; WREMU_WALLCLOCK=1 opts a headless run into the
+	 * window's clock when a timing bug needs to be reproduced without one.
 	 */
-	if (gui)
+	if (gui || getenv("WREMU_WALLCLOCK"))
 		timer_use_wallclock(&timer);
 
 	char dis[128];
