@@ -168,9 +168,16 @@ int SuspendCode(void)
 	SET_BRTRD(0, CALC_BAUD(MCLK, 32, SERIAL_DIVMD, CONSOLE_BPS));
 
 	// preserve current clock enable state
-	register uint32_t save_g0 = REG_CMU_GATEDCLK0;
-	register uint32_t save_g1 = REG_CMU_GATEDCLK1;
-	register uint32_t save_clkcntl = REG_CMU_CLKCNTL;
+	// The stack lives in the SDRAM that was just switched off, and
+	// gcc 16 spills anything live across the halt below no matter how
+	// it is declared, so the saved values go to A0RAM scratch instead
+	// (__START_SuspendScratch in grifo.lds).  The pointer is loaded
+	// again after the halt so nothing has to survive it in a register.
+	register volatile uint32_t *saved;
+	asm volatile ("xld.w\t%[s], __START_SuspendScratch" : [s] "=r" (saved));
+	saved[0] = REG_CMU_GATEDCLK0;
+	saved[1] = REG_CMU_GATEDCLK1;
+	saved[2] = REG_CMU_CLKCNTL;
 
 	// turn off un necessary clocks
 	REG_CMU_PROTECT = CMU_PROTECT_OFF;
@@ -328,9 +335,10 @@ int SuspendCode(void)
 	// restore clocks
 	REG_CMU_PROTECT = CMU_PROTECT_OFF;
 
-	REG_CMU_CLKCNTL = save_clkcntl;
-	REG_CMU_GATEDCLK0 = save_g0;
-	REG_CMU_GATEDCLK1 = save_g1;
+	asm volatile ("xld.w\t%[s], __START_SuspendScratch" : [s] "=r" (saved));
+	REG_CMU_CLKCNTL = saved[2];
+	REG_CMU_GATEDCLK0 = saved[0];
+	REG_CMU_GATEDCLK1 = saved[1];
 
 	REG_CMU_PROTECT = CMU_PROTECT_ON;
 

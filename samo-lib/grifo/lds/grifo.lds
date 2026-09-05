@@ -40,8 +40,11 @@ SECTIONS
          . = . + 1k ;       /* 256 entry vector table = 1 kibi bytes */
          __END_VectorTable = . ;
          __START_SuspendCode = . ;
-         . = . + 6k ;       /* suspend can use the remainder */
+         . = . + 6k - 64 ;  /* suspend can use the remainder */
          __END_SuspendCode = . ;
+         __START_SuspendScratch = . ;
+         . = . + 64 ;       /* registers SuspendCode saves while SDRAM is off */
+         __END_SuspendScratch = . ;
     } > a0ram
 
     __SIZE_NullPointer = __END_NullPointer - __START_NullPointer ;

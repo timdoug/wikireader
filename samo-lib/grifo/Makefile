@@ -123,7 +123,20 @@ ifeq (YES,$(strip ${BUILD_EXAMPLES}))
 	${MAKE} -C examples
 endif
 
-build/libinternal.a: stamp-build ${BUILD_OBJECTS}
+# SuspendCode runs from A0RAM after the SDRAM holding the stack has been
+# switched off, so any stack reference in it reads or writes nothing on the
+# hardware.  gcc 3.3 kept every local in a register; gcc 16 spilled the saved
+# clock registers and resumed with garbage clocks.  Refuse to link such a
+# build rather than find out on the device.
+build/stamp-suspend-stack: build/suspend.o
+	@if ${OBJDUMP} -d -j .suspend_text $< | grep -q '%sp'; then \
+	  echo "error: SuspendCode uses the stack (see src/suspend.c)"; \
+	  ${OBJDUMP} -d -j .suspend_text $< | grep '%sp'; \
+	  exit 1; \
+	fi
+	@touch "$@"
+
+build/libinternal.a: stamp-build ${BUILD_OBJECTS} build/stamp-suspend-stack
 	${RM} "$@"
 	${AR} r "$@" ${BUILD_OBJECTS}
 
