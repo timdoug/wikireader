@@ -38,13 +38,14 @@
 #define IMAGE_PROGRESS_BLOB_START 5
 #define IMAGE_PROGRESS_BLOB_END 30
 #define IMAGE_PROGRESS_DECODE_END 99
-#define ZIM_DEFERRED_LINK_TAG 0xfe000000U
-#define ZIM_DEFERRED_LINK_MASK 0xff000000U
-#define ZIM_DEFERRED_LINK_INDEX_MASK 0x00ffffffU
+/* Unresolved links carry their deferred-table ordinal under a top nibble
+ * no article id can have: ids keep the sign bit clear (lcd_buf_draw.h). */
+#define ZIM_DEFERRED_LINK_TAG 0x80000000U
+#define ZIM_DEFERRED_LINK_MASK 0xf0000000U
+#define ZIM_DEFERRED_LINK_INDEX_MASK 0x0fffffffU
 typedef struct {
 	unsigned char title[NUMBER_OF_FIRST_PAGE_RESULTS][MAX_TITLE_ACTUAL];
 	uint32_t article[NUMBER_OF_FIRST_PAGE_RESULTS];
-	uint32_t next_title;
 	uint32_t count;
 	int selected;
 } ZIM_RESULTS;
@@ -96,7 +97,7 @@ typedef struct {
 	int y;
 } ZIM_DEFERRED_ANCHOR;
 
-#define ZIM_MAX_DEFERRED_ANCHORS 2048
+#define ZIM_MAX_DEFERRED_ANCHORS 8192 /* Donald Trump has 2,143 ids */
 static ZIM_DEFERRED_ANCHOR *deferred_anchors;
 static size_t deferred_anchor_count;
 static size_t deferred_anchor_capacity;
@@ -493,6 +494,47 @@ static long handle_article_link(long article_id, int resolve)
 	return (long)dirent.path_index + 1;
 }
 
+/* Stream bytes placeholders may still take.  The wrapper cannot know how much
+ * text follows an image, so retrieve_article sizes this from the text before
+ * wrapping: what the text will occupy, the link table, and a margin.  Long,
+ * picture-heavy articles (New York City: 1.3 MB of HTML, 3,560 links) then
+ * lose their last pictures instead of failing to load. */
+static size_t image_budget;
+
+static size_t article_image_budget(const unsigned char *text, size_t size)
+{
+	size_t i = 0;
+	size_t kept = 0;
+	size_t links = 0;
+	size_t need;
+
+	while (i < size) {
+		unsigned char c = text[i];
+		size_t skip = 1;
+
+		if (c == ZIM_TEXT_LINK_START_MARKER && size - i >= 3) {
+			skip = 3 + (text[i + 1] | (size_t)text[i + 2] << 8);
+			links++;
+		} else if (c == ZIM_TEXT_ANCHOR_MARKER && size - i >= 3) {
+			skip = 3 + (text[i + 1] | (size_t)text[i + 2] << 8);
+		} else if (c == ZIM_TEXT_IMAGE_MARKER && size - i >= 7) {
+			skip = 7 + (text[i + 5] | (size_t)text[i + 6] << 8);
+		} else if (c != ZIM_TEXT_LINK_END_MARKER) {
+			const unsigned char *run = text + i;
+			const unsigned char *end = text + size;
+
+			while (run < end && *run > ZIM_TEXT_IMAGE_MARKER)
+				run++;
+			skip = run > text + i ? (size_t)(run - text - i) : 1;
+			kept += skip;
+		}
+		i += skip;
+	}
+	/* Line-break and underline escapes, the link table, and slack. */
+	need = kept + kept / 12 + links * (3 + sizeof(ARTICLE_LINK)) + 2048;
+	return need < FILE_BUFFER_SIZE ? FILE_BUFFER_SIZE - need : 0;
+}
+
 static int article_image(void *opaque, const unsigned char *source_path,
 			 size_t source_path_length,
 			 unsigned int requested_width,
@@ -517,8 +559,10 @@ static int article_image(void *opaque, const unsigned char *source_path,
 	    zim_image_fit_dimensions(requested_width, requested_height,
 				     requested_width, requested_height,
 				     width, height, bitmap_size) ||
-	    *bitmap_size > capacity || grow_deferred_images())
+	    *bitmap_size > capacity || *bitmap_size + 4 > image_budget ||
+	    grow_deferred_images())
 		return -1;
+	image_budget -= *bitmap_size + 4;
 	deferred = &deferred_images[deferred_image_count];
 	memset(bitmap, 0, *bitmap_size);
 	deferred->stream = bitmap - 4;
@@ -876,41 +920,107 @@ static int title_matches(const ZIM_DIRENT *dirent,
 	return !strncmp(dirent->title, (const char *)prefix, strlen((const char *)prefix));
 }
 
+/* The title listing is byte-ordered and case-sensitive while the keyboard
+ * only types lower case, so "united states" cannot be one prefix probe:
+ * "United States" and the "United states" redirect sit far apart.  A search
+ * therefore probes every capitalization of the first few words after the
+ * first and reads the matching runs one after another, most capitals first,
+ * so the real title heads the list and the redirects follow. */
+#define SEARCH_VARIANT_WORDS 4
+#define SEARCH_VARIANTS_MAX (1 << SEARCH_VARIANT_WORDS)
+
+typedef struct {
+	unsigned char prefix[SEARCH_VARIANTS_MAX][MAX_TITLE_SEARCH];
+	uint32_t position[SEARCH_VARIANTS_MAX];
+	unsigned int count;
+	unsigned int current;
+	uint32_t emitted;
+} SEARCH_CURSOR;
+
+static SEARCH_CURSOR cursor;
+
+static void search_cursor_open(void)
+{
+	unsigned char base[MAX_TITLE_SEARCH];
+	int boundaries[SEARCH_VARIANT_WORDS];
+	unsigned int words = 0;
+	unsigned int variant;
+	int i;
+
+	cursor.count = 0;
+	cursor.current = 0;
+	cursor.emitted = 0;
+	if (!search_length)
+		return;
+	search_prefix(base);
+	for (i = 1; i < search_length && words < SEARCH_VARIANT_WORDS; i++)
+		if (base[i - 1] == ' ' && base[i] >= 'a' && base[i] <= 'z')
+			boundaries[words++] = i;
+	for (variant = 1u << words; variant-- > 0;) {
+		unsigned char *prefix = cursor.prefix[cursor.count];
+		unsigned int word;
+		uint32_t position;
+
+		memcpy(prefix, base, (size_t)search_length + 1);
+		for (word = 0; word < words; word++)
+			if (variant & (1u << (words - 1 - word)))
+				prefix[boundaries[word]] =
+					(unsigned char)toupper(prefix[boundaries[word]]);
+		if (zim_archive_find_title_prefix(&archive, (const char *)prefix,
+						  &position))
+			continue;
+		cursor.position[cursor.count++] = position;
+	}
+}
+
+/* Next matching title across the variants; 0 when exhausted. */
+static int search_cursor_next(ZIM_DIRENT *dirent)
+{
+	while (cursor.current < cursor.count) {
+		uint32_t position = cursor.position[cursor.current];
+		int rc;
+
+		if (position < archive.title_listing_count) {
+			rc = zim_archive_title_at(&archive, position, dirent);
+			if ((!rc || rc == ZIM_ERR_TRUNCATED) &&
+			    title_matches(dirent, cursor.prefix[cursor.current])) {
+				cursor.position[cursor.current] = position + 1;
+				cursor.emitted++;
+				return 1;
+			}
+		}
+		cursor.current++;
+	}
+	return 0;
+}
+
 static void populate_results(void)
 {
-	unsigned char prefix[MAX_TITLE_SEARCH];
-	uint32_t position;
-	int rc;
+	ZIM_DIRENT dirent;
+	SEARCH_CURSOR saved;
 
 	results.count = 0;
 	results.selected = -1;
 	more_search_results = 0;
-	if (!search_length)
-		return;
-	search_prefix(prefix);
-	rc = zim_archive_find_title_prefix(&archive, (const char *)prefix,
-					   &position);
-	if (rc)
-		return;
-	while (position < archive.title_listing_count &&
-	       results.count < NUMBER_OF_FIRST_PAGE_RESULTS) {
-		ZIM_DIRENT dirent;
-		rc = zim_archive_title_at(&archive, position, &dirent);
-		if (rc && rc != ZIM_ERR_TRUNCATED)
-			break;
-		if (!title_matches(&dirent, prefix))
-			break;
+	search_cursor_open();
+	while (results.count < NUMBER_OF_FIRST_PAGE_RESULTS &&
+	       search_cursor_next(&dirent)) {
 		results.article[results.count] = dirent.path_index + 1;
 		strncpy((char *)results.title[results.count], dirent.title,
 			MAX_TITLE_ACTUAL - 1);
 		results.title[results.count][MAX_TITLE_ACTUAL - 1] = '\0';
 		results.count++;
-		position++;
 	}
-	results.next_title = position;
-	if (results.count == NUMBER_OF_FIRST_PAGE_RESULTS &&
-	    position < archive.title_listing_count)
-		more_search_results = 1;
+	/* Peek for a further page without consuming it. */
+	saved = cursor;
+	more_search_results = search_cursor_next(&dirent);
+	cursor = saved;
+#ifdef ZIM_TRACE_HASH
+	debug_printf("search '%s' -> %u variants, %lu results, first '%s' index %lu\n",
+		     search_string, cursor.count, (unsigned long)results.count,
+		     results.count ? (const char *)results.title[0] : "",
+		     results.count ? (unsigned long)results.article[0] : 0UL);
+#endif
 }
 
 void search_init(void)
@@ -1146,31 +1256,34 @@ void search_open_article(int selection)
 		display_link_article(results.article[selection]);
 }
 
+/* Paging beyond the first screen hands out results by ordinal: the
+ * encoded position is one more than the number already shown. */
 long result_list_offset_next(void)
 {
-	return (long)results.next_title + 1;
+	return (long)cursor.emitted + 1;
 }
 
 long result_list_next_result(long encoded_position, long *article_id,
 			     unsigned char *title)
 {
-	unsigned char prefix[MAX_TITLE_SEARCH];
-	uint32_t position;
 	ZIM_DIRENT dirent;
-	int rc;
+	uint32_t ordinal;
+
 	if (encoded_position <= 0)
 		return 0;
-	position = (uint32_t)encoded_position - 1;
-	if (position >= archive.title_listing_count)
-		return 0;
-	search_prefix(prefix);
-	rc = zim_archive_title_at(&archive, position, &dirent);
-	if ((rc && rc != ZIM_ERR_TRUNCATED) || !title_matches(&dirent, prefix))
+	ordinal = (uint32_t)encoded_position - 1;
+	if (ordinal != cursor.emitted) {
+		search_cursor_open();
+		while (cursor.emitted < ordinal)
+			if (!search_cursor_next(&dirent))
+				return 0;
+	}
+	if (!search_cursor_next(&dirent))
 		return 0;
 	*article_id = (long)dirent.path_index + 1;
 	strncpy((char *)title, dirent.title, MAX_TITLE_ACTUAL - 1);
 	title[MAX_TITLE_ACTUAL - 1] = '\0';
-	return (long)position + 2;
+	return (long)ordinal + 2;
 }
 
 void get_article_title_from_idx(long index, unsigned char *title)
@@ -1178,7 +1291,7 @@ void get_article_title_from_idx(long index, unsigned char *title)
 	ZIM_DIRENT dirent;
 	int rc;
 	title[0] = '\0';
-	index &= 0x00ffffff;
+	index &= ARTICLE_INDEX_MASK;
 	if (index <= 0 || (uint32_t)index > archive.entry_count)
 		return;
 	rc = zim_archive_read_dirent(&archive, (uint32_t)index - 1, &dirent);
@@ -1192,34 +1305,37 @@ int retrieve_article(long encoded_index)
 {
 	ARTICLE_HEADER article_header;
 	ZIM_DIRENT dirent;
-	uint32_t index = (uint32_t)encoded_index & 0x00ffffff;
+	uint32_t index = (uint32_t)encoded_index & ARTICLE_INDEX_MASK;
 	const unsigned char *raw;
 	size_t raw_size;
 	size_t text_size;
 	size_t article_size;
-	int rc;
+	int rc = 0;
 	int article_height;
+	int failed_line = 0;
+#define FAIL() do { failed_line = __LINE__; goto error; } while (0)
 
+	(void)failed_line;
 	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
 	/* History entries carry the archive they came from in the top byte. */
-	if ((uint32_t)encoded_index >> 24) {
-		int wiki_index = get_wiki_idx_from_id((int)((uint32_t)encoded_index >> 24));
+	if (ARTICLE_WIKI_ID(encoded_index)) {
+		int wiki_index = get_wiki_idx_from_id(ARTICLE_WIKI_ID(encoded_index));
 
 		if (wiki_index < 0)
-			goto error;
+			FAIL();
 		if (wiki_index != nCurrentWiki)
 			set_wiki(wiki_index);
 	}
 	if (!index || index > archive.entry_count)
-		goto error;
+		FAIL();
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
 	if (!text_buffer)
 		text_buffer = memory_allocate(FILE_BUFFER_SIZE, "zim-text");
 	if (!raw_buffer || !text_buffer)
-		goto error;
+		FAIL();
 	if (deferred_image_decoder) {
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
@@ -1239,9 +1355,9 @@ int retrieve_article(long encoded_index)
 	draw_progress_bar(5, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
-		goto error;
+		FAIL();
 	if (zim_archive_resolve_redirect(&archive, &dirent))
-		goto error;
+		FAIL();
 	strncpy(current_article_path, dirent.path,
 		sizeof(current_article_path) - 1);
 	current_article_path[sizeof(current_article_path) - 1] = '\0';
@@ -1255,7 +1371,7 @@ int retrieve_article(long encoded_index)
 						    ZIM_RAW_BUFFER_SIZE, &raw_size,
 						    article_blob_progress, NULL);
 		if (rc)
-			goto error;
+			FAIL();
 		raw = raw_buffer;
 	}
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
@@ -1274,34 +1390,36 @@ int retrieve_article(long encoded_index)
 	rc = zim_html_to_text_images(raw, raw_size, text_buffer,
 				     FILE_BUFFER_SIZE, &text_size);
 	if (rc)
-		goto error;
+		FAIL();
 	draw_progress_bar(85, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
 	deferred_link_count = 0;
 	deferred_anchor_count = 0;
 	article_text_size = text_size;
+	image_budget = article_image_budget(text_buffer, text_size);
 	if (zim_text_to_article_images_links(text_buffer, text_size, file_buffer,
 					     FILE_BUFFER_SIZE, &article_size,
 					     article_image, NULL,
 					     article_link, NULL,
 					     article_anchor, NULL, &article_height))
-		goto error;
+		FAIL();
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))
-		goto error;
+		FAIL();
 	for (index = 0; index < deferred_image_count; index++)
 		deferred_images[index].stream += article_header.offset_article -
 			sizeof(article_header);
 	set_article_stream_height(article_height);
 	current_article_valid = 1;
-	current_article_index = (uint32_t)encoded_index & 0x00ffffff;
+	current_article_index = (uint32_t)encoded_index & ARTICLE_INDEX_MASK;
 	current_article_size = article_size;
 	current_article_height = article_height;
 	current_article_header = article_header;
 	apply_pending_fragment();
 #ifdef ZIM_TRACE_HASH
-	debug_printf("article %lu history y %ld\n", (unsigned long)index,
+	debug_printf("article %lu history y %ld\n",
+		     (unsigned long)current_article_index,
 		     history_get_y_pos());
 	memory_debug("article ready");
 #endif
@@ -1311,6 +1429,11 @@ int retrieve_article(long encoded_index)
 	return 0;
 
 error:
+#ifdef ZIM_TRACE_HASH
+	debug_printf("article %lu failed at line %d rc %d\n",
+		     (unsigned long)((uint32_t)encoded_index & ARTICLE_INDEX_MASK),
+		     failed_line, rc);
+#endif
 	pending_fragment_length = 0;
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	print_article_error();

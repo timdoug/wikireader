@@ -1258,9 +1258,9 @@ static void handle_touch(event_t *ev)
 						if (display_mode == DISPLAY_MODE_ARTICLE)
 						{
 							saved_prev_idx_article = saved_idx_article;
-							if (!(saved_prev_idx_article & 0xFF000000)) // idx_article for current wiki
+							if (!ARTICLE_WIKI_ID(saved_prev_idx_article)) // idx_article for current wiki
 							{
-								saved_prev_idx_article |= get_wiki_id_from_idx(nCurrentWiki) << 24;
+								saved_prev_idx_article |= ARTICLE_WIKI_BITS(get_wiki_id_from_idx(nCurrentWiki));
 							}
 						}
 						else

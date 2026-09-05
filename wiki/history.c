@@ -92,9 +92,9 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 	int i = 0;
 	int bFound = 0;
 
-	if (!(idx_article & 0xFF000000)) // idx_article for current wiki
+	if (!ARTICLE_WIKI_ID(idx_article)) // idx_article for current wiki
 	{
-		idx_article |= get_wiki_id_from_idx(nCurrentWiki) << 24;
+		idx_article |= ARTICLE_WIKI_BITS(get_wiki_id_from_idx(nCurrentWiki));
 	}
 
 	if (!viewing_count || viewing_list[viewing_count - 1].idx_article != idx_article)

@@ -4,7 +4,8 @@
 
 #include <inttypes.h>
 
-#define ZIM_CATALOG_MAX 16
+/* Archive ids occupy four bits above the article index (lcd_buf_draw.h). */
+#define ZIM_CATALOG_MAX 15
 
 /* Scan the exFAT content volume root and the boot volume's zim/ directory
  * for *.zim files.  Entries are sorted by path.  Returns the count. */

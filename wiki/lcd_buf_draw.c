@@ -44,10 +44,11 @@
 #define SCROLL_UNIT_SECOND (1.0 / 30.0)
 #define LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.1
 #define LIST_LINK_INVERT_ACTIVATION_TIME_THRESHOLD 0.35
-#define RESTRICTED_MARK_LINK 0xFFFFFF
-#define PREVIOUS_ARTICLE_LINK 0xFFFFFE
-#define EXTERNAL_ARTICLE_LINK 0xFFFFFD
-#define SHOW_LANGUAGE_LINK 0xFFFFFC
+/* Sentinel ids just below the top of the article index space. */
+#define RESTRICTED_MARK_LINK ARTICLE_INDEX_MASK
+#define PREVIOUS_ARTICLE_LINK (ARTICLE_INDEX_MASK - 1)
+#define EXTERNAL_ARTICLE_LINK (ARTICLE_INDEX_MASK - 2)
+#define SHOW_LANGUAGE_LINK (ARTICLE_INDEX_MASK - 3)
 #define HIDE_LANGUAGE_LINK 0xFFFFFB
 #define PREVIOUS_ARTICLE_LINKABLE_SIZE 20
 #define ARTICLE_LINK_SOMETHING_BEFORE 0x20
@@ -1837,7 +1838,7 @@ void display_retrieved_article(long idx_article)
 	int nLinkWikiId;
 	unsigned int start_x, end_x, start_y, end_y;
 
-	nArticleWikiId = idx_article >> 24;
+	nArticleWikiId = ARTICLE_WIKI_ID(idx_article);
 	if (article_initial_y_pos >= 0)
 	{
 		init_render_article(article_initial_y_pos);
@@ -1865,7 +1866,7 @@ void display_retrieved_article(long idx_article)
 	// externalLink[] is for storing the pointer to the language link string.
 	// A corresponding artileLink (with the same index) will be used to store the start_xy and end_xy information.
 	// The corresponding articleLink.article_id will be set to EXTERNAL_ARTICLE_LINK for distinguishing with normal article links.
-	if ((idx_article & 0x00FFFFFF) > MAX_STATIC_ARTICLE_ID)
+	if ((idx_article & ARTICLE_INDEX_MASK) > MAX_STATIC_ARTICLE_ID)
 	{
 		while (offset < article_header.offset_article && article_link_count < MAX_EXTERNAL_LINKS)
 		{
@@ -1944,7 +1945,7 @@ void display_retrieved_article(long idx_article)
 	for(i = 0; i < article_header.article_link_count && article_link_count < MAX_ARTICLE_LINKS; i++)
 	{
 		memcpy(&articleLink[article_link_count],file_buffer+offset,sizeof(ARTICLE_LINK));
-		nLinkWikiId = articleLink[article_link_count].article_id >> 24;
+		nLinkWikiId = ARTICLE_WIKI_ID(articleLink[article_link_count].article_id);
 		if ((article_link_handler &&
 		     article_link_handler((long)articleLink[article_link_count].article_id,
 					  0)) ||
@@ -1952,7 +1953,7 @@ void display_retrieved_article(long idx_article)
 		    (nLinkWikiId && get_wiki_idx_from_id(nLinkWikiId) >= 0))
 		{
 			if (nArticleWikiId && !nLinkWikiId)
-				articleLink[article_link_count].article_id |= nArticleWikiId << 24;
+				articleLink[article_link_count].article_id |= ARTICLE_WIKI_BITS(nArticleWikiId);
 			if (article_start_y_pos)
 			{
 				start_x = articleLink[article_link_count].start_xy & 0xFF;

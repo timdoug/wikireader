@@ -123,6 +123,26 @@ int main(void)
 			       strlen("../../D&amp;E"), path, sizeof(path)) ||
 	    strcmp(path, "D&E"))
 		return 8;
-	puts("PASS: HTML links, same-page anchors, and skipped navigation markup");
+	/* A buffer too small for the text yields a valid, marked, shorter
+	 * stream rather than a failure. */
+	{
+		unsigned char small[100];
+		size_t small_size;
+		int small_height;
+
+		if (zim_text_to_article_images_links(normalized, normalized_size,
+				small, sizeof(small), &small_size, NULL, NULL,
+				resolve_link, NULL, note_anchor, NULL, &small_height))
+			return 11;
+		memcpy(&header, small, sizeof(header));
+		if (small_size > sizeof(small) || small_size < 40 ||
+		    header.offset_article != sizeof(header) +
+			header.article_link_count * sizeof(ARTICLE_LINK) ||
+		    !memmem(small, small_size, "(article truncated)", 19) ||
+		    small_height != zim_article_stream_height(small, small_size))
+			return 12;
+	}
+	puts("PASS: HTML links, same-page anchors, skipped navigation markup, "
+	     "and truncation");
 	return 0;
 }

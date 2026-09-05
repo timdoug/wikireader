@@ -561,7 +561,7 @@ uint32_t wiki_lang_link_search(const unsigned char *lang_link_str)
 
 			article_idx = get_article_idx_by_title(p + 1, q + 1);
 			if (article_idx)
-				article_idx |= wiki_list[aActiveWikis[nCurrentWiki].WikiInfoIdx].wiki_id << 24;
+				article_idx |= ARTICLE_WIKI_BITS(wiki_list[aActiveWikis[nCurrentWiki].WikiInfoIdx].wiki_id);
 		}
 	}
 	nCurrentWiki = nTempCurrentWiki;

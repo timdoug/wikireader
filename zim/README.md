@@ -88,7 +88,11 @@ the dual-volume exFAT image. The equivalent single-volume FAT32 image takes
 - several archives per card, chosen from a list of their `M/Title` metadata
   through the original reader's wiki-selection screen, with the choice
   persisted by path
-- prefix search without a generated sidecar index
+- prefix search without a generated sidecar index; the keyboard types lower
+  case, so a multi-word search probes each capitalization of the first four
+  words after the first ("United States", then the "United states" redirect)
+- article ids with 27 index bits and a 4-bit archive id, enough for the
+  27.2 M entries of a full English Wikipedia archive (up to 15 archives)
 - redirects, uncompressed clusters, and Zstandard clusters
 - standard Grifo/FatFs R0.16 file access, including exFAT, 64-bit file
   positions, and compact fast-seek maps for contiguous or fragmented files
@@ -240,13 +244,19 @@ RGB intermediate buffer.
   image to provide both width and height. Current Kiwix archives
   commonly store assets named `.jpg` or `.png` as WebP internally; the decoder
   detects the content rather than relying on the filename suffix.
-- A decoded HTML article must fit the 512 KiB article input buffer.
+- A decoded HTML article is converted straight out of the decoded-cluster
+  cache, so its size is bounded by the cluster (2 MiB in Kiwix archives),
+  while the converted text and the wrapped article stream must each fit
+  512 KiB; the largest full English articles measured (United States,
+  1.3 MB of HTML) produce about 375 KB of text and 250 KB of stream.
+- An article keeps at most 8,192 internal links and 8,192 section anchors;
+  United States has 3,948 links.
 - Legacy LZMA-compressed ZIM clusters are not implemented.
-- Search follows the ZIM title ordering and currently applies only the
-  MediaWiki first-letter capitalization rule, not full Unicode case folding.
+- Search follows the ZIM title ordering with capitalization variants of the
+  first words only, not full Unicode case folding.
 
 The 64-bit path has been tested in the emulator with a 4.5 GiB exFAT file and
 with its live ZIM path-index table relocated to byte 4,300,000,000, forcing a
-successful seek and read above 4 GiB. A complete 49 GB English archive has not
-yet been exercised, and unusually large individual articles remain subject to
-the 512 KiB decoded-article limit.
+successful seek and read above 4 GiB, and with the complete 124 GB
+`wikipedia_en_all_maxi_2026-02.zim` (27.2 M entries, 216 k clusters): search,
+article and image loading, history, and scrolling work on a 124 GB card image.

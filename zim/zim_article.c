@@ -217,6 +217,9 @@ int zim_text_to_article_images_links(const unsigned char *text,
 	int first_line = 1;
 	uint32_t link_id = 0;
 	int segment_x = -1;
+	size_t committed;
+	size_t committed_links;
+	HEIGHT_TRACK committed_track = { 0, 0, 0 };
 	int rc;
 
 /* A link segment is only open while segment_x >= 0, so the common case
@@ -225,9 +228,14 @@ int zim_text_to_article_images_links(const unsigned char *text,
 	(segment_x >= 0 && finish_link_segment(article, capacity, &used, links, \
 					       &link_count, link_id, &segment_x, \
 					       x, y, line_height))
+/* Room kept back from the loop for the terminator and a truncation note. */
+#define TRUNCATION_RESERVE 32
+#define TRUNCATION_MARK "(article truncated)"
 
-	if (!text || !article || !article_size || capacity <= sizeof(header))
+	if (!text || !article || !article_size ||
+	    capacity < sizeof(header) + TRUNCATION_RESERVE + 8)
 		return -1;
+	capacity -= TRUNCATION_RESERVE;
 	word_break_init();
 	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
 	if (!links)
@@ -252,10 +260,15 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		int had_space = 0;
 		unsigned char class = word_break[text[input]];
 
+		committed = used;
+		committed_links = link_count;
+		committed_track = track;
 		if (class == CLASS_LINK_START) {
 			size_t path_length;
 
-			if (FINISH_LINK_SEGMENT() || text_size - input < 3)
+			if (FINISH_LINK_SEGMENT())
+				goto truncate;
+			if (text_size - input < 3)
 				goto error;
 			path_length = text[input + 1] |
 				(size_t)text[input + 2] << 8;
@@ -268,7 +281,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		}
 		if (class == CLASS_LINK_END) {
 			if (FINISH_LINK_SEGMENT())
-				goto error;
+				goto truncate;
 			link_id = 0;
 			input++;
 			continue;
@@ -305,7 +318,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			record_length = 7 + path_length;
 			if (record_length > text_size - input)
 				goto error;
-			if (image && capacity - used >= 4) {
+			if (image && capacity - used >= 6) {
 				uint8_t image_width;
 				uint16_t image_height;
 				size_t bitmap_size;
@@ -314,7 +327,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 					if (FINISH_LINK_SEGMENT() ||
 					    emit_newline(article, capacity, &used,
 							 font, 0, &track))
-						goto error;
+						goto truncate;
 					y += actual_height;
 					actual_height = line_height;
 				}
@@ -322,10 +335,10 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				if (!image(image_opaque, text + input + 7,
 					   path_length, requested_width,
 					   requested_height, article + used + 4,
-					   capacity - used - 4, &image_width,
+					   capacity - used - 6, &image_width,
 					   &image_height, &bitmap_size)) {
-					if (bitmap_size > capacity - used - 4)
-						goto error;
+					if (bitmap_size > capacity - used - 6)
+						goto truncate;
 					article[used++] = ESC_14_BITMAP;
 					article[used++] = image_width;
 					article[used++] = (unsigned char)image_height;
@@ -337,7 +350,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 						track.actual_height = (int)image_height + 3;
 					if (emit_newline(article, capacity, &used,
 							 font, 0, &track))
-						goto error;
+						goto truncate;
 					y += actual_height;
 					actual_height = line_height;
 				}
@@ -348,7 +361,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 
 		if (class == CLASS_NEWLINE) {
 			if (FINISH_LINK_SEGMENT())
-				goto error;
+				goto truncate;
 			input++;
 			y += actual_height;
 			if (first_line) {
@@ -364,7 +377,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 						  &track);
 			}
 			if (rc)
-				goto error;
+				goto truncate;
 			actual_height = line_height;
 			x = 0;
 			continue;
@@ -390,7 +403,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 		if (x && x + space_width + width > ARTICLE_TEXT_WIDTH) {
 			if (FINISH_LINK_SEGMENT() ||
 			    emit_newline(article, capacity, &used, font, 0, &track))
-				goto error;
+				goto truncate;
 			y += actual_height;
 			actual_height = line_height;
 			x = 0;
@@ -400,7 +413,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			if (link_id && segment_x < 0)
 				segment_x = x;
 			if (append_byte(article, capacity, &used, ' '))
-				goto error;
+				goto truncate;
 			x += space_width;
 		}
 		/* Most words fit intact after the line-break decision above.  Their
@@ -411,7 +424,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				segment_x = x;
 			if (append_bytes(article, capacity, &used,
 					 text + word_start, word_length))
-				goto error;
+				goto truncate;
 			x += width;
 			continue;
 		}
@@ -424,7 +437,7 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				if (FINISH_LINK_SEGMENT() ||
 				    emit_newline(article, capacity, &used,
 						 font, 0, &track))
-					goto error;
+					goto truncate;
 				y += actual_height;
 				actual_height = line_height;
 				x = 0;
@@ -433,14 +446,34 @@ int zim_text_to_article_images_links(const unsigned char *text,
 				segment_x = x;
 			if (append_bytes(article, capacity, &used, text + word_start,
 					 character_size))
-				goto error;
+				goto truncate;
 			x += character_width;
 			word_start += character_size;
 			word_length -= character_size;
 		}
 	}
+	committed = used;
+	committed_links = link_count;
+	committed_track = track;
 	if (FINISH_LINK_SEGMENT())
-		goto error;
+		goto truncate;
+	capacity += TRUNCATION_RESERVE;
+	goto finish;
+
+truncate:
+	/* Out of room: keep the stream up to the last complete token and say
+	 * so, in the space reserved before the loop. */
+	used = committed;
+	link_count = committed_links;
+	track = committed_track;
+	segment_x = -1;
+	capacity += TRUNCATION_RESERVE;
+	if (!emit_newline(article, capacity, &used, font, 0, &track))
+		append_bytes(article, capacity, &used,
+			     (const unsigned char *)TRUNCATION_MARK,
+			     sizeof(TRUNCATION_MARK) - 1);
+
+finish:
 	if (append_byte(article, capacity, &used, '\0'))
 		goto error;
 	while (link_count && link_count * sizeof(*links) > capacity - used)
@@ -465,6 +498,8 @@ error:
 	free(links);
 	return -1;
 #undef FINISH_LINK_SEGMENT
+#undef TRUNCATION_RESERVE
+#undef TRUNCATION_MARK
 }
 
 int zim_text_to_article_images(const unsigned char *text, size_t text_size,

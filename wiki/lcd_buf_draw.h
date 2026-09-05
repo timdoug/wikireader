@@ -230,7 +230,21 @@ typedef struct _LCD_DRAW_BUF
 } LCD_DRAW_BUF;
 
 #define MAX_RESULT_LIST 512
-#define MAX_ARTICLE_LINKS 2048
+/* An article id carries the archive ("wiki id") above the article index.
+ * The original 24-bit index and top-byte id would not fit the 27.2 M entries
+ * of a full English Wikipedia ZIM, so the ZIM reader keeps 27 index bits and
+ * four id bits (ids 1..15) below a clear sign bit. */
+#ifdef ZIM_APP
+#define ARTICLE_INDEX_BITS 27
+#else
+#define ARTICLE_INDEX_BITS 24
+#endif
+#define ARTICLE_INDEX_MASK ((1UL << ARTICLE_INDEX_BITS) - 1)
+#define ARTICLE_WIKI_ID(idx) ((int)((unsigned long)(idx) >> ARTICLE_INDEX_BITS))
+#define ARTICLE_WIKI_BITS(id) ((unsigned long)(id) << ARTICLE_INDEX_BITS)
+/* Full English Wikipedia articles carry up to about 4,000 internal links
+ * (United States: 3,948); links past the cap render as plain text. */
+#define MAX_ARTICLE_LINKS 8192
 #define MAX_EXTERNAL_LINKS 128
 #define SPACE_BEFORE_LICENSE_TEXT 40
 #define SPACE_AFTER_LICENSE_TEXT 5
