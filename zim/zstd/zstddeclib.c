@@ -22520,8 +22520,11 @@ static size_t ZSTD_c33_seqTrampoline(const ZSTD_c33_seqArgs* a)
                                             a->isLongOffset);
 }
 
-static size_t ZSTD_c33_callOnDstramStack(size_t (*fn)(const ZSTD_c33_seqArgs*),
-                                         const ZSTD_c33_seqArgs* args)
+/* noinline: the asm below claims every call-clobbered register, which
+ * cannot be satisfied where the compiler would inline it. */
+static __attribute__((noinline)) size_t
+ZSTD_c33_callOnDstramStack(size_t (*fn)(const ZSTD_c33_seqArgs*),
+                           const ZSTD_c33_seqArgs* args)
 {
     size_t result;
 #if defined(ZIM_TRACE_HASH)
