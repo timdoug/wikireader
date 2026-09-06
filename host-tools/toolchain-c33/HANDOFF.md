@@ -20,7 +20,7 @@ the complete WikiReader firmware.
 | ABI | New and original objects cross-call in all four compiler combinations and agree at five optimization levels. |
 | Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo uses FatFs R0.16 with FAT32/exFAT, multiple volumes, compact fast-seek maps, and 64-bit file positions. |
 | Hardware | Run on a real WikiReader with its stock 2009 flash on 2026-09-05 from an 8 GB card: the factory loader loads the gcc 16 kernel; the launcher, ZIM reader (two archives), stock `wiki.app` on a Wikiquote data set, SD DMA, suspend/resume, scrolling, and history across a power cycle all work. Two hardware-only defects were found and fixed (see below). |
-| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. Known divergence: it wakes a HALTed core on the HSDMA terminal-count cause; the silicon does not. |
+| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. Seven controller and card overheads are fitted to a real device (2026-09-05); micro-benchmarks agree within 10%. Known divergence: it wakes a HALTed core on the HSDMA terminal-count cause; the silicon does not. |
 | DejaGnu | The standard GCC board is authoritative. Focused execution suites are clean; the final post-fix unfiltered run is still pending. |
 
 There is no known wrong-code failure in a supported C or ABI feature. The
@@ -234,13 +234,19 @@ sdram`), and the reader, the Zstandard port, the kernel's SD DMA backend, and
 the SDRAM controller timing were changed accordingly; details and the phase
 breakdown are in [`../../zim/README.md`](../../zim/README.md).
 
-| Measurement (modeled) | Before | After |
+| Measurement (calibrated model, 2026-09-05 evening) | Before | After |
 | --- | ---: | ---: |
-| `Cat`, tap to first painted page | 1941.3 ms | 1296.0 ms |
-| same, software changes only (stock SDRAM timing forced) | | 1557.5 ms |
-| Wikivoyage `Paris`, first photograph decode | 1342.5 ms | 1084.0 ms |
-| app start to keyboard painted | 457 ms | 294 ms |
-| SD 512-byte block payload | 52,300 cycles | 22,900 cycles |
+| `Cat`, tap to first painted page | 2864.0 ms | 1274.8 ms |
+| same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1390 ms |
+| `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 1141 / 1030 ms |
+| Wikivoyage `Paris`, first photograph decode | 1861.0 ms | 1565.5 ms |
+| app start to keyboard painted | 807 ms | 632 ms |
+
+(The manual-only model used earlier that day gave 1941.3 and 1253.9 ms for
+the `Cat` rows and 1342.5 and 1084.0 ms for `Paris`.) The emulator's seven
+fitted timing parameters, the fitting tool, and the device/model ratios are
+in `emulator/README.md`, "Calibration"; the device's benchmark file is
+`zim/bench-device-2026-09-05.txt`.
 
 Screens and article streams are byte-identical, eight decoded articles hash
 identically to `zimdump`, and `host-tools/zim-reader/make check` passes. The
@@ -248,7 +254,11 @@ kernel's SDRAM retiming (`samo-lib/grifo/src/sdram.c`, `SDRAM_TIMING=FAST`
 default, `STOCK` to disable) and the DMA descriptor move to DSTRAM ran on the
 device the same day (boots, searches, opens articles, subjectively faster;
 not yet timed); the loader in flash still programs the stock values, so the
-kernel reprograms the controller from A0 RAM after boot.
+kernel reprograms the controller from A0 RAM after boot, and SuspendCode
+restores the same refresh interval on every wake from the event loop's idle
+sleep. The reader's `ZIM_BENCH=YES` build writes per-phase load times and
+memory/card micro-benchmarks to `bench.txt` on the card, on the device and in
+the emulator alike, for calibrating the model (`zim/bench-compare`).
 
 ## Known boundaries
 
@@ -277,9 +287,8 @@ These are not GCC/binutils correctness bugs and require separate approval:
 ### Emulator boundaries
 
 - The SDRAM model serializes cross-bank command/data phases conservatively.
-- Absolute SD-card response latency needs measurement on a real device; the
-  device now boots, so a timed article load against `SD_DMA=NO` would
-  calibrate it.
+- Absolute SD-card latency and the SDRAM controller's per-access overheads
+  are fitted, not derived: `emulator/src/model.c`, one board, one card.
 - HALT wake-up: the model wakes the core on any enabled ITC cause, including
   the HSDMA terminal count, which the hardware did not do. Firmware should
   poll DMA completion.
@@ -297,9 +306,20 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-1. Time a `Cat` load on the device with a stopwatch under the default and an
-   `SDRAM_TIMING=STOCK` kernel; that calibrates the SD and SDRAM models. Also
-   exercise suspend/resume and a long session on the retimed kernel.
+1. The A0 RAM decoder ran on the device on 2026-09-06 (`Cat` 1390 ms,
+   `Tokyo` 1030 ms, no DMA fallback). The device runs A0 RAM code about
+   15% slower than the model's zero-wait fetch; a fetch-from-A0
+   micro-benchmark would let `fit_model.py` pin that down.
+2. Exercise suspend/resume and a long session on the retimed kernel. The
+   emulator is calibrated to one early 32 MB board; a `bench.txt` from a
+   16 MB V4 board run through `emulator/tools/fit_model.py` would show
+   whether the fitted overheads differ between revisions. The first article
+   after a cold boot pays about 1.8 s filling the glyph caches from the
+   card; that was the missing fast-seek map on the font files, fixed the
+   same evening, together with sector-sized glyph fills.
+3. `html_to_text` is now the largest remaining cost after the decoder
+   (about 260 ms of `Cat`, half of it instruction fetch): too large for the
+   remaining 700 bytes of A0 RAM, so the next step is a smaller hot loop.
 2. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
    hardware checklist; time a Cat load on hardware with `SD_DMA=YES` and
    `SD_DMA=NO` to calibrate the SD model.
