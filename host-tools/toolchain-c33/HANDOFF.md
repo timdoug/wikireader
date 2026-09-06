@@ -28,6 +28,94 @@ remaining unexpected focused results are target-dependent scan or diagnostic
 expectations, not malformed code; they remain visible in
 [`tests/DEJAGNU-TODO.md`](tests/DEJAGNU-TODO.md).
 
+## Session handoff, 2026-09-05 to 06: reader speed and calibration
+
+What was done, in order, each step committed and verified (eight decoded
+articles hash-identical to `zimdump`, screens pixel-identical, host checks,
+emulator `make check`):
+
+1. Cycle- and SDRAM-row-weighted profiling in `wremu` (`-F` columns,
+   `--- window sdram` lines) showed the reader was bound by SDRAM row
+   changes, refresh, and instruction fetch, not instruction count. Fixes:
+   bank-local cluster buffer, literals kept out of the output bank, batched
+   copies, lazy bit-stream refills in the Zstandard port; the kernel
+   retimes the SDRAM controller to the part's data-sheet values from A0
+   RAM (`SDRAM_TIMING=FAST`, `src/sdram.c`; SuspendCode restores the
+   refresh value on wake) and keeps SD DMA descriptors in DSTRAM.
+2. The reader's `ZIM_BENCH=YES` build times itself on the device (memory
+   and card micro-benchmarks at start, per-phase article loads) and writes
+   `bench.txt` to the card; install it as `zimbench.app` with the inverted
+   kiwi icon. The device files are `zim/bench-device-2026-09-05.txt` and
+   `-06.txt`. It must run on a writable image in the emulator.
+3. `emulator/tools/fit_model.py` fitted ten timing parameters
+   (`emulator/src/model.c`, `WREMU_MODEL=` overrides) to those files; the
+   manual-only model had been optimistic by a third. Facts established:
+   a taken branch costs 5 cycles from SDRAM and 4 from internal RAM;
+   fetch from A0 RAM, IVRAM, and DSTRAM is exactly one cycle; the card
+   takes 1.2 ms per read command; a read after a write waits about six
+   ticks. Micro-benchmarks agree within 5% except two store-then-load
+   patterns; `Cat` within 10%.
+4. Code placement in internal RAM: the Zstandard sequence loop and FSE
+   table builder in the 5 KB of A0 RAM the kernel leaves at 0xc00
+   (`.fastcode`, `application.lds`); the HTML converter, wrapper, and
+   Huffman literal decoder as overlays in the LCD window buffer at 0x81a00
+   (ld `OVERLAY`, `zim/zim_overlay.c`, a post-link `objcopy` because the
+   kernel's loader places sections by address and C33 calls are
+   PC-relative even in their long form). Font files got fast-seek maps and
+   sector-sized glyph fills (a glyph miss had walked the FAT chain from the
+   start of a 3.6 MB font). Cluster slices grew to 16 KiB.
+
+Device results, tap to painted page, `ZIM_BENCH` build:
+
+| | 2026-09-05 morning | end of 09-06 |
+| --- | ---: | ---: |
+| `Cat` (Simple English) | 1846 ms | 1245 ms |
+| `Tokyo` (Japanese first line) | about 8 s | 920 ms |
+| cached reopen | 63 ms | 65 ms |
+
+Calibrated-model `Cat` window (`retrieve_article` to
+`render_article_with_pcf`): 2864 ms for the morning's firmware, 1073 ms now.
+
+Recipes that work (details in `emulator/README.md` and `zim/README.md`):
+
+- Build: `make TOOLCHAIN_BIN=$PWD/host-tools/toolchain-c33/work/install/bin
+  mini-libc fatfs drivers grifo`, then `cd zim && make TOOLCHAIN_BIN=...`;
+  add `ZIM_BENCH=YES` for the benchmark app, `OPT="-O2 -DZIM_TRACE_HASH"`
+  for the hash-printing app. Remove `zim/build/*.o` when changing flags.
+- Card image: `./zim/make-card-image ARCHIVE.zim /tmp/x.dmg` (7 s). The
+  device card's boot volume takes `kernel.elf`, `zim.app`, `zimbench.app`
+  by plain copy.
+- Article benchmark: from `emulator/`, `./wremu -R -e ../samo-lib/mbr/flash.rom
+  -c /tmp/x.dmg -T 40,36,100000000 -K 300000000,CAT -T 30,40,500000000
+  -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt
+  -n 1200000000`, addresses from `zim/zim.map`. Symbolise `prof.txt` with an
+  unstripped relink of the same objects (the `ld` line from
+  `make -n -W build/zim.o zim.app` without `-s --strip-all`), `nm -n`, and
+  `addr2line`.
+- Benchmark app in the emulator: copy the image first and run it without
+  `-R`, with the typing at `-K 600000000` and the tap at 900000000 since
+  the benchmarks delay the keyboard; compare with `zim/bench-compare`.
+- Hash check: eight parallel emulator runs of the trace build, one word
+  each (CAT DOG WATER MUSIC EARTH LONDON PARIS APPLE), against FNV-1a of
+  `host-tools/zim-reader/zimdump ARCHIVE blob C Path`.
+
+Pitfalls met, so they need not be met again:
+
+- The shell's working directory drifts between tool calls; use absolute
+  paths.
+- `make check` at the repository root is not the emulator's; run it in
+  `emulator/`.
+- A read-only card image breaks the benchmark app's FatFs after its first
+  rejected write and the run ends in a font panic.
+- Scripted tap release is delivered only when the emulator idles; a faster
+  build shows thousands of extra render calls, not a bug.
+- The user's device is an early 32 MB board (SDRAMC ADDRC 3); the emulator
+  boots as a 16 MB V4.
+- HSDMA into A0 RAM did not complete; `sd_dma.c` takes the byte path for
+  any destination below SDRAM.
+- Moving a function into A0 RAM only helps if it was not being inlined:
+  small helpers marked `noinline` there made the converter slower.
+
 ## Build
 
 Keep binutils and GCC in the same prefix:
@@ -306,51 +394,44 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-1. The A0 RAM decoder ran on the device on 2026-09-06 (`Cat` 1390 ms,
-   `Tokyo` 1030 ms, no DMA fallback), and A0 RAM tests were added to the
-   benchmark and fitted: internal-RAM fetch is free, a taken branch there
-   is four cycles. The model now predicts `Cat` within 3%; its weakest
-   spot is a read after a write (about 15% under on those patterns).
-2. Exercise suspend/resume and a long session on the retimed kernel. The
-   emulator is calibrated to one early 32 MB board; a `bench.txt` from a
-   16 MB V4 board run through `emulator/tools/fit_model.py` would show
-   whether the fitted overheads differ between revisions. The first article
-   after a cold boot pays about 1.8 s filling the glyph caches from the
-   card; that was the missing fast-seek map on the font files, fixed the
-   same evening, together with sector-sized glyph fills.
-3. The converter, wrapper, and Huffman decoder now run from IVRAM overlays
-   (the window buffer fetches as freely as A0 RAM, measured 2026-09-06);
-   instruction fetch is 11% of the load. What remains is instruction
-   count: the sequence loop's 83 instructions per sequence, the converter's
-   30 per byte, and the card's 1.2 ms per command, which an asynchronous
-   block read could hide behind decoding.
-2. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
-   hardware checklist; time a Cat load on hardware with `SD_DMA=YES` and
-   `SD_DMA=NO` to calibrate the SD model.
-2. Make modern-vs-legacy firmware toolchain selection explicit and resistant
-   to stale mixed objects, and make the firmware Makefiles notice flag
-   changes.
-3. Further reader speed, in order of expected value: overlap the next
-   4 KiB input slice's card read with decoding (the kernel's file read is
-   synchronous, so this needs an asynchronous block read); decode the four
-   Huffman literal streams one after another instead of interleaved (the
-   interleave exists for superscalar cores and costs a row change per byte
-   here); shrink the sequence loop's 83 instructions per sequence; and, if
-   the hardware confirms the timing model, place the hot sequence loop in
-   the 5.5 KB of A0 RAM the suspend code does not use.
-4. Add targeted independent runtime coverage for the implemented PE
-   operations not reached by firmware or differential programs.
-5. Exercise an unstripped C33 program with a real debugger and verify
-   stepping, frames, arguments, and variables.
-6. Refine documented cross-bank SDRAM overlap once hardware timings exist.
-7. Run the complete post-fix DejaGnu suite when the multi-hour validation is
-   wanted, then treat its fresh failures as the only broad-suite backlog.
-8. Add link-time A0 size assertions, especially for the menu.
-8. Exercise the ZIM reader with a complete full-English archive and replace
-   its fixed 512 KiB decoded-article buffer if real articles exceed it.
-9. Consider a small decoded-image cache if navigation repeatedly revisits the
-   same images; the current lazy path intentionally trades later scroll pauses
-   for much faster initial presentation.
+Ranked for the reader's speed, all measurable in the calibrated emulator
+before touching the device:
+
+1. Overlap card reads with decoding. The kernel's file read is synchronous;
+   the cluster decode alternates 16 KiB card slices (about 22 ms each, of
+   which 1.2 ms is command latency) with decoding. An asynchronous block
+   read in `samo-lib/grifo/src/sd_dma.c` plus `file.c` that starts the
+   next slice's DMA and returns would hide most of `Cat`'s 133 ms of card
+   time behind its 687 ms of decode. Watch the DMA-into-internal-RAM rule.
+2. Shrink the sequence loop. It is now pure instruction count, about 71
+   instructions per sequence over 129 K sequences for `Cat` (47% of the
+   load), in `ZSTD_decompressSequences_body` and what it inlines
+   (`zim/zstd/zstddeclib.c`, the `__c33__` blocks). Profile it by line
+   with `-F` and the unstripped relink; the state updates, the twelve
+   separate field loads of the three table entries, and the copy dispatch
+   are the candidates. A0 RAM has 700 bytes to spare beside it.
+3. Decode the four Huffman literal streams one after another instead of
+   interleaved; the interleave exists for superscalar cores. Worth about
+   3% of `Cat`.
+4. The converter's 30 instructions per byte (`zim/zim_html.c`,
+   `html_to_text`) and the wrapper's per-word work; both run from IVRAM
+   now, so only instruction count is left. The HTML overlay has 284 bytes
+   of room.
+5. Calibration residue: phases running from internal RAM come out about
+   15% slower on the device than modeled while their fetch tests match, so
+   the gap is in data traffic the micro-benchmarks do not exercise (table
+   lookups, stores followed by loads). A micro-benchmark of random 8-byte
+   reads and of store/load interleaving, fitted with `fit_model.py`, would
+   close it. A `bench.txt` from a 16 MB V4 board would show whether the
+   overheads differ by revision.
+6. Exercise suspend/resume and a long session on the retimed kernel; write
+   the 124 GB English Wikipedia image to a 128 GB card and repeat the
+   hardware checklist.
+7. Toolchain and emulator items unchanged from before: explicit
+   modern-vs-legacy toolchain selection and Makefiles that notice flag
+   changes; independent runtime coverage of the PE operations firmware
+   does not reach; a real debugger session on an unstripped program;
+   cross-bank SDRAM overlap once measured; the full post-fix DejaGnu run.
 
 ## Source layout
 
