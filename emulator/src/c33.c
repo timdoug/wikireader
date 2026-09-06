@@ -224,11 +224,16 @@ void c33_dump_pcprofile_full(const struct c33 *c, FILE *out)
 {
 	if (!c->pcbuckets)
 		return;
+	/* address, instructions, MCLK cycles, cycles waiting for the fetch,
+	   SDRAM row activations */
 	for (unsigned i = 0; i < C33_PCBUCKETS; i++)
 		if (c->pcbuckets[i])
-			fprintf(out, "%08x %lu\n",
+			fprintf(out, "%08x %lu %llu %llu %llu\n",
 				c->pcsample[i] & ~((1u << C33_PCBUCKET_SHIFT) - 1),
-				c->pcbuckets[i]);
+				c->pcbuckets[i],
+				(unsigned long long)c->pcclk[i],
+				(unsigned long long)c->pcfetch[i],
+				(unsigned long long)c->pcrows[i]);
 }
 
 void c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
@@ -778,8 +783,11 @@ void c33_step(struct c33 *c)
 	}
 
 	c->cur_pc = at;
+	uint64_t clk0 = c->clk;
+	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
 	if (c->bus.wait)
 		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
+	uint64_t clk_fetched = c->clk;
 
 	/*
 	 * Fetch fast path.
@@ -826,10 +834,11 @@ void c33_step(struct c33 *c)
 	uint8_t op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
 	if (c->profile)
 		c->opcount[op]++;
+	unsigned bucket = (at >> C33_PCBUCKET_SHIFT) & (C33_PCBUCKETS - 1);
 	if (c->pc_profile) {
-		unsigned b = (at >> C33_PCBUCKET_SHIFT) & (C33_PCBUCKETS - 1);
-		c->pcbuckets[b]++;
-		c->pcsample[b] = at;   /* buckets alias; keep a real address */
+		c->pcbuckets[bucket]++;
+		c->pcsample[bucket] = at;   /* buckets alias; keep a real address */
+		c->pcfetch[bucket] += clk_fetched - clk0;
 	}
 
 	c->pc = at + 2;
@@ -1504,6 +1513,11 @@ void c33_step(struct c33 *c)
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
 	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext);
+	if (c->pc_profile) {
+		c->pcclk[bucket] += c->clk - clk0;
+		if (c->row_counter)
+			c->pcrows[bucket] += *c->row_counter - rows0;
+	}
 
 	if (c->n_ext) {
 		/*

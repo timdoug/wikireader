@@ -463,7 +463,9 @@ int main(int argc, char **argv)
 	struct port port;
 	port_attach(&mem, &port, &itc);
 
-	struct sdramc sdramc;
+	struct sdramc sdramc, sdramc_at_open, sdramc_at_close;
+	memset(&sdramc_at_open, 0, sizeof sdramc_at_open);
+	memset(&sdramc_at_close, 0, sizeof sdramc_at_close);
 	sdramc_attach(&mem, &sdramc);
 
 	static struct eeprom eeprom;
@@ -549,7 +551,10 @@ int main(int argc, char **argv)
 	cpu.pc_profile = (prof_start || prof_ms1 > 0) ? false : pc_profile;
 	if (pc_profile)
 		cpu.pcbuckets = calloc(C33_PCBUCKETS, sizeof *cpu.pcbuckets),
-		cpu.pcsample  = calloc(C33_PCBUCKETS, sizeof *cpu.pcsample);
+		cpu.pcsample  = calloc(C33_PCBUCKETS, sizeof *cpu.pcsample),
+		cpu.pcclk     = calloc(C33_PCBUCKETS, sizeof *cpu.pcclk),
+		cpu.pcfetch   = calloc(C33_PCBUCKETS, sizeof *cpu.pcfetch),
+		cpu.pcrows    = calloc(C33_PCBUCKETS, sizeof *cpu.pcrows);
 	if (boot_sp)
 		cpu.sr[SR_SP] = boot_sp;
 	/*
@@ -558,6 +563,7 @@ int main(int argc, char **argv)
 	 */
 	mem.pc_src = &cpu.cur_pc;
 	cpu.region_epoch = &mem.sdram_epoch;
+	cpu.row_counter = &sdramc.activations;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
 	cpu.irq_poll = (bool (*)(void *, unsigned *, unsigned *))itc_next_irq;
 	cpu.irq_ctx = &itc;
@@ -829,6 +835,7 @@ int main(int argc, char **argv)
 				prof_window = true;
 				prof_exec0 = executed; prof_clk0 = cpu.clk;
 				prof_idle0 = idle_skipped;
+				sdramc_at_open = sdramc;
 				cpu.profile = profile;
 				cpu.pc_profile = pc_profile;
 			} else if (prof_window && prof_end && cpu.pc == prof_end) {
@@ -836,6 +843,7 @@ int main(int argc, char **argv)
 				prof_exec = executed - prof_exec0;
 				prof_clk = cpu.clk - prof_clk0;
 				prof_idle = idle_skipped - prof_idle0;
+				sdramc_at_close = sdramc;
 				cpu.profile = cpu.pc_profile = false;
 			}
 		}
@@ -1179,7 +1187,7 @@ done:
 	       dma.invalid_descriptors, dma.bus_cycles);
 	printf("--- sdram: %llu wait cycles, %llu refreshes, %llu self-refresh exits;"
 	       " IQB %llu/%llu hit/miss, DQB %llu/%llu hit/miss,"
-	       " %llu writes ---\n",
+	       " %llu writes, %llu row activations ---\n",
 	       (unsigned long long)sdramc.wait_cycles,
 	       (unsigned long long)sdramc.refreshes,
 	       (unsigned long long)sdramc.self_refresh_exits,
@@ -1187,7 +1195,48 @@ done:
 	       (unsigned long long)sdramc.iq_misses,
 	       (unsigned long long)sdramc.dq_hits,
 	       (unsigned long long)sdramc.dq_misses,
-	       (unsigned long long)sdramc.writes_timed);
+	       (unsigned long long)sdramc.writes_timed,
+	       (unsigned long long)sdramc.activations);
+	{
+		static const char *const kind[5] = { "fetch", "read", "write", "dmar", "dmaw" };
+		printf("--- sdram row activations by previous->this access kind:");
+		for (unsigned a = 0; a < 5; a++)
+			for (unsigned b = 0; b < 5; b++)
+				if (sdramc.act_kind[a][b])
+					printf(" %s>%s %llu", kind[a], kind[b],
+					       (unsigned long long)sdramc.act_kind[a][b]);
+		printf(" ---\n");
+	}
+	if (prof_done && prof_start) {
+		static const char *const kind[5] = { "fetch", "read", "write", "dmar", "dmaw" };
+		const struct sdramc *a = &sdramc_at_open, *b = &sdramc_at_close;
+		printf("--- window sdram: %llu wait cycles, %llu refreshes, IQB %llu/%llu, DQB %llu/%llu, %llu writes, %llu row activations ---\n",
+		       (unsigned long long)(b->wait_cycles - a->wait_cycles),
+		       (unsigned long long)(b->refreshes - a->refreshes),
+		       (unsigned long long)(b->iq_hits - a->iq_hits),
+		       (unsigned long long)(b->iq_misses - a->iq_misses),
+		       (unsigned long long)(b->dq_hits - a->dq_hits),
+		       (unsigned long long)(b->dq_misses - a->dq_misses),
+		       (unsigned long long)(b->writes_timed - a->writes_timed),
+		       (unsigned long long)(b->activations - a->activations));
+		printf("--- window activations by bank:");
+		for (unsigned i = 0; i < 4; i++)
+			printf(" bank%u %llu", i,
+			       (unsigned long long)(b->act_bank[i] - a->act_bank[i]));
+		printf(" ---\n--- window accesses kind/bank:");
+		for (unsigned k = 0; k < 5; k++)
+			for (unsigned i = 0; i < 4; i++)
+				if (b->kind_bank[k][i] - a->kind_bank[k][i])
+					printf(" %s/b%u %llu", kind[k], i,
+					       (unsigned long long)(b->kind_bank[k][i] - a->kind_bank[k][i]));
+		printf(" ---\n--- window activations prev>this:");
+		for (unsigned x = 0; x < 5; x++)
+			for (unsigned y = 0; y < 5; y++)
+				if (b->act_kind[x][y] - a->act_kind[x][y])
+					printf(" %s>%s %llu", kind[x], kind[y],
+					       (unsigned long long)(b->act_kind[x][y] - a->act_kind[x][y]));
+		printf(" ---\n");
+	}
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",
 		       eeprom.commands, eeprom.bytes_read, eeprom.bytes_written);

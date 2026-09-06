@@ -40,6 +40,11 @@ struct sdramc {
 	struct mem *mem;   /* receives the configured size for address aliasing */
 
 	/* Diagnostics: controller transactions, not host memory copies. */
+	uint64_t activations;   /* row activates: each one is a page miss */
+	uint64_t act_kind[5][5]; /* [previous access kind][this kind] per bank */
+	uint64_t act_bank[4];
+	uint64_t kind_bank[5][4]; /* accesses by kind per bank */
+	unsigned bank_last_kind[4];
 	uint64_t accesses[5];
 	uint64_t wait_cycles;
 	uint64_t iq_hits, iq_misses;

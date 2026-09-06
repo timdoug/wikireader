@@ -152,6 +152,12 @@ struct c33 {
 	bool     pc_profile;
 	unsigned long *pcbuckets;
 	uint32_t      *pcsample;     /* a real PC seen in each bucket */
+	/* MCLK cycles charged per bucket, and the share spent waiting for
+	   the instruction fetch, so a hot loop can be told from a stalled one. */
+	uint64_t      *pcclk;
+	uint64_t      *pcfetch;
+	uint64_t      *pcrows;       /* SDRAM row activations per bucket */
+	const uint64_t *row_counter; /* the controller's activation count */
 };
 
 void     c33_reset(struct c33 *c, uint32_t entry);

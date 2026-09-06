@@ -99,9 +99,13 @@ data.
 | `-H` | Profile executed addresses. |
 | `-X ADDR[,NAME]` | Count entries and report the longest gaps. |
 | `-Y A,B`, `-y M,N` | Limit profiling by address or guest-time interval. |
-| `-F FILE` | Write non-empty profile buckets for comparison. |
+| `-F FILE` | Write non-empty profile buckets: address, instructions, MCLK cycles, cycles waiting for the fetch, SDRAM row activations. |
 | `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
 
+`WREMU_SDRAM_TIMING=tRP,tRAS,tRC` (clocks) and `WREMU_SDRAM_AURCO=N`
+replace every firmware write of the SDRAM controller's timing and refresh
+registers, so one image can be timed under the boot loader's stock values
+(`4,8,15` and `0x8c`) or the kernel's retimed ones (`2,4,6` and `0x120`).
 `WREMU_SUSPEND_DIV=N` shortens the firmware's 120-second suspend interval
 for testing without modifying the guest. `WREMU_HOLD_MS=N` changes how long
 scripted taps and presses are held before release (default 33 ms).
@@ -132,6 +136,46 @@ Use `-Z` to align scripted input to a guest milestone. Absolute `-T`/`-K`
 cycle numbers do not produce comparable interactions when two firmware builds
 reach the UI at different rates. Use `-Y` or `-y` to exclude idle polling
 from profiles.
+
+A `-Y` window also reports the SDRAM controller's work inside it: wait
+cycles, refreshes, queue hits and misses, and row activations by bank, by
+access kind per bank, and by the kinds of the two accesses on either side of
+each activation (`--- window sdram`, `--- window activations by bank`, and
+the following lines). The `-F` profile carries cycles and activations per
+2-byte bucket, so `addr2line` on an unstripped link turns it into a
+per-source-line cost that includes memory stalls. Cycles, not instruction
+counts, are what to look at on this core: the ZIM article load below runs at
+3.5 to 4.7 cycles per instruction, and an instruction-count profile of it
+ranks the wrong lines. The CPU has no cache; the model charges a row change
+of about 2 tRP + waits on tRAS/tRC for every move to another 1 KiB row of a
+bank (a bank is a contiguous quarter of the SDRAM), closes every bank at each
+auto-refresh, and treats the two-slot 16-byte instruction queue as the only
+fetch buffering.
+
+ZIM reader article load, Simple English `Cat`, tap to first painted page,
+run from the repository root with a card from `zim/make-card-image`:
+
+```sh
+./emulator/wremu -R -e samo-lib/mbr/flash.rom -c /tmp/card.dmg \
+    -T 40,36,100000000 -K 300000000,CAT -T 30,40,500000000 \
+    -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt -n 1000000000
+```
+
+(addresses from `zim/zim.map`; the first tap picks the reader on the
+launcher menu, so `-Z` cannot be used):
+
+| Firmware | Window | Instructions | Row activations |
+| --- | ---: | ---: | ---: |
+| 2026-09-05 morning, stock SDRAM timing | 1941.3 ms | 25,065,381 | 3,933,216 |
+| software changes only, stock SDRAM timing forced | 1557.5 ms | 22,352,859 | |
+| software changes and the kernel's SDRAM retiming | 1296.0 ms | 22,365,009 | 2,384,163 |
+
+SD block payloads fell from 52,300 to 22,900 modeled cycles once the DMA
+descriptor and dummy byte left SDRAM, and the first Wikivoyage `Paris`
+photograph from 1342.5 to 1084.0 ms on the retiming alone. Scripted tap
+release is delivered only when the emulator next idles, so a faster build can
+show more `render_article_with_pcf` calls after the page appears; that is the
+held touch, not extra work.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 

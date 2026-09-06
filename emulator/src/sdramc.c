@@ -16,6 +16,8 @@
  * with the controller enabled, so the MRS command is what sets it.
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "sdramc.h"
@@ -195,6 +197,39 @@ static void prepare_external_access(struct sdramc *s, uint64_t now)
 }
 
 /* Return the READ/WRIT command time, activating or changing rows first. */
+/*
+ * Benchmarking overrides.  Every write of the timing or refresh register,
+ * whether by the boot loader or by the kernel's retime, is replaced with the
+ * values from the environment, so one firmware image can be timed under
+ * several controller settings:
+ *
+ *   WREMU_SDRAM_TIMING=tRP,tRAS,tRC   clocks, 1-4, 1-8, 1-16
+ *   WREMU_SDRAM_AURCO=N               auto-refresh interval, SDCLK cycles - 1
+ */
+static void override_timing(struct sdramc *s)
+{
+	const char *e = getenv("WREMU_SDRAM_TIMING");
+	unsigned trp_clk, tras_clk, trc_clk;
+
+	if (e && sscanf(e, "%u,%u,%u", &trp_clk, &tras_clk, &trc_clk) == 3)
+		s->reg[OFF_CTL] = (s->reg[OFF_CTL] & 7) |
+			(((trp_clk - 1) & 3) << 12) |
+			(((tras_clk - 1) & 7) << 8) |
+			(((trc_clk - 1) & 15) << 4);
+}
+
+static void override_refresh(struct sdramc *s)
+{
+	const char *e = getenv("WREMU_SDRAM_AURCO");
+
+	if (e)
+		s->reg[OFF_REF] = (s->reg[OFF_REF] & ~0xfffu) |
+			(strtoul(e, NULL, 0) & 0xfff);
+}
+
+/* Which kind of access is being timed, for the row-activation statistics. */
+static unsigned current_kind;
+
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 {
 	uint64_t tick = sd_tick(s);
@@ -203,8 +238,14 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	unsigned b;
 
 	address_parts(s, addr, &b, &row);
-	if (s->bank[b].valid && s->bank[b].row == row)
+	s->kind_bank[current_kind][b]++;
+	if (s->bank[b].valid && s->bank[b].row == row) {
+		s->bank_last_kind[b] = current_kind;
 		return at;
+	}
+	s->act_kind[s->bank_last_kind[b]][current_kind]++;
+	s->act_bank[b]++;
+	s->bank_last_kind[b] = current_kind;
 
 	if (s->bank[b].valid) {
 		uint64_t earliest = s->bank[b].activated + tras(s) * tick;
@@ -219,6 +260,7 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	s->bank[b].valid = true;
 	s->bank[b].row = row;
 	s->bank[b].activated = at;
+	s->activations++;
 	return at + trp(s) * tick; /* T24NS programs both tRP and tRCD. */
 }
 
@@ -276,6 +318,7 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 	now = mclk_now * 2;
 	s->accesses[access]++;
+	current_kind = access;
 	observe_self_refresh(s, now);
 	if (!s->self_refresh)
 		service_refresh(s, now);
@@ -339,6 +382,7 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	if (is_write) {
 		if (i == OFF_REF) {
 			s->reg[i] = *val & 0x01ff0fffu; /* SELDO/reserved read zero */
+			override_refresh(s);
 		} else if (i == OFF_INI) {
 			/* SDEN is not writable; the MRS command raises it. */
 			s->reg[i] = *val & 0x17u;
@@ -348,6 +392,7 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				s->initialised = true;
 		} else if (i == OFF_CTL) {
 			s->reg[i] = *val & 0x000037f7u;
+			override_timing(s);
 		} else if (i == OFF_APP) {
 			s->reg[i] = *val & 0x8000003fu;
 		} else {
