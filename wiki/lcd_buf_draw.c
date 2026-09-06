@@ -3356,14 +3356,20 @@ extern void draw_progress_bar(int progressCount, int limit)
 			x = LCD_WIDTH - 1;
 		}
 		if (x != last_x) {
+			/* Extend the bar from where it ended rather than redraw
+			 * it from the left edge: the kernel draws a line one
+			 * pixel at a time through a syscall, and the reader
+			 * reports progress often enough that redrawing the
+			 * whole bar each time cost 5% of an article load. */
+			int from = x > last_x ? last_x : 0;
 			last_x = x;
 #ifdef ZIM_TRACE_HASH
 			debug_printf("bar %d at %lu ms\n", x, timer_get() / 60000);
 #endif
 			lcd_colour_t save = lcd_set_colour(LCD_BLACK);
-			lcd_move_to(0, 1);
+			lcd_move_to(from, 1);
 			lcd_line_to(x, 1);
-			lcd_move_to(0, 2);
+			lcd_move_to(from, 2);
 			lcd_line_to(x, 2);
 			lcd_set_colour(save);
 		}
