@@ -3,6 +3,7 @@
 
 #include "../src/mem.h"
 #include "../src/sdramc.h"
+#include "../src/model.h"
 
 #define INI (REG_BASE + 0x1600)
 #define CTL (REG_BASE + 0x1604)
@@ -91,6 +92,9 @@ int main(void)
 	 * instruction slot, and a two-halfword data buffer. Times passed to
 	 * mem_wait are the CPU's MCLK count after preceding operations.
 	 */
+	/* These are the manual's figures; the fitted controller overheads in
+	   model.c come on top of them, so hold them at zero here. */
+	model.iqb_first = model.iqb_word_gap = model.dq_extra = model.wr_ticks = 0;
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	check64("cold IQB fetch waits tRCD + CAS + first data",
 		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 7);

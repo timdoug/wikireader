@@ -25,8 +25,10 @@ The combined emulator, toolchain, firmware, and next-work status is in
   instructions per host second.
 
 Timing is derived from the documented 60 MHz MCLK and the programmed SPI,
-DMA, timer, and SDRAM registers. Absolute SD-card latency and cross-bank
-SDRAM overlap still require hardware calibration.
+DMA, timer, and SDRAM registers, plus seven controller and card overheads
+the manual does not give, fitted to a real WikiReader on 2026-09-05 (see
+"Calibration"). Micro-benchmarks of the CPU, SDRAM, and card agree with the
+device within 10%, and a whole article load within 8%.
 
 ## Build and test
 
@@ -102,7 +104,9 @@ data.
 | `-F FILE` | Write non-empty profile buckets: address, instructions, MCLK cycles, cycles waiting for the fetch, SDRAM row activations. |
 | `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
 
-`WREMU_SDRAM_TIMING=tRP,tRAS,tRC` (clocks) and `WREMU_SDRAM_AURCO=N`
+`WREMU_MODEL=name=value,...` overrides the fitted timing parameters listed
+under "Calibration" for an experiment; the summary's `--- model` line shows
+the set in use. `WREMU_SDRAM_TIMING=tRP,tRAS,tRC` (clocks) and `WREMU_SDRAM_AURCO=N`
 replace every firmware write of the SDRAM controller's timing and refresh
 registers, so one image can be timed under the boot loader's stock values
 (`4,8,15` and `0x8c`) or the kernel's retimed ones (`2,4,6` and `0x120`).
@@ -164,18 +168,81 @@ run from the repository root with a card from `zim/make-card-image`:
 (addresses from `zim/zim.map`; the first tap picks the reader on the
 launcher menu, so `-Z` cannot be used):
 
-| Firmware | Window | Instructions | Row activations |
-| --- | ---: | ---: | ---: |
-| 2026-09-05 morning, stock SDRAM timing | 1941.3 ms | 25,065,381 | 3,933,216 |
-| software changes only, stock SDRAM timing forced | 1557.5 ms | 22,352,859 | |
-| software changes and the kernel's SDRAM retiming | 1296.0 ms | 22,365,009 | 2,384,163 |
+| Firmware | Window (calibrated model) | Instructions |
+| --- | ---: | ---: |
+| 2026-09-05 morning, stock SDRAM timing | 2864.0 ms | 25,623,351 |
+| software changes and the kernel's SDRAM retiming | 1943.9 ms | 21,227,433 |
+| plus the decoder in A0 RAM, fast-seek fonts, 16 KiB slices | 1274.8 ms | 19,815,306 |
 
-SD block payloads fell from 52,300 to 22,900 modeled cycles once the DMA
-descriptor and dummy byte left SDRAM, and the first Wikivoyage `Paris`
-photograph from 1342.5 to 1084.0 ms on the retiming alone. Scripted tap
+(Under the pre-calibration, manual-only model the same two runs were 1941.3
+and 1253.9 ms; the fitted overheads slow everything, the old firmware most.)
+The first Wikivoyage `Paris` photograph went from 1861.0 to 1565.5 ms and
+app start to keyboard from 807 to 632 ms on the same basis. Scripted tap
 release is delivered only when the emulator next idles, so a faster build can
 show more `render_article_with_pcf` calls after the page appears; that is the
 held touch, not extra work.
+
+The ZIM reader's `ZIM_BENCH=YES` build times itself the same way on the
+device and in the emulator and writes `bench.txt` to the card; see
+`zim/README.md`, "Timing on the device", and `zim/bench-compare`.
+
+### Calibration
+
+The model has seven parameters the manual does not give, in `src/model.c`,
+each with the value fitted on 2026-09-05 to a WikiReader (an early 32 MB
+board running the retimed kernel; its file is
+`zim/bench-device-2026-09-05.txt`):
+
+| Parameter | Fitted | Manual | Meaning |
+| --- | ---: | ---: | --- |
+| `branch_taken` | 5 | 3 | cycles for a taken conditional branch |
+| `iqb_first` | 3 | 0 | extra SDCLK ticks before the first halfword of an instruction-queue line fill |
+| `iqb_word_gap` | 2 | 0 | extra ticks before each further 32-bit word of a line fill |
+| `dq_extra` | 2 | 0 | extra ticks on a data-queue (32-bit read) fill |
+| `wr_ticks` | 1 | 0 | flat ticks per CPU write instead of one per 16-bit transfer |
+| `dma_extra` | 27 | 0 | extra MCLK cycles per HSDMA or IDMA transfer |
+| `sd_read_latency` | 70000 | 0 | cycles from a read command to the card's data token |
+
+What they say about the hardware: a taken branch costs five cycles; the
+controller fetches an instruction-queue line as four separate 32-bit reads
+with a gap between them, and a data read has two cycles of overhead on top
+of CAS; writes are one flat tick; each byte moved by the SD DMA pair costs
+about 54 cycles beyond the SPI shift; and the card takes about 1.2 ms to
+start returning a block after a read command. The row-change cost and the
+independence of banks matched the manual-derived model before fitting.
+
+To refit (after a model change, or for another board), build the reader with
+`ZIM_BENCH=YES`, run it on the device and take its `bench.txt`, make a card
+image containing the same `zim.app` first on the launcher menu, and run
+
+```sh
+tools/fit_model.py device-bench.txt /tmp/bench.dmg
+```
+
+It runs the micro-benchmarks under candidate parameter sets (about 60 runs,
+six in parallel, five minutes) by coordinate descent over the memory
+parameters and then the card parameters, and prints the best `WREMU_MODEL`
+set with the per-test ratios. Copy the values into `src/model.c`. The
+ratios after the 2026-09-05 fit:
+
+| Test | Device | Model | Model/device |
+| --- | ---: | ---: | ---: |
+| cpu-loop | 6.0 | 6.0 | 1.00 |
+| fetch-1k | 2.7 | 2.7 | 1.00 |
+| read-words / read-bytes | 13.2 / 9.4 | 14.5 / 9.3 | 1.10 / 0.99 |
+| write-words / write-bytes | 9.2 / 9.2 | 9.3 / 9.3 | 1.01 |
+| pair-same-row / row-change / two-banks | 21.5 / 29.0 / 21.5 | 20.6 / 28.3 / 20.6 | 0.96 / 0.98 / 0.96 |
+| pair-write-read | 10.4 | 9.3 | 0.89 |
+| copy-bytes / copy-batch8 / memcpy | 15.7 / 15.5 / 5.9 | 14.5 / 14.9 / 6.3 | 0.92 / 0.96 / 1.07 |
+| card-256k / card-4k-x64 (cycles per block) | 37,777 / 48,527 | 38,434 / 47,853 | 1.02 / 0.99 |
+| `Cat` tap to paint (ms) | 1846 | 1998 | 1.08 |
+
+The `Cat` phases: card reads 1.12, Zstandard 1.04, HTML 1.01, paint 1.09;
+the wrap phase was 1.46 only because the emulator's was the first article
+after boot, whose width cache is cold (the device's first article showed the
+same). The benchmark app must run on a writable card image: with `-R` the
+guest's first rejected write of `bench.txt` leaves its FatFs unable to open
+the fonts, and the run ends in a font panic.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 

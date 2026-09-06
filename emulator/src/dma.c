@@ -15,6 +15,7 @@
 
 #include "cmu.h"
 #include "dma.h"
+#include "model.h"
 #include "itc.h"
 #include "sdcard.h"
 
@@ -158,6 +159,8 @@ static bool hs_transfer(struct dma *d, unsigned ch)
 	/* Dual-address HSDMA is one source and one destination bus phase. */
 	value = dma_read(d, src, size);
 	dma_write(d, dst, size, value);
+	if (d->clock)
+		*d->clock += model.dma_extra;
 	d->hsdma_transfers++;
 
 	src = advance(src, smode, size);
@@ -229,6 +232,8 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 		return false;
 	value = dma_read(d, src, size);
 	dma_write(d, dst, size, value);
+	if (d->clock)
+		*d->clock += model.dma_extra;
 	d->idma_transfers++;
 	src = advance(src, smode, size);
 	dst = advance(dst, dmode, size);

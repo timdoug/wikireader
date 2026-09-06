@@ -15,6 +15,7 @@
 
 #include "../src/mem.h"
 #include "../src/sdcard.h"
+#include "../src/model.h"
 #include "../../samo-lib/drivers/include/mmc_csd.h"
 
 #define SPI_TXD  (REG_BASE + 0x1704)
@@ -124,6 +125,7 @@ static void make_image(void)
 
 int main(void)
 {
+	model.sd_read_latency = 0;   /* manual-only card timing */
 	struct mem mem;
 	struct sdcard sd;
 	struct port port;

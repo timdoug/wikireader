@@ -19,6 +19,7 @@
 
 #include <string.h>
 
+#include "model.h"
 #include "sdcard.h"
 
 #define SPI_BASE   0x1700u
@@ -101,6 +102,20 @@ static void queue_block(struct sdcard *sd, uint32_t blk)
 	sd->block_timing = true;
 	push(sd, 0xFF);          /* CRC16, unchecked by the driver */
 	push(sd, 0xFF);
+}
+
+/*
+ * A real card takes time to find a block after a read command; the host
+ * sees 0xff until the data token.  The fitted model holds the token of the
+ * block a command asked for until sd_read_latency cycles have passed;
+ * blocks that follow in a multi-block stream are not delayed.
+ */
+static void delay_token(struct sdcard *sd)
+{
+	if (!sd->clock)
+		return;
+	sd->token_pos = sd->block_first_pos - 1;
+	sd->token_ready = *sd->clock + model.sd_read_latency;
 }
 
 static void execute(struct sdcard *sd)
@@ -191,6 +206,7 @@ static void execute(struct sdcard *sd)
 		uint32_t blk = sd->byte_addressed ? arg / 512 : arg;
 		respond(sd, 0x00);
 		queue_block(sd, blk);
+		delay_token(sd);
 		break;
 	}
 
@@ -198,6 +214,7 @@ static void execute(struct sdcard *sd)
 		uint32_t blk = sd->byte_addressed ? arg / 512 : arg;
 		respond(sd, 0x00);
 		queue_block(sd, blk);
+		delay_token(sd);
 		sd->streaming = true;
 		sd->stream_blk = blk + 1;
 		break;
@@ -332,8 +349,14 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 		return 0xFF;
 	}
 
-	if (sd->resp_pos < sd->resp_len)
+	if (sd->resp_pos < sd->resp_len) {
+		if (sd->token_ready && sd->resp_pos == sd->token_pos) {
+			if (sd->clock && *sd->clock < sd->token_ready)
+				return 0xFF;         /* card still seeking */
+			sd->token_ready = 0;
+		}
 		return pop_response(sd);
+	}
 
 	/*
 	 * A command frame starts with bit7 clear and bit6 set. This must be

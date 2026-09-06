@@ -6,6 +6,7 @@
 #include "../src/dma.h"
 #include "../src/itc.h"
 #include "../src/mem.h"
+#include "../src/model.h"
 #include "../src/port.h"
 #include "../src/sdcard.h"
 
@@ -61,6 +62,9 @@ static void reset_all(struct mem *m, struct dma *dma, struct sdcard *sd,
 
 int main(void)
 {
+	/* Manual-only DMA timing; the fitted per-transfer overhead is not
+	   part of what this test checks. */
+	model.dma_extra = 0;
 	struct mem m;
 	struct cmu cmu;
 	struct itc itc;

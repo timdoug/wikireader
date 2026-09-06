@@ -7,7 +7,7 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/main.o
+OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/model.o src/main.o
 
 .PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual
 
@@ -39,18 +39,18 @@ test: c33_forms.h
 	cat ref-*.txt | /tmp/test_decode
 
 # Interrupt priority (PSR.IL) rules, per the C33 PE Core manual.
-test-irq: tools/test_irq.c src/c33.o src/itc.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o src/itc.o src/mem.o
+test-irq: tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
 	/tmp/test_irq
 
 # Core instruction semantics not exercised by the firmware images.
-test-isa: tools/test_isa.c src/c33.o
-	$(CC) $(CFLAGS) -o /tmp/test_isa tools/test_isa.c src/c33.o
+test-isa: tools/test_isa.c src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_isa tools/test_isa.c src/c33.o src/model.o
 	/tmp/test_isa
 
 # Synchronous exception entry, saved PCs, IDIR, and PE-removed opcodes.
-test-exception: tools/test_exception.c src/c33.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_exception tools/test_exception.c src/c33.o
+test-exception: tools/test_exception.c src/c33.o src/model.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_exception tools/test_exception.c src/c33.o src/model.o
 	/tmp/test_exception
 
 # LCD sub-window (PIP) compositing, against grifo's own window arithmetic.
@@ -70,8 +70,8 @@ test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o
 	/tmp/test_display
 
 # SD writes: the path that makes the guest's history outlive a run.
-test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o
-	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o $(SDL_LIBS)
+test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
 	/tmp/test_sd
 
 # Watchdog, and above all the clock gate that keeps it quiet in suspend.
@@ -85,13 +85,13 @@ test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	/tmp/test_cmu
 
 # Cascaded timer 0/5 reads and the per-channel count-pause register.
-test-timer: tools/test_timer.c src/timer.o src/c33.o src/itc.o src/cmu.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/itc.o src/cmu.o src/mem.o
+test-timer: tools/test_timer.c src/timer.o src/c33.o src/model.o src/itc.o src/cmu.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/model.o src/itc.o src/cmu.o src/mem.o
 	/tmp/test_timer
 
 # SDRAM controller reset values, status flags, and register masks.
-test-sdramc: tools/test_sdramc.c src/sdramc.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_sdramc tools/test_sdramc.c src/sdramc.o src/mem.o
+test-sdramc: tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_sdramc tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
 	/tmp/test_sdramc
 
 # Fixed CPU/product/model/version bytes at the documented identification area.
@@ -100,13 +100,13 @@ test-chipid: tools/test_chipid.c src/mem.o
 	/tmp/test_chipid
 
 # GPIO reset masks and the modeled key/power interrupt inputs.
-test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/mem.o
+test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o
 	/tmp/test_port
 
 # Documented SPI DMA pipeline, including representative failure modes.
-test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o
-	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o
+test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
 	/tmp/test_dma
 
 # Direct kernel boot reaches init promptly even though the CPU sleeps between

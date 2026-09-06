@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "model.h"
 #include "sdramc.h"
 
 #define OFF_INI  ((0x1600u - SDRAMC_BASE) / 4)
@@ -264,15 +265,26 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	return at + trp(s) * tick; /* T24NS programs both tRP and tRCD. */
 }
 
+/*
+ * A read of `halfwords` from the row.  The fitted model (model.h) adds the
+ * controller's overheads: a line fill for the instruction queue pays
+ * iqb_first before its first halfword and iqb_word_gap before every word
+ * after the first, since the controller fetches a line as separate 32-bit
+ * reads rather than one burst; a data-queue fill pays dq_extra.
+ */
 static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 			      unsigned halfwords, uint64_t now,
 			      uint64_t *ready)
 {
 	uint64_t tick = sd_tick(s);
 	uint64_t command = select_row(s, addr, now);
+	uint64_t extra = (halfwords > 2 ? model.iqb_first : model.dq_extra) * tick;
 
-	for (unsigned i = 0; i < halfwords; i++)
-		ready[i] = command + (cas(s) + i + 1) * tick;
+	for (unsigned i = 0; i < halfwords; i++) {
+		if (halfwords > 2)
+			extra += (i && !(i & 1)) ? model.iqb_word_gap * tick : 0;
+		ready[i] = command + (cas(s) + i + 1) * tick + extra;
+	}
 	s->bus_free = ready[halfwords - 1];
 	s->last_sdram_access = s->bus_free;
 	return command;
@@ -297,8 +309,9 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	uint64_t command = select_row(s, addr, now);
 	unsigned transfers = (size + (addr & 1) + 1) / 2;
 
-	/* Writes are individual operations, one per external 16-bit transfer. */
-	s->bus_free = command + transfers * tick;
+	/* Writes are individual operations, one per external 16-bit transfer,
+	 * unless the fitted model gives every write a flat cost. */
+	s->bus_free = command + (model.wr_ticks ? model.wr_ticks : transfers) * tick;
 	s->last_sdram_access = s->bus_free;
 	flush_written(s, addr, size);
 	s->writes_timed++;

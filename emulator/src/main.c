@@ -10,6 +10,7 @@
 
 #include "c33.h"
 #include "mem.h"
+#include "model.h"
 #include "uart.h"
 #include "sdcard.h"
 #include "periph.h"
@@ -194,6 +195,7 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 
 int main(int argc, char **argv)
 {
+	model_init();
 	const char *path = NULL, *card = NULL;
 	unsigned long trace = 0, limit = 1000000;
 	bool limit_given = false;
@@ -1256,6 +1258,7 @@ done:
 		if (pc_profile)
 			c33_dump_pcprofile(&cpu, stdout);
 	}
+	model_describe(stdout);
 	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
 	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
 	printf("--- stopped after %llu instructions ---\n",

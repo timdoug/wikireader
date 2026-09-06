@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "../src/c33.h"
+#include "../src/model.h"
 
 #define ENTRY 0x100u
 
@@ -321,7 +322,8 @@ static void jumps(void)
 	c = init(0x1801);                    /* jreq 1: target is fallthrough PC */
 	c.sr[SR_PSR] = PSR_Z;
 	c33_step(&c);
-	check("taken branch to fallthrough still takes three clocks", c.clk, 3);
+	check("taken branch to fallthrough still costs a taken branch", c.clk,
+	      model.branch_taken);
 	c = init(0x1801);
 	c33_step(&c);
 	check("untaken branch to fallthrough takes two clocks", c.clk, 2);

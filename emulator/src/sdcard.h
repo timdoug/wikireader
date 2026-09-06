@@ -14,6 +14,8 @@
 typedef void (*sd_dma_event_fn)(void *ctx);
 
 struct sdcard {
+	int token_pos;            /* response index of a delayed data token */
+	uint64_t token_ready;     /* MCLK time it may be delivered; 0 = none */
 	/*
 	 * The SPI controller is shared. Chip select decides which device a
 	 * byte goes to: port 5 bit 0 is this card, bit 2 the serial FLASH.

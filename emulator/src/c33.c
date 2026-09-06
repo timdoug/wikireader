@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "c33.h"
+#include "model.h"
 #include "../c33_forms.h"
 #include "../c33_pe_valid.h"
 #include "../c33_syscalls.h"
@@ -476,7 +477,7 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 	case OP_JREQ: case OP_JRNE: case OP_JRGT: case OP_JRGE:
 	case OP_JRLT: case OP_JRLE: case OP_JRUGT: case OP_JRUGE:
 	case OP_JRULT: case OP_JRULE:
-		return conditional_taken ? 3 : 2;
+		return conditional_taken ? model.branch_taken : 2;
 	default:
 		break;
 	}
