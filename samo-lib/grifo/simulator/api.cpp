@@ -711,6 +711,11 @@ file_error_t file_lseek(int handle, unsigned long pos) {
 	return (off_t)-1  == rc ? FILE_ERROR_DENIED : FILE_ERROR_OK;
 }
 
+file_error_t file_fastseek(int handle, unsigned long *table, unsigned long entries) {
+	(void)handle; (void)table; (void)entries;
+	return FILE_ERROR_NOT_ENABLED;   /* the simulator seeks with the host */
+}
+
 file_error_t directory_create(const char *directoryname) {
        int rc = mkdir(directoryname, 0777);
        return -1 == rc ? FILE_ERROR_DENIED : FILE_ERROR_OK;

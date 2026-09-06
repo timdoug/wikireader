@@ -34,15 +34,11 @@
  * 45 ns, tRC/tRFC 65 ns, tXSR 75 ns, and a refresh every 7.8 us; at the 60
  * MHz MCLK (16.7 ns) the values below give 33, 67, 100 ns and 4.8 us.
  *
- * SDRAM_TIMING=stock leaves the loader's registers alone.
+ * SDRAM_TIMING=STOCK leaves the loader's registers alone.  The values are
+ * in sdram.h because SuspendCode, which puts the SDRAM into self-refresh
+ * while the device sleeps between events, rewrites the refresh register on
+ * every wake and must restore the same interval.
  */
-#if !defined(SDRAM_STOCK_TIMING)
-#define SDRAM_CLKS_TRP  2
-#define SDRAM_CLKS_TRAS 4
-#define SDRAM_CLKS_TRC  6
-#define SDRAM_REFRESH   0x120
-#endif
-
 /* Runs from A0 RAM so that no SDRAM access is in flight when the timing
  * changes, and none is started until the longest old interval has passed.
  * The same rules as SuspendCode apply: no stack, no calls, no globals. */

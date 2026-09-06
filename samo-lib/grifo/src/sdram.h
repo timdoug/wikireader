@@ -22,6 +22,23 @@
 
 #include "standard.h"
 
+/*
+ * SDRAM controller timing in SDCLK cycles and the auto-refresh interval;
+ * see src/sdram.c for where they come from.  SuspendCode restores the
+ * refresh interval on wake, so it must use the same value.
+ */
+#if defined(SDRAM_STOCK_TIMING)
+#define SDRAM_CLKS_TRP  4
+#define SDRAM_CLKS_TRAS 8
+#define SDRAM_CLKS_TRC  15
+#define SDRAM_REFRESH   0x8c
+#else
+#define SDRAM_CLKS_TRP  2
+#define SDRAM_CLKS_TRAS 4
+#define SDRAM_CLKS_TRC  6
+#define SDRAM_REFRESH   0x120
+#endif
+
 /* Call once, after Suspend_initialise has copied the A0 RAM code. */
 void SDRAM_retime(void);
 

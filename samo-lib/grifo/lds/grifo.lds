@@ -102,6 +102,9 @@ SECTIONS
     } > ksdram
     __END_suspend = . ;
     __SIZE_suspend = SIZEOF(.suspend);
+    /* Applications may place code at 0xc00 (application.lds, fastram);
+       the copy of this section into A0 RAM must stay below it. */
+    ASSERT(SIZEOF(.suspend) <= 1k, "kernel A0 RAM code exceeds 1k; applications use 0xc00 upwards")
 
     . = ALIGN(1024);
 

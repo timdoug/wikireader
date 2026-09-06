@@ -87,6 +87,11 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 
 	if (dma_given_up || byte_count < 2)
 		return 0;
+	/* Only SDRAM is a known-good HSDMA destination.  The ELF loader reads
+	 * an application's .fastcode section straight into A0 RAM; that and
+	 * any other internal-RAM buffer take the byte-at-a-time path. */
+	if ((uintptr_t)buff < 0x10000000u)
+		return 0;
 
 	/* HSDMA3 drains byte-wide SPI RXD into incrementing memory. */
 	REG_HS_CNTLMODE = HSDMAADV;

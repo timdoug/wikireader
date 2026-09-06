@@ -28,6 +28,13 @@ MEMORY
     /* sdram must be first or linker gives errors */
     sdram   (rwx): ORIGIN = 0x10000000 + 256k, LENGTH = 32M - 256k
     ivram   (rwx): ORIGIN = 0x00080000,        LENGTH = 12k
+    /* The part of the chip's zero-wait A0 RAM the kernel leaves free: its
+       own relocated code (suspend and SDRAM retiming) stays below 0xc00,
+       which grifo.lds asserts, and the 64-byte suspend scratch area sits
+       at the top.  Code placed here by an application runs without the
+       instruction-fetch stalls SDRAM imposes; the kernel's ELF loader
+       copies the section in like any other. */
+    fastram (rwx): ORIGIN = 0x00000c00,        LENGTH = 0x13c0
 }
 
 SECTIONS
@@ -47,6 +54,12 @@ SECTIONS
          *(.text .text.*)
     } > sdram
     __END_text = . ;
+
+    .fastcode : {
+         __START_fastcode = . ;
+         *(.fastcode .fastcode.*)
+    } > fastram
+    __END_fastcode = . ;
 
     . = ALIGN(1024);
 

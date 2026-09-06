@@ -33,6 +33,7 @@
 #include "system.h"
 #include "vector.h"
 #include "watchdog.h"
+#include "sdram.h"
 #include "suspend.h"
 
 
@@ -368,7 +369,7 @@ int SuspendCode(void)
 		SCKON |
 		SELEN |
 		(0x7f << SELCO_SHIFT) |
-		(0x8c << AURCO_SHIFT) |
+		(SDRAM_REFRESH << AURCO_SHIFT) |  // as SDRAM_retime set it
 		0;
 
 	// determine if timeout
