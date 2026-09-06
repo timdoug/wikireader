@@ -22,7 +22,7 @@
 
 /* A 512-byte block at MCLK/4 takes about 0.3 ms; give the engines 20 ms. */
 #define DMA_TIMEOUT_TICKS (20 * 60000UL)
-#define DMA_TIMEOUT_POLLS 400000UL
+#define DMA_TIMEOUT_POLLS 4000UL
 
 /*
  * Waiting for the transfer: the first backend slept in HALT for the HSDMA
@@ -45,10 +45,22 @@ struct idma_descriptor {
 	DWORD destination;
 };
 
-/* IDMA control information must be 16-byte aligned in DSTRAM or SDRAM. */
-static struct idma_descriptor idma_table[SPI_IDMA_CHANNEL + 1]
-	__attribute__((aligned(16)));
-static BYTE dma_dummy = 0xff;
+/*
+ * IDMA control information must be 16-byte aligned in DSTRAM or SDRAM.  It
+ * lives in DSTRAM, the descriptor RAM the linker script reserves (input
+ * section .dstram), together
+ * with the dummy transmit byte: every byte of a block makes the IDMA read
+ * its descriptor and the dummy byte and write the count back, and the HSDMA
+ * write the received byte.  In SDRAM those hit a different row from the
+ * receive buffer, so each byte cost two row changes on top of the SPI shift
+ * time; internal RAM has no rows.  The section is NOLOAD, so the dummy byte
+ * is set at initialisation.
+ */
+struct sd_dma_ram {
+	struct idma_descriptor table[SPI_IDMA_CHANNEL + 1];
+	BYTE dummy;
+};
+static struct sd_dma_ram dma_ram __attribute__((section(".dstram"), aligned(16)));
 
 static unsigned long dma_blocks;
 static int dma_given_up;
@@ -64,8 +76,8 @@ static void stop_engines(void)
 
 static int receive_dma(BYTE *buff, UINT byte_count)
 {
-	struct idma_descriptor *descriptor = &idma_table[SPI_IDMA_CHANNEL];
-	DWORD table_address = (DWORD)idma_table;
+	struct idma_descriptor *descriptor = &dma_ram.table[SPI_IDMA_CHANNEL];
+	DWORD table_address = (DWORD)dma_ram.table;
 	DWORD buffer_address = (DWORD)buff;
 	unsigned long start;
 	unsigned long polls = 0;
@@ -100,7 +112,7 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	REG_IDMABASE1 = table_address >> 16;
 	descriptor->control = 0;
 	descriptor->count = byte_count - 1;
-	descriptor->source = (DWORD)&dma_dummy;
+	descriptor->source = (DWORD)&dma_ram.dummy;
 	descriptor->destination = SPI_TXD_ADDRESS;
 	REG_IDMAREQ_RLCDC_RSIF2_RSPI |= SPI_IDMA_ENABLE;
 	REG_IDMAEN_DELCDC_DESIF2_DESPI |= SPI_IDMA_ENABLE;
@@ -111,6 +123,12 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	start = Timer_get();
 	REG_SPI_TXD = 0xff;
 	for (;;) {
+		/* The inner poll is a few instructions, so it runs out of the
+		 * instruction queue and the SDRAM sees nothing but the engines'
+		 * sequential writes while the block arrives. */
+		unsigned spins = 256;
+		while (--spins && !(REG_INT_FDMA & HSDMA3_INTERRUPT))
+			;
 		if (REG_INT_FDMA & HSDMA3_INTERRUPT) {
 			REG_INT_FDMA = HSDMA3_INTERRUPT;
 			complete = 1;
@@ -190,5 +208,6 @@ void SD_DMA_report(void)
 
 void SD_DMA_initialise(void)
 {
+	dma_ram.dummy = 0xff;
 	mmc_set_spi_receive_dma(receive_dma);
 }

@@ -71,7 +71,8 @@ SECTIONS
 
     .descriptor (NOLOAD) : {
         __START_descriptors = . ;
-        . = . + 2k /* LENGTH(dstram) */ ;
+        *(.dstram)              /* DMA descriptors, see src/sd_dma.c */
+        . = __START_descriptors + 2k /* LENGTH(dstram) */ ;
         __END_descriptors = . ;
     } > dstram
 
@@ -97,6 +98,7 @@ SECTIONS
     .suspend : {
          __START_suspend = . ;
          *(.suspend_text)
+         *(.suspend_text.*)
     } > ksdram
     __END_suspend = . ;
     __SIZE_suspend = SIZEOF(.suspend);

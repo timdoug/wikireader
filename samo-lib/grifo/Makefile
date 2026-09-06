@@ -89,6 +89,7 @@ OBJECTS += LCD.o
 OBJECTS += main.o
 OBJECTS += memory.o
 OBJECTS += serial.o
+OBJECTS += sdram.o
 OBJECTS += suspend.o
 OBJECTS += syscall.o
 OBJECTS += system.o
@@ -110,6 +111,14 @@ build/file.o: CFLAGS += -std=gnu99
 # slept in HALT for the HSDMA terminal-count interrupt, which never woke the
 # core; with the bounded poll in src/sd_dma.c DMA runs on hardware and is
 # the default.  NO keeps the byte-at-a-time fallback as the only path.
+# SDRAM controller timing: FAST reprograms the loader's maximum tRP/tRAS/tRC
+# and refresh interval to the part's data sheet values with margin (see
+# src/sdram.c); STOCK leaves the boot loader's registers as they are.
+SDRAM_TIMING ?= FAST
+ifeq (STOCK,$(strip ${SDRAM_TIMING}))
+CFLAGS += -DSDRAM_STOCK_TIMING=1
+endif
+
 SD_DMA ?= YES
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
@@ -131,10 +140,15 @@ endif
 # hardware.  gcc 3.3 kept every local in a register; gcc 16 spilled the saved
 # clock registers and resumed with garbage clocks.  Refuse to link such a
 # build rather than find out on the device.
-build/stamp-suspend-stack: build/suspend.o
-	@if ${OBJDUMP} -d -j .suspend_text $< | grep -q '%sp'; then \
+build/stamp-suspend-stack: build/suspend.o build/sdram.o
+	@if ${OBJDUMP} -d -j .suspend_text build/suspend.o | grep -q '%sp'; then \
 	  echo "error: SuspendCode uses the stack (see src/suspend.c)"; \
-	  ${OBJDUMP} -d -j .suspend_text $< | grep '%sp'; \
+	  ${OBJDUMP} -d -j .suspend_text build/suspend.o | grep '%sp'; \
+	  exit 1; \
+	fi
+	@if ${OBJDUMP} -d -j .suspend_text.retime build/sdram.o | grep -q '%sp'; then \
+	  echo "error: SDRAM_RetimeCode uses the stack (see src/sdram.c)"; \
+	  ${OBJDUMP} -d -j .suspend_text.retime build/sdram.o | grep '%sp'; \
 	  exit 1; \
 	fi
 	@touch "$@"

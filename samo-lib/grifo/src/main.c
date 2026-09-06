@@ -41,6 +41,7 @@
 #include "sd_dma.h"
 #endif
 #include "suspend.h"
+#include "sdram.h"
 #include "syscall.h"
 #include "system.h"
 #include "timer.h"
@@ -137,6 +138,8 @@ void process(void)
 
 	Suspend_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
+
+	SDRAM_retime();
 
 	Memory_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
