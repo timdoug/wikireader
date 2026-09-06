@@ -8,6 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__c33__)
+void *zim_alloc_bank_local(size_t size);
+#else
+#define zim_alloc_bank_local malloc
+#endif
+
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
@@ -321,7 +327,11 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 			return ZIM_ERR_RANGE;
 		}
 	}
-	cluster.output = malloc(capacity);
+	/* Everything the decoder streams through, apart from this buffer, is
+	 * allocated earlier or lives on the stack, so keeping the output in one
+	 * bank leaves the others' open rows to the tables, literals, and
+	 * input; see zim_alloc_bank_local. */
+	cluster.output = zim_alloc_bank_local(capacity);
 	if (!cluster.output ||
 	    ZSTD_isError(ZSTD_DCtx_setParameter(cluster.stream,
 						ZSTD_D_STABLE_OUT_BUFFER, 1)) ||

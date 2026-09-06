@@ -19,6 +19,10 @@ static int ascii_space(unsigned char c)
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
 }
 
+/* The same test with one comparison for the usual printable byte; the byte
+ * scanners below run it on most of the page. */
+#define IS_SPACE(c) ((c) <= ' ' && ascii_space(c))
+
 static unsigned char ascii_lower(unsigned char c)
 {
 	return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
@@ -99,24 +103,6 @@ static void put_text(TEXT_OUTPUT *out, const unsigned char *bytes,
 	out->used += count;
 }
 
-/* Bytes that end a run of plain text: tag and entity starts, whitespace, and
- * control bytes.  Everything else, including all of UTF-8, is copied as is.
- * Keeping every space out of runs preserves the invariant that the output
- * never holds two consecutive spaces, which put_newline's trimming relies on. */
-static unsigned char html_run_end[256];
-static int html_run_end_ready;
-
-static void html_run_end_init(void)
-{
-	unsigned int c;
-
-	if (html_run_end_ready)
-		return;
-	for (c = 0; c < 256; c++)
-		html_run_end[c] = c <= ' ' || c == '<' || c == '&';
-	html_run_end_ready = 1;
-}
-
 static void put_record_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
 			     size_t count)
 {
@@ -140,25 +126,30 @@ static int attribute_value(const unsigned char *attributes, size_t length,
 		size_t start;
 		unsigned char quote = 0;
 
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		name_start = i;
-		while (i < length && !ascii_space(attributes[i]) &&
+		while (i < length && !IS_SPACE(attributes[i]) &&
 		       attributes[i] != '=' && attributes[i] != '>') i++;
 		name_end = i;
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		if (i >= length || attributes[i] != '=') {
-			while (i < length && !ascii_space(attributes[i])) i++;
+			while (i < length && !IS_SPACE(attributes[i])) i++;
 			continue;
 		}
 		i++;
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
 			quote = attributes[i++];
 		start = i;
 		if (quote) {
-			while (i < length && attributes[i] != quote) i++;
+			const unsigned char *scan = attributes + i;
+			const unsigned char *limit = attributes + length;
+
+			while (scan < limit && *scan != quote)
+				scan++;
+			i = (size_t)(scan - attributes);
 		} else {
-			while (i < length && !ascii_space(attributes[i]) &&
+			while (i < length && !IS_SPACE(attributes[i]) &&
 			       attributes[i] != '>') i++;
 		}
 		if (name_equal(attributes + name_start, name_end - name_start,
@@ -279,25 +270,31 @@ static void scan_tag_attributes(const unsigned char *attributes, size_t length,
 		size_t start;
 		unsigned char quote = 0;
 
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		name_start = i;
-		while (i < length && !ascii_space(attributes[i]) &&
+		while (i < length && !IS_SPACE(attributes[i]) &&
 		       attributes[i] != '=' && attributes[i] != '>') i++;
 		name_end = i;
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		if (i >= length || attributes[i] != '=') {
-			while (i < length && !ascii_space(attributes[i])) i++;
+			while (i < length && !IS_SPACE(attributes[i])) i++;
 			continue;
 		}
 		i++;
-		while (i < length && ascii_space(attributes[i])) i++;
+		while (i < length && IS_SPACE(attributes[i])) i++;
 		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
 			quote = attributes[i++];
 		start = i;
 		if (quote) {
-			while (i < length && attributes[i] != quote) i++;
+			/* Attribute values are most of the tag bytes. */
+			const unsigned char *scan = attributes + i;
+			const unsigned char *limit = attributes + length;
+
+			while (scan < limit && *scan != quote)
+				scan++;
+			i = (size_t)(scan - attributes);
 		} else {
-			while (i < length && !ascii_space(attributes[i]) &&
+			while (i < length && !IS_SPACE(attributes[i]) &&
 			       attributes[i] != '>') i++;
 		}
 		switch (name_end - name_start) {
@@ -424,16 +421,23 @@ static int element_skipped(const TAG_ATTRIBUTES *found)
 /* Elements that never have a closing tag. */
 static int void_element(const unsigned char *name, size_t length)
 {
-	static const char *const voids[] = {
-		"br", "hr", "img", "input", "meta", "link", "wbr", "area",
-		"base", "col", "embed", "param", "source", "track"
-	};
-	size_t i;
-
-	for (i = 0; i < sizeof(voids) / sizeof(voids[0]); i++)
-		if (name_equal(name, length, voids[i]))
-			return 1;
-	return 0;
+	switch (length) {
+	case 2:
+		return name_equal(name, 2, "br") || name_equal(name, 2, "hr");
+	case 3:
+		return name_equal(name, 3, "img") || name_equal(name, 3, "wbr") ||
+			name_equal(name, 3, "col");
+	case 4:
+		return name_equal(name, 4, "meta") || name_equal(name, 4, "link") ||
+			name_equal(name, 4, "area") || name_equal(name, 4, "base");
+	case 5:
+		return name_equal(name, 5, "input") || name_equal(name, 5, "embed") ||
+			name_equal(name, 5, "param") || name_equal(name, 5, "track");
+	case 6:
+		return name_equal(name, 6, "source");
+	default:
+		return 0;
+	}
 }
 
 static size_t encode_utf8(uint32_t value, unsigned char bytes[4])
@@ -528,6 +532,9 @@ enum html_tag {
 	TAG_BLOCK
 };
 
+/* Two lower-cased name bytes as one switch key. */
+#define NAME2(a, b) (((unsigned)(a) << 8) | (unsigned)(b))
+
 static enum html_tag classify_tag(const unsigned char *name, size_t length)
 {
 	unsigned char first = ascii_lower(name[0]);
@@ -540,25 +547,28 @@ static enum html_tag classify_tag(const unsigned char *name, size_t length)
 	case 2:
 		if (first == 'h' && name[1] >= '1' && name[1] <= '6')
 			return TAG_HEADING;
-		if (name_equal(name, length, "li")) return TAG_LI;
-		if (name_equal(name, length, "br")) return TAG_BR;
-		if (name_equal(name, length, "td")) return TAG_TD;
-		if (name_equal(name, length, "th")) return TAG_TH;
-		if (name_equal(name, length, "tr") ||
-		    name_equal(name, length, "ul") ||
-		    name_equal(name, length, "ol") ||
-		    name_equal(name, length, "dl") ||
-		    name_equal(name, length, "dd") ||
-		    name_equal(name, length, "dt"))
+		switch (NAME2(first, ascii_lower(name[1]))) {
+		case NAME2('l', 'i'): return TAG_LI;
+		case NAME2('b', 'r'): return TAG_BR;
+		case NAME2('t', 'd'): return TAG_TD;
+		case NAME2('t', 'h'): return TAG_TH;
+		case NAME2('t', 'r'):
+		case NAME2('u', 'l'):
+		case NAME2('o', 'l'):
+		case NAME2('d', 'l'):
+		case NAME2('d', 'd'):
+		case NAME2('d', 't'):
 			return TAG_BLOCK;
-		return TAG_OTHER;
+		default:
+			return TAG_OTHER;
+		}
 	case 3:
-		if (name_equal(name, length, "img")) return TAG_IMG;
-		if (name_equal(name, length, "div")) return TAG_BLOCK;
+		if (first == 'i' && name_equal(name, length, "img")) return TAG_IMG;
+		if (first == 'd' && name_equal(name, length, "div")) return TAG_BLOCK;
 		return TAG_OTHER;
 	case 4:
-		if (name_equal(name, length, "body")) return TAG_BODY;
-		if (name_equal(name, length, "main")) return TAG_MAIN;
+		if (first == 'b' && name_equal(name, length, "body")) return TAG_BODY;
+		if (first == 'm' && name_equal(name, length, "main")) return TAG_MAIN;
 		return TAG_OTHER;
 	case 5:
 		if (name_equal(name, length, "style")) return TAG_STYLE;
@@ -604,7 +614,6 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 	out.last = 0;
 	out.previous = 0;
 	out.pending_space = 0;
-	html_run_end_init();
 	if (progress_step < HTML_PROGRESS_MIN_STEP)
 		progress_step = HTML_PROGRESS_MIN_STEP;
 	next_report = progress_step;
@@ -776,9 +785,12 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 		if (!in_body || !in_main || suppress || skip_depth) {
 			/* Nothing outside <main> or inside style/script is emitted;
 			 * jump straight to the next tag. */
-			do
-				i++;
-			while (i < html_size && html[i] != '<');
+			const unsigned char *scan = html + i + 1;
+			const unsigned char *limit = html + html_size;
+
+			while (scan < limit && *scan != '<')
+				scan++;
+			i = (size_t)(scan - html);
 			continue;
 		}
 		if (html[i] == '&') {
@@ -786,7 +798,7 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 			unsigned char bytes[4];
 			size_t count;
 			while (end < html_size && end - i <= 16 && html[end] != ';' &&
-			       !ascii_space(html[end]) && html[end] != '<')
+			       !IS_SPACE(html[end]) && html[end] != '<')
 				end++;
 			if (end < html_size && html[end] == ';' &&
 			    (count = decode_entity(html + i + 1, end - i - 1, bytes)) != 0) {
@@ -803,9 +815,20 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 		}
 		{
 			size_t start = i;
+			/* A run of plain text ends at a tag or entity start, at
+			 * whitespace, or at a control byte; see put_newline for
+			 * why spaces never join a run.  Three compares per byte
+			 * against registers beat a class table in SDRAM. */
+			const unsigned char *scan = html + i;
+			const unsigned char *limit = html + html_size;
 
-			while (i < html_size && !html_run_end[html[i]])
-				i++;
+			while (scan < limit) {
+				unsigned char c = *scan;
+				if (c <= ' ' || c == '<' || c == '&')
+					break;
+				scan++;
+			}
+			i = (size_t)(scan - html);
 			if (i > start) {
 				put_space_if_needed(&out);
 				put_text(&out, html + start, i - start);
@@ -814,7 +837,7 @@ static int html_to_text(const unsigned char *html, size_t html_size,
 		}
 		/* Whitespace, a control byte, or an ampersand that did not
 		 * decode as an entity. */
-		if (ascii_space(html[i]))
+		if (IS_SPACE(html[i]))
 			out.pending_space = 1;
 		else if (html[i] >= 0x20) {
 			put_space_if_needed(&out);

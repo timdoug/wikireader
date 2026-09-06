@@ -232,6 +232,9 @@ int zim_text_to_article_images_links_progress(const unsigned char *text,
 	ARTICLE_LINK *links;
 	HEIGHT_TRACK track = { 0, 0, 0 };
 	const signed char *ascii;
+	/* Stack copy of the font's ASCII widths: the stack's SDRAM bank is not
+	 * the one holding the code, so measuring a word does not switch rows. */
+	signed char ascii_local[128];
 	size_t input = 0;
 	size_t used = sizeof(header);
 	size_t link_count = 0;
@@ -274,7 +277,8 @@ int zim_text_to_article_images_links_progress(const unsigned char *text,
 		goto error;
 	line_height = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
 	actual_height = line_height;
-	ascii = ascii_widths(font);
+	memcpy(ascii_local, ascii_widths(font), sizeof(ascii_local));
+	ascii = ascii_local;
 	if (progress_step < WRAP_PROGRESS_MIN_STEP)
 		progress_step = WRAP_PROGRESS_MIN_STEP;
 	next_report = progress_step;
@@ -404,7 +408,8 @@ int zim_text_to_article_images_links_progress(const unsigned char *text,
 						  &track);
 				line_height = pcfFonts[font - 1].Fmetrics.linespace +
 					LINE_SPACE_ADDON;
-				ascii = ascii_widths(font);
+				memcpy(ascii_local, ascii_widths(font),
+				       sizeof(ascii_local));
 			} else {
 				rc = emit_newline(article, capacity, &used, font, 0,
 						  &track);
@@ -426,7 +431,9 @@ int zim_text_to_article_images_links_progress(const unsigned char *text,
 		word_start = input;
 		scan = text + input;
 		limit = text + text_size;
-		while (scan < limit && !word_break[*scan])
+		/* Every word-break byte is below 0x21, so a word's bytes settle
+		 * with one compare and the table is only read at the break. */
+		while (scan < limit && (*scan > ' ' || !word_break[*scan]))
 			scan++;
 		input = (size_t)(scan - text);
 		word_length = input - word_start;

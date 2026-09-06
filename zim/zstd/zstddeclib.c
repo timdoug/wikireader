@@ -2364,6 +2364,9 @@ FORCE_INLINE_TEMPLATE BitContainerType BIT_getLowerBits(BitContainerType bitCont
     DEBUG_STATIC_ASSERT(sizeof(bitContainer) == sizeof(U32));
     return _bzhi_u32(bitContainer, nbBits);
 #  endif
+#elif defined(__c33__)
+    /* Three register instructions; the table is an SDRAM load. */
+    return bitContainer & ((((BitContainerType)1) << nbBits) - 1);
 #else
     assert(nbBits < BIT_MASK_SIZE);
     return bitContainer & BIT_mask[nbBits];
@@ -2512,6 +2515,8 @@ FORCE_INLINE_TEMPLATE BitContainerType BIT_getMiddleBits(BitContainerType bitCon
      */
 #if defined(__x86_64__) || defined(_M_X64)
     return (bitContainer >> (start & regMask)) & ((((U64)1) << nbBits) - 1);
+#elif defined(__c33__)
+    return (bitContainer >> (start & regMask)) & ((((BitContainerType)1) << nbBits) - 1);
 #else
     return (bitContainer >> (start & regMask)) & BIT_mask[nbBits];
 #endif
@@ -14964,53 +14969,91 @@ static void ZSTD_copy16(void* dst, const void* src) {
 #define COPY16(d,s) do { ZSTD_copy16(d,s); d+=16; s+=16; } while (0)
 
 #if defined(__c33__)
-/* GCC emits five instructions per byte for a C byte-copy loop on the C33 and
- * never uses post-increment loads.  These loops move each byte with one
- * load/store pair, strictly in address order, so they are also valid for
- * overlapping LZ matches with any offset of at least one byte. */
-FORCE_INLINE_TEMPLATE void
-ZSTD_copyBytesC33(BYTE* dst, const BYTE* src, size_t length)
-{
-    unsigned int scratch;
+/* The SDRAM controller keeps one row open per bank, and a copy whose source
+ * and destination lie in different rows of the same bank pays a row change
+ * on every switch between them.  A byte-at-a-time copy switches twice per
+ * byte.  These loops load a whole batch into registers before storing it, so
+ * a batch costs two row changes however long it is.  They over-copy to the
+ * end of the last batch: callers must have WILDCOPY_OVERLENGTH bytes of slack
+ * after both the destination and the source, and, for overlapping LZ matches,
+ * a source at least one batch behind the destination.
+ *
+ * Three widths share the scheme.  Bytes need no alignment (8 bytes a batch);
+ * a source and destination with equal parity use halfwords (16 bytes); equal
+ * word alignment uses words (32 bytes). */
+#define ZSTD_C33_BATCH(LD, ST, STEP)                                          \
+    __asm__ volatile (                                                        \
+        "1:\n\t"                                                              \
+        LD "\t%3, [%1]+\n\t" LD "\t%4, [%1]+\n\t"                             \
+        LD "\t%5, [%1]+\n\t" LD "\t%6, [%1]+\n\t"                             \
+        LD "\t%7, [%1]+\n\t" LD "\t%8, [%1]+\n\t"                             \
+        LD "\t%9, [%1]+\n\t" LD "\t%10, [%1]+\n\t"                            \
+        ST "\t[%0]+, %3\n\t" ST "\t[%0]+, %4\n\t"                             \
+        ST "\t[%0]+, %5\n\t" ST "\t[%0]+, %6\n\t"                             \
+        ST "\t[%0]+, %7\n\t" ST "\t[%0]+, %8\n\t"                             \
+        ST "\t[%0]+, %9\n\t"                                                  \
+        "sub\t%2, " #STEP "\n\t"                                              \
+        ST "\t[%0]+, %10\n\t"                                                 \
+        "jrgt\t1b"                                                            \
+        : "+r"(dst), "+r"(src), "+r"(remaining),                              \
+          "=&r"(t0), "=&r"(t1), "=&r"(t2), "=&r"(t3),                         \
+          "=&r"(t4), "=&r"(t5), "=&r"(t6), "=&r"(t7)                          \
+        :                                                                     \
+        : "memory")
 
-    if (length >= 4) {
-        size_t quads = length >> 2;
-        __asm__ volatile (
-            "1:\n\t"
-            "ld.ub\t%3, [%1]+\n\t"
-            "ld.b\t[%0]+, %3\n\t"
-            "ld.ub\t%3, [%1]+\n\t"
-            "ld.b\t[%0]+, %3\n\t"
-            "ld.ub\t%3, [%1]+\n\t"
-            "ld.b\t[%0]+, %3\n\t"
-            "ld.ub\t%3, [%1]+\n\t"
-            "sub\t%2, 1\n\t"
-            "ld.b\t[%0]+, %3\n\t"
-            "jrne\t1b"
-            : "+r"(dst), "+r"(src), "+r"(quads), "=&r"(scratch)
-            :
-            : "memory");
-        length &= 3;
+/* Copy `length` bytes in batches.  Most copies are a few bytes, so up to
+ * eight bytes is a single byte batch; longer copies use the widest batch the
+ * alignment of source and destination allows, up to `width` bytes (1, 2, or
+ * 4), and bring a misaligned destination up to the boundary with one byte
+ * batch first.  The over-copy is bounded by the batch size. */
+FORCE_INLINE_TEMPLATE void
+ZSTD_copyBatchesC33(BYTE* dst, const BYTE* src, size_t length, unsigned width)
+{
+    unsigned int t0, t1, t2, t3, t4, t5, t6, t7;
+    ptrdiff_t remaining;
+    size_t delta = (size_t)(dst - src);
+
+    if (length <= 8) {
+        remaining = 1;
+        ZSTD_C33_BATCH("ld.ub", "ld.b", 8);
+        return;
     }
-    if (length) {
-        __asm__ volatile (
-            "1:\n\t"
-            "ld.ub\t%3, [%1]+\n\t"
-            "sub\t%2, 1\n\t"
-            "ld.b\t[%0]+, %3\n\t"
-            "jrne\t1b"
-            : "+r"(dst), "+r"(src), "+r"(length), "=&r"(scratch)
-            :
-            : "memory");
+    if (width == 4 && length > 16 && (delta & 3) == 0) {
+        size_t misalign = (size_t)dst & 3;
+        if (misalign) {
+            size_t lead = 4 - misalign;
+            remaining = 1;
+            ZSTD_C33_BATCH("ld.ub", "ld.b", 8);
+            dst += lead - 8; src += lead - 8;
+            length -= lead;
+        }
+        remaining = (ptrdiff_t)length;
+        ZSTD_C33_BATCH("ld.w", "ld.w", 32);
+        return;
     }
+    if (width >= 2 && (delta & 1) == 0) {
+        if ((size_t)dst & 1) {
+            remaining = 1;
+            ZSTD_C33_BATCH("ld.ub", "ld.b", 8);
+            dst += 1 - 8; src += 1 - 8;
+            length -= 1;
+        }
+        remaining = (ptrdiff_t)length;
+        ZSTD_C33_BATCH("ld.uh", "ld.h", 16);
+        return;
+    }
+    remaining = (ptrdiff_t)length;
+    ZSTD_C33_BATCH("ld.ub", "ld.b", 8);
 }
 
-/* Copy only the literals the sequence actually contains rather than Zstd's
- * vector-sized over-copy.  Retain memmove semantics for the rare case where
- * the in-output literal buffer catches the destination. */
+/* Literals: the source never overlaps the destination in the fast path
+ * except when an in-output literal buffer is behind it, which needs a
+ * backward copy. */
 FORCE_INLINE_TEMPLATE void
 ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
 {
+    if (length == 0)   /* a match following a match: about half the sequences */
+        return;
     if (dst > src && dst < src + length) {
         size_t i = length;
         while (i != 0) {
@@ -15018,25 +15061,41 @@ ZSTD_copyLiteralsC33(BYTE* dst, const BYTE* src, size_t length)
             dst[i] = src[i];
         }
     } else {
-        ZSTD_copyBytesC33(dst, src, length);
+        ZSTD_copyBatchesC33(dst, src, length, 4);
     }
 }
 
-/* Preserve LZ forward-copy behavior while avoiding Zstd's vector-sized
- * over-copy.  Eight-byte chunks are safe once source and destination are at
- * least eight bytes apart; close repeats and the tail advance byte by byte. */
+/* LZ match.  A batch's loads must all lie behind its stores, so the batch
+ * width is limited by the offset: words need 32 bytes, halfwords 16, bytes
+ * 8.  Offsets below eight first replicate the pattern until a period of at
+ * least eight is available. */
 FORCE_INLINE_TEMPLATE void
 ZSTD_copyMatchC33(BYTE* dst, const BYTE* src, size_t length)
 {
-    if ((size_t)(dst - src) >= 8) {
-        while (length >= 8) {
-            ZSTD_copy8(dst, src);
-            dst += 8;
-            src += 8;
-            length -= 8;
+    size_t offset = (size_t)(dst - src);
+
+    if (offset < 8) {
+        /* Stage the pattern on the stack: it is in another SDRAM bank,
+         * so filling and draining it does not change rows. */
+        BYTE pattern[8];
+        size_t period = offset * ((8 + offset - 1) / offset);  /* 8..14 */
+        size_t lead = period - offset;
+        size_t i, j;
+
+        for (i = 0; i < offset; i++)
+            pattern[i] = src[i];
+        for (i = 0, j = 0; i < lead && i < length; i++) {
+            dst[i] = pattern[j];
+            if (++j == offset) j = 0;
         }
+        if (length <= lead)
+            return;
+        dst += lead;
+        length -= lead;
+        src = dst - period;
+        offset = period;
     }
-    ZSTD_copyBytesC33(dst, src, length);
+    ZSTD_copyBatchesC33(dst, src, length, offset >= 32 ? 4 : offset >= 16 ? 2 : 1);
 }
 #endif
 
@@ -20319,6 +20378,17 @@ static void ZSTD_allocateLiteralsBuffer(ZSTD_DCtx* dctx, void* const dst, const 
     assert(litSize <= blockSizeMax);
     assert(dctx->isFrameDecompression || streaming == not_streaming);
     assert(expectedWriteSize <= blockSizeMax);
+#if defined(__c33__)
+    /* The extra buffer lives in the decoder context, which the reader keeps
+     * in a different SDRAM bank from the output; literals in the output
+     * buffer would sit in another row of the output's bank, and every
+     * literal copy would then open two rows. */
+    if (litSize <= ZSTD_LITBUFFEREXTRASIZE) {
+        dctx->litBuffer = dctx->litExtraBuffer;
+        dctx->litBufferEnd = dctx->litBuffer + litSize;
+        dctx->litBufferLocation = ZSTD_not_in_dst;
+    } else
+#endif
     if (streaming == not_streaming && dstCapacity > blockSizeMax + WILDCOPY_OVERLENGTH + litSize + WILDCOPY_OVERLENGTH) {
         /* If we aren't streaming, we can just put the literals after the output
          * of the current block. We don't need to worry about overwriting the
@@ -21460,6 +21530,23 @@ ZSTD_updateFseStateWithDInfo(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, U16 
     DStatePtr->state = nextState + lowBits;
 }
 
+#if defined(__c33__)
+/* Refill the 32-bit container only when the next read would not fit.  A
+ * reload rereads four bytes of the sequence stream, which on the C33 is an
+ * SDRAM row change away from the tables and literals, so reloading after
+ * every field, as the generic 32-bit path does, is the single most frequent
+ * memory access in the sequence loop.  The stream position is the same
+ * whether or not a reload happens, so this is safe wherever the generic
+ * code reloads unconditionally; `need` must not exceed
+ * STREAM_ACCUMULATOR_MIN_32. */
+FORCE_INLINE_TEMPLATE void
+ZSTD_reloadIfNeededC33(BIT_DStream_t* bitD, U32 need)
+{
+    if (bitD->bitsConsumed + need > sizeof(bitD->bitContainer) * 8)
+        BIT_reloadDStream(bitD);
+}
+#endif
+
 /* We need to add at most (ZSTD_WINDOWLOG_MAX_32 - 1) bits to read the maximum
  * offset bits. But we can only read at most STREAM_ACCUMULATOR_MIN_32
  * bits before reloading. This value is the maximum number of bytes we read
@@ -21510,6 +21597,9 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
         BYTE const mlBits = mlDInfo->nbAdditionalBits;
         BYTE const ofBits = ofDInfo->nbAdditionalBits;
         BYTE const totalBits = llBits+mlBits+ofBits;
+#if defined(__c33__)
+        (void)totalBits;   /* only the 64-bit reload heuristic uses it */
+#endif
 
         U16 const llNext = llDInfo->nextState;
         U16 const mlNext = mlDInfo->nextState;
@@ -21543,8 +21633,13 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
                     BIT_reloadDStream(&seqState->DStream);
                     offset += BIT_readBitsFast(&seqState->DStream, extraBits);
                 } else {
+#if defined(__c33__)
+                    ZSTD_reloadIfNeededC33(&seqState->DStream, ofBits);
+                    offset = ofBase + BIT_readBitsFast(&seqState->DStream, ofBits/*>0*/);   /* <=  (ZSTD_WINDOWLOG_MAX-1) bits */
+#else
                     offset = ofBase + BIT_readBitsFast(&seqState->DStream, ofBits/*>0*/);   /* <=  (ZSTD_WINDOWLOG_MAX-1) bits */
                     if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);
+#endif
                 }
                 seqState->prevOffset[2] = seqState->prevOffset[1];
                 seqState->prevOffset[1] = seqState->prevOffset[0];
@@ -21556,6 +21651,9 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
                     seqState->prevOffset[1] = seqState->prevOffset[!ll0];
                     seqState->prevOffset[0] = offset;
                 } else {
+#if defined(__c33__)
+                    ZSTD_reloadIfNeededC33(&seqState->DStream, 1);
+#endif
                     offset = ofBase + ll0 + BIT_readBitsFast(&seqState->DStream, 1);
                     {   size_t temp = (offset==3) ? seqState->prevOffset[0] - 1 : seqState->prevOffset[offset];
                         temp -= !temp; /* 0 is not valid: input corrupted => force offset to -1 => corruption detected at execSequence */
@@ -21566,6 +21664,31 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
             seq.offset = offset;
         }
 
+#if defined(__c33__)
+        if (mlBits > 0) {
+            ZSTD_reloadIfNeededC33(&seqState->DStream, mlBits);
+            seq.matchLength += BIT_readBitsFast(&seqState->DStream, mlBits/*>0*/);
+        }
+        if (llBits > 0) {
+            ZSTD_reloadIfNeededC33(&seqState->DStream, llBits);
+            seq.litLength += BIT_readBitsFast(&seqState->DStream, llBits/*>0*/);
+        }
+
+        DEBUGLOG(6, "seq: litL=%u, matchL=%u, offset=%u",
+                    (U32)seq.litLength, (U32)seq.matchLength, (U32)seq.offset);
+
+        if (!isLastSeq) {
+            /* don't update FSE state for last Sequence */
+            ZSTD_reloadIfNeededC33(&seqState->DStream, llnbBits + mlnbBits);   /* <= 18 bits */
+            ZSTD_updateFseStateWithDInfo(&seqState->stateLL, &seqState->DStream, llNext, llnbBits);    /* <=  9 bits */
+            ZSTD_updateFseStateWithDInfo(&seqState->stateML, &seqState->DStream, mlNext, mlnbBits);    /* <=  9 bits */
+            ZSTD_reloadIfNeededC33(&seqState->DStream, ofnbBits);
+            ZSTD_updateFseStateWithDInfo(&seqState->stateOffb, &seqState->DStream, ofNext, ofnbBits);  /* <=  8 bits */
+        } else {
+            /* The end-of-stream check expects a final reload. */
+            BIT_reloadDStream(&seqState->DStream);
+        }
+#else
         if (mlBits > 0)
             seq.matchLength += BIT_readBitsFast(&seqState->DStream, mlBits/*>0*/);
 
@@ -21593,6 +21716,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
             ZSTD_updateFseStateWithDInfo(&seqState->stateOffb, &seqState->DStream, ofNext, ofnbBits);  /* <=  8 bits */
             BIT_reloadDStream(&seqState->DStream);
         }
+#endif
     }
 
     return seq;

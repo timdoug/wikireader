@@ -216,42 +216,93 @@ board, masked until now by the emulator's flat 32 MB window.
 ## Article load cost
 
 Opening `Cat` from the Simple English archive in `wremu` (modeled guest time
-from the tap to the first painted page) breaks down as follows. The article is
-blob 29 of 84 in a 2 MiB cluster, so 872 KiB of neighbours must be decoded
-first; that decode is the floor set by the archive's cluster size.
+from the tap to the first painted page, measured with the emulator's `-Y`
+window between `retrieve_article` and `render_article_with_pcf`) takes 1.30 s,
+down from 1.94 s. The article is blob 29 of 84 in a 2 MiB cluster, so 872 KiB
+of neighbours must be decoded first; that decode is the floor set by the
+archive's cluster size. Instruction counts moved 25.1 M to 22.4 M, so most of
+the gain is memory behaviour, not instruction count:
 
-| Phase | Time |
-| --- | ---: |
-| Zstandard decode of the cluster prefix | ~2.15 s |
-| HTML to text | ~0.15 s |
-| word wrap, including the stream height | ~0.15 s |
-| clear, render, paint first page | ~0.05 s |
+| Phase | Before | After |
+| --- | ---: | ---: |
+| Zstandard decode of the cluster prefix | 1.20 s | 0.80 s |
+| kernel, mostly the card read polling loop | 0.11 s | 0.13 s |
+| HTML to text | 0.21 s | 0.18 s |
+| word wrap, including the stream height | 0.08 s | 0.07 s |
+| whole window, tap to first paint | 1.94 s | 1.30 s |
+
+(Phase figures are per-function cycle totals from the `-F` profile, the
+Zstandard row summing the sequence, Huffman, FSE-table and copy routines;
+the window also contains time the CPU spends waiting on the card.)
+
+The S1C33E07 has no cache. Every instruction fetch and data access goes to
+the SDRAM controller, which keeps one open row per bank and pays a precharge
+and activate whenever an access in a bank moves to another 1 KiB row. On the
+16 MB boards a bank is a contiguous 4 MB quarter of memory, so the decoder
+used to alternate between rows of one bank for the compressed input, the
+entropy tables, the literals, and the first 445 KiB of the output, and every
+byte-wise copy switched rows twice per byte. The emulator now attributes SDRAM
+row activations to instructions (`-F` file, `--- window sdram` lines), which
+is what found the following:
+
+- `zim_alloc_bank_local()` places the decoded-cluster buffer inside one SDRAM
+  bank (bank 2 on a 16 MB board), away from the tables, literals and input
+  in bank 1, the code in bank 0, and the stack in bank 3. The kernel's
+  first-fit allocator is steered with temporary fillers.
+- Zstandard literals stay in the decoder context's extra buffer instead of
+  the output buffer whenever they fit (64 KiB per block).
+- Literal and match copies load a whole batch of 8, 16 or 32 bytes into
+  registers before storing it, so a copy costs two row changes rather than
+  two per byte; the batch width follows the alignment of source and
+  destination and, for matches, the offset. Copies over-run to the end of
+  the batch, which the fast path's 32-byte slack allows, and a zero-length
+  literal run (half the sequences) is skipped outright.
+- The sequence decoder refills its 32-bit bit container only when the next
+  field would not fit, instead of after every field, and bit masks are
+  computed with a shift instead of read from a table in SDRAM.
+- The HTML converter's byte scanners compare against registers instead of a
+  class table in the code's bank, tag names are classified through packed
+  two-byte keys, and the wrapper keeps its ASCII width table on the stack.
+  Output is byte-identical for 118 reference articles.
+- The kernel now retimes the SDRAM controller at boot (`SDRAM_TIMING=FAST`,
+  `samo-lib/grifo/src/sdram.c`): the flash loader programs the maximum
+  tRP/tRAS/tRC of 4/8/15 clocks and a refresh every 141 clocks; the board's
+  EM48AM1684VTD-75 needs 2/3/4 at 60 MHz and a refresh every 7.8 us, and the
+  kernel programs 2/4/6 and 289 clocks from A0 RAM. A row change drops from
+  about 19 to 7 clocks, and the refresh no longer costs 13% of the bus and a
+  reactivation of every bank every 141 clocks. Without this, the software
+  changes alone give 1.56 s. `SDRAM_TIMING=STOCK` builds a kernel that leaves
+  the loader's values.
+- The SD DMA backend keeps its IDMA descriptor table and dummy transmit byte
+  in DSTRAM, and polls for completion from a loop that fits the instruction
+  queue, so a block no longer alternates between SDRAM rows for every byte.
+  A 512-byte block payload falls from 52,300 to 22,900 modeled cycles; the
+  archive open and title index read at start-up (app start to keyboard) go
+  from 457 ms to 294 ms.
+
+Measured on the Wikivoyage archive, the first `Paris` photograph decodes in
+1.08 s instead of 1.34 s with the same instruction count, entirely from the
+SDRAM retiming.
 
 Reopening an article from the same cluster skips the decode entirely, and
-reopening one of the last four articles through history skips everything: the
-revisit measured 8 ms in `retrieve_article` and a fully painted page 53 ms
-after the tap. The decoder's byte copies are post-increment assembly loops; on this core a C
-byte loop costs five instructions per byte. Modeled time for the whole load
-moves by about 3% between builds with code layout, because the emulated
-16-byte instruction queue is sensitive to where hot loops fall, so compare
-instruction counts (about 27.6 million for this article) rather than
-milliseconds when judging small changes.
+reopening one of the last four articles through history skips everything:
+the revisit measured 8 ms in `retrieve_article` and a fully painted page 53 ms
+after the tap. Modeled time for the whole load moves by about 3% between
+builds with code layout, because the emulated 16-byte instruction queue is
+sensitive to where hot loops fall, so compare instruction counts and the
+window's row-activation count rather than milliseconds when judging small
+changes.
 
-The first photograph in the Wikivoyage `Paris` article decodes in about 1.3 s
-of modeled time, down from 2.4 s: the WebP rescaler's 64-bit fixed-point
-multiplies use the core's `mltu.w` instead of libgcc, VP8 bit reading uses a
-log table instead of a software count-leading-zeros and assembles its 24-bit
-window from byte loads, the fixed 8- and 16-byte macroblock copies and fills
-move whole words, the U and V planes are not rescaled because only luma is
-dithered, the in-loop deblocking filter is skipped because one-bit dithering
-hides its effect, and Atkinson error diffusion writes two values per pixel
-instead of seven read-modify-writes. Output is pixel-identical throughout.
-The remaining image cost is VP8 coefficient decoding, luma rescaling,
-dithering, and the inverse transform.
+The remaining decoder cost is about 55% of the window: 83 instructions per
+sequence at a CPI of 4, a third of it instruction fetch from SDRAM, the rest
+the three entropy-table lookups, literal and match traffic, and the stack.
+About 40% of the remaining row activations are re-openings after each
+auto-refresh closes every bank.
 
 Building with `OPT="-O2 -DZIM_TRACE_HASH"` prints the FNV-1a hash and size of
 each decoded article on the serial console, which the emulator echoes; compare
-it with `zimdump ... blob` output on the host when changing the decoders.
+it with `zimdump ... blob` output on the host when changing the decoders (eight
+articles including the 967 KB `Water` were checked after these changes).
 `host-tools/zim-reader/make check` verifies the cached, continued, truncated,
 and zero-copy blob paths against an independent whole-cluster decode.
 
@@ -264,11 +315,14 @@ article all succeed.
 Image support has also been exercised end to end with
 `wikivoyage_en_all_maxi_2026-06.zim`: the emulator searched for and opened
 Paris and displayed a 226-pixel-wide dithered photograph inline with the
-article. In the detailed hardware timing model the initial screen appears 16.60
-seconds after selection, down from 40.35 seconds when all six images were
-decoded eagerly. Lossy images are decoded directly to scaled luma/alpha; the
-first photograph's decode falls from 3.64 to 2.44 modeled seconds without an
-RGB intermediate buffer.
+article. Lossy images are decoded directly to scaled luma/alpha; the WebP
+rescaler's 64-bit fixed-point multiplies use the core's `mltu.w`, VP8 bit
+reading uses a log table instead of a software count-leading-zeros, the U and
+V planes are not rescaled because only luma is dithered, the in-loop
+deblocking filter is skipped because one-bit dithering hides its effect, and
+Atkinson error diffusion writes two values per pixel. The remaining image
+cost is VP8 coefficient decoding, luma rescaling, dithering, and the inverse
+transform.
 
 ## Hardware status
 
@@ -280,6 +334,15 @@ power cycle. Two things only the hardware caught, both fixed: the suspend
 code's saved clock registers had been spilled to SDRAM (gcc 16), and the SD
 DMA backend slept in HALT for a completion interrupt that never woke the
 core. The 124 GB full English archive has not yet been tried on a card.
+
+The kernel's SDRAM retiming and the DMA descriptor move to DSTRAM described
+under "Article load cost" ran on the same device later on 2026-09-05: it
+boots, searches, and opens articles, and loads feel faster; no `dma.txt`
+fallback note appeared. The speed-ups have not been timed on hardware. The
+retiming uses data-sheet values with margin; a board that misbehaves with it
+(garbled screen, hangs, wrong articles) should be given a
+`SDRAM_TIMING=STOCK` kernel, and the DMA change falls back to byte-at-a-time
+SPI through the existing timeout path if the engines do not complete.
 
 ## Current limits
 
