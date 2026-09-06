@@ -25,6 +25,7 @@
 
 #include "interrupt.h"
 #include "CMU.h"
+#include "power_log.h"
 #include "timer.h"
 
 
@@ -156,4 +157,41 @@ unsigned long Timer_get(void)
 	} while (high1 != high2);
 
 	return (high2 << 16) | low;
+}
+
+void Timer_wait(unsigned long ticks)
+{
+	unsigned long gate = REG_CMU_GATEDCLK1;
+	unsigned int priority = REG_INT_P16T23;
+	unsigned int enable = REG_INT_E16T23;
+	unsigned long count = (ticks + 1023) / 1024;
+	bool log = PowerLog_enabled();
+	unsigned long start;
+	bool timeout;
+
+	/* S1C33E07 manual III.1.11.1: enabled ITC causes release HALT
+	 * even with PSR.IE clear. Leave MCLK, SDRAM, UARTs and GPIO alone;
+	 * timers 0/5 must keep advancing the application's time base. */
+	CMU_enable1(TM2_CKE);
+	REG_T16_CTL2 = PRESETx;
+	REG_T16_CLKCTL_2 = P16TONx | P16TSx_MCLK_DIV_1024;
+	REG_T16_CR2A = count - 1;
+	REG_T16_CR2B = count - 1;
+	REG_INT_P16T23 = (priority & 0xf0) | 7;
+	REG_INT_F16T23 = F16TC2 | F16TU2; /* write-one-to-clear, leave T3 alone */
+	REG_INT_E16T23 = (enable & ~(E16TC2 | E16TU2)) | E16TU2;
+	REG_T16_CTL2 = PRUNx;
+	start = log ? Timer_get() : 0;
+	asm volatile ("halt" : : : "memory");
+	timeout = (REG_INT_F16T23 & F16TU2) != 0;
+	REG_T16_CTL2 = 0;
+	REG_INT_E16T23 = enable;
+	REG_INT_F16T23 = F16TC2 | F16TU2;
+	REG_INT_P16T23 = priority;
+	REG_T16_CLKCTL_2 = 0;
+	REG_CMU_PROTECT = CMU_PROTECT_OFF;
+	REG_CMU_GATEDCLK1 = gate;
+	REG_CMU_PROTECT = CMU_PROTECT_ON;
+	if (log)
+		PowerLog_idle(Timer_get() - start, timeout);
 }

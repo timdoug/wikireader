@@ -11,6 +11,7 @@ bool PowerLog_enabled(void);
 void PowerLog_suspend(void);
 void PowerLog_resume(bool timeout);
 void PowerLog_card_init(unsigned long ticks, bool ready);
+void PowerLog_idle(unsigned long ticks, bool timeout);
 void PowerLog_report(void);
 
 #endif

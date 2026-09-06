@@ -32,4 +32,9 @@ enum {
 
 unsigned long Timer_get(void);
 
+/* Short CPU-only HALT, returning on any enabled interrupt. Caller must
+ * mask CPU interrupts and pass 1..60000000 MCLK ticks. Timer 2 is reserved
+ * for this and deep suspend; neither wait may nest inside the other. */
+void Timer_wait(unsigned long ticks);
+
 #endif

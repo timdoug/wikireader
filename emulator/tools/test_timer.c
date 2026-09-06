@@ -1,5 +1,6 @@
 /* 16-bit timer pause/read behaviour used by Tick_get(). */
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "../src/mem.h"
 #include "../src/timer.h"
@@ -183,6 +184,22 @@ int main(void)
 	mem_write(&mem, CTL2, 2, PRESET | PRUN);
 	check("OSC3/32 scales the timer against the 60 MHz raw timebase",
 	      (uint32_t)(timer.next_deadline - clk), 10u * 4096u * 40u);
+
+	setenv("WREMU_SUSPEND_DIV", "60", 1);
+	mem_write(&mem, CTL2, 2, PRESET | PRUN);
+	check("debug speedup applies to the deep-suspend timer",
+	      (uint32_t)(timer.next_deadline - clk),
+	      (10u * 4096u * 40u + 59u) / 60u);
+	/* Without a CMU attached the input is the full 60 MHz MCLK. */
+	timer.cmu = NULL;
+	mem_write(&mem, CLKCTL2, 2, P16TON | 6u); /* /1024 */
+	mem_write(&mem, CTL2, 2, PRESET | PRUN);
+	check("debug speedup leaves short CPU-only waits unchanged",
+	      (uint32_t)(timer.next_deadline - clk), 10u * 1024u);
+	clk += 10u * 1024u;
+	check("short wait counter also ignores the debug speedup",
+	      mem_read(&mem, TC2, 2), 0);
+	unsetenv("WREMU_SUSPEND_DIV");
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all timer tests passed");

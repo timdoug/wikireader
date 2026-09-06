@@ -273,6 +273,12 @@ event_item_t event_peek(event_t *event) {
 	return queue->head(event);
 }
 
+event_item_t event_wait_timeout(event_t *event, unsigned long microseconds) {
+	if (microseconds > 1000000)
+		microseconds = 1000000;
+	return queue->dequeue(event, (microseconds + 999) / 1000);
+}
+
 
 // LCD Access
 // ----------

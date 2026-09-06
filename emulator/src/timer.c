@@ -203,10 +203,12 @@ static uint32_t input_hz(const struct timerblk *t)
 	return t->cmu ? cmu_mclk_hz(t->cmu) : RAW_HZ;
 }
 
-static uint32_t suspend_speedup(unsigned channel)
+static uint32_t suspend_speedup(unsigned channel, const struct timerblk *t)
 {
-	/* Shorten only the firmware's suspend timer for interactive debugging. */
-	if (channel != 2)
+	/* Timer 2 also wakes short CPU-only waits at full speed. Accelerate
+	 * only the deep-suspend configuration (OSC3/32, prescaler /4096). */
+	if (channel != 2 || input_hz(t) != OSC3_HZ / 32 ||
+	    (t->reg[clkctl_offset(channel) / 2u] & 7u) != 7u)
 		return 1;
 	const char *s = getenv("WREMU_SUSPEND_DIV");
 	int n = s ? atoi(s) : 1;
@@ -285,7 +287,7 @@ static void schedule_deadline(struct timerblk *t, uint64_t now)
 			need -= t->phase[channel];
 		else
 			need = 1;
-		uint64_t speedup = suspend_speedup(channel);
+		uint64_t speedup = suspend_speedup(channel, t);
 		uint64_t delta = (need + (uint64_t)hz * speedup - 1) /
 				 ((uint64_t)hz * speedup);
 		uint64_t deadline = now + (delta ? delta : 1);
@@ -309,7 +311,7 @@ static void timer_sync(struct timerblk *t)
 			continue;
 		uint64_t denominator = (uint64_t)RAW_HZ * prescale(channel, t);
 		uint64_t numerator = t->phase[channel] + elapsed * hz *
-				     suspend_speedup(channel);
+				     suspend_speedup(channel, t);
 		uint64_t ticks = numerator / denominator;
 		t->phase[channel] = numerator % denominator;
 		struct matches m = advance_channel(t, channel, ticks);

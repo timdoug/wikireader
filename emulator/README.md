@@ -13,9 +13,9 @@ The combined emulator, toolchain, firmware, and next-work status is in
   `wiki.app` boot from the current FLASH and card images.
 - Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
   article, and scrolling framebuffers for the exercised workflows.
-- Kernel block reads use the documented SPI HSDMA/IDMA pipeline and wait in
-  HALT for the channel-3 terminal-count cause. Pre-kernel reads and all card
-  writes remain PIO.
+- Kernel block reads use the documented SPI HSDMA/IDMA pipeline with bounded
+  completion polling; HALT-based DMA completion did not wake on hardware.
+  Pre-kernel reads and all card writes remain PIO.
 - `make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
   display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO, and chip
   identification.
@@ -272,7 +272,9 @@ skipped HALT time by the board's P32 supply-enable state. It distinguishes
 an idle card with power still applied from one whose supply is disabled;
 P33 (the buffer enable), chip select, and SPI clock gating are not the
 supply switch. It covers both headless and window runs, including DMA HALTs
-in older firmware. This is GPIO-state residency, not a current or battery
+in older firmware and the new full-clock timed event waits. SD-on time in
+those short waits does not imply KEEP during deep suspend. This is
+GPIO-state residency, not a current or battery
 model; it excludes active execution and does not simulate card startup
 current or card-specific standby behavior. See [the battery audit](../zim/BATTERY.md)
 for firmware comparisons and measurement limits.

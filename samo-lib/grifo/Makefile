@@ -19,6 +19,7 @@
 
 
 FATFS_MODE = modern
+.DEFAULT_GOAL := all
 
 # +++START_UPDATE_MAKEFILE: Start of auto included code
 # The text between the +++ and --- tags is copied by the

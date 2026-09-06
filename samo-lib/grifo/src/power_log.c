@@ -19,6 +19,8 @@ static unsigned long sd_on_entries, sd_on_resumes;
 static unsigned long last_refresh, refresh_mismatches;
 static unsigned long card_inits, card_failures, card_max_ticks;
 static uint64_t card_ticks;
+static unsigned long idle_waits, idle_timeouts, idle_max_ticks;
+static uint64_t idle_ticks;
 
 #if !defined(CARD_POWER_OFF_ON_SUSPEND)
 static bool trace_enabled;
@@ -119,7 +121,7 @@ void PowerLog_card_init(unsigned long ticks, bool ready)
 
 void PowerLog_report(void)
 {
-	char report[640];
+	char report[800];
 	int length, handle;
 	ssize_t written;
 	File_ErrorType closed;
@@ -134,6 +136,7 @@ void PowerLog_report(void)
 		"sd_supply on_entries=%lu on_resumes=%lu\n"
 		"refresh last=0x%lx mismatches=%lu\n"
 		"card reinit=%lu failures=%lu total_ms=%lu max_ticks=%lu ticks_per_ms=%lu\n"
+		"idle waits=%lu deadlines=%lu total_ms=%lu max_ticks=%lu\n"
 		"%s\n",
 		__DATE__, __TIME__, __VERSION__,
 #if defined(CARD_POWER_OFF_ON_SUSPEND)
@@ -147,6 +150,8 @@ void PowerLog_report(void)
 		card_inits, card_failures, (unsigned long)(card_ticks / (PLL_CLK / 1000)),
 		card_max_ticks,
 		(unsigned long)(PLL_CLK / 1000),
+		idle_waits, idle_timeouts, (unsigned long)(idle_ticks / (PLL_CLK / 1000)),
+		idle_max_ticks,
 #if SD_DMA_ENABLED
 		SD_DMA_status()
 #else
@@ -166,4 +171,16 @@ void PowerLog_report(void)
 	closed = File_close(handle);
 	Serial_print(written == length && closed == FILE_ERROR_OK ?
 		     "power log: saved power.txt\n" : "power log: write failed\n");
+}
+
+void PowerLog_idle(unsigned long ticks, bool timeout)
+{
+	if (!enabled)
+		return;
+	++idle_waits;
+	if (timeout)
+		++idle_timeouts;
+	idle_ticks += ticks;
+	if (ticks > idle_max_ticks)
+		idle_max_ticks = ticks;
 }

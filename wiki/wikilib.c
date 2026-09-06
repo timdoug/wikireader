@@ -1414,6 +1414,7 @@ bool callback(void *arg)
 int wikilib_run(void)
 {
 	int sleep;
+	int idle_delay;
 	unsigned long time_now;
 	event_t ev;
 	int more_events = 0;
@@ -1431,6 +1432,7 @@ int wikilib_run(void)
 	load_all_fonts();
 
 	for (;;) {
+		idle_delay = 0;
 		if (more_events)
 			sleep = 0;
 		else
@@ -1518,11 +1520,11 @@ int wikilib_run(void)
 		if (check_invert_link()) // check if need to invert link
 			sleep = 0;
 
-		/* Keep the established two-second idle debounce, including when
-		 * history is clean. Suspending between keystrokes also cycles the
-		 * card supply and changes the touch UART clock. The immediate-
-		 * suspend build lost input on hardware; retain the delay while
-		 * diagnosing that failure. */
+		/* Retain the established two/five-second history and deep-suspend
+		 * delays. While only that deadline is pending, halt the CPU in
+		 * short slices without cycling card power or touch UART clocks.
+		 * Work such as rendering, coasting and held-key timers continues
+		 * through the existing nonblocking path. */
 		if (sleep)
 		{
 			if (time_diff(timer_get(), last_event_time) > seconds_to_ticks(5))
@@ -1535,12 +1537,16 @@ int wikilib_run(void)
 			{
 				delay_us(200000); // for some reason, save may not work if no delay
 			}
-			else if (rc < 0)
-				sleep = 0; // waiting for last_event_time timeout to save the history
+			else if (rc < 0) {
+				sleep = 0;
+				idle_delay = 1;
+			}
 		}
 
 		if (sleep)
 			event_wait(&ev, callback, "main loop callback");
+		else if (idle_delay)
+			event_wait_timeout(&ev, 20000);
 		else
 			event_get(&ev);
 		more_events = 1;

@@ -92,4 +92,10 @@ event_item_t Event_peek(event_t *event);
 // This is a user code callback (via Suspend) - do not use in the kernel
 event_item_t Event_wait(event_t *event, Standard_BoolCallBackType *callback, void *arg);
 
+//*[wait_timeout]: wait for input or a short timeout, returning EVENT_NONE on timeout
+//*[wait_timeout]: microseconds is capped at 1000000; zero only checks the queue
+//*[wait_timeout]: CPU HALT only: timer_get, UART clocks and SD supply are unchanged
+//*[wait_timeout]: requires a kernel providing syscall 47
+event_item_t Event_wait_timeout(event_t *event, unsigned long microseconds);
+
 #endif

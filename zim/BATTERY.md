@@ -105,7 +105,8 @@ of every card's wake penalty or a complete tap-to-painted-page measurement.
   off normally after approximately two seconds in suspend, with the SD
   supply disabled throughout that wait.
 
-Remaining opportunities are the history/idle debounce (two/five seconds
+At the end of the first audit, remaining opportunities were the history/idle
+debounce (two/five seconds
 of polling), inter-frame waits while coasting, and held-key/link timers.
 Sleeping through those requires an event wait with a deadline: ordinary
 `event_wait()` can sleep until user input or the 120-second shutdown, and
@@ -249,3 +250,120 @@ when considering the wake-time tradeoff; energy still needs current
 measurement. Shutdown diagnostics remain enabled for ordinary follow-up
 use, with counters in RAM and one report write at shutdown. Remove
 `powerlog.on` before measuring battery consumption.
+
+## Timed CPU idle, follow-up
+
+The follow-up build retains the two/five-second delay before history saves
+and deep suspend, but uses **20 ms CPU HALT waits** while only that delay is
+pending. Input interrupts end the wait immediately. Rendering, coasting,
+held-key handling and other active work retain their nonblocking path.
+The short wait leaves the SD supply, UART baud rates, MCLK and SDRAM
+configuration alone; normal deep suspend still powers off the SD card.
+This build has passed the emulator tests below and the physical
+typing/article/scroll/idle/shutdown workflow recorded at the end of this section.
+
+The new `event_wait_timeout(event, microseconds)` syscall (47) returns an
+event or `EVENT_NONE` at the deadline. Zero polls the queue; requests above
+one second are capped. The application clock continues through these waits,
+and unsigned tick subtraction handles its 32-bit wrap. A masked queue
+recheck closes the input-arrival/idle race. Partial UART interrupts can wake
+HALT without a complete event; they do not restart the original deadline.
+
+Timer 2 runs from MCLK/1024 for the short wait. Its interrupt is enabled in
+the ITC while CPU interrupts are masked, then stopped/cleared before CPU
+interrupts are restored. The S1C33E07 manual, III.1.11.1, specifies that an
+enabled ITC cause releases HALT with PSR.IE clear. Clock gates and interrupt
+configuration are restored on every return. The existing deep-suspend
+assembly is unchanged. `WREMU_SUSPEND_DIV` now accelerates only timer 2's
+deep-suspend clock/prescaler configuration, leaving short deadlines intact.
+
+The same read-only Cat script documented above gives:
+
+| Build | Executed instructions | Time outside skipped HALT | SD supplied during HALT | SD off during HALT |
+| --- | ---: | ---: | ---: | ---: |
+| Validated OFF baseline | 161,643,759 | 13,516.5 ms | 0.0 ms | 23,972.6 ms |
+| Timed CPU idle, OFF | 119,647,293 | 7,152.8 ms | 2,720.0 ms | 21,952.5 ms |
+
+This removes about **42.0 million instructions and 6.36 seconds outside
+HALT** in this script. Both runs read 2,318 sectors and issue 2,231 SD
+commands; their final Cat screens have the identical SHA-1
+`f94996fe9faa3998550c338927b3d05e3f775058`. SD-on HALT time now includes
+the new shallow waits during periods that previously polled with the card
+powered. It does not mean deep suspend has reverted to KEEP. As before,
+script times mix retired instructions and skipped HALT cycles, so these
+are matching workflows, not equal-duration electrical energy measurements.
+The same pre-existing `zim_blob.c` placement change is in both builds.
+
+Validation:
+
+- Modern GCC kernel, ZIM and stock-reader builds pass; suspend/retiming
+  no-stack checks and the emulator check suite pass.
+- The real event-queue host test covers queued input, both sides of the
+  empty-queue/idle race, partial wakeups, deadline retention and bounds.
+- A [firmware regression app](../emulator/tools/idle_wait_app/README.md)
+  passes 200 repeated 20 ms waits, zero/short/capped timeouts, a timer wrap,
+  button wakeup, immediate queued-input delivery and timer/clock cleanup.
+- Writable Tokyo -> scroll -> idle -> power-button shutdown records 6 deep
+  entries/resumes, SD off at every deep-suspend sample, 4 successful card
+  restarts, no refresh mismatch and healthy DMA after 2,300 blocks. The
+  new counters record 329 shallow waits, 311 timer deadlines and 6,268 ms
+  in the shallow-wait intervals. The maximum interval is 1,200,246 ticks
+  (about 20.004 ms).
+- Reboot and reopen Tokyo through History preserves position 647 and the
+  exact screen (SHA-1 `7eec9b5dccfe275b461f579241598bcc0753f60e`). The
+  accelerated automatic-shutdown test also powers off normally.
+
+`power.txt` now adds `idle waits=... deadlines=... total_ms=... max_ticks=...`.
+These count individual HALTs, including interrupts that do not yet produce
+an input event. The timed intervals include a few microseconds of register
+cleanup; they are not measurements of electrical sleep depth or current.
+Counters stay in RAM and are written only on orderly shutdown.
+
+Install the new kernel and reader apps together: old kernels do not provide
+syscall 47. The physical check used normal kiwi, rapid and slow repeated
+typing (including C), Cat -> Tokyo -> scroll -> 30-second pause -> History -> Cat,
+then a brief power-button shutdown. The card was reconnected before another
+boot to preserve that run's report. Keep the previous validated files
+available for rollback; electrical current measurement remains outstanding.
+
+Plain `make -C samo-lib/grifo` again builds the kernel/apps: an explicit
+default goal prevents the card-policy tracking file from becoming the only
+target built. Inter-frame polling, held-key timers and card restart energy
+remain separate opportunities for a later pass.
+
+### Physical timed-idle result, 2026-09-06
+
+The user completed the requested sequence without any unexpected behavior.
+The card's kernel and both reader hashes match the staged candidate; its
+fresh shutdown report identifies the expected `Sep 6 2026 18:53:18` kernel:
+
+```text
+policy card=OFF auto_off=120s refresh=0x120
+suspend entries=9 resumes=9 timeouts=0
+sd_supply on_entries=0 on_resumes=0
+refresh last=0x120 mismatches=0
+card reinit=8 failures=0 total_ms=1395 max_ticks=10574900 ticks_per_ms=60000
+idle waits=2508 deadlines=1628 total_ms=33654 max_ticks=1200303
+dma: ok, 2831 blocks
+```
+
+The new shallow-wait intervals total **33.654 seconds** across 2,508 HALTs;
+1,628 completed at the timer deadline, and 880 ended on other interrupts.
+The longest interval was **20.005 ms**, consistent with the 20 ms slice
+plus accounting/cleanup overhead. This demonstrates the new wait path on
+hardware, including timer wakeups and subsequent working input. It does
+not establish a measured battery-life percentage.
+
+All nine deep-suspend entries resumed, with SD supply off at every sample.
+All eight card restarts succeeded, averaging **174.375 ms**, with a maximum
+of **176.248 ms**. No refresh mismatch was reported; DMA remained healthy.
+Neither `dma.txt` nor `pwrtrace.txt` was present. The saved history contains
+Cat at position 0 and Tokyo at position 1074. This verifies the saved data;
+a physical reboot/reopen was not part of this run (the emulator already
+checks it). Long-duration reliability and electrical energy still need
+their own measurements.
+
+The logs, history, build identities and tested binaries were archived in
+`build/sd-backups/20260906-191850-timed-idle-success`. No firmware was changed
+after the successful test; shutdown RAM counters remain enabled for normal
+follow-up use. Remove `powerlog.on` before current or discharge measurements.

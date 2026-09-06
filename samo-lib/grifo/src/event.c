@@ -165,3 +165,30 @@ event_item_t Event_wait(event_t *event, Standard_BoolCallBackType *callback, voi
 	}
 }
 
+event_item_t Event_wait_timeout(event_t *event, unsigned long microseconds)
+{
+	unsigned long start, ticks, elapsed;
+	event_item_t item;
+	if (microseconds > 1000000)
+		microseconds = 1000000;
+	ticks = microseconds * TIMER_CountsPerMicroSecond;
+	start = Timer_get();
+	for (;;) {
+		item = Event_get(event);
+		if (item != EVENT_NONE)
+			return item;
+		elapsed = Timer_get() - start;
+		if (elapsed >= ticks)
+			return EVENT_NONE;
+
+		/* Close the empty-queue/idle race. An interrupt arriving after
+		 * this check still releases HALT with PSR.IE clear; its handler
+		 * runs once Timer_wait has disarmed its private wake interrupt.
+		 * A partial touch packet may wake us without an event, so keep
+		 * the original deadline across those interrupts. */
+		Interrupt_type state = Interrupt_disable();
+		if (head == tail)
+			Timer_wait(ticks - elapsed);
+		Interrupt_enable(state);
+	}
+}

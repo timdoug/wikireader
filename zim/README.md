@@ -59,14 +59,18 @@ decoders because both formats must be decoded by the C33 itself; host libraries
 cannot be linked into target firmware.
 
 This app requires the current `samo-lib/grifo/grifo.elf`. Its FatFs interface
-provides fast seek plus 64-bit file size and seek calls.
+provides fast seek plus 64-bit file size and seek calls. The reader also
+uses timed event waits (syscall 47); update the kernel and reader together.
 
 The kernel defaults to `CARD_POWER=OFF`, removing the SD supply during
 suspend and reinitialising the card on the next file operation.
 `CARD_POWER=KEEP` opts into lower wake-to-read latency at the cost of powering
 the card throughout idle. See [the battery audit](BATTERY.md) for measured
 tradeoffs and the remaining power work. The two-second idle debounce is
-retained after input failures on the immediate-suspend test build.
+retained after input failures on the immediate-suspend test build. A new
+build uses short CPU HALTs during the idle/history delay, keeping the
+application timer and touch clocks running. The normal-reader hardware
+typing/article/scroll/idle/shutdown workflow passed; see the audit for scope.
 
 ## Create a card image
 

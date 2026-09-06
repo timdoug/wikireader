@@ -81,6 +81,13 @@ test-mmc-power:
 		-o /tmp/test_mmc_power tools/test_mmc_power.c
 	/tmp/test_mmc_power
 
+# Timed event waits use the real kernel queue with deterministic IRQ races.
+.PHONY: test-event-wait
+test-event-wait:
+	$(CC) $(CFLAGS) -I../samo-lib/grifo/common \
+		-o /tmp/test_event_wait tools/test_event_wait.c
+	/tmp/test_event_wait
+
 # Watchdog, and above all the clock gate that keeps it quiet in suspend.
 test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o $(SDL_LIBS)
@@ -149,7 +156,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-mmc-power test-wdt test-dma test-gui-dma test-gui-boot
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

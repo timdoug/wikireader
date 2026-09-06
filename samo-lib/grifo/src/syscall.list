@@ -150,6 +150,9 @@
  (comment "src/event.h" "peek")
  (46 Event_peek ("event_item_t" "event_peek" "event_t *event"))
 
+ (comment "src/event.h" "wait_timeout")
+ (47 Event_wait_timeout ("event_item_t" "event_wait_timeout" "event_t *event" "unsigned long microseconds"))
+
 
  (section "LCD Access")
 
