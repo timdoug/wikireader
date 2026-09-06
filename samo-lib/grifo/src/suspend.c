@@ -92,7 +92,14 @@ void Suspend(Standard_BoolCallBackType *callback, void *arg)
 		return;
 	}
 
+#if defined(CARD_POWER_OFF_ON_SUSPEND)
 	File_PowerDown();
+#else
+	/* The card stays powered through the suspend, which lasts at most
+	 * SUSPEND_AUTO_POWER_OFF_SECONDS: the first read after every wake used
+	 * to re-initialise it, 10 ms of settling delay plus the card's own
+	 * start-up before the article the tap asked for could be read. */
+#endif
 
 	Interrupt_type state = Interrupt_disable();
 

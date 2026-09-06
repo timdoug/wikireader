@@ -63,6 +63,13 @@ SECTIONS
          *(.fastcode .fastcode.*)   /* .fastcode.pic: position-independent tests */
     } > fastram
     __END_fastcode = . ;
+    /* Zero-initialised data beside it (the Zstandard sequence state); the
+       kernel's loader clears NOBITS sections wherever they are. */
+    .fastbss (NOLOAD) : {
+         __START_fastbss = . ;
+         *(.fastbss .fastbss.*)
+    } > fastram
+    __END_fastbss = . ;
 
     /* Code overlays (zim/zim_overlay.h): each is linked to run in the
        window buffer at 0x81a00 and stored after .text in SDRAM, from where

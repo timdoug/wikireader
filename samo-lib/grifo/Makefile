@@ -119,6 +119,13 @@ ifeq (STOCK,$(strip ${SDRAM_TIMING}))
 CFLAGS += -DSDRAM_STOCK_TIMING=1
 endif
 
+# CARD_POWER=OFF powers the SD card down on every suspend, as the 2009 kernel
+# did; KEEP leaves it powered until the automatic power-off.
+CARD_POWER ?= KEEP
+ifeq (OFF,$(strip ${CARD_POWER}))
+CFLAGS += -DCARD_POWER_OFF_ON_SUSPEND=1
+endif
+
 SD_DMA ?= YES
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
