@@ -174,6 +174,7 @@ launcher menu, so `-Z` cannot be used):
 | 2026-09-05 morning, stock SDRAM timing | 2864.0 ms | 25,623,351 |
 | software changes and the kernel's SDRAM retiming | 1943.9 ms | 21,227,433 |
 | plus the decoder in A0 RAM, fast-seek fonts, 16 KiB slices | 1303.5 ms | 19,811,805 |
+| plus the converter, wrapper, and Huffman decoder as IVRAM overlays | 1073.4 ms | 19,941,012 |
 
 (The first two rows were measured before the 2026-09-06 refit added the
 write-to-read turnaround; it adds about 2% to loads.)

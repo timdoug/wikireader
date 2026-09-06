@@ -217,42 +217,53 @@ static unsigned long run_copy_batch8(unsigned char *d, const unsigned char *s,
 	return timer_get() - t;
 }
 
-/* The same two tests executed from the application's A0 RAM area
- * (.fastcode, see samo-lib/grifo/lds/application.lds): what an
- * instruction fetch costs there.  They take no timer calls inside so the
- * code needs nothing outside itself; the 256 register moves are 512 bytes,
- * what the area has left beside the decoder. */
-#define BENCH_FASTCODE __attribute__((section(".fastcode"), noinline))
+/* The same two tests executed from internal RAM: what an instruction fetch
+ * costs there.  The code is position independent (local labels, a
+ * register argument in %r6, no calls) and placed in the application's A0
+ * RAM area (.fastcode, see samo-lib/grifo/lds/application.lds); the
+ * IVRAM and DSTRAM variants copy the same bytes into the LCD controller's
+ * window buffer and the free part of the DMA descriptor RAM and run them
+ * there.  The 256 register moves are 512 bytes, what A0 RAM has left
+ * beside the decoder. */
+__asm__(".section .fastcode.pic,\"ax\"\n"
+	".global bench_pic_start\n"
+	"bench_pic_start:\n"
+	".global bench_pic_cpu\n"
+	"bench_pic_cpu:\n"
+	"1:\n\tsub\t%r6, 1\n\tjrne\t1b\n\tret\n"
+	".global bench_pic_fetch\n"
+	"bench_pic_fetch:\n"
+	"1:\n\t.rept 256\n\tld.w\t%r7, %r7\n\t.endr\n\t"
+	"sub\t%r6, 1\n\txjrne\t1b\n\tret\n"
+	".global bench_pic_end\n"
+	"bench_pic_end:\n"
+	".section .text\n");
 
-static void BENCH_FASTCODE a0_cpu(unsigned long count)
+extern const unsigned char bench_pic_start[], bench_pic_cpu[],
+	bench_pic_fetch[], bench_pic_end[];
+
+typedef void (*bench_pic_fn)(unsigned long count);
+
+/* Run one of the position-independent tests from `base`, which is either
+ * their A0 RAM home or a copy of it. */
+static unsigned long run_pic(const unsigned char *base, const unsigned char *which,
+			     unsigned long n)
 {
-	__asm__ volatile ("1:\n\tsub\t%0, 1\n\tjrne\t1b" : "+r"(count));
-}
-
-static void BENCH_FASTCODE a0_fetch(unsigned long count)
-{
-	unsigned int scratch = 0;
-
-	__asm__ volatile ("1:\n\t.rept 256\n\tld.w\t%1, %1\n\t.endr\n\t"
-			  "sub\t%0, 1\n\txjrne\t1b"
-			  : "+r"(count), "+r"(scratch));
-}
-
-static unsigned long run_a0_cpu(unsigned long n)
-{
+	bench_pic_fn fn = (bench_pic_fn)(base + (which - bench_pic_start));
 	unsigned long t = timer_get();
 
-	a0_cpu(n);
+	fn(n);
 	return timer_get() - t;
 }
 
-static unsigned long run_a0_fetch(unsigned long n)
+static const unsigned char *pic_copy(unsigned char *destination)
 {
-	unsigned long t = timer_get();
-
-	a0_fetch(n);
-	return timer_get() - t;
+	memcpy(destination, bench_pic_start,
+	       (size_t)(bench_pic_end - bench_pic_start));
+	return destination;
 }
+
+#define BENCH_DSTRAM_FREE ((unsigned char *)0x84400)   /* past the kernel's descriptors */
 
 static unsigned long run_card(zim_bench_read_fn read, void *opaque,
 			      uint64_t offset, unsigned char *buffer,
@@ -293,8 +304,23 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 
 	report("cpu-loop", 3000000, run_cpu(3000000));
 	report("fetch-1k", 512 * 256, run_fetch(256));
-	report("cpu-loop-a0", 3000000, run_a0_cpu(3000000));
-	report("fetch-a0", 256 * 512, run_a0_fetch(512));
+	report("cpu-loop-a0", 3000000,
+	       run_pic(bench_pic_start, bench_pic_cpu, 3000000));
+	report("fetch-a0", 256 * 512,
+	       run_pic(bench_pic_start, bench_pic_fetch, 512));
+	{
+		const unsigned char *ivram = pic_copy(lcd_window_get_buffer());
+		const unsigned char *dstram = pic_copy(BENCH_DSTRAM_FREE);
+
+		report("cpu-loop-ivram", 3000000,
+		       run_pic(ivram, bench_pic_cpu, 3000000));
+		report("fetch-ivram", 256 * 512,
+		       run_pic(ivram, bench_pic_fetch, 512));
+		report("cpu-loop-dstram", 3000000,
+		       run_pic(dstram, bench_pic_cpu, 3000000));
+		report("fetch-dstram", 256 * 512,
+		       run_pic(dstram, bench_pic_fetch, 512));
+	}
 	report("read-words", 262144, run_read_words(buffer, 262144));
 	report("read-bytes", 262144, run_read_bytes(buffer, 262144));
 	report("write-words", 262144, run_write_words(buffer, 262144));

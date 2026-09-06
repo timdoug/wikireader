@@ -56,6 +56,7 @@
 #else
 #define ZSTD_FASTCODE
 #endif
+#include "zim_overlay.h"   /* the Huffman literal decoder runs from IVRAM */
 
 
 /* Include zstd_deps.h first with all the options we need enabled. */
@@ -15981,7 +15982,7 @@ size_t HUF_decompress4X1_usingDTable_internal_bmi2(void* dst, size_t dstSize, vo
 }
 #endif
 
-static
+static ZIM_OVERLAY_SECTION("ovlhuf")
 size_t HUF_decompress4X1_usingDTable_internal_default(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable) {
     return HUF_decompress4X1_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
@@ -16175,6 +16176,7 @@ static size_t HUF_decompress4X1_usingDTable_internal(void* dst, size_t dstSize, 
 {
     HUF_DecompressUsingDTableFn fallbackFn = HUF_decompress4X1_usingDTable_internal_default;
     HUF_DecompressFastLoopFn loopFn = HUF_decompress4X1_usingDTable_internal_fast_c_loop;
+    ZIM_OVERLAY_ENSURE(ovlhuf);   /* the default body runs from IVRAM */
 
 #if DYNAMIC_BMI2
     if (flags & HUF_flags_bmi2) {

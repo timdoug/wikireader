@@ -51,7 +51,12 @@ lib/libapplication.a: lib ${BUILD_OBJECTS}
 # build application binary
 ${PROGRAM}.app: build build/${PROGRAM}.o ${GRIFO_APPLICATION_LDS} ${LIBS}
 	$(LD) -o $@ ${LDFLAGS} build/${PROGRAM}.o ${LIBS} -T ${GRIFO_APPLICATION_LDS} -Map ${@:.app=.map}
+	$(POST_LINK)
 	${OBJDUMP} -D "$@" > "${@:.app=.dump}"
+
+# An application may set POST_LINK to a command run on the linked file
+# before it is disassembled (the ZIM reader rewrites its overlay sections).
+POST_LINK ?= @true
 
 
 CLEAN_TARGETS += build

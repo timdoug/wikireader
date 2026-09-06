@@ -215,7 +215,7 @@ board, masked until now by the emulator's flat 32 MB window.
 
 ## Article load cost
 
-Opening `Cat` from the Simple English archive takes 1.30 s in `wremu`
+Opening `Cat` from the Simple English archive takes 1.07 s in `wremu`
 (calibrated model, `-Y` window between `retrieve_article` and
 `render_article_with_pcf`), down from 2.86 s for the morning's firmware and
 1.94 s for the state the device measured at 1.85 s (tap to painted page,
@@ -238,9 +238,11 @@ the proportions hold:
 (Phase figures are per-function cycle totals from the `-F` profile, the
 Zstandard row summing the sequence, Huffman, FSE-table and copy routines;
 the window also contains time the CPU spends waiting on the card.) Under
-the calibrated model with the A0 RAM decoder the split of the 1.30 s is
-roughly: Zstandard 0.55 s, HTML to text 0.26 s, card and kernel 0.14 s,
-wrap 0.10 s, the rest in the Huffman literal decoder and the paint.
+the calibrated model with the A0 RAM decoder and the IVRAM overlays the
+split of the 1.07 s is roughly: Zstandard 0.50 s, HTML to text 0.15 s,
+card and kernel 0.14 s, wrap 0.07 s, the rest in the Huffman literal
+decoder and the paint; only 11% of the load's cycles are still spent
+waiting for instruction fetch.
 
 The S1C33E07 has no cache. Every instruction fetch and data access goes to
 the SDRAM controller, which keeps one open row per bank and pays a precharge
@@ -325,6 +327,19 @@ build, below):
   which the device timed at 1.8 s of glyph loading, is helped the same way.
 - Cluster input is read in 16 KiB slices instead of 4 KiB, six card
   commands instead of 24 for `Cat`'s prefix, saving about 50 ms per load.
+- The HTML converter, the word wrapper, and the Huffman literal decoder
+  run as overlays in the LCD controller's 5632-byte window buffer in
+  IVRAM, which the device fetches from as freely as A0 RAM (measured
+  2026-09-06). Each is linked to run there with the linker's `OVERLAY`
+  command and stored in SDRAM; `zim_overlay.c` copies one in before its
+  phase (about 40 us), and the phase entry that follows another overlay
+  copies again. C33 calls and jumps are PC-relative even in their long
+  forms, so code must be linked for the address it runs at; the kernel's
+  loader places sections by address, so the reader's Makefile moves each
+  overlay section's address to its load address after linking. The
+  converter's once-per-element paths moved out of line to fit. `Cat` fell
+  from 1.30 s to 1.07 s in the model; the benchmark build's tap-to-paint
+  line from 1353 to 1121 ms, `Tokyo` from 1141 to 980 ms.
 
 Reopening an article from the same cluster skips the decode entirely, and
 reopening one of the last four articles through history skips everything:

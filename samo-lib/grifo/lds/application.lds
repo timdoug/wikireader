@@ -39,9 +39,12 @@ MEMORY
 
 SECTIONS
 {
+    /* The kernel's frame buffer (grifo.lds: 256/8 * 208 bytes); the rest of
+       IVRAM is the LCD controller's window buffer, which the ZIM reader
+       borrows for code overlays below. */
     .lcd (NOLOAD) : {
         __START_FrameBuffer = . ;
-        . = . + 12k /* LENGTH(ivram) */ ;
+        . = . + 0x1a00 ;
         __END_FrameBuffer = . ;
     } > ivram
 
@@ -57,9 +60,27 @@ SECTIONS
 
     .fastcode : {
          __START_fastcode = . ;
-         *(.fastcode .fastcode.*)
+         *(.fastcode .fastcode.*)   /* .fastcode.pic: position-independent tests */
     } > fastram
     __END_fastcode = . ;
+
+    /* Code overlays (zim/zim_overlay.h): each is linked to run in the
+       window buffer at 0x81a00 and stored after .text in SDRAM, from where
+       the reader copies it in before the phase that needs it.  The C33's
+       calls and jumps are PC-relative even in their long forms, so the code
+       has to be linked for the address it runs at.  The kernel's ELF loader
+       places sections by their address, so after linking the reader's
+       Makefile moves each section's address to its load address (objcopy
+       --change-section-vma); ld's __load_start_* symbols still give the
+       load addresses. */
+    OVERLAY : NOCROSSREFS {
+        ovlhtml { *(ovlhtml) }
+        ovlwrap { *(ovlwrap) }
+        ovlhuf  { *(ovlhuf) }
+    } > ivram AT> sdram
+    ASSERT(SIZEOF(ovlhtml) <= 0x1600, "the HTML overlay exceeds the IVRAM window buffer")
+    ASSERT(SIZEOF(ovlwrap) <= 0x1600, "the wrap overlay exceeds the IVRAM window buffer")
+    ASSERT(SIZEOF(ovlhuf) <= 0x1600, "the Huffman overlay exceeds the IVRAM window buffer")
 
     . = ALIGN(1024);
 

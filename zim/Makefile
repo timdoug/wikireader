@@ -54,6 +54,7 @@ SOURCES += zim_file.c
 SOURCES += zim_html.c
 SOURCES += zim_image.c
 SOURCES += zim_link.c
+SOURCES += zim_overlay.c
 SOURCES += zstddeclib.c
 
 # ZIM_BENCH=YES times a set of memory and card micro-benchmarks at start-up
@@ -72,6 +73,17 @@ endif
 # application.lds), far from the rest of the code, so its calls in and out
 # need the long form.
 build/zstddeclib.o: CFLAGS += -mlong-calls
+# The HTML converter and wrapper run as IVRAM overlays (zim_overlay.h);
+# calls between them and the rest of the program span 256 MB.
+build/zim_html.o: CFLAGS += -mlong-calls
+build/zim_article.o: CFLAGS += -mlong-calls
+
+# After linking, give each overlay section its load address so the kernel's
+# ELF loader stores it in SDRAM; the code inside stays linked for IVRAM.
+POST_LINK = for s in ovlhtml ovlwrap ovlhuf; do \
+	lma=$$(${OBJDUMP} -h "$@" | awk -v s=$$s '$$2 == s { print "0x" $$5 }'); \
+	${OBJCOPY} --change-section-vma $$s=$$lma "$@" || exit 1; \
+done
 
 # Portable libwebp decoder only: no encoder, SIMD, threads, mux, or demux.
 SOURCES += alpha_dec.c

@@ -6,6 +6,7 @@
 
 #include "lcd_buf_draw.h"
 #include "zim_html.h"
+#include "zim_overlay.h"
 
 #define ARTICLE_TEXT_WIDTH (LCD_BUF_WIDTH_PIXELS - LCD_LEFT_MARGIN * 2)
 
@@ -211,6 +212,17 @@ int zim_text_to_article_images_links(const unsigned char *text,
 			NULL, NULL);
 }
 
+/* The wrapper runs from the IVRAM overlay (zim_overlay.h); this is the
+ * body, and the public function below copies it in and calls it. */
+static int ZIM_OVERLAY_SECTION("ovlwrap")
+wrap_body(const unsigned char *text, size_t text_size,
+	  unsigned char *article, size_t capacity, size_t *article_size,
+	  ZIM_ARTICLE_IMAGE image, void *image_opaque,
+	  ZIM_ARTICLE_LINK link, void *link_opaque,
+	  ZIM_ARTICLE_ANCHOR anchor, void *anchor_opaque,
+	  int *stream_height,
+	  ZIM_ARTICLE_PROGRESS progress, void *progress_opaque);
+
 int zim_text_to_article_images_links_progress(const unsigned char *text,
 					      size_t text_size,
 					      unsigned char *article,
@@ -225,6 +237,21 @@ int zim_text_to_article_images_links_progress(const unsigned char *text,
 					      int *stream_height,
 					      ZIM_ARTICLE_PROGRESS progress,
 					      void *progress_opaque)
+{
+	ZIM_OVERLAY_ENSURE(ovlwrap);
+	return wrap_body(text, text_size, article, capacity, article_size,
+			 image, image_opaque, link, link_opaque, anchor,
+			 anchor_opaque, stream_height, progress, progress_opaque);
+}
+
+static int ZIM_OVERLAY_SECTION("ovlwrap")
+wrap_body(const unsigned char *text, size_t text_size,
+	  unsigned char *article, size_t capacity, size_t *article_size,
+	  ZIM_ARTICLE_IMAGE image, void *image_opaque,
+	  ZIM_ARTICLE_LINK link, void *link_opaque,
+	  ZIM_ARTICLE_ANCHOR anchor, void *anchor_opaque,
+	  int *stream_height,
+	  ZIM_ARTICLE_PROGRESS progress, void *progress_opaque)
 {
 	ARTICLE_HEADER header;
 	size_t progress_step = text_size / WRAP_PROGRESS_STEPS;

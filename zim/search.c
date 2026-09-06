@@ -26,6 +26,7 @@
 #include "zim_html.h"
 #include "zim_image.h"
 #include "zim_link.h"
+#include "zim_overlay.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -1343,6 +1344,7 @@ int retrieve_article(long encoded_index)
 #define FAIL() do { failed_line = __LINE__; goto error; } while (0)
 
 	(void)failed_line;
+	zim_overlay_invalidate();   /* the search screen draws into IVRAM */
 	zim_bench_article_begin(index);
 	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);

@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c99 -Wall -Wextra -Werror -I../../zim -I../../zim/webp \
 	-DHAVE_CONFIG_H
-ZSTD_CFLAGS = -O2 -DNDEBUG -std=c99
+ZSTD_CFLAGS = -O2 -DNDEBUG -std=c99 -I../../zim
 
 WEBP_DECODER_SOURCES = $(addprefix ../../zim/webp/src/dec/, \
 	alpha_dec.c buffer_dec.c frame_dec.c idec_dec.c io_dec.c quant_dec.c \

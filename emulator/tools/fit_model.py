@@ -24,7 +24,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WREMU = os.path.join(HERE, "..", "wremu")
 FLASH = os.path.join(HERE, "..", "..", "samo-lib", "mbr", "flash.rom")
 
-MEMORY_TESTS = ["cpu-loop", "fetch-1k", "cpu-loop-a0", "fetch-a0", "read-words", "read-bytes", "write-words",
+MEMORY_TESTS = ["cpu-loop", "fetch-1k", "cpu-loop-a0", "fetch-a0", "cpu-loop-ivram", "fetch-ivram",
+                "cpu-loop-dstram", "fetch-dstram", "read-words", "read-bytes", "write-words",
                 "write-bytes", "pair-same-row", "pair-row-change", "pair-two-banks",
                 "pair-write-read", "copy-bytes-512k", "copy-batch8-512k", "memcpy-512k"]
 CARD_TESTS = ["card-256k", "card-4k-x64"]

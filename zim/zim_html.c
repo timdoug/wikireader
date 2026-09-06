@@ -2,6 +2,7 @@
 
 #include "zim_html.h"
 #include "zim_archive.h"
+#include "zim_overlay.h"
 
 #include <string.h>
 
@@ -13,6 +14,15 @@ typedef struct {
 	unsigned char previous;
 	int pending_space;
 } TEXT_OUTPUT;
+
+/* Paths the converter takes once per image, link, anchor, entity,
+ * newline, or skipped element stay out of line so the loop that runs per byte and per
+ * tag fits the IVRAM overlay (zim_overlay.h). */
+#if defined(__c33__)
+#define HTML_RARE __attribute__((noinline))
+#else
+#define HTML_RARE
+#endif
 
 static int ascii_space(unsigned char c)
 {
@@ -59,7 +69,7 @@ static void put_space_if_needed(TEXT_OUTPUT *out)
 		put_byte(out, ' ');
 }
 
-static void put_newline(TEXT_OUTPUT *out, int paragraph)
+static HTML_RARE void put_newline(TEXT_OUTPUT *out, int paragraph)
 {
 	out->pending_space = 0;
 	while (out->used && out->last == ' ') {
@@ -179,7 +189,7 @@ static unsigned int decimal_attribute(const unsigned char *value,
 	return result <= 65535 ? result : 0;
 }
 
-static void put_image(TEXT_OUTPUT *out, const unsigned char *attributes,
+static HTML_RARE void put_image(TEXT_OUTPUT *out, const unsigned char *attributes,
 		      size_t length)
 {
 	const unsigned char *src;
@@ -229,7 +239,7 @@ static int internal_href(const unsigned char *href, size_t length)
 	return 1;
 }
 
-static int put_link_start(TEXT_OUTPUT *out, const unsigned char *attributes,
+static HTML_RARE int put_link_start(TEXT_OUTPUT *out, const unsigned char *attributes,
 			  size_t length)
 {
 	const unsigned char *href;
@@ -325,7 +335,7 @@ static void scan_tag_attributes(const unsigned char *attributes, size_t length,
 /* Record an element id so a same-page link can find its line later.  Parsoid
  * stamps every element with an id like "mwAQ"; those are never link targets
  * and would triple the record count, so they are left out. */
-static void put_anchor(TEXT_OUTPUT *out, const unsigned char *id,
+static HTML_RARE void put_anchor(TEXT_OUTPUT *out, const unsigned char *id,
 		       size_t id_length)
 {
 	unsigned char record[3];
@@ -351,7 +361,7 @@ static void put_anchor(TEXT_OUTPUT *out, const unsigned char *id,
 
 /* Elements whose content is navigation, editing chrome, or hidden, and so
  * has no place on a small offline screen. */
-static int class_word_skipped(const unsigned char *word, size_t length)
+static HTML_RARE int class_word_skipped(const unsigned char *word, size_t length)
 {
 	/* Dispatch on the first letter: most class words are checked against
 	 * nothing at all, and the rest against one or two candidates. */
@@ -419,7 +429,7 @@ static int element_skipped(const TAG_ATTRIBUTES *found)
 }
 
 /* Elements that never have a closing tag. */
-static int void_element(const unsigned char *name, size_t length)
+static HTML_RARE int void_element(const unsigned char *name, size_t length)
 {
 	switch (length) {
 	case 2:
@@ -469,7 +479,7 @@ static size_t encode_utf8(uint32_t value, unsigned char bytes[4])
 	return 0;
 }
 
-static size_t decode_entity(const unsigned char *input, size_t length,
+static HTML_RARE size_t decode_entity(const unsigned char *input, size_t length,
 			    unsigned char bytes[4])
 {
 	uint32_t value = 0;
@@ -591,10 +601,11 @@ static enum html_tag classify_tag(const unsigned char *name, size_t length)
 #define HTML_PROGRESS_STEPS 32
 #define HTML_PROGRESS_MIN_STEP 4096
 
-static int html_to_text(const unsigned char *html, size_t html_size,
-			unsigned char *text, size_t capacity,
-			size_t *text_size, int include_images, int include_links,
-			ZIM_HTML_PROGRESS progress, void *progress_opaque)
+static int ZIM_OVERLAY_SECTION("ovlhtml")
+html_to_text(const unsigned char *html, size_t html_size,
+	     unsigned char *text, size_t capacity,
+	     size_t *text_size, int include_images, int include_links,
+	     ZIM_HTML_PROGRESS progress, void *progress_opaque)
 {
 	TEXT_OUTPUT out;
 	size_t i = 0;
@@ -860,6 +871,7 @@ int zim_html_to_text(const unsigned char *html, size_t html_size,
 		     unsigned char *text, size_t capacity,
 		     size_t *text_size)
 {
+	ZIM_OVERLAY_ENSURE(ovlhtml);
 	return html_to_text(html, html_size, text, capacity, text_size, 0, 0,
 			    NULL, NULL);
 }
@@ -868,6 +880,7 @@ int zim_html_to_text_images(const unsigned char *html, size_t html_size,
 			    unsigned char *text, size_t capacity,
 			    size_t *text_size)
 {
+	ZIM_OVERLAY_ENSURE(ovlhtml);
 	return html_to_text(html, html_size, text, capacity, text_size, 1, 1,
 			    NULL, NULL);
 }
@@ -879,6 +892,7 @@ int zim_html_to_text_images_progress(const unsigned char *html,
 				     ZIM_HTML_PROGRESS progress,
 				     void *progress_opaque)
 {
+	ZIM_OVERLAY_ENSURE(ovlhtml);
 	return html_to_text(html, html_size, text, capacity, text_size, 1, 1,
 			    progress, progress_opaque);
 }

@@ -236,9 +236,9 @@ breakdown are in [`../../zim/README.md`](../../zim/README.md).
 
 | Measurement (calibrated model, 2026-09-05 evening) | Before | After |
 | --- | ---: | ---: |
-| `Cat`, tap to first painted page | 2864.0 ms | 1303.5 ms |
+| `Cat`, tap to first painted page | 2864.0 ms | 1073.4 ms |
 | same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1390 ms |
-| `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 1141 / 1030 ms |
+| `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 980 / 1030 ms |
 | Wikivoyage `Paris`, first photograph decode | 1861.0 ms | 1565.5 ms |
 | app start to keyboard painted | 807 ms | 632 ms |
 
@@ -318,9 +318,12 @@ These are not GCC/binutils correctness bugs and require separate approval:
    after a cold boot pays about 1.8 s filling the glyph caches from the
    card; that was the missing fast-seek map on the font files, fixed the
    same evening, together with sector-sized glyph fills.
-3. `html_to_text` is now the largest remaining cost after the decoder
-   (about 260 ms of `Cat`, half of it instruction fetch): too large for the
-   remaining 700 bytes of A0 RAM, so the next step is a smaller hot loop.
+3. The converter, wrapper, and Huffman decoder now run from IVRAM overlays
+   (the window buffer fetches as freely as A0 RAM, measured 2026-09-06);
+   instruction fetch is 11% of the load. What remains is instruction
+   count: the sequence loop's 83 instructions per sequence, the converter's
+   30 per byte, and the card's 1.2 ms per command, which an asynchronous
+   block read could hide behind decoding.
 2. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
    hardware checklist; time a Cat load on hardware with `SD_DMA=YES` and
    `SD_DMA=NO` to calibrate the SD model.
