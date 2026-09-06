@@ -125,9 +125,14 @@ static void turn_on_power(void)
 
 static void turn_off_power(void)
 {
-	SELECT();
-	wait_ready();
-	release_spi();
+	/* A wake need not access the card. On the next suspend it can still
+	 * be off, with its bus buffer disabled and no valid MISO response.
+	 * Polling that bus can exhaust wait_ready's long timeout. */
+	if (check_card_power()) {
+		SELECT();
+		wait_ready();
+		release_spi();
+	}
 
 	disable_card_power();
 	Stat |= STA_NOINIT;

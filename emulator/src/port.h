@@ -13,6 +13,7 @@
 #define PORT_LEN  0x0056u    /* through SMPK1 at 0x3d5 */
 
 #define OFF_P5D   (0x38au - PORT_BASE)
+#define OFF_P3D   (0x386u - PORT_BASE)
 
 /* Chip selects on this board (samo-lib/include/samo.h, boards/samo_a1.h).
    Both active low, both on port 5. */
@@ -72,5 +73,8 @@ void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed);
 void port_power_button(struct port *p, struct c33 *cpu, bool pressed);
 /* True while the given port-5 chip select is asserted (driven low). */
 bool port_cs_low(const struct port *p, unsigned bit);
+/* P32 is the active-low SD supply enable. P33 controls the bus buffer,
+   so the card can draw power even before the buffer is enabled. */
+bool port_sd_powered(const struct port *p);
 
 #endif /* PORT_H */

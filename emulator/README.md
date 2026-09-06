@@ -267,6 +267,16 @@ The summary separates executed instructions from fast-forwarded idle cycles:
 --- work: 219633709 instructions executed, 180366291 idle, 7973.0 ms guest ---
 ```
 
+The `--- idle power: SD supply on ... ms, off ... ms ---` line divides
+skipped HALT time by the board's P32 supply-enable state. It distinguishes
+an idle card with power still applied from one whose supply is disabled;
+P33 (the buffer enable), chip select, and SPI clock gating are not the
+supply switch. It covers both headless and window runs, including DMA HALTs
+in older firmware. This is GPIO-state residency, not a current or battery
+model; it excludes active execution and does not simulate card startup
+current or card-specific standby behavior. See [the battery audit](../zim/BATTERY.md)
+for firmware comparisons and measurement limits.
+
 Current matched measurements are:
 
 | Firmware/path | First stable screen | Executed work |
@@ -293,11 +303,12 @@ application is not a clean article timing baseline because it performs two
 unmapped reads and 256 writes immediately above DSTRAM during this operation;
 current firmware performs none.
 
-The production DMA path sleeps until HSDMA3 reports terminal count instead of
-polling its enable bit. In a fixed 300-million-cycle boot/search/article run,
-that reduces executed work from 160,069,719 to 151,391,234 instructions and
-modeled time from 6094.8 to 6015.4 ms. Both paths read 915 blocks, perform the
-same 468,480 HSDMA and 467,565 IDMA transfers, and produce identical screens.
+An earlier DMA path slept until HSDMA3 reported terminal count. In an
+emulator-only 300-million-cycle boot/search/article run that reduced work
+from 160,069,719 to 151,391,234 instructions and modeled time from 6094.8 to
+6015.4 ms, with identical screens and I/O. **That sleep did not wake on the
+real device.** Production firmware now uses a bounded completion poll; those
+old sleep results do not establish a hardware battery saving.
 
 A separate clean full-FLASH A/B rebuilt the whole GCC 16 runtime stack at
 `-O2` or `-Os`; the size-constrained MBR/menu/file-loader stayed at `-Os` in

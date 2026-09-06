@@ -141,9 +141,15 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 
 void history_log_y_pos(const long y_pos)
 {
-	if (history_changed != HISTORY_SAVE_NORMAL)
-		history_changed = HISTORY_SAVE_POWER_OFF;
-	history_list[0].last_y_pos = y_pos;
+	/* Repainting the same viewport is not a history change. In particular,
+	 * tapping a stationary page must not start another five-second save
+	 * delay and keep the CPU awake. */
+	if (history_count > 0 && history_list[0].last_y_pos != y_pos)
+	{
+		if (history_changed != HISTORY_SAVE_NORMAL)
+			history_changed = HISTORY_SAVE_POWER_OFF;
+		history_list[0].last_y_pos = y_pos;
+	}
 	if (viewing_count > 0)
 		viewing_list[viewing_count - 1].last_y_pos = y_pos;
 }
@@ -203,6 +209,11 @@ void history_list_init(void)
 		}
 		file_close(fd_hst);
 	}
+}
+
+int history_needs_save(void)
+{
+	return history_changed != HISTORY_SAVE_NONE;
 }
 
 int history_list_save(int level)

@@ -88,6 +88,7 @@ OBJECTS += graphics.o
 OBJECTS += LCD.o
 OBJECTS += main.o
 OBJECTS += memory.o
+OBJECTS += power_log.o
 OBJECTS += serial.o
 OBJECTS += sdram.o
 OBJECTS += suspend.o
@@ -119,12 +120,22 @@ ifeq (STOCK,$(strip ${SDRAM_TIMING}))
 CFLAGS += -DSDRAM_STOCK_TIMING=1
 endif
 
-# CARD_POWER=OFF powers the SD card down on every suspend, as the 2009 kernel
-# did; KEEP leaves it powered until the automatic power-off.
-CARD_POWER ?= KEEP
+# Power down the SD card while reading an idle screen. KEEP is an opt-in
+# latency experiment: every wake restarts the automatic shutdown timer, so
+# it can leave the card supplied for an entire reading session.
+CARD_POWER ?= OFF
 ifeq (OFF,$(strip ${CARD_POWER}))
 CFLAGS += -DCARD_POWER_OFF_ON_SUSPEND=1
+else ifneq (KEEP,$(strip ${CARD_POWER}))
+$(error CARD_POWER must be OFF or KEEP)
 endif
+
+# Track this option even on an incremental build. A Makefile-only default
+# change must not silently leave yesterday's KEEP suspend.o in the kernel.
+.PHONY: FORCE_CARD_POWER
+build/card-power: FORCE_CARD_POWER | stamp-build
+	@echo '$(strip ${CARD_POWER})' | cmp -s - $@ || echo '$(strip ${CARD_POWER})' > $@
+build/suspend.o build/power_log.o: build/card-power
 
 SD_DMA ?= YES
 ifeq (YES,$(strip ${SD_DMA}))

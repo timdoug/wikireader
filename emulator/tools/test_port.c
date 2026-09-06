@@ -66,6 +66,14 @@ int main(void)
 
 	mem_write(&mem, P3D, 1, 0xff);
 	check("reserved P3 data bit reads zero", mem_read(&mem, P3D, 1), 0x7f);
+	mem_write(&mem, P3D, 1, 0x04);
+	check("SD supply disabled by P32 high", port_sd_powered(&port), false);
+	mem_write(&mem, P3D, 1, 0x00);
+	check("SD supply on while its bus buffer is off", port_sd_powered(&port), true);
+	mem_write(&mem, P3D, 1, 0x08);
+	check("SD supply and buffer enabled", port_sd_powered(&port), true);
+	mem_write(&mem, P3D, 1, 0x0c);
+	check("buffer enable cannot override supply disable", port_sd_powered(&port), false);
 	mem_write(&mem, P8IOC, 1, 0xff);
 	check("reserved P8 direction bits read zero",
 	      mem_read(&mem, P8IOC, 1), 0x3f);

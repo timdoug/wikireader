@@ -36,6 +36,7 @@
 #include "file.h"
 #include "interrupt.h"
 #include "memory.h"
+#include "power_log.h"
 #include "serial.h"
 #if SD_DMA_ENABLED
 #include "sd_dma.h"
@@ -140,6 +141,7 @@ void process(void)
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 
 	SDRAM_retime();
+	PowerLog_initialise();
 
 	Memory_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);

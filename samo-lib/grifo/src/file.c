@@ -27,6 +27,8 @@
 #include <diskio.h>
 
 #include "file.h"
+#include "power_log.h"
+#include "timer.h"
 
 
 // a type that can hold the path to the file
@@ -145,7 +147,11 @@ static void AutoPowerUp(void)
 	uint8_t b[2] = {2, 0};
 	disk_ioctl(0, CTRL_POWER, &b);
 	if (0 == b[1]) {
-		disk_initialize(0);
+		bool log = PowerLog_enabled();
+		unsigned long start = log ? Timer_get() : 0;
+		DSTATUS status = disk_initialize(0);
+		if (log)
+			PowerLog_card_init(Timer_get() - start, !(status & STA_NOINIT));
 	}
 }
 

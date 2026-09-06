@@ -29,6 +29,7 @@
 
 #include "file.h"
 #include "interrupt.h"
+#include "power_log.h"
 #include "syscall.h"
 #include "system.h"
 #include "vector.h"
@@ -93,14 +94,15 @@ void Suspend(Standard_BoolCallBackType *callback, void *arg)
 	}
 
 #if defined(CARD_POWER_OFF_ON_SUSPEND)
+	/* AutoPowerUp reinitialises on the next file operation; waking just
+	 * to process an input event does not need the card supply. */
 	File_PowerDown();
 #else
-	/* The card stays powered through the suspend, which lasts at most
-	 * SUSPEND_AUTO_POWER_OFF_SECONDS: the first read after every wake used
-	 * to re-initialise it, 10 ms of settling delay plus the card's own
-	 * start-up before the article the tap asked for could be read. */
+	/* CARD_POWER=KEEP trades idle power for card startup latency. The
+	 * shutdown timeout is per suspend, not a limit on total card uptime. */
 #endif
 
+	PowerLog_suspend();
 	Interrupt_type state = Interrupt_disable();
 
 	Watchdog_KeepAlive(WATCHDOG_KEY);
@@ -113,6 +115,7 @@ void Suspend(Standard_BoolCallBackType *callback, void *arg)
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 
 	Interrupt_enable(state);
+	PowerLog_resume(timeout_flag);
 
 	if (timeout_flag) {
 		register bool continue_flag = false;

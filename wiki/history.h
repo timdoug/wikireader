@@ -38,6 +38,7 @@ void history_clear(void);
 void history_add(long idx_article, const unsigned char *title, int b_keep_pos);
 unsigned int history_get_count();
 void history_list_init(void);
+int history_needs_save(void);
 int history_list_save(int level);
 
 void history_open_article(int new_selection);

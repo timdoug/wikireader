@@ -218,14 +218,11 @@ static unsigned long run_copy_batch8(unsigned char *d, const unsigned char *s,
 }
 
 /* The same two tests executed from internal RAM: what an instruction fetch
- * costs there.  The code is position independent (local labels, a
- * register argument in %r6, no calls) and placed in the application's A0
- * RAM area (.fastcode, see samo-lib/grifo/lds/application.lds); the
- * IVRAM and DSTRAM variants copy the same bytes into the LCD controller's
- * window buffer and the free part of the DMA descriptor RAM and run them
- * there.  The 256 register moves are 512 bytes, what A0 RAM has left
- * beside the decoder. */
-__asm__(".section .fastcode.pic,\"ax\"\n"
+ * costs there. The code is position independent (local labels, a register
+ * argument in %r6, no calls). Keep its source in SDRAM and copy it to each
+ * test region: the decoder now fills almost all of the application's A0
+ * RAM, so the startup-only test saves and restores the bytes it borrows. */
+__asm__(".section .text.bench_pic,\"ax\"\n"
 	".global bench_pic_start\n"
 	"bench_pic_start:\n"
 	".global bench_pic_cpu\n"
@@ -244,8 +241,7 @@ extern const unsigned char bench_pic_start[], bench_pic_cpu[],
 
 typedef void (*bench_pic_fn)(unsigned long count);
 
-/* Run one of the position-independent tests from `base`, which is either
- * their A0 RAM home or a copy of it. */
+/* Run one of the position-independent tests from a copied code block. */
 static unsigned long run_pic(const unsigned char *base, const unsigned char *which,
 			     unsigned long n)
 {
@@ -264,6 +260,7 @@ static const unsigned char *pic_copy(unsigned char *destination)
 }
 
 #define BENCH_DSTRAM_FREE ((unsigned char *)0x84400)   /* past the kernel's descriptors */
+#define BENCH_A0RAM ((unsigned char *)0xc00)          /* application .fastcode */
 
 static unsigned long run_card(zim_bench_read_fn read, void *opaque,
 			      uint64_t offset, unsigned char *buffer,
@@ -288,6 +285,7 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 	unsigned long ticks;
 	volatile unsigned int on_stack[2] = { 1, 2 };
 
+	bench_line("bench build: %s %s gcc %s", __DATE__, __TIME__, __VERSION__);
 	bench_line("bench start: sdram ctl 0x%08lx ref 0x%08lx app 0x%08lx, "
 		   "timer %u ticks/us",
 		   (unsigned long)REG_SDRAMC_CTL, (unsigned long)REG_SDRAMC_REF,
@@ -304,10 +302,19 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 
 	report("cpu-loop", 3000000, run_cpu(3000000));
 	report("fetch-1k", 512 * 256, run_fetch(256));
-	report("cpu-loop-a0", 3000000,
-	       run_pic(bench_pic_start, bench_pic_cpu, 3000000));
-	report("fetch-a0", 256 * 512,
-	       run_pic(bench_pic_start, bench_pic_fetch, 512));
+	/* No archive decoder runs during these CPU-only tests. Preserve its
+	 * A0 code in the allocated test buffer and restore it before card or
+	 * article work resumes. Kernel suspend code and scratch are outside
+	 * this 528-byte application region. */
+	memcpy(buffer, BENCH_A0RAM, (size_t)(bench_pic_end - bench_pic_start));
+	{
+		const unsigned char *a0ram = pic_copy(BENCH_A0RAM);
+		report("cpu-loop-a0", 3000000,
+		       run_pic(a0ram, bench_pic_cpu, 3000000));
+		report("fetch-a0", 256 * 512,
+		       run_pic(a0ram, bench_pic_fetch, 512));
+	}
+	memcpy(BENCH_A0RAM, buffer, (size_t)(bench_pic_end - bench_pic_start));
 	{
 		const unsigned char *ivram = pic_copy(lcd_window_get_buffer());
 		const unsigned char *dstram = pic_copy(BENCH_DSTRAM_FREE);

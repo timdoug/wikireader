@@ -103,6 +103,11 @@ bool port_cs_low(const struct port *p, unsigned bit)
 	return (p->reg[OFF_P5D] & (1u << bit)) == 0;
 }
 
+bool port_sd_powered(const struct port *p)
+{
+	return (p->reg[OFF_P3D] & (1u << 2)) == 0;
+}
+
 /*
  * Raise KINT0 if the buttons no longer match what the comparator was armed
  * with. grifo enables it with EK0 and re-arms from its handler by writing
@@ -177,22 +182,9 @@ void port_reset(struct port *p)
 	memset(p, 0, sizeof *p);
 	p->itc = keep;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
-	/*
-	 * All three have pull-ups per REG_MISC_PUP6, so the accurate reset
-	 * value is 0x38. But bit 4 is what grifo's Suspend() tests:
-	 *
-	 *     if (0 == (REG_P6_P6D & 0x10)) return;   // in CTP receive
-	 *
-	 * Driving it high makes Suspend actually suspend, which is both more
-	 * faithful and much faster -- it cut a boot from 8 billion
-	 * instructions to 300 million, because the idle loop stops spinning.
-	 * It also makes the machine unresponsive to touch, because the
-	 * suspend path is not fully modelled yet: it halts with interrupts
-	 * disabled and expects a 16-bit timer 2 underflow to wake it, and
-	 * while HALT and the timer are now modelled, packets still are not
-	 * delivered across a suspend/resume cycle. Until that works, an
-	 * emulator that responds to input beats one that idles efficiently.
-	 */
+	/* Pull-ups per REG_MISC_PUP6. In particular P64 is high while no CTP
+	 * receive sequence is in progress; leaving it low makes Suspend()
+	 * return immediately and turns the event wait into a busy loop. */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
 	/* Port input interrupts reset to rising-edge selection. */

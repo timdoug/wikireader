@@ -34,6 +34,7 @@
 #include "interrupt.h"
 #include "LCD.h"
 #include "memory.h"
+#include "power_log.h"
 #include "serial.h"
 #include "suspend.h"
 #include "watchdog.h"
@@ -87,6 +88,7 @@ void System_panic(const char *format, ...)
 
 void System_PowerOff(void)
 {
+	PowerLog_report();
 	(void)Interrupt_disable();         // interrupts off
 
 	for (;;) {

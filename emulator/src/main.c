@@ -225,6 +225,7 @@ int main(int argc, char **argv)
 	unsigned long long last_touch_post = 0;
 	unsigned long long next_gui_pump = 0;
 	unsigned long long idle_skipped = 0;
+	unsigned long long idle_sd_powered = 0;
 	/*
 	 * About 100 Hz while idle: fast enough that a click still feels
 	 * immediate, slow enough that repainting a screen nothing is drawing
@@ -983,6 +984,8 @@ int main(int argc, char **argv)
 					cpu.cycles += skip;
 					cpu.clk += skip;
 					idle_skipped += skip;
+					if (port_sd_powered(&port))
+						idle_sd_powered += skip;
 				}
 				/*
 				 * DMA descriptor writeback can move MCLK beyond the
@@ -1022,6 +1025,8 @@ int main(int argc, char **argv)
 				cpu.cycles += IDLE_WAIT_MS * (MCLK_HZ / 1000);
 				cpu.clk    += IDLE_WAIT_MS * (MCLK_HZ / 1000);
 				idle_skipped += IDLE_WAIT_MS * (MCLK_HZ / 1000);
+				if (port_sd_powered(&port))
+					idle_sd_powered += IDLE_WAIT_MS * (MCLK_HZ / 1000);
 				continue;
 			}
 			unsigned long long next = limit;
@@ -1097,6 +1102,8 @@ int main(int argc, char **argv)
 				cpu.cycles += skip;
 				cpu.clk += skip;
 				idle_skipped += skip;
+				if (port_sd_powered(&port))
+					idle_sd_powered += skip;
 				continue;
 			}
 		}
@@ -1169,6 +1176,11 @@ done:
 	printf("--- work: %llu instructions executed, %llu idle, %.1f ms guest ---\n",
 	       executed, (unsigned long long)idle_skipped,
 	       (double)cpu.clk / (MCLK_HZ / 1000.0));
+	/* Residency in skipped HALT intervals, not an electrical current model.
+	   Chip deselection and a stopped SPI clock do not remove the SD supply. */
+	printf("--- idle power: SD supply on %.1f ms, off %.1f ms ---\n",
+	       idle_sd_powered / (MCLK_HZ / 1000.0),
+	       (idle_skipped - idle_sd_powered) / (MCLK_HZ / 1000.0));
 	for (unsigned k = 0; k < nprobe; k++)
 	    {
 		printf("--- probe %-28s %8llu hits  first %10llu/%8.1fms  last %10llu/%8.1fms ---\n",

@@ -74,6 +74,13 @@ test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.
 	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
 	/tmp/test_sd
 
+.PHONY: test-mmc-power
+test-mmc-power:
+	$(CC) $(CFLAGS) -Itools/mmc_mock -I../samo-lib/drivers/include \
+		-I../samo-lib/fatfs/src -I../samo-lib/fatfs/config/c33/read-write \
+		-o /tmp/test_mmc_power tools/test_mmc_power.c
+	/tmp/test_mmc_power
+
 # Watchdog, and above all the clock gate that keeps it quiet in suspend.
 test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o $(SDL_LIBS)
@@ -142,7 +149,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-wdt test-dma test-gui-dma test-gui-boot
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-mmc-power test-wdt test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

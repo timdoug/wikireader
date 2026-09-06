@@ -1518,6 +1518,11 @@ int wikilib_run(void)
 		if (check_invert_link()) // check if need to invert link
 			sleep = 0;
 
+		/* Keep the established two-second idle debounce, including when
+		 * history is clean. Suspending between keystrokes also cycles the
+		 * card supply and changes the touch UART clock. The immediate-
+		 * suspend build lost input on hardware; retain the delay while
+		 * diagnosing that failure. */
 		if (sleep)
 		{
 			if (time_diff(timer_get(), last_event_time) > seconds_to_ticks(5))
