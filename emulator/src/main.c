@@ -573,6 +573,7 @@ int main(int argc, char **argv)
 	mem.pc_src = &cpu.cur_pc;
 	cpu.region_epoch = &mem.sdram_epoch;
 	cpu.row_counter = &sdramc.activations;
+	cpu.sp_low_dstram = ~0u;
 	cpu.irq_enabled = (bool (*)(void *, unsigned))itc_enabled;
 	cpu.irq_poll = (bool (*)(void *, unsigned *, unsigned *))itc_next_irq;
 	cpu.irq_ctx = &itc;
@@ -1173,6 +1174,9 @@ done:
 		       prof_win_label, prof_exec,
 		       prof_clk / (MCLK_HZ / 1000.0), prof_idle,
 		       prof_exec ? (double)(prof_clk - prof_idle) / (double)prof_exec : 0.0);
+	if (cpu.sp_low_dstram != ~0u)
+		printf("--- dstram stack: lowest sp 0x%08x, %u bytes of the 1 KB below 0x84800 used ---\n",
+		       cpu.sp_low_dstram, 0x84800u - cpu.sp_low_dstram);
 	printf("--- work: %llu instructions executed, %llu idle, %.1f ms guest ---\n",
 	       executed, (unsigned long long)idle_skipped,
 	       (double)cpu.clk / (MCLK_HZ / 1000.0));

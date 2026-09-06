@@ -158,6 +158,9 @@ struct c33 {
 	uint64_t      *pcfetch;
 	uint64_t      *pcrows;       /* SDRAM row activations per bucket */
 	const uint64_t *row_counter; /* the controller's activation count */
+	/* Lowest stack pointer seen inside DSTRAM (0x84000..0x84800), for the
+	   reader's private sequence-loop stack; ~0 if never there. */
+	uint32_t sp_low_dstram;
 };
 
 void     c33_reset(struct c33 *c, uint32_t entry);

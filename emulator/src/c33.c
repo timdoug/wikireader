@@ -851,6 +851,11 @@ void c33_step(struct c33 *c)
 
 	c->pc = at + 2;
 	c->cycles++;
+	{
+		uint32_t sp = c->sr[SR_SP];
+		if (sp - 0x84000u < 0x800u && sp < c->sp_low_dstram)
+			c->sp_low_dstram = sp;
+	}
 
 	int32_t a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0;
 	int32_t b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0;
