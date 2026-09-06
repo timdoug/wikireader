@@ -74,3 +74,46 @@ void *zim_alloc_bank_local(size_t size)
 		free(fillers[--filler_count]);
 	return memory;
 }
+
+#define SDRAM_START 0x10000000u
+
+static unsigned bank_of(const void *memory)
+{
+	return (unsigned)(((uintptr_t)memory - SDRAM_START) / bank_size());
+}
+
+/* Allocate a block inside the given SDRAM bank (0 to 3), by the same filler
+ * trick: the heap is steered up to the bank's start and the block must not
+ * cross its end.  The bank is a preference: if the heap has already grown
+ * past it, or it is full, the block comes from wherever there is room. */
+void *zim_alloc_in_bank(size_t size, unsigned bank)
+{
+	void *fillers[8];
+	unsigned filler_count = 0;
+	void *memory = malloc(size);
+
+	if (size >= bank_size())
+		return memory;
+	while (memory && bank_of(memory) < bank &&
+	       filler_count < sizeof(fillers) / sizeof(fillers[0])) {
+		uintptr_t start = SDRAM_START + (uintptr_t)bank * bank_size();
+		size_t filler = (size_t)(start - (uintptr_t)memory);
+
+		free(memory);
+		fillers[filler_count++] = malloc(filler);
+		memory = malloc(size);
+	}
+	while (memory && bank_of(memory) == bank &&
+	       !inside_one_bank(memory, size) &&
+	       filler_count < sizeof(fillers) / sizeof(fillers[0])) {
+		uintptr_t boundary = ((uintptr_t)memory + size) & ~(bank_size() - 1);
+		size_t filler = (size_t)(boundary - (uintptr_t)memory);
+
+		free(memory);
+		fillers[filler_count++] = malloc(filler);
+		memory = malloc(size);
+	}
+	while (filler_count)
+		free(fillers[--filler_count]);
+	return memory;
+}

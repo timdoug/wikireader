@@ -20,6 +20,8 @@
 #include "zim_archive.h"
 #include "zim_article.h"
 #include "zim_bench.h"
+
+void *zim_alloc_in_bank(size_t size, unsigned bank);
 #include "zim_blob.h"
 #include "zim_catalog.h"
 #include "zim_file.h"
@@ -1363,7 +1365,10 @@ int retrieve_article(long encoded_index)
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
 	if (!text_buffer)
-		text_buffer = memory_allocate(FILE_BUFFER_SIZE, "zim-text");
+		/* Not in the decoded cluster's SDRAM bank (zim_blob.c places it
+		 * in bank 2): the converter reads the cluster and writes here,
+		 * and the two must not alternate rows of one bank. */
+		text_buffer = zim_alloc_in_bank(FILE_BUFFER_SIZE, 1);
 	if (!raw_buffer || !text_buffer)
 		FAIL();
 	if (deferred_image_decoder) {
@@ -1425,6 +1430,18 @@ int retrieve_article(long encoded_index)
 	if (rc)
 		FAIL();
 	zim_bench_mark(ZIM_BENCH_MARK_HTML);
+#ifdef ZIM_TRACE_HASH
+	/* The converter's output too, so its changes can be checked the same
+	 * way as the decoder's. */
+	{
+		uint32_t hash = 2166136261u;
+		size_t k;
+		for (k = 0; k < text_size; k++)
+			hash = (hash ^ text_buffer[k]) * 16777619u;
+		debug_printf("text fnv %08lx size %lu\n", (unsigned long)hash,
+			     (unsigned long)text_size);
+	}
+#endif
 	draw_progress_bar(ARTICLE_PROGRESS_HTML_END, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
@@ -1441,6 +1458,17 @@ int retrieve_article(long encoded_index)
 		FAIL();
 	zim_bench_mark(ZIM_BENCH_MARK_WRAP);
 	zim_bench_article_sizes(raw_size, text_size, article_size);
+#ifdef ZIM_TRACE_HASH
+	/* And the wrapped article stream with its link table. */
+	{
+		uint32_t hash = 2166136261u;
+		size_t k;
+		for (k = 0; k < article_size; k++)
+			hash = (hash ^ file_buffer[k]) * 16777619u;
+		debug_printf("stream fnv %08lx size %lu\n", (unsigned long)hash,
+			     (unsigned long)article_size);
+	}
+#endif
 	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))

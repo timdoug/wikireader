@@ -10,8 +10,10 @@
 
 #if defined(__c33__)
 void *zim_alloc_bank_local(size_t size);
+void *zim_alloc_in_bank(size_t size, unsigned bank);
 #else
 #define zim_alloc_bank_local malloc
+#define zim_alloc_in_bank(size, bank) malloc(size)
 #endif
 
 #if defined(__c33__) && defined(ZIM_BENCH)
@@ -60,7 +62,15 @@ typedef struct {
 	size_t pos;
 } ZSTD_outBuffer;
 
+typedef struct {
+	void *(*customAlloc)(void *opaque, size_t size);
+	void (*customFree)(void *opaque, void *address);
+	void *opaque;
+} ZSTD_customMem;
 extern ZSTD_DStream *ZSTD_createDStream(void);
+extern ZSTD_DStream *ZSTD_createDStream_advanced(ZSTD_customMem memory);
+extern size_t ZSTD_DCtx_literalBufferSize(void);
+extern size_t ZSTD_DCtx_setLiteralBuffer(ZSTD_DStream *stream, void *buffer);
 extern size_t ZSTD_freeDStream(ZSTD_DStream *stream);
 extern size_t ZSTD_initDStream(ZSTD_DStream *stream);
 extern size_t ZSTD_decompressStream(ZSTD_DStream *stream,
@@ -229,6 +239,31 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
+/* SDRAM bank placement of the decoder's streams (the controller keeps one
+ * row open per bank, so streams that alternate should not share one): the
+ * cluster output and the literal scratch buffer in bank 2, the context
+ * with its entropy tables in bank 1, the compressed input wherever the
+ * heap has room (bank 0 or 1), the stack in bank 3.  On a 16 MB board the
+ * banks are 4 MB and bank 1 also holds the text buffers, which are idle
+ * while a cluster decodes; on a 32 MB board they are 8 MB and bank 1 is
+ * otherwise empty. */
+#define ZIM_OUTPUT_BANK 2
+#define ZIM_DECODER_BANK 1
+
+static void *decoder_alloc(void *opaque, size_t size)
+{
+	(void)opaque;
+	return zim_alloc_in_bank(size, ZIM_DECODER_BANK);
+}
+
+static void decoder_free(void *opaque, void *address)
+{
+	(void)opaque;
+	free(address);
+}
+
+static const ZSTD_customMem decoder_memory = { decoder_alloc, decoder_free, NULL };
+
 static void cluster_release(void)
 {
 	ZSTD_freeDStream(cluster.stream);
@@ -318,8 +353,7 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 
 	cluster_release();
 	cluster.input = malloc(ZIM_STREAM_BUFFER_SIZE);
-	cluster.stream = ZSTD_createDStream();
-	if (!cluster.input || !cluster.stream) {
+	if (!cluster.input) {
 		cluster_release();
 		return ZIM_ERR_IO;
 	}
@@ -346,12 +380,15 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 			return ZIM_ERR_RANGE;
 		}
 	}
-	/* Everything the decoder streams through, apart from this buffer, is
-	 * allocated earlier or lives on the stack, so keeping the output in one
-	 * bank leaves the others' open rows to the tables, literals, and
-	 * input; see zim_alloc_bank_local. */
-	cluster.output = zim_alloc_bank_local(capacity);
-	if (!cluster.output ||
+	/* The output with the literal scratch buffer after it, then the
+	 * context; see ZIM_OUTPUT_BANK. */
+	cluster.output = zim_alloc_in_bank(capacity +
+					   ZSTD_DCtx_literalBufferSize(),
+					   ZIM_OUTPUT_BANK);
+	cluster.stream = ZSTD_createDStream_advanced(decoder_memory);
+	if (!cluster.output || !cluster.stream ||
+	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,
+						    cluster.output + capacity)) ||
 	    ZSTD_isError(ZSTD_DCtx_setParameter(cluster.stream,
 						ZSTD_D_STABLE_OUT_BUFFER, 1)) ||
 	    ZSTD_isError(ZSTD_initDStream(cluster.stream))) {

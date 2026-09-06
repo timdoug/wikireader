@@ -38,15 +38,40 @@ static unsigned char ascii_lower(unsigned char c)
 	return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
 }
 
-static int name_equal(const unsigned char *name, size_t length,
-		      const char *literal)
+/* Case-insensitive equality with a literal made of letters, digits, '-' and
+ * ':' (every name the converter looks for).  Compared four bytes at a time
+ * as words built in registers against constants, so the literal is never
+ * read from .rodata: on the C33 each byte of the old loop changed SDRAM row
+ * three times, between the code, the literal and the page.  Setting bit 5
+ * lower-cases a letter and leaves the other bytes of those literals alone;
+ * `literal` must be a string constant so the words fold at compile time. */
+static inline __attribute__((always_inline)) int
+name_is(const unsigned char *name, size_t length, const char *literal,
+	size_t literal_length)
 {
 	size_t i;
-	for (i = 0; i < length && literal[i]; i++)
-		if (ascii_lower(name[i]) != (unsigned char)literal[i])
+
+	if (length != literal_length)
+		return 0;
+	for (i = 0; i + 4 <= literal_length; i += 4) {
+		unsigned int word = (unsigned int)name[i] |
+			(unsigned int)name[i + 1] << 8 |
+			(unsigned int)name[i + 2] << 16 |
+			(unsigned int)name[i + 3] << 24;
+		unsigned int key = (unsigned int)(unsigned char)literal[i] |
+			(unsigned int)(unsigned char)literal[i + 1] << 8 |
+			(unsigned int)(unsigned char)literal[i + 2] << 16 |
+			(unsigned int)(unsigned char)literal[i + 3] << 24;
+		if ((word | 0x20202020u) != key)
 			return 0;
-	return i == length && !literal[i];
+	}
+	for (; i < literal_length; i++)
+		if ((name[i] | 0x20u) != (unsigned char)literal[i])
+			return 0;
+	return 1;
 }
+#define NAME_IS(name, length, literal) \
+	name_is(name, length, literal, sizeof(literal) - 1)
 
 static void put_byte(TEXT_OUTPUT *out, unsigned char c)
 {
@@ -119,58 +144,14 @@ static void put_record_bytes(TEXT_OUTPUT *out, const unsigned char *bytes,
 	size_t available = out->used < out->capacity ?
 		out->capacity - out->used : 0;
 
-	if (count <= available)
-		memcpy(out->text + out->used, bytes, count);
-	out->used += count;
-}
+	if (count <= available) {
+		unsigned char *destination = out->text + out->used;
+		size_t k;
 
-static int attribute_value(const unsigned char *attributes, size_t length,
-			   const char *wanted,
-			   const unsigned char **value, size_t *value_length)
-{
-	size_t i = 0;
-
-	while (i < length) {
-		size_t name_start;
-		size_t name_end;
-		size_t start;
-		unsigned char quote = 0;
-
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		name_start = i;
-		while (i < length && !IS_SPACE(attributes[i]) &&
-		       attributes[i] != '=' && attributes[i] != '>') i++;
-		name_end = i;
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		if (i >= length || attributes[i] != '=') {
-			while (i < length && !IS_SPACE(attributes[i])) i++;
-			continue;
-		}
-		i++;
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
-			quote = attributes[i++];
-		start = i;
-		if (quote) {
-			const unsigned char *scan = attributes + i;
-			const unsigned char *limit = attributes + length;
-
-			while (scan < limit && *scan != quote)
-				scan++;
-			i = (size_t)(scan - attributes);
-		} else {
-			while (i < length && !IS_SPACE(attributes[i]) &&
-			       attributes[i] != '>') i++;
-		}
-		if (name_equal(attributes + name_start, name_end - name_start,
-			       wanted)) {
-			*value = attributes + start;
-			*value_length = i - start;
-			return 1;
-		}
-		if (quote && i < length) i++;
+		for (k = 0; k < count; k++)
+			destination[k] = bytes[k];
 	}
-	return 0;
+	out->used += count;
 }
 
 static unsigned int decimal_attribute(const unsigned char *value,
@@ -189,27 +170,53 @@ static unsigned int decimal_attribute(const unsigned char *value,
 	return result <= 65535 ? result : 0;
 }
 
-static HTML_RARE void put_image(TEXT_OUTPUT *out, const unsigned char *attributes,
-		      size_t length)
-{
+/* The attributes the converter reacts to, found in one pass over a tag
+ * rather than one scan per name: id for anchors, class and style for
+ * skipping, href for links, src and the dimensions for images.  A bit in
+ * `have` says which were seen; the first occurrence of each counts. */
+enum {
+	ATTR_ID = 1,
+	ATTR_CLASS = 2,
+	ATTR_STYLE = 4,
+	ATTR_HREF = 8,
+	ATTR_SRC = 16,
+	ATTR_WIDTH = 32,
+	ATTR_HEIGHT = 64
+};
+typedef struct {
+	unsigned int have;
+	const unsigned char *id;
+	size_t id_length;
+	const unsigned char *class_value;
+	size_t class_length;
+	const unsigned char *style;
+	size_t style_length;
+	const unsigned char *href;
+	size_t href_length;
 	const unsigned char *src;
-	const unsigned char *dimension;
 	size_t src_length;
-	size_t dimension_length;
+	const unsigned char *width;
+	size_t width_length;
+	const unsigned char *height;
+	size_t height_length;
+} TAG_ATTRIBUTES;
+
+static HTML_RARE void put_image(TEXT_OUTPUT *out, const TAG_ATTRIBUTES *found)
+{
+	const unsigned char *src = found->src;
+	size_t src_length = found->src_length;
 	unsigned int width = 0;
 	unsigned int height = 0;
 	unsigned char record[7];
 
-	if (!attribute_value(attributes, length, "src", &src, &src_length) ||
+	if (!(found->have & ATTR_SRC) ||
 	    !src_length || src_length > 65535 ||
-	    (src_length >= 5 && !memcmp(src, "data:", 5)))
+	    (src_length >= 5 && NAME_IS(src, 5, "data:")))
 		return;
-	if (attribute_value(attributes, length, "width", &dimension,
-			    &dimension_length))
-		width = decimal_attribute(dimension, dimension_length);
-	if (attribute_value(attributes, length, "height", &dimension,
-			    &dimension_length))
-		height = decimal_attribute(dimension, dimension_length);
+	if (found->have & ATTR_WIDTH)
+		width = decimal_attribute(found->width, found->width_length);
+	if (found->have & ATTR_HEIGHT)
+		height = decimal_attribute(found->height, found->height_length);
 
 	put_newline(out, 0);
 	record[0] = ZIM_TEXT_IMAGE_MARKER;
@@ -239,14 +246,13 @@ static int internal_href(const unsigned char *href, size_t length)
 	return 1;
 }
 
-static HTML_RARE int put_link_start(TEXT_OUTPUT *out, const unsigned char *attributes,
-			  size_t length)
+static HTML_RARE int put_link_start(TEXT_OUTPUT *out, const TAG_ATTRIBUTES *found)
 {
-	const unsigned char *href;
-	size_t href_length;
+	const unsigned char *href = found->href;
+	size_t href_length = found->href_length;
 	unsigned char record[3];
 
-	if (!attribute_value(attributes, length, "href", &href, &href_length) ||
+	if (!(found->have & ATTR_HREF) ||
 	    href_length > 65535 || !internal_href(href, href_length))
 		return 0;
 	record[0] = ZIM_TEXT_LINK_START_MARKER;
@@ -257,23 +263,12 @@ static HTML_RARE int put_link_start(TEXT_OUTPUT *out, const unsigned char *attri
 	return 1;
 }
 
-/* The attributes every element is checked for, found in one pass rather
- * than one scan per name: id for anchors, class and style for skipping. */
-typedef struct {
-	const unsigned char *id;
-	size_t id_length;
-	const unsigned char *class_value;
-	size_t class_length;
-	const unsigned char *style;
-	size_t style_length;
-} TAG_ATTRIBUTES;
-
 static void scan_tag_attributes(const unsigned char *attributes, size_t length,
 				TAG_ATTRIBUTES *found)
 {
 	size_t i = 0;
 
-	memset(found, 0, sizeof(*found));
+	found->have = 0;
 	while (i < length) {
 		size_t name_start;
 		size_t name_end;
@@ -307,27 +302,36 @@ static void scan_tag_attributes(const unsigned char *attributes, size_t length,
 			while (i < length && !IS_SPACE(attributes[i]) &&
 			       attributes[i] != '>') i++;
 		}
+#define TAKE_ATTRIBUTE(bit, literal, field, field_length) \
+		if (!(found->have & (bit)) && \
+		    NAME_IS(attributes + name_start, name_end - name_start, \
+			    literal)) { \
+			found->have |= (bit); \
+			found->field = attributes + start; \
+			found->field_length = i - start; \
+		}
 		switch (name_end - name_start) {
 		case 2:
-			if (!found->id && name_equal(attributes + name_start, 2, "id")) {
-				found->id = attributes + start;
-				found->id_length = i - start;
-			}
+			TAKE_ATTRIBUTE(ATTR_ID, "id", id, id_length)
+			break;
+		case 3:
+			TAKE_ATTRIBUTE(ATTR_SRC, "src", src, src_length)
+			break;
+		case 4:
+			TAKE_ATTRIBUTE(ATTR_HREF, "href", href, href_length)
 			break;
 		case 5:
-			if (!found->class_value &&
-			    name_equal(attributes + name_start, 5, "class")) {
-				found->class_value = attributes + start;
-				found->class_length = i - start;
-			} else if (!found->style &&
-				   name_equal(attributes + name_start, 5, "style")) {
-				found->style = attributes + start;
-				found->style_length = i - start;
-			}
+			TAKE_ATTRIBUTE(ATTR_CLASS, "class", class_value, class_length)
+			else TAKE_ATTRIBUTE(ATTR_STYLE, "style", style, style_length)
+			else TAKE_ATTRIBUTE(ATTR_WIDTH, "width", width, width_length)
+			break;
+		case 6:
+			TAKE_ATTRIBUTE(ATTR_HEIGHT, "height", height, height_length)
 			break;
 		default:
 			break;
 		}
+#undef TAKE_ATTRIBUTE
 		if (quote && i < length) i++;
 	}
 }
@@ -367,23 +371,23 @@ static HTML_RARE int class_word_skipped(const unsigned char *word, size_t length
 	 * nothing at all, and the rest against one or two candidates. */
 	switch (ascii_lower(word[0])) {
 	case 'n':
-		return name_equal(word, length, "navbox") ||
-			name_equal(word, length, "navbox-styles") ||
-			name_equal(word, length, "noprint");
+		return NAME_IS(word, length, "navbox") ||
+			NAME_IS(word, length, "navbox-styles") ||
+			NAME_IS(word, length, "noprint");
 	case 'v':
-		return name_equal(word, length, "vertical-navbox");
+		return NAME_IS(word, length, "vertical-navbox");
 	case 'm':
-		return name_equal(word, length, "mw-editsection") ||
-			name_equal(word, length, "mw-jump-link") ||
-			name_equal(word, length, "mw-hidden-catlinks") ||
-			name_equal(word, length, "mw-indicators") ||
-			name_equal(word, length, "mw-empty-elt");
+		return NAME_IS(word, length, "mw-editsection") ||
+			NAME_IS(word, length, "mw-jump-link") ||
+			NAME_IS(word, length, "mw-hidden-catlinks") ||
+			NAME_IS(word, length, "mw-indicators") ||
+			NAME_IS(word, length, "mw-empty-elt");
 	case 'p':
-		return name_equal(word, length, "printfooter");
+		return NAME_IS(word, length, "printfooter");
 	case 'c':
-		return name_equal(word, length, "catlinks");
+		return NAME_IS(word, length, "catlinks");
 	case 's':
-		return name_equal(word, length, "sistersitebox");
+		return NAME_IS(word, length, "sistersitebox");
 	default:
 		return 0;
 	}
@@ -395,7 +399,7 @@ static int element_skipped(const TAG_ATTRIBUTES *found)
 	size_t value_length;
 	size_t i;
 
-	if (found->class_value) {
+	if (found->have & ATTR_CLASS) {
 		size_t start = 0;
 
 		value = found->class_value;
@@ -409,18 +413,18 @@ static int element_skipped(const TAG_ATTRIBUTES *found)
 			}
 		}
 	}
-	if (found->style) {
+	if (found->have & ATTR_STYLE) {
 		/* "display:none", with optional space after the colon */
 		value = found->style;
 		value_length = found->style_length;
 		for (i = 0; i + 12 <= value_length; i++) {
-			if (name_equal(value + i, 8, "display:")) {
+			if (NAME_IS(value + i, 8, "display:")) {
 				size_t j = i + 8;
 
 				while (j < value_length && ascii_space(value[j]))
 					j++;
 				if (j + 4 <= value_length &&
-				    name_equal(value + j, 4, "none"))
+				    NAME_IS(value + j, 4, "none"))
 					return 1;
 			}
 		}
@@ -433,18 +437,18 @@ static HTML_RARE int void_element(const unsigned char *name, size_t length)
 {
 	switch (length) {
 	case 2:
-		return name_equal(name, 2, "br") || name_equal(name, 2, "hr");
+		return NAME_IS(name, 2, "br") || NAME_IS(name, 2, "hr");
 	case 3:
-		return name_equal(name, 3, "img") || name_equal(name, 3, "wbr") ||
-			name_equal(name, 3, "col");
+		return NAME_IS(name, 3, "img") || NAME_IS(name, 3, "wbr") ||
+			NAME_IS(name, 3, "col");
 	case 4:
-		return name_equal(name, 4, "meta") || name_equal(name, 4, "link") ||
-			name_equal(name, 4, "area") || name_equal(name, 4, "base");
+		return NAME_IS(name, 4, "meta") || NAME_IS(name, 4, "link") ||
+			NAME_IS(name, 4, "area") || NAME_IS(name, 4, "base");
 	case 5:
-		return name_equal(name, 5, "input") || name_equal(name, 5, "embed") ||
-			name_equal(name, 5, "param") || name_equal(name, 5, "track");
+		return NAME_IS(name, 5, "input") || NAME_IS(name, 5, "embed") ||
+			NAME_IS(name, 5, "param") || NAME_IS(name, 5, "track");
 	case 6:
-		return name_equal(name, 6, "source");
+		return NAME_IS(name, 6, "source");
 	default:
 		return 0;
 	}
@@ -509,16 +513,16 @@ static HTML_RARE size_t decode_entity(const unsigned char *input, size_t length,
 		}
 		return encode_utf8(value, bytes);
 	}
-	if (name_equal(input, length, "amp")) bytes[0] = '&';
-	else if (name_equal(input, length, "lt")) bytes[0] = '<';
-	else if (name_equal(input, length, "gt")) bytes[0] = '>';
-	else if (name_equal(input, length, "quot")) bytes[0] = '"';
-	else if (name_equal(input, length, "apos")) bytes[0] = '\'';
-	else if (name_equal(input, length, "nbsp")) bytes[0] = ' ';
-	else if (name_equal(input, length, "ndash")) return encode_utf8(0x2013, bytes);
-	else if (name_equal(input, length, "mdash")) return encode_utf8(0x2014, bytes);
-	else if (name_equal(input, length, "hellip")) return encode_utf8(0x2026, bytes);
-	else if (name_equal(input, length, "middot")) return encode_utf8(0x00b7, bytes);
+	if (NAME_IS(input, length, "amp")) bytes[0] = '&';
+	else if (NAME_IS(input, length, "lt")) bytes[0] = '<';
+	else if (NAME_IS(input, length, "gt")) bytes[0] = '>';
+	else if (NAME_IS(input, length, "quot")) bytes[0] = '"';
+	else if (NAME_IS(input, length, "apos")) bytes[0] = '\'';
+	else if (NAME_IS(input, length, "nbsp")) bytes[0] = ' ';
+	else if (NAME_IS(input, length, "ndash")) return encode_utf8(0x2013, bytes);
+	else if (NAME_IS(input, length, "mdash")) return encode_utf8(0x2014, bytes);
+	else if (NAME_IS(input, length, "hellip")) return encode_utf8(0x2026, bytes);
+	else if (NAME_IS(input, length, "middot")) return encode_utf8(0x00b7, bytes);
 	else return 0;
 	return 1;
 }
@@ -573,25 +577,25 @@ static enum html_tag classify_tag(const unsigned char *name, size_t length)
 			return TAG_OTHER;
 		}
 	case 3:
-		if (first == 'i' && name_equal(name, length, "img")) return TAG_IMG;
-		if (first == 'd' && name_equal(name, length, "div")) return TAG_BLOCK;
+		if (first == 'i' && NAME_IS(name, length, "img")) return TAG_IMG;
+		if (first == 'd' && NAME_IS(name, length, "div")) return TAG_BLOCK;
 		return TAG_OTHER;
 	case 4:
-		if (first == 'b' && name_equal(name, length, "body")) return TAG_BODY;
-		if (first == 'm' && name_equal(name, length, "main")) return TAG_MAIN;
+		if (first == 'b' && NAME_IS(name, length, "body")) return TAG_BODY;
+		if (first == 'm' && NAME_IS(name, length, "main")) return TAG_MAIN;
 		return TAG_OTHER;
 	case 5:
-		if (name_equal(name, length, "style")) return TAG_STYLE;
-		if (name_equal(name, length, "table")) return TAG_BLOCK;
+		if (NAME_IS(name, length, "style")) return TAG_STYLE;
+		if (NAME_IS(name, length, "table")) return TAG_BLOCK;
 		return TAG_OTHER;
 	case 6:
-		if (name_equal(name, length, "script")) return TAG_SCRIPT;
+		if (NAME_IS(name, length, "script")) return TAG_SCRIPT;
 		return TAG_OTHER;
 	case 7:
-		if (name_equal(name, length, "section")) return TAG_BLOCK;
+		if (NAME_IS(name, length, "section")) return TAG_BLOCK;
 		return TAG_OTHER;
 	case 10:
-		if (name_equal(name, length, "blockquote")) return TAG_BLOCK;
+		if (NAME_IS(name, length, "blockquote")) return TAG_BLOCK;
 		return TAG_OTHER;
 	default:
 		return TAG_OTHER;
@@ -640,8 +644,12 @@ html_to_text(const unsigned char *html, size_t html_size,
 			size_t attributes_end;
 			enum html_tag tag;
 			int closing = 0;
+			TAG_ATTRIBUTES found;
 
-			if (i + 3 < html_size && !memcmp(html + i, "<!--", 4)) {
+			found.have = 0;
+
+			if (i + 3 < html_size && html[i + 1] == '!' &&
+			    html[i + 2] == '-' && html[i + 3] == '-') {
 				size_t end = i + 4;
 				while (end + 2 < html_size &&
 				       !(html[end] == '-' && html[end + 1] == '-' &&
@@ -718,8 +726,6 @@ html_to_text(const unsigned char *html, size_t html_size,
 				continue;
 			}
 			if (!closing && attributes_end > attributes_start) {
-				TAG_ATTRIBUTES found;
-
 				scan_tag_attributes(html + attributes_start,
 						    attributes_end - attributes_start,
 						    &found);
@@ -733,7 +739,7 @@ html_to_text(const unsigned char *html, size_t html_size,
 						skip_depth = 1;
 					continue;
 				}
-				if (include_links && found.id)
+				if (include_links && (found.have & ATTR_ID))
 					put_anchor(&out, found.id, found.id_length);
 			}
 			switch (tag) {
@@ -751,15 +757,12 @@ html_to_text(const unsigned char *html, size_t html_size,
 						unsigned char marker = ZIM_TEXT_LINK_END_MARKER;
 						put_record_bytes(&out, &marker, 1);
 					}
-					in_link = put_link_start(&out,
-						html + attributes_start,
-						attributes_end - attributes_start);
+					in_link = put_link_start(&out, &found);
 				}
 				break;
 			case TAG_IMG:
 				if (include_images && !closing)
-					put_image(&out, html + attributes_start,
-						  attributes_end - attributes_start);
+					put_image(&out, &found);
 				break;
 			case TAG_LI:
 				if (!closing) {

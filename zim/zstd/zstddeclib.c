@@ -53,6 +53,23 @@
  * builder go, and the file is compiled with long calls so they can reach
  * the rest. */
 #define ZSTD_FASTCODE __attribute__((section(".fastcode")))
+/* Zero-initialised data in the same A0 RAM area (.fastbss in the linker
+ * script): the sequence decoder's state, which it reads and writes a few
+ * dozen times per sequence. */
+#define ZSTD_FASTBSS __attribute__((section(".fastbss")))
+/* An FSE table entry (ZSTD_seqSymbol: U16 nextState, BYTE nbAdditionalBits,
+ * BYTE nbBits, U32 baseValue) as two little-endian words, loaded back to
+ * back so the entry's SDRAM row is visited once.  The post-increment load
+ * keeps the pair adjacent whatever the compiler schedules around it. */
+#define ZSTD_C33_LOAD_ENTRY(entry, w0, w1) do { \
+        const U32* ZSTD_c33_p = (const U32*)(entry); \
+        __asm__("ld.w\t%0,[%2]+\n\tld.w\t%1,[%2]" \
+                : "=r"(w0), "=r"(w1), "+r"(ZSTD_c33_p)); \
+    } while (0)
+#define ZSTD_C33_ENTRY_nextState(w0)        ((U16)((w0) & 0xffffu))
+#define ZSTD_C33_ENTRY_nbAdditionalBits(w0) ((BYTE)(((w0) >> 16) & 0xffu))
+#define ZSTD_C33_ENTRY_nbBits(w0)           ((w0) >> 24)
+#define ZSTD_C33_ENTRY_baseValue(w0, w1)    (w1)
 #else
 #define ZSTD_FASTCODE
 #endif
@@ -15014,11 +15031,40 @@ static void ZSTD_copy16(void* dst, const void* src) {
         :                                                                     \
         : "memory")
 
+/* Sixteen bytes per batch from a source that is not word-aligned with the
+ * destination: four word loads from the aligned source, then each output
+ * word is assembled from two neighbours with a pair of shifts (little
+ * endian: the lower address is the low byte).  `prev` holds the aligned
+ * word containing the first source byte and `sh`/`sh2` the shift amounts;
+ * the loads and stores are still batched so the two rows are each visited
+ * once per batch. */
+#define ZSTD_C33_BATCH_UNALIGNED()                                            \
+    __asm__ volatile (                                                        \
+        "1:\n\t"                                                              \
+        "ld.w\t%4, [%1]+\n\t" "ld.w\t%5, [%1]+\n\t"                           \
+        "ld.w\t%6, [%1]+\n\t" "ld.w\t%7, [%1]+\n\t"                           \
+        "srl\t%3, %9\n\t" "ld.w\t%8, %4\n\t" "sll\t%8, %10\n\t" "or\t%3, %8\n\t" \
+        "srl\t%4, %9\n\t" "ld.w\t%8, %5\n\t" "sll\t%8, %10\n\t" "or\t%4, %8\n\t" \
+        "srl\t%5, %9\n\t" "ld.w\t%8, %6\n\t" "sll\t%8, %10\n\t" "or\t%5, %8\n\t" \
+        "srl\t%6, %9\n\t" "ld.w\t%8, %7\n\t" "sll\t%8, %10\n\t" "or\t%6, %8\n\t" \
+        "ld.w\t[%0]+, %3\n\t" "ld.w\t[%0]+, %4\n\t"                           \
+        "ld.w\t[%0]+, %5\n\t"                                                \
+        "sub\t%2, 16\n\t"                                                    \
+        "ld.w\t[%0]+, %6\n\t"                                                \
+        "ld.w\t%3, %7\n\t"                                                   \
+        "jrgt\t1b"                                                           \
+        : "+r"(dst), "+r"(src), "+r"(remaining), "+r"(prev),                  \
+          "=&r"(t0), "=&r"(t1), "=&r"(t2), "=&r"(t3), "=&r"(t4)               \
+        : "r"(sh), "r"(sh2)                                                   \
+        : "memory")
+
 /* Copy `length` bytes in batches.  Most copies are a few bytes, so up to
  * eight bytes is a single byte batch; longer copies use the widest batch the
- * alignment of source and destination allows, up to `width` bytes (1, 2, or
- * 4), and bring a misaligned destination up to the boundary with one byte
- * batch first.  The over-copy is bounded by the batch size. */
+ * alignment of source and destination allows, up to `width` bytes (1, 2, 3
+ * or 4: 3 allows the realigned word batch but not the aligned one, whose
+ * batch is twice as long), and bring a misaligned destination up to the
+ * boundary with one byte batch first.  The over-copy is bounded by the
+ * batch size. */
 FORCE_INLINE_TEMPLATE void
 ZSTD_copyBatchesC33(BYTE* dst, const BYTE* src, size_t length, unsigned width)
 {
@@ -15042,6 +15088,25 @@ ZSTD_copyBatchesC33(BYTE* dst, const BYTE* src, size_t length, unsigned width)
         }
         remaining = (ptrdiff_t)length;
         ZSTD_C33_BATCH("ld.w", "ld.w", 32);
+        return;
+    }
+    if (width >= 3 && length > 8 && (delta & 3) != 0) {
+        size_t misalign = (size_t)dst & 3;
+        unsigned int prev, sh, sh2;
+        if (misalign) {
+            size_t lead = 4 - misalign;
+            remaining = 1;
+            ZSTD_C33_BATCH("ld.ub", "ld.b", 8);
+            dst += lead - 8; src += lead - 8;
+            length -= lead;
+        }
+        sh = ((unsigned int)(size_t)src & 3) * 8;
+        sh2 = 32 - sh;
+        src = (const BYTE*)((size_t)src & ~(size_t)3);
+        prev = *(const unsigned int*)src;
+        src += 4;
+        remaining = (ptrdiff_t)length;
+        ZSTD_C33_BATCH_UNALIGNED();
         return;
     }
     if (width >= 2 && (delta & 1) == 0) {
@@ -15111,7 +15176,10 @@ ZSTD_copyMatchC33(BYTE* dst, const BYTE* src, size_t length)
         src = dst - period;
         offset = period;
     }
-    ZSTD_copyBatchesC33(dst, src, length, offset >= 32 ? 4 : offset >= 16 ? 2 : 1);
+    /* The realigned word batch reads up to 19 bytes past its first source
+     * byte before storing, so it needs an offset of at least 20. */
+    ZSTD_copyBatchesC33(dst, src, length,
+                        offset >= 32 ? 4 : offset >= 20 ? 3 : offset >= 16 ? 2 : 1);
 }
 #endif
 
@@ -17499,6 +17567,7 @@ struct ZSTD_DCtx_s
     const BYTE* litBufferEnd;
     ZSTD_litLocation_e litBufferLocation;
     BYTE litExtraBuffer[ZSTD_LITBUFFEREXTRASIZE + WILDCOPY_OVERLENGTH]; /* literal buffer can be split between storage within dst and within this scratch buffer */
+    BYTE* litExtraPtr;   /* the scratch buffer in use: litExtraBuffer, or one the caller placed (ZSTD_DCtx_setLiteralBuffer) */
     BYTE headerBuffer[ZSTD_FRAMEHEADERSIZE_MAX];
 
     size_t oversizedDuration;
@@ -18138,6 +18207,7 @@ static void ZSTD_DCtx_resetParameters(ZSTD_DCtx* dctx)
 static void ZSTD_initDCtx_internal(ZSTD_DCtx* dctx)
 {
     dctx->staticSize  = 0;
+    dctx->litExtraPtr = dctx->litExtraBuffer;
     dctx->ddict       = NULL;
     dctx->ddictLocal  = NULL;
     dctx->dictEnd     = NULL;
@@ -19789,6 +19859,21 @@ size_t ZSTD_DCtx_getParameter(ZSTD_DCtx* dctx, ZSTD_dParameter param, int* value
     RETURN_ERROR(parameter_unsupported, "");
 }
 
+/* WikiReader: let the caller place the literal scratch buffer, so it can sit
+ * in the SDRAM bank of its choosing (see zim_blob.c).  The buffer must hold
+ * ZSTD_DCtx_literalBufferSize() bytes and outlive the context's use. */
+size_t ZSTD_DCtx_literalBufferSize(void)
+{
+    return ZSTD_LITBUFFEREXTRASIZE + WILDCOPY_OVERLENGTH;
+}
+
+size_t ZSTD_DCtx_setLiteralBuffer(ZSTD_DCtx* dctx, void* buffer)
+{
+    RETURN_ERROR_IF(dctx->streamStage != zdss_init, stage_wrong, "");
+    dctx->litExtraPtr = buffer ? (BYTE*)buffer : dctx->litExtraBuffer;
+    return 0;
+}
+
 size_t ZSTD_DCtx_setParameter(ZSTD_DCtx* dctx, ZSTD_dParameter dParam, int value)
 {
     RETURN_ERROR_IF(dctx->streamStage != zdss_init, stage_wrong, "");
@@ -20401,7 +20486,7 @@ static void ZSTD_allocateLiteralsBuffer(ZSTD_DCtx* dctx, void* const dst, const 
      * buffer would sit in another row of the output's bank, and every
      * literal copy would then open two rows. */
     if (litSize <= ZSTD_LITBUFFEREXTRASIZE) {
-        dctx->litBuffer = dctx->litExtraBuffer;
+        dctx->litBuffer = dctx->litExtraPtr;
         dctx->litBufferEnd = dctx->litBuffer + litSize;
         dctx->litBufferLocation = ZSTD_not_in_dst;
     } else
@@ -20419,7 +20504,7 @@ static void ZSTD_allocateLiteralsBuffer(ZSTD_DCtx* dctx, void* const dst, const 
         /* Literals fit entirely within the extra buffer, put them there to avoid
          * having to split the literals.
          */
-        dctx->litBuffer = dctx->litExtraBuffer;
+        dctx->litBuffer = dctx->litExtraPtr;
         dctx->litBufferEnd = dctx->litBuffer + litSize;
         dctx->litBufferLocation = ZSTD_not_in_dst;
     } else {
@@ -20449,7 +20534,7 @@ static void ZSTD_allocateLiteralsBuffer(ZSTD_DCtx* dctx, void* const dst, const 
  * Where it is possible to do so without being stomped by the output during decompression, the literals block will be stored
  * in the dstBuffer.  If there is room to do so, it will be stored in full in the excess dst space after where the current
  * block will be output.  Otherwise it will be stored at the end of the current dst blockspace, with a small portion being
- * stored in dctx->litExtraBuffer to help keep it "ahead" of the current output write.
+ * stored in dctx->litExtraPtr to help keep it "ahead" of the current output write.
  *
  * @return : nb of bytes read from src (< srcSize )
  *  note : symbol not declared but exposed for fullbench */
@@ -20553,7 +20638,7 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                 if (dctx->litBufferLocation == ZSTD_split)
                 {
                     assert(litSize > ZSTD_LITBUFFEREXTRASIZE);
-                    ZSTD_memcpy(dctx->litExtraBuffer, dctx->litBufferEnd - ZSTD_LITBUFFEREXTRASIZE, ZSTD_LITBUFFEREXTRASIZE);
+                    ZSTD_memcpy(dctx->litExtraPtr, dctx->litBufferEnd - ZSTD_LITBUFFEREXTRASIZE, ZSTD_LITBUFFEREXTRASIZE);
                     ZSTD_memmove(dctx->litBuffer + ZSTD_LITBUFFEREXTRASIZE - WILDCOPY_OVERLENGTH, dctx->litBuffer, litSize - ZSTD_LITBUFFEREXTRASIZE);
                     dctx->litBuffer += ZSTD_LITBUFFEREXTRASIZE - WILDCOPY_OVERLENGTH;
                     dctx->litBufferEnd -= WILDCOPY_OVERLENGTH;
@@ -20599,7 +20684,7 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                     if (dctx->litBufferLocation == ZSTD_split)
                     {
                         ZSTD_memcpy(dctx->litBuffer, istart + lhSize, litSize - ZSTD_LITBUFFEREXTRASIZE);
-                        ZSTD_memcpy(dctx->litExtraBuffer, istart + lhSize + litSize - ZSTD_LITBUFFEREXTRASIZE, ZSTD_LITBUFFEREXTRASIZE);
+                        ZSTD_memcpy(dctx->litExtraPtr, istart + lhSize + litSize - ZSTD_LITBUFFEREXTRASIZE, ZSTD_LITBUFFEREXTRASIZE);
                     }
                     else
                     {
@@ -20645,7 +20730,7 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                 if (dctx->litBufferLocation == ZSTD_split)
                 {
                     ZSTD_memset(dctx->litBuffer, istart[lhSize], litSize - ZSTD_LITBUFFEREXTRASIZE);
-                    ZSTD_memset(dctx->litExtraBuffer, istart[lhSize], ZSTD_LITBUFFEREXTRASIZE);
+                    ZSTD_memset(dctx->litExtraPtr, istart[lhSize], ZSTD_LITBUFFEREXTRASIZE);
                 }
                 else
                 {
@@ -20816,6 +20901,24 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
     U16* symbolNext = (U16*)wksp;
     BYTE* spread = (BYTE*)(symbolNext + MaxSeq + 1);
     U32 highThreshold = tableSize - 1;
+#if defined(__c33__)
+    /* The table being built, the workspace, and the two per-symbol tables
+     * in .rodata are all in the SDRAM bank that holds the code and heap,
+     * each in its own row, so the two loops below changed row three or
+     * four times per entry.  Copies on the stack are in another bank, whose
+     * row stays open, so only the table's own rows are visited. */
+    U32 baseLocal[MaxSeq + 1];
+    U8 bitsLocal[MaxSeq + 1];
+    U16 symbolNextLocal[MaxSeq + 1];
+    BYTE spreadLocal[512 + 8];
+    (void)wksp;
+    ZSTD_memcpy(baseLocal, baseValue, maxSV1 * sizeof(U32));
+    ZSTD_memcpy(bitsLocal, nbAdditionalBits, maxSV1);
+    baseValue = baseLocal;
+    nbAdditionalBits = bitsLocal;
+    symbolNext = symbolNextLocal;
+    spread = spreadLocal;
+#endif
 
 
     /* Sanity Checks */
@@ -20962,6 +21065,25 @@ void ZSTD_buildFSETable(ZSTD_seqSymbol* dt,
             baseValue, nbAdditionalBits, tableLog, wksp, wkspSize);
 }
 
+
+#if defined(ZIM_TRACE_HASH)
+/* Where the decoder's streams live, for the emulator's SDRAM row histogram
+ * (WREMU_ROWHIST); printed for the first block only.  Out of line so the
+ * A0 RAM area is not charged for it. */
+static __attribute__((noinline)) void
+ZSTD_c33_traceMap(const ZSTD_DCtx* dctx, const void* lit, const void* ip,
+                  const void* op, const void* frame)
+{
+    static int printed;
+    extern int debug_printf(const char* fmt, ...);
+    if (printed)
+        return;
+    printed = 1;
+    debug_printf("zstd map: dctx %p LL %p OF %p ML %p lit %p ip %p op %p sp %p\n",
+                 (const void*)dctx, (const void*)dctx->LLTptr, (const void*)dctx->OFTptr,
+                 (const void*)dctx->MLTptr, lit, ip, op, frame);
+}
+#endif
 
 /*! ZSTD_buildSeqTable() :
  * @return : nb bytes read from src,
@@ -21602,11 +21724,38 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
     ZSTD_memcpy(llDInfo, seqState->stateLL.table + seqState->stateLL.state, sizeof(ZSTD_seqSymbol));
     ZSTD_memcpy(mlDInfo, seqState->stateML.table + seqState->stateML.state, sizeof(ZSTD_seqSymbol));
     ZSTD_memcpy(ofDInfo, seqState->stateOffb.table + seqState->stateOffb.state, sizeof(ZSTD_seqSymbol));
+#elif defined(__c33__)
+    /* The three tables are 10 KB in all, so their entries sit in different
+     * SDRAM rows of one bank, and the field-by-field reads the generic code
+     * makes below visit the rows in an interleaved order: nine row changes
+     * per sequence, more than the copies cost.  Each 8-byte entry is read
+     * here as two adjacent word loads instead, one visit to its row, and
+     * the fields come out of the words by shifts. */
+    U32 llW0, llW1, mlW0, mlW1, ofW0, ofW1;
+    ZSTD_C33_LOAD_ENTRY(seqState->stateLL.table + seqState->stateLL.state, llW0, llW1);
+    ZSTD_C33_LOAD_ENTRY(seqState->stateML.table + seqState->stateML.state, mlW0, mlW1);
+    ZSTD_C33_LOAD_ENTRY(seqState->stateOffb.table + seqState->stateOffb.state, ofW0, ofW1);
 #else
     const ZSTD_seqSymbol* const llDInfo = seqState->stateLL.table + seqState->stateLL.state;
     const ZSTD_seqSymbol* const mlDInfo = seqState->stateML.table + seqState->stateML.state;
     const ZSTD_seqSymbol* const ofDInfo = seqState->stateOffb.table + seqState->stateOffb.state;
 #endif
+#if defined(__c33__)
+    seq.matchLength = ZSTD_C33_ENTRY_baseValue(mlW0, mlW1);
+    seq.litLength = ZSTD_C33_ENTRY_baseValue(llW0, llW1);
+    {   U32 const ofBase = ZSTD_C33_ENTRY_baseValue(ofW0, ofW1);
+        BYTE const llBits = ZSTD_C33_ENTRY_nbAdditionalBits(llW0);
+        BYTE const mlBits = ZSTD_C33_ENTRY_nbAdditionalBits(mlW0);
+        BYTE const ofBits = ZSTD_C33_ENTRY_nbAdditionalBits(ofW0);
+        U32 const llBase = seq.litLength;   /* for the repeat-offset rule */
+
+        U16 const llNext = ZSTD_C33_ENTRY_nextState(llW0);
+        U16 const mlNext = ZSTD_C33_ENTRY_nextState(mlW0);
+        U16 const ofNext = ZSTD_C33_ENTRY_nextState(ofW0);
+        U32 const llnbBits = ZSTD_C33_ENTRY_nbBits(llW0);
+        U32 const mlnbBits = ZSTD_C33_ENTRY_nbBits(mlW0);
+        U32 const ofnbBits = ZSTD_C33_ENTRY_nbBits(ofW0);
+#else
     seq.matchLength = mlDInfo->baseValue;
     seq.litLength = llDInfo->baseValue;
     {   U32 const ofBase = ofDInfo->baseValue;
@@ -21614,9 +21763,6 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
         BYTE const mlBits = mlDInfo->nbAdditionalBits;
         BYTE const ofBits = ofDInfo->nbAdditionalBits;
         BYTE const totalBits = llBits+mlBits+ofBits;
-#if defined(__c33__)
-        (void)totalBits;   /* only the 64-bit reload heuristic uses it */
-#endif
 
         U16 const llNext = llDInfo->nextState;
         U16 const mlNext = mlDInfo->nextState;
@@ -21624,6 +21770,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
         U32 const llnbBits = llDInfo->nbBits;
         U32 const mlnbBits = mlDInfo->nbBits;
         U32 const ofnbBits = ofDInfo->nbBits;
+#endif
 
         assert(llBits <= MaxLLBits);
         assert(mlBits <= MaxMLBits);
@@ -21662,7 +21809,11 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
                 seqState->prevOffset[1] = seqState->prevOffset[0];
                 seqState->prevOffset[0] = offset;
             } else {
+#if defined(__c33__)
+                U32 const ll0 = (llBase == 0);
+#else
                 U32 const ll0 = (llDInfo->baseValue == 0);
+#endif
                 if (LIKELY((ofBits == 0))) {
                     offset = seqState->prevOffset[ll0];
                     seqState->prevOffset[1] = seqState->prevOffset[!ll0];
@@ -21917,8 +22068,8 @@ ZSTD_decompressSequences_bodySplitLitBuffer( ZSTD_DCtx* dctx,
                     sequence.litLength -= leftoverLit;
                     op += leftoverLit;
                 }
-                litPtr = dctx->litExtraBuffer;
-                litBufferEnd = dctx->litExtraBuffer + ZSTD_LITBUFFEREXTRASIZE;
+                litPtr = dctx->litExtraPtr;
+                litBufferEnd = dctx->litExtraPtr + ZSTD_LITBUFFEREXTRASIZE;
                 dctx->litBufferLocation = ZSTD_not_in_dst;
                 {   size_t const oneSeqSize = ZSTD_execSequence(op, oend, sequence, &litPtr, litBufferEnd, prefixStart, vBase, dictEnd);
 #if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION) && defined(FUZZING_ASSERT_VALID_SEQUENCE)
@@ -21987,8 +22138,8 @@ ZSTD_decompressSequences_bodySplitLitBuffer( ZSTD_DCtx* dctx,
             ZSTD_memmove(op, litPtr, lastLLSize);
             op += lastLLSize;
         }
-        litPtr = dctx->litExtraBuffer;
-        litBufferEnd = dctx->litExtraBuffer + ZSTD_LITBUFFEREXTRASIZE;
+        litPtr = dctx->litExtraPtr;
+        litBufferEnd = dctx->litExtraPtr + ZSTD_LITBUFFEREXTRASIZE;
         dctx->litBufferLocation = ZSTD_not_in_dst;
     }
     /* copy last literals from internal buffer */
@@ -22025,7 +22176,14 @@ ZSTD_decompressSequences_body(ZSTD_DCtx* dctx,
 
     /* Regen sequences */
     if (nbSeq) {
+#if defined(__c33__)
+        /* In A0 RAM: the bit container, the three FSE states and the repeat
+         * offsets are touched a few dozen times per sequence, and from the
+         * stack each touch was an SDRAM data-queue fill. */
+        static seqState_t ZSTD_FASTBSS seqState;
+#else
         seqState_t seqState;
+#endif
         dctx->fseEntropy = 1;
         { U32 i; for (i = 0; i < ZSTD_REP_NUM; i++) seqState.prevOffset[i] = dctx->entropy.rep[i]; }
         RETURN_ERROR_IF(
@@ -22083,7 +22241,9 @@ ZSTD_decompressSequences_body(ZSTD_DCtx* dctx,
     return (size_t)(op - ostart);
 }
 
-static size_t ZSTD_FASTCODE
+/* noinline: called once, from the DSTRAM-stack trampoline in .text on the
+ * C33, and the compiler would otherwise inline it there, out of A0 RAM. */
+static size_t ZSTD_FASTCODE __attribute__((noinline))
 ZSTD_decompressSequences_default(ZSTD_DCtx* dctx,
                                  void* dst, size_t maxDstSize,
                            const void* seqStart, size_t seqSize, int nbSeq,
@@ -22184,8 +22344,8 @@ ZSTD_decompressSequencesLong_body(
                     sequences[(seqNb - ADVANCED_SEQS) & STORED_SEQS_MASK].litLength -= leftoverLit;
                     op += leftoverLit;
                 }
-                litPtr = dctx->litExtraBuffer;
-                litBufferEnd = dctx->litExtraBuffer + ZSTD_LITBUFFEREXTRASIZE;
+                litPtr = dctx->litExtraPtr;
+                litBufferEnd = dctx->litExtraPtr + ZSTD_LITBUFFEREXTRASIZE;
                 dctx->litBufferLocation = ZSTD_not_in_dst;
                 {   size_t const oneSeqSize = ZSTD_execSequence(op, oend, sequences[(seqNb - ADVANCED_SEQS) & STORED_SEQS_MASK], &litPtr, litBufferEnd, prefixStart, dictStart, dictEnd);
 #if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION) && defined(FUZZING_ASSERT_VALID_SEQUENCE)
@@ -22229,8 +22389,8 @@ ZSTD_decompressSequencesLong_body(
                     sequence->litLength -= leftoverLit;
                     op += leftoverLit;
                 }
-                litPtr = dctx->litExtraBuffer;
-                litBufferEnd = dctx->litExtraBuffer + ZSTD_LITBUFFEREXTRASIZE;
+                litPtr = dctx->litExtraPtr;
+                litBufferEnd = dctx->litExtraPtr + ZSTD_LITBUFFEREXTRASIZE;
                 dctx->litBufferLocation = ZSTD_not_in_dst;
                 {   size_t const oneSeqSize = ZSTD_execSequence(op, oend, *sequence, &litPtr, litBufferEnd, prefixStart, dictStart, dictEnd);
 #if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION) && defined(FUZZING_ASSERT_VALID_SEQUENCE)
@@ -22267,8 +22427,8 @@ ZSTD_decompressSequencesLong_body(
             ZSTD_memmove(op, litPtr, lastLLSize);
             op += lastLLSize;
         }
-        litPtr = dctx->litExtraBuffer;
-        litBufferEnd = dctx->litExtraBuffer + ZSTD_LITBUFFEREXTRASIZE;
+        litPtr = dctx->litExtraPtr;
+        litBufferEnd = dctx->litExtraPtr + ZSTD_LITBUFFEREXTRASIZE;
     }
     {   size_t const lastLLSize = litBufferEnd - litPtr;
         RETURN_ERROR_IF(lastLLSize > (size_t)(oend-op), dstSize_tooSmall, "");
@@ -22329,6 +22489,76 @@ ZSTD_decompressSequencesLong_bmi2(ZSTD_DCtx* dctx,
 
 #endif /* DYNAMIC_BMI2 */
 
+#if defined(__c33__)
+/* The sequence loop runs on a private stack in the chip's DSTRAM, the 1 KB
+ * from 0x84400 that the kernel's SD DMA descriptors leave free (the
+ * benchmark build borrows it for tests that run before any decoding).
+ * The loop's code is in A0 RAM and its state in A0 RAM too, but the
+ * compiler's spills and the locals of what it inlines still went through
+ * the stack in SDRAM, a data-queue fill each; in internal RAM they are a
+ * cycle.  Interrupts taken during the loop push onto this stack as well,
+ * so it must keep room for the kernel's handlers; the trace build measures
+ * the depth reached.  The seven arguments go through a struct so the
+ * trampoline needs no stack-passed arguments of its own. */
+typedef struct {
+    ZSTD_DCtx* dctx;
+    void* dst;
+    size_t maxDstSize;
+    const void* seqStart;
+    size_t seqSize;
+    int nbSeq;
+    ZSTD_longOffset_e isLongOffset;
+} ZSTD_c33_seqArgs;
+
+#define ZSTD_C33_DSTRAM_STACK_BOTTOM 0x84400u
+#define ZSTD_C33_DSTRAM_STACK_TOP    0x84800u
+
+static size_t ZSTD_c33_seqTrampoline(const ZSTD_c33_seqArgs* a)
+{
+    return ZSTD_decompressSequences_default(a->dctx, a->dst, a->maxDstSize,
+                                            a->seqStart, a->seqSize, a->nbSeq,
+                                            a->isLongOffset);
+}
+
+static size_t ZSTD_c33_callOnDstramStack(size_t (*fn)(const ZSTD_c33_seqArgs*),
+                                         const ZSTD_c33_seqArgs* args)
+{
+    size_t result;
+#if defined(ZIM_TRACE_HASH)
+    {   U32* p = (U32*)ZSTD_C33_DSTRAM_STACK_BOTTOM;
+        while (p < (U32*)ZSTD_C33_DSTRAM_STACK_TOP) *p++ = 0xa5a5a5a5u;
+    }
+#endif
+    __asm__ volatile (
+        "ld.w\t%%r1, %%sp\n\t"
+        "xld.w\t%%r2, %3\n\t"
+        "ld.w\t%%sp, %%r2\n\t"
+        "ld.w\t%%r6, %2\n\t"
+        "call\t%1\n\t"
+        "ld.w\t%%sp, %%r1\n\t"
+        "ld.w\t%0, %%r4"
+        : "=r"(result)
+        : "r"(fn), "r"(args), "i"(ZSTD_C33_DSTRAM_STACK_TOP)
+        : "r1", "r2", "r4", "r5", "r6", "r7", "r8", "r9",
+          "r10", "r11", "r12", "r13", "r14", "memory");
+#if defined(ZIM_TRACE_HASH)
+    {   static unsigned deepest;
+        extern int debug_printf(const char* fmt, ...);
+        const U32* p = (const U32*)ZSTD_C33_DSTRAM_STACK_BOTTOM;
+        while (p < (const U32*)ZSTD_C33_DSTRAM_STACK_TOP && *p == 0xa5a5a5a5u) p++;
+        {   unsigned depth = (unsigned)(ZSTD_C33_DSTRAM_STACK_TOP - (U32)p);
+            if (depth > deepest) {
+                deepest = depth;
+                debug_printf("dstram stack depth %u of %u\n", depth,
+                             ZSTD_C33_DSTRAM_STACK_TOP - ZSTD_C33_DSTRAM_STACK_BOTTOM);
+            }
+        }
+    }
+#endif
+    return result;
+}
+#endif
+
 #ifndef ZSTD_FORCE_DECOMPRESS_SEQUENCES_LONG
 static size_t
 ZSTD_decompressSequences(ZSTD_DCtx* dctx, void* dst, size_t maxDstSize,
@@ -22336,12 +22566,24 @@ ZSTD_decompressSequences(ZSTD_DCtx* dctx, void* dst, size_t maxDstSize,
                    const ZSTD_longOffset_e isLongOffset)
 {
     DEBUGLOG(5, "ZSTD_decompressSequences");
+#if defined(ZIM_TRACE_HASH)
+    ZSTD_c33_traceMap(dctx, dctx->litPtr, seqStart, dst, __builtin_frame_address(0));
+#endif
 #if DYNAMIC_BMI2
     if (ZSTD_DCtx_get_bmi2(dctx)) {
         return ZSTD_decompressSequences_bmi2(dctx, dst, maxDstSize, seqStart, seqSize, nbSeq, isLongOffset);
     }
 #endif
+#if defined(__c33__)
+    {   ZSTD_c33_seqArgs args;
+        args.dctx = dctx; args.dst = dst; args.maxDstSize = maxDstSize;
+        args.seqStart = seqStart; args.seqSize = seqSize; args.nbSeq = nbSeq;
+        args.isLongOffset = isLongOffset;
+        return ZSTD_c33_callOnDstramStack(ZSTD_c33_seqTrampoline, &args);
+    }
+#else
     return ZSTD_decompressSequences_default(dctx, dst, maxDstSize, seqStart, seqSize, nbSeq, isLongOffset);
+#endif
 }
 static size_t
 ZSTD_decompressSequencesSplitLitBuffer(ZSTD_DCtx* dctx, void* dst, size_t maxDstSize,

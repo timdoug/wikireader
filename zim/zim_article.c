@@ -47,19 +47,19 @@ enum {
 	CLASS_IMAGE,
 	CLASS_ANCHOR
 };
-static unsigned char word_break[256];
+static unsigned char word_break_classes[256];
 static int word_break_ready;
 
 static void word_break_init(void)
 {
 	if (word_break_ready)
 		return;
-	word_break[' '] = CLASS_SPACE;
-	word_break['\n'] = CLASS_NEWLINE;
-	word_break[ZIM_TEXT_LINK_START_MARKER] = CLASS_LINK_START;
-	word_break[ZIM_TEXT_LINK_END_MARKER] = CLASS_LINK_END;
-	word_break[ZIM_TEXT_IMAGE_MARKER] = CLASS_IMAGE;
-	word_break[ZIM_TEXT_ANCHOR_MARKER] = CLASS_ANCHOR;
+	word_break_classes[' '] = CLASS_SPACE;
+	word_break_classes['\n'] = CLASS_NEWLINE;
+	word_break_classes[ZIM_TEXT_LINK_START_MARKER] = CLASS_LINK_START;
+	word_break_classes[ZIM_TEXT_LINK_END_MARKER] = CLASS_LINK_END;
+	word_break_classes[ZIM_TEXT_IMAGE_MARKER] = CLASS_IMAGE;
+	word_break_classes[ZIM_TEXT_ANCHOR_MARKER] = CLASS_ANCHOR;
 	word_break_ready = 1;
 }
 
@@ -259,9 +259,12 @@ wrap_body(const unsigned char *text, size_t text_size,
 	ARTICLE_LINK *links;
 	HEIGHT_TRACK track = { 0, 0, 0 };
 	const signed char *ascii;
-	/* Stack copy of the font's ASCII widths: the stack's SDRAM bank is not
-	 * the one holding the code, so measuring a word does not switch rows. */
+	/* Stack copies of the font's ASCII widths and of the word-break
+	 * classes: the stack's SDRAM bank is not the one holding the code and
+	 * data, so measuring a word and classifying its end do not switch
+	 * rows. */
 	signed char ascii_local[128];
+	unsigned char word_break[256];
 	size_t input = 0;
 	size_t used = sizeof(header);
 	size_t link_count = 0;
@@ -293,6 +296,7 @@ wrap_body(const unsigned char *text, size_t text_size,
 		return -1;
 	capacity -= TRUNCATION_RESERVE;
 	word_break_init();
+	memcpy(word_break, word_break_classes, sizeof(word_break));
 	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
 	if (!links)
 		return -1;
