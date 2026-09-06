@@ -28,7 +28,8 @@ Timing is derived from the documented 60 MHz MCLK and the programmed SPI,
 DMA, timer, and SDRAM registers, plus seven controller and card overheads
 the manual does not give, fitted to a real WikiReader on 2026-09-05 (see
 "Calibration"). Micro-benchmarks of the CPU, SDRAM, and card agree with the
-device within 10%, and a whole article load within 8%.
+device within 5% but for two store-then-load patterns, and a whole article
+load within 3%.
 
 ## Build and test
 
@@ -172,7 +173,10 @@ launcher menu, so `-Z` cannot be used):
 | --- | ---: | ---: |
 | 2026-09-05 morning, stock SDRAM timing | 2864.0 ms | 25,623,351 |
 | software changes and the kernel's SDRAM retiming | 1943.9 ms | 21,227,433 |
-| plus the decoder in A0 RAM, fast-seek fonts, 16 KiB slices | 1274.8 ms | 19,815,306 |
+| plus the decoder in A0 RAM, fast-seek fonts, 16 KiB slices | 1303.5 ms | 19,811,805 |
+
+(The first two rows were measured before the 2026-09-06 refit added the
+write-to-read turnaround; it adds about 2% to loads.)
 
 (Under the pre-calibration, manual-only model the same two runs were 1941.3
 and 1253.9 ms; the fitted overheads slow everything, the old firmware most.)
@@ -188,28 +192,34 @@ device and in the emulator and writes `bench.txt` to the card; see
 
 ### Calibration
 
-The model has seven parameters the manual does not give, in `src/model.c`,
-each with the value fitted on 2026-09-05 to a WikiReader (an early 32 MB
-board running the retimed kernel; its file is
-`zim/bench-device-2026-09-05.txt`):
+The model has ten parameters the manual does not give, in `src/model.c`,
+each with the value fitted on 2026-09-05 and 06 to a WikiReader (an early
+32 MB board running the retimed kernel; its file is
+`zim/bench-device-2026-09-06.txt`):
 
 | Parameter | Fitted | Manual | Meaning |
 | --- | ---: | ---: | --- |
-| `branch_taken` | 5 | 3 | cycles for a taken conditional branch |
+| `branch_taken` | 5 | 3 | cycles for a taken conditional branch whose target is in SDRAM |
+| `branch_taken_iram` | 4 | 3 | the same with the target in internal RAM |
 | `iqb_first` | 3 | 0 | extra SDCLK ticks before the first halfword of an instruction-queue line fill |
 | `iqb_word_gap` | 2 | 0 | extra ticks before each further 32-bit word of a line fill |
 | `dq_extra` | 2 | 0 | extra ticks on a data-queue (32-bit read) fill |
 | `wr_ticks` | 1 | 0 | flat ticks per CPU write instead of one per 16-bit transfer |
-| `dma_extra` | 27 | 0 | extra MCLK cycles per HSDMA or IDMA transfer |
+| `wr_rd_turn` | 6 | 0 | extra ticks before an SDRAM read that follows a write |
+| `dma_extra` | 28 | 0 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `sd_read_latency` | 70000 | 0 | cycles from a read command to the card's data token |
+| `iram_fetch_wait` | 0 | 0 | extra cycles per instruction fetched from internal RAM |
 
-What they say about the hardware: a taken branch costs five cycles; the
+What they say about the hardware: a taken branch costs five cycles, one of
+them the refetch from SDRAM (four when the code is in A0 RAM, whose fetch
+is otherwise free, measured at exactly one cycle per instruction); the
 controller fetches an instruction-queue line as four separate 32-bit reads
 with a gap between them, and a data read has two cycles of overhead on top
-of CAS; writes are one flat tick; each byte moved by the SD DMA pair costs
-about 54 cycles beyond the SPI shift; and the card takes about 1.2 ms to
-start returning a block after a read command. The row-change cost and the
-independence of banks matched the manual-derived model before fitting.
+of CAS; writes are one flat tick, and a read after a write waits about six
+more; each byte moved by the SD DMA pair costs about 56 cycles beyond the
+SPI shift; and the card takes about 1.2 ms to start returning a block after
+a read command. The row-change cost and the independence of banks matched
+the manual-derived model before fitting.
 
 To refit (after a model change, or for another board), build the reader with
 `ZIM_BENCH=YES`, run it on the device and take its `bench.txt`, make a card
@@ -223,26 +233,26 @@ It runs the micro-benchmarks under candidate parameter sets (about 60 runs,
 six in parallel, five minutes) by coordinate descent over the memory
 parameters and then the card parameters, and prints the best `WREMU_MODEL`
 set with the per-test ratios. Copy the values into `src/model.c`. The
-ratios after the 2026-09-05 fit:
+ratios after the 2026-09-06 fit (cycles per operation):
 
 | Test | Device | Model | Model/device |
 | --- | ---: | ---: | ---: |
-| cpu-loop | 6.0 | 6.0 | 1.00 |
-| fetch-1k | 2.7 | 2.7 | 1.00 |
+| cpu-loop / cpu-loop-a0 | 6.0 / 5.0 | 6.0 / 5.0 | 1.00 / 1.00 |
+| fetch-1k / fetch-a0 | 2.6 / 1.0 | 2.7 / 1.0 | 1.04 / 1.00 |
 | read-words / read-bytes | 13.2 / 9.4 | 14.5 / 9.3 | 1.10 / 0.99 |
 | write-words / write-bytes | 9.2 / 9.2 | 9.3 / 9.3 | 1.01 |
-| pair-same-row / row-change / two-banks | 21.5 / 29.0 / 21.5 | 20.6 / 28.3 / 20.6 | 0.96 / 0.98 / 0.96 |
-| pair-write-read | 10.4 | 9.3 | 0.89 |
-| copy-bytes / copy-batch8 / memcpy | 15.7 / 15.5 / 5.9 | 14.5 / 14.9 / 6.3 | 0.92 / 0.96 / 1.07 |
-| card-256k / card-4k-x64 (cycles per block) | 37,777 / 48,527 | 38,434 / 47,853 | 1.02 / 0.99 |
-| `Cat` tap to paint (ms) | 1846 | 1998 | 1.08 |
+| pair-same-row / row-change / two-banks | 21.5 / 27.2 / 21.5 | 20.6 / 28.3 / 20.6 | 0.96 / 1.04 / 0.96 |
+| pair-write-read | 11.2 | 9.3 | 0.83 |
+| copy-bytes / copy-batch8 / memcpy | 16.5 / 18.1 / 6.6 | 14.5 / 17.7 / 6.4 | 0.88 / 0.98 / 0.97 |
+| card-256k / card-4k-x64 (cycles per block) | 38,880 / 49,866 | 39,039 / 48,501 | 1.00 / 0.97 |
+| `Cat` tap to paint (ms) | 1391 | 1353 | 0.97 |
 
-The `Cat` phases: card reads 1.12, Zstandard 1.04, HTML 1.01, paint 1.09;
-the wrap phase was 1.46 only because the emulator's was the first article
-after boot, whose width cache is cold (the device's first article showed the
-same). The benchmark app must run on a writable card image: with `-R` the
-guest's first rejected write of `bench.txt` leaves its FatFs unable to open
-the fonts, and the run ends in a font panic.
+The `Cat` phases: Zstandard 0.88, card 1.07, HTML 1.02, wrap 1.09, paint
+1.11. The two store-then-load tests are the weakest fit: the write buffer's
+behaviour on a following read is only approximated by `wr_rd_turn`. The
+benchmark app must run on a writable card image: with `-R` the guest's
+first rejected write of `bench.txt` leaves its FatFs unable to open the
+fonts, and the run ends in a font panic.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 

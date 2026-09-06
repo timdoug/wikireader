@@ -230,6 +230,7 @@ static void override_refresh(struct sdramc *s)
 
 /* Which kind of access is being timed, for the row-activation statistics. */
 static unsigned current_kind;
+static bool last_was_write;
 
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 {
@@ -277,8 +278,14 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 			      uint64_t *ready)
 {
 	uint64_t tick = sd_tick(s);
-	uint64_t command = select_row(s, addr, now);
+	uint64_t command;
 	uint64_t extra = (halfwords > 2 ? model.iqb_first : model.dq_extra) * tick;
+
+	/* A read after a write waits for write recovery and the bus turn. */
+	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
+		now = s->bus_free + model.wr_rd_turn * tick;
+	last_was_write = false;
+	command = select_row(s, addr, now);
 
 	for (unsigned i = 0; i < halfwords; i++) {
 		if (halfwords > 2)
@@ -312,6 +319,7 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	/* Writes are individual operations, one per external 16-bit transfer,
 	 * unless the fitted model gives every write a flat cost. */
 	s->bus_free = command + (model.wr_ticks ? model.wr_ticks : transfers) * tick;
+	last_was_write = true;
 	s->last_sdram_access = s->bus_free;
 	flush_written(s, addr, size);
 	s->writes_timed++;

@@ -215,7 +215,7 @@ board, masked until now by the emulator's flat 32 MB window.
 
 ## Article load cost
 
-Opening `Cat` from the Simple English archive takes 1.27 s in `wremu`
+Opening `Cat` from the Simple English archive takes 1.30 s in `wremu`
 (calibrated model, `-Y` window between `retrieve_article` and
 `render_article_with_pcf`), down from 2.86 s for the morning's firmware and
 1.94 s for the state the device measured at 1.85 s (tap to painted page,
@@ -238,7 +238,7 @@ the proportions hold:
 (Phase figures are per-function cycle totals from the `-F` profile, the
 Zstandard row summing the sequence, Huffman, FSE-table and copy routines;
 the window also contains time the CPU spends waiting on the card.) Under
-the calibrated model with the A0 RAM decoder the split of the 1.27 s is
+the calibrated model with the A0 RAM decoder the split of the 1.30 s is
 roughly: Zstandard 0.55 s, HTML to text 0.26 s, card and kernel 0.14 s,
 wrap 0.10 s, the rest in the Huffman literal decoder and the paint.
 
@@ -307,11 +307,12 @@ build, below):
   other, and its SD reads into internal RAM use the byte-at-a-time path
   because HSDMA into A0 RAM is not something the board has been seen to
   do. The two functions take 4340 bytes; `zstddeclib.c` is compiled with
-  long calls so they can reach the rest. `Cat` fell from 1.82 s to 1.27 s
+  long calls so they can reach the rest. `Cat` fell from 1.82 s to 1.30 s
   in the model and from 1.85 s to 1.39 s on the device (2026-09-06,
-  `bench-device-2026-09-06.txt`); the device runs the A0 RAM code about
-  15% slower than the model's zero-wait assumption, the one remaining gap
-  above 10%.
+  `bench-device-2026-09-06.txt`). A0 RAM fetch measured exactly one cycle
+  per instruction on the device; the remaining 12% gap in the decoder
+  phase is in its store-then-load traffic, which the model still
+  underprices.
 - Glyph misses no longer cost a cluster-chain walk and a card command each.
   The font files now get FatFs fast-seek maps at load (a seek without one
   followed the FAT chain from the start of a 3.6 MB font: 83% of a

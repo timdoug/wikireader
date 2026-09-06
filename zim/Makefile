@@ -65,6 +65,7 @@ ifeq (YES,$(strip ${ZIM_BENCH}))
 CFLAGS += -DZIM_BENCH=1
 SOURCES += zim_bench.c
 TARGETS += zimbench.ico   # inverted kiwi for a second launcher entry
+build/zim_bench.o: CFLAGS += -mlong-calls   # its A0 RAM tests are far away
 endif
 
 # The Zstandard sequence loop lives in A0 RAM (.fastcode, see

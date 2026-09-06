@@ -217,6 +217,43 @@ static unsigned long run_copy_batch8(unsigned char *d, const unsigned char *s,
 	return timer_get() - t;
 }
 
+/* The same two tests executed from the application's A0 RAM area
+ * (.fastcode, see samo-lib/grifo/lds/application.lds): what an
+ * instruction fetch costs there.  They take no timer calls inside so the
+ * code needs nothing outside itself; the 256 register moves are 512 bytes,
+ * what the area has left beside the decoder. */
+#define BENCH_FASTCODE __attribute__((section(".fastcode"), noinline))
+
+static void BENCH_FASTCODE a0_cpu(unsigned long count)
+{
+	__asm__ volatile ("1:\n\tsub\t%0, 1\n\tjrne\t1b" : "+r"(count));
+}
+
+static void BENCH_FASTCODE a0_fetch(unsigned long count)
+{
+	unsigned int scratch = 0;
+
+	__asm__ volatile ("1:\n\t.rept 256\n\tld.w\t%1, %1\n\t.endr\n\t"
+			  "sub\t%0, 1\n\txjrne\t1b"
+			  : "+r"(count), "+r"(scratch));
+}
+
+static unsigned long run_a0_cpu(unsigned long n)
+{
+	unsigned long t = timer_get();
+
+	a0_cpu(n);
+	return timer_get() - t;
+}
+
+static unsigned long run_a0_fetch(unsigned long n)
+{
+	unsigned long t = timer_get();
+
+	a0_fetch(n);
+	return timer_get() - t;
+}
+
 static unsigned long run_card(zim_bench_read_fn read, void *opaque,
 			      uint64_t offset, unsigned char *buffer,
 			      size_t length, unsigned reads, uint64_t stride)
@@ -256,6 +293,8 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 
 	report("cpu-loop", 3000000, run_cpu(3000000));
 	report("fetch-1k", 512 * 256, run_fetch(256));
+	report("cpu-loop-a0", 3000000, run_a0_cpu(3000000));
+	report("fetch-a0", 256 * 512, run_a0_fetch(512));
 	report("read-words", 262144, run_read_words(buffer, 262144));
 	report("read-bytes", 262144, run_read_bytes(buffer, 262144));
 	report("write-words", 262144, run_write_words(buffer, 262144));

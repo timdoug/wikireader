@@ -68,3 +68,25 @@ article 358835 cached total 69.9 ms
 article 70197 cached total 64.9 ms
 article 358835 cached total 69.9 ms
 article 70197 cached total 64.9 ms
+bench start: sdram ctl 0x00001353 ref 0x01ff0120 app 0x8000000b, timer 60 ticks/us
+bench buffer at 0x105d9000, stack near 0x11ffff70
+bench cpu-loop          3000000 ops     300.0 ms      6.0 cyc/op
+bench fetch-1k           131072 ops       5.7 ms      2.6 cyc/op
+bench cpu-loop-a0       3000000 ops     250.0 ms      5.0 cyc/op
+bench fetch-a0           131072 ops       2.2 ms      1.0 cyc/op
+bench read-words         262144 ops      57.6 ms     13.2 cyc/op
+bench read-bytes         262144 ops      40.8 ms      9.4 cyc/op
+bench write-words        262144 ops      40.2 ms      9.2 cyc/op
+bench write-bytes        262144 ops      40.2 ms      9.2 cyc/op
+bench pair-same-row      100000 ops      35.8 ms     21.5 cyc/op
+bench pair-row-change     100000 ops      45.3 ms     27.2 cyc/op
+bench pair-two-banks     100000 ops      35.8 ms     21.5 cyc/op
+bench pair-write-read     100000 ops      18.5 ms     11.2 cyc/op
+bench copy-bytes-512k     524288 ops     143.9 ms     16.5 cyc/op
+bench copy-batch8-512k     524288 ops     158.3 ms     18.1 cyc/op
+bench memcpy-512k        524288 ops      57.6 ms      6.6 cyc/op
+bench card-256k             512 ops     331.7 ms  38879.9 cyc/op
+bench card-256k-again        512 ops     331.4 ms  38836.5 cyc/op
+bench card-4k-x64           512 ops     425.5 ms  49865.8 cyc/op
+bench columns: article <index> total blob(card KB reads, zstd calls) html wrap paint ms, raw text stream bytes
+article 70197 total 1391.3 blob 847.6 (card 133.4 96K 6, zstd 702.8 6) html 349.7 wrap 140.5 paint 53.3 ms, 130154 29853 24235 bytes

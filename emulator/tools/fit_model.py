@@ -24,17 +24,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WREMU = os.path.join(HERE, "..", "wremu")
 FLASH = os.path.join(HERE, "..", "..", "samo-lib", "mbr", "flash.rom")
 
-MEMORY_TESTS = ["cpu-loop", "fetch-1k", "read-words", "read-bytes", "write-words",
+MEMORY_TESTS = ["cpu-loop", "fetch-1k", "cpu-loop-a0", "fetch-a0", "read-words", "read-bytes", "write-words",
                 "write-bytes", "pair-same-row", "pair-row-change", "pair-two-banks",
                 "pair-write-read", "copy-bytes-512k", "copy-batch8-512k", "memcpy-512k"]
 CARD_TESTS = ["card-256k", "card-4k-x64"]
 
 MEMORY_PARAMS = {
     "branch_taken": [3, 4, 5, 6],
+    "branch_taken_iram": [3, 4, 5],
     "iqb_first": [0, 1, 2, 3, 4],
     "iqb_word_gap": [0, 1, 2, 3],
     "dq_extra": [0, 1, 2, 3, 4],
     "wr_ticks": [0, 1, 2, 3],
+    "iram_fetch_wait": [0, 1, 2, 3],
+    "wr_rd_turn": [0, 1, 2, 3, 4],
 }
 CARD_PARAMS = {
     "dma_extra": [0, 5, 10, 15, 20, 25, 30],
@@ -106,9 +109,12 @@ def main():
         device = parse_bench(f.read())   # the last block wins
     missing = [t for t in MEMORY_TESTS + CARD_TESTS if t not in device]
     if missing:
-        sys.exit(f"device file lacks {missing}")
+        print(f"note: device file lacks {missing}; fitting without them", file=sys.stderr)
+    memory_tests = [t for t in MEMORY_TESTS if t in device]
+    if not memory_tests or not all(t in device for t in CARD_TESTS):
+        sys.exit("device file has no usable benchmark lines")
 
-    mem, mem_err = fit(args.card, device, MEMORY_PARAMS, MEMORY_TESTS, args.rounds, args.jobs)
+    mem, mem_err = fit(args.card, device, MEMORY_PARAMS, memory_tests, args.rounds, args.jobs)
     card_params = dict(CARD_PARAMS)
     fixed = dict(mem)
     # Fit the card with the memory parameters held.
@@ -142,7 +148,7 @@ def main():
     print(f"memory error {mem_err:.4f}, card error {card_err:.4f}")
     print(f"{'test':18} {'device':>10} {'model':>10} {'model/device':>13}")
     for t in MEMORY_TESTS + CARD_TESTS:
-        if t in measured:
+        if t in measured and t in device:
             print(f"{t:18} {device[t]:10.1f} {measured[t]:10.1f} {measured[t] / device[t]:13.2f}")
 
 

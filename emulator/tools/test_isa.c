@@ -323,7 +323,7 @@ static void jumps(void)
 	c.sr[SR_PSR] = PSR_Z;
 	c33_step(&c);
 	check("taken branch to fallthrough still costs a taken branch", c.clk,
-	      model.branch_taken);
+	      model.branch_taken_iram);
 	c = init(0x1801);
 	c33_step(&c);
 	check("untaken branch to fallthrough takes two clocks", c.clk, 2);

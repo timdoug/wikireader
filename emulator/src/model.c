@@ -4,19 +4,23 @@
 #include "model.h"
 
 /*
- * Fitted on 2026-09-05 with tools/fit_model.py against a WikiReader's
- * bench.txt (zim/bench-device-2026-09-05.txt, a 32 MB early board with the
- * retimed SDRAM controller); every micro-benchmark then agrees with the
- * device within 10%.  The manual-only values are 3, 0, 0, 0, 0, 0, 0.
+ * Fitted on 2026-09-05 and 06 with tools/fit_model.py against a
+ * WikiReader's bench.txt (zim/bench-device-2026-09-06.txt, a 32 MB early
+ * board with the retimed SDRAM controller); every micro-benchmark then
+ * agrees with the device within 12%, most within 5%.  The manual-only
+ * values are branch costs of 3 and every overhead 0.
  */
 struct model model = {
 	.branch_taken = 5,
+	.branch_taken_iram = 4,     /* cpu-loop-a0: 5.0 against 6.0 from SDRAM */
 	.iqb_first = 3,
 	.iqb_word_gap = 2,
 	.dq_extra = 2,
 	.wr_ticks = 1,
-	.dma_extra = 27,
+	.wr_rd_turn = 6,            /* copy-batch8 and pair-write-read */
+	.dma_extra = 28,
 	.sd_read_latency = 70000,
+	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 };
 
 static const struct {
@@ -25,12 +29,15 @@ static const struct {
 	unsigned *u;
 } fields[] = {
 	{ "branch_taken", NULL, &model.branch_taken },
+	{ "branch_taken_iram", NULL, &model.branch_taken_iram },
 	{ "iqb_first", NULL, &model.iqb_first },
 	{ "iqb_word_gap", NULL, &model.iqb_word_gap },
 	{ "dq_extra", NULL, &model.dq_extra },
 	{ "wr_ticks", NULL, &model.wr_ticks },
 	{ "dma_extra", NULL, &model.dma_extra },
 	{ "sd_read_latency", &model.sd_read_latency, NULL },
+	{ "iram_fetch_wait", NULL, &model.iram_fetch_wait },
+	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
 };
 
 void model_init(void)
@@ -66,9 +73,11 @@ void model_init(void)
 
 void model_describe(FILE *out)
 {
-	fprintf(out, "--- model: branch_taken %u, iqb_first %u, iqb_word_gap %u,"
-		" dq_extra %u, wr_ticks %u, dma_extra %u, sd_read_latency %lu ---\n",
-		model.branch_taken, model.iqb_first, model.iqb_word_gap,
-		model.dq_extra, model.wr_ticks, model.dma_extra,
-		model.sd_read_latency);
+	fprintf(out, "--- model: branch_taken %u/%u, iqb_first %u, iqb_word_gap %u,"
+		" dq_extra %u, wr_ticks %u, wr_rd_turn %u, dma_extra %u,"
+		" sd_read_latency %lu, iram_fetch_wait %u ---\n",
+		model.branch_taken, model.branch_taken_iram, model.iqb_first,
+		model.iqb_word_gap, model.dq_extra, model.wr_ticks,
+		model.wr_rd_turn, model.dma_extra, model.sd_read_latency,
+		model.iram_fetch_wait);
 }

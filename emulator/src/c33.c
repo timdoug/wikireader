@@ -430,7 +430,8 @@ static bool pe_encoding_valid(uint16_t insn)
  * errs slightly long rather than short.
  */
 static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
-			   uint16_t insn, bool conditional_taken, bool had_ext)
+			   uint16_t insn, bool conditional_taken, bool had_ext,
+			   uint32_t next_pc)
 {
 	unsigned n;
 
@@ -477,7 +478,10 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 	case OP_JREQ: case OP_JRNE: case OP_JRGT: case OP_JRGE:
 	case OP_JRLT: case OP_JRLE: case OP_JRUGT: case OP_JRUGE:
 	case OP_JRULT: case OP_JRULE:
-		return conditional_taken ? model.branch_taken : 2;
+		if (!conditional_taken)
+			return 2;
+		return next_pc < 0x10000000u ? model.branch_taken_iram
+					     : model.branch_taken;
 	default:
 		break;
 	}
@@ -788,6 +792,8 @@ void c33_step(struct c33 *c)
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
 	if (c->bus.wait)
 		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
+	if (at < 0x10000000u)
+		c->clk += model.iram_fetch_wait;   /* internal RAM, fitted cost */
 	uint64_t clk_fetched = c->clk;
 
 	/*
@@ -1513,7 +1519,7 @@ void c33_step(struct c33 *c)
 	 * prefixes into the following instruction.
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
-	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext);
+	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext, c->pc);
 	if (c->pc_profile) {
 		c->pcclk[bucket] += c->clk - clk0;
 		if (c->row_counter)

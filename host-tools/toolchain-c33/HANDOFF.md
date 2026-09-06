@@ -236,14 +236,14 @@ breakdown are in [`../../zim/README.md`](../../zim/README.md).
 
 | Measurement (calibrated model, 2026-09-05 evening) | Before | After |
 | --- | ---: | ---: |
-| `Cat`, tap to first painted page | 2864.0 ms | 1274.8 ms |
+| `Cat`, tap to first painted page | 2864.0 ms | 1303.5 ms |
 | same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1390 ms |
 | `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 1141 / 1030 ms |
 | Wikivoyage `Paris`, first photograph decode | 1861.0 ms | 1565.5 ms |
 | app start to keyboard painted | 807 ms | 632 ms |
 
 (The manual-only model used earlier that day gave 1941.3 and 1253.9 ms for
-the `Cat` rows and 1342.5 and 1084.0 ms for `Paris`.) The emulator's seven
+the `Cat` rows and 1342.5 and 1084.0 ms for `Paris`.) The emulator's ten
 fitted timing parameters, the fitting tool, and the device/model ratios are
 in `emulator/README.md`, "Calibration"; the device's benchmark file is
 `zim/bench-device-2026-09-05.txt`.
@@ -307,9 +307,10 @@ These are not GCC/binutils correctness bugs and require separate approval:
 ## Next work
 
 1. The A0 RAM decoder ran on the device on 2026-09-06 (`Cat` 1390 ms,
-   `Tokyo` 1030 ms, no DMA fallback). The device runs A0 RAM code about
-   15% slower than the model's zero-wait fetch; a fetch-from-A0
-   micro-benchmark would let `fit_model.py` pin that down.
+   `Tokyo` 1030 ms, no DMA fallback), and A0 RAM tests were added to the
+   benchmark and fitted: internal-RAM fetch is free, a taken branch there
+   is four cycles. The model now predicts `Cat` within 3%; its weakest
+   spot is a read after a write (about 15% under on those patterns).
 2. Exercise suspend/resume and a long session on the retimed kernel. The
    emulator is calibrated to one early 32 MB board; a `bench.txt` from a
    16 MB V4 board run through `emulator/tools/fit_model.py` would show

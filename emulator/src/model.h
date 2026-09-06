@@ -11,8 +11,10 @@
 #include <stdio.h>
 
 struct model {
-	/* Cycles for a taken conditional branch (manual: 2 or 3). */
+	/* Cycles for a taken conditional branch whose target is fetched from
+	   SDRAM, and from internal RAM (manual: 2 or 3 for both). */
 	unsigned branch_taken;
+	unsigned branch_taken_iram;
 	/* Extra SDCLK ticks before the first halfword of an instruction-queue
 	   line fill (controller and bus overhead). */
 	unsigned iqb_first;
@@ -28,6 +30,12 @@ struct model {
 	unsigned dma_extra;
 	/* MCLK cycles from a READ command to the card's data token. */
 	unsigned long sd_read_latency;
+	/* Extra cycles per instruction fetched from internal RAM (A0, IVRAM),
+	   which the manual-only model treats as zero-wait. */
+	unsigned iram_fetch_wait;
+	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
+	   bus (write recovery and bus turnaround). */
+	unsigned wr_rd_turn;
 };
 
 extern struct model model;
