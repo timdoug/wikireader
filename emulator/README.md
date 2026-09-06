@@ -102,7 +102,7 @@ data.
 | `-H` | Profile executed addresses. |
 | `-X ADDR[,NAME]` | Count entries and report the longest gaps. |
 | `-Y A,B`, `-y M,N` | Limit profiling by address or guest-time interval. |
-| `-F FILE` | Write non-empty profile buckets: address, instructions, MCLK cycles, cycles waiting for the fetch, SDRAM row activations. |
+| `-F FILE` | Write non-empty profile buckets: address, instructions, MCLK cycles, cycles waiting for the fetch, SDRAM row activations. Buckets cover 2 MB of SDRAM and, separately, the internal RAMs, so code in A0 RAM or IVRAM is never confused with the kernel or application at the same SDRAM offset. |
 | `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
 
 `WREMU_MODEL=name=value,...` overrides the fitted timing parameters listed
@@ -146,7 +146,13 @@ A `-Y` window also reports the SDRAM controller's work inside it: wait
 cycles, refreshes, queue hits and misses, and row activations by bank, by
 access kind per bank, and by the kinds of the two accesses on either side of
 each activation (`--- window sdram`, `--- window activations by bank`, and
-the following lines). The `-F` profile carries cycles and activations per
+the following lines). With `WREMU_ROWHIST=1` the window also lists the 24
+most activated 1 KiB rows and the 24 most frequent row-to-row transitions
+within a bank (`--- window activations by row` and `by row pair`), which
+tells which objects alternate; a same-row pair is a bank closed by refresh
+and reopened. `WREMU_ROWTRACE=0xADDR` prints the PC and access kind behind
+the first 48 activations of that address's row inside the window, after
+skipping `WREMU_ROWTRACE_SKIP` of them. The `-F` profile carries cycles and activations per
 2-byte bucket, so `addr2line` on an unstripped link turns it into a
 per-source-line cost that includes memory stalls. Cycles, not instruction
 counts, are what to look at on this core: the ZIM article load below runs at

@@ -302,6 +302,8 @@ int main(int argc, char **argv)
 	char prof_win_label[64] = "";
 	uint32_t prof_start = 0, prof_end = 0;
 	bool prof_window = false, prof_done = false;
+	bool window_repeat = getenv("WREMU_WINDOW_REPEAT") != NULL;
+	unsigned long prof_windows = 0;
 	unsigned long long prof_exec0 = 0, prof_clk0 = 0, prof_idle0 = 0;
 	unsigned long long prof_exec = 0, prof_clk = 0, prof_idle = 0;
 	uint32_t vwatch = 0; bool vwatch_on = false;
@@ -466,6 +468,10 @@ int main(int argc, char **argv)
 	port_attach(&mem, &port, &itc);
 
 	struct sdramc sdramc, sdramc_at_open, sdramc_at_close;
+	uint64_t *row_hist_at_open = calloc(SDRAMC_ROW_HIST_ROWS, sizeof *row_hist_at_open);
+	struct sdramc_pair *pair_hist_at_open = calloc(SDRAMC_PAIR_HIST_SIZE, sizeof *pair_hist_at_open);
+	uint64_t *row_hist_at_close = calloc(SDRAMC_ROW_HIST_ROWS, sizeof *row_hist_at_close);
+	struct sdramc_pair *pair_hist_at_close = calloc(SDRAMC_PAIR_HIST_SIZE, sizeof *pair_hist_at_close);
 	memset(&sdramc_at_open, 0, sizeof sdramc_at_open);
 	memset(&sdramc_at_close, 0, sizeof sdramc_at_close);
 	sdramc_attach(&mem, &sdramc);
@@ -837,15 +843,36 @@ int main(int argc, char **argv)
 				prof_window = true;
 				prof_exec0 = executed; prof_clk0 = cpu.clk;
 				prof_idle0 = idle_skipped;
-				sdramc_at_open = sdramc;
+				sdramc_trace_on = true;
+				/* On a repeat the SDRAM snapshot stays the first one's. */
+				if (!prof_windows) {
+					sdramc_at_open = sdramc;
+					if (sdramc.row_hist) {
+						memcpy(row_hist_at_open, sdramc.row_hist,
+						       SDRAMC_ROW_HIST_ROWS * sizeof *row_hist_at_open);
+						memcpy(pair_hist_at_open, sdramc.pair_hist,
+						       SDRAMC_PAIR_HIST_SIZE * sizeof *pair_hist_at_open);
+					}
+				}
 				cpu.profile = profile;
 				cpu.pc_profile = pc_profile;
 			} else if (prof_window && prof_end && cpu.pc == prof_end) {
-				prof_window = false; prof_done = true;
-				prof_exec = executed - prof_exec0;
-				prof_clk = cpu.clk - prof_clk0;
-				prof_idle = idle_skipped - prof_idle0;
+				/* WREMU_WINDOW_REPEAT: keep opening the window at
+				   every later hit of the start address and add the
+				   intervals up, for a phase that recurs per block. */
+				prof_window = false; prof_done = !window_repeat;
+				prof_exec += executed - prof_exec0;
+				prof_clk += cpu.clk - prof_clk0;
+				prof_idle += idle_skipped - prof_idle0;
+				prof_windows++;
 				sdramc_at_close = sdramc;
+				sdramc_trace_on = false;
+				if (sdramc.row_hist) {
+					memcpy(row_hist_at_close, sdramc.row_hist,
+					       SDRAMC_ROW_HIST_ROWS * sizeof *row_hist_at_close);
+					memcpy(pair_hist_at_close, sdramc.pair_hist,
+					       SDRAMC_PAIR_HIST_SIZE * sizeof *pair_hist_at_close);
+				}
 				cpu.profile = cpu.pc_profile = false;
 			}
 		}
@@ -1121,10 +1148,13 @@ done:
 	   can suspend inside one and never wake -- the idle path continues
 	   before the window check, so nothing would ever close it. */
 	if (prof_window) {
-		prof_exec = executed - prof_exec0;
-		prof_clk = cpu.clk - prof_clk0;
-		prof_idle = idle_skipped - prof_idle0;
+		prof_exec += executed - prof_exec0;
+		prof_clk += cpu.clk - prof_clk0;
+		prof_idle += idle_skipped - prof_idle0;
+		prof_windows++;
 	}
+	if (window_repeat)
+		printf("--- window repeated %lu times ---\n", prof_windows);
 	if (prof_ms1 > 0)
 		snprintf(prof_win_label, sizeof prof_win_label,
 			 "%.0f..%.0f ms", prof_ms0, prof_ms1);
@@ -1238,6 +1268,42 @@ done:
 					printf(" %s>%s %llu", kind[x], kind[y],
 					       (unsigned long long)(b->act_kind[x][y] - a->act_kind[x][y]));
 		printf(" ---\n");
+		if (sdramc.row_hist) {
+			/* The 24 most activated rows in the window. */
+			printf("--- window activations by row (WREMU_ROWHIST):");
+			for (unsigned shown = 0; shown < 24; shown++) {
+				unsigned best = 0;
+				uint64_t best_n = 0;
+				for (unsigned r = 0; r < SDRAMC_ROW_HIST_ROWS; r++) {
+					uint64_t n = row_hist_at_close[r] - row_hist_at_open[r];
+					if (n > best_n) { best_n = n; best = r; }
+				}
+				if (!best_n)
+					break;
+				printf(" %08x %llu", 0x10000000u + best * 1024u,
+				       (unsigned long long)best_n);
+				row_hist_at_open[best] = row_hist_at_close[best];
+			}
+			printf(" ---\n--- window activations by row pair (from>to):");
+			for (unsigned shown = 0; shown < 24; shown++) {
+				unsigned best = 0;
+				uint64_t best_n = 0;
+				for (unsigned r = 0; r < SDRAMC_PAIR_HIST_SIZE; r++) {
+					uint64_t n = pair_hist_at_close[r].n;
+					if (pair_hist_at_open[r].key == pair_hist_at_close[r].key)
+						n -= pair_hist_at_open[r].n;
+					if (n > best_n) { best_n = n; best = r; }
+				}
+				if (!best_n)
+					break;
+				printf(" %08x>%08x %llu",
+				       0x10000000u + (pair_hist_at_close[best].key >> 16) * 1024u,
+				       0x10000000u + (pair_hist_at_close[best].key & 0xffffu) * 1024u,
+				       (unsigned long long)best_n);
+				pair_hist_at_open[best] = pair_hist_at_close[best];
+			}
+			printf(" ---\n");
+		}
 	}
 	if (eeprom_path)
 		printf("--- eeprom: %lu commands, %lu bytes read, %lu written ---\n",

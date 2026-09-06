@@ -167,18 +167,25 @@ void     c33_raise_nmi(struct c33 *c);
 /* Print the executed-opcode histogram gathered under c->profile. */
 void     c33_dump_profile(const struct c33 *c, FILE *out);
 /*
- * One bucket per instruction slot, over 2 MB of address space -- enough to
- * span the kernel at 0x10000000 and the application at 0x10040000 without
- * aliasing.  64-byte buckets were too coarse to attribute anything on this
+ * One bucket per instruction slot, over 2 MB of SDRAM -- enough to span
+ * the kernel at 0x10000000 and the application at 0x10040000 without
+ * aliasing -- and another 2 MB for the internal RAMs, since applications
+ * now run hot code from A0 RAM and IVRAM.  64-byte buckets were too coarse to attribute anything on this
  * target: mini-libc's memchr, delay_us and delay_loop are about 30 bytes
  * each and sit next to each other, so a single bucket covered all three and
  * the profile named whichever came first.  That is how a busy-wait in the
  * SD driver came out looking like memchr in one build and delay_us in the
- * other.  12 MB of host memory is a small price for a profile you can
+ * other.  72 MB of host memory is a small price for a profile you can
  * attribute to a function and believe.
  */
 #define C33_PCBUCKET_SHIFT 1
-#define C33_PCBUCKETS      (1u << 20)     /* 2-byte buckets, 2 MB span */
+/* 2-byte buckets over 2 MB of SDRAM and, separately, 2 MB of internal
+   address space: bit 28 of the address selects the half, so code running
+   from A0 RAM, IVRAM or DSTRAM never shares a bucket with the kernel or
+   an application at the same SDRAM offset. */
+#define C33_PCBUCKETS      (1u << 21)
+#define C33_PCBUCKET(at)   ((((at) >> C33_PCBUCKET_SHIFT) & ((1u << 20) - 1)) | \
+			    (((at) >> 8) & (1u << 20)))
 void     c33_dump_pcprofile(const struct c33 *c, FILE *out);
 /* Every non-empty bucket as "address count", for diffing two runs offline.
    The top-12 summary answers "what is hot"; this answers "what changed",

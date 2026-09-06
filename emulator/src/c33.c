@@ -788,6 +788,7 @@ void c33_step(struct c33 *c)
 	}
 
 	c->cur_pc = at;
+	wremu_cur_pc = at;
 	uint64_t clk0 = c->clk;
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
 	if (c->bus.wait)
@@ -841,7 +842,7 @@ void c33_step(struct c33 *c)
 	uint8_t op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
 	if (c->profile)
 		c->opcount[op]++;
-	unsigned bucket = (at >> C33_PCBUCKET_SHIFT) & (C33_PCBUCKETS - 1);
+	unsigned bucket = C33_PCBUCKET(at);
 	if (c->pc_profile) {
 		c->pcbuckets[bucket]++;
 		c->pcsample[bucket] = at;   /* buckets alias; keep a real address */

@@ -10,6 +10,10 @@
  * agrees with the device within 12%, most within 5%.  The manual-only
  * values are branch costs of 3 and every overhead 0.
  */
+/* The PC of the instruction being executed, for the SDRAM row trace
+ * (sdramc.c); kept here because every test links the model. */
+uint32_t wremu_cur_pc;
+
 struct model model = {
 	.branch_taken = 5,
 	.branch_taken_iram = 4,     /* cpu-loop-a0: 5.0 against 6.0 from SDRAM */

@@ -51,7 +51,20 @@ struct sdramc {
 	uint64_t dq_hits, dq_misses;
 	uint64_t writes_timed;
 	uint64_t refreshes, self_refresh_exits;
+	/* WREMU_ROWHIST=1: activations per 1 KiB row of the whole SDRAM, so a
+	   hot loop's row changes can be traced to the objects behind them. */
+	uint64_t *row_hist;
+	/* ... and, per bank, which row each activation replaced: an open
+	   hash of (previous row, new row) pairs with counts. */
+	struct sdramc_pair { uint32_t key; uint64_t n; } *pair_hist;
+	uint32_t pair_last[4];
 };
+#define SDRAMC_PAIR_HIST_SIZE (1u << 16)
+/* WREMU_ROWTRACE=0xADDR: print the PC and kind behind the first activations
+   of that address's row while the profile window is open. */
+extern bool sdramc_trace_on;
+
+#define SDRAMC_ROW_HIST_ROWS (32u * 1024u)   /* 32 MB in 1 KiB rows */
 
 void sdramc_attach(struct mem *m, struct sdramc *s);
 void sdramc_reset(struct sdramc *s);

@@ -230,6 +230,11 @@ static void override_refresh(struct sdramc *s)
 
 /* Which kind of access is being timed, for the row-activation statistics. */
 static unsigned current_kind;
+bool sdramc_trace_on;
+static bool trace_row_set;
+static uint32_t trace_row;
+static unsigned trace_left = 48;
+static unsigned long trace_skip;   /* WREMU_ROWTRACE_SKIP: activations to pass first */
 static bool last_was_write;
 
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
@@ -263,6 +268,26 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	s->bank[b].row = row;
 	s->bank[b].activated = at;
 	s->activations++;
+	if (sdramc_trace_on && trace_row_set &&
+	    ((addr - SDRAM_BASE) >> 10) == trace_row && trace_left &&
+	    (trace_skip ? trace_skip-- == 0 : 1)) {
+		trace_left--;
+		fprintf(stderr, "rowtrace: pc %08x kind %u addr %08x from row %08x\n",
+			wremu_cur_pc, current_kind, addr,
+			0x10000000u + s->pair_last[b] * 1024u);
+	}
+	if (s->row_hist && ((addr - SDRAM_BASE) >> 10) < SDRAMC_ROW_HIST_ROWS) {
+		uint32_t r = (addr - SDRAM_BASE) >> 10;
+		uint32_t key = (s->pair_last[b] << 16) | r;
+		uint32_t i = (key * 2654435761u) >> 16;
+
+		s->row_hist[r]++;
+		while (s->pair_hist[i].n && s->pair_hist[i].key != key)
+			i = (i + 1) & (SDRAMC_PAIR_HIST_SIZE - 1);
+		s->pair_hist[i].key = key;
+		s->pair_hist[i].n++;
+		s->pair_last[b] = r;
+	}
 	return at + trp(s) * tick; /* T24NS programs both tRP and tRCD. */
 }
 
@@ -451,8 +476,13 @@ void sdramc_reset(struct sdramc *s)
 {
 	struct mem *m = s->mem;
 
+	uint64_t *row_hist = s->row_hist;
+	struct sdramc_pair *pair_hist = s->pair_hist;
+
 	memset(s, 0, sizeof *s);
 	s->mem = m;
+	s->row_hist = row_hist;
+	s->pair_hist = pair_hist;
 	/* S1C33E07 Technical Manual register tables, init. column. */
 	s->reg[OFF_CTL] = 0x000000e0u;      /* tRC/tRFC/tXSR = 15 cycles */
 	s->reg[OFF_REF] = 0x007f008cu;      /* self/auto-refresh counters */
@@ -463,7 +493,19 @@ void sdramc_reset(struct sdramc *s)
 void sdramc_attach(struct mem *m, struct sdramc *s)
 {
 	s->mem = m;
+	s->row_hist = NULL;
+	s->pair_hist = NULL;
 	sdramc_reset(s);
+	if (getenv("WREMU_ROWTRACE")) {
+		trace_row = (uint32_t)((strtoul(getenv("WREMU_ROWTRACE"), NULL, 0) - SDRAM_BASE) >> 10);
+		trace_row_set = true;
+		if (getenv("WREMU_ROWTRACE_SKIP"))
+			trace_skip = strtoul(getenv("WREMU_ROWTRACE_SKIP"), NULL, 0);
+	}
+	if (getenv("WREMU_ROWHIST")) {
+		s->row_hist = calloc(SDRAMC_ROW_HIST_ROWS, sizeof *s->row_hist);
+		s->pair_hist = calloc(SDRAMC_PAIR_HIST_SIZE, sizeof *s->pair_hist);
+	}
 	mem_add_mmio(m, "sdramc", SDRAMC_BASE, SDRAMC_LEN, sdramc_mmio, s);
 	mem_set_timing(m, sdramc_wait, s);
 }

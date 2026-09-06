@@ -8,6 +8,7 @@
 #ifndef WREMU_MODEL_H
 #define WREMU_MODEL_H
 
+#include <stdint.h>
 #include <stdio.h>
 
 struct model {
@@ -39,6 +40,7 @@ struct model {
 };
 
 extern struct model model;
+extern uint32_t wremu_cur_pc;
 
 /* Apply WREMU_MODEL overrides to the defaults. */
 void model_init(void);
