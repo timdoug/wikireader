@@ -56,6 +56,22 @@ SOURCES += zim_image.c
 SOURCES += zim_link.c
 SOURCES += zstddeclib.c
 
+# ZIM_BENCH=YES times a set of memory and card micro-benchmarks at start-up
+# and every article load by phase, appending the lines to bench.txt on the
+# boot volume and printing them on the serial console; see zim_bench.h.  The
+# Makefile does not track flag changes, so remove build/*.o when switching.
+ZIM_BENCH ?= NO
+ifeq (YES,$(strip ${ZIM_BENCH}))
+CFLAGS += -DZIM_BENCH=1
+SOURCES += zim_bench.c
+TARGETS += zimbench.ico   # inverted kiwi for a second launcher entry
+endif
+
+# The Zstandard sequence loop lives in A0 RAM (.fastcode, see
+# application.lds), far from the rest of the code, so its calls in and out
+# need the long form.
+build/zstddeclib.o: CFLAGS += -mlong-calls
+
 # Portable libwebp decoder only: no encoder, SIMD, threads, mux, or demux.
 SOURCES += alpha_dec.c
 SOURCES += buffer_dec.c

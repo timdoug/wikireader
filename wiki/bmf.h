@@ -161,6 +161,9 @@ struct pcffont_bmf {
 	char *glyph_cache;
 	uint32_t *glyph_tags;
 	unsigned int glyph_slots;
+	/* FatFs fast-seek map for the file; without it every glyph seek walks
+	 * the cluster chain from the start of a 3.6 MB font. */
+	unsigned long *link_map;
 };
 
 typedef struct pcffont_bmf pcffont_bmf_t;

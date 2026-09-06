@@ -1,0 +1,70 @@
+bench start: sdram ctl 0x00001353 ref 0x01ff0120 app 0x8000000b, timer 60 ticks/us
+bench buffer at 0x105d9000, stack near 0x11ffff70
+bench cpu-loop          3000000 ops     300.0 ms      6.0 cyc/op
+bench fetch-1k           131072 ops       5.8 ms      2.7 cyc/op
+bench read-words         262144 ops      57.6 ms     13.2 cyc/op
+bench read-bytes         262144 ops      40.8 ms      9.4 cyc/op
+bench write-words        262144 ops      40.2 ms      9.2 cyc/op
+bench write-bytes        262144 ops      40.2 ms      9.2 cyc/op
+bench pair-same-row      100000 ops      35.8 ms     21.5 cyc/op
+bench pair-row-change     100000 ops      48.3 ms     29.0 cyc/op
+bench pair-two-banks     100000 ops      35.8 ms     21.5 cyc/op
+bench pair-write-read     100000 ops      17.2 ms     10.4 cyc/op
+bench copy-bytes-512k     524288 ops     143.9 ms     16.5 cyc/op
+bench copy-batch8-512k     524288 ops     153.5 ms     17.6 cyc/op
+bench memcpy-512k        524288 ops      57.6 ms      6.6 cyc/op
+bench card-256k             512 ops     324.1 ms  37985.3 cyc/op
+bench card-256k-again        512 ops     323.9 ms  37964.4 cyc/op
+bench card-4k-x64           512 ops     410.2 ms  48077.3 cyc/op
+bench columns: article <index> total blob(card KB reads, zstd calls) html wrap paint ms, raw text stream bytes
+article 10304 total 4771.6 blob 2380.3 (card 351.0 201K 49, zstd 2024.0 47) html 301.9 wrap 266.2 paint 1823.0 ms, 79702 48239 77452 bytes
+bench start: sdram ctl 0x00001353 ref 0x01ff0120 app 0x8000000b, timer 60 ticks/us
+bench buffer at 0x107cf000, stack near 0x11ffff40
+bench cpu-loop          3000000 ops     300.0 ms      6.0 cyc/op
+bench fetch-1k           131072 ops       5.8 ms      2.7 cyc/op
+bench read-words         262144 ops      57.6 ms     13.2 cyc/op
+bench read-bytes         262144 ops      40.8 ms      9.4 cyc/op
+bench write-words        262144 ops      40.2 ms      9.2 cyc/op
+bench write-bytes        262144 ops      40.2 ms      9.2 cyc/op
+bench pair-same-row      100000 ops      35.8 ms     21.5 cyc/op
+bench pair-row-change     100000 ops      48.3 ms     29.0 cyc/op
+bench pair-two-banks     100000 ops      35.8 ms     21.5 cyc/op
+bench pair-write-read     100000 ops      17.2 ms     10.4 cyc/op
+bench copy-bytes-512k     524288 ops     137.4 ms     15.7 cyc/op
+bench copy-batch8-512k     524288 ops     135.3 ms     15.5 cyc/op
+bench memcpy-512k        524288 ops      51.2 ms      5.9 cyc/op
+bench card-256k             512 ops     322.3 ms  37777.2 cyc/op
+bench card-256k-again        512 ops     322.0 ms  37735.5 cyc/op
+bench card-4k-x64           512 ops     414.0 ms  48526.9 cyc/op
+bench columns: article <index> total blob(card KB reads, zstd calls) html wrap paint ms, raw text stream bytes
+article 70197 total 1846.4 blob 1299.7 (card 170.2 96K 24, zstd 1111.5 24) html 348.6 wrap 144.5 paint 53.4 ms, 130154 29853 24235 bytes
+article 14310 total 2043.3 blob 1893.2 (card 237.9 132K 33, zstd 1626.9 33) html 82.4 wrap 16.4 paint 51.1 ms, 42374 3453 2945 bytes
+article 70197 cached total 67.9 ms
+article 85374 total 2115.8 blob 2025.2 (card 246.3 144K 36, zstd 1746.1 36) html 29.2 wrap 8.6 paint 52.7 ms, 12366 1728 1415 bytes
+article 70197 cached total 63.4 ms
+bench start: sdram ctl 0x00001353 ref 0x01ff0120 app 0x8000000b, timer 60 ticks/us
+bench buffer at 0x105d8000, stack near 0x11ffff70
+bench cpu-loop          3000000 ops     300.0 ms      6.0 cyc/op
+bench fetch-1k           131072 ops       5.7 ms      2.6 cyc/op
+bench read-words         262144 ops      57.6 ms     13.2 cyc/op
+bench read-bytes         262144 ops      40.8 ms      9.4 cyc/op
+bench write-words        262144 ops      40.2 ms      9.2 cyc/op
+bench write-bytes        262144 ops      40.2 ms      9.2 cyc/op
+bench pair-same-row      100000 ops      35.8 ms     21.5 cyc/op
+bench pair-row-change     100000 ops      48.3 ms     29.0 cyc/op
+bench pair-two-banks     100000 ops      35.8 ms     21.5 cyc/op
+bench pair-write-read     100000 ops      17.2 ms     10.4 cyc/op
+bench copy-bytes-512k     524288 ops     143.9 ms     16.5 cyc/op
+bench copy-batch8-512k     524288 ops     165.9 ms     19.0 cyc/op
+bench memcpy-512k        524288 ops      57.6 ms      6.6 cyc/op
+bench card-256k             512 ops     331.7 ms  38872.0 cyc/op
+bench card-256k-again        512 ops     331.3 ms  38832.4 cyc/op
+bench card-4k-x64           512 ops     425.1 ms  49819.3 cyc/op
+bench columns: article <index> total blob(card KB reads, zstd calls) html wrap paint ms, raw text stream bytes
+article 70197 total 1390.1 blob 848.0 (card 133.4 96K 6, zstd 703.3 6) html 348.2 wrap 140.6 paint 53.2 ms, 130154 29853 24235 bytes
+article 358835 total 1029.6 blob 407.5 (card 67.1 48K 3, zstd 324.3 3) html 289.0 wrap 271.7 paint 61.2 ms, 109194 19733 16836 bytes
+article 70197 cached total 64.9 ms
+article 358835 cached total 69.9 ms
+article 70197 cached total 64.9 ms
+article 358835 cached total 69.9 ms
+article 70197 cached total 64.9 ms

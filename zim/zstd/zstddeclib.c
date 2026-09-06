@@ -45,6 +45,18 @@
 #define ZSTD_TRACE 0
 /* TODO: Can't amalgamate ASM function */
 #define ZSTD_DISABLE_ASM 1
+#if defined(__c33__)
+/* Code the application linker script places in the chip's zero-wait A0 RAM
+ * (see samo-lib/grifo/lds/application.lds).  The C33 has no instruction
+ * cache and code fetched from SDRAM spends a third of its cycles waiting;
+ * the area holds about 5 KB, so only the sequence loop and the FSE table
+ * builder go, and the file is compiled with long calls so they can reach
+ * the rest. */
+#define ZSTD_FASTCODE __attribute__((section(".fastcode")))
+#else
+#define ZSTD_FASTCODE
+#endif
+
 
 /* Include zstd_deps.h first with all the options we need enabled. */
 #define ZSTD_DEPS_NEED_MALLOC
@@ -15077,8 +15089,11 @@ ZSTD_copyMatchC33(BYTE* dst, const BYTE* src, size_t length)
     if (offset < 8) {
         /* Stage the pattern on the stack: it is in another SDRAM bank,
          * so filling and draining it does not change rows. */
+        /* The smallest multiple of the offset that is at least eight; a
+         * table, since the core has no divide. */
+        static const BYTE period_for_offset[8] = { 0, 8, 8, 9, 8, 10, 12, 14 };
         BYTE pattern[8];
-        size_t period = offset * ((8 + offset - 1) / offset);  /* 8..14 */
+        size_t period = period_for_offset[offset];
         size_t lead = period - offset;
         size_t i, j;
 
@@ -20908,7 +20923,7 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
 }
 
 /* Avoids the FORCE_INLINE of the _body() function. */
-static void ZSTD_buildFSETable_body_default(ZSTD_seqSymbol* dt,
+static void ZSTD_FASTCODE ZSTD_buildFSETable_body_default(ZSTD_seqSymbol* dt,
             const short* normalizedCounter, unsigned maxSymbolValue,
             const U32* baseValue, const U8* nbAdditionalBits,
             unsigned tableLog, void* wksp, size_t wkspSize)
@@ -22066,7 +22081,7 @@ ZSTD_decompressSequences_body(ZSTD_DCtx* dctx,
     return (size_t)(op - ostart);
 }
 
-static size_t
+static size_t ZSTD_FASTCODE
 ZSTD_decompressSequences_default(ZSTD_DCtx* dctx,
                                  void* dst, size_t maxDstSize,
                            const void* seqStart, size_t seqSize, int nbSeq,

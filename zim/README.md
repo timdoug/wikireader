@@ -215,13 +215,17 @@ board, masked until now by the emulator's flat 32 MB window.
 
 ## Article load cost
 
-Opening `Cat` from the Simple English archive in `wremu` (modeled guest time
-from the tap to the first painted page, measured with the emulator's `-Y`
-window between `retrieve_article` and `render_article_with_pcf`) takes 1.30 s,
-down from 1.94 s. The article is blob 29 of 84 in a 2 MiB cluster, so 872 KiB
-of neighbours must be decoded first; that decode is the floor set by the
-archive's cluster size. Instruction counts moved 25.1 M to 22.4 M, so most of
-the gain is memory behaviour, not instruction count:
+Opening `Cat` from the Simple English archive takes 1.27 s in `wremu`
+(calibrated model, `-Y` window between `retrieve_article` and
+`render_article_with_pcf`), down from 2.86 s for the morning's firmware and
+1.94 s for the state the device measured at 1.85 s (tap to painted page,
+`ZIM_BENCH` build, 2026-09-05). The article is blob 29 of 84 in a 2 MiB cluster,
+so 872 KiB of neighbours must be decoded first; that decode is the floor set
+by the archive's cluster size. Instruction counts moved 25.1 M to 22.4 M, so
+most of the gain is memory behaviour, not instruction count. The phase table
+below is from the earlier, manual-only emulator model (before it was
+calibrated to the device), so its absolute times are low by about a third;
+the proportions hold:
 
 | Phase | Before | After |
 | --- | ---: | ---: |
@@ -229,11 +233,14 @@ the gain is memory behaviour, not instruction count:
 | kernel, mostly the card read polling loop | 0.11 s | 0.13 s |
 | HTML to text | 0.21 s | 0.18 s |
 | word wrap, including the stream height | 0.08 s | 0.07 s |
-| whole window, tap to first paint | 1.94 s | 1.30 s |
+| whole window, tap to first paint | 1.94 s | 1.25 s |
 
 (Phase figures are per-function cycle totals from the `-F` profile, the
 Zstandard row summing the sequence, Huffman, FSE-table and copy routines;
-the window also contains time the CPU spends waiting on the card.)
+the window also contains time the CPU spends waiting on the card.) Under
+the calibrated model with the A0 RAM decoder the split of the 1.27 s is
+roughly: Zstandard 0.55 s, HTML to text 0.26 s, card and kernel 0.14 s,
+wrap 0.10 s, the rest in the Huffman literal decoder and the paint.
 
 The S1C33E07 has no cache. Every instruction fetch and data access goes to
 the SDRAM controller, which keeps one open row per bank and pays a precharge
@@ -272,7 +279,10 @@ is what found the following:
   about 19 to 7 clocks, and the refresh no longer costs 13% of the bus and a
   reactivation of every bank every 141 clocks. Without this, the software
   changes alone give 1.56 s. `SDRAM_TIMING=STOCK` builds a kernel that leaves
-  the loader's values.
+  the loader's values. The kernel's suspend code, which the event loop enters
+  whenever the reader idles, rewrites the refresh register on every wake; it
+  now restores the retimed interval (the first retimed kernel lost it after
+  the first idle, which the benchmark build's register line caught).
 - The SD DMA backend keeps its IDMA descriptor table and dummy transmit byte
   in DSTRAM, and polls for completion from a loop that fits the instruction
   queue, so a block no longer alternates between SDRAM rows for every byte.
@@ -280,9 +290,40 @@ is what found the following:
   archive open and title index read at start-up (app start to keyboard) go
   from 457 ms to 294 ms.
 
-Measured on the Wikivoyage archive, the first `Paris` photograph decodes in
-1.08 s instead of 1.34 s with the same instruction count, entirely from the
-SDRAM retiming.
+Measured on the Wikivoyage archive under the calibrated model, the first
+`Paris` photograph decodes in 1.57 s instead of 1.86 s with the same
+instruction count, entirely from the SDRAM retiming.
+
+Three more changes followed the device's own measurements (the `ZIM_BENCH`
+build, below):
+
+- The Zstandard sequence loop and FSE table builder run from the chip's
+  zero-wait A0 RAM. The C33 has no instruction cache and the calibrated
+  model showed the load spending 39% of its cycles waiting for code from
+  SDRAM. The kernel leaves A0 RAM from 0xc00 to 0x1fc0 (5056 bytes) to
+  applications (`grifo.lds` asserts its own relocated code stays below,
+  `application.lds` defines the `fastram` region and the `.fastcode`
+  output section), the kernel's ELF loader copies the section in like any
+  other, and its SD reads into internal RAM use the byte-at-a-time path
+  because HSDMA into A0 RAM is not something the board has been seen to
+  do. The two functions take 4340 bytes; `zstddeclib.c` is compiled with
+  long calls so they can reach the rest. `Cat` fell from 1.82 s to 1.27 s
+  in the model and from 1.85 s to 1.39 s on the device (2026-09-06,
+  `bench-device-2026-09-06.txt`); the device runs the A0 RAM code about
+  15% slower than the model's zero-wait assumption, the one remaining gap
+  above 10%.
+- Glyph misses no longer cost a cluster-chain walk and a card command each.
+  The font files now get FatFs fast-seek maps at load (a seek without one
+  followed the FAT chain from the start of a 3.6 MB font: 83% of a
+  CJK-heavy article's load was the kernel doing that), and a miss reads
+  the whole sectors its record lies in and keeps every record in them,
+  since the card delivers sectors and charges about 1.2 ms per command.
+  `Tokyo` (Simple English, Japanese in the first line) went from 8.05 s to
+  1.14 s tap to paint in the model and takes 1.03 s on the device; a Latin
+  article's first page after a cold boot,
+  which the device timed at 1.8 s of glyph loading, is helped the same way.
+- Cluster input is read in 16 KiB slices instead of 4 KiB, six card
+  commands instead of 24 for `Cat`'s prefix, saving about 50 ms per load.
 
 Reopening an article from the same cluster skips the decode entirely, and
 reopening one of the last four articles through history skips everything:
@@ -296,7 +337,7 @@ changes.
 The remaining decoder cost is about 55% of the window: 83 instructions per
 sequence at a CPI of 4, a third of it instruction fetch from SDRAM, the rest
 the three entropy-table lookups, literal and match traffic, and the stack.
-About 40% of the remaining row activations are re-openings after each
+About a quarter of the remaining row activations are re-openings after each
 auto-refresh closes every bank.
 
 Building with `OPT="-O2 -DZIM_TRACE_HASH"` prints the FNV-1a hash and size of
@@ -324,6 +365,61 @@ Atkinson error diffusion writes two values per pixel. The remaining image
 cost is VP8 coefficient decoding, luma rescaling, dithering, and the inverse
 transform.
 
+## Timing on the device
+
+There is no serial cable yet, so the reader can time itself and leave the
+results on the card, the way the kernel leaves `dma.txt`. Build the
+benchmark variant and install it beside the normal reader as a second
+launcher entry (the inverted kiwi):
+
+```sh
+cd zim && rm -f build/*.o zim.app
+make TOOLCHAIN_BIN=... ZIM_BENCH=YES
+cp zim.app /Volumes/WRBOOT*/zimbench.app; cp zimbench.ico /Volumes/WRBOOT*/
+printf '%s\n' 'zimbench.ico : zimbench.app started-from-init' >> /Volumes/WRBOOT*/init.ini
+rm -f build/*.o zim.app && make TOOLCHAIN_BIN=...     # back to the normal app
+```
+
+At start-up the benchmark app runs a set of micro-benchmarks (about two
+seconds), and after every article load it records the load by phase. Each
+result is one line appended to `bench.txt` on the boot volume and printed on
+the serial console:
+
+```text
+bench start: sdram ctl 0x00001352 ref 0x03ff0120 app 0x8000000b, timer 60 ticks/us
+bench cpu-loop          3000000 ops     200.0 ms      4.0 cyc/op
+bench pair-row-change    100000 ops      37.6 ms     22.6 cyc/op
+bench card-256k             512 ops     197.9 ms  23199.6 cyc/op
+article 70197 total 1326.5 blob 918.5 (card 83.9 96K 24, zstd 813.5 24) html 240.0 wrap 129.0 paint 38.9 ms, 130154 29853 24235 bytes
+```
+
+The first line shows the SDRAM controller registers the kernel is actually
+running with. The micro-benchmarks isolate one thing each: `cpu-loop` a
+register-only loop (the clock and branch cost), `fetch-1k` straight-line
+code (instruction fetch), `read-`/`write-` sequential SDRAM access by words
+and bytes, `pair-same-row`, `pair-row-change` and `pair-two-banks`
+alternating word reads with nothing, a row change, or a bank switch between
+them, the three copies of 512 KiB, and the card: 256 KiB sequential (twice)
+and 64 reads of 4 KiB a megabyte apart. `cyc/op` is timer ticks per
+operation, which are MCLK cycles. Article lines give tap-to-paint by phase;
+the blob phase is split into the card reads and the Zstandard calls it
+contains.
+
+Run the same app in the emulator on a scratch copy of the card image
+without `-R` (a rejected write of `bench.txt` on a read-only image leaves the
+guest's file system unable to open the fonts) and the lines appear on its
+standard output and in the image's `bench.txt`. Compare with
+
+```sh
+zim/bench-compare device-bench.txt emulator-bench.txt
+```
+
+which prints both times for every matching line and their ratio. The
+emulator's timing parameters were fitted to the device's file this way on
+2026-09-05 (`emulator/tools/fit_model.py`, `emulator/README.md`
+"Calibration"); the file is kept as `bench-device-2026-09-05.txt`. Every
+micro-benchmark now agrees within 10% and the `Cat` load within 8%.
+
 ## Hardware status
 
 Run on a real WikiReader with its stock 2009 flash on 2026-09-05, from an
@@ -336,9 +432,12 @@ DMA backend slept in HALT for a completion interrupt that never woke the
 core. The 124 GB full English archive has not yet been tried on a card.
 
 The kernel's SDRAM retiming and the DMA descriptor move to DSTRAM described
-under "Article load cost" ran on the same device later on 2026-09-05: it
-boots, searches, and opens articles, and loads feel faster; no `dma.txt`
-fallback note appeared. The speed-ups have not been timed on hardware. The
+under "Article load cost" ran on the same device later on 2026-09-05, and
+the A0 RAM decoder, fast-seek fonts, and the loader's byte-path read into
+internal RAM on 2026-09-06: it boots, searches, and opens articles, no
+`dma.txt` fallback note appeared, and its own `ZIM_BENCH` timings are in
+`bench-device-2026-09-05.txt` and `bench-device-2026-09-06.txt` (`Cat`
+1.85 s then 1.39 s, `Tokyo` 1.03 s). The
 retiming uses data-sheet values with margin; a board that misbehaves with it
 (garbled screen, hangs, wrong articles) should be given a
 `SDRAM_TIMING=STOCK` kernel, and the DMA change falls back to byte-at-a-time

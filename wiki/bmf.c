@@ -36,6 +36,40 @@
 #define BMF_RESIDENT_RECORDS 256
 #define BMF_GLYPH_CACHE_SLOTS 2048
 
+/*
+ * Give the font file a FatFs fast-seek map.  Glyph misses seek all over a
+ * font, and a seek without a map follows the FAT chain from the start of
+ * the file, cluster by cluster: on a 3.6 MB font that was most of the time
+ * a page of new glyphs took to wrap.  The map is a few words for a
+ * contiguous file; a fragmented one gets the size FatFs asks for.  Without
+ * a map the font still works, slowly.
+ */
+static void create_link_map(pcffont_bmf_t *font, int fd)
+{
+	unsigned long entries = 4;
+	file_error_t result;
+
+	font->link_map = (unsigned long *)memory_allocate(entries * sizeof(*font->link_map), "bmfmap");
+	if (!font->link_map)
+		return;
+	result = file_fastseek(fd, font->link_map, entries);
+	if (result == FILE_ERROR_NOT_ENOUGH_CORE) {
+		entries = font->link_map[0];
+		memory_free(font->link_map, "bmfmap");
+		font->link_map = NULL;
+		if (entries < 4 || entries > 4096)
+			return;
+		font->link_map = (unsigned long *)memory_allocate(entries * sizeof(*font->link_map), "bmfmap");
+		if (!font->link_map)
+			return;
+		result = file_fastseek(fd, font->link_map, entries);
+	}
+	if (result != FILE_ERROR_OK) {
+		memory_free(font->link_map, "bmfmap");
+		font->link_map = NULL;
+	}
+}
+
 int load_bmf(pcffont_bmf_t *font)
 {
 	int fd;
@@ -85,6 +119,7 @@ int load_bmf(pcffont_bmf_t *font)
 	}
 
 	file_read(fd, font->charmetric, resident);
+	create_link_map(font, fd);
 
 	memcpy(&header,font->charmetric,sizeof(font_bmf_header));
 
@@ -122,6 +157,64 @@ int bmf_char_width(ucs4_t val, pcffont_bmf_t *font)
 
 	pres_bmfbm(val, font, &bitmap, &copied);
 	return bitmap ? copied.widthDevice : 0;
+}
+
+/*
+ * Fetch the glyph record for `val` from the card, together with every whole
+ * record in the sectors it occupies.  The card delivers whole 512-byte
+ * sectors and charges about 1.2 ms per read command before the first byte,
+ * so the neighbours cost nothing extra and usually cover the next few
+ * misses of a script's run of code points.  In a direct-mapped cache the
+ * records go to their own slots; a fully resident font takes them in place.
+ * Returns 0 if the record for `val` could not be read.
+ */
+#define BMF_SECTOR 512
+
+static int load_glyph_window(pcffont_bmf_t *font, ucs4_t val)
+{
+	const long record_size = (long)sizeof(charmetric_bmf);
+	const long header = (long)sizeof(font_bmf_header);
+	long offset = (long)val * record_size + header;
+	long start = offset - (offset % BMF_SECTOR);
+	long end = offset + record_size;
+	long length;
+	char window[2 * BMF_SECTOR];
+	ucs4_t first, count, i;
+
+	end += (BMF_SECTOR - end % BMF_SECTOR) % BMF_SECTOR;
+	if (end > (long)font->file_size)
+		end = (long)font->file_size;
+	if (offset + record_size > end)
+		return 0;
+	length = end - start;
+	file_lseek(font->fd, start);
+	if (file_read(font->fd, window, (size_t)length) != (ssize_t)length)
+		return 0;
+	/* Whole records inside the window; the first may begin before it. */
+	first = (ucs4_t)((start - header + record_size - 1) / record_size);
+	count = (ucs4_t)((end - header) / record_size) - first;
+	for (i = 0; i < count; i++)
+	{
+		ucs4_t glyph = first + i;
+		const char *source = window + (glyph * record_size + header - start);
+		char *destination;
+
+		if (glyph < BMF_RESIDENT_RECORDS && font->glyph_slots)
+			continue;   /* below the cache's range, resident anyway */
+		if (font->glyph_slots)
+		{
+			unsigned int slot = glyph & (font->glyph_slots - 1);
+			destination = font->glyph_cache + slot * record_size;
+			memcpy(destination, source, (size_t)record_size);
+			font->glyph_tags[slot] = glyph + 1;
+		}
+		else
+		{
+			destination = font->charmetric + glyph * record_size + header;
+			memcpy(destination, source, (size_t)record_size);
+		}
+	}
+	return 1;
 }
 
 int
@@ -187,12 +280,13 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 		}
 		if (!loaded)
 		{
-			file_lseek(font->fd,offset);
-			// A truncated font file gives a short read.  The metrics must be
-			// zeroed in that case, or the caller renders a glyph using
-			// whatever happened to be on the stack.
-			if (file_read(font->fd,Cmetrics,sizeof(charmetric_bmf)) != (ssize_t)sizeof(charmetric_bmf))
+			if (!load_glyph_window(font, val))
 				memset(Cmetrics,0,sizeof(charmetric_bmf));
+			else
+				memcpy(Cmetrics, record, sizeof(charmetric_bmf));
+			/* The window put the records in place; a substituted
+			 * default glyph below is still remembered. */
+			loaded = Cmetrics->width != 0;
 		}
 	}
 

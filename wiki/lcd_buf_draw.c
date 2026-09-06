@@ -33,6 +33,11 @@
 #include "wiki_info.h"
 #include "bmf.h"
 #include "lcd_buf_draw.h"
+#ifdef ZIM_BENCH
+#include "zim_bench.h"
+#else
+#define zim_bench_painted() ((void)0)
+#endif
 #include "search.h"
 #include "bigram.h"
 #include "utf8.h"
@@ -733,6 +738,7 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 				lcd_draw_cur_y_pos = article_start_y_pos;
 				finger_move_speed = 0;
 				repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 0);
+				zim_bench_painted();
 				if (lcd_draw_init_y_pos < article_start_y_pos)
 					lcd_draw_init_y_pos = article_start_y_pos;
 				if (lcd_draw_init_y_pos > article_start_y_pos)
@@ -1338,6 +1344,7 @@ int render_article_with_pcf()
 
 			repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 1);
 			display_first_page = 1;
+			zim_bench_painted();
 			request_display_next_page = 0;
 		}
 

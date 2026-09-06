@@ -14,6 +14,19 @@ void *zim_alloc_bank_local(size_t size);
 #define zim_alloc_bank_local malloc
 #endif
 
+#if defined(__c33__) && defined(ZIM_BENCH)
+#include <grifo.h>
+#include "zim_bench.h"
+/* Time a statement into a zim_bench slot; nothing in a normal build. */
+#define BENCH_TIMED(slot, bytes, statement) do { \
+		unsigned long bench_t0_ = timer_get(); \
+		statement; \
+		zim_bench_account(slot, timer_get() - bench_t0_, bytes); \
+	} while (0)
+#else
+#define BENCH_TIMED(slot, bytes, statement) do { statement; } while (0)
+#endif
+
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
@@ -111,11 +124,15 @@ static uint64_t get_offset(const unsigned char *p, size_t offset_size)
 static int read_exact(const ZIM_ARCHIVE *archive, uint64_t offset,
 		      void *buffer, size_t length)
 {
+	int rc;
+
 	if (offset > archive->io.size ||
 	    (uint64_t)length > archive->io.size - offset)
 		return ZIM_ERR_RANGE;
-	return archive->io.read_at(archive->io.opaque, offset, buffer, length) ?
-		ZIM_ERR_IO : ZIM_OK;
+	BENCH_TIMED(ZIM_BENCH_SLOT_CARD, length,
+		    rc = archive->io.read_at(archive->io.opaque, offset, buffer,
+					     length));
+	return rc ? ZIM_ERR_IO : ZIM_OK;
 }
 
 int zim_archive_resolve_redirect(const ZIM_ARCHIVE *archive,
@@ -225,11 +242,12 @@ void zim_blob_cache_reset(void)
 	cluster_release();
 }
 
-/* Compressed bytes handed to the decoder per call.  Each slice is one
- * progress report of roughly 80 ms of decoding, so a 260 KB Kiwix cluster
- * moves the bar about sixty times instead of four; the extra
- * ZSTD_decompressStream calls are cheap. */
-#define ZIM_CLUSTER_INPUT_SLICE (4u << 10)
+/* Compressed bytes handed to the decoder per call.  Each slice is one card
+ * read and one progress report.  The card charges about 1.2 ms per read
+ * command before the first byte (measured 2026-09-05), so 4 KiB slices
+ * spent a fifth of the read time on latency; 16 KiB slices keep the bar
+ * moving every quarter second of decoding or so. */
+#define ZIM_CLUSTER_INPUT_SLICE (16u << 10)
 #if ZIM_CLUSTER_INPUT_SLICE > ZIM_STREAM_BUFFER_SIZE
 #error "the input slice must fit the stream buffer"
 #endif
@@ -273,8 +291,9 @@ static int cluster_advance(const ZIM_ARCHIVE *archive, size_t target,
 		out.dst = cluster.output;
 		out.size = cluster.capacity;
 		out.pos = cluster.decoded;
-		remaining = ZSTD_decompressStream(cluster.stream, &out,
-						  &cluster.in);
+		BENCH_TIMED(ZIM_BENCH_SLOT_ZSTD, 0,
+			    remaining = ZSTD_decompressStream(cluster.stream, &out,
+							      &cluster.in));
 		if (ZSTD_isError(remaining))
 			return ZIM_ERR_FORMAT;
 		cluster.decoded = out.pos;
@@ -449,7 +468,9 @@ static int read_zstd_blob_streaming(const ZIM_ARCHIVE *archive,
 			input.pos = 0;
 		}
 		output.pos = 0;
-		remaining = ZSTD_decompressStream(stream, &output, &input);
+		BENCH_TIMED(ZIM_BENCH_SLOT_ZSTD, 0,
+			    remaining = ZSTD_decompressStream(stream, &output,
+							      &input));
 		if (ZSTD_isError(remaining))
 			goto out;
 

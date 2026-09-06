@@ -19,6 +19,7 @@
 #include "wikilib.h"
 #include "zim_archive.h"
 #include "zim_article.h"
+#include "zim_bench.h"
 #include "zim_blob.h"
 #include "zim_catalog.h"
 #include "zim_file.h"
@@ -1060,6 +1061,7 @@ void search_init(void)
 		guilib_fb_unlock();
 	}
 	open_archive(nCurrentWiki);
+	zim_bench_startup(archive.io.read_at, archive.io.opaque, archive.io.size);
 	results.count = 0;
 	results.selected = -1;
 }
@@ -1341,6 +1343,7 @@ int retrieve_article(long encoded_index)
 #define FAIL() do { failed_line = __LINE__; goto error; } while (0)
 
 	(void)failed_line;
+	zim_bench_article_begin(index);
 	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
@@ -1367,6 +1370,7 @@ int retrieve_article(long encoded_index)
 	}
 	article_cache_store_current();
 	if (article_cache_restore(index)) {
+		zim_bench_article_cached();
 #ifdef ZIM_TRACE_HASH
 		debug_printf("article cache hit %lu history y %ld\n",
 			     (unsigned long)index, history_get_y_pos());
@@ -1399,6 +1403,7 @@ int retrieve_article(long encoded_index)
 			FAIL();
 		raw = raw_buffer;
 	}
+	zim_bench_mark(ZIM_BENCH_MARK_BLOB);
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
 #ifdef ZIM_TRACE_HASH
 	/* Build with OPT="-O2 -DZIM_TRACE_HASH" to check decoder changes: the
@@ -1417,6 +1422,7 @@ int retrieve_article(long encoded_index)
 					      article_html_progress, NULL);
 	if (rc)
 		FAIL();
+	zim_bench_mark(ZIM_BENCH_MARK_HTML);
 	draw_progress_bar(ARTICLE_PROGRESS_HTML_END, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
@@ -1431,6 +1437,8 @@ int retrieve_article(long encoded_index)
 					     NULL, &article_height,
 					     article_wrap_progress, NULL))
 		FAIL();
+	zim_bench_mark(ZIM_BENCH_MARK_WRAP);
+	zim_bench_article_sizes(raw_size, text_size, article_size);
 	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))
