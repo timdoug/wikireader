@@ -224,6 +224,32 @@ code but loses more time to SDRAM/bus stalls. This is a medium-confidence
 ordering, not a hardware measurement: absolute SD latency and conservative
 cross-bank overlap still need physical calibration.
 
+### ZIM article load benchmark
+
+The memory system, not the instruction count, bounds the ZIM reader: the
+core has no cache, and the model's SDRAM row changes and refreshes made the
+`Cat` load run at 4.65 cycles per instruction. On 2026-09-05 the emulator
+gained cycle- and row-activation-weighted profiles (`-F`, `--- window
+sdram`), and the reader, the Zstandard port, the kernel's SD DMA backend, and
+the SDRAM controller timing were changed accordingly; details and the phase
+breakdown are in [`../../zim/README.md`](../../zim/README.md).
+
+| Measurement (modeled) | Before | After |
+| --- | ---: | ---: |
+| `Cat`, tap to first painted page | 1941.3 ms | 1296.0 ms |
+| same, software changes only (stock SDRAM timing forced) | | 1557.5 ms |
+| Wikivoyage `Paris`, first photograph decode | 1342.5 ms | 1084.0 ms |
+| app start to keyboard painted | 457 ms | 294 ms |
+| SD 512-byte block payload | 52,300 cycles | 22,900 cycles |
+
+Screens and article streams are byte-identical, eight decoded articles hash
+identically to `zimdump`, and `host-tools/zim-reader/make check` passes. The
+kernel's SDRAM retiming (`samo-lib/grifo/src/sdram.c`, `SDRAM_TIMING=FAST`
+default, `STOCK` to disable) and the DMA descriptor move to DSTRAM ran on the
+device the same day (boots, searches, opens articles, subjectively faster;
+not yet timed); the loader in flash still programs the stock values, so the
+kernel reprograms the controller from A0 RAM after boot.
+
 ## Known boundaries
 
 ### Toolchain feature debt
@@ -271,14 +297,23 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-1. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
+1. Time a `Cat` load on the device with a stopwatch under the default and an
+   `SDRAM_TIMING=STOCK` kernel; that calibrates the SD and SDRAM models. Also
+   exercise suspend/resume and a long session on the retimed kernel.
+2. Write the 124 GB English Wikipedia image to a 128 GB card and repeat the
    hardware checklist; time a Cat load on hardware with `SD_DMA=YES` and
    `SD_DMA=NO` to calibrate the SD model.
 2. Make modern-vs-legacy firmware toolchain selection explicit and resistant
    to stale mixed objects, and make the firmware Makefiles notice flag
    changes.
-3. Speed up `zim_html_to_text_images` (1.75 s for a 728 KB article, a third
-   of the decode time for far less data) if full-English loads feel slow.
+3. Further reader speed, in order of expected value: overlap the next
+   4 KiB input slice's card read with decoding (the kernel's file read is
+   synchronous, so this needs an asynchronous block read); decode the four
+   Huffman literal streams one after another instead of interleaved (the
+   interleave exists for superscalar cores and costs a row change per byte
+   here); shrink the sequence loop's 83 instructions per sequence; and, if
+   the hardware confirms the timing model, place the hot sequence loop in
+   the 5.5 KB of A0 RAM the suspend code does not use.
 4. Add targeted independent runtime coverage for the implemented PE
    operations not reached by firmware or differential programs.
 5. Exercise an unstripped C33 program with a real debugger and verify
