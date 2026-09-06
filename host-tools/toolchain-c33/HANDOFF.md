@@ -237,8 +237,8 @@ breakdown are in [`../../zim/README.md`](../../zim/README.md).
 | Measurement (calibrated model, 2026-09-05 evening) | Before | After |
 | --- | ---: | ---: |
 | `Cat`, tap to first painted page | 2864.0 ms | 1073.4 ms |
-| same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1390 ms |
-| `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 980 / 1030 ms |
+| same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1245 ms |
+| `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 980 / 920 ms |
 | Wikivoyage `Paris`, first photograph decode | 1861.0 ms | 1565.5 ms |
 | app start to keyboard painted | 807 ms | 632 ms |
 

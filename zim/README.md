@@ -339,7 +339,11 @@ build, below):
   overlay section's address to its load address after linking. The
   converter's once-per-element paths moved out of line to fit. `Cat` fell
   from 1.30 s to 1.07 s in the model; the benchmark build's tap-to-paint
-  line from 1353 to 1121 ms, `Tokyo` from 1141 to 980 ms.
+  line from 1353 to 1121 ms, `Tokyo` from 1141 to 980 ms. On the device:
+  `Cat` 1391 to 1245 ms, `Tokyo` 1030 to 920 ms. The model runs the
+  overlay and A0 RAM phases about 15% fast (zstd 687 ms measured against
+  587, HTML 251 against 210): their fetch is right, so the gap is in
+  data traffic the micro-benchmarks do not exercise.
 
 Reopening an article from the same cluster skips the decode entirely, and
 reopening one of the last four articles through history skips everything:
