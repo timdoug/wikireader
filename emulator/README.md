@@ -353,6 +353,24 @@ make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" \
     SD_DMA=YES <target>
 ```
 
+Refitted on 2026-09-07 against a device run of the same build, with the
+emulator booting as the board under test (`WREMU_BOARD_REV=7`). Two costs
+the earlier micro-benchmarks never exercised were added: `dq_iram_extra`,
+paid by a data access issued from code running in internal RAM, which the
+device does in 2.6 cycles where the model had 1.6, and `dq_hit`, paid by a
+read the data queue already holds, which the model served free. The
+micro-benchmark error fell from 0.286 to 0.040, every test now within 12%
+of the device and most within 5%.
+
+The article phases remain 16 to 33% faster in the model than on the device
+(decode 411 ms against 495, converter 125 against 166, wrapper 82 against
+95) and no measurement so far explains it. A load-use pipeline interlock
+was the obvious candidate and the device refutes it: dependent and
+independent loads both cost 2.1 cycles, exactly as modelled. Treat the
+model as a good guide to the *ranking* of changes, since the error is in
+one direction across every phase, and confirm anything that matters on the
+device.
+
 ## Hardware model
 
 ### CPU and memory
