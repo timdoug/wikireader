@@ -257,6 +257,7 @@ struct VP8Decoder {
 
   // Filtering side-info
   int filter_type;                          // 0=off, 1=simple, 2=complex
+  int luma_only;        // skip chroma reconstruction, not entropy parsing
   VP8FInfo fstrengths[NUM_MB_SEGMENTS][2];  // precalculated per-segment/type
 
   // Alpha

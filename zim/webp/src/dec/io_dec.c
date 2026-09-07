@@ -41,8 +41,10 @@ static int EmitYUV(const VP8Io* const io, WebPDecParams* const p) {
   const int uv_w = (mb_w + 1) / 2;
   const int uv_h = (mb_h + 1) / 2;
   WebPCopyPlane(io->y, io->y_stride, y_dst, buf->y_stride, mb_w, mb_h);
-  WebPCopyPlane(io->u, io->uv_stride, u_dst, buf->u_stride, uv_w, uv_h);
-  WebPCopyPlane(io->v, io->uv_stride, v_dst, buf->v_stride, uv_w, uv_h);
+  if (!io->luma_only) {
+    WebPCopyPlane(io->u, io->uv_stride, u_dst, buf->u_stride, uv_w, uv_h);
+    WebPCopyPlane(io->v, io->uv_stride, v_dst, buf->v_stride, uv_w, uv_h);
+  }
   return io->mb_h;
 }
 
@@ -271,7 +273,7 @@ static int EmitRescaledYUV(const VP8Io* const io, WebPDecParams* const p) {
                  io->a, io->width, io->mb_w, mb_h, 0);
   }
   num_lines_out = Rescale(io->y, io->y_stride, mb_h, scaler);
-  if (p->options == NULL || !p->options->luma_only) {
+  if (!io->luma_only) {
     Rescale(io->u, io->uv_stride, uv_mb_h, p->scaler_u);
     Rescale(io->v, io->uv_stride, uv_mb_h, p->scaler_v);
   }
@@ -583,6 +585,7 @@ static int CustomSetup(VP8Io* io) {
   if (!WebPIoInitFromOptions(p->options, io, is_alpha ? MODE_YUV : MODE_YUVA)) {
     return 0;
   }
+  io->luma_only = !is_rgb && p->options != NULL && p->options->luma_only;
   if (is_alpha && WebPIsPremultipliedMode(colorspace)) {
     WebPInitUpsamplers();
   }

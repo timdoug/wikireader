@@ -14,10 +14,22 @@
 #include <stddef.h>
 
 #if defined(ZIM_BENCH_AB)
+enum {
+	ZIM_BENCH_BOOT_INIT,
+	ZIM_BENCH_BOOT_ARCHIVE,
+	ZIM_BENCH_BOOT_SETTINGS,
+	ZIM_BENCH_BOOT_UI,
+	ZIM_BENCH_BOOT_FONTS,
+	ZIM_BENCH_BOOT_MARKS
+};
 void zim_bench_boot_begin(void);
+void zim_bench_boot_mark(int stage);
+void zim_bench_font_sample(const char *path, unsigned long open_ticks,
+	unsigned long resident_ticks, unsigned long map_ticks);
 void zim_bench_boot_ready(void);
 #else
 #define zim_bench_boot_begin() ((void)0)
+#define zim_bench_boot_mark(stage) ((void)0)
 #define zim_bench_boot_ready() ((void)0)
 #endif
 

@@ -91,6 +91,8 @@ build/zim_image.o: CFLAGS += -mlong-calls
 # Rescaling shares the WebP overlay, including lossless and alpha paths.
 # All direct callers need to reach the internal-RAM entry points.
 build/rescaler.o build/rescaler_utils.o build/io_dec.o build/vp8l_dec.o: CFLAGS += -mlong-calls
+# Transform helpers share that overlay; their wrappers also live in dec.o.
+build/dec.o: CFLAGS += -mlong-calls
 # Target flags follow the shared rules' -fno-builtin. Enable fixed-size
 # copies in the WebP bit reader without changing the legacy UI's build.
 build/vp8_dec.o build/zim_image.o: CFLAGS += -fbuiltin

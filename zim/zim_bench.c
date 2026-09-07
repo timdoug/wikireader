@@ -72,10 +72,36 @@ static unsigned long tenths_ms(unsigned long ticks)
 
 #ifdef ZIM_BENCH_AB
 static unsigned long boot_start;
+static unsigned long boot_marks[ZIM_BENCH_BOOT_MARKS];
+static struct {
+	const char *path;
+	unsigned long open, resident, map;
+} boot_fonts[8];
+static unsigned int boot_font_count;
+static int boot_pending;
 
 void zim_bench_boot_begin(void)
 {
 	boot_start = timer_get();
+	boot_font_count = 0;
+	boot_pending = 1;
+}
+
+void zim_bench_boot_mark(int stage)
+{
+	boot_marks[stage] = timer_get();
+}
+
+void zim_bench_font_sample(const char *path, unsigned long open_ticks,
+	unsigned long resident_ticks, unsigned long map_ticks)
+{
+	if (boot_pending && boot_font_count < sizeof(boot_fonts) / sizeof(boot_fonts[0])) {
+		boot_fonts[boot_font_count].path = path;
+		boot_fonts[boot_font_count].open = open_ticks;
+		boot_fonts[boot_font_count].resident = resident_ticks;
+		boot_fonts[boot_font_count].map = map_ticks;
+		++boot_font_count;
+	}
 }
 
 void zim_bench_boot_ready(void)
@@ -85,6 +111,10 @@ void zim_bench_boot_ready(void)
 	 * loaded, just before the first search-renderer call. */
 	unsigned long elapsed = timer_get() - boot_start;
 	const char *path = zim_catalog_path(nCurrentWiki);
+	unsigned long previous = boot_start;
+	unsigned int i;
+	static const char *const stages[] = {"init", "archive", "settings", "ui", "fonts"};
+	boot_pending = 0;
 
 	bench_line("bench variant: %s; build: %s %s gcc %s",
 		ZIM_BENCH_VARIANT, __DATE__, __TIME__, __VERSION__);
@@ -94,6 +124,17 @@ void zim_bench_boot_ready(void)
 		"timer %u ticks/us", (unsigned long)REG_SDRAMC_CTL,
 		(unsigned long)REG_SDRAMC_REF, (unsigned long)REG_SDRAMC_APP,
 		(unsigned)TICKS_PER_US);
+	/* Defer every write until the timed work is complete. Both A/B apps
+	 * carry these same probes; the normal app compiles them out. */
+	for (i = 0; i < ZIM_BENCH_BOOT_MARKS; ++i) {
+		bench_line("startup phase %s %lu.%lu ms", stages[i],
+			MS(boot_marks[i] - previous));
+		previous = boot_marks[i];
+	}
+	for (i = 0; i < boot_font_count; ++i)
+		bench_line("startup font %s open %lu.%lu resident %lu.%lu map %lu.%lu ms",
+			boot_fonts[i].path, MS(boot_fonts[i].open),
+			MS(boot_fonts[i].resident), MS(boot_fonts[i].map));
 }
 #endif
 

@@ -57,11 +57,16 @@ article-link-test: article-link-test.c ../../zim/zim_article.c \
 		-o $@ article-link-test.c \
 		../../zim/zim_article.c ../../zim/zim_html.c ../../zim/zim_link.c
 
-check: zimdump blob-cache-test fat-cache-test article-link-test
+luma-only-test: luma-only-test.c luma-only-fixtures.h $(WEBP_SOURCES) \
+		$(wildcard ../../zim/webp/src/dec/*.h) ../../zim/webp/src/webp/decode.h
+	$(CC) $(CFLAGS) -o $@ luma-only-test.c $(WEBP_SOURCES)
+
+check: zimdump blob-cache-test fat-cache-test article-link-test luma-only-test
 	./fat-cache-test
 	./article-link-test
+	./luma-only-test
 	./check.sh
 
 clean:
 	rm -f zimdump zimfatdump blob-cache-test fat-cache-test article-link-test \
-		zstddeclib.o
+		luma-only-test zstddeclib.o

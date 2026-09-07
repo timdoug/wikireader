@@ -2,7 +2,8 @@
 
 This records the first round, committed as `207044cd`. See
 [round two](PERFORMANCE-ROUND2.md) for the subsequent scaler and drawing-buffer
-experiments and their separate device A/B pair.
+experiments and their separate device A/B pair. [Round three](PERFORMANCE-ROUND3.md)
+adds WebP transforms, brightness-only reconstruction and startup probes.
 
 Compared with `5472952f`, using GCC 16.2, the current kernel, stock ZIM
 archives and the calibrated emulator's 32 MB board (`WREMU_BOARD_REV=7`).

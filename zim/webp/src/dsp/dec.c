@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "zim_overlay.h"
+
 #include "src/dec/common_dec.h"
 #include "src/dec/vp8i_dec.h"
 #include "src/dsp/cpu.h"
@@ -43,7 +45,8 @@ static WEBP_INLINE uint8_t clip_8b(int v) {
 } while (0)
 
 #if !WEBP_NEON_OMIT_C_CODE
-static void TransformOne_C(const int16_t* WEBP_RESTRICT in,
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+TransformOne_C(const int16_t* WEBP_RESTRICT in,
                            uint8_t* WEBP_RESTRICT dst) {
   int C[4 * 4], *tmp;
   int i;
@@ -88,7 +91,8 @@ static void TransformOne_C(const int16_t* WEBP_RESTRICT in,
 }
 
 // Simplified transform when only in[0], in[1] and in[4] are non-zero
-static void TransformAC3_C(const int16_t* WEBP_RESTRICT in,
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+TransformAC3_C(const int16_t* WEBP_RESTRICT in,
                            uint8_t* WEBP_RESTRICT dst) {
   const int a = in[0] + 4;
   const int c4 = WEBP_TRANSFORM_AC3_MUL2(in[4]);
@@ -102,7 +106,8 @@ static void TransformAC3_C(const int16_t* WEBP_RESTRICT in,
 }
 #undef STORE2
 
-static void TransformTwo_C(const int16_t* WEBP_RESTRICT in,
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+TransformTwo_C(const int16_t* WEBP_RESTRICT in,
                            uint8_t* WEBP_RESTRICT dst, int do_two) {
   TransformOne_C(in, dst);
   if (do_two) {
@@ -118,7 +123,8 @@ static void TransformUV_C(const int16_t* WEBP_RESTRICT in,
 }
 
 #if !WEBP_NEON_OMIT_C_CODE
-static void TransformDC_C(const int16_t* WEBP_RESTRICT in,
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+TransformDC_C(const int16_t* WEBP_RESTRICT in,
                           uint8_t* WEBP_RESTRICT dst) {
   const int DC = in[0] + 4;
   int i, j;
@@ -144,7 +150,8 @@ static void TransformDCUV_C(const int16_t* WEBP_RESTRICT in,
 // Paragraph 14.3
 
 #if !WEBP_NEON_OMIT_C_CODE
-static void TransformWHT_C(const int16_t* WEBP_RESTRICT in,
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+TransformWHT_C(const int16_t* WEBP_RESTRICT in,
                            int16_t* WEBP_RESTRICT out) {
   int tmp[16];
   int i;

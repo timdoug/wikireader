@@ -114,20 +114,27 @@ static void ReconstructRow(const VP8Decoder* const dec,
   for (j = 0; j < 16; ++j) {
     y_dst[j * BPS - 1] = 129;
   }
-  for (j = 0; j < 8; ++j) {
-    u_dst[j * BPS - 1] = 129;
-    v_dst[j * BPS - 1] = 129;
+  if (!dec->luma_only) {
+    for (j = 0; j < 8; ++j) {
+      u_dst[j * BPS - 1] = 129;
+      v_dst[j * BPS - 1] = 129;
+    }
   }
 
   // Init top-left sample on left column too.
   if (mb_y > 0) {
-    y_dst[-1 - BPS] = u_dst[-1 - BPS] = v_dst[-1 - BPS] = 129;
+    y_dst[-1 - BPS] = 129;
+    if (!dec->luma_only) {
+      u_dst[-1 - BPS] = v_dst[-1 - BPS] = 129;
+    }
   } else {
     // we only need to do this init once at block (0,0).
     // Afterward, it remains valid for the whole topmost row.
     memset(y_dst - BPS - 1, 127, 16 + 4 + 1);
-    memset(u_dst - BPS - 1, 127, 8 + 1);
-    memset(v_dst - BPS - 1, 127, 8 + 1);
+    if (!dec->luma_only) {
+      memset(u_dst - BPS - 1, 127, 8 + 1);
+      memset(v_dst - BPS - 1, 127, 8 + 1);
+    }
   }
 
   // Reconstruct one row.
@@ -140,9 +147,11 @@ static void ReconstructRow(const VP8Decoder* const dec,
       for (j = -1; j < 16; ++j) {
         Copy32b(&y_dst[j * BPS - 4], &y_dst[j * BPS + 12]);
       }
-      for (j = -1; j < 8; ++j) {
-        Copy32b(&u_dst[j * BPS - 4], &u_dst[j * BPS + 4]);
-        Copy32b(&v_dst[j * BPS - 4], &v_dst[j * BPS + 4]);
+      if (!dec->luma_only) {
+        for (j = -1; j < 8; ++j) {
+          Copy32b(&u_dst[j * BPS - 4], &u_dst[j * BPS + 4]);
+          Copy32b(&v_dst[j * BPS - 4], &v_dst[j * BPS + 4]);
+        }
       }
     }
     {
@@ -154,8 +163,10 @@ static void ReconstructRow(const VP8Decoder* const dec,
 
       if (mb_y > 0) {
         ROW_COPY(y_dst - BPS, top_yuv[0].y, 16);
-        ROW_COPY(u_dst - BPS, top_yuv[0].u, 8);
-        ROW_COPY(v_dst - BPS, top_yuv[0].v, 8);
+        if (!dec->luma_only) {
+          ROW_COPY(u_dst - BPS, top_yuv[0].u, 8);
+          ROW_COPY(v_dst - BPS, top_yuv[0].v, 8);
+        }
       }
 
       // predict and add residuals
@@ -187,8 +198,10 @@ static void ReconstructRow(const VP8Decoder* const dec,
           }
         }
       }
-      {
-        // Chroma
+      if (!dec->luma_only) {
+        // Chroma. The monochrome path still parses every chroma token to
+        // preserve the bit-reader position and entropy contexts, but none
+        // of these reconstructed samples contribute to Y or alpha.
         const uint32_t bits_uv = block->non_zero_uv;
         const int pred_func = CheckMode(mb_x, mb_y, block->uvmode);
         VP8PredChroma8[pred_func](u_dst);
@@ -200,8 +213,10 @@ static void ReconstructRow(const VP8Decoder* const dec,
       // stash away top samples for next block
       if (mb_y < dec->mb_h - 1) {
         ROW_COPY(top_yuv[0].y, y_dst + 15 * BPS, 16);
-        ROW_COPY(top_yuv[0].u, u_dst +  7 * BPS,  8);
-        ROW_COPY(top_yuv[0].v, v_dst +  7 * BPS,  8);
+        if (!dec->luma_only) {
+          ROW_COPY(top_yuv[0].u, u_dst +  7 * BPS,  8);
+          ROW_COPY(top_yuv[0].v, v_dst +  7 * BPS,  8);
+        }
       }
     }
     // Transfer reconstructed samples from yuv_b cache to final destination.
@@ -214,9 +229,11 @@ static void ReconstructRow(const VP8Decoder* const dec,
       for (j = 0; j < 16; ++j) {
         ROW_COPY(y_out + j * dec->cache_y_stride, y_dst + j * BPS, 16);
       }
-      for (j = 0; j < 8; ++j) {
-        ROW_COPY(u_out + j * dec->cache_uv_stride, u_dst + j * BPS, 8);
-        ROW_COPY(v_out + j * dec->cache_uv_stride, v_dst + j * BPS, 8);
+      if (!dec->luma_only) {
+        for (j = 0; j < 8; ++j) {
+          ROW_COPY(u_out + j * dec->cache_uv_stride, u_dst + j * BPS, 8);
+          ROW_COPY(v_out + j * dec->cache_uv_stride, v_dst + j * BPS, 8);
+        }
       }
     }
   }
@@ -457,7 +474,7 @@ static int FinishRow(void* arg1, void* arg2) {
     FilterRow(dec);
   }
 
-  if (dec->dither) {
+  if (dec->dither && !dec->luma_only) {
     DitherRow(dec);
   }
 
@@ -518,8 +535,10 @@ static int FinishRow(void* arg1, void* arg2) {
   if (cache_id + 1 == dec->num_caches) {
     if (!is_last_row) {
       memcpy(dec->cache_y - ysize, ydst + 16 * dec->cache_y_stride, ysize);
-      memcpy(dec->cache_u - uvsize, udst + 8 * dec->cache_uv_stride, uvsize);
-      memcpy(dec->cache_v - uvsize, vdst + 8 * dec->cache_uv_stride, uvsize);
+      if (!dec->luma_only) {
+        memcpy(dec->cache_u - uvsize, udst + 8 * dec->cache_uv_stride, uvsize);
+        memcpy(dec->cache_v - uvsize, vdst + 8 * dec->cache_uv_stride, uvsize);
+      }
     }
   }
 
@@ -590,6 +609,9 @@ VP8StatusCode VP8EnterCritical(VP8Decoder* const dec, VP8Io* const io) {
   if (io->bypass_filtering) {
     dec->filter_type = 0;
   }
+  // Keep the original reconstruction for filtered/custom colour decodes.
+  // WikiReader disables filtering and consumes only the Y and alpha planes.
+  dec->luma_only = io->luma_only && dec->filter_type == 0;
 
   // Define the area where we can skip in-loop filtering, in case of cropping.
   //
