@@ -275,6 +275,101 @@ static unsigned long run_card(zim_bench_read_fn read, void *opaque,
 	return timer_get() - t;
 }
 
+
+/* --- hardware probe ------------------------------------------------------
+ *
+ * What the SDRAM controller register says, and what the memory system
+ * actually does.  Everything here only reads outside the benchmark's own
+ * buffer, so it is safe on any board: the sweep alternates two reads and
+ * times them, and the aliasing test compares two regions.  The register's
+ * ADDRC field is the board's claim; the sweep is the measurement, and the
+ * two have to agree before code places buffers by bank.
+ */
+
+/* S1C33E07 Technical Manual table II.4.1.3.2, indexed by ADDRC. */
+static const struct { unsigned char banks, row_bits, col_bits; }
+probe_geometry[8] = {
+	{ 2, 11,  8 }, { 4, 12,  8 }, { 4, 12,  9 }, { 4, 13,  9 },
+	{ 2, 11,  9 }, { 4, 12,  9 }, { 4, 12, 10 }, { 4, 13, 10 },
+};
+
+static unsigned long probe_total_bytes(void)
+{
+	unsigned addrc = (unsigned)(REG_SDRAMC_CTL & ADDRC_MASK);
+	return (unsigned long)probe_geometry[addrc].banks <<
+		(probe_geometry[addrc].row_bits + probe_geometry[addrc].col_bits + 1);
+}
+
+/* Does the region at `offset` read back the same as the region at the
+ * start of SDRAM?  On a board smaller than the address window the high
+ * copy is the low one seen again. */
+static int probe_aliases(unsigned long offset)
+{
+	const unsigned long *low = (const unsigned long *)0x10000000u;
+	const unsigned long *high = (const unsigned long *)(0x10000000u + offset);
+	unsigned i;
+
+	for (i = 0; i < 256; i++)
+		if (low[i] != high[i])
+			return 0;
+	return 1;
+}
+
+static void probe_hardware(unsigned char *buffer)
+{
+	unsigned addrc = (unsigned)(REG_SDRAMC_CTL & ADDRC_MASK);
+	unsigned long total = probe_total_bytes();
+	unsigned long row_bytes = 2ul << probe_geometry[addrc].col_bits;
+	unsigned long bank_bytes = total / probe_geometry[addrc].banks;
+	unsigned long limit = 0x10000000u + total;
+	unsigned long offset;
+	void *small;
+	void *large;
+
+	bench_line("probe register: addrc %u, %u banks, row %lu B, bank %lu KB, "
+		   "total %lu MB",
+		   addrc, probe_geometry[addrc].banks, row_bytes,
+		   bank_bytes >> 10, total >> 20);
+
+	/* The register's claim against what the address window contains. */
+	for (offset = 4ul << 20; offset <= (32ul << 20); offset <<= 1)
+		bench_line("probe alias: +%lu MB %s the start of memory",
+			   offset >> 20,
+			   probe_aliases(offset) ? "REPEATS" : "differs from");
+
+	small = malloc(64);
+	large = malloc(512u << 10);
+	bench_line("probe heap: 64 B at 0x%08lx, 512 KB at 0x%08lx, "
+		   "benchmark buffer at 0x%08lx, stack near 0x%08lx",
+		   (unsigned long)(uintptr_t)small, (unsigned long)(uintptr_t)large,
+		   (unsigned long)(uintptr_t)buffer,
+		   (unsigned long)(uintptr_t)&offset);
+	free(small);
+	free(large);
+
+	/* Alternate two reads a fixed distance apart.  Both in one row is the
+	 * floor; another row of the same bank pays a precharge and activate;
+	 * another bank is back at the floor.  The first slow step is the row
+	 * size and the return to the floor is the bank stride. */
+	for (offset = 4; offset <= (16ul << 20); offset <<= 1) {
+		char name[16];
+		unsigned long other = (unsigned long)(uintptr_t)buffer + offset;
+
+		if (offset > 4 && offset < 256)
+			continue;
+		if (other + 4 > limit)
+			break;
+		if (offset < 1024)
+			snprintf(name, sizeof(name), "gap-%luB", offset);
+		else if (offset < (1ul << 20))
+			snprintf(name, sizeof(name), "gap-%luK", offset >> 10);
+		else
+			snprintf(name, sizeof(name), "gap-%luM", offset >> 20);
+		report(name, 2 * 20000,
+		       run_pairs(buffer, (const unsigned char *)other, 20000));
+	}
+}
+
 #define BENCH_BUFFER (1024u * 1024u + 8192u)
 
 void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
@@ -296,6 +391,7 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 	}
 	buffer = (unsigned char *)(((uintptr_t)raw + 4095) & ~(uintptr_t)4095);
 	half = buffer + 512 * 1024;
+	probe_hardware(buffer);
 	bench_line("bench buffer at 0x%08lx, stack near 0x%08lx",
 		   (unsigned long)(uintptr_t)buffer,
 		   (unsigned long)(uintptr_t)on_stack);

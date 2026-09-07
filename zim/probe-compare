@@ -1,0 +1,36 @@
+#!/bin/sh
+# Summarise the hardware probe in one or more bench.txt files, one column per
+# run.  Each run in a file starts at a "bench build:" line, so a card carried
+# between two WikiReaders holds both units' probes in one file.
+#
+# usage: probe-compare bench.txt [bench2.txt ...]
+
+set -eu
+
+[ "$#" -ge 1 ] || { echo "usage: $(basename "$0") bench.txt [...]" >&2; exit 2; }
+
+awk '
+FNR == 1 { file = FILENAME }
+/^bench build:/ { run++; printf "\n=== run %d (%s) ===\n", run, file }
+/^bench start:/ { print "  " $0 }
+/^probe register:/ { print "  " $0 }
+/^probe alias:/ && /REPEATS/ { printf "  memory repeats at %s MB, so the board has that much\n", $3 }
+/^probe heap:/ { print "  " $0 }
+/^bench gap-/ {
+    name = $2; cyc = $(NF - 1)
+    gsub(/^gap-/, "", name)
+    gaps[run, ++n[run]] = name " " cyc
+}
+END {
+    for (r = 1; r <= run; r++) {
+        printf "\n--- run %d: alternating reads, cycles per pair ---\n", r
+        floor_v = 0
+        for (i = 1; i <= n[r]; i++) {
+            split(gaps[r, i], f, " ")
+            if (i == 1) floor_v = f[2] + 0
+            slow = (f[2] + 0 > floor_v * 1.15) ? "row change" : "same row or another bank"
+            printf "  %-8s %8s  %s\n", f[1], f[2], slow
+        }
+    }
+}
+' "$@"
