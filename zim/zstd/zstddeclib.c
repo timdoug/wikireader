@@ -22543,9 +22543,250 @@ ZSTD_decompressSequences_body(ZSTD_DCtx* dctx,
     return (size_t)(op - ostart);
 }
 
-/* noinline: called once, from the DSTRAM-stack trampoline in .text on the
- * C33, and the compiler would otherwise inline it there, out of A0 RAM. */
+#if defined(__c33__)
+/* The sequence loop for the C33, in A0 RAM.
+ *
+ * The generic loop keeps the bit reader and the three FSE states in a
+ * structure reached through a pointer, and every store into the output,
+ * which may alias anything, made the compiler reload them from memory;
+ * with the refill inlined in five places the common path ran to some 240
+ * instructions per sequence.  Here every piece of decoder state is a local
+ * scalar whose address is never taken, so it stays in a register, and the
+ * refill is one short block that clamps at the buffer start itself.
+ *
+ * The compact tables (ZSTD_c33_packEntry, loaded into IVRAM by
+ * ZSTD_c33_loadTables) supply one word per state: nextState in bits 0..8,
+ * the state's bit count in 9..12, the extra-bit count in 13..17 and the
+ * base value in 18..31, a marked base being recomputed from the extra-bit
+ * count.
+ *
+ * Refill: the container holds the four bytes at `ptr`, `consumed` of them
+ * used from the top.  Moving back by whole bytes, clamped at the start of
+ * the stream, is what BIT_reloadDStream does in each of its cases (at the
+ * start it leaves everything as it is, which re-reading the same word
+ * also does); a stream that consumes more than it has is caught by the
+ * end-of-stream check, as before.  The refill only happens when the next
+ * read would not fit. */
+#define ZSTD_C33_REFILL_IF(need) do {                                      \
+        if (consumed + (need) > 32) {                                      \
+            U32 nb = consumed >> 3;                                        \
+            if ((size_t)(ptr - start) < nb) nb = (U32)(ptr - start);       \
+            ptr -= nb;                                                     \
+            consumed -= nb * 8;                                            \
+            bits = MEM_readLE32(ptr);                                      \
+        }                                                                  \
+    } while (0)
+/* Take n >= 1 bits. */
+#define ZSTD_C33_TAKE(n) \
+    (v = (bits << consumed) >> (32 - (n)), consumed += (n), v)
+/* Take n bits where n may be 0: a shift by 32 is a shift by 0 here. */
+#define ZSTD_C33_TAKE0(n) \
+    (v = ((bits << consumed) >> (31 - (n))) >> 1, consumed += (n), v)
+
+/* noinline: called once, from the DSTRAM-stack trampoline in .text, and
+ * the compiler would otherwise inline it there, out of A0 RAM. */
 static size_t ZSTD_FASTCODE __attribute__((noinline))
+ZSTD_decompressSequences_default(ZSTD_DCtx* dctx,
+                                 void* dst, size_t maxDstSize,
+                           const void* seqStart, size_t seqSize, int nbSeq,
+                           const ZSTD_longOffset_e isLongOffset)
+{
+    const BYTE* ip = (const BYTE*)seqStart;
+    const BYTE* const iend = ip + seqSize;
+    BYTE* const ostart = (BYTE*)dst;
+    BYTE* const oend = dctx->litBufferLocation == ZSTD_not_in_dst ? ZSTD_maybeNullPtrAdd(ostart, maxDstSize) : dctx->litBuffer;
+    BYTE* op = ostart;
+    const BYTE* litPtr = dctx->litPtr;
+    const BYTE* const litEnd = litPtr + dctx->litSize;
+    const BYTE* const prefixStart = (const BYTE*)(dctx->prefixStart);
+    const BYTE* const vBase = (const BYTE*)(dctx->virtualStart);
+    const BYTE* const dictEnd = (const BYTE*)(dctx->dictEnd);
+
+    if (nbSeq) {
+        BIT_DStream_t bitD;
+        const U32* const LLt = ZSTD_C33_IVRAM_LL + 1;
+        const U32* const OFt = ZSTD_C33_IVRAM_OF + 1;
+        const U32* const MLt = ZSTD_C33_IVRAM_ML + 1;
+        BYTE* const oend_w = oend - WILDCOPY_OVERLENGTH;
+        U32 bits, consumed;
+        const BYTE* ptr;
+        const BYTE* start;
+        U32 sLL, sOF, sML;
+        size_t rep0 = dctx->entropy.rep[0];
+        size_t rep1 = dctx->entropy.rep[1];
+        size_t rep2 = dctx->entropy.rep[2];
+
+        dctx->fseEntropy = 1;
+        RETURN_ERROR_IF(
+            ERR_isError(BIT_initDStream(&bitD, ip, iend - ip)),
+            corruption_detected, "");
+        ZSTD_c33_loadTables(dctx);
+        sLL = (U32)BIT_readBits(&bitD, ZSTD_C33_IVRAM_LL[0]);
+        BIT_reloadDStream(&bitD);
+        sOF = (U32)BIT_readBits(&bitD, ZSTD_C33_IVRAM_OF[0]);
+        BIT_reloadDStream(&bitD);
+        sML = (U32)BIT_readBits(&bitD, ZSTD_C33_IVRAM_ML[0]);
+        BIT_reloadDStream(&bitD);
+        bits = (U32)bitD.bitContainer;
+        consumed = bitD.bitsConsumed;
+        ptr = (const BYTE*)bitD.ptr;
+        start = (const BYTE*)bitD.start;
+        assert(dst != NULL);
+
+        for (;;) {
+            U32 const llW = LLt[sLL];
+            U32 const mlW = MLt[sML];
+            U32 const ofW = OFt[sOF];
+            U32 const ofBits = ZSTD_C33_E_nbAdd(ofW);
+            U32 const mlBits = ZSTD_C33_E_nbAdd(mlW);
+            U32 const llBits = ZSTD_C33_E_nbAdd(llW);
+            U32 const llField = ZSTD_C33_E_field(llW);
+            U32 const mlField = ZSTD_C33_E_field(mlW);
+            size_t ll = llField != ZSTD_C33_BASE_MARK ? llField : 1u << llBits;
+            size_t ml = mlField != ZSTD_C33_BASE_MARK ? mlField : (1u << mlBits) + 3;
+            size_t offset;
+            U32 v;
+
+            /* offset */
+            if (ofBits > 1) {
+                U32 const ofField = ZSTD_C33_E_field(ofW);
+                U32 const ofBase = ofField != ZSTD_C33_BASE_MARK ? ofField : (1u << ofBits) - 3;
+                if (isLongOffset && ofBits >= STREAM_ACCUMULATOR_MIN_32) {
+                    /* More bits than fit after a refill: two reads. */
+                    U32 const extraBits = LONG_OFFSETS_MAX_EXTRA_BITS_32;
+                    ZSTD_C33_REFILL_IF(ofBits - extraBits);
+                    offset = ofBase + (ZSTD_C33_TAKE(ofBits - extraBits) << extraBits);
+                    ZSTD_C33_REFILL_IF(32);
+                    offset += ZSTD_C33_TAKE(extraBits);
+                } else {
+                    ZSTD_C33_REFILL_IF(ofBits);
+                    offset = ofBase + ZSTD_C33_TAKE(ofBits);
+                }
+                rep2 = rep1;
+                rep1 = rep0;
+                rep0 = offset;
+            } else {
+                U32 const ll0 = (ll == 0);
+                if (LIKELY(ofBits == 0)) {
+                    if (ll0) {
+                        offset = rep1;
+                        rep1 = rep0;
+                        rep0 = offset;
+                    } else {
+                        offset = rep0;
+                    }
+                } else {
+                    size_t temp;
+                    ZSTD_C33_REFILL_IF(1);
+                    offset = ZSTD_C33_E_field(ofW) + ll0 + ZSTD_C33_TAKE(1);   /* 1..3 */
+                    temp = offset == 3 ? rep0 - 1 : offset == 1 ? rep1 : rep2;
+                    temp -= !temp;   /* 0 is not valid: force -1, caught below */
+                    if (offset != 1) rep2 = rep1;
+                    rep1 = rep0;
+                    rep0 = offset = temp;
+                }
+            }
+
+            /* lengths */
+            if (mlBits) {
+                ZSTD_C33_REFILL_IF(mlBits);
+                ml += ZSTD_C33_TAKE(mlBits);
+            }
+            if (llBits) {
+                ZSTD_C33_REFILL_IF(llBits);
+                ll += ZSTD_C33_TAKE(llBits);
+            }
+
+            /* next states, except after the last sequence */
+            if (nbSeq != 1) {
+                U32 const llnb = ZSTD_C33_E_nbBits(llW);
+                U32 const mlnb = ZSTD_C33_E_nbBits(mlW);
+                U32 const ofnb = ZSTD_C33_E_nbBits(ofW);
+                ZSTD_C33_REFILL_IF(llnb + mlnb);   /* <= 18 bits */
+                sLL = ZSTD_C33_E_nextState(llW) + ZSTD_C33_TAKE0(llnb);
+                sML = ZSTD_C33_E_nextState(mlW) + ZSTD_C33_TAKE0(mlnb);
+                ZSTD_C33_REFILL_IF(ofnb);
+                sOF = ZSTD_C33_E_nextState(ofW) + ZSTD_C33_TAKE0(ofnb);
+            }
+
+            /* the sequence itself */
+            {   size_t const sequenceLength = ll + ml;
+                BYTE* const oLitEnd = op + ll;
+                BYTE* const oMatchEnd = op + sequenceLength;
+                const BYTE* const iLitEnd = litPtr + ll;
+                const BYTE* match = oLitEnd - offset;
+
+                if (UNLIKELY(iLitEnd > litEnd || oMatchEnd > oend_w ||
+                             (size_t)(oend - op) < sequenceLength + WILDCOPY_OVERLENGTH)) {
+                    /* Near the end of the block or of the literals: the
+                     * careful path, with the literal pointer passed through
+                     * a copy so that only the copy's address escapes. */
+                    seq_t seq;
+                    const BYTE* lp = litPtr;
+                    size_t oneSeqSize;
+                    seq.litLength = ll;
+                    seq.matchLength = ml;
+                    seq.offset = offset;
+                    oneSeqSize = ZSTD_execSequenceEnd(op, oend, seq, &lp, litEnd, prefixStart, vBase, dictEnd);
+                    litPtr = lp;
+                    if (UNLIKELY(ZSTD_isError(oneSeqSize)))
+                        return oneSeqSize;
+                    op += oneSeqSize;
+                } else {
+                    ZSTD_copyLiteralsC33(op, litPtr, ll);
+                    op = oLitEnd;
+                    litPtr = iLitEnd;
+                    if (UNLIKELY(offset > (size_t)(oLitEnd - prefixStart))) {
+                        /* offset beyond prefix -> go into extDict */
+                        RETURN_ERROR_IF(UNLIKELY(offset > (size_t)(oLitEnd - vBase)), corruption_detected, "");
+                        match = dictEnd + (match - prefixStart);
+                        if (match + ml <= dictEnd) {
+                            ZSTD_memmove(oLitEnd, match, ml);
+                            op = oMatchEnd;
+                            goto done;
+                        }
+                        /* span extDict & currentPrefixSegment */
+                        {   size_t const length1 = (size_t)(dictEnd - match);
+                            ZSTD_memmove(oLitEnd, match, length1);
+                            op = oLitEnd + length1;
+                            ml -= length1;
+                            match = prefixStart;
+                        }
+                    }
+                    ZSTD_copyMatchC33(op, match, ml);
+                    op = oMatchEnd;
+                }
+            }
+        done:
+            if (--nbSeq == 0)
+                break;
+        }
+
+        /* check if reached exact end */
+        bitD.bitContainer = bits;
+        bitD.bitsConsumed = consumed;
+        bitD.ptr = (const char*)ptr;
+        BIT_reloadDStream(&bitD);
+        RETURN_ERROR_IF(!BIT_endOfDStream(&bitD), corruption_detected, "");
+        /* save reps for next block */
+        dctx->entropy.rep[0] = (U32)rep0;
+        dctx->entropy.rep[1] = (U32)rep1;
+        dctx->entropy.rep[2] = (U32)rep2;
+    }
+
+    /* last literal segment */
+    {   size_t const lastLLSize = (size_t)(litEnd - litPtr);
+        RETURN_ERROR_IF(lastLLSize > (size_t)(oend-op), dstSize_tooSmall, "");
+        if (op != NULL) {
+            ZSTD_memcpy(op, litPtr, lastLLSize);
+            op += lastLLSize;
+    }   }
+
+    return (size_t)(op - ostart);
+}
+#else
+/* Avoids the FORCE_INLINE of the _body() function. */
+static size_t
 ZSTD_decompressSequences_default(ZSTD_DCtx* dctx,
                                  void* dst, size_t maxDstSize,
                            const void* seqStart, size_t seqSize, int nbSeq,
@@ -22553,6 +22794,7 @@ ZSTD_decompressSequences_default(ZSTD_DCtx* dctx,
 {
     return ZSTD_decompressSequences_body(dctx, dst, maxDstSize, seqStart, seqSize, nbSeq, isLongOffset);
 }
+#endif
 
 static size_t
 ZSTD_decompressSequencesSplitLitBuffer_default(ZSTD_DCtx* dctx,
