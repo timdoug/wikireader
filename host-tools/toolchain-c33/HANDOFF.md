@@ -19,8 +19,8 @@ the complete WikiReader firmware.
 | GCC 16.2 | Builds the kernel, boot applications, `init.app`, and `wiki.app`; short/long calls, delay slots, `%r15` data addressing, strict alignment, soft-float, variadic forwarding, sibling calls, trampolines, and three core multilibs are implemented. Bit-memory operands are restricted to the base-plus-constant forms the ISA can encode. |
 | ABI | New and original objects cross-call in all four compiler combinations and agree at five optimization levels. |
 | Firmware | A current full FLASH boot reaches the UI, search results, articles, and scrolling. Modern and shipped firmware render matching screens for the tested workloads. Grifo uses FatFs R0.16 with FAT32/exFAT, multiple volumes, compact fast-seek maps, and 64-bit file positions. |
-| Hardware | Run on a real WikiReader with its stock 2009 flash on 2026-09-05 from an 8 GB card: the factory loader loads the gcc 16 kernel; the launcher, ZIM reader (two archives), stock `wiki.app` on a Wikiquote data set, SD DMA, suspend/resume, scrolling, and history across a power cycle all work. Two hardware-only defects were found and fixed (see below). |
-| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. Seven controller and card overheads are fitted to a real device (2026-09-05); micro-benchmarks agree within 10%. Known divergence: it wakes a HALTed core on the HSDMA terminal-count cause; the silicon does not. |
+| Hardware | Run on two real WikiReaders, both early 32 MB boards, most recently 2026-09-07: the factory loader loads the gcc 16 kernel; the launcher, ZIM reader (two archives), stock `wiki.app` on a Wikiquote data set, SD DMA, suspend/resume, scrolling, and history across a power cycle all work. `Cat` opens in 942 ms, from 1846 ms two days earlier. Both units measure a 4 MB SDRAM bank stride that the controller's ADDRC field does not admit, and the reader now measures it rather than deriving it. Three hardware-only defects were found and fixed (see below). |
+| Emulator | The manual-derived ISA, exceptions, interrupts, clocks, SDRAM, SPI, SD card, DMA, LCD, ADC, watchdog, timer, port, and chip-ID models pass `make check`. Twelve controller and card overheads are fitted to a real device (2026-09-07, `WREMU_BOARD_REV=7` for the 32 MB board under test); every micro-benchmark agrees within 12% and most within 5%, while the reader's article phases are still 20 to 33% faster than the device for reasons no measurement explains. Known divergence: it wakes a HALTed core on the HSDMA terminal-count cause; the silicon does not. |
 | DejaGnu | The standard GCC board is authoritative. Focused execution suites are clean; the final post-fix unfiltered run is still pending. |
 
 There is no known wrong-code failure in a supported C or ABI feature. The
@@ -169,6 +169,94 @@ stream for eight words) from the `ZIM_TRACE_HASH` build. Pitfalls added:
   `hdiutil attach` plus `cp` can write to a mount that is not the image
   the emulator then reads. Hours went into a bisect whose builds never
   reached the image; every "still broken" result was the previous app.
+
+## Session 2026-09-07: a decoder bug, the boards measured, and a refit
+
+Three things happened, in this order.
+
+**A decoder bug of mine, found on the device.** `Japanese Bobtail`
+rendered as scrambled words. The article decoded to `bb1f39d8` where the
+archive says `83d60b5f`, identically on the device and in the emulator,
+so it was arithmetic and not memory. Packing an FSE table entry into one
+word leaves 14 bits for the base value; larger bases are marked and
+recomputed from the extra-bit count, and the rule differs per table:
+literal length `1 << bits`, match length `(1 << bits) + 3`, offset
+`(1 << bits) - 3`. The match-length rule was missing, so every match of
+16387 bytes or more decoded as 16383. Only articles containing such a
+match were damaged, and none of the eight in the hash suite did. Fixed in
+`926d221c`; the trace build now unpacks every entry and compares it with
+the table it came from, and the suite includes that article.
+
+The hunt took hours longer than it should have because of an install
+fault, not the bug: macOS mounts a second copy of an already-attached
+image as `VOLUME 1`, so a plain attach-and-copy wrote to a stale mount
+while the emulator read the image file. Every experiment ran the previous
+app, which produced a bisect that "proved" the corruption survived
+reverting all of my work. `/tmp/install.sh` and `/tmp/buildapp.sh` now
+detach stale mounts, copy, sync and compare the bytes back.
+
+A second, smaller bug came out of it: revisiting an article moved its
+history entry to the top but never refreshed the stored title, so an
+article first opened while the decode was broken kept a garbled title for
+ever (`5ca435be`).
+
+**The boards, measured rather than assumed.** The benchmark build gained
+a hardware probe: the controller's claimed geometry, whether the address
+window repeats (the true memory size), where the heap hands out blocks,
+and a read-pair latency sweep from 4 bytes to 16 MB. Both of the user's
+WikiReaders report the same thing, and the sweep contradicts the
+register. Rows are 1 KB as the manual says, but banks repeat every 4 MB
+where ADDRC 3's geometry implies 8 MB: reads 4, 8 and 16 MB apart all run
+at the speed of reads within one row. The board carries a single memory
+device, so the reason is not established, and the code follows the
+measurement. `zim/probe-compare` summarises one or more `bench.txt`
+files, one section per run, so a card carried between units reports both.
+
+Two consequences. The reader now measures the bank stride at runtime
+instead of deriving it, and places buffers relative to each other
+(`zim_alloc_other_bank(size, avoid)`, walking forward one bank at a time)
+rather than by absolute bank number, which on a 32 MB board had been
+asking for a filler of about 15 MB. And the emulator can be the board
+under test: `WREMU_BOARD_REV=7` boots it as a 32 MB V3 unit, port A
+having been unmodelled until now, with the 32 MB geometry set from the
+measurement (eight banks of 4 MB).
+
+**A refit, and what it did not fix.** Micro-benchmarks were added for
+what the earlier fit never exercised: data accesses issued by code
+running from internal RAM, and reads the data queue already holds. The
+device does the first in 2.6 cycles where the model had 1.6 and pays for
+the second where the model served it free. Two parameters cover them,
+`dq_iram_extra` and `dq_hit`; the refit also moved `wr_rd_turn` from 6 to
+3, `wr_ticks` to 0, `dq_extra` to 1, `dma_extra` to 30 and
+`sd_read_latency` to 60000. Micro-benchmark error fell from 0.286 to
+0.040, every test within 12% of the device and most within 5%.
+
+The article phases stayed 20 to 33% faster in the model than on the
+device (decode 411 ms against 496, converter 125 against 166, wrapper 82
+against 95). A load-use pipeline interlock was the obvious explanation
+and the device refutes it: dependent and independent loads both cost 2.1
+cycles, exactly as modelled. Nothing measurable accounts for the gap, so
+the model is for ranking changes, not for predicting device
+milliseconds, and anything that matters gets a device run.
+
+Device results, tap to painted page, `ZIM_BENCH` build, all on the same
+32 MB unit:
+
+| | 09-06 morning | 09-06 night | 09-07 |
+| --- | ---: | ---: | ---: |
+| `Cat` | 1245 ms | 1121 ms | 942 ms |
+| `Tokyo` | 920 ms | 747 ms | 730 ms |
+| `Japanese Bobtail` | | 1280 ms | 798 ms |
+
+Recipes that changed:
+
+- Emulator runs that should match the hardware need `WREMU_BOARD_REV=7`;
+  without it the emulator is a 16 MB rev 8 board with 4 MB banks.
+- `tools/fit_model.py DEVICE-bench.txt CARD.dmg` now runs the emulator as
+  that board and fits twelve parameters; `branch_taken_iram` is pinned
+  because three tests measure it exactly.
+- Install into a card image or onto the card through the verified step,
+  never a bare `cp`.
 
 ## Build
 
@@ -448,42 +536,36 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-Ranked for the reader's speed (`Cat` 765 ms in the model, 1121 ms on the
-device at the end of 2026-09-06):
+Optimisation, ranked against the device's 942 ms for `Cat` (the model
+reads 884 ms for the same load and is uniformly optimistic):
 
-1. Make SDRAM bank placement relative rather than absolute, and check it
-   on both geometries. `zim_alloc_in_bank(size, 2)` was chosen against
-   the emulator's 4 MB banks; on the device's 8 MB banks the same call
-   reaches for 16 MB and fillers about 15 MB to get there, and buffers
-   meant to be in separate banks may share one. Ask instead for a bank
-   other than a given pointer's, and have the emulator boot as a 32 MB
-   board so the model matches the hardware under test.
-2. The sequence loop is 282 ms: about 50 instructions per sequence of bit
-   reads and reload checks (`BIT_lookBitsFast`, `ZSTD_reloadIfNeededC33`,
-   the state updates), 100 cycles of copies, and the execSequence checks.
-   A hand-written inner loop keeping the bit container and the three
-   states in registers is the remaining large item; the copies' lead byte
-   batch for a misaligned destination (15% of the realigned path) could be
-   partial stores instead.
-3. The converter (128 ms, 27 instructions per byte in `html_to_text`) and
-   the wrapper (74 ms, 37 per text byte in `wrap_body`): the attribute
-   bytes are scanned twice, text runs are copied byte by byte, and the
-   wrapper scans, measures and copies each word in three passes.
-4. The literal phase (62 ms): the Huffman table builders run from SDRAM
-   (`HUF_readDTableX1_wksp` 16 ms, the weight decoder 6 ms, with 64-bit
-   entry replication the core does with library multiplies); sequential
-   streams would shrink the decoder's overlay enough to hold the builder.
-5. The kernel's card path (about 35 ms): `spi_transmit` and `delay_us`
-   straddle a row boundary, the token hunt runs from SDRAM, and the card
-   is re-initialised after every suspend (`CARD_POWER=OFF`, the other
-   session's measured choice).
-6. Overlap card reads with decoding, now that the DMA cadence is known to
-   be about 75 cycles per byte with the CPU stalled for the bus: only the
-   32-cycle shift per byte is hideable, so about 40% of the card time.
-7. Calibration residue and the 16 MB board `bench.txt`; suspend/resume
-   soak on the retimed kernel; the 124 GB card; the toolchain items from
-   before (modern-vs-legacy selection, flag-change detection, PE runtime
-   coverage, debugger session, full DejaGnu run).
+1. The sequence loop, 496 ms on the device and about half the load. Some
+   50 instructions per sequence go on bit reads and reload checks
+   (`BIT_lookBitsFast`, `ZSTD_reloadIfNeededC33`, the state updates) with
+   the copies about 100 cycles on top. A hand-written inner loop holding
+   the bit container and the three decoder states in registers is the
+   one large win left; A0 RAM has room beside it.
+2. Overlap card reads with decoding: 131 ms of card time, of which the
+   DMA cadence leaves roughly 40% hideable behind the decode. Needs an
+   asynchronous block read in `samo-lib/grifo/src/sd_dma.c` and `file.c`,
+   and the rule that HSDMA cannot write internal RAM.
+3. The converter, 166 ms: attribute bytes are scanned twice, once to find
+   the attributes and once to skip them, and text runs are copied a byte
+   at a time.
+4. The wrapper, 95 ms: each word is scanned, measured and copied in three
+   separate passes.
+5. The Huffman table builders still run from SDRAM (`HUF_readDTableX1_wksp`
+   16 ms, the weight decoder 6 ms); decoding the four literal streams one
+   after another would shrink the overlay enough to hold them.
+6. The unexplained 20 to 33% phase gap, if it starts to matter. Every
+   measurable pattern agrees with the device, so the next candidates are
+   instruction mixes rather than single costs: a trace-driven comparison
+   of one phase, counting instructions and accesses on both sides, would
+   settle it.
+7. Unchanged: suspend/resume soak on the retimed kernel, the 124 GB card,
+   and the toolchain items (modern-vs-legacy selection, flag-change
+   detection, PE runtime coverage, a debugger session, the full DejaGnu
+   run).
 
 ## Source layout
 
