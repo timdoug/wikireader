@@ -16050,7 +16050,9 @@ size_t HUF_decompress4X1_usingDTable_internal_bmi2(void* dst, size_t dstSize, vo
 }
 #endif
 
-static ZIM_OVERLAY_SECTION("ovlhuf")
+/* noinline: the trampoline that calls it from the DSTRAM stack is its
+ * only call site and lives in SDRAM. */
+static ZIM_OVERLAY_SECTION("ovlhuf") __attribute__((noinline))
 size_t HUF_decompress4X1_usingDTable_internal_default(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable) {
     return HUF_decompress4X1_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
@@ -16239,12 +16241,42 @@ HUF_decompress4X1_usingDTable_internal_fast(
 
 HUF_DGEN(HUF_decompress1X1_usingDTable_internal)
 
+#if defined(__c33__)
+/* Leaf work on the private DSTRAM stack; defined with the sequence loop. */
+static size_t ZSTD_c33_callOnDstramStack(size_t (*fn)(const void*), const void* args);
+
+typedef struct {
+    void* dst;
+    size_t dstSize;
+    const void* cSrc;
+    size_t cSrcSize;
+    const HUF_DTable* DTable;
+} HUF_c33_4X1Args;
+
+static size_t HUF_c33_4X1Trampoline(const void* p)
+{
+    const HUF_c33_4X1Args* a = (const HUF_c33_4X1Args*)p;
+    return HUF_decompress4X1_usingDTable_internal_default(a->dst, a->dstSize, a->cSrc,
+                                                          a->cSrcSize, a->DTable);
+}
+#endif
+
 static size_t HUF_decompress4X1_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int flags)
 {
     HUF_DecompressUsingDTableFn fallbackFn = HUF_decompress4X1_usingDTable_internal_default;
     HUF_DecompressFastLoopFn loopFn = HUF_decompress4X1_usingDTable_internal_fast_c_loop;
     ZIM_OVERLAY_ENSURE(ovlhuf);   /* the default body runs from IVRAM */
+#if defined(__c33__)
+    /* ... and on the DSTRAM stack: its four bit streams and output
+     * pointers are what the compiler spills. */
+    {   HUF_c33_4X1Args args;
+        args.dst = dst; args.dstSize = dstSize; args.cSrc = cSrc;
+        args.cSrcSize = cSrcSize; args.DTable = DTable;
+        (void)loopFn; (void)fallbackFn; (void)flags;
+        return ZSTD_c33_callOnDstramStack(HUF_c33_4X1Trampoline, &args);
+    }
+#endif
 
 #if DYNAMIC_BMI2
     if (flags & HUF_flags_bmi2) {
@@ -17500,6 +17532,18 @@ struct ZSTD_DCtx_s
     const ZSTD_seqSymbol* LLTptr;
     const ZSTD_seqSymbol* MLTptr;
     const ZSTD_seqSymbol* OFTptr;
+#if defined(__c33__)
+    /* The three tables in the compact one-word form the sequence loop reads
+     * from IVRAM (ZSTD_c33_loadTables): built alongside the 8-byte tables,
+     * and the pointers select those, the defaults, or an RLE cell. */
+    U32 c33LL[1 + (1 << LLFSELog) + 8];   /* + a 32-byte batch of slack */
+    U32 c33OF[1 + (1 << OffFSELog) + 8];
+    U32 c33ML[1 + (1 << MLFSELog) + 8];
+    const U32* c33LLptr;
+    const U32* c33OFptr;
+    const U32* c33MLptr;
+    U32 c33fresh;   /* tables built into IVRAM this block, bits 0..2 = LL, OF, ML */
+#endif
     const HUF_DTable* HUFptr;
     ZSTD_entropyDTables_t entropy;
     U32 workspace[HUF_DECOMPRESS_WORKSPACE_SIZE_U32];   /* space needed when building huffman tables */
@@ -18208,6 +18252,10 @@ static void ZSTD_initDCtx_internal(ZSTD_DCtx* dctx)
 {
     dctx->staticSize  = 0;
     dctx->litExtraPtr = dctx->litExtraBuffer;
+#if defined(__c33__)
+    dctx->c33LLptr = dctx->c33OFptr = dctx->c33MLptr = NULL;
+    dctx->c33fresh = 0;
+#endif
     dctx->ddict       = NULL;
     dctx->ddictLocal  = NULL;
     dctx->dictEnd     = NULL;
@@ -20884,6 +20932,58 @@ static void ZSTD_buildSeqTable_rle(ZSTD_seqSymbol* dt, U32 baseValue, U8 nbAddBi
 }
 
 
+#if defined(__c33__)
+/* Where ZSTD_buildFSETable_body also writes the compact table, set by
+ * ZSTD_buildSeqTable around the build (see ZSTD_c33_loadTables). */
+static U32* ZSTD_c33_compactOut;
+
+#define ZSTD_C33_BASE_MARK  0x3fffu
+#define ZSTD_C33_IVRAM_LL   ((U32*)ZIM_OVERLAY_BASE)
+#define ZSTD_C33_IVRAM_OF   (ZSTD_C33_IVRAM_LL + 1 + (1 << LLFSELog))
+#define ZSTD_C33_IVRAM_ML   (ZSTD_C33_IVRAM_OF + 1 + (1 << OffFSELog))
+#define ZSTD_C33_FRESH_LL   1u
+#define ZSTD_C33_FRESH_OF   2u
+#define ZSTD_C33_FRESH_ML   4u
+/* highbit of a byte, for the builder's stack copy. */
+static const BYTE ZSTD_c33_log2[256] = {
+    0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+};
+static void ZSTD_c33_convertTable(U32* out, const ZSTD_seqSymbol* dt);
+static const U32* ZSTD_c33_defaultCompact(const ZSTD_seqSymbol* dt, U32* cache);
+
+/* Word-aligned copy in 32-byte batches, rounding the length up: the C
+ * library's memcpy is a byte loop.  Both buffers need that much slack. */
+static void ZSTD_c33_copyWords(void* dstv, const void* srcv, size_t length)
+{
+    unsigned int t0, t1, t2, t3, t4, t5, t6, t7;
+    BYTE* dst = (BYTE*)dstv;
+    const BYTE* src = (const BYTE*)srcv;
+    ptrdiff_t remaining = (ptrdiff_t)length;
+    ZSTD_C33_BATCH("ld.w", "ld.w", 32);
+}
+static U32 ZSTD_c33_packEntry(const ZSTD_seqSymbol* e)
+{
+    U32 const field = e->baseValue < ZSTD_C33_BASE_MARK ? e->baseValue : ZSTD_C33_BASE_MARK;
+    assert(e->nextState < 512 && e->nbBits < 16 && e->nbAdditionalBits < 32);
+    return (U32)e->nextState | (U32)e->nbBits << 9 | (U32)e->nbAdditionalBits << 13 | field << 18;
+}
+#endif
+
 /* ZSTD_buildFSETable() :
  * generate FSE decoding table for one symbol (ll, ml or off)
  * cannot fail if input is valid =>
@@ -20951,7 +21051,14 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
      * small blocks we avoid low probability symbols to hit this
      * case, since header decoding speed matters more.
      */
+#if defined(__c33__)
+    /* The 64-bit spread below is two stores and a wide add per symbol on
+     * this core, and the code lives in the small A0 RAM area; the generic
+     * loop does the same work with less. */
+    if (0) {
+#else
     if (highThreshold == tableSize - 1) {
+#endif
         size_t const tableMask = tableSize-1;
         size_t const step = FSE_TABLESTEP(tableSize);
         /* First lay down the symbols in order.
@@ -21015,14 +21122,33 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
     /* Build Decoding table */
     {
         U32 u;
+#if defined(__c33__)
+        /* The compact copy goes straight to IVRAM, and the bit-length table
+         * for the state values (all below 512) is a stack copy: read from
+         * .rodata next to the table's bank, each entry cost a row change. */
+        U32* const compact = ZSTD_c33_compactOut;   /* an IVRAM slot, or NULL */
+        BYTE log2Local[256];
+        ZSTD_c33_copyWords(log2Local, ZSTD_c33_log2, sizeof(log2Local));
+        if (compact)
+            compact[0] = tableLog;
+#endif
         for (u=0; u<tableSize; u++) {
             U32 const symbol = tableDecode[u].baseValue;
             U32 const nextState = symbolNext[symbol]++;
+#if defined(__c33__)
+            U32 const highbit = nextState >= 256 ? 8u + log2Local[nextState >> 8] : log2Local[nextState];
+            tableDecode[u].nbBits = (BYTE) (tableLog - highbit);
+#else
             tableDecode[u].nbBits = (BYTE) (tableLog - ZSTD_highbit32(nextState) );
+#endif
             tableDecode[u].nextState = (U16) ( (nextState << tableDecode[u].nbBits) - tableSize);
             assert(nbAdditionalBits[symbol] < 255);
             tableDecode[u].nbAdditionalBits = nbAdditionalBits[symbol];
             tableDecode[u].baseValue = baseValue[symbol];
+#if defined(__c33__)
+            if (compact)
+                compact[u + 1] = ZSTD_c33_packEntry(tableDecode + u);
+#endif
         }
     }
 }
@@ -21094,8 +21220,14 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
                                  const U32* baseValue, const U8* nbAdditionalBits,
                                  const ZSTD_seqSymbol* defaultTable, U32 flagRepeatTable,
                                  int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize,
-                                 int bmi2)
+                                 int bmi2,
+                                 U32* compactSpace, const U32** compactPtr, U32* compactDefault,
+                                 U32* compactIvram, U32* compactFresh, U32 compactBit)
 {
+#if !defined(__c33__)
+    (void)compactSpace; (void)compactPtr; (void)compactDefault;
+    (void)compactIvram; (void)compactFresh; (void)compactBit;
+#endif
     switch(type)
     {
     case set_rle :
@@ -21107,9 +21239,18 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
             ZSTD_buildSeqTable_rle(DTableSpace, baseline, nbBits);
         }
         *DTablePtr = DTableSpace;
+#if defined(__c33__)
+        ZSTD_c33_convertTable(compactSpace, DTableSpace);
+        *compactPtr = compactSpace;
+        *compactFresh &= ~compactBit;
+#endif
         return 1;
     case set_basic :
         *DTablePtr = defaultTable;
+#if defined(__c33__)
+        *compactPtr = ZSTD_c33_defaultCompact(defaultTable, compactDefault);
+        *compactFresh &= ~compactBit;
+#endif
         return 0;
     case set_repeat:
         RETURN_ERROR_IF(!flagRepeatTable, corruption_detected, "");
@@ -21126,7 +21267,20 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
             size_t const headerSize = FSE_readNCount(norm, &max, &tableLog, src, srcSize);
             RETURN_ERROR_IF(FSE_isError(headerSize), corruption_detected, "");
             RETURN_ERROR_IF(tableLog > maxLog, corruption_detected, "");
+#if defined(__c33__)
+            /* Built straight into its IVRAM slot, which is free once the
+             * block's literals are decoded, then copied out as the master
+             * for blocks that repeat the table. */
+            zim_overlay_invalidate();
+            ZSTD_c33_compactOut = compactIvram;
+#endif
             ZSTD_buildFSETable(DTableSpace, norm, max, baseValue, nbAdditionalBits, tableLog, wksp, wkspSize, bmi2);
+#if defined(__c33__)
+            ZSTD_c33_compactOut = NULL;
+            ZSTD_c33_copyWords(compactSpace, compactIvram, (1 + ((size_t)1 << tableLog)) * sizeof(U32));
+            *compactPtr = compactSpace;
+            *compactFresh |= compactBit;
+#endif
             *DTablePtr = DTableSpace;
             return headerSize;
         }
@@ -21135,6 +21289,16 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
         RETURN_ERROR(GENERIC, "impossible");
     }
 }
+
+#if defined(__c33__)
+static U32 ZSTD_c33_LLdefault[1 + (1 << LL_DEFAULTNORMLOG) + 8];
+static U32 ZSTD_c33_OFdefault[1 + (1 << OF_DEFAULTNORMLOG) + 8];
+static U32 ZSTD_c33_MLdefault[1 + (1 << ML_DEFAULTNORMLOG) + 8];
+#define ZSTD_C33_TABLE_ARGS(t) dctx->c33##t, &dctx->c33##t##ptr, ZSTD_c33_##t##default, \
+                               ZSTD_C33_IVRAM_##t, &dctx->c33fresh, ZSTD_C33_FRESH_##t
+#else
+#define ZSTD_C33_TABLE_ARGS(t) NULL, NULL, NULL, NULL, NULL, 0
+#endif
 
 size_t ZSTD_decodeSeqHeaders(ZSTD_DCtx* dctx, int* nbSeqPtr,
                              const void* src, size_t srcSize)
@@ -21185,7 +21349,8 @@ size_t ZSTD_decodeSeqHeaders(ZSTD_DCtx* dctx, int* nbSeqPtr,
                                                       LL_defaultDTable, dctx->fseEntropy,
                                                       dctx->ddictIsCold, nbSeq,
                                                       dctx->workspace, sizeof(dctx->workspace),
-                                                      ZSTD_DCtx_get_bmi2(dctx));
+                                                      ZSTD_DCtx_get_bmi2(dctx),
+                                                      ZSTD_C33_TABLE_ARGS(LL));
             RETURN_ERROR_IF(ZSTD_isError(llhSize), corruption_detected, "ZSTD_buildSeqTable failed");
             ip += llhSize;
         }
@@ -21197,7 +21362,8 @@ size_t ZSTD_decodeSeqHeaders(ZSTD_DCtx* dctx, int* nbSeqPtr,
                                                       OF_defaultDTable, dctx->fseEntropy,
                                                       dctx->ddictIsCold, nbSeq,
                                                       dctx->workspace, sizeof(dctx->workspace),
-                                                      ZSTD_DCtx_get_bmi2(dctx));
+                                                      ZSTD_DCtx_get_bmi2(dctx),
+                                                      ZSTD_C33_TABLE_ARGS(OF));
             RETURN_ERROR_IF(ZSTD_isError(ofhSize), corruption_detected, "ZSTD_buildSeqTable failed");
             ip += ofhSize;
         }
@@ -21209,7 +21375,8 @@ size_t ZSTD_decodeSeqHeaders(ZSTD_DCtx* dctx, int* nbSeqPtr,
                                                       ML_defaultDTable, dctx->fseEntropy,
                                                       dctx->ddictIsCold, nbSeq,
                                                       dctx->workspace, sizeof(dctx->workspace),
-                                                      ZSTD_DCtx_get_bmi2(dctx));
+                                                      ZSTD_DCtx_get_bmi2(dctx),
+                                                      ZSTD_C33_TABLE_ARGS(ML));
             RETURN_ERROR_IF(ZSTD_isError(mlhSize), corruption_detected, "ZSTD_buildSeqTable failed");
             ip += mlhSize;
         }
@@ -21650,7 +21817,7 @@ size_t ZSTD_execSequenceSplitLitBuffer(BYTE* op,
 }
 
 
-static void
+static void UNUSED_ATTR
 ZSTD_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const ZSTD_seqSymbol* dt)
 {
     const void* ptr = dt;
@@ -21661,6 +21828,81 @@ ZSTD_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const ZSTD_seqS
     BIT_reloadDStream(bitD);
     DStatePtr->table = dt + 1;
 }
+
+#if defined(__c33__)
+/* The sequence loop's three FSE tables, one word per entry, in IVRAM.
+ *
+ * The 8-byte ZSTD_seqSymbol tables are 10 KB, ten SDRAM rows in one bank,
+ * and every sequence visits three of them.  Packed as nextState (9 bits),
+ * nbBits (4), nbAdditionalBits (5) and a 14-bit base value they are 5 KB,
+ * which is what the LCD controller's window buffer in IVRAM holds when the
+ * literal decoder's code overlay is not in it: the sequence loop reads
+ * them in a cycle each.  Base values that do not fit the field (the two
+ * largest literal-length codes and the offset codes from 14 up) are
+ * marked and recomputed from the extra-bit count, which for those codes
+ * determines them.  The context keeps a compact copy of each table so a
+ * block that repeats the previous tables only copies 5 KB in. */
+
+static void ZSTD_c33_convertTable(U32* out, const ZSTD_seqSymbol* dt)
+{
+    const ZSTD_seqSymbol_header* const h = (const ZSTD_seqSymbol_header*)(const void*)dt;
+    U32 const n = h->tableLog ? 1u << h->tableLog : 1u;   /* an RLE table is one cell */
+    U32 i;
+    out[0] = h->tableLog;
+    for (i = 0; i < n; i++)
+        out[i + 1] = ZSTD_c33_packEntry(dt + 1 + i);
+}
+
+/* Copy a compact table into IVRAM in 32-byte word batches; the over-copy
+ * past a table's end lands in the next table's space or the window
+ * buffer's tail, which the next copy or nothing uses. */
+/* Into an IVRAM slot, exactly: the batch copy's over-run would land in
+ * the next slot, which may hold a table built there this block. */
+static void ZSTD_c33_copyTable(U32* dst, const U32* src)
+{
+    size_t const words = 1 + (src[0] ? (size_t)1 << src[0] : 1);
+    size_t i = words & ~(size_t)7;
+    if (i)
+        ZSTD_c33_copyWords(dst, src, i * sizeof(U32));
+    for (; i < words; i++)   /* the tail, at most seven words */
+        dst[i] = src[i];
+}
+
+/* The predefined tables, converted once. */
+static const U32* ZSTD_c33_defaultCompact(const ZSTD_seqSymbol* dt, U32* cache)
+{
+    if (!cache[0] && cache[1] == 0)   /* tableLog 5 or 6, so [0] is non-zero once built */
+        ZSTD_c33_convertTable(cache, dt);
+    return cache;
+}
+
+static void ZSTD_c33_loadTables(ZSTD_DCtx* dctx)
+{
+    if (!(dctx->c33fresh & ZSTD_C33_FRESH_LL))
+        ZSTD_c33_copyTable(ZSTD_C33_IVRAM_LL, dctx->c33LLptr);
+    if (!(dctx->c33fresh & ZSTD_C33_FRESH_OF))
+        ZSTD_c33_copyTable(ZSTD_C33_IVRAM_OF, dctx->c33OFptr);
+    if (!(dctx->c33fresh & ZSTD_C33_FRESH_ML))
+        ZSTD_c33_copyTable(ZSTD_C33_IVRAM_ML, dctx->c33MLptr);
+    dctx->c33fresh = 0;
+    zim_overlay_invalidate();   /* the literal decoder's overlay is gone */
+}
+
+static void
+ZSTD_c33_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const U32* table)
+{
+    DStatePtr->state = BIT_readBits(bitD, table[0]);
+    BIT_reloadDStream(bitD);
+    DStatePtr->table = (const ZSTD_seqSymbol*)(const void*)(table + 1);
+}
+
+#define ZSTD_C33_ENTRY(fse) \
+    (((const U32*)(const void*)(fse).table)[(fse).state])
+#define ZSTD_C33_E_nextState(w) ((w) & 0x1ffu)
+#define ZSTD_C33_E_nbBits(w)    (((w) >> 9) & 0xfu)
+#define ZSTD_C33_E_nbAdd(w)     (((w) >> 13) & 0x1fu)
+#define ZSTD_C33_E_field(w)     ((w) >> 18)
+#endif
 
 FORCE_INLINE_TEMPLATE void
 ZSTD_updateFseStateWithDInfo(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, U16 nextState, U32 nbBits)
@@ -21725,36 +21967,34 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
     ZSTD_memcpy(mlDInfo, seqState->stateML.table + seqState->stateML.state, sizeof(ZSTD_seqSymbol));
     ZSTD_memcpy(ofDInfo, seqState->stateOffb.table + seqState->stateOffb.state, sizeof(ZSTD_seqSymbol));
 #elif defined(__c33__)
-    /* The three tables are 10 KB in all, so their entries sit in different
-     * SDRAM rows of one bank, and the field-by-field reads the generic code
-     * makes below visit the rows in an interleaved order: nine row changes
-     * per sequence, more than the copies cost.  Each 8-byte entry is read
-     * here as two adjacent word loads instead, one visit to its row, and
-     * the fields come out of the words by shifts. */
-    U32 llW0, llW1, mlW0, mlW1, ofW0, ofW1;
-    ZSTD_C33_LOAD_ENTRY(seqState->stateLL.table + seqState->stateLL.state, llW0, llW1);
-    ZSTD_C33_LOAD_ENTRY(seqState->stateML.table + seqState->stateML.state, mlW0, mlW1);
-    ZSTD_C33_LOAD_ENTRY(seqState->stateOffb.table + seqState->stateOffb.state, ofW0, ofW1);
+    /* One word per entry from the compact tables in IVRAM (ZSTD_c33_loadTables). */
+    U32 const llW = ZSTD_C33_ENTRY(seqState->stateLL);
+    U32 const mlW = ZSTD_C33_ENTRY(seqState->stateML);
+    U32 const ofW = ZSTD_C33_ENTRY(seqState->stateOffb);
 #else
     const ZSTD_seqSymbol* const llDInfo = seqState->stateLL.table + seqState->stateLL.state;
     const ZSTD_seqSymbol* const mlDInfo = seqState->stateML.table + seqState->stateML.state;
     const ZSTD_seqSymbol* const ofDInfo = seqState->stateOffb.table + seqState->stateOffb.state;
 #endif
 #if defined(__c33__)
-    seq.matchLength = ZSTD_C33_ENTRY_baseValue(mlW0, mlW1);
-    seq.litLength = ZSTD_C33_ENTRY_baseValue(llW0, llW1);
-    {   U32 const ofBase = ZSTD_C33_ENTRY_baseValue(ofW0, ofW1);
-        BYTE const llBits = ZSTD_C33_ENTRY_nbAdditionalBits(llW0);
-        BYTE const mlBits = ZSTD_C33_ENTRY_nbAdditionalBits(mlW0);
-        BYTE const ofBits = ZSTD_C33_ENTRY_nbAdditionalBits(ofW0);
-        U32 const llBase = seq.litLength;   /* for the repeat-offset rule */
+    {   BYTE const llBits = (BYTE)ZSTD_C33_E_nbAdd(llW);
+        BYTE const mlBits = (BYTE)ZSTD_C33_E_nbAdd(mlW);
+        BYTE const ofBits = (BYTE)ZSTD_C33_E_nbAdd(ofW);
+        U32 const llField = ZSTD_C33_E_field(llW);
+        U32 const ofField = ZSTD_C33_E_field(ofW);
+        /* Marked bases: literal-length codes 34 and 35 are 1 << bits,
+         * offset codes from 14 are (1 << bits) - 3. */
+        U32 const llBase = llField != ZSTD_C33_BASE_MARK ? llField : 1u << llBits;
+        U32 const ofBase = ofField != ZSTD_C33_BASE_MARK ? ofField : (1u << ofBits) - 3;
 
-        U16 const llNext = ZSTD_C33_ENTRY_nextState(llW0);
-        U16 const mlNext = ZSTD_C33_ENTRY_nextState(mlW0);
-        U16 const ofNext = ZSTD_C33_ENTRY_nextState(ofW0);
-        U32 const llnbBits = ZSTD_C33_ENTRY_nbBits(llW0);
-        U32 const mlnbBits = ZSTD_C33_ENTRY_nbBits(mlW0);
-        U32 const ofnbBits = ZSTD_C33_ENTRY_nbBits(ofW0);
+        U16 const llNext = (U16)ZSTD_C33_E_nextState(llW);
+        U16 const mlNext = (U16)ZSTD_C33_E_nextState(mlW);
+        U16 const ofNext = (U16)ZSTD_C33_E_nextState(ofW);
+        U32 const llnbBits = ZSTD_C33_E_nbBits(llW);
+        U32 const mlnbBits = ZSTD_C33_E_nbBits(mlW);
+        U32 const ofnbBits = ZSTD_C33_E_nbBits(ofW);
+        seq.matchLength = ZSTD_C33_E_field(mlW);
+        seq.litLength = llBase;
 #else
     seq.matchLength = mlDInfo->baseValue;
     seq.litLength = llDInfo->baseValue;
@@ -21970,9 +22210,16 @@ ZSTD_decompressSequences_bodySplitLitBuffer( ZSTD_DCtx* dctx,
         RETURN_ERROR_IF(
             ERR_isError(BIT_initDStream(&seqState.DStream, ip, iend-ip)),
             corruption_detected, "");
+#if defined(__c33__)
+        ZSTD_c33_loadTables(dctx);
+        ZSTD_c33_initFseState(&seqState.stateLL, &seqState.DStream, ZSTD_C33_IVRAM_LL);
+        ZSTD_c33_initFseState(&seqState.stateOffb, &seqState.DStream, ZSTD_C33_IVRAM_OF);
+        ZSTD_c33_initFseState(&seqState.stateML, &seqState.DStream, ZSTD_C33_IVRAM_ML);
+#else
         ZSTD_initFseState(&seqState.stateLL, &seqState.DStream, dctx->LLTptr);
         ZSTD_initFseState(&seqState.stateOffb, &seqState.DStream, dctx->OFTptr);
         ZSTD_initFseState(&seqState.stateML, &seqState.DStream, dctx->MLTptr);
+#endif
         assert(dst != NULL);
 
         ZSTD_STATIC_ASSERT(
@@ -22189,9 +22436,16 @@ ZSTD_decompressSequences_body(ZSTD_DCtx* dctx,
         RETURN_ERROR_IF(
             ERR_isError(BIT_initDStream(&seqState.DStream, ip, iend - ip)),
             corruption_detected, "");
+#if defined(__c33__)
+        ZSTD_c33_loadTables(dctx);
+        ZSTD_c33_initFseState(&seqState.stateLL, &seqState.DStream, ZSTD_C33_IVRAM_LL);
+        ZSTD_c33_initFseState(&seqState.stateOffb, &seqState.DStream, ZSTD_C33_IVRAM_OF);
+        ZSTD_c33_initFseState(&seqState.stateML, &seqState.DStream, ZSTD_C33_IVRAM_ML);
+#else
         ZSTD_initFseState(&seqState.stateLL, &seqState.DStream, dctx->LLTptr);
         ZSTD_initFseState(&seqState.stateOffb, &seqState.DStream, dctx->OFTptr);
         ZSTD_initFseState(&seqState.stateML, &seqState.DStream, dctx->MLTptr);
+#endif
         assert(dst != NULL);
 
 #if defined(__GNUC__) && defined(__x86_64__)
@@ -22319,9 +22573,16 @@ ZSTD_decompressSequencesLong_body(
         RETURN_ERROR_IF(
             ERR_isError(BIT_initDStream(&seqState.DStream, ip, iend-ip)),
             corruption_detected, "");
+#if defined(__c33__)
+        ZSTD_c33_loadTables(dctx);
+        ZSTD_c33_initFseState(&seqState.stateLL, &seqState.DStream, ZSTD_C33_IVRAM_LL);
+        ZSTD_c33_initFseState(&seqState.stateOffb, &seqState.DStream, ZSTD_C33_IVRAM_OF);
+        ZSTD_c33_initFseState(&seqState.stateML, &seqState.DStream, ZSTD_C33_IVRAM_ML);
+#else
         ZSTD_initFseState(&seqState.stateLL, &seqState.DStream, dctx->LLTptr);
         ZSTD_initFseState(&seqState.stateOffb, &seqState.DStream, dctx->OFTptr);
         ZSTD_initFseState(&seqState.stateML, &seqState.DStream, dctx->MLTptr);
+#endif
 
         /* prepare in advance */
         for (seqNb=0; seqNb<seqAdvance; seqNb++) {
@@ -22513,18 +22774,20 @@ typedef struct {
 #define ZSTD_C33_DSTRAM_STACK_BOTTOM 0x84400u
 #define ZSTD_C33_DSTRAM_STACK_TOP    0x84800u
 
-static size_t ZSTD_c33_seqTrampoline(const ZSTD_c33_seqArgs* a)
+static size_t ZSTD_c33_seqTrampoline(const void* p)
 {
+    const ZSTD_c33_seqArgs* a = (const ZSTD_c33_seqArgs*)p;
     return ZSTD_decompressSequences_default(a->dctx, a->dst, a->maxDstSize,
                                             a->seqStart, a->seqSize, a->nbSeq,
                                             a->isLongOffset);
 }
 
-/* noinline: the asm below claims every call-clobbered register, which
- * cannot be satisfied where the compiler would inline it. */
+/* Call fn(args) on the DSTRAM stack.  Only for leaf work with a small
+ * frame that makes no call back into the reader or the kernel.  noinline:
+ * the asm below claims every call-clobbered register, which cannot be
+ * satisfied where the compiler would inline it. */
 static __attribute__((noinline)) size_t
-ZSTD_c33_callOnDstramStack(size_t (*fn)(const ZSTD_c33_seqArgs*),
-                           const ZSTD_c33_seqArgs* args)
+ZSTD_c33_callOnDstramStack(size_t (*fn)(const void*), const void* args)
 {
     size_t result;
 #if defined(ZIM_TRACE_HASH)

@@ -281,7 +281,12 @@ void zim_blob_cache_reset(void)
  * read and one progress report.  The card charges about 1.2 ms per read
  * command before the first byte (measured 2026-09-05), so 4 KiB slices
  * spent a fifth of the read time on latency; 16 KiB slices keep the bar
- * moving every quarter second of decoding or so. */
+ * moving every quarter second of decoding or so.  The slice is also how
+ * far past the blob's end the decoder runs, since each call decodes all
+ * the blocks its input covers (the stable output buffer rules out
+ * bounding the output instead): 64 KiB slices decoded 100 ms of Cat's
+ * cluster that nothing read.  The streaming decoder copies a block that
+ * straddles a slice end into its own buffer first, about 4 ms of Cat. */
 #define ZIM_CLUSTER_INPUT_SLICE (16u << 10)
 #if ZIM_CLUSTER_INPUT_SLICE > ZIM_STREAM_BUFFER_SIZE
 #error "the input slice must fit the stream buffer"
@@ -329,8 +334,18 @@ static int cluster_advance(const ZIM_ARCHIVE *archive, size_t target,
 		BENCH_TIMED(ZIM_BENCH_SLOT_ZSTD, 0,
 			    remaining = ZSTD_decompressStream(cluster.stream, &out,
 							      &cluster.in));
-		if (ZSTD_isError(remaining))
+		if (ZSTD_isError(remaining)) {
+#ifdef ZIM_TRACE_HASH
+			extern const char *ZSTD_getErrorName(size_t code);
+			extern int debug_printf(const char *fmt, ...);
+			debug_printf("zstd error: %s (%ld) at decoded %lu in %lu/%lu\n",
+				     ZSTD_getErrorName(remaining), -(long)remaining,
+				     (unsigned long)cluster.decoded,
+				     (unsigned long)cluster.in.pos,
+				     (unsigned long)cluster.in.size);
+#endif
 			return ZIM_ERR_FORMAT;
+		}
 		cluster.decoded = out.pos;
 		if (!remaining)
 			cluster.finished = 1;

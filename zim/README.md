@@ -356,6 +356,46 @@ build, below):
   587, HTML 251 against 210): their fetch is right, so the gap is in
   data traffic the micro-benchmarks do not exercise.
 
+A third round on 2026-09-06 (evening) took the model's `Cat` from 1073 to
+761 ms, with all eight reference articles, their converted text and their
+wrapped streams hashing identically before and after; the device has not
+measured this build yet. What it found and changed, in the order of
+value:
+
+- The three FSE table entries were read field by field in an interleaved
+  order, nine SDRAM row changes per sequence. They are now one word each
+  in a compact form (`ZSTD_c33_packEntry`: 9-bit next state, bit counts,
+  a 14-bit base with the four large bases marked and recomputed) built
+  straight into the IVRAM window buffer, which is free between a block's
+  literals and its sequences; the context keeps a master copy for blocks
+  that repeat a table. The sequence state itself is a static in A0 RAM.
+- The sequence loop and the Huffman literal decoder run on a private 1 KB
+  stack in DSTRAM (`ZSTD_c33_callOnDstramStack`), so the compiler's spills
+  cost a cycle instead of an SDRAM data-queue fill each. The emulator
+  reports the deepest point reached (180 bytes for `Water`); interrupts
+  taken during the loop use the same stack.
+- Bank placement is explicit: the cluster output and the literal scratch
+  buffer in bank 2, the decoder context and the compressed input in bank
+  1, the text buffer in bank 1, the stack in bank 3; the FSE builder keeps
+  its per-symbol arrays and spread buffer on the stack.
+- Copies from a source that is not word-aligned with the destination use
+  four word loads and shifts per 16 bytes instead of byte batches.
+- The converter compares names as packed words against constants and never
+  reads a literal from `.rodata` (each byte of the old loop changed row
+  three times), takes href, src and the image dimensions in its single
+  attribute pass, and copies records inline; the wrapper keeps its
+  word-break table on the stack; the progress bar extends from its last
+  end instead of redrawing from the left edge (5% of the load).
+- The emulator gained unaliased profile buckets (internal-RAM code had
+  been sharing buckets with the kernel), per-row and row-pair activation
+  histograms, a row trace, repeating windows and probe caller lists,
+  which is how the above were found.
+
+Tried and reverted: 64 KiB input slices (the decoder runs on to the end
+of each slice, 100 ms of unread cluster for `Cat`, and the stable output
+buffer forbids bounding the output instead); keeping the card powered
+across a suspend (the auto-off timer restarts on every wake).
+
 Reopening an article from the same cluster skips the decode entirely, and
 reopening one of the last four articles through history skips everything:
 the revisit measured 8 ms in `retrieve_article` and a fully painted page 53 ms
@@ -365,11 +405,12 @@ sensitive to where hot loops fall, so compare instruction counts and the
 window's row-activation count rather than milliseconds when judging small
 changes.
 
-The remaining decoder cost is about 55% of the window: 83 instructions per
-sequence at a CPI of 4, a third of it instruction fetch from SDRAM, the rest
-the three entropy-table lookups, literal and match traffic, and the stack.
-About a quarter of the remaining row activations are re-openings after each
-auto-refresh closes every bank.
+The remaining decoder cost is about 37% of the window: 179 instructions
+per sequence (59.6 K sequences for `Cat`, copies included) at a CPI of 1.6,
+of which the copies are about 100 cycles, the bit reads and reload checks
+about 50 instructions, and the table entries three loads. Most of the
+remaining row activations are re-openings after each auto-refresh closes
+every bank, at about two clocks each.
 
 Building with `OPT="-O2 -DZIM_TRACE_HASH"` prints the FNV-1a hash and size of
 each decoded article on the serial console, which the emulator echoes; compare

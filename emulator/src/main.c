@@ -266,6 +266,12 @@ int main(int argc, char **argv)
 	unsigned long long probe_gap_clk[NPROBE][NGAP];
 	unsigned long long probe_gap_at[NPROBE][NGAP];
 	unsigned nprobe = 0;
+	/* Callers of each probed address: the return address on the stack at
+	   entry, the eight most frequent. */
+#define NCALLER 8
+	uint32_t probe_caller[NPROBE][NCALLER];
+	unsigned long long probe_caller_n[NPROBE][NCALLER];
+	memset(probe_caller_n, 0, sizeof probe_caller_n);
 	memset(probe_hits, 0, sizeof probe_hits);
 	memset(probe_gap_exec, 0, sizeof probe_gap_exec);
 	memset(probe_gap_clk, 0, sizeof probe_gap_clk);
@@ -821,6 +827,21 @@ int main(int argc, char **argv)
 			probe_last_exec[k] = executed;
 			probe_last_clk[k] = cpu.clk;
 			probe_hits[k]++;
+			{
+				uint32_t ra = mem_read(&mem, cpu.sr[SR_SP], 4);
+				unsigned j;
+				for (j = 0; j < NCALLER; j++) {
+					if (!probe_caller_n[k][j]) {
+						probe_caller[k][j] = ra;
+						probe_caller_n[k][j] = 1;
+						break;
+					}
+					if (probe_caller[k][j] == ra) {
+						probe_caller_n[k][j]++;
+						break;
+					}
+				}
+			}
 		}
 
 		if (armed && prof_ms1 > 0 && !prof_done) {
@@ -1194,6 +1215,12 @@ done:
 		       probe_hits[k] ? probe_first_clk[k] / (MCLK_HZ / 1000.0) : 0.0,
 		       probe_hits[k] ? probe_last_exec[k] : 0,
 		       probe_hits[k] ? probe_last_clk[k] / (MCLK_HZ / 1000.0) : 0.0);
+		if (probe_caller_n[k][0]) {
+			printf("      callers:");
+			for (unsigned j = 0; j < NCALLER && probe_caller_n[k][j]; j++)
+				printf("  %08x x%llu", probe_caller[k][j], probe_caller_n[k][j]);
+			printf("\n");
+		}
 		if (probe_gap_exec[k][0]) {
 			printf("      stalls:");
 			for (unsigned g = 0; g < NGAP && probe_gap_exec[k][g]; g++)

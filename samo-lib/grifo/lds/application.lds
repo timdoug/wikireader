@@ -55,6 +55,9 @@ SECTIONS
          __START_text = . ;
          /* .text.* too; see the note in grifo.lds.  */
          *(.text .text.*)
+         /* so the overlays stored after it are word-aligned and copied
+            into IVRAM by words (zim_overlay.c) */
+         . = ALIGN(4);
     } > sdram
     __END_text = . ;
 

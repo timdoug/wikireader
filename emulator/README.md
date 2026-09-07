@@ -100,7 +100,7 @@ data.
 | `-m` | Trace unclaimed MMIO accesses. |
 | `-P` | Report retired-opcode counts. |
 | `-H` | Profile executed addresses. |
-| `-X ADDR[,NAME]` | Count entries and report the longest gaps. |
+| `-X ADDR[,NAME]` | Count entries, report the longest gaps, and list the eight most frequent callers (the return address at entry; resolve with `addr2line`). |
 | `-Y A,B`, `-y M,N` | Limit profiling by address or guest-time interval. |
 | `-F FILE` | Write non-empty profile buckets: address, instructions, MCLK cycles, cycles waiting for the fetch, SDRAM row activations. Buckets cover 2 MB of SDRAM and, separately, the internal RAMs, so code in A0 RAM or IVRAM is never confused with the kernel or application at the same SDRAM offset. |
 | `-Z ADDR` | Rebase the scripted input timeline on the first hit of `ADDR`. |
@@ -152,7 +152,11 @@ within a bank (`--- window activations by row` and `by row pair`), which
 tells which objects alternate; a same-row pair is a bank closed by refresh
 and reopened. `WREMU_ROWTRACE=0xADDR` prints the PC and access kind behind
 the first 48 activations of that address's row inside the window, after
-skipping `WREMU_ROWTRACE_SKIP` of them. The `-F` profile carries cycles and activations per
+skipping `WREMU_ROWTRACE_SKIP` of them. `WREMU_WINDOW_REPEAT=1` reopens a
+`-Y` window at every later hit of its start address and adds the intervals
+up, for a phase that recurs once per block. The summary's `--- dstram stack`
+line gives the lowest stack pointer seen inside DSTRAM, where the ZIM reader
+runs its decoder loops on a private 1 KB stack. The `-F` profile carries cycles and activations per
 2-byte bucket, so `addr2line` on an unstripped link turns it into a
 per-source-line cost that includes memory stalls. Cycles, not instruction
 counts, are what to look at on this core: the ZIM article load below runs at

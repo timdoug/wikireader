@@ -116,6 +116,30 @@ Pitfalls met, so they need not be met again:
 - Moving a function into A0 RAM only helps if it was not being inlined:
   small helpers marked `noinline` there made the converter slower.
 
+### Session 2026-09-06 evening: 1073 to 761 ms in the model
+
+The changes are listed in `zim/README.md` ("A third round"); the
+commits are `fa2f88c9` onwards. Method that worked: the emulator's new
+row and row-pair histograms (`WREMU_ROWHIST=1`) named the objects that
+alternated rows, the probe caller list named who called `memcpy`, and
+every decoder change was checked by the 24 hashes (article, text and
+stream for eight words) from the `ZIM_TRACE_HASH` build. Pitfalls added:
+
+- `-F` buckets aliased internal-RAM code onto the kernel until 6dc2dada;
+  profiles from before it charge the A0 loop with kernel cycles.
+- A function placed in A0 RAM or an overlay must be `noinline` when its
+  only caller is elsewhere, or the compiler inlines it out of there.
+- Inline asm that clobbers every call-clobbered register cannot be inlined
+  itself; keep such wrappers `noinline` or the trace build fails.
+- The background hash job once ran against a stale app, so a "verified"
+  result must come from a build whose `zim.app` timestamp matches.
+- Another session commits to this repository concurrently (72941895,
+  19f0f289 on 2026-09-06); its kernel adds a syscall, so images with an
+  older `kernel.elf` panic with "undefined syscall" at the first key.
+- The device has not run anything after commit c59f999b; the DSTRAM
+  stack and the compact tables need the benchmark build on the device
+  before they are trusted.
+
 ## Build
 
 Keep binutils and GCC in the same prefix:
@@ -324,7 +348,7 @@ breakdown are in [`../../zim/README.md`](../../zim/README.md).
 
 | Measurement (calibrated model, 2026-09-05 evening) | Before | After |
 | --- | ---: | ---: |
-| `Cat`, tap to first painted page | 2864.0 ms | 1073.4 ms |
+| `Cat`, tap to first painted page | 2864.0 ms | 1073.4 ms (760.6 by the evening of 09-06, device untested) |
 | same on the device (`ZIM_BENCH`, tap to paint), 2026-09-05 then 09-06 | 1846 ms | 1245 ms |
 | `Tokyo` (Japanese first line), tap to paint, emulator / device | 8052 ms | 980 / 920 ms |
 | Wikivoyage `Paris`, first photograph decode | 1861.0 ms | 1565.5 ms |
@@ -395,43 +419,39 @@ These are not GCC/binutils correctness bugs and require separate approval:
 ## Next work
 
 Ranked for the reader's speed, all measurable in the calibrated emulator
-before touching the device:
+before touching the device (`Cat` 761 ms in the model at the end of
+2026-09-06):
 
-1. Overlap card reads with decoding. The kernel's file read is synchronous;
-   the cluster decode alternates 16 KiB card slices (about 22 ms each, of
-   which 1.2 ms is command latency) with decoding. An asynchronous block
-   read in `samo-lib/grifo/src/sd_dma.c` plus `file.c` that starts the
-   next slice's DMA and returns would hide most of `Cat`'s 133 ms of card
-   time behind its 687 ms of decode. Watch the DMA-into-internal-RAM rule.
-2. Shrink the sequence loop. It is now pure instruction count, about 71
-   instructions per sequence over 129 K sequences for `Cat` (47% of the
-   load), in `ZSTD_decompressSequences_body` and what it inlines
-   (`zim/zstd/zstddeclib.c`, the `__c33__` blocks). Profile it by line
-   with `-F` and the unstripped relink; the state updates, the twelve
-   separate field loads of the three table entries, and the copy dispatch
-   are the candidates. A0 RAM has 700 bytes to spare beside it.
-3. Decode the four Huffman literal streams one after another instead of
-   interleaved; the interleave exists for superscalar cores. Worth about
-   3% of `Cat`.
-4. The converter's 30 instructions per byte (`zim/zim_html.c`,
-   `html_to_text`) and the wrapper's per-word work; both run from IVRAM
-   now, so only instruction count is left. The HTML overlay has 284 bytes
-   of room.
-5. Calibration residue: phases running from internal RAM come out about
-   15% slower on the device than modeled while their fetch tests match, so
-   the gap is in data traffic the micro-benchmarks do not exercise (table
-   lookups, stores followed by loads). A micro-benchmark of random 8-byte
-   reads and of store/load interleaving, fitted with `fit_model.py`, would
-   close it. A `bench.txt` from a 16 MB V4 board would show whether the
-   overheads differ by revision.
-6. Exercise suspend/resume and a long session on the retimed kernel; write
-   the 124 GB English Wikipedia image to a 128 GB card and repeat the
-   hardware checklist.
-7. Toolchain and emulator items unchanged from before: explicit
-   modern-vs-legacy toolchain selection and Makefiles that notice flag
-   changes; independent runtime coverage of the PE operations firmware
-   does not reach; a real debugger session on an unstripped program;
-   cross-bank SDRAM overlap once measured; the full post-fix DejaGnu run.
+1. Run the benchmark build on the device: the DSTRAM stack, the compact
+   IVRAM tables and the bank placement are modeled only. Compare with
+   `zim/bench-compare`; the 32 MB board's 8 MB banks put the context and
+   input in an otherwise empty bank 1.
+2. The sequence loop is 282 ms: about 50 instructions per sequence of bit
+   reads and reload checks (`BIT_lookBitsFast`, `ZSTD_reloadIfNeededC33`,
+   the state updates), 100 cycles of copies, and the execSequence checks.
+   A hand-written inner loop keeping the bit container and the three
+   states in registers is the remaining large item; the copies' lead byte
+   batch for a misaligned destination (15% of the realigned path) could be
+   partial stores instead.
+3. The converter (128 ms, 27 instructions per byte in `html_to_text`) and
+   the wrapper (74 ms, 37 per text byte in `wrap_body`): the attribute
+   bytes are scanned twice, text runs are copied byte by byte, and the
+   wrapper scans, measures and copies each word in three passes.
+4. The literal phase (62 ms): the Huffman table builders run from SDRAM
+   (`HUF_readDTableX1_wksp` 16 ms, the weight decoder 6 ms, with 64-bit
+   entry replication the core does with library multiplies); sequential
+   streams would shrink the decoder's overlay enough to hold the builder.
+5. The kernel's card path (about 35 ms): `spi_transmit` and `delay_us`
+   straddle a row boundary, the token hunt runs from SDRAM, and the card
+   is re-initialised after every suspend (`CARD_POWER=OFF`, the other
+   session's measured choice).
+6. Overlap card reads with decoding, now that the DMA cadence is known to
+   be about 75 cycles per byte with the CPU stalled for the bus: only the
+   32-cycle shift per byte is hideable, so about 40% of the card time.
+7. Calibration residue and the 16 MB board `bench.txt`; suspend/resume
+   soak on the retimed kernel; the 124 GB card; the toolchain items from
+   before (modern-vs-legacy selection, flag-change detection, PE runtime
+   coverage, debugger session, full DejaGnu run).
 
 ## Source layout
 
