@@ -10,6 +10,11 @@
 #define SDRAMC_BASE 0x1600u
 #define SDRAMC_LEN  0x0014u
 
+/* Up to eight open rows: the 32 MB boards carry two 16 MB devices of four
+   banks each, which both WikiReaders measured as a 4 MB bank stride even
+   though the controller's ADDRC field describes a single device. */
+#define SDRAMC_MAX_BANKS 8
+
 struct sdramc {
 	uint32_t reg[SDRAMC_LEN / 4];
 	bool     initialised;
@@ -24,7 +29,7 @@ struct sdramc {
 		bool valid;
 		uint32_t row;
 		uint64_t activated;
-	} bank[4];
+	} bank[SDRAMC_MAX_BANKS];
 	struct {
 		bool valid;
 		uint32_t tag;
@@ -42,9 +47,9 @@ struct sdramc {
 	/* Diagnostics: controller transactions, not host memory copies. */
 	uint64_t activations;   /* row activates: each one is a page miss */
 	uint64_t act_kind[5][5]; /* [previous access kind][this kind] per bank */
-	uint64_t act_bank[4];
-	uint64_t kind_bank[5][4]; /* accesses by kind per bank */
-	unsigned bank_last_kind[4];
+	uint64_t act_bank[SDRAMC_MAX_BANKS];
+	uint64_t kind_bank[5][SDRAMC_MAX_BANKS]; /* accesses by kind per bank */
+	unsigned bank_last_kind[SDRAMC_MAX_BANKS];
 	uint64_t accesses[5];
 	uint64_t wait_cycles;
 	uint64_t iq_hits, iq_misses;
@@ -57,7 +62,7 @@ struct sdramc {
 	/* ... and, per bank, which row each activation replaced: an open
 	   hash of (previous row, new row) pairs with counts. */
 	struct sdramc_pair { uint32_t key; uint64_t n; } *pair_hist;
-	uint32_t pair_last[4];
+	uint32_t pair_last[SDRAMC_MAX_BANKS];
 };
 #define SDRAMC_PAIR_HIST_SIZE (1u << 16)
 /* WREMU_ROWTRACE=0xADDR: print the PC and kind behind the first activations

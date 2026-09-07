@@ -56,10 +56,15 @@ struct geometry {
 	unsigned banks, row_bits, col_bits;
 };
 
-/* Technical Manual table II.4.1.3.2, indexed by ADDRC[2:0]. */
+/* Technical Manual table II.4.1.3.2, indexed by ADDRC[2:0], except for the
+   32 MB settings.  The manual describes one device; the WikiReader's 32 MB
+   boards carry two, so the bank stride is half what the table implies and
+   twice as many rows are open at once.  Both units measured a 4 MB stride
+   for ADDRC 3 (zim/probe-compare on a card run through the benchmark app),
+   which is 8 banks of 4 MB rather than 4 of 8 MB. */
 static const struct geometry geometry[8] = {
-	{ 2, 11,  8 }, { 4, 12,  8 }, { 4, 12,  9 }, { 4, 13,  9 },
-	{ 2, 11,  9 }, { 4, 12,  9 }, { 4, 12, 10 }, { 4, 13, 10 },
+	{ 2, 11,  8 }, { 4, 12,  8 }, { 4, 12,  9 }, { 8, 12,  9 },
+	{ 2, 11,  9 }, { 4, 12,  9 }, { 4, 12, 10 }, { 8, 12, 10 },
 };
 
 static uint64_t sd_tick(const struct sdramc *s)

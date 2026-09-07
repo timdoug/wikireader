@@ -26,6 +26,7 @@ enum {
 enum {
 	ZIM_BENCH_SLOT_CARD,	/* archive reads through the file adapter */
 	ZIM_BENCH_SLOT_ZSTD,	/* ZSTD_decompressStream calls */
+	ZIM_BENCH_SLOT_ALLOC,	/* releasing and placing the cluster buffers */
 	ZIM_BENCH_SLOTS
 };
 

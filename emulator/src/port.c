@@ -18,6 +18,7 @@
  * its menu instead of booting on.
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "port.h"
@@ -192,9 +193,29 @@ void port_reset(struct port *p)
 	p->reg[OFF_PPOL + 4] = p->reg[OFF_PEL + 4] = 0xff;
 }
 
+/* Port A holds the board revision in its low nibble, inverted: the boot
+   code computes 8 ^ (PA & 0x0f). Revision 8 (the default here) and 6 are
+   the 16 MB boards; the early 32 MB boards report anything else, so
+   WREMU_BOARD_REV=7 emulates one of those. */
+static uint8_t porta_value;
+
+static bool porta_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
+		       bool is_write)
+{
+	(void)ctx; (void)size;
+	if (is_write)
+		return true;
+	*val = (off == PORTA_BASE + 1) ? porta_value : 0;
+	return true;
+}
+
 void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 {
+	const char *rev = getenv("WREMU_BOARD_REV");
+
 	p->itc = itc;
 	port_reset(p);
+	porta_value = (uint8_t)(0x08u ^ (rev ? strtoul(rev, NULL, 0) & 0x0fu : 0x08u));
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
+	mem_add_mmio(m, "porta", PORTA_BASE, PORTA_LEN, porta_mmio, p);
 }

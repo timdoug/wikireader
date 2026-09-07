@@ -9,6 +9,12 @@
 #include "itc.h"
 
 /* I/O port block, REG_BASE+0x380..0x3d5. */
+/* Port A data, which the boot code reads for the board revision; the SDRAM
+   configuration follows from it (samo_a1.h: revision 8 or 6 is a 16 MB
+   board, anything else 32 MB). WREMU_BOARD_REV sets it. */
+#define PORTA_BASE 0x0c00u
+#define PORTA_LEN  0x0004u
+
 #define PORT_BASE 0x0380u
 #define PORT_LEN  0x0056u    /* through SMPK1 at 0x3d5 */
 

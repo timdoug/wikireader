@@ -526,7 +526,8 @@ void zim_bench_painted(void)
 	wrap = marks[ZIM_BENCH_MARK_WRAP] - marks[ZIM_BENCH_MARK_HTML];
 	paint = marks[ZIM_BENCH_MARK_PAINT] - marks[ZIM_BENCH_MARK_WRAP];
 	bench_line("article %lu total %lu.%lu blob %lu.%lu (card %lu.%lu %luK %lu, "
-		   "zstd %lu.%lu %lu) html %lu.%lu wrap %lu.%lu paint %lu.%lu ms, "
+		   "zstd %lu.%lu %lu, alloc %lu.%lu %lu) "
+		   "html %lu.%lu wrap %lu.%lu paint %lu.%lu ms, "
 		   "%lu %lu %lu bytes",
 		   (unsigned long)pending_index, MS(total), MS(blob),
 		   MS(slot_ticks[ZIM_BENCH_SLOT_CARD]),
@@ -534,6 +535,8 @@ void zim_bench_painted(void)
 		   slot_calls[ZIM_BENCH_SLOT_CARD],
 		   MS(slot_ticks[ZIM_BENCH_SLOT_ZSTD]),
 		   slot_calls[ZIM_BENCH_SLOT_ZSTD],
+		   MS(slot_ticks[ZIM_BENCH_SLOT_ALLOC]),
+		   slot_calls[ZIM_BENCH_SLOT_ALLOC],
 		   MS(html), MS(wrap), MS(paint),
 		   (unsigned long)size_raw, (unsigned long)size_text,
 		   (unsigned long)size_stream);

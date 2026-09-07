@@ -374,7 +374,7 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 	unsigned long long content_size;
 	int rc;
 
-	cluster_release();
+	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0, cluster_release());
 	cluster.input = malloc(ZIM_STREAM_BUFFER_SIZE);
 	if (!cluster.input) {
 		cluster_release();
@@ -405,11 +405,13 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 	}
 	/* The output with the literal scratch buffer after it, then the
 	 * context away from it; see decoder_avoid. */
-	cluster.output = zim_alloc_other_bank(capacity +
+	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, capacity,
+		    cluster.output = zim_alloc_other_bank(capacity +
 					      ZSTD_DCtx_literalBufferSize(),
-					      reader_buffer);
+					      reader_buffer));
 	decoder_avoid = cluster.output;
-	cluster.stream = ZSTD_createDStream_advanced(decoder_memory);
+	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0,
+		    cluster.stream = ZSTD_createDStream_advanced(decoder_memory));
 	if (!cluster.output || !cluster.stream ||
 	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,
 						    cluster.output + capacity)) ||
