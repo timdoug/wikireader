@@ -403,6 +403,14 @@ archive's `83d60b5f` and displayed as scrambled words. The trace build
 now unpacks each entry and compares it with the table it came from, and
 the suite covers that article.
 
+Measured on the device with the fix (2026-09-06 night), tap to painted
+page: `Cat` 1121 ms, `Tokyo` 747 ms, `Japanese Bobtail` 1280 ms, against
+1245 and 920 ms for the first two at midday. Every phase runs 25 to 40%
+slower than the model there, wider than the 15% residue seen earlier, and
+the first thing to check is bank placement: the choices here name banks by
+absolute index and were tuned on the emulator's 16 MB board with 4 MB
+banks, while the device has 8 MB banks.
+
 Tried and reverted: 64 KiB input slices (the decoder runs on to the end
 of each slice, 100 ms of unread cluster for `Cat`, and the stable output
 buffer forbids bounding the output instead); keeping the card powered

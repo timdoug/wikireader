@@ -67,11 +67,27 @@ emulator `make check`):
 
 Device results, tap to painted page, `ZIM_BENCH` build:
 
-| | 2026-09-05 morning | end of 09-06 |
-| --- | ---: | ---: |
-| `Cat` (Simple English) | 1846 ms | 1245 ms |
-| `Tokyo` (Japanese first line) | about 8 s | 920 ms |
-| cached reopen | 63 ms | 65 ms |
+| | 2026-09-05 morning | 09-06 midday | 09-06 night |
+| --- | ---: | ---: | ---: |
+| `Cat` (Simple English) | 1846 ms | 1245 ms | 1121 ms |
+| `Tokyo` (Japanese first line) | about 8 s | 920 ms | 747 ms |
+| `Japanese Bobtail` | | | 1280 ms |
+| cached reopen | 63 ms | 65 ms | |
+
+The night column is the fixed build (`926d221c`) on the device, verified
+by the phase byte counts: `Japanese Bobtail` reports 29549 raw, 920 text
+and 765 stream bytes, which is what the corrected decode produces in the
+emulator (the broken build produced 3852 bytes of text from the same
+article because the garbled markup leaked tag fragments into the page).
+
+The device is 25 to 40% slower than the model in every phase of that run
+(Zstandard 500 ms against 393, HTML 165 against 121, wrap 93 against 80),
+wider than the 15% residue recorded earlier in the day. The likely cause
+is bank geometry: `zim_blob.c` and `search.c` choose banks by absolute
+index, tuned on the emulator's 16 MB board with 4 MB banks, while the
+device is an early 32 MB board with 8 MB banks, where reaching bank 2
+also forces a filler allocation of about 15 MB. Placement should be
+relative ("a different bank from this one") rather than absolute.
 
 Calibrated-model `Cat` window (`retrieve_article` to
 `render_article_with_pcf`): 2864 ms for the morning's firmware, 1073 ms now.
@@ -432,14 +448,16 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-Ranked for the reader's speed, all measurable in the calibrated emulator
-before touching the device (`Cat` 761 ms in the model at the end of
-2026-09-06):
+Ranked for the reader's speed (`Cat` 765 ms in the model, 1121 ms on the
+device at the end of 2026-09-06):
 
-1. Run the benchmark build on the device: the DSTRAM stack, the compact
-   IVRAM tables and the bank placement are modeled only. Compare with
-   `zim/bench-compare`; the 32 MB board's 8 MB banks put the context and
-   input in an otherwise empty bank 1.
+1. Make SDRAM bank placement relative rather than absolute, and check it
+   on both geometries. `zim_alloc_in_bank(size, 2)` was chosen against
+   the emulator's 4 MB banks; on the device's 8 MB banks the same call
+   reaches for 16 MB and fillers about 15 MB to get there, and buffers
+   meant to be in separate banks may share one. Ask instead for a bank
+   other than a given pointer's, and have the emulator boot as a 32 MB
+   board so the model matches the hardware under test.
 2. The sequence loop is 282 ms: about 50 instructions per sequence of bit
    reads and reload checks (`BIT_lookBitsFast`, `ZSTD_reloadIfNeededC33`,
    the state updates), 100 cycles of copies, and the execSequence checks.
