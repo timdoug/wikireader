@@ -1460,6 +1460,7 @@ int retrieve_article(long encoded_index)
 		FAIL();
 	zim_bench_mark(ZIM_BENCH_MARK_WRAP);
 	zim_bench_article_sizes(raw_size, text_size, article_size);
+	zim_bench_article_hash(raw, raw_size);
 #ifdef ZIM_TRACE_HASH
 	/* And the wrapped article stream with its link table. */
 	{

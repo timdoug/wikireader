@@ -232,14 +232,30 @@ __asm__(".section .text.bench_pic,\"ax\"\n"
 	"bench_pic_fetch:\n"
 	"1:\n\t.rept 256\n\tld.w\t%r7, %r7\n\t.endr\n\t"
 	"sub\t%r6, 1\n\txjrne\t1b\n\tret\n"
+	/* Data accesses issued by code running from internal RAM: %r6 counts,
+	   %r7 and %r8 point into SDRAM. */
+	".global bench_pic_load\n"
+	"bench_pic_load:\n"
+	"1:\n\t.rept 8\n\tld.w\t%r9, [%r7]\n\t.endr\n\t"
+	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
+	".global bench_pic_load2\n"
+	"bench_pic_load2:\n"
+	"1:\n\t.rept 4\n\tld.w\t%r9, [%r7]\n\tld.w\t%r9, [%r8]\n\t.endr\n\t"
+	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
+	".global bench_pic_storeload\n"
+	"bench_pic_storeload:\n"
+	"1:\n\t.rept 4\n\tld.w\t[%r7], %r9\n\tld.w\t%r9, [%r7]\n\t.endr\n\t"
+	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
 	".global bench_pic_end\n"
 	"bench_pic_end:\n"
 	".section .text\n");
 
 extern const unsigned char bench_pic_start[], bench_pic_cpu[],
-	bench_pic_fetch[], bench_pic_end[];
+	bench_pic_fetch[], bench_pic_load[], bench_pic_load2[],
+	bench_pic_storeload[], bench_pic_end[];
 
 typedef void (*bench_pic_fn)(unsigned long count);
+typedef void (*bench_pic_data_fn)(unsigned long count, void *a, void *b);
 
 /* Run one of the position-independent tests from a copied code block. */
 static unsigned long run_pic(const unsigned char *base, const unsigned char *which,
@@ -249,6 +265,19 @@ static unsigned long run_pic(const unsigned char *base, const unsigned char *whi
 	unsigned long t = timer_get();
 
 	fn(n);
+	return timer_get() - t;
+}
+
+/* The same, for the tests that touch memory. */
+static unsigned long run_pic_data(const unsigned char *base,
+				  const unsigned char *which, unsigned long n,
+				  void *a, void *b)
+{
+	bench_pic_data_fn fn =
+		(bench_pic_data_fn)(base + (which - bench_pic_start));
+	unsigned long t = timer_get();
+
+	fn(n, a, b);
 	return timer_get() - t;
 }
 
@@ -372,6 +401,9 @@ static void probe_hardware(unsigned char *buffer)
 
 #define BENCH_BUFFER (1024u * 1024u + 8192u)
 
+static void dstram_stack_fill(void);
+static unsigned dstram_stack_depth(void);
+
 void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 {
 	unsigned char *raw = malloc(BENCH_BUFFER);
@@ -409,6 +441,21 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 		       run_pic(a0ram, bench_pic_cpu, 3000000));
 		report("fetch-a0", 256 * 512,
 		       run_pic(a0ram, bench_pic_fetch, 512));
+		/* Code in A0 RAM, data in SDRAM: one row, two rows of one
+		   bank, and a store followed by a load of the same word.
+		   The model is fast by a fifth on every phase whose code
+		   runs from internal RAM while its fetch is right, so what
+		   it misses is here. */
+		/* Not `buffer`: its first bytes hold the saved A0 code, and
+		   the store test would write over it. */
+		report("a0-load", 8 * 10000,
+		       run_pic_data(a0ram, bench_pic_load, 10000, half, half));
+		report("a0-load-2rows", 8 * 10000,
+		       run_pic_data(a0ram, bench_pic_load2, 10000,
+				    half, half + 4096));
+		report("a0-store-load", 8 * 10000,
+		       run_pic_data(a0ram, bench_pic_storeload, 10000,
+				    half, half));
 	}
 	memcpy(BENCH_A0RAM, buffer, (size_t)(bench_pic_end - bench_pic_start));
 	{
@@ -462,6 +509,7 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 	free(raw);
 	bench_line("bench columns: article <index> total blob(card KB reads,"
 		   " zstd calls) html wrap paint ms, raw text stream bytes");
+	dstram_stack_fill();
 }
 
 /* --- article loads ------------------------------------------------------ */
@@ -489,6 +537,45 @@ void zim_bench_article_sizes(size_t raw, size_t text, size_t stream)
 	size_raw = raw;
 	size_text = text;
 	size_stream = stream;
+}
+
+/* FNV-1a of the decoded article, to check on the device what the emulator
+ * checks against the archive: a decoder bug that damages only articles with
+ * long matches passed a suite of eight for a whole session. */
+static uint32_t article_hash;
+
+void zim_bench_article_hash(const unsigned char *raw, size_t raw_size)
+{
+	uint32_t hash = 2166136261u;
+	size_t k;
+
+	for (k = 0; k < raw_size; k++)
+		hash = (hash ^ raw[k]) * 16777619u;
+	article_hash = hash;
+}
+
+/* The decoder's private stack in DSTRAM (zim/zstd/zstddeclib.c): filled
+ * with a pattern once the start-up tests that borrow the same area are
+ * done, and scanned after each article for the deepest point reached. */
+#define DSTRAM_STACK_BOTTOM ((volatile uint32_t *)0x84400)
+#define DSTRAM_STACK_TOP    ((volatile uint32_t *)0x84800)
+#define DSTRAM_STACK_FILL   0xa5a5a5a5u
+
+static void dstram_stack_fill(void)
+{
+	volatile uint32_t *p;
+
+	for (p = DSTRAM_STACK_BOTTOM; p < DSTRAM_STACK_TOP; p++)
+		*p = DSTRAM_STACK_FILL;
+}
+
+static unsigned dstram_stack_depth(void)
+{
+	volatile uint32_t *p = DSTRAM_STACK_BOTTOM;
+
+	while (p < DSTRAM_STACK_TOP && *p == DSTRAM_STACK_FILL)
+		p++;
+	return (unsigned)((DSTRAM_STACK_TOP - p) * 4);
 }
 
 void zim_bench_mark(int mark)
@@ -540,4 +627,7 @@ void zim_bench_painted(void)
 		   MS(html), MS(wrap), MS(paint),
 		   (unsigned long)size_raw, (unsigned long)size_text,
 		   (unsigned long)size_stream);
+	bench_line("article %lu fnv %08lx, dstram stack depth %u of 1024",
+		   (unsigned long)pending_index, (unsigned long)article_hash,
+		   dstram_stack_depth());
 }

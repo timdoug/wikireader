@@ -41,6 +41,7 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size);
 void zim_bench_article_begin(uint32_t index);
 void zim_bench_article_cached(void);
 void zim_bench_article_sizes(size_t raw, size_t text, size_t stream);
+void zim_bench_article_hash(const unsigned char *raw, size_t raw_size);
 void zim_bench_mark(int mark);
 /* Called from the renderer when the first page reaches the panel; emits
  * the article line if a load is pending. */
@@ -53,6 +54,7 @@ void zim_bench_account(int slot, unsigned long ticks, size_t bytes);
 #define zim_bench_article_begin(index) ((void)0)
 #define zim_bench_article_cached() ((void)0)
 #define zim_bench_article_sizes(raw, text, stream) ((void)0)
+#define zim_bench_article_hash(raw, size) ((void)0)
 #define zim_bench_mark(mark) ((void)0)
 #define zim_bench_painted() ((void)0)
 #define zim_bench_account(slot, ticks, bytes) ((void)0)
