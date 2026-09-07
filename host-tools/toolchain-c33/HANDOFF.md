@@ -258,6 +258,91 @@ Recipes that changed:
 - Install into a card image or onto the card through the verified step,
   never a bare `cp`.
 
+## Session 2026-09-07 afternoon: the decoder, and what the clusters cost
+
+Modeled `Cat` (the emulator as the 32 MB board) went 793 to 715 ms over
+eight commits (6b0bc7e9..13041524), every step checked against the 27
+article, text and stream hashes and the host `make check`.  None of it
+has run on the device yet.
+
+**The decode phase is mostly neighbours.**  A Python ZIM parser
+(`/tmp/zimpos.py`) put numbers to it: Kiwix packs about 85 articles into
+each 2 MB cluster and Zstandard decodes only from the cluster start, so
+the reader produces 872 KB to reach the 130 KB of `Cat`, 1.7 MB for the
+30 KB of `Japanese Bobtail`.  The 496 ms "sequence loop" on the device
+is that.  Re-clustering at card-build time was measured on three
+clusters: 256 KB clusters cost +34% of text size (still a valid ZIM),
+128 KB +53%; a 256 KB shared dictionary with one article per cluster
+costs -1%, but is no longer a ZIM.  The user chose to keep stock
+archives and speed up the decoder; that decision stands.
+
+Also corrected: the `Cat` load is 29,801 sequences of about 29 bytes,
+not 200k (seven instructions shared the entry-load line in the line
+profile), and 84% of them carry a fresh offset, so the repeat-offset
+path is not the common case.
+
+**What was done, in order.**
+
+- The sequence loop as C with every piece of state in a local: GCC still
+  spilled the states and pointers on every sequence (common path 239 to
+  211 instructions).  So `zim/zstd/zstd_c33_seq.s`: a hand-written loop
+  in A0 RAM with the bit container, bits consumed, output and literal
+  pointers, the last offset and the count in registers, the states and
+  bounds in a frame on the DSTRAM stack, and the sequences near the end
+  of a block handed back to C for `ZSTD_execSequenceEnd`.  The compact
+  table words were repacked for it (next state in the top bits, the two
+  shift amounts stored instead of the bit counts, no offset base at all:
+  it is `(1 << bits) - 3`).  The build rules accept `.s` sources now
+  (`application-post.mk`), and the emulator prints the first misaligned
+  accesses with their PC, which found the one bug (the destination-
+  aligning batch clobbered the register holding the misalignment).
+- The FSE table builder writes only the packed words: the symbol order
+  is spread into the compact table's IVRAM slot and overwritten in
+  place, and the per-symbol tables live in `zim_fast_scratch`, 640 bytes
+  of `.fastbss` in A0 RAM shared with the wrapper's width and word-break
+  tables (the two never run at once).  1.72M to 1.13M cycles.
+- Placement: the text buffer in a bank other than the article buffer's
+  (the wrapper copies every word from one to the other), the link table
+  likewise, the literal scratch buffer away from both output and input.
+  The literal move made no measurable difference: most activations in
+  the loop are refresh re-opens (every 288 clocks every bank closes),
+  not ping-pong, so spreading data over more banks is a wash.
+- `bmf_char_width` reads a width from a resident or cached glyph record
+  without `pres_bmfbm` copying the record out.
+- One Huffman decoder (`HUF_FORCE_DECOMPRESS_X1`; the double-symbol one
+  ran from SDRAM with a 16 KB table), its four streams decoded in turn
+  (interleaved, every output byte and most reloads opened a row), its
+  table in a reader-placed buffer in the bank idle during literal decode
+  (`ZSTD_DCtx_setHufTableBuffer`).  26k fewer activations, only 3.5 ms:
+  the loop is still 28 instructions a symbol.
+- The fresh-offset path falls through in the loop (three taken branches
+  fewer per sequence).
+- The converter parses attributes on the way to the '>' in one pass
+  (entered only for opening tags inside `<main>`), which also fixes a
+  '>' inside a quoted value ending the tag and a bare attribute
+  swallowing the next; over 51 saved articles only one output changed,
+  losing a garbage line.  729 to 715 ms.
+
+**Where 715 ms goes** (model cycles): the sequence loop 14.9M, of which
+decoding is about 175 cycles a sequence, bounds checks 35 and copies
+290 (a load from SDRAM by code in internal RAM costs 4 to 5 cycles, and
+the 8-register batches are near their floor); the three overlays (HTML
+9730k for html, wrap and Huffman together); the table builder 1.1M;
+`memcpy` 0.9M (glyph painting and card reads); `HUF_readDTableX1_wksp`
+0.84M with a third of it fetch wait; the card's SPI path 1.5M plus
+0.67M of `delay_us` powering the card back up after idle; `bank_size`
+0.4M once per boot.
+
+Traps met: a failed build left the previous app in the hash image and
+the suite "passed" (check both lines); a chained shell command that
+`cd`s leaves later commands elsewhere; turning a local array into a
+pointer leaves `sizeof` at 4 (twice: the log2 table copy in the
+builder, the second ASCII-width copy at the wrapper's font switch,
+which changed every stream hash and was chased through DSTRAM and A0
+placements before the real cause); `objdump -l` on the linked ELF mixes
+the three overlays' line numbers (same VMA), so take them from the
+object file with base 0x81a00 (`/tmp/ovlprof.py`).
+
 ## Build
 
 Keep binutils and GCC in the same prefix:
@@ -536,36 +621,31 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-Optimisation, ranked against the device's 942 ms for `Cat` (the model
-reads 884 ms for the same load and is uniformly optimistic):
+Optimisation, ranked in the model (the device is 20 to 33% slower on
+every phase; run the `ZIM_BENCH` build there first, `Cat` was 942 ms
+before this session's changes):
 
-1. The sequence loop, 496 ms on the device and about half the load. Some
-   50 instructions per sequence go on bit reads and reload checks
-   (`BIT_lookBitsFast`, `ZSTD_reloadIfNeededC33`, the state updates) with
-   the copies about 100 cycles on top. A hand-written inner loop holding
-   the bit container and the three decoder states in registers is the
-   one large win left; A0 RAM has room beside it.
-2. Overlap card reads with decoding: 131 ms of card time, of which the
-   DMA cadence leaves roughly 40% hideable behind the decode. Needs an
-   asynchronous block read in `samo-lib/grifo/src/sd_dma.c` and `file.c`,
-   and the rule that HSDMA cannot write internal RAM.
-3. The converter, 166 ms: attribute bytes are scanned twice, once to find
-   the attributes and once to skip them, and text runs are copied a byte
-   at a time.
-4. The wrapper, 95 ms: each word is scanned, measured and copied in three
-   separate passes.
-5. The Huffman table builders still run from SDRAM (`HUF_readDTableX1_wksp`
-   16 ms, the weight decoder 6 ms); decoding the four literal streams one
-   after another would shrink the overlay enough to hold them.
-6. The unexplained 20 to 33% phase gap, if it starts to matter. Every
-   measurable pattern agrees with the device, so the next candidates are
-   instruction mixes rather than single costs: a trace-driven comparison
-   of one phase, counting instructions and accesses on both sides, would
-   settle it.
-7. Unchanged: suspend/resume soak on the retimed kernel, the 124 GB card,
-   and the toolchain items (modern-vs-legacy selection, flag-change
-   detection, PE runtime coverage, a debugger session, the full DejaGnu
-   run).
+1. The Huffman literal loop in assembly: 28 instructions a symbol now,
+   about 19 reachable with the bit reader in registers and two symbols
+   per refill check; roughly 12 ms.  The overlay has 1.1 KB free for
+   `HUF_readDTableX1_wksp` (35% fetch wait in SDRAM) once its workspace
+   moves to A0 or DSTRAM.
+2. The SDRAM refresh interval: the kernel programs 0x120 clocks, the
+   part needs at most 468 at 60 MHz; about 140k refreshes fall in the
+   `Cat` window and each closes every bank.  0x180 keeps 18% margin and
+   would be worth 10 to 17 ms, but needs a soak on the device.
+3. The sequence loop's decode side: the three state loads and stores
+   through the frame (12 cycles), the three bounds checks (35), the
+   refill's four byte loads (44 a sequence at 0.8 refills).  Perhaps
+   10 ms in all.
+4. The wrapper's word scan, width sum and copy in assembly; the
+   converter's helpers outside the overlay (`put_anchor`,
+   `class_word_skipped`, `put_link_start`, `decode_entity`: about 1M
+   cycles, half of it fetch wait; the HTML overlay has 140 bytes free).
+5. Overlap card reads with decoding (131 ms of card time, about 40%
+   hideable): an asynchronous block read in `sd_dma.c` and `file.c`.
+6. Unchanged: the 20 to 33% phase gap, suspend/resume soak, the 124 GB
+   card, the toolchain items.
 
 ## Source layout
 
