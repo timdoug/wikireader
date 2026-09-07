@@ -39,13 +39,8 @@ DEBUG_ASFLAGS ?= --gdwarf-2
 # semantics when the compiler understands the option.
 GNU89_INLINE := $(shell $(CC) -fgnu89-inline -E -x c /dev/null >/dev/null 2>&1 && echo -fgnu89-inline)
 
-# Optimisation level, overridable so the toolchain work can A/B it.
-#
-# Keep -O2 after a current full-FLASH gcc 16 A/B.  -Os makes the installed
-# kernel/init/wiki files 9.1% smaller and retires 5.2% fewer instructions in
-# article retrieval, but the current SDRAM/bus model predicts 3.2% more time.
-# Both variants repeat exactly and render identically.  See
-# host-tools/toolchain-c33/HANDOFF.md for measurements and hardware caveats.
+# Runtime -O2 was faster than -Os in the measured emulator article workflow.
+# See emulator/README.md for timing limits. Boot stages override this to fit.
 OPT ?= -O2
 
 # scall reaches +/-4MB and the largest image here is 158kB, so -mlong-calls

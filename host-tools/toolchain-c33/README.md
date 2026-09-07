@@ -3,9 +3,9 @@
 This directory forward-ports EPSON's C33 support from binutils 2.10.1 and
 GCC 3.3.2 to binutils 2.47 and GCC 16.2.
 
-Start with [`HANDOFF.md`](HANDOFF.md) for the combined toolchain, firmware,
-emulator, and next-work summary. The target contract is
-[`gcc/ABI.md`](gcc/ABI.md).
+The target contract is [`gcc/ABI.md`](gcc/ABI.md). See the
+[emulator guide](../../emulator/README.md) and
+[ZIM reader guide](../../zim/README.md) for firmware use.
 
 ## Status
 
@@ -58,7 +58,12 @@ make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
 ```
 
 Clean the relevant firmware component when switching toolchains or ABI flags;
-Make does not encode compiler identity in object-file dependencies.
+Make does not encode compiler identity or flag changes in object-file
+dependencies. For a complete firmware rebuild, build
+`samo-lib/{mini-libc,fatfs,drivers,grifo}`, then `wiki` and `zim` in that
+order. Rebuild Grifo before running host reader tests: cleaning it removes
+the generated `grifo.h`. The emulator's `samo-lib/mbr/flash.rom` build needs
+gawk; physical devices retain their factory flash.
 
 ## Validation against the original toolchain
 

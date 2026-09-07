@@ -4,14 +4,9 @@
 #include "model.h"
 
 /*
- * Fitted with tools/fit_model.py against a WikiReader's bench.txt, most
- * recently on 2026-09-07 with the emulator booting as the board under test
- * (WREMU_BOARD_REV=7, a 32 MB early unit) and with micro-benchmarks that
- * exercise what the earlier fit had missed: data accesses issued by code
- * running from internal RAM, and reads the data queue already holds.  Every
- * micro-benchmark now agrees with the device within 12% and most within 5%,
- * against a fifth adrift on the phases that matter before.  The manual-only
- * values are branch costs of 3 and every overhead 0.
+ * Hardware-calibrated defaults for the 32 MB WikiReader (board 7), fitted
+ * 2026-09-07. See README.md, Calibration, for scope and timing limits.
+ * The manual-only values are branch costs of 3 and every overhead 0.
  */
 /* The PC of the instruction being executed, for the SDRAM row trace
  * (sdramc.c); kept here because every test links the model. */

@@ -56,28 +56,6 @@ SOURCES += zim_overlay.c
 SOURCES += zstddeclib.c
 SOURCES += zstd_c33_seq.s   # the sequence loop, in A0 RAM
 
-# ZIM_BENCH=YES times a set of memory and card micro-benchmarks at start-up
-# and every article load by phase, appending the lines to bench.txt on the
-# boot volume and printing them on the serial console; see zim_bench.h.  The
-# Makefile does not track flag changes, so remove build/*.o when switching.
-ZIM_BENCH ?= NO
-# A/B builds omit the calibration micro-benchmarks and record reader
-# initialization itself. Use matching before/after source trees.
-ZIM_BENCH_AB ?= NO
-ifneq (NO,$(strip ${ZIM_BENCH_AB}))
-ifneq ($(filter before after,${ZIM_BENCH_AB}),${ZIM_BENCH_AB})
-$(error ZIM_BENCH_AB must be NO, before or after)
-endif
-ZIM_BENCH = YES
-CFLAGS += -DZIM_BENCH_AB=1 -DZIM_BENCH_VARIANT=\"${ZIM_BENCH_AB}\"
-endif
-ifeq (YES,$(strip ${ZIM_BENCH}))
-CFLAGS += -DZIM_BENCH=1
-SOURCES += zim_bench.c
-TARGETS += zimbench.ico   # inverted kiwi for a second launcher entry
-build/zim_bench.o: CFLAGS += -mlong-calls   # its A0 RAM tests are far away
-endif
-
 # The Zstandard sequence loop lives in A0 RAM (.fastcode, see
 # application.lds), far from the rest of the code, so its calls in and out
 # need the long form.

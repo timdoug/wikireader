@@ -6,7 +6,6 @@
 
 #include "zim_image.h"
 #include "zim_overlay.h"
-#include "zim_bench.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,10 +38,6 @@ struct zim_image_decoder {
 	size_t *bitmap_size;
 	ZIM_IMAGE_PROGRESS progress;
 	void *progress_opaque;
-#if defined(ZIM_BENCH)
-	unsigned long setup_ticks, decode_ticks, dither_ticks;
-	int complete;
-#endif
 };
 
 static void keep_alive(void)
@@ -269,10 +264,6 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	unsigned int width;
 	unsigned int height;
 
-#if defined(ZIM_BENCH)
-	unsigned long start = timer_get();
-#endif
-
 	if (!webp || !webp_size || !bitmap || !width_out || !height_out ||
 	    !bitmap_size)
 		return NULL;
@@ -322,9 +313,6 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	state->bitmap_size = bitmap_size;
 	state->progress = progress;
 	state->progress_opaque = progress_opaque;
-#if defined(ZIM_BENCH)
-	state->setup_ticks = timer_get() - start;
-#endif
 	return state;
 
 error:
@@ -340,9 +328,6 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 {
 	VP8StatusCode decode_status;
 	int result;
-#if defined(ZIM_BENCH)
-	unsigned long start = timer_get();
-#endif
 
 	if (!state || state->offset >= state->webp_size)
 		return -1;
@@ -365,9 +350,6 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 		decode_status = WebPIUpdate(state->decoder,
 			state->webp, state->offset + amount);
 		state->offset += amount;
-#if defined(ZIM_BENCH)
-		state->decode_ticks += timer_get() - start;
-#endif
 		keep_alive();
 		if (state->progress)
 			state->progress(state->progress_opaque,
@@ -379,9 +361,6 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 	}
 	if (decode_status == VP8_STATUS_SUSPENDED)
 		return 1;
-#if defined(ZIM_BENCH)
-	start = timer_get();
-#endif
 	ZIM_OVERLAY_ENSURE(ovldither);
 	if (WebPIsRGBMode(state->config.output.colorspace)) {
 		result = dither_atkinson(state->config.output.u.RGBA.rgba,
@@ -406,10 +385,6 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 	}
 	*state->width_out = (uint8_t)state->width;
 	*state->height_out = (uint16_t)state->height;
-#if defined(ZIM_BENCH)
-	state->dither_ticks = timer_get() - start;
-	state->complete = 1;
-#endif
 	return 0;
 }
 
@@ -417,12 +392,6 @@ void zim_image_decoder_destroy(ZIM_IMAGE_DECODER *state)
 {
 	if (!state)
 		return;
-#if defined(ZIM_BENCH)
-	if (state->complete)
-		zim_bench_image(state->width, state->height, state->webp_size,
-			state->setup_ticks, state->decode_ticks, state->dither_ticks,
-			state->bitmap, *state->bitmap_size);
-#endif
 	WebPIDelete(state->decoder);
 	WebPFreeDecBuffer(&state->config.output);
 	free(state);

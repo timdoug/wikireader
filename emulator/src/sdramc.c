@@ -61,8 +61,8 @@ struct geometry {
  
    Both 32 MB WikiReaders (ADDRC 3) behave as 4 MB banks: alternating reads
    4, 8 and 16 MB apart all run at the speed of reads within one row, while
-   everything from 1 KB to 2 MB apart pays a row change (zim/zim_bench.c's
-   probe, read with zim/probe-compare).  The table's geometry would put the
+   everything from 1 KB to 2 MB apart pays a row change in hardware probes.
+   The table's geometry would put the
    bank stride at 8 MB and make the 16 MB pair a row conflict.  The boards
    carry a single memory device, so the reason for the difference is not
    established; the entries below describe what the hardware does, which is

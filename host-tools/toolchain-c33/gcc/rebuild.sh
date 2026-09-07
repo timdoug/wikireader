@@ -102,7 +102,7 @@ make install-gcc
 
 # Force libgcc to be rebuilt rather than trusting the stamps.  "make install"
 # copies the old archive with a fresh timestamp, so a stale libgcc.a looks
-# perfectly current -- see HANDOFF.md.
+# perfectly current.
 echo "==> rebuilding libgcc from scratch"
 rm -rf c33-epson-elf/libgcc c33-epson-elf/c33pe c33-epson-elf/c33adv
 rm -f configure-target-libgcc all-target-libgcc install-target-libgcc

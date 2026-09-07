@@ -41,13 +41,6 @@
 #include "utf8.h"
 #include "highlight.h"
 
-#ifdef ZIM_APP
-#include "zim_bench.h"
-#else
-#define zim_bench_boot_ready() ((void)0)
-#define zim_bench_boot_mark(stage) ((void)0)
-#endif
-
 #define LCD_Y_CALIBRATION_ADJUSTMENT (-1)
 
 struct pos {
@@ -347,7 +340,6 @@ void article_display_pcf(int yPixel)
 	}
 
 	copysize = membuffersize-pos;
-
 
 	if(copysize>framebuffersize)
 		copysize = framebuffersize;
@@ -1429,20 +1421,14 @@ int wikilib_run(void)
 	int rc;
 
 	wikilib_init();
-	zim_bench_boot_mark(ZIM_BENCH_BOOT_INIT);
 	article_buf_pointer = NULL;
 	search_init();
-	zim_bench_boot_mark(ZIM_BENCH_BOOT_ARCHIVE);
 	history_list_init();
 	get_temperature_mode();
-	zim_bench_boot_mark(ZIM_BENCH_BOOT_SETTINGS);
 	print_intro();
 	load_logo_xbm();
 	draw_logo_or_type_a_word(0, 0, 0, 0);
-	zim_bench_boot_mark(ZIM_BENCH_BOOT_UI);
 	load_all_fonts();
-	zim_bench_boot_mark(ZIM_BENCH_BOOT_FONTS);
-	zim_bench_boot_ready();
 
 	for (;;) {
 		idle_delay = 0;

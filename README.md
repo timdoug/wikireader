@@ -5,10 +5,10 @@ This repo (and docker container) contain the tools necessary to build an updated
 
 The maintained C33 path uses binutils 2.47 and GCC 16.2 and builds the complete
 WikiReader firmware. The full-system emulator boots the serial-FLASH chain and
-SD-card applications, including the DMA-enabled kernel. Start with
-[`host-tools/toolchain-c33/HANDOFF.md`](host-tools/toolchain-c33/HANDOFF.md) for
-current status, validation, performance results, known boundaries, and next
-work; see [`emulator/README.md`](emulator/README.md) for emulator use.
+SD-card applications, including the DMA-enabled kernel. See the
+[toolchain guide](host-tools/toolchain-c33/README.md) for builds and validation,
+the [emulator guide](emulator/README.md) for use and timing limits, and the
+[reader performance note](zim/PERFORMANCE.md) for hardware results.
 
 The original binutils 2.10.1 / GCC 3.3.2 build remains available as an ABI and
 assembler oracle. The older build notes under `doc/` describe that legacy path

@@ -4,7 +4,7 @@ This directory contains the GCC 16.2 backend for the Seiko Epson C33 family.
 The WikiReader uses the S1C33E07 PE core.
 
 The implementation status shared with binutils and the emulator is summarized
-in [`../HANDOFF.md`](../HANDOFF.md). The normative target description is
+in [the toolchain guide](../README.md). The normative target description is
 [`ABI.md`](ABI.md).
 
 ## Status
@@ -85,12 +85,9 @@ optimization level, ABI hooks, or target flags.
 | `-memcpy` | Retained C33 target option. |
 
 The firmware currently uses `-mc33pe -mno-long-calls -medda32 -O2`.
-Boot stages use `-Os` and section garbage collection to fit A0. A current
-full-FLASH A/B retains `-O2` for the runtime: `-Os` makes the installed
-kernel/init/wiki files 9.1% smaller and retires 5.2% fewer instructions in
-article retrieval, but is 3.2% slower under the current SDRAM/bus timing
-model. See [`../HANDOFF.md`](../HANDOFF.md) for the complete measurements and
-hardware-calibration caveat.
+Boot stages use `-Os` and section garbage collection to fit A0. Runtime
+`-O2` was faster in the measured emulator article workflow; see the
+[emulator timing notes](../../../emulator/README.md#calibration) for scope.
 
 ## ABI validation
 

@@ -4,8 +4,8 @@
 through the serial-FLASH boot chain, attaches a FAT32 card image, and presents
 the 240x208 touch display through SDL2.
 
-The combined emulator, toolchain, firmware, and next-work status is in
-[`../host-tools/toolchain-c33/HANDOFF.md`](../host-tools/toolchain-c33/HANDOFF.md).
+Build the firmware with the [modern C33 toolchain](../host-tools/toolchain-c33/README.md).
+See the [ZIM reader guide](../zim/README.md) for archive and card setup.
 
 ## Status
 
@@ -24,12 +24,9 @@ The combined emulator, toolchain, firmware, and next-work status is in
 - Headless execution is deterministic and runs at about 80 million target
   instructions per host second.
 
-Timing is derived from the documented 60 MHz MCLK and the programmed SPI,
-DMA, timer, and SDRAM registers, plus seven controller and card overheads
-the manual does not give, fitted to a real WikiReader on 2026-09-05 (see
-"Calibration"). Micro-benchmarks of the CPU, SDRAM, and card agree with the
-device within 5% but for two store-then-load patterns, and a whole article
-load within 3%.
+Timing follows the programmed clocks and memory/storage registers, with
+additional costs calibrated on hardware. See "Calibration" for the fitted
+parameters and the limits of absolute timing predictions.
 
 ## Build and test
 
@@ -135,7 +132,7 @@ scrolls by repointing that address, this is one line per displayed frame and
 the cleanest way to measure scrolling frame rate, since it costs the guest
 nothing (a serial trace inside the firmware stalls it for tens of ms a line).
 
-### Benchmarking
+### Profiling and timing
 
 Use `-Z` to align scripted input to a guest milestone. Absolute `-T`/`-K`
 cycle numbers do not produce comparable interactions when two firmware builds
@@ -163,11 +160,11 @@ counts, are what to look at on this core: the ZIM article load below runs at
 3.5 to 4.7 cycles per instruction, and an instruction-count profile of it
 ranks the wrong lines. The CPU has no cache; the model charges a row change
 of about 2 tRP + waits on tRAS/tRC for every move to another 1 KiB row of a
-bank (a bank is a contiguous quarter of the SDRAM), closes every bank at each
+bank (the WikiReader measurements use 4 MiB bank strides), closes every bank at each
 auto-refresh, and treats the two-slot 16-byte instruction queue as the only
 fetch buffering.
 
-ZIM reader article load, Simple English `Cat`, tap to first painted page,
+ZIM reader article load, Simple English `Cat`, retrieval to render entry,
 run from the repository root with a card from `zim/make-card-image`:
 
 ```sh
@@ -176,94 +173,37 @@ run from the repository root with a card from `zim/make-card-image`:
     -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt -n 1000000000
 ```
 
-(addresses from `zim/zim.map`; the first tap picks the reader on the
-launcher menu, so `-Z` cannot be used):
-
-| Firmware | Window (calibrated model) | Instructions |
-| --- | ---: | ---: |
-| 2026-09-05 morning, stock SDRAM timing | 2864.0 ms | 25,623,351 |
-| software changes and the kernel's SDRAM retiming | 1943.9 ms | 21,227,433 |
-| plus the decoder in A0 RAM, fast-seek fonts, 16 KiB slices | 1303.5 ms | 19,811,805 |
-| plus the converter, wrapper, and Huffman decoder as IVRAM overlays | 1073.4 ms | 19,941,012 |
-
-(The first two rows were measured before the 2026-09-06 refit added the
-write-to-read turnaround; it adds about 2% to loads.)
-
-(Under the pre-calibration, manual-only model the same two runs were 1941.3
-and 1253.9 ms; the fitted overheads slow everything, the old firmware most.)
-The first Wikivoyage `Paris` photograph went from 1861.0 to 1565.5 ms and
-app start to keyboard from 807 to 632 ms on the same basis. Scripted tap
-release is delivered only when the emulator next idles, so a faster build can
-show more `render_article_with_pcf` calls after the page appears; that is the
-held touch, not extra work.
-
-The ZIM reader's `ZIM_BENCH=YES` build times itself the same way on the
-device and in the emulator and writes `bench.txt` to the card; see
-`zim/README.md`, "Timing on the device", and `zim/bench-compare`.
+Use addresses from the matching `zim/zim.map`. The first tap picks the reader
+on the launcher menu, so `-Z` cannot be used. Scripted tap release is
+delivered when the emulator next idles; a faster build can therefore render
+extra frames while the scripted touch remains held.
 
 ### Calibration
 
-The model has ten parameters the manual does not give, in `src/model.c`,
-each with the value fitted on 2026-09-05 and 06 to a WikiReader (an early
-32 MB board running the retimed kernel; its file is
-`zim/bench-device-2026-09-06.txt`):
+The defaults in `src/model.c` were fitted on 2026-09-07 to an early 32 MB
+WikiReader running the retimed kernel (`WREMU_BOARD_REV=7`). Parameters
+can be overridden with `WREMU_MODEL=name=value,...`.
 
-| Parameter | Fitted | Manual | Meaning |
-| --- | ---: | ---: | --- |
-| `branch_taken` | 5 | 3 | cycles for a taken conditional branch whose target is in SDRAM |
-| `branch_taken_iram` | 4 | 3 | the same with the target in internal RAM |
-| `iqb_first` | 3 | 0 | extra SDCLK ticks before the first halfword of an instruction-queue line fill |
-| `iqb_word_gap` | 2 | 0 | extra ticks before each further 32-bit word of a line fill |
-| `dq_extra` | 2 | 0 | extra ticks on a data-queue (32-bit read) fill |
-| `wr_ticks` | 1 | 0 | flat ticks per CPU write instead of one per 16-bit transfer |
-| `wr_rd_turn` | 6 | 0 | extra ticks before an SDRAM read that follows a write |
-| `dma_extra` | 28 | 0 | extra MCLK cycles per HSDMA or IDMA transfer |
-| `sd_read_latency` | 70000 | 0 | cycles from a read command to the card's data token |
-| `iram_fetch_wait` | 0 | 0 | extra cycles per instruction fetched from internal RAM |
+| Parameter | Default | Meaning |
+| --- | ---: | --- |
+| `branch_taken` | 5 | taken branch cycles with an SDRAM target |
+| `branch_taken_iram` | 4 | taken branch cycles with an internal-RAM target |
+| `iqb_first` | 3 | extra SDCLK ticks before an instruction-queue fill |
+| `iqb_word_gap` | 2 | extra ticks between words of that fill |
+| `dq_extra` | 1 | extra ticks on a data-queue fill |
+| `wr_ticks` | 0 | fixed CPU write ticks; zero uses transfer timing |
+| `wr_rd_turn` | 3 | extra ticks for an SDRAM read after a write |
+| `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
+| `sd_read_latency` | 60000 | cycles from a read command to the data token |
+| `iram_fetch_wait` | 0 | extra cycles per internal-RAM instruction fetch |
+| `dq_iram_extra` | 2 | extra ticks for data access from internal-RAM code |
+| `dq_hit` | 1 | extra ticks for a data-queue hit |
 
-What they say about the hardware: a taken branch costs five cycles, one of
-them the refetch from SDRAM (four when the code is in A0 RAM, whose fetch
-is otherwise free, measured at exactly one cycle per instruction); the
-controller fetches an instruction-queue line as four separate 32-bit reads
-with a gap between them, and a data read has two cycles of overhead on top
-of CAS; writes are one flat tick, and a read after a write waits about six
-more; each byte moved by the SD DMA pair costs about 56 cycles beyond the
-SPI shift; and the card takes about 1.2 ms to start returning a block after
-a read command. The row-change cost and the independence of banks matched
-the manual-derived model before fitting.
-
-To refit (after a model change, or for another board), build the reader with
-`ZIM_BENCH=YES`, run it on the device and take its `bench.txt`, make a card
-image containing the same `zim.app` first on the launcher menu, and run
-
-```sh
-tools/fit_model.py device-bench.txt /tmp/bench.dmg
-```
-
-It runs the micro-benchmarks under candidate parameter sets (about 60 runs,
-six in parallel, five minutes) by coordinate descent over the memory
-parameters and then the card parameters, and prints the best `WREMU_MODEL`
-set with the per-test ratios. Copy the values into `src/model.c`. The
-ratios after the 2026-09-06 fit (cycles per operation):
-
-| Test | Device | Model | Model/device |
-| --- | ---: | ---: | ---: |
-| cpu-loop / cpu-loop-a0 | 6.0 / 5.0 | 6.0 / 5.0 | 1.00 / 1.00 |
-| fetch-1k / fetch-a0 | 2.6 / 1.0 | 2.7 / 1.0 | 1.04 / 1.00 |
-| read-words / read-bytes | 13.2 / 9.4 | 14.5 / 9.3 | 1.10 / 0.99 |
-| write-words / write-bytes | 9.2 / 9.2 | 9.3 / 9.3 | 1.01 |
-| pair-same-row / row-change / two-banks | 21.5 / 27.2 / 21.5 | 20.6 / 28.3 / 20.6 | 0.96 / 1.04 / 0.96 |
-| pair-write-read | 11.2 | 9.3 | 0.83 |
-| copy-bytes / copy-batch8 / memcpy | 16.5 / 18.1 / 6.6 | 14.5 / 17.7 / 6.4 | 0.88 / 0.98 / 0.97 |
-| card-256k / card-4k-x64 (cycles per block) | 38,880 / 49,866 | 39,039 / 48,501 | 1.00 / 0.97 |
-| `Cat` tap to paint (ms) | 1391 | 1353 | 0.97 |
-
-The `Cat` phases: Zstandard 0.88, card 1.07, HTML 1.02, wrap 1.09, paint
-1.11. The two store-then-load tests are the weakest fit: the write buffer's
-behaviour on a following read is only approximated by `wr_rd_turn`. The
-benchmark app must run on a writable card image: with `-R` the guest's
-first rejected write of `bench.txt` leaves its FatFs unable to open the
-fonts, and the run ends in a font panic.
+Calibration microbenchmarks agreed within 12%, most within 5%. In the
+measured article phases the model was 16-33% faster than the device; card
+restart latency is also simplified. Use it to identify expensive work and
+compare candidates, then confirm improvements on hardware. Historical
+calibration data and its retired harness remain in Git at `dee29f20`.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 
@@ -280,96 +220,18 @@ in older firmware and the new full-clock timed event waits. SD-on time in
 those short waits does not imply KEEP during deep suspend. This is
 GPIO-state residency, not a current or battery
 model; it excludes active execution and does not simulate card startup
-current or card-specific standby behavior. See [the battery audit](../zim/BATTERY.md)
+current or card-specific standby behavior. See [power management](../zim/BATTERY.md)
 for firmware comparisons and measurement limits.
 
-Current matched measurements are:
+Runtime firmware defaults to `-O2`: a full-FLASH stock-reader comparison
+found `-Os` smaller but 3.2% slower in the modeled article interval, with
+identical screens. That ordering has not been verified on hardware.
+Boot stages retain `-Os` to fit their internal-RAM limits.
 
-| Firmware/path | First stable screen | Executed work |
-| --- | ---: | ---: |
-| shipped GCC 3.3.2, PIO | 2363.4 ms | 61,364,514 |
-| GCC 16.2, PIO | 2370.6 ms | 56,406,351 |
-| GCC 16.2, DMA | 2374.3 ms | 40,340,531 |
-
-The screen is held by a deliberate two-second firmware deadline, so DMA's
-28.5% work reduction becomes idle time. The earlier first
-`File_initialise` milestone is 905.9 ms, 893.6 ms, and 773.0 ms respectively.
-
-Opening the first result for `LOVE` is a sustained-I/O comparison. Both
-modern paths read the same 395 blocks:
-
-| Kernel path | Article data and LZMA | Executed work |
-| --- | ---: | ---: |
-| PIO | 3831.4 ms | 64,395,028 |
-| DMA | 3629.3 ms | 55,589,491 |
-
-DMA saves 202.1 modeled ms (5.3%) and 13.7% of instructions. The final PIO,
-DMA, and shipped-application framebuffers are byte-identical. The shipped
-application is not a clean article timing baseline because it performs two
-unmapped reads and 256 writes immediately above DSTRAM during this operation;
-current firmware performs none.
-
-An earlier DMA path slept until HSDMA3 reported terminal count. In an
-emulator-only 300-million-cycle boot/search/article run that reduced work
-from 160,069,719 to 151,391,234 instructions and modeled time from 6094.8 to
-6015.4 ms, with identical screens and I/O. **That sleep did not wake on the
-real device.** Production firmware now uses a bounded completion poll; those
-old sleep results do not establish a hardware battery saving.
-
-A separate clean full-FLASH A/B rebuilt the whole GCC 16 runtime stack at
-`-O2` or `-Os`; the size-constrained MBR/menu/file-loader stayed at `-Os` in
-both images. The installed file sizes are:
-
-| Runtime file | `-O2` | `-Os` | `-Os` change |
-| --- | ---: | ---: | ---: |
-| `kernel.elf` | 49,876 B | 43,408 B | -13.0% |
-| `init.app` | 2,368 B | 2,208 B | -6.8% |
-| `wiki.app` | 162,928 B | 150,048 B | -7.9% |
-| total | 215,172 B | 195,664 B | -9.1% |
-
-The same `LOVE` workflow produced:
-
-| Metric | `-O2` | `-Os` | `-Os` change |
-| --- | ---: | ---: | ---: |
-| reset to wiki main loop | 786.7 ms | 798.3 ms | +1.5% |
-| article interval, instructions | 55,588,282 | 52,724,316 | -5.2% |
-| article interval, modeled time | 3680.09 ms | 3796.75 ms | +3.2% |
-| reset to article completion, instructions | 136,677,103 | 132,298,914 | -3.2% |
-| reset to article completion, modeled time | 11860.6 ms | 12057.8 ms | +1.7% |
-| SDRAM wait cycles | 343,337,791 | 361,692,295 | +5.3% |
-
-Both variants repeated cycle-for-cycle and produced the same final framebuffer
-(SHA-256 `5d024db6c27fd91b88099d21a002077b2d876893ba1af4a1dd07f8f2424529f0`).
-`-Os` retires fewer instructions, but its extra modeled SDRAM/bus stalls make
-the article interval 3.2% slower, so `-O2` remains the runtime default. Treat
-that small ordering as medium confidence until physical timing calibration.
-
-Build the matched modern kernel paths with `SD_DMA=YES` (default) or
-`SD_DMA=NO`. Firmware Makefiles default to the original compiler, so select
-the modern prefix explicitly when required:
-
-```sh
-make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" \
-    SD_DMA=YES <target>
-```
-
-Refitted on 2026-09-07 against a device run of the same build, with the
-emulator booting as the board under test (`WREMU_BOARD_REV=7`). Two costs
-the earlier micro-benchmarks never exercised were added: `dq_iram_extra`,
-paid by a data access issued from code running in internal RAM, which the
-device does in 2.6 cycles where the model had 1.6, and `dq_hit`, paid by a
-read the data queue already holds, which the model served free. The
-micro-benchmark error fell from 0.286 to 0.040, every test now within 12%
-of the device and most within 5%.
-
-The article phases remain 16 to 33% faster in the model than on the device
-(decode 411 ms against 495, converter 125 against 166, wrapper 82 against
-95) and no measurement so far explains it. A load-use pipeline interlock
-was the obvious candidate and the device refutes it: dependent and
-independent loads both cost 2.1 cycles, exactly as modelled. Treat the
-model as a good guide to the *ranking* of changes, since the error is in
-one direction across every phase, and confirm anything that matters on the
-device.
+Kernel builds select the working DMA path with `SD_DMA=YES` (default), or
+PIO with `SD_DMA=NO`. Production DMA completion polls with a bound: the
+older HALT-based completion wait passed the emulator but never woke on
+the real device.
 
 ## Hardware model
 
@@ -504,9 +366,8 @@ committed and are generation-time artifacts, not runtime dependencies.
 1. Add independent runtime cases for implemented stack-special and indirect
    jump forms not retired by firmware or generated C tests.
 2. Refine cross-bank SDRAM command/data overlap from the manual.
-3. Calibrate absolute SD latency and the timing model on physical hardware.
-4. Automate reproducible stock/modern/PIO/DMA card-image benchmarks.
-5. Model illegal delay-slot unstable behavior if a real workload needs it.
+3. Refine storage latency and article-phase costs against hardware.
+4. Model illegal delay-slot unstable behavior if a real workload needs it.
 
 Do not add unused SoC peripherals solely for completeness.
 
@@ -531,7 +392,7 @@ Do not add unused SoC peripherals solely for completeness.
 - Illegal instructions in delay slots do not have an explicit unstable-state
   model.
 - Cross-bank SDRAM traffic is intentionally conservative.
-- Absolute storage timing is a prediction until measured on hardware.
+- Storage timing is fitted to one card; wake latency remains simplified.
 - Direct ELF boot skips the board's SDRAM initialization, so hardware timing
   comparisons should use the FLASH boot path.
 - An emulator/firmware match alone is not proof of silicon behavior; the

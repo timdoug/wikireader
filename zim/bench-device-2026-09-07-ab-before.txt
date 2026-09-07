@@ -1,8 +1,0 @@
-bench variant: before; build: Sep  7 2026 16:30:28 gcc 16.2.0
-startup initialize 828.7 ms, archive 1:/wikipedia_en-simple_all_nopic_2026-06.zim
-bench start: sdram ctl 0x00001353 ref 0x01ff0120 app 0x8000000b, timer 60 ticks/us
-article 70197 total 869.5 blob 544.7 (card 133.2 96K 13, zstd 396.4 6, alloc 0.5 3, other 14.6) html 147.3 wrap 87.5 paint 89.8 ms, 130154 29853 24235 bytes
-article 70197 fnv 3c7a9642, dstram stack depth 292 of 1024
-image 226x167 11096 bytes: setup 0.4 decode 1304.7 dither 171.2 ms, bitmap fnv 6653db08
-article 44677 total 4183.4 blob 1122.8 (card 318.7 224K 21, zstd 796.7 14, alloc 0.6 3, other 6.6) html 585.4 wrap 492.9 paint 1982.1 ms, 391984 154424 242250 bytes
-article 44677 fnv 316a1e7e, dstram stack depth 292 of 1024

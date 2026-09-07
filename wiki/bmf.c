@@ -24,9 +24,6 @@
 #include "ustring.h"
 #include "bmf.h"
 #include "wikilib.h"
-#ifdef ZIM_BENCH_AB
-#include "zim_bench.h"
-#endif
 
 /*
  * The three CJK "all" fonts are 3.6 MB each, and production boards have 16 MB
@@ -77,17 +74,11 @@ int load_bmf(pcffont_bmf_t *font)
 	int fd;
 	font_bmf_header header;
 	unsigned long resident = sizeof(font_bmf_header);
-#ifdef ZIM_BENCH_AB
-	unsigned long started, opened, loaded;
-#endif
 
 	if (NULL == font || NULL == font->file) {
 		fatal_error("font is NULL");
 	}
 
-#ifdef ZIM_BENCH_AB
-	started = timer_get();
-#endif
 	fd = file_open(font->file, FILE_OPEN_READ);
 	if(fd < 0) {
 		panic("failed to open font: %s", font->file);
@@ -99,9 +90,6 @@ int load_bmf(pcffont_bmf_t *font)
 	if (0 == font->file_size) {
 		fatal_error("zero size font: %s", font->file);
 	}
-#ifdef ZIM_BENCH_AB
-	opened = timer_get();
-#endif
 	if (font->file_size > BMF_RESIDENT_LIMIT) {
 		size_t records = BMF_GLYPH_CACHE_SLOTS * sizeof(charmetric_bmf);
 
@@ -133,14 +121,7 @@ int load_bmf(pcffont_bmf_t *font)
 	}
 
 	file_read(fd, font->charmetric, resident);
-#ifdef ZIM_BENCH_AB
-	loaded = timer_get();
-#endif
 	create_link_map(font, fd);
-#ifdef ZIM_BENCH_AB
-	zim_bench_font_sample(font->file, opened - started, loaded - opened,
-		timer_get() - loaded);
-#endif
 
 	memcpy(&header,font->charmetric,sizeof(font_bmf_header));
 

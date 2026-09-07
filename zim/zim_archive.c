@@ -5,22 +5,6 @@
 
 #include "zim_archive.h"
 
-#if defined(__c33__) && defined(ZIM_BENCH)
-#include <grifo.h>
-#include "zim_bench.h"
-/* The card reads of the index itself, above all the directory entry that
- * starts every article load.  These were outside the benchmark's card
- * slot, so a card powering back up after an idle pause showed only as
- * unattributed time in the blob phase. */
-#define BENCH_TIMED(slot, bytes, statement) do { \
-		unsigned long bench_t0_ = timer_get(); \
-		statement; \
-		zim_bench_account(slot, timer_get() - bench_t0_, bytes); \
-	} while (0)
-#else
-#define BENCH_TIMED(slot, bytes, statement) do { statement; } while (0)
-#endif
-
 #include <string.h>
 
 #define ZIM_MAGIC 0x044d495aUL
@@ -57,9 +41,7 @@ static int read_exact(const ZIM_ARCHIVE *archive, uint64_t offset,
 
 	if (!range_valid(archive, offset, length))
 		return ZIM_ERR_RANGE;
-	BENCH_TIMED(ZIM_BENCH_SLOT_CARD, length,
-		    rc = archive->io.read_at(archive->io.opaque, offset, buffer,
-					     length));
+	rc = archive->io.read_at(archive->io.opaque, offset, buffer, length);
 	return rc ? ZIM_ERR_IO : ZIM_OK;
 }
 

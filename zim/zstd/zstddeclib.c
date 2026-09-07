@@ -21018,39 +21018,6 @@ static const BYTE ZSTD_c33_log2[256] = {
 };
 static void ZSTD_c33_convertTable(U32* out, const ZSTD_seqSymbol* dt);
 
-#if defined(ZIM_TRACE_HASH)
-/* Unpack every entry of a compact table and compare it with the 8-byte
- * table it came from, including the recomputed large base values.  A
- * mismatch is a packing bug, and one truncated match-length base was
- * enough to corrupt an article while every other article decoded (the
- * bases involved appear only in matches of 16 KB and more). */
-static void ZSTD_c33_verifyCompact(const U32* compact, const ZSTD_seqSymbol* dt)
-{
-    extern int debug_printf(const char* fmt, ...);
-    U32 const n = compact[0] ? 1u << compact[0] : 1u;
-    U32 i;
-    for (i = 0; i < n; i++) {
-        U32 const w = compact[i + 1];
-        const ZSTD_seqSymbol* const e = dt + 1 + i;
-        U32 const bits = ZSTD_C33_E_nbAdd(w);
-        U32 const field = ZSTD_C33_E_field(w);
-        U32 base;
-        if (field != ZSTD_C33_BASE_MARK)
-            base = field;
-        else if (e->baseValue == (1u << bits))
-            base = 1u << bits;              /* literal length */
-        else if (e->baseValue == (1u << bits) + 3)
-            base = (1u << bits) + 3;        /* match length */
-        else
-            base = (1u << bits) - 3;        /* offset */
-        if (base != e->baseValue || ZSTD_C33_E_nextState(w) != e->nextState ||
-            ZSTD_C33_E_nbBits(w) != e->nbBits || bits != e->nbAdditionalBits)
-            debug_printf("compact table entry %lu wrong: base %lu vs %lu\n",
-                         (unsigned long)i, (unsigned long)base,
-                         (unsigned long)e->baseValue);
-    }
-}
-#endif
 static const U32* ZSTD_c33_defaultCompact(const ZSTD_seqSymbol* dt, U32* cache);
 
 /* Word-aligned copy in 32-byte batches, rounding the length up: the C
@@ -21230,17 +21197,11 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
 #if defined(__c33__)
         /* The loop reads the packed word only, so the C33 builds that
          * straight into its IVRAM slot from the stack copies and does not
-         * write the 8-byte table at all, except in the trace build, which
-         * checks the packed words against it, and for a caller without a
-         * slot.  The bit-length table for the state values (all below
-         * 512) is a stack copy: read from .rodata next to the table's
+         * write the 8-byte table unless the caller has no compact slot.
+         * The bit-length table for the state values (all below 512) is a stack copy: read from .rodata next to the table's
          * bank, each entry cost a row change. */
         BYTE* const log2Local = zim_fast_scratch + 376;   /* 256 bytes */
-#if defined(ZIM_TRACE_HASH)
-        int const writeTable = 1;
-#else
         int const writeTable = compact == NULL;
-#endif
         ZSTD_c33_copyWords(log2Local, ZSTD_c33_log2, 256);
         if (compact)
             compact[0] = tableLog;
@@ -21312,24 +21273,6 @@ void ZSTD_buildFSETable(ZSTD_seqSymbol* dt,
 }
 
 
-#if defined(ZIM_TRACE_HASH)
-/* Where the decoder's streams live, for the emulator's SDRAM row histogram
- * (WREMU_ROWHIST); printed for the first block only.  Out of line so the
- * A0 RAM area is not charged for it. */
-static __attribute__((noinline)) void
-ZSTD_c33_traceMap(const ZSTD_DCtx* dctx, const void* lit, const void* ip,
-                  const void* op, const void* frame)
-{
-    static int printed;
-    extern int debug_printf(const char* fmt, ...);
-    if (printed)
-        return;
-    printed = 1;
-    debug_printf("zstd map: dctx %p LL %p OF %p ML %p lit %p ip %p op %p sp %p\n",
-                 (const void*)dctx, (const void*)dctx->LLTptr, (const void*)dctx->OFTptr,
-                 (const void*)dctx->MLTptr, lit, ip, op, frame);
-}
-#endif
 
 /*! ZSTD_buildSeqTable() :
  * @return : nb bytes read from src,
@@ -21363,9 +21306,6 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
         ZSTD_c33_convertTable(compactSpace, DTableSpace);
         *compactPtr = compactSpace;
         *compactFresh &= ~compactBit;
-#if defined(ZIM_TRACE_HASH)
-        ZSTD_c33_verifyCompact(compactSpace, DTableSpace);
-#endif
 #endif
         return 1;
     case set_basic :
@@ -21373,9 +21313,6 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
 #if defined(__c33__)
         *compactPtr = ZSTD_c33_defaultCompact(defaultTable, compactDefault);
         *compactFresh &= ~compactBit;
-#if defined(ZIM_TRACE_HASH)
-        ZSTD_c33_verifyCompact(compactDefault, defaultTable);
-#endif
 #endif
         return 0;
     case set_repeat:
@@ -21406,9 +21343,6 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
             ZSTD_c33_copyWords(compactSpace, compactIvram, (1 + ((size_t)1 << tableLog)) * sizeof(U32));
             *compactPtr = compactSpace;
             *compactFresh |= compactBit;
-#if defined(ZIM_TRACE_HASH)
-            ZSTD_c33_verifyCompact(compactSpace, DTableSpace);
-#endif
 #endif
             *DTablePtr = DTableSpace;
             return headerSize;
@@ -23048,11 +22982,6 @@ static __attribute__((noinline)) size_t
 ZSTD_c33_callOnDstramStack(size_t (*fn)(const void*), const void* args)
 {
     size_t result;
-#if defined(ZIM_TRACE_HASH)
-    {   U32* p = (U32*)ZSTD_C33_DSTRAM_STACK_BOTTOM;
-        while (p < (U32*)ZSTD_C33_DSTRAM_STACK_TOP) *p++ = 0xa5a5a5a5u;
-    }
-#endif
     __asm__ volatile (
         "ld.w\t%%r1, %%sp\n\t"
         "xld.w\t%%r2, %3\n\t"
@@ -23065,20 +22994,6 @@ ZSTD_c33_callOnDstramStack(size_t (*fn)(const void*), const void* args)
         : "r"(fn), "r"(args), "i"(ZSTD_C33_DSTRAM_STACK_TOP)
         : "r1", "r2", "r4", "r5", "r6", "r7", "r8", "r9",
           "r10", "r11", "r12", "r13", "r14", "memory");
-#if defined(ZIM_TRACE_HASH)
-    {   static unsigned deepest;
-        extern int debug_printf(const char* fmt, ...);
-        const U32* p = (const U32*)ZSTD_C33_DSTRAM_STACK_BOTTOM;
-        while (p < (const U32*)ZSTD_C33_DSTRAM_STACK_TOP && *p == 0xa5a5a5a5u) p++;
-        {   unsigned depth = (unsigned)(ZSTD_C33_DSTRAM_STACK_TOP - (U32)p);
-            if (depth > deepest) {
-                deepest = depth;
-                debug_printf("dstram stack depth %u of %u\n", depth,
-                             ZSTD_C33_DSTRAM_STACK_TOP - ZSTD_C33_DSTRAM_STACK_BOTTOM);
-            }
-        }
-    }
-#endif
     return result;
 }
 #endif
@@ -23090,9 +23005,6 @@ ZSTD_decompressSequences(ZSTD_DCtx* dctx, void* dst, size_t maxDstSize,
                    const ZSTD_longOffset_e isLongOffset)
 {
     DEBUGLOG(5, "ZSTD_decompressSequences");
-#if defined(ZIM_TRACE_HASH)
-    ZSTD_c33_traceMap(dctx, dctx->litPtr, seqStart, dst, __builtin_frame_address(0));
-#endif
 #if DYNAMIC_BMI2
     if (ZSTD_DCtx_get_bmi2(dctx)) {
         return ZSTD_decompressSequences_bmi2(dctx, dst, maxDstSize, seqStart, seqSize, nbSeq, isLongOffset);

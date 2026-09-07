@@ -19,7 +19,6 @@
 #include "wikilib.h"
 #include "zim_archive.h"
 #include "zim_article.h"
-#include "zim_bench.h"
 
 void *zim_alloc_bank_local(size_t size);
 void *zim_alloc_other_bank(size_t size, const void *avoid);
@@ -411,10 +410,6 @@ static int scroll_to_fragment(const unsigned char *fragment, size_t length)
 
 	if (i < 0)
 		return 0;
-#ifdef ZIM_TRACE_HASH
-	debug_printf("fragment -> stream y %d (from %d)\n",
-		     deferred_anchors[i].y, lcd_draw_cur_y_pos);
-#endif
 	display_article_with_pcf(deferred_anchors[i].y + article_start_y_pos -
 				 lcd_draw_cur_y_pos);
 	return 1;
@@ -450,10 +445,6 @@ static void apply_pending_fragment(void)
 	i = find_anchor(pending_fragment, pending_fragment_length);
 	pending_fragment_length = 0;
 	if (i >= 0) {
-#ifdef ZIM_TRACE_HASH
-		debug_printf("opening at fragment, stream y %d\n",
-			     deferred_anchors[i].y);
-#endif
 		set_article_initial_y_pos(deferred_anchors[i].y);
 	}
 }
@@ -631,9 +622,6 @@ static int prepare_article_image(unsigned char *stream)
 			draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
-#ifdef ZIM_TRACE_HASH
-		memory_debug("image decoded");
-#endif
 		goto out;
 	}
 	deferred_progress_framebuffer = lcd_get_framebuffer();
@@ -1041,12 +1029,6 @@ static void populate_results(void)
 		results.count++;
 	}
 	more_search_results = search_cursor_peek();
-#ifdef ZIM_TRACE_HASH
-	debug_printf("search '%s' -> %u variants, %lu results, first '%s' index %lu\n",
-		     search_string, cursor.count, (unsigned long)results.count,
-		     results.count ? (const char *)results.title[0] : "",
-		     results.count ? (unsigned long)results.article[0] : 0UL);
-#endif
 }
 
 void search_init(void)
@@ -1066,7 +1048,6 @@ void search_init(void)
 		guilib_fb_unlock();
 	}
 	open_archive(nCurrentWiki);
-	zim_bench_startup(archive.io.read_at, archive.io.opaque, archive.io.size);
 	results.count = 0;
 	results.selected = -1;
 }
@@ -1344,12 +1325,7 @@ int retrieve_article(long encoded_index)
 	size_t article_size;
 	int rc = 0;
 	int article_height;
-	int failed_line = 0;
-#define FAIL() do { failed_line = __LINE__; goto error; } while (0)
-
-	(void)failed_line;
 	zim_overlay_invalidate();   /* the search screen draws into IVRAM */
-	zim_bench_article_begin(index);
 	set_article_stream_height(0);
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
@@ -1358,12 +1334,12 @@ int retrieve_article(long encoded_index)
 		int wiki_index = get_wiki_idx_from_id(ARTICLE_WIKI_ID(encoded_index));
 
 		if (wiki_index < 0)
-			FAIL();
+			goto error;
 		if (wiki_index != nCurrentWiki)
 			set_wiki(wiki_index);
 	}
 	if (!index || index > archive.entry_count)
-		FAIL();
+		goto error;
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
 	if (!text_buffer)
@@ -1374,18 +1350,13 @@ int retrieve_article(long encoded_index)
 		text_buffer = zim_alloc_other_bank(FILE_BUFFER_SIZE, file_buffer);
 	zim_blob_set_reader_buffer(text_buffer);
 	if (!raw_buffer || !text_buffer)
-		FAIL();
+		goto error;
 	if (deferred_image_decoder) {
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
 	}
 	article_cache_store_current();
 	if (article_cache_restore(index)) {
-		zim_bench_article_cached();
-#ifdef ZIM_TRACE_HASH
-		debug_printf("article cache hit %lu history y %ld\n",
-			     (unsigned long)index, history_get_y_pos());
-#endif
 		apply_pending_fragment();
 		draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 		restricted_article = 0;
@@ -1395,9 +1366,9 @@ int retrieve_article(long encoded_index)
 	draw_progress_bar(2, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
-		FAIL();
+		goto error;
 	if (zim_archive_resolve_redirect(&archive, &dirent))
-		FAIL();
+		goto error;
 	strncpy(current_article_path, dirent.path,
 		sizeof(current_article_path) - 1);
 	current_article_path[sizeof(current_article_path) - 1] = '\0';
@@ -1411,41 +1382,15 @@ int retrieve_article(long encoded_index)
 						    ZIM_RAW_BUFFER_SIZE, &raw_size,
 						    article_blob_progress, NULL);
 		if (rc)
-			FAIL();
+			goto error;
 		raw = raw_buffer;
 	}
-	zim_bench_mark(ZIM_BENCH_MARK_BLOB);
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
-#ifdef ZIM_TRACE_HASH
-	/* Build with OPT="-O2 -DZIM_TRACE_HASH" to check decoder changes: the
-	 * FNV-1a of the decoded article appears on the serial console. */
-	{
-		uint32_t hash = 2166136261u;
-		size_t k;
-		for (k = 0; k < raw_size; k++)
-			hash = (hash ^ raw[k]) * 16777619u;
-		debug_printf("article fnv %08lx size %lu\n", (unsigned long)hash,
-			     (unsigned long)raw_size);
-	}
-#endif
 	rc = zim_html_to_text_images_progress(raw, raw_size, text_buffer,
 					      FILE_BUFFER_SIZE, &text_size,
 					      article_html_progress, NULL);
 	if (rc)
-		FAIL();
-	zim_bench_mark(ZIM_BENCH_MARK_HTML);
-#ifdef ZIM_TRACE_HASH
-	/* The converter's output too, so its changes can be checked the same
-	 * way as the decoder's. */
-	{
-		uint32_t hash = 2166136261u;
-		size_t k;
-		for (k = 0; k < text_size; k++)
-			hash = (hash ^ text_buffer[k]) * 16777619u;
-		debug_printf("text fnv %08lx size %lu\n", (unsigned long)hash,
-			     (unsigned long)text_size);
-	}
-#endif
+		goto error;
 	draw_progress_bar(ARTICLE_PROGRESS_HTML_END, ARTICLE_PROGRESS_LIMIT);
 	deferred_image_count = 0;
 	deferred_image_next = 0;
@@ -1459,25 +1404,11 @@ int retrieve_article(long encoded_index)
 					     article_link, NULL, article_anchor,
 					     NULL, &article_height,
 					     article_wrap_progress, NULL))
-		FAIL();
-	zim_bench_mark(ZIM_BENCH_MARK_WRAP);
-	zim_bench_article_sizes(raw_size, text_size, article_size);
-	zim_bench_article_hash(raw, raw_size);
-#ifdef ZIM_TRACE_HASH
-	/* And the wrapped article stream with its link table. */
-	{
-		uint32_t hash = 2166136261u;
-		size_t k;
-		for (k = 0; k < article_size; k++)
-			hash = (hash ^ file_buffer[k]) * 16777619u;
-		debug_printf("stream fnv %08lx size %lu\n", (unsigned long)hash,
-			     (unsigned long)article_size);
-	}
-#endif
+		goto error;
 	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))
-		FAIL();
+		goto error;
 	for (index = 0; index < deferred_image_count; index++)
 		deferred_images[index].stream += article_header.offset_article -
 			sizeof(article_header);
@@ -1488,23 +1419,12 @@ int retrieve_article(long encoded_index)
 	current_article_height = article_height;
 	current_article_header = article_header;
 	apply_pending_fragment();
-#ifdef ZIM_TRACE_HASH
-	debug_printf("article %lu history y %ld\n",
-		     (unsigned long)current_article_index,
-		     history_get_y_pos());
-	memory_debug("article ready");
-#endif
 	draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 	restricted_article = 0;
 	current_article_wiki_id = 0;
 	return 0;
 
 error:
-#ifdef ZIM_TRACE_HASH
-	debug_printf("article %lu failed at line %d rc %d\n",
-		     (unsigned long)((uint32_t)encoded_index & ARTICLE_INDEX_MASK),
-		     failed_line, rc);
-#endif
 	pending_fragment_length = 0;
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	print_article_error();

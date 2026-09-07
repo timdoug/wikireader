@@ -4,7 +4,7 @@ Current toolchain note
 The instructions below are retained for the original binutils 2.10.1 / GCC
 3.3.2 toolchain.  The maintained binutils 2.47 / GCC 16.2 toolchain builds on
 64-bit hosts without this chroot workaround; use
-host-tools/toolchain-c33/README.md and host-tools/toolchain-c33/HANDOFF.md.
+host-tools/toolchain-c33/README.md.
 
 Legacy toolchain instructions
 =============================

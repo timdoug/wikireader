@@ -84,5 +84,5 @@ toolchain-c33
 
   Maintained binutils 2.47 and GCC 16.2 C33 cross-toolchain sources,
   build scripts, ABI documentation, and DejaGnu integration.  See
-  toolchain-c33/HANDOFF.md for current status and validation.  The
+  toolchain-c33/README.md for current status and validation.  The
   original toolchain above remains available as an ABI/assembler oracle.

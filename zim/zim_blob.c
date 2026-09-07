@@ -16,19 +16,6 @@ void *zim_alloc_other_bank(size_t size, const void *avoid);
 #define zim_alloc_other_bank(size, avoid) malloc(size)
 #endif
 
-#if defined(__c33__) && defined(ZIM_BENCH)
-#include <grifo.h>
-#include "zim_bench.h"
-/* Time a statement into a zim_bench slot; nothing in a normal build. */
-#define BENCH_TIMED(slot, bytes, statement) do { \
-		unsigned long bench_t0_ = timer_get(); \
-		statement; \
-		zim_bench_account(slot, timer_get() - bench_t0_, bytes); \
-	} while (0)
-#else
-#define BENCH_TIMED(slot, bytes, statement) do { statement; } while (0)
-#endif
-
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
@@ -153,9 +140,7 @@ static int read_exact(const ZIM_ARCHIVE *archive, uint64_t offset,
 	if (offset > archive->io.size ||
 	    (uint64_t)length > archive->io.size - offset)
 		return ZIM_ERR_RANGE;
-	BENCH_TIMED(ZIM_BENCH_SLOT_CARD, length,
-		    rc = archive->io.read_at(archive->io.opaque, offset, buffer,
-					     length));
+	rc = archive->io.read_at(archive->io.opaque, offset, buffer, length);
 	return rc ? ZIM_ERR_IO : ZIM_OK;
 }
 
@@ -353,19 +338,9 @@ static int cluster_advance(const ZIM_ARCHIVE *archive, size_t target,
 		out.dst = cluster.output;
 		out.size = cluster.capacity;
 		out.pos = cluster.decoded;
-		BENCH_TIMED(ZIM_BENCH_SLOT_ZSTD, 0,
-			    remaining = ZSTD_decompressStream(cluster.stream, &out,
-							      &cluster.in));
+		remaining = ZSTD_decompressStream(cluster.stream, &out,
+						  &cluster.in);
 		if (ZSTD_isError(remaining)) {
-#ifdef ZIM_TRACE_HASH
-			extern const char *ZSTD_getErrorName(size_t code);
-			extern int debug_printf(const char *fmt, ...);
-			debug_printf("zstd error: %s (%ld) at decoded %lu in %lu/%lu\n",
-				     ZSTD_getErrorName(remaining), -(long)remaining,
-				     (unsigned long)cluster.decoded,
-				     (unsigned long)cluster.in.pos,
-				     (unsigned long)cluster.in.size);
-#endif
 			return ZIM_ERR_FORMAT;
 		}
 		cluster.decoded = out.pos;
@@ -388,7 +363,7 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 	unsigned long long content_size;
 	int rc;
 
-	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0, cluster_release());
+	cluster_release();
 	cluster.input = malloc(ZIM_STREAM_BUFFER_SIZE);
 	if (!cluster.input) {
 		cluster_release();
@@ -423,11 +398,9 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 	 * reads the input and writes the literals, and the sequence loop
 	 * reads the literals and writes the output, so with any two in one
 	 * bank each copy would open two rows. */
-	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, capacity,
-		    cluster.output = zim_alloc_other_bank(capacity, reader_buffer));
+	cluster.output = zim_alloc_other_bank(capacity, reader_buffer);
 	decoder_avoid = cluster.output;
-	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0,
-		    cluster.stream = ZSTD_createDStream_advanced(decoder_memory));
+	cluster.stream = ZSTD_createDStream_advanced(decoder_memory);
 	if (!scratch_literals)
 		scratch_literals = zim_alloc_other_bank(ZSTD_DCtx_literalBufferSize(),
 							reader_buffer);
@@ -563,9 +536,7 @@ static int read_zstd_blob_streaming(const ZIM_ARCHIVE *archive,
 			input.pos = 0;
 		}
 		output.pos = 0;
-		BENCH_TIMED(ZIM_BENCH_SLOT_ZSTD, 0,
-			    remaining = ZSTD_decompressStream(stream, &output,
-							      &input));
+		remaining = ZSTD_decompressStream(stream, &output, &input);
 		if (ZSTD_isError(remaining))
 			goto out;
 

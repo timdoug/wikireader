@@ -33,11 +33,6 @@
 #include "wiki_info.h"
 #include "bmf.h"
 #include "lcd_buf_draw.h"
-#ifdef ZIM_BENCH
-#include "zim_bench.h"
-#else
-#define zim_bench_painted() ((void)0)
-#endif
 #include "search.h"
 #include "bigram.h"
 #include "utf8.h"
@@ -317,7 +312,6 @@ void load_all_fonts()
 		}
 	}
 }
-
 
 /*
  * Initialized prefix of screen_buf for the current article. Start a new
@@ -739,7 +733,6 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 				lcd_draw_cur_y_pos = article_start_y_pos;
 				finger_move_speed = 0;
 				repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 0);
-				zim_bench_painted();
 				if (lcd_draw_init_y_pos < article_start_y_pos)
 					lcd_draw_init_y_pos = article_start_y_pos;
 				if (lcd_draw_init_y_pos > article_start_y_pos)
@@ -860,7 +853,6 @@ void buf_draw_horizontal_line(unsigned long start_x, unsigned long end_x)
 {
 	unsigned long i;
 	long h_line_y;
-
 
 	h_line_y = lcd_draw_buf.current_y + lcd_draw_buf.line_height;
 	h_line_y -= lcd_draw_buf.y_adjustment + 1;
@@ -1349,7 +1341,6 @@ int render_article_with_pcf()
 
 			repaint_framebuffer(lcd_draw_buf.screen_buf, lcd_draw_cur_y_pos, 1);
 			display_first_page = 1;
-			zim_bench_painted();
 			request_display_next_page = 0;
 		}
 
@@ -2295,7 +2286,6 @@ void init_invert_link(void)
 	link_currently_inverted = -1;
 }
 
-
 int get_activated_article_link_number()
 {
 	return link_currently_activated;
@@ -2630,7 +2620,6 @@ int draw_bmf_char(ucs4_t u,int font,int x,int y, int inverted, int b_clear)
 	x_base = x + Cmetrics.LSBearing;
 	x_offset = 0;
 	y_offset = pPcfFont->Fmetrics.linespace - (pPcfFont->Fmetrics.descent + Cmetrics.ascent);
-
 
 	x_bit_idx = x_base & 0x07;
 
@@ -3344,7 +3333,6 @@ int lcd_draw_get_cur_y_pos()
 	return lcd_draw_cur_y_pos;
 }
 
-
 #if ENABLE_PROGRESS
 extern void draw_progress_bar(int progressCount, int limit)
 {
@@ -3370,9 +3358,6 @@ extern void draw_progress_bar(int progressCount, int limit)
 			 * whole bar each time cost 5% of an article load. */
 			int from = x > last_x ? last_x : 0;
 			last_x = x;
-#ifdef ZIM_TRACE_HASH
-			debug_printf("bar %d at %lu ms\n", x, timer_get() / 60000);
-#endif
 			lcd_colour_t save = lcd_set_colour(LCD_BLACK);
 			lcd_move_to(from, 1);
 			lcd_line_to(x, 1);

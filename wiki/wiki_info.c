@@ -443,9 +443,6 @@ void init_wiki_info(void)
 
 		/* Both A/B applications start with the same archive even after
 		 * the previous run switched to Wikivoyage for the image test. */
-#ifdef ZIM_BENCH_AB
-		nCurrentWiki = 0;
-#endif
 		for (i = 0; i < nWikiCount; i++)
 		{
 			aActiveWikis[i].WikiNlsLen = -1;
@@ -535,7 +532,6 @@ KEYBOARD_MODE wiki_default_keyboard()
 	return default_keyboard;
 }
 
-
 uint32_t wiki_lang_link_search(const unsigned char *lang_link_str)
 {
 	uint32_t article_idx = 0;
@@ -576,7 +572,6 @@ uint32_t wiki_lang_link_search(const unsigned char *lang_link_str)
 char *get_wiki_file_path(int nWikiIdx, char *file_name)
 {
 	static char sFilePath[32];
-
 
 	sprintf(sFilePath, "%s/%s", wiki_list[aActiveWikis[nWikiIdx].WikiInfoIdx].wiki_folder, file_name);
 	return sFilePath;
