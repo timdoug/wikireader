@@ -21021,12 +21021,16 @@ static void ZSTD_c33_copyWords(void* dstv, const void* srcv, size_t length)
     ptrdiff_t remaining = (ptrdiff_t)length;
     ZSTD_C33_BATCH("ld.w", "ld.w", 32);
 }
+static U32 ZSTD_c33_pack(U32 nextState, U32 baseValue, U32 nbAdditionalBits, U32 nbBits)
+{
+    U32 const field = baseValue < ZSTD_C33_BASE_MARK ? baseValue : ZSTD_C33_BASE_MARK;
+    assert(nextState < 512 && nbBits <= 9 && nbAdditionalBits < 32);
+    return nextState << 23 | field << 10
+         | ((32u - nbAdditionalBits) & 0x1fu) << 5 | (30u - nbBits);
+}
 static U32 ZSTD_c33_packEntry(const ZSTD_seqSymbol* e)
 {
-    U32 const field = e->baseValue < ZSTD_C33_BASE_MARK ? e->baseValue : ZSTD_C33_BASE_MARK;
-    assert(e->nextState < 512 && e->nbBits <= 9 && e->nbAdditionalBits < 32);
-    return (U32)e->nextState << 23 | field << 10
-         | ((32u - e->nbAdditionalBits) & 0x1fu) << 5 | (30u - e->nbBits);
+    return ZSTD_c33_pack(e->nextState, e->baseValue, e->nbAdditionalBits, e->nbBits);
 }
 #endif
 
@@ -21048,22 +21052,25 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
     BYTE* spread = (BYTE*)(symbolNext + MaxSeq + 1);
     U32 highThreshold = tableSize - 1;
 #if defined(__c33__)
-    /* The table being built, the workspace, and the two per-symbol tables
-     * in .rodata are all in the SDRAM bank that holds the code and heap,
-     * each in its own row, so the two loops below changed row three or
-     * four times per entry.  Copies on the stack are in another bank, whose
-     * row stays open, so only the table's own rows are visited. */
-    U32 baseLocal[MaxSeq + 1];
-    U8 bitsLocal[MaxSeq + 1];
-    U16 symbolNextLocal[MaxSeq + 1];
-    BYTE spreadLocal[512 + 8];
+    /* The per-symbol tables (the two from .rodata, and the next-state
+     * counters) go to A0 RAM scratch, a cycle an access, and the symbol
+     * order is spread into the compact table's own IVRAM slot, one word a
+     * cell, which the build loop then overwrites in place with the packed
+     * word.  On the stack, in SDRAM, the same tables straddled two rows
+     * and the loops changed row twice per entry. */
+    U32* const compact = ZSTD_c33_compactOut;   /* an IVRAM slot, or NULL */
+    static U32 spreadNoSlot[512];               /* without a slot (a 2 KB frame put the compiler's spills a row away) */
+    U32* const spreadW = compact ? compact + 1 : spreadNoSlot;
+    U32* const baseLocal = (U32*)(void*)zim_fast_scratch;          /* 53 words */
+    U8* const bitsLocal = zim_fast_scratch + 212;                   /* 53 bytes */
+    U16* const symbolNextLocal = (U16*)(void*)(zim_fast_scratch + 268);   /* 53 halfwords */
     (void)wksp;
+    (void)spread;
     ZSTD_memcpy(baseLocal, baseValue, maxSV1 * sizeof(U32));
     ZSTD_memcpy(bitsLocal, nbAdditionalBits, maxSV1);
     baseValue = baseLocal;
     nbAdditionalBits = bitsLocal;
     symbolNext = symbolNextLocal;
-    spread = spreadLocal;
 #endif
 
 
@@ -21080,7 +21087,11 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
             U32 s;
             for (s=0; s<maxSV1; s++) {
                 if (normalizedCounter[s]==-1) {
+#if defined(__c33__)
+                    spreadW[highThreshold--] = s;
+#else
                     tableDecode[highThreshold--].baseValue = s;
+#endif
                     symbolNext[s] = 1;
                 } else {
                     if (normalizedCounter[s] >= largeLimit) DTableH.fastMode=0;
@@ -21158,7 +21169,13 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
             int i;
             int const n = normalizedCounter[s];
             for (i=0; i<n; i++) {
+#if defined(__c33__)
+                /* The symbol order goes to the slot: the 8-byte table is
+                 * not written on the C33 (below). */
+                spreadW[position] = s;
+#else
                 tableDecode[position].baseValue = s;
+#endif
                 position = (position + step) & tableMask;
                 while (UNLIKELY(position > highThreshold)) position = (position + step) & tableMask;   /* lowprob area */
         }   }
@@ -21169,33 +21186,48 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
     {
         U32 u;
 #if defined(__c33__)
-        /* The compact copy goes straight to IVRAM, and the bit-length table
-         * for the state values (all below 512) is a stack copy: read from
-         * .rodata next to the table's bank, each entry cost a row change. */
-        U32* const compact = ZSTD_c33_compactOut;   /* an IVRAM slot, or NULL */
-        BYTE log2Local[256];
-        ZSTD_c33_copyWords(log2Local, ZSTD_c33_log2, sizeof(log2Local));
+        /* The loop reads the packed word only, so the C33 builds that
+         * straight into its IVRAM slot from the stack copies and does not
+         * write the 8-byte table at all, except in the trace build, which
+         * checks the packed words against it, and for a caller without a
+         * slot.  The bit-length table for the state values (all below
+         * 512) is a stack copy: read from .rodata next to the table's
+         * bank, each entry cost a row change. */
+        BYTE* const log2Local = zim_fast_scratch + 376;   /* 256 bytes */
+#if defined(ZIM_TRACE_HASH)
+        int const writeTable = 1;
+#else
+        int const writeTable = compact == NULL;
+#endif
+        ZSTD_c33_copyWords(log2Local, ZSTD_c33_log2, 256);
         if (compact)
             compact[0] = tableLog;
-#endif
+        for (u=0; u<tableSize; u++) {
+            U32 const symbol = spreadW[u];
+            U32 const nextState = symbolNext[symbol]++;
+            U32 const highbit = nextState >= 256 ? 8u + log2Local[nextState >> 8] : log2Local[nextState];
+            U32 const nbBits = tableLog - highbit;
+            U32 const next = (nextState << nbBits) - tableSize;
+            if (compact)
+                compact[u + 1] = ZSTD_c33_pack(next, baseValue[symbol], nbAdditionalBits[symbol], nbBits);
+            if (writeTable) {
+                tableDecode[u].nbBits = (BYTE)nbBits;
+                tableDecode[u].nextState = (U16)next;
+                tableDecode[u].nbAdditionalBits = nbAdditionalBits[symbol];
+                tableDecode[u].baseValue = baseValue[symbol];
+            }
+        }
+#else
         for (u=0; u<tableSize; u++) {
             U32 const symbol = tableDecode[u].baseValue;
             U32 const nextState = symbolNext[symbol]++;
-#if defined(__c33__)
-            U32 const highbit = nextState >= 256 ? 8u + log2Local[nextState >> 8] : log2Local[nextState];
-            tableDecode[u].nbBits = (BYTE) (tableLog - highbit);
-#else
             tableDecode[u].nbBits = (BYTE) (tableLog - ZSTD_highbit32(nextState) );
-#endif
             tableDecode[u].nextState = (U16) ( (nextState << tableDecode[u].nbBits) - tableSize);
             assert(nbAdditionalBits[symbol] < 255);
             tableDecode[u].nbAdditionalBits = nbAdditionalBits[symbol];
             tableDecode[u].baseValue = baseValue[symbol];
-#if defined(__c33__)
-            if (compact)
-                compact[u + 1] = ZSTD_c33_packEntry(tableDecode + u);
-#endif
         }
+#endif
     }
 }
 
@@ -23089,6 +23121,27 @@ typedef struct {
     unsigned maxNbAdditionalBits;
 } ZSTD_OffsetInfo;
 
+#if defined(__c33__)
+/* The same from a compact table (ZSTD_c33_packEntry). */
+static ZSTD_OffsetInfo ZSTD_c33_getOffsetInfo(const U32* compact, int nbSeq)
+{
+    ZSTD_OffsetInfo info = {0, 0};
+    if (nbSeq != 0 && compact != NULL) {
+        U32 const tableLog = compact[0];
+        U32 const max = tableLog ? 1u << tableLog : 1u;
+        U32 u;
+        for (u = 0; u < max; u++) {
+            U32 const bits = ZSTD_C33_E_nbAdd(compact[u + 1]);
+            info.maxNbAdditionalBits = MAX(info.maxNbAdditionalBits, bits);
+            if (bits > 22) info.longOffsetShare += 1;
+        }
+        info.longOffsetShare <<= (OffFSELog - tableLog);
+    }
+    return info;
+}
+#endif
+
+#if !defined(__c33__)
 /* ZSTD_getOffsetInfo() :
  * condition : offTable must be valid
  * @return : "share" of long offsets (arbitrarily defined as > (1<<23))
@@ -23122,6 +23175,7 @@ ZSTD_getOffsetInfo(const ZSTD_seqSymbol* offTable, int nbSeq)
 
     return info;
 }
+#endif
 
 /**
  * @returns The maximum offset we can decode in one read of our bitstream, without
@@ -23221,7 +23275,11 @@ ZSTD_decompressBlock_internal(ZSTD_DCtx* dctx,
          * NOTE: could probably use a larger nbSeq limit
          */
         if (isLongOffset || (!usePrefetchDecoder && (totalHistorySize > (1u << 24)) && (nbSeq > 8))) {
+#if defined(__c33__)
+            ZSTD_OffsetInfo const info = ZSTD_c33_getOffsetInfo(dctx->c33OFptr, nbSeq);   /* the 8-byte table is not built */
+#else
             ZSTD_OffsetInfo const info = ZSTD_getOffsetInfo(dctx->OFTptr, nbSeq);
+#endif
             if (isLongOffset && info.maxNbAdditionalBits <= STREAM_ACCUMULATOR_MIN) {
                 /* If isLongOffset, but the maximum number of additional bits that we see in our table is small
                  * enough, then we know it is impossible to have too long an offset in this block, so we can

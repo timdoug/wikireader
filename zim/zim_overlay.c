@@ -6,6 +6,9 @@
 
 static const void *resident;
 
+unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE]
+	__attribute__((section(".fastbss"), aligned(4)));
+
 void zim_overlay_ensure(const void *load_start, const void *load_stop)
 {
 	size_t size = (size_t)((const unsigned char *)load_stop -

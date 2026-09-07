@@ -23,6 +23,14 @@
 
 #define ZIM_OVERLAY_SECTION(name) __attribute__((section(name)))
 
+/* Scratch in the A0 RAM area left after the sequence loop (.fastbss,
+ * application.lds): a cycle an access and no SDRAM row.  Shared by phases
+ * that never run at the same time: the FSE table builder (632 bytes of
+ * per-symbol tables) and the wrapper (384 bytes of width and word-break
+ * tables).  Nothing in the kernel touches this RAM. */
+#define ZIM_FAST_SCRATCH_SIZE 640
+extern unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE];
+
 /* Copy an overlay in unless it is already there. */
 void zim_overlay_ensure(const void *load_start, const void *load_stop);
 /* Forget what the buffer holds, e.g. after the search screen may have

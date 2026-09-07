@@ -155,6 +155,25 @@ int bmf_char_width(ucs4_t val, pcffont_bmf_t *font)
 			metric->widthDevice : 0;
 	}
 
+	/* A glyph already in memory: the width straight from its record,
+	 * without pres_bmfbm() copying the 56-byte record out.  A cached
+	 * record is stored after any default-glyph substitution, and a
+	 * resident record with a positive width is what would be copied. */
+	metric = NULL;
+	if (font->glyph_slots) {
+		unsigned int slot = val & (font->glyph_slots - 1);
+
+		if (font->glyph_tags[slot] == val + 1)
+			metric = (const charmetric_bmf *)(font->glyph_cache +
+				slot * sizeof(*metric));
+	} else {
+		long offset = (long)val * sizeof(*metric) + sizeof(font_bmf_header);
+
+		if (offset <= (long)font->file_size - (long)sizeof(*metric))
+			metric = (const charmetric_bmf *)(font->charmetric + offset);
+	}
+	if (metric && metric->width > 0)
+		return metric->widthDevice;
 	pres_bmfbm(val, font, &bitmap, &copied);
 	return bitmap ? copied.widthDevice : 0;
 }

@@ -8,6 +8,12 @@
 #include "zim_html.h"
 #include "zim_overlay.h"
 
+#if defined(__c33__)
+void *zim_alloc_other_bank(size_t size, const void *avoid);
+#else
+#define zim_alloc_other_bank(size, avoid) malloc(size)
+#endif
+
 #define ARTICLE_TEXT_WIDTH (LCD_BUF_WIDTH_PIXELS - LCD_LEFT_MARGIN * 2)
 
 static int append_byte(unsigned char *output, size_t capacity, size_t *used,
@@ -259,12 +265,18 @@ wrap_body(const unsigned char *text, size_t text_size,
 	ARTICLE_LINK *links;
 	HEIGHT_TRACK track = { 0, 0, 0 };
 	const signed char *ascii;
-	/* Stack copies of the font's ASCII widths and of the word-break
-	 * classes: the stack's SDRAM bank is not the one holding the code and
-	 * data, so measuring a word and classifying its end do not switch
-	 * rows. */
+#if defined(__c33__)
+	/* Copies of the font's ASCII widths and of the word-break classes in
+	 * A0 RAM (zim_fast_scratch): a cycle a load, and no SDRAM row for
+	 * measuring a word or classifying its end.  On the stack they were in
+	 * SDRAM, and the frame straddled two rows; in the DSTRAM below the
+	 * decoder's stack they were overwritten during the wrap. */
+	signed char *const ascii_local = (signed char *)zim_fast_scratch;
+	unsigned char *const word_break = zim_fast_scratch + 128;
+#else
 	signed char ascii_local[128];
 	unsigned char word_break[256];
+#endif
 	size_t input = 0;
 	size_t used = sizeof(header);
 	size_t link_count = 0;
@@ -296,8 +308,10 @@ wrap_body(const unsigned char *text, size_t text_size,
 		return -1;
 	capacity -= TRUNCATION_RESERVE;
 	word_break_init();
-	memcpy(word_break, word_break_classes, sizeof(word_break));
-	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
+	memcpy(word_break, word_break_classes, 256);
+	/* The link table is moved into the article at the end, word by word
+	 * between the two; from another bank that is one row each. */
+	links = zim_alloc_other_bank(MAX_ARTICLE_LINKS * sizeof(*links), article);
 	if (!links)
 		return -1;
 	memset(&header, 0, sizeof(header));
@@ -308,7 +322,7 @@ wrap_body(const unsigned char *text, size_t text_size,
 		goto error;
 	line_height = pcfFonts[font - 1].Fmetrics.linespace + LINE_SPACE_ADDON;
 	actual_height = line_height;
-	memcpy(ascii_local, ascii_widths(font), sizeof(ascii_local));
+	memcpy(ascii_local, ascii_widths(font), 128);
 	ascii = ascii_local;
 	if (progress_step < WRAP_PROGRESS_MIN_STEP)
 		progress_step = WRAP_PROGRESS_MIN_STEP;
@@ -439,8 +453,7 @@ wrap_body(const unsigned char *text, size_t text_size,
 						  &track);
 				line_height = pcfFonts[font - 1].Fmetrics.linespace +
 					LINE_SPACE_ADDON;
-				memcpy(ascii_local, ascii_widths(font),
-				       sizeof(ascii_local));
+				memcpy(ascii_local, ascii_widths(font), 128);
 			} else {
 				rc = emit_newline(article, capacity, &used, font, 0,
 						  &track);

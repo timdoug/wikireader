@@ -11,9 +11,11 @@
 #if defined(__c33__)
 void *zim_alloc_bank_local(size_t size);
 void *zim_alloc_other_bank(size_t size, const void *avoid);
+void *zim_alloc_other_banks(size_t size, const void *avoid, const void *avoid2);
 #else
 #define zim_alloc_bank_local malloc
 #define zim_alloc_other_bank(size, avoid) malloc(size)
+#define zim_alloc_other_banks(size, avoid, avoid2) malloc(size)
 #endif
 
 #if defined(__c33__) && defined(ZIM_BENCH)
@@ -105,6 +107,7 @@ typedef struct {
 	unsigned char *input;
 	ZSTD_inBuffer in;
 	unsigned char *output;
+	unsigned char *literals;
 	size_t capacity;
 	size_t decoded;
 	size_t table_size;
@@ -276,6 +279,7 @@ static void cluster_release(void)
 {
 	ZSTD_freeDStream(cluster.stream);
 	free(cluster.output);
+	free(cluster.literals);
 	free(cluster.input);
 	memset(&cluster, 0, sizeof(cluster));
 }
@@ -403,18 +407,22 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 			return ZIM_ERR_RANGE;
 		}
 	}
-	/* The output with the literal scratch buffer after it, then the
-	 * context away from it; see decoder_avoid. */
+	/* The output away from the text buffer, the context away from the
+	 * output (see decoder_avoid), and the literal scratch buffer away
+	 * from both the output and the compressed input: the literal decoder
+	 * reads the input and writes the literals, and the sequence loop
+	 * reads the literals and writes the output, so with any two in one
+	 * bank each copy would open two rows. */
 	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, capacity,
-		    cluster.output = zim_alloc_other_bank(capacity +
-					      ZSTD_DCtx_literalBufferSize(),
-					      reader_buffer));
+		    cluster.output = zim_alloc_other_bank(capacity, reader_buffer));
 	decoder_avoid = cluster.output;
 	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0,
 		    cluster.stream = ZSTD_createDStream_advanced(decoder_memory));
-	if (!cluster.output || !cluster.stream ||
+	cluster.literals = zim_alloc_other_banks(ZSTD_DCtx_literalBufferSize(),
+						 cluster.output, cluster.input);
+	if (!cluster.output || !cluster.stream || !cluster.literals ||
 	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,
-						    cluster.output + capacity)) ||
+						    cluster.literals)) ||
 	    ZSTD_isError(ZSTD_DCtx_setParameter(cluster.stream,
 						ZSTD_D_STABLE_OUT_BUFFER, 1)) ||
 	    ZSTD_isError(ZSTD_initDStream(cluster.stream))) {
