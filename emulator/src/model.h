@@ -37,6 +37,18 @@ struct model {
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;
+	/* Extra SDCLK ticks on a data access issued by code running from
+	   internal RAM.  Fitted, not from the manual: with the fetch tests
+	   matching the device exactly, the phases that run from A0 RAM and
+	   the IVRAM overlays still came out a fifth fast, and reads from
+	   such code measure 2.6 cycles on the device against 1.6 modelled. */
+	unsigned dq_iram_extra;
+	/* Extra SDCLK ticks on a read the data queue already holds.  The
+	   model served those free, which is why a loop reading one word from
+	   A0 RAM measured 1.6 cycles against the device's 2.6, and why the
+	   decoder's byte traffic, which hits the queue three times in four,
+	   came out a fifth fast. */
+	unsigned dq_hit;
 };
 
 extern struct model model;

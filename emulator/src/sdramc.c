@@ -317,6 +317,11 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	uint64_t command;
 	uint64_t extra = (halfwords > 2 ? model.iqb_first : model.dq_extra) * tick;
 
+	/* Data from code that is not itself coming over this bus; see
+	   model.h. */
+	if (halfwords <= 2 && wremu_cur_pc < 0x10000000u)
+		extra += model.dq_iram_extra * tick;
+
 	/* A read after a write waits for write recovery and the bus turn. */
 	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
 		now = s->bus_free + model.wr_rd_turn * tick;
@@ -408,6 +413,11 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 		if (s->dq.valid && s->dq.tag == tag) {
 			s->dq_hits++;
+			if (model.dq_hit) {
+				uint64_t at = now + model.dq_hit * sd_tick(s);
+				if (s->dq.ready[0] < at) s->dq.ready[0] = at;
+				if (s->dq.ready[1] < at) s->dq.ready[1] = at;
+			}
 		} else {
 			prepare_external_access(s, now);
 			s->dq.valid = true;

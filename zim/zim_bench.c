@@ -246,13 +246,26 @@ __asm__(".section .text.bench_pic,\"ax\"\n"
 	"bench_pic_storeload:\n"
 	"1:\n\t.rept 4\n\tld.w\t[%r7], %r9\n\tld.w\t%r9, [%r7]\n\t.endr\n\t"
 	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
+	/* A load whose value the next instruction uses, against the same
+	   loads with an independent add between them: the difference is the
+	   pipeline interlock, which real code pays on nearly every load and
+	   no streaming benchmark shows. */
+	".global bench_pic_loadindep\n"
+	"bench_pic_loadindep:\n"
+	"1:\n\t.rept 4\n\tld.w\t%r9, [%r7]\n\tadd\t%r4, %r5\n\t.endr\n\t"
+	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
+	".global bench_pic_loaduse\n"
+	"bench_pic_loaduse:\n"
+	"1:\n\t.rept 4\n\tld.w\t%r9, [%r7]\n\tadd\t%r4, %r9\n\t.endr\n\t"
+	"sub\t%r6, 1\n\tjrne\t1b\n\tret\n"
 	".global bench_pic_end\n"
 	"bench_pic_end:\n"
 	".section .text\n");
 
 extern const unsigned char bench_pic_start[], bench_pic_cpu[],
 	bench_pic_fetch[], bench_pic_load[], bench_pic_load2[],
-	bench_pic_storeload[], bench_pic_end[];
+	bench_pic_storeload[], bench_pic_loadindep[], bench_pic_loaduse[],
+	bench_pic_end[];
 
 typedef void (*bench_pic_fn)(unsigned long count);
 typedef void (*bench_pic_data_fn)(unsigned long count, void *a, void *b);
@@ -455,6 +468,12 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 				    half, half + 4096));
 		report("a0-store-load", 8 * 10000,
 		       run_pic_data(a0ram, bench_pic_storeload, 10000,
+				    half, half));
+		report("a0-load-indep", 8 * 10000,
+		       run_pic_data(a0ram, bench_pic_loadindep, 10000,
+				    half, half));
+		report("a0-load-use", 8 * 10000,
+		       run_pic_data(a0ram, bench_pic_loaduse, 10000,
 				    half, half));
 	}
 	memcpy(BENCH_A0RAM, buffer, (size_t)(bench_pic_end - bench_pic_start));

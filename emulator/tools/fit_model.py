@@ -27,18 +27,21 @@ FLASH = os.path.join(HERE, "..", "..", "samo-lib", "mbr", "flash.rom")
 MEMORY_TESTS = ["cpu-loop", "fetch-1k", "cpu-loop-a0", "fetch-a0", "cpu-loop-ivram", "fetch-ivram",
                 "cpu-loop-dstram", "fetch-dstram", "read-words", "read-bytes", "write-words",
                 "write-bytes", "pair-same-row", "pair-row-change", "pair-two-banks",
-                "pair-write-read", "copy-bytes-512k", "copy-batch8-512k", "memcpy-512k"]
+                "pair-write-read", "copy-bytes-512k", "copy-batch8-512k", "memcpy-512k",
+                "a0-load", "a0-load-2rows", "a0-store-load"]
 CARD_TESTS = ["card-256k", "card-4k-x64"]
 
 MEMORY_PARAMS = {
     "branch_taken": [3, 4, 5, 6],
-    "branch_taken_iram": [3, 4, 5],
+    "branch_taken_iram": [4],   # cpu-loop-a0/ivram/dstram all measure 5.0 exactly
     "iqb_first": [0, 1, 2, 3, 4],
     "iqb_word_gap": [0, 1, 2, 3],
     "dq_extra": [0, 1, 2, 3, 4],
     "wr_ticks": [0, 1, 2, 3],
     "iram_fetch_wait": [0, 1, 2, 3],
-    "wr_rd_turn": [0, 1, 2, 3, 4],
+    "wr_rd_turn": [0, 1, 2, 3, 4, 5, 6],
+    "dq_iram_extra": [0, 1, 2],
+    "dq_hit": [0, 1, 2, 3],
 }
 CARD_PARAMS = {
     "dma_extra": [0, 5, 10, 15, 20, 25, 30],
@@ -58,7 +61,8 @@ def parse_bench(text):
 def run(card, params):
     env = dict(os.environ)
     env["WREMU_MODEL"] = ",".join(f"{k}={v}" for k, v in params.items())
-    cmd = [WREMU, "-R", "-e", FLASH, "-c", card, "-T", "40,36,100000000", "-n", "260000000"]
+    env.setdefault("WREMU_BOARD_REV", "7")   # the boards under test
+    cmd = [WREMU, "-R", "-e", FLASH, "-c", card, "-T", "40,36,100000000", "-n", "700000000"]
     p = subprocess.run(cmd, env=env, capture_output=True, text=True, errors="replace")
     return parse_bench(p.stdout)
 
