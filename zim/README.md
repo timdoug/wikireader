@@ -4,10 +4,10 @@ This is a storage-backend fork of `wiki.app`. It reuses the original
 WikiReader keyboard, search screens, fonts, history, article renderer, and
 scrolling UI while reading a standard ZIM 6 archive directly.
 
-The latest [image performance experiments](PERFORMANCE-ROUND3.md) confirm
-another 12.7% reduction in first-photo processing time on hardware, with
-2.5% less full Paris loading time. Startup probes identify 382 ms of font
-setup within 662 ms of reader initialization. The
+The latest [font-loading improvement](PERFORMANCE-ROUND4.md) reduces
+hardware reader initialization from 664 to 584 ms (11.9%) and preloads
+42 KiB less font data. [Round three](PERFORMANCE-ROUND3.md) confirmed another 12.7%
+reduction in first-photo processing time on hardware. The
 [second round](PERFORMANCE-ROUND2.md) and [first round](PERFORMANCE.md)
 record the earlier verified hardware gains.
 

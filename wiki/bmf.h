@@ -155,8 +155,8 @@ struct pcffont_bmf {
 	char *charmetric;
 	unsigned long file_size;
 	int bmp_buffer_len;
-	/* Large fonts keep only the first 256 records in charmetric and serve
-	 * the rest through this direct-mapped cache; glyph_slots is 0 when the
+	/* Large fonts keep only the header in charmetric and serve all glyphs
+	 * through this direct-mapped cache; glyph_slots is 0 when the
 	 * whole file is resident. */
 	char *glyph_cache;
 	uint32_t *glyph_tags;

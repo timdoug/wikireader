@@ -31,12 +31,11 @@
 /*
  * The three CJK "all" fonts are 3.6 MB each, and production boards have 16 MB
  * of SDRAM.  Rather than reserve every font's full file size, fonts above
- * BMF_RESIDENT_LIMIT keep the header plus the first 256 glyph records in
- * memory and serve everything else through a direct-mapped cache of
- * BMF_GLYPH_CACHE_SLOTS records, refilled from the card on a miss.
+ * BMF_RESIDENT_LIMIT keep the header in memory and serve glyphs through a
+ * direct-mapped cache of BMF_GLYPH_CACHE_SLOTS records, refilled on a miss.
  */
 #define BMF_RESIDENT_LIMIT (256UL * 1024)
-#define BMF_RESIDENT_RECORDS 256
+#define BMF_LATIN_RECORDS 256
 #define BMF_GLYPH_CACHE_SLOTS 2048
 
 /*
@@ -77,8 +76,7 @@ int load_bmf(pcffont_bmf_t *font)
 {
 	int fd;
 	font_bmf_header header;
-	unsigned long resident = sizeof(font_bmf_header) +
-		BMF_RESIDENT_RECORDS * sizeof(charmetric_bmf);
+	unsigned long resident = sizeof(font_bmf_header);
 #ifdef ZIM_BENCH_AB
 	unsigned long started, opened, loaded;
 #endif
@@ -118,6 +116,10 @@ int load_bmf(pcffont_bmf_t *font)
 		memset(font->glyph_tags, 0, BMF_GLYPH_CACHE_SLOTS * sizeof(uint32_t));
 		memset(font->charmetric, 0, resident);
 	} else {
+		/* Regular fonts supply Latin-1 on the first page as well as ASCII.
+		 * Keep those records warm; large fallback fonts serve other scripts. */
+		resident = sizeof(font_bmf_header) +
+			BMF_LATIN_RECORDS * sizeof(charmetric_bmf);
 		if (resident > font->file_size)
 			resident = font->file_size;
 		font->charmetric = (char*)memory_allocate(font->file_size, "bmf");
@@ -164,10 +166,10 @@ int bmf_char_width(ucs4_t val, pcffont_bmf_t *font)
 			return 0;
 	}
 
-	/* load_bmf() brings the first 256 fixed-size records into memory.  Width
-	 * measurement needs only two signed bytes, not the record's 48-byte
+	/* Regular fonts preload Latin-1 records. Width measurement needs only
+	 * two signed bytes, not the record's 48-byte
 	 * bitmap, so avoid copying the whole record for every measured glyph. */
-	if (val < 256) {
+	if (!font->glyph_slots && val < BMF_LATIN_RECORDS) {
 		metric = (const charmetric_bmf *)(font->charmetric +
 			val * sizeof(*metric) + sizeof(font_bmf_header));
 		return (val == 32 || metric->width > 0) ?
@@ -191,10 +193,10 @@ int bmf_char_width(ucs4_t val, pcffont_bmf_t *font)
 		if (offset <= (long)font->file_size - (long)sizeof(*metric))
 			metric = (const charmetric_bmf *)(font->charmetric + offset);
 	}
-	if (metric && metric->width > 0)
+	if (metric && (val == 32 || metric->width > 0))
 		return metric->widthDevice;
 	pres_bmfbm(val, font, &bitmap, &copied);
-	return bitmap ? copied.widthDevice : 0;
+	return (bitmap || val == 32) ? copied.widthDevice : 0;
 }
 
 /*
@@ -237,8 +239,6 @@ static int load_glyph_window(pcffont_bmf_t *font, ucs4_t val)
 		const char *source = window + (glyph * record_size + header - start);
 		char *destination;
 
-		if (glyph < BMF_RESIDENT_RECORDS && font->glyph_slots)
-			continue;   /* below the cache's range, resident anyway */
 		if (font->glyph_slots)
 		{
 			unsigned int slot = glyph & (font->glyph_slots - 1);
@@ -282,7 +282,7 @@ pres_bmfbm(ucs4_t val, pcffont_bmf_t *font, bmf_bm_t **bitmap,charmetric_bmf *Cm
 		}
 	}
 
-	if(val < 256)
+	if(!font->glyph_slots && val < BMF_LATIN_RECORDS)
 	{
 		memcpy(Cmetrics,font->charmetric+val*sizeof(charmetric_bmf)+font_header,sizeof(charmetric_bmf));
 	}

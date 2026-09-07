@@ -61,12 +61,19 @@ luma-only-test: luma-only-test.c luma-only-fixtures.h $(WEBP_SOURCES) \
 		$(wildcard ../../zim/webp/src/dec/*.h) ../../zim/webp/src/webp/decode.h
 	$(CC) $(CFLAGS) -o $@ luma-only-test.c $(WEBP_SOURCES)
 
-check: zimdump blob-cache-test fat-cache-test article-link-test luma-only-test
+bmf-cache-test: bmf-cache-test.c ../../wiki/bmf.c ../../wiki/bmf.h
+	$(CC) $(CFLAGS) -DGRIFO_SIMULATOR=1 -Wno-macro-redefined \
+		-I../../wiki -I../../samo-lib/include \
+		-I../../samo-lib/grifo/include -I../../samo-lib/grifo/common \
+		-o $@ bmf-cache-test.c ../../wiki/bmf.c
+
+check: zimdump blob-cache-test fat-cache-test article-link-test luma-only-test bmf-cache-test
 	./fat-cache-test
 	./article-link-test
 	./luma-only-test
+	./bmf-cache-test
 	./check.sh
 
 clean:
 	rm -f zimdump zimfatdump blob-cache-test fat-cache-test article-link-test \
-		luma-only-test zstddeclib.o
+		luma-only-test bmf-cache-test zstddeclib.o
