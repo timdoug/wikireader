@@ -270,15 +270,40 @@ ZSTD_c33_seqLoop:
 	xcmp	%r8,0x7ff
 	xjreq	.Lmlmark
 .Lmlok:
-	; offset: s = (32 - ofBits) & 31 is 0 for no offset bits, 31 for one
+	; offset: s = (32 - ofBits) & 31 is 0 for no offset bits, 31 for one,
+	; and 1..30 for a fresh offset of 2..31 bits, which is what five
+	; sequences in six carry, so that case runs straight through here and
+	; the repeat offsets are out of line.
 	ld.w	%r9,%r6
 	srl	%r9,5
 	and	%r9,31
-	cmp	%r9,0
-	xjrne	.Lofnz
-	cmp	%r7,0
-	xjreq.d	.Lofswap		; ll == 0: the second repeat offset
-	ld.w	%r9,%r13		; else the first
+	ld.w	%r10,%r9
+	sub	%r10,1
+	cmp	%r10,29
+	xjrugt	.Lofrep			; s is 0 or 31 (0 wraps)
+	cmp	%r9,7
+	xjrule	.Loflongq		; 25 bits or more: long offsets need two reads
+.Lofbigq:
+	cmp	%r1,%r9			; consumed + ofBits > 32 ?
+	xjrugt	.Lrefillofbig
+.Lofbig2:
+	ld.w	%r10,%r0
+	sll	%r10,%r1
+	srl	%r10,%r9		; the offset bits
+	add	%r1,32
+	sub	%r1,%r9
+	xld.w	%r11,32
+	sub	%r11,%r9		; ofBits
+	ld.w	%r12,1
+	sll	%r12,%r11
+	sub	%r12,3			; base (1 << ofBits) - 3
+	add	%r10,%r12
+.Lofbig3:
+	ld.w	%r9,%r10
+	ld.w	%r11,[%sp+7]
+	ld.w	[%sp+8],%r11		; rep2 = rep1
+	ld.w	[%sp+7],%r13		; rep1 = rep0
+	ld.w	%r13,%r9		; rep0 = offset
 .Lofdone:
 	; match length extra bits
 	ld.w	%r10,%r5
@@ -479,16 +504,26 @@ ZSTD_c33_seqLoop:
 	add	%r8,3
 	xjp	.Lmlok
 
+.Lofrep:				; %r9 = s: 0 for a repeat offset, 31 for one bit
+	cmp	%r9,0
+	xjrne	.Lof1a
+	cmp	%r7,0
+	xjreq	.Lofswap		; ll == 0: the second repeat offset
+	ld.w	%r9,%r13		; else the first
+	xjp	.Lofdone
 .Lofswap:				; offset = rep1, rep1 = rep0
 	ld.w	%r9,[%sp+7]
 	ld.w	[%sp+7],%r13
 	ld.w	%r13,%r9
 	xjp	.Lofdone
 
-.Lofnz:					; %r9 = s, 1..31
-	cmp	%r9,31
-	xjrne	.Lofbig
-	; one offset bit: a repeat offset chosen by ll0 + bit
+.Loflongq:				; s <= 7: two reads only with long offsets
+	ld.w	%r10,[%sp+12]
+	cmp	%r10,0
+	xjrne	.Loflong
+	xjp	.Lofbigq
+
+.Lof1a:					; one offset bit: a repeat offset chosen by ll0 + bit
 	cmp	%r1,31
 	xjrugt	.Lrefillof1
 .Lof1:
@@ -523,35 +558,6 @@ ZSTD_c33_seqLoop:
 	ld.w	%r11,[%sp+7]
 	ld.w	[%sp+8],%r11		; rep2 = rep1
 6:
-	ld.w	[%sp+7],%r13		; rep1 = rep0
-	ld.w	%r13,%r9		; rep0 = offset
-	xjp	.Lofdone
-
-.Lofbig:				; ofBits = 32 - s, 2..31
-	cmp	%r9,7
-	jrugt	1f
-	ld.w	%r10,[%sp+12]
-	cmp	%r10,0
-	xjrne	.Loflong		; 25 bits or more with long offsets: two reads
-1:
-	cmp	%r1,%r9			; consumed + ofBits > 32 ?
-	xjrugt	.Lrefillofbig
-.Lofbig2:
-	ld.w	%r10,%r0
-	sll	%r10,%r1
-	srl	%r10,%r9		; the offset bits
-	add	%r1,32
-	sub	%r1,%r9
-	xld.w	%r11,32
-	sub	%r11,%r9		; ofBits
-	ld.w	%r12,1
-	sll	%r12,%r11
-	sub	%r12,3			; base (1 << ofBits) - 3
-	add	%r10,%r12
-.Lofbig3:
-	ld.w	%r9,%r10
-	ld.w	%r11,[%sp+7]
-	ld.w	[%sp+8],%r11		; rep2 = rep1
 	ld.w	[%sp+7],%r13		; rep1 = rep0
 	ld.w	%r13,%r9		; rep0 = offset
 	xjp	.Lofdone
