@@ -1,5 +1,9 @@
 # Startup and image performance, 2026-09-07
 
+This records the first round, committed as `207044cd`. See
+[round two](PERFORMANCE-ROUND2.md) for the subsequent scaler and drawing-buffer
+experiments and their separate device A/B pair.
+
 Compared with `5472952f`, using GCC 16.2, the current kernel, stock ZIM
 archives and the calibrated emulator's 32 MB board (`WREMU_BOARD_REV=7`).
 The hardware A/B pair measures 9.5% less reader initialization time, 25.0%

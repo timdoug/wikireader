@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "zim_overlay.h"
+
 #include "src/dsp/dsp.h"
 #include "src/webp/types.h"
 #include "src/utils/rescaler_utils.h"
@@ -125,7 +127,8 @@ int WebPRescaleNeededLines(const WebPRescaler* const rescaler,
   return (num_lines > max_num_lines) ? max_num_lines : num_lines;
 }
 
-int WebPRescalerImport(WebPRescaler* const rescaler, int num_lines,
+int ZIM_OVERLAY_SECTION("ovlwebp")
+WebPRescalerImport(WebPRescaler* const rescaler, int num_lines,
                        const uint8_t* src, int src_stride) {
   int total_imported = 0;
   while (total_imported < num_lines &&
@@ -150,7 +153,8 @@ int WebPRescalerImport(WebPRescaler* const rescaler, int num_lines,
   return total_imported;
 }
 
-int WebPRescalerExport(WebPRescaler* const rescaler) {
+int ZIM_OVERLAY_SECTION("ovlwebp")
+WebPRescalerExport(WebPRescaler* const rescaler) {
   int total_exported = 0;
   while (WebPRescalerHasPendingOutput(rescaler)) {
     WebPRescalerExportRow(rescaler);
