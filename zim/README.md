@@ -4,6 +4,9 @@ This is a storage-backend fork of `wiki.app`. It reuses the original
 WikiReader keyboard, search screens, fonts, history, article renderer, and
 scrolling UI while reading a standard ZIM 6 archive directly.
 
+The latest [startup and image performance measurements](PERFORMANCE.md)
+include emulator comparisons, reproduction commands, and device-test files.
+
 ## Card layout
 
 The preferred layout uses an MBR-partitioned card with a small FAT32 first

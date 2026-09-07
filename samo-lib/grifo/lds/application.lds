@@ -87,10 +87,14 @@ SECTIONS
         ovlhtml { *(ovlhtml) }
         ovlwrap { *(ovlwrap) }
         ovlhuf  { *(ovlhuf) }
+        ovlwebp { *(ovlwebp) }
+        ovldither { *(ovldither) . = ALIGN(4); *(ovlditherdata) }
     } > ivram AT> sdram
     ASSERT(SIZEOF(ovlhtml) <= 0x1600, "the HTML overlay exceeds the IVRAM window buffer")
     ASSERT(SIZEOF(ovlwrap) <= 0x1600, "the wrap overlay exceeds the IVRAM window buffer")
     ASSERT(SIZEOF(ovlhuf) <= 0x1600, "the Huffman overlay exceeds the IVRAM window buffer")
+    ASSERT(SIZEOF(ovlwebp) <= 0x1600, "the WebP overlay exceeds the IVRAM window buffer")
+    ASSERT(SIZEOF(ovldither) <= 0x1600, "the dither overlay exceeds the IVRAM window buffer")
 
     . = ALIGN(1024);
 

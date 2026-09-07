@@ -120,12 +120,34 @@ register size_t length;
 
     /* Fill words.  Length was >= 2*words so we know t >= 1 here. */
     t = length / wsize;
-    do
+#ifdef __c33__
+    /* A taken branch costs more than a word store on the C33.  Batch
+     * stores so clearing the reader's multi-megabyte drawing buffer does
+     * not pay for a loop branch after every four bytes. */
+    if (t >= 8)
+    {
+        size_t groups = t / 8;
+        /* C stores at constant offsets need extension words. That loop
+         * exceeds the two 16-byte instruction-queue slots and is slower
+         * than the original. Postincrement stores keep this aligned loop
+         * in 20 bytes, with no instruction fetches between iterations. */
+        __asm__ volatile (
+            ".balign 16\n1:\n\t"
+            "ld.w [%0]+, %2\n\tld.w [%0]+, %2\n\t"
+            "ld.w [%0]+, %2\n\tld.w [%0]+, %2\n\t"
+            "ld.w [%0]+, %2\n\tld.w [%0]+, %2\n\t"
+            "ld.w [%0]+, %2\n\tld.w [%0]+, %2\n\t"
+            "sub %1, 1\n\tjrne 1b"
+            : "+&r" (dst), "+&r" (groups) : "r" (WIDEVAL) : "memory", "cc");
+        t &= 7;
+    }
+#endif
+    while (t != 0)
     {
         *(u_int *)dst = WIDEVAL;
         dst += wsize;
+        --t;
     }
-    while (--t != 0);
 
     /* Mop up trailing bytes, if any. */
     t = length & wmask;

@@ -5,11 +5,14 @@
  */
 
 #include "zim_image.h"
+#include "zim_overlay.h"
+#include "zim_bench.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include "src/webp/decode.h"
+#include "src/utils/utils.h"
 
 #ifdef ZIM_APP
 #include <grifo.h>
@@ -36,6 +39,10 @@ struct zim_image_decoder {
 	size_t *bitmap_size;
 	ZIM_IMAGE_PROGRESS progress;
 	void *progress_opaque;
+#if defined(ZIM_BENCH)
+	unsigned long setup_ticks, decode_ticks, dither_ticks;
+	int complete;
+#endif
 };
 
 static void keep_alive(void)
@@ -101,6 +108,14 @@ int zim_image_fit_dimensions(unsigned int source_width,
 static unsigned char luma_gray[256];
 static int luma_gray_ready;
 
+#if defined(__c33__)
+/* The dither overlay has room beside its code for all three error rows.
+ * Unlike a heap allocation these accesses have no SDRAM row conflicts.
+ * Include the storage in the overlay so the linker checks the total size. */
+static int dither_errors[(ZIM_IMAGE_MAX_WIDTH + 4) * 3]
+	__attribute__((section("ovlditherdata"), aligned(4)));
+#endif
+
 static void luma_gray_init(void)
 {
 	unsigned int v;
@@ -118,7 +133,8 @@ static void luma_gray_init(void)
 	luma_gray_ready = 1;
 }
 
-static int dither_atkinson(const unsigned char *pixels, unsigned int width,
+static int ZIM_OVERLAY_SECTION("ovldither") __attribute__((noinline))
+dither_atkinson(const unsigned char *pixels, unsigned int width,
 			   unsigned int height, int stride, int rgba,
 			   const unsigned char *alpha, int alpha_stride,
 			   unsigned char *bitmap, size_t capacity,
@@ -135,7 +151,12 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 
 	if (required > capacity)
 		return -1;
+#if defined(__c33__)
+	errors = dither_errors;
+	memset(errors, 0, (size_t)(width + 4) * 3 * sizeof(*errors));
+#else
 	errors = calloc((size_t)(width + 4) * 3, sizeof(*errors));
+#endif
 	if (!errors)
 		return -1;
 	luma_gray_init();
@@ -223,7 +244,9 @@ static int dither_atkinson(const unsigned char *pixels, unsigned int width,
 					 height, 100);
 		}
 	}
+#if !defined(__c33__)
 	free(errors);
+#endif
 	*bitmap_size = required;
 	if (progress)
 		progress(progress_opaque, 100, 100);
@@ -245,6 +268,10 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	ZIM_IMAGE_DECODER *state;
 	unsigned int width;
 	unsigned int height;
+
+#if defined(ZIM_BENCH)
+	unsigned long start = timer_get();
+#endif
 
 	if (!webp || !webp_size || !bitmap || !width_out || !height_out ||
 	    !bitmap_size)
@@ -295,6 +322,9 @@ ZIM_IMAGE_DECODER *zim_image_decoder_create(const unsigned char *webp,
 	state->bitmap_size = bitmap_size;
 	state->progress = progress;
 	state->progress_opaque = progress_opaque;
+#if defined(ZIM_BENCH)
+	state->setup_ticks = timer_get() - start;
+#endif
 	return state;
 
 error:
@@ -310,6 +340,9 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 {
 	VP8StatusCode decode_status;
 	int result;
+#if defined(ZIM_BENCH)
+	unsigned long start = timer_get();
+#endif
 
 	if (!state || state->offset >= state->webp_size)
 		return -1;
@@ -317,9 +350,24 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 		size_t amount = state->webp_size - state->offset;
 		if (amount > ZIM_WEBP_INPUT_CHUNK)
 			amount = ZIM_WEBP_INPUT_CHUNK;
-		decode_status = WebPIAppend(state->decoder,
-			state->webp + state->offset, amount);
+		/* Rendering between incremental steps can reuse IVRAM.  Restore
+		 * the coefficient decoder before every entry into libwebp. */
+		ZIM_OVERLAY_ENSURE(ovlwebp);
+#if defined(__c33__)
+		/* A0 scratch is shared with text wrapping and Zstandard.  Those
+		 * phases are finished before image work starts. */
+		if (!state->offset)
+			memcpy(zim_fast_scratch, WebPLogTable8bit, 256);
+#endif
+		/* The complete compressed blob already stays alive in state->webp.
+		 * Expose a growing prefix without copying it into libwebp's append
+		 * buffer. Keep the same checkpoints for touch responsiveness. */
+		decode_status = WebPIUpdate(state->decoder,
+			state->webp, state->offset + amount);
 		state->offset += amount;
+#if defined(ZIM_BENCH)
+		state->decode_ticks += timer_get() - start;
+#endif
 		keep_alive();
 		if (state->progress)
 			state->progress(state->progress_opaque,
@@ -331,6 +379,10 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 	}
 	if (decode_status == VP8_STATUS_SUSPENDED)
 		return 1;
+#if defined(ZIM_BENCH)
+	start = timer_get();
+#endif
+	ZIM_OVERLAY_ENSURE(ovldither);
 	if (WebPIsRGBMode(state->config.output.colorspace)) {
 		result = dither_atkinson(state->config.output.u.RGBA.rgba,
 				    state->width, state->height,
@@ -354,6 +406,10 @@ int zim_image_decoder_step(ZIM_IMAGE_DECODER *state)
 	}
 	*state->width_out = (uint8_t)state->width;
 	*state->height_out = (uint16_t)state->height;
+#if defined(ZIM_BENCH)
+	state->dither_ticks = timer_get() - start;
+	state->complete = 1;
+#endif
 	return 0;
 }
 
@@ -361,6 +417,12 @@ void zim_image_decoder_destroy(ZIM_IMAGE_DECODER *state)
 {
 	if (!state)
 		return;
+#if defined(ZIM_BENCH)
+	if (state->complete)
+		zim_bench_image(state->width, state->height, state->webp_size,
+			state->setup_ticks, state->decode_ticks, state->dither_ticks,
+			state->bitmap, *state->bitmap_size);
+#endif
 	WebPIDelete(state->decoder);
 	WebPFreeDecBuffer(&state->config.output);
 	free(state);

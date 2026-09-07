@@ -666,6 +666,20 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
+The subsequent startup/image round and returned hardware results are in
+[`zim/PERFORMANCE.md`](../../zim/PERFORMANCE.md). The compact C33 `memset`
+loop cuts emulator initialization by 5.4%; WebP/dither overlays and decoder
+changes cut its first Paris image time by 29.4%. A subsequent hardware A/B
+pair with identical timers measures initialization 828.7 to 749.7 ms (9.5%
+less time), first Paris image setup/decode/dither 1476.3 to 1107.6 ms (25.0%
+less), and full Paris page including benchmark I/O 4183.4 to 3844.5 ms (8.1%
+less). Cat is unchanged at 869.5 versus 871.5 ms. Both article hashes and
+the image bitmap hash match. There is one complete A/B pair; raw logs are
+`zim/bench-device-2026-09-07-ab-{before,after}.txt`. The earlier text controls
+also measured Tokyo 704.9 ms, Japanese Bobtail 1089.0 ms, cached Cat 60.3 ms.
+The physical boot volume uses 4096-byte FAT clusters versus the emulator
+image's 512 bytes, which matters for startup/font-map comparisons.
+
 Ranked against the device's 871.6 ms for `Cat` and 705.0 for `Tokyo`:
 
 1. Glyph metrics for non-Latin text: 234 ms of `Tokyo`, and nothing on

@@ -8,7 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ZIM_BENCH_AB
+#include "zim_catalog.h"
+#include "wiki_info.h"
+#define BENCH_FILE "ab-" ZIM_BENCH_VARIANT ".txt"
+#else
 #define BENCH_FILE "bench.txt"
+#endif
 #define TICKS_PER_US TIMER_CountsPerMicroSecond
 
 static unsigned long marks[ZIM_BENCH_MARKS];
@@ -19,6 +25,7 @@ static size_t size_raw, size_text, size_stream;
 static uint32_t pending_index;
 static int pending;
 static int cached;
+static int blob_pending;
 
 /* One line to the console and to the end of bench.txt. */
 static void bench_line(const char *format, ...)
@@ -63,6 +70,34 @@ static unsigned long tenths_ms(unsigned long ticks)
 
 #define MS(ticks) tenths_ms(ticks) / 10, tenths_ms(ticks) % 10
 
+#ifdef ZIM_BENCH_AB
+static unsigned long boot_start;
+
+void zim_bench_boot_begin(void)
+{
+	boot_start = timer_get();
+}
+
+void zim_bench_boot_ready(void)
+{
+	/* Capture before formatting or writing any benchmark output. This
+	 * ends at the same point as the normal app's startup profile: fonts
+	 * loaded, just before the first search-renderer call. */
+	unsigned long elapsed = timer_get() - boot_start;
+	const char *path = zim_catalog_path(nCurrentWiki);
+
+	bench_line("bench variant: %s; build: %s %s gcc %s",
+		ZIM_BENCH_VARIANT, __DATE__, __TIME__, __VERSION__);
+	bench_line("startup initialize %lu.%lu ms, archive %s",
+		MS(elapsed), path ? path : "none");
+	bench_line("bench start: sdram ctl 0x%08lx ref 0x%08lx app 0x%08lx, "
+		"timer %u ticks/us", (unsigned long)REG_SDRAMC_CTL,
+		(unsigned long)REG_SDRAMC_REF, (unsigned long)REG_SDRAMC_APP,
+		(unsigned)TICKS_PER_US);
+}
+#endif
+
+#ifndef ZIM_BENCH_AB
 /* Cycles per operation with one decimal; the timer counts MCLK cycles. */
 static void report(const char *name, unsigned long count, unsigned long ticks)
 {
@@ -413,12 +448,21 @@ static void probe_hardware(unsigned char *buffer)
 }
 
 #define BENCH_BUFFER (1024u * 1024u + 8192u)
+#endif
 
 static void dstram_stack_fill(void);
 static unsigned dstram_stack_depth(void);
 
 void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 {
+#ifdef ZIM_BENCH_AB
+	/* Calibration tests would dominate startup, warm card/cache state,
+	 * and perturb the heap. Neither A/B variant runs them. */
+	(void)read;
+	(void)opaque;
+	(void)size;
+	dstram_stack_fill();
+#else
 	unsigned char *raw = malloc(BENCH_BUFFER);
 	unsigned char *buffer;
 	unsigned char *half;
@@ -529,6 +573,7 @@ void zim_bench_startup(zim_bench_read_fn read, void *opaque, uint64_t size)
 	bench_line("bench columns: article <index> total blob(card KB reads,"
 		   " zstd calls) html wrap paint ms, raw text stream bytes");
 	dstram_stack_fill();
+#endif
 }
 
 /* --- article loads ------------------------------------------------------ */
@@ -542,6 +587,7 @@ void zim_bench_article_begin(uint32_t index)
 	size_raw = size_text = size_stream = 0;
 	pending_index = index;
 	pending = 1;
+	blob_pending = 1;
 	cached = 0;
 	marks[ZIM_BENCH_MARK_START] = timer_get();
 }
@@ -601,15 +647,34 @@ void zim_bench_mark(int mark)
 {
 	if (pending && mark > 0 && mark < ZIM_BENCH_MARKS)
 		marks[mark] = timer_get();
+	if (mark == ZIM_BENCH_MARK_BLOB)
+		blob_pending = 0;
 }
 
 void zim_bench_account(int slot, unsigned long ticks, size_t bytes)
 {
-	if (pending && slot >= 0 && slot < ZIM_BENCH_SLOTS) {
+	/* The first visible image is extracted during painting. Its reads
+	 * must not be charged to the earlier article-blob phase, or "other"
+	 * underflows when those extra reads exceed that phase's duration. */
+	if (pending && blob_pending && slot >= 0 && slot < ZIM_BENCH_SLOTS) {
 		slot_ticks[slot] += ticks;
 		slot_bytes[slot] += bytes;
 		slot_calls[slot]++;
 	}
+}
+
+void zim_bench_image(unsigned width, unsigned height, size_t compressed,
+		     unsigned long setup, unsigned long decode,
+		     unsigned long dither, const unsigned char *bitmap, size_t size)
+{
+	uint32_t hash = 2166136261u;
+	size_t i;
+	for (i = 0; i < size; i++)
+		hash = (hash ^ bitmap[i]) * 16777619u;
+	bench_line("image %ux%u %lu bytes: setup %lu.%lu decode %lu.%lu "
+		   "dither %lu.%lu ms, bitmap fnv %08lx",
+		   width, height, (unsigned long)compressed, MS(setup),
+		   MS(decode), MS(dither), (unsigned long)hash);
 }
 
 void zim_bench_painted(void)

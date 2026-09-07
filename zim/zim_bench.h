@@ -13,6 +13,14 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+#if defined(ZIM_BENCH_AB)
+void zim_bench_boot_begin(void);
+void zim_bench_boot_ready(void);
+#else
+#define zim_bench_boot_begin() ((void)0)
+#define zim_bench_boot_ready() ((void)0)
+#endif
+
 enum {
 	ZIM_BENCH_MARK_START,	/* retrieve_article entered */
 	ZIM_BENCH_MARK_BLOB,	/* article HTML available (card reads + decode) */
@@ -47,6 +55,10 @@ void zim_bench_mark(int mark);
  * the article line if a load is pending. */
 void zim_bench_painted(void);
 void zim_bench_account(int slot, unsigned long ticks, size_t bytes);
+/* Successful WebP work only; archive extraction is outside these timers. */
+void zim_bench_image(unsigned width, unsigned height, size_t compressed,
+		     unsigned long setup, unsigned long decode,
+		     unsigned long dither, const unsigned char *bitmap, size_t size);
 
 #else
 
@@ -58,6 +70,7 @@ void zim_bench_account(int slot, unsigned long ticks, size_t bytes);
 #define zim_bench_mark(mark) ((void)0)
 #define zim_bench_painted() ((void)0)
 #define zim_bench_account(slot, ticks, bytes) ((void)0)
+#define zim_bench_image(width, height, compressed, setup, decode, dither, bitmap, size) ((void)0)
 
 #endif
 

@@ -441,6 +441,11 @@ void init_wiki_info(void)
 			}
 		}
 
+		/* Both A/B applications start with the same archive even after
+		 * the previous run switched to Wikivoyage for the image test. */
+#ifdef ZIM_BENCH_AB
+		nCurrentWiki = 0;
+#endif
 		for (i = 0; i < nWikiCount; i++)
 		{
 			aActiveWikis[i].WikiNlsLen = -1;

@@ -25,9 +25,6 @@ vpath %.png ${ROOT_DIR}/wiki
 vpath %.xpm ${ROOT_DIR}/wiki
 INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim -I${ROOT_DIR}/zim/webp
 CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG -DHAVE_CONFIG_H
-# The shared rules disable builtins for the 2003 compiler.  With GCC 16 they
-# let fixed-size memcpy/memset calls in the decoders and renderer be inlined.
-CFLAGS += -fbuiltin
 
 SOURCES += zim.c
 SOURCES += Alloc.c
@@ -64,6 +61,16 @@ SOURCES += zstd_c33_seq.s   # the sequence loop, in A0 RAM
 # boot volume and printing them on the serial console; see zim_bench.h.  The
 # Makefile does not track flag changes, so remove build/*.o when switching.
 ZIM_BENCH ?= NO
+# A/B builds omit the calibration micro-benchmarks and record reader
+# initialization itself. Use matching before/after source trees.
+ZIM_BENCH_AB ?= NO
+ifneq (NO,$(strip ${ZIM_BENCH_AB}))
+ifneq ($(filter before after,${ZIM_BENCH_AB}),${ZIM_BENCH_AB})
+$(error ZIM_BENCH_AB must be NO, before or after)
+endif
+ZIM_BENCH = YES
+CFLAGS += -DZIM_BENCH_AB=1 -DZIM_BENCH_VARIANT=\"${ZIM_BENCH_AB}\"
+endif
 ifeq (YES,$(strip ${ZIM_BENCH}))
 CFLAGS += -DZIM_BENCH=1
 SOURCES += zim_bench.c
@@ -79,10 +86,15 @@ build/zstddeclib.o: CFLAGS += -mlong-calls
 # calls between them and the rest of the program span 256 MB.
 build/zim_html.o: CFLAGS += -mlong-calls
 build/zim_article.o: CFLAGS += -mlong-calls
+build/vp8_dec.o: CFLAGS += -mlong-calls
+build/zim_image.o: CFLAGS += -mlong-calls
+# Target flags follow the shared rules' -fno-builtin. Enable fixed-size
+# copies in the WebP bit reader without changing the legacy UI's build.
+build/vp8_dec.o build/zim_image.o: CFLAGS += -fbuiltin
 
 # After linking, give each overlay section its load address so the kernel's
 # ELF loader stores it in SDRAM; the code inside stays linked for IVRAM.
-POST_LINK = for s in ovlhtml ovlwrap ovlhuf; do \
+POST_LINK = for s in ovlhtml ovlwrap ovlhuf ovlwebp ovldither; do \
 	lma=$$(${OBJDUMP} -h "$@" | awk -v s=$$s '$$2 == s { print "0x" $$5 }'); \
 	${OBJCOPY} --change-section-vma $$s=$$lma "$@" || exit 1; \
 done

@@ -15,6 +15,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "zim_overlay.h"
+#if defined(__c33__)
+#define ZIM_WEBP_FAST_BITS
+#endif
+
 #include "src/dec/alphai_dec.h"
 #include "src/dec/common_dec.h"
 #include "src/dec/vp8_dec.h"
@@ -419,7 +424,8 @@ static const uint8_t kZigzag[16] = {
 };
 
 // See section 13-2: https://datatracker.ietf.org/doc/html/rfc6386#section-13.2
-static int GetLargeValue(VP8BitReader* const br, const uint8_t* const p) {
+static int ZIM_OVERLAY_SECTION("ovlwebp")
+GetLargeValue(VP8BitReader* const br, const uint8_t* const p) {
   int v;
   if (!VP8GetBit(br, p[3], "coeffs")) {
     if (!VP8GetBit(br, p[4], "coeffs")) {
@@ -451,7 +457,8 @@ static int GetLargeValue(VP8BitReader* const br, const uint8_t* const p) {
 }
 
 // Returns the position of the last non-zero coeff plus one
-static int GetCoeffsFast(VP8BitReader* const br,
+static int ZIM_OVERLAY_SECTION("ovlwebp")
+GetCoeffsFast(VP8BitReader* const br,
                          const VP8BandProbas* const prob[],
                          int ctx, const quant_t dq, int n, int16_t* out) {
   const uint8_t* p = prob[n]->probas[ctx];

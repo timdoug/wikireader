@@ -139,7 +139,14 @@ static WEBP_INLINE int VP8GetBit(VP8BitReader* WEBP_RESTRICT const br,
       range = split + 1;
     }
     {
+#if defined(ZIM_WEBP_FAST_BITS)
+      // The boolean coder's range is in [1, 255]. The reader copies the
+      // log table into A0 RAM before decoding, saving an SDRAM read and
+      // the general-purpose log function's range loop on every bit.
+      const int shift = 7 ^ zim_fast_scratch[range];
+#else
       const int shift = 7 ^ BitsLog2Floor(range);
+#endif
       range <<= shift;
       br->bits -= shift;
     }

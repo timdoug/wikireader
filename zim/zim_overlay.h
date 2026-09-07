@@ -27,7 +27,8 @@
  * application.lds): a cycle an access and no SDRAM row.  Shared by phases
  * that never run at the same time: the FSE table builder (632 bytes of
  * per-symbol tables) and the wrapper (384 bytes of width and word-break
- * tables).  Nothing in the kernel touches this RAM. */
+ * tables), and WebP's boolean-coder log table (256 bytes).  Nothing in the
+ * kernel touches this RAM. */
 #define ZIM_FAST_SCRATCH_SIZE 640
 extern unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE];
 
@@ -43,6 +44,8 @@ void zim_overlay_invalidate(void);
 extern const unsigned char __load_start_ovlhtml[], __load_stop_ovlhtml[];
 extern const unsigned char __load_start_ovlwrap[], __load_stop_ovlwrap[];
 extern const unsigned char __load_start_ovlhuf[], __load_stop_ovlhuf[];
+extern const unsigned char __load_start_ovlwebp[], __load_stop_ovlwebp[];
+extern const unsigned char __load_start_ovldither[], __load_stop_ovldither[];
 
 #else
 
