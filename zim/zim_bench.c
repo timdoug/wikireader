@@ -614,7 +614,7 @@ void zim_bench_account(int slot, unsigned long ticks, size_t bytes)
 
 void zim_bench_painted(void)
 {
-	unsigned long start, total, blob, html, wrap, paint;
+	unsigned long start, total, blob, html, wrap, paint, other;
 
 	if (!pending)
 		return;
@@ -631,8 +631,14 @@ void zim_bench_painted(void)
 	html = marks[ZIM_BENCH_MARK_HTML] - marks[ZIM_BENCH_MARK_BLOB];
 	wrap = marks[ZIM_BENCH_MARK_WRAP] - marks[ZIM_BENCH_MARK_HTML];
 	paint = marks[ZIM_BENCH_MARK_PAINT] - marks[ZIM_BENCH_MARK_WRAP];
+	/* Whatever the slots do not account for: the directory entry, the
+	   cluster's offset table, the article cache, and any wait the card
+	   makes outside a read call.  It was 14 ms and became 200 on one
+	   device run, so it is printed rather than left to subtraction. */
+	other = blob - slot_ticks[ZIM_BENCH_SLOT_CARD] -
+		slot_ticks[ZIM_BENCH_SLOT_ZSTD] - slot_ticks[ZIM_BENCH_SLOT_ALLOC];
 	bench_line("article %lu total %lu.%lu blob %lu.%lu (card %lu.%lu %luK %lu, "
-		   "zstd %lu.%lu %lu, alloc %lu.%lu %lu) "
+		   "zstd %lu.%lu %lu, alloc %lu.%lu %lu, other %lu.%lu) "
 		   "html %lu.%lu wrap %lu.%lu paint %lu.%lu ms, "
 		   "%lu %lu %lu bytes",
 		   (unsigned long)pending_index, MS(total), MS(blob),
@@ -642,7 +648,7 @@ void zim_bench_painted(void)
 		   MS(slot_ticks[ZIM_BENCH_SLOT_ZSTD]),
 		   slot_calls[ZIM_BENCH_SLOT_ZSTD],
 		   MS(slot_ticks[ZIM_BENCH_SLOT_ALLOC]),
-		   slot_calls[ZIM_BENCH_SLOT_ALLOC],
+		   slot_calls[ZIM_BENCH_SLOT_ALLOC], MS(other),
 		   MS(html), MS(wrap), MS(paint),
 		   (unsigned long)size_raw, (unsigned long)size_text,
 		   (unsigned long)size_stream);

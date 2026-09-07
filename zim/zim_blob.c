@@ -11,11 +11,9 @@
 #if defined(__c33__)
 void *zim_alloc_bank_local(size_t size);
 void *zim_alloc_other_bank(size_t size, const void *avoid);
-void *zim_alloc_other_banks(size_t size, const void *avoid, const void *avoid2);
 #else
 #define zim_alloc_bank_local malloc
 #define zim_alloc_other_bank(size, avoid) malloc(size)
-#define zim_alloc_other_banks(size, avoid, avoid2) malloc(size)
 #endif
 
 #if defined(__c33__) && defined(ZIM_BENCH)
@@ -101,6 +99,16 @@ extern unsigned ZSTD_isError(size_t code);
  * content size, so the buffer is first sized by a generous guess and re-sized
  * exactly once if the leading offset table reports a larger cluster.
  */
+/* The literal scratch buffer and the literal Huffman table do not depend
+ * on the cluster, so they are placed once and kept.  Allocating them per
+ * cluster meant a bank walk per article, whose cost depends on the state
+ * of the heap: on one device run it took 200 ms that no timer accounted
+ * for, while the emulator's heap needed no fillers at all. */
+static unsigned char *scratch_literals;
+#if defined(__c33__)
+static unsigned char *scratch_huftable;
+#endif
+
 typedef struct {
 	int valid;
 	const void *archive_id;
@@ -111,8 +119,6 @@ typedef struct {
 	unsigned char *input;
 	ZSTD_inBuffer in;
 	unsigned char *output;
-	unsigned char *literals;
-	unsigned char *huftable;
 	size_t capacity;
 	size_t decoded;
 	size_t table_size;
@@ -284,8 +290,6 @@ static void cluster_release(void)
 {
 	ZSTD_freeDStream(cluster.stream);
 	free(cluster.output);
-	free(cluster.literals);
-	free(cluster.huftable);
 	free(cluster.input);
 	memset(&cluster, 0, sizeof(cluster));
 }
@@ -424,23 +428,25 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 	decoder_avoid = cluster.output;
 	BENCH_TIMED(ZIM_BENCH_SLOT_ALLOC, 0,
 		    cluster.stream = ZSTD_createDStream_advanced(decoder_memory));
-	cluster.literals = zim_alloc_other_banks(ZSTD_DCtx_literalBufferSize(),
-						 cluster.output, cluster.input);
+	if (!scratch_literals)
+		scratch_literals = zim_alloc_other_bank(ZSTD_DCtx_literalBufferSize(),
+							reader_buffer);
 #if defined(__c33__)
-	/* The literal Huffman table in the bank that is idle while literals
-	 * are decoded, away from both the input and the literals. */
-	cluster.huftable = zim_alloc_other_banks(ZSTD_DCtx_hufTableSize(),
-						 cluster.input, cluster.literals);
-	if (!cluster.huftable ||
+	/* The literal Huffman table in a bank other than the literals', which
+	 * the literal decoder writes while reading it. */
+	if (!scratch_huftable)
+		scratch_huftable = zim_alloc_other_bank(ZSTD_DCtx_hufTableSize(),
+							scratch_literals);
+	if (!scratch_huftable ||
 	    ZSTD_isError(ZSTD_DCtx_setHufTableBuffer(cluster.stream,
-						     cluster.huftable))) {
+						     scratch_huftable))) {
 		cluster_release();
 		return ZIM_ERR_IO;
 	}
 #endif
-	if (!cluster.output || !cluster.stream || !cluster.literals ||
+	if (!cluster.output || !cluster.stream || !scratch_literals ||
 	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,
-						    cluster.literals)) ||
+						    scratch_literals)) ||
 	    ZSTD_isError(ZSTD_DCtx_setParameter(cluster.stream,
 						ZSTD_D_STABLE_OUT_BUFFER, 1)) ||
 	    ZSTD_isError(ZSTD_initDStream(cluster.stream))) {

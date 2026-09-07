@@ -137,26 +137,24 @@ static unsigned bank_of(const void *memory)
 	return (unsigned)(((uintptr_t)memory - SDRAM_START) / bank_size());
 }
 
-/* Allocate a block in a bank other than those holding `avoid` and `avoid2`
- * (either may be NULL), without
+/* Allocate a block in a bank other than the one holding `avoid`, without
  * straddling a bank boundary.  The heap is first fit, so the block is
  * pushed forward a bank at a time by holding the space in front of the
  * next boundary; each filler is at most one bank, unlike asking for an
  * absolute bank index, which on a 32 MB board could reach for 15 MB.  A
  * bank is a preference: if the heap runs out of room the block comes from
  * wherever there is space. */
-void *zim_alloc_other_banks(size_t size, const void *avoid, const void *avoid2)
+void *zim_alloc_other_bank(size_t size, const void *avoid)
 {
 	void *fillers[8];
 	unsigned filler_count = 0;
 	void *memory = malloc(size);
 	size_t bytes = bank_size();
 
-	if (size >= bytes || (!avoid && !avoid2))
+	if (size >= bytes || !avoid)
 		return memory;
 	while (memory && filler_count < sizeof(fillers) / sizeof(fillers[0]) &&
-	       ((avoid && bank_of(memory) == bank_of(avoid)) ||
-		(avoid2 && bank_of(memory) == bank_of(avoid2)) ||
+	       (bank_of(memory) == bank_of(avoid) ||
 		!inside_one_bank(memory, size))) {
 		uintptr_t boundary = ((uintptr_t)memory + bytes) & ~(uintptr_t)(bytes - 1);
 		size_t filler = (size_t)(boundary - (uintptr_t)memory);
@@ -168,9 +166,4 @@ void *zim_alloc_other_banks(size_t size, const void *avoid, const void *avoid2)
 	while (filler_count)
 		free(fillers[--filler_count]);
 	return memory;
-}
-
-void *zim_alloc_other_bank(size_t size, const void *avoid)
-{
-	return zim_alloc_other_banks(size, avoid, NULL);
 }
