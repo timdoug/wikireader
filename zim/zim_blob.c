@@ -73,6 +73,10 @@ extern ZSTD_DStream *ZSTD_createDStream(void);
 extern ZSTD_DStream *ZSTD_createDStream_advanced(ZSTD_customMem memory);
 extern size_t ZSTD_DCtx_literalBufferSize(void);
 extern size_t ZSTD_DCtx_setLiteralBuffer(ZSTD_DStream *stream, void *buffer);
+#if defined(__c33__)
+extern size_t ZSTD_DCtx_hufTableSize(void);
+extern size_t ZSTD_DCtx_setHufTableBuffer(ZSTD_DStream *stream, void *buffer);
+#endif
 extern size_t ZSTD_freeDStream(ZSTD_DStream *stream);
 extern size_t ZSTD_initDStream(ZSTD_DStream *stream);
 extern size_t ZSTD_decompressStream(ZSTD_DStream *stream,
@@ -108,6 +112,7 @@ typedef struct {
 	ZSTD_inBuffer in;
 	unsigned char *output;
 	unsigned char *literals;
+	unsigned char *huftable;
 	size_t capacity;
 	size_t decoded;
 	size_t table_size;
@@ -280,6 +285,7 @@ static void cluster_release(void)
 	ZSTD_freeDStream(cluster.stream);
 	free(cluster.output);
 	free(cluster.literals);
+	free(cluster.huftable);
 	free(cluster.input);
 	memset(&cluster, 0, sizeof(cluster));
 }
@@ -420,6 +426,18 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 		    cluster.stream = ZSTD_createDStream_advanced(decoder_memory));
 	cluster.literals = zim_alloc_other_banks(ZSTD_DCtx_literalBufferSize(),
 						 cluster.output, cluster.input);
+#if defined(__c33__)
+	/* The literal Huffman table in the bank that is idle while literals
+	 * are decoded, away from both the input and the literals. */
+	cluster.huftable = zim_alloc_other_banks(ZSTD_DCtx_hufTableSize(),
+						 cluster.input, cluster.literals);
+	if (!cluster.huftable ||
+	    ZSTD_isError(ZSTD_DCtx_setHufTableBuffer(cluster.stream,
+						     cluster.huftable))) {
+		cluster_release();
+		return ZIM_ERR_IO;
+	}
+#endif
 	if (!cluster.output || !cluster.stream || !cluster.literals ||
 	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,
 						    cluster.literals)) ||

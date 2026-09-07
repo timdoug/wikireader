@@ -46,6 +46,11 @@
 /* TODO: Can't amalgamate ASM function */
 #define ZSTD_DISABLE_ASM 1
 #if defined(__c33__)
+/* One Huffman decoder, the single-symbol one: it runs from the IVRAM
+ * overlay, and the choice between the two is a speed heuristic for large
+ * machines (both decode any stream).  The double-symbol one ran from
+ * SDRAM with a 16 KB table. */
+#define HUF_FORCE_DECOMPRESS_X1
 /* Code the application linker script places in the chip's zero-wait A0 RAM
  * (see samo-lib/grifo/lds/application.lds).  The C33 has no instruction
  * cache and code fetched from SDRAM spends a third of its cycles waiting;
@@ -15993,6 +15998,15 @@ HUF_decompress4X1_usingDTable_internal_body(
         CHECK_F( BIT_initDStream(&bitD3, istart3, length3) );
         CHECK_F( BIT_initDStream(&bitD4, istart4, length4) );
 
+#if defined(__c33__)
+        /* The four streams one after another.  Interleaving them keeps a
+         * superscalar core busy; here it made every output byte and most
+         * input reloads open an SDRAM row, the four output segments and
+         * the four input positions each being in a row of their own, and
+         * kept four bit readers in memory.  Decoded in turn, each stream
+         * writes and reads sequentially. */
+        (void)olimit; (void)endSignal;
+#else
         /* up to 16 symbols per loop (4 symbols per stream) in 64-bit mode */
         if ((size_t)(oend - op4) >= sizeof(size_t)) {
             for ( ; (endSignal) & (op4 < olimit) ; ) {
@@ -16018,6 +16032,7 @@ HUF_decompress4X1_usingDTable_internal_body(
                 endSignal &= BIT_reloadDStreamFast(&bitD4) == BIT_DStream_unfinished;
             }
         }
+#endif
 
         /* check corruption */
         /* note : should not be necessary : op# advance in lock step, and we control op4.
@@ -17543,6 +17558,7 @@ struct ZSTD_DCtx_s
     const U32* c33OFptr;
     const U32* c33MLptr;
     U32 c33fresh;   /* tables built into IVRAM this block, bits 0..2 = LL, OF, ML */
+    HUF_DTable* c33HufTable;   /* the literal table, where the reader put it (ZSTD_DCtx_setHufTableBuffer), or NULL */
 #endif
     const HUF_DTable* HUFptr;
     ZSTD_entropyDTables_t entropy;
@@ -18255,6 +18271,7 @@ static void ZSTD_initDCtx_internal(ZSTD_DCtx* dctx)
 #if defined(__c33__)
     dctx->c33LLptr = dctx->c33OFptr = dctx->c33MLptr = NULL;
     dctx->c33fresh = 0;
+    dctx->c33HufTable = NULL;
 #endif
     dctx->ddict       = NULL;
     dctx->ddictLocal  = NULL;
@@ -19922,6 +19939,26 @@ size_t ZSTD_DCtx_setLiteralBuffer(ZSTD_DCtx* dctx, void* buffer)
     return 0;
 }
 
+#if defined(__c33__)
+/* The literal Huffman table is built into and read from `buffer`, of
+ * ZSTD_DCtx_hufTableSize() bytes, instead of the context.  The reader puts
+ * it in the SDRAM bank that is idle while literals are decoded (the
+ * output's): in the context's bank it shared rows with the compressed
+ * input and every lookup after a reload opened a row. */
+size_t ZSTD_DCtx_hufTableSize(void)
+{
+    return sizeof(((ZSTD_DCtx*)0)->entropy.hufTable);
+}
+size_t ZSTD_DCtx_setHufTableBuffer(ZSTD_DCtx* dctx, void* buffer)
+{
+    RETURN_ERROR_IF(dctx->streamStage != zdss_init, stage_wrong, "");
+    dctx->c33HufTable = (HUF_DTable*)buffer;
+    if (buffer)
+        dctx->c33HufTable[0] = (HUF_DTable)((ZSTD_HUFFDTABLE_CAPACITY_LOG)*0x1000001);   /* the header, as ZSTD_decompressBegin sets it */
+    return 0;
+}
+#endif
+
 size_t ZSTD_DCtx_setParameter(ZSTD_DCtx* dctx, ZSTD_dParameter dParam, int value)
 {
     RETURN_ERROR_IF(dctx->streamStage != zdss_init, stage_wrong, "");
@@ -20652,6 +20689,11 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                     PREFETCH_AREA(dctx->HUFptr, sizeof(dctx->entropy.hufTable));
                 }
 
+#if defined(__c33__)
+                HUF_DTable* const hufTable = dctx->c33HufTable ? dctx->c33HufTable : dctx->entropy.hufTable;
+#else
+                HUF_DTable* const hufTable = dctx->entropy.hufTable;
+#endif
                 if (litEncType==set_repeat) {
                     if (singleStream) {
                         hufSuccess = HUF_decompress1X_usingDTable(
@@ -20672,13 +20714,13 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                             sizeof(dctx->workspace), flags);
 #else
                         hufSuccess = HUF_decompress1X1_DCtx_wksp(
-                            dctx->entropy.hufTable, dctx->litBuffer, litSize,
+                            hufTable, dctx->litBuffer, litSize,
                             istart+lhSize, litCSize, dctx->workspace,
                             sizeof(dctx->workspace), flags);
 #endif
                     } else {
                         hufSuccess = HUF_decompress4X_hufOnly_wksp(
-                            dctx->entropy.hufTable, dctx->litBuffer, litSize,
+                            hufTable, dctx->litBuffer, litSize,
                             istart+lhSize, litCSize, dctx->workspace,
                             sizeof(dctx->workspace), flags);
                     }
@@ -20698,7 +20740,7 @@ static size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
                 dctx->litPtr = dctx->litBuffer;
                 dctx->litSize = litSize;
                 dctx->litEntropy = 1;
-                if (litEncType==set_compressed) dctx->HUFptr = dctx->entropy.hufTable;
+                if (litEncType==set_compressed) dctx->HUFptr = hufTable;
                 return litCSize + lhSize;
             }
 
