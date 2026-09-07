@@ -263,54 +263,51 @@ static HTML_RARE int put_link_start(TEXT_OUTPUT *out, const TAG_ATTRIBUTES *foun
 	return 1;
 }
 
-static void scan_tag_attributes(const unsigned char *attributes, size_t length,
-				TAG_ATTRIBUTES *found)
+/* Parse a tag's attributes up to its closing '>' and return where that is
+ * (or `limit`).  One pass: finding the '>' first and parsing the
+ * attributes second read these bytes, most of a Kiwix page, twice, and a
+ * '>' inside a quoted value ended the tag early.  A bare attribute is
+ * passed over without swallowing the one after it. */
+static const unsigned char *scan_tag_attributes(const unsigned char *p,
+						const unsigned char *limit,
+						TAG_ATTRIBUTES *found)
 {
-	size_t i = 0;
-
 	found->have = 0;
-	while (i < length) {
-		size_t name_start;
-		size_t name_end;
-		size_t start;
+	for (;;) {
+		const unsigned char *name;
+		size_t name_length;
+		const unsigned char *start;
 		unsigned char quote = 0;
 
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		name_start = i;
-		while (i < length && !IS_SPACE(attributes[i]) &&
-		       attributes[i] != '=' && attributes[i] != '>') i++;
-		name_end = i;
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		if (i >= length || attributes[i] != '=') {
-			while (i < length && !IS_SPACE(attributes[i])) i++;
+		while (p < limit && IS_SPACE(*p)) p++;
+		if (p >= limit || *p == '>')
+			return p;
+		name = p;
+		while (p < limit && !IS_SPACE(*p) && *p != '=' && *p != '>') p++;
+		name_length = (size_t)(p - name);
+		while (p < limit && IS_SPACE(*p)) p++;
+		if (p >= limit || *p != '=')
 			continue;
-		}
-		i++;
-		while (i < length && IS_SPACE(attributes[i])) i++;
-		if (i < length && (attributes[i] == '\'' || attributes[i] == '"'))
-			quote = attributes[i++];
-		start = i;
+		p++;
+		while (p < limit && IS_SPACE(*p)) p++;
+		if (p < limit && (*p == '\'' || *p == '"'))
+			quote = *p++;
+		start = p;
 		if (quote) {
 			/* Attribute values are most of the tag bytes. */
-			const unsigned char *scan = attributes + i;
-			const unsigned char *limit = attributes + length;
-
-			while (scan < limit && *scan != quote)
-				scan++;
-			i = (size_t)(scan - attributes);
+			while (p < limit && *p != quote)
+				p++;
 		} else {
-			while (i < length && !IS_SPACE(attributes[i]) &&
-			       attributes[i] != '>') i++;
+			while (p < limit && !IS_SPACE(*p) && *p != '>') p++;
 		}
 #define TAKE_ATTRIBUTE(bit, literal, field, field_length) \
 		if (!(found->have & (bit)) && \
-		    NAME_IS(attributes + name_start, name_end - name_start, \
-			    literal)) { \
+		    NAME_IS(name, name_length, literal)) { \
 			found->have |= (bit); \
-			found->field = attributes + start; \
-			found->field_length = i - start; \
+			found->field = start; \
+			found->field_length = (size_t)(p - start); \
 		}
-		switch (name_end - name_start) {
+		switch (name_length) {
 		case 2:
 			TAKE_ATTRIBUTE(ATTR_ID, "id", id, id_length)
 			break;
@@ -332,7 +329,7 @@ static void scan_tag_attributes(const unsigned char *attributes, size_t length,
 			break;
 		}
 #undef TAKE_ATTRIBUTE
-		if (quote && i < length) i++;
+		if (quote && p < limit) p++;
 	}
 }
 
@@ -674,7 +671,16 @@ html_to_text(const unsigned char *html, size_t html_size,
 				i++;
 			tag_end = i;
 			attributes_start = i;
-			{
+			tag = tag_start == tag_end ? TAG_OTHER :
+				classify_tag(html + tag_start, tag_end - tag_start);
+			if (tag_start != tag_end && !closing && in_body && in_main &&
+			    !suppress && !skip_depth && tag != TAG_BODY &&
+			    tag != TAG_MAIN && tag != TAG_STYLE && tag != TAG_SCRIPT) {
+				/* An element whose attributes matter: parse them on
+				 * the way to the '>'. */
+				i = (size_t)(scan_tag_attributes(html + i, html + html_size,
+								 &found) - html);
+			} else {
 				/* Attribute bytes are most of a Kiwix page; scan them
 				 * with pointers so the loop stays a few instructions. */
 				const unsigned char *scan = html + i;
@@ -688,7 +694,6 @@ html_to_text(const unsigned char *html, size_t html_size,
 			if (i < html_size) i++;
 			if (tag_start == tag_end)
 				continue;
-			tag = classify_tag(html + tag_start, tag_end - tag_start);
 			if (tag == TAG_BODY) {
 				in_body = !closing;
 				continue;
@@ -726,9 +731,7 @@ html_to_text(const unsigned char *html, size_t html_size,
 				continue;
 			}
 			if (!closing && attributes_end > attributes_start) {
-				scan_tag_attributes(html + attributes_start,
-						    attributes_end - attributes_start,
-						    &found);
+				/* found was filled on the way to the '>' above */
 				if (element_skipped(&found)) {
 					int self_closing =
 						html[attributes_end - 1] == '/';
