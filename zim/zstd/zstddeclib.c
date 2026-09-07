@@ -20938,6 +20938,10 @@ static void ZSTD_buildSeqTable_rle(ZSTD_seqSymbol* dt, U32 baseValue, U8 nbAddBi
 static U32* ZSTD_c33_compactOut;
 
 #define ZSTD_C33_BASE_MARK  0x3fffu
+#define ZSTD_C33_E_nextState(w) ((w) & 0x1ffu)
+#define ZSTD_C33_E_nbBits(w)    (((w) >> 9) & 0xfu)
+#define ZSTD_C33_E_nbAdd(w)     (((w) >> 13) & 0x1fu)
+#define ZSTD_C33_E_field(w)     ((w) >> 18)
 #define ZSTD_C33_IVRAM_LL   ((U32*)ZIM_OVERLAY_BASE)
 #define ZSTD_C33_IVRAM_OF   (ZSTD_C33_IVRAM_LL + 1 + (1 << LLFSELog))
 #define ZSTD_C33_IVRAM_ML   (ZSTD_C33_IVRAM_OF + 1 + (1 << OffFSELog))
@@ -20964,6 +20968,40 @@ static const BYTE ZSTD_c33_log2[256] = {
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
 };
 static void ZSTD_c33_convertTable(U32* out, const ZSTD_seqSymbol* dt);
+
+#if defined(ZIM_TRACE_HASH)
+/* Unpack every entry of a compact table and compare it with the 8-byte
+ * table it came from, including the recomputed large base values.  A
+ * mismatch is a packing bug, and one truncated match-length base was
+ * enough to corrupt an article while every other article decoded (the
+ * bases involved appear only in matches of 16 KB and more). */
+static void ZSTD_c33_verifyCompact(const U32* compact, const ZSTD_seqSymbol* dt)
+{
+    extern int debug_printf(const char* fmt, ...);
+    U32 const n = compact[0] ? 1u << compact[0] : 1u;
+    U32 i;
+    for (i = 0; i < n; i++) {
+        U32 const w = compact[i + 1];
+        const ZSTD_seqSymbol* const e = dt + 1 + i;
+        U32 const bits = ZSTD_C33_E_nbAdd(w);
+        U32 const field = ZSTD_C33_E_field(w);
+        U32 base;
+        if (field != ZSTD_C33_BASE_MARK)
+            base = field;
+        else if (e->baseValue == (1u << bits))
+            base = 1u << bits;              /* literal length */
+        else if (e->baseValue == (1u << bits) + 3)
+            base = (1u << bits) + 3;        /* match length */
+        else
+            base = (1u << bits) - 3;        /* offset */
+        if (base != e->baseValue || ZSTD_C33_E_nextState(w) != e->nextState ||
+            ZSTD_C33_E_nbBits(w) != e->nbBits || bits != e->nbAdditionalBits)
+            debug_printf("compact table entry %lu wrong: base %lu vs %lu\n",
+                         (unsigned long)i, (unsigned long)base,
+                         (unsigned long)e->baseValue);
+    }
+}
+#endif
 static const U32* ZSTD_c33_defaultCompact(const ZSTD_seqSymbol* dt, U32* cache);
 
 /* Word-aligned copy in 32-byte batches, rounding the length up: the C
@@ -21243,6 +21281,9 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
         ZSTD_c33_convertTable(compactSpace, DTableSpace);
         *compactPtr = compactSpace;
         *compactFresh &= ~compactBit;
+#if defined(ZIM_TRACE_HASH)
+        ZSTD_c33_verifyCompact(compactSpace, DTableSpace);
+#endif
 #endif
         return 1;
     case set_basic :
@@ -21250,6 +21291,9 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
 #if defined(__c33__)
         *compactPtr = ZSTD_c33_defaultCompact(defaultTable, compactDefault);
         *compactFresh &= ~compactBit;
+#if defined(ZIM_TRACE_HASH)
+        ZSTD_c33_verifyCompact(compactDefault, defaultTable);
+#endif
 #endif
         return 0;
     case set_repeat:
@@ -21280,6 +21324,9 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
             ZSTD_c33_copyWords(compactSpace, compactIvram, (1 + ((size_t)1 << tableLog)) * sizeof(U32));
             *compactPtr = compactSpace;
             *compactFresh |= compactBit;
+#if defined(ZIM_TRACE_HASH)
+            ZSTD_c33_verifyCompact(compactSpace, DTableSpace);
+#endif
 #endif
             *DTablePtr = DTableSpace;
             return headerSize;
@@ -21898,10 +21945,6 @@ ZSTD_c33_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const U32* 
 
 #define ZSTD_C33_ENTRY(fse) \
     (((const U32*)(const void*)(fse).table)[(fse).state])
-#define ZSTD_C33_E_nextState(w) ((w) & 0x1ffu)
-#define ZSTD_C33_E_nbBits(w)    (((w) >> 9) & 0xfu)
-#define ZSTD_C33_E_nbAdd(w)     (((w) >> 13) & 0x1fu)
-#define ZSTD_C33_E_field(w)     ((w) >> 18)
 #endif
 
 FORCE_INLINE_TEMPLATE void
@@ -21981,10 +22024,15 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
         BYTE const mlBits = (BYTE)ZSTD_C33_E_nbAdd(mlW);
         BYTE const ofBits = (BYTE)ZSTD_C33_E_nbAdd(ofW);
         U32 const llField = ZSTD_C33_E_field(llW);
+        U32 const mlField = ZSTD_C33_E_field(mlW);
         U32 const ofField = ZSTD_C33_E_field(ofW);
-        /* Marked bases: literal-length codes 34 and 35 are 1 << bits,
-         * offset codes from 14 are (1 << bits) - 3. */
+        /* A base too large for the field is marked and recomputed from the
+         * extra-bit count, which determines it for exactly those codes:
+         * literal length 1 << bits (16384, 32768, 65536), match length
+         * (1 << bits) + 3 (16387, 32771, 65539), offset (1 << bits) - 3
+         * (32765 up).  No base equals the mark itself. */
         U32 const llBase = llField != ZSTD_C33_BASE_MARK ? llField : 1u << llBits;
+        U32 const mlBase = mlField != ZSTD_C33_BASE_MARK ? mlField : (1u << mlBits) + 3;
         U32 const ofBase = ofField != ZSTD_C33_BASE_MARK ? ofField : (1u << ofBits) - 3;
 
         U16 const llNext = (U16)ZSTD_C33_E_nextState(llW);
@@ -21993,7 +22041,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
         U32 const llnbBits = ZSTD_C33_E_nbBits(llW);
         U32 const mlnbBits = ZSTD_C33_E_nbBits(mlW);
         U32 const ofnbBits = ZSTD_C33_E_nbBits(ofW);
-        seq.matchLength = ZSTD_C33_E_field(mlW);
+        seq.matchLength = mlBase;
         seq.litLength = llBase;
 #else
     seq.matchLength = mlDInfo->baseValue;
