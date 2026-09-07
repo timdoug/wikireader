@@ -32,9 +32,11 @@ void free(void *memory)
  * or written together belong in different banks.  How far apart that is
  * cannot be taken from the controller's ADDRC field: a 32 MB board reports
  * a geometry whose banks would be 8 MB (manual II.4.1.3.2:
- * 2^(rows+columns+1) bytes), while alternating reads 4 MB apart run at the
- * same speed as reads in one row, which is what two 16 MB devices of four
- * 4 MB banks look like.  So measure it, and fall back to the register.
+ * 2^(rows+columns+1) bytes), while on both units alternating reads 4, 8
+ * and 16 MB apart all run at the speed of reads within one row.  The
+ * boards carry a single memory device, so why the stride is 4 MB is not
+ * established, but placement has to follow the hardware.  So measure it,
+ * and fall back to the register.
  *
  * The measurement alternates two reads and times them: a gap inside one
  * bank pays a precharge and an activate every pair, a gap that reaches

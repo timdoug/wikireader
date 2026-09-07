@@ -57,11 +57,17 @@ struct geometry {
 };
 
 /* Technical Manual table II.4.1.3.2, indexed by ADDRC[2:0], except for the
-   32 MB settings.  The manual describes one device; the WikiReader's 32 MB
-   boards carry two, so the bank stride is half what the table implies and
-   twice as many rows are open at once.  Both units measured a 4 MB stride
-   for ADDRC 3 (zim/probe-compare on a card run through the benchmark app),
-   which is 8 banks of 4 MB rather than 4 of 8 MB. */
+   32 MB settings, which are set from measurement instead.
+ 
+   Both 32 MB WikiReaders (ADDRC 3) behave as 4 MB banks: alternating reads
+   4, 8 and 16 MB apart all run at the speed of reads within one row, while
+   everything from 1 KB to 2 MB apart pays a row change (zim/zim_bench.c's
+   probe, read with zim/probe-compare).  The table's geometry would put the
+   bank stride at 8 MB and make the 16 MB pair a row conflict.  The boards
+   carry a single memory device, so the reason for the difference is not
+   established; the entries below describe what the hardware does, which is
+   what the reader's buffer placement needs.  The row size, 1 KB, is the
+   table's and the measurement agrees. */
 static const struct geometry geometry[8] = {
 	{ 2, 11,  8 }, { 4, 12,  8 }, { 4, 12,  9 }, { 8, 12,  9 },
 	{ 2, 11,  9 }, { 4, 12,  9 }, { 4, 12, 10 }, { 8, 12, 10 },

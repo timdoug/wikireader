@@ -10,9 +10,9 @@
 #define SDRAMC_BASE 0x1600u
 #define SDRAMC_LEN  0x0014u
 
-/* Up to eight open rows: the 32 MB boards carry two 16 MB devices of four
-   banks each, which both WikiReaders measured as a 4 MB bank stride even
-   though the controller's ADDRC field describes a single device. */
+/* Up to eight open rows: the 32 MB boards measure a 4 MB bank stride over
+   32 MB, which is more banks than the controller's ADDRC field implies.
+   See the geometry table in sdramc.c. */
 #define SDRAMC_MAX_BANKS 8
 
 struct sdramc {
