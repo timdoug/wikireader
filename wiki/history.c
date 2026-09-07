@@ -119,6 +119,11 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 			history_tmp = history_list[i];
 			if (!b_keep_pos)
 				history_tmp.last_y_pos = 0;
+			/* Refresh the stored title: an entry recorded when the
+			 * article rendered wrongly kept its bad title for ever,
+			 * because revisiting only moved the entry to the top. */
+			if (title && *title)
+				ustrcpy(history_tmp.title, title);
 			memrcpy((void*)&history_list[1],(void*)&history_list[0],sizeof(HISTORY)*i);
 			history_list[0]=history_tmp;
 			bFound = 1;
