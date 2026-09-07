@@ -343,6 +343,51 @@ placements before the real cause); `objdump -l` on the linked ELF mixes
 the three overlays' line numbers (same VMA), so take them from the
 object file with base 0x81a00 (`/tmp/ovlprof.py`).
 
+### Device run, 2026-09-07 evening
+
+The afternoon's changes on the user's 32 MB unit, same articles in the
+same order, tap to painted page:
+
+| | morning build | evening build |
+| --- | ---: | ---: |
+| `Cat` | 993.7 ms | 871.6 ms |
+| `Tokyo` | 772.2 ms | 705.0 ms |
+| `Japanese Bobtail` | | 1087.6 ms |
+| `Cat` revisited | | 60.7 ms |
+
+By phase, the decoder is 20% faster on both articles (`Cat` 495.6 to
+396.8 ms, `Tokyo` 223.4 to 179.2) and the converter 11% (166.5 to 148.7,
+135.9 to 121.0); the wrapper gained 6% on `Cat` and painting is
+unchanged.  `Japanese Bobtail` has no comparable earlier figure: it
+decodes 1.7 MB of cluster to reach a 30 KB article, and its decode rate
+matches `Cat`'s exactly, so the 798 ms recorded earlier in the day was
+almost certainly a cluster that was already open.
+
+The first run of the evening build was 124 ms *slower* on `Tokyo` than
+the morning's, with every measured phase faster and 201 ms in the blob
+phase that no timer accounted for, against 14 ms before.  The cause was
+the literal scratch buffer and the literal Huffman table being placed
+through the allocator's bank walk on every cluster open: the walk holds
+space with multi-megabyte fillers, and what it costs depends on the state
+of the heap, which is why the emulator never showed it.  Neither buffer
+depends on the cluster, so both are now placed once and kept, and `Tokyo`
+came back at 705 ms with 10.8 ms unaccounted.  Two lessons: an allocation
+whose cost depends on heap state does not belong on a per-article path,
+and a benchmark that reports phases as sums of slots should print what
+the slots do not cover.  The reads of the archive's index, including the
+directory entry that starts every load, were also outside the card timer
+and are inside it now.
+
+**The wrapper's cost on `Tokyo` is font I/O.** 233.9 ms of its 705, seven
+times `Cat`'s cost per byte of text.  A window profile of that phase in
+the emulator is 60% card transfer (`spi_transmit` 33%, `rcvr_datablock`
+15%, `spi_receive` 6%) with `load_bmf` and `pres_bmfbm` behind it: the
+article's Japanese runs open a CJK font and pull glyph metric records
+from the card while word widths are measured.  It is already far better
+than it was (8.0 s before the per-font seek map and sector windows), but
+it is now the largest single item after the decoder for any article with
+non-Latin text, and it is the obvious next target.
+
 ## Build
 
 Keep binutils and GCC in the same prefix:
@@ -621,31 +666,26 @@ These are not GCC/binutils correctness bugs and require separate approval:
 
 ## Next work
 
-Optimisation, ranked in the model (the device is 20 to 33% slower on
-every phase; run the `ZIM_BENCH` build there first, `Cat` was 942 ms
-before this session's changes):
+Ranked against the device's 871.6 ms for `Cat` and 705.0 for `Tokyo`:
 
-1. The Huffman literal loop in assembly: 28 instructions a symbol now,
-   about 19 reachable with the bit reader in registers and two symbols
-   per refill check; roughly 12 ms.  The overlay has 1.1 KB free for
-   `HUF_readDTableX1_wksp` (35% fetch wait in SDRAM) once its workspace
-   moves to A0 or DSTRAM.
-2. The SDRAM refresh interval: the kernel programs 0x120 clocks, the
-   part needs at most 468 at 60 MHz; about 140k refreshes fall in the
-   `Cat` window and each closes every bank.  0x180 keeps 18% margin and
-   would be worth 10 to 17 ms, but needs a soak on the device.
-3. The sequence loop's decode side: the three state loads and stores
-   through the frame (12 cycles), the three bounds checks (35), the
-   refill's four byte loads (44 a sequence at 0.8 refills).  Perhaps
-   10 ms in all.
-4. The wrapper's word scan, width sum and copy in assembly; the
-   converter's helpers outside the overlay (`put_anchor`,
-   `class_word_skipped`, `put_link_start`, `decode_entity`: about 1M
-   cycles, half of it fetch wait; the HTML overlay has 140 bytes free).
-5. Overlap card reads with decoding (131 ms of card time, about 40%
-   hideable): an asynchronous block read in `sd_dma.c` and `file.c`.
-6. Unchanged: the 20 to 33% phase gap, suspend/resume soak, the 124 GB
-   card, the toolchain items.
+1. Glyph metrics for non-Latin text: 234 ms of `Tokyo`, and nothing on
+   `Cat`.  Measuring a word's width pulls whole 56-byte glyph records
+   from the card through `pres_bmfbm`; widths need one byte of each.  A
+   width-only cache, or reading the metric header separately from the
+   bitmap, would cut most of the transfer.  Check first whether the cost
+   is the initial `load_bmf` of the CJK font or the per-glyph windows.
+2. The Huffman literal loop in assembly: 28 instructions a symbol, about
+   19 reachable with the bit reader in registers.  Roughly 12 ms of
+   `Cat`'s 397 ms of decoding.
+3. The SDRAM refresh interval: the kernel programs 0x120 clocks where the
+   part allows 468 at 60 MHz, and about 140k refreshes fall in a `Cat`
+   load, each closing every bank.  10 to 17 ms, and it needs a soak.
+4. The sequence loop's decode side: state loads through the frame, the
+   three bounds checks, the refill's four byte loads.  Perhaps 10 ms.
+5. Overlap card reads with decoding: 133 ms of card time per `Cat` load,
+   about 40% of it hideable behind the decode.
+6. Unchanged: the model's optimism against the device, suspend/resume
+   soak, the 124 GB card, the toolchain items.
 
 ## Source layout
 
