@@ -10,10 +10,10 @@
 
 #if defined(__c33__)
 void *zim_alloc_bank_local(size_t size);
-void *zim_alloc_in_bank(size_t size, unsigned bank);
+void *zim_alloc_other_bank(size_t size, const void *avoid);
 #else
 #define zim_alloc_bank_local malloc
-#define zim_alloc_in_bank(size, bank) malloc(size)
+#define zim_alloc_other_bank(size, avoid) malloc(size)
 #endif
 
 #if defined(__c33__) && defined(ZIM_BENCH)
@@ -239,21 +239,29 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
-/* SDRAM bank placement of the decoder's streams (the controller keeps one
- * row open per bank, so streams that alternate should not share one): the
- * cluster output and the literal scratch buffer in bank 2, the context
- * with its entropy tables in bank 1, the compressed input wherever the
- * heap has room (bank 0 or 1), the stack in bank 3.  On a 16 MB board the
- * banks are 4 MB and bank 1 also holds the text buffers, which are idle
- * while a cluster decodes; on a 32 MB board they are 8 MB and bank 1 is
- * otherwise empty. */
-#define ZIM_OUTPUT_BANK 2
-#define ZIM_DECODER_BANK 1
+/* SDRAM bank placement of the decoder's streams: the controller keeps one
+ * row open per bank, so buffers used together belong in different banks.
+ * The placement is relative rather than by bank number, because the stride
+ * differs between boards and the register does not give it (4 MB on both
+ * units measured, including the 32 MB board whose ADDRC implies 8 MB; see
+ * zim_alloc.c).  The cluster output with its literal scratch buffer goes
+ * away from the text buffer the converter writes, and the decoder context
+ * away from the output. */
+static const void *decoder_avoid;
+
+/* The buffer the converter writes while reading the decoded cluster; the
+ * reader registers it so the output can be placed in another bank. */
+static const void *reader_buffer;
+
+void zim_blob_set_reader_buffer(const void *buffer)
+{
+	reader_buffer = buffer;
+}
 
 static void *decoder_alloc(void *opaque, size_t size)
 {
 	(void)opaque;
-	return zim_alloc_in_bank(size, ZIM_DECODER_BANK);
+	return zim_alloc_other_bank(size, decoder_avoid);
 }
 
 static void decoder_free(void *opaque, void *address)
@@ -396,10 +404,11 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 		}
 	}
 	/* The output with the literal scratch buffer after it, then the
-	 * context; see ZIM_OUTPUT_BANK. */
-	cluster.output = zim_alloc_in_bank(capacity +
-					   ZSTD_DCtx_literalBufferSize(),
-					   ZIM_OUTPUT_BANK);
+	 * context away from it; see decoder_avoid. */
+	cluster.output = zim_alloc_other_bank(capacity +
+					      ZSTD_DCtx_literalBufferSize(),
+					      reader_buffer);
+	decoder_avoid = cluster.output;
 	cluster.stream = ZSTD_createDStream_advanced(decoder_memory);
 	if (!cluster.output || !cluster.stream ||
 	    ZSTD_isError(ZSTD_DCtx_setLiteralBuffer(cluster.stream,

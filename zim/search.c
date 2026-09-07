@@ -21,7 +21,8 @@
 #include "zim_article.h"
 #include "zim_bench.h"
 
-void *zim_alloc_in_bank(size_t size, unsigned bank);
+void *zim_alloc_bank_local(size_t size);
+void zim_blob_set_reader_buffer(const void *buffer);
 #include "zim_blob.h"
 #include "zim_catalog.h"
 #include "zim_file.h"
@@ -1365,10 +1366,11 @@ int retrieve_article(long encoded_index)
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
 	if (!text_buffer)
-		/* Not in the decoded cluster's SDRAM bank (zim_blob.c places it
-		 * in bank 2): the converter reads the cluster and writes here,
-		 * and the two must not alternate rows of one bank. */
-		text_buffer = zim_alloc_in_bank(FILE_BUFFER_SIZE, 1);
+		/* The converter reads the decoded cluster and writes here, so
+		 * the two must not share an SDRAM bank; this one is placed
+		 * first and whole, and zim_blob.c puts the cluster elsewhere. */
+		text_buffer = zim_alloc_bank_local(FILE_BUFFER_SIZE);
+	zim_blob_set_reader_buffer(text_buffer);
 	if (!raw_buffer || !text_buffer)
 		FAIL();
 	if (deferred_image_decoder) {
