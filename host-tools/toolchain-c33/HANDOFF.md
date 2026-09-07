@@ -139,6 +139,20 @@ stream for eight words) from the `ZIM_TRACE_HASH` build. Pitfalls added:
 - The device has not run anything after commit c59f999b; the DSTRAM
   stack and the compact tables need the benchmark build on the device
   before they are trusted.
+- The compact table packing marks base values that exceed its 14-bit
+  field and recomputes them from the extra-bit count. The rule differs
+  per table (literal length `1 << bits`, match length `+ 3`, offset
+  `- 3`); missing the match-length rule corrupted only articles with
+  matches of 16 KB or more, which the eight-article hash suite did not
+  contain. The trace build now verifies every packed entry against the
+  8-byte table (`ZSTD_c33_verifyCompact`), and the suite includes
+  `Japanese Bobtail`.
+- Install into a card image through a step that detaches stale mounts,
+  copies, and compares afterwards. macOS attaches a second copy of an
+  already-attached image under a `VOLUME 1` name, so a plain
+  `hdiutil attach` plus `cp` can write to a mount that is not the image
+  the emulator then reads. Hours went into a bisect whose builds never
+  reached the image; every "still broken" result was the previous app.
 
 ## Build
 

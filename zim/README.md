@@ -391,6 +391,18 @@ value:
   histograms, a row trace, repeating windows and probe caller lists,
   which is how the above were found.
 
+One bug came out of this round and is worth recording. Packing a table
+entry into a word leaves 14 bits for the base value; larger bases are
+marked and recomputed from the extra-bit count, and the rule is not the
+same for the three tables: literal length is `1 << bits`, match length
+`(1 << bits) + 3`, offset `(1 << bits) - 3`. The match-length rule was
+missing, so a match of 16387 bytes or more decoded as 16383 bytes. Only
+articles containing such a match were damaged, and none of the eight in
+the hash suite did; `Japanese Bobtail` decoded to `bb1f39d8` against the
+archive's `83d60b5f` and displayed as scrambled words. The trace build
+now unpacks each entry and compares it with the table it came from, and
+the suite covers that article.
+
 Tried and reverted: 64 KiB input slices (the decoder runs on to the end
 of each slice, 100 ms of unread cluster for `Cat`, and the stable output
 buffer forbids bounding the output instead); keeping the card powered
