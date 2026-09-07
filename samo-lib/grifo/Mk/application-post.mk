@@ -38,8 +38,8 @@ SOURCES += ${PROGRAM}.c
 HEADERS +=
 endif
 
-# list of object modules
-OBJECTS = ${SOURCES:.c=.o}
+# list of object modules (C, or hand-written assembly as .s)
+OBJECTS = $(addsuffix .o,$(basename ${SOURCES}))
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
 
 # build application library

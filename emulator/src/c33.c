@@ -245,6 +245,9 @@ static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 		return false;
 
 	c->misaligned_hits++;
+	if (c->misaligned_hits <= 8)
+		fprintf(stderr, "misaligned %u-byte access at 0x%08x from pc 0x%08x\n",
+			sz, a, c->cur_pc);
 	c->access_fault = true;
 	/* The faulting load is retried after reti (Core Manual 6.3.5). */
 	take_exception(c, VECTOR_ADDRESS_MISALIGNED, c->cur_pc);

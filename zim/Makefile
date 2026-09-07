@@ -17,6 +17,7 @@ ICON = YES
 SIMULATE = NO
 
 vpath %.c ${ROOT_DIR}/wiki ${ROOT_DIR}/zim/zstd
+vpath %.s ${ROOT_DIR}/zim/zstd
 vpath %.c ${ROOT_DIR}/zim/webp/src/dec
 vpath %.c ${ROOT_DIR}/zim/webp/src/dsp
 vpath %.c ${ROOT_DIR}/zim/webp/src/utils
@@ -56,6 +57,7 @@ SOURCES += zim_image.c
 SOURCES += zim_link.c
 SOURCES += zim_overlay.c
 SOURCES += zstddeclib.c
+SOURCES += zstd_c33_seq.s   # the sequence loop, in A0 RAM
 
 # ZIM_BENCH=YES times a set of memory and card micro-benchmarks at start-up
 # and every article load by phase, appending the lines to bench.txt on the
