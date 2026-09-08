@@ -29,6 +29,7 @@
 #include "file.h"
 #include "power_log.h"
 #include "timer.h"
+#include "watchdog.h"
 
 
 // a type that can hold the path to the file
@@ -370,6 +371,14 @@ File_ErrorType File_lseek64(int handle, uint64_t pos)
 		return FILE_ERROR_INVALID_OBJECT;
 	AutoPowerUp();
 	return FatResult(f_lseek(&file->file, pos));
+}
+
+
+/* FatFs calls this only while making forward progress through a seek map.
+ * A large FAT-backed archive can take longer than the watchdog period. */
+void ff_fastseek_progress(void)
+{
+	Watchdog_KeepAlive(WATCHDOG_KEY);
 }
 
 

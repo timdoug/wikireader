@@ -67,13 +67,23 @@ bmf-cache-test: bmf-cache-test.c ../../wiki/bmf.c ../../wiki/bmf.h
 		-I../../samo-lib/grifo/include -I../../samo-lib/grifo/common \
 		-o $@ bmf-cache-test.c ../../wiki/bmf.c
 
-check: zimdump blob-cache-test fat-cache-test article-link-test luma-only-test bmf-cache-test
+fastseek-watchdog-test: fastseek-watchdog-test.c ../../samo-lib/fatfs/src/ff.c \
+		../../samo-lib/fatfs/src/ffunicode.c ../../samo-lib/fatfs/src/ff.h \
+		../../samo-lib/fatfs/config/c33/modern/ffconf.h \
+		../../samo-lib/fatfs/config/c33/modern/diskio.h
+	$(CC) $(CFLAGS) -I../../samo-lib/fatfs/src \
+		-I../../samo-lib/fatfs/config/c33/modern \
+		-o $@ fastseek-watchdog-test.c ../../samo-lib/fatfs/src/ff.c \
+		../../samo-lib/fatfs/src/ffunicode.c
+
+check: zimdump blob-cache-test fat-cache-test article-link-test luma-only-test bmf-cache-test fastseek-watchdog-test
 	./fat-cache-test
 	./article-link-test
 	./luma-only-test
 	./bmf-cache-test
+	./fastseek-watchdog-test
 	./check.sh
 
 clean:
 	rm -f zimdump zimfatdump blob-cache-test fat-cache-test article-link-test \
-		luma-only-test bmf-cache-test zstddeclib.o
+		luma-only-test bmf-cache-test fastseek-watchdog-test zstddeclib.o

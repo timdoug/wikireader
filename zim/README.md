@@ -39,6 +39,33 @@ scans its root, and the boot volume's `zim/` directory, for `*.zim` files.
 exFAT permits archives larger than FAT32's 4 GiB file limit and, for a
 contiguous file, avoids walking a large FAT chain at startup.
 
+Files stored with a FAT chain can take longer to open, especially full English
+Wikipedia. The reader initially reserves 512 bytes for up to 63 fragments,
+avoiding a separate sizing pass for ordinary copies. The kernel reads exFAT
+allocation metadata in batches of 32 sectors using a shared 16 KiB buffer;
+it never scans the archive contents to build this map. Each walk starts with
+an empty cache, and pending filesystem writes are flushed before reading it.
+Contiguous runs inside the buffer use sequential aligned word loads, with
+geometry and watchdog checks outside the inner loop. Filesystem
+calls must be serialized while this optional shared buffer is enabled.
+Seek-map construction services the watchdog every 128 clusters and bounds the
+walk to the volume's cluster count. Older kernels could shut down on the opening
+screen if this scan exceeded their 20-second watchdog period.
+
+Keep the scan buffer out of the stack. The current C33 compiler can schedule
+a comparison before a large stack-frame adjustment, whose expansion changes
+the condition flags before the comparison's branch. With the 16 KiB buffer on
+the stack this silently bypassed read-ahead on hardware despite passing host
+tests. The buffer lives in BSS; validate performance with the target binary.
+
+On the tested 128 GB card, the February 2026 full English Wikipedia archive
+occupies 945,898 clusters in 13 fragments. The opening-screen delay fell from
+24 seconds to an estimated 5-6 seconds on hardware. These are manual
+observations; the firmware does not log startup duration. The corresponding
+emulator interval fell from 27.48 to 5.31 seconds, with roughly 0.33 seconds
+spent in the seek/map code and the rest largely in SD transfers and driver
+work. Each boot still reads about 3.8 MB of allocation metadata.
+
 With more than one archive the keyboard shows the globe key of the original
 reader; it opens a list of the archives' own titles and sizes, and the choice
 is written to `zim.ini` on the boot volume so the next boot returns to it.
@@ -225,8 +252,13 @@ make -C host-tools/zim-reader check
 ```
 
 The suite covers archive and cluster caching, HTML conversion, article links,
-WebP luma/alpha output, and font-cache bounds. Target-specific code is also
-checked through full-FLASH emulator boot, search, Cat/Tokyo article loading,
+WebP luma/alpha output, font-cache bounds, and large seek-map construction with
+a simulated watchdog, batched metadata reads, FAT boundaries, pending writes,
+I/O errors, and cyclic chains. `fastseek-watchdog-test exfat-prefix.bin` also
+opens archives and verifies fragment-boundary seeks through production FatFs
+using a captured exFAT metadata prefix; reads beyond that capture are rejected.
+Target-specific code is also checked through full-FLASH emulator boot,
+search, Cat/Tokyo article loading,
 and the first Paris photograph on 16 MB and 32 MB board configurations.
 The emulator's [profiling commands](../emulator/README.md#profiling-and-timing)
 can measure those paths with addresses from the matching `zim.map`.

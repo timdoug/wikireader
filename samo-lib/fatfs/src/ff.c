@@ -23,6 +23,16 @@
 #include "ff.h"			/* Basic definitions and declarations of API */
 #include "diskio.h"		/* Declarations of MAI */
 
+/* Optional platform keep-alive for long seek-map scans. */
+#ifndef FF_FASTSEEK_PROGRESS
+#define FF_FASTSEEK_PROGRESS() ((void)0)
+#endif
+
+/* Optional temporary read-ahead for FAT-backed exFAT seek-map walks. */
+#ifndef FF_FASTSEEK_CACHE_SECTORS
+#define FF_FASTSEEK_CACHE_SECTORS 0
+#endif
+
 /*--------------------------------------------------------------------------
 
    Module Private Definitions
@@ -4552,6 +4562,99 @@ FRESULT f_getcwd (
 /* API: Seek File Read/Write Pointer                                     */
 /*-----------------------------------------------------------------------*/
 
+#if FF_USE_FASTSEEK
+/* The platform enabling read-ahead serializes filesystem calls. Keep the
+ * buffer in BSS: the C33 compiler can clobber condition flags when expanding
+ * a large stack-frame adjustment. Only the local range below makes cached
+ * bytes valid, so each new walk still reads fresh allocation data. */
+static FRESULT create_clmt (FIL* fp)
+{
+	FATFS *fs = fp->obj.fs;
+	DWORD cl = fp->obj.sclust, pcl, ncl, tcl, walked = 0;
+	DWORD *tbl = fp->cltbl;
+	DWORD tlen = *tbl++, ulen = 2;
+#if FF_FASTSEEK_CACHE_SECTORS && FF_FS_EXFAT
+#if FF_FS_REENTRANT
+#error Seek-map read-ahead requires serialized filesystem calls
+#endif
+	static DWORD cache[FF_FASTSEEK_CACHE_SECTORS * FF_MAX_SS / 4];
+	LBA_t cache_sector = (LBA_t)-1;
+	UINT cache_count = 0;
+	int cached_fat = fs->fs_type == FS_EXFAT &&
+		fp->obj.stat == 0 && fp->obj.n_frag == 0;
+#if !FF_FS_READONLY
+	/* Direct reads must see any pending FAT edits in the shared window. */
+	if (cached_fat && sync_window(fs) != FR_OK) return FR_DISK_ERR;
+#endif
+#endif
+
+	if (cl != 0) {
+		do {
+			tcl = cl; ncl = 0; ulen += 2;
+			do {
+				if (cl < 2 || cl >= fs->n_fatent) return FR_INT_ERR;
+				pcl = cl;
+#if FF_FASTSEEK_CACHE_SECTORS && FF_FS_EXFAT
+				if (cached_fat) {
+					LBA_t sector = fs->fatbase + cl / (SS(fs) / 4);
+					const DWORD *entry, *end;
+					UINT available;
+					DWORD next;
+					if (sector - fs->fatbase >= fs->fsize) return FR_INT_ERR;
+					if (sector < cache_sector || sector - cache_sector >= cache_count) {
+						LBA_t remaining = fs->fsize - (sector - fs->fatbase);
+						cache_count = remaining < FF_FASTSEEK_CACHE_SECTORS ?
+							(UINT)remaining : FF_FASTSEEK_CACHE_SECTORS;
+						if (!cache_count || disk_read(fs->pdrv, (BYTE*)cache, sector, cache_count) != RES_OK)
+							return FR_DISK_ERR;
+						cache_sector = sector;
+					}
+					entry = cache + (UINT)(sector - cache_sector) * (SS(fs) / 4) + cl % (SS(fs) / 4);
+					available = (UINT)(cache + cache_count * (SS(fs) / 4) - entry);
+					if (available > fs->n_fatent - cl) available = (UINT)(fs->n_fatent - cl);
+					if (available > 128) available = 128;
+					end = entry + available;
+					/* Check a run with sequential loads. Geometry, cache and
+					 * watchdog checks belong outside this per-entry loop. */
+					do {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+						/* This buffer is an aligned DWORD array, unlike fs->win. */
+						next = *entry++ & 0x7FFFFFFF;
+#else
+						next = ld_32((const BYTE*)entry++) & 0x7FFFFFFF;
+#endif
+						if (next != ++pcl) break;
+					} while (entry < end);
+					ncl += pcl - cl;
+					walked += pcl - cl;
+					pcl--;
+					cl = next;
+					FF_FASTSEEK_PROGRESS();
+				} else
+#endif
+				{
+					cl = get_fat(&fp->obj, cl);
+					ncl++; walked++;
+					if ((walked & 127) == 0) FF_FASTSEEK_PROGRESS();
+				}
+				if (cl <= 1) return FR_INT_ERR;
+				if (cl == 0xFFFFFFFF) return FR_DISK_ERR;
+				/* Bound corrupt cycles even when the watchdog is serviced. */
+				if (walked > fs->n_fatent - 2) return FR_INT_ERR;
+			} while (cl == pcl + 1);
+			if (ulen <= tlen) {
+				*tbl++ = ncl; *tbl++ = tcl;
+			}
+		} while (cl < fs->n_fatent);
+	}
+	*fp->cltbl = ulen;
+	if (ulen > tlen) return FR_NOT_ENOUGH_CORE;
+	*tbl = 0;
+	return FR_OK;
+}
+#endif
+
+
 FRESULT f_lseek (
 	FIL* fp,		/* Pointer to the file object */
 	FSIZE_t ofs		/* File pointer from top of file */
@@ -4575,35 +4678,11 @@ FRESULT f_lseek (
 
 #if FF_USE_FASTSEEK
 	if (fp->cltbl) {	/* Fast seek */
-		DWORD cl, pcl, ncl, tcl, tlen, ulen;
-		DWORD *tbl;
 		LBA_t dsc;
 
-		if (ofs == CREATE_LINKMAP) {	/* Create CLMT */
-			tbl = fp->cltbl;
-			tlen = *tbl++; ulen = 2;	/* Given table size and required table size */
-			cl = fp->obj.sclust;		/* Origin of the chain */
-			if (cl != 0) {
-				do {
-					/* Get a fragment */
-					tcl = cl; ncl = 0; ulen += 2;	/* Top, length and used items */
-					do {
-						pcl = cl; ncl++;
-						cl = get_fat(&fp->obj, cl);
-						if (cl <= 1) ABORT(fs, FR_INT_ERR);
-						if (cl == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
-					} while (cl == pcl + 1);
-					if (ulen <= tlen) {		/* Store the length and top of the fragment */
-						*tbl++ = ncl; *tbl++ = tcl;
-					}
-				} while (cl < fs->n_fatent);	/* Repeat until end of chain */
-			}
-			*fp->cltbl = ulen;	/* Number of items used */
-			if (ulen <= tlen) {
-				*tbl = 0;		/* Terminate table */
-			} else {
-				res = FR_NOT_ENOUGH_CORE;	/* Given table size is smaller than required */
-			}
+		if (ofs == CREATE_LINKMAP) {
+			res = create_clmt(fp);
+			if (res != FR_OK && res != FR_NOT_ENOUGH_CORE) ABORT(fs, res);
 		} else {						/* Fast seek */
 			if (ofs > fp->obj.objsize) ofs = fp->obj.objsize;	/* Clip offset at the file size */
 			fp->fptr = ofs;				/* Set file pointer */

@@ -77,7 +77,11 @@ MAKE_RULE = $(eval $(call MAKE_RULE1,${1},${2}))
 define MAKE_RULE1
 lib/$(strip ${1})/libtinyfat.a: build-$(strip ${1})/$(strip ${2})
 
-build-$(strip ${1})/$(strip ${2}): build-$(strip ${1})
+# The outer make must notice source/config changes before entering the child
+# make, where the compiler-generated dependency files are read.
+build-$(strip ${1})/$(strip ${2}): build-$(strip ${1}) \
+		src/$(basename $(strip ${2})).c \
+		$(wildcard src/*.h config/c33/$(strip ${1})/*.h)
 	$${MAKE} -C build-$(strip ${1}) ${2}
 	$${AR} r lib/$(strip ${1})/libtinyfat.a $$@
 endef

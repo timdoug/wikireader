@@ -17,7 +17,10 @@ static int read_exact(ZIM_FILE *file, uint64_t offset, void *buffer,
 
 static int create_link_map(ZIM_FILE *file)
 {
-	unsigned long entries = 4;
+	/* Cover up to 63 fragments in one pass (512 bytes on the device).
+	 * Starting with one fragment forces almost every copied archive to
+	 * walk its entire allocation chain twice. */
+	unsigned long entries = 128;
 	file_error_t result;
 
 	file->link_map = malloc(entries * sizeof(*file->link_map));
