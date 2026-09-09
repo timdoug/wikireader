@@ -32,6 +32,56 @@ contains `zimlog.on`; the one-shot hardware probe has been retired.
   timings for board comparisons. Idle waits and card power-off are documented in
   [power management](BATTERY.md).
 
+## SD read batching experiment
+
+On 2026-09-08, production C33 code was tested against the captured 128 GB card
+metadata, with the same ZIM app and fonts. These are **emulator measurements**;
+the retained larger-batch kernel subsequently passed the physical startup/page
+test. Its hardware measurements follow the comparison below.
+
+| SD transport | Read batch | Open to keyboard | File-phase commands | File-phase width changes |
+| --- | ---: | ---: | ---: | ---: |
+| Hardware-tested payload driver | 32 sectors | 4.196104 s | 232 | 14,786 |
+| Entire protocol word-wide | 32 sectors | 4.484702 s | 232 | 0 |
+| Byte commands, word-wide multi-sector reads | 32 sectors | 4.346828 s | 232 | 464 |
+| Byte commands, word-wide multi-sector reads | 255 sectors | 4.115898 s | 30 | 60 |
+| Retained payload driver, larger batches | 255 sectors | 3.981498 s | 30 | 14,792 |
+
+Width-change counts follow the driver's two changes per payload or per read
+command; they are not measurements of physical clock edges. SD places a CRC
+and byte-oriented token between sectors even inside a multi-block command.
+Keeping 32-bit characters across these boundaries requires payload realignment;
+its CPU cost outweighed the saved width changes in this model. All variants
+opened the archive with zero read errors, DMA timeouts or fallback. The protocol
+experiments also passed 16 C33 tests covering reads, writes, token alignment,
+power cycling, FLASH handoff and DMA recovery.
+
+Only the larger read-ahead batch is retained. It saves 0.214606 s (5.1%) in this
+comparison, costs another 111.5 KiB of BSS, and reads 7,396 rather than 7,393
+sectors for this archive. Fragmented chains can over-read part of a batch at
+each extent; the cache test bounds this and verifies FAT-boundary clipping.
+The linked kernel ends at 0x1003ac00, below the 256 KiB kernel-region limit.
+The historical 4.223510 s control below used a different boot-volume fixture; its
+file/map phase agrees with this experiment's 4.094615 s control.
+
+The physical test measured **4.071086 s** from open to keyboard, down from
+4.536402 s: 0.465316 s saved (10.26%). File/map time fell from 4.443179 s to
+3.977882 s, with the expected 30 commands and 7,396 sectors. All payloads used
+word DMA, with zero read errors, DMA timeouts, overflow or fallback. DMA wait
+was essentially unchanged: 2.762266 s before, 2.763685 s after. This points to
+the avoided command/response and inter-transfer overhead as the saving. The
+model predicted a 0.214606 s saving and was 0.089588 s faster than the new
+hardware result. One recorded boot supports these measurements; the user also
+completed the requested page-load test. The verified kernel SHA256 is
+`784ce0cdf5fe05532c121acd1847612daa968bb52b3fd3ab52f26405d64e6e1d`.
+
+Local artifacts are in `build/wr128/spi-stream/`: startup logs, extracted card
+logs, sparse fixtures, candidate kernels, `comparison.json`, and full source
+patches for the whole-protocol and hybrid experiments. Those transports are
+not included in the retained driver. `final-kernel.elf` is the tested larger-batch
+kernel; `baseline/kernel.elf` retains the previous kernel for comparison.
+The physical logs and phase comparison are in `hardware-success/`.
+
 ## Physical measurements
 
 Full English Wikipedia, February 2026 archive on the 128 GB card, measured on

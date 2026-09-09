@@ -194,10 +194,14 @@ int main(int argc, char **argv)
 	assert(memcmp(table, expected, sizeof(expected)) == 0);
 	assert(!timed_out && service_count > 0 && elapsed_ms > 20000);
 #if FF_FASTSEEK_CACHE_SECTORS
-	assert(read_count < 300 && sector_count < 7600);
+	/* Three extents can each leave one partly used read-ahead batch.
+	 * Bound both command count and over-read for the configured batch size. */
+	unsigned needed_sectors = (ARCHIVE_CLUSTERS + 127) / 128 + 3;
+	assert(read_count <= needed_sectors / FF_FASTSEEK_CACHE_SECTORS + 4);
+	assert(sector_count <= needed_sectors + 3 * FF_FASTSEEK_CACHE_SECTORS);
 #endif
-	printf("Mapped %u clusters in %u simulated ms without watchdog expiry\n",
-	       ARCHIVE_CLUSTERS, elapsed_ms);
+	printf("Mapped %u clusters in %u simulated ms, %u commands/%u sectors without watchdog expiry\n",
+	       ARCHIVE_CLUSTERS, elapsed_ms, read_count, sector_count);
 
 	/* Fast seeks cross both extent boundaries well above 4 GiB. */
 	unsigned reads = read_count;

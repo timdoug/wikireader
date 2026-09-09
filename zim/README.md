@@ -42,12 +42,15 @@ contiguous file, avoids walking a large FAT chain at startup.
 Files stored with a FAT chain can take longer to open, especially full English
 Wikipedia. The reader initially reserves 512 bytes for up to 63 fragments,
 avoiding a separate sizing pass for ordinary copies. The kernel reads exFAT
-allocation metadata in batches of 32 sectors using a shared 16 KiB buffer;
+allocation metadata in batches of up to 255 sectors using a shared 127.5 KiB buffer;
 it never scans the archive contents to build this map. Each walk starts with
 an empty cache, and pending filesystem writes are flushed before reading it.
 Contiguous runs inside the buffer use sequential aligned word loads, with
 geometry and watchdog checks outside the inner loop. Filesystem
 calls must be serialized while this optional shared buffer is enabled.
+The larger batch passed the hardware startup/page test: 4.071 seconds from
+open to keyboard versus 4.536 with 32 sectors and 16 KiB. It reduces the
+allocation-map phase from 232 read commands to 30, with no DMA errors or fallback.
 Seek-map construction services the watchdog every 128 clusters and bounds the
 walk to the volume's cluster count. Older kernels could shut down on the opening
 screen if this scan exceeded their 20-second watchdog period.
@@ -69,11 +72,18 @@ work. Each boot still reads about 3.8 MB of allocation metadata.
 32-bit DMA (`SD_DMA_BITS=32`) is now the default. The corrected kernel worked
 on hardware and measured 4.536 seconds from open to keyboard, down from the
 byte-DMA baseline's 5.654 seconds (19.77% less time). Its startup record has
-zero read errors, DMA timeouts or fallback. The file phase reads 7,393 sectors
-in 232 calls, all 3,785,216 payload bytes through word DMA. The matching
+zero read errors, DMA timeouts or fallback. With the original 32-sector batch,
+the file phase read 7,393 sectors in 232 calls, all 3,785,216 payload bytes
+through word DMA. The matching
 emulator predicts 4.224 seconds overall; see [performance notes](PERFORMANCE.md)
 for phase measurements and exact kernel/app identities. `SD_DMA_BITS=8` keeps
 the previous width available for comparison.
+
+Keeping SPI word-wide across multiple sectors was also tested in the emulator.
+It reduces width changes but needs software to realign payloads around SD's
+inter-sector tokens and CRCs. The fastest measured candidate retains per-sector
+width changes and increases the read batch: 3.981 seconds versus 4.196 for its
+32-sector control. See the [batching comparison](PERFORMANCE.md#sd-read-batching-experiment).
 
 The driver holds P67 at the idle clock level as GPIO during SPI width changes;
 otherwise disabling/re-enabling SPI advances the card's response by one bit.

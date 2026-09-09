@@ -38,9 +38,10 @@
 /* WikiReader: service the watchdog during long cluster-chain scans. */
 void ff_fastseek_progress(void);
 #define FF_FASTSEEK_PROGRESS() ff_fastseek_progress()
-/* Batch metadata reads using the MMC multi-block command. */
+/* Batch metadata reads using the MMC multi-block command. 255 is the
+ * driver's per-command limit; the shared BSS buffer uses 127.5 KiB. */
 #ifndef FF_FASTSEEK_CACHE_SECTORS
-#define FF_FASTSEEK_CACHE_SECTORS 32
+#define FF_FASTSEEK_CACHE_SECTORS 255
 #endif
 /* This option switches fast seek feature. (0:Disable or 1:Enable) */
 
