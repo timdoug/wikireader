@@ -1250,6 +1250,10 @@ done:
 	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
 	printf("--- spi: %lu characters, %llu shift cycles, %llu enforced wait cycles ---\n",
 	       sd.xfers, sd.shift_cycles, sd.wait_cycles);
+	printf("--- spi config: %lu busy control accesses, %lu disables with interrupts set ---\n",
+	       sd.busy_control_accesses, sd.unsafe_disables);
+	printf("--- spi clock: %lu unclamped disables with SD selected ---\n",
+	       sd.unclamped_disables);
 	if (sd.payloads_timed)
 		printf("--- sd payload: %lu blocks, %.1f average MCLK cycles"
 		       " (%llu min, %llu max) ---\n",

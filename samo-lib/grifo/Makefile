@@ -139,6 +139,27 @@ build/card-power: FORCE_CARD_POWER | stamp-build
 build/suspend.o build/power_log.o: build/card-power
 
 SD_DMA ?= YES
+# Word DMA passed the physical sector/CRC probe and full startup test
+# (2026-09-08). Hold P67 at idle during SPI ENA cycles to avoid losing a bit.
+# SD_DMA_BITS=8 retains the measured byte-DMA baseline for comparison.
+SD_DMA_BITS ?= 32
+ifneq (8,$(strip ${SD_DMA_BITS}))
+ifneq (32,$(strip ${SD_DMA_BITS}))
+$(error SD_DMA_BITS must be 8 or 32)
+endif
+endif
+# Keep the byte-transfer build available for comparison on hardware.
+.PHONY: FORCE_SD_DMA_BITS
+# GNU Make 3.81 compares timestamps at one-second resolution. Force the
+# object when switching widths even if both builds occur in that second.
+ifneq ($(strip ${SD_DMA_BITS}),$(shell cat build/sd-dma-bits 2>/dev/null))
+build/sd_dma.o grifo.elf: FORCE_SD_DMA_BITS
+endif
+build/sd-dma-bits: FORCE_SD_DMA_BITS | stamp-build
+	@echo '$(strip ${SD_DMA_BITS})' | cmp -s - $@ || echo '$(strip ${SD_DMA_BITS})' > $@
+build/sd_dma.o: build/sd-dma-bits
+build/sd_dma.o: CFLAGS += -DSD_DMA_BITS=${SD_DMA_BITS} -falign-loops=16
+
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
 CFLAGS += -DSD_DMA_ENABLED=1

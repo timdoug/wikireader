@@ -123,6 +123,13 @@ test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o 
 	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
 	/tmp/test_dma
 
+# Execute the production C33 backend, including failed DMA recovery. Requires
+# the local C33 toolchain; the test creates its own one-sector card image.
+.PHONY: test-sd-dma-driver
+test-sd-dma-driver: wremu
+	python3 tools/test_sd_dma_driver.py --bits 8 $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
+	python3 tools/test_sd_dma_driver.py --bits 32 $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
+
 # Direct kernel boot reaches init promptly even though the CPU sleeps between
 # SPI DMA bytes. This catches accidentally stretching each byte to a GUI poll.
 test-gui-dma: wremu images/wrcard.img images/grifo.elf

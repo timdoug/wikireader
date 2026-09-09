@@ -9,8 +9,9 @@
  *         return REG_SPI_RXD;
  *     }
  *
- * so each TXD store clocks exactly one byte in both directions. We model the
- * card as a byte-stream state machine. Port 5 bit 0 is its active-low chip
+ * In this byte mode each TXD store clocks one byte in both directions; the
+ * DMA backend also uses 32-bit characters. The card remains a byte-stream
+ * state machine. Port 5 bit 0 is its active-low chip
  * select; while deselected, MISO is released and reads back as 0xff.
  *
  * We report an SDHC card (OCR CCS set), so command arguments are block
@@ -25,11 +26,16 @@
 #define SPI_BASE   0x1700u
 #define SPI_LEN    0x0020u
 
+static unsigned spi_divider(const struct sdcard *sd);
+
 #define OFF_RXD    0x00
 #define OFF_TXD    0x04
 #define OFF_CTL1   0x08
+#define OFF_CTL2   0x0c
 #define OFF_WAIT   0x10
 #define OFF_STAT   0x14
+#define OFF_INT    0x18
+#define OFF_RXMASK 0x1c
 
 /*
  * SPI status register, 0x301714 (S1C33E07 Technical Manual, V.2):
@@ -277,9 +283,9 @@ static uint8_t pop_response(struct sdcard *sd)
 
 	if (sd->clock && sd->block_timing) {
 		if (pos == sd->block_first_pos)
-			sd->block_start = sd->deadline - sd->character_cycles;
+			sd->block_start = sd->byte_deadline - 8u * spi_divider(sd);
 		if (pos == sd->block_last_pos) {
-			uint64_t elapsed = sd->deadline - sd->block_start;
+			uint64_t elapsed = sd->byte_deadline - sd->block_start;
 			sd->payload_cycles += elapsed;
 			if (!sd->payloads_timed || elapsed < sd->payload_min)
 				sd->payload_min = elapsed;
@@ -289,7 +295,12 @@ static uint8_t pop_response(struct sdcard *sd)
 			sd->block_timing = false;
 		}
 	}
-	return sd->resp[pos];
+	uint8_t value = sd->resp[pos];
+	if (sd->resp_bit) {
+		uint8_t next = sd->resp_pos < sd->resp_len ? sd->resp[sd->resp_pos] : 0xff;
+		value = (uint8_t)((value << sd->resp_bit) | (next >> (8 - sd->resp_bit)));
+	}
+	return value;
 }
 
 /* One SPI byte exchange: host sends `out`, card returns a byte. */
@@ -394,7 +405,11 @@ static unsigned spi_bits(const struct sdcard *sd)
 
 static void complete_spi(struct sdcard *sd)
 {
-	uint8_t out = sd->txd;
+	uint32_t out = sd->txd;
+	unsigned bits = spi_bits(sd);
+	/* The attached SD/EEPROM models exchange whole bytes. Larger SPI
+	 * characters carry consecutive bytes, MSB first (manual V.2.5). */
+	unsigned bytes = bits == 32 ? 4 : bits == 16 ? 2 : 1;
 
 	/* Overrun occurs when a newly shifted character replaces unread RXD. */
 	if (sd->rdff) {
@@ -410,11 +425,7 @@ static void complete_spi(struct sdcard *sd)
 		eeprom_deselect(sd->eeprom);
 	sd->eeprom_selected = ee;
 
-	if (ee) {
-		sd->rxd = eeprom_exchange(sd->eeprom, out);
-	} else if (card) {
-		sd->rxd = sd_xfer(sd, out);
-	} else {
+	if (!ee && !card) {
 		/*
 		 * Deselect aborts a queued response or data phase. In particular,
 		 * release_spi() raises CS and clocks one byte before CMD12; a real
@@ -424,12 +435,27 @@ static void complete_spi(struct sdcard *sd)
 		sd->cmdlen = 0;
 		sd->collecting = false;
 		sd->resp_len = sd->resp_pos = 0;
+		sd->resp_bit = 0;
 		sd->streaming = false;
 		sd->awaiting_token = false;
 		sd->receiving = false;
 		sd->write_multi = false;
 		sd->block_timing = false;
-		sd->rxd = 0xff;
+	}
+	sd->rxd = 0;
+	for (unsigned i = 0; i < bytes; i++) {
+		unsigned shift = 8 * (bytes - i - 1);
+		uint8_t tx = (uint8_t)(out >> shift);
+		sd->byte_deadline = sd->deadline -
+			(uint64_t)(bytes - i - 1) * 8 * spi_divider(sd);
+		uint8_t rx = ee ? eeprom_exchange(sd->eeprom, tx) :
+			card ? sd_xfer(sd, tx) : 0xff;
+		sd->rxd = (sd->rxd << 8) | rx;
+	}
+	if (sd->spi_rxmask & 2u) {
+		unsigned valid = ((sd->spi_rxmask >> 10) & 31u) + 1u;
+		if (valid < 32)
+			sd->rxd &= (1u << valid) - 1u;
 	}
 	sd->busy = false;
 	sd->rdff = true;
@@ -442,7 +468,7 @@ static void complete_spi(struct sdcard *sd)
 		sd->dma_event(sd->dma_ctx);
 }
 
-static void start_spi(struct sdcard *sd, uint8_t out)
+static void start_spi(struct sdcard *sd, uint32_t out)
 {
 	sd->txd = out;
 	if (!sd->clock) {
@@ -492,19 +518,46 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	struct sdcard *sd = ctx;
 	uint32_t reg = off - SPI_BASE;
 	sd_poll(sd);
+	/* Diagnose violations of V.2.8, without inventing a particular chip
+	 * malfunction for operations the manual leaves undefined. */
+	if (sd->busy && (reg == OFF_CTL1 || reg == OFF_CTL2 || reg == OFF_WAIT))
+		sd->busy_control_accesses++;
 
 	if (is_write) {
 		if (reg == OFF_TXD) {
-			uint8_t out = (uint8_t)(*val & 0xff);
+			uint32_t out = *val;
 			/* Firmware observes TDEF/RDFF before writing another byte. */
 			if (!sd->busy)
 				start_spi(sd, out);
 		} else if (reg == OFF_CTL1) {
+			if ((sd->spi_ctl1 & 1u) && !(*val & 1u) && sd->spi_int)
+				sd->unsafe_disables++;
+			/* Hardware probe, 2026-09-08: an ENA cycle while CS is
+			 * low loses one bit of the queued SD response, even at BPT=8.
+			 * Represent the observed net effect at disable, without
+			 * claiming which physical edge causes it. Holding P67 as
+			 * GPIO keeps this transition off the card's clock pin.
+			 * Command/write bit assembly and electrical mux transients
+			 * remain outside this read-response model. */
+			if ((sd->spi_ctl1 & 3u) == 3u && !(*val & 1u) &&
+			    !(sd->spi_ctl1 & (1u << 8)) && sd->port &&
+			    port_cs_low(sd->port, CS_SDCARD_BIT) &&
+			    (sd->port->reg[0x3ad - PORT_BASE] & 0xc0) == 0x40) {
+				sd->unclamped_disables++;
+				if (sd->resp_pos < sd->resp_len && ++sd->resp_bit == 8) {
+					sd->resp_bit = 0;
+					(void)pop_response(sd);
+				}
+			}
 			/* Implemented fields are D14:8 and D6:0; D7 is reserved. */
 			sd->spi_ctl1 = *val & 0x7f7fu;
 		} else if (reg == OFF_WAIT) {
 			/* The manual defines 1..65536 SPI clocks via value + 1. */
 			sd->spi_wait = *val & 0xffffu;
+		} else if (reg == OFF_INT) {
+			sd->spi_int = *val & 0x1fu;
+		} else if (reg == OFF_RXMASK) {
+			sd->spi_rxmask = *val & 0x7c02u;
 		}
 		return true;   /* control registers accepted silently */
 	}
@@ -526,6 +579,12 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return true;
 	case OFF_WAIT:
 		*val = sd->spi_wait;
+		return true;
+	case OFF_INT:
+		*val = sd->spi_int;
+		return true;
+	case OFF_RXMASK:
+		*val = sd->spi_rxmask;
 		return true;
 	default:
 		*val = 0;
@@ -582,6 +641,9 @@ void sd_reset(struct sdcard *sd)
 	sd->resp_len = sd->resp_pos = 0;
 	sd->idle = true;
 	sd->spi_ctl1 = 0;
+	sd->spi_int = sd->spi_rxmask = 0;
+	sd->busy_control_accesses = sd->unsafe_disables = 0;
+	sd->unclamped_disables = sd->resp_bit = 0;
 	sd->spi_wait = 0;
 	sd->busy = false;
 	sd->deadline = sd->next_start = 0;

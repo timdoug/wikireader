@@ -53,6 +53,32 @@ typedef enum {
 //-MakeSystemCalls: error
 } File_ErrorType;
 
+typedef struct {
+//+MakeSystemCalls: io-stats
+	uint32_t version;
+	uint32_t read_calls;
+	uint32_t read_sectors;
+	uint32_t read_ticks;
+	uint32_t read_errors;
+	uint32_t dma_bits;
+	uint32_t dma32_bytes;
+	uint32_t dma8_bytes;
+	uint32_t dma_wait_ticks;
+	uint32_t dma_bypass_bytes;
+	uint32_t dma_timeouts;
+	uint32_t dma_errors;
+	uint32_t dma_disabled;
+//-MakeSystemCalls: io-stats
+} File_IOStats;
+
+//+MakeSystemCalls: io-profile
+/* Enabling from disabled resets counters; otherwise take a snapshot.
+ * Disabling returns the final snapshot. out may be NULL. Ticks are MCLK;
+ * read_sectors counts requested blocks, dma bytes counts completed payloads.
+ * Single global session, intended for short diagnostic intervals. */
+//-MakeSystemCalls: io-profile
+void File_profile(File_IOStats *out, bool enabled);
+
 void File_initialise(void);
 
 void File_PowerDown(void);

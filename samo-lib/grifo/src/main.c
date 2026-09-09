@@ -134,6 +134,7 @@ void process(void)
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 #if SD_DMA_ENABLED
 	SD_DMA_report();
+	SD_DMA_enable_wide();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 #endif
 

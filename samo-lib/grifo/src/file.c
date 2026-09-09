@@ -25,11 +25,45 @@
 
 #include <ff.h>
 #include <diskio.h>
+#include <mmc_profile.h>
 
 #include "file.h"
 #include "power_log.h"
 #include "timer.h"
 #include "watchdog.h"
+#include "sd_dma.h"
+
+static bool profile_enabled;
+static File_IOStats io_stats;
+static unsigned long read_start;
+
+static void profile_read(UINT sectors, int result)
+{
+	if (result < 0) {
+		read_start = Timer_get();
+		io_stats.read_calls++;
+		io_stats.read_sectors += sectors;
+	} else {
+		io_stats.read_ticks += Timer_get() - read_start;
+		if (result != RES_OK)
+			io_stats.read_errors++;
+	}
+}
+
+void File_profile(File_IOStats *out, bool enabled)
+{
+	if (enabled && !profile_enabled) {
+		memset(&io_stats, 0, sizeof(io_stats));
+		io_stats.version = 1;
+	}
+#if SD_DMA_ENABLED
+	SD_DMA_profile(&io_stats, enabled);
+#endif
+	profile_enabled = enabled;
+	mmc_set_read_observer(enabled ? profile_read : NULL);
+	if (out)
+		*out = io_stats;
+}
 
 
 // a type that can hold the path to the file

@@ -44,6 +44,13 @@ emulator build.
 native-versus-C33 execution comparison; see
 [`difftest/README.md`](difftest/README.md).
 
+`make test-sd-dma-driver` additionally compiles the production SD receive
+backend as C33 code and runs both `SD_DMA_BITS=8` and `32`. It covers alignment,
+byte order, CRC boundaries, partial-transfer recovery, overflow, profiling,
+busy-register access, and GPIO/interrupt restoration. It requires the project
+C33 toolchain (or `TOOLCHAIN_BIN=/path/to/bin`) and creates a temporary 512-byte
+card image; it does not access attached cards or archives.
+
 ## Run
 
 Direct kernel ELF boot is convenient for CPU and firmware debugging, but it
@@ -262,12 +269,31 @@ The SD card operates in SPI mode. Character completion follows live `BPT`,
 at the scheduled event.
 
 The production read backend uses HSDMA channel 3 for SPI RX and IDMA channel
-`0x24` to write dummy TX bytes. The model covers the dual-address, byte-wide,
-single-transfer behavior used by firmware: request selection, priority,
-counters, address updates, terminal enable clearing, descriptor writeback,
-clock gating, global IDMA enable, and the terminal interrupt cause. One
-512-byte block performs 512 HSDMA and 511 IDMA transfers. Unused DMA modes and
-trigger sources are not modeled.
+`0x24` to write dummy TX data. The model covers the dual-address byte and word
+transfers used by firmware: request selection, priority, counters, address
+updates, terminal enable clearing, descriptor writeback, clock gating, global
+IDMA enable, and the terminal interrupt cause. A 512-byte block performs 128
+HSDMA and 127 IDMA transfers in the default 32-bit mode, or 512/511 in byte
+mode. SPI characters carry bytes in wire order, MSB first. Unused DMA modes
+and trigger sources are not modeled.
+
+SPI interrupt-enable and receive-mask registers are retained, and the receive
+mask is applied to received data. The summary's `spi config` line counts
+control-register access while busy and disabling ENA with nonzero SPI_INT,
+both forbidden by manual V.2.8. These checks diagnose invalid driver sequences
+without assigning a malfunction to undefined operations. SPI CPU interrupt
+delivery is not modeled. The C33 driver regression starts with the physical
+loader's `SPI_INT=0x14` and requires both violation counts to remain zero.
+
+The physical sector probe found a one-bit advance in the card's response for
+each SPI ENA cycle, including unchanged-width CPU reads. The model reproduces
+that observed net effect on disable when the card is selected, P67 is muxed
+to SPI, and CPOL=0. Holding P67 at idle as GPIO prevents the advance. The
+`spi clock` summary counts unclamped disables. The exact physical edge,
+command/write bit assembly, and electrical pin-mux transients remain
+unmodeled. The corrected kernel reached the keyboard in 4.536 seconds on
+hardware versus 4.224 seconds in the emulator; see the [hardware findings and
+phase measurements](../zim/PERFORMANCE.md#spi-width-transition-fix).
 
 Known divergence: the model lets the channel-3 terminal-count cause wake a
 HALTed core. A real WikiReader (stock 2009 flash) never woke, and a kernel

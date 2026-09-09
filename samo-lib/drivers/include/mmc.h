@@ -33,6 +33,8 @@ typedef int (*mmc_spi_receive_dma_fn)(BYTE *buff, UINT byte_count);
 
 void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma);
 
+#include "mmc_profile.h"
+
 DSTATUS mmc_disk_initialize(BYTE drv);
 DRESULT mmc_disk_read(BYTE drv, BYTE *buff, DWORD sector, BYTE count);
 DRESULT mmc_disk_write(BYTE drv, const BYTE *buff, DWORD sector, BYTE count);

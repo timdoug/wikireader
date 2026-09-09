@@ -61,10 +61,38 @@ tests. The buffer lives in BSS; validate performance with the target binary.
 On the tested 128 GB card, the February 2026 full English Wikipedia archive
 occupies 945,898 clusters in 13 fragments. The opening-screen delay fell from
 24 seconds to an estimated 5-6 seconds on hardware. These are manual
-observations; the firmware does not log startup duration. The corresponding
+observations from before startup logging was added. The corresponding
 emulator interval fell from 27.48 to 5.31 seconds, with roughly 0.33 seconds
 spent in the seek/map code and the rest largely in SD transfers and driver
 work. Each boot still reads about 3.8 MB of allocation metadata.
+
+32-bit DMA (`SD_DMA_BITS=32`) is now the default. The corrected kernel worked
+on hardware and measured 4.536 seconds from open to keyboard, down from the
+byte-DMA baseline's 5.654 seconds (19.77% less time). Its startup record has
+zero read errors, DMA timeouts or fallback. The file phase reads 7,393 sectors
+in 232 calls, all 3,785,216 payload bytes through word DMA. The matching
+emulator predicts 4.224 seconds overall; see [performance notes](PERFORMANCE.md)
+for phase measurements and exact kernel/app identities. `SD_DMA_BITS=8` keeps
+the previous width available for comparison.
+
+The driver holds P67 at the idle clock level as GPIO during SPI width changes;
+otherwise disabling/re-enabling SPI advances the card's response by one bit.
+Aligned payloads use 32-bit characters and the C33 `swap` instruction restores
+byte order in memory. Commands, tokens, CRCs and unaligned payloads remain
+byte-wide. Early filesystem setup uses byte DMA, with word mode enabled after
+the boot checkpoint. Bounded waits and partial-transfer recovery retain the
+byte fallback; overflow or inconsistent counts reject the block. See the
+[hardware diagnosis](PERFORMANCE.md#spi-width-transition-fix) for the probe
+results and emulator limits.
+
+The `f_lseek` function is 16-byte aligned on C33: unrelated kernel code growth
+had moved its 26-byte scan loop across three 16-byte blocks, exceeding the two
+buffer slots and adding almost a second. Check target disassembly and timing
+after changing that loop; C33 GCC treats this special seek branch as cold and
+does not automatically align its loop. `make -C emulator test-sd-dma-driver`
+executes the production backend as C33 code with byte-order, unaligned-buffer,
+CRC-boundary, timeout, overflow, GPIO restoration and SPI handoff checks in both
+width configurations.
 
 With more than one archive the keyboard shows the globe key of the original
 reader; it opens a list of the archives' own titles and sizes, and the choice
@@ -75,6 +103,43 @@ opened directly.
 
 For compatibility, a single FAT32 partition with `zim/*.zim` still works for
 archives smaller than 4 GiB.
+
+## Startup diagnostics
+
+Create an empty `zimlog.on` on the FAT32 boot volume to enable startup
+measurements. The matching kernel and app must both be installed: the app
+uses the new `file_profile` syscall (119). Each boot appends a record to
+`zimboot.log`, closing it after startup so a later normal shutdown is not
+needed to save the measurement. The log restarts when it reaches 64 KiB.
+Remove `zimlog.on` to disable profiling and startup log writes.
+With the marker present the kernel also saves `dma.txt` immediately after
+filesystem initialization, before loading `init.app`. This early checkpoint
+records the DMA width/status and SPI control, receive-mask and interrupt
+registers, so an app-load failure need not leave us without a diagnostic.
+`payload_bits` is the active width at that checkpoint; `configured_bits`
+identifies the width selected for subsequent application reads.
+
+The record identifies the app build, archive and configured DMA width, then
+reports three phases in microseconds: `file` covers stat/open and the allocation
+map, `indexes` covers opening the ZIM header/indexes, and `ui` ends immediately
+after presenting the keyboard. `open_to_keyboard_us` sums those phases;
+`app_to_keyboard_us` also includes earlier app initialization, but neither
+measures the boot loader or kernel. Logo/font preparation after the first
+keyboard frame and log writes are outside these intervals.
+
+Each phase includes requested SD sectors/read calls, time inside SD reads,
+successful 32/8-bit DMA payload bytes, time waiting for DMA, bypassed payload
+bytes, timeouts and errors. `read_us` is a subset of elapsed time, and
+`dma_wait_us` is a subset of read time; do not add them together. A timeout's
+partial payload is excluded from successful DMA bytes. The sticky
+`dma_disabled` flags also catch a fallback before measurement started.
+Counters stay in RAM; formatting and writes happen only after measurement.
+Ticks use the 60 MHz MCLK timer, with unsigned differences supporting a
+single wrap (individual intervals must be under about 71 seconds).
+
+Compare hardware with the same instrumented binaries: diagnostics can change
+both runtime overhead and instruction placement. See [performance notes](PERFORMANCE.md)
+for the measured phases and matching kernel/app identities.
 
 ## Build
 
@@ -90,7 +155,8 @@ cannot be linked into target firmware.
 
 This app requires the current `samo-lib/grifo/grifo.elf`. Its FatFs interface
 provides fast seek plus 64-bit file size and seek calls. The reader also
-uses timed event waits (syscall 47); update the kernel and reader together.
+uses timed event waits (syscall 47) and optional I/O profiling (syscall 119);
+update the kernel and reader together.
 
 The kernel defaults to `CARD_POWER=OFF`, removing the SD supply during
 deep suspend and reinitialising the card on the next file operation.

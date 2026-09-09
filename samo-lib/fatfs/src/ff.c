@@ -4655,6 +4655,12 @@ static FRESULT create_clmt (FIL* fp)
 #endif
 
 
+#if defined(__c33__) && FF_FASTSEEK_CACHE_SECTORS
+/* Keep the current scan loop within the two 16-byte instruction-buffer
+ * slots. C33 GCC considers CREATE_LINKMAP cold and skips loop alignment;
+ * without function alignment, unrelated kernel growth can triple its cost. */
+__attribute__((aligned(16)))
+#endif
 FRESULT f_lseek (
 	FIL* fp,		/* Pointer to the file object */
 	FSIZE_t ofs		/* File pointer from top of file */

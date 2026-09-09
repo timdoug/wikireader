@@ -30,6 +30,7 @@ void zim_blob_set_reader_buffer(const void *buffer);
 #include "zim_image.h"
 #include "zim_link.h"
 #include "zim_overlay.h"
+#include "zim_startup.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -899,18 +900,21 @@ static void open_archive(int wiki_index)
 	article_cache_flush();
 	if (archive_file.open)
 		zim_file_close(&archive_file);
+	zim_startup_begin(zim_catalog_path(wiki_index));
 	if (zim_catalog_path(wiki_index)) {
 		if (zim_file_open(&archive_file, zim_catalog_path(wiki_index)))
 			fatal_error("cannot open %s", zim_catalog_path(wiki_index));
 	} else if (zim_file_open(&archive_file, "1:/wiki.zim") &&
 		   zim_file_open(&archive_file, "zim/wiki.zim"))
 		fatal_error("no .zim archive found");
+	zim_startup_file_ready();
 	io.read_at = device_read_at;
 	io.opaque = &archive_file;
 	io.size = archive_file.size;
 	rc = zim_archive_open(&archive, &io);
 	if (rc)
 		fatal_error("invalid or unsupported ZIM archive");
+	zim_startup_archive_ready();
 	archive_wiki = wiki_index;
 }
 

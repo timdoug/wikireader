@@ -65,6 +65,12 @@ BYTE CardType;			// b0:MMC, b1:SDv1, b2:SDv2, b3:Block addressing
 
 /* Grifo registers its DMA backend; small boot stages leave this unset. */
 static mmc_spi_receive_dma_fn spi_receive_dma;
+static mmc_read_observer_fn read_observer;
+
+void mmc_set_read_observer(mmc_read_observer_fn observer)
+{
+	read_observer = observer;
+}
 
 
 //--------------------------------------------------------------------------
@@ -431,6 +437,8 @@ DRESULT mmc_disk_read(BYTE drv, BYTE *buff, DWORD sector, BYTE count)
 	if (Stat & STA_NOINIT) {
 		return RES_NOTRDY;
 	}
+	if (read_observer)
+		read_observer(count, -1);
 
 	if (!(CardType & 8)) sector *= 512;		// Convert to byte address if needed
 
@@ -453,6 +461,8 @@ DRESULT mmc_disk_read(BYTE drv, BYTE *buff, DWORD sector, BYTE count)
 	}
 	release_spi();
 
+	if (read_observer)
+		read_observer(0, count ? RES_ERROR : RES_OK);
 	return count ? RES_ERROR : RES_OK;
 }
 

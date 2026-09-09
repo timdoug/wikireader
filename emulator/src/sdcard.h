@@ -36,6 +36,7 @@ struct sdcard {
 	/* response queue clocked out one byte per SPI exchange */
 	uint8_t   resp[SD_RESP_MAX];
 	int       resp_len, resp_pos;
+	unsigned  resp_bit;       /* response bit offset after an unclamped ENA cycle */
 
 	bool      idle;          /* still in IDLE (pre-ACMD41) */
 	bool      expect_acmd;   /* previous command was CMD55 */
@@ -61,9 +62,14 @@ struct sdcard {
 
 	/* SPI controller state */
 	uint32_t  spi_ctl1;
+	uint32_t  spi_int;          /* stores enables; CPU IRQ delivery not modeled */
+	uint32_t  spi_rxmask;
+	unsigned long busy_control_accesses;
+	unsigned long unsafe_disables;
+	unsigned long unclamped_disables;
 	uint32_t  spi_wait;
-	uint8_t   txd;
-	uint8_t   rxd;
+	uint32_t  txd;
+	uint32_t  rxd;
 	bool      busy;
 	bool      rdff;
 	bool      rdof;             /* receive data overflow, D3 of SPI_STAT */
@@ -71,6 +77,7 @@ struct sdcard {
 	uint64_t  deadline;          /* completion of the current SPI character */
 	uint64_t  next_start;        /* end of the mandatory inter-character wait */
 	uint64_t  character_cycles;
+	uint64_t  byte_deadline;     /* current wire byte within an SPI character */
 	unsigned long overflows;
 	unsigned long long shift_cycles;
 	unsigned long long wait_cycles;
@@ -88,7 +95,7 @@ struct sdcard {
 	bool trace_bytes;   /* per-byte SPI log; very verbose */
 	unsigned long xfers;
 
-	/* A completed full-duplex byte raises both SPI DMA request causes. */
+	/* One completed SPI character (8, 16 or 32 bits) raises DMA requests. */
 	sd_dma_event_fn dma_event;
 	void            *dma_ctx;
 };

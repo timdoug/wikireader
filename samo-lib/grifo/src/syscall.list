@@ -266,6 +266,12 @@
                      "unsigned long *table" "unsigned long entries"))
  (118 File_lseek64 ("file_error_t" "file_lseek64" "int handle" "uint64_t pos"))
 
+ (output "typedef struct {")
+ (copy-part "src/file.h" "io-stats")
+ (output "} file_io_stats_t;")
+ (comment "src/file.h" "io-profile")
+ (119 File_profile ("void" "file_profile" "file_io_stats_t *out" "bool enabled"))
+
  ;;(120 File_ChangeDirectory ("file_error_t" "directory_chdir" "const char *directoryname"))
  ;;(121 File_CurrentDirectory ("file_error_t" "directory_cwd" "char *directoryname" "size_t length"))
  (122 File_CreateDirectory ("file_error_t" "directory_create" "const char *directoryname"))

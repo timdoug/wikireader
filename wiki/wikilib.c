@@ -40,6 +40,9 @@
 #include "wiki_info.h"
 #include "utf8.h"
 #include "highlight.h"
+#ifdef ZIM_APP
+#include "zim_startup.h"
+#endif
 
 #define LCD_Y_CALIBRATION_ADJUSTMENT (-1)
 
@@ -1426,9 +1429,15 @@ int wikilib_run(void)
 	history_list_init();
 	get_temperature_mode();
 	print_intro();
+#ifdef ZIM_APP
+	zim_startup_keyboard_ready();
+#endif
 	load_logo_xbm();
 	draw_logo_or_type_a_word(0, 0, 0, 0);
 	load_all_fonts();
+#ifdef ZIM_APP
+	zim_startup_flush();
+#endif
 
 	for (;;) {
 		idle_delay = 0;

@@ -27,6 +27,7 @@ INCLUDES += -I${ROOT_DIR}/wiki -I${ROOT_DIR}/zim -I${ROOT_DIR}/zim/webp
 CFLAGS += -DZIM_APP=1 -DENABLE_PROGRESS=1 -DNDEBUG -DHAVE_CONFIG_H
 
 SOURCES += zim.c
+SOURCES += zim_startup.c
 SOURCES += Alloc.c
 SOURCES += bmf.c
 SOURCES += glyph.c
