@@ -403,6 +403,16 @@ static unsigned spi_bits(const struct sdcard *sd)
 	return ((sd->spi_ctl1 >> 10) & 0x1fu) + 1u;
 }
 
+static void start_queued_spi(struct sdcard *sd);
+
+static void dma_event(struct sdcard *sd, unsigned request)
+{
+	/* V.2.7: TXDE/RXDE independently gate the corresponding ITC cause. */
+	unsigned enable = request == SPI_DMA_TX ? 8u : 4u;
+	if (sd->dma_event && (sd->spi_ctl1 & enable))
+		sd->dma_event(sd->dma_ctx, request);
+}
+
 static void complete_spi(struct sdcard *sd)
 {
 	uint32_t out = sd->txd;
@@ -458,58 +468,68 @@ static void complete_spi(struct sdcard *sd)
 			sd->rxd &= (1u << valid) - 1u;
 	}
 	sd->busy = false;
+	sd->shifting = false;
 	sd->rdff = true;
 	if (sd->trace_bytes)
 		fprintf(stderr, "   spi[%02lu] -> %02x  <- %02x%s\n",
 			sd->xfers, out, sd->rxd,
 			sd->collecting ? " (cmd)" : "");
 	sd->xfers++;
-	if (sd->dma_event)
-		sd->dma_event(sd->dma_ctx);
+	/* A buffered word enters the inter-character wait independently of
+	 * RX DMA bus traffic. Its shift-start event remains on the wire clock. */
+	if (sd->clock && sd->tx_full)
+		start_queued_spi(sd);
+	dma_event(sd, SPI_DMA_RX);
+	if (!sd->clock && !sd->busy && sd->tx_full)
+		start_queued_spi(sd);
 }
 
-static void start_spi(struct sdcard *sd, uint32_t out)
+static void load_spi_shift(struct sdcard *sd)
 {
-	sd->txd = out;
-	if (!sd->clock) {
-		complete_spi(sd);
-		return;
-	}
-
-	uint64_t now = *sd->clock;
-	uint64_t start = now > sd->next_start ? now : sd->next_start;
 	uint64_t duration = (uint64_t)spi_bits(sd) * spi_divider(sd);
-	sd->wait_cycles += start - now;
+	sd->txd = sd->tx_buffer;
+	sd->tx_full = false;
+	sd->busy = sd->shifting = true;
 	sd->shift_cycles += duration;
 	sd->character_cycles = duration;
-	sd->deadline = start + duration;
+	sd->deadline = (sd->clock ? *sd->clock : 0) + duration;
+	dma_event(sd, SPI_DMA_TX);
+	if (!sd->clock)
+		complete_spi(sd);
+}
+
+static void start_queued_spi(struct sdcard *sd)
+{
 	sd->busy = true;
+	if (sd->clock && *sd->clock < sd->next_start) {
+		sd->shifting = false;
+		sd->wait_cycles += sd->next_start - *sd->clock;
+		sd->deadline = sd->next_start;
+	} else {
+		load_spi_shift(sd);
+	}
 }
 
 void sd_poll(struct sdcard *sd)
 {
-	if (!sd->clock || !sd->busy || *sd->clock < sd->deadline)
+	if (!sd->clock || sd->polling)
 		return;
-	uint64_t observed = *sd->clock;
-	uint64_t completion = sd->deadline;
-
-	/*
-	 * SPI_WAIT stores wait clocks minus one. Its clock is the divided SPI
-	 * clock, not MCLK. A sufficiently slow CPU or DMA response naturally
-	 * hides this delay; start_spi() only charges the part still outstanding.
-	 */
-	uint64_t wait = ((uint64_t)(sd->spi_wait & 0xffffu) + 1u) *
-			spi_divider(sd);
-	sd->next_start = completion + wait;
-	/*
-	 * The shift completed at its deadline, not at the next CPU instruction
-	 * boundary where we happened to poll it. Run the DMA callback on that
-	 * exact event time, then merge any bus stall back into the CPU timeline.
-	 */
-	*sd->clock = completion;
-	complete_spi(sd);
-	if (*sd->clock < observed)
-		*sd->clock = observed;
+	sd->polling = true;
+	while (sd->busy && *sd->clock >= sd->deadline) {
+		uint64_t observed = *sd->clock;
+		*sd->clock = sd->deadline;
+		if (!sd->shifting) {
+			load_spi_shift(sd);
+		} else {
+			/* V.2.5: TXD is consumed only AFTER SPI_WAIT expires. */
+			sd->next_start = sd->deadline +
+				((uint64_t)sd->spi_wait + 1u) * spi_divider(sd);
+			complete_spi(sd);
+		}
+		if (*sd->clock < observed)
+			*sd->clock = observed;
+	}
+	sd->polling = false;
 }
 
 static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
@@ -525,10 +545,13 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		if (reg == OFF_TXD) {
-			uint32_t out = *val;
-			/* Firmware observes TDEF/RDFF before writing another byte. */
-			if (!sd->busy)
-				start_spi(sd, out);
+			/* V.2.5: one TXD word can wait behind the shift register. */
+			if (!sd->tx_full) {
+				sd->tx_buffer = *val;
+				sd->tx_full = true;
+				if (!sd->busy)
+					start_queued_spi(sd);
+			}
 		} else if (reg == OFF_CTL1) {
 			if ((sd->spi_ctl1 & 1u) && !(*val & 1u) && sd->spi_int)
 				sd->unsafe_disables++;
@@ -571,7 +594,7 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		sd->rdof = false;
 		return true;
 	case OFF_STAT:
-		*val = (sd->busy ? BSYF : TDEF) |
+		*val = (sd->busy ? BSYF : 0) | (sd->tx_full ? 0 : TDEF) |
 		       (sd->rdff ? RDFF : 0) | (sd->rdof ? RDOF : 0);
 		return true;
 	case OFF_CTL1:
@@ -646,6 +669,7 @@ void sd_reset(struct sdcard *sd)
 	sd->unclamped_disables = sd->resp_bit = 0;
 	sd->spi_wait = 0;
 	sd->busy = false;
+	sd->tx_full = sd->shifting = sd->polling = false;
 	sd->deadline = sd->next_start = 0;
 	sd->character_cycles = 0;
 	sd->block_timing = false;

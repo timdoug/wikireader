@@ -50,6 +50,9 @@ byte order, CRC boundaries, partial-transfer recovery, overflow, profiling,
 busy-register access, and GPIO/interrupt restoration. It requires the project
 C33 toolchain (or `TOOLCHAIN_BIN=/path/to/bin`) and creates a temporary 512-byte
 card image; it does not access attached cards or archives.
+Both `SD_DMA_TX=IDMA` and the default `HSDMA` configuration are tested,
+including one-word payloads and stopping TX with a word queued behind the
+shift register. There are 122 C33 cases across the four configurations.
 
 ## Run
 
@@ -240,6 +243,10 @@ PIO with `SD_DMA=NO`. Production DMA completion polls with a bound: the
 older HALT-based completion wait passed the emulator but never woke on
 the real device.
 
+`SD_DMA_TX=HSDMA` is the hardware-tested default for aligned word payloads.
+Byte payloads still use RX-paced IDMA; `SD_DMA_TX=IDMA` selects the previous
+word path for comparison. See [reader performance](../zim/PERFORMANCE.md).
+
 ## Hardware model
 
 ### CPU and memory
@@ -268,14 +275,34 @@ The SD card operates in SPI mode. Character completion follows live `BPT`,
 `MCBR`, and `SPI_WAIT` values and updates `BSYF`, `TDEF`, `RDFF`, and `RDOF`
 at the scheduled event.
 
-The production read backend uses HSDMA channel 3 for SPI RX and IDMA channel
-`0x24` to write dummy TX data. The model covers the dual-address byte and word
+The default read backend uses HSDMA3 for SPI RX and HSDMA2 to feed word TX.
+Byte payloads and the IDMA comparison build use IDMA channel `0x24` to write
+dummy TX data after RX completion. The model covers the dual-address
 transfers used by firmware: request selection, priority, counters, address
 updates, terminal enable clearing, descriptor writeback, clock gating, global
-IDMA enable, and the terminal interrupt cause. A 512-byte block performs 128
-HSDMA and 127 IDMA transfers in the default 32-bit mode, or 512/511 in byte
-mode. SPI characters carry bytes in wire order, MSB first. Unused DMA modes
-and trigger sources are not modeled.
+IDMA enable, and the terminal interrupt cause. A word block performs 128
+HSDMA3 transfers plus either 127 IDMA transfers or 127 HSDMA2 transfers.
+Byte mode uses 512/511 RX/IDMA transfers. Per-channel counters identify the
+active pipeline in the summary.
+
+Manual V.2.5 defines separate TXD and shift registers: TDEF/TXDE occurs at
+shift start, while RDFF/RXDE occurs at completion. One TX word can queue
+while another shifts; SPI_WAIT delays consuming that queued word. The model
+keeps those events on the wire timeline, serializes DMA bus use, and retains
+disabled-channel trigger flags until accepted or explicitly cleared. TXDE
+and RXDE independently gate their request sources. SPI characters carry bytes
+MSB first. Focused tests check byte/halfword/word payloads, the wire-duration
+formula, TX terminal count preceding the final two RX completions, stale
+requests, and disabled request sources.
+
+The fitted `dma_extra=30` cost is retained for both engines. It is an
+empirical per-transfer allowance, not a measured arbitration waveform for
+the new pipeline. The physical startup test measured 2.182731 s of file DMA
+wait against the model's 2.119200 s, with no read errors or fallback. Total
+startup was 3.511686 s on hardware versus 3.309662 s in the model. One
+recorded boot supports this comparison; other workloads still need validation.
+Other DMA modes/triggers, preemption within a DMA unit, and cycle-level
+CPU/DMA arbitration remain unmodeled.
 
 SPI interrupt-enable and receive-mask registers are retained, and the receive
 mask is applied to received data. The summary's `spi config` line counts

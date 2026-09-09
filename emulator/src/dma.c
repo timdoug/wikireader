@@ -1,10 +1,9 @@
 /*
  * S1C33E07 intelligent DMA and high-speed DMA controller.
  *
- * The WikiReader's dormant SD driver uses one precisely documented pipeline:
- * HSDMA Ch.3 drains SPI RX into a buffer, while IDMA Ch.0x24 writes a fixed
- * 0xff byte to SPI TX after each receive request to generate the next clock.
- * HSDMA Ch.2 performs the inverse memory-to-SPI path for block writes.
+ * HSDMA3 drains SPI RX; IDMA0x24 supplies clocks after receive completion.
+ * The HSDMA2 alternative supplies TXD at shift start, pipelining the next
+ * word through the SPI transmit buffer (manual II.1.5 and V.2.5).
  *
  * Each documented memory/I/O access consumes at least one CPU-AHB clock.
  * The memory timing callback adds SDRAMC queue, row, refresh, and shared-bus
@@ -98,6 +97,8 @@ static uint32_t advance(uint32_t addr, unsigned mode, unsigned size)
 static uint32_t dma_read(struct dma *d, uint32_t addr, unsigned size)
 {
 	if (d->clock) {
+		if (*d->clock < d->bus_available)
+			*d->clock = d->bus_available;
 		*d->clock += mem_wait(d->mem, MEM_DMA_READ, addr, size, *d->clock);
 		++*d->clock;
 	}
@@ -162,6 +163,9 @@ static bool hs_transfer(struct dma *d, unsigned ch)
 	if (d->clock)
 		*d->clock += model.dma_extra;
 	d->hsdma_transfers++;
+	d->hsdma_channel_transfers[ch]++;
+	if (d->clock)
+		d->bus_available = *d->clock;
 
 	src = advance(src, smode, size);
 	dst = advance(dst, dmode, size);
@@ -244,6 +248,8 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 	dma_write(d, desc + 4, 4, count);
 	dma_write(d, desc + 8, 4, src);
 	dma_write(d, desc + 12, 4, dst);
+	if (d->clock)
+		d->bus_available = *d->clock;
 	*terminal = count == 0;
 	return true;
 }
@@ -276,11 +282,17 @@ static void service_spi(struct dma *d)
 		return;
 	d->servicing = true;
 
-	while (d->spi_event_pending) {
-		d->spi_event_pending = false;
-		/* Every completed byte asserts receive-full and transmit-empty. */
-		d->itc->reg[ITC_FSPI] |= 0x30u;
-
+	do {
+		unsigned requests = d->spi_event_pending;
+		d->spi_event_pending = 0;
+		d->itc->reg[ITC_FSPI] |= (uint8_t)requests;
+		for (unsigned ch = 2; ch <= 3; ch++) {
+			unsigned select = (d->itc->reg[ITC_HSTRIG23] >>
+					   (4 * (ch & 1))) & 15;
+			if (select == 9 &&
+			    (requests & (ch == 2 ? SPI_DMA_TX : SPI_DMA_RX)))
+				d->reg[HS_TF(ch)] = 1;
+		}
 		/* Hardware priority is HSDMA Ch.0 > ... > Ch.3 > hardware IDMA. */
 		for (unsigned ch = 0; ch < 4; ch++) {
 			unsigned selector = ch < 2 ? d->itc->reg[0x98u] :
@@ -289,20 +301,20 @@ static void service_spi(struct dma *d)
 			bool spi = (ch == 2 || ch == 3) && selector == 9;
 			if (!spi)
 				continue;
-			d->reg[HS_TF(ch)] = 1;
-			hs_transfer(d, ch);
+			if (d->reg[HS_TF(ch)] & 1)
+				hs_transfer(d, ch);
 		}
 
 		/* SPI receive DMA maps to hardware IDMA channel 0x24. */
 		service_spi_idma(d);
-	}
+	} while (d->spi_event_pending);
 	d->servicing = false;
 }
 
-static void spi_event(void *ctx)
+static void spi_event(void *ctx, unsigned requests)
 {
 	struct dma *d = ctx;
-	d->spi_event_pending = true;
+	d->spi_event_pending |= requests;
 	service_spi(d);
 }
 
@@ -335,6 +347,10 @@ static bool dma_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return true;
 	for (unsigned k = 0; k < size; k++)
 		d->reg[i + k] = (uint8_t)(*val >> (8 * k));
+	for (unsigned ch = 2; ch <= 3; ch++) {
+		if (i == HS_EN(ch) && (*val & 1u))
+			service_spi(d); /* II.1.5: disabled channels retain trigger flags */
+	}
 
 	/* A software start transfers the selected channel when globally enabled. */
 	if (i == IDMA_START && (*val & 0x80u)) {

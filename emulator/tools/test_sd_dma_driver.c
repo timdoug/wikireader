@@ -5,7 +5,8 @@ enum fault_kind {
     NO_FAULT,
     STALL_TRANSMIT,
     STALL_BOTH,
-    RECEIVE_OVERFLOW
+    RECEIVE_OVERFLOW,
+    STALL_TRANSMIT_LATE
 };
 static enum fault_kind fault;
 static unsigned timer_calls, case_number, measure;
@@ -30,11 +31,13 @@ static void require(int condition, unsigned line)
 unsigned long __attribute__((noinline)) Timer_get(void)
 {
     unsigned call = timer_calls++;
-    if (fault != NO_FAULT && call == 0) {
-        REG_IDMA_EN = 0;
+    if (fault != NO_FAULT && fault != STALL_TRANSMIT_LATE && call == 0) {
+        stop_transmit();
         if (fault == STALL_BOTH || fault == RECEIVE_OVERFLOW)
             REG_HS3_EN = DMA_DISABLED;
     }
+    if (fault == STALL_TRANSMIT_LATE && call == 1)
+        stop_transmit();
     if (fault == RECEIVE_OVERFLOW && call == 1) {
         REG_SPI_TXD = 0xffffffffUL;
         while (REG_SPI_STAT & BSYF) ; /* overwrite the unread first word */
@@ -109,7 +112,7 @@ static void run_case(unsigned offset, unsigned bytes, enum fault_kind injection)
                   (SD_DMA_BITS == 32 && !offset && !(bytes & 3) ? bytes : 0));
     }
     CHECK(REG_SPI_CTL1 == (BPT_8_BITS | MODE_MASTER | ENA | RXDE | TXDE));
-    CHECK(!(REG_HS3_EN & 1) && REG_IDMA_EN == 0);
+    CHECK(!(REG_HS3_EN & 1) && !(REG_HS2_EN & 1) && REG_IDMA_EN == 0);
     if (injection == RECEIVE_OVERFLOW) {
         CHECK(got == -1 && dma_given_up);
         CHECK(receive_dma(dst, bytes) == 0);
@@ -120,7 +123,9 @@ static void run_case(unsigned offset, unsigned bytes, enum fault_kind injection)
         return;
     }
     CHECK(got >= 0 && (unsigned)got <= bytes);
-    if (injection)
+    if (injection == STALL_TRANSMIT_LATE)
+        CHECK(got > 0 && got < (int)bytes && dma_given_up);
+    else if (injection)
         CHECK(got == (SD_DMA_BITS == 8 || offset || (bytes & 3) ? 1 : 4)
               && dma_given_up);
     else
@@ -157,6 +162,8 @@ static void run_tests(void)
         run_case(2, 512, NO_FAULT);
         run_case(3, 512, NO_FAULT);
         run_case(0, 16, NO_FAULT);
+        run_case(0, 4, NO_FAULT); /* HSDMA2 must stay disabled at count zero */
+        run_case(0, 8, NO_FAULT); /* one queued word, no CRC over-read */
         run_case(0, 64, NO_FAULT);
         run_case(0, 510, NO_FAULT);
         run_case(0, 512, STALL_TRANSMIT);
@@ -164,6 +171,9 @@ static void run_tests(void)
         run_case(1, 512, STALL_TRANSMIT);
         run_case(1, 512, STALL_BOTH);
         run_case(0, 512, RECEIVE_OVERFLOW);
+#if SD_DMA_BITS == 32
+        run_case(0, 512, STALL_TRANSMIT_LATE);
+#endif
     }
 #if SD_DMA_BITS == 32
     {

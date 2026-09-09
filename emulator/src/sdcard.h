@@ -11,7 +11,9 @@
 
 #define SD_RESP_MAX 600      /* token + 512 data + CRC, with headroom */
 
-typedef void (*sd_dma_event_fn)(void *ctx);
+#define SPI_DMA_RX 0x10u
+#define SPI_DMA_TX 0x20u
+typedef void (*sd_dma_event_fn)(void *ctx, unsigned requests);
 
 struct sdcard {
 	int token_pos;            /* response index of a delayed data token */
@@ -69,12 +71,16 @@ struct sdcard {
 	unsigned long unclamped_disables;
 	uint32_t  spi_wait;
 	uint32_t  txd;
+	uint32_t  tx_buffer;
+	bool      tx_full;
+	bool      shifting;
+	bool      polling;
 	uint32_t  rxd;
 	bool      busy;
 	bool      rdff;
 	bool      rdof;             /* receive data overflow, D3 of SPI_STAT */
 	uint64_t *clock;             /* MCLK-cycle timeline, optional in unit tests */
-	uint64_t  deadline;          /* completion of the current SPI character */
+	uint64_t  deadline;          /* next event: shift start or completion */
 	uint64_t  next_start;        /* end of the mandatory inter-character wait */
 	uint64_t  character_cycles;
 	uint64_t  byte_deadline;     /* current wire byte within an SPI character */
@@ -95,7 +101,7 @@ struct sdcard {
 	bool trace_bytes;   /* per-byte SPI log; very verbose */
 	unsigned long xfers;
 
-	/* One completed SPI character (8, 16 or 32 bits) raises DMA requests. */
+	/* TX request at shift start; RX request at character completion. */
 	sd_dma_event_fn dma_event;
 	void            *dma_ctx;
 };

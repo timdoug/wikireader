@@ -61,6 +61,26 @@ static void reset_all(struct mem *m, struct dma *dma, struct sdcard *sd,
 	mem_write(m, SDRAM_BASE, 1, 0xff);
 }
 
+static void setup_hs_tx(struct mem *m, uint32_t dst, unsigned size)
+{
+	unsigned count = 512 / size;
+	setup_read(m, DSTRAM_BASE, dst, false);
+	mem_write(m, REG(0x1708), 4,
+		  (SPI_CTL1_8BIT_MASTER_DMA & ~(31u << 10)) | ((size * 8 - 1) << 10));
+	mem_write(m, REG(0x1150), 2, count);
+	mem_write(m, REG(0x1156), 2, size == 2 ? 0x4000 : 0);
+	mem_write(m, REG(0x1192), 2, size == 4);
+	mem_write(m, REG(0x0299), 1, 0x99);
+	mem_write(m, REG(0x1140), 2, count - 1);
+	mem_write(m, REG(0x1142), 2, 0x8000);
+	mem_write(m, REG(0x1146), 2, size == 2 ? 0x4000 : 0);
+	mem_write(m, REG(0x1182), 2, size == 4);
+	mem_write(m, REG(0x1184), 4, DSTRAM_BASE + 0x300);
+	mem_write(m, REG(0x1188), 4, REG(0x1704));
+	mem_write(m, DSTRAM_BASE + 0x300, 4, 0xffffffffu);
+	mem_write(m, REG(0x114c), 2, 1);
+}
+
 int main(void)
 {
 	/* Manual-only DMA timing; the fitted per-transfer overhead is not
@@ -267,6 +287,88 @@ int main(void)
 		assert(mem_read(&m, REG(0x1700), 4) == sd.resp[i]);
 	}
 	assert(sd.resp_pos == 514 && sd.overflows == 0);
+
+	/* V.2.5 TX buffering and II.1.5 HSDMA2/3 trigger routing. The
+	 * expected wire duration is calculated from SPI bits and SPI_WAIT,
+	 * independently of the implementation's event scheduling. */
+	for (unsigned size = 1; size <= 4; size *= 2) {
+		clock = 0;
+		reset_all(&m, &dma, &sd, &cmu, &itc);
+		setup_hs_tx(&m, dst, size);
+		for (unsigned i = 0; i < 514; i++)
+			sd.resp[i] = (uint8_t)((i * 73) ^ (i >> 3) ^ 0x9d);
+		sd.resp_len = 514;
+		sd.block_timing = true;
+		sd.block_first_pos = 0;
+		sd.block_last_pos = 511;
+		sd.payloads_timed = sd.payload_cycles = 0;
+		mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+		assert(sd.xfers == 0 && sd.busy && sd.tx_full);
+		assert(dma.hsdma_channel_transfers[2] == 1);
+		assert(dma.hsdma_channel_transfers[3] == 0);
+		assert(!(mem_read(&m, REG(0x1714), 4) & (1u << 4))); /* TXD full */
+		while ((mem_read(&m, REG(0x114c), 2) & 1) && clock < 50000) {
+			clock++;
+			sd_poll(&sd);
+		}
+		/* TX terminal count is two receive completions too early. */
+		assert(sd.xfers == 512 / size - 2);
+		assert(mem_read(&m, REG(0x1150), 2) == 2);
+		while (sd.busy && clock < 50000) {
+			clock++;
+			sd_poll(&sd);
+		}
+		assert(sd.xfers == 512 / size && sd.resp_pos == 512);
+		assert(sd.overflows == 0 && dma.idma_transfers == 0);
+		assert(dma.hsdma_channel_transfers[2] == 512 / size - 1);
+		assert(dma.hsdma_channel_transfers[3] == 512 / size);
+		assert(sd.payloads_timed == 1);
+		assert(sd.payload_cycles == 512u * 32u + (512 / size - 1) * 4u);
+		assert(dma.bus_cycles == (2 * (512 / size) - 1) * 2u);
+		for (unsigned i = 0; i < 512; i += size) {
+			uint32_t want = 0;
+			for (unsigned j = 0; j < size; j++) want = want << 8 | sd.resp[i + j];
+			assert(mem_read(&m, dst + i, size) == want);
+		}
+	}
+
+	/* A queued TX trigger survives disable. Clearing HS2_TF prevents
+	 * last block's TX-empty request from clocking a word before the CPU. */
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 4);
+	mem_write(&m, REG(0x114c), 2, 0);
+	mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+	assert(mem_read(&m, REG(0x114e), 2) == 1);
+	assert(mem_read(&m, REG(0x1140), 2) == 127);
+	mem_write(&m, REG(0x114c), 2, 1);
+	assert(mem_read(&m, REG(0x1140), 2) == 126 && sd.tx_full);
+	mem_write(&m, REG(0x114c), 2, 0);
+	clock = 132;
+	sd_poll(&sd);
+	assert(mem_read(&m, REG(0x114e), 2) == 1);
+	mem_write(&m, REG(0x114e), 2, 1);
+	mem_write(&m, REG(0x114c), 2, 1);
+	assert(mem_read(&m, REG(0x1140), 2) == 126 && !sd.tx_full);
+
+	/* Independently gated request sources; RX cannot substitute for TX. */
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 4);
+	mem_write(&m, REG(0x1708), 4, SPI_CTL1_32BIT_MASTER_DMA & ~8u);
+	mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+	clock = 128;
+	sd_poll(&sd);
+	assert(sd.xfers == 1 && dma.hsdma_channel_transfers[2] == 0);
+	assert(dma.hsdma_channel_transfers[3] == 1);
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 4);
+	mem_write(&m, REG(0x1708), 4, SPI_CTL1_32BIT_MASTER_DMA & ~4u);
+	mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+	while (sd.busy && clock < 50000) { clock++; sd_poll(&sd); }
+	assert(sd.xfers == 128 && dma.hsdma_channel_transfers[2] == 127);
+	assert(dma.hsdma_channel_transfers[3] == 0 && sd.overflows == 127);
 
 	/* DMA_CKE=0: the trigger occurs, but neither engine can run. */
 	reset_all(&m, &dma, &sd, &cmu, &itc);

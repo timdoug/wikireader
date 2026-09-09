@@ -18,7 +18,7 @@ INCLUDES = [
 ]
 
 
-def compile_driver(stage, toolchain, bits):
+def compile_driver(stage, toolchain, bits, tx):
     script = stage / "test.lds"
     script.write_text('''OUTPUT_FORMAT("elf32-c33")
 OUTPUT_ARCH(c33)
@@ -36,6 +36,7 @@ SECTIONS {
     elf = stage / "test.elf"
     subprocess.run([str(toolchain / "c33-epson-elf-gcc"), "-O2", "-mc33pe",
                     f"-DSD_DMA_BITS={bits}", "-falign-loops=16",
+                    f"-DSD_DMA_TX_HSDMA={int(tx == 'hsdma')}",
                     "-fno-builtin", "-ffunction-sections", "-fdata-sections",
                     "-nostdlib", *[f"-I{ROOT / p}" for p in INCLUDES],
                     "-Wl,--gc-sections", f"-Wl,-T,{script}",
@@ -50,7 +51,7 @@ SECTIONS {
     return elf, symbols
 
 
-def run_driver(stage, elf, symbols, bits):
+def run_driver(stage, elf, symbols, bits, tx):
     card = stage / "card.img"
     card.write_bytes(bytes(((i * 73) ^ (i >> 3) ^ 0x9d) & 255
                           for i in range(512)))
@@ -63,7 +64,7 @@ def run_driver(stage, elf, symbols, bits):
                          stderr=subprocess.STDOUT, timeout=60)
     data = result.read_bytes() if result.exists() else b""
     values = struct.unpack("<4I", data) if len(data) == 16 else None
-    cases = 26 if bits == 32 else 25
+    cases = 32 if bits == 32 else 29
     config = re.search(
         r"spi config: (\d+) busy control accesses, "
         r"(\d+) disables with interrupts set", run.stdout)
@@ -73,7 +74,9 @@ def run_driver(stage, elf, symbols, bits):
         print(run.stdout)
         raise SystemExit(
             f"SD DMA driver failed: {values} (status, case, C line, reserved)")
-    print(f"C33 {bits}-bit SD DMA: {cases} aligned/unaligned, byte-order, CRC-boundary, "
+    channels = re.search(r'dma channels: HSDMA2 TX (\d+),', run.stdout)
+    assert channels and (int(channels[1]) > 0) == (tx == 'hsdma' and bits == 32)
+    print(f"C33 {bits}-bit SD DMA ({tx} TX): {cases} aligned/unaligned, byte-order, CRC-boundary, "
           "timeout, overflow, profiling and SPI handoff cases pass")
 
 
@@ -83,6 +86,7 @@ def main():
         "--toolchain", type=Path,
         default=ROOT / "host-tools/toolchain-c33/work/install/bin")
     parser.add_argument("--bits", type=int, choices=(8, 32), default=32)
+    parser.add_argument("--tx", choices=("idma", "hsdma"), default="idma")
     args = parser.parse_args()
     toolchain = args.toolchain.resolve()
     for name in ("c33-epson-elf-gcc", "c33-epson-elf-nm"):
@@ -90,8 +94,8 @@ def main():
             parser.error(f"missing {toolchain / name}; specify --toolchain")
     with tempfile.TemporaryDirectory(prefix="wr-sd-dma-") as work:
         stage = Path(work)
-        elf, symbols = compile_driver(stage, toolchain, args.bits)
-        run_driver(stage, elf, symbols, args.bits)
+        elf, symbols = compile_driver(stage, toolchain, args.bits, args.tx)
+        run_driver(stage, elf, symbols, args.bits, args.tx)
 
 
 if __name__ == "__main__":

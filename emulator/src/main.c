@@ -1264,6 +1264,8 @@ done:
 	       " %lu invalid descriptor tables, %llu minimum bus cycles ---\n",
 	       dma.hsdma_transfers, dma.idma_transfers,
 	       dma.invalid_descriptors, dma.bus_cycles);
+	printf("--- dma channels: HSDMA2 TX %lu, HSDMA3 RX %lu ---\n",
+	       dma.hsdma_channel_transfers[2], dma.hsdma_channel_transfers[3]);
 	printf("--- sdram: %llu wait cycles, %llu refreshes, %llu self-refresh exits;"
 	       " IQB %llu/%llu hit/miss, DQB %llu/%llu hit/miss,"
 	       " %llu writes, %llu row activations ---\n",

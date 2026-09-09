@@ -160,6 +160,23 @@ build/sd-dma-bits: FORCE_SD_DMA_BITS | stamp-build
 build/sd_dma.o: build/sd-dma-bits
 build/sd_dma.o: CFLAGS += -DSD_DMA_BITS=${SD_DMA_BITS} -falign-loops=16
 
+# HSDMA2 TX-empty pacing passed the physical startup/page test (2026-09-08).
+# Byte payloads retain RX-paced IDMA; IDMA remains available for comparison.
+SD_DMA_TX ?= HSDMA
+ifneq (IDMA,$(strip ${SD_DMA_TX}))
+ifneq (HSDMA,$(strip ${SD_DMA_TX}))
+$(error SD_DMA_TX must be IDMA or HSDMA)
+endif
+endif
+.PHONY: FORCE_SD_DMA_TX
+ifneq ($(strip ${SD_DMA_TX}),$(shell cat build/sd-dma-tx 2>/dev/null))
+build/sd_dma.o grifo.elf: FORCE_SD_DMA_TX
+endif
+build/sd-dma-tx: FORCE_SD_DMA_TX | stamp-build
+	@echo '$(strip ${SD_DMA_TX})' | cmp -s - $@ || echo '$(strip ${SD_DMA_TX})' > $@
+build/sd_dma.o: build/sd-dma-tx
+build/sd_dma.o: CFLAGS += -DSD_DMA_TX_HSDMA=$(if $(filter HSDMA,${SD_DMA_TX}),1,0)
+
 ifeq (YES,$(strip ${SD_DMA}))
 SD_DMA_OBJECT = build/sd_dma.o
 CFLAGS += -DSD_DMA_ENABLED=1

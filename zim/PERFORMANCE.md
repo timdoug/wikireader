@@ -82,6 +82,87 @@ not included in the retained driver. `final-kernel.elf` is the tested larger-bat
 kernel; `baseline/kernel.elf` retains the previous kernel for comparison.
 The physical logs and phase comparison are in `hardware-success/`.
 
+## HSDMA transmit pipeline
+
+The local S1C33E07 manual assigns SPI transmit requests to HSDMA2 (II.1.5).
+Unlike the previous IDMA channel 0x24, which sends another dummy word after
+RX completion, HSDMA2 can fill TXD at shift start (V.2.5). This removes
+IDMA's four-word descriptor load/writeback per word (II.2.4.1) and overlaps
+transmit feeding with the current word on the wire.
+
+`SD_DMA_TX=HSDMA` is now the hardware-tested default. It uses HSDMA2 only for
+aligned 32-bit payloads; byte transfers retain IDMA. `SD_DMA_TX=IDMA` selects
+the previous word path for comparison. The GPIO clock hold, 255-sector
+read-ahead, application, and archive layout are retained. Completion waits
+for RX, not the earlier TX terminal count. Timeout recovery stops further
+TX DMA and lets RX drain the shifting and queued words before counting the
+received bytes. A one-unit transfer leaves both TX engines disabled.
+
+The emulator now separates TX-empty from RX-full requests and implements
+the one-word transmit buffer, inter-character wait, and pending HSDMA triggers.
+The existing timing allowance is retained. The matched local startup run
+uses captured exFAT metadata, 253,952 bytes of archive indexes, and the same
+boot files; it starts the real file-loader with its inherited stack supplied
+by a local emulator harness. It does not emulate the preceding FLASH stages.
+
+| Kernel | Open to keyboard | File/map | File DMA wait |
+| --- | ---: | ---: | ---: |
+| Installed `b556aa29` binary | 3.989099 s | 3.880008 s | 2.817136 s |
+| Current source, IDMA TX control | 3.987747 s | 3.878636 s | 2.813445 s |
+| HSDMA2 word TX candidate | 3.309662 s | 3.205248 s | 2.119200 s |
+
+These are **emulator measurements**, not hardware results. The candidate
+saves 0.678085 s (17.0%) against its IDMA control. All three file phases issue
+30 read commands for 7,396 sectors, with 3,786,752 DMA32 bytes and no read
+errors, timeouts, overflow or fallback. The old binary's file phase agrees
+with its earlier model result within 1 microsecond; the UI now reads five
+more sectors because of the boot-file fixture state.
+
+The model's raw payload floor is 2.019601 s at 15 MHz. SPI_WAIT adds a minimum
+four MCLKs between words, and DMA completion/CPU polling add further overhead.
+The physical test below checks how closely the pipeline meets that model.
+Sensitivity runs with `dma_extra=0`, `30` (the calibrated default), and `60`
+all completed without errors. The candidate saved 0.196534, 0.678085, and
+1.170955 seconds respectively against the matching IDMA control. This is
+sensitivity to one model assumption, not a confidence interval for hardware.
+The existing `zimlog.on` marker enables `zimboot.log` and the early `dma.txt`
+checkpoint, which now identifies the configured word TX engine.
+
+Artifacts, logs, comparison kernels, and the install manifest are under
+`build/wr128/hsdma-tx/`. The focused model tests and all 122 C33 driver cases
+pass, including byte order, CRC boundaries, one/two-word transfers, and
+mid-block TX stoppage with queued data.
+
+The physical startup/page test passed on 2026-09-08. The recorded boot used
+the installed candidate kernel SHA256
+`9fd8b22ddc4d2f1746c6550a08bbc0a45c28c330f1d589df0f8c4354e5e17198`
+and the same application as the previous hardware test. The card's kernel
+and application hashes were checked when collecting the logs.
+
+| Interval | Previous hardware, IDMA | Hardware, HSDMA2 | HSDMA2 model |
+| --- | ---: | ---: | ---: |
+| Open to keyboard | 4.071086 s | 3.511686 s | 3.309662 s |
+| File/map | 3.977882 s | 3.423920 s | 3.205248 s |
+| File DMA wait | 2.763685 s | 2.182731 s | 2.119200 s |
+
+Startup fell by 0.559400 s (13.74%), and file DMA wait by 0.580954 s (21.02%).
+Every phase's read-command, sector, and DMA-byte counts match the previous
+hardware run. All 3,786,752 file-phase payload bytes used word DMA; the log
+reports no read errors, timeouts, DMA errors, bypass or disabled/fallback
+state. The early checkpoint records `word_tx=HSDMA2` and the physical loader's
+`spi_interrupt=00000014`.
+
+The model underestimated total startup by 0.202024 s and file DMA wait by
+0.063531 s (3.0% of its prediction). It predicted a 0.678085 s startup saving
+against its IDMA control; the measured saving was 0.559400 s. The hardware UI
+phase reads 27 sectors versus six in the model fixture, so the DMA-wait
+comparison is the closer test of the transport model. These results are one
+recorded boot per hardware configuration, plus the user's completed page test.
+
+The capture and comparison are in
+`build/wr128/hsdma-tx/hardware-20260909T031723Z/`. The card was cleanly ejected
+after capture with the tested kernel and benchmark logging still installed.
+
 ## Physical measurements
 
 Full English Wikipedia, February 2026 archive on the 128 GB card, measured on

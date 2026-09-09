@@ -129,6 +129,8 @@ test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o 
 test-sd-dma-driver: wremu
 	python3 tools/test_sd_dma_driver.py --bits 8 $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
 	python3 tools/test_sd_dma_driver.py --bits 32 $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
+	python3 tools/test_sd_dma_driver.py --bits 8 --tx hsdma $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
+	python3 tools/test_sd_dma_driver.py --bits 32 --tx hsdma $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
 
 # Direct kernel boot reaches init promptly even though the CPU sleeps between
 # SPI DMA bytes. This catches accidentally stretching each byte to a GUI poll.

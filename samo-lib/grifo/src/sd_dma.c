@@ -23,6 +23,9 @@
 #ifndef SD_DMA_BITS
 #define SD_DMA_BITS 32
 #endif
+#ifndef SD_DMA_TX_HSDMA
+#define SD_DMA_TX_HSDMA 1
+#endif
 
 /* A 512-byte block at MCLK/4 takes about 0.3 ms; give the engines 20 ms. */
 #define DMA_TIMEOUT_TICKS (20 * 60000UL)
@@ -52,12 +55,13 @@ struct idma_descriptor {
 /*
  * IDMA control information must be 16-byte aligned in DSTRAM or SDRAM.  It
  * lives in DSTRAM, the descriptor RAM the linker script reserves (input
- * section .dstram), together with the dummy transmit word. Every character
- * makes the IDMA read its descriptor and dummy data and write the count back,
- * and the HSDMA write the received data. In SDRAM those hit a different row
+ * section .dstram), together with the dummy transmit word. The IDMA path
+ * reads its descriptor and dummy data and writes the count back per unit,
+ * and HSDMA writes the received data. In SDRAM those hit a different row
  * from the receive buffer, so each character cost two row changes on top of
  * the SPI shift time; internal RAM has no rows. The section is NOLOAD, so the
- * dummy word is set at initialisation.
+ * dummy word is set at initialisation. HSDMA2 uses the same dummy word;
+ * retain the table for the byte path and the IDMA comparison build.
  */
 struct sd_dma_ram {
 	struct idma_descriptor table[SPI_IDMA_CHANNEL + 1];
@@ -87,12 +91,18 @@ void SD_DMA_profile(File_IOStats *out, bool enabled)
 	out->dma_disabled = dma_given_up;
 }
 
-static void stop_engines(void)
+static void stop_transmit(void)
 {
-	REG_HS3_EN = DMA_DISABLED;
+	REG_HS2_EN = DMA_DISABLED;
 	REG_IDMAEN_DELCDC_DESIF2_DESPI &= ~SPI_IDMA_ENABLE;
 	REG_IDMAREQ_RLCDC_RSIF2_RSPI &= ~SPI_IDMA_ENABLE;
 	REG_IDMA_EN = 0;
+}
+
+static void stop_engines(void)
+{
+	stop_transmit();
+	REG_HS3_EN = DMA_DISABLED;
 }
 
 /* V.2.8 forbids even reading CTL1 while BSYF is set. Completion of the
@@ -170,6 +180,7 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	UINT transfers;
 	DWORD spi_control;
 	DWORD status;
+	bool hs_transmit;
 
 	/* Only SDRAM is a known-good HSDMA destination.  The ELF loader reads
 	 * an application's .fastcode section straight into A0 RAM; that and
@@ -185,6 +196,9 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 		unit = 4;
 #endif
 	transfers = byte_count / unit;
+	/* Keep the proven receive-paced IDMA path for byte transfers.
+	 * HSDMA2 pipelines only aligned 32-bit payloads. */
+	hs_transmit = SD_DMA_TX_HSDMA && unit == 4;
 	spi_control = 0;
 	if (unit == 4) {
 		if (!wait_spi_idle())
@@ -208,23 +222,46 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	REG_HS3_ADV_SADR_H = SPI_RXD_ADDRESS >> 16;
 	REG_HS3_ADV_DADR_L = buffer_address & 0xffff;
 	REG_HS3_ADV_DADR_H = buffer_address >> 16;
-	REG_HSDMA_HTGR2 = (REG_HSDMA_HTGR2 & 0x0f) | 0x90;
+	stop_transmit();
+	REG_HSDMA_HTGR2 = hs_transmit ? 0x99 : 0x90;
 	REG_INT_FSIF2_FSPI = 0x30;
+	REG_HS2_TF = 1;
 	REG_HS3_TF = 1;
 
-	/* IDMA supplies every dummy character after the CPU's first one. */
-	REG_IDMA_EN = 0;
-	REG_IDMABASE0 = table_address & 0xffff;
-	REG_IDMABASE1 = table_address >> 16;
-	descriptor->control = unit == 4 ? 2UL << 16 : 0; /* DATSIZ, II.2.2 */
-	descriptor->count = transfers - 1;
-	descriptor->source = (DWORD)&dma_ram.dummy;
-	descriptor->destination = SPI_TXD_ADDRESS;
-	REG_IDMAREQ_RLCDC_RSIF2_RSPI |= SPI_IDMA_ENABLE;
-	REG_IDMAEN_DELCDC_DESIF2_DESPI |= SPI_IDMA_ENABLE;
-	REG_IDMA_EN = 1;
-	REG_INT_FDMA = HSDMA3_INTERRUPT;
+	if (hs_transmit) {
+		/* II.1.5: HSDMA2 selector 9 is SPI TX-empty. V.2.5: TXD
+		 * becomes empty at shift START, so this queues the next word
+		 * while the current one is on the wire. Count includes queued
+		 * words; only HSDMA3 completion means the payload has arrived. */
+		DWORD dummy_address = (DWORD)&dma_ram.dummy;
+		REG_HS2_ADVMODE = 1;
+		REG_HS2_CNT = transfers - 1;
+		REG_HS2_CTRL = 0x8000;
+		REG_HS2_SADR_L = 0;
+		REG_HS2_SADR_H = 0;
+		REG_HS2_DADR_L = 0;
+		REG_HS2_DADR_H = 0;
+		REG_HS2_ADV_SADR_L = dummy_address & 0xffff;
+		REG_HS2_ADV_SADR_H = dummy_address >> 16;
+		REG_HS2_ADV_DADR_L = SPI_TXD_ADDRESS & 0xffff;
+		REG_HS2_ADV_DADR_H = SPI_TXD_ADDRESS >> 16;
+	} else {
+		/* IDMA channel 0x24 is SPI RX-full: send after each received unit. */
+		REG_IDMA_EN = 0;
+		REG_IDMABASE0 = table_address & 0xffff;
+		REG_IDMABASE1 = table_address >> 16;
+		descriptor->control = unit == 4 ? 2UL << 16 : 0; /* DATSIZ, II.2.2 */
+		descriptor->count = transfers - 1;
+		descriptor->source = (DWORD)&dma_ram.dummy;
+		descriptor->destination = SPI_TXD_ADDRESS;
+		REG_IDMAREQ_RLCDC_RSIF2_RSPI |= SPI_IDMA_ENABLE;
+		REG_IDMAEN_DELCDC_DESIF2_DESPI |= SPI_IDMA_ENABLE;
+		REG_IDMA_EN = transfers > 1;
+	}
+	REG_INT_FDMA = HSDMA3_INTERRUPT | (1 << 2);
 	REG_HS3_EN = DMA_ENABLED;
+	if (hs_transmit && transfers > 1)
+		REG_HS2_EN = DMA_ENABLED;
 
 	start = Timer_get();
 	REG_SPI_TXD = 0xffffffffUL;
@@ -266,18 +303,20 @@ static int receive_dma(BYTE *buff, UINT byte_count)
 	}
 
 	/*
-	 * Timed out.  Stop the engines, let a byte in flight finish, then work
-	 * out how much of the block is in the buffer. Every character the SPI
+	 * Timed out. Stop transmit requests, but keep RX DMA running until
+	 * both the shifting word and any queued TXD word finish. Every unit SPI
 	 * clocked out produced one received character: either HSDMA moved it into
-	 * the buffer, or it still sits in RXD.  IDMA writes its remaining count
-	 * back to the descriptor, so the transmitted total is known exactly.
+	 * the buffer, or it still sits in RXD. The transmit engine's remaining
+	 * count includes writes to TXD, including a word that was still queued.
 	 */
-	stop_engines();
-	drained = (transfers - (REG_HS3_CNT & 0xffff)) * unit;
+	stop_transmit();
 	polls = 0;
 	while ((REG_SPI_STAT & BSYF) && ++polls < DMA_TIMEOUT_POLLS)
 		;
-	transmitted = (transfers - (UINT)descriptor->count) * unit;
+	stop_engines();
+	drained = (transfers - (REG_HS3_CNT & 0xffff)) * unit;
+	transmitted = (transfers - (hs_transmit ? REG_HS2_CNT :
+				   (UINT)descriptor->count)) * unit;
 	status = REG_SPI_STAT;
 	if (!(status & BSYF) && (status & RDFF) && drained < byte_count) {
 		if (unit == 4)
@@ -352,9 +391,10 @@ void SD_DMA_report(void)
 		return;
 	}
 	size = snprintf(detail, sizeof(detail),
-		"kernel filesystem init complete; payload_bits=%u configured_bits=%u\n"
+		"kernel filesystem init complete; payload_bits=%u configured_bits=%u word_tx=%s\n"
 		"spi_ctl1=%08lx spi_rxmask=%08lx spi_interrupt=%08lx\n",
-		dma_word_enabled ? 32 : 8, SD_DMA_BITS, (unsigned long)REG_SPI_CTL1,
+		dma_word_enabled ? 32 : 8, SD_DMA_BITS,
+		SD_DMA_TX_HSDMA ? "HSDMA2" : "IDMA24", (unsigned long)REG_SPI_CTL1,
 		(unsigned long)REG_SPI_RXMK, (unsigned long)REG_SPI_INT);
 	handle = File_create("dma.txt", FILE_OPEN_WRITE);
 	if (handle < 0)

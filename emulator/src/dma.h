@@ -22,9 +22,11 @@ struct dma {
 	uint8_t reg[DMA_LEN];
 
 	bool servicing;
-	bool spi_event_pending;
+	unsigned spi_event_pending;
+	uint64_t bus_available; /* wire events may precede the last DMA bus release */
 
 	unsigned long hsdma_transfers;
+	unsigned long hsdma_channel_transfers[4];
 	unsigned long idma_transfers;
 	unsigned long invalid_descriptors;
 	unsigned long long bus_cycles;
