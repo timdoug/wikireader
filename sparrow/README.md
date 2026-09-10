@@ -11,6 +11,10 @@ from a dated multistream dump. The full dated JSON dump is downloaded compressed
 and streamed during import. No uncompressed full dump file is needed. There is
 no API or SPARQL fetching workflow.
 
+For continuing development, start with [HANDOFF.md](HANDOFF.md): active jobs,
+current results, workspace state and ordered next steps. See
+[BENCHMARKS.md](BENCHMARKS.md) for the latest measured coverage.
+
 ## Use
 
 Build the host tools and run the regression suite:
