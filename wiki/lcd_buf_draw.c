@@ -27,6 +27,9 @@
 #include "ustring.h"
 #include "history.h"
 #include "search.h"
+#ifdef ZIM_APP
+#include "zim_sparrow.h"
+#endif
 #include "glyph.h"
 #include "wikilib.h"
 #include "restricted.h"
@@ -168,9 +171,15 @@ static long scroll_bar_content_height(void)
 		long expected_height = article_start_y_pos + article_stream_height;
 		WIKI_LICENSE_DRAW *license_draw = wiki_license_draw();
 
+#ifdef ZIM_APP
+		if (!ZIM_SPARROW_IS_PAGE(saved_idx_article)) {
+#endif
 		expected_height += SPACE_BEFORE_LICENSE_TEXT;
 		if (license_draw)
 			expected_height += license_draw->lines;
+#ifdef ZIM_APP
+		}
+#endif
 		if (expected_height > LCD_BUF_HEIGHT_PIXELS)
 			expected_height = LCD_BUF_HEIGHT_PIXELS;
 		if (expected_height > content_height)
@@ -1288,6 +1297,10 @@ void render_wikipedia_license_text(void)
 	WIKI_LICENSE_DRAW *license_draw;
 	int draw_lines;
 	int i;
+
+#ifdef ZIM_APP
+	if (ZIM_SPARROW_IS_PAGE(saved_idx_article)) return;
+#endif
 
 	license_draw = wiki_license_draw();
 	lcd_draw_buf.current_y += SPACE_BEFORE_LICENSE_TEXT;

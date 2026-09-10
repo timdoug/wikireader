@@ -19,6 +19,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <guilib.h>
 
 #include <grifo.h>
@@ -31,6 +32,9 @@
 #include "search.h"
 #include "lcd_buf_draw.h"
 #include "wiki_info.h"
+#ifdef ZIM_APP
+#include "zim_sparrow.h"
+#endif
 
 #define DBG_HISTORY 0
 
@@ -91,6 +95,9 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 {
 	int i = 0;
 	int bFound = 0;
+#ifdef ZIM_APP
+	unsigned char question_title[MAX_TITLE_ACTUAL];
+#endif
 
 	if (!ARTICLE_WIKI_ID(idx_article)) // idx_article for current wiki
 	{
@@ -109,6 +116,16 @@ void history_add(long idx_article, const unsigned char *title, int b_keep_pos)
 		viewing_list[viewing_count++].last_y_pos = 0;
 	}
 
+#ifdef ZIM_APP
+	/* Persist the question rather than the rendered answer heading. This
+	 * lets an evicted page, or a page from a previous boot, be regenerated. */
+	if (ZIM_SPARROW_IS_PAGE(idx_article)) {
+		const char *q = zim_sparrow_question((uint32_t)idx_article);
+		if (!q) return;
+		snprintf((char *)question_title, sizeof(question_title), "ask %s", q);
+		title = question_title;
+	}
+#endif
 	history_changed = HISTORY_SAVE_NORMAL;
 	i = 0; // the viewing-list shift above reuses i; restart the duplicate scan
 	while (!bFound && i < history_count)
@@ -149,7 +166,8 @@ void history_log_y_pos(const long y_pos)
 	/* Repainting the same viewport is not a history change. In particular,
 	 * tapping a stationary page must not start another five-second save
 	 * delay and keep the CPU awake. */
-	if (history_count > 0 && history_list[0].last_y_pos != y_pos)
+	if (history_count > 0 && history_list[0].last_y_pos != y_pos &&
+	    (!viewing_count || history_list[0].idx_article == viewing_list[viewing_count - 1].idx_article))
 	{
 		if (history_changed != HISTORY_SAVE_NORMAL)
 			history_changed = HISTORY_SAVE_POWER_OFF;
@@ -196,24 +214,26 @@ void history_clear()
 
 void history_list_init(void)
 {
-	unsigned int len;
 	int fd_hst;
+	HISTORY item;
 
 	memset((void *)history_list, 0, sizeof(history_list));
 	history_count = 0;
 	fd_hst = file_open(APP_HISTORY_FILE, FILE_OPEN_READ);
 	if (fd_hst >= 0)
 	{
-		while ((len = file_read(fd_hst, (void *)&history_list[history_count], sizeof(HISTORY))) >= sizeof(HISTORY) &&
-		       history_count < MAX_HISTORY)
+		while (history_count < MAX_HISTORY &&
+		       file_read(fd_hst, &item, sizeof(item)) == sizeof(item))
 		{
-			if (history_list[history_count].idx_article)
-				history_count++;
-			else
-				break;
+			if (!item.idx_article) break;
+			if (memchr(item.title, 0, sizeof(item.title)))
+				history_list[history_count++] = item;
 		}
 		file_close(fd_hst);
 	}
+#ifdef ZIM_APP
+	zim_sparrow_history_loaded();
+#endif
 }
 
 int history_needs_save(void)
@@ -235,9 +255,11 @@ int history_list_save(int level)
 				fd_hst = file_create(APP_HISTORY_FILE, FILE_OPEN_WRITE);
 			if (fd_hst >= 0)
 			{
-				file_write(fd_hst, (void *)history_list, sizeof(HISTORY) * MAX_HISTORY);
+				int written = file_write(fd_hst, (void *)history_list, sizeof(HISTORY) * MAX_HISTORY);
 				file_close(fd_hst);
+				if (written != sizeof(HISTORY) * MAX_HISTORY) return -1;
 			}
+			else return -1;
 			history_changed = HISTORY_SAVE_NONE;
 			rc = 1;
 		}

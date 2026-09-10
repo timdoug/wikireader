@@ -383,3 +383,12 @@ with its live ZIM path-index table relocated to byte 4,300,000,000, forcing a
 successful seek and read above 4 GiB, and with the complete 124 GB
 `wikipedia_en_all_maxi_2026-02.zim` (27.2 M entries, 216 k clusters): search,
 article and image loading, history, and scrolling work on a 124 GB card image.
+
+## Sparrow questions
+
+The reader includes an optional [Sparrow](../sparrow/README.md) factual question
+mode. Install its generated `sparrow.dat` at the root of the content or boot
+volume, type `ask capital of burkina faso`, and tap the answer row. Answers
+show their Wikidata lookup steps and link to articles in the selected ZIM.
+Sparrow is a first implementation with a real-data sample; full-corpus import
+and coverage validation are pending. See the [spec review](../wikibox-spec.md).

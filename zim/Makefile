@@ -122,6 +122,10 @@ SOURCES += utils.c
 # their instruction-queue alignment.
 SOURCES += zim_copy.c
 SOURCES += zim_page.c
+SOURCES += zim_sparrow.c
+SOURCES += sparrow.c
+SOURCES += html.c
+vpath %.c ${ROOT_DIR}/sparrow
 
 IMAGES += keyboard_123.png
 IMAGES += keyboard_abc2_jp.png

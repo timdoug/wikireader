@@ -109,12 +109,25 @@ def read_file(path, wanted):
     return None
 
 
-def build_loader():
+def build_loader(*, lcd_ready=False):
     main = (ROOT / 'emulator/src/main.c').read_text()
     old = 'uint32_t boot_sp = 0;'
     assert main.count(old) == 1
+    main = main.replace(old, 'uint32_t boot_sp = MASK_ROM_STACK_TOP;')
+    if lcd_ready:
+        # Direct file-loader entry inherits the menu's enabled LCD, just as
+        # it inherits the mask-ROM stack. Supply that omitted boot state in
+        # this harness only, including after the GUI's power-on reset.
+        for old, new in (
+            ('lcd_attach(&mem, &lcd);',
+             'lcd_attach(&mem, &lcd);\n\tmem_write(&mem, REG_BASE + 0x1a04, 4, 3);'),
+            ('lcd_reset(lcd);',
+             'lcd_reset(lcd);\n\tif (path) mem_write(mem, REG_BASE + 0x1a04, 4, 3);'),
+        ):
+            assert main.count(old) == 1
+            main = main.replace(old, new)
     source = STAGE / 'loader-main.c'
-    source.write_text(main.replace(old, 'uint32_t boot_sp = MASK_ROM_STACK_TOP;'))
+    source.write_text(main)
     obj = STAGE / 'loader-main.o'
     cflags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', 'sdl2'], text=True))
     libs = shlex.split(subprocess.check_output(['pkg-config', '--libs', 'sdl2'], text=True))

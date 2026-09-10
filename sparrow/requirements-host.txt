@@ -1,0 +1,3 @@
+# Optional host-only acceleration. The device has no Python dependencies.
+indexed_bzip2==1.7.0
+orjson==3.12.0

@@ -6,7 +6,7 @@ set -eu
 usage()
 {
 	cat <<EOF
-usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... ZIM_FILE...
+usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... [--sparrow FILE] ZIM_FILE...
        $(basename "$0") ZIM_FILE OUTPUT.dmg
 
 Create an MBR disk image with:
@@ -22,6 +22,8 @@ open.  The folder name must be one listed in ROOT_IMAGE/wiki.inf.
 
 With several archives the reader offers a choice through the keyboard's globe
 key and remembers the selection.
+
+--sparrow FILE installs a generated question index as sparrow.dat on exFAT.
 
 The current GCC 16 Grifo kernel, init application, and zim.app must already
 be built. This command is for macOS and requires hdiutil and diskutil.
@@ -39,8 +41,16 @@ esac
 native_dirs=
 native_bytes=0
 zim_files=
+sparrow_data=
 for arg in "$@"; do
-	if [ -n "${want_dir:-}" ]; then
+	if [ -n "${want_sparrow:-}" ]; then
+		[ -f "$arg" ] || { echo "error: Sparrow index not found: $arg" >&2; exit 2; }
+		sparrow_data=$arg
+		want_sparrow=
+	elif [ "$arg" = "--sparrow" ] && [ -z "${want_dir:-}" ]; then
+		[ -z "$sparrow_data" ] || { echo "error: duplicate --sparrow" >&2; exit 2; }
+		want_sparrow=1
+	elif [ -n "${want_dir:-}" ]; then
 		[ -d "$arg" ] && [ -f "$arg/wiki.idx" ] || {
 			echo "error: --wiki $arg is not a native data set directory" >&2
 			exit 2
@@ -57,6 +67,7 @@ for arg in "$@"; do
 	fi
 done
 [ -z "${want_dir:-}" ] || usage 2
+[ -z "${want_sparrow:-}" ] || usage 2
 set --
 old_ifs=$IFS
 IFS='
@@ -100,6 +111,7 @@ command -v diskutil >/dev/null 2>&1 || {
 }
 
 zim_bytes=0
+[ -z "$sparrow_data" ] || zim_bytes=$(stat -f %z "$sparrow_data")
 for zim_file in "$@"; do
 	zim_bytes=$(( zim_bytes + $(stat -f %z "$zim_file") ))
 done
@@ -191,6 +203,7 @@ for zim_file in "$@"; do
 	echo "Copying $(basename "$zim_file") to exFAT content volume..."
 	cp "$zim_file" "$content_mount/$(basename "$zim_file")"
 done
+[ -z "$sparrow_data" ] || cp "$sparrow_data" "$content_mount/sparrow.dat"
 sync
 
 detach_image

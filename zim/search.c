@@ -32,6 +32,7 @@ void zim_blob_set_reader_buffer(const void *buffer);
 #include "zim_overlay.h"
 #include "zim_startup.h"
 #include "zim_copy.h"
+#include "zim_sparrow.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -67,6 +68,7 @@ static int archive_wiki = -1;
 static ZIM_RESULTS results;
 static unsigned char search_string[MAX_TITLE_SEARCH];
 static int search_length;
+static int sparrow_search;
 static unsigned char *raw_buffer;
 static unsigned char *text_buffer;
 static uint32_t search_render_buffer[LCD_BUFFER_SIZE_WORDS];
@@ -499,6 +501,8 @@ static long handle_article_link(long article_id, int resolve)
 	ZIM_DIRENT dirent;
 	char path[ZIM_DIRENT_TEXT_MAX];
 	int rc;
+	if (id == ZIM_SPARROW_BASE)
+		return resolve ? (long)zim_sparrow_save((char *)search_string + 4) : article_id;
 
 	if ((id & ZIM_DEFERRED_LINK_MASK) != ZIM_DEFERRED_LINK_TAG)
 		return article_id;
@@ -507,6 +511,14 @@ static long handle_article_link(long article_id, int resolve)
 		return 0;
 	if (!resolve)
 		return article_id;
+	if (ZIM_SPARROW_IS_PAGE(current_article_index) &&
+	    deferred_links[encoded_index - 1].path_length >= 9 &&
+	    !memcmp(deferred_links[encoded_index - 1].path, "@sparrow/", 9)) {
+		if (zim_sparrow_title(deferred_links[encoded_index - 1].path,
+			deferred_links[encoded_index - 1].path_length, path, sizeof(path)))
+			return 0;
+		return get_article_idx_by_title((unsigned char *)path, NULL);
+	}
 	if (deferred_links[encoded_index - 1].path[0] == '#') {
 		/* Same page: scroll instead of loading; 0 tells the caller
 		 * there is no article to open. */
@@ -1046,6 +1058,14 @@ static void populate_results(void)
 	results.count = 0;
 	results.selected = -1;
 	more_search_results = 0;
+	sparrow_search = search_length >= 4 && !memcmp(search_string, "ask ", 4) &&
+		archive.entry_count < ZIM_SPARROW_BASE;
+	if (sparrow_search) {
+		results.article[0] = ZIM_SPARROW_BASE;
+		strcpy((char *)results.title[0], "Tap to answer this question");
+		results.count = 1;
+		return;
+	}
 	search_cursor_open();
 	while (results.count < NUMBER_OF_FIRST_PAGE_RESULTS &&
 	       search_cursor_next(&dirent)) {
@@ -1117,6 +1137,7 @@ int clear_search_string(void)
 		return -1;
 	search_length = 0;
 	search_string[0] = '\0';
+	sparrow_search = 0;
 	results.count = 0;
 	results.selected = -1;
 	return 0;
@@ -1217,7 +1238,7 @@ void search_reload(int flag)
 	/* While the keyboard is up, render_search_result_with_pcf sees no
 	 * first page to continue from and clears more_search_results; the
 	 * full-page list pages on from here, so ask the cursor again. */
-	if (keyboard_mode == KEYBOARD_NONE)
+	if (keyboard_mode == KEYBOARD_NONE && !sparrow_search)
 		more_search_results = search_cursor_peek();
 	article_link_count = 0;
 	is_title_in_result_list(0, NULL);
@@ -1293,7 +1314,12 @@ void search_open_article(int selection)
 	if (selection >= NUMBER_OF_FIRST_PAGE_RESULTS)
 		selection -= NUMBER_OF_FIRST_PAGE_RESULTS;
 	if (selection >= 0 && selection < (int)results.count)
-		display_link_article(results.article[selection]);
+	{
+		uint32_t id = results.article[selection];
+		if (id == ZIM_SPARROW_BASE)
+			id = zim_sparrow_save((char *)search_string + 4);
+		if (id) display_link_article(id);
+	}
 }
 
 /* Paging beyond the first screen hands out results by ordinal: the
@@ -1309,7 +1335,7 @@ long result_list_next_result(long encoded_position, long *article_id,
 	ZIM_DIRENT dirent;
 	uint32_t ordinal;
 
-	if (encoded_position <= 0)
+	if (encoded_position <= 0 || sparrow_search)
 		return 0;
 	ordinal = (uint32_t)encoded_position - 1;
 	if (ordinal != cursor.emitted) {
@@ -1332,6 +1358,11 @@ void get_article_title_from_idx(long index, unsigned char *title)
 	int rc;
 	title[0] = '\0';
 	index &= ARTICLE_INDEX_MASK;
+	if (ZIM_SPARROW_IS_PAGE(index)) {
+		const char *q = zim_sparrow_question((uint32_t)index);
+		snprintf((char *)title, MAX_TITLE_ACTUAL, "%s", q ? q : "Answer expired");
+		return;
+	}
 	if (index <= 0 || (uint32_t)index > archive.entry_count)
 		return;
 	rc = zim_archive_read_dirent(&archive, (uint32_t)index - 1, &dirent);
@@ -1367,7 +1398,7 @@ int retrieve_article(long encoded_index)
 		if (wiki_index != nCurrentWiki)
 			set_wiki(wiki_index);
 	}
-	if (!index || index > archive.entry_count)
+	if (!index || (index > archive.entry_count && !ZIM_SPARROW_IS_PAGE(index)))
 		goto error;
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
@@ -1393,6 +1424,13 @@ int retrieve_article(long encoded_index)
 		return 0;
 	}
 	draw_progress_bar(2, ARTICLE_PROGRESS_LIMIT);
+	if (ZIM_SPARROW_IS_PAGE(index)) {
+		if (zim_sparrow_html(index, raw_buffer, ZIM_RAW_BUFFER_SIZE, &raw_size))
+			goto error;
+		raw = raw_buffer;
+		strcpy(current_article_path, "@sparrow");
+		goto convert_html;
+	}
 	rc = zim_archive_read_dirent(&archive, index - 1, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		goto error;
@@ -1414,6 +1452,7 @@ int retrieve_article(long encoded_index)
 			goto error;
 		raw = raw_buffer;
 	}
+convert_html:
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_html_to_text_images_progress(raw, raw_size, text_buffer,
 					      FILE_BUFFER_SIZE, &text_size,
