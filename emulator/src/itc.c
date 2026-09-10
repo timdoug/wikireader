@@ -191,6 +191,18 @@ static bool itc_flagged(const struct itc *t, unsigned vector)
 
 bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 {
+	/* Most instructions have no enabled cause pending. Reject that case
+	 * using the six flag/enable groups before walking individual vectors.
+	 * Read the registers directly so MMIO writes, reasserted level sources,
+	 * and reset take effect immediately without a cached arbitration result. */
+	if (!((t->reg[FK01_FP03] & t->reg[EK01_EP03] & 0x18u) |
+	      (t->reg[FDMA] & t->reg[EDMA] & 0x0fu) |
+	      (t->reg[F16T01] & t->reg[E16T01] & 0xccu) |
+	      (t->reg[F16T23] & t->reg[E16T23] & 0xccu) |
+	      (t->reg[F16T45] & t->reg[E16T45] & 0xccu) |
+	      (t->reg[FSIF01] & t->reg[ESIF01] & 0x3fu)))
+		return false;
+
 	/* Table III.2.1.1.1 is ordered from highest to lowest fixed priority.
 	 * Keeping the first vector on a tie implements that documented order. */
 	static const uint8_t vectors[] = {

@@ -1,6 +1,7 @@
 /* 16-bit timer pause/read behaviour used by Tick_get(). */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../src/mem.h"
 #include "../src/timer.h"
@@ -56,6 +57,100 @@ static uint32_t tick_get(struct mem *mem)
 	count |= mem_read(mem, TC5, 2) << 16;
 	mem_write(mem, CNT_PAUSE, 2, 0);
 	return count;
+}
+
+static uint32_t random_state = 0x33e07;
+
+static uint32_t next_random(void)
+{
+	random_state = random_state * 1664525u + 1013904223u;
+	return random_state;
+}
+
+/* Polling at instruction granularity and jumping across a wait must give
+ * the same counters, fractional clocks, buffered comparisons and deadlines.
+ * Include zero-time polls, stopped clocks, pauses and the timer 0/5 cascade.
+ */
+static void test_poll_cadence(void)
+{
+	static const uint32_t clocks[] = {
+		0, 2, 3 | (5u << 8), 5, 3 | (7u << 20) | (3u << 2)
+	};
+	static const uint32_t steps[] = { 0, 1, 2, 59, 60, 4096, 1000000 };
+	static const uint16_t bounds[] = { 0, 1, 9, 0x7fff, 0xffff };
+	unsigned comparisons = 0;
+
+	for (unsigned trial = 0; trial < 2000; trial++) {
+		uint64_t fine_clk = 0, bulk_clk = 0;
+		struct cmu cmu;
+		struct itc fine_itc = {0}, bulk_itc = {0};
+		struct timerblk fine = {0};
+		cmu_reset(&cmu);
+		cmu.reg[(0x1b0c - CMU_BASE) / 4] = (9u << 4) | 1;
+		fine.reg[(0x7de - 0x780) / 2] = next_random() >> 31;
+		for (unsigned ch = 0; ch < 6; ch++) {
+			fine.reg[ch * 4 + 3] = (next_random() >> 16) & 0x7d;
+			fine.reg[(0x7e0 - 0x780) / 2 + ch] =
+				(next_random() >> 16) & 0xf;
+			fine.count[ch] = bounds[next_random() % 5];
+			for (unsigned which = 0; which < 2; which++) {
+				/* A=0 shares the B reset edge; its flag semantics
+				 * are not part of this polling-cadence regression.
+				 */
+				fine.compare[ch][which] = which ?
+					bounds[next_random() % 5] :
+					bounds[1 + next_random() % 4];
+				fine.compare_buffer[ch][which] =
+					(uint16_t)(next_random() >> 16) | !which;
+			}
+		}
+		/* Regularly exercise the board's externally clocked timer 5. */
+		if (trial % 2 == 0) {
+			fine.reg[3] = PRUN | PTM | (trial & 2 ? OUTINV : 0);
+			fine.reg[(0x7e0 - 0x780) / 2] = P16TON;
+			fine.reg[5 * 4 + 3] = PRUN | CKSL;
+		}
+		struct timerblk bulk = fine;
+		fine.cycles = &fine_clk;
+		bulk.cycles = &bulk_clk;
+		fine.cmu = bulk.cmu = &cmu;
+		fine.itc = &fine_itc;
+		bulk.itc = &bulk_itc;
+
+		for (unsigned segment = 0; segment < 8; segment++) {
+			/* Change clocks and pause state only at shared poll points. */
+			cmu.reg[(0x1b08 - CMU_BASE) / 4] =
+				clocks[next_random() % 5];
+			cmu.reg[(0x1b04 - CMU_BASE) / 4] =
+				(next_random() >> 16) << 13;
+			fine.reg[(0x7dc - 0x780) / 2] =
+				bulk.reg[(0x7dc - 0x780) / 2] =
+				(next_random() >> 16) & 0x3f;
+			for (unsigned poll = 0; poll < 32; poll++) {
+				fine_clk += steps[next_random() % 7];
+				timer_poll(&fine, NULL); /* ITC enables are all zero. */
+			}
+			bulk_clk = fine_clk;
+			timer_poll(&bulk, NULL);
+			comparisons++;
+			if (memcmp(fine.count, bulk.count, sizeof fine.count) ||
+			    memcmp(fine.phase, bulk.phase, sizeof fine.phase) ||
+			    memcmp(fine.compare, bulk.compare, sizeof fine.compare) ||
+			    memcmp(fine.fires, bulk.fires, sizeof fine.fires) ||
+			    memcmp(fine_itc.reg, bulk_itc.reg, sizeof fine_itc.reg) ||
+			    fine.last_raw != bulk.last_raw ||
+			    fine.deadline_valid != bulk.deadline_valid ||
+			    (fine.deadline_valid &&
+			     fine.next_deadline != bulk.next_deadline)) {
+				printf("poll cadence FAIL: trial %u segment %u\n",
+				       trial, segment);
+				fails++;
+				return;
+			}
+		}
+	}
+	printf("poll cadence: %u counter/phase/match/deadline comparisons ok\n",
+	       comparisons);
 }
 
 int main(void)
@@ -200,6 +295,7 @@ int main(void)
 	check("short wait counter also ignores the debug speedup",
 	      mem_read(&mem, TC2, 2), 0);
 	unsetenv("WREMU_SUSPEND_DIV");
+	test_poll_cadence();
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all timer tests passed");

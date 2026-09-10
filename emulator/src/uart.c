@@ -1,31 +1,6 @@
-/*
- * EFSIF0 serial port -- the console grifo's Serial_print writes to.
- *
- * Register map from samo-lib/include/regs.h:
- *   REG_BASE+0xb00  TXD     transmit data
- *   REG_BASE+0xb01  RXD     receive data
- *   REG_BASE+0xb02  STATUS  bit1 TDBEx (tx buffer empty), bit0 RDBFx (rx full)
- *   REG_BASE+0xb03  CTL
- *   ...             baud rate divisors
- *
- * grifo polls STATUS until TDBEx is set, then stores to TXD
- * (samo-lib/grifo/src/serial.c:82-89). We report the transmitter as always
- * ready, which is correct for an emulator with an infinitely fast UART.
- *
- * The status register's full layout (S1C33E07 Technical Manual, V.1.8.2):
- *
- *   D[7:6] RXDxNUM  receive FIFO occupancy: 0 = "1 or 0", 1 = 2, 2 = 3, 3 = 4
- *   D5     TENDx    1 = transmitting, 0 = end of transmission
- *   D4     FERx     framing error   } all three are cleared by writing 0,
- *   D3     PERx     parity error    } which is what the drivers' comment
- *   D2     OERx     overrun error   } "clear errors" refers to
- *   D1     TDBEx    1 = transmit buffer has room
- *   D0     RDBFx    1 = receive buffer non-empty
- *
- * TENDx is worth care: despite being called the "transmit-completion flag",
- * 1 means transmission is *in progress*. suspend.c waits on
- * "if (0 != (REG_EFSIF0_STATUS & TENDx))" precisely to catch a transmit
- * still running, so reporting 0 here is what says "idle", not "not done".
+/* EFSIF0 console UART. Register layout follows S1C33E07 V.1.8.2.
+ * TX completes immediately; RX has the hardware four-byte FIFO and error
+ * status. Host input is paced separately by main.c.
  */
 
 #include <stdio.h>
@@ -39,6 +14,7 @@
 #define OFF_TXD       0x00
 #define OFF_RXD       0x01
 #define OFF_STATUS    0x02
+#define OFF_CTL       0x03
 
 #define TENDx         (1u << 5)   /* 1 = transmitting, 0 = transmission done */
 #define TDBEx         (1u << 1)   /* transmit data buffer empty */
@@ -57,6 +33,7 @@ static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		switch (reg) {
 		case OFF_TXD:
 			u->tx_count++;
+			if (u->itc) itc_set_flag(u->itc, 58);
 			if (u->out) {
 				fputc((int)(*val & 0xff), u->out);
 				fflush(u->out);
@@ -64,23 +41,32 @@ static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			if (u->capture_len + 1 < sizeof u->capture)
 				u->capture[u->capture_len++] = (char)(*val & 0xff);
 			return true;
+		case OFF_STATUS:
+			u->errors &= (uint8_t)*val;
+			return true;
+		case OFF_CTL:
+			u->control = (uint8_t)*val;
+			return true;
 		default:
-			return true;      /* config registers: accept silently */
+			return true;      /* other configuration registers */
 		}
 	}
 
 	switch (reg) {
 	case OFF_STATUS:
-		/*
-		 * Transmitter always has room and is never mid-transmission
-		 * (TENDx clear); nothing ever arrives on rx, so RDBFx is
-		 * clear and the FIFO occupancy is zero. No error flags: this
-		 * link cannot frame, parity or overrun.
-		 */
-		*val = TDBEx | RXDNUM(0);
+		*val = TDBEx | RXDNUM(u->rx_count) | u->errors |
+		       (u->rx_count ? RDBFx : 0);
 		return true;
 	case OFF_RXD:
 		*val = 0;
+		if (u->rx_count) {
+			*val = u->rx[u->rx_head];
+			u->rx_head = (u->rx_head + 1) % sizeof u->rx;
+			u->rx_count--;
+		}
+		return true;
+	case OFF_CTL:
+		*val = u->control;
 		return true;
 	default:
 		*val = 0;
@@ -93,4 +79,39 @@ void uart_attach(struct mem *m, struct uart *u, FILE *out)
 	memset(u, 0, sizeof *u);
 	u->out = out;
 	mem_add_mmio(m, "efsif0", EFSIF0_BASE, EFSIF0_LEN, uart_mmio, u);
+}
+
+void uart_reset(struct uart *u)
+{
+	u->rx_head = u->rx_count = u->control = u->errors = 0;
+}
+
+bool uart_can_receive(const struct uart *u)
+{
+	return (u->control & 0x40) && u->rx_count < sizeof u->rx;
+}
+
+bool uart_receive(struct uart *u, uint8_t byte)
+{
+	if (!(u->control & 0x40))
+		return false;
+	if (u->rx_count == sizeof u->rx) {
+		u->errors |= 4; /* OER: discard the arriving byte on overflow. */
+		uart_poll(u);
+		return false;
+	}
+	u->rx[(u->rx_head + u->rx_count) % sizeof u->rx] = byte;
+	u->rx_count++;
+	uart_poll(u);
+	return true;
+}
+
+void uart_poll(struct uart *u)
+{
+	if (!u->itc)
+		return;
+	if (u->rx_count)
+		itc_set_flag(u->itc, 57);
+	if (u->errors)
+		itc_set_flag(u->itc, 56);
 }

@@ -512,3 +512,26 @@ Do not add unused SoC peripherals solely for completeness.
 - An emulator/firmware match alone is not proof of silicon behavior; the
   manual, binutils, focused model tests, and differential runs provide the
   independent checks above.
+
+## UART0 console input
+
+`--uart-input FILE` feeds bytes to the console UART through its four-byte RX
+FIFO and interrupt controller. Use `-` for stdin. `--uart-start N` delays the
+first byte until cycle N (default 1,000,000); `--uart-gap N` spaces bytes by
+N cycles (default 50,000). File input is backpressured when the FIFO is full.
+Newlines are passed unchanged. These options are independent of `-K`, which
+types on the original firmware's touch keyboard.
+
+For an NSH image, for example:
+
+```sh
+./wremu --uart-input commands.txt --uart-start 1000000 -n 100000000 nuttx
+```
+
+`make test-uart` checks FIFO ordering, overflow, receive/error interrupt
+priority, flag reassertion while data remains, and UART reset. TX remains an
+immediately completed transfer in the model.
+
+Scripted `-T` taps, `-N` buttons and `-G` drags each accept up to 256 events.
+Malformed events and scripts exceeding this limit are rejected instead of
+silently dropping input. This accommodates full NuttX soft-keyboard commands.

@@ -69,11 +69,74 @@ static struct c33 run(unsigned il, unsigned prio)
 	return c;
 }
 
+static void check_pending_groups(void)
+{
+	/* Compare group rejection with individual documented cause bits.
+	 * Include reserved bits, mismatched flag/enables, zero priorities,
+	 * simultaneous causes and repeated reads of the same register state. */
+	static const uint8_t vectors[6][8] = {
+		{0, 0, 0, 19, 20, 0, 0, 0},
+		{22, 23, 24, 25, 0, 0, 0, 0},
+		{0, 0, 30, 31, 0, 0, 34, 35},
+		{0, 0, 38, 39, 0, 0, 42, 43},
+		{0, 0, 46, 47, 0, 0, 50, 51},
+		{56, 57, 58, 60, 61, 62, 0, 0}
+	};
+	static const unsigned flagreg[] = {0x80, 0x81, 0x82, 0x83, 0x84, 0x86};
+	static const unsigned enablereg[] = {0x70, 0x71, 0x72, 0x73, 0x74, 0x76};
+	struct itc t = {0};
+	unsigned seed = 1234567;
+	bool good = true;
+	for (unsigned trial = 0; trial < 20000 && good; trial++) {
+		for (unsigned i = 0; i < sizeof t.reg; i++) {
+			seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+			t.reg[i] = (uint8_t)seed;
+		}
+		if (trial < 384) {
+			/* Exhaust every individual flag/enable bit pairing. */
+			for (unsigned g = 0; g < 6; g++)
+				t.reg[flagreg[g]] = t.reg[enablereg[g]] = 0;
+			unsigned g = trial / 64;
+			t.reg[flagreg[g]] = 1u << ((trial / 8) % 8);
+			t.reg[enablereg[g]] = 1u << (trial % 8);
+		} else if (trial % 3 == 0) {
+			for (unsigned g = 0; g < 6; g++)
+				t.reg[flagreg[g]] = 0;
+		} else if (trial % 3 == 1) {
+			for (unsigned g = 0; g < 6; g++)
+				t.reg[enablereg[g]] = 0;
+		}
+		unsigned want_v = ~0u, want_p = ~0u, best = 0;
+		for (unsigned g = 0; g < 6; g++) {
+			for (unsigned bit = 0; bit < 8; bit++) {
+				unsigned v = vectors[g][bit];
+				if (!v || !(t.reg[flagreg[g]] & (1u << bit)) ||
+				    !(t.reg[enablereg[g]] & (1u << bit)))
+					continue;
+				unsigned p = itc_priority(&t, v);
+				if (p > best) {
+					want_v = v; want_p = best = p;
+				}
+			}
+		}
+		for (unsigned repeat = 0; repeat < 2; repeat++) {
+			unsigned v = ~0u, p = ~0u;
+			bool found = itc_next_irq(&t, &v, &p);
+			if (found != (best != 0) || v != want_v || p != want_p) {
+				printf("arbitration mismatch at trial %u\n", trial);
+				good = false;
+			}
+		}
+	}
+	check("pending-group fast path matches 20000 register states", good, 1);
+}
+
 int main(void)
 {
 	char buf[128];
 	struct itc itc = {0};
 	struct mem mem;
+	check_pending_groups();
 
 	/* Each source must use its own documented priority field.  Distinct
 	 * values keep coincidentally equal firmware settings from hiding swaps. */

@@ -5,6 +5,10 @@
  */
 
 #include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,7 +31,7 @@
 #include "dma.h"
 
 /* Scripted taps and button presses accepted on the command line. */
-#define NSCRIPT 8
+#define NSCRIPT 256
 static unsigned long hold_cycles = 2000000UL;
 
 static void usage(const char *p)
@@ -45,6 +49,9 @@ static void usage(const char *p)
 		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
 		"  -c F   attach FAT32 card image F\n"
 		"  -R     open the card image read-only\n"
+		"  --uart-input F  receive console bytes from F (- for stdin)\n"
+		"  --uart-start N  first console byte cycle (default 1000000)\n"
+		"  --uart-gap N    cycles between console bytes (default 50000)\n"
 		"  -D A   dump memory starting at address A\n"
 		"  -L N   memory dump length (default 64)\n"
 		"  -O F   write the memory dump as binary file F\n"
@@ -204,6 +211,9 @@ int main(int argc, char **argv)
 	bool gui = false; int gui_scale = 3;
 	bool profile = false;
 	bool card_readonly = false;
+	const char *uart_input = NULL;
+	int uart_fd = -1;
+	uint64_t uart_due = 1000000, uart_gap = 50000;
 	if (getenv("WREMU_HOLD_MS"))
 		hold_cycles = strtoul(getenv("WREMU_HOLD_MS"), NULL, 0) * 60000UL;
 	unsigned long drag_spacing = 300000UL;
@@ -329,6 +339,22 @@ int main(int argc, char **argv)
 			eeprom_path = argv[++i];
 		else if (!strcmp(argv[i], "-c") && i + 1 < argc)
 			card = argv[++i];
+		else if (!strcmp(argv[i], "--uart-input") && i + 1 < argc)
+			uart_input = argv[++i];
+		else if ((!strcmp(argv[i], "--uart-start") ||
+		          !strcmp(argv[i], "--uart-gap")) && i + 1 < argc) {
+			bool gap = !strcmp(argv[i], "--uart-gap");
+			char *end;
+			const char *number = argv[++i];
+			errno = 0;
+			uint64_t value = strtoull(number, &end, 0);
+			if (errno || end == number || *end || *number == '-' ||
+			    (gap && value == 0)) {
+				fprintf(stderr, "invalid UART cycle value: %s\n", number);
+				return 1;
+			}
+			if (gap) uart_gap = value; else uart_due = value;
+		}
 		else if (!strcmp(argv[i], "-R"))
 			card_readonly = true;
 		else if (!strcmp(argv[i], "-m"))
@@ -353,23 +379,32 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-T") && i + 1 < argc) {
 			/* scripted tap: -T x,y,cycle (repeatable) */
 			struct script_tap t = { -1, -1, 0, false, false };
-			sscanf(argv[++i], "%d,%d,%lu", &t.x, &t.y, &t.at);
-			if (t.x >= 0 && ntaps < NSCRIPT)
-				taps[ntaps++] = t;
+			if (sscanf(argv[++i], "%d,%d,%lu", &t.x, &t.y, &t.at) != 3 ||
+			    t.x < 0 || ntaps >= NSCRIPT) {
+				fprintf(stderr, "invalid or too many scripted tap events (max %d)\n", NSCRIPT);
+				return 2;
+			}
+			taps[ntaps++] = t;
 		}
 		else if (!strcmp(argv[i], "-N") && i + 1 < argc) {
 			/* scripted button: -N code,cycle  (0 random 1 search 2 history 3 power), repeatable */
 			struct script_btn b = { -1, 0, false, false };
-			sscanf(argv[++i], "%d,%lu", &b.code, &b.at);
-			if (b.code >= 0 && nbtns < NSCRIPT)
-				btns[nbtns++] = b;
+			if (sscanf(argv[++i], "%d,%lu", &b.code, &b.at) != 2 ||
+			    b.code < 0 || nbtns >= NSCRIPT) {
+				fprintf(stderr, "invalid or too many scripted button events (max %d)\n", NSCRIPT);
+				return 2;
+			}
+			btns[nbtns++] = b;
 		}
 		else if (!strcmp(argv[i], "-G") && i + 1 < argc) {
 			/* scripted drag: -G x,y0,y1,cycle (repeatable) */
 			struct script_drag g = { -1, 0, 0, 0, false, 0 };
-			sscanf(argv[++i], "%d,%d,%d,%lu", &g.x, &g.y0, &g.y1, &g.at);
-			if (g.x >= 0 && ndrags < NSCRIPT)
-				drags[ndrags++] = g;
+			if (sscanf(argv[++i], "%d,%d,%d,%lu", &g.x, &g.y0, &g.y1, &g.at) != 4 ||
+			    g.x < 0 || ndrags >= NSCRIPT) {
+				fprintf(stderr, "invalid or too many scripted drag events (max %d)\n", NSCRIPT);
+				return 2;
+			}
+			drags[ndrags++] = g;
 		}
 		else if (!strcmp(argv[i], "-S") && i + 1 < argc)
 			gui_scale = (int)strtoul(argv[++i], NULL, 0);
@@ -458,6 +493,15 @@ int main(int argc, char **argv)
 
 	struct itc itc;
 	itc_attach(&mem, &itc);
+	uart.itc = &itc;
+	if (uart_input) {
+		uart_fd = !strcmp(uart_input, "-") ? STDIN_FILENO :
+			open(uart_input, O_RDONLY | O_NONBLOCK);
+		if (uart_fd < 0) {
+			perror(uart_input);
+			return 1;
+		}
+	}
 
 	struct cmu cmu;
 	cmu_attach(&mem, &cmu);
@@ -659,6 +703,7 @@ int main(int argc, char **argv)
 						 &dma,
 						 eeprom_path ? &eeprom : NULL,
 						 path, entry, boot_sp);
+				uart_reset(&uart);
 				powered = true;
 				disp.powered = true;
 			}
@@ -962,6 +1007,29 @@ int main(int argc, char **argv)
 		}
 
 
+		/* Host input stays outside the UART model. Never block the CPU
+		 * on a terminal read or overrun the emulated FIFO while feeding a
+		 * file. A cycle deadline also participates in headless HALT waits.
+		 */
+		if (uart_fd >= 0 && cpu.cycles >= uart_due) {
+			uart_due = cpu.cycles + uart_gap;
+			struct pollfd input = { .fd = uart_fd, .events = POLLIN };
+			if (uart_can_receive(&uart) && poll(&input, 1, 0) > 0) {
+				uint8_t byte;
+				ssize_t n = read(uart_fd, &byte, 1);
+				if (n == 1)
+					uart_receive(&uart, byte);
+				else if (n == 0) {
+					if (uart_fd != STDIN_FILENO) close(uart_fd);
+					uart_fd = -1;
+				} else if (errno != EAGAIN && errno != EINTR) {
+					perror("UART input");
+					stop = "UART input error";
+					break;
+				}
+			}
+		}
+		uart_poll(&uart);
 		timer_poll(&timer, &cpu);
 		wdt_poll(&wdt);
 		if (wdt.expired) {
@@ -1052,6 +1120,8 @@ int main(int argc, char **argv)
 				continue;
 			}
 			unsigned long long next = limit;
+			if (uart_fd >= 0 && uart_due < next)
+				next = uart_due;
 			/*
 			 * Peripheral deadlines are on the MCLK timeline. DMA bus
 			 * phases advance that clock without retiring CPU cycles, so
@@ -1146,6 +1216,7 @@ int main(int argc, char **argv)
 	}
 
 done:
+	if (uart_fd >= 0 && uart_fd != STDIN_FILENO) close(uart_fd);
 	if (stop && strcmp(stop, "breakpoint") &&
 	    strcmp(stop, "window closed") && strcmp(stop, "powered off")) {
 		printf("\nlast %d PCs before %s:\n", RING, stop);

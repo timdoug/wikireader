@@ -186,7 +186,12 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
+check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)
+
+.PHONY: test-uart
+test-uart: tools/test_uart.c src/uart.o src/itc.o src/mem.o
+	$(CC) $(CFLAGS) -o /tmp/test_uart $^ $(SDL_LIBS)
+	/tmp/test_uart

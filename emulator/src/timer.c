@@ -203,11 +203,12 @@ static uint32_t input_hz(const struct timerblk *t)
 	return t->cmu ? cmu_mclk_hz(t->cmu) : RAW_HZ;
 }
 
-static uint32_t suspend_speedup(unsigned channel, const struct timerblk *t)
+static uint32_t suspend_speedup(unsigned channel, const struct timerblk *t,
+				uint32_t hz)
 {
 	/* Timer 2 also wakes short CPU-only waits at full speed. Accelerate
 	 * only the deep-suspend configuration (OSC3/32, prescaler /4096). */
-	if (channel != 2 || input_hz(t) != OSC3_HZ / 32 ||
+	if (channel != 2 || hz != OSC3_HZ / 32 ||
 	    (t->reg[clkctl_offset(channel) / 2u] & 7u) != 7u)
 		return 1;
 	const char *s = getenv("WREMU_SUSPEND_DIV");
@@ -267,6 +268,26 @@ static uint64_t clocks_to_a(const struct timerblk *t, unsigned channel)
 	return n ? n : 65536u;
 }
 
+static void schedule_channel(struct timerblk *t, unsigned channel, uint64_t now,
+			     uint64_t denominator, uint64_t rate)
+{
+	uint64_t ticks = clocks_to_b(t, channel);
+	uint64_t a = clocks_to_a(t, channel);
+	if (a < ticks)
+		ticks = a;
+	uint64_t need = ticks * denominator;
+	if (need > t->phase[channel])
+		need -= t->phase[channel];
+	else
+		need = 1;
+	uint64_t delta = (need + rate - 1) / rate;
+	uint64_t deadline = now + (delta ? delta : 1);
+	if (!t->deadline_valid || deadline < t->next_deadline) {
+		t->deadline_valid = true;
+		t->next_deadline = deadline;
+	}
+}
+
 static void schedule_deadline(struct timerblk *t, uint64_t now)
 {
 	uint32_t hz = input_hz(t);
@@ -277,24 +298,9 @@ static void schedule_deadline(struct timerblk *t, uint64_t now)
 	for (unsigned channel = 0; channel < 6; channel++) {
 		if (!internally_running(t, channel))
 			continue;
-		uint64_t ticks = clocks_to_b(t, channel);
-		uint64_t a = clocks_to_a(t, channel);
-		if (a < ticks)
-			ticks = a;
 		uint64_t denominator = (uint64_t)RAW_HZ * prescale(channel, t);
-		uint64_t need = ticks * denominator;
-		if (need > t->phase[channel])
-			need -= t->phase[channel];
-		else
-			need = 1;
-		uint64_t speedup = suspend_speedup(channel, t);
-		uint64_t delta = (need + (uint64_t)hz * speedup - 1) /
-				 ((uint64_t)hz * speedup);
-		uint64_t deadline = now + (delta ? delta : 1);
-		if (!t->deadline_valid || deadline < t->next_deadline) {
-			t->deadline_valid = true;
-			t->next_deadline = deadline;
-		}
+		uint64_t rate = (uint64_t)hz * suspend_speedup(channel, t, hz);
+		schedule_channel(t, channel, now, denominator, rate);
 	}
 }
 
@@ -304,20 +310,29 @@ static void timer_sync(struct timerblk *t)
 	uint64_t elapsed = now - t->last_raw;
 	uint32_t hz = input_hz(t);
 	t->last_raw = now;
+	t->deadline_valid = false;
 
 	struct matches channel0 = { 0, 0 };
 	for (unsigned channel = 0; channel < 6; channel++) {
 		if (!internally_running(t, channel) || !hz)
 			continue;
 		uint64_t denominator = (uint64_t)RAW_HZ * prescale(channel, t);
-		uint64_t numerator = t->phase[channel] + elapsed * hz *
-				     suspend_speedup(channel, t);
-		uint64_t ticks = numerator / denominator;
-		t->phase[channel] = numerator % denominator;
-		struct matches m = advance_channel(t, channel, ticks);
-		record_matches(t, channel, m);
-		if (channel == 0)
-			channel0 = m;
+		uint64_t rate = (uint64_t)hz * suspend_speedup(channel, t, hz);
+		uint64_t numerator = t->phase[channel] + elapsed * rate;
+		if (numerator < denominator) {
+			/* Usually less than one prescaled tick has elapsed. */
+			t->phase[channel] = numerator;
+		} else {
+			uint64_t ticks = numerator / denominator;
+			t->phase[channel] = numerator % denominator;
+			struct matches m = advance_channel(t, channel, ticks);
+			record_matches(t, channel, m);
+			if (channel == 0)
+				channel0 = m;
+		}
+
+		/* Reuse the clock calculation for the next match deadline. */
+		schedule_channel(t, channel, now, denominator, rate);
 	}
 
 	/*
@@ -331,7 +346,6 @@ static void timer_sync(struct timerblk *t)
 		struct matches m = advance_channel(t, 5, pulses);
 		record_matches(t, 5, m);
 	}
-	schedule_deadline(t, now);
 }
 
 void timer_poll(struct timerblk *t, struct c33 *cpu)
