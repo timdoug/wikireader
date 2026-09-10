@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include "zim_copy.h"
 
 #include "lcd_buf_draw.h"
 #include "zim_html.h"
@@ -562,14 +563,14 @@ finish:
 		goto error;
 	while (link_count && link_count * sizeof(*links) > capacity - used)
 		link_count--;
-	memmove(article + sizeof(header) + link_count * sizeof(*links),
+	zim_copy(article + sizeof(header) + link_count * sizeof(*links),
 		article + sizeof(header), used - sizeof(header));
 	header.article_link_count = (uint16_t)link_count;
 	header.offset_article = (uint32_t)(sizeof(header) +
 		link_count * sizeof(*links));
 	memcpy(article, &header, sizeof(header));
 	if (link_count)
-		memcpy(article + sizeof(header), links,
+		zim_copy(article + sizeof(header), links,
 		       link_count * sizeof(*links));
 	used += link_count * sizeof(*links);
 	*article_size = used;

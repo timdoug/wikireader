@@ -55,6 +55,9 @@ SECTIONS
          __START_text = . ;
          /* .text.* too; see the note in grifo.lds.  */
          *(.text .text.*)
+         /* Bulk-copy dispatch is appended to preserve existing hot loops'
+            instruction-queue alignment when the ZIM app adds wrappers. */
+         *(.copycode)
          /* so the overlays stored after it are word-aligned and copied
             into IVRAM by words (zim_overlay.c) */
          . = ALIGN(4);
@@ -63,7 +66,8 @@ SECTIONS
 
     .fastcode : {
          __START_fastcode = . ;
-         *(.fastcode .fastcode.*)   /* .fastcode.pic: position-independent tests */
+         *(.fastcode)
+         *(.fastcode.*)   /* .fastcode.pic: position-independent tests */
     } > fastram
     __END_fastcode = . ;
     /* Zero-initialised data beside it (the Zstandard sequence state); the
@@ -84,10 +88,10 @@ SECTIONS
        --change-section-vma); ld's __load_start_* symbols still give the
        load addresses. */
     OVERLAY : NOCROSSREFS {
-        ovlhtml { *(ovlhtml) }
-        ovlwrap { *(ovlwrap) }
-        ovlhuf  { *(ovlhuf) }
-        ovlwebp { *(ovlwebp) }
+        ovlhtml { *(ovlhtml) . = ALIGN(4); }
+        ovlwrap { *(ovlwrap) . = ALIGN(4); }
+        ovlhuf  { *(ovlhuf) . = ALIGN(4); }
+        ovlwebp { *(ovlwebp) . = ALIGN(4); }
         ovldither { *(ovldither) . = ALIGN(4); *(ovlditherdata) }
     } > ivram AT> sdram
     ASSERT(SIZEOF(ovlhtml) <= 0x1600, "the HTML overlay exceeds the IVRAM window buffer")

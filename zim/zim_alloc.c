@@ -71,7 +71,7 @@ static unsigned long pair_ticks(const unsigned char *a, const unsigned char *b,
 	return timer_get() - start;
 }
 
-static size_t bank_size(void)
+size_t zim_memory_bank_size(void)
 {
 	static size_t measured;
 	const unsigned char *base;
@@ -95,6 +95,8 @@ static size_t bank_size(void)
 	}
 	return measured;
 }
+
+#define bank_size zim_memory_bank_size
 
 static int inside_one_bank(const void *memory, size_t size)
 {

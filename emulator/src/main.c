@@ -1266,6 +1266,9 @@ done:
 	       dma.invalid_descriptors, dma.bus_cycles);
 	printf("--- dma channels: HSDMA2 TX %lu, HSDMA3 RX %lu ---\n",
 	       dma.hsdma_channel_transfers[2], dma.hsdma_channel_transfers[3]);
+	if (dma.hsdma_channel_transfers[0] || dma.hsdma_channel_transfers[1])
+		printf("--- dma memory: HSDMA0 %lu, HSDMA1 %lu units ---\n",
+		       dma.hsdma_channel_transfers[0], dma.hsdma_channel_transfers[1]);
 	printf("--- sdram: %llu wait cycles, %llu refreshes, %llu self-refresh exits;"
 	       " IQB %llu/%llu hit/miss, DQB %llu/%llu hit/miss,"
 	       " %llu writes, %llu row activations ---\n",

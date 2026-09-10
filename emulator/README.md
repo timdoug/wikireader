@@ -301,8 +301,29 @@ the new pipeline. The physical startup test measured 2.182731 s of file DMA
 wait against the model's 2.119200 s, with no read errors or fallback. Total
 startup was 3.511686 s on hardware versus 3.309662 s in the model. One
 recorded boot supports this comparison; other workloads still need validation.
-Other DMA modes/triggers, preemption within a DMA unit, and cycle-level
-CPU/DMA arbitration remain unmodeled.
+Software-triggered HSDMA also supports single, successive and block transfers,
+fixed/incrementing/decrementing addresses, and address restoration at the end
+of a successive transfer or each block. Each unit performs a read followed by
+a write through the SDRAM timing model. With unlimited sequential access the
+CPU's bus access stalls for the whole trigger. Limited sequential access,
+other hardware triggers, preemption within a DMA unit, and cycle-level
+CPU/DMA arbitration remain unmodeled. Nonzero access-time limits on multi-unit
+transfers are rejected rather than silently timed as unlimited transfers.
+
+Memory DMA uses the separate, uncalibrated `dma_mem_extra` parameter (default
+zero additional MCLK cycles per unit); the fitted SPI `dma_extra=30` is not
+applied to it. The CPU-only internal-code data-read allowance is also excluded
+from DMA accesses. The [memory-copy benchmark](tools/mem_dma_bench/README.md)
+compares the same app on the model and physical hardware, with an unchanged
+kernel. `make test-mem-dma` checks the added controller semantics independently.
+
+ITC reset uses zero cause flags as a deterministic choice; the hardware manual
+marks them indeterminate. The reader's first integrated memory-copy test found
+`FDMA=0x17` with all channels disabled: its guard treated HSDMA0's reset cause
+as an outstanding transfer and skipped every copy. The C33 `test-zim-copy`
+suite exercises both set and cleared causes, including initialization of an
+unconfigured channel and preservation of a configured owner's completion.
+See the [hardware diagnosis](../zim/PERFORMANCE.md#dma-selection-diagnostics).
 
 SPI interrupt-enable and receive-mask registers are retained, and the receive
 mask is applied to received data. The summary's `spi config` line counts

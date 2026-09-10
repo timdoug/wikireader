@@ -31,6 +31,7 @@ void zim_blob_set_reader_buffer(const void *buffer);
 #include "zim_link.h"
 #include "zim_overlay.h"
 #include "zim_startup.h"
+#include "zim_copy.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -749,9 +750,9 @@ static void article_cache_store_current(void)
 	entry->data = memory_allocate(needed, "zim-articles");
 	if (!entry->data)
 		return;
-	memcpy(entry->data, file_buffer, current_article_size);
+	zim_copy(entry->data, file_buffer, current_article_size);
 	memcpy(entry->data, &current_article_header, sizeof(current_article_header));
-	memcpy(entry->data + align_up(current_article_size), text_buffer,
+	zim_copy(entry->data + align_up(current_article_size), text_buffer,
 	       article_text_size);
 	images = (CACHED_IMAGE *)(entry->data + images_at);
 	for (i = 0; i < deferred_image_count; i++) {
@@ -829,8 +830,8 @@ static int article_cache_restore(uint32_t index)
 			return 0;
 	}
 	deferred_anchor_count = 0;
-	memcpy(file_buffer, entry->data, entry->stream_size);
-	memcpy(text_buffer, entry->data + align_up(entry->stream_size),
+	zim_copy(file_buffer, entry->data, entry->stream_size);
+	zim_copy(text_buffer, entry->data + align_up(entry->stream_size),
 	       entry->text_size);
 	images = (const CACHED_IMAGE *)(entry->data +
 		align_up(entry->stream_size) + align_up(entry->text_size));
@@ -1163,7 +1164,7 @@ void search_reload(int flag)
 		guilib_clear();
 	else if (buffered) {
 		render_buffer = (unsigned char *)search_render_buffer;
-		memcpy(render_buffer, framebuffer, LCD_BUFFER_SIZE_BYTES);
+		zim_copy(render_buffer, framebuffer, LCD_BUFFER_SIZE_BYTES);
 		guilib_buffer_clear_area(render_buffer, LCD_WIDTH, LCD_HEIGHT,
 					 LCD_BUFFER_WIDTH_BYTES, 0, 0,
 					 LCD_BUF_WIDTH_PIXELS - 1,
@@ -1220,7 +1221,7 @@ void search_reload(int flag)
 		y += RESULT_HEIGHT;
 	}
 	if (buffered)
-		memcpy(framebuffer, render_buffer,
+		zim_copy(framebuffer, render_buffer,
 		       (LCD_HEIGHT - KEYBOARD_HEIGHT) * LCD_BUFFER_WIDTH_BYTES);
 	guilib_fb_unlock();
 }

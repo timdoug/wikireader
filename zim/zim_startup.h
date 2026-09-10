@@ -8,5 +8,6 @@ void zim_startup_file_ready(void);
 void zim_startup_archive_ready(void);
 void zim_startup_keyboard_ready(void);
 void zim_startup_flush(void);
+int zim_startup_logging(void);
 
 #endif

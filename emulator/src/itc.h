@@ -13,6 +13,8 @@
 struct itc {
 	uint8_t reg[ITC_LEN];
 	unsigned long writes;
+	void (*hsdma_trigger)(void *ctx, unsigned channels);
+	void *hsdma_ctx;
 };
 
 void itc_attach(struct mem *m, struct itc *t);

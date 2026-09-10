@@ -11,6 +11,9 @@ static unsigned long app_start, ticks[4];
 static file_io_stats_t stats[4];
 static const char *path;
 
+int __attribute__((section(".copycode"))) zim_startup_logging(void)
+{ return enabled; }
+
 void zim_startup_init(void)
 {
 	unsigned long size;

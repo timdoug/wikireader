@@ -4563,6 +4563,41 @@ FRESULT f_getcwd (
 /*-----------------------------------------------------------------------*/
 
 #if FF_USE_FASTSEEK
+#if FF_FASTSEEK_CACHE_SECTORS && FF_FS_EXFAT
+/* Scan a bounded slice of already-read allocation data. Four checks per
+ * loop reduce taken branches. C33 runs this leaf from the kernel's A0 copy
+ * so fetching instructions cannot compete with the sequential data reads.
+ * Return the last link and how many entries were consumed, including a
+ * non-contiguous/invalid link; create_clmt retains all validation. */
+#if defined(__c33__)
+__attribute__((section(".suspend_text.fatscan"), noinline, used))
+#endif
+static DWORD clmt_scan (const DWORD *entry, UINT *count, DWORD cluster)
+{
+	const DWORD *first = entry;
+	UINT left = *count;
+	DWORD next = 0;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define CLMT_WORD(p) (*(p))
+#else
+#define CLMT_WORD(p) ld_32((const BYTE*)(p))
+#endif
+#define SCAN_LINK() do { \
+	next = CLMT_WORD(entry++) & 0x7FFFFFFF; \
+	if (next != ++cluster) goto done; \
+} while (0)
+	while (left >= 4) {
+		SCAN_LINK(); SCAN_LINK(); SCAN_LINK(); SCAN_LINK();
+		left -= 4;
+	}
+	while (left--) SCAN_LINK();
+done:
+	*count = (UINT)(entry - first);
+	return next;
+#undef SCAN_LINK
+#undef CLMT_WORD
+}
+#endif
 /* The platform enabling read-ahead serializes filesystem calls. Keep the
  * buffer in BSS: the C33 compiler can clobber condition flags when expanding
  * a large stack-frame adjustment. Only the local range below makes cached
@@ -4580,6 +4615,14 @@ static FRESULT create_clmt (FIL* fp)
 	static DWORD cache[FF_FASTSEEK_CACHE_SECTORS * FF_MAX_SS / 4];
 	LBA_t cache_sector = (LBA_t)-1;
 	UINT cache_count = 0;
+#if defined(__c33__)
+	extern const BYTE __START_SuspendCode[], __START_suspend[];
+	DWORD (*scan)(const DWORD *, UINT *, DWORD) =
+		(DWORD (*)(const DWORD *, UINT *, DWORD))(__START_SuspendCode +
+			((const BYTE *)clmt_scan - __START_suspend));
+#else
+	DWORD (*scan)(const DWORD *, UINT *, DWORD) = clmt_scan;
+#endif
 	int cached_fat = fs->fs_type == FS_EXFAT &&
 		fp->obj.stat == 0 && fp->obj.n_frag == 0;
 #if !FF_FS_READONLY
@@ -4597,7 +4640,7 @@ static FRESULT create_clmt (FIL* fp)
 #if FF_FASTSEEK_CACHE_SECTORS && FF_FS_EXFAT
 				if (cached_fat) {
 					LBA_t sector = fs->fatbase + cl / (SS(fs) / 4);
-					const DWORD *entry, *end;
+					const DWORD *entry;
 					UINT available;
 					DWORD next;
 					if (sector - fs->fatbase >= fs->fsize) return FR_INT_ERR;
@@ -4612,19 +4655,10 @@ static FRESULT create_clmt (FIL* fp)
 					entry = cache + (UINT)(sector - cache_sector) * (SS(fs) / 4) + cl % (SS(fs) / 4);
 					available = (UINT)(cache + cache_count * (SS(fs) / 4) - entry);
 					if (available > fs->n_fatent - cl) available = (UINT)(fs->n_fatent - cl);
-					if (available > 128) available = 128;
-					end = entry + available;
-					/* Check a run with sequential loads. Geometry, cache and
-					 * watchdog checks belong outside this per-entry loop. */
-					do {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-						/* This buffer is an aligned DWORD array, unlike fs->win. */
-						next = *entry++ & 0x7FFFFFFF;
-#else
-						next = ld_32((const BYTE*)entry++) & 0x7FFFFFFF;
-#endif
-						if (next != ++pcl) break;
-					} while (entry < end);
+					/* At most 16 KiB of cached data between watchdog calls. */
+					if (available > 4096) available = 4096;
+					next = scan(entry, &available, pcl);
+					pcl += available;
 					ncl += pcl - cl;
 					walked += pcl - cl;
 					pcl--;

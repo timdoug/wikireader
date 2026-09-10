@@ -123,6 +123,18 @@ test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o 
 	$(CC) $(CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
 	/tmp/test_dma
 
+# Software-triggered memory DMA, independent of the fitted SPI allowance.
+.PHONY: test-mem-dma
+test-mem-dma: tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_mem_dma tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
+	/tmp/test_mem_dma
+
+# Requires the built Grifo kernel, libc and the local C33 toolchain.
+.PHONY: test-zim-copy
+test-zim-copy: wremu
+	python3 tools/test_zim_copy.py
+	python3 tools/test_zim_copy.py --fault
+
 # Execute the production C33 backend, including failed DMA recovery. Requires
 # the local C33 toolchain; the test creates its own one-sector card image.
 .PHONY: test-sd-dma-driver

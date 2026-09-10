@@ -16,6 +16,8 @@ PROGRAM = zim
 ICON = YES
 SIMULATE = NO
 
+lib/libapplication.a: Makefile
+
 vpath %.c ${ROOT_DIR}/wiki ${ROOT_DIR}/zim/zstd
 vpath %.s ${ROOT_DIR}/zim/zstd
 vpath %.c ${ROOT_DIR}/zim/webp/src/dec
@@ -45,6 +47,8 @@ SOURCES += utf8.c
 SOURCES += wiki_info.c
 SOURCES += wikilib.c
 SOURCES += zim_alloc.c
+LDFLAGS += --wrap=retrieve_article --wrap=render_article_with_pcf
+build/zim_copy.o: CFLAGS += -mlong-calls
 SOURCES += zim_archive.c
 SOURCES += zim_article.c
 SOURCES += zim_blob.c
@@ -113,6 +117,11 @@ SOURCES += random_utils.c
 SOURCES += rescaler_utils.c
 SOURCES += thread_utils.c
 SOURCES += utils.c
+
+# Append the new dispatcher so existing SDRAM/overlay hot loops retain
+# their instruction-queue alignment.
+SOURCES += zim_copy.c
+SOURCES += zim_page.c
 
 IMAGES += keyboard_123.png
 IMAGES += keyboard_abc2_jp.png

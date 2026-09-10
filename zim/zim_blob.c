@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include "zim_copy.h"
 
 #if defined(__c33__)
 void *zim_alloc_bank_local(size_t size);
@@ -186,7 +187,7 @@ static void copy_output_range(unsigned char *destination, size_t capacity,
 	if (amount > capacity - destination_offset)
 		amount = capacity - destination_offset;
 	if (amount)
-		memcpy(destination + destination_offset,
+		zim_copy(destination + destination_offset,
 		       output + (size_t)(copy_start - output_offset), amount);
 }
 
@@ -681,7 +682,7 @@ static int read_zstd_blob(const ZIM_ARCHIVE *archive,
 	*blob_size = blob_end - blob_start;
 	amount = *blob_size < capacity ? *blob_size : capacity;
 	if (amount)
-		memcpy(buffer, cluster.output + blob_start, amount);
+		zim_copy(buffer, cluster.output + blob_start, amount);
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 

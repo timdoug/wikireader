@@ -319,7 +319,8 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 
 	/* Data from code that is not itself coming over this bus; see
 	   model.h. */
-	if (halfwords <= 2 && wremu_cur_pc < 0x10000000u)
+	if (halfwords <= 2 && current_kind != MEM_DMA_READ &&
+	    wremu_cur_pc < 0x10000000u)
 		extra += model.dq_iram_extra * tick;
 
 	/* A read after a write waits for write recovery and the bus turn. */

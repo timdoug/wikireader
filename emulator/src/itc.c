@@ -78,6 +78,12 @@ static bool itc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		for (unsigned k = 0; k < size; k++) {
 			uint32_t a = i + k;
 			uint8_t v = (uint8_t)(*val >> (8 * k));
+			/* II.1.5: HST[3:0] issue software requests and read as zero. */
+			if (a == 0x9au) {
+				if (t->hsdma_trigger)
+					t->hsdma_trigger(t->hsdma_ctx, v & 15u);
+				continue;
+			}
 			if (a >= FLAG_LO && a < FLAG_HI &&
 			    (t->reg[RST_RESET] & RSTONLY))
 				t->reg[a] &= (uint8_t)~v;   /* write 1 to clear */
@@ -242,13 +248,18 @@ void itc_set_flag(struct itc *t, unsigned vector)
 /* Reset state without re-registering the device. */
 void itc_reset(struct itc *t)
 {
-	memset(t, 0, sizeof *t);
+	/* Deterministic choice, not a hardware guarantee: interrupt causes
+	 * including FDMA are indeterminate at reset (III-2-42, II-1-46).
+	 * Firmware initialization tests must also exercise set cause bits. */
+	memset(t->reg, 0, sizeof t->reg);
+	t->writes = 0;
 	/* DENONLY, IDMAONLY and RSTONLY all reset set (manual 0x30029f). */
 	t->reg[RST_RESET] = 0x07;
 }
 
 void itc_attach(struct mem *m, struct itc *t)
 {
+	memset(t, 0, sizeof *t);
 	itc_reset(t);
 	mem_add_mmio(m, "itc", ITC_BASE, ITC_LEN, itc_mmio, t);
 }

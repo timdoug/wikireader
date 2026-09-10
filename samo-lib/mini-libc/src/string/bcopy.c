@@ -88,7 +88,10 @@ register size_t length;
 #define	TLOOP(s) if (t) TLOOP1(s)
 #define	TLOOP1(s) do { s; } while (--t)
 
-    if ((uptr)dst < (uptr)src)
+    /* Only a genuinely overlapping destination above the source needs
+     * backward copying. In particular, the C33's shifted-word forward
+     * path also handles disjoint buffers with different alignments. */
+    if ((uptr)dst < (uptr)src || (uptr)dst - (uptr)src >= length)
     {
         /*
          * Copy forward.

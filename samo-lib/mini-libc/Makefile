@@ -139,6 +139,9 @@ TARGETS=lib/libc.a
 .PHONY: all
 all: $(TARGETS)
 
+# These translation units include the shared implementation directly.
+src/string/memcpy.o src/string/memmove.o: src/string/bcopy.c
+
 .c.o:
 	$(GCC) -M $(CFLAGS) $< > $(<:.c=.d)
 	$(GCC) $(CFLAGS) -c $< -o $(<:.c=.o)

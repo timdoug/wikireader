@@ -119,11 +119,12 @@ static void dma_write(struct dma *d, uint32_t addr, unsigned size,
 
 static bool valid_dual_address(uint32_t addr, unsigned size);
 
-static bool hs_transfer(struct dma *d, unsigned ch)
+static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 {
 	uint16_t ctl, shi, dhi, adv;
-	uint32_t count, src, dst, value;
-	unsigned size, smode, dmode;
+	uint32_t count, src, dst, initial_src, initial_dst, units;
+	unsigned size, smode, dmode, mode;
+	bool advanced, reset_src, reset_dst;
 
 	if (!(get16(d, HS_EN(ch)) & 1) || !cmu_dma_enabled(d->cmu))
 		return false;
@@ -135,16 +136,27 @@ static bool hs_transfer(struct dma *d, unsigned ch)
 	shi = get16(d, HS_SHI(ch));
 	dhi = get16(d, HS_DHI(ch));
 	adv = get16(d, HS_ADV_CTL(ch));
-	size = transfer_size((get16(d, HS_MODE) & 1) && (adv & 1) ? 2 :
+	advanced = (get16(d, HS_MODE) & 1) != 0;
+	mode = dhi >> 14;
+	if (mode == 3)
+		return false;
+	/* Unlimited bus ownership is modeled synchronously: the CPU cannot
+	 * make an AHB access until this trigger completes (II.1.3.2). Limited
+	 * bursts need CPU/DMA arbitration, not an invented fixed delay. */
+	if (mode && (get16(d, 0x9eu) & 15u))
+		return false;
+	size = transfer_size(advanced && (adv & 1) ? 2 :
 			     (shi & 0x4000u) ? 1 : 0);
 	smode = (shi >> 12) & 3;
 	dmode = (dhi >> 12) & 3;
-	if ((get16(d, HS_MODE) & 1) && (adv & 0x10u))
+	reset_src = smode == 2 || (advanced && (adv & 0x10u));
+	reset_dst = dmode == 2 || (advanced && (adv & 0x20u));
+	if (advanced && (adv & 0x10u))
 		smode = 1; /* decrement with initialisation; same per-unit step */
-	if ((get16(d, HS_MODE) & 1) && (adv & 0x20u))
+	if (advanced && (adv & 0x20u))
 		dmode = 1;
 
-	if (get16(d, HS_MODE) & 1) {
+	if (advanced) {
 		src = get32(d, HS_ADV_SRC(ch));
 		dst = get32(d, HS_ADV_DST(ch));
 	} else {
@@ -152,31 +164,47 @@ static bool hs_transfer(struct dma *d, unsigned ch)
 		dst = get16(d, HS_DLO(ch)) | (uint32_t)(dhi & 0x0fffu) << 16;
 	}
 
-	/* The E07 forbids Area 0/2 for dual-address transfers. */
-	if (!valid_dual_address(src, size) || !valid_dual_address(dst, size))
-		return false;
-
+	initial_src = src;
+	initial_dst = dst;
+	count = hs_count(d, ch);
+	units = mode == 1 ? (count ? count : 0x1000000u) :
+		mode == 2 ? ((count & 255u) ? (count & 255u) : 256u) : 1u;
 	d->reg[HS_TF(ch)] = 0;
-	/* Dual-address HSDMA is one source and one destination bus phase. */
-	value = dma_read(d, src, size);
-	dma_write(d, dst, size, value);
-	if (d->clock)
-		*d->clock += model.dma_extra;
-	d->hsdma_transfers++;
-	d->hsdma_channel_transfers[ch]++;
-	if (d->clock)
-		d->bus_available = *d->clock;
-
-	src = advance(src, smode, size);
-	dst = advance(dst, dmode, size);
-	if (get16(d, HS_MODE) & 1) {
+	while (units--) {
+		if (!valid_dual_address(src, size) || !valid_dual_address(dst, size) ||
+		    ((src | dst) & (size - 1)))
+			return false;
+		/* One read followed by one write, NOT a block-sized staging FIFO.
+		 * Each access goes through the SDRAMC's row/queue/refresh model. */
+		uint32_t value = dma_read(d, src, size);
+		dma_write(d, dst, size, value);
+		if (d->clock) {
+			*d->clock += spi ? model.dma_extra : model.dma_mem_extra;
+			d->bus_available = *d->clock;
+		}
+		d->hsdma_transfers++;
+		d->hsdma_channel_transfers[ch]++;
+		src = advance(src, smode, size);
+		dst = advance(dst, dmode, size);
+		if (mode != 2)
+			count = (count - 1) & 0xffffffu;
+	}
+	if (mode == 2)
+		count = (((count >> 8) - 1) & 0xffffu) << 8 | (count & 255u);
+	if (mode && reset_src) src = initial_src;
+	if (mode && reset_dst) dst = initial_dst;
+	if (advanced) {
 		put32(d, HS_ADV_SRC(ch), src);
 		put32(d, HS_ADV_DST(ch), dst);
+	} else {
+		put16(d, HS_SLO(ch), (uint16_t)src);
+		put16(d, HS_SHI(ch), (shi & 0xf000u) | ((src >> 16) & 0xfffu));
+		put16(d, HS_DLO(ch), (uint16_t)dst);
+		put16(d, HS_DHI(ch), (dhi & 0xf000u) | ((dst >> 16) & 0xfffu));
 	}
 
-	count = (hs_count(d, ch) - 1) & 0x00ffffffu;
 	hs_set_count(d, ch, count);
-	if (count == 0) {
+	if ((mode == 2 ? count >> 8 : count) == 0) {
 		put16(d, HS_EN(ch), 0);
 		d->itc->reg[ITC_FHDMA] |= (uint8_t)(1u << ch);
 	}
@@ -299,10 +327,10 @@ static void service_spi(struct dma *d)
 						      d->itc->reg[ITC_HSTRIG23];
 			selector = (selector >> (4 * (ch & 1u))) & 0x0fu;
 			bool spi = (ch == 2 || ch == 3) && selector == 9;
-			if (!spi)
+			if (!spi && selector != 0)
 				continue;
 			if (d->reg[HS_TF(ch)] & 1)
-				hs_transfer(d, ch);
+				hs_transfer(d, ch, spi);
 		}
 
 		/* SPI receive DMA maps to hardware IDMA channel 0x24. */
@@ -315,6 +343,18 @@ static void spi_event(void *ctx, unsigned requests)
 {
 	struct dma *d = ctx;
 	d->spi_event_pending |= requests;
+	service_spi(d);
+}
+
+static void software_event(void *ctx, unsigned channels)
+{
+	struct dma *d = ctx;
+	for (unsigned ch = 0; ch < 4; ch++) {
+		unsigned selector = d->itc->reg[ch < 2 ? 0x98u : ITC_HSTRIG23];
+		selector = (selector >> (4 * (ch & 1u))) & 15u;
+		if ((channels & (1u << ch)) && selector == 0)
+			d->reg[HS_TF(ch)] = 1;
+	}
 	service_spi(d);
 }
 
@@ -347,7 +387,7 @@ static bool dma_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return true;
 	for (unsigned k = 0; k < size; k++)
 		d->reg[i + k] = (uint8_t)(*val >> (8 * k));
-	for (unsigned ch = 2; ch <= 3; ch++) {
+	for (unsigned ch = 0; ch < 4; ch++) {
 		if (i == HS_EN(ch) && (*val & 1u))
 			service_spi(d); /* II.1.5: disabled channels retain trigger flags */
 	}
@@ -398,6 +438,8 @@ void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 	d->itc = itc;
 	d->cmu = cmu;
 	dma_reset(d);
+	itc->hsdma_trigger = software_event;
+	itc->hsdma_ctx = d;
 	mem_add_mmio(m, "dma", DMA_BASE, DMA_LEN, dma_mmio, d);
 	sd_set_dma_event(sd, spi_event, d);
 }

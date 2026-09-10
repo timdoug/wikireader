@@ -27,8 +27,11 @@ struct model {
 	/* Ticks a CPU write occupies the bus regardless of size; 0 keeps the
 	   manual's one tick per 16-bit transfer. */
 	unsigned wr_ticks;
-	/* Extra MCLK cycles per HSDMA or IDMA transfer. */
+	/* Fitted extra MCLK cycles per SPI-triggered HSDMA or IDMA unit. */
 	unsigned dma_extra;
+	/* Uncalibrated memory-DMA overhead per unit. Keep separate from the
+	   fitted SPI allowance; zero gives the documented bus-phase floor. */
+	unsigned dma_mem_extra;
 	/* MCLK cycles from a READ command to the card's data token. */
 	unsigned long sd_read_latency;
 	/* Extra cycles per instruction fetched from internal RAM (A0, IVRAM),

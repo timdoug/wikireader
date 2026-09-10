@@ -32,6 +32,291 @@ contains `zimlog.on`; the one-shot hardware probe has been retired.
   timings for board comparisons. Idle waits and card power-off are documented in
   [power management](BATTERY.md).
 
+## Memory-copy integration, 2026-09-09 candidate
+
+The [physical memory benchmark](../emulator/tools/mem_dma_bench/README.md)
+guides a bulk-copy helper used by article cache snapshots/restores, the
+article/link-table move, decoded-blob copies, and code overlays. It is called
+explicitly on those paths; ordinary small libc copies do not pay dispatcher
+overhead. Word-aligned copies of at least 256 bytes use eight-word batches
+from A0 RAM, including backward overlapping moves. Disjoint copies of at
+least 4 KiB use HSDMA0 when both ranges fit in separate measured SDRAM banks,
+or when copying SDRAM into IVRAM. DMA owns the bus in at most 16-KiB chunks;
+it is synchronous and does not overlap CPU work or SD transfers.
+
+The helper checks all DMA channels are idle, preserves the controller and
+interrupt settings, and falls back to CPU copying when the channel is busy.
+A missing trigger times out after 10 ms if the CPU can run, restores the
+controller, repeats the disjoint copy with the CPU, and disables subsequent
+DMA attempts. The watchdog covers a controller stall that prevents CPU
+execution. These are the same hardware modes that passed the one-shot
+benchmark. The first integrated physical run fell back to CPU copying;
+the reset-cause fix and subsequent DMA validation are recorded below.
+
+Overlays are padded to word boundaries and copied through that helper.
+Libc also now uses forward copying whenever buffers are disjoint; previously
+a destination above its source forced a backward byte loop when alignments
+differed. Actual overlaps retain backward copying. The libc Makefile tracks
+the shared implementation included by memcpy and memmove.
+
+Startup scans the same fresh allocation metadata as before. Its bounded
+run-checking loop now runs from the kernel's A0 region, checks four links per
+iteration, and returns to geometry/watchdog bookkeeping every 4,096 entries
+(16 KiB of cached data), rather than every 128 entries. FAT boundaries,
+invalid links, cycles, table sizing and watchdog checks remain enforced.
+The kernel's A0 section occupies 668 of 1,024 reserved bytes; the app's A0
+code and scratch end at 0x1ea0, leaving 288 bytes before suspend scratch.
+
+`zimlog.on` enables the existing `zimboot.log` and the new `zimpage.log`.
+Each page record identifies the build and article, retrieval time, SD reads,
+bulk CPU/DMA copy bytes and DMA errors. Retrieval stops before display
+rendering and deferred image decoding; log formatting and writes occur
+after a render call, outside the measured interval. Reopening a page through
+Search exercises both saving the current article and restoring its cache.
+
+Validation uses the actual C33 helper through the Grifo loader: 704 cases
+cover alignments, tails, overlap, DMA chunk boundaries, IVRAM, guards,
+register restoration and busy-channel fallback. A separate lost-trigger
+test checks timeout/CPU recovery. `make -C emulator test-zim-copy` runs both;
+build the C33 kernel and libc first. The host reader checks cover FAT maps,
+fonts, 168 decoder pairs, 157 cached blob reads, links and truncation.
+
+Model fixtures use the captured card metadata and read requested archive
+sectors directly from the existing project files through the emulated
+SD/SPI stack. They do not copy or scan the full archives. Baseline and
+candidate use matching scripted input on full English Wikipedia, February
+2026. Loader-to-app boot is included in execution; earlier FLASH stages are
+omitted. The saved model and hardware evidence still shows memory DMA timing
+depends on the path, so end-to-end model improvements require hardware
+confirmation. Artifacts and the install manifest are in
+`build/wr128/load-opt/`.
+
+Final model comparison (one scripted cold load and repeat per page):
+
+| Interval | Baseline | Candidate |
+| --- | ---: | ---: |
+| Archive open to keyboard | 3309.738 ms | 3231.018 ms |
+| File/allocation map | 3205.288 ms | 3125.909 ms |
+| Cold Cat, retrieval to render entry | 2291.816 ms | 2295.146 ms |
+| Cached Cat, retrieval to render entry | 120.317 ms | 90.410 ms |
+| Cold Tokyo, retrieval to render entry | 3567.352 ms | 3580.167 ms |
+| Cached Tokyo, retrieval to render entry | 149.390 ms | 109.430 ms |
+
+Startup saves 78.720 ms (2.38%); cached revisits save 24.86% and 26.75%.
+Cold loads show no meaningful improvement: they take 0.15% and 0.36% longer
+in this model. This change primarily helps cached pages and modestly trims
+startup; it does not remove the dominant allocation-map I/O or cold-page
+decoder/layout work. The candidate also enables per-page I/O profiling,
+which the old baseline lacks. The page records' `retrieve_us` cover the
+retrieval function itself; the table additionally includes the intervening
+UI work before render entry, and excludes deferred image completion.
+
+Cat and Tokyo produce byte-identical final framebuffers. The final Cat
+workflow copies 497,576 bytes in 52 memory-DMA calls; Tokyo copies 537,012
+bytes in 52 calls. Both report zero memory-DMA errors. Startup retains 30
+file-phase read commands, 7,396 sectors and no storage errors or timeouts.
+The original firmware is backed up by the installer. The first physical
+comparison follows below.
+
+Installed on WRBOOT and cleanly ejected at 2026-09-09 04:56 UTC. Verified
+kernel SHA256: `a617b69850a98b69470dbf5365592841dc5662d12b46016f9efec4ed7661e820`;
+app SHA256: `ac5510c8f7455e1e585e6a19087324a6f9e837637443e446784622e610524686`.
+The kernel grows by 200 bytes and the app by 2,172 bytes. The original files
+and logs are in `build/wr128/load-opt/card-backup-20260909T045642Z/`.
+
+### First integrated hardware run
+
+The logs collected at 2026-09-10 00:18 UTC contain one new boot and seven
+successful retrievals. Both installed firmware hashes match the modeled
+candidate above. Normal startup remains configured. Evidence is saved in
+`build/wr128/load-opt/hardware-20260910T001838Z/`, including raw logs,
+small firmware copies, parsed page CSV and a comparison JSON. Collection
+read no archive data.
+
+| Hardware interval | Previous firmware, mean of two boots | Candidate, one boot |
+| --- | ---: | ---: |
+| Archive open to keyboard | 3511.712 ms | 3377.219 ms |
+| File/allocation map | 3423.914 ms | 3288.286 ms |
+| File-phase SD read time | 3015.044 ms | 3015.065 ms |
+| File/map time outside SD reads | 408.871 ms | 273.221 ms |
+
+Startup saves 134.493 ms (3.83%), versus the model's predicted 78.720 ms.
+The allocation-map phase accounts for the gain: card read time stays the
+same, while processing outside reads falls by 135.650 ms. The file phase
+still issues 30 commands for 7,396 sectors; SD DMA wait is 2182.630 ms,
+within 0.108 ms of the previous mean. All startup phases report zero read
+errors, DMA errors and timeouts, with SD DMA remaining enabled.
+
+| Hardware retrieval, before rendering/deferred images | Time |
+| --- | ---: |
+| First Cat | 2848.216 ms |
+| First Tokyo, after Cat | 3358.422 ms |
+| Five cached Cat/Tokyo revisits, median | 76.869 ms |
+| Cached revisit range | 76.850-76.905 ms |
+
+The encoded indices identify the five revisits as Cat, Tokyo, Cat, Tokyo,
+Cat from History. Each reads zero sectors and uses CPU batches for
+1,025,536 bytes of cache snapshot/restore work. All seven records have
+successful retrieval results and zero read or memory-copy errors.
+
+**Memory DMA was not exercised in any logged retrieval:** all seven report
+zero DMA calls and bytes, while CPU batches account for 6,441,856 bytes.
+The model's first Cat retrieval used 25 DMA calls for 125,004 bytes; its
+IVRAM overlay copies are eligible independently of heap bank placement.
+The current log does not capture rejection reasons, DMA register state,
+or failures before the retrieval interval. A rejected idle/pending-channel
+guard is a candidate explanation, but these logs cannot establish it.
+The next diagnostic needs to record that guard's state and the cumulative
+failure latch. Do not treat the error-free page run as validation of the
+integrated DMA path, or clear pending controller state without identifying
+its owner.
+
+There is no old-firmware hardware page timing baseline, so the predicted
+25-27% cached-page improvement is not yet a measured hardware improvement.
+The model reopened the same page through Search in separate Cat and Tokyo
+runs; this physical run alternated pages through History, changing snapshot
+work and I/O. Raw model retrieval times are 2266.773/61.987 ms for cold/cached
+Cat and 3547.969/77.181 ms for Tokyo. These exclude the intervening UI work
+included in the earlier model table; the differing workflows also prevent
+a direct page-speed comparison.
+
+### DMA selection diagnostics
+
+The diagnostic app installed at 2026-09-10 00:38 UTC keeps the copy policy
+and DMA guard, and appends `ZIMCOPY` and `ZIMCOPY_STATE` lines after each
+`ZIMPAGE` record. Counters are cumulative across the app's lifetime, frozen
+at retrieval completion; this exposes failures before the first page's
+timed interval. Formatting and writes remain outside that interval.
+
+`large` counts calls of at least 4 KiB. `unaligned`, `identical`, `overlap`,
+`source` and `layout` explain ineligible copies; `eligible` counts qualifying
+copies and `attempts` counts calls to the chunk helper. `busy`, `trigger`
+and `irq` count rejected active channels, pending HSDMA0 triggers and pending
+HSDMA0 completion causes. Multiple rejection counters can increment for the
+same attempt. `latched` counts skips after an earlier failure; `failed` is
+the persistent failure latch. `bank` is the measured bank stride in bytes.
+
+Snapshots preserve the first rejection and first failed transfer, including
+source/destination, byte count, active-channel bitmask, HSDMA0 flags, trigger
+selectors, transfer registers, clock gate and interrupt enables. Addresses
+and register values are hexadecimal; attempt and byte counts are decimal.
+`select` packs HTGR1 in its low byte and HTGR2 in its high byte. The snapshots
+only read rejected controller state; they do not clear or claim it.
+
+In the local model, injecting either a pending trigger or a pending completion
+cause before archive startup reproduces the physical first Cat copy counts:
+381,984 CPU-batched bytes, zero DMA calls and zero DMA errors. Both runs
+reject 24 eligible copies. The clean-state control uses 25 DMA chunks for
+125,004 bytes. The first eligible copy in all runs loads the 4,480-byte
+Huffman overlay into IVRAM, independent of heap-bank placement. The working
+standalone benchmark clears HSDMA0 flags before each transfer; the app's
+guard deliberately rejects pending flags. This explains how the two programs
+can differ, but the injected states are hypotheses, not hardware observations.
+
+All three model runs load and reopen Cat and produce the same final screen
+as the previous candidate. The C33 helper now passes 707 cases, including
+active-channel, pending-trigger and pending-IRQ rejection, preserved flags,
+resumption after the test clears its own flags, and retained first snapshots.
+The lost-trigger test also verifies the recorded failure state and latch.
+The A0 batch's 112 machine-code bytes and all internal-RAM bounds are unchanged.
+
+The diagnostic app is 348,440 bytes (1,668 bytes larger), SHA256
+`16a364921266c95f1dfdd1476f8d3c7560b7018fbf00480fc9240bd9d2b354bf`.
+The kernel is unchanged. Artifacts, original boot-file backups and the
+installation manifest are in `build/wr128/load-opt/dma-diagnostic/`.
+The card was cleanly ejected. The following physical run identifies the
+reason for the CPU fallback.
+
+### HSDMA0 reset-cause initialization
+
+The diagnostic hardware logs collected at 2026-09-10 00:41 UTC confirm that
+**HSDMA0's completion cause blocked all 63 eligible copy attempts**. Every
+snapshot reports `enabled=0 tf0=0 fdma=17 edma=0 select=9900 count0=0
+control0=0 source0=0 dest0=0 adv0=0` (register values are hexadecimal).
+No channel was enabled, no HSDMA0 trigger was queued, and no transfer failed.
+HSDMA0's completion bit was set despite its reset-like configuration. The
+first attempted copy was the 4,480-byte Huffman overlay into IVRAM.
+
+This matches an explicit initialization requirement in the local
+[S1C33E07 manual](../id001557.pdf), II.1.10 (II-1-46): after reset, FHDMx is
+indeterminate and software must clear it. The FDMA register table at
+III-2-42 also marks every cause bit's initial value as X. The app mistook
+that uninitialized cause for another transfer's pending completion. The
+standalone benchmark already cleared it; the emulator's deterministic zero
+reset choice concealed the missing initialization. No silicon defect is
+needed to explain these observations.
+
+The fix acknowledges only HSDMA0's bit, and only with every HSDMA channel
+disabled, no pending HSDMA0 trigger, software trigger selected, HSDMA0 IRQ
+disabled, write-one-to-clear flag mode selected, and all its standard and
+advanced configuration registers zero. A configured channel's completion
+remains pending. Other channels' cause flags are preserved. The log adds
+`reset_irq` and a first `kind=reset` snapshot taken before acknowledgement.
+
+The C33 suite passes 709 cases, including reset-cause initialization, refusal
+to consume an enabled IRQ owner's cause, preserved other-channel causes,
+and the existing timeout recovery. The full Cat model seeded with the
+observed FDMA bits clears the reset cause once, performs 25 DMA chunks on
+the first retrieval and 22 on the cached revisit, and renders the same final
+screen. Clean-state and pending-trigger controls also pass; the latter still
+uses CPU copying. These are functional checks, not new hardware timings.
+
+Raw hardware evidence is in
+`build/wr128/load-opt/dma-diagnostic/hardware-20260910T004156Z/`.
+This run also reported an 8-MiB bank stride, while the model reports 4 MiB
+and earlier physical spacing tests favored 4 MiB. That separate probe/model
+discrepancy remains open; it did not cause the IVRAM-copy rejection and this
+fix does not change bank placement.
+
+The next app, its model results and installation manifest are in
+`build/wr128/load-opt/dma-reset/`. Physical confirmation should check that
+DMA calls are nonzero, errors remain zero, and any captured reset cause was
+acknowledged once. A boot where FHDM0 starts clear does not need an
+acknowledgement.
+
+Installed and cleanly ejected at 2026-09-10 00:53 UTC. The app is 348,668
+bytes, SHA256 `19fba8b68da360d80bf2d021e1d7d1b97fbc4c61009f9be176ae9c2762654d28`;
+the kernel is unchanged. The initialization fix adds 228 bytes to the
+diagnostic app. Its physical confirmation follows.
+
+### Hardware confirmation of memory DMA
+
+The logs collected at 2026-09-10 00:59 UTC verify the installed app and
+kernel hashes, two new boots and four successful retrievals. On each boot,
+the first eligible copy captures `FDMA=0x17`, acknowledges HSDMA0's reset
+cause once (`reset_irq=1`) and proceeds with DMA. Every captured cumulative
+attempt completed through DMA; busy/trigger/IRQ rejections, failure latch
+and DMA errors remain zero. There are no read errors or startup SD timeouts.
+
+The first Cat retrieval uses 25 DMA chunks for 125,004 bytes on both boots,
+exactly matching the model's copy counts. The complete second sequence is
+Cat, Tokyo, then Cat through History; its last snapshot reports 107 completed
+DMA calls, including copies between the timed retrievals.
+
+| Hardware retrieval | Previous diagnostic, CPU fallback | Reset fix, DMA enabled |
+| --- | ---: | ---: |
+| Cached Cat after Tokyo, through History | 76.871 ms | 64.845 ms |
+| First Tokyo after Cat | 3358.952 ms | 3354.402 ms |
+
+The matching cached revisit saves 12.026 ms (15.64%). It copies 554,696 bytes
+through 35 DMA chunks and 470,880 bytes through CPU batches, with zero SD
+reads. This is one matching revisit per build and measures retrieval before
+rendering/deferred images. It demonstrates a hardware benefit; it is not a
+general percentage for all pages or a comparison with the original libc-only
+firmware.
+
+Cold Cat takes 2866.222 and 2579.796 ms on the two boots of this same app;
+that variation exceeds the expected DMA-copy savings. Tokyo changes by only
+4.550 ms and reads one extra sector. These samples do not establish a large
+cold-page improvement. Startup remains stable at 3378.417 and 3378.437 ms
+from archive open to keyboard.
+
+The 8-MiB bank-stride result repeats. Resolving its difference from the
+model and earlier bank-spacing benchmark remains a separate optimization
+question; memory DMA now works with the current hardware allocation policy.
+Saved logs, firmware identities and parsed comparison:
+`build/wr128/load-opt/dma-reset/hardware-20260910T005935Z/`.
+
 ## SD read batching experiment
 
 On 2026-09-08, production C33 code was tested against the captured 128 GB card
