@@ -30,6 +30,7 @@
 
 #include "graphics.h"
 #include "LCD.h"
+#include "startup_message.h"
 
 
 // text cursor
@@ -80,13 +81,13 @@ void LCD_initialise(void)
 
 void LCD_StartupMessage(void)
 {
-	static const char message[] = "Starting WikiReader...";
 	LCD_initialise();
 	LCD_ResetFrameBuffer();
 	LCD_clear(LCD_WHITE);
-	LCD_AtXY((LCD_MaxColumns() - (sizeof(message) - 1)) / 2,
-		 LCD_MaxRows() / 2);
-	LCD_print(message);
+	/* Pre-rendered from text.bmf: match the reader's loading message
+	 * without opening a font file before the card has been mounted. */
+	memcpy(LCD_GetFrameBuffer() + 94 * LCD_BUFFER_WIDTH_BYTES,
+	       startup_message, sizeof(startup_message));
 }
 
 

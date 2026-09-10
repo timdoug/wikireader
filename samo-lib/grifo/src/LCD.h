@@ -47,7 +47,7 @@ typedef enum {
 } LCD_ColourType;
 
 void LCD_initialise(void);
-/* Built-in font: usable before mounting the card or loading an app. */
+/* Embedded reader-font message, usable before mounting the card. */
 void LCD_StartupMessage(void);
 
 //*[gfb]: returns pointer to frame buffer

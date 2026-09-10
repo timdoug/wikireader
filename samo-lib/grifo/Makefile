@@ -107,6 +107,11 @@ BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
 # the dialect it was written for.
 build/file.o: CFLAGS += -std=gnu99
 
+# Draw progress before filesystems are available, using the reader's font.
+build/startup_message.h: scripts/MakeStartupMessage.py ${ROOT_DIR}/ROOT_IMAGE/text.bmf | stamp-build
+	python3 $< ${ROOT_DIR}/ROOT_IMAGE/text.bmf $@
+build/LCD.o: build/startup_message.h
+
 # SD block payloads by HSDMA/IDMA (SD_DMA=YES) or by the MMC driver's own
 # byte-at-a-time SPI loop (NO).  On a real board (stock 2009 flash, 8 GB
 # card, 2026-09-05) the first DMA backend hung on the boot splash because it

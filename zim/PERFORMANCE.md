@@ -13,14 +13,20 @@ writes the optional `dma.txt` checkpoint, and runs `init.app` to load
 `zim.app`. The ELF loader zeroes each app's shared LCD reservation before
 loading its code, leaving a blank screen during that work.
 
-The kernel now displays "Starting WikiReader..." using its built-in font
-before filesystem setup, and redraws it when the ELF loader clears the
+The kernel now displays "Starting WikiReader..." before filesystem setup,
+and redraws it when the ELF loader clears the
 shared framebuffer. Filesystem initialization is idempotent. Closing an
 app's files still flushes and discards its handles, but retains the mounted
 filesystems instead of power-cycling and mounting the same card again.
 The ELF loader also keeps a bounded 512-byte seek map while loading an app,
 avoiding repeated FAT-chain walks between section headers and payloads.
 More than 63 file extents falls back to ordinary seeks.
+
+The startup message now uses the same proportional `text.bmf` font and
+vertical position as "Opening ZIM archive...". The build renders that fixed
+line into a 512-byte bitmap embedded in the kernel, so showing it still
+requires no font-file reads or mounted filesystem. The kernel grows by
+256 bytes; emulator captures confirm matching text and an unchanged keyboard.
 
 The new `kernel_to_app_us` field in `zimboot.log` measures from kernel timer
 initialization to app entry, without additional startup writes. It excludes
