@@ -38,7 +38,7 @@ three distinct P40 QIDs in the dump. It takes four logical reads and 5,140 bytes
 on this index. The demo sample also still abstains on all 136 test questions.
 
 Both sides of the prefix comparison use the same consistent SQLite snapshot
-of the active import: 5,110,000 source records, 1,040,681 included entities,
+captured during import: 5,110,000 source records, 1,040,681 included entities,
 1,585,000 aliases and 3,059,604 stored claim records. Both indexes are
 755,427,840 bytes. No additional source claims were fetched for the new score.
 The new encoding distinguishes unresolved object metadata from unsafe claims;
@@ -74,27 +74,27 @@ under `build/sparrow/coverage-v2/` and `build/sparrow/dump-eval/`.
 ## Full-data evaluation
 
 The complete September 7 Wikidata JSON dump is downloaded and verified against
-its published SHA-1. It is 103,048,420,178 compressed bytes. The active local
-import streams it through parallel bzip2 decoding into compressed SQLite
-staging; it never writes the uncompressed full dump. A 24 GiB free-space guard
-applies during import, emission and publication.
+its published SHA-1. It is 103,048,420,178 compressed bytes. On September 10,
+the owner cancelled the full import and queued evaluation before a full index
+was published. The last import progress record reported 25,770,000 items.
+All three processes exited and the temporary staging database was removed.
 
-The original job, `build/sparrow/full-20260907/`, retains its frozen builder and
-binaries and runs its original before/after evaluation when the index finishes.
-`job.json` reports the overall state; `build-status.json` records source records,
-scratch use and index progress. That job has not been restarted for this revision.
+The cancelled job directories, `build/sparrow/full-20260907/` and
+`build/sparrow/full-20260907-v3/`, retain their logs, frozen inputs and status
+records marked `cancelled`. They will not produce benchmark results. The
+verified compressed dump, host environment, demo and earlier evaluation
+artifacts remain available.
 
-An additional job is queued at `build/sparrow/full-20260907-v3/`. After the
-original job completes, it creates a separate copy with canonical-title
-precedence, leaving every entity and claim byte unchanged. In particular,
-missing-target handling stays conservative because the original builder used
-the old encoding. It freezes the current engine and evaluates three arms on
-both splits: previous engine/original index (`*-before.json`), current
-engine/original index (`*-operators.json`), and current engine/title-upgraded
-index (`*-titles.json`). Its `job.json` and `run.log` show progress.
+A fresh run must scan the dump again; checkpoint resume is not implemented.
+The current builder includes both title precedence and the new unresolved-item
+flag, so the old title-upgrade queue should not be recreated for it. Use the
+compatible baseline and new output directory shown in [HANDOFF.md](HANDOFF.md).
+The pipeline streams the compressed input into compressed SQLite staging with
+a 24 GiB reserve, then publishes the index/audit and evaluates frozen binaries.
 
-**Full-data answer scores are pending.** These jobs use only local verified
-dump data and stored benchmark files; no API or SPARQL requests are involved.
+**Full-data answer scores remain unmeasured; no dataset jobs are running.**
+Future runs use only local verified dump data and stored benchmark files;
+no API or SPARQL requests are involved.
 
 ## Device validation
 

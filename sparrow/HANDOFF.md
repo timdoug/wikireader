@@ -2,8 +2,9 @@
 
 Updated September 10, 2026. Implementation baseline: **`c75f2117`**
 (`sparrow: add offline Wikidata answers and persistent query history`).
-This is the starting point for the next development session. Read the live job
-files before acting on the progress snapshot below.
+This is the starting point for the next development session. The owner cancelled
+the full import and queued evaluation on September 10; no dataset job is running.
+The verified dump is retained for a fresh run later.
 
 ## Current state
 
@@ -21,9 +22,9 @@ full-corpus coverage and physical-device latency are still unmeasured.
   regenerated from the installed index; History stores the question.
 - Canonical English Wikipedia titles take precedence over unrelated aliases.
   Ambiguous canonical titles and unsupported claim semantics still abstain.
-- The official full dump is downloaded and verified. Import and automatic
-  benchmark evaluation are running as detached jobs; they do not install an
-  index onto the demo or a physical SD card.
+- The official full dump is downloaded and verified. The full import and its
+  queued evaluation were cancelled at the owner's request before a full index
+  was produced. Scratch was removed; the verified dump and existing demo remain.
 
 The working name is **Sparrow**. `wikibox-spec.md` retains the original proposal
 and review; its early estimates are not measured performance promises.
@@ -47,36 +48,25 @@ and review; its early estimates are not measured performance promises.
 - Preserve saved demo History. Use a separate emulator `--stage` for tests;
   `--fresh` intentionally discards the selected demo card's History.
 
-## Running jobs: inspect these first
+## Cancelled jobs and running later
 
-Observed **2026-09-10 12:44:44 EDT**: the full job was `importing`, with
-**20,890,000 source records scanned**, about 15.4 GiB of staging
-and 288.4 GiB free. These are a timestamped progress snapshot, not a
-completion percentage or a full-corpus size estimate. The v3 evaluation was
-waiting for the original job to finish.
+Cancellation was recorded on **2026-09-10 13:00 EDT**, after
+**25,770,000 source records** had been reported. The evaluator was stopped,
+the importer received SIGINT, and the importer and supervisor exited. The
+importer's temporary staging directory was removed during shutdown. No full
+index or full-data benchmark results were published.
 
-| Job | Directory | Observed processes |
-| --- | --- | --- |
-| Full import and original evaluation | `build/sparrow/full-20260907/` | parent 37622, importer 37624 |
-| Current engine and title-policy evaluation | `build/sparrow/full-20260907-v3/` | waiting worker 59109 |
+| Retained job record | State |
+| --- | --- |
+| `build/sparrow/full-20260907/` | `cancelled`; former parent/importer PIDs 37622/37624 have exited |
+| `build/sparrow/full-20260907-v3/` | `cancelled`; former waiting PID 59109 has exited |
 
-PIDs are historical observations, not instructions to signal a process. Check
-its command and current state if troubleshooting. A waiting evaluation worker
-does not continuously refresh its `job.json` timestamp.
+Logs, status and frozen inputs are retained as history. These directories are
+not active or resumable. `build/sparrow/cancellation-20260910.json` records the
+shutdown and retained artifacts. Do not signal these historical PIDs or relaunch
+an internal `--worker` command against either directory.
 
-Run from the repository root:
-
-```sh
-cat build/sparrow/full-20260907/job.json
-cat build/sparrow/full-20260907/build-status.json
-tail -n 25 build/sparrow/full-20260907/run.log
-cat build/sparrow/full-20260907-v3/job.json
-tail -n 25 build/sparrow/full-20260907-v3/run.log
-```
-
-**Leave the current import and both `frozen/` bundles intact.** They contain
-recorded binary, builder and dataset hashes. Starting another import is not
-needed to collect this revision's results. The input is:
+The retained input is:
 
 ```text
 build/wikidata/wikidata-20260907-all.json.bz2
@@ -85,36 +75,52 @@ SHA-1: 503b694182f1cbb98102dab60ba1fa0bbcb2a954
 ```
 
 The adjacent `.status.json` records verification against the published hash.
-The host environment is `build/sparrow/host-env/`, with `indexed_bzip2==1.7.0`
-and `orjson==3.12.0`; the importer uses six decode workers.
+The host environment remains at `build/sparrow/host-env/`, with
+`indexed_bzip2==1.7.0` and `orjson==3.12.0`. No download is needed.
 
-The original job's frozen builder predates the latest title policy and flag
-32 for unresolved item metadata. It still builds the 57-property index. After
-publishing `sparrow.dat`, its manifest and `.statements.jsonl.gz` audit, it runs
-`train-before.json`, `train-after.json`, `test-before.json`, `test-after.json`.
+When ready, run from the repository root:
 
-The queued v3 job waits for the original job to become `complete`. It creates
-its own `sparrow.dat` with title precedence, preserving **every entity and
-claim byte**, then runs these comparisons on both train and test splits:
+```sh
+make -C sparrow
+build/sparrow/host-env/bin/python sparrow/full-build.py \
+  build/sparrow/full-20260907-rerun \
+  --baseline build/sparrow/coverage-v3/frozen/sparrow --start
+```
 
-| Report suffix | Engine | Index |
-| --- | --- | --- |
-| `before` | Original job's frozen current engine | Original full index |
-| `operators` | Frozen current Sparrow engine | Original full index |
-| `titles` | Frozen current Sparrow engine | Separate title-upgraded index |
+Use a new output directory if that one already exists. This starts a fresh full
+scan with six decode workers and a 24 GiB free-space reserve, followed by
+train/test evaluation. The specified v3 baseline understands the current claim
+flags. If the engine has not changed, its before/after scores will be identical;
+the absolute full-data results are still useful. The older default baseline
+predates flag 32, so it is not a clean comparison for new indexes containing it.
 
-Its audit remains at the source index path recorded in the new manifest.
-This title upgrade cannot recover omitted metadata or change old missing-target
-claim flags. Current readers accept the old conservative encoding; old readers
-reject new flag-32 records. Install matching firmware with newly built data.
-Do not clear an old unsafe flag blindly: it may also mean an unknown qualifier.
+Monitor the fresh job with:
 
-If a job fails, inspect its log and preserve the artifacts before choosing a
-retry. Import is **not checkpoint-resumable**, and its staging database is
-temporary. `--worker` is an internal entry point, not a resume command. If only
-evaluation failed after publication, verify the index, manifest and audit and
-rerun the evaluation rather than reimporting the dump. Use a new job directory
-for a new build or evaluation; existing output is deliberately refused.
+```sh
+cat build/sparrow/full-20260907-rerun/job.json
+cat build/sparrow/full-20260907-rerun/build-status.json
+tail -n 25 build/sparrow/full-20260907-rerun/run.log
+```
+
+The current builder already includes canonical-title precedence and flag 32 for
+unresolved object metadata. **Do not recreate the cancelled title-upgrade queue
+for this rerun.** That queue was needed because the original running import had
+frozen an older builder. A fresh build produces `sparrow.dat`, its `.json`
+manifest and `.statements.jsonl.gz` audit, then `train-before.json`,
+`train-after.json`, `test-before.json` and `test-after.json`. It does not replace
+the installed demo or write a physical SD card.
+
+Current readers accept the old conservative encoding; old readers reject new
+flag-32 records. Install matching firmware with newly built data. Do not clear
+an old unsafe flag blindly: it may also mean an unknown qualifier. The
+`title-index.py` helper only changes aliases and cannot recover omitted metadata
+or change old missing-target claim flags.
+
+Import is **not checkpoint-resumable**, and its staging database is temporary.
+If a future job fails, inspect its log and preserve artifacts before choosing a
+retry. If only evaluation failed after publication, verify the index, manifest
+and audit and rerun evaluation rather than reimporting the dump. Use a new job
+directory for a new build or evaluation; existing output is deliberately refused.
 
 ## What the benchmark actually establishes
 
@@ -143,15 +149,17 @@ changing answers or inventing exact dates to imitate gold values.
 Current per-question results, baseline indexes, manifests, frozen inputs and
 hashes are in `build/sparrow/coverage-v3/`; older reports remain in
 `build/sparrow/coverage-v2/` and `build/sparrow/dump-eval/`.
-Full-data scores are pending in the two job directories above.
+Full-data scores have not been measured. The cancelled jobs will not produce
+results; a fresh run is required.
 
 ## Next steps, in order
 
-1. **Collect the full-data baseline.** Let both jobs finish. Check manifests
-   and hashes, index/audit size, ambiguous aliases, unsafe claims, oversized
-   property groups and omitted metadata. Summarize all three v3 comparisons in
-   `BENCHMARKS.md`, keeping wording recognition, answered questions, exact
-   matches, unscorable gold and snapshot mismatches separate.
+1. **Run the full-data baseline when ready.** Use the fresh-run command above.
+   Check manifests and hashes, index/audit size, ambiguous aliases, unsafe
+   claims, oversized property groups and omitted metadata. Summarize the
+   frozen before/after results in `BENCHMARKS.md`, keeping wording recognition,
+   answered questions, exact matches, unscorable gold and snapshot mismatches
+   separate.
 2. **Choose the next operation from training failures on complete data.**
    Group failures by the existing `wording`, `entity`, `claims` and `bridge`
    diagnostics. Work from training questions and original dump statements;
@@ -176,9 +184,9 @@ Full-data scores are pending in the two job directories above.
    Update this handoff with results and the next frozen revision.
 
 Future host pipeline work should consider resumable staging and better failure
-recovery after publication; neither is implemented. Do not restart the current
-import to add those features. A new property or claim-encoding revision needs
-a deliberate rebuild; the queued title-only upgrade cannot supply it.
+recovery after publication; neither is implemented. A new property or
+claim-encoding revision needs a deliberate rebuild; a title-only upgrade cannot
+supply it.
 
 ## Run and verify the implementation
 
@@ -247,9 +255,10 @@ databases, retired API data, old 100k/250k prefixes and obsolete prototype/probe
 outputs. Do not expect `coverage-v3/preview/snapshot.db` or
 `coverage-v3/canonical-stage.db` to exist. Their published benchmark indexes,
 audits and reports remain. The cleanup inventory is
-`build/sparrow/cleanup-20260910.json`; official dumps, the active staging DB,
-frozen jobs, host environment, benchmark repository, screenshots and demo cards
-were preserved. Keep test source files: they are part of the implementation.
+`build/sparrow/cleanup-20260910.json`. The later cancellation also removed the
+full import's temporary staging DB. Official dumps, frozen job inputs, host
+environment, benchmark repository, screenshots and demo cards remain. Keep
+test source files: they are part of the implementation.
 
 The baseline commit includes Sparrow's LCD initialization change in the
 emulator loader harness. Separate, uncommitted UART work remains in

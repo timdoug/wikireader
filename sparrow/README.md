@@ -11,7 +11,7 @@ from a dated multistream dump. The full dated JSON dump is downloaded compressed
 and streamed during import. No uncompressed full dump file is needed. There is
 no API or SPARQL fetching workflow.
 
-For continuing development, start with [HANDOFF.md](HANDOFF.md): active jobs,
+For continuing development, start with [HANDOFF.md](HANDOFF.md): job state,
 current results, workspace state and ordered next steps. See
 [BENCHMARKS.md](BENCHMARKS.md) for the latest measured coverage.
 
@@ -281,7 +281,9 @@ Once that download is verified, build and evaluate in the background with:
 ```sh
 python3 -m venv build/sparrow/host-env
 build/sparrow/host-env/bin/pip install -r sparrow/requirements-host.txt
-build/sparrow/host-env/bin/python sparrow/full-build.py build/sparrow/full-20260907 --start
+build/sparrow/host-env/bin/python sparrow/full-build.py \
+  build/sparrow/full-20260907-rerun \
+  --baseline build/sparrow/coverage-v3/frozen/sparrow --start
 ```
 
 Use a new output directory for each job; existing work is refused. The job
@@ -289,15 +291,21 @@ freezes the builder, binaries and benchmark inputs, reads the local dump with
 six decode workers, and runs the train/test comparisons after a successful
 build. `job.json`, `build-status.json` and `run.log` show progress and errors.
 It keeps the full index separately for review. No network is used by this job.
+The earlier full import and its queued evaluation were cancelled at the owner's
+request; no dataset job is running. The verified dump is retained. See
+[HANDOFF.md](HANDOFF.md) for the cancellation record and fresh-run instructions.
+The explicit v3 baseline above supports the current claim flags; the older
+default baseline does not understand flag 32. A fresh build already includes
+canonical-title precedence, so it does not need a title-upgrade follow-up.
 
 To evaluate a newer frozen engine after an import already in progress:
 
 ```sh
-python3 sparrow/evaluate-build.py build/sparrow/full-20260907 \
-  build/sparrow/full-20260907-v3 --start
+python3 sparrow/evaluate-build.py build/sparrow/full-20260907-rerun \
+  build/sparrow/full-20260907-rerun-next --start
 ```
 
-This is already queued for the current import. It preserves the original job,
+This optional helper is not currently queued. It preserves the source job,
 waits for completion, creates a separate index with canonical-title precedence,
 and compares the previous and current engines on the original index before
 evaluating the title change. Claim bytes and original missing-target handling
