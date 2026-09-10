@@ -305,6 +305,10 @@ void set_article_link_handler(ARTICLE_LINK_HANDLER handler);
 void set_article_initial_y_pos(long y_pos);
 void set_article_stream_height(int height);
 void repaint_current_article(void);
+/* Transient photo progress over the article. Negative completed hides it. */
+void draw_article_progress(int completed, int total);
+/* Bottom of the current viewport's lazy rendering window, in buffer pixels. */
+int article_render_limit(void);
 char* FontFile(int id);
 void buf_draw_UTF8_str(const unsigned char **sUTF8);
 void buf_draw_horizontal_line(unsigned long start_x, unsigned long end_x);

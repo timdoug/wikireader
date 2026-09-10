@@ -4,10 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* stream_y is the image's starting row relative to the article body. */
 typedef int (*ZIM_ARTICLE_IMAGE)(void *opaque,
 				 const unsigned char *path, size_t path_length,
 				 unsigned int requested_width,
 				 unsigned int requested_height,
+				 int stream_y,
 				 unsigned char *bitmap, size_t capacity,
 				 uint8_t *width, uint16_t *height,
 				 size_t *bitmap_size);

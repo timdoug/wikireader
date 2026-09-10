@@ -417,7 +417,7 @@ wrap_body(const unsigned char *text, size_t text_size,
 				x = 0;
 				if (!image(image_opaque, text + input + 7,
 					   path_length, requested_width,
-					   requested_height, article + used + 4,
+					   requested_height, track.y, article + used + 4,
 					   capacity - used - 6, &image_width,
 					   &image_height, &bitmap_size)) {
 					if (bitmap_size > capacity - used - 6)

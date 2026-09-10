@@ -263,8 +263,11 @@ depends on the host and timing mode.
   image is loaded before presentation, while later images are decoded only as
   scrolling approaches them
 - a stable full-article scrollbar derived from the packed stream layout and
-  composited into each repaint, plus per-image progress for archive
-  extraction, WebP decoding, and dithering
+  composited into each repaint, plus one photo progress bar per lazy-loading
+  batch. The photos within the current four-screen rendering window share a
+  fixed total, including archive extraction, WebP decoding, and dithering;
+  scrolling into another group starts a new batch. The bar survives viewport
+  repaints and restores the covered article pixels when loading pauses or ends
 - continuous image work that services pending drags at decoder checkpoints,
   with stale consecutive motion samples collapsed to the newest position
   without restarting decompression or decoding
@@ -336,6 +339,13 @@ using a captured exFAT metadata prefix; reads beyond that capture are rejected.
 Target-specific code is also checked through full-FLASH emulator boot,
 search, Cat/Tokyo article loading,
 and the first Paris photograph on 16 MB and 32 MB board configurations.
+Tokyo's image-URL regression is checked against the full English archive:
+13 escaped asset paths resolve and decode after one URL-decoding pass.
+The emulator reproduces the old blank Rainbow Bridge placeholder and the
+fixed image, with the preceding photograph pixel-for-pixel unchanged.
+The same Tokyo boot-and-scroll check groups the initial five photos under one
+monotonic progress bar and the next two under a new bar after a flick. It checks
+the drawn bar pixels and preserves image positions through a cached revisit.
 The emulator's [profiling commands](../emulator/README.md#profiling-and-timing)
 can measure those paths with addresses from the matching `zim.map`.
 

@@ -123,6 +123,9 @@ static int article_stream_height;
 static int scroll_bar_visible;
 static unsigned char *lcd_default_framebuffer;
 static unsigned char *direct_view_source;
+static int article_progress_pixels = -1;
+static unsigned char *article_progress_framebuffer;
+static unsigned char article_progress_background[2 * LCD_BUFFER_WIDTH_BYTES];
 #define SCROLL_OVERLAY_X 224
 #define SCROLL_OVERLAY_WIDTH 32
 #define SCROLL_OVERLAY_ROW_BYTES (SCROLL_OVERLAY_WIDTH / 8)
@@ -795,6 +798,58 @@ void draw_language_link_arrow()
 	}
 }
 
+static void restore_article_progress(void)
+{
+	if (article_progress_framebuffer) {
+		memcpy(article_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
+		       article_progress_background, sizeof(article_progress_background));
+		article_progress_framebuffer = NULL;
+	}
+}
+
+static void paint_article_progress(void)
+{
+	unsigned char row[LCD_BUFFER_WIDTH_BYTES] = {0};
+	if (article_progress_pixels < 0 || direct_view_source ||
+	    display_mode != DISPLAY_MODE_ARTICLE)
+		return;
+	/* Never draw into a direct scroll viewport: it is article backing data.
+	 * Save the two covered rows again after a normal viewport repaint. */
+	if (!article_progress_framebuffer) {
+		article_progress_framebuffer = lcd_get_framebuffer();
+		memcpy(article_progress_background,
+		       article_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
+		       sizeof(article_progress_background));
+	}
+	memset(row, 0xff, article_progress_pixels / 8);
+	if (article_progress_pixels & 7)
+		row[article_progress_pixels / 8] =
+			(unsigned char)(0xff << (8 - (article_progress_pixels & 7)));
+	memcpy(article_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES, row, sizeof(row));
+	memcpy(article_progress_framebuffer + 2 * LCD_BUFFER_WIDTH_BYTES, row, sizeof(row));
+}
+
+void draw_article_progress(int completed, int total)
+{
+	int pixels;
+	if (completed < 0 || total <= 0) {
+		if (display_mode == DISPLAY_MODE_ARTICLE)
+			restore_article_progress();
+		else
+			article_progress_framebuffer = NULL;
+		article_progress_pixels = -1;
+		return;
+	}
+	pixels = completed >= total ? LCD_WIDTH :
+		(int)((uint64_t)completed * LCD_WIDTH / total);
+	if (pixels < 1)
+		pixels = 1;
+	if (pixels == article_progress_pixels && article_progress_framebuffer)
+		return;
+	article_progress_pixels = pixels;
+	paint_article_progress();
+}
+
 void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link)
 {
 	(void)b_repaint_invert_link; // *** unused argument
@@ -806,6 +861,9 @@ void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link)
 	source = buf + (pos < 0 ? 0 : pos) * LCD_BUFFER_WIDTH / 8;
 
 	guilib_fb_lock();
+	restore_article_progress();
+	if (display_mode != DISPLAY_MODE_ARTICLE)
+		article_progress_pixels = -1;
 	//guilib_clear();
 
 	/* The LCD controller manual explicitly supports vertical scrolling by
@@ -841,6 +899,7 @@ void repaint_framebuffer(unsigned char *buf, int pos, int b_repaint_invert_link)
 	}
 //	if (b_repaint_invert_link)
 //		repaint_invert_link();
+	paint_article_progress();
 	guilib_fb_unlock();
 }
 
@@ -1257,25 +1316,42 @@ void render_wikipedia_license_text(void)
 		lcd_draw_buf.current_y = LCD_BUF_HEIGHT_PIXELS;
 }
 
+int article_render_limit(void)
+{
+	int viewport = lcd_draw_cur_y_pos;
+	if (!display_first_page && lcd_draw_init_y_pos > viewport)
+		viewport = lcd_draw_init_y_pos;
+	if (request_display_next_page && request_y_pos - LCD_HEIGHT > viewport)
+		viewport = request_y_pos - LCD_HEIGHT;
+	return viewport + 4 * LCD_HEIGHT;
+}
+
 int render_article_with_pcf()
 {
 	int prepare_status;
 
-	if (!article_buf_pointer)
+	if (!article_buf_pointer) {
+		draw_article_progress(-1, 0);
 		return 0;
+	}
 	/* A storage backend may leave expensive objects in the article stream
 	 * deferred. Keep a few screens rendered ahead of the visible viewport,
 	 * enough for a flick to coast into, and resume naturally when
 	 * display_article_with_pcf() requests more. */
 	if (article_stream_prepare && display_first_page &&
 	    !request_display_next_page &&
-	    lcd_draw_buf.current_y > lcd_draw_cur_y_pos + 4 * LCD_HEIGHT)
+	    lcd_draw_buf.current_y > article_render_limit()) {
+		draw_article_progress(-1, 0);
 		return 0;
+	}
 	if (article_stream_prepare) {
 		prepare_status = article_stream_prepare(
 			(unsigned char *)article_buf_pointer);
-		if (prepare_status)
+		if (prepare_status) {
+			if (prepare_status < 0)
+				draw_article_progress(-1, 0);
 			return prepare_status > 0;
+		}
 	}
 
 	buf_draw_UTF8_str(&article_buf_pointer);
@@ -1283,6 +1359,7 @@ int render_article_with_pcf()
 	{
 		article_buf_pointer = NULL;
 		stop_render_article = 0;
+		draw_article_progress(-1, 0);
 		return 0;
 	}
 	if(request_display_next_page > 0 && lcd_draw_buf.current_y > request_y_pos)
@@ -1346,6 +1423,7 @@ int render_article_with_pcf()
 
 		article_buf_pointer = NULL;
 
+		draw_article_progress(-1, 0);
 		return 0;
 	}
 	return 1;

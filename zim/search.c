@@ -78,6 +78,7 @@ typedef struct {
 	uint8_t width;
 	uint16_t height;
 	size_t bitmap_size;
+	int stream_y;
 } ZIM_DEFERRED_IMAGE;
 
 typedef struct {
@@ -89,12 +90,11 @@ static ZIM_DEFERRED_IMAGE *deferred_images;
 static size_t deferred_image_count;
 static size_t deferred_image_capacity;
 static size_t deferred_image_next;
+static size_t image_batch_first, image_batch_end;
 static ZIM_IMAGE_DECODER *deferred_image_decoder;
 static uint8_t deferred_decode_width;
 static uint16_t deferred_decode_height;
 static size_t deferred_decode_bitmap_size;
-static unsigned char deferred_saved_bar[2 * LCD_BUFFER_WIDTH_BYTES];
-static unsigned char *deferred_progress_framebuffer;
 static size_t article_text_size;
 static ZIM_DEFERRED_LINK *deferred_links;
 static size_t deferred_link_count;
@@ -138,6 +138,7 @@ typedef struct {
 	uint32_t bitmap_size;
 	uint16_t height;
 	uint8_t width;
+	int32_t stream_y;
 } CACHED_IMAGE;
 
 typedef struct {
@@ -198,7 +199,7 @@ static void article_blob_progress(void *opaque, uint64_t completed,
 	draw_progress_bar((int)progress, ARTICLE_PROGRESS_LIMIT);
 }
 
-static void progress_range(size_t completed, size_t total, int start, int end)
+static int progress_value(size_t completed, size_t total, int start, int end)
 {
 	int progress = start;
 
@@ -209,7 +210,23 @@ static void progress_range(size_t completed, size_t total, int start, int end)
 			progress += (int)((uint64_t)completed * (uint64_t)(end - start) /
 					  total);
 	}
-	draw_progress_bar(progress, ARTICLE_PROGRESS_LIMIT);
+	return progress;
+}
+
+static void progress_range(size_t completed, size_t total, int start, int end)
+{
+	draw_progress_bar(progress_value(completed, total, start, end),
+			  ARTICLE_PROGRESS_LIMIT);
+}
+
+static void image_progress(int part)
+{
+	/* A stable denominator for the photos in this rendering window. Each
+	 * completed (or skipped) photo contributes one unit to the batch. */
+	draw_article_progress((int)((deferred_image_next - image_batch_first) *
+			      ARTICLE_PROGRESS_LIMIT) + part,
+			      (int)((image_batch_end - image_batch_first) *
+			      ARTICLE_PROGRESS_LIMIT));
 }
 
 static void article_html_progress(void *opaque, size_t done, size_t total)
@@ -231,8 +248,8 @@ static void image_blob_progress(void *opaque, uint64_t completed,
 {
 	(void)opaque;
 	wikilib_service_pending_touch_events();
-	progress_range((size_t)completed, (size_t)total,
-		       IMAGE_PROGRESS_BLOB_START, IMAGE_PROGRESS_BLOB_END);
+	image_progress(progress_value((size_t)completed, (size_t)total,
+		       IMAGE_PROGRESS_BLOB_START, IMAGE_PROGRESS_BLOB_END));
 }
 
 static void image_decode_progress(void *opaque, size_t completed,
@@ -240,8 +257,8 @@ static void image_decode_progress(void *opaque, size_t completed,
 {
 	(void)opaque;
 	wikilib_service_pending_touch_events();
-	progress_range(completed, total, IMAGE_PROGRESS_BLOB_END,
-			     IMAGE_PROGRESS_DECODE_END);
+	image_progress(progress_value(completed, total, IMAGE_PROGRESS_BLOB_END,
+			     IMAGE_PROGRESS_DECODE_END));
 }
 
 static int normalize_image_path(const unsigned char *source_path,
@@ -555,6 +572,7 @@ static int article_image(void *opaque, const unsigned char *source_path,
 			 size_t source_path_length,
 			 unsigned int requested_width,
 			 unsigned int requested_height,
+			 int stream_y,
 			 unsigned char *bitmap, size_t capacity,
 			 uint8_t *width, uint16_t *height,
 			 size_t *bitmap_size)
@@ -587,6 +605,7 @@ static int article_image(void *opaque, const unsigned char *source_path,
 	deferred->width = *width;
 	deferred->height = *height;
 	deferred->bitmap_size = *bitmap_size;
+	deferred->stream_y = stream_y;
 	deferred_image_count++;
 	return 0;
 }
@@ -606,13 +625,20 @@ static int prepare_article_image(unsigned char *stream)
 	deferred = &deferred_images[deferred_image_next];
 	if (deferred->stream != stream)
 		return 0;
+	/* Let the viewport settle before choosing a new batch or advancing a
+	 * decoder. Existing decoder state survives direct and kinetic scrolling. */
+	wikilib_service_pending_touch_events();
+	if (finger_touched || finger_move_speed)
+		return -1;
+	if (deferred_image_next >= image_batch_end) {
+		int limit = article_render_limit() - article_start_y_pos;
+		image_batch_first = deferred_image_next;
+		image_batch_end = deferred_image_next + 1;
+		while (image_batch_end < deferred_image_count &&
+		       deferred_images[image_batch_end].stream_y <= limit)
+			image_batch_end++;
+	}
 	if (deferred_image_decoder) {
-		/* Give an already queued gesture ownership of the UI before
-		 * beginning another decoder slice.  The decoder state remains live
-		 * and resumes after direct and kinetic scrolling have stopped. */
-		wikilib_service_pending_touch_events();
-		if (finger_touched || finger_move_speed)
-			return -1;
 		rc = zim_image_decoder_step(deferred_image_decoder);
 		if (rc > 0)
 			return 1;
@@ -620,31 +646,28 @@ static int prepare_article_image(unsigned char *stream)
 		    deferred_decode_height != deferred->height ||
 		    deferred_decode_bitmap_size != deferred->bitmap_size)
 			memset(stream + 4, 0, deferred->bitmap_size);
-		else
-			draw_progress_bar(100, ARTICLE_PROGRESS_LIMIT);
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
 		goto out;
 	}
-	deferred_progress_framebuffer = lcd_get_framebuffer();
-	memcpy(deferred_saved_bar,
-	       deferred_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
-	       sizeof(deferred_saved_bar));
-	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
-	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
-	memcpy(path, deferred->path, deferred->path_length);
-	path[deferred->path_length] = '\0';
+	image_progress(0);
+	/* The stored src still has HTML/URL escapes. Decode exactly one layer:
+	 * a Tokyo thumbnail's %252C names a literal %2C in the ZIM directory.
+	 * Use the same bounded URL decoding as article links before lookup. */
+	if (zim_link_normalize("", deferred->path, deferred->path_length,
+			       path, sizeof(path)))
+		goto out;
 	watchdog(WATCHDOG_KEY);
 	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		goto out;
-	draw_progress_bar(IMAGE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
+	image_progress(IMAGE_PROGRESS_BLOB_START);
 	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
 					    ZIM_RAW_BUFFER_SIZE, &webp_size,
 					    image_blob_progress, NULL);
 	if (rc)
 		goto out;
-	draw_progress_bar(IMAGE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
+	image_progress(IMAGE_PROGRESS_BLOB_END);
 	deferred_image_decoder = zim_image_decoder_create(raw_buffer, webp_size,
 		deferred->width, deferred->height, stream + 4,
 		deferred->bitmap_size, &deferred_decode_width,
@@ -658,12 +681,9 @@ static int prepare_article_image(unsigned char *stream)
 
 out:
 	deferred_image_next++;
-	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
-	if (display_first_page)
-		repaint_current_article();
-	else
-		memcpy(deferred_progress_framebuffer + LCD_BUFFER_WIDTH_BYTES,
-		       deferred_saved_bar, sizeof(deferred_saved_bar));
+	image_progress(0);
+	if (deferred_image_next == image_batch_end)
+		draw_article_progress(-1, 0);
 	return 0;
 }
 
@@ -764,6 +784,7 @@ static void article_cache_store_current(void)
 		images[i].bitmap_size = (uint32_t)deferred_images[i].bitmap_size;
 		images[i].height = deferred_images[i].height;
 		images[i].width = deferred_images[i].width;
+		images[i].stream_y = deferred_images[i].stream_y;
 	}
 	links = (CACHED_LINK *)(entry->data + links_at);
 	for (i = 0; i < deferred_link_count; i++) {
@@ -842,6 +863,7 @@ static int article_cache_restore(uint32_t index)
 		deferred_images[i].bitmap_size = images[i].bitmap_size;
 		deferred_images[i].height = images[i].height;
 		deferred_images[i].width = images[i].width;
+		deferred_images[i].stream_y = images[i].stream_y;
 	}
 	links = (const CACHED_LINK *)(images + entry->image_count);
 	for (i = 0; i < entry->link_count; i++) {
@@ -1332,6 +1354,8 @@ int retrieve_article(long encoded_index)
 	int article_height;
 	zim_overlay_invalidate();   /* the search screen draws into IVRAM */
 	set_article_stream_height(0);
+	draw_article_progress(-1, 0);
+	image_batch_first = image_batch_end = 0;
 	draw_progress_bar(0, ARTICLE_PROGRESS_LIMIT);
 	draw_progress_bar(1, ARTICLE_PROGRESS_LIMIT);
 	/* History entries carry the archive they came from in the top byte. */
