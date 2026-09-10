@@ -205,15 +205,55 @@ can be overridden with `WREMU_MODEL=name=value,...`.
 | `wr_rd_turn` | 3 | extra ticks for an SDRAM read after a write |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `sd_read_latency` | 60000 | cycles from a read command to the data token |
+| `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
+| `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
+| `sd_write_latency` | 0 | programming busy cycles after a written block |
 | `iram_fetch_wait` | 0 | extra cycles per internal-RAM instruction fetch |
 | `dq_iram_extra` | 2 | extra ticks for data access from internal-RAM code |
 | `dq_hit` | 1 | extra ticks for a data-queue hit |
 
 Calibration microbenchmarks agreed within 12%, most within 5%. In the
-measured article phases the model was 16-33% faster than the device; card
-restart latency is also simplified. Use it to identify expensive work and
-compare candidates, then confirm improvements on hardware. Historical
+measured article phases the model was 16-33% faster than the device. Use it
+to identify expensive work and compare candidates, then confirm improvements
+on hardware. Historical
 calibration data and its retired harness remain in Git at `dee29f20`.
+
+The three separate card waits were added on 2026-09-09. Their defaults are
+zero because the current card has not yet been calibrated by boot phase;
+they are mechanisms for fitting measured waits, not measured defaults.
+They use MCLK cycles (60,000 cycles/ms at 60 MHz). Initialization polls
+return idle until ready, streamed reads delay only the next data token,
+and programming busy survives chip deselection. CPU and DMA costs retain
+their previous calibration.
+
+Match filesystem state as well as firmware before comparing boot times.
+A generated FAT32 fixture with unknown FSInfo hints and no existing
+`dma.txt` spent 647 ms creating its first diagnostic; its next boot took
+26 ms for that step. This was allocation work, not a measured card write
+delay. Builders should provide valid free-cluster and allocation hints.
+For an existing **synthetic** fixture, run:
+
+```sh
+python3 emulator/tools/fat32_fixture.py /tmp/generated-card.img
+make -C emulator test-sd-timing test-fat32-fixture
+```
+
+The tool bounds its FAT read and accepts regular image files only. Do not
+apply it to captured physical metadata: the original allocation state is
+part of the evidence. Also include the card's boot files, directory order,
+existing logs, and history. The 2026-09-09 logical boot-file snapshot brought
+the exact installed firmware's kernel-to-reader estimate from 1.840 s to
+1.315 s, versus 1.398 s on hardware. That is 6% error instead of 32%, but
+the fixture still does not reproduce physical fragmentation or deleted
+directory slots. See [reader performance](../zim/PERFORMANCE.md) for the
+comparison and scope.
+
+The diagnostic kernel/app pair adds `KERNELBOOT` lines to `zimboot.log`:
+kind 1 is mounting, kind 2 is the diagnostic checkpoint, and kind 3 is an
+ELF load (`init.app`, then `zim.app`). These RAM snapshots include elapsed
+time, read counts, read/DMA time, and errors, and are saved after the
+keyboard is drawn. Install both binaries: the getter uses new syscall 120.
+They will distinguish missing card waits from different amounts of work.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 

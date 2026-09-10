@@ -74,6 +74,15 @@ test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.
 	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
 	/tmp/test_sd
 
+.PHONY: test-sd-timing
+test-sd-timing: tools/test_sd_timing.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_sd_timing $^ $(SDL_LIBS)
+	/tmp/test_sd_timing
+
+.PHONY: test-fat32-fixture
+test-fat32-fixture:
+	python3 tools/test_fat32_fixture.py
+
 .PHONY: test-mmc-power
 test-mmc-power:
 	$(CC) $(CFLAGS) -Itools/mmc_mock -I../samo-lib/drivers/include \
@@ -177,7 +186,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
+check: test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

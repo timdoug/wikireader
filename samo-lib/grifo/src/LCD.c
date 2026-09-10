@@ -78,6 +78,18 @@ void LCD_initialise(void)
 }
 
 
+void LCD_StartupMessage(void)
+{
+	static const char message[] = "Starting WikiReader...";
+	LCD_initialise();
+	LCD_ResetFrameBuffer();
+	LCD_clear(LCD_WHITE);
+	LCD_AtXY((LCD_MaxColumns() - (sizeof(message) - 1)) / 2,
+		 LCD_MaxRows() / 2);
+	LCD_print(message);
+}
+
+
 uint8_t *LCD_GetFrameBuffer(void)
 {
 	return (uint8_t *)REG_LCDC_MADD;

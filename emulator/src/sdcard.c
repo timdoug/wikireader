@@ -65,6 +65,7 @@ static void push(struct sdcard *sd, uint8_t b)
 static void respond(struct sdcard *sd, uint8_t r1)
 {
 	sd->resp_len = sd->resp_pos = 0;
+	sd->token_ready = 0;
 	sd->block_timing = false;
 	push(sd, 0xFF);          /* Ncr: at least one idle byte before R1 */
 	push(sd, r1);
@@ -113,15 +114,27 @@ static void queue_block(struct sdcard *sd, uint32_t blk)
 /*
  * A real card takes time to find a block after a read command; the host
  * sees 0xff until the data token.  The fitted model holds the token of the
- * block a command asked for until sd_read_latency cycles have passed;
- * blocks that follow in a multi-block stream are not delayed.
+ * block a command asked for until sd_read_latency cycles have passed.
+ * Subsequent blocks use a separate gap: shortening command latency must
+ * not make a long sequential transfer unrealistically faster as well.
  */
-static void delay_token(struct sdcard *sd)
+static void delay_token(struct sdcard *sd, unsigned long cycles)
 {
 	if (!sd->clock)
 		return;
 	sd->token_pos = sd->block_first_pos - 1;
-	sd->token_ready = *sd->clock + model.sd_read_latency;
+	sd->token_ready = *sd->clock + cycles;
+}
+
+static bool initialization_ready(struct sdcard *sd)
+{
+	if (!sd->clock || !model.sd_init_latency)
+		return true;
+	if (!sd->initializing) {
+		sd->initializing = true;
+		sd->init_ready = *sd->clock + model.sd_init_latency;
+	}
+	return *sd->clock >= sd->init_ready;
 }
 
 static void execute(struct sdcard *sd)
@@ -140,6 +153,10 @@ static void execute(struct sdcard *sd)
 			idx, arg);
 
 	if (app && idx == 41) {                 /* ACMD41: initialise */
+		if (sd->idle && !initialization_ready(sd)) {
+			respond(sd, R1_IDLE);
+			return;
+		}
 		sd->idle = false;
 		respond(sd, 0x00);
 		return;
@@ -156,6 +173,10 @@ static void execute(struct sdcard *sd)
 		 * satisfies its SDv2 test; answering it keeps initialisation
 		 * moving. A card initialised via CMD1 is byte-addressed.
 		 */
+		if (sd->idle && !initialization_ready(sd)) {
+			respond(sd, R1_IDLE);
+			break;
+		}
 		sd->idle = false;
 		sd->byte_addressed = true;
 		respond(sd, 0x00);
@@ -163,6 +184,8 @@ static void execute(struct sdcard *sd)
 
 	case 0:                                  /* GO_IDLE_STATE */
 		sd->idle = true;
+		sd->initializing = false;
+		sd->init_ready = 0;
 		respond(sd, R1_IDLE);
 		break;
 
@@ -212,7 +235,7 @@ static void execute(struct sdcard *sd)
 		uint32_t blk = sd->byte_addressed ? arg / 512 : arg;
 		respond(sd, 0x00);
 		queue_block(sd, blk);
-		delay_token(sd);
+		delay_token(sd, model.sd_read_latency);
 		break;
 	}
 
@@ -220,7 +243,7 @@ static void execute(struct sdcard *sd)
 		uint32_t blk = sd->byte_addressed ? arg / 512 : arg;
 		respond(sd, 0x00);
 		queue_block(sd, blk);
-		delay_token(sd);
+		delay_token(sd, model.sd_read_latency);
 		sd->streaming = true;
 		sd->stream_blk = blk + 1;
 		break;
@@ -269,6 +292,7 @@ static void finish_block(struct sdcard *sd)
 	sd->resp_len = sd->resp_pos = 0;
 	push(sd, wrote ? 0x05 : 0x0d);
 	push(sd, 0x00);                          /* busy while programming */
+	sd->write_ready = wrote && sd->clock ? *sd->clock + model.sd_write_latency : 0;
 
 	sd->receiving = false;
 	sd->write_blk++;
@@ -306,6 +330,13 @@ static uint8_t pop_response(struct sdcard *sd)
 /* One SPI byte exchange: host sends `out`, card returns a byte. */
 static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 {
+	/* Return the data-response token first, then remain busy even across
+	 * deselection. A new command or write token cannot bypass programming. */
+	if (sd->write_ready && sd->resp_pos >= sd->resp_len) {
+		if (sd->clock && *sd->clock < sd->write_ready)
+			return 0x00;
+		sd->write_ready = 0;
+	}
 	if (sd->collecting) {
 		sd->cmd[sd->cmdlen++] = out;
 		if (sd->cmdlen == 6) {
@@ -386,6 +417,7 @@ static uint8_t sd_xfer(struct sdcard *sd, uint8_t out)
 	if (sd->streaming) {
 		sd->resp_len = sd->resp_pos = 0;
 		queue_block(sd, sd->stream_blk++);
+		delay_token(sd, model.sd_read_gap);
 		return pop_response(sd);
 	}
 	return 0xFF;
@@ -659,6 +691,8 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 
 void sd_reset(struct sdcard *sd)
 {
+	sd->token_ready = sd->init_ready = sd->write_ready = 0;
+	sd->initializing = false;
 	sd->cmdlen = 0;
 	sd->collecting = false;
 	sd->resp_len = sd->resp_pos = 0;

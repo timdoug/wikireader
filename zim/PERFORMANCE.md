@@ -1,8 +1,128 @@
 # Reader performance
 
-The production reader includes the optimizations validated through 2026-09-08.
+The production reader includes the optimizations validated through 2026-09-09.
 Startup profiling and its card logs are enabled only when the boot volume
 contains `zimlog.on`; the one-shot hardware probe has been retired.
+
+## Earlier boot progress (2026-09-09, hardware validated)
+
+The interval before "Opening ZIM archive..." mostly precedes the reader's
+entry point. In the existing hardware logs, app entry to archive opening
+is only about 85 ms. The earlier path loads `kernel.elf`, mounts the card,
+writes the optional `dma.txt` checkpoint, and runs `init.app` to load
+`zim.app`. The ELF loader zeroes each app's shared LCD reservation before
+loading its code, leaving a blank screen during that work.
+
+The kernel now displays "Starting WikiReader..." using its built-in font
+before filesystem setup, and redraws it when the ELF loader clears the
+shared framebuffer. Filesystem initialization is idempotent. Closing an
+app's files still flushes and discards its handles, but retains the mounted
+filesystems instead of power-cycling and mounting the same card again.
+The ELF loader also keeps a bounded 512-byte seek map while loading an app,
+avoiding repeated FAT-chain walks between section headers and payloads.
+More than 63 file extents falls back to ordinary seeks.
+
+The new `kernel_to_app_us` field in `zimboot.log` measures from kernel timer
+initialization to app entry, without additional startup writes. It excludes
+FLASH execution and loading `kernel.elf`; on a later app restart it reports
+cumulative uptime.
+
+Validation: normal boot, cold and cached Cat retrievals have zero read/DMA
+errors and the same Cat framebuffer as the previous build. A fixture with
+`zim.app` split into 682 extents exercises seek-map overflow and boots to
+the identical keyboard via ordinary seeks. All three captured startup
+message frames match. Local evidence is in `build/wr128/earlyboot/`, including
+`result.json`, the phase traces, and screenshots.
+
+Hardware confirmation, captured at 2026-09-10 01:37 UTC: both installed
+firmware hashes match the tested build. One new boot and one page retrieval
+were appended after installation, and the user reports the earlier startup
+display is much better. The measured intervals are:
+
+| Hardware interval | Time |
+| --- | ---: |
+| Kernel timer initialization to reader entry | 1398.026 ms |
+| Reader entry to archive opening | 85.597 ms |
+| Archive opening to keyboard | 3375.998 ms |
+| Kernel timer initialization to keyboard | 4859.621 ms |
+
+The early checkpoint now records seven DMA-read blocks instead of fourteen,
+consistent with removing the duplicate initial mount. Archive opening is
+essentially unchanged from the previous two-boot mean of 3378.427 ms. The
+old firmware did not record the early interval, so its before/after speedup
+remains a model estimate. These times exclude FLASH/menu and loading the kernel.
+
+The page retrieval took 721.921 ms, with eight DMA copies moving 36,852 bytes.
+Retrieval timing excludes rendering and deferred images. All startup and
+page read/DMA error counters are zero, with no startup timeout or fallback.
+The memory-DMA reset flag was acknowledged once, as in the previous build.
+Raw logs and `comparison.json` are saved under
+`build/wr128/earlyboot/hardware-20260910T013720Z/`. The card was cleanly
+ejected after capture; no archive data was read or written.
+
+## Boot model correction (2026-09-09, hardware phase test pending)
+
+The original early-boot fixture predicted 1840.081 ms from the kernel timer
+to reader entry, 442.055 ms longer than hardware. Its first `dma.txt` write
+cost 647.388 ms, falling to 25.538 ms on the same image's next boot. Unknown
+FAT32 FSInfo allocation hints and an absent diagnostic file caused artificial
+FAT allocation searches. That 0.64-second estimate was not card programming
+latency. The fixture builders now supply valid allocation hints; the model
+comparison also retains existing boot files, logs, directory order and
+history from the card.
+
+With the exact installed firmware and the captured logical boot-file state,
+the corrected prediction is 1315.130 ms versus 1398.026 ms measured: 5.93%
+fast instead of 31.62% slow. Kernel-to-keyboard is 4706.437 ms modeled versus
+4859.621 ms measured, 3.15% fast. The snapshot contains 14,080,204 bytes of
+boot files and no physical archive data. It is not a raw filesystem capture:
+physical FAT fragmentation, short aliases and deleted directory slots remain
+approximate. Part of the remaining discrepancy may be different I/O work.
+
+The before/after model comparison now uses the same captured logical card
+state for both firmware versions:
+
+| Interval, modeled | Before early-boot changes | Hardware-validated early-boot build | Saved |
+| --- | ---: | ---: | ---: |
+| Kernel timer to reader entry | 1816.856 ms | 1315.130 ms | 501.726 ms |
+| Kernel timer to archive opening | 1942.156 ms | 1440.542 ms | 501.614 ms (25.83%) |
+| Kernel timer to keyboard | 5210.983 ms | 4706.437 ms | 504.547 ms (9.68%) |
+
+These support an estimate of about half a second saved, in addition to the
+progress display remaining visible. Anchoring the modeled early-stage saving
+to the new hardware timing and the previous measured app-to-keyboard mean
+estimates 5.36 s before versus the measured 4.86 s now (about 9%). The old
+early interval was never measured on hardware, so this is not a physical A/B
+result. Evidence and formulas are in `build/wr128/model-card/comparison.json`.
+
+The SD model now separates initialization readiness (`sd_init_latency`),
+inter-block token delay (`sd_read_gap`), and programming busy
+(`sd_write_latency`). All default to zero pending phase-level measurements
+on this card; existing read-command, CPU and DMA calibration is unchanged.
+This avoids assigning a filesystem mismatch to a hardware delay.
+
+A matching diagnostic kernel/app pair adds bounded RAM snapshots for mount,
+`dma.txt`, and each ELF load. `KERNELBOOT` lines in `zimboot.log` report their
+elapsed time, sector counts, read time and DMA wait/errors. Formatting and
+writing happen after the keyboard appears. The getter is new syscall 120;
+install both kernel and app. Its captured-file model predicts 98.100 ms for
+mount, 62.928 ms for the checkpoint, 25.688 ms for `init.app` loading and
+1088.786 ms for `zim.app` loading. These are predictions for the next test,
+not measurements from the already validated firmware.
+
+Validation: SD timing, FAT fixture and focused CPU/peripheral/DMA checks
+pass. The diagnostic build boots with both minimal and captured-file fixtures,
+and cold/cached Cat retrievals finish with zero I/O/DMA errors and the same
+framebuffer. The full emulator `check` target cannot complete in this checkout:
+its decoder reference files and stock GUI card image are absent. Local build,
+check and model logs are in `build/wr128/model-card/`; hardware phase calibration
+is pending the next boot.
+
+The diagnostic pair was installed and its small-file hashes verified at
+2026-09-10 02:20 UTC, with the previous firmware and logs backed up under
+`build/wr128/model-card/card-backup-20260910T022031Z/`. The card was cleanly
+ejected. `installed.json` records the hashes and pending hardware test; the
+installation read or wrote no archive bytes.
 
 ## Retained changes
 

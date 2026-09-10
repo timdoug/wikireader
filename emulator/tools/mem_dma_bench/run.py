@@ -56,7 +56,11 @@ def make_image(path, files):
     vbr[71:82], vbr[82:90], vbr[510:] = b'WRBOOT     ', b'FAT32   ', b'\x55\xaa'
     fsinfo = bytearray(512)
     struct.pack_into('<I', fsinfo, 0, 0x41615252)
-    struct.pack_into('<III', fsinfo, 484, 0x61417272, 0xffffffff, 0xffffffff)
+    # The builder knows this allocation state. Unknown hints make the
+    # first boot scan the FAT before writing a diagnostic, skewing timing.
+    data_clusters = sectors - reserved - 2 * fatsize
+    struct.pack_into('<III', fsinfo, 484, 0x61417272,
+                     data_clusters - (cluster - 2), cluster - 1)
     struct.pack_into('<I', fsinfo, 508, 0xaa550000)
     with path.open('wb') as out:
         out.truncate((part+sectors)*512)

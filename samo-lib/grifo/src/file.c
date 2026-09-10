@@ -66,6 +66,46 @@ void File_profile(File_IOStats *out, bool enabled)
 }
 
 
+static struct {
+	File_IOStats io;
+	unsigned long begin, end;
+	unsigned kind;
+} boot_windows[8];
+static unsigned boot_count;
+static bool boot_sealed;
+
+int File_boot_begin(unsigned kind)
+{
+	if (boot_sealed || boot_count == SizeOfArray(boot_windows))
+		return -1;
+	unsigned slot = boot_count++;
+	File_profile(NULL, true);
+	boot_windows[slot].kind = kind;
+	boot_windows[slot].begin = Timer_get();
+	return slot;
+}
+
+void File_boot_end(int slot)
+{
+	if (slot < 0 || (unsigned)slot >= boot_count)
+		return;
+	boot_windows[slot].end = Timer_get();
+	File_profile(&boot_windows[slot].io, false);
+}
+
+int File_boot_profile(unsigned index, File_IOStats *out,
+		      unsigned long *begin, unsigned long *end)
+{
+	boot_sealed = true;
+	if (index >= boot_count || !out || !begin || !end)
+		return 0;
+	*out = boot_windows[index].io;
+	*begin = boot_windows[index].begin;
+	*end = boot_windows[index].end;
+	return boot_windows[index].kind;
+}
+
+
 // a type that can hold the path to the file
 typedef char FilenameType[128 + 1];
 
@@ -150,7 +190,15 @@ static File_ErrorType DiskResult(DRESULT result)
 
 void File_initialise(void)
 {
+	static bool initialised = false;
 	size_t i = 0;
+
+	/* Serial/Event/Suspend setup and process() all reach this function.
+	 * Mount once; application handoff does not require cycling card power. */
+	if (initialised)
+		return;
+	initialised = true;
+	int boot_slot = File_boot_begin(1);
 
 	for (i = 0; i < SizeOfArray(FileControlBlock); i++) {
 		FileControlBlock[i].IsOpen = false;
@@ -167,6 +215,7 @@ void File_initialise(void)
 	f_mount(&TheFileSystem[0], "0:", 1);
 	/* A one-partition legacy card remains valid; volume 1 can be absent. */
 	f_mount(&TheFileSystem[1], "1:", 1);
+	File_boot_end(boot_slot);
 }
 
 
@@ -225,11 +274,14 @@ void File_CloseAll(void)
 
 	for (i = 0; i < SizeOfArray(FileControlBlock); i++) {
 		File_close(i);  // handles are 0-based; i+1 left handle 0 unflushed
+		/* Discard handles even if close failed, as the old remount did.
+		 * A seek table may belong to the application being replaced. */
+		FileControlBlock[i].IsOpen = false;
 	}
 	for (i = 0; i < SizeOfArray(DirectoryControlBlock); i++) {
 		File_CloseDirectory(i);
+		DirectoryControlBlock[i].IsOpen = false;
 	}
-	File_initialise();
 }
 
 

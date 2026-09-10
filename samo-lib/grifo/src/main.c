@@ -35,6 +35,7 @@
 #include "event.h"
 #include "file.h"
 #include "interrupt.h"
+#include "LCD.h"
 #include "memory.h"
 #include "power_log.h"
 #include "serial.h"
@@ -104,6 +105,7 @@ void process(void)
 #endif
 	//*Suspend_initialise();
 	Watchdog_initialise();
+	LCD_StartupMessage();
 	Serial_initialise();
 
 	// enable interrupts
@@ -133,7 +135,9 @@ void process(void)
 	File_initialise();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 #if SD_DMA_ENABLED
+	int boot_slot = File_boot_begin(2);
 	SD_DMA_report();
+	File_boot_end(boot_slot);
 	SD_DMA_enable_wide();
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 #endif

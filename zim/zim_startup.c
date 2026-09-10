@@ -54,7 +54,7 @@ void zim_startup_keyboard_ready(void)
  * record without relying on the user eventually taking the power-off path. */
 void zim_startup_flush(void)
 {
-	static char record[2048];
+	static char record[3072];
 	static const char *const names[] = { "file", "indexes", "ui" };
 	unsigned long length = 0;
 	int handle, used, i, wrote;
@@ -63,10 +63,13 @@ void zim_startup_flush(void)
 	pending = 0;
 	used = snprintf(record, sizeof(record),
 		"ZIMBOOT v1 build=%s %s dma_bits=%lu\narchive=%s\n"
-		"open_to_keyboard_us=%lu app_to_keyboard_us=%lu\n",
+		"open_to_keyboard_us=%lu app_to_keyboard_us=%lu kernel_to_app_us=%lu\n",
 		__DATE__, __TIME__, (unsigned long)stats[3].dma_bits, path,
 		(ticks[3] - ticks[0]) / TIMER_CountsPerMicroSecond,
-		(ticks[3] - app_start) / TIMER_CountsPerMicroSecond);
+		(ticks[3] - app_start) / TIMER_CountsPerMicroSecond,
+		/* Kernel timer epoch: excludes FLASH and loading kernel.elf.
+		 * Useful on the initial boot; a later app restart is cumulative. */
+		app_start / TIMER_CountsPerMicroSecond);
 	for (i = 1; i <= 3 && used > 0 && used < (int)sizeof(record); i++) {
 		const file_io_stats_t *a = &stats[i - 1], *b = &stats[i];
 #define DELTA(field) ((unsigned long)(b->field - a->field))
@@ -87,6 +90,27 @@ void zim_startup_flush(void)
 	}
 	if (used <= 0 || used >= (int)sizeof(record))
 		return;
+	for (i = 0; i < 8; i++) {
+		file_io_stats_t io;
+		unsigned long begin, end;
+		int kind = file_boot_profile(i, &io, &begin, &end);
+		if (!kind)
+			break;
+		int count = snprintf(record + used, sizeof(record) - used,
+			"KERNELBOOT seq=%d kind=%d begin_us=%lu elapsed_us=%lu "
+			"read_calls=%lu read_sectors=%lu read_us=%lu dma_wait_us=%lu "
+			"read_errors=%lu timeouts=%lu dma_errors=%lu\n",
+			i, kind, begin / TIMER_CountsPerMicroSecond,
+			(end - begin) / TIMER_CountsPerMicroSecond,
+			(unsigned long)io.read_calls, (unsigned long)io.read_sectors,
+			io.read_ticks / TIMER_CountsPerMicroSecond,
+			io.dma_wait_ticks / TIMER_CountsPerMicroSecond,
+			(unsigned long)io.read_errors, (unsigned long)io.dma_timeouts,
+			(unsigned long)io.dma_errors);
+		if (count < 0 || count >= (int)sizeof(record) - used)
+			return;
+		used += count;
+	}
 	used += snprintf(record + used, sizeof(record) - used,
 		"dma_disabled_at_start=%lu dma_disabled_at_end=%lu\nEND ZIMBOOT\n\n",
 		(unsigned long)stats[0].dma_disabled, (unsigned long)stats[3].dma_disabled);

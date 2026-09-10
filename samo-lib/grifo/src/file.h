@@ -79,6 +79,14 @@ typedef struct {
 //-MakeSystemCalls: io-profile
 void File_profile(File_IOStats *out, bool enabled);
 
+/* Kernel boot windows are recorded in RAM and retrieved after the UI is up.
+ * kind: 1 = filesystem mount, 2 = diagnostic checkpoint, 3 = ELF load.
+ * Windows do not nest. Retrieving any record seals the boot capture. */
+int File_boot_begin(unsigned kind);
+void File_boot_end(int slot);
+int File_boot_profile(unsigned index, File_IOStats *out,
+		      unsigned long *begin, unsigned long *end);
+
 void File_initialise(void);
 
 void File_PowerDown(void);

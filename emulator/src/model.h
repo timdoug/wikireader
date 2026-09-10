@@ -34,6 +34,11 @@ struct model {
 	unsigned dma_mem_extra;
 	/* MCLK cycles from a READ command to the card's data token. */
 	unsigned long sd_read_latency;
+	/* Card-specific waits, separate from CPU/DMA costs. Zero preserves
+	   the historical immediate-ready model until a card is calibrated. */
+	unsigned long sd_init_latency;  /* first ACMD41/CMD1 to ready */
+	unsigned long sd_read_gap;      /* between streamed data blocks */
+	unsigned long sd_write_latency; /* programming busy after a block */
 	/* Extra cycles per instruction fetched from internal RAM (A0, IVRAM),
 	   which the manual-only model treats as zero-wait. */
 	unsigned iram_fetch_wait;
