@@ -21,6 +21,10 @@ original WikiReader interface. Its preferred card layout keeps boot files on
 FAT32 and stores the archive on a second exFAT partition, including archives
 larger than 4 GiB.
 
+A native [`doom.app`](doom/README.md) port runs Doom with monochrome graphics,
+touch movement, and front-button controls. See its guide for builds, SD-card
+setup, and emulator testing.
+
 ## Differences between this and the original wikireader repo
 * This repo includes an updated fork of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) script built specifically for the wikireader. This file is used to dedupe and generate the plaintext XML and makes processing MUCH faster.
 * The docker container is pre-built with everything you need.

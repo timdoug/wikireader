@@ -1,0 +1,4 @@
+*.app
+*.ico
+*.dump
+/lib/
