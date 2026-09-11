@@ -60,8 +60,7 @@ must be measured on the full dump before releasing an index.
 Build the firmware normally:
 
 ```sh
-make -C zim TOOLCHAIN_BIN="$PWD/host-tools/toolchain-c33/work/install/bin" \
-  SIMULATE=NO OPT=-O2
+make -C zim SIMULATE=NO OPT=-O2
 ```
 
 Install `zim/zim.app` and put `sparrow.dat` in the exFAT content volume root (or

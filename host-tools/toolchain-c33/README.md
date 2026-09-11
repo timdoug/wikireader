@@ -50,12 +50,9 @@ host-tools/toolchain-c33/work/install/
 `gcc/rebuild.sh` is preferred over the bring-up-only `gcc/build.sh`: it
 builds and installs the compiler and forcibly refreshes every libgcc multilib.
 
-Firmware Makefiles default to the original EPSON compiler. Select GCC 16.2
-explicitly:
-
-```sh
-make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
-```
+Firmware Makefiles use this installation by default, so `make <target>` needs
+no toolchain argument. Set `TOOLCHAIN_BIN` to select a different one, such as
+`host-tools/toolchain-install/bin` for the original EPSON compiler.
 
 Clean the relevant firmware component when switching toolchains or ABI flags;
 Make does not encode compiler identity or flag changes in object-file

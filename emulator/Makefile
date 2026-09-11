@@ -34,9 +34,15 @@ tables: allinsn_full.txt allinsn_pe.txt
 	python3 tools/gen_pe_valid.py allinsn_pe.txt c33_pe_valid.h
 
 # Check the generated tables still agree with binutils on real firmware.
+# ref-*.txt are local objdump captures of firmware, not in the repository, so
+# skip rather than fail where they have not been made.  See tools/gen_forms.py.
 test: c33_forms.h
-	$(CC) $(CFLAGS) -o /tmp/test_decode tools/test_decode.c
-	cat ref-*.txt | /tmp/test_decode
+	@if ! ls ref-*.txt >/dev/null 2>&1 ; then \
+	    echo "test: no ref-*.txt present, skipping the binutils decode comparison" ; \
+	else \
+	    $(CC) $(CFLAGS) -o /tmp/test_decode tools/test_decode.c && \
+	    cat ref-*.txt | /tmp/test_decode ; \
+	fi
 
 # Interrupt priority (PSR.IL) rules, per the C33 PE Core manual.
 test-irq: tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
@@ -155,24 +161,34 @@ test-sd-dma-driver: wremu
 
 # Direct kernel boot reaches init promptly even though the CPU sleeps between
 # SPI DMA bytes. This catches accidentally stretching each byte to a GUI poll.
-test-gui-dma: wremu images/wrcard.img images/grifo.elf
-	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 5000000 \
-		-c images/wrcard.img images/grifo.elf > /tmp/test_gui_dma.log 2>&1
-	grep -q 'init starting' /tmp/test_gui_dma.log
+# images/ holds a card image and kernel that are built locally, not shipped, so
+# skip where they are absent rather than failing a fresh checkout.
+test-gui-dma: wremu
+	@if [ ! -f images/wrcard.img ] || [ ! -f images/grifo.elf ] ; then \
+	    echo "test-gui-dma: no images/wrcard.img or images/grifo.elf, skipping" ; \
+	else \
+	    SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 5000000 \
+		-c images/wrcard.img images/grifo.elf > /tmp/test_gui_dma.log 2>&1 && \
+	    grep -q 'init starting' /tmp/test_gui_dma.log ; \
+	fi
 
 # Exercise the same boot chain used by the live GUI. Continue through the
 # loader/kernel handoff and the kernel's first DMA reads: SDRAM descriptor
 # traffic can move MCLK past an SPI deadline, which must not add a GUI poll
 # delay to every byte.
-test-gui-boot: wremu images/wrcard.img ../samo-lib/mbr/flash.rom
-	SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 25000000 \
+test-gui-boot: wremu
+	@if [ ! -f images/wrcard.img ] || [ ! -f ../samo-lib/mbr/flash.rom ] ; then \
+	    echo "test-gui-boot: no images/wrcard.img or mbr/flash.rom, skipping" ; \
+	else \
+	    SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 25000000 \
 		-e ../samo-lib/mbr/flash.rom -c images/wrcard.img \
-		> /tmp/test_gui_boot.log 2>&1
-	grep -q 'Grifo starting' /tmp/test_gui_boot.log
-	grep -q 'init starting' /tmp/test_gui_boot.log
-	grep -Eq -- '--- lcd: [1-9][0-9]* register writes' /tmp/test_gui_boot.log
-	grep -Eq -- '--- display: [0-9]+ update calls, [2-9][0-9]* presents' \
-		/tmp/test_gui_boot.log
+		> /tmp/test_gui_boot.log 2>&1 && \
+	    grep -q 'Grifo starting' /tmp/test_gui_boot.log && \
+	    grep -q 'init starting' /tmp/test_gui_boot.log && \
+	    grep -Eq -- '--- lcd: [1-9][0-9]* register writes' /tmp/test_gui_boot.log && \
+	    grep -Eq -- '--- display: [0-9]+ update calls, [2-9][0-9]* presents' \
+		/tmp/test_gui_boot.log ; \
+	fi
 
 # Differential test against the real cross compiler: the same C source
 # compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both

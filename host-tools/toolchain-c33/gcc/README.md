@@ -64,11 +64,7 @@ the compiler, and rebuilds all libgcc multilibs from scratch.
 it when validating firmware or ABI changes because it does not provide a
 fresh installed libgcc.
 
-Firmware Makefiles require explicit selection of this prefix:
-
-```sh
-make TOOLCHAIN_BIN="$(pwd)/host-tools/toolchain-c33/work/install/bin" <target>
-```
+Firmware Makefiles use this prefix by default; `TOOLCHAIN_BIN` overrides it.
 
 Clean the affected firmware objects and libraries after changing compiler,
 optimization level, ABI hooks, or target flags.

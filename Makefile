@@ -293,7 +293,7 @@ validate-destdir:
 # Libraries
 # =========
 
-$(call STD_RULE, mini-libc, ${SAMO_LIB}/mini-libc, toolchain)
+$(call STD_RULE, mini-libc, ${SAMO_LIB}/mini-libc, toolchain-check)
 $(call STD_RULE, fatfs, ${SAMO_LIB}/fatfs, mini-libc drivers)
 $(call STD_RULE, drivers, ${SAMO_LIB}/drivers, mini-libc)
 
@@ -376,6 +376,25 @@ gcc: binutils gcc-patch
 	${TOUCH} "$@"
 
 
+# The firmware builds with the gcc 16.2 / binutils 2.47 port by default.  This
+# only reports a missing installation; building it is host-tools/toolchain-c33,
+# which is a separate pair of scripts rather than a make target.
+.PHONY: toolchain-check
+toolchain-check:
+	@if [ ! -x "${TOOLCHAIN_BIN}/c33-epson-elf-gcc" ] ; then \
+	  echo "No C33 compiler at ${TOOLCHAIN_BIN}" ; \
+	  echo ; \
+	  echo "Build one with:" ; \
+	  echo "  host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work" ; \
+	  echo "  host-tools/toolchain-c33/gcc/rebuild.sh" ; \
+	  echo ; \
+	  echo "Or point TOOLCHAIN_BIN at an existing installation." ; \
+	  exit 1 ; \
+	fi
+
+# The original EPSON binutils 2.10.1 / gcc 3.3.2 toolchain.  Nothing depends on
+# it; it is kept as an ABI and assembler oracle.  Build it explicitly, then
+# point TOOLCHAIN_BIN at host-tools/toolchain-install/bin to use it.
 .PHONY: toolchain
 toolchain: toolchain-requires gcc
 
@@ -839,13 +858,13 @@ getwikidump:
 # Forth interpreter
 # =================
 
-$(call STD_RULE, forth, ${SAMO_LIB}/forth, gcc mini-libc fatfs drivers, INSTALL)
+$(call STD_RULE, forth, ${SAMO_LIB}/forth, mini-libc fatfs drivers, INSTALL)
 
 
 # FLASH programmer that runs on the device
 # ========================================
 
-$(call STD_RULE, flash, ${SAMO_LIB}/flash, gcc mini-libc fatfs drivers, INSTALL)
+$(call STD_RULE, flash, ${SAMO_LIB}/flash, mini-libc fatfs drivers, INSTALL)
 
 
 # Grifo small kernel
@@ -853,7 +872,7 @@ $(call STD_RULE, flash, ${SAMO_LIB}/flash, gcc mini-libc fatfs drivers, INSTALL)
 
 GRIFO_EXAMPLES ?= NO
 
-$(call STD_RULE, grifo, ${SAMO_LIB}/grifo, gcc mini-libc fatfs, INSTALL, INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}" BUILD_EXAMPLES="${GRIFO_EXAMPLES}")
+$(call STD_RULE, grifo, ${SAMO_LIB}/grifo, mini-libc fatfs, INSTALL, INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}" BUILD_EXAMPLES="${GRIFO_EXAMPLES}")
 
 .PHONY: grifo-simulate
 grifo-simulate: validate-destdir
@@ -868,7 +887,7 @@ grifo-simulate: validate-destdir
 PROGRESS_BAR ?= NO
 TEMPERATURE_DISPLAY ?= NO
 
-$(call STD_RULE, wiki, wiki, gcc mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_BAR}" TEMPERATURE_DISPLAY="${TEMPERATURE_DISPLAY}" INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}")
+$(call STD_RULE, wiki, wiki, mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_BAR}" TEMPERATURE_DISPLAY="${TEMPERATURE_DISPLAY}" INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}")
 
 
 .PHONY: wiki-simulate
@@ -937,7 +956,7 @@ print-mbr-tty:
 	@echo BOOTLOADER_TTY = "${BOOTLOADER_TTY}"
 	@echo BOOTLOADER_AUX = "${BOOTLOADER_AUX}"
 
-$(call STD_RULE, mbr, ${SAMO_LIB}/mbr, gcc fatfs, INSTALL, LOGO="${BOOT_LOGO}")
+$(call STD_RULE, mbr, ${SAMO_LIB}/mbr, fatfs, INSTALL, LOGO="${BOOT_LOGO}")
 $(call STD_RULE, jackknife, ${HOST_TOOLS}/jackknife)
 $(call STD_RULE, flash07, ${HOST_TOOLS}/flash07)
 

@@ -212,10 +212,11 @@ IMAGE2HEADER= ${HOST_TOOLS}/imagetool/image2header
 # Cross compiler definitions
 # ==========================
 
-# Which toolchain builds the firmware.  Defaults to the original EPSON one.
-# Override to build with the gcc 16 / binutils 2.47 port:
-#   make TOOLCHAIN_BIN=$(pwd)/host-tools/toolchain-c33/work/install/bin ...
-TOOLCHAIN_BIN ?= ${HOST_TOOLS}/toolchain-install/bin
+# Which toolchain builds the firmware.  Defaults to the gcc 16 / binutils 2.47
+# port; see host-tools/toolchain-c33/README.md for building it.  Override to
+# use another installation, such as the original EPSON 3.3.2 one:
+#   make TOOLCHAIN_BIN=$(pwd)/host-tools/toolchain-install/bin ...
+TOOLCHAIN_BIN ?= ${HOST_TOOLS}/toolchain-c33/work/install/bin
 export PATH:=${TOOLCHAIN_BIN}:${PATH}
 
 BUILD_PREFIX =

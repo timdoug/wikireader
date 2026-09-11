@@ -40,31 +40,26 @@ host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
 host-tools/toolchain-c33/gcc/rebuild.sh
 ```
 
-It installs under `host-tools/toolchain-c33/work/install/`. Then build the
-components in dependency order, from the repository root:
+It installs under `host-tools/toolchain-c33/work/install/`, which is what
+everything else looks for by default. Then, from the repository root:
 
 ```sh
-TB="$PWD/host-tools/toolchain-c33/work/install/bin"
-for d in samo-lib/mini-libc samo-lib/drivers samo-lib/fatfs samo-lib/grifo wiki; do
-    make -C "$d" TOOLCHAIN_BIN="$TB" || break
-done
-```
-
-Then the ZIM reader and Doom, which need grifo built first:
-
-```sh
-make -C zim TOOLCHAIN_BIN="$TB" SIMULATE=NO OPT=-O2
+make grifo wiki SIMULATE=NO
+make -C zim SIMULATE=NO OPT=-O2
 make -C doom -j4
 ```
 
-Build in the component directories rather than using the root Makefile's
-`grifo` and `wiki` targets. Those still depend on the legacy `gcc` target, so
-they try to fetch and build binutils 2.10.1 and GCC 3.3.2 even when
-`TOOLCHAIN_BIN` points at the current toolchain. The root targets for
-`mini-libc`, `fatfs` and `drivers` are fine.
+`grifo` and `wiki` pull in mini-libc, drivers and fatfs through their
+dependencies. `SIMULATE=NO` skips the Qt5 desktop simulator; drop it if you
+want the simulator and have Qt5 installed.
 
-Extra flags go in `OPT`, which is appended after `-Werror`. Build output is
-git-ignored.
+Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
+appended after `-Werror`. Build output is git-ignored.
+
+The original EPSON binutils 2.10.1 / GCC 3.3.2 toolchain is still buildable
+with `make toolchain`. Nothing depends on it; it is kept as an ABI and
+assembler oracle. Set `TOOLCHAIN_BIN` to `host-tools/toolchain-install/bin` to
+build with it.
 
 ## Emulator
 
@@ -74,8 +69,9 @@ make -C emulator check
 ```
 
 The decode tables are committed, so building the emulator does not need the
-cross-compiler, and `check` is self-contained. SDL2 is only needed for the
-window (`brew install sdl2`).
+cross-compiler. SDL2 is only needed for the window (`brew install sdl2`).
+`check` runs on a bare checkout; the few tests that need a local card image or
+objdump captures say so and skip.
 
 Running firmware needs two things the repository does not carry: a kernel you
 have built, and a card image. `emulator/README.md` covers both, along with the
