@@ -870,6 +870,22 @@ doom-clean:
 CLEAN_TARGETS += zim-clean doom-clean
 
 
+# nuttx.app is a third such application, and the odd one out: it does not use
+# grifo's application ABI.  It replaces grifo for as long as it runs and hands
+# the machine back on exit, and it builds from upstream NuttX rather than from
+# this tree, so the first build clones it.  See nuttx/README.md.
+
+.PHONY: nuttx
+nuttx:
+	${MAKE} -C nuttx all
+
+.PHONY: nuttx-clean
+nuttx-clean:
+	${MAKE} -C nuttx clean
+
+CLEAN_TARGETS += nuttx-clean
+
+
 VALGRIND_OPTS += --leak-check=full
 VALGRIND_OPTS += --leak-resolution=high
 VALGRIND_OPTS += --show-reachable=no

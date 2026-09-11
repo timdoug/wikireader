@@ -25,6 +25,14 @@ works and is unchanged.
 - `wiki` - the original reader application, with fixes.
 - `doom` - `doom.app`. Monochrome, touch movement, front-button controls.
   Engine source is vendored and pinned.
+- `nuttx` - `nuttx.app`, Apache NuttX on the C33: NSH with 139 Toybox
+  commands (`awk grep sed find sort xargs tar` ...), `vi`, a hex editor, ZMODEM
+  transfer and a native TinyCC that compiles C33 code on the device,
+  including itself. It runs from the launcher like the other applications,
+  but takes the machine over from the kernel rather than calling it, and
+  keeps it until `poweroff` or `reboot`. The port is carried as an overlay
+  and patches against pinned upstream revisions, which the first build
+  fetches. It cannot read the card yet.
 - `sparrow` - an offline factual answer engine over Wikidata claims. It works,
   but has only been measured against a sample; see `sparrow/STATUS.md`.
 
@@ -49,6 +57,11 @@ make wiki zim doom
 
 That builds all four applications; mini-libc, drivers, fatfs and grifo come in
 as dependencies.
+
+`make nuttx` builds `nuttx.app` as well. It is separate because it does not
+build from this tree: the first run clones NuttX, nuttx-apps and TinyCC at
+pinned revisions, about 340 MB, and lays this repository's port over them. It
+also needs GNU `make` and `flock`. See `nuttx/README.md`.
 
 Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
 appended after `-Werror` and already defaults to `-O2`. Build output is
@@ -87,6 +100,7 @@ cd emulator
 
 `zim/make-card-image` (macOS) writes a two-partition card: FAT32 for the boot
 files, exFAT for the archive. `zim/README.md` has the layout and the launcher.
+Pass `--nuttx` to add `nuttx.app` to the menu.
 
 ## Classic image build
 
