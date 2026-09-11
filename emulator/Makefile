@@ -108,6 +108,45 @@ test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o $(SDL_LIBS)
 	/tmp/test_wdt
 
+# A timeout with RESEN restarts the machine rather than ending the run. That
+# is how the firmware reboots -- System_reboot() arms the watchdog and halts,
+# which is where NSH's "reboot" on the NuttX application ends up -- so a
+# timeout that stopped the emulator could not be told from a crash.
+#
+# The guest is assembly and needs the cross assembler, which building the
+# emulator otherwise does not.
+C33_BIN ?= $(if $(TOOLCHAIN_BIN),$(TOOLCHAIN_BIN),../host-tools/toolchain-c33/work/install/bin)
+
+.PHONY: test-wdt-reset
+test-wdt-reset: wremu
+	@if [ ! -x "$(C33_BIN)/c33-epson-elf-as" ] ; then \
+	    echo "test-wdt-reset: no C33 assembler in $(C33_BIN), skipping" ; \
+	else \
+	    "$(C33_BIN)/c33-epson-elf-as" -mc33pe tools/wdt_reset_guest.S \
+		-o /tmp/wdt_reset_guest.o && \
+	    "$(C33_BIN)/c33-epson-elf-ld" -Ttext 0x10000000 -e _start \
+		/tmp/wdt_reset_guest.o -o /tmp/wdt_reset_guest.elf && \
+	    ./wremu -n 200000 /tmp/wdt_reset_guest.elf \
+		> /tmp/test_wdt_reset.log 2>&1 ; \
+	    boots=$$(grep -c '^B' /tmp/test_wdt_reset.log) ; \
+	    resets=$$(sed -n 's/^.*--- resets: \([0-9]*\);.*/\1/p' \
+		/tmp/test_wdt_reset.log) ; \
+	    if [ -z "$$resets" ] || [ "$$resets" -lt 5 ] ; then \
+		echo "test-wdt-reset: FAIL: $${resets:-no} resets in 200000 instructions" ; \
+		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
+	    fi ; \
+	    if [ "$$boots" -ne $$(($$resets + 1)) ] ; then \
+		echo "test-wdt-reset: FAIL: $$boots boot markers for $$resets resets;" ; \
+		echo "  the guest did not run again from its entry point" ; \
+		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
+	    fi ; \
+	    if ! grep -q 'instruction limit reached' /tmp/test_wdt_reset.log ; then \
+		echo "test-wdt-reset: FAIL: -n did not bound the run across resets" ; \
+		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
+	    fi ; \
+	    echo "test-wdt-reset: ok: $$resets resets, $$boots boots, run stayed bounded" ; \
+	fi
+
 # CMU protect gate and the 60 MHz the timebase depends on.
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
 	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
@@ -202,7 +241,7 @@ test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
 
 # Everything that can be checked without hardware.
-check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-dma test-gui-dma test-gui-boot
+check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)

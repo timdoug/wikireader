@@ -401,8 +401,25 @@ The current model includes:
   timer-0-to-timer-5 cascade used by firmware;
 - CMU protection, clock gates, oscillator/divider decoding, and derived MCLK;
 - ADC sweep/status behavior with physically plausible board values;
-- watchdog reset; and
+- the watchdog, including its clock gate, its NMI output, and the reset it
+  asserts, which restarts the machine; and
 - the S1C33E07 fixed chip-identification bytes.
+
+Both ways of stopping the device are modelled, because the firmware uses both
+and the difference is visible. `power_off()` toggles P63 until the supply
+outside the chip drops the rails: headless, the run ends with
+`stop reason: powered off`; with a window, the panel goes dark and the power
+switch brings it back. `System_reboot()` arms the watchdog for a 100 us reset
+instead, and that restarts the machine — memory cleared, peripherals reset,
+boot image reloaded, running again from the entry point — rather than ending
+the run, so a reboot can be followed to see whether the device came back.
+`[watchdog reset]` is printed on each one and the summary counts them. A guest
+that simply wedges reaches the same place after grifo's twenty seconds.
+
+`-n` bounds the whole run, resets included, so a guest that resets in a loop
+still stops. The counters the summary prints are per-boot, since a reset
+clears them along with the peripherals; the `--- resets: ---` line says so and
+gives the totals from the earlier boots.
 
 The GUI uses wall-clock time for human input. Headless runs use deterministic
 instruction- and event-derived guest time and fast-forward blocked intervals.
@@ -420,7 +437,11 @@ The model is checked against sources independent of the firmware being run:
 - all 90 opcode patterns extracted from the C33 PE Core manual agree with the
   generated table;
 - instruction semantics, exception behavior, reset values, and modeled MMIO
-  registers are covered by manual-derived focused tests; and
+  registers are covered by manual-derived focused tests;
+- the watchdog reset restarts a bare-metal guest that arms it, in
+  `make test-wdt-reset`: the guest marks each boot on the UART, so the marks
+  have to outnumber the resets by exactly one, and the run has to stay
+  bounded; and
 - 40 generated defined C programs at each of five optimization levels - 200
   target runs per compiler - match native execution under both GCC 3.3.2 and
   GCC 16.2.

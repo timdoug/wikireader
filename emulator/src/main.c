@@ -590,6 +590,16 @@ int main(int argc, char **argv)
 	bool powered = !gui;
 	unsigned power_presses_seen = 0;
 
+	/*
+	 * A reset restarts the machine, and c33_reset() puts the instruction
+	 * and MCLK counters back to zero with the rest of the CPU. Carry the
+	 * earlier boots' totals so that -n still bounds the whole run: without
+	 * it a guest that resets in a loop gets a fresh budget every time and
+	 * never stops.
+	 */
+	unsigned resets = 0;
+	uint64_t retired_before_reset = 0, clk_before_reset = 0;
+
 	struct c33 cpu;
 	memset(&cpu, 0, sizeof cpu);
 	cpu.bus = (struct c33_bus){
@@ -658,7 +668,7 @@ int main(int argc, char **argv)
 	unsigned long nop_run = 0;
 	const char *stop = NULL;
 
-	while (!cpu.halted && cpu.cycles < limit) {
+	while (!cpu.halted && retired_before_reset + cpu.cycles < limit) {
 		/*
 		 * An off device runs nothing and consumes no input. This has
 		 * to come first: the periodic pump below hands whatever the
@@ -1034,12 +1044,35 @@ int main(int argc, char **argv)
 		wdt_poll(&wdt);
 		if (wdt.expired) {
 			/*
-			 * Twenty seconds without a kick. The real chip resets
-			 * here, so a guest that wedges never sits there
-			 * forever the way it used to.
+			 * RESEN is the chip's reset output, and two different
+			 * things arrive here through it. System_reboot() in
+			 * grifo arms the watchdog for 100 us and halts, which
+			 * is how the firmware restarts the device -- NSH's
+			 * "reboot" on the NuttX application reaches it. A
+			 * guest that simply wedges gets here too, after
+			 * grifo's twenty seconds.
+			 *
+			 * Either way the hardware restarts from the boot
+			 * vector, so restart rather than stopping: a reboot
+			 * that ends the run cannot be told from a crash, and
+			 * neither can be followed to see what it did next.
+			 *
+			 * Modelled as a cold start, RAM and all. Reset holds
+			 * the SDRAM controller, so refresh stops and what was
+			 * in there is not worth trusting; the boot code
+			 * reprograms it from scratch regardless.
 			 */
-			stop = "watchdog reset";
-			break;
+			fprintf(stderr, "  [watchdog reset]\n");
+			resets++;
+			retired_before_reset += cpu.cycles;
+			clk_before_reset += cpu.clk;
+			machine_power_on(&cpu, &mem, &port, &itc, &cmu,
+					 &periph, &sdramc, &lcd, &touch,
+					 &timer, &sd, &wdt, &dma,
+					 eeprom_path ? &eeprom : NULL,
+					 path, entry, boot_sp);
+			uart_reset(&uart);
+			continue;
 		}
 		if (wdt.nmi_pending) {
 			c33_raise_nmi(&cpu);
@@ -1143,6 +1176,14 @@ int main(int argc, char **argv)
 				if (due < next)
 					next = due;
 			}
+			{
+				uint64_t delay;
+				if (wdt_deadline(&wdt, &delay)) {
+					uint64_t due = cpu.cycles + delay;
+					if (due < next)
+						next = due;
+				}
+			}
 			/*
 			 * Until the anchor fires the scripted times have not
 			 * been rebased, so they are not deadlines yet -- and
@@ -1227,6 +1268,17 @@ done:
 		}
 	}
 
+	/*
+	 * A reset zeroes the CPU's counters and every peripheral's, so once
+	 * one has happened the figures below describe the last boot alone.
+	 * Say so rather than letting them be read as the whole run.
+	 */
+	if (resets)
+		printf("--- resets: %u; the counters below cover the last boot "
+		       "only, after %llu instructions and %.1f ms guest in "
+		       "earlier ones ---\n", resets,
+		       (unsigned long long)retired_before_reset,
+		       (double)clk_before_reset / (MCLK_HZ / 1000.0));
 	printf("--- timer: %lu reads, %llu MCLK cycles (%.2f cyc/instr) ---\n",
 	       timer.reads, (unsigned long long)cpu.clk,
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);

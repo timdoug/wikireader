@@ -40,5 +40,12 @@ void wdt_poll(struct wdt *w);
 /* Ticks since the last kick, which is what REG_WD_CNT reads back. */
 uint32_t wdt_count(const struct wdt *w);
 bool wdt_running(const struct wdt *w);
+/*
+ * Clock ticks until the counter times out, false if it cannot.  An idle guest
+ * skips forward to the nearest deadline, and one that leaves this out skips
+ * straight over a timeout: System_reboot() halts with nothing else running,
+ * so without this the reset it is waiting for never arrives.
+ */
+bool wdt_deadline(const struct wdt *w, uint64_t *delay);
 
 #endif /* WDT_H */

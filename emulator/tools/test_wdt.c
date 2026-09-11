@@ -158,6 +158,59 @@ int main(void)
 	wdt_poll(&w);
 	ok("with RUNSTP clear it never fires", !w.expired);
 
+	/*
+	 * The timeout as a deadline. An idle guest skips straight to the
+	 * nearest one, so a watchdog that does not offer its own gets skipped
+	 * over: System_reboot() halts with nothing else running, and the
+	 * reset it is waiting for never arrives.
+	 */
+	{
+		uint64_t delay = 12345;
+
+		ok("a stopped watchdog offers no deadline",
+		   !wdt_deadline(&w, &delay));
+
+		wdt_reset(&w);
+		mem_write(&mem, WD_WP, 2, WP_OFF);
+		mem_write(&mem, WD_COMP, 4, 99);
+		mem_write(&mem, WD_EN, 2, RUNSTP | RESEN);
+		mem_write(&mem, WD_CNTL, 2, WDRESEN);
+		wdt_poll(&w);
+		ok("a fresh counter is due in CMPDT + 1 clocks",
+		   wdt_deadline(&w, &delay) && delay == 100);
+
+		clk += 60;
+		wdt_poll(&w);
+		ok("and the deadline closes as it counts",
+		   wdt_deadline(&w, &delay) && delay == 40);
+
+		mem_write(&mem, WD_CNTL, 2, WDRESEN);
+		ok("a kick pushes it back out to the full period",
+		   wdt_deadline(&w, &delay) && delay == 100);
+
+		/* Skipping exactly that far has to be enough to fire it,
+		 * or the caller wakes to find nothing to do and skips again. */
+		clk += delay;
+		wdt_poll(&w);
+		ok("skipping the deadline times it out", w.expired);
+		ok("and an expired watchdog offers no further deadline",
+		   !wdt_deadline(&w, &delay));
+
+		/* Gating the clock stops the counter, so there is no longer a
+		 * time at which it will fire. */
+		wdt_reset(&w);
+		mem_write(&mem, WD_WP, 2, WP_OFF);
+		mem_write(&mem, WD_COMP, 4, 99);
+		mem_write(&mem, WD_EN, 2, RUNSTP | RESEN);
+		mem_write(&mem, WD_CNTL, 2, WDRESEN);
+		mem_write(&mem, CMU_GATEDCLK1, 4, 0);
+		ok("a gated watchdog offers no deadline",
+		   !wdt_deadline(&w, &delay));
+		mem_write(&mem, CMU_GATEDCLK1, 4, WDT_CKE);
+		ok("and offers one again when the clock comes back",
+		   wdt_deadline(&w, &delay) && delay == 100);
+	}
+
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all watchdog tests passed");
 	return fails != 0;

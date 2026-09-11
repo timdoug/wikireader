@@ -87,6 +87,21 @@ void wdt_poll(struct wdt *w)
 		w->expired = true;
 }
 
+bool wdt_deadline(const struct wdt *w, uint64_t *delay)
+{
+	uint64_t period;
+
+	if (w->expired || !wdt_running(w))
+		return false;
+
+	/* Counted in the same clock the caller passed in, so the remaining
+	 * count is the remaining delay.  Valid only as of the last poll,
+	 * which is why the caller asks straight after one. */
+	period = (uint64_t)w->comp + 1;
+	*delay = w->count >= period ? 0 : period - w->count;
+	return true;
+}
+
 static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		     bool is_write)
 {
