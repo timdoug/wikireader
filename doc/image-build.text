@@ -1,0 +1,190 @@
+Building a classic WikiReader image from a Wikimedia dump
+=========================================================
+
+This is the original pipeline from stephen-mw/wikireader, which renders a
+Wikimedia XML dump into the WikiReader's own .dat format. It is unchanged and
+still works. It is unrelated to the ZIM reader in zim/, which reads standard
+ZIM archives directly and needs none of this.
+
+Differences from the original wikireader repo
+---------------------------------------------
+
+* An updated fork of WikiExtractor.py (https://github.com/attardi/wikiextractor)
+  built specifically for the WikiReader, kept as scripts/clean_xml. It dedupes
+  and generates plaintext XML, which makes processing much faster.
+* The docker container is pre-built with everything needed.
+* Concurrency is set independently of the Build script. Do not set parallelism
+  in the Build script at all.
+
+Requirements
+------------
+
+1. docker            https://www.docker.com/products/docker-desktop
+2. git               https://git-scm.com/downloads
+3. Basic command line familiarity
+
+Processing takes about 16 GB of RAM, the largest part being the sort of the
+index. The autowiki script defaults MAX_CONCURRENCY to the host's CPU count.
+
+On macOS and Windows, Docker shares limited resources by default. Raise the CPU
+and memory share in the Docker configuration. On Linux this is not an issue.
+
+Getting the image
+-----------------
+
+    docker pull stephenmw/wikireader:latest
+
+Or build it:
+
+    docker build -t wikireader .
+
+For the core system (the WikiReader binaries):
+
+    cd core
+    docker build -t wikireader_core .
+
+Automated build
+---------------
+
+The build folder is shared with the container, so the processed image remains
+after docker exits. This builds the 20200601 image; available dumps are listed
+at https://dumps.wikimedia.org/enwiki/
+
+    git clone https://github.com/stephen-mw/wikireader.git
+    cd wikireader
+    docker run --rm -v $(pwd)/build:/build -ti \
+        docker.io/stephenmw/wikireader:latest autowiki 20200601
+
+Processing takes a little over 12 hours on a fast desktop. Afterwards copy the
+contents of build/20200601/image to the root of a FAT32 SD card. To update only
+the enpedia directory, copy build/20200601/image/enpedia over the card's
+enpedia directory, removing the existing files there first.
+
+Manual build
+------------
+
+Four steps:
+
+1. Download and decompress a Wikimedia dump index.
+2. Clean and parse the XML with scripts/clean_xml.
+3. Complete the parsing, rendering and combining.
+4. Copy the result to a FAT32 SD card.
+
+Preparing the dump
+------------------
+
+Run clean_xml on the XML dump before processing it. Without it the image is
+full of unrendered {{ foo }} template strings. It also makes the parsing phase
+much faster, days faster, and reduces the 20200601 dump from about 70 GB to
+16 GB.
+
+clean_xml does the following:
+
+* Renders pages to text, preserving links in a WikiReader-specific format.
+* Translates links to the WikiReader format.
+* Translates bullets to the WikiReader format.
+* Dedupes titles.
+* Emits XML understood by the WikiReader rendering process.
+
+Download, decompress, clean (separate steps):
+
+    # Check the dump is complete at https://dumps.wikimedia.org/enwiki/${VERSION}
+    export VERSION=20230201
+
+    wget https://dumps.wikimedia.org/enwiki/${VERSION}/enwiki-${VERSION}-pages-articles.xml.bz2
+
+    bzip -d enwiki-${VERSION}-pages-articles.xml.bz2
+
+    python3.8 ../scripts/clean_xml enwiki-${VERSION}-pages-articles.xml \
+        --wikireader --links --keep_tables -o- \
+        > enwiki-${VERSION}-pages-articles.xml_clean
+
+    ln -sf enwiki-${VERSION}-pages-articles.xml_clean enwiki-pages-articles.xml
+
+Download, decompress, clean (one pass, saves 70 GB of disk). If the pipe breaks
+the whole download restarts, so run it under screen or similar:
+
+    export VERSION=20220601
+    curl -sL "https://dumps.wikimedia.org/enwiki/${VERSION}/enwiki-${VERSION}-pages-articles.xml.bz2" -o- \
+        | bzcat \
+        | ../scripts/clean_xml - --wikireader --links --keep_tables -o- \
+        > enwiki-${VERSION}-pages-articles.xml_clean
+
+Downloading, decompressing and cleaning takes about 90 minutes.
+
+Build commands
+--------------
+
+The build runs inside the container, with build/ shared into it. clean_xml is
+run in the container here for convenience; it needs only bzip2 and python 3.7+
+and can be run anywhere.
+
+    docker pull stephenmw/wikireader
+
+    mkdir build
+
+    # Run from the wikireader directory.
+    docker run --rm -v $(pwd)/build:/build -ti stephenmw/wikireader:latest bash
+
+    # Usually the CPU core count.
+    export MAX_CONCURRENCY=8
+
+    export URI="https://dumps.wikimedia.org/enwiki/20200601/enwiki-20200601-pages-articles.xml.bz2"
+
+    # Sets RUNVER to the dump's dateint.
+    export RUNVER="$(echo $URI | perl -wnlE 'say /(\d{8})/')"
+
+    time curl -L "${URI}" -o- | bzcat \
+        | python3.8 scripts/clean_xml - --wikireader --links --lists -o- \
+        > /build/enwiki-${RUNVER}-pages-articles.xml_clean
+
+    # The processing application expects this filename. The real name varies
+    # with the dump.
+    ln -s /build/enwiki-${RUNVER}-pages-articles.xml_clean enwiki-pages-articles.xml
+
+    time scripts/Run --parallel=64 --machines=1 --farm=1 \
+        --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image \
+        --temp=/dev/shm en:::NO:255::: 2>&1 < /dev/null
+
+    make WORKDIR=/build/${RUNVER}/work DESTDIR=/build/${RUNVER}/image combine install
+
+The image is left in build/${RUNVER}/image. Copy the whole directory to the SD
+card.
+
+Building across several machines
+--------------------------------
+
+The Run script can split work across hosts. They should have similar resources,
+since the split is even. Change --farm=N and --machines=N. Note the -32 in the
+command field: of 64 shards, 32 are built per host.
+
+    # Host 1
+    time scripts/Run --parallel=64 --machines=2 --farm=1 \
+        --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image \
+        --temp=/dev/shm ::::::-32: 2>&1 < /dev/null
+
+    # Host 2
+    time scripts/Run --parallel=64 --machines=1 --farm=2 \
+        --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image \
+        --temp=/dev/shm ::::::-32: 2>&1 < /dev/null
+
+    scp /build/${RUNVER}/image/* host1:/build/${RUNVER}/image/
+
+    # On host 1.
+    make WORKDIR=/build/${RUNVER}/work DESTDIR=/build/${RUNVER}/image combine install
+
+Testing with the Qt simulator
+-----------------------------
+
+The wiki-simulator can test an image before writing a card. This does not work
+in a container build server.
+
+    # X forwarding from macOS needs XQuartz: https://www.xquartz.org/
+    ssh -X buildserver
+
+    make DESTDIR=build/20200101/ wiki-simulate
+
+SD card
+-------
+
+The card must be FAT32. 16 GB and 32 GB cards are both known to work.

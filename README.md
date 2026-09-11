@@ -1,213 +1,123 @@
-# Wikireader build utilities
-This repo (and docker container) contain the tools necessary to build an updated wikireader image.
+# WikiReader
 
-## Modern firmware, toolchain, and emulator
+Firmware and tools for the Epson S1C33 WikiReader handheld. Forked from
+[stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
 
-The maintained C33 path uses binutils 2.47 and GCC 16.2 and builds the complete
-WikiReader firmware. The full-system emulator boots the serial-FLASH chain and
-SD-card applications, including the DMA-enabled kernel. See the
-[toolchain guide](host-tools/toolchain-c33/README.md) for builds and validation,
-the [emulator guide](emulator/README.md) for use and timing limits, and the
-[reader performance note](zim/PERFORMANCE.md) for hardware results.
+Most of the work here is a current toolchain, a full-system emulator, and a
+reader for standard ZIM archives. The original dump-processing pipeline still
+works and is unchanged.
 
-The original binutils 2.10.1 / GCC 3.3.2 build remains available as an ABI and
-assembler oracle. The older build notes under `doc/` describe that legacy path
-and its historical 32-bit-host workaround, not a requirement of the modern
-toolchain.
+## What's here
 
-An experimental [`zim.app`](zim/README.md) storage-backend fork reads standard
-ZIM 6 archives through the kernel's FatFs R0.16 service while retaining the
-original WikiReader interface. Its preferred card layout keeps boot files on
-FAT32 and stores the archive on a second exFAT partition, including archives
-larger than 4 GiB.
+- `host-tools/toolchain-c33` - binutils 2.47 and GCC 16.2 targeting C33,
+  prefix `c33-epson-elf-`. Builds the complete firmware. The original
+  binutils 2.10.1 / GCC 3.3.2 build is kept as an ABI and assembler oracle.
+- `emulator` - `wremu`, a full-system emulator. Boots the serial-FLASH chain
+  and SD-card applications, including the DMA kernel. Runs headless or in an
+  SDL2 window. Timing is modelled and calibrated against hardware; the limits
+  are documented.
+- `zim` - `zim.app`, a reader for ZIM 6 archives, the format Kiwix uses. Reads
+  them through the kernel's FatFs service. Zstandard and WebP decoders are
+  included, since the C33 has to decode both itself. Boot files sit on FAT32
+  and the archive on a second exFAT partition, so archives over 4 GiB work.
+- `samo-lib` - the grifo kernel, FatFs R0.16, mini-libc and drivers. SD reads
+  use 32-bit DMA.
+- `wiki` - the original reader application, with fixes.
+- `doom` - `doom.app`. Monochrome, touch movement, front-button controls.
+  Engine source is vendored and pinned.
+- `sparrow` - an offline factual answer engine over Wikidata claims. It works,
+  but has only been measured against a sample; see `sparrow/STATUS.md`.
 
-A native [`doom.app`](doom/README.md) port runs Doom with monochrome graphics,
-touch movement, and front-button controls. See its guide for builds, SD-card
-setup, and emulator testing.
-
-## Differences between this and the original wikireader repo
-* This repo includes an updated fork of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) script built specifically for the wikireader. This file is used to dedupe and generate the plaintext XML and makes processing MUCH faster.
-* The docker container is pre-built with everything you need.
-* Concurrency can be set independently of the `Build` script (in fact, you shouldn't set parallelism in the `Build` script at all).
-
-# Get the latest image
-Pull it down from dockerhub
-```
-docker pull stephenmw/wikireader:latest
-```
-
-Or you can build it yourself after checking out the repo.
-```
-docker build -t wikireader .
-```
-
-to build the core system (the wikireader binaries), you can build from within the `core` directory:
-```
-cd core
-docker build -t wikireader_core .
-```
-
-# Building your own wikireader image
-## Requirements
-In order to build a new wikireader image, you'll need:
-1. [docker](https://www.docker.com/products/docker-desktop)
-2. [git](https://git-scm.com/downloads)
-3. Very basic knowledge of the command line
-
-## Resource requirements
-Processing takes about 16 GB of ram, the largest section being the sorting of the index. I set MAX_CONCURRENCY to 8 which is the number of processors I have on my i7. The `autowiki` script defaults `MAX_CONCURRENCY` to the number of CPUs on the host.
-
-### Docker settings
-By default docker doesn't share a lot of resources if running on a mac or windows. You'll want to max out the CPU and memory share to your container in your docker configuration. On linux this is not an issue as far as I know.
+Each directory has its own README with the detail.
 
 ## Building
-Once you have those tools, you can simply clone this repo and run the `autowiki` command inside docker, which is completely automated and will do the entire processing for you.
 
-It's important to note that we're "sharing" the `build` folder with docker, so once docker exits the processed image will be in that folder.
+Build the toolchain first. It downloads and builds binutils and GCC, and takes
+about ten minutes:
 
-The following command builds the 20200601 image of wikireader (you can see what's available at the [wikimedia dump page](https://dumps.wikimedia.org/enwiki/20200620/))
-```
-git clone https://github.com/stephen-mw/wikireader.git
-cd wikireader
-docker run --rm -v $(pwd)/build:/build -ti docker.io/stephenmw/wikireader:latest autowiki 20200601
+```sh
+host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
+host-tools/toolchain-c33/gcc/rebuild.sh
 ```
 
-After processing is complete (A little over 12 hours on my setup), you just need to copy the contents of `build/20200601/image` to the root of your SD card. If you only want to update the `enpedia` directory, then copy the contents of `build/20200601/image/enpedia` to the `enpedia` directory of your SD card (remove the existing files in there first).
+It installs under `host-tools/toolchain-c33/work/install/`. Then build the
+components in dependency order, from the repository root:
 
-
-## Building manually
-The build process involves 4 steps.
-
-1. Download and decompress a wikimedia dump index.
-2. Clean/parse the XML using the `clean_xml` script.
-    * This script effectively creates a text version of the dump, which is much faster at processing.
-3. Complete the parsing, rendering, and combining.
-4. Copy the contents to a FAT32 SD card and enjoy.
-
-## Preparing a wikipedia dump file
-This repo included a forked version of the [WikiExtractor.py](https://github.com/attardi/wikiextractor) file which is renamed to `clean_xml`. Before processing the XML dump, you'll need to run the `clean_xml` script on it to tidy things up. In my fork, I've made some improvements that are specific to the wikireader.
-
-If you were to create a wikireader image without running `clean_xml` on it, it would be full of all kinds of `{{ foo }}` internal unrendered template strings.
-
-Using the `clean_xml` file also has the bonus of making the parsing phase of the wikireader process go by much faster. Days faster! And it reduces the final dump size from around 70 GB to 16 GB (20200601 data). Check below for the 1-liner for downloading, decompressing, and cleaning the dump all in 1 go. It will save you from storing 70 GB.
-
-The `clean_xml` script does 3 important things:
-
-* The pages are rendered to text, and links are preserved in a wikireader-specific format.
-* Links are translated to the wikireader format
-* Bullets are translated to the wikireader format
-* Titles are deduped.
-* The output template is an XML format understood by the wikireader rendering process.
-
-On my machine, it takes approximately 90 minutes to download, decompress, and clean the XML file, which reduces the filesize from 70GB to around 16GB.
-
-### Download, decompress, clean (long way)
-```
-# Set the wikimedia version. Make sure the dump is complete at: https://dumps.wikimedia.org/enwiki/${VERSION}
-export VERSION=20230201
-
-# This is the link to the June 2020 dump. Change as needed
-wget https://dumps.wikimedia.org/enwiki/${VERSION}/enwiki-${VERSION}-pages-articles.xml.bz2
-
-# Decompress
-bzip -d https://dumps.wikimedia.org/enwiki/${VERSION}/enwiki-${VERSION}-pages-articles.xml.bz2
-
-# Clean
-python3.8 ../scripts/clean_xml enwiki-${VERSION}-pages-articles.xml --wikireader --links --keep_tables -o- > enwiki-${VERSION}-pages-articles.xml_clean
-
-# Symlink to the expected filename
-ln -sf enwiki-${VERSION}-pages-articles.xml_clean enwiki-pages-articles.xml
+```sh
+TB="$PWD/host-tools/toolchain-c33/work/install/bin"
+for d in samo-lib/mini-libc samo-lib/drivers samo-lib/fatfs samo-lib/grifo wiki; do
+    make -C "$d" TOOLCHAIN_BIN="$TB" || break
+done
 ```
 
-### Download, decompress, clean (one-liner)
-Do it all in 1 go and save yourself 70GB of unnecessary disk space.
+Then the ZIM reader and Doom, which need grifo built first:
 
-```
-# Download, decompress, and clean. The only problem with using this one-liner is that if your pipe breaks from an error you'll have to start all over again and it's a big download. Make sure to do it in a screen session or something.
-
-export VERSION=20220601
-curl -sL "https://dumps.wikimedia.org/enwiki/${VERSION}/enwiki-${VERSION}-pages-articles.xml.bz2" -o- | bzcat | ../scripts/clean_xml - --wikireader --links --keep_tables -o- > enwiki-${VERSION}-pages-articles.xml_clean
+```sh
+make -C zim TOOLCHAIN_BIN="$TB" SIMULATE=NO OPT=-O2
+make -C doom -j4
 ```
 
-## Commands for building
-The entire build process takes place inside a docker container. You'll need to share your `build/` directory over to the container. Remember, if you're running on mac or windows make sure you share enough resources with the container to do the build (max CPU and max ram).
+Build in the component directories rather than using the root Makefile's
+`grifo` and `wiki` targets. Those still depend on the legacy `gcc` target, so
+they try to fetch and build binutils 2.10.1 and GCC 3.3.2 even when
+`TOOLCHAIN_BIN` points at the current toolchain. The root targets for
+`mini-libc`, `fatfs` and `drivers` are fine.
 
-In these examples I do the `clean_xml` script in the docker container. There's no requirement that this is done from within the container, but the container does have the right tools for it (requires bzip2 and python3.7+).
+Extra flags go in `OPT`, which is appended after `-Werror`. Build output is
+git-ignored.
 
+## Emulator
+
+```sh
+make -C emulator
+make -C emulator check
 ```
-# Get the latest docker image
+
+The decode tables are committed, so building the emulator does not need the
+cross-compiler, and `check` is self-contained. SDL2 is only needed for the
+window (`brew install sdl2`).
+
+Running firmware needs two things the repository does not carry: a kernel you
+have built, and a card image. `emulator/README.md` covers both, along with the
+boot chain and the profiling caveats. Once you have them:
+
+```sh
+cd emulator
+./wremu -c images/wrcard.img images/grifo.elf
+```
+
+`-R` resets and runs headless, `-n` caps cycles, `-s` traces syscalls, and
+`-K`/`-T`/`-N` script keys, taps and buttons.
+
+## SD cards
+
+`zim/make-card-image` (macOS) writes a two-partition card: FAT32 for the boot
+files, exFAT for the archive. `zim/README.md` has the layout and the launcher.
+
+## Classic image build
+
+The original pipeline renders a Wikimedia dump into the WikiReader's own
+format. It runs in Docker:
+
+```sh
 docker pull stephenmw/wikireader
-
-# This is where the wikimedia dump and rendered output will be
-mkdir build
-
-# Launch docker and share the build directory with `/build`. Make sure you run this from your `wikireader` directory.
-docker run --rm -v $(pwd)/build:/build -ti stephenmw/wikireader:latest bash
-
-# Usually best to set this value to the number of CPU cores of the system.
-export MAX_CONCURRENCY=8 
-
-# The URI for the database dump you want to use
-export URI="https://dumps.wikimedia.org/enwiki/20200601/enwiki-20200601-pages-articles.xml.bz2"
-
-# This will automatically set the RUNVER to the dateint of the dump
-export RUNVER="$(echo $URI | perl -wnlE 'say /(\d{8})/')"
-
-# Download/clean the wikimedia dump
-time curl -L "${URI}" -o- | bzcat | python3.8 scripts/clean_xml - --wikireader --links --lists -o- > /build/enwiki-${RUNVER}-pages-articles.xml_clean
-
-# Symlink the file to create a filename expected by the processing application. The actual file name will vary depending on which dump of the wikimedia software you downloaded.
-ln -s /build/enwiki-${RUNVER}-pages-articles.xml_clean enwiki-pages-articles.xml
-
-# Start the processing!
-time scripts/Run --parallel=64 --machines=1 --farm=1 --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image --temp=/dev/shm en:::NO:255::: 2>&1 < /dev/null
-
-# Combine the files and create the image
-make WORKDIR=/build/${RUNVER}/work DESTDIR=/build/${RUNVER}/image combine install
+docker run --rm -v $(pwd)/build:/build -ti \
+    docker.io/stephenmw/wikireader:latest autowiki 20200601
 ```
 
-After this process, you can shutdown your container. The new image will be found under `build/${RUNVER}/image`. You can copy this entire directory over to your SD card.
+The result is in `build/<date>/image`; copy it to a FAT32 card. It needs about
+16 GB of RAM and runs a little over 12 hours. The manual steps, the
+dump-cleaning one-liner and multi-machine builds are in
+[doc/image-build.text](doc/image-build.text).
 
-# Building on multiple computers
-The `Run` script also allows you to build on multiple computers. The caveat is that the computers should have similar resources, since the work is split evenly. The process is exactly the same as building with 1 computer, except you change the `--farm=N` flag and `--machines=N` flag.
+This is separate from `zim.app`, which reads ZIM archives directly and needs
+none of it.
 
-After the build completes, you copy the `.dat` files to one of the computers (either one) in order to finish the last combine step.
+## Notes
 
-```
-# Note the -32 in the command field. This will ensure that of the 64 shards, 32 are built per host (32 * 2 computers = 64 shards).
+The Epson S1C33 manuals are not in this repository. They are available from
+Epson and the Internet Archive; `host-tools/toolchain-c33/gcc/ABI.md` says
+which ones and what they cover.
 
-# On host 1
-time scripts/Run --parallel=64 --machines=2 --farm=1 --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image --temp=/dev/shm ::::::-32: 2>&1 < /dev/null
-
-# On host 2
-time scripts/Run --parallel=64 --machines=1 --farm=2 --work=/build/${RUNVER}/work --dest=/build/${RUNVER}/image --temp=/dev/shm ::::::-32: 2>&1 < /dev/null
-
-# Copy the files from host2 to host1
-scp /build/${RUNVER}/image/* host1:/build/${RUNVER}/image/
-
-# On host 1, do final combine and install
-make WORKDIR=/build/${RUNVER}/work DESTDIR=/build/${RUNVER}/image combine install
-```
-
-# Testing the image using the wiki-simulator
-After building, you might want to test the image using the simulator before loading it onto your SD card. You can use the `wiki-simulator` command to do this.
-
-On my mac I have [xquartz](https://www.xquartz.org/) installed. I connect to my build server with X Forwarding so that I don't have to install any of the software locally. 
-
-Unfortunately this process can't be done in a container build server. I haven't had time to figure out exactly what's necessary to fix it. In the meantime I keep the software installed on a linux server for this process.
-
-```
-# Connect from my mac to the build server with X Forwarding
-ssh -X buildserver
-
-# Run the simuilator
-make DESTDIR=build/20200101/ wiki-simulate
-```
-
-This will build and run the simulator for you to test the wikireader behavior.
-
-# Preparing the SD card
-The SD card must be formatted as fat32. I've tested with 32GB and 16GB sd cards and they both work fine.
-
-# Old doc
-The old readme can be found under doc/
+The older notes under `doc/` describe the legacy 3.3.2 path, including a
+32-bit-host workaround the current toolchain does not need.
