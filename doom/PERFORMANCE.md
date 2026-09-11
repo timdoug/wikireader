@@ -1,4 +1,89 @@
-# First physical WikiReader measurements
+# Doom performance
+
+## Loading and lighting-cache follow-up
+
+The follow-up build keeps the existing image quality and improves modeled
+startup and FPS. **It has not yet been measured on hardware.** The physical
+14.73 fps result below belongs to the preceding build.
+
+| Measurement | Committed baseline | Follow-up | Change |
+| --- | ---: | ---: | ---: |
+| Full boot to title frame | 6.266 s | 4.386 s | 30.0% less time |
+| Full boot to E1M1 frame, ordinary `-warp` | 7.562 s | 6.874 s | 9.1% less time |
+| App entry to E1M1 frame, `-wrbench` | 5.784 s | 5.083 s | 12.1% less time |
+| Controlled E1M1 benchmark | 16.258 fps | 16.997 fps | 4.5% more FPS |
+| Ordinary E1M1 opening, guest seconds 30-40 | 16.0 fps | 16.7 fps | 4.4% more FPS |
+| Controlled engine time/frame | 54.405 ms | 51.730 ms | 4.9% less time |
+| Controlled BSP/walls/frame | 26.335 ms | 25.674 ms | 2.5% less time |
+| Controlled floors/ceilings/frame | 19.817 ms | 18.042 ms | 9.0% less time |
+| Controlled LCD/frame | 7.028 ms | 7.028 ms | unchanged |
+
+The full-boot and app-entry timings have different starting points. Title boot
+also omits the level precache. Neither first-frame time includes waiting for
+the level melt to finish. The stationary tests keep the same view/settings;
+ordinary play polls input while the controlled benchmark locks input. The
+controlled follow-up records 170 frames in 10.001862 s, with no SD reads, input,
+menu frames or wipes during measurement.
+
+Wall texture initialization now caches only patch headers and column offsets,
+then frees that metadata after building texture lookups. It reads **252 sectors
+instead of 1,610** during texture initialization. Level precaching still loads
+the actual images it needs: total app-startup reads fall from **3,221 to 2,627
+sectors**, a smaller saving than the texture stage alone. Startup diagnostics
+are quiet by default (`-wrverbose` restores them), while fatal errors always
+print. The emulator transmits serial immediately, so additional savings from
+avoiding the physical serial wait remain unmeasured.
+
+Lighting-cache misses now copy aligned WAD tables four words at a time, with
+a byte fallback for unaligned sources. Both wall and floor draw loops benefit.
+The code and tables use 4,908 bytes of A0, leaving 148 bytes. Texture sampling,
+viewport, dithering and LCD conversion are unchanged. A trial of wider floor
+writes produced essentially the same FPS and was discarded.
+
+`-wrbench` buffers boot, warmup and benchmark records until measurement ends,
+then writes/closes one batch and disables tracing. This moves the first-file
+creation stall out of startup/warmup and removes periodic logging stalls during
+subsequent play. The completion write can still stall briefly. An interrupted
+benchmark has no persisted record. `-wrbench -wrtrace` retains five-second play
+windows; ordinary `-wrtrace` or `doomlog.on` still traces boot and play. The
+marker alone does not keep tracing enabled after an automatic benchmark.
+
+DEMO1's movement/combat spot check reports 19.2 fps versus 17.8 in the preceding
+build, with shots and only world frames in the window. Faster startup changes
+which demo tics land in absolute guest seconds 30-40, so this is not an isolated
+renderer speedup comparison. Use the controlled or stationary figures above.
+
+### Follow-up validation and artifacts
+
+The final source build ID is `0f7d0ef062d701d6`. A build manifest, saved sources,
+app/map/disassembly, host test/build logs and a fresh playable emulator card are
+in [`build/doom/next-after`](../build/doom/next-after). The final matching
+persisted benchmark is in
+[`trace-g8k_5mn9`](../build/doom/trace-g8k_5mn9); the preceding controlled baseline
+is [`trace-a551fp4x`](../build/doom/trace-a551fp4x).
+
+Address/undefined-behavior sanitizer checks cover adapters, renderer metadata,
+random lighting/spans and logger persistence/failures. The 1,500-frame DEMO1
+replay matches indexed pixels, palettes and player state exactly. Full-device
+emulation passes title/menu startup, movement/firing and FAT save/load, with no
+alignment faults or watchdog timeouts. A final comment correction changed the
+source fingerprint; `.text` and `.fastcode` are byte-identical to the build used
+for the behavioral tests and boot timings, as recorded in `validation.json`.
+The final app has its own persisted benchmark and binary hashes.
+
+| Check | Retained artifacts |
+| --- | --- |
+| Title boot, before / after | `boot-kb79r7ww` / `boot-exd8nwtu` |
+| Direct level boot, before / after | `boot-h1o3mxz0` / `boot-lkyjznui` |
+| Ordinary stationary FPS, before / after | `benchmark-ghohg21x` / `benchmark-2svns7tk` |
+| Replay | `replay-5e_4zcs3` |
+| Title, gameplay and save/load | `smoke-c7jpz8gx` |
+
+All artifact directories are under `build/doom`. The original hardware logs and
+reference remain unchanged. No kernel, clock, SDRAM timing or device FLASH
+changes are part of this pass.
+
+## First physical WikiReader measurements
 
 Captured on 2026-09-10 (local time). The original card logs and a machine-readable
 comparison are archived in
@@ -10,7 +95,7 @@ This is one physical run, with a completed stationary benchmark followed by
 about 75 seconds of logged play. It establishes a hardware baseline, not a
 statistical confidence interval or a measurement of previous port versions.
 
-## Controlled comparison
+### Controlled comparison
 
 Both runs use shareware E1M1, skill 2, low detail, a 160x168 logical world view,
 the same player position/angle/health, a five-second warmup and a ten-second
@@ -49,7 +134,7 @@ emulator benchmark. There were no recorded SD read errors, DMA errors, DMA
 timeouts or DMA fallback in the Doom boot/game windows. The last complete
 window ends 96.290 seconds after app entry; there is no final EXIT record.
 
-## Startup and tracing costs
+### Startup and tracing costs
 
 The physical app reaches its first frame 24.3% sooner than the model. These
 times exclude the factory FLASH/kernel load and time choosing the launcher
@@ -77,7 +162,7 @@ of wire time at 10 bits per byte. The emulator completes TX immediately. Quiet
 startup could therefore save additional time, but its actual benefit needs a
 separate hardware measurement; wire time is not a measured saving.
 
-## Limits of the current emulator reference
+### Limits of the current emulator reference
 
 The clock and programmed SDRAM timing/refresh intervals match, but the complete
 machine setup does not:
@@ -103,7 +188,7 @@ breakdown to investigate LCD conversion and floor rendering, where the model
 is less accurate. No firmware or timing-model changes were made as part of
 collecting and analyzing this run.
 
-## Reproduce the analysis
+### Reproduce the analysis
 
 ```sh
 python3 doom/trace-report.py \

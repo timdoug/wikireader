@@ -15,6 +15,16 @@ typedef struct {
 } wr_file;
 
 static uint32_t last_ticks, seconds, remainder;
+static int verbose_console;
+
+void wr_console_init(int argc, char **argv)
+{
+    verbose_console = 0;
+    for (int i = 1; i < argc; ++i)
+        if (!strcmp(argv[i], "-wrverbose")) verbose_console = 1;
+}
+
+int wr_console_verbose(void) { return verbose_console; }
 
 void wr_platform_init(void) { last_ticks = timer_get(); }
 
@@ -41,7 +51,16 @@ uint32_t wr_milliseconds(void)
 
 void wr_print(const char *text)
 {
+    if (verbose_console) debug_print(text);
+    watchdog(WATCHDOG_KEY);
+}
+
+void wr_error(const char *text)
+{
+    /* Fatal diagnostics must survive quiet startup, including messages
+       without an "Error:" prefix and errors raised after initialization. */
     debug_print(text);
+    debug_print("\n");
     watchdog(WATCHDOG_KEY);
 }
 

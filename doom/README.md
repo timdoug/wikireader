@@ -10,7 +10,7 @@ The first hardware benchmark measured **14.73 fps** at the E1M1 opening, versus
 16.26 fps in the matching instrumented emulator run; see
 [physical measurements](PERFORMANCE.md) for the full comparison.
 Audio and networking are disabled. Low detail is the default; drawing,
-LCD conversion and division loops plus dither and lighting tables occupy about 4.7 KiB
+LCD conversion and division loops plus dither and lighting tables occupy about 4.8 KiB
 of the application's available A0 RAM. A 4 KiB flat-texture cache uses the
 disabled LCD window buffer, separate from the visible framebuffer. It uses this repository's Grifo kernel,
 including its `file_fastseek` API; the current kernel and reader application
@@ -58,6 +58,10 @@ Configuration and saves live under `/doom`. In Save Game, choose a slot and
 confirm it again to use the name `WIKIREADER`. Existing save names are kept.
 Use Quit Game to save settings and return to the Grifo launcher.
 
+Startup console output is quiet by default to avoid waiting for the slow
+serial port. Add `-wrverbose` for the full startup diagnostics. Fatal errors
+always print, including in quiet mode.
+
 ## Persistent performance tracing
 
 For a repeatable device/emulator comparison, use this launcher entry:
@@ -74,9 +78,12 @@ control strip returns afterward and you can play. Use the same shareware
 IWAD and application build on the device and emulator.
 
 Results are appended to **`doomperf.log` in the card root**, including across
-restarts. Boot stages and the benchmark are closed to disk when complete;
-normal play adds a closed batch about every five seconds. Quit Game flushes
-the last partial batch. Allow the benchmark to finish before powering off.
+restarts. Boot stages, warmup and the benchmark are buffered in RAM and written
+and closed together after measurement. Tracing then turns off for normal play,
+avoiding periodic card-write stalls. Allow the benchmark to finish before
+powering off; an interrupted benchmark has no persisted boot record.
+Use `-wrbench -wrtrace` to keep tracing afterward, with a closed batch about
+every five seconds and a final partial batch when you quit.
 The logger stops at 1 MiB, preserving earlier runs; archive/remove the log to
 start fresh. A write failure displays `LOG FAILED` and releases the controls.
 
@@ -101,9 +108,11 @@ power-button-to-frame measurement. `KERNELBOOT` records cover loader work after
 that kernel timer starts, also excluding the earlier FLASH/kernel load.
 
 For tracing ordinary title/menu startup and play without the automatic
-benchmark, create an empty `doomlog.on` in the card root and launch `doom.app`
-without `-wrbench`. Remove the marker to disable ordinary tracing; `-wrbench`
-always enables it.
+benchmark, launch `doom.app -wrtrace`, or create an empty `doomlog.on` in the
+card root and launch `doom.app`. Ordinary tracing persists boot records after
+the first frame and continues about every five seconds. Remove the marker and
+omit `-wrtrace` to disable it. With `-wrbench`, only an explicit `-wrtrace`
+keeps tracing after measurement; the marker does not.
 
 Build a matching emulator reference and summarize a returned hardware log:
 
@@ -178,7 +187,11 @@ and I/O failures, and keeping the map alive until close. Sprite tests verify
 eight-byte reads, signed offsets and subsequent full-image reads.
 Texture-cache checks cover reused WAD allocation addresses, lump changes,
 engine reset, small surfaces that retain an existing cache entry, and holes
-in a plane's visible area.
+in a plane's visible area. Wall-patch tests compare metadata-only lookup with
+full-image lookup and overlapping-patch composites. Random span checks exercise
+fractional wrap, lighting-table alignment, offset buffers and odd span lengths.
+Logger tests cover deferred benchmark writes, long transitions, opt-in continuous
+tracing, early errors and card-write failures.
 
 `make test-c33` compares 227,672 native arithmetic results with host reference
 calculations. It runs the actual C33 multiply instruction and calls the
@@ -220,28 +233,32 @@ Neither run reported an alignment fault or watchdog timeout.
 
 ## Performance
 
-The latest arithmetic and fast-RAM pass improves both measured workloads:
+The current loading and lighting-cache pass improves the controlled E1M1
+benchmark from **16.26 to 17.00 modeled fps (4.5%)**. An ordinary stationary
+run with input polling enabled improves from **16.0 to 16.7 fps** over guest
+seconds 30-40. The controlled benchmark uses a five-second warmup and ten-second
+measurement, with input locked; these are separate workloads.
 
-| Workload | Previous build | Current build | Gain |
-| --- | ---: | ---: | ---: |
-| Stationary E1M1 opening | 13.9 fps | **15.9 fps** | **14%** |
-| Recorded DEMO1 movement/combat | 15.7 fps | **17.9 fps** | **14%** |
+These are emulator results against the committed hardware-tested build. The
+physical baseline is still **14.73 fps**; this new build needs a device run.
+See [PERFORMANCE.md](PERFORMANCE.md) for phase timings and retained artifacts.
+Renderer resolution, texture sampling and LCD output are unchanged, and the
+1,500-frame replay matches the preceding build exactly.
 
-These are modeled device timings over guest seconds 30-40 after full FLASH
-boot, excluding startup and the melt. The original port measured 4.8 fps in
-the same stationary scene, making the current build about **3.3 times faster**.
-The older 5.8 fps figure above includes transitions and scripted input, so it
-is a different workload. Renderer resolution and LCD output are unchanged.
+The latest FPS gain comes from copying aligned wall/floor lighting tables as
+words, four per iteration, instead of bytes. The byte fallback handles unaligned
+sources. An experimental wider floor-write loop added complexity without a
+useful measured gain and was discarded.
 
-The changes reduce LCD conversion from roughly 79 ms to 7 ms per frame,
-avoid repeated texture/pointer reads in the low-detail draw loops, combine
-duplicate pixels into one halfword write, and run exact fixed-point division
-in internal RAM. The latest pass uses C33's native signed multiply, specializes
-the hot unsigned texture-scale divisions, moves floor span generation/mapping
-into A0, and caches the current wall/floor light tables there. The complete
+Earlier optimizations reduced LCD conversion from roughly 79 ms to 7 ms per
+frame, avoided repeated texture/pointer reads in the low-detail draw loops,
+combined duplicate pixels into one halfword write, and moved exact fixed-point
+division into internal RAM. Earlier passes added C33's native signed multiply, specialized
+the hot unsigned texture-scale divisions, moved floor span generation/mapping
+into A0, and cached the current wall/floor light tables there. The complete
 1,500-frame replay comparison matches the preceding renderer.
 
-The latest pass moves wall setup and general division/remainder into A0.
+Wall setup and general division/remainder also run in A0.
 The original libgcc entry points reach the exact divider through a short
 SDRAM bridge, retaining signed division and remainder behavior. Floor and
 ceiling textures can use the 4 KiB LCD window cache: a new texture is admitted
@@ -260,16 +277,18 @@ python3 doom/benchmark.py build/doom/doom1.wad --scene demo
 
 The demo option measures recorded movement and combat in the shareware IWAD's
 built-in DEMO1, and verifies that shots occur in the measurement window.
+Faster startup shifts which demo tics fall in seconds 30-40, so use the stationary or controlled
+benchmark to isolate FPS gains across loading changes.
 Each run creates a fresh card and retains the app, map, profile, screenshot, log and JSON
 result under `build/doom/benchmark-*`. Use `--app /path/to/doom.app` and
 `--map /path/to/doom.map` together to measure a saved build. The figure is
 scene-specific; busy rooms and different view settings will differ.
 
-The prepared emulator card with all rendering and startup improvements is
-`build/doom/doom-fastmem.img`:
+The prepared emulator card with the current rendering and startup improvements
+is `build/doom/next-after/card.img`:
 
 ```sh
-emulator/wremu -g -e build/doom/flash.rom -c build/doom/doom-fastmem.img
+emulator/wremu -g -e build/doom/next-after/flash.rom -c build/doom/next-after/card.img
 ```
 
 It starts with fresh configuration and saves. On a physical card, replace
@@ -277,12 +296,12 @@ only `doom.app` with the rebuilt file to keep existing settings and saves.
 
 ## Startup
 
-Cold boot to the first title frame measures **6.23 seconds**, down from
-**22.90 seconds** before the startup pass (which measured 6.27 seconds).
-Booting directly into E1M1 with
-`-warp 1 1 -skill 2` takes **7.53 seconds**, including level precaching and
-its first frame. These are emulator timings using the same shareware WAD
-and FAT32 fixture with 512-byte clusters. The instrumented hardware build
+Cold boot to the first title frame measures **4.39 seconds**, down from
+**6.27 seconds** in the preceding committed build and **22.90 seconds** before
+the original startup optimizations. Booting directly into E1M1 with
+`-warp 1 1 -skill 2` takes **6.87 seconds**, down from **7.56 seconds**, including
+level precaching and its first frame. These are emulator timings using the same
+shareware WAD and FAT32 fixture with 512-byte clusters. The instrumented hardware build
 measured **4.38 seconds from app entry to its first E1M1 frame**, versus
 5.78 seconds for the same scope in its emulator reference. This excludes
 FLASH/kernel loading and the launcher wait; see [PERFORMANCE.md](PERFORMANCE.md).
@@ -294,6 +313,10 @@ a larger map, with bounded memory use and a fallback to ordinary seeking.
 Sprite initialization reads just dimensions and offsets, leaving image data
 to the existing level precache or on-demand loader. Sound-disabled builds
 also skip construction of the unused volume mixing table.
+
+Wall texture initialization now reads only patch widths and column directories.
+A temporary cache shares these small directories across textures, then releases
+them. Actual patch pixels are loaded by level precaching or when first used.
 
 To reproduce cold-start timing and retain a startup profile:
 

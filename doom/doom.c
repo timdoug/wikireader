@@ -8,11 +8,12 @@ void __attribute__((noinline)) doom_frame_ready(void) { asm volatile("nop"); }
 
 int grifo_main(int argc, char **argv)
 {
+    wr_console_init(argc, argv);
     wr_profile_init(argc, argv);
     wr_platform_init();
     lcd_clear(LCD_WHITE);
     lcd_print("DOOM\n\nLoading /doom ...");
-    debug_print("WikiReader Doom starting\n");
+    if (wr_console_verbose()) debug_print("WikiReader Doom starting\n");
     /* Engine initialization may draw a frame and fill its texture cache
        in the LCD window buffer before wr_video_init runs. */
     lcd_window_disable();
@@ -20,7 +21,8 @@ int grifo_main(int argc, char **argv)
     wr_profile_boot("engine_ready");
     wr_video_init();
     event_flush();
-    debug_print("Doom ready: touch to move; Random fire, Search use, History menu\n");
+    debug_print(wr_console_verbose() ?
+        "Doom ready: touch to move; Random fire, Search use, History menu\n" : "Doom ready:\n");
     for (;;) {
         if (wr_profile_locked()) {
             event_t e;

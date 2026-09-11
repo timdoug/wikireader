@@ -18,10 +18,11 @@ static unsigned length, position;
 static int exists;
 static int map_calls, map_error, map_alloc_fail;
 static unsigned long map_entries = 4, *attached_map;
+static char console[256];
 
 unsigned long timer_get(void) { return ticks; }
 void watchdog(watchdog_t key) { assert(key == WATCHDOG_KEY); }
-void debug_print(const char *text) { (void)text; }
+void debug_print(const char *text) { assert(strlen(console) + strlen(text) < sizeof(console)); strcat(console, text); }
 int debug_printf(const char *fmt, ...) { (void)fmt; return 0; }
 void *memory_allocate(size_t n, const char *tag) {
     if (!strcmp(tag, "doomseek") && map_alloc_fail) return NULL;
@@ -94,6 +95,12 @@ static void enqueue(int type, int code, int x, int y) {
 
 int main(void)
 {
+    char *args[] = { "doom.app", "-wrverbose" };
+    wr_console_init(1, args); wr_print("startup chatter"); assert(!console[0]);
+    wr_error("fatal without a prefix"); assert(!strcmp(console, "fatal without a prefix\n"));
+    console[0] = 0;
+    wr_console_init(2, args); wr_print("startup chatter"); assert(!strcmp(console, "startup chatter"));
+    wr_console_init(1, args);
     ticks = 0xffff0000U;
     wr_platform_init();
     int sec, usec;

@@ -20,9 +20,12 @@ const unsigned char *wr_engine_frame(void);
 const unsigned char *wr_engine_palette(void);
 
 void wr_platform_init(void);
+void wr_console_init(int argc, char **argv);
+int wr_console_verbose(void);
 uint32_t wr_milliseconds(void);
 void wr_gettime(int *sec, int *usec);
 void wr_print(const char *text);
+void wr_error(const char *text);
 void *wr_malloc(int size);
 void wr_free(void *ptr);
 void *wr_open(const char *name, const char *mode);

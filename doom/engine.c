@@ -4,6 +4,7 @@
 #include "render_cache.h"
 #include "profile.h"
 #ifdef WR_C33
+#define DOOM_ERROR_MESSAGE(text) wr_error(text)
 static void benchmark_defaults(void);
 #define DOOM_PROFILE_DEFAULTS() benchmark_defaults()
 #define DOOM_PROFILE_BOOT(name) wr_profile_boot(name)

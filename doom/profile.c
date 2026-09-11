@@ -19,6 +19,7 @@
 
 int wr_profile_enabled;
 static unsigned bench; /* 0: play, 1: wait for level, 2: warmup, 3: sample, 4: play */
+static int continuous;
 static uint32_t app_start, last_end, window_start, frame_start, engine_end;
 static uint32_t phase_start[WR_PHASE_COUNT], phase_ticks[WR_PHASE_COUNT];
 static uint64_t uptime;
@@ -101,9 +102,12 @@ static void io_delta(const file_io_stats_t *a, const file_io_stats_t *b)
 void wr_profile_init(int argc, char **argv)
 {
     app_start = last_end = (uint32_t)timer_get();
-    for (int i = 1; i < argc; ++i) if (!strcmp(argv[i], "-wrbench")) bench = 1;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "-wrbench")) bench = 1;
+        if (!strcmp(argv[i], "-wrtrace")) continuous = 1;
+    }
     unsigned long size;
-    wr_profile_enabled = bench || file_size("0:/doomlog.on", &size) == FILE_ERROR_OK;
+    wr_profile_enabled = bench || continuous || file_size("0:/doomlog.on", &size) == FILE_ERROR_OK;
     if (!wr_profile_enabled) return;
     file_profile(NULL, true);
     wr_profile_boot("app");
@@ -130,9 +134,9 @@ void wr_profile_boot(const char *name)
     file_profile(&boot[boot_count++].io, true);
 }
 
-static void save_boot(void)
+static void save_boot(const char *stage)
 {
-    wr_profile_boot("first_frame");
+    wr_profile_boot(stage);
     boot_saved = 1;
     for (unsigned i = 0; i < boot_count; ++i) {
         add("BOOT stage=%s app_us=%lu elapsed_us=%lu", boot[i].name,
@@ -148,7 +152,6 @@ static void save_boot(void)
         io_delta(&zero, &io);
     }
     add("END_BOOT\n");
-    flush();
 }
 
 static void reset_window(uint32_t tick, const wr_profile_state *state)
@@ -199,7 +202,10 @@ void wr_profile_end(const wr_profile_state *state)
     last_end = end;
     latest = *state;
     if (!boot_saved) {
-        save_boot();
+        save_boot("first_frame");
+        /* A benchmark persists boot + warmup + result in one batch after
+           measurement. Avoid a slow first-file allocation before warmup. */
+        if (!bench) flush();
         if (!wr_profile_enabled) return;
         reset_window(end, state);
         if (bench) wr_video_status("BENCH: wait for warmup");
@@ -209,10 +215,12 @@ void wr_profile_end(const wr_profile_state *state)
         add("FLUSH write_close_us=%lu\n", US(pending_flush));
         pending_flush = 0;
     }
-    if (bench == 1 && state->state == 0 && !state->wipe) {
-        bench = 2;
-        reset_window(end, state);
-        wr_video_status("BENCH: warming up (5s)");
+    if (bench == 1) {
+        if (state->state == 0 && !state->wipe) {
+            bench = 2;
+            reset_window(end, state);
+            wr_video_status("BENCH: warming up (5s)");
+        }
         return;
     }
     ++sample.frames;
@@ -257,6 +265,12 @@ void wr_profile_end(const wr_profile_state *state)
     }
     flush();
     if (completed && wr_profile_enabled) wr_video_status(NULL);
+    if (completed && !continuous) {
+        /* The default benchmark hands control back with no periodic card
+           writes or frame instrumentation. -wrtrace explicitly keeps it. */
+        file_profile(NULL, false);
+        wr_profile_enabled = 0;
+    }
     /* Normal windows include the preceding flush in wall time. IO counters
        exclude logging itself; FLUSH separately records the SD write stall. */
     if (wr_profile_enabled) reset_window(end, state);
@@ -267,7 +281,7 @@ void wr_profile_finish(int code)
     if (!wr_profile_enabled) return;
     uint32_t now = (uint32_t)timer_get();
     uptime += now - last_end;
-    if (!boot_saved) save_boot();
+    if (!boot_saved) save_boot("abort");
     if (!wr_profile_enabled) return;
     if (sample.frames) report(now, "PARTIAL");
     add("EXIT code=%d\n", code);

@@ -48,6 +48,7 @@ static wr_profile_state state = { .state = 0, .episode = 1, .map = 1, .skill = 2
     .detail = 1, .width = 160, .height = 168, .health = 100 };
 static void frame(void)
 {
+    if (!wr_profile_enabled) { ticks += 3000000; return; }
     wr_profile_begin();
     const unsigned phase[] = {600000, 480000, 120000};
     for (unsigned i = 0; i < 3; ++i) {
@@ -60,48 +61,74 @@ static void frame(void)
 
 static void run(int which)
 {
-    char *args[] = { "doom.app", "-wrbench" };
+    char *args[] = { "doom.app", "-wrbench", "-wrtrace" };
     if (which == 0) {
         wr_profile_init(1, args); assert(!wr_profile_enabled); return;
+    }
+    if (which == 8 || which == 9) {
+        marker = which == 8;
+        args[1] = "-wrtrace";
+        wr_profile_init(which == 8 ? 1 : 2, args);
+        assert(wr_profile_enabled && !wr_profile_locked());
+        frame(); assert(writes == 1 && strstr(data, "stage=first_frame"));
+        for (int i = 0; i < 150; ++i) frame();
+        assert(writes > 1 && strstr(data, "WINDOW seq=") && !strstr(data, "BENCH seq="));
+        wr_profile_finish(0); assert(strstr(data, "EXIT code=0"));
+        return;
+    }
+    if (which == 10) {
+        wr_profile_init(2, args);
+        wr_profile_finish(1);
+        assert(writes == 1 && strstr(data, "stage=abort"));
+        assert(!strstr(data, "stage=first_frame") && strstr(data, "EXIT code=1"));
+        return;
     }
     if (which == 2) short_write = 1;
     if (which == 3) full = 1;
     if (which == 4) close_error = 1;
     if (which == 5) seek_error = 1;
-    if (which >= 3) { strcpy(data, "PREVIOUS RUN\n"); length = strlen(data); }
-    wr_profile_init(2, args); assert(wr_profile_enabled && wr_profile_locked());
+    if (which >= 3 && which <= 5) { strcpy(data, "PREVIOUS RUN\n"); length = strlen(data); }
+    marker = which == 7; /* -wrbench still stops after completion with a marker. */
+    wr_profile_init(which == 6 ? 3 : 2, args); assert(wr_profile_enabled && wr_profile_locked());
     ticks += 60000000; wr_profile_boot("engine_ready"); frame();
-    if (which >= 2) {
+    /* Even the boot record stays in RAM until the benchmark is complete. */
+    assert(!writes && !closes && !creates);
+    state.wipe = 1;
+    for (int i = 0; i < 150; ++i) { frame(); assert(!writes && wr_profile_locked()); }
+    state.wipe = 0;
+    while (!strstr(status, "measuring")) frame();
+    for (int i = 0; i < 199; ++i) { frame(); assert(!writes && wr_profile_locked()); }
+    frame();
+    if (which >= 2 && which <= 5) {
         assert(!wr_profile_enabled && !wr_profile_locked());
         assert(strstr(status, "LOG FAILED"));
         if (which >= 3) { assert(!strncmp(data, "PREVIOUS RUN\n", 13)); assert(!creates); }
         if (which == 3 || which == 5) assert(!writes);
         return;
     }
-    assert(writes == 1 && closes == 1 && creates == 1);
+    assert(writes == 1 && closes == 1 && creates == 1 && !wr_profile_locked());
     assert(strstr(data, "stage=engine_ready app_us=1000000")); /* wraps timer */
-    while (!strstr(status, "measuring")) frame();
     unsigned before = writes;
-    for (int i = 0; i < 199; ++i) { frame(); assert(writes == before && wr_profile_locked()); }
-    frame(); assert(writes == before + 1 && !wr_profile_locked());
-    assert(closes == writes && creates == 1);
     const char *bench = strstr(data, "BENCH seq="); assert(bench);
     assert(strstr(bench, "elapsed_us=10000000 frames=200 engine_us=8000000 lcd_us=2000000"));
     assert(strstr(bench, "bsp_us=2000000 planes_us=1600000 masked_us=400000"));
     assert(strstr(bench, "min_us=50000 max_us=50000 level=200 menu=0 demo=0 wipe=0 moved=0 changed=0"));
-    assert(strstr(data, "FLUSH write_close_us=250000"));
     assert(strstr(data, "BENCH_DONE"));
     /* Long sessions cross the 32-bit timer repeatedly; periodic flushes are
        included in live wall time, but excluded from engine/LCD phases. */
     for (int i = 0; i < 3000; ++i) frame();
-    assert(strstr(data, "min_us=50000 max_us=300000"));
+    if (which == 6) {
+        assert(wr_profile_enabled && writes > before);
+        assert(strstr(data, "min_us=50000 max_us=300000"));
+        assert(strstr(data, "FLUSH write_close_us=250000"));
+    } else assert(!wr_profile_enabled && writes == before);
     wr_profile_finish(0); assert(!wr_profile_enabled && closes == writes);
-    assert(strstr(data, "EXIT code=0"));
+    if (which == 6) assert(strstr(data, "EXIT code=0"));
 }
 
 int main(void)
 {
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 11; ++i) {
         pid_t child = fork(); assert(child >= 0);
         if (!child) { run(i); exit(0); }
         int result; assert(waitpid(child, &result, 0) == child);

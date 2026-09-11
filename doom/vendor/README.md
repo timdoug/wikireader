@@ -31,7 +31,9 @@ Local changes, marked in the header or guarded by `DOOM_NO_SOUND`:
   indirect call. Their bounds error path uses the same call convention.
 - Low-detail draw loops can cache the current immutable 256-byte light table.
   WikiReader keeps separate column/span entries in A0 and resets them when
-  initializing the engine. Palette effects do not modify these WAD tables.
+  initializing the engine. Aligned tables copy four words per iteration;
+  unaligned sources retain a byte fallback. Palette effects do not modify
+  these WAD tables.
 - Floor/ceiling rendering has an optional flat-texture cache hook. The WAD
   allocation is retained separately so zone tags apply to the original data.
 - Retail WAD filename allocation includes all nine characters in `doomu.wad`,
@@ -39,6 +41,10 @@ Local changes, marked in the header or guarded by `DOOM_NO_SOUND`:
 - Sprite initialization reads only the eight-byte patch headers through a
   bounded `W_ReadLumpPrefix` helper. Images are loaded by normal level
   precaching or on demand; negative sprite offsets use defined multiplication.
+- Wall texture lookup construction reads only patch headers and column offsets,
+  sharing a temporary directory cache across textures. Composite generation and
+  level precaching still read complete images when needed.
+- Fatal errors have a separate output hook so quiet startup retains diagnostics.
 - `DOOM_NO_SOUND` skips sound precaching, playback, position updates, music
   and the unused volume mixing table's 32,768 software divisions.
 - Optional boot and coarse BSP/plane/masked-render timing hooks feed the

@@ -55,6 +55,8 @@ def main():
     benchmarks = [w for r in runs for w in r['windows'] if w.get('comparable')]
     if len(benchmarks) != 1:
         raise RuntimeError(f'Incomplete or contaminated benchmark: {out}')
+    if len(runs) != 1 or [w['kind'] for w in runs[0]['windows']] != ['WARMUP', 'BENCH']:
+        raise RuntimeError(f'Default benchmark unexpectedly continued tracing: {out}')
     hashes = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in {
         'app': out / 'doom.app', 'wad': args.wad, 'kernel': ROOT / 'samo-lib/grifo/grifo.elf',
         'init': ROOT / 'samo-lib/grifo/applications/init/init.app', 'emulator': ROOT / 'emulator/wremu'

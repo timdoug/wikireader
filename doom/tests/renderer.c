@@ -92,6 +92,91 @@ static void check_sprite_headers(void)
     fclose(file); free(mainzone); mainzone = NULL; lumpinfo = NULL; numlumps = 0;
 }
 
+static void check_texture_directories(void)
+{
+    /* Two overlapping wall patches, stored at unaligned WAD offsets.
+       Metadata-only lookup must equal lookup from the complete images. */
+    unsigned char data[2048] = {0};
+    for (int p = 0; p < 2; ++p) {
+        unsigned char *patch = data + 17 + p * 1024;
+        short header[4] = {8, 4, 0, 0}; memcpy(patch, header, 8);
+        for (int x = 0; x < 8; ++x) {
+            int offset = 40 + x * 9; memcpy(patch + 8 + x * 4, &offset, 4);
+            patch[offset] = 0; patch[offset + 1] = 4;
+            for (int y = 0; y < 4; ++y) patch[offset + 3 + y] = 1 + p * 40 + x * 4 + y;
+            patch[offset + 8] = 255;
+        }
+    }
+    FILE *file = tmpfile(); assert(file);
+    assert(fwrite(data, 1, sizeof(data), file) == sizeof(data));
+    lumpinfo_t lumps[3] = {0}; void *cache[3] = {0}; patch_t *directories[3] = {0};
+    for (int i = 1; i < 3; ++i) {
+        lumps[i].handle = file; lumps[i].position = 17 + (i-1)*1024; lumps[i].size = 112;
+    }
+    numlumps = 3; lumpinfo = lumps; lumpcache = cache; texturepatchdirs = directories;
+    texture_t *texture = calloc(1, sizeof(*texture) + sizeof(texpatch_t)); assert(texture);
+    texture->width = 12; texture->height = 4; texture->patchcount = 2;
+    texture->patches[0].patch = 1; texture->patches[1].patch = 2; texture->patches[1].originx = 4;
+    texture_t *list[] = {texture}; short columns[12], expected_columns[12];
+    unsigned short offsets[12], expected_offsets[12];
+    short *column_list[] = {columns}; unsigned short *offset_list[] = {offsets};
+    byte *composites[1] = {0}; int sizes[1] = {0};
+    textures = list; texturecolumnlump = column_list; texturecolumnofs = offset_list;
+    texturecomposite = composites; texturecompositesize = sizes;
+    Z_Init(); bytes_read = 0;
+    R_GenerateLookup(0);
+    assert(bytes_read == 2 * (8 + 40) && !cache[1] && !cache[2]);
+    assert(sizes[0] == 16);
+    memcpy(expected_columns, columns, sizeof(columns)); memcpy(expected_offsets, offsets, sizeof(offsets));
+    R_GenerateLookup(0); assert(bytes_read == 96); /* shared prefixes stay cached */
+    for (int i = 1; i < 3; ++i) free(directories[i]);
+    texturepatchdirs = NULL;
+    R_GenerateLookup(0);
+    assert(bytes_read == 96 + 224 && cache[1] && cache[2]);
+    assert(!memcmp(columns, expected_columns, sizeof(columns)));
+    assert(!memcmp(offsets, expected_offsets, sizeof(offsets)) && sizes[0] == 16);
+    R_GenerateComposite(0);
+    for (int x = 0; x < 4; ++x)
+        for (int y = 0; y < 4; ++y) assert(composites[0][x*4+y] == 41+x*4+y);
+    fclose(file); free(mainzone); mainzone = NULL; free(texture);
+    lumpinfo = NULL; lumpcache = NULL; numlumps = 0;
+    textures = NULL; texturecolumnlump = NULL; texturecolumnofs = NULL;
+    texturecomposite = NULL; texturecompositesize = NULL;
+}
+
+static void check_random_spans(void)
+{
+    _Alignas(4) unsigned char frame[320*200+4], expected[sizeof(frame)];
+    _Alignas(4) unsigned char maps[257], source[4096];
+    unsigned seed = 0x91734123;
+#define NEXT() (seed = seed * 1664525u + 1013904223u)
+    for (unsigned i = 0; i < sizeof(source); ++i) source[i] = NEXT() >> 24;
+    for (unsigned i = 0; i < sizeof(maps); ++i) maps[i] = NEXT() >> 24;
+    for (int n = 0; n < 1000; ++n) {
+        /* Exercise word/byte light copies, even/odd spans and offset buffers. */
+        const unsigned char *map = maps + (n & 1);
+        unsigned char *base = frame + ((n & 2) ? 2 : 0);
+        memset(frame, 0xa5, sizeof(frame)); memset(expected, 0xa5, sizeof(expected));
+        for (int y = 0; y < 200; ++y) ylookup[y] = base+y*320;
+        for (int x = 0; x < 320; ++x) columnofs[x] = x;
+        ds_y = NEXT() % 200; ds_x1 = NEXT() % 160;
+        ds_x2 = ds_x1 + NEXT() % (160-ds_x1);
+        ds_xfrac = NEXT(); ds_yfrac = NEXT(); ds_xstep = NEXT(); ds_ystep = NEXT();
+        ds_source = source; ds_colormap = map;
+        unsigned xf = ds_xfrac, yf = ds_yfrac;
+        for (int x = ds_x1; x <= ds_x2; ++x) {
+            unsigned pixel = map[source[((yf >> 10) & 4032) | ((xf >> 16) & 63)]];
+            unsigned i = (unsigned)(base-frame) + ds_y*320+x*2;
+            expected[i] = expected[i+1] = pixel;
+            xf += (unsigned)ds_xstep; yf += (unsigned)ds_ystep;
+        }
+        R_DrawSpanLow(); assert(!memcmp(frame, expected, sizeof(frame)));
+    }
+#undef NEXT
+    /* Caller-owned palette addresses must not outlive the test. */
+    column_light.source = span_light.source = NULL;
+}
+
 int main(void)
 {
     const int values[] = {0, 1, -1, 65536, -65536, 0x12345678, -0x12345678,
@@ -186,6 +271,8 @@ int main(void)
     for (int y = 0; y < 200; ++y) for (int x = 0; x < 320; ++x)
         assert(frame[y*320+x] == (y >= 2 && y <= 4 && x >= 318 ? 42 : 0xee));
     check_sprite_headers();
+    check_texture_directories();
     check_flat_cache();
-    puts("Doom renderer checks passed: fixed division, draw bounds, sprite headers, flat cache");
+    check_random_spans();
+    puts("Doom renderer checks passed: fixed division, draw bounds, metadata, flat/light caches and random spans");
 }

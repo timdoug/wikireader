@@ -41,6 +41,9 @@
 #ifndef DOOM_PROFILE_DEFAULTS
 #define DOOM_PROFILE_DEFAULTS() ((void)0)
 #endif
+#ifndef DOOM_ERROR_MESSAGE
+#define DOOM_ERROR_MESSAGE(text) doom_print(text)
+#endif
 
 
 // Sample rate of sound samples from doom
@@ -16382,7 +16385,7 @@ byte* I_AllocLow(int length)
 void I_Error(char* error)
 {
     // Message first.
-    if (error) doom_print(error);
+    if (error) DOOM_ERROR_MESSAGE(error);
     doom_print("\n");
 
     // Shutdown. Here might be other errors.
@@ -36836,6 +36839,25 @@ short** texturecolumnlump;
 unsigned short** texturecolumnofs;
 byte** texturecomposite;
 
+/* Temporary metadata cache for texture lookup construction. The complete
+   patch remains absent from lumpcache until normal image precaching/use. */
+static patch_t** texturepatchdirs;
+
+static patch_t* R_PatchDirectory(int lump)
+{
+    if (texturepatchdirs[lump]) return texturepatchdirs[lump];
+    short header[4];
+    W_ReadLumpPrefix(lump, header, sizeof(header));
+    int width = SHORT(header[0]);
+    if (width <= 0 || width > (W_LumpLength(lump) - 8) / 4)
+        I_Error("Error: texture patch has an invalid column directory");
+    int length = 8 + width * 4;
+    patch_t* directory = doom_malloc(length);
+    W_ReadLumpPrefix(lump, directory, length);
+    texturepatchdirs[lump] = directory;
+    return directory;
+}
+
 // for global animation
 int* flattranslation;
 int* texturetranslation;
@@ -37008,7 +37030,8 @@ void R_GenerateLookup(int texnum)
          i < texture->patchcount;
          i++, patch++)
     {
-        realpatch = W_CacheLumpNum(patch->patch, PU_CACHE);
+        realpatch = texturepatchdirs ? R_PatchDirectory(patch->patch) :
+            W_CacheLumpNum(patch->patch, PU_CACHE);
         x1 = patch->originx;
         x2 = x1 + SHORT(realpatch->width);
 
@@ -37036,6 +37059,7 @@ void R_GenerateLookup(int texnum)
             doom_print("R_GenerateLookup: column without a patch (");
             doom_print(texture->name);
             doom_print(")\n");
+            doom_free(patchcount);
             return;
         }
         // I_Error ("R_GenerateLookup: column without a patch");
@@ -37249,9 +37273,16 @@ void R_InitTextures(void)
     if (maptex2)
         Z_Free(maptex2);
 
-    // Precalculate whatever possible.        
+    /* Lookup generation needs only patch widths and column offsets. Cache
+       each prefix once, rather than reading every wall image at startup. */
+    texturepatchdirs = doom_malloc(numlumps * sizeof(*texturepatchdirs));
+    doom_memset(texturepatchdirs, 0, numlumps * sizeof(*texturepatchdirs));
     for (i = 0; i < numtextures; i++)
         R_GenerateLookup(i);
+    for (i = 0; i < numlumps; ++i)
+        if (texturepatchdirs[i]) doom_free(texturepatchdirs[i]);
+    doom_free(texturepatchdirs);
+    texturepatchdirs = 0;
 
     // Create translation table for global animation.
     texturetranslation = Z_Malloc((numtextures + 1) * sizeof(int), PU_STATIC, 0);
