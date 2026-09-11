@@ -30,6 +30,7 @@
 #define WR_TERM_HEIGHT 120
 #define WR_KEY_HEIGHT  22
 
+int wikireader_sdcard_initialize(void);
 int wikireader_touch_initialize(void);
 int wikireader_main(int argc, char **argv);
 

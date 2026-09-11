@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/c33/s1c33e07/wikireader/src/wikireader_boot.c
+ * arch/c33/src/s1c33e07/s1c33e07_spi.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,65 +20,42 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_C33_SRC_S1C33E07_S1C33E07_SPI_H
+#define __ARCH_C33_SRC_S1C33E07_S1C33E07_SPI_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <stdint.h>
-#include <nuttx/board.h>
-#include <nuttx/fs/fs.h>
-#ifdef CONFIG_WIKIREADER_LCD
-#  include <nuttx/video/fb.h>
-#endif
-#include <syslog.h>
-#include "wikireader.h"
+#include <nuttx/spi/spi.h>
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
-int board_app_initialize(uintptr_t arg)
-{
-#ifdef CONFIG_FS_TMPFS
-  int ret = nx_mount(NULL, "/tmp", "tmpfs", 0, NULL);
-  if (ret < 0)
-    {
-      return ret;
-    }
-#endif
-#ifdef CONFIG_FS_PROCFS
-  return nx_mount(NULL, "/proc", "procfs", 0, NULL);
-#else
-  return OK;
-#endif
-}
+/****************************************************************************
+ * Name: s1c33e07_spibus_initialize
+ *
+ * Description:
+ *   Initialize the one SPI master the chip has and return its interface.
+ *   Chip selects live on port 5 and belong to the board, which supplies
+ *   s1c33e07_spiselect() and s1c33e07_spistatus() below.
+ *
+ * Input Parameters:
+ *   port - Must be 0; there is no second controller.
+ *
+ * Returned Value:
+ *   A pointer to the SPI interface, or NULL for any other port.
+ *
+ ****************************************************************************/
 
-void board_late_initialize(void)
-{
-#ifdef CONFIG_WIKIREADER_SDCARD
-  int ret;
-#endif
+struct spi_dev_s *s1c33e07_spibus_initialize(int port);
 
-  board_app_initialize(0);
-#ifdef CONFIG_WIKIREADER_LCD
-  if (fb_register(0, 0) < 0)
-    {
-      syslog(LOG_ERR, "WikiReader: framebuffer initialization failed\n");
-    }
+/* Both are implemented by the board, which knows which pin selects what. */
 
-#endif
-#ifdef CONFIG_WIKIREADER_SDCARD
-  ret = wikireader_sdcard_initialize();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "WikiReader: no card mounted: %d\n", ret);
-    }
-#endif
-#ifdef CONFIG_WIKIREADER_TOUCH
-  if (wikireader_touch_initialize() < 0)
-    {
-      syslog(LOG_ERR, "WikiReader: touch initialization failed\n");
-    }
-#endif
-}
+void s1c33e07_spiselect(struct spi_dev_s *dev, uint32_t devid,
+                        bool selected);
+uint8_t s1c33e07_spistatus(struct spi_dev_s *dev, uint32_t devid);
+
+#endif /* __ARCH_C33_SRC_S1C33E07_S1C33E07_SPI_H */

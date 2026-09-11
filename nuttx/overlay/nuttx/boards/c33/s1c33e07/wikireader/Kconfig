@@ -20,6 +20,29 @@ config WIKIREADER_GRIFO_APP
 		is not, yet.  Only the kernel's loader touches it, before NuttX
 		is entered.
 
+config WIKIREADER_SDCARD
+	bool "WikiReader SD card over SPI"
+	select SPI
+	select SPI_EXCHANGE
+	select MMCSD
+	select MMCSD_SPI
+	select FS_FAT
+	select MBR_PARTITION
+	---help---
+		Drive the card slot from NuttX rather than leaving it to the boot
+		loader: the chip's one SPI master, the card's power rail and
+		buffer on port 3, and the chip select on P50.
+
+		The card is partitioned, so the table is read and each partition
+		registered as /dev/mmcsd0N.  Only the first is mounted, and only
+		as FAT -- the second volume on a stock WikiReader card is exFAT,
+		which this cannot read.
+
+config WIKIREADER_SDCARD_MOUNT
+	string "SD card mount point"
+	default "/sd"
+	depends on WIKIREADER_SDCARD
+
 config WIKIREADER_LCD
 	bool "WikiReader monochrome framebuffer"
 	select DRIVERS_VIDEO

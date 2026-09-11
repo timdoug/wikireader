@@ -16,10 +16,10 @@ which is the only reason `poweroff` and `reboot` can work at all: cutting the
 power rail and arming the reset watchdog are board specifics it already
 implements, and NuttX asks it rather than repeating them.
 
-The consequence is that **the card is not readable from NuttX**. Only Grifo's
-loader reads it, before NuttX is entered. `/tmp` is tmpfs, so anything written
-there is gone at the next boot. An SPI/MMC driver is the next piece of work;
-see "What is missing" below.
+The card is NuttX's too. It reads the slot with its own SPI and MMC/SD
+drivers rather than asking Grifo, and mounts the boot partition at `/sd`, so
+work saved from `vi` or built with `tcc` outlives the session. See "The card"
+below.
 
 ## What you get at the prompt
 
@@ -47,12 +47,11 @@ On top of those:
 hardware register from the shell, which beats rebuilding to find out what one
 holds.
 
-`sz`/`rz` matter for the same reason the card does not: without them, anything
-written in `vi` or compiled with `tcc` dies with the session. They transfer on
-`/dev/console` and land files in `/tmp`.
+`sz`/`rz` transfer on `/dev/console` and land files in `/tmp`; they were the
+only way anything left this device before the card was readable.
 
-`nuttx.app` is 2,209,596 bytes, against 1,561,040 before any of this: 76 KB
-for the tools above, the rest for Toybox.
+`nuttx.app` is 2,247,536 bytes, against 1,561,040 before any of this: 76 KB
+for the tools above, 38 KB for the card, the rest for Toybox.
 
 ### Toybox: the rest of the POSIX set
 
@@ -217,11 +216,12 @@ and size, which is the only way to know a regression test is worth anything.
 writable scratch path — `CONFIG_TESTING_SCANFTEST_FNAME` points at `/tmp`
 here rather than its default `/mnt/fs`.
 
-### Six bugs found on the way
+### Eight bugs found on the way
 
-Three were latent in NuttX itself, hit because Toybox is the first thing here
-to exercise that much of the C library; they are fixed in
-`patches/nuttx.patch`. The others are Toybox's, in patches `0025` and `0028`.
+Five were latent in NuttX itself -- three in the C library, which Toybox is
+the first thing here to exercise that much of, and two in the FAT driver,
+found by the card work below; they are fixed in `patches/nuttx.patch`. The
+others are Toybox's, in patches `0025` and `0028`.
 
 Three of the six are the same mistake: assuming plain `char` is unsigned. It
 is signed here — `DEFAULT_SIGNED_CHAR 1` in the compiler's C33 backend,
@@ -275,6 +275,19 @@ them with `strchr()`; it died on the first expression because the search
 returned NULL and the pointer arithmetic after it underflowed into a
 negative allocation size.
 
+**FAT could not open a file whose name filled the 8.3 form.** Two mistakes in
+one line of `fat_path2dirname()`, both from measuring a name against
+`DIR_MAXFNAME`, the width of the name field in a directory entry. That field
+is eleven bytes and holds no dot, but written out an eight-plus-three name is
+twelve characters and wants a thirteenth byte for a terminator. So
+`contrast.4th` was too long for the length test and skipped the short-name
+parse entirely, and `payload.bin` passed the test but was copied into an
+eleven-byte buffer with nothing to end it, leaving the parser reading the
+stack. Either way the short name came out empty and the entry never matched.
+Both kinds of file list perfectly and then cannot be opened, which is what a
+card full of `.4th` and `.bin` files looks like. Only reachable with
+`CONFIG_FAT_LFN`; the short-name-only build takes a different path.
+
 ### Two gaps closed on the way
 
 `setjmp()` and `longjmp()` are now part of the architecture
@@ -288,6 +301,72 @@ can drop it.
 `arch/c33/include/syscall.h` is the empty one every architecture has to have,
 because `<sys/syscall.h>` includes it unconditionally. This is a flat build
 with no system call interface, so there is nothing in it.
+
+## The card
+
+```
+nsh> mount
+  /proc type procfs
+  /sd type vfat
+  /tmp type tmpfs
+```
+
+The chip has one SPI master, and both the card and the serial FLASH hang off
+it behind their own chip selects on port 5. `arch/c33/src/s1c33e07_spi.c`
+drives it as a NuttX SPI bus; the board file owns the parts the controller
+knows nothing about -- the chip selects, and the card's supply, which comes up
+as rail-off, then rail, then buffer, because raising the buffer into an
+unpowered card back-feeds it. Above that are NuttX's stock `mmcsd_spi` and
+`vfat`, and the MBR reader, since a WikiReader card is partitioned: a small
+FAT32 boot volume and a much larger exFAT one. Each partition is registered as
+`/dev/mmcsd0N` and the first is mounted.
+
+The exFAT partition stays unreadable -- NuttX's FAT driver does not do exFAT.
+`zim.app` reads it through Grifo, which does.
+
+A block does not go a byte at a time. High-speed DMA channel 3 drains the
+receive register into the buffer while channel 2 refills the transmit register
+from a fixed word of ones, and because that register empties when the shifter
+takes its contents rather than when it finishes with them, the next word is
+already queued while the current one is on the wire. The CPU writes one word
+to start it and then waits. Characters are 32 bits wide for this, which is the
+whole point: 128 transfers to a sector instead of 512. Measured in the
+emulator, against the same run reading the same card:
+
+| | MCLK cycles per 512-byte block |
+| --- | --- |
+| CPU, a byte at a time | 29,670 |
+| DMA, byte units | 36,822 |
+| DMA, 32-bit units | 16,892 |
+
+The wire itself is 16,384 of those cycles at MCLK/4, so the last row is within
+3% of what the clock allows, and the middle row is why this is not simply "use
+DMA": at one request per byte the engine setup costs more than the CPU loop it
+replaces.
+
+Three things about this are the board's and not the manual's, and all three
+come from the Grifo driver beside it, which was measured on hardware:
+
+* A 32-bit character arrives most significant byte first, so each word has to
+  be reversed after the transfer.
+* Changing the character width needs an enable cycle, and an enable cycle with
+  the card selected costs it a bit of whatever it is shifting out. The clock
+  pin is parked as a GPIO held at the idle level while the width changes.
+* The engines write to SDRAM dependably and to the internal RAMs less so, so a
+  buffer below `CONFIG_RAM_START` takes the CPU path, as do short or
+  misaligned ones.
+
+A transfer that stalls is not retried: what arrived is finished by the CPU,
+and DMA stays off for the rest of the session, because an engine that stopped
+early has already left the card mid-block.
+
+The descriptor and the transmit word live in the chip's 2 KB descriptor RAM at
+`0x00084000`, which is where Grifo keeps its own -- harmless, since Grifo is
+not running.
+
+`wremu` models all of this, including the SPI bit rate, the DMA engines' bus
+timing and the card's block timing, so the numbers above are the emulator's
+model of the device rather than host time.
 
 ## Layout
 
@@ -422,6 +501,13 @@ to reset the machine and bring the launcher all the way back up. Grifo's
 printed exit code — 1 and 2 — is checked too, since that is the argument
 surviving the trap.
 
+`test_sdcard.py` runs next: it builds a partitioned FAT32 card, checks that
+the guest's `md5sum` of a 64 KB file matches the digest computed here, has the
+guest write a file and unmount, and then reads that file back out of the raw
+image rather than believing what the guest said about it. It also fails if
+nothing came in over DMA or if a transfer stalled into the CPU path, so a
+silent fallback shows up as a failure and not merely as a slower run.
+
 `test_libc.py` beside it runs NuttX's own C library suites; see "The C
 library's own tests" above.
 
@@ -437,16 +523,18 @@ is not the handoff itself.
 Everything the port's own README lists, and, specific to running as an
 application:
 
-* **No card access.** NuttX has no SPI controller or MMC/SD driver, so `/tmp`
-  is all the storage there is. Work saved from `vi` or `tcc -c` does not
-  survive a reboot. This is the one thing worth fixing next; the hardware and
-  a working driver to read from are both in this tree.
+* **No exFAT.** The card's second partition, which is where a ZIM archive
+  lives, is registered as `/dev/mmcsd0p2` and cannot be mounted: NuttX's FAT
+  driver does FAT12/16/32 only. ChaN's FatFs would read it.
+* **No card detect.** Nothing reports the slot's state, so `SPI_STATUS` says
+  the card is present and a missing one shows up as an identification
+  timeout at boot. Swapping cards while running is not handled at all.
 * **No buttons, no power management.** The front buttons are not bound, and
   the device does not suspend. The idle loop halts, which is most of the
   benefit, but a NuttX session will flatten the batteries faster than the
   reader does.
 * **Untested on hardware.** Every result here is from `wremu`. The emulator
-  models the SDRAM timing but not the watchdog, the panel's electrical
-  behaviour or power draw. The handoff in particular deserves a device before
+  models the SDRAM timing, the watchdog and the power rail, but not the
+  panel's electrical behaviour or power draw. The handoff in particular deserves a device before
   it is trusted: it depends on Grifo's resident state being exactly as the
   emulator leaves it.
