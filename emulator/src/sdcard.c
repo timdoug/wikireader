@@ -218,9 +218,20 @@ static void execute(struct sdcard *sd)
 		uint8_t reg[16];
 		memset(reg, 0, sizeof reg);
 		if (idx == 9) {
-			/* CSD v2.0: capacity = (C_SIZE+1) * 512 KiB */
+			/*
+			 * CSD v2.0: capacity = (C_SIZE+1) * 512 KiB, and every
+			 * other field fixed by the spec at the value a real
+			 * SDHC card reports. grifo reads only C_SIZE, but a
+			 * host that believes TRAN_SPEED or READ_BL_LEN gets a
+			 * zero clock and a 1-byte sector out of a CSD that is
+			 * blank everywhere else.
+			 */
 			uint32_t csize = (uint32_t)(sd->blocks / 1024) - 1;
-			reg[0] = 0x40;
+			static const uint8_t fixed[16] = {
+				0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00, 0x00,
+				0x00, 0x00, 0x7f, 0x80, 0x0a, 0x40, 0x00, 0x01,
+			};
+			memcpy(reg, fixed, sizeof reg);
 			reg[7] = (csize >> 16) & 0x3F;
 			reg[8] = (csize >> 8) & 0xFF;
 			reg[9] = csize & 0xFF;
