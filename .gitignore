@@ -27,3 +27,11 @@ work*
 log
 build
 backup
+
+# Epson manuals: obtainable from Epson or the Internet Archive, not vendored.
+# See host-tools/toolchain-c33/gcc/ABI.md.
+/*.pdf
+# Stock root image archive: unpacked ROOT_IMAGE/ is tracked, the archive is not.
+/ROOT_IMAGE.7z
+# Emulator screen captures.
+/*.png

@@ -83,4 +83,4 @@ before/after-suspend checkpoints to `pwrtrace.txt`. Those writes can change
 race timing. OFF builds ignore the trace marker so logging cannot repower
 the card immediately before suspend. Remove both markers for energy tests.
 
-Detailed historical experiments remain in Git at `dee29f20:zim/BATTERY.md`.
+Detailed historical experiments remain in Git at `7aa4ee84:zim/BATTERY.md`.

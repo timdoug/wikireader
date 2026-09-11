@@ -7,8 +7,8 @@ Sources, in decreasing order of authority:
    `c33.h`'s `FUNCTION_ARG_ADVANCE` *are* the calling convention, written out
    in about forty lines with EPSON's own numbered comments explaining each
    rule. Read them before probing anything.
-2. **`s1c33.pdf`** - *S1C33 Family C33 PE Core Manual* (Epson, 182pp) in the
-   repository root. The ISA reference: registers section 2, addressing modes section 5.5-5.6,
+2. **The *S1C33 Family C33 PE Core Manual*** (Epson, 182pp; `s1c33.pdf`).
+   The ISA reference: registers section 2, addressing modes section 5.5-5.6,
    branches section 5.14, per-instruction detail section 7. Section and page citations below
    refer to this. The manual documents the machine, not the ABI.
 3. **Empirical probing** - compiling probe functions with the original
@@ -25,8 +25,15 @@ opened `c33.c`. Note that `grep` treats these files as binary - they contain
 extended-ASCII - so `grep FUNCTION_ARG c33.h` silently finds nothing even
 though the macro is right there. Use `python3` or `grep -a`.
 
-`id001557.pdf` (*S1C33E07 Technical Manual*, 1015pp) covers the peripherals and
-memory map - needed for the BSP and linker scripts, not for the backend.
+The *S1C33E07 Technical Manual* (1015pp; `id001557.pdf`) covers the peripherals
+and memory map - needed for the BSP and linker scripts, not for the backend.
+
+Neither manual is vendored here: they are Epson documents, redistributed under
+Epson's terms rather than this repository's. Download them from Epson's
+microcontroller documentation site, or retrieve the archived copies from the
+Internet Archive, and drop them wherever you like - nothing in the build reads
+them. Citations in this repository give document title, section and page, so
+they resolve against any copy.
 
 Note the division of labour: the ABI (argument registers, struct passing,
 callee-saved set) is a *software* convention that only the old compiler

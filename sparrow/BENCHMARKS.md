@@ -74,27 +74,18 @@ under `build/sparrow/coverage-v2/` and `build/sparrow/dump-eval/`.
 ## Full-data evaluation
 
 The complete September 7 Wikidata JSON dump is downloaded and verified against
-its published SHA-1. It is 103,048,420,178 compressed bytes. On September 10,
-the owner cancelled the full import and queued evaluation before a full index
-was published. The last import progress record reported 25,770,000 items.
-All three processes exited and the temporary staging database was removed.
+its published SHA-1. It is 103,048,420,178 compressed bytes. No full index has
+been published from it, so **full-data answer scores remain unmeasured.**
 
-The cancelled job directories, `build/sparrow/full-20260907/` and
-`build/sparrow/full-20260907-v3/`, retain their logs, frozen inputs and status
-records marked `cancelled`. They will not produce benchmark results. The
-verified compressed dump, host environment, demo and earlier evaluation
-artifacts remain available.
-
-A fresh run must scan the dump again; checkpoint resume is not implemented.
-The current builder includes both title precedence and the new unresolved-item
-flag, so the old title-upgrade queue should not be recreated for it. Use the
-compatible baseline and new output directory shown in [HANDOFF.md](HANDOFF.md).
 The pipeline streams the compressed input into compressed SQLite staging with
 a 24 GiB reserve, then publishes the index/audit and evaluates frozen binaries.
+Checkpoint resume is not implemented, so a run scans the dump end to end. The
+current builder includes both title precedence and the unresolved-item flag, so
+it needs no title-upgrade follow-up. [STATUS.md](STATUS.md) has the baseline and
+output-directory requirements for a run.
 
-**Full-data answer scores remain unmeasured; no dataset jobs are running.**
-Future runs use only local verified dump data and stored benchmark files;
-no API or SPARQL requests are involved.
+Runs use only local verified dump data and stored benchmark files; no API or
+SPARQL requests are involved.
 
 ## Device validation
 

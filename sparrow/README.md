@@ -11,9 +11,10 @@ from a dated multistream dump. The full dated JSON dump is downloaded compressed
 and streamed during import. No uncompressed full dump file is needed. There is
 no API or SPARQL fetching workflow.
 
-For continuing development, start with [HANDOFF.md](HANDOFF.md): job state,
-current results, workspace state and ordered next steps. See
-[BENCHMARKS.md](BENCHMARKS.md) for the latest measured coverage.
+For continuing development, start with [STATUS.md](STATUS.md): what works,
+current results and ordered next steps. [DESIGN.md](DESIGN.md) explains why the
+engine is built this way, and [BENCHMARKS.md](BENCHMARKS.md) has the latest
+measured coverage.
 
 ## Use
 
@@ -291,9 +292,7 @@ freezes the builder, binaries and benchmark inputs, reads the local dump with
 six decode workers, and runs the train/test comparisons after a successful
 build. `job.json`, `build-status.json` and `run.log` show progress and errors.
 It keeps the full index separately for review. No network is used by this job.
-The earlier full import and its queued evaluation were cancelled at the owner's
-request; no dataset job is running. The verified dump is retained. See
-[HANDOFF.md](HANDOFF.md) for the cancellation record and fresh-run instructions.
+Full-data results have not been measured yet; see [STATUS.md](STATUS.md).
 The explicit v3 baseline above supports the current claim flags; the older
 default baseline does not understand flag 32. A fresh build already includes
 canonical-title precedence, so it does not need a title-upgrade follow-up.

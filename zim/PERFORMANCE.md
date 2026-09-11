@@ -363,8 +363,9 @@ No channel was enabled, no HSDMA0 trigger was queued, and no transfer failed.
 HSDMA0's completion bit was set despite its reset-like configuration. The
 first attempted copy was the 4,480-byte Huffman overlay into IVRAM.
 
-This matches an explicit initialization requirement in the local
-[S1C33E07 manual](../id001557.pdf), II.1.10 (II-1-46): after reset, FHDMx is
+This matches an explicit initialization requirement in the *S1C33E07 Technical
+Manual* (see [ABI.md](../host-tools/toolchain-c33/gcc/ABI.md) for where to
+obtain it), II.1.10 (II-1-46): after reset, FHDMx is
 indeterminate and software must clear it. The FDMA register table at
 III-2-42 also marks every cause bit's initial value as X. The app mistook
 that uninitialized cause for another transfer's pending completion. The
@@ -518,7 +519,7 @@ by a local emulator harness. It does not emulate the preceding FLASH stages.
 
 | Kernel | Open to keyboard | File/map | File DMA wait |
 | --- | ---: | ---: | ---: |
-| Installed `b556aa29` binary | 3.989099 s | 3.880008 s | 2.817136 s |
+| Installed `9adc6d9d` binary | 3.989099 s | 3.880008 s | 2.817136 s |
 | Current source, IDMA TX control | 3.987747 s | 3.878636 s | 2.813445 s |
 | HSDMA2 word TX candidate | 3.309662 s | 3.205248 s | 2.119200 s |
 
@@ -688,12 +689,12 @@ WebP luma/alpha, and font-cache regression coverage. Full-FLASH emulator
 runs check startup and Cat/Tokyo/Paris screens on 16 MB and 32 MB boards.
 The hardware A/B runs also matched article and image hashes.
 
-The optimization commits are `207044cd`, `d36ec107`, `eeebbdd4`, and
-`dee29f20`. Complete reports, raw measurements, and the retired benchmark
-harness remain in Git at `dee29f20`, for example:
+The optimization commits are `05e89f09`, `c80f0b19`, `3ef83afa`, and
+`7aa4ee84`. Complete reports, raw measurements, and the retired benchmark
+harness remain in Git at `7aa4ee84`, for example:
 
 ```sh
-git show dee29f20:zim/PERFORMANCE-ROUND4.md
+git show 7aa4ee84:zim/PERFORMANCE-ROUND4.md
 ```
 
 For new investigations, use the emulator's maintained `-F`, `-X`, and `-Y`

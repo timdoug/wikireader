@@ -391,4 +391,4 @@ mode. Install its generated `sparrow.dat` at the root of the content or boot
 volume, type `ask capital of burkina faso`, and tap the answer row. Answers
 show their Wikidata lookup steps and link to articles in the selected ZIM.
 Sparrow is a first implementation with a real-data sample; full-corpus import
-and coverage validation are pending. See the [spec review](../wikibox-spec.md).
+and coverage validation are pending. See its [design notes](../sparrow/DESIGN.md).

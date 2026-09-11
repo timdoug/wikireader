@@ -216,7 +216,7 @@ Calibration microbenchmarks agreed within 12%, most within 5%. In the
 measured article phases the model was 16-33% faster than the device. Use it
 to identify expensive work and compare candidates, then confirm improvements
 on hardware. Historical
-calibration data and its retired harness remain in Git at `dee29f20`.
+calibration data and its retired harness remain in Git at `7aa4ee84`.
 
 The three separate card waits were added on 2026-09-09. Their defaults are
 zero because the current card has not yet been calibrated by boot phase;
