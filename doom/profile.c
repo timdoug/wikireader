@@ -111,8 +111,8 @@ void wr_profile_init(int argc, char **argv)
     if (!wr_profile_enabled) return;
     file_profile(NULL, true);
     wr_profile_boot("app");
-    add("DOOMPERF v=1 build=%s compiled=\"%s %s\" mode=%s ticks_per_us=60\n",
-        WR_BUILD_ID, __DATE__, __TIME__, bench ? "benchmark" : "play");
+    add("DOOMPERF v=1 build=%s mode=%s ticks_per_us=60\n",
+        WR_BUILD_ID, bench ? "benchmark" : "play");
     add("ARGS");
     for (int i = 0; i < argc; ++i) add(" %s", argv[i]);
     add("\nCLOCK kernel_epoch_raw=%lu scope=excludes_FLASH_and_kernel_load epoch_wrap_ms=71582\n",

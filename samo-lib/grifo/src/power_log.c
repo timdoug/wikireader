@@ -35,13 +35,13 @@ static void checkpoint(const char *phase)
 	if (!trace_enabled)
 		return;
 	length = snprintf(report, sizeof(report),
-		"power trace v1; build %s %s; gcc %s\n"
+		"power trace v1; gcc %s\n"
 		"policy card=KEEP; last completed checkpoint=%s\n"
 		"suspend entries=%lu resumes=%lu timeouts=%lu\n"
 		"sd_supply=%s gate1=0x%08lx clock=0x%08lx\n"
 		"refresh=0x%08lx watchdog_count=%lu watchdog_limit=%lu\n"
 		"This is a checkpoint, not a crash backtrace.\n",
-		__DATE__, __TIME__, __VERSION__, phase,
+		__VERSION__, phase,
 		entries, resumes, timeouts,
 		(REG_P3_P3D & P32_BIT) ? "OFF" : "ON",
 		(unsigned long)REG_CMU_GATEDCLK1,
@@ -130,7 +130,7 @@ void PowerLog_report(void)
 	/* Freeze the snapshot and exclude this report's own card restart. */
 	enabled = false;
 	length = snprintf(report, sizeof(report),
-		"power log v1; build %s %s; gcc %s\n"
+		"power log v1; gcc %s\n"
 		"policy card=%s auto_off=%us refresh=0x%lx\n"
 		"suspend entries=%lu resumes=%lu timeouts=%lu\n"
 		"sd_supply on_entries=%lu on_resumes=%lu\n"
@@ -138,7 +138,7 @@ void PowerLog_report(void)
 		"card reinit=%lu failures=%lu total_ms=%lu max_ticks=%lu ticks_per_ms=%lu\n"
 		"idle waits=%lu deadlines=%lu total_ms=%lu max_ticks=%lu\n"
 		"%s\n",
-		__DATE__, __TIME__, __VERSION__,
+		__VERSION__,
 #if defined(CARD_POWER_OFF_ON_SUSPEND)
 		"OFF",
 #else

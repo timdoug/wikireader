@@ -62,9 +62,9 @@ void zim_startup_flush(void)
 		return;
 	pending = 0;
 	used = snprintf(record, sizeof(record),
-		"ZIMBOOT v1 build=%s %s dma_bits=%lu\narchive=%s\n"
+		"ZIMBOOT v1 dma_bits=%lu\narchive=%s\n"
 		"open_to_keyboard_us=%lu app_to_keyboard_us=%lu kernel_to_app_us=%lu\n",
-		__DATE__, __TIME__, (unsigned long)stats[3].dma_bits, path,
+		(unsigned long)stats[3].dma_bits, path,
 		(ticks[3] - ticks[0]) / TIMER_CountsPerMicroSecond,
 		(ticks[3] - app_start) / TIMER_CountsPerMicroSecond,
 		/* Kernel timer epoch: excludes FLASH and loading kernel.elf.

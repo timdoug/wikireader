@@ -62,10 +62,10 @@ int LOG_CODE __wrap_render_article_with_pcf(void)
         int h, n;
         pending = 0;
         n = snprintf(line, sizeof(line),
-            "ZIMPAGE v1 build=%s %s index=%lu result=%d retrieve_us=%lu "
+            "ZIMPAGE v1 index=%lu result=%d retrieve_us=%lu "
             "read_calls=%lu read_sectors=%lu read_us=%lu read_errors=%lu "
             "copy_cpu_bytes=%lu copy_dma_bytes=%lu copy_dma_calls=%lu copy_dma_errors=%lu\n",
-            __DATE__, __TIME__, article, result, elapsed / TIMER_CountsPerMicroSecond,
+            article, result, elapsed / TIMER_CountsPerMicroSecond,
             (unsigned long)io.read_calls, (unsigned long)io.read_sectors,
             (unsigned long)io.read_ticks / TIMER_CountsPerMicroSecond,
             (unsigned long)io.read_errors, copies.cpu_bytes, copies.dma_bytes,
