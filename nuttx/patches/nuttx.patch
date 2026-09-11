@@ -221,6 +221,37 @@ index c4f2eab5ce..ca9591b0e9 100644
        /* Any unrecognized IOCTL commands will be passed to the contained
         * pipe driver.
         *
+diff --git a/fs/fat/fs_fat32dirent.c b/fs/fat/fs_fat32dirent.c
+index ac70349a51..5ba912a239 100644
+--- a/fs/fat/fs_fat32dirent.c
++++ b/fs/fat/fs_fat32dirent.c
+@@ -1158,13 +1158,23 @@ static int fat_path2dirname(FAR const char **path,
+        *   - we are creating file on NuttX -> write it as short file name
+        */
+ 
+-      if (strlen((FAR const char *)dirinfo->fd_lfname) <= DIR_MAXFNAME)
++      /* DIR_MAXFNAME is the width of the name field in the directory
++       * entry, which holds no dot: written out, eight and three make
++       * twelve characters, and the parse below runs to a terminator that
++       * needs a thirteenth byte.  Measuring the name against the field
++       * instead lost "contrast.4th" to the first of those and
++       * "payload.bin" to the second -- neither could be opened at all,
++       * though both listed.
++       */
++
++      if (strlen((FAR const char *)dirinfo->fd_lfname) <= DIR_MAXFNAME + 1)
+         {
+           /* Get short file name for given path */
+ 
+-          char name[DIR_MAXFNAME];
+-          memcpy(name, dirinfo->fd_lfname, DIR_MAXFNAME);
++          char name[DIR_MAXFNAME + 2];
+           FAR const char *tmp = (FAR const char *)name;
++
++          strlcpy(name, (FAR const char *)dirinfo->fd_lfname, sizeof(name));
+           if (fat_parsesfname(&tmp, dirinfo, NULL) != OK)
+             {
+               /* The name fits the short form's length but cannot be
 diff --git a/graphics/Kconfig b/graphics/Kconfig
 index a7ac40c012..a6996e6156 100644
 --- a/graphics/Kconfig
