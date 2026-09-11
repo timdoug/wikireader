@@ -44,17 +44,22 @@ It installs under `host-tools/toolchain-c33/work/install/`, which is what
 everything else looks for by default. Then, from the repository root:
 
 ```sh
-make grifo wiki SIMULATE=NO
-make -C zim SIMULATE=NO OPT=-O2
-make -C doom -j4
+make wiki zim doom SIMULATE=NO
 ```
 
-`grifo` and `wiki` pull in mini-libc, drivers and fatfs through their
-dependencies. `SIMULATE=NO` skips the Qt5 desktop simulator; drop it if you
-want the simulator and have Qt5 installed.
+That builds all four applications; mini-libc, drivers, fatfs and grifo come in
+as dependencies.
+
+`SIMULATE=NO` turns off grifo's host simulator. A grifo application otherwise
+builds twice: once as a C33 `.app`, and once as a Qt5 desktop program compiled
+from the same sources with `-DGRIFO_SIMULATOR=1`. That second build is the only
+reason a firmware build would need Qt5 installed. `zim` and `doom` set it in
+their own makefiles already, so the flag is really for `wiki`. Drop it if you
+want the simulator and have Qt5.
 
 Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
-appended after `-Werror`. Build output is git-ignored.
+appended after `-Werror` and already defaults to `-O2`. Build output is
+git-ignored.
 
 The original EPSON binutils 2.10.1 / GCC 3.3.2 toolchain is still buildable
 with `make toolchain`. Nothing depends on it; it is kept as an ABI and

@@ -890,6 +890,28 @@ TEMPERATURE_DISPLAY ?= NO
 $(call STD_RULE, wiki, wiki, mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_BAR}" TEMPERATURE_DISPLAY="${TEMPERATURE_DISPLAY}" INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}")
 
 
+# zim.app and doom.app are applications carried in this tree rather than parts
+# of the stock firmware, so they stay out of ALL_TARGETS: a bare "make", which
+# core/Dockerfile runs, must not start needing the C33 toolchain for them.
+# They do have to be .PHONY, or Make sees the up-to-date zim/ and doom/
+# directories, decides there is nothing to do, and silently builds nothing.
+# Both are grifo applications and include the generated grifo.h.
+
+.PHONY: zim doom
+zim: grifo
+	${MAKE} -C zim all
+doom: grifo
+	${MAKE} -C doom all
+
+.PHONY: zim-clean doom-clean
+zim-clean:
+	${MAKE} -C zim clean
+doom-clean:
+	${MAKE} -C doom clean
+
+CLEAN_TARGETS += zim-clean doom-clean
+
+
 .PHONY: wiki-simulate
 wiki-simulate: validate-destdir
 	make INSTALL_GRIFO_SIMULATION=YES DESTDIR="${DESTDIR}" wiki-install
