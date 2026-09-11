@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 11 Sep 2026 20:30:00 +0000
+Subject: [PATCH 26/26] per-task state on NuttX
+
+Toybox keeps everything a command needs in globals -- toys, this, and the
+two scratch buffers -- which is exactly right when every command is its own
+process. NuttX is a flat build: one address space, and a "process" is a task
+sharing it with every other one. Two commands alive at once therefore write
+over each other.
+
+That is not a corner case. It is both halves of a pipeline, and it is
+find -exec or xargs running a command while the parent is still walking its
+tree. It also failed quietly rather than loudly:
+
+  seq 3 | tac                       faulted on a half-overwritten list
+  find dir -type f -exec wc -c {} ; printed a count for the first file and
+                                    bare names for the other two
+
+So they move into per-task storage, allocated on first use and freed by a
+task-local-storage destructor at task exit. They stay ordinary struct
+members rather than becoming pointers, so sizeof(toybuf) and &this still
+mean what every user of them expects, and the names are unchanged, so no
+command source needs touching.
+
+The cost is a function call and a TLS lookup per access, and about 9 KB per
+task that actually runs a command.
+---
+--- a/toys.h
++++ b/toys.h
+@@ -149,6 +149,36 @@
+ #endif
+ extern char *toybox_version, toybuf[4096], libbuf[4096];
+ 
++#ifdef __NuttX__
++// Toybox keeps everything a command needs in globals, which is exactly right
++// when every command is its own process. NuttX is a flat build: one address
++// space, and a "process" is a task sharing it with every other. Two commands
++// alive at once -- the two halves of a pipeline, or find -exec running one
++// while the parent walks the tree -- would otherwise be writing over each
++// other's state. That went wrong quietly: "seq 3 | tac" faulted on a
++// half-overwritten list, and "find -exec wc -c {} ;" printed a count for the
++// first file and bare names for the rest.
++//
++// So they move into per-task storage, reached through the same names. They
++// stay ordinary struct members, not pointers, so sizeof(toybuf) and &this
++// still mean what the code that uses them expects.
++
++struct toybox_task_s
++{
++  struct toy_context toys;
++  union global_union this;
++  char toybuf[4096];
++  char libbuf[4096];
++};
++
++struct toybox_task_s *toybox_task(void);
++
++#define toys   (toybox_task()->toys)
++#define this   (toybox_task()->this)
++#define toybuf (toybox_task()->toybuf)
++#define libbuf (toybox_task()->libbuf)
++#endif
++
+ #define FLAG(x) (!!(toys.optflags&FLAG_##x))  // Return 1 if flag set, 0 if not
+ 
+ #define GLOBALS(...)
+--- a/main.c
++++ b/main.c
+@@ -5,6 +5,11 @@
+ 
+ #include "toys.h"
+ 
++#ifdef __NuttX__
++#include <nuttx/tls.h>
++#include <sched.h>
++#endif
++
+ // Populate toy_list[].
+ 
+ #undef NEWTOY
+@@ -19,9 +24,71 @@
+ 
+ // global context for this command.
+ 
++#ifdef __NuttX__
++
++/* Per-task state; see the comment on struct toybox_task_s in toys.h.
++ *
++ * Allocated on first use rather than at task start, because nothing knows a
++ * task is going to run a Toybox command until it does, and freed by the
++ * destructor when the task exits. One index serves every task.
++ */
++
++static int g_toybox_tlsindex = -1;
++
++static void toybox_task_free(FAR void *state)
++{
++  free(state);
++}
++
++struct toybox_task_s *toybox_task(void)
++{
++  FAR struct toybox_task_s *state;
++
++  /* Claiming the index is once for the whole system, so keep two tasks
++   * arriving here at the same time from each claiming one.
++   */
++
++  if (g_toybox_tlsindex < 0)
++    {
++      sched_lock();
++      if (g_toybox_tlsindex < 0)
++        {
++          g_toybox_tlsindex = task_tls_alloc(toybox_task_free);
++        }
++
++      sched_unlock();
++
++      if (g_toybox_tlsindex < 0)
++        {
++          fprintf(stderr, "toybox: no task local storage left\n");
++          _exit(1);
++        }
++    }
++
++  state = (FAR struct toybox_task_s *)
++          task_tls_get_value(g_toybox_tlsindex);
++  if (state == NULL)
++    {
++      state = calloc(1, sizeof(*state));
++      if (state == NULL)
++        {
++          fprintf(stderr, "toybox: out of memory\n");
++          _exit(1);
++        }
++
++      task_tls_set_value(g_toybox_tlsindex, (uintptr_t)state);
++    }
++
++  return state;
++}
++
++char *toybox_version = TOYBOX_VERSION;
++
++#else
+ struct toy_context toys;
+ union global_union this;
+ char *toybox_version = TOYBOX_VERSION, toybuf[4096], libbuf[4096];
++#endif
+ 
+ struct toy_list *toy_find(char *name)
+ {

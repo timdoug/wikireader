@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 11 Sep 2026 21:00:00 +0000
+Subject: [PATCH 27/27] awk: two names NuttX has already taken
+
+awk does not build against NuttX's headers, for two reasons that have
+nothing to do with awk:
+
+  optind is a macro there -- "#define optind (*getoptindp())" in <unistd.h>
+  -- so awk's parameter and local of that name expand into nonsense such as
+  "int (*getoptindp()) = 0". Renamed to optidx; every use is inside this
+  file.
+
+  ERROR is an enumerator in NuttX's <sys/types.h>, so awk's own token type
+  of that name is a redeclaration. #undef does not help with an enumerator,
+  so awk's is renamed to AWK_ERROR -- also entirely local to this file.
+
+With those, awk builds and runs. It is the one thing the Toybox command set
+offers that nothing else here does.
+---
+--- a/toys/pending/awk.c
++++ b/toys/pending/awk.c
+@@ -161,7 +161,7 @@
+ 
+ enum toktypes {
+     // EOF (use -1 from stdio.h)
+-    ERROR = 2, NEWLINE, VAR, NUMBER, STRING, REGEX, USERFUNC, BUILTIN, TOKEN,
++    AWK_ERROR = 2, NEWLINE, VAR, NUMBER, STRING, REGEX, USERFUNC, BUILTIN, TOKEN,
+     KEYWORD
+     };
+ 
+@@ -847,7 +847,7 @@
+   len = leftover - TT.scs->p + 1;
+   if (len == 0) {
+     append_char();
+-    TT.scs->toktype = ERROR;
++    TT.scs->toktype = AWK_ERROR;
+     TT.scs->tok = tkerr;
+     TT.scs->error = 1;
+     FFATAL("Unexpected token '%s'\n", TT.scs->tokstr);
+@@ -955,7 +955,7 @@
+         gch();
+         continue;
+       }
+-      TT.scs->toktype = ERROR;   // \ not last char in line.
++      TT.scs->toktype = AWK_ERROR;   // \ not last char in line.
+       TT.scs->tok = tkerr;
+       TT.scs->error = 3;
+       FATAL("backslash not last char in line\n");
+@@ -1014,7 +1014,7 @@
+     TT.scs->tok = tkeof;
+   } else if (TT.scs->ch == '\0') {
+     append_char();
+-    TT.scs->toktype = ERROR;
++    TT.scs->toktype = AWK_ERROR;
+     TT.scs->tok = tkerr;
+     TT.scs->error = 5;
+     FATAL("null char\n");
+@@ -1046,7 +1046,7 @@
+     }
+     TT.scs->tok = find_token();
+     if (TT.scs->tok) return;
+-    TT.scs->toktype = ERROR;
++    TT.scs->toktype = AWK_ERROR;
+     TT.scs->tok = tkerr;
+     TT.scs->error = 4;
+     FFATAL("Unexpected token '%s'\n", TT.scs->tokstr);
+@@ -2185,7 +2185,7 @@
+ {
+   switch (CURTOK()) {
+     case tkeof:
+-      break;     // FIXME ERROR?
++      break;     // FIXME AWK_ERROR?
+ 
+     case tkbreak:
+       scan();
+@@ -4391,7 +4391,7 @@
+   check_numeric_string(v);
+ }
+ 
+-static void init_globals(int optind, int argc, char **argv, char *sepstring,
++static void init_globals(int optidx, int argc, char **argv, char *sepstring,
+     struct arg_list *assign_args)
+ {
+   // Global variables reside at the bottom of the TT.stack. Start with the awk
+@@ -4420,7 +4420,7 @@
+   STACK[ARGV] = m;
+   insert_argv_map(&m, 0, TT.progname);
+   int nargc = 1;
+-  for (int k = optind; k < argc; k++) {
++  for (int k = optidx; k < argc; k++) {
+     insert_argv_map(&m, nargc, argv[k]);
+     nargc++;
+   }
+@@ -4498,11 +4498,11 @@
+     if (IS_RX(&LITERAL[k])) regfree(LITERAL[k].rx);
+ }
+ 
+-static void run(int optind, int argc, char **argv, char *sepstring,
++static void run(int optidx, int argc, char **argv, char *sepstring,
+     struct arg_list *assign_args)
+ {
+   char *printf_fmt_rx = "%[-+ #0']*([*]|[0-9]*)([.]([*]|[0-9]*))?l?[aAdiouxXfFeEgGcs%]";
+-  init_globals(optind, argc, argv, sepstring, assign_args);
++  init_globals(optidx, argc, argv, sepstring, assign_args);
+   TT.cfile = xzalloc(sizeof(struct zfile));
+   xregcomp(&TT.rx_default, "[ \t\n]+", REG_EXTENDED);
+   xregcomp(&TT.rx_last, "[ \t\n]+", REG_EXTENDED);
+@@ -4541,7 +4541,7 @@
+ }
+ 
+ static int awk(char *sepstring, char *progstring, struct arg_list *prog_args,
+-    struct arg_list *assign_args, int optind, int argc, char **argv,
++    struct arg_list *assign_args, int optidx, int argc, char **argv,
+     int opt_run_prog)
+ {
+   struct scanner_state ss = {0};
+@@ -4555,7 +4555,7 @@
+     error_exit("%d syntax error(s)", TT.cgl.compile_error_count);
+   else {
+     if (opt_run_prog)
+-      run(optind, argc, argv, sepstring, assign_args);
++      run(optidx, argc, argv, sepstring, assign_args);
+   }
+ 
+   return TT.cgl.compile_error_count;
+@@ -4564,16 +4564,16 @@
+ void awk_main(void)
+ {
+   char *sepstring = TT.F ? escape_str(TT.F, 0) : " ";
+-  int optind = 0;
++  int optidx = 0;
+   char *progstring = NULL;
+ 
+   TT.pbuf = toybuf;
+   toys.exitval = 2;
+   if (!TT.f) {
+-    if (*toys.optargs) progstring = toys.optargs[optind++];
++    if (*toys.optargs) progstring = toys.optargs[optidx++];
+     else error_exit("No program string\n");
+   }
+   TT.progname = toys.which->name;
+   toys.exitval = awk(sepstring, progstring, TT.f, TT.v,
+-      optind, toys.optc, toys.optargs, !FLAG(c));
++      optidx, toys.optc, toys.optargs, !FLAG(c));
+ }

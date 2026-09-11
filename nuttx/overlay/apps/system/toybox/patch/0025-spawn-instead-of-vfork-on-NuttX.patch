@@ -1,0 +1,342 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 11 Sep 2026 19:30:00 +0000
+Subject: [PATCH 25/25] spawn instead of vfork on NuttX
+
+NuttX creates a task at an entry point. There is one address space and no
+MMU, so nothing is copied and a child never runs the parent's code -- which
+is why only 7 of its 18 architectures implement vfork() at all, and why
+SYSTEM_TOYBOX is unbuildable on the other 11 despite its Kconfig not saying
+so. Adding vfork() to an architecture is some 500 lines of stack-copying
+assembly whose comments in every existing port admit the result is only
+safe because the child does nothing but exec or _exit.
+
+Spawning is what NuttX offers instead, and it is what NSH itself uses for
+its own pipes and redirections: the descriptors the child would have set up
+for itself in the window after fork() travel with the spawn as parameters.
+exec_builtin() takes exactly those, so xpopen_setup()'s child block becomes
+one call, and the parent half after it is unchanged.
+
+A Toybox applet is not a NuttX builtin of its own -- they all live behind
+the single "toybox" one and are reached as "toybox <applet> <args>" -- so
+the resolution step prepends that where needed. Anything else is looked up
+in NuttX's own builtin table, so "find -exec nsh" still works.
+
+The three commands that call XVFORK() directly rather than through
+xpopen_setup() get the same treatment: time and xargs here, and setsid,
+which is left to be turned off in Kconfig because session leadership is not
+a thing NuttX has.
+
+Not carried over: xpopen_setup()'s callback argument, whose only user is
+timeout's setpgid(). The child is no longer this process, so there is
+nowhere to run it; timeout still works, its child just stays in this
+process group.
+---
+--- a/nuttx_bridge.c
++++ b/nuttx_bridge.c
+@@ -16,7 +16,10 @@
+ #include <sys/wait.h>
+ #include <stdio.h>
+ 
++#include <errno.h>
++
+ #include "builtin/builtin.h"
++#include "nshlib/nshlib.h"
+ 
+ int nuttx_builtin_exec(int argc, char *argv[])
+ {
+@@ -36,3 +39,37 @@
+ 
+   return 0;
+ }
++
++/* Spawning, for a system that cannot fork.
++ *
++ * NuttX creates a task at an entry point: there is one address space, no
++ * MMU, and nothing to copy, so a child never runs the parent's code. That
++ * removes the window a Unix program uses between fork() and exec() to set
++ * its file descriptors up, so the redirection has to travel with the spawn
++ * instead -- which is exactly what exec_builtin()'s nsh_param_s carries,
++ * and what NSH itself uses for its own pipes and redirections.
++ *
++ * fd_in/fd_out are the descriptors the new task should see as its stdin and
++ * stdout; 0 and 1 mean "leave alone". The caller keeps ownership of both.
++ */
++
++pid_t nuttx_spawn(const char *name, char **argv, int fd_in, int fd_out)
++{
++  struct nsh_param_s param =
++    {
++      .fd_in    = fd_in == 0 ? -1 : fd_in,
++      .fd_out   = fd_out == 1 ? -1 : fd_out,
++      .fd_err   = -1,
++      .file_in  = NULL,
++      .file_out = NULL,
++      .file_err = NULL,
++    };
++
++  if (builtin_isavail(name) < 0)
++    {
++      errno = ENOENT;
++      return -1;
++    }
++
++  return exec_builtin(name, argv, &param);
++}
+--- a/lib/xwrap.c
++++ b/lib/xwrap.c
+@@ -239,6 +239,44 @@
+   xexit();
+ }
+ 
++#ifdef __NuttX__
++// nuttx_bridge.c: spawn a NuttX builtin by name, with its stdin/stdout set.
++pid_t nuttx_spawn(const char *name, char **argv, int fd_in, int fd_out);
++
++// Resolve a command to something NuttX can spawn, and spawn it.
++//
++// An applet is not a builtin of its own: they all live behind the single
++// "toybox" one and are reached as "toybox <applet> <args>", which is the
++// form toybox_entry.c's main() dispatches. Anything else is looked up in
++// NuttX's own builtin table, so "find -exec nsh" and friends still work.
++//
++// A null argv means "run this program again", which upstream does by
++// re-execing /proc/self/exe; here the same thing is said by spawning the
++// multiplexer with the arguments we already have.
++pid_t nuttx_toy_spawn(char **argv, int fd_in, int fd_out)
++{
++  char **run, **multi = 0;
++  const char *name;
++  pid_t pid;
++  int n;
++
++  run = argv ? argv : toys.argv;
++  if (toy_find(*run)) {
++    for (n = 0; run[n]; n++);
++    multi = xmalloc((n+2)*sizeof(char *));
++    *multi = "toybox";
++    memcpy(multi+1, run, (n+1)*sizeof(char *));
++    run = multi;
++    name = "toybox";
++  } else name = *run;
++
++  pid = nuttx_spawn(name, run, fd_in, fd_out);
++  free(multi);
++
++  return pid;
++}
++#endif
++
+ // Spawn child process, capturing stdin/stdout.
+ // argv[]: command to exec. If null, child re-runs original program with
+ //         toys.stacktop zeroed.
+@@ -255,6 +293,22 @@
+   if (pipes) for (pid = 0; pid < 2; pid++)
+     if (pipes[pid]==-1 && pipe(cestnepasun+(2*pid))) perror_exit("pipe");
+ 
++#ifdef __NuttX__
++  // NuttX has neither fork() nor vfork(): a task is created at an entry
++  // point, so there is no child to run the redirection below by hand. The
++  // descriptors travel with the spawn instead, and the parent's half of the
++  // pipe bookkeeping after it is unchanged.
++  {
++    int in = 0, out = 1;
++
++    if (pipes) {
++      in = cestnepasun[1] ? cestnepasun[0] : pipes[0];
++      out = cestnepasun[2] ? cestnepasun[3] : pipes[1];
++    }
++    if (0 > (pid = nuttx_toy_spawn(argv, in, out)))
++      perror_exit("spawn %s", argv ? *argv : "self");
++  }
++#else
+   if (!(pid = CFG_TOYBOX_FORK ? xfork() : XVFORK())) {
+     // Child process: Dance of the stdin/stdout redirection.
+     // cestnepasun[1]->cestnepasun[0] and cestnepasun[3]->cestnepasun[2]
+@@ -313,6 +367,7 @@
+       _exit(127);
+     }
+   }
++#endif
+ 
+   // Parent process: vfork had a shared environment, clean up.
+   if (!CFG_TOYBOX_FORK) **toys.argv &= 0x7f;
+--- a/lib/portability.c
++++ b/lib/portability.c
+@@ -225,7 +225,59 @@
+ 
+         return event.ident;
+       }
++    }
++  }
++}
++
++#elif defined(__NuttX__)
++
++// NuttX has neither kqueue nor inotify, so watch the only thing "tail -f"
++// actually asks about: whether the file got longer. fds[2*i] holds the size
++// last seen, fds[2*i+1] the descriptor, which is the same layout the
++// inotify version below uses for its watch descriptors.
++
++struct xnotify *xnotify_init(int max)
++{
++  struct xnotify *not = xzalloc(sizeof(struct xnotify));
++
++  not->max = max;
++  not->kq = -1;
++  not->paths = xmalloc(max * sizeof(char *));
++  not->fds = xmalloc(max * 2 * sizeof(int));
++
++  return not;
++}
++
++int xnotify_add(struct xnotify *not, int fd, char *path)
++{
++  struct stat st;
++  int i = 2*not->count;
++
++  if (not->max == not->count) error_exit("xnotify_add overflow");
++  not->fds[i] = fstat(fd, &st) ? 0 : (int)st.st_size;
++  not->fds[i+1] = fd;
++  not->paths[not->count++] = path;
++
++  return 0;
++}
++
++int xnotify_wait(struct xnotify *not, char **path)
++{
++  struct stat st;
++  int i;
++
++  for (;;) {
++    for (i = 0; i<not->count; i++) {
++      if (fstat(not->fds[2*i+1], &st)) continue;
++      if ((int)st.st_size == not->fds[2*i]) continue;
++      not->fds[2*i] = st.st_size;
++      *path = not->paths[i];
++
++      return not->fds[2*i+1];
+     }
++    // No file descriptor to block on; a tenth of a second is short enough
++    // to feel immediate and long enough not to spin the CPU on a battery.
++    usleep(100000);
+   }
+ }
+ 
+--- a/toys/posix/time.c
++++ b/toys/posix/time.c
+@@ -36,7 +36,13 @@
+ 
+   if (FLAG(v)) label = vlabels;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
++#ifdef __NuttX__
++  // No fork(): spawn it as its own task instead. See lib/xwrap.c.
++  pid = nuttx_toy_spawn(toys.optargs, 0, 1);
++  if (pid<0) perror_exit("spawn %s", *toys.optargs);
++#else
+   if (!(pid = XVFORK())) xexec(toys.optargs);
++#endif
+   wait4(pid, &stat, 0, &ru);
+   clock_gettime(CLOCK_MONOTONIC, &ts2);
+   sec[0] = nanodiff(&ts, &ts2);
+--- a/toys/posix/xargs.c
++++ b/toys/posix/xargs.c
+@@ -141,7 +141,13 @@
+   // that the invoked utility has room to modify its environment variables
+   // and command line arguments and still be able to invoke another utility",
+   // though obviously that's not really something you can guarantee.
+-  if (!FLAG(s)) TT.s = sysconf(_SC_ARG_MAX) - environ_bytes() - 4096;
++  if (!FLAG(s)) {
++    TT.s = sysconf(_SC_ARG_MAX) - environ_bytes() - 4096;
++    // Where ARG_MAX is the POSIX minimum rather than Linux's couple of
++    // megabytes, that slack is the whole budget and every command comes out
++    // "too long". Keep a usable one instead of refusing to run anything.
++    if (TT.s < 1024) TT.s = 1024;
++  }
+ 
+   TT.delim = '\n'*!FLAG(0);
+ 
+@@ -222,6 +228,20 @@
+     TT.np++;
+     for (slot = 0; slot < TT.P && TT.pids[slot]; ++slot);
+ 
++#ifdef __NuttX__
++    // No fork(): what the child would have opened for itself is opened here
++    // and handed to the spawn, and the environment variable is set in this
++    // task because the new one gets a copy of it at spawn time.
++    {
++      int fd = xopen(FLAG(o) ? "/dev/tty" : "/dev/null", O_RDONLY|O_CLOEXEC);
++
++      if (TT.process_slot_var)
++        xsetenv(xmprintf("%s=%d", TT.process_slot_var, slot), 0);
++      pid = nuttx_toy_spawn(out, TT.a ? 0 : fd, 1);
++      if (pid<0) perror_exit("spawn %s", *out);
++      close(fd);
++    }
++#else
+     if (!(pid = XVFORK())) {
+       if (!TT.a) close(0);
+       if (TT.process_slot_var)
+@@ -229,6 +249,7 @@
+       xopen_stdio(FLAG(o) ? "/dev/tty" : "/dev/null", O_RDONLY|O_CLOEXEC);
+       xexec(out);
+     }
++#endif
+     if (TT.pids) TT.pids[slot] = pid;
+   }
+   while (TT.np) waitchild(0);
+--- a/lib/lib.h
++++ b/lib/lib.h
+@@ -124,6 +124,10 @@
+ void xvdaemon(void);
+ void xexec(char **argv);
+ pid_t xpopen_setup(char **argv, int *pipes, void (*callback)(char **argv));
++#ifdef __NuttX__
++// Spawn a command as a NuttX task; see lib/xwrap.c. There is no fork() here.
++pid_t nuttx_toy_spawn(char **argv, int fd_in, int fd_out);
++#endif
+ pid_t xpopen_both(char **argv, int *pipes);
+ int xwaitpid(pid_t pid);
+ int xpclose_both(pid_t pid, int *pipes);
+--- a/toys/posix/find.c
++++ b/toys/posix/find.c
+@@ -107,10 +107,16 @@
+   // switch to directory for -execdir, or back to top if we have an -execdir
+   // _and_ a normal -exec, or are at top of tree in -execdir
+   if (TT.topdir != -1) {
++#ifdef __NuttX__
++    // Nothing to change back to: -exec never leaves the directory it
++    // started in here, because the walk hands it whole paths. See below.
++    rc = 0;
++#else
+     if (aa->dir && new && new->parent) {
+       revert++;
+       rc = fchdir(new->parent->dirfd);
+     } else rc = fchdir(TT.topdir);
++#endif
+     if (rc) {
+       perror_msg_raw(revert ? new->name : ".");
+ 
+@@ -550,7 +556,22 @@
+           ss += len;
+           aa->arglen = len;
+           aa->dir = !!strchr(s, 'd');
++#ifdef __NuttX__
++          // Two things NuttX does not have: open() on a pseudo-filesystem
++          // directory, and an fchdir() that works on a directory it can
++          // open, since that is implemented by asking the descriptor for
++          // its path and no filesystem here answers. Neither matters for
++          // -exec, which is handed whole paths, so stand in something that
++          // is not -1 (which means "no -exec at all" to execdir()) and skip
++          // the directory changes. -execdir genuinely needs them.
++          if (TT.topdir == -1) {
++            if (aa->dir)
++              error_exit("-execdir needs fchdir(), which this system lacks");
++            TT.topdir = AT_FDCWD;
++          }
++#else
+           if (TT.topdir == -1) TT.topdir = xopenro(".");
++#endif
+ 
+         // collect names and execute commands
+         } else {

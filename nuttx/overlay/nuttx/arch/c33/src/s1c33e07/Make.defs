@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+HEAD_ASRC = c33_head.S
+CMN_ASRCS = c33_context.S c33_setjmp.S
+CMN_CSRCS = c33_start.c c33_stack.c c33_sched.c c33_irq.c
+CHIP_CSRCS = s1c33e07_timer.c s1c33e07_serial.c

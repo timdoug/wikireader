@@ -1,0 +1,49 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config C33_STRING_FUNCTION
+	bool "Enable optimized C33 specific string function"
+	default n
+	select C33_MEMCPY
+	select C33_MEMCMP
+	select C33_MEMMOVE
+	select C33_MEMSET
+	select C33_STRLEN
+	---help---
+		The generic implementations move one byte per pass, which the C33
+		spends five instructions on. These use word accesses with the
+		post-incrementing addressing mode instead.
+
+config C33_MEMCPY
+	bool "Enable optimized memcpy() for C33"
+	select LIBC_ARCH_MEMCPY
+	---help---
+		Enable optimized C33 specific memcpy() library function
+
+config C33_MEMCMP
+	bool "Enable optimized memcmp() for C33"
+	select LIBC_ARCH_MEMCMP
+	---help---
+		Enable optimized C33 specific memcmp() library function
+
+config C33_MEMMOVE
+	bool "Enable optimized memmove() for C33"
+	select LIBC_ARCH_MEMMOVE
+	select C33_MEMCPY
+	---help---
+		Enable optimized C33 specific memmove() library function. It tail
+		calls memcpy() for the non-overlapping direction.
+
+config C33_MEMSET
+	bool "Enable optimized memset() for C33"
+	select LIBC_ARCH_MEMSET
+	---help---
+		Enable optimized C33 specific memset() library function
+
+config C33_STRLEN
+	bool "Enable optimized strlen() for C33"
+	select LIBC_ARCH_STRLEN
+	---help---
+		Enable optimized C33 specific strlen() library function

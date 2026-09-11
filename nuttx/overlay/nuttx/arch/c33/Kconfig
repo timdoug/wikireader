@@ -1,0 +1,31 @@
+choice
+	prompt "C33 chip"
+	default ARCH_CHIP_S1C33E07
+
+config ARCH_CHIP_S1C33E07
+	bool "S1C33E07 (C33 PE)"
+
+endchoice
+
+config ARCH_CHIP
+	string
+	default "s1c33e07"
+
+config RAM_START
+	default 0x10000000
+
+config RAM_SIZE
+	default 33554432
+
+config S1C33E07_UART0
+	bool
+	default y
+	select UART0_SERIALDRIVER
+
+config S1C33E07_MCLK
+	int "Main clock frequency"
+	default 48000000
+	---help---
+		The first port retains the boot loader's 48 MHz clock.
+		This value must match the loader's MCLK; it does not reprogram
+		the PLL.

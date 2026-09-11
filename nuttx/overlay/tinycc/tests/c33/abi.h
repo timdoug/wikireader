@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: LGPL-2.0-or-later */
+struct S1 { char x; };
+struct S2 { short x; };
+struct S3 { char x[3]; };
+struct S4 { int x; };
+struct S5 { char x[5]; };
+struct S8 { int x,y; };
+struct S12 { int x,y,z; };
+struct S1 f1(struct S1);
+struct S2 f2(struct S2);
+struct S3 f3(int,struct S3,int);
+struct S4 f4(struct S4);
+struct S5 f5(struct S5,int);
+struct S8 f8(struct S8);
+struct S12 f12(int,struct S12,int);
+long long spill(int,int,int,long long,int,long long);
+long long unaligned_pair(int,long long,int);
+int variadic(int,int,...);
+long long varll(int,...);
+int callback(int (*)(int),int);
+int fail(int);
+void okay(void);
+struct S12 varbig(int,...);
+float fsingle(float, int, float);
+double fdouble(int, double, double, int);
+double fvar(int, ...);
+unsigned long long fconvert(double);
+int arrayvar(int,...);

@@ -1,0 +1,467 @@
+diff --git a/nshlib/Kconfig b/nshlib/Kconfig
+index 8f1740a..3416eab 100644
+--- a/nshlib/Kconfig
++++ b/nshlib/Kconfig
+@@ -225,6 +225,29 @@ config NSH_DISABLEBG
+ 		where a minimal footprint is a necessity and background command
+ 		execution is not.
+ 
++config NSH_MULTICALL
++	bool "Fall back to a multi-call binary"
++	default n
++	depends on NSH_BUILTIN_APPS
++	---help---
++		When a command is neither an NSH command nor a registered builtin,
++		try it again as "<multicall> <command> <args>" before reporting it
++		as not found.
++
++		Toybox and Busybox put a hundred-odd commands behind a single entry
++		point. Elsewhere a symlink per command makes them reachable by their
++		own names; with no file system to hold those, and no entry point
++		symbol per command to register as builtins, this is what gets them
++		under their plain names -- with redirection, pipes and the rest,
++		since those are already in place by the time a command is dispatched.
++
++config NSH_MULTICALL_NAME
++	string "Multi-call binary name"
++	default "toybox"
++	depends on NSH_MULTICALL
++	---help---
++		The registered builtin to hand unrecognized commands to.
++
+ config NSH_ALIAS
+ 	bool "Enable alias support"
+ 	default !DEFAULT_SMALL
+diff --git a/nshlib/nsh.h b/nshlib/nsh.h
+index 9ac148b..11443fb 100644
+--- a/nshlib/nsh.h
++++ b/nshlib/nsh.h
+@@ -848,6 +848,9 @@ int nsh_dropbearstart(void);
+ /* Application interface */
+ 
+ int nsh_command(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char *argv[]);
++#ifdef CONFIG_NSH_MULTICALL
++bool nsh_iscmd(FAR const char *cmd);
++#endif
+ 
+ #ifdef CONFIG_NSH_BUILTIN_APPS
+ int nsh_builtin(FAR struct nsh_vtbl_s *vtbl, FAR const char *cmd,
+diff --git a/nshlib/nsh_command.c b/nshlib/nsh_command.c
+index 14a375e..b2a304d 100644
+--- a/nshlib/nsh_command.c
++++ b/nshlib/nsh_command.c
+@@ -1253,6 +1253,34 @@ static int cmd_expr(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
+  *
+  ****************************************************************************/
+ 
++#ifdef CONFIG_NSH_MULTICALL
++/****************************************************************************
++ * Name: nsh_iscmd
++ *
++ * Description:
++ *   Is this one of the shell's own commands?  nsh_command() answers that
++ *   only by running it, and reports "not an NSH command" and "an NSH command
++ *   that failed" the same way, so a caller wanting to try something else
++ *   first has to ask separately.
++ *
++ ****************************************************************************/
++
++bool nsh_iscmd(FAR const char *cmd)
++{
++  const struct cmdmap_s *cmdmap;
++
++  for (cmdmap = g_cmdmap; cmdmap->cmd; cmdmap++)
++    {
++      if (strcmp(cmdmap->cmd, cmd) == 0)
++        {
++          return true;
++        }
++    }
++
++  return false;
++}
++#endif
++
+ int nsh_command(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char *argv[])
+ {
+   const struct cmdmap_s  *cmdmap;
+diff --git a/nshlib/nsh_parse.c b/nshlib/nsh_parse.c
+index 9de45b8..b458daa 100644
+--- a/nshlib/nsh_parse.c
++++ b/nshlib/nsh_parse.c
+@@ -39,6 +39,10 @@
+ #  include <sys/stat.h>
+ #endif
+ 
++#ifdef CONFIG_NSH_MULTICALL
++#  include <nuttx/lib/builtin.h>
++#endif
++
+ #include <nuttx/version.h>
+ #include <nuttx/sched_note.h>
+ 
+@@ -750,8 +754,49 @@ static int nsh_execute(FAR struct nsh_vtbl_s *vtbl,
+        *  0 (OK)     if the command was successful
+        */
+ 
++#ifdef CONFIG_NSH_MULTICALL
++      /* Not one of the shell's own commands, and not a registered builtin
++       * either or we would not be here: offer it to the multi-call binary
++       * before giving up.  Toybox and Busybox put a hundred-odd commands
++       * behind one entry point, reached as "<multicall> <command> <args>",
++       * which elsewhere a symlink per command hides; there is no file
++       * system here to hold those, and a multi-call binary by construction
++       * has no entry point symbol per command to register instead.
++       *
++       * This runs with the same redirection parameters as any other
++       * command, which is what makes it work in a pipeline rather than
++       * only on its own.
++       */
++
++      if (!nsh_iscmd(argv[0]) &&
++          strcmp(argv[0], CONFIG_NSH_MULTICALL_NAME) != 0 &&
++          builtin_isavail(CONFIG_NSH_MULTICALL_NAME) >= 0)
++        {
++          FAR char *newargv[CONFIG_NSH_MAXARGUMENTS + 3];
++          int i;
++
++          newargv[0] = (FAR char *)CONFIG_NSH_MULTICALL_NAME;
++          for (i = 0; i < argc && i < CONFIG_NSH_MAXARGUMENTS + 1; i++)
++            {
++              newargv[i + 1] = argv[i];
++            }
++
++          newargv[i + 1] = NULL;
++
++          ret = nsh_builtin(vtbl, CONFIG_NSH_MULTICALL_NAME, newargv, param);
++          if (ret >= 0)
++            {
++              goto multicall_done;
++            }
++        }
++#endif
++
+       ret = nsh_command(vtbl, argc, argv);
+ 
++#ifdef CONFIG_NSH_MULTICALL
++multicall_done:
++#endif
++
+       /* Restore the original output.  Undirect will close the redirection
+        * file descriptor.
+        */
+diff --git a/system/toybox/Kconfig.commands b/system/toybox/Kconfig.commands
+index 6cc64eb..631a1a1 100644
+--- a/system/toybox/Kconfig.commands
++++ b/system/toybox/Kconfig.commands
+@@ -12,6 +12,18 @@
+ # enabled commands into Toybox's own CONFIG_<NAME> form -- don't drop it.
+ #
+ 
++config SYSTEM_TOYBOX_CMD_ASCII
++	bool "ascii"
++	default y
++
++config SYSTEM_TOYBOX_CMD_AWK
++	bool "awk"
++	default y
++
++config SYSTEM_TOYBOX_CMD_BASE32
++	bool "base32"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_BASE64
+ 	bool "base64"
+ 	default y
+@@ -20,6 +32,18 @@ config SYSTEM_TOYBOX_CMD_BASENAME
+ 	bool "basename"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_BC
++	bool "bc"
++	default y
++
++config SYSTEM_TOYBOX_CMD_BUNZIP2
++	bool "bunzip2"
++	default y
++
++config SYSTEM_TOYBOX_CMD_BZCAT
++	bool "bzcat"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_CAL
+ 	bool "cal"
+ 	default y
+@@ -56,6 +80,10 @@ config SYSTEM_TOYBOX_CMD_COMM
+ 	bool "comm"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_COUNT
++	bool "count"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_CP
+ 	bool "cp"
+ 	default y
+@@ -64,6 +92,14 @@ config SYSTEM_TOYBOX_CMD_CPIO
+ 	bool "cpio"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_CRC32
++	bool "crc32"
++	default y
++
++config SYSTEM_TOYBOX_CMD_CSPLIT
++	bool "csplit"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_CUT
+ 	bool "cut"
+ 	default y
+@@ -112,6 +148,10 @@ config SYSTEM_TOYBOX_CMD_EXPR
+ 	bool "expr"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_FACTOR
++	bool "factor"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_FALLOCATE
+ 	bool "fallocate"
+ 	default y
+@@ -132,6 +172,10 @@ config SYSTEM_TOYBOX_CMD_FMT
+ 	bool "fmt"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_FOLD
++	bool "fold"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_FREE
+ 	bool "free"
+ 	default y
+@@ -140,6 +184,10 @@ config SYSTEM_TOYBOX_CMD_FSYNC
+ 	bool "fsync"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_GETCONF
++	bool "getconf"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_GETOPT
+ 	bool "getopt"
+ 	default y
+@@ -168,14 +216,26 @@ config SYSTEM_TOYBOX_CMD_HELP
+ 	bool "help"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_HEXEDIT
++	bool "hexedit"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_HOSTNAME
+ 	bool "hostname"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_ICONV
++	bool "iconv"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_ID
+ 	bool "id"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_INSTALL
++	bool "install"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_KILL
+ 	bool "kill"
+ 	default y
+@@ -184,10 +244,18 @@ config SYSTEM_TOYBOX_CMD_KILLALL
+ 	bool "killall"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_LINK
++	bool "link"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_LN
+ 	bool "ln"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_LOGGER
++	bool "logger"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_LOGNAME
+ 	bool "logname"
+ 	default y
+@@ -212,6 +280,14 @@ config SYSTEM_TOYBOX_CMD_MKTEMP
+ 	bool "mktemp"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_MORE
++	bool "more"
++	default y
++
++config SYSTEM_TOYBOX_CMD_MOUNTPOINT
++	bool "mountpoint"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_MV
+ 	bool "mv"
+ 	default y
+@@ -240,6 +316,10 @@ config SYSTEM_TOYBOX_CMD_PASTE
+ 	bool "paste"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_PATCH
++	bool "patch"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_PGREP
+ 	bool "pgrep"
+ 	default y
+@@ -268,6 +348,14 @@ config SYSTEM_TOYBOX_CMD_PWD
+ 	bool "pwd"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_PWGEN
++	bool "pwgen"
++	default y
++
++config SYSTEM_TOYBOX_CMD_READELF
++	bool "readelf"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_READLINK
+ 	bool "readlink"
+ 	default y
+@@ -320,10 +408,22 @@ config SYSTEM_TOYBOX_CMD_SHA384SUM
+ 	bool "sha384sum"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_SHA3SUM
++	bool "sha3sum"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_SHA512SUM
+ 	bool "sha512sum"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_SHRED
++	bool "shred"
++	default y
++
++config SYSTEM_TOYBOX_CMD_SHUF
++	bool "shuf"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_SLEEP
+ 	bool "sleep"
+ 	default y
+@@ -392,6 +492,18 @@ config SYSTEM_TOYBOX_CMD_TRUNCATE
+ 	bool "truncate"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_TS
++	bool "ts"
++	default y
++
++config SYSTEM_TOYBOX_CMD_TSORT
++	bool "tsort"
++	default y
++
++config SYSTEM_TOYBOX_CMD_TTY
++	bool "tty"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_ULIMIT
+ 	bool "ulimit"
+ 	default y
+@@ -452,6 +564,10 @@ config SYSTEM_TOYBOX_CMD_XXD
+ 	bool "xxd"
+ 	default y
+ 
++config SYSTEM_TOYBOX_CMD_XZCAT
++	bool "xzcat"
++	default y
++
+ config SYSTEM_TOYBOX_CMD_YES
+ 	bool "yes"
+ 	default y
+diff --git a/testing/libc/arch_libc/arch_libc_test_main.c b/testing/libc/arch_libc/arch_libc_test_main.c
+index 1382bd6..df17d4f 100644
+--- a/testing/libc/arch_libc/arch_libc_test_main.c
++++ b/testing/libc/arch_libc/arch_libc_test_main.c
+@@ -1017,6 +1017,22 @@ static int test_strchr(void)
+               fail++;
+             }
+ 
++          /* A byte with the high bit set. Plain char is signed on some
++           * targets, so an implementation that compares *s against the int
++           * c without converting it to char first matches nothing here,
++           * while every ASCII case above still passes.
++           */
++
++          fill_pattern(g_buf1 + align, size);
++          g_buf1[align + size] = '\0';
++          g_buf1[align + size - 1] = (char)0xff;
++          p = strchr(g_buf1 + align, 0xff);
++          if (p != g_buf1 + align + size - 1)
++            {
++              printf("  FAIL high: align=%d size=%d\n", align, size);
++              fail++;
++            }
++
+           /* Find NUL terminator */
+ 
+           fill_pattern(g_buf1 + align, size);
+@@ -1557,6 +1573,23 @@ static int test_strrchr(void)
+               printf("  FAIL notfound: align=%d size=%d\n", align, size);
+               fail++;
+             }
++
++          /* A byte with the high bit set. Plain char is signed on some
++           * targets, so an implementation that compares *s against the int
++           * c without converting it to char first matches nothing here,
++           * while every ASCII case above still passes.
++           */
++
++          fill_pattern(g_buf1 + align, size);
++          g_buf1[align + size] = '\0';
++          g_buf1[align + size - 1] = (char)0xff;
++          p = strrchr(g_buf1 + align, 0xff);
++          if (p != g_buf1 + align + size - 1)
++            {
++              printf("  FAIL high: align=%d size=%d\n", align, size);
++              fail++;
++            }
++
+         }
+     }
+ 
+@@ -1632,6 +1665,22 @@ static int test_strchrnul(void)
+               fail++;
+             }
+ 
++          /* A byte with the high bit set. Plain char is signed on some
++           * targets, so an implementation that compares *s against the int
++           * c without converting it to char first matches nothing here,
++           * while every ASCII case above still passes.
++           */
++
++          fill_pattern(g_buf1 + align, size);
++          g_buf1[align + size] = '\0';
++          g_buf1[align + size - 1] = (char)0xff;
++          p = strchrnul(g_buf1 + align, 0xff);
++          if (p != g_buf1 + align + size - 1)
++            {
++              printf("  FAIL high: align=%d size=%d\n", align, size);
++              fail++;
++            }
++
+           /* Find NUL terminator (always succeeds) */
+ 
+           fill_pattern(g_buf1 + align, size);

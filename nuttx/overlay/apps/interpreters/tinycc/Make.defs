@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: LGPL-2.0-or-later
+ifneq ($(CONFIG_INTERPRETERS_TCC),)
+CONFIGURED_APPS += $(APPDIR)/interpreters/tinycc
+endif

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+include $(TOPDIR)/.config
+include $(TOPDIR)/tools/Config.mk
+
+CROSSDEV ?= c33-epson-elf-
+CC = $(CROSSDEV)gcc
+CXX = $(CROSSDEV)g++
+CPP = $(CC) -E -P -x c
+LD = $(CROSSDEV)ld
+AR = $(CROSSDEV)ar rcs
+UNAR = $(CROSSDEV)ar x
+NM = $(CROSSDEV)nm
+OBJCOPY = $(CROSSDEV)objcopy
+OBJDUMP = $(CROSSDEV)objdump
+STRIP = $(CROSSDEV)strip --strip-unneeded
+ARCHCPUFLAGS = -mc33pe -medda32
+ARCHOPTIMIZATION = -O2
+ifeq ($(CONFIG_DEBUG_NOOPT),y)
+ARCHOPTIMIZATION = -O0
+endif
+ARCHOPTIMIZATION += -fno-strict-aliasing -fno-common
+ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
+ARCHOPTIMIZATION += -g
+endif
+
+# Build where you like and get the same image.  $(TOPDIR) is absolute, so
+# assertions in headers reached through it -- sched/sched.h and mm/mm_heap/mm.h
+# with CONFIG_DEBUG_ASSERTIONS -- otherwise put the build directory's path into
+# .rodata, which moves everything after it and changes most of the file.
+ARCHOPTIMIZATION += -ffile-prefix-map=$(TOPDIR)=nuttx
+ARCHINCLUDES = -I$(TOPDIR)/include
+CFLAGS = $(ARCHCPUFLAGS) $(ARCHOPTIMIZATION) $(ARCHINCLUDES) \
+         -std=gnu11 -ffreestanding -Wall -Wstrict-prototypes -Wshadow \
+         -Wundef -ffunction-sections -fdata-sections $(EXTRAFLAGS)
+CPPFLAGS = $(ARCHINCLUDES) $(EXTRAFLAGS)
+AFLAGS = $(CFLAGS) -D__ASSEMBLY__
+ARCHSCRIPT = $(BOARD_DIR)/scripts/sdram.ld
+LDFLAGS = --gc-sections --defsym=__idle_stack_size=$(CONFIG_IDLETHREAD_STACKSIZE)
+LDFLAGS += --defsym=__ram_start=$(CONFIG_RAM_START)
+LDFLAGS += --defsym=__ram_size=$(CONFIG_RAM_SIZE)
+EXTRA_LIBS = $(shell $(CC) $(ARCHCPUFLAGS) --print-libgcc-file-name)

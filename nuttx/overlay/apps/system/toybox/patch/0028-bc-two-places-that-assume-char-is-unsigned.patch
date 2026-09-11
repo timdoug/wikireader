@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 11 Sep 2026 22:15:00 +0000
+Subject: [PATCH 28/28] bc: two places that assume char is unsigned
+
+Neither shows up as a warning, and both fail quietly with a wrong answer
+rather than an error.
+
+The keyword table packs a POSIX flag into the top bit of a char and the
+keyword's length into the rest:
+
+  #define BC_LEX_KW_LEN(kw) ((size_t) ((kw)->data & ~(BC_LEX_CHAR_MSB(1))))
+
+Where char is signed, a POSIX keyword's high bit makes data negative, it
+promotes to a negative int, and masking sign-extends into a length of about
+four billion. strncmp() never matches that, so scale, if, while, for,
+define, sqrt and every other POSIX keyword stopped being keywords and lexed
+as ordinary variable names. The visible result was that "scale=2" assigned a
+variable that happened to be called scale while the interpreter's own scale
+stayed 0, so "1/2" answered 0 instead of .50; that "bc -l" could not parse
+its own math library, which is written with define and return; and that
+while and if did nothing. Making data unsigned fixes all of it.
+
+The second is variable names in the bytecode, which are terminated with an
+0xff byte and read back with "c != UCHAR_MAX" where c is a char: -1 != 255
+is always true, so the loop ran past the name and every lookup used the
+wrong one. "x=5" followed by "x*2" printed 0.
+---
+--- a/toys/pending/bc.c
++++ b/toys/pending/bc.c
+@@ -459,7 +459,17 @@
+ } BcParse;
+ 
+ typedef struct BcLexKeyword {
+-  char data, name[9];
++  /* data packs the POSIX flag into the top bit and the keyword's length
++   * into the rest. It must be unsigned: where char is signed, a POSIX
++   * keyword's high bit makes this negative, and BC_LEX_KW_LEN's
++   * "data & ~(1 << (CHAR_BIT - 1))" then sign-extends into a length of
++   * about four billion. strncmp() never matches that, so every POSIX
++   * keyword -- scale, if, while, for, define, sqrt -- quietly stopped
++   * being a keyword and lexed as an ordinary variable name instead.
++   */
++
++  unsigned char data;
++  char name[9];
+ } BcLexKeyword;
+ 
+ #define BC_LEX_CHAR_MSB(bit) ((bit) << (CHAR_BIT - 1))
+@@ -4592,7 +4602,13 @@
+ 
+   s = xmalloc(((unsigned long) ptr) - ((unsigned long) str) + 1);
+ 
+-  for (i = 0; (c = (char) code[(*bgn)++]) && c != UCHAR_MAX; ++i)
++  /* c has to be compared as the same type the terminator was written as.
++   * Where char is signed, (char)UCHAR_MAX is -1 and "c != UCHAR_MAX" is
++   * always true, so this ran off the end of the name instead of stopping at
++   * it -- which left every variable lookup reading the wrong name.
++   */
++
++  for (i = 0; (c = (char) code[(*bgn)++]) && c != (char) UCHAR_MAX; ++i)
+     s[i] = (char) c;
+ 
+   s[i] = '\0';

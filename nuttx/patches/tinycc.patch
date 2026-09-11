@@ -1,0 +1,340 @@
+diff --git a/.gitignore b/.gitignore
+index 6870b8d3..5f21d354 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -68,3 +68,11 @@ tests/vla_test
+ tests/hello
+ tests/tests2/fred.txt
+ libtcc.dylib
++
++# NuttX application build products (keep the fixed port configuration).
++!nuttx/config.h
++nuttx/Make.dep
++nuttx/.depend
++nuttx/.built
++nuttx/tcc_files.h
++__pycache__/
+diff --git a/Makefile b/Makefile
+index 62078ea3..53e54a06 100644
+--- a/Makefile
++++ b/Makefile
+@@ -116,6 +116,7 @@ DEF-arm64-FreeBSD  = $(DEF-arm64) -DTARGETOS_FreeBSD
+ DEF-arm64-NetBSD   = $(DEF-arm64) -DTARGETOS_NetBSD
+ DEF-arm64-OpenBSD  = $(DEF-arm64) -DTARGETOS_OpenBSD
+ DEF-arm64-win32    = $(DEF-arm64) -DTCC_TARGET_PE
++DEF-c33            = -DTCC_TARGET_C33
+ DEF-riscv64        = -DTCC_TARGET_RISCV64
+ DEF-c67            = -DTCC_TARGET_C67 -w # disable warnigs
+ DEF-x86_64-FreeBSD = $(DEF-x86_64) -DTARGETOS_FreeBSD
+@@ -134,11 +135,11 @@ all: $(PROGS) $(TCCLIBS) $(TCCDOCS)
+ 
+ # cross compiler targets to build
+ TCC_X = i386 x86_64 i386-win32 x86_64-win32 x86_64-osx arm arm64 arm64-win32 arm-wince c67
+-TCC_X += riscv64 arm64-osx
++TCC_X += riscv64 arm64-osx c33
+ # TCC_X += arm-fpa arm-fpa-ld arm-vfp arm-eabi
+ 
+ # cross libtcc1.a targets to build
+-LIBTCC1_X = $(filter-out c67,$(TCC_X))
++LIBTCC1_X = $(filter-out c67 c33,$(TCC_X))
+ 
+ PROGS_CROSS = $(foreach X,$(TCC_X),$X-tcc$(EXESUF))
+ LIBTCC1_CROSS = $(foreach X,$(LIBTCC1_X),$X-libtcc1.a)
+@@ -215,6 +216,7 @@ arm-eabihf_FILES  = $(arm_FILES)
+ arm64_FILES = $(CORE_FILES) arm64-gen.c arm64-link.c arm64-asm.c arm64-tok.h
+ arm64-osx_FILES = $(arm64_FILES) tccmacho.c
+ arm64-win32_FILES = $(arm64_FILES) tccpe.c
++c33_FILES = $(CORE_FILES) c33-gen.c c33-link.c
+ c67_FILES = $(CORE_FILES) c67-gen.c c67-link.c tcccoff.c
+ riscv64_FILES = $(CORE_FILES) riscv64-gen.c riscv64-link.c riscv64-asm.c
+ 
+diff --git a/configure b/configure
+index c63c7403..7619b966 100755
+--- a/configure
++++ b/configure
+@@ -644,7 +644,7 @@ cat >$TMPH <<EOF
+ #define GCC_MINOR $gcc_minor
+ 
+ #if !(TCC_TARGET_I386 || TCC_TARGET_X86_64 || TCC_TARGET_ARM\
+- || TCC_TARGET_ARM64 || TCC_TARGET_RISCV64 || TCC_TARGET_C67)
++ || TCC_TARGET_ARM64 || TCC_TARGET_RISCV64 || TCC_TARGET_C67 || TCC_TARGET_C33)
+ EOF
+ 
+ predefs=1
+diff --git a/include/tccdefs.h b/include/tccdefs.h
+index 2655c1dd..19dd6f55 100644
+--- a/include/tccdefs.h
++++ b/include/tccdefs.h
+@@ -181,7 +181,11 @@
+ 
+     /* GCC's __uint128_t appears in some Linux/OSX header files.
+        Just make it some type with same size and alignment. */
++#if defined TCC_TARGET_C33
++    struct __uint128__ { char x[16]; } __attribute((__aligned__(4)));
++#else
+     struct __uint128__ { char x[16]; } __attribute((__aligned__(16)));
++#endif
+     #define __int128_t struct __uint128__
+     #define __uint128_t struct __uint128__
+ 
+diff --git a/libtcc.c b/libtcc.c
+index 44ea25fa..1a20ccbf 100644
+--- a/libtcc.c
++++ b/libtcc.c
+@@ -28,7 +28,11 @@
+ #include "tccdbg.c"
+ #include "tccasm.c"
+ #include "tccelf.c"
++#ifdef CONFIG_TCC_NUTTX
++#include "c33-run.c"
++#else
+ #include "tccrun.c"
++#endif
+ #ifdef TCC_TARGET_I386
+ #include "i386-gen.c"
+ #include "i386-link.c"
+@@ -53,6 +57,9 @@
+ #include "riscv64-gen.c"
+ #include "riscv64-link.c"
+ #include "riscv64-asm.c"
++#elif defined(TCC_TARGET_C33)
++#include "c33-gen.c"
++#include "c33-link.c"
+ #else
+ #error unknown target
+ #endif
+@@ -885,6 +892,9 @@ LIBTCCAPI TCCState *tcc_new(void)
+     s->warn_discarded_qualifiers = 1;
+     s->ms_extensions = 1;
+     s->unwind_tables = 1;
++#ifdef TCC_TARGET_C33
++    s->unwind_tables = 0;
++#endif
+ 
+ #ifdef CHAR_IS_UNSIGNED
+     s->char_is_unsigned = 1;
+@@ -1777,6 +1787,8 @@ static const char dumpmachine_str[] =
+     "i386-pc"
+ #elif defined TCC_TARGET_X86_64
+     "x86_64-pc"
++#elif defined TCC_TARGET_C33
++    "c33"
+ #elif defined TCC_TARGET_C67
+     "c67"
+ #elif defined TCC_TARGET_ARM
+@@ -1787,7 +1799,9 @@ static const char dumpmachine_str[] =
+     "riscv64"
+ #endif
+     "-"
+-#ifdef TCC_TARGET_PE
++#ifdef TCC_TARGET_C33
++    "nuttx"
++#elif defined TCC_TARGET_PE
+     "mingw32"
+ #elif defined(TCC_TARGET_MACHO)
+     "apple-darwin"
+diff --git a/tcc.h b/tcc.h
+index ce9b5189..3356ade0 100644
+--- a/tcc.h
++++ b/tcc.h
+@@ -41,6 +41,11 @@
+ 
+ #ifndef _WIN32
+ # include <unistd.h>
++# ifdef CONFIG_TCC_NUTTX
++/* NuttX implements the getopt globals as task-local accessor macros. */
++#  undef optarg
++#  undef optind
++# endif
+ # include <sys/time.h>
+ # ifndef CONFIG_TCC_STATIC
+ #  include <dlfcn.h>
+@@ -162,7 +167,7 @@ extern long double strtold (const char *__nptr, char **__endptr);
+ /* default target is I386 */
+ #if !defined(TCC_TARGET_I386) && !defined(TCC_TARGET_ARM) && \
+     !defined(TCC_TARGET_ARM64) && !defined(TCC_TARGET_C67) && \
+-    !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_RISCV64)
++    !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_RISCV64) && !defined(TCC_TARGET_C33)
+ # if defined __x86_64__
+ #  define TCC_TARGET_X86_64
+ # elif defined __arm__
+@@ -198,9 +203,18 @@ extern long double strtold (const char *__nptr, char **__endptr);
+ #  define TCC_IS_NATIVE
+ # elif defined __riscv && defined __LP64__ && defined TCC_TARGET_RISCV64
+ #  define TCC_IS_NATIVE
++# elif defined __c33__ && defined TCC_TARGET_C33
++#  define TCC_IS_NATIVE
+ # endif
+ #endif
+ 
++#ifdef TCC_TARGET_C33
++# undef CONFIG_TCC_BACKTRACE
++# define CONFIG_TCC_BACKTRACE 0
++# undef CONFIG_TCC_BCHECK
++# define CONFIG_TCC_BCHECK 0
++#endif
++
+ #if defined CONFIG_TCC_BACKTRACE && CONFIG_TCC_BACKTRACE==0
+ # undef CONFIG_TCC_BACKTRACE
+ #else
+@@ -224,7 +238,7 @@ extern long double strtold (const char *__nptr, char **__endptr);
+     || defined TARGETOS_NetBSD \
+     || defined TARGETOS_FreeBSD_kernel
+ # define TARGETOS_BSD 1
+-#elif !(defined TCC_TARGET_PE || defined TCC_TARGET_MACHO)
++#elif !(defined TCC_TARGET_PE || defined TCC_TARGET_MACHO || defined TCC_TARGET_C33)
+ # define TARGETOS_Linux 1 /* for tccdefs_.h */
+ #endif
+ 
+@@ -387,6 +401,9 @@ extern long double strtold (const char *__nptr, char **__endptr);
+ # include "riscv64-gen.c"
+ # include "riscv64-link.c"
+ # include "riscv64-asm.c"
++#elif defined(TCC_TARGET_C33)
++# include "c33-gen.c"
++# include "c33-link.c"
+ #else
+ #error unknown target
+ #endif
+@@ -405,9 +422,15 @@ extern long double strtold (const char *__nptr, char **__endptr);
+ # define ELFCLASSW ELFCLASS32
+ # define ElfW(type) Elf##32##_##type
+ # define ELFW(type) ELF##32##_##type
+-# define ElfW_Rel ElfW(Rel)
+-# define SHT_RELX SHT_REL
+-# define REL_SECTION_FMT ".rel%s"
++# ifdef TCC_TARGET_C33
++#  define ElfW_Rel ElfW(Rela)
++#  define SHT_RELX SHT_RELA
++#  define REL_SECTION_FMT ".rela%s"
++# else
++#  define ElfW_Rel ElfW(Rel)
++#  define SHT_RELX SHT_REL
++#  define REL_SECTION_FMT ".rel%s"
++# endif
+ #endif
+ /* target address type */
+ #define addr_t ElfW(Addr)
+diff --git a/tccelf.c b/tccelf.c
+index def5aebc..168495d3 100644
+--- a/tccelf.c
++++ b/tccelf.c
+@@ -2711,6 +2711,8 @@ static int tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr)
+         ? EF_ARM_VFP_FLOAT : EF_ARM_SOFT_FLOAT;
+ #elif defined TCC_TARGET_ARM
+     ehdr.e_ident[EI_OSABI] = ELFOSABI_ARM;
++#elif defined TCC_TARGET_C33
++    ehdr.e_flags = 0x50000000; /* C33 PE, matching GNU as -mc33pe. */
+ #elif defined TCC_TARGET_RISCV64
+     /* XXX should be configurable */
+     ehdr.e_flags = EF_RISCV_FLOAT_ABI_DOUBLE;
+diff --git a/tccgen.c b/tccgen.c
+index 8f4cd13a..c8deeccd 100644
+--- a/tccgen.c
++++ b/tccgen.c
+@@ -3177,7 +3177,7 @@ op_err:
+         gv(RC_TYPE(vtop->type.t));
+ }
+ 
+-#if defined TCC_TARGET_ARM64 || defined TCC_TARGET_RISCV64 || defined TCC_TARGET_ARM
++#if defined TCC_TARGET_ARM64 || defined TCC_TARGET_RISCV64 || defined TCC_TARGET_ARM || defined TCC_TARGET_C33
+ #define gen_cvt_itof1 gen_cvt_itof
+ #else
+ /* generic itof for unsigned long long case */
+@@ -3204,7 +3204,7 @@ static void gen_cvt_itof1(int t)
+ }
+ #endif
+ 
+-#if defined TCC_TARGET_ARM64 || defined TCC_TARGET_RISCV64
++#if defined TCC_TARGET_ARM64 || defined TCC_TARGET_RISCV64 || defined TCC_TARGET_C33
+ #define gen_cvt_ftoi1 gen_cvt_ftoi
+ #else
+ /* generic ftoi for unsigned long long case */
+@@ -3522,7 +3522,7 @@ ST_FUNC int type_size(CType *type, int *a)
+         return LDOUBLE_SIZE;
+     } else if (bt == VT_DOUBLE || bt == VT_LLONG) {
+ #if (defined TCC_TARGET_I386 && !defined TCC_TARGET_PE) \
+- || (defined TCC_TARGET_ARM && !defined TCC_ARM_EABI)
++ || (defined TCC_TARGET_ARM && !defined TCC_ARM_EABI) || defined TCC_TARGET_C33
+         *a = 4;
+ #else
+         *a = 8;
+@@ -4006,12 +4006,19 @@ redo:
+             } else {
+                 n = MAX_ALIGN;
+             }
++#ifdef TCC_TARGET_C33
++            if (n > 4)
++                tcc_error("C33: over-aligned types are not implemented yet");
++#endif
+             ad->a.aligned = exact_log2p1(n);
+ 	    if (n != 1 << (ad->a.aligned - 1))
+ 	      tcc_error("alignment of %d is larger than implemented", n);
+             break;
+         case TOK_PACKED1:
+         case TOK_PACKED2:
++#ifdef TCC_TARGET_C33
++            tcc_error("C33: packed types are not implemented yet");
++#endif
+             ad->a.packed = 1;
+             break;
+         case TOK_WEAK1:
+@@ -4788,7 +4795,11 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
+                     tcc_error("alignment must be a positive power of two");
+               }
+               skip(')');
+-              ad->a.aligned = exact_log2p1(n);
++  #ifdef TCC_TARGET_C33
++            if (n > 4)
++                tcc_error("C33: over-aligned types are not implemented yet");
++#endif
++            ad->a.aligned = exact_log2p1(n);
+             }
+             continue;
+         case TOK_LONG:
+@@ -5879,6 +5890,10 @@ ST_FUNC void unary(void)
+             mk_pointer(&type);
+             vset(&type, VT_LOCAL, 0);       /* local frame */
+             while (level--) {
++#ifdef TCC_TARGET_C33
++                vpushi(12); /* saved r3 follows saved r0-r2 */
++                gen_op('+');
++#endif
+ #ifdef TCC_TARGET_RISCV64
+                 vpushi(2*PTR_SIZE);
+                 gen_op('-');
+@@ -5891,6 +5906,9 @@ ST_FUNC void unary(void)
+ #ifdef TCC_TARGET_ARM
+                 vpushi(2*PTR_SIZE);
+                 gen_op('+');
++#elif defined TCC_TARGET_C33
++                vpushi(16); /* return PC above pushn r3 */
++                gen_op('+');
+ #elif defined TCC_TARGET_RISCV64
+                 vpushi(PTR_SIZE);
+                 gen_op('-');
+diff --git a/tccpp.c b/tccpp.c
+index 214e9cd4..9c54b560 100644
+--- a/tccpp.c
++++ b/tccpp.c
+@@ -1694,6 +1694,9 @@ static int pragma_parse(TCCState *s1)
+         return 1;
+ 
+     } else if (tok == TOK_pack) {
++#ifdef TCC_TARGET_C33
++        tcc_error("C33: #pragma pack is not implemented yet");
++#endif
+         /* This may be:
+            #pragma pack(1) // set
+            #pragma pack() // reset to default
+@@ -3549,7 +3552,9 @@ static const char * const target_os_defs =
+     "_WIN64\0"
+ # endif
+ #else
+-# if defined TCC_TARGET_MACHO
++# if defined TCC_TARGET_C33
++    "__NuttX__\0"
++# elif defined TCC_TARGET_MACHO
+     "__APPLE__\0"
+ # elif TARGETOS_FreeBSD
+     "__FreeBSD__ 12\0"

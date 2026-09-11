@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config WIKIREADER_GRIFO_APP
+	bool "Run as a Grifo application"
+	select ARCH_HAVE_POWEROFF
+	select ARCH_HAVE_RESET
+	select BOARDCTL
+	select BOARDCTL_POWEROFF
+	select BOARDCTL_RESET
+	---help---
+		Build for the WikiReader's resident kernel to load off an SD card
+		and jump to, alongside the ZIM reader and DOOM, rather than for a
+		loader that is finished with the machine.
+
+		The kernel stays resident below 0x10040000, so CONFIG_RAM_START
+		must leave that alone.  It is what NSH's "poweroff" and "reboot"
+		then call to cut power or reset the device.
+
+		This says nothing about how the card is read at run time -- it
+		is not, yet.  Only the kernel's loader touches it, before NuttX
+		is entered.
+
+config WIKIREADER_LCD
+	bool "WikiReader monochrome framebuffer"
+	select DRIVERS_VIDEO
+	select VIDEO_FB
+	---help---
+		240x208 LCD in 1-bpp mode, with a 32-byte stride in internal VRAM.
+		The boot loader supplies the panel's contrast/power-rail setup.
+
+config WIKIREADER_TOUCH
+	bool "WikiReader UART1 touchscreen"
+	select INPUT
+	select INPUT_TOUCHSCREEN
+	---help---
+		Decode the panel's 9600-baud coordinate packets as /dev/input0.
+
+config WIKIREADER_TERMINAL
+	bool "WikiReader NSH terminal and touch keyboard"
+	depends on WIKIREADER_LCD && WIKIREADER_TOUCH
+	depends on NXTERM && PSEUDOTERM && SYSTEM_NSH
+	depends on NSH_CONSOLE && NSH_READLINE && SCHED_WAITPID
+	depends on TTY_SIGINT && READLINE_EDIT_EMACS && SIG_SIGKILL_ACTION
+	depends on NX_BLOCKING && !NX_DISABLE_1BPP && !NXFONTS_DISABLE_1BPP
+	depends on NXFONT_X11_MISC_FIXED_6X9 && NXTERM_BPP = 1
+	---help---
+		Use wikireader_main as the init entry point.  Runs NSH through a
+		pseudo-terminal with NXTerm output and an on-screen keyboard.

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: LGPL-2.0-or-later
+config INTERPRETERS_TCC
+	bool "TinyCC C33 compiler (experimental)"
+	default n
+	depends on ARCH_C33 && BUILD_FLAT && LIBC_MAX_EXITFUNS > 0
+	select LIBC_FLOATINGPOINT
+	select FS_TMPFS
+	---help---
+		Compile and run native C33 C programs from NSH. Builds against
+		a TinyCC checkout carrying the C33 backend; see
+		INTERPRETERS_TCC_SRCDIR. Supports integer C, software floating
+		point, and compiling TinyCC itself from the bundled sources.
+		No inline assembly.
+
+if INTERPRETERS_TCC
+
+config INTERPRETERS_TCC_SRCDIR
+	string "TinyCC source directory"
+	default "../tinycc"
+	---help---
+		Location of the TinyCC checkout providing the compiler sources
+		and the C33 backend (c33-gen.c, c33-link.c, c33-run.c). A
+		relative path is resolved from the apps directory, so the
+		default expects the checkout beside it in the NuttX root.
+
+endif # INTERPRETERS_TCC

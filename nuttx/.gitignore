@@ -1,0 +1,5 @@
+# The upstream trees fetch.sh clones and builds in; the port itself lives in
+# overlay/ and patches/.
+/work/
+/nuttx.app
+/nuttx.ico

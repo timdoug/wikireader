@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 11 Sep 2026 18:05:00 +0000
+Subject: [PATCH 24/24] toys.h: don't include <paths.h> on NuttX
+
+NuttX has no <paths.h>, so this include ends the build before a single
+applet is compiled.
+
+lib/portability.h already knows that and defines _PATH_DEFPATH -- the one
+thing the compiled set uses from that header -- for NuttX itself. The
+include was simply left behind, which goes unnoticed on the sim board this
+port documents as its example, because a Linux host supplies a real
+<paths.h> from /usr/include.
+
+Guarded rather than deleted: every other platform still wants it, and on
+those it is where _PATH_DEFPATH comes from.
+---
+ toys.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/toys.h b/toys.h
+index 1111111..2222222 100644
+--- a/toys.h
++++ b/toys.h
+@@ -17,7 +17,9 @@
+ #include <inttypes.h>
+ #include <limits.h>
+ #include <math.h>
++#ifndef __NuttX__
+ #include <paths.h>
++#endif
+ #include <pwd.h>
+ #include <regex.h>
+ #include <sched.h>

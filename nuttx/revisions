@@ -1,0 +1,12 @@
+# Upstream revisions this port is built against.
+#
+# name  url  revision
+#
+# fetch.sh clones each of these into work/, checks the revision out, applies
+# patches/<name>.patch and copies overlay/<name>/ over the result.  Bumping a
+# revision here is the whole of an upstream update: re-run fetch.sh, fix any
+# patch rejects in work/, then "make update-port" to write them back.
+
+nuttx   https://github.com/apache/nuttx.git       5866c4e3af66c0167b0996a527678fffbfa0711e
+apps    https://github.com/apache/nuttx-apps.git  bc0ed23a5dea42e9aa42dfccc372fe9f4654d10d
+tinycc  https://repo.or.cz/tinycc.git             0fb54300b56512754221d80adda85ddb9815bceb
