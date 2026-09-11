@@ -61,11 +61,6 @@ pcf2bmf
 
   A program that is required by font compilation.
 
-qt4-simulator
-
-  A simulator for the wiki-app that allows the program to be tested on
-  the Linux platform.
-
 toolchain-download  [Created during build]
 
   stores the downloaded gcc and binutils archives

@@ -175,7 +175,6 @@ GRIFO = ${SAMO_LIB}/grifo
 GRIFO_SCRIPTS = ${GRIFO}/scripts
 GRIFO_INCLUDE = ${GRIFO}/include
 GRIFO_COMMON = ${GRIFO}/common
-GRIFO_SIMULATOR = ${GRIFO}/simulator
 GRIFO_APPLICATION_LDS = ${GRIFO}/lds/application.lds
 GRIFO_APPLICATION_PRE = ${GRIFO}/Mk/application-pre.mk
 GRIFO_APPLICATION_POST = ${GRIFO}/Mk/application-post.mk

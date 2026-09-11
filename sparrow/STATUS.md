@@ -127,7 +127,7 @@ source provenance. The input JSONL is `build/sparrow/dump-sample.jsonl` with
 ```sh
 make -C sparrow check
 make -C sparrow sanitize
-make -C zim SIMULATE=NO OPT=-O2
+make -C zim
 sparrow/build/sparrow build/sparrow/sparrow.dat 'how many children did george h. w. bush have'
 python3 sparrow/emulator-check.py build/sparrow/sparrow.dat
 ```

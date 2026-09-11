@@ -155,7 +155,7 @@ for the measured phases and matching kernel/app identities.
 
 ```sh
 cd zim
-make SIMULATE=NO OPT=-O2
+make
 ```
 
 The result is `zim/zim.app`. The app includes portable Zstandard and WebP
@@ -205,7 +205,7 @@ with `--wiki DIR` and the FAT32 volume grows to hold it:
 The folder name must match a line in `ROOT_IMAGE/wiki.inf`; the stock app
 lists every folder it finds there, and the script points `wiki.ini` at the
 first data set it installs. When `wiki/wiki.app` has been built from this tree
-(`cd wiki && make SIMULATE=NO`), the script installs that instead of the
+(`cd wiki && make`), the script installs that instead of the
 2019 release build in `ROOT_IMAGE`. Verified in the emulator with a Wikiquote
 data set: the launcher's WikiReader icon starts the stock app, "love" finds
 and opens the Love article, and the kiwi still opens the ZIM reader.

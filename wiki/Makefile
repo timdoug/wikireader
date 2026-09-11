@@ -153,27 +153,6 @@ ${ALL_IMAGES}: build ${IMAGE_HEADERS}
 	   echo '#include "'$$(basename "$${f}")'"' >> "$@"; \
 	 done
 
-SIMULATE_FILES += $(addprefix ../,${IMAGES})
-
-qmake-project:
-	echo 'all_images.target = all_images.h' >> ${QMAKE_PROJECT}
-	echo 'all_images.commands = '"'"'@$${DEL_FILE} "$$@";'"'" >> ${QMAKE_PROJECT}
-	for h in $(notdir ${IMAGE_HEADERS}); \
-	do \
-	  t="$${h%.h}"; \
-	  png="$${t}.png"; \
-	  echo "all_images.commands += 'echo Keyboard: $${h};'" >> ${QMAKE_PROJECT}; \
-	  echo "all_images.commands += 'echo \'\$$\$${LITERAL_HASH}include \"$${h}\"\' >> \"\$$@\";'" >> ${QMAKE_PROJECT}; \
-	  echo "all_images.depends += $${h}" >> ${QMAKE_PROJECT}; \
-	  echo "$${t}.target = $${h}" >> ${QMAKE_PROJECT}; \
-	  echo "$${t}.depends = $${png}" >> ${QMAKE_PROJECT}; \
-	  echo "$${t}.commands = '${IMAGE2HEADER} --inverted --header=$${h} --variable=$${t}_image $${png}';" >> ${QMAKE_PROJECT}; \
-	  echo "QMAKE_EXTRA_TARGETS += $${t}" >> ${QMAKE_PROJECT}; \
-	done
-	echo 'QMAKE_EXTRA_TARGETS += all_images' >> ${QMAKE_PROJECT}
-	echo 'QMAKE_LIBS += ${SIMULATE_LIBS}' >> ${QMAKE_PROJECT}
-	echo 'QMAKE_CLEAN += $$$${all_images.target}' >> ${QMAKE_PROJECT}
-
 
 # this must be at the end
 include ${GRIFO_APPLICATION_POST}

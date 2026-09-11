@@ -44,18 +44,11 @@ It installs under `host-tools/toolchain-c33/work/install/`, which is what
 everything else looks for by default. Then, from the repository root:
 
 ```sh
-make wiki zim doom SIMULATE=NO
+make wiki zim doom
 ```
 
 That builds all four applications; mini-libc, drivers, fatfs and grifo come in
 as dependencies.
-
-`SIMULATE=NO` turns off grifo's host simulator. A grifo application otherwise
-builds twice: once as a C33 `.app`, and once as a Qt5 desktop program compiled
-from the same sources with `-DGRIFO_SIMULATOR=1`. That second build is the only
-reason a firmware build would need Qt5 installed. `zim` and `doom` set it in
-their own makefiles already, so the flag is really for `wiki`. Drop it if you
-want the simulator and have Qt5.
 
 Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
 appended after `-Werror` and already defaults to `-O2`. Build output is

@@ -1,6 +1,0 @@
-Makefile
-keyboard_*.h
-nls.h
-all_images.h
-*.o
-moc_*.cpp

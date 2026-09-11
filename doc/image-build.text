@@ -173,16 +173,14 @@ command field: of 64 shards, 32 are built per host.
     # On host 1.
     make WORKDIR=/build/${RUNVER}/work DESTDIR=/build/${RUNVER}/image combine install
 
-Testing with the Qt simulator
+Testing before writing a card
 -----------------------------
 
-The wiki-simulator can test an image before writing a card. This does not work
-in a container build server.
+The Qt host simulator this section used to describe has been removed. Use the
+full-system emulator in emulator/ instead: it runs the real firmware on an
+emulated C33 rather than recompiling the application for the host. See
+emulator/README.md.
 
-    # X forwarding from macOS needs XQuartz: https://www.xquartz.org/
-    ssh -X buildserver
-
-    make DESTDIR=build/20200101/ wiki-simulate
 
 SD card
 -------

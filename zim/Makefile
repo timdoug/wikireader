@@ -14,7 +14,6 @@ include ${GRIFO_APPLICATION_PRE}
 
 PROGRAM = zim
 ICON = YES
-SIMULATE = NO
 
 lib/libapplication.a: Makefile
 

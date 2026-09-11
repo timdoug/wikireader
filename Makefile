@@ -408,47 +408,6 @@ toolchain-requires:
 REQUIRES_TARGETS += toolchain-requires
 
 
-# QT simulator
-# ============
-
-ifeq (DEPRECATED,)
-
-.PHONY: qt4-simulator
-qt4-simulator: qt4-simulator-requires
-	cd ${HOST_TOOLS}/qt4-simulator && qmake && ${MAKE}
-
-.PHONY: qt4-simulator-requires
-qt4-simulator-requires:
-	true $(call REQUIRED_BINARY, g++, g++)
-	true $(call REQUIRED_BINARY, qmake, qt4-qmake libqt4-dev)
-
-REQUIRES_TARGETS += qt4-simulator-requires
-
-.PHONY: qt4-simulator-clean
-qt4-simulator-clean:
-	${MAKE} -C "${HOST_TOOLS}/qt4-simulator" distclean || true
-
-CLEAN_TARGETS += qt4-simulator-clean
-
-
-.PHONY: sim4
-sim4: qt4-simulator validate-destdir
-	cd "${DESTDIR}" && ${HOST_TOOLS}/qt4-simulator/bin/wikisim ${ARTICLE}
-
-.PHONY: sim4d
-sim4d: qt4-simulator validate-destdir
-	cd "${DESTDIR}" && gdb --args ${HOST_TOOLS}/qt4-simulator/bin/wikisim ${ARTICLE}
-
-# the console simulator is presently broken
-#$(call STD_RULE, console-simulator, ${HOST_TOOLS}/console-simulator)
-
-else
-.PHONY: sim4
-sim4:
-	@echo error: deprecated target, replaced by: make DESTDIR=some_image_dir wiki-simulate
-endif
-
-
 # Font processing
 # ===============
 
@@ -872,11 +831,10 @@ $(call STD_RULE, flash, ${SAMO_LIB}/flash, mini-libc fatfs drivers, INSTALL)
 
 GRIFO_EXAMPLES ?= NO
 
-$(call STD_RULE, grifo, ${SAMO_LIB}/grifo, mini-libc fatfs, INSTALL, INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}" BUILD_EXAMPLES="${GRIFO_EXAMPLES}")
+$(call STD_RULE, grifo, ${SAMO_LIB}/grifo, mini-libc fatfs, INSTALL,  BUILD_EXAMPLES="${GRIFO_EXAMPLES}")
 
 .PHONY: grifo-simulate
 grifo-simulate: validate-destdir
-	make INSTALL_GRIFO_SIMULATION=YES DESTDIR="${DESTDIR}" grifo-install
 	cd "${DESTDIR}" && ./init.app
 
 
@@ -887,7 +845,7 @@ grifo-simulate: validate-destdir
 PROGRESS_BAR ?= NO
 TEMPERATURE_DISPLAY ?= NO
 
-$(call STD_RULE, wiki, wiki, mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_BAR}" TEMPERATURE_DISPLAY="${TEMPERATURE_DISPLAY}" INSTALL_GRIFO_SIMULATION="${INSTALL_GRIFO_SIMULATION}")
+$(call STD_RULE, wiki, wiki, mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_BAR}" TEMPERATURE_DISPLAY="${TEMPERATURE_DISPLAY}")
 
 
 # zim.app and doom.app are applications carried in this tree rather than parts
@@ -912,11 +870,6 @@ doom-clean:
 CLEAN_TARGETS += zim-clean doom-clean
 
 
-.PHONY: wiki-simulate
-wiki-simulate: validate-destdir
-	make INSTALL_GRIFO_SIMULATION=YES DESTDIR="${DESTDIR}" wiki-install
-	cd "${DESTDIR}" && ./wiki.app
-
 VALGRIND_OPTS += --leak-check=full
 VALGRIND_OPTS += --leak-resolution=high
 VALGRIND_OPTS += --show-reachable=no
@@ -931,7 +884,6 @@ VALGRIND_OPTS += --free-fill=0xff
 
 .PHONY: wiki-valgrind
 wiki-valgrind: validate-destdir
-	make INSTALL_GRIFO_SIMULATION=YES DESTDIR="${DESTDIR}" wiki-install
 	cd "${DESTDIR}" && valgrind ${VALGRIND_OPTS} ./wiki.app
 
 
@@ -1075,7 +1027,6 @@ help:
 	@echo '  grifo-simulate        - install the simulated Grifo examples - these run on host machine'
 	@echo '  gcc                   - compile gcc toolchain'
 	@echo '  flash-mbr             - flash bootloader to the E07 board'
-	@echo '  wiki-simulate         - compile, install run simulator in DESTDIR'
 	@echo '                          assumes install already done; overwrites wiki.app with x86 exe'
 	@echo '  requirements          - detect missing packages'
 	@echo '  clean                 - clean all programs and object files except the toochain'

@@ -42,7 +42,6 @@ include ${GRIFO_APPLICATION_PRE}
 
 PROGRAM = sample
 ICON = YES
-SIMULATE = NO
 
 # list of sources and headers
 SOURCES += ${PROGRAM}.c

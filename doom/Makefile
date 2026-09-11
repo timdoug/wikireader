@@ -6,7 +6,6 @@ include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = doom
 ICON = YES
-SIMULATE = NO
 SOURCES = doom.c engine.c platform.c video.c controls.c c33_math.c profile.c
 CFLAGS += -std=gnu11 -fwrapv -fno-strict-aliasing -DWR_C33
 LDFLAGS += -T memory.lds

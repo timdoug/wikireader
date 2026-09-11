@@ -17,9 +17,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# nomally want simulation
-SIMULATE ?= YES
-INSTALL_GRIFO_SIMULATION ?= NO
 
 ifeq (,$(strip ${PROGRAM}))
 # ensure "PROGRAM = prog-name" is set
@@ -68,64 +65,6 @@ lib:
 	${MKDIR} "$@"
 
 
-# simulation on host OS
-
-QMAKE_PROJECT := simulate/${PROGRAM}.pro
-
-ifeq (YES,$(strip ${SIMULATE}))
-SIMULATE_FILES += $(addprefix ../,${SOURCES})
-SIMULATE_FILES += $(addprefix ../,${HEADERS})
-
-SIMULATE_DIR = simulate
-
-# librt is a Linux-ism: on Darwin clock_gettime lives in libc
-ifneq (Darwin,$(shell uname -s))
-SIMULATE_LIBS += -lrt
-endif
-
-SIMULATE_DEFINES += -DGRIFO_SIMULATOR=1
-
-# Darwin has no fdatasync; fsync provides the same guarantee (and more)
-ifeq (Darwin,$(shell uname -s))
-SIMULATE_DEFINES += -Dfdatasync=fsync
-endif
-
-EXTRA_TARGETS += simulate-make
-CLEAN_TARGETS += ${SIMULATE_DIR}
-
-simulate:
-	${MKDIR} "$@"
-
-# prepare a default qmake project file
-.PHONY: simulate-files
-simulate-files: simulate
-	ln -fs "${GRIFO_SIMULATOR}"/* "${GRIFO_COMMON}"/* "${GRIFO_INCLUDE}"/* ${SIMULATE_FILES} "${SIMULATE_DIR}"
-	cd "${SIMULATE_DIR}" && \
-	qmake -project -o "$(notdir ${QMAKE_PROJECT})"
-	# Qt5 split QWidget out of QtGui into its own module
-	echo 'QT += widgets' >> ${QMAKE_PROJECT}
-
-# this can be overridden by the application makefile
-# to modify or append to the ${QMAKE_PROJECT} file
-.PHONY: qmake-project
-simulate-makefile: simulate-files
-
-# take the project file and convert to a makefile
-.PHONY: simulate-makefile
-simulate-makefile: simulate simulate-files qmake-project
-	cd "${SIMULATE_DIR}" && \
-	qmake CONFIG+="qt warn_on thread debug" CONFIG-=app_bundle \
-	  QMAKE_CXXFLAGS+='${SIMULATE_DEFINES}' QMAKE_CFLAGS+='${SIMULATE_DEFINES}' \
-	  QMAKE_LIBS+='${SIMULATE_LIBS}'
-
-# run make on the generated Makefile
-.PHONY: simulate-make
-simulate-make: simulate simulate-makefile
-	${MAKE} -C "simulate"
-
-endif
-
-
 # no more assignments to TARGETS or CLEAN_TARGETS  after this point
 .PHONY: build-targets
 build-targets: ${PREBUILD_TARGETS} ${TARGETS} ${EXTRA_TARGETS}
@@ -134,11 +73,6 @@ build-targets: ${PREBUILD_TARGETS} ${TARGETS} ${EXTRA_TARGETS}
 install: all
 	@if [ ! -d "${DESTDIR}" ] ; then echo DESTDIR: "'"${DESTDIR}"'" is not a directory ; exit 1; fi
 	${COPY} ${TARGETS} "${DESTDIR}"/
-ifeq (YES,$(strip ${INSTALL_GRIFO_SIMULATION}))
-ifeq (YES,$(strip ${SIMULATE}))
-	${COPY} "simulate/${PROGRAM}" "${DESTDIR}/${PROGRAM}.app"
-endif
-endif
 
 
 .PHONY: clean
