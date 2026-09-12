@@ -106,15 +106,27 @@ static void wikireader_sdpower(void)
 
 static void wikireader_sdpins(void)
 {
-  /* P65 through P67 carry the SPI signals; P64 stays a GPIO. */
-
-  putreg8(0x54, S1C33_P6_FUNC47);
-
-  /* Both chip selects idle high before they become outputs, so nothing
-   * sees a glitch.
+  /* These registers hold two bits per pin for four pins, and only some of
+   * those pins are ours.  Writing the whole byte takes the others with it,
+   * and one of the others is P53, which carries SDA10 -- an address line of
+   * the SDRAM this code is executing from.  Turning it back into a GPIO
+   * stops the machine mid-instruction: no scheduler, no assertion, no
+   * crash handler, just a board that keeps whatever was on the panel,
+   * because the framebuffer lives in internal RAM and does not need the
+   * SDRAM to be scanned out.  The emulator models memory rather than the
+   * pins that address it, so there it makes no difference at all.
+   *
+   * P65 through P67 carry the SPI signals; P64 is somebody else's.
    */
 
-  putreg8(0x01, S1C33_P5_FUNC03);
+  modifyreg8(S1C33_P6_FUNC47, 0xfc, 0x54);
+
+  /* P50 to P52 as the original firmware leaves them -- P50 for the card's
+   * chip select, the other two as GPIO -- and P53 untouched.  Both chip
+   * selects idle high before they become outputs, so nothing sees a glitch.
+   */
+
+  modifyreg8(S1C33_P5_FUNC03, 0x3f, 0x01);
   modifyreg8(S1C33_P5_DATA, 0, WR_CS_ALL);
   modifyreg8(S1C33_P5_DIR, 0, WR_CS_ALL);
 
