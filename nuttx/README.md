@@ -44,6 +44,8 @@ On top of those:
 | `lua` | Lua 5.4 with its standard library, 32-bit numbers |
 | `bas` | Michael Haardt's Bas 2.4 — line numbers, `run`, `list`, the lot |
 | `micropython` | MicroPython 1.29 — REPL, big integers, `os` `time` `struct` `array` over NuttX's filesystem |
+| `coremark` `dhrystone` `whetstone` | the standard CPU benchmarks — see "Benchmarks" below |
+| `ramspeed` `sdbench` | memory and card throughput |
 | `wrforth` | the Forth this device shipped with — see "The Forth" below |
 | Toybox | 139 commands under their own names: `awk grep sed find sort wc head tail xargs cut tr uniq od xxd diff tar gzip seq stat md5sum dd tee more patch readelf` ... |
 
@@ -54,9 +56,9 @@ holds.
 `sz`/`rz` transfer on `/dev/console` and land files in `/tmp`; they were the
 only way anything left this device before the card was readable.
 
-`nuttx.app` is 2,881,648 bytes, against 1,561,040 before any of this: 76 KB
+`nuttx.app` is 2,912,360 bytes, against 1,561,040 before any of this: 76 KB
 for the tools above, 38 KB for the card, 567 KB for the four interpreters,
-the rest for Toybox.
+30 KB for the benchmarks, the rest for Toybox.
 
 ### Lua
 
@@ -494,6 +496,67 @@ can drop it.
 `arch/c33/include/syscall.h` is the empty one every architecture has to have,
 because `<sys/syscall.h>` includes it unconditionally. This is a flat build
 with no system call interface, so there is nothing in it.
+
+## Benchmarks
+
+`make bench` runs NuttX's benchmark applications on the emulated device and
+prints a table. It is not a test -- nothing passes or fails -- and the numbers
+on their own are only half of it: the emulator counts cycles and models SDRAM
+row activations and the SPI card, and the guest's clock is driven by those
+counts, so what comes out is emulated seconds. What they are worth is a
+question only the hardware answers.
+
+So the commands are fixed, with the iteration counts spelled out rather than
+left to each benchmark to pick, and both machines run the same image:
+
+```sh
+make -C nuttx bench                       # the emulated device
+python3 .../run_benchmarks.py --commands  # what to type on a real one
+python3 .../run_benchmarks.py --compare session.txt
+```
+
+The last one parses a captured device session with the same parsers and prints
+emulator, device and the ratio side by side. `sdbench` writes a couple of
+megabytes to the card and reads them back, so run it on a card you do not mind
+writing to -- and note that the emulator needs a writable card image, which is
+to say without `wremu -R`.
+
+From this tree, at 48 MHz:
+
+```
+benchmark  metric                             emulator
+coremark   iterations/sec                       108.93
+           CoreMark/MHz                           2.27
+dhrystone  Dhrystones/sec                    56,179.00
+           VAX MIPS                              31.97
+whetstone  KIPS (double precision)               57.00
+ramspeed   memcpy internal @ 1024 KB    52,512.82 KB/s
+           memcpy system @ 1024 KB      23,540.23 KB/s
+           memset internal @ 1024 KB    85,333.33 KB/s
+           memset system @ 1024 KB      29,257.14 KB/s
+sdbench    sequential write                721.30 KB/s
+           sequential read + verify        320.00 KB/s
+```
+
+Two things in that table are worth a second look even before the hardware
+column arrives. Whetstone is double precision on a chip with no
+floating-point unit, so 57 KIPS is a measurement of the software float
+library rather than of the processor. And ramspeed's own word-at-a-time
+memcpy is more than twice as fast as the C library's, with memset nearly
+three times -- the generic byte loops in `libs/libc/string` are what this
+board links, and something that copies a word at a time would be worth having.
+
+Whetstone needed a fix to report anything at all: it times in milliseconds and
+then divides by `(ms * 1000)` where the benchmark it was converted from divided
+by seconds, which puts the answer out by a factor of a million. Every run of
+it printed `0.0 KIPS`.
+
+Three of the benchmarks in the tree are not in the set. `cachespeed` depends
+on `ARCH_ICACHE` and `ARCH_DCACHE`, and the C33 has neither -- which is the
+answer it would have given anyway. `cyclictest` wants a `/dev/timer`
+character driver this board does not implement. `osperf` wants the
+high-priority work queue, and turning that on to measure it would add a
+thread to the shipping image.
 
 ## The card
 

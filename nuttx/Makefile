@@ -92,6 +92,14 @@ test:
 	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/test_micropython.py \
 		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
 
+# NuttX's benchmarks, run on the emulated device.  Not a test -- it prints a
+# table, and the number that matters is how it compares with the same image on
+# real hardware, which the script will line up alongside.
+.PHONY: bench
+bench:
+	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/run_benchmarks.py \
+		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
+
 # Two builds from clean, compared.  The whole point of a reproducible build is
 # that "did this change the output?" has an answer, and the way to keep that
 # true is to ask it now and then; it is not part of "test" because it costs

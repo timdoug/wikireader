@@ -17,6 +17,26 @@ index 74cb37d..bdd2916 100644
  	$(call LINK_WASM)
  endif
  
+diff --git a/benchmarks/whetstone/whetstone.c b/benchmarks/whetstone/whetstone.c
+index dbc8247..106102d 100644
+--- a/benchmarks/whetstone/whetstone.c
++++ b/benchmarks/whetstone/whetstone.c
+@@ -453,7 +453,14 @@ IILOOP:
+   printf("Loops: %ld, Iterations: %d, Duration: %ld millisecond.\n",
+                                 loop, ii, finimsec - startmsec);
+ 
+-  KIPS = (100.0 * loop * ii) / ((float)(finimsec - startmsec) * 1000);
++  /* The original of this benchmark timed in whole seconds and divided by
++   * them.  This one measures milliseconds, so they have to be turned back
++   * into seconds -- multiplying by a thousand instead of dividing puts the
++   * answer out by a factor of a million, which is why every run of this
++   * reported 0.0 KIPS.
++   */
++
++  KIPS = (100.0 * loop * ii) / ((float)(finimsec - startmsec) / 1000.0f);
+   if (KIPS >= 1000.0)
+     {
+       printf("C Converted Double Precision Whetstones: %.1f MIPS\n",
 diff --git a/interpreters/lua/Makefile b/interpreters/lua/Makefile
 index 40daf76..91f697d 100644
 --- a/interpreters/lua/Makefile
