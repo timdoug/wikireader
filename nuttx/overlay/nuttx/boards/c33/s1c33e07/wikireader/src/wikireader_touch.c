@@ -42,7 +42,13 @@
  ****************************************************************************/
 
 #define WR_TOUCH_QUEUE 16
-#define WR_TOUCH_BAUD  9600
+/* What the panel talks at: CTP_BPS in samo-lib/include/samo.h.  The divisor
+ * comes out of the same arithmetic the original firmware uses, which reads
+ * the PLL rather than the main clock -- 97, for 38265 baud against a nominal
+ * 38400.
+ */
+
+#define WR_TOUCH_BAUD  38400
 #define WR_TOUCH_IRQS  0x30
 
 /****************************************************************************
@@ -275,7 +281,7 @@ static int wr_touch_thread(int argc, char **argv)
 
 int wikireader_touch_initialize(void)
 {
-  uint32_t divisor = (CONFIG_S1C33E07_MCLK + WR_TOUCH_BAUD * 8) /
+  uint32_t divisor = (CONFIG_S1C33E07_BAUDCLK + WR_TOUCH_BAUD * 8) /
                     (WR_TOUCH_BAUD * 16) - 1;
   int ret;
 
