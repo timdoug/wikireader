@@ -50,8 +50,11 @@ typedef struct {
 	FIL file;
 	FilenameType filename;
 	uint8_t ReadBuffer[1024];
-	int ReadRemaining;
-	int ReadOffset;
+	/* f_read reports the count through a UINT *, and both of these are
+	 * compared against Forth cells, so neither wants to be signed.
+	 */
+	unsigned int ReadRemaining;
+	unsigned int ReadOffset;
 } FileType;
 
 static FileType FileControlBlock[20];

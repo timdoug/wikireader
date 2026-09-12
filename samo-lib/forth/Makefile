@@ -51,7 +51,13 @@ include ${MK_DIR}/definitions.mk
 # ---END_UPDATE_MAKEFILE: End of auto included code
 
 $(call REQUIRED_BINARY, ${AWK}, awk)
-$(call REQUIRED_BINARY, gforth, gforth)
+
+# gforth reads Forth, which is what compiling a Forth written in Forth needs.
+# Without it the job falls to the Forth this directory already built: see
+# bootstrap.py, which runs seed/wrforth-seed.app inside the emulator and gets
+# the same assembly out, byte for byte.
+GFORTH := $(shell command -v gforth 2> /dev/null)
+PYTHON ?= python3
 
 
 INCLUDES += -I.
@@ -63,7 +69,7 @@ INCLUDES += -I${MINI_LIBC_INCLUDE}
 LIBS += ${FATFS_LIB}
 LIBS += ${DRIVERS_LIB}
 LIBS += ${MINI_LIBC_LIB}
-LIBS += $(shell ${CROSS_GCC} -print-libgcc-file-name)
+LIBS += $(shell ${CROSS_GCC} ${TARGET_ARCH_FLAGS} -print-libgcc-file-name)
 
 CROSS_LDFLAGS = -static --strip-all --no-gc-sections --omagic
 CROSS_ASFLAGS = -mc33pe --fatal-warnings
@@ -90,11 +96,19 @@ OBJECTS += vector.o
 CLEAN_FILES += forth.s
 forth.s: header.s meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi trailer.s hoist-flags.awk
 	${RM} "$@"
+ifeq (,${GFORTH})
+	AWK="${AWK}" ${PYTHON} bootstrap.py --output "$@"
+else
 	gforth meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi -e "bye" > "$@.body"
 	cat header.s >> "$@"
 	${AWK} -f hoist-flags.awk "$@.body" >> "$@"
 	${RM} "$@.body"
 	cat trailer.s  >> "$@"
+endif
+
+.PHONY: bootstrap
+bootstrap: forth-symbols.fi
+	AWK="${AWK}" ${PYTHON} bootstrap.py --output forth.s
 
 forth-symbols.fi : sym.awk ansi-forth.fs forth-vector.fi
 	${AWK} -f sym.awk ansi-forth.fs forth-vector.fi > "$@"

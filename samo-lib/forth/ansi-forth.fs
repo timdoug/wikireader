@@ -1840,6 +1840,9 @@ end-code
        drop
        source-id @ close-file drop
        fileid-stack stack-pop source-id !
+\ ** a refill that failed has to leave the source empty; leaving the last
+\ ** line in the buffer means whoever called it reads that line again
+       0 terminal-count !
        false
     then
   else \ console
