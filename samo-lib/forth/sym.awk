@@ -71,8 +71,13 @@ function asm_name(word, name) {
 }
 
 
+# The word keeps the case it was written in.  gforth does not care -- its
+# lookup ignores case -- but a host whose lookup does care will never find
+# BOARD-V1 under the name board-v1.  The assembler label is a separate
+# thing and stays lower case; asm_name folds it.
+
 /[[:space:]]::[[:space:]]/ {
-        word = tolower($2)
+        word = $2
         name = tolower($4)
         if (!done[word]) {
                 print ": " word "   output-symbol\" " asm_name(word, name) "\" ;"
@@ -89,7 +94,7 @@ function asm_name(word, name) {
 # inside colon definitions
 /^[[:space:]]*(:|create|variable)[[:space:]]/ {
         def = tolower($1)
-        word = tolower($2)
+        word = $2
         if (!done[word] && !compiling) {
                 print ": " word "   output-symbol\" " asm_name(word, "") "\" ;"
                 done[word] = 1
@@ -114,7 +119,7 @@ function constant_name(    i, found) {
 }
 
 /^([[:space:]]*|.*[[:space:]])constant[[:space:]]/ {
-        word = tolower(constant_name())
+        word = constant_name()
         if (!done[word] && !compiling) {
                 print ": " word "   output-symbol\" " asm_name(word, "") "\" ;"
                 done[word] = 1

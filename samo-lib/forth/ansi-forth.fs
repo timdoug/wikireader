@@ -938,6 +938,7 @@ end-code
   0 source-id !
   false state !
   0 terminal-count !
+  true warnings !
   cold-last-names
   root-wordlist !
   forth-wordlist !
@@ -1030,7 +1031,9 @@ variable cp               :: cp                      ( -- addr )
 
 : create                  :: create                  ( "<spaces>name" -- )
   parse-word 2dup
-  search-wordlists if drop cr ." duplicate definition of: " 2dup type then
+  search-wordlists if drop warnings @ if
+    cr ." duplicate definition of: " 2dup type
+  then then
   ( c-addr u )
   align                                              \ ensure cp is aligned
   here last-definition !                             \ the last definition cp for immediate etc.
@@ -2175,6 +2178,11 @@ end-code
   compare 0= ;
 
 variable state            :: state                   ( -- a-addr )
+
+variable warnings         :: warnings                ( -- a-addr )
+\ ** true while redefinitions are worth mentioning.  gforth says the same
+\ ** thing on its error output; this interpreter has only the one, so a
+\ ** program that wants clean output turns the notice off instead.
 
 code swap                 :: swap                    ( x1 x2 -- x2 x1 )
         ld.w    %r4, [%r1]+
