@@ -26,6 +26,7 @@ GMAKE ?= $(shell command -v gmake 2> /dev/null || echo make)
 # for GNU patch by name on macOS.  Homebrew's is gpatch; Apple's own is old
 # but applies this series, so use it rather than making gpatch a prerequisite.
 PATCH ?= $(shell command -v gpatch 2> /dev/null || echo patch)
+export PATCH
 
 # wikireader:app is the configuration Grifo loads: the LCD terminal, NSH, vi
 # and the native compiler, linked above the resident kernel.  The others
