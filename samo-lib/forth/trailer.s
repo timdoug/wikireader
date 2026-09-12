@@ -36,8 +36,16 @@ R\()\bits\()_\name = \address
 	.long	\address, \bits
         .endm
 
+;;; A register bit is both a Forth constant and an assembler symbol, and
+;;; they cannot share a name: the dictionary entry makes \name a label in
+;;; .forth_dict, so the "\name = \value" below was redefining it.  Older
+;;; assemblers let that pass; this one rejects it, and then rejects every
+;;; later bit written as an OR of two of them, because the operands were
+;;; section-relative rather than absolute.  Give the dictionary entry its
+;;; own label and leave the bare name to the assembler.
+
         .macro  REGBIT, name, value
-	CONSTANT c33_dict "\name" \name 0
+	CONSTANT c33_dict "\name" c33_bit_\name 0
         .long   \value
 \name = \value
         .endm

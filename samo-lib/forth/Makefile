@@ -88,10 +88,12 @@ OBJECTS += PolledSerial.o
 OBJECTS += vector.o
 
 CLEAN_FILES += forth.s
-forth.s: header.s meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi trailer.s
+forth.s: header.s meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi trailer.s hoist-flags.awk
 	${RM} "$@"
+	gforth meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi -e "bye" > "$@.body"
 	cat header.s >> "$@"
-	gforth meta.fs forth-symbols.fi ansi-forth.fs forth-vector.fi -e "bye" >> "$@"
+	${AWK} -f hoist-flags.awk "$@.body" >> "$@"
+	${RM} "$@.body"
 	cat trailer.s  >> "$@"
 
 forth-symbols.fi : sym.awk ansi-forth.fs forth-vector.fi
@@ -122,10 +124,12 @@ define MAKE_FORTH_APP1
 CLEAN_FILES += ${1}.s
 CLEAN_FILES += ${1}.lds
 APPLICATIONS += ${1}.elf
-${1}.s: header.s meta.fs ${1}-symbols.fi ansi-forth.fs ${1}.fi trailer.s
+${1}.s: header.s meta.fs ${1}-symbols.fi ansi-forth.fs ${1}.fi trailer.s hoist-flags.awk
 	$${RM} "$$@"
+	gforth meta.fs ${1}-symbols.fi ansi-forth.fs ${1}.fi -e "bye" > "$$@.body"
 	cat header.s >> "$$@"
-	gforth meta.fs ${1}-symbols.fi ansi-forth.fs ${1}.fi -e "bye" >> "$$@"
+	$${AWK} -f hoist-flags.awk "$$@.body" >> "$$@"
+	$${RM} "$$@.body"
 	cat trailer.s  >> "$$@"
 
 ${1}-symbols.fi : sym.awk ansi-forth.fs ${1}.fi
