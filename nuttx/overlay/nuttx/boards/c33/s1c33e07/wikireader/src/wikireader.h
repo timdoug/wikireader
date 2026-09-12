@@ -30,7 +30,14 @@
 #define WR_TERM_HEIGHT 120
 #define WR_KEY_HEIGHT  22
 
+#ifdef CONFIG_WIKIREADER_BOOT_PROGRESS
+void wikireader_progress(int row, int slot);
+#else
+#  define wikireader_progress(row, slot)
+#endif
+
 int wikireader_sdcard_initialize(void);
+int wikireader_sdcard_start(void);
 int wikireader_touch_initialize(void);
 int wikireader_main(int argc, char **argv);
 

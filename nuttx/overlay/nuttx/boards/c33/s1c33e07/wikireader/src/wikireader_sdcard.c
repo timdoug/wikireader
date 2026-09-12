@@ -27,12 +27,17 @@
 #include <nuttx/config.h>
 
 #include <errno.h>
+#include <semaphore.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/clock.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/kthread.h>
+#include <nuttx/semaphore.h>
 #include <nuttx/fs/partition.h>
 #include <nuttx/mmcsd.h>
 #include <nuttx/spi/spi.h>
@@ -158,13 +163,22 @@ static void wikireader_partition(struct partition_s *part, void *arg)
  *
  ****************************************************************************/
 
+static sem_t g_sdcard_done = SEM_INITIALIZER(0);
+
+/* The second row of squares on the panel: how far the card got.  Each of
+ * these steps is the first thing on this board to meet a card that is not
+ * the emulator's, and any of them can be the one that does not come back.
+ */
+
 int wikireader_sdcard_initialize(void)
 {
   struct spi_dev_s *spi;
   int ret;
 
+  wikireader_progress(1, 0);
   wikireader_sdpins();
   wikireader_sdpower();
+  wikireader_progress(1, 1);
 
   spi = s1c33e07_spibus_initialize(0);
   if (spi == NULL)
@@ -172,23 +186,93 @@ int wikireader_sdcard_initialize(void)
       return -ENODEV;
     }
 
+  wikireader_progress(1, 2);
+  syslog(LOG_INFO, "WikiReader: SPI up, probing the card\n");
+
   ret = mmcsd_spislotinitialize(0, 0, spi);
   if (ret < 0)
     {
       return ret;
     }
 
+  wikireader_progress(1, 3);
+  syslog(LOG_INFO, "WikiReader: card probed, reading the partitions\n");
+
   ret = parse_block_partition(WR_SD_BLOCKDEV, wikireader_partition, NULL);
   if (ret < 0)
     {
       /* An unpartitioned card is still worth trying to mount whole. */
 
+      wikireader_progress(1, 4);
+      syslog(LOG_INFO, "WikiReader: no partition table (%d), mounting whole\n",
+             ret);
       return nx_mount(WR_SD_BLOCKDEV, CONFIG_WIKIREADER_SDCARD_MOUNT,
                       "vfat", 0, NULL);
     }
 
-  return nx_mount(WR_SD_BLOCKDEV "1", CONFIG_WIKIREADER_SDCARD_MOUNT,
-                  "vfat", 0, NULL);
+  wikireader_progress(1, 4);
+  syslog(LOG_INFO, "WikiReader: partitions read, mounting\n");
+
+  ret = nx_mount(WR_SD_BLOCKDEV "1", CONFIG_WIKIREADER_SDCARD_MOUNT,
+                 "vfat", 0, NULL);
+  wikireader_progress(1, 5);
+  return ret;
+}
+
+/****************************************************************************
+ * Name: wikireader_sdcard_start
+ *
+ * Description:
+ *   Bring the card up on a thread of its own, and give up waiting for it
+ *   after a while.  Every step of talking to a card is a conversation with
+ *   something that may not reply, and a board that waits for one of those
+ *   during startup never reaches the terminal -- which is the only thing on
+ *   this device that could be asked what went wrong.  The mount lands late
+ *   if it lands at all; nothing here starts before the shell anyway.
+ *
+ ****************************************************************************/
+
+static int wikireader_sdcard_thread(int argc, FAR char *argv[])
+{
+  int ret = wikireader_sdcard_initialize();
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "WikiReader: no card mounted: %d\n", ret);
+    }
+  else
+    {
+      syslog(LOG_INFO, "WikiReader: card mounted on %s\n",
+             CONFIG_WIKIREADER_SDCARD_MOUNT);
+    }
+
+  nxsem_post(&g_sdcard_done);
+  return ret < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+
+int wikireader_sdcard_start(void)
+{
+  int ret;
+
+  ret = kthread_create("sdcard", CONFIG_WIKIREADER_SDCARD_PRIORITY,
+                       CONFIG_WIKIREADER_SDCARD_STACKSIZE,
+                       wikireader_sdcard_thread, NULL);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  /* Waiting, but not forever: this is the boot thread. */
+
+  ret = nxsem_tickwait(&g_sdcard_done,
+                       SEC2TICK(CONFIG_WIKIREADER_SDCARD_TIMEOUT));
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "WikiReader: the card is taking too long; "
+                      "carrying on without it\n");
+    }
+
+  return OK;
 }
 
 /****************************************************************************

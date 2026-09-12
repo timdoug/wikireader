@@ -72,20 +72,54 @@ int board_app_initialize(uintptr_t arg)
  *
  ****************************************************************************/
 
-static void board_progress(int stage)
+void wikireader_progress(int row, int slot)
 {
   FAR volatile uint8_t *fb = (FAR volatile uint8_t *)WR_FBADDR;
-  int row;
+  int y;
 
-  /* A byte is eight pixels; every other byte, so they can be counted. */
+  /* A byte is eight pixels; every other byte, so they can be counted.  Ten
+   * rows apart, so the second line of them is plainly a second line.
+   */
 
-  for (row = 0; row < 8; row++)
+  for (y = row * 10; y < row * 10 + 8; y++)
     {
-      fb[row * WR_STRIDE + stage * 2] = 0xff;
+      fb[y * WR_STRIDE + slot * 2] = 0xff;
     }
 }
+
+#define board_progress(stage) wikireader_progress(0, (stage))
 #else
 #  define board_progress(stage)
+#endif
+
+#ifdef CONFIG_BOARD_CRASHDUMP_CUSTOM
+
+/****************************************************************************
+ * Name: board_crashdump
+ *
+ * Description:
+ *   Everything that stops this board during startup looks the same from the
+ *   outside: the panel keeps whatever was on it and nothing else happens.
+ *   A machine that stopped because it faulted and one that stopped because
+ *   it is waiting for a peripheral that will never answer want different
+ *   questions asked of them, so the one that faulted says so -- a solid bar
+ *   across the panel, written with nothing but stores to memory, which is
+ *   all that can be trusted from here.
+ *
+ ****************************************************************************/
+
+void board_crashdump(uintptr_t sp, FAR struct tcb_s *tcb,
+                     FAR const char *filename, int lineno,
+                     FAR const char *msg, FAR void *regs)
+{
+  FAR volatile uint8_t *fb = (FAR volatile uint8_t *)WR_FBADDR;
+  int i;
+
+  for (i = 20 * WR_STRIDE; i < 28 * WR_STRIDE; i++)
+    {
+      fb[i] = 0xff;
+    }
+}
 #endif
 
 void board_late_initialize(void)
@@ -106,10 +140,15 @@ void board_late_initialize(void)
   board_progress(2);
 #endif
 #ifdef CONFIG_WIKIREADER_SDCARD
-  ret = wikireader_sdcard_initialize();
+  /* On its own thread, and waited for with a deadline.  Whatever the card
+   * does, the terminal comes up: a machine that answers questions about why
+   * it has no card is worth more than one that is still trying to find out.
+   */
+
+  ret = wikireader_sdcard_start();
   if (ret < 0)
     {
-      syslog(LOG_ERR, "WikiReader: no card mounted: %d\n", ret);
+      syslog(LOG_ERR, "WikiReader: card thread did not start: %d\n", ret);
     }
 
   board_progress(3);

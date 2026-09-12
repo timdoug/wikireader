@@ -51,6 +51,25 @@ config WIKIREADER_LCD
 		240x208 LCD in 1-bpp mode, with a 32-byte stride in internal VRAM.
 		The boot loader supplies the panel's contrast/power-rail setup.
 
+config WIKIREADER_SDCARD_PRIORITY
+	int "Card startup thread priority"
+	default 100
+	depends on WIKIREADER_SDCARD
+
+config WIKIREADER_SDCARD_STACKSIZE
+	int "Card startup thread stack size"
+	default 2048
+	depends on WIKIREADER_SDCARD
+
+config WIKIREADER_SDCARD_TIMEOUT
+	int "Seconds to wait for the card before carrying on"
+	default 10
+	depends on WIKIREADER_SDCARD
+	---help---
+		Startup waits this long for the card to mount and then continues
+		without it, so that a card which never answers costs the mount
+		rather than the terminal.
+
 config WIKIREADER_BOOT_PROGRESS
 	bool "Draw startup progress on the panel"
 	default y
