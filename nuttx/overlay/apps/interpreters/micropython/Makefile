@@ -33,13 +33,32 @@ $(MP_DIR): $(MP_TARBALL)
 	$(Q) mv micropython-$(MP_VERSION) $(MP_DIR)
 	$(Q) touch $(MP_DIR)
 
-$(MP_BUILD)/genhdr/qstrdefs.generated.h: $(MP_DIR) mpconfigport.h qstrdefsport.h micropython.mk
+# One command writes all of these, which is the thing make has no way to
+# say: a rule per header would run the generator once per header, and a rule
+# for only the first leaves the others with no rule at all -- which is what a
+# build after "clean" ran into, since the compiler's own dependency files
+# name every one of them.  So the command has a stamp, and the headers are
+# made by whatever made the stamp.
+
+MP_HEADERS = $(MP_BUILD)/genhdr/qstrdefs.generated.h \
+             $(MP_BUILD)/genhdr/moduledefs.h \
+             $(MP_BUILD)/genhdr/root_pointers.h \
+             $(MP_BUILD)/genhdr/compressed.data.h \
+             $(MP_BUILD)/genhdr/mpversion.h
+
+$(MP_BUILD)/headers.stamp: $(MP_DIR) mpconfigport.h qstrdefsport.h \
+                           micropython.mk Makefile
 	$(Q) $(MAKE) -f micropython.mk headers \
 		TOP=$(CURDIR)/$(MP_DIR) PORT_DIR=$(CURDIR) BUILD=$(MP_BUILD) \
 		CC="$(CC)" CFLAGS_EXTRA="$(MP_CFLAGS)" PYTHON=python3 \
 		CROSS_COMPILE=
+	$(Q) touch $@
 
-context:: $(MP_BUILD)/genhdr/qstrdefs.generated.h
+$(MP_HEADERS): $(MP_BUILD)/headers.stamp
+	@:
+
+context:: $(MP_BUILD)/headers.stamp
+depend:: $(MP_BUILD)/headers.stamp
 
 CFLAGS += -I$(CURDIR) -I$(CURDIR)/$(MP_DIR) -I$(MP_BUILD)
 CFLAGS += -Wno-error -Wno-undef -Wno-shadow -Wno-unused-parameter
@@ -71,10 +90,13 @@ CSRCS += $(MP_DIR)/extmod/moductypes.c
 CSRCS += $(MP_DIR)/extmod/modtime.c
 CSRCS += $(MP_DIR)/shared/timeutils/timeutils.c
 
-clean::
-	$(call DELDIR, $(MP_BUILD))
+# The generated headers belong with the unpacked tarball rather than with the
+# objects: "clean" does not re-run the context step that makes them, so
+# deleting them there leaves a tree that cannot even work out its own
+# dependencies -- the compiler reads them while answering what includes what.
 
 distclean::
+	$(call DELDIR, $(MP_BUILD))
 	$(call DELDIR, $(MP_DIR))
 	$(call DELFILE, $(MP_TARBALL))
 
@@ -87,4 +109,4 @@ include $(APPDIR)/Application.mk
 # configuration is missing names that the sources are about to use, and the
 # error it gives is a hundred undeclared MP_QSTR_ constants.
 
-$(OBJS): $(MP_BUILD)/genhdr/qstrdefs.generated.h
+$(OBJS): $(MP_BUILD)/headers.stamp
