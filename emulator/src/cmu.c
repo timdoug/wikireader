@@ -79,6 +79,11 @@ static bool cmu_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	return true;
 }
 
+bool cmu_clock_selected(const struct cmu *c)
+{
+	return c->reg[OFF_CLKCNTL / 4] != 0x00770003u;
+}
+
 uint32_t cmu_mclk_hz(const struct cmu *c)
 {
 	uint32_t clkcntl = c->reg[OFF_CLKCNTL / 4];

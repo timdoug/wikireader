@@ -67,8 +67,8 @@ static void usage(const char *p)
 /* grifo's numbering: 0 random, 1 search, 2 history, 3 power. */
 #define BUTTON_POWER_CODE 3
 
-/* 6 bytes x 10 bits at CTP_BPS 9600, in 60 MHz MCLK ticks. */
-#define CTP_PACKET_MCLK  ((60000000ull * 6 * 10) / 9600)
+/* 6 bytes x 10 bits at CTP_BPS, in 60 MHz MCLK ticks. */
+#define CTP_PACKET_MCLK  ((60000000ull * 6 * 10) / CTP_BPS)
 
 static bool cmu_slp_auto_wake_cb(void *ctx)
 {
@@ -616,6 +616,8 @@ int main(int argc, char **argv)
 	/* The port block holds a pin the SDRAM controller needs; tell it so,
 	   now that both of them exist. */
 	port_watch_sdram(&port, &cpu);
+	touch_set_clock(&touch, MCLK_HZ);
+	touch_set_cmu(&touch, &cmu);
 
 	sd_set_clock(&sd, &cpu.clk);
 	dma_set_clock(&dma, &cpu.clk);
@@ -1288,6 +1290,8 @@ done:
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
+	printf("--- ctp link: panel %u baud, receiver %u baud, %lu packets "
+	       "garbled ---\n", CTP_BPS, touch_baud(&touch), touch.garbled);
 	printf("--- buttons: %lu transitions ---\n", port.button_events);
 	if (disp.calls)
 		printf("--- display: %lu update calls, %lu presents, %lu skipped ---\n",

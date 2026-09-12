@@ -21,6 +21,12 @@
 
 #define OFF_RXD      0x01
 #define OFF_STATUS   0x02
+#define OFF_IRDA     0x04
+#define OFF_BRTL     0x06
+#define OFF_BRTH     0x07
+
+#define DIVMD_8X     (1u << 4)   /* clear selects 16x */
+#define FERx         (1u << 4)   /* framing error */
 
 /* D[7:6]: 0 means "1 or 0" bytes, 1 means 2, 2 means 3, 3 means 4. */
 #define RXDNUM(n)     ((uint32_t)((n) <= 1 ? 0 : (n) >= 4 ? 3 : (n) - 1) << 6)
@@ -36,8 +42,25 @@ static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	uint32_t reg = off - EFSIF1_BASE;
 
 	if (is_write) {
-		if (reg == OFF_STATUS)
-			;                /* error-clear write, nothing to do */
+		switch (reg) {
+		case OFF_STATUS:
+			/* Writing the status register clears the bits written,
+			   which is how the driver acknowledges an error. */
+			t->errors &= (uint8_t)*val;
+			break;
+		case OFF_IRDA:
+			t->irda = (uint8_t)*val;
+			break;
+		case OFF_BRTL:
+			t->brt = (uint16_t)((t->brt & 0xff00u) | (*val & 0xffu));
+			break;
+		case OFF_BRTH:
+			t->brt = (uint16_t)((t->brt & 0x00ffu) |
+					    ((*val & 0xffu) << 8));
+			break;
+		default:
+			break;
+		}
 		return true;
 	}
 
@@ -61,13 +84,65 @@ static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		 * depth of 4 (see the note on queue depth in touch.h).
 		 */
 		unsigned n = (t->tail - t->head + TOUCH_FIFO) % TOUCH_FIFO;
-		*val = TDBEx | (n ? RDBFx : 0) | RXDNUM(n);
+		*val = TDBEx | (n ? RDBFx : 0) | RXDNUM(n) | t->errors;
 		return true;
 	}
 	default:
 		*val = 0;
 		return true;
 	}
+}
+
+void touch_set_clock(struct touch *t, uint32_t hz)
+{
+	t->clock_hz = hz;
+}
+
+void touch_set_cmu(struct touch *t, const struct cmu *cmu)
+{
+	t->cmu = cmu;
+}
+
+/*
+ * The clock the baud generator is dividing at this moment.  It moves: grifo
+ * drops the machine to MCLK/32 while it waits for something to happen and
+ * reprograms both serial ports to match, so the divisor that means 9600
+ * asleep is not the one that means 9600 awake.  Reading the rate out of the
+ * registers at the time of the event is the only way to get both right.
+ */
+static uint32_t touch_clock(const struct touch *t)
+{
+	if (t->cmu && cmu_clock_selected(t->cmu))
+		return cmu_mclk_hz(t->cmu);
+	return t->clock_hz;
+}
+
+/*
+ * The receiver's rate: the baud generator divides the clock by DIVMD (eight
+ * or sixteen) and then by twice the reload plus one.  The original firmware
+ * computes the reload with CALC_BAUD(PLL_CLK, 1, SERIAL_DIVMD, CTP_BPS) and
+ * arrives at 97, which is 38265 baud against the panel's nominal 38400.
+ */
+uint32_t touch_baud(const struct touch *t)
+{
+	uint32_t divmd = (t->irda & DIVMD_8X) ? 8u : 16u;
+	uint32_t hz = touch_clock(t);
+
+	if (!hz)
+		return 0;
+	return hz / (divmd * 2u * ((uint32_t)t->brt + 1u));
+}
+
+static bool touch_listening(const struct touch *t)
+{
+	uint32_t baud = touch_baud(t);
+	uint32_t slack = CTP_BPS * CTP_BAUD_TOLERANCE / 100u;
+
+	/* Nothing configured yet is not a mismatch; it is a driver that has
+	   not got there, and there is nothing for it to miss. */
+	if (!baud)
+		return true;
+	return baud + slack >= CTP_BPS && baud <= CTP_BPS + slack;
 }
 
 static void push_byte(struct touch *t, uint8_t b)
@@ -105,6 +180,28 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 
 	unsigned tx = (unsigned)(x << CTP_SHIFT);
 	unsigned ty = (unsigned)(y << CTP_SHIFT);
+
+	/*
+	 * A receiver clocked at the wrong rate does not hear a quieter
+	 * version of the packet: it samples the line in the wrong places and
+	 * gets bytes that were never sent, with the stop bit missing. What
+	 * reaches the driver is framing errors and rubbish, and no amount of
+	 * tapping produces a coordinate -- which is exactly what a WikiReader
+	 * does when its touch panel is set to 9600 and the panel is talking
+	 * at 38400. Both interrupts still fire; there is a signal on the
+	 * wire, it just does not mean anything.
+	 */
+	if (!touch_listening(t)) {
+		t->errors |= FERx;
+		push_byte(t, 0xff);
+		push_byte(t, 0xff);
+		t->garbled++;
+		t->events++;
+		itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
+		c33_raise_irq(cpu, CTP_IRQ_VECTOR,
+			      itc_priority(t->itc, CTP_IRQ_VECTOR));
+		return;
+	}
 
 	push_byte(t, 0xaa);
 	push_byte(t, (tx >> 7) & 0x7f);
@@ -164,8 +261,13 @@ bool touch_key_pos(char ch, int *x, int *y)
 void touch_reset(struct touch *t)
 {
 	const struct itc *keep = t->itc;
+	const struct cmu *cmu = t->cmu;
+	uint32_t clock = t->clock_hz;
+
 	memset(t, 0, sizeof *t);
 	t->itc = keep;
+	t->cmu = cmu;
+	t->clock_hz = clock;   /* a reset does not change the crystal */
 }
 
 void touch_attach(struct mem *m, struct touch *t, const struct itc *itc)
