@@ -1,0 +1,10 @@
+############################################################################
+# apps/interpreters/micropython/Make.defs
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+############################################################################
+
+ifneq ($(CONFIG_INTERPRETERS_MICROPYTHON),)
+CONFIGURED_APPS += $(APPDIR)/interpreters/micropython
+endif

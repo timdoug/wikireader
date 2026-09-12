@@ -1,0 +1,4 @@
+# Fetched and generated at build time.
+/micropython/
+/mpbuild/
+/v*.tar.gz

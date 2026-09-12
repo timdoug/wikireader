@@ -1,0 +1,51 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config INTERPRETERS_MICROPYTHON
+	bool "MicroPython"
+	default n
+	select ARCH_SETJMP_H
+	select LIBC_FLOATINGPOINT
+	---help---
+		Python, in the amount that fits.  The compiler, the bytecode
+		virtual machine and the garbage collector all build for this
+		architecture without a line of assembly: the non-local return and
+		the register spill that the collector needs both fall back to
+		setjmp, which this architecture has.
+
+		There is no native code emitter for the C33 and none is wanted;
+		everything runs as bytecode.  Floats are single precision, this
+		chip having no floating-point unit at all.
+
+		The source is fetched at build time, which needs a network and
+		python3.
+
+if INTERPRETERS_MICROPYTHON
+
+config INTERPRETERS_MICROPYTHON_VERSION
+	string "MicroPython version"
+	default "1.29.0"
+
+config INTERPRETERS_MICROPYTHON_HEAPSIZE
+	int "Garbage-collected heap"
+	default 262144
+	---help---
+		Bytes the collector is given to work in, taken from the system
+		heap when the interpreter starts and returned when it stops.
+		Everything a program allocates comes out of this.
+
+config INTERPRETERS_MICROPYTHON_STACKSIZE
+	int "Task stack size"
+	default 32768
+	---help---
+		The interpreter recurses through the parser and the compiler, and
+		checks this figure against its own stack use to raise a Python
+		exception rather than run off the end.
+
+config INTERPRETERS_MICROPYTHON_PRIORITY
+	int "Task priority"
+	default 100
+
+endif # INTERPRETERS_MICROPYTHON
