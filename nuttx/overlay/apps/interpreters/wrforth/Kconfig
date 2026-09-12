@@ -34,10 +34,27 @@ config INTERPRETERS_WRFORTH_DICTSIZE
 	int "Dictionary size"
 	default 262144
 	---help---
-		Bytes reserved for the dictionary to grow into.  On the metal it
-		simply continued into whatever SDRAM was left; here it gets a
-		section of its own, fixed at link time.  Nothing checks the limit,
-		so leave room.
+		Bytes for the dictionary to grow into.  On the metal it simply
+		continued into whatever SDRAM was left over; here it is allocated
+		when the interpreter starts and returned when it stops, so it costs
+		nothing until then.  Nothing checks the limit, so leave room:
+		metacompiling the interpreter's own source, which is the heaviest
+		thing it does, uses about 70 KB of it.
+
+config INTERPRETERS_WRFORTH_STACKSIZE_FORTH
+	int "Forth stack size"
+	default 65536
+	---help---
+		Each of the two Forth stacks, the data stack and the return stack.
+		They are allocated adjacently, the data stack above the return
+		stack, which is how the bare-metal image arranged them.
+
+config INTERPRETERS_WRFORTH_BUFFERSIZE
+	int "Terminal buffer size"
+	default 65536
+	---help---
+		The line the interpreter is reading, and the source an included
+		file is read into.
 
 config INTERPRETERS_WRFORTH_PRIORITY
 	int "Task priority"

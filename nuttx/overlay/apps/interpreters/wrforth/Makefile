@@ -31,15 +31,13 @@ MAINSRC = wrforth.c
 ASRCS   = forth.s
 
 WRFORTH_SRC = $(patsubst "%",%,$(strip $(CONFIG_INTERPRETERS_WRFORTH_SRCDIR)))
-WRFORTH_DICT = $(strip $(CONFIG_INTERPRETERS_WRFORTH_DICTSIZE))
 
 # The interpreter is one assembly file that gforth writes, bracketed by two
 # hand-written ones.  NUTTX_FORTH picks the task entry over the reset entry
-# and gives the dictionary a section to grow into; the include path is for
+# and the allocated workspace over the reserved one; the include path is for
 # the register definitions the trailer pulls in.
 
 AFLAGS += -Wa,--defsym,NUTTX_FORTH=1
-AFLAGS += -Wa,--defsym,NUTTX_FORTH_DICT_SIZE=$(WRFORTH_DICT)
 AFLAGS += -Wa,-I,$(WRFORTH_SRC)
 
 # The metacompiler is gforth's; everything else here is POSIX awk, so any

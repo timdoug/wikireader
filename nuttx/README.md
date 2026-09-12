@@ -153,9 +153,14 @@ the bare-metal image is unchanged:
   interpreter's own 64 KB pair in `.bss` rather than the task's, because
   `cold` resets the return stack pointer there in any case — so only one
   Forth task can exist at a time.
-* the dictionary. On the metal it grows into whatever SDRAM is left after the
-  image; here it gets `.forth_heap`, 256 KB of `@nobits` that costs nothing on
-  the card, and `cold-cp0` points at it.
+* the workspace. On the metal the interpreter is the machine, so its two
+  64 KB stacks, its 64 KB input buffer and the SDRAM the dictionary grows into
+  may as well be part of the image. Under an operating system that is 448 KB
+  of `.bss` spent whether anyone runs it or not, so `Forth_initialise()`
+  allocates it instead and `BYE` gives it back — by way of `forth_leave()`,
+  because nothing can free the block it is standing on. The one allocation
+  keeps the old layout, so the data stack still underflows into the return
+  stack rather than into somebody else's memory.
 * the dictionary's labels stay local. Forth has words called `exit`, `abort`
   and `abs`, and sharing a namespace with a C library does not end well.
 

@@ -91,6 +91,28 @@ static DIR  *g_dirs[WRFORTH_DIRS];
 
 extern forth_cell_t initial_argument;
 
+/* The interpreter's workspace, which on the metal is part of the image and
+ * here is not: five pointers the assembly reads, and the two allocations
+ * they point into.  The terminal buffer and the two stacks are one block,
+ * laid out the way the image used to lay them out, so the data stack still
+ * underflows into the return stack and not into the heap.
+ */
+
+extern uint8_t *forth_area_buffer;
+extern forth_cell_t forth_area_buflen;
+extern uint8_t *forth_area_stack;
+extern uint8_t *forth_area_return;
+extern uint8_t *forth_area_dict;
+
+static uint8_t *g_workspace;
+static uint8_t *g_dictionary;
+
+/* Defined in the interpreter's entry code: leaves its stacks for the one
+ * the task started on, then calls Forth_release below.
+ */
+
+extern void forth_leave(void);
+
 /* The terminal settings to put back when BYE returns to the shell. */
 
 static struct termios g_saved;
@@ -830,6 +852,26 @@ void xdebug(void)
 
 void Forth_initialise(int argc, char **argv)
 {
+  size_t buffer = CONFIG_INTERPRETERS_WRFORTH_BUFFERSIZE;
+  size_t stack  = CONFIG_INTERPRETERS_WRFORTH_STACKSIZE_FORTH;
+
+  g_workspace = malloc(buffer + 2 * stack);
+  g_dictionary = malloc(CONFIG_INTERPRETERS_WRFORTH_DICTSIZE);
+  if (g_workspace == NULL || g_dictionary == NULL)
+    {
+      fprintf(stderr, "wrforth: no room for the interpreter's workspace\n");
+      exit(EXIT_FAILURE);
+    }
+
+  forth_area_buffer = g_workspace;
+  forth_area_buflen = buffer;
+
+  /* Both stacks grow downwards from their top. */
+
+  forth_area_stack  = g_workspace + buffer + stack;
+  forth_area_return = g_workspace + buffer + 2 * stack;
+  forth_area_dict   = g_dictionary;
+
   initial_argument = argc > 1 && strcmp(argv[1], "-t") == 0;
 }
 
@@ -852,6 +894,27 @@ void Forth_exit(void)
       tcsetattr(STDIN_FILENO, TCSANOW, &g_saved);
     }
 
+  /* Nothing frees the workspace from here: the return stack is inside it,
+   * and this function is standing on that.  forth_leave() steps off first.
+   */
+
+  forth_leave();
+}
+
+/****************************************************************************
+ * Name: Forth_release
+ *
+ * Description:
+ *   Reached from forth_leave(), on the task's own stack, with nothing of
+ *   the interpreter's left in use.  A task that exits does not give its
+ *   allocations back by itself here, so this does.
+ *
+ ****************************************************************************/
+
+void Forth_release(void)
+{
+  free(g_workspace);
+  free(g_dictionary);
   exit(EXIT_SUCCESS);
 }
 

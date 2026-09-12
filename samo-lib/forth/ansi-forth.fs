@@ -903,7 +903,8 @@ code cold-cp0             :: cold-c-p-zero           ( -- a-addr )
 ;;; after the image.  Under an operating system it gets a section of its own,
 ;;; of a size fixed when the image is linked.
         .ifdef  NUTTX_FORTH
-        xld.w   %r4, forth_heap_start
+        xld.w   %r4, forth_area_dict
+        ld.w    %r4, [%r4]
         .else
         xld.w   %r4, dictionary_end
         .endif
@@ -946,14 +947,24 @@ end-code
 ;
 
 code cold-rp0             :: cold-r-p-zero           ( -- a-addr )
+        .ifdef  NUTTX_FORTH
+        xld.w   %r4, forth_area_return
+        ld.w    %r4, [%r4]
+        .else
         xld.w   %r4, initial_return_pointer
+        .endif
         sub     %r1, BYTES_PER_CELL
         ld.w    [%r1], %r4
         NEXT
 end-code
 
 code cold-sp0             :: cold-s-p-zero           ( -- a-addr )
+        .ifdef  NUTTX_FORTH
+        xld.w   %r4, forth_area_stack
+        ld.w    %r4, [%r4]
+        .else
         xld.w   %r4, initial_stack_pointer
+        .endif
         sub     %r1, BYTES_PER_CELL
         ld.w    [%r1], %r4
         NEXT
@@ -2198,10 +2209,19 @@ code swap                 :: swap                    ( x1 x2 -- x2 x1 )
 end-code
 
 code terminal-buffer      :: terminal-buffer         ( -- c-addr buffer-length )
+        .ifdef  NUTTX_FORTH
+        xld.w   %r4, forth_area_buffer
+        ld.w    %r4, [%r4]
+        sub     %r1, BYTES_PER_CELL
+        ld.w    [%r1], %r4
+        xld.w   %r4, forth_area_buflen
+        ld.w    %r4, [%r4]
+        .else
         xld.w   %r4, terminal_buffer_start
         sub     %r1, BYTES_PER_CELL
         ld.w    [%r1], %r4
         xld.w   %r4, terminal_buffer_length
+        .endif
         sub     %r1, BYTES_PER_CELL
         ld.w    [%r1], %r4
         NEXT

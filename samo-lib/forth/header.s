@@ -215,6 +215,38 @@ param_\label\():
 initial_argument:                                     ; parameter from boot loader
         .space  4
 
+        .ifdef  NUTTX_FORTH
+
+;;; On the metal the interpreter is the machine, so its workspace may as
+;;; well be part of the image.  Under an operating system it is one program
+;;; among several, and a quarter of a megabyte of .bss is spent whether it
+;;; is ever run or not.  These five words hold what Forth_initialise()
+;;; allocated instead; the code that used to name the areas now reads them
+;;; from here.  That one allocation is laid out as the .space below was, so
+;;; the data stack still underflows into the return stack rather than into
+;;; somebody else's memory.
+
+        .global forth_area_buffer
+forth_area_buffer:
+        .space  4
+        .global forth_area_buflen
+forth_area_buflen:
+        .space  4
+        .global forth_area_stack
+forth_area_stack:
+        .space  4
+        .global forth_area_return
+forth_area_return:
+        .space  4
+        .global forth_area_dict
+forth_area_dict:
+        .space  4
+        .global forth_entry_sp
+forth_entry_sp:                                       ; the task's own stack
+        .space  4
+
+        .else
+
 terminal_buffer_start:
         .space   65536
 terminal_buffer_length = . -terminal_buffer_start
@@ -229,6 +261,8 @@ return_pointer_low_limit:
         .space   65536
         .global initial_return_pointer
 initial_return_pointer:
+
+        .endif
 
 
 ;;; Program Code
@@ -252,15 +286,34 @@ initial_return_pointer:
         .global forth_entry
 forth_entry:
         xld.w   %r15, __dp
-        xld.w   %r1, initial_stack_pointer
-        xld.w   %r4, initial_return_pointer
-        ld.w    %sp, %r4
 
-        xcall   Forth_initialise                      ; keeps argv, sets the
-                                                      ; cold argument below
+        ;; Still on the task's own stack here, which is what the allocator
+        ;; wants; the interpreter's stacks are what it hands back.  Keep the
+        ;; stack we arrived on, because BYE cannot release the block it is
+        ;; standing on until it has somewhere else to stand.
+        xld.w   %r4, forth_entry_sp
+        ld.w    %r5, %sp
+        ld.w    [%r4], %r5
+        xcall   Forth_initialise                      ; allocates, keeps argv,
+                                                      ; sets the cold argument
+        xld.w   %r4, forth_area_stack
+        ld.w    %r1, [%r4]
+        xld.w   %r4, forth_area_return
+        ld.w    %r4, [%r4]
+        ld.w    %sp, %r4
 
         xld.w   %r0, cold_start                       ; initial ip value
         NEXT
+
+;;; Step off the interpreter's stacks and back onto the task's, so that what
+;;; comes next can hand them back.  Forth_release() does not return.
+
+        .global forth_leave
+forth_leave:
+        xld.w   %r4, forth_entry_sp
+        ld.w    %r4, [%r4]
+        ld.w    %sp, %r4
+        xcall   Forth_release
 
         .else
 

@@ -63,23 +63,6 @@ Vector_\()\name = \value
 
 dictionary_end:
 
-;;; On the metal the dictionary grows into whatever SDRAM is left after the
-;;; image.  Inside an operating system there is no "after": the next section
-;;; belongs to something else.  Reserve the space the dictionary is allowed
-;;; to take, as a section the loader does not have to carry, and let the
-;;; linker script put it immediately after this one.
-
-        .ifdef  NUTTX_FORTH
-        .section .forth_heap, "aw", @nobits
-        .balign 4
-        .global forth_heap_start
-forth_heap_start:
-        .space  NUTTX_FORTH_DICT_SIZE
-        .global forth_heap_end
-forth_heap_end:
-        .section .forth_dict
-        .endif
-
 root_last_name  = __root_dict_last_name         ; should be the final name
 forth_last_name = __forth_dict_last_name        ; should be the final name
 c33_last_name   = __c33_dict_last_name          ; should be the final name
