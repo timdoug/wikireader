@@ -60,6 +60,7 @@ struct ub_case_s
 {
   FAR const char *name;
   ub_fn_t fn;
+  FAR void *end;           /* so the loop can report its own size */
   unsigned long passes;
   unsigned instructions;   /* per pass, counted from ubench.S */
   bool internal;           /* run it from internal RAM */
@@ -72,9 +73,15 @@ struct ub_case_s
 extern void ub_block_start(unsigned long passes, volatile void *buffer);
 extern void ub_block_end(unsigned long passes, volatile void *buffer);
 extern void ub_alu(unsigned long passes, volatile void *buffer);
+extern void ub_alu_end(void);
+extern void ub_wide(unsigned long passes, volatile void *buffer);
+extern void ub_wide_end(void);
 extern void ub_load(unsigned long passes, volatile void *buffer);
+extern void ub_load_end(void);
 extern void ub_store(unsigned long passes, volatile void *buffer);
+extern void ub_store_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
+extern void ub_straight_end(void);
 
 static uint32_t g_scratch[8];
 
@@ -121,14 +128,16 @@ int main(int argc, FAR char *argv[])
 {
   static const struct ub_case_s cases[] =
   {
-    { "alu, code in SDRAM",        ub_alu,   UB_PASSES,      7,  false },
-    { "alu, code in internal RAM", ub_alu,   UB_PASSES,      7,  true  },
-    { "load, code in SDRAM",       ub_load,  UB_PASSES,      7,  false },
-    { "load, code in internal RAM", ub_load, UB_PASSES,      7,  true  },
-    { "store, code in SDRAM",      ub_store, UB_PASSES,      7,  false },
-    { "store, code in internal RAM", ub_store, UB_PASSES,    7,  true  },
-    { "straight line, in SDRAM",   ub_straight, UB_LONG_PASSES, 67, false },
-    { "straight line, in internal RAM", ub_straight, UB_LONG_PASSES, 67, true },
+    { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false },
+    { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  },
+    { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false },
+    { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  },
+    { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false },
+    { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  },
+    { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false },
+    { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  },
+    { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false },
+    { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
@@ -142,18 +151,24 @@ int main(int argc, FAR char *argv[])
 
   memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
 
-  printf("# microbenchmark, %u MHz\n",
-         (unsigned)(CONFIG_S1C33E07_MCLK / 1000000));
-  printf("# %-34s %9s %9s %9s\n", "loop", "seconds", "ns/instr", "cyc/instr");
+  printf("# microbenchmark, %u MHz, %u passes\n",
+         (unsigned)(CONFIG_S1C33E07_MCLK / 1000000), UB_PASSES);
+  printf("# %-12s %6s %5s %9s %10s %10s\n", "loop", "bytes", "insn",
+         "seconds", "cyc/pass", "cyc/instr");
 
   for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
     {
       double seconds = ub_run(&cases[i]);
-      double instructions = (double)cases[i].passes * cases[i].instructions;
-      double ns = seconds * 1e9 / instructions;
+      double cycles = seconds * CONFIG_S1C33E07_MCLK / cases[i].passes;
+      size_t bytes = (uintptr_t)cases[i].end - (uintptr_t)cases[i].fn;
 
-      printf("UB %-34s %9.3f %9.2f %9.2f\n", cases[i].name, seconds, ns,
-             ns * (CONFIG_S1C33E07_MCLK / 1000000000.0));
+      /* The byte count is the whole routine including its entry and return;
+       * the loop body is what repeats, and is four bytes less.
+       */
+
+      printf("UB %-12s %6zu %5u %9.3f %10.2f %10.2f\n", cases[i].name,
+             bytes, cases[i].instructions, seconds, cycles,
+             cycles / cases[i].instructions);
     }
 
   return EXIT_SUCCESS;

@@ -8,16 +8,23 @@
  *
  * CoreMark answers "how fast is this machine" with one number, which is no
  * use for working out why the number is what it is: it fetches, loads,
- * stores and branches all at once.  These separate them.  Every routine
- * takes an iteration count in %r6 and runs a fixed, known number of
- * instructions per pass, so the time divided by the count is the cost of
- * exactly one thing.
+ * stores and branches all at once.  These separate them.
+ *
+ * Every loop below has the same shape -- eight instructions of work, then a
+ * decrement, a compare and a branch -- and every instruction in them is a
+ * plain sixteen-bit one, so the loops differ in exactly one thing each.
+ * That matters more than it sounds: the first version of this used the
+ * extended forms, which are twice the size, so the loops fetched different
+ * numbers of bytes per instruction and the answers came out backwards.  Here
+ * only ub_wide changes the size, and it changes nothing else, which is what
+ * makes it the measurement of what a byte of instruction costs.
  *
  * All of it is position independent -- relative branches, no literals, no
- * calls -- because the point of the exercise is to run the same instructions
- * out of internal RAM and out of SDRAM and compare.  There is no instruction
- * cache on this part, so every fetch is a memory access, and the difference
- * between those two runs is what an instruction fetch costs.
+ * calls -- so the same instructions can be run out of internal RAM and out
+ * of SDRAM and compared.  There is no instruction cache on this part, so
+ * that difference is what fetching from SDRAM costs.
+ *
+ * %r6 is the pass count, %r7 the scratch buffer, and %r5 holds one.
  */
 
 	.text
@@ -25,81 +32,105 @@
 	.type	ub_block_start,@function
 ub_block_start:
 
-/* Four adds and the loop: seven instructions, no memory operands at all.
- * Whatever this costs above four adds is fetch and branch.
- */
+/* Eight adds: no memory operands, sixteen-bit instructions throughout. */
 
 	.global	ub_alu
 	.type	ub_alu,@function
 ub_alu:
+	ld.w	%r5,1
 1:
-	xadd	%r4,1
-	xadd	%r4,1
-	xadd	%r4,1
-	xadd	%r4,1
-	xsub	%r6,1
+	.rept	8
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
 	cmp	%r6,0
 	jrne	1b
 	ret
-	.size	ub_alu,.-ub_alu
+	.global	ub_alu_end
+ub_alu_end:
 
-/* The same loop body with four word loads from one place, so the row stays
- * open and what is left is the cost of issuing a load.
+/* The same eight instructions with an immediate too large for the short
+ * form, so the assembler has to use the extended one: thirty-two bits each,
+ * identical work, twice the bytes to fetch.  A small immediate will not do
+ * it -- "xadd %r4,1" assembles back down to sixteen bits and the loop comes
+ * out the same size as the one above, which is what happened first.
+ */
+
+	.global	ub_wide
+	.type	ub_wide,@function
+ub_wide:
+	ld.w	%r5,1
+1:
+	.rept	8
+	xadd	%r4,1000
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_wide_end
+ub_wide_end:
+
+/* Eight word loads from one address, so the row stays open and what is left
+ * is the cost of the load itself.
  */
 
 	.global	ub_load
 	.type	ub_load,@function
 ub_load:
+	ld.w	%r5,1
 1:
+	.rept	8
 	ld.w	%r4,[%r7]
-	ld.w	%r4,[%r7]
-	ld.w	%r4,[%r7]
-	ld.w	%r4,[%r7]
-	xsub	%r6,1
+	.endr
+	sub	%r6,%r5
 	cmp	%r6,0
 	jrne	1b
 	ret
-	.size	ub_load,.-ub_load
+	.global	ub_load_end
+ub_load_end:
 
-/* ...and four stores to one place, because writes and reads are not the
- * same price: ramspeed's memset came within half of the model where its
- * memcpy was nine times off it.
+/* ...and eight stores, because writes and reads are not the same price:
+ * ramspeed's memset came within half of the model where its memcpy was nine
+ * times off it.
  */
 
 	.global	ub_store
 	.type	ub_store,@function
 ub_store:
+	ld.w	%r5,1
 1:
+	.rept	8
 	ld.w	[%r7],%r4
-	ld.w	[%r7],%r4
-	ld.w	[%r7],%r4
-	ld.w	[%r7],%r4
-	xsub	%r6,1
+	.endr
+	sub	%r6,%r5
 	cmp	%r6,0
 	jrne	1b
 	ret
-	.size	ub_store,.-ub_store
+	.global	ub_store_end
+ub_store_end:
 
-/* Sixty-four adds in a row before the branch. A tight loop re-reads the
- * same few words and should find the row open every time; a long run of
- * straight-line code walks through memory instead. The difference is what
- * locality is worth to the fetch path.
+/* Sixty-four adds before the branch rather than eight. A tight loop pays
+ * for a branch every few instructions and a long run does not, so the two
+ * together say what a taken branch costs the fetch path -- which on a part
+ * that bursts sequential reads and restarts them after a jump is most of
+ * the story.
  */
 
 	.global	ub_straight
 	.type	ub_straight,@function
 ub_straight:
+	ld.w	%r5,1
 1:
 	.rept	64
-	xadd	%r4,1
+	add	%r4,%r5
 	.endr
-	xsub	%r6,1
+	sub	%r6,%r5
 	cmp	%r6,0
 	jrne	1b
 	ret
-	.size	ub_straight,.-ub_straight
+	.global	ub_straight_end
+ub_straight_end:
 
 	.global	ub_block_end
-	.type	ub_block_end,@function
 ub_block_end:
-	.size	ub_block_start,.-ub_block_start
