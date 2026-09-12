@@ -1,0 +1,73 @@
+############################################################################
+# apps/interpreters/wrforth/Makefile
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.  The
+# ASF licenses this file to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance with the
+# License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+############################################################################
+
+include $(APPDIR)/Make.defs
+
+PROGNAME  = wrforth
+PRIORITY  = $(CONFIG_INTERPRETERS_WRFORTH_PRIORITY)
+STACKSIZE = $(CONFIG_INTERPRETERS_WRFORTH_STACKSIZE)
+MODULE    = $(CONFIG_INTERPRETERS_WRFORTH)
+
+MAINSRC = wrforth.c
+ASRCS   = forth.s
+
+WRFORTH_SRC = $(patsubst "%",%,$(strip $(CONFIG_INTERPRETERS_WRFORTH_SRCDIR)))
+WRFORTH_DICT = $(strip $(CONFIG_INTERPRETERS_WRFORTH_DICTSIZE))
+
+# The interpreter is one assembly file that gforth writes, bracketed by two
+# hand-written ones.  NUTTX_FORTH picks the task entry over the reset entry
+# and gives the dictionary a section to grow into; the include path is for
+# the register definitions the trailer pulls in.
+
+AFLAGS += -Wa,--defsym,NUTTX_FORTH=1
+AFLAGS += -Wa,--defsym,NUTTX_FORTH_DICT_SIZE=$(WRFORTH_DICT)
+AFLAGS += -Wa,-I,$(WRFORTH_SRC)
+
+# sym.awk turns every "word :: label" line into the metacompiler's symbol
+# table, and has to see the extra words here as well as the interpreter.
+# It needs gawk: it uses gensub.
+
+forth-symbols.fi: $(WRFORTH_SRC)/sym.awk $(WRFORTH_SRC)/ansi-forth.fs \
+                  nuttx-forth.fi
+	$(Q) gawk -f $(WRFORTH_SRC)/sym.awk $(WRFORTH_SRC)/ansi-forth.fs \
+		nuttx-forth.fi > $@
+
+forth.s: $(WRFORTH_SRC)/header.s $(WRFORTH_SRC)/meta.fs forth-symbols.fi \
+         $(WRFORTH_SRC)/ansi-forth.fs nuttx-forth.fi \
+         $(WRFORTH_SRC)/trailer.s $(WRFORTH_SRC)/hoist-flags.awk
+	$(Q) gforth $(WRFORTH_SRC)/meta.fs forth-symbols.fi \
+		$(WRFORTH_SRC)/ansi-forth.fs nuttx-forth.fi -e "bye" > forth-body.s
+	$(Q) cat $(WRFORTH_SRC)/header.s > $@
+	$(Q) gawk -f $(WRFORTH_SRC)/hoist-flags.awk forth-body.s >> $@
+	$(Q) cat $(WRFORTH_SRC)/trailer.s >> $@
+
+# Application.mk builds the dependency list before anything else, and it
+# cannot scan a file that has not been written yet.
+
+depend:: forth.s
+
+clean::
+	$(call DELFILE, forth.s)
+	$(call DELFILE, forth-body.s)
+	$(call DELFILE, forth-symbols.fi)
+
+include $(APPDIR)/Application.mk

@@ -889,7 +889,14 @@ code cold-arg             :: cold-arg                ( -- a-addr )
 end-code
 
 code cold-cp0             :: cold-c-p-zero           ( -- a-addr )
+;;; On the metal the dictionary simply carries on into the SDRAM left over
+;;; after the image.  Under an operating system it gets a section of its own,
+;;; of a size fixed when the image is linked.
+        .ifdef  NUTTX_FORTH
+        xld.w   %r4, forth_heap_start
+        .else
         xld.w   %r4, dictionary_end
+        .endif
         sub     %r1, BYTES_PER_CELL
         ld.w    [%r1], %r4
         NEXT

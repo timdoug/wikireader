@@ -117,7 +117,14 @@ __c33_dict_last_name = 0                              ; to link the list
 
         .section .forth_dict
         .balign 4
+;;; Linking into an operating system means sharing a namespace with its C
+;;; library, and Forth has words called exit, abort, abs and type.  The
+;;; dictionary is self-contained, so outside the bare-metal image these stay
+;;; local to it; the interpreter finds its words by walking the dictionary,
+;;; not by asking the linker.
+        .ifndef NUTTX_FORTH
         .global \label
+        .endif
 \label\():
         .long   \code                                 ; code
 l_param_\@:
@@ -204,6 +211,7 @@ param_\label\():
         .section .bss
 
         .balign 4
+        .global initial_argument
 initial_argument:                                     ; parameter from boot loader
         .space  4
 
@@ -225,6 +233,37 @@ initial_return_pointer:
 
 ;;; Program Code
         .section .text
+
+        .ifdef  NUTTX_FORTH
+
+;;; Entered as an ordinary task, not as a machine that has just reset.  The
+;;; operating system owns the trap table, the interrupt controller and the
+;;; peripherals, so none of the bare-metal initialisers run and the status
+;;; register is left exactly as it was found: clearing it here would turn
+;;; interrupts off for everyone.
+;;;
+;;; The two Forth stacks are still the ones below.  %sp becomes the return
+;;; stack, as it is on the metal -- "cold" resets it there in any case -- so
+;;; the task's own stack is not used past this point, and only one Forth task
+;;; can exist at a time.
+;;;
+;;; %r6 and %r7 arrive holding argc and argv.
+
+        .global forth_entry
+forth_entry:
+        xld.w   %r15, __dp
+        xld.w   %r1, initial_stack_pointer
+        xld.w   %r4, initial_return_pointer
+        ld.w    %sp, %r4
+
+        xcall   Forth_initialise                      ; keeps argv, sets the
+                                                      ; cold argument below
+
+        xld.w   %r0, cold_start                       ; initial ip value
+        NEXT
+
+        .else
+
         .global main
 main:
         xld.w   %r15, __dp
@@ -253,6 +292,8 @@ main:
         xld.w   %r0, cold_start                       ; initial ip value
 ;;;       xcall   xdebug
         NEXT
+
+        .endif
 
 
 ;;; headerless code to initially boot the system

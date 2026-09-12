@@ -1,0 +1,52 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config INTERPRETERS_WRFORTH
+	bool "WikiReader Forth"
+	default n
+	---help---
+		The ANS Forth the WikiReader shipped with, running as a task.
+
+		It is metacompiled from samo-lib/forth by gforth at build time,
+		which has to be on the path along with gawk.  Everything it knows
+		about the outside world it reaches through about sixty C calls,
+		and those are answered here with POSIX file and terminal calls
+		instead of the bare-metal drivers, so "include /sd/calc.4th"
+		loads the same program the device has always run.
+
+		The two Forth stacks are its own, not the task's, so only one
+		instance can run at a time.
+
+if INTERPRETERS_WRFORTH
+
+config INTERPRETERS_WRFORTH_SRCDIR
+	string "WikiReader Forth source directory"
+	default "../../../../../../samo-lib/forth"
+	---help---
+		Where ansi-forth.fs and its assembly live, relative to this
+		application's own directory.  The default climbs back out of the
+		reconstructed work tree to the copy this repository carries.
+
+config INTERPRETERS_WRFORTH_DICTSIZE
+	int "Dictionary size"
+	default 262144
+	---help---
+		Bytes reserved for the dictionary to grow into.  On the metal it
+		simply continued into whatever SDRAM was left; here it gets a
+		section of its own, fixed at link time.  Nothing checks the limit,
+		so leave room.
+
+config INTERPRETERS_WRFORTH_PRIORITY
+	int "Task priority"
+	default 100
+
+config INTERPRETERS_WRFORTH_STACKSIZE
+	int "Task stack size"
+	default 4096
+	---help---
+		Only used up to the point the interpreter switches to its own
+		return stack, which is a fixed 64 KB inside the image.
+
+endif # INTERPRETERS_WRFORTH

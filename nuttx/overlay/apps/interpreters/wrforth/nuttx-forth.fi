@@ -1,0 +1,22 @@
+\ Words the interpreter only has when it is a task rather than a machine.
+\
+\ Metacompiled after ansi-forth.fs, the same way an application's .fi file is,
+\ so sym.awk has to see this file too or the symbols will not resolve.
+
+only forth definitions
+also meta-compiler
+meta-compile
+
+\ There is nowhere to go from a Forth that owns the whole device, so the
+\ standard word is listed as unimplemented there.  Here there is a shell to
+\ go back to.
+
+code bye                  :: bye                     ( -- )
+        xcall   Forth_exit
+        NEXT
+end-code
+
+\ Left empty so cold falls through to forth.ini, as the interactive image
+\ does; an application image stores its entry point here instead.
+
+variable 'cold-run :: tick-cold-run

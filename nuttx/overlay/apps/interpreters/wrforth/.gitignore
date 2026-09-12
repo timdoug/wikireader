@@ -1,0 +1,4 @@
+# Written by the Makefile: the metacompiler output and its symbol table.
+/forth.s
+/forth-body.s
+/forth-symbols.fi
