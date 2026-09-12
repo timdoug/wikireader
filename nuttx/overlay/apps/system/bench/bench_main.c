@@ -76,6 +76,11 @@ static FAR char *const g_sdbench[] =
   "sdbench", "-b", "4096", "-r", "3", "-d", "1000", NULL
 };
 
+static FAR char *const g_ubench[] =
+{
+  "ubench", NULL
+};
+
 static const struct benchmark_s g_benchmarks[] =
 {
   {
@@ -89,6 +94,15 @@ static const struct benchmark_s g_benchmarks[] =
   },
   {
     "ramspeed", g_ramspeed
+  },
+
+  /* Not a benchmark of the machine so much as of its parts: what a fetch,
+   * a load and a store each cost, which is what the numbers above cannot
+   * be taken apart into.
+   */
+
+  {
+    "ubench", g_ubench
   },
 
   /* Last, because it is the one that writes to the card the results are

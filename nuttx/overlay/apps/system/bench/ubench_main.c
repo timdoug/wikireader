@@ -1,0 +1,160 @@
+/****************************************************************************
+ * apps/system/bench/ubench_main.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ ****************************************************************************/
+
+/* What the standard benchmarks cannot say.
+ *
+ * The device runs CoreMark about five times slower than the emulator models
+ * it, and one number cannot say why. These loops each do one thing, so the
+ * time they take divided by the work they did is the price of that thing:
+ * an instruction fetch, a load, a store.
+ *
+ * The one that matters most is the first two together. There is no
+ * instruction cache on this part, so code in SDRAM is fetched from SDRAM on
+ * every pass round the loop, while code in internal RAM is not. The same
+ * instructions run from both places, and the difference between the two
+ * times is what fetching from SDRAM costs -- which is the number the
+ * emulator's timing model is missing, since it charges about a cycle per
+ * instruction wherever the program happens to be.
+ */
+
+#include <nuttx/config.h>
+
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <time.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+/* Internal RAM above the framebuffer. The panel is 240x208 at one bit, on a
+ * 32-byte stride, so the display owns 0x80000 through 0x819ff and the rest
+ * of the 12 KB is free. Nothing else in this image goes near it.
+ */
+
+#define UB_IVRAM_BASE  0x00082000
+#define UB_IVRAM_SIZE  0x00001000
+
+/* Enough passes that the ten millisecond clock has something to measure --
+ * a few seconds on the device, which is the slower of the two machines and
+ * the one that matters.  The long loop does ten times the work per pass, so
+ * it gets a tenth of the passes.
+ */
+
+#define UB_PASSES      4000000
+#define UB_LONG_PASSES 400000
+
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+typedef void (*ub_fn_t)(unsigned long passes, volatile void *buffer);
+
+struct ub_case_s
+{
+  FAR const char *name;
+  ub_fn_t fn;
+  unsigned long passes;
+  unsigned instructions;   /* per pass, counted from ubench.S */
+  bool internal;           /* run it from internal RAM */
+};
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+extern void ub_block_start(unsigned long passes, volatile void *buffer);
+extern void ub_block_end(unsigned long passes, volatile void *buffer);
+extern void ub_alu(unsigned long passes, volatile void *buffer);
+extern void ub_load(unsigned long passes, volatile void *buffer);
+extern void ub_store(unsigned long passes, volatile void *buffer);
+extern void ub_straight(unsigned long passes, volatile void *buffer);
+
+static uint32_t g_scratch[8];
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/* The same routine, at the address it was linked for or at its copy in
+ * internal RAM.
+ */
+
+static ub_fn_t ub_relocate(ub_fn_t fn, bool internal)
+{
+  uintptr_t offset;
+
+  if (!internal)
+    {
+      return fn;
+    }
+
+  offset = (uintptr_t)fn - (uintptr_t)ub_block_start;
+  return (ub_fn_t)(UB_IVRAM_BASE + offset);
+}
+
+static double ub_run(const struct ub_case_s *test)
+{
+  struct timespec start;
+  struct timespec end;
+  ub_fn_t fn = ub_relocate(test->fn, test->internal);
+
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  fn(test->passes, g_scratch);
+  clock_gettime(CLOCK_MONOTONIC, &end);
+
+  return (end.tv_sec - start.tv_sec) +
+         (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+int main(int argc, FAR char *argv[])
+{
+  static const struct ub_case_s cases[] =
+  {
+    { "alu, code in SDRAM",        ub_alu,   UB_PASSES,      7,  false },
+    { "alu, code in internal RAM", ub_alu,   UB_PASSES,      7,  true  },
+    { "load, code in SDRAM",       ub_load,  UB_PASSES,      7,  false },
+    { "load, code in internal RAM", ub_load, UB_PASSES,      7,  true  },
+    { "store, code in SDRAM",      ub_store, UB_PASSES,      7,  false },
+    { "store, code in internal RAM", ub_store, UB_PASSES,    7,  true  },
+    { "straight line, in SDRAM",   ub_straight, UB_LONG_PASSES, 67, false },
+    { "straight line, in internal RAM", ub_straight, UB_LONG_PASSES, 67, true },
+  };
+
+  size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
+  int i;
+
+  if (span > UB_IVRAM_SIZE)
+    {
+      printf("ubench: %zu bytes will not fit in internal RAM\n", span);
+      return EXIT_FAILURE;
+    }
+
+  memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
+
+  printf("# microbenchmark, %u MHz\n",
+         (unsigned)(CONFIG_S1C33E07_MCLK / 1000000));
+  printf("# %-34s %9s %9s %9s\n", "loop", "seconds", "ns/instr", "cyc/instr");
+
+  for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
+    {
+      double seconds = ub_run(&cases[i]);
+      double instructions = (double)cases[i].passes * cases[i].instructions;
+      double ns = seconds * 1e9 / instructions;
+
+      printf("UB %-34s %9.3f %9.2f %9.2f\n", cases[i].name, seconds, ns,
+             ns * (CONFIG_S1C33E07_MCLK / 1000000000.0));
+    }
+
+  return EXIT_SUCCESS;
+}
