@@ -1,3 +1,44 @@
+diff --git a/interpreters/lua/Makefile b/interpreters/lua/Makefile
+index 40daf76..91f697d 100644
+--- a/interpreters/lua/Makefile
++++ b/interpreters/lua/Makefile
+@@ -47,7 +47,7 @@ CSRCS        += nuttx_linit.c
+ CFLAGS += -DLUA_MAXINPUT=$(CONFIG_INTERPRETERS_LUA_IOBUFSIZE)
+ CFLAGS += -DLUA_PROGNAME=\"$(PROGNAME)\"
+ 
+-ifeq ($(CONFIG_INTERPRETERS_LUA_32BITS),y)
++ifeq ($(CONFIG_INTERPRETERS_LUA_32BIT),y)
+ CFLAGS += -DLUA_32BITS
+ endif
+ 
+diff --git a/interpreters/lua/nuttx_linit.c b/interpreters/lua/nuttx_linit.c
+index 904eb9f..997a541 100644
+--- a/interpreters/lua/nuttx_linit.c
++++ b/interpreters/lua/nuttx_linit.c
+@@ -49,7 +49,23 @@
+ static const luaL_Reg g_loadedlibs[] =
+ {
+ #ifdef CONFIG_INTERPRETERS_LUA_CORELIBS
++  /* The standard library, which the Makefile already compiles under this
++   * same option.  Registering only the base one left every other opener
++   * built and then dropped by the linker for want of a reference, and an
++   * interpreter where "math" and "string" are nil -- the two the option's
++   * own help text promises.
++   */
++
+   {LUA_GNAME, luaopen_base},
++  {LUA_LOADLIBNAME, luaopen_package},
++  {LUA_COLIBNAME, luaopen_coroutine},
++  {LUA_TABLIBNAME, luaopen_table},
++  {LUA_IOLIBNAME, luaopen_io},
++  {LUA_OSLIBNAME, luaopen_os},
++  {LUA_STRLIBNAME, luaopen_string},
++  {LUA_MATHLIBNAME, luaopen_math},
++  {LUA_UTF8LIBNAME, luaopen_utf8},
++  {LUA_DBLIBNAME, luaopen_debug},
+ #endif
+ #include "luamod_list.h"
+   {NULL, NULL},
 diff --git a/nshlib/Kconfig b/nshlib/Kconfig
 index 8f1740a..3416eab 100644
 --- a/nshlib/Kconfig

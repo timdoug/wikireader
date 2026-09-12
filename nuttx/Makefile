@@ -82,6 +82,8 @@ test:
 		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
 	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/test_sdcard.py \
 		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
+	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/test_lua.py \
+		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
 
 # Build products only, like zim-clean and doom-clean: the repository's "make
 # clean" reaches this, and it must not cost a NuttX reconfigure.  NuttX's own
