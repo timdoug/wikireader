@@ -200,6 +200,36 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
 	}
 }
 
+
+/*
+ * A direct ELF boot skips the flash boot loader, and with it init_ram():
+ * the SDRAM controller is never told what it is driving, so sdramc.c
+ * charges nothing for anything and the machine appears to have no memory
+ * system at all. That is not a small difference. It is most of why this
+ * ran CoreMark five times faster than the device it models.
+ *
+ * So start the controller where the loader leaves it. The values are
+ * init_ram()'s, from samo-lib/include/boards/samo_a1.h: the stock timings
+ * tRP 4, tRAS 8 and tRC 15, auto-refresh 0x8c, arbitration and both queues
+ * on, and the geometry the board revision selects. They go in through the
+ * ordinary register writes so that the model derives everything from them
+ * exactly as it would have if the guest had done it.
+ */
+static void sdramc_boot_state(struct mem *mem)
+{
+	const char *rev = getenv("WREMU_BOARD_REV");
+	unsigned long r = rev ? strtoul(rev, NULL, 0) : 8;
+	bool small = r == 8 || r == 6;   /* 16 MB boards; the rest are 32 */
+	uint32_t ctl = ((4u - 1) << 12) | ((8u - 1) << 8) | ((15u - 1) << 4) |
+		       (small ? 0x2u : 0x3u);
+
+	mem_write(mem, REG_BASE + 0x1600, 4, 0);          /* INI: off first */
+	mem_write(mem, REG_BASE + 0x1610, 4, 0x8000000b); /* ARBON|CAS1|APPON|IQB */
+	mem_write(mem, REG_BASE + 0x1604, 4, ctl);
+	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff008c); /* SCKON|SELEN|SELCO|AURCO */
+	mem_write(mem, REG_BASE + 0x1600, 4, 0x14);       /* SDON|INIMRS */
+}
+
 int main(int argc, char **argv)
 {
 	model_init();
@@ -616,6 +646,11 @@ int main(int argc, char **argv)
 	/* The port block holds a pin the SDRAM controller needs; tell it so,
 	   now that both of them exist. */
 	port_watch_sdram(&port, &cpu);
+
+	/* The loader would have done this; a direct ELF boot has no loader. */
+	if (!eeprom_path)
+		sdramc_boot_state(&mem);
+
 	touch_set_clock(&touch, MCLK_HZ);
 	touch_set_cmu(&touch, &cmu);
 
