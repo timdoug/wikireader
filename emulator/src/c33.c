@@ -692,6 +692,11 @@ static void fault(struct c33 *c, const char *why)
 	c->halted = true;
 }
 
+void c33_fault(struct c33 *c, const char *why)
+{
+	fault(c, why);
+}
+
 void c33_step(struct c33 *c)
 {
 	if (c->halted)

@@ -21,6 +21,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <stdio.h>
+
+#include "mem.h"
 #include "port.h"
 
 /* Writable bits from the GPIO register tables; holes and reserved bits are 0. */
@@ -67,6 +70,7 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 	if (is_write) {
 		uint8_t p6_before = p->reg[OFF_P6D];
+		uint8_t p5cfp_before = p->reg[OFF_P5CFP03];
 		for (unsigned k = 0; k < size; k++) {
 			uint8_t mask = port_reg_mask(i + k);
 			uint8_t v = (uint8_t)(*val >> (8 * k));
@@ -84,6 +88,38 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		 * that loop indefinitely, which is what it used to do after
 		 * the 120 second idle timeout.
 		 */
+		/*
+		 * P53 is SDA10, an address line of the SDRAM the program is
+		 * running from. Taking it away stops the machine where it
+		 * stands: no exception, no output, and the panel keeps its
+		 * last contents, because the framebuffer is in internal RAM
+		 * and needs nothing from the SDRAM to be scanned out. It
+		 * looks exactly like a peripheral that will not answer, and
+		 * it cost a day of looking in the wrong place.
+		 *
+		 * Modelling the consequence would mean corrupting every
+		 * SDRAM access from here on. Saying what happened and
+		 * stopping is the same outcome and a far better answer.
+		 *
+		 * The condition is the one that actually holds: the pin has
+		 * gone and the program counter is in the memory it was
+		 * addressing. Board setup runs from flash and sets this
+		 * register as a whole byte on its way past -- before
+		 * init_ram() puts SDA10 back -- and that is fine, because
+		 * nothing is executing from the SDRAM yet.
+		 */
+		if (i <= OFF_P5CFP03 && i + size > OFF_P5CFP03 && p->cpu &&
+		    (p5cfp_before & P53_FUNC_MASK) == P53_FUNC_SDA10 &&
+		    (p->reg[OFF_P5CFP03] & P53_FUNC_MASK) != P53_FUNC_SDA10 &&
+		    p->cpu->cur_pc - SDRAM_BASE < SDRAM_SIZE) {
+			fprintf(stderr,
+				"P53 taken off SDA10 while the SDRAM is running: "
+				"the address line the program is executing over "
+				"is gone. Write only the pins you own -- this "
+				"register holds four of them.\n");
+			c33_fault(p->cpu, "SDA10 disabled while SDRAM in use");
+		}
+
 		if (i <= OFF_P6D && i + size > OFF_P6D &&
 		    (p->reg[OFF_IOC6] & (1u << POWEROFF_BIT)) &&
 		    ((p6_before ^ p->reg[OFF_P6D]) & (1u << POWEROFF_BIT))) {
@@ -180,14 +216,29 @@ void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
 void port_reset(struct port *p)
 {
 	const struct itc *keep = p->itc;
+	struct c33 *cpu = p->cpu;
+
 	memset(p, 0, sizeof *p);
 	p->itc = keep;
+
+	/* A reset restarts the machine; it does not rewire the board. */
+
+	p->cpu = cpu;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
 	/* Pull-ups per REG_MISC_PUP6. In particular P64 is high while no CTP
 	 * receive sequence is in progress; leaving it low makes Suspend()
 	 * return immediately and turns the event wait into a busy loop. */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
 	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
+
+	/*
+	 * SDA10 is already on P53. The emulator starts where the boot
+	 * loader finished -- an image loaded straight in finds its SDRAM
+	 * working without having initialised the controller, and the pin
+	 * that addresses it should be no different.
+	 */
+
+	p->reg[OFF_P5CFP03] = P53_FUNC_SDA10;
 	/* Port input interrupts reset to rising-edge selection. */
 	p->reg[OFF_PPOL] = p->reg[OFF_PEL] = 0xff;
 	p->reg[OFF_PPOL + 4] = p->reg[OFF_PEL + 4] = 0xff;
@@ -207,6 +258,11 @@ static bool porta_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return true;
 	*val = (off == PORTA_BASE + 1) ? porta_value : 0;
 	return true;
+}
+
+void port_watch_sdram(struct port *p, struct c33 *cpu)
+{
+	p->cpu = cpu;
 }
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc)

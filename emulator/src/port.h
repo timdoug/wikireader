@@ -53,6 +53,17 @@
  */
 #define POWEROFF_BIT 3
 
+/*
+ * Port 5's function register for pins 0..3.  Two bits per pin, and P53's
+ * pair selects SDA10 -- an SDRAM address line.  boards/samo_a1.h turns it
+ * on in init_ram() with the comment "enable SDA10 on P53", and anything
+ * that writes this register as a whole byte to configure P50 takes the
+ * SDRAM's addressing with it.
+ */
+#define OFF_P5CFP03 (0x3aau - PORT_BASE)
+#define P53_FUNC_MASK 0xc0u
+#define P53_FUNC_SDA10 0x80u
+
 #define OFF_SCPK0 (0x3d2u - PORT_BASE)
 #define OFF_SMPK0 (0x3d4u - PORT_BASE)
 #define OFF_KSEL  (0x3d0u - PORT_BASE)
@@ -68,9 +79,15 @@ struct port {
 	unsigned long button_events;
 	bool     power_off_requested;
 	unsigned power_off_toggles;
+
+	/* For the pins this port holds that other devices depend on. */
+	struct c33 *cpu;
 };
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc);
+/* Watch for the SDRAM losing the pin that addresses it.  Optional: without
+   it the function registers are just bits that read back. */
+void port_watch_sdram(struct port *p, struct c33 *cpu);
 void port_reset(struct port *p);   /* keeps the controller link */
 /* Press or release one of the three front buttons: 0 random, 1 search,
    2 history. Raises the key-input interrupt if the controller wants it. */

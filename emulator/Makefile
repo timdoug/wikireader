@@ -168,8 +168,8 @@ test-chipid: tools/test_chipid.c src/mem.o
 	/tmp/test_chipid
 
 # GPIO reset masks and the modeled key/power interrupt inputs.
-test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o
+test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
+	$(CC) $(CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
 	/tmp/test_port
 
 # Documented SPI DMA pipeline, including representative failure modes.

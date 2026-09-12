@@ -613,6 +613,10 @@ int main(int argc, char **argv)
 	c33_reset(&cpu, entry);
 	cpu.trace_syscalls = trace_syscalls;
 	/* SPI and DMA deadlines use the same MCLK-cycle timeline as the CPU. */
+	/* The port block holds a pin the SDRAM controller needs; tell it so,
+	   now that both of them exist. */
+	port_watch_sdram(&port, &cpu);
+
 	sd_set_clock(&sd, &cpu.clk);
 	dma_set_clock(&dma, &cpu.clk);
 	/* A -Y window starts closed; reaching prof_start opens it. */

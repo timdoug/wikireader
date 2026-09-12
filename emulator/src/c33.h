@@ -166,6 +166,9 @@ struct c33 {
 void     c33_reset(struct c33 *c, uint32_t entry);
 /* Request a hardware interrupt; taken when PSR.IE is set. */
 void     c33_raise_irq(struct c33 *c, unsigned vector, unsigned priority);
+/* Stop the machine, the way a board does when something outside the core
+   has been made unusable. `why` is kept for the run summary. */
+void     c33_fault(struct c33 *c, const char *why);
 void     c33_raise_nmi(struct c33 *c);
 /* Print the executed-opcode histogram gathered under c->profile. */
 void     c33_dump_profile(const struct c33 *c, FILE *out);

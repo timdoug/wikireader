@@ -21,6 +21,7 @@
 #define SMPK0 (REG_BASE + 0x3d4)
 #define SMPK1 (REG_BASE + 0x3d5)
 #define FLAGS (REG_BASE + 0x280)
+#define P5CFP03 (REG_BASE + 0x3aa)
 
 #define FP3 (1u << 3)
 #define FK0 (1u << 4)
@@ -134,7 +135,42 @@ int main(void)
 	check("P6 buttons cannot trigger FPK0 when P5 is selected",
 	      mem_read(&mem, FLAGS, 1) & FK0, 0);
 
+	/*
+	 * P53 is an SDRAM address line while its function bits say SDA10.
+	 * Software that configures P50 by writing the whole byte takes it
+	 * away, and the machine it is executing from goes with it -- which
+	 * looks, from outside, exactly like a peripheral that never answers.
+	 */
+	{
+		port_watch_sdram(&port, &cpu);
+
+		check("SDA10 is on P53 out of reset, as the loader leaves it",
+		      mem_read(&mem, P5CFP03, 1), 0x80);
+
+		/* Board setup runs from flash and writes this register whole
+		   on its way past; nothing is executing from SDRAM yet. */
+		cpu.cur_pc = 0x0c000000;
+		mem_write(&mem, P5CFP03, 1, 0x01);
+		check("losing SDA10 does not matter until something runs from it",
+		      cpu.fault != NULL, false);
+
+		cpu.cur_pc = SDRAM_BASE + 0x40000;
+		mem_write(&mem, P5CFP03, 1, 0x80);
+		check("setting SDA10 is not a fault", cpu.fault != NULL, false);
+
+		mem_write(&mem, P5CFP03, 1, 0x81);
+		check("SDA10 survives a write that preserves its bits",
+		      cpu.fault != NULL, false);
+
+		mem_write(&mem, P5CFP03, 1, 0x01);
+		check("writing the whole byte takes SDA10 and stops the machine",
+		      cpu.fault != NULL, true);
+		check("and says which pin it was",
+		      cpu.fault && strstr(cpu.fault, "SDA10") != NULL, true);
+	}
+
 	mem_free(&mem);
+
 	printf("\n%s\n", fails ? "FAILURES" : "all port tests passed");
 	return fails != 0;
 }
