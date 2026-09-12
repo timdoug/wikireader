@@ -10,16 +10,18 @@ by those counts -- so every number below is in emulated seconds, and the only
 way to know what that is worth is to run the same image on the hardware and
 put the two columns side by side.
 
-The commands are fixed, with iteration counts spelled out rather than left to
-each benchmark to choose, so that both machines do exactly the same work:
+Both sides run the same thing: the device command `bench`, which runs every
+benchmark with its iteration counts built in and writes what they printed to
+/sd/bench.txt.  This types that command at the emulator and reads the file
+back out of the card image afterwards.  On real hardware, type `bench`, wait
+for it to say the card can come out, and then
 
-    run_benchmarks.py --commands
+    run_benchmarks.py --compare /Volumes/.../bench.txt
 
-prints them for typing at a device prompt.  Capture that session to a file and
-
-    run_benchmarks.py --compare session.txt
-
-parses it with the same parsers and prints emulator, hardware, and the ratio.
+parses that file with the same parsers and prints emulator, device and ratio
+side by side.  There is one list of commands and it lives in the device
+application, because a benchmark run compared against a differently-argued
+benchmark run is worse than no comparison at all.
 
 Two benchmarks in the tree are not here.  cachespeed wants ARCH_ICACHE and
 ARCH_DCACHE, and the C33 has neither -- which is itself the answer it would
@@ -36,15 +38,10 @@ import re
 import subprocess
 import sys
 
-# Iteration counts chosen so that each run is a few seconds of device time:
-# long enough for a 10 ms clock tick to measure, short enough to emulate.
-COMMANDS = [
-    "coremark",
-    "dhrystone 200000",
-    "whetstone 10",
-    "ramspeed -a -s 1048576 -n 20",
-    "sdbench -b 4096 -r 3 -d 1000",
-]
+# What the device application writes, and where.  Both are its Kconfig
+# defaults; it prints the command it ran above each benchmark's output, so a
+# file is self-describing whatever it was called.
+RESULTS = "bench.txt"
 
 
 def parse_coremark(text):
@@ -160,9 +157,9 @@ def run_emulator(args):
     # because they only read, would fail every write with EIO.
     fat = load_fat_helper(args.wikireader.resolve())
     card = out / "card.img"
-    fat.make_image(card, {"bench.txt": b"scratch\n"})
+    fat.make_image(card, {"readme.txt": b"scratch card\n"})
 
-    (out / "input.txt").write_text("".join(c + "\n" for c in COMMANDS))
+    (out / "input.txt").write_text("bench\n")
 
     command = [str(emulator), "-c", str(card), "-n", str(args.limit),
                "--uart-input", str(out / "input.txt"),
@@ -173,8 +170,20 @@ def run_emulator(args):
                        check=True, timeout=7200,
                        env={**os.environ, "WREMU_HOLD_MS": "33"})
 
-    text = clean((out / "benchmarks.log").read_bytes().decode(errors="replace"))
-    (out / "console.txt").write_text(text)
+    console = clean(
+        (out / "benchmarks.log").read_bytes().decode(errors="replace"))
+    (out / "console.txt").write_text(console)
+
+    # The results are on the card, not on the console: the point of the
+    # device application is that the console is a 39-column panel.
+    written = fat.read_file(card, RESULTS)
+    if not written:
+        print(f"warning: nothing was written to the card; "
+              f"reading the console instead, see {out / 'console.txt'}")
+        return console
+
+    text = clean(written.decode(errors="replace"))
+    (out / RESULTS).write_text(text)
     return text
 
 
@@ -223,17 +232,11 @@ def main():
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/benchmarks")
     parser.add_argument("--limit", type=int, default=20_000_000_000)
-    parser.add_argument("--commands", action="store_true",
-                        help="print the commands to run on a real device")
     parser.add_argument("--compare", type=Path,
                         help="a captured device session to compare against")
     parser.add_argument("--parse", type=Path,
                         help="read a console log instead of running anything")
     args = parser.parse_args()
-
-    if args.commands:
-        print("\n".join(COMMANDS))
-        return 0
 
     if args.parse:
         text = clean(args.parse.read_bytes().decode(errors="replace"))

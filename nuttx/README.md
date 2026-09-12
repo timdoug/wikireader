@@ -46,6 +46,7 @@ On top of those:
 | `micropython` | MicroPython 1.29 — REPL, big integers, `os` `time` `struct` `array` over NuttX's filesystem |
 | `coremark` `dhrystone` `whetstone` | the standard CPU benchmarks — see "Benchmarks" below |
 | `ramspeed` `sdbench` | memory and card throughput |
+| `bench` | runs all of those and writes the results to the card |
 | `wrforth` | the Forth this device shipped with — see "The Forth" below |
 | Toybox | 139 commands under their own names: `awk grep sed find sort wc head tail xargs cut tr uniq od xxd diff tar gzip seq stat md5sum dd tee more patch readelf` ... |
 
@@ -56,9 +57,9 @@ holds.
 `sz`/`rz` transfer on `/dev/console` and land files in `/tmp`; they were the
 only way anything left this device before the card was readable.
 
-`nuttx.app` is 2,912,360 bytes, against 1,561,040 before any of this: 76 KB
+`nuttx.app` is 2,914,408 bytes, against 1,561,040 before any of this: 76 KB
 for the tools above, 38 KB for the card, 567 KB for the four interpreters,
-30 KB for the benchmarks, the rest for Toybox.
+32 KB for the benchmarks, the rest for Toybox.
 
 ### Lua
 
@@ -506,20 +507,37 @@ row activations and the SPI card, and the guest's clock is driven by those
 counts, so what comes out is emulated seconds. What they are worth is a
 question only the hardware answers.
 
-So the commands are fixed, with the iteration counts spelled out rather than
-left to each benchmark to pick, and both machines run the same image:
+Both sides run the same thing, and what they run is a device command:
 
-```sh
-make -C nuttx bench                       # the emulated device
-python3 .../run_benchmarks.py --commands  # what to type on a real one
-python3 .../run_benchmarks.py --compare session.txt
+```
+nsh> bench
+bench: writing /sd/bench.txt
+[1/5] coremark 28.6 s
+[2/5] dhrystone 3.6 s
+[3/5] whetstone 17.6 s
+[4/5] ramspeed 4.5 s
+[5/5] sdbench 6.2 s
+bench: 5 of 5 ran, 60 s total
+bench: /sd/bench.txt written, card unmounted -- safe to remove
 ```
 
-The last one parses a captured device session with the same parsers and prints
-emulator, device and the ratio side by side. `sdbench` writes a couple of
-megabytes to the card and reads them back, so run it on a card you do not mind
-writing to -- and note that the emulator needs a writable card image, which is
-to say without `wremu -R`.
+`apps/system/bench` holds the iteration counts, starts each benchmark with the
+console output going to the file rather than to a 39-column panel, and
+unmounts the card when it has finished so that the line saying it is safe to
+remove is true. A minute, start to finish. Then:
+
+```sh
+make -C nuttx bench                       # types "bench" at the emulator
+python3 .../run_benchmarks.py --compare /Volumes/WIKIREADER/bench.txt
+```
+
+The harness reads its own results back out of the card image, so both columns
+come from the same file written the same way. There is one list of commands
+and it is in the device application: a benchmark run compared against a
+differently-argued benchmark run is worse than no comparison at all.
+`sdbench` writes a couple of megabytes to the card and reads them back, so use
+a card you do not mind writing to -- and note that the emulator needs a
+writable card image, which is to say without `wremu -R`.
 
 From this tree, at 48 MHz:
 
@@ -534,7 +552,7 @@ ramspeed   memcpy internal @ 1024 KB    52,512.82 KB/s
            memcpy system @ 1024 KB      23,540.23 KB/s
            memset internal @ 1024 KB    85,333.33 KB/s
            memset system @ 1024 KB      29,257.14 KB/s
-sdbench    sequential write                721.30 KB/s
+sdbench    sequential write                718.90 KB/s
            sequential read + verify        320.00 KB/s
 ```
 
@@ -545,6 +563,18 @@ library rather than of the processor. And ramspeed's own word-at-a-time
 memcpy is more than twice as fast as the C library's, with memset nearly
 three times -- the generic byte loops in `libs/libc/string` are what this
 board links, and something that copies a word at a time would be worth having.
+
+Getting that output into one file needed two things fixed. `exec_builtin()`
+has always carried all three streams in its redirection structure and acted on
+two of them, so a builtin's standard error went to the console whatever it was
+told -- which is the one thing `2> file` is asking not to happen, and it is
+where Dhrystone prints the variable checks that say the run was valid. And the
+first version of this handed each benchmark the *path* rather than a
+descriptor, which opens the file again per stream: two handles on one FAT file
+do not know about each other, and whichever closes last writes its own idea of
+the length into the directory entry. The file came back holding nothing but
+the headers. One descriptor, shared by dup2, is the only arrangement that
+works.
 
 Whetstone needed a fix to report anything at all: it times in milliseconds and
 then divides by `(ms * 1000)` where the benchmark it was converted from divided

@@ -1,0 +1,47 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config SYSTEM_BENCH
+	tristate "Run the benchmarks and save the results"
+	default n
+	depends on BUILTIN && SCHED_WAITPID && NSH_PIPELINE
+	---help---
+		NSH_PIPELINE is what makes the builtin spawn able to hand a child a
+		descriptor rather than a path, and a shared descriptor is the only
+		way several programs can write one file on a FAT card in order.
+	---help---
+		One command that runs every benchmark in the image and writes what
+		they printed to a file, so that a device with no network and a
+		keyboard you would not wish on anybody can be measured by typing
+		five letters and then taking the card out.
+
+if SYSTEM_BENCH
+
+config SYSTEM_BENCH_PROGNAME
+	string "Program name"
+	default "bench"
+
+config SYSTEM_BENCH_PRIORITY
+	int "Task priority"
+	default 100
+
+config SYSTEM_BENCH_STACKSIZE
+	int "Stack size"
+	default 2048
+
+config SYSTEM_BENCH_OUTPUT
+	string "Where the results go"
+	default "/sd/bench.txt"
+	---help---
+		Overridden by an argument.
+
+config SYSTEM_BENCH_MOUNT
+	string "Filesystem to unmount when finished"
+	default "/sd"
+	---help---
+		Unmounted once the results are written, so that the card can be
+		taken out as soon as the command says it is safe to.
+
+endif

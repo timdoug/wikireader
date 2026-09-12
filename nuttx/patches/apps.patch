@@ -37,6 +37,52 @@ index dbc8247..106102d 100644
    if (KIPS >= 1000.0)
      {
        printf("C Converted Double Precision Whetstones: %.1f MIPS\n",
+diff --git a/builtin/exec_builtin.c b/builtin/exec_builtin.c
+index f6edf1a..45e9f20 100644
+--- a/builtin/exec_builtin.c
++++ b/builtin/exec_builtin.c
+@@ -203,6 +203,41 @@ int exec_builtin(FAR const char *appname, FAR char * const *argv,
+             }
+         }
+ #endif
++
++      /* Is the error output being redirected?  The structure has carried
++       * all three streams for as long as it has existed and this acted on
++       * two of them, so a builtin's stderr went to the console whatever it
++       * was told -- which is the one thing "2> file" is asking not to
++       * happen.
++       */
++
++      if (param->file_err)
++        {
++          /* Set up to close open redirfile and set to stderr (2) */
++
++          ret = posix_spawn_file_actions_addopen(&file_actions, 2,
++                                                 param->file_err,
++                                                 param->oflags_err, 0644);
++          if (ret != 0)
++            {
++              serr("ERROR: posix_spawn_file_actions_addopen failed: %d\n",
++                   ret);
++              goto errout_with_actions;
++            }
++        }
++#ifdef CONFIG_NSH_PIPELINE
++      else if (param->fd_err != -1)
++        {
++          ret = posix_spawn_file_actions_adddup2(&file_actions,
++                                                 param->fd_err, 2);
++          if (ret != 0)
++            {
++              serr("ERROR: posix_spawn_file_actions_adddup2 failed: %d\n",
++                   ret);
++              goto errout_with_actions;
++            }
++        }
++#endif
+     }
+ 
+ #ifdef CONFIG_LIBC_EXECFUNCS
 diff --git a/interpreters/lua/Makefile b/interpreters/lua/Makefile
 index 40daf76..91f697d 100644
 --- a/interpreters/lua/Makefile
