@@ -60,6 +60,10 @@ end-code
 : #>                      :: number-sign-greater     ( xd -- c-addr u )
   2drop hld @ pad over - ;
 
+: #tib                    :: number-sign-tib         ( -- a-addr )
+\ ** obsolescent: where the terminal input buffer's count is kept
+  terminal-count ;
+
 : #s                      :: number-sign-s           ( ud1 -- ud2 )
   begin # 2dup or while repeat ;
 
@@ -473,13 +477,19 @@ set_true_flag_1:
         NEXT
 end-code
 
-code >body                :: to-body                 ( xt -- a-addr )
+code >param               :: to-param                ( xt -- a-addr )
+\ ** where a definition keeps the pointer to its body, not the body itself;
+\ ** one of the header accessors, alongside >link, >flags and >name
         ld.w    %r4, [%r1]                           ; xt
         xld.w   %r5, DICTIONARY_CODE_TO_PARAM_OFFSET_BYTES
         add     %r4, %r5
         ld.w    [%r1], %r4
         NEXT
 end-code
+
+: >body                   :: to-body                 ( xt -- a-addr )
+\ ** the data field itself, which is what the standard means by >body
+  >param @ ;
 
 code >code                :: to-code                 ( name-a-addr -- xt )
         ld.w    %r4, [%r1]                           ; xt
@@ -1033,7 +1043,7 @@ variable cp               :: cp                      ( -- addr )
   >r here r@  cmove                                  \ name string
   r> allot                                           \ (skip over name)
   align                                              \ endure aligned
-  here last-definition @ >body !                     \ set the param pointer
+  here last-definition @ >param !                    \ set the param pointer
   get-current @                                      \ previous name address
   last-definition @ >link !                          \ store in link
   last-definition @ >name                            \ current name address
@@ -1303,7 +1313,14 @@ end-code
   rot rot \ char c-addr u
   0 ?do 2dup c! 1+ loop 2drop ;
 
-\ find                    :: find                    ( c-addr -- c-addr 0  |  xt 1  |  xt -1 )
+: find                    :: find                    ( c-addr -- c-addr 0  |  xt 1  |  xt -1 )
+\ ** search the wordlists for a counted string, leaving it alone if not found
+  dup count search-wordlists ?dup if
+    rot drop
+  else
+    0
+  then ;
+
 
 code flag-compile-only    :: flag-compile-only       ( -- u )
         ld.w    %r4, FLAG_COMPILE_ONLY
@@ -1457,6 +1474,10 @@ end-code
 \ for create to store the last definitions xt
 variable last-definition  :: last-definition         ( -- a-addr )
 
+: latestxt                :: latest-x-t              ( -- xt )
+\ ** the execution token of the most recent definition
+  last-definition @ ;
+
 \ leave                   :: leave                   ( -- ) ( R: loop-sys -- )
 \ list                    :: list                    ( u -- )
 
@@ -1519,6 +1540,11 @@ end-code
 \ move                    :: move                    ( addr1 addr2 u -- )
 
 \ ms                      :: ms                      ( u -- )
+
+: name>string             :: name-to-string          ( nt -- c-addr u )
+\ ** the name a name token refers to.  A name token here is the counted
+\ ** string the dictionary header already holds, so this is count.
+  count ;
 
 code negate               :: negate                  ( n1 -- n2 )
         ld.w    %r4, [%r1]
@@ -2026,7 +2052,7 @@ end-code
     dup >does @                 \ xt does
   else
       dup @ ['] (colon) @ = if
-      dup >body @               \ xt body
+      dup >body                 \ xt body
     else
       drop
       ." not a colon definition"
@@ -2144,6 +2170,10 @@ end-code
   cells r> + !
 ;
 
+: str=                    :: str-equals              ( c-addr1 u1 c-addr2 u2 -- flag )
+\ ** true when two strings match in both length and content
+  compare 0= ;
+
 variable state            :: state                   ( -- a-addr )
 
 code swap                 :: swap                    ( x1 x2 -- x2 x1 )
@@ -2167,6 +2197,10 @@ code terminal-buffer      :: terminal-buffer         ( -- c-addr buffer-length )
 end-code
 
 variable terminal-count   :: terminal-count          ( -- a-addr )
+
+: tib                     :: t-i-b                   ( -- c-addr )
+\ ** obsolescent: the address of the terminal input buffer
+  terminal-buffer drop ;
 
 : then                    :: then                    ( C: orig -- ) ( -- )
   align
@@ -2269,7 +2303,15 @@ end-code
 : variable                :: variable                ( "<spaces>name" -- ) ( -- a-addr )
   create 0 , ;
 
-\ vocabulary              :: vocabulary              ( name -- )
+: vocabulary              :: vocabulary              ( "<spaces>name" -- )
+\ ** define a wordlist that replaces the top of the search order when run.
+\ ** The body is the wordlist -- a single cell holding the last name, which
+\ ** is all a wid is here -- so >body of the vocabulary gives the wid.
+  create 0 ,
+  does> >r
+    get-order dup 0> if nip else 1+ then
+    r> swap set-order ;
+
 \  wordlist create ,  do-vocabulary ;
 
 code w/o                  :: w-o                     ( -- fam )
@@ -2286,7 +2328,21 @@ end-code
   over - >r - r> u< ;
 
 \ deprecated - do not create
-\ word                    :: word                    ( char "<chars>ccc<char>" -- c-addr )
+: word                    :: word                    ( char "<chars>ccc<char>" -- c-addr )
+\ ** skip leading delimiters, parse, and leave a counted string at here
+\ ** the count is a cell, not a byte: see count and the LSTRING macro
+  >r
+  begin
+    source nip >in @ >
+    if source drop >in @ + c@ r@ = else false then
+  while
+    1 >in +!
+  repeat
+  r> parse
+  dup here !
+  here cell+ swap cmove
+  here ;
+
 
 : wordlist                :: wordlist                ( -- wid )
   align here    \ addr
@@ -2342,7 +2398,8 @@ end-code
   char postpone literal ; immediate compile-only
 
 : [compile]               :: bracket-compile         ( C: "<spaces>name" -- )
-  -30 throw ;
+\ ** compile the next word even when it is immediate
+  ' compile, ; immediate compile-only
 
 : [ctrl]                  :: bracket-ctrl            ( C: "<spaces>name" -- ) ( -- char )
   ctrl postpone literal ; immediate compile-only

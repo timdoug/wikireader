@@ -281,13 +281,13 @@ meta-compiler
   cr
   tab ." CONSTANT" tab cross-dict-name
   dup constant
-  latestxt >name cell+ dup cell+ swap @ 255 and
+  latestxt >name name>string
   34 emit
   escaped-type
   34 emit
   parse-word 2drop parse-word 2drop \ ignore :: <word>
   space
-  latestxt >name cell+ dup cell+ swap @ 255 and
+  latestxt >name name>string
   ['] meta-words >body
   search-wordlist if
     suppress execute ."  0"
