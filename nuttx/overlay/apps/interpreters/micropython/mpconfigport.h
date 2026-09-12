@@ -92,6 +92,16 @@
 
 typedef long mp_off_t;
 
+/* Upstream's banner is the git description and the date the build ran, which
+ * makes two identical builds different binaries.  The version of the tarball
+ * that was downloaded says the same useful thing and says it every time; the
+ * machine name follows it, so the REPL opens with
+ * "MicroPython 1.29.0; WikiReader with S1C33E07".
+ */
+
+#define MICROPY_BANNER_NAME_AND_VERSION \
+  "MicroPython " MICROPY_VERSION_STRING
+
 #define MICROPY_HW_BOARD_NAME          "WikiReader"
 #define MICROPY_HW_MCU_NAME            "S1C33E07"
 

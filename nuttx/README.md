@@ -615,6 +615,35 @@ and a network for the pinned Toybox and Lua tarballs. Any `awk` will do; the
 scripts that generate the Forth's symbol table and hoist its dictionary flags
 are POSIX, and `AWK` and `GFORTH` are both overridable.
 
+### The build is reproducible
+
+`make repro` builds twice from clean and compares: two builds of an unchanged
+tree give a byte-identical `nuttx.app`, down to the DWARF in the unstripped
+kernel. That is what makes "did this change the output?" a question with an
+answer, which comes up constantly when touching the compiler, the linker
+script or a configuration option.
+
+Three things had to be fixed for it. Two were clocks: NuttX's `uname` carried
+`__DATE__ " " __TIME__`, which upstream has a switch for
+(`CONFIG_LIBC_UNAME_DISABLE_TIMESTAMP`) and which still leaves
+`CONFIG_VERSION_BUILD` to say which source the build came from; and
+MicroPython's banner is upstream the output of `git describe` and the date the
+build ran, which here is a tarball with no repository and a calendar, so it
+says the version that was downloaded instead.
+
+The third was the interesting one. `libapps.a` is built up one subdirectory at
+a time, each contribution appended under a lock by whichever parallel job
+reached it first, so the order of its members was the order this machine
+happened to finish compiling them in — and the linker lays sections out in the
+order it pulls members from an archive. The image differed between builds by a
+few bytes of padding, with the size alternating between two values.
+`apps/tools/canonicalize-archive.sh` puts the members back in sorted order once
+the archive is complete. It is not a four-line script because the member names
+are not unique: NuttX names an object after its source path with the
+separators turned into dots, and toybox's `lib/env.c` and `toys/posix/env.c`
+land on the same name, so extraction has to be done an instance at a time or
+the image loses one of them.
+
 `CONFIG` picks the board configuration; it defaults to `app`, the one this
 directory exists to build. `lcd`, `tcc`, `nsh` and `ostest` are for a loader
 that hands over the whole machine and never wants it back, and are documented

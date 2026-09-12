@@ -93,7 +93,9 @@ def main():
     if not re.search(r"PY_STATUS=0\b", text):
         problems.append("the interpreter exited non-zero")
 
-    if not re.search(r"^MicroPython .* on ", text, re.M):
+    # The banner says which version was built and nothing about when, which
+    # is what keeps two builds of this image identical.
+    if not re.search(r"^MicroPython \d+\.\d+\.\d+; WikiReader", text, re.M):
         problems.append("no interpreter banner")
     if ">>> 6*7" not in text:
         problems.append("the REPL printed no prompt, or did not echo")

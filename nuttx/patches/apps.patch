@@ -1,3 +1,22 @@
+diff --git a/Makefile b/Makefile
+index 74cb37d..bdd2916 100644
+--- a/Makefile
++++ b/Makefile
+@@ -116,7 +116,14 @@ ifeq ($(CONFIG_MODULES),)
+ ifeq ($(CONFIG_WINDOWS_NATIVE),y)
+ $(BIN): $(foreach SDIR, $(CONFIGURED_APPS), $(SDIR)_all)
+ else
++# Every subdirectory above appended its objects to the archive as it
++# finished, so their order is the order this machine happened to compile them
++# in -- and the linker lays out the image in the order it takes members from
++# the archive.  Put them back in a fixed one, so that two builds of the same
++# tree produce the same program.
+ $(BIN): $(foreach SDIR, $(CONFIGURED_APPS), $(SDIR)_all)
++	$(Q) $(APPDIR)$(DELIM)tools$(DELIM)canonicalize-archive.sh \
++		"$(firstword $(AR))" $(BIN)
+ 	$(call LINK_WASM)
+ endif
+ 
 diff --git a/interpreters/lua/Makefile b/interpreters/lua/Makefile
 index 40daf76..91f697d 100644
 --- a/interpreters/lua/Makefile

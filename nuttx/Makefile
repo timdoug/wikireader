@@ -92,6 +92,19 @@ test:
 	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/test_micropython.py \
 		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
 
+# Two builds from clean, compared.  The whole point of a reproducible build is
+# that "did this change the output?" has an answer, and the way to keep that
+# true is to ask it now and then; it is not part of "test" because it costs
+# two builds and answers a question about the build rather than the program.
+.PHONY: repro
+repro:
+	@${GMAKE} clean > /dev/null && ${GMAKE} > /dev/null
+	@cp nuttx.app ${HERE}/.repro.app
+	@${GMAKE} clean > /dev/null && ${GMAKE} > /dev/null
+	@cmp ${HERE}/.repro.app nuttx.app && \
+		echo "PASS: two clean builds of nuttx.app are byte-identical"
+	@rm -f ${HERE}/.repro.app
+
 # Build products only, like zim-clean and doom-clean: the repository's "make
 # clean" reaches this, and it must not cost a NuttX reconfigure.  NuttX's own
 # clean keeps .config; it needs Make.defs, which only exists once configured.

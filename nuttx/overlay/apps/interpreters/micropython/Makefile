@@ -19,7 +19,9 @@ MP_DIR     = micropython
 MP_BUILD   = $(CURDIR)/mpbuild
 
 # The generated headers have to be made with the flags the sources will be
-# compiled with, so hand NuttX's own over to MicroPython's make.
+# compiled with, so hand NuttX's own over to MicroPython's make.  The version
+# header is told what to say as well: left alone it asks git about a tarball
+# that came with no repository, and dates the build, so it changed daily.
 
 MP_CFLAGS = $(ARCHCPUFLAGS) $(ARCHOPTIMIZATION) $(ARCHINCLUDES) \
             -std=gnu11 -ffreestanding -D__NuttX__
@@ -48,7 +50,9 @@ MP_HEADERS = $(MP_BUILD)/genhdr/qstrdefs.generated.h \
 
 $(MP_BUILD)/headers.stamp: $(MP_DIR) mpconfigport.h qstrdefsport.h \
                            micropython.mk Makefile
-	$(Q) $(MAKE) -f micropython.mk headers \
+	$(Q) MICROPY_GIT_TAG=v$(MP_VERSION) MICROPY_GIT_HASH=v$(MP_VERSION) \
+		SOURCE_DATE_EPOCH=0 \
+		$(MAKE) -f micropython.mk headers \
 		TOP=$(CURDIR)/$(MP_DIR) PORT_DIR=$(CURDIR) BUILD=$(MP_BUILD) \
 		CC="$(CC)" CFLAGS_EXTRA="$(MP_CFLAGS)" PYTHON=python3 \
 		CROSS_COMPILE=
