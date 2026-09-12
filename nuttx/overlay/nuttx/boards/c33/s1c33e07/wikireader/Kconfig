@@ -51,6 +51,16 @@ config WIKIREADER_LCD
 		240x208 LCD in 1-bpp mode, with a 32-byte stride in internal VRAM.
 		The boot loader supplies the panel's contrast/power-rail setup.
 
+config WIKIREADER_BOOT_PROGRESS
+	bool "Draw startup progress on the panel"
+	default y
+	depends on WIKIREADER_LCD
+	---help---
+		One square along the top of the display per stage of board
+		startup, drawn before there is a terminal to print to.  A device
+		with nothing attached to its serial port has no other way to say
+		how far it got, and the terminal paints over them when it starts.
+
 config WIKIREADER_TOUCH
 	bool "WikiReader UART1 touchscreen"
 	select INPUT

@@ -498,6 +498,26 @@ can drop it.
 because `<sys/syscall.h>` includes it unconditionally. This is a flat build
 with no system call interface, so there is nothing in it.
 
+### When it does not start
+
+There is a serial console on UART0, and most of these devices have nothing
+attached to it. So the panel says how far startup got: one black square along
+the top per stage of `board_late_initialize` -- filesystems, framebuffer, card,
+touch -- drawn straight into the framebuffer, since the terminal that could
+print it in words is started by the thing being reported on. The framebuffer
+is cleared as it is registered, so the first square you can see is the one
+drawn after that, and the terminal paints over the row when it starts. A
+normal boot shows them for a fraction of a second; a machine that stops during
+startup leaves them on the screen to be counted.
+
+Once the terminal is up, `dmesg` replays the startup log on the panel:
+`CONFIG_RAMLOG` keeps it in memory as a second syslog channel, so it survives
+having nowhere to be printed. `WikiReader: no card mounted: -22` is what a
+failed card mount looks like there.
+
+Startup does not depend on the card: the mount is allowed to fail and the
+terminal comes up anyway.
+
 ## Benchmarks
 
 `make bench` runs NuttX's benchmark applications on the emulated device and

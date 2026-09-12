@@ -141,10 +141,39 @@ static struct s1c33e07_spidev_s g_spidev =
  *
  ****************************************************************************/
 
+/* A peripheral that is not clocking answers nothing, and a driver that
+ * waits for it forever takes the machine with it.  This one runs from
+ * board_late_initialize(), before the terminal exists and with a serial
+ * console most of these devices have nothing attached to, so the symptom of
+ * an unbounded wait here is a blank panel and no way to ask why.  The bound
+ * is far longer than any byte can take -- the slowest clock this driver
+ * selects shifts one in 85us, and a poll is a handful of cycles -- and
+ * short enough that a card which does not answer costs a failed mount
+ * rather than the boot.
+ */
+
+#define SPI_POLL_LIMIT 1000000
+
+static bool spi_wait_flag(uint32_t flag, bool wanted)
+{
+  uint32_t spins;
+
+  for (spins = SPI_POLL_LIMIT; spins > 0; spins--)
+    {
+      if (((getreg32(S1C33_SPI_STAT) & flag) != 0) == wanted)
+        {
+          return true;
+        }
+    }
+
+  return false;
+}
+
 static void spi_wait_idle(void)
 {
-  while ((getreg32(S1C33_SPI_STAT) & SPI_STAT_BSYF) != 0)
+  if (!spi_wait_flag(SPI_STAT_BSYF, false))
     {
+      spierr("ERROR: the transmitter never went idle\n");
     }
 }
 
@@ -190,8 +219,14 @@ static uint32_t spi_transfer(uint32_t wd)
   spi_wait_idle();
   putreg32(wd, S1C33_SPI_TXD);
 
-  while ((getreg32(S1C33_SPI_STAT) & SPI_STAT_RDFF) == 0)
+  if (!spi_wait_flag(SPI_STAT_RDFF, true))
     {
+      /* All ones is what a released data line reads as, so this is the
+       * answer the layers above already know how to disbelieve.
+       */
+
+      spierr("ERROR: no reply from the SPI controller\n");
+      return 0xffffffff;
     }
 
   return getreg32(S1C33_SPI_RXD);
