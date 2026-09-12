@@ -42,12 +42,14 @@
  ****************************************************************************/
 
 #define WR_TOUCH_QUEUE 16
-/* What the panel talks at: CTP_BPS in samo-lib/include/samo.h.  The divisor
- * works out at 97, the same number the original firmware's CALC_BAUD
- * produces, for 38265 baud against a nominal 38400.
+/* What the panel talks at.  CTP_BPS is 38400 in samo-lib/include/samo.h and
+ * 9600 in samo-lib/include/boards/samo_a1.h, which is the board this is --
+ * the board header is included first and wins.  Against the 60 MHz system
+ * clock the divisor works out at 390, which is what grifo writes into the
+ * same register.
  */
 
-#define WR_TOUCH_BAUD  38400
+#define WR_TOUCH_BAUD  9600
 #define WR_TOUCH_IRQS  0x30
 
 /****************************************************************************
