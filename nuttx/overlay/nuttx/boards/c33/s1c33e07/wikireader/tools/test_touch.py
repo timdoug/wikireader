@@ -12,8 +12,7 @@ STUB = r"""
 #include <stdbool.h>
 #include <stddef.h>
 #define OK 0
-#define CONFIG_S1C33E07_MCLK 48000000
-#define CONFIG_S1C33E07_BAUDCLK 60000000
+#define CONFIG_S1C33E07_MCLK 60000000
 #define C33_IRQ_UART1RX 61
 #define C33_IRQ_UART1ERR 60
 #define TOUCH_DOWN 1

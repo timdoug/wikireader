@@ -24,22 +24,17 @@ config S1C33E07_UART0
 
 config S1C33E07_MCLK
 	int "Main clock frequency"
-	default 48000000
-	---help---
-		The first port retains the boot loader's 48 MHz clock.
-		This value must match the loader's MCLK; it does not reprogram
-		the PLL.
-
-config S1C33E07_BAUDCLK
-	int "Clock feeding the serial baud rate generators"
 	default 60000000
 	---help---
-		Not the main clock.  The loader brings up the PLL -- 48 MHz
-		divided by 8 into it, 60 MHz out -- and the serial interfaces
-		take their baud rate from that, which is why the original
-		firmware computes the touch panel's divisor from PLL_CLK and
-		not from MCLK (samo-lib/drivers/src/ctp.c, and suspend.c, which
-		reprograms both interfaces when it switches the clock over).
-		Getting this wrong costs 25 per cent of every baud rate here,
-		which no emulator will notice: wremu's serial model does not
-		look at the divisor at all.
+		What the loader leaves running, not the crystal.  The 48 MHz
+		crystal goes into the PLL divided by 8 and comes out at 60 MHz,
+		and that is the system clock by the time an application is
+		loaded -- grifo's own comment on the setup says so, the
+		original firmware computes the touch panel's baud rate from it
+		(samo-lib/drivers/src/ctp.c), and the emulator derives the same
+		figure from the registers (emulator/tools/test_cmu.c, "system
+		clock is 60 MHz").
+
+		This port read 48 MHz here for a long time, which made the
+		system tick a quarter fast, every udelay a quarter short, the
+		SPI clock a quarter high and both serial ports unusable.

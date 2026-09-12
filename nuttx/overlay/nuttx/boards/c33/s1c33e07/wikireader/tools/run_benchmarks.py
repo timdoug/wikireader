@@ -50,7 +50,10 @@ def parse_coremark(text):
     if not match:
         return []
     score = float(match.group(1))
-    return [("iterations/sec", score, ""), ("CoreMark/MHz", score / 48.0, "")]
+
+    # The system clock is the PLL's 60 MHz, not the 48 MHz crystal that
+    # feeds it -- see CONFIG_S1C33E07_MCLK.
+    return [("iterations/sec", score, ""), ("CoreMark/MHz", score / 60.0, "")]
 
 
 def parse_dhrystone(text):
