@@ -10,7 +10,8 @@ config INTERPRETERS_WRFORTH
 		The ANS Forth the WikiReader shipped with, running as a task.
 
 		It is metacompiled from samo-lib/forth by gforth at build time,
-		which has to be on the path along with gawk.  Everything it knows
+		which has to be on the path; awk does the rest and any awk will
+		do.  Everything it knows
 		about the outside world it reaches through about sixty C calls,
 		and those are answered here with POSIX file and terminal calls
 		instead of the bare-metal drivers, so "include /sd/calc.4th"

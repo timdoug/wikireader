@@ -42,22 +42,29 @@ AFLAGS += -Wa,--defsym,NUTTX_FORTH=1
 AFLAGS += -Wa,--defsym,NUTTX_FORTH_DICT_SIZE=$(WRFORTH_DICT)
 AFLAGS += -Wa,-I,$(WRFORTH_SRC)
 
+# The metacompiler is gforth's; everything else here is POSIX awk, so any
+# awk will do.  Both are overridable for a host that keeps them elsewhere.
+
+AWK    ?= awk
+GFORTH ?= gforth
+
 # sym.awk turns every "word :: label" line into the metacompiler's symbol
 # table, and has to see the extra words here as well as the interpreter.
-# It needs gawk: it uses gensub.
 
 forth-symbols.fi: $(WRFORTH_SRC)/sym.awk $(WRFORTH_SRC)/ansi-forth.fs \
                   nuttx-forth.fi
-	$(Q) gawk -f $(WRFORTH_SRC)/sym.awk $(WRFORTH_SRC)/ansi-forth.fs \
+	$(Q) $(AWK) -f $(WRFORTH_SRC)/sym.awk $(WRFORTH_SRC)/ansi-forth.fs \
 		nuttx-forth.fi > $@
 
 forth.s: $(WRFORTH_SRC)/header.s $(WRFORTH_SRC)/meta.fs forth-symbols.fi \
          $(WRFORTH_SRC)/ansi-forth.fs nuttx-forth.fi \
          $(WRFORTH_SRC)/trailer.s $(WRFORTH_SRC)/hoist-flags.awk
-	$(Q) gforth $(WRFORTH_SRC)/meta.fs forth-symbols.fi \
+	$(Q) command -v $(GFORTH) > /dev/null || \
+		{ echo "$(GFORTH) is needed to metacompile the Forth" >&2; exit 1; }
+	$(Q) $(GFORTH) $(WRFORTH_SRC)/meta.fs forth-symbols.fi \
 		$(WRFORTH_SRC)/ansi-forth.fs nuttx-forth.fi -e "bye" > forth-body.s
 	$(Q) cat $(WRFORTH_SRC)/header.s > $@
-	$(Q) gawk -f $(WRFORTH_SRC)/hoist-flags.awk forth-body.s >> $@
+	$(Q) $(AWK) -f $(WRFORTH_SRC)/hoist-flags.awk forth-body.s >> $@
 	$(Q) cat $(WRFORTH_SRC)/trailer.s >> $@
 
 # Application.mk builds the dependency list before anything else, and it

@@ -7,7 +7,6 @@
 
 BEGIN {
         _ord_init()
-        delete done
         compiling = 0
 
         print "\\ generated file - do not modify"
@@ -100,9 +99,22 @@ function asm_name(word, name) {
         }
 }
 
+# The word after "constant" names it -- the last such word on the line, as
+# the greedy back-reference this replaces would have picked.  gensub() is a
+# gawk extension, and choosing the field is both portable and plainer.
+
+function constant_name(    i, found) {
+        found = ""
+        for (i = 1; i < NF; i++) {
+                if ("constant" == $i) {
+                        found = $(i + 1)
+                }
+        }
+        return "" == found ? $0 : found
+}
+
 /^([[:space:]]*|.*[[:space:]])constant[[:space:]]/ {
-        word = gensub(/^(.*[[:space:]]|[[:space:]]*)constant[[:space:]]+([^[:space:]]+)([[:space:]]*|[[:space:]].*)$/, "\\2", 1)
-        word = tolower(word)
+        word = tolower(constant_name())
         if (!done[word] && !compiling) {
                 print ": " word "   output-symbol\" " asm_name(word, "") "\" ;"
                 done[word] = 1

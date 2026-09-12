@@ -114,9 +114,10 @@ rather than being removed, so a program that asks gets a defined answer and
 not a link error. The LCD words need no C at all: they write to `0x00080000`,
 which is where the framebuffer still is.
 
-The interpreter is metacompiled by `gforth` at build time, so `gforth` and
-`gawk` have to be on the path. Three changes let the same sources build both
-ways, all guarded by `NUTTX_FORTH` so the bare-metal image is unchanged:
+The interpreter is metacompiled by `gforth` at build time, which is the one
+tool here that has no substitute: `meta.fs` is itself a Forth program. Three
+changes let the same sources build both ways, all guarded by `NUTTX_FORTH` so
+the bare-metal image is unchanged:
 
 * the entry point. `main` sets up the machine — trap table, interrupt
   controller, drivers, and a cleared status register that would turn
@@ -523,8 +524,10 @@ other applications; `make distclean` drops the configuration too, and `make
 realclean` the fetched upstream trees with it. The repository's own `make
 clean` reaches only the first of those.
 
-Besides the C33 toolchain this needs `gforth` and `gawk`, which metacompile
-the Forth, and a network for the pinned Toybox and Lua tarballs.
+Besides the C33 toolchain this needs `gforth`, which metacompiles the Forth,
+and a network for the pinned Toybox and Lua tarballs. Any `awk` will do; the
+scripts that generate the Forth's symbol table and hoist its dictionary flags
+are POSIX, and `AWK` and `GFORTH` are both overridable.
 
 `CONFIG` picks the board configuration; it defaults to `app`, the one this
 directory exists to build. `lcd`, `tcc`, `nsh` and `ostest` are for a loader

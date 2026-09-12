@@ -54,13 +54,15 @@ RM = rm -f
 MKDIR = mkdir -p
 COPY = cp -p
 TOUCH = touch
+
+# Every awk script here is POSIX; nothing needs a particular one.
+AWK ?= awk
 STRIP_HASH_OR_BLANK_LINES = grep -v '^[[:space:]]*\(\#.*\)\?[[:space:]]*$$'
 
 
 ifeq (Linux,${OS})
 
 LOCKF = flock
-AWK = gawk
 
 # path must exist
 REALPATH = readlink -es
@@ -71,7 +73,6 @@ RESOLVEPATH = readlink -m
 else ifeq (FreeBSD,${OS})
 
 LOCKF = lockf
-AWK = gawk
 
 # path must exist
 REALPATH = realpath
@@ -82,7 +83,6 @@ RESOLVEPATH = /usr/local/bin/readlink -f
 else ifeq (Darwin,${OS})
 
 LOCKF = postlock
-AWK = gawk
 
 # path must exist
 REALPATH = /opt/local/bin/greadlink -es
