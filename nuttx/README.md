@@ -42,6 +42,7 @@ On top of those:
 | `sz` / `rz` | ZMODEM over UART0 — the only way files leave this device |
 | `mb` `mh` `mw` | peek and poke memory by byte, halfword and word |
 | `lua` | Lua 5.4 with its standard library, 32-bit numbers |
+| `bas` | Michael Haardt's Bas 2.4 — line numbers, `run`, `list`, the lot |
 | `wrforth` | the Forth this device shipped with — see "The Forth" below |
 | Toybox | 139 commands under their own names: `awk grep sed find sort wc head tail xargs cut tr uniq od xxd diff tar gzip seq stat md5sum dd tee more patch readelf` ... |
 
@@ -52,9 +53,9 @@ holds.
 `sz`/`rz` transfer on `/dev/console` and land files in `/tmp`; they were the
 only way anything left this device before the card was readable.
 
-`nuttx.app` is 2,488,664 bytes, against 1,561,040 before any of this: 76 KB
-for the tools above, 38 KB for the card, 180 KB for the two interpreters, the
-rest for Toybox.
+`nuttx.app` is 2,664,544 bytes, against 1,561,040 before any of this: 76 KB
+for the tools above, 38 KB for the card, 355 KB for the three interpreters,
+the rest for Toybox.
 
 ### Lua
 
@@ -87,6 +88,32 @@ One thing to know: `2^10 == 1024` is **false**. NuttX's own libm computes
 `powf` as `expf(e * logf(b))`, which lands about two units in the last place
 away from an exact power; `print(2^10)` rounds to `1024.0` and hides it.
 `math.sqrt` is exact.
+
+### BASIC
+
+`CONFIG_INTERPRETERS_BAS`: nuttx-apps carries all of Bas 2.4 in the tree, so
+there is nothing to download, and it wanted nothing this board did not
+already have. Its Kconfig does name `ARCH_HAVE_FORK`, but only on the option
+that shells out to a command; the interpreter itself never forks, which
+matters on an architecture that has no fork at all.
+
+```
+nsh> bas
+bas 2.4
+> 10 for i=1 to 3
+> 20 print i; " squared is "; i*i
+> 30 next i
+> run
+ 1  squared is  1
+ 2  squared is  4
+ 3  squared is  9
+> bye
+```
+
+`bas <file>` runs a program instead. `test_bas.py` does that from a card and
+compares every line it prints, because the failure worth catching is a wrong
+number rather than a crash: this is the first thing here to lean on the
+software floating point from a language where a bare number is a float.
 
 ### The Forth
 
