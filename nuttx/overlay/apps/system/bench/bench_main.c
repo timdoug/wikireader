@@ -81,6 +81,11 @@ static FAR char *const g_ubench[] =
   "ubench", NULL
 };
 
+static FAR char *const g_selftest[] =
+{
+  "selftest", NULL
+};
+
 static const struct benchmark_s g_benchmarks[] =
 {
   {
@@ -103,6 +108,14 @@ static const struct benchmark_s g_benchmarks[] =
 
   {
     "ubench", g_ubench
+  },
+
+  /* Not a measurement at all: every language on the image, run once, on the
+   * machine rather than on a model of it.
+   */
+
+  {
+    "selftest", g_selftest
   },
 
   /* Last, because it is the one that writes to the card the results are
@@ -149,6 +162,25 @@ static void bench_header(int fd, FAR const struct benchmark_s *bench)
     }
 
   dprintf(fd, "\n");
+}
+
+/* What the loader left the memory system on.  The boot loader in flash
+ * brings the SDRAM up on its most conservative timings and grifo retimes it
+ * on the way past, so whether that happened is the difference between a row
+ * change costing seven clocks and nineteen -- and it belongs with any
+ * number measured here, because it changes all of them.
+ */
+
+static void bench_memory(int fd)
+{
+  uint32_t ctl = *(FAR volatile uint32_t *)0x00301604;
+  uint32_t ref = *(FAR volatile uint32_t *)0x00301608;
+
+  dprintf(fd, "# sdram: tRP %u, tRAS %u, tRC %u, refresh 0x%x "
+              "(ctl 0x%08" PRIx32 ", ref 0x%08" PRIx32 ")\n",
+          (unsigned)(((ctl >> 12) & 3) + 1), (unsigned)(((ctl >> 8) & 7) + 1),
+          (unsigned)(((ctl >> 4) & 15) + 1), (unsigned)(ref & 0xfff),
+          ctl, ref);
 }
 
 static int bench_run(int fd, FAR const struct benchmark_s *bench)
@@ -230,6 +262,8 @@ int main(int argc, FAR char *argv[])
     {
       printf("bench: writing %s\n", path);
     }
+
+  bench_memory(fd);
 
   started = bench_uptime_ms();
   for (int i = 0; i < count; i++)

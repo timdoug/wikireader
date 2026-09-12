@@ -1447,6 +1447,19 @@ done:
 	       (unsigned long long)sdramc.dq_misses,
 	       (unsigned long long)sdramc.writes_timed,
 	       (unsigned long long)sdramc.activations);
+	/* The timings the run was modelled with. The boot loader leaves its
+	   most conservative ones and grifo retimes them on the way past, and
+	   which of those a measurement was taken under changes all of it. */
+	{
+		uint32_t ctl = sdramc.reg[(0x1604u - 0x1600u) / 4];
+		uint32_t ref = sdramc.reg[(0x1608u - 0x1600u) / 4];
+
+		printf("--- sdram timing: tRP %u, tRAS %u, tRC %u, refresh 0x%x,"
+		       " %u MB ---\n",
+		       ((ctl >> 12) & 3) + 1, ((ctl >> 8) & 7) + 1,
+		       ((ctl >> 4) & 15) + 1, ref & 0xfff,
+		       2u << ((ctl & 7u) + 1));   /* ADDRC geometry */
+	}
 	{
 		static const char *const kind[5] = { "fetch", "read", "write", "dmar", "dmaw" };
 		printf("--- sdram row activations by previous->this access kind:");
