@@ -1442,7 +1442,8 @@ done:
 		       dma.hsdma_channel_transfers[0], dma.hsdma_channel_transfers[1]);
 	printf("--- sdram: %llu wait cycles, %llu refreshes, %llu self-refresh exits;"
 	       " IQB %llu/%llu hit/miss, DQB %llu/%llu hit/miss,"
-	       " %llu writes, %llu row activations ---\n",
+	       " %llu writes, %llu row activations,"
+	       " %lu queue lines lost to a row change ---\n",
 	       (unsigned long long)sdramc.wait_cycles,
 	       (unsigned long long)sdramc.refreshes,
 	       (unsigned long long)sdramc.self_refresh_exits,
@@ -1451,7 +1452,8 @@ done:
 	       (unsigned long long)sdramc.dq_hits,
 	       (unsigned long long)sdramc.dq_misses,
 	       (unsigned long long)sdramc.writes_timed,
-	       (unsigned long long)sdramc.activations);
+	       (unsigned long long)sdramc.activations,
+	       sdramc.iq_row_evictions);
 	/* The timings the run was modelled with. The boot loader leaves its
 	   most conservative ones and grifo retimes them on the way past, and
 	   which of those a measurement was taken under changes all of it. */

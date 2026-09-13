@@ -46,6 +46,10 @@ struct model {
 	   memory: A0 measured exactly one cycle and these measure about two.
 	   Fitted 2026-09-13 against ubench on the device. */
 	unsigned ivram_fetch_wait;
+	/* Whether a queue line survives its row being closed. It does not on
+	   the hardware; zero restores the old behaviour, which is the way to
+	   ask what code straddling a page boundary is costing. */
+	unsigned iq_row_evict;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;

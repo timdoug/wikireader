@@ -27,6 +27,7 @@ struct model model = {
 	.sd_read_latency = 60000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
+	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
 	.dq_iram_extra = 2,
 	.dq_hit = 1,
 };
@@ -50,6 +51,7 @@ static const struct {
 	{ "sd_write_latency", &model.sd_write_latency, NULL },
 	{ "iram_fetch_wait", NULL, &model.iram_fetch_wait },
 	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
+	{ "iq_row_evict", NULL, &model.iq_row_evict },
 	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },

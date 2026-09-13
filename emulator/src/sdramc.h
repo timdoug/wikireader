@@ -19,6 +19,9 @@ struct sdramc {
 	uint32_t reg[SDRAMC_LEN / 4];
 	bool     initialised;
 	unsigned long writes;
+	/* Queue lines thrown away because a fill needed another row of the
+	   same bank: the cost of code lying across a page boundary. */
+	unsigned long iq_row_evictions;
 
 	/* SDRAM-interface time is kept in half-MCLK ticks (DBF uses one). */
 	uint64_t bus_free;

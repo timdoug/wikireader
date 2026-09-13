@@ -422,15 +422,17 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 			 */
 
 			address_parts(s, tag, &fill_bank, &fill_row);
-			for (unsigned i = 0; i < 2; i++) {
+			for (unsigned i = 0; model.iq_row_evict && i < 2; i++) {
 				unsigned bank;
 				uint32_t row;
 
 				if (!s->iq[i].valid || i == slot)
 					continue;
 				address_parts(s, s->iq[i].tag, &bank, &row);
-				if (bank == fill_bank && row != fill_row)
+				if (bank == fill_bank && row != fill_row) {
 					s->iq[i].valid = false;
+					s->iq_row_evictions++;
+				}
 			}
 
 			s->iq[slot].valid = true;
