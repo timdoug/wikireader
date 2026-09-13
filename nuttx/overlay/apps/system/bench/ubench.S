@@ -132,5 +132,65 @@ ub_straight:
 	.global	ub_straight_end
 ub_straight_end:
 
+/*
+ * The same loop at a range of sizes. There is no instruction cache, but
+ * there is a queue, and the size at which a loop stops fitting in it is
+ * where the cost of a byte changes -- which is the one number that decides
+ * whether a model of the fetch path has the right shape or merely the right
+ * answer for one loop.
+ */
+
+/* 4 adds before the branch: one point on the size sweep. */
+
+	.global	ub_s4
+	.type	ub_s4,@function
+ub_s4:
+	ld.w	%r5,1
+1:
+	.rept	4
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_s4_end
+ub_s4_end:
+
+/* 16 adds before the branch: one point on the size sweep. */
+
+	.global	ub_s16
+	.type	ub_s16,@function
+ub_s16:
+	ld.w	%r5,1
+1:
+	.rept	16
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_s16_end
+ub_s16_end:
+
+/* 32 adds before the branch: one point on the size sweep. */
+
+	.global	ub_s32
+	.type	ub_s32,@function
+ub_s32:
+	ld.w	%r5,1
+1:
+	.rept	32
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_s32_end
+ub_s32_end:
+
+
 	.global	ub_block_end
 ub_block_end:

@@ -80,6 +80,12 @@ extern void ub_load(unsigned long passes, volatile void *buffer);
 extern void ub_load_end(void);
 extern void ub_store(unsigned long passes, volatile void *buffer);
 extern void ub_store_end(void);
+extern void ub_s4(unsigned long passes, volatile void *buffer);
+extern void ub_s4_end(void);
+extern void ub_s16(unsigned long passes, volatile void *buffer);
+extern void ub_s16_end(void);
+extern void ub_s32(unsigned long passes, volatile void *buffer);
+extern void ub_s32_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
 extern void ub_straight_end(void);
 
@@ -136,6 +142,9 @@ int main(int argc, FAR char *argv[])
     { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  },
     { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false },
     { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  },
+    { "size 4     ", ub_s4, ub_s4_end, UB_PASSES, 7, false },
+    { "size 16    ", ub_s16, ub_s16_end, UB_PASSES, 19, false },
+    { "size 32    ", ub_s32, ub_s32_end, UB_LONG_PASSES, 35, false },
     { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false },
     { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  },
   };
