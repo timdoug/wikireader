@@ -42,6 +42,10 @@ struct model {
 	/* Extra cycles per instruction fetched from internal RAM (A0, IVRAM),
 	   which the manual-only model treats as zero-wait. */
 	unsigned iram_fetch_wait;
+	/* ...and per fetch from IVRAM or DSTRAM, which are not the same
+	   memory: A0 measured exactly one cycle and these measure about two.
+	   Fitted 2026-09-13 against ubench on the device. */
+	unsigned ivram_fetch_wait;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;

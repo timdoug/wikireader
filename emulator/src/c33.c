@@ -802,7 +802,11 @@ void c33_step(struct c33 *c)
 	if (c->bus.wait)
 		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
 	if (at < 0x10000000u)
-		c->clk += model.iram_fetch_wait;   /* internal RAM, fitted cost */
+		/* A0 RAM and the other internal memories are not the same
+		   thing: fetching from A0 measured exactly one cycle, and
+		   from IVRAM about two. */
+		c->clk += at < IVRAM_BASE ? model.iram_fetch_wait
+					  : model.ivram_fetch_wait;
 	uint64_t clk_fetched = c->clk;
 
 	/*

@@ -208,12 +208,23 @@ can be overridden with `WREMU_MODEL=name=value,...`.
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
 | `sd_write_latency` | 0 | programming busy cycles after a written block |
-| `iram_fetch_wait` | 0 | extra cycles per internal-RAM instruction fetch |
+| `iram_fetch_wait` | 0 | extra cycles per A0 RAM instruction fetch |
+| `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
 | `dq_iram_extra` | 2 | extra ticks for data access from internal-RAM code |
 | `dq_hit` | 1 | extra ticks for a data-queue hit |
 
 Calibration microbenchmarks agreed within 12%, most within 5%. In the
-measured article phases the model was 16-33% faster than the device. Use it
+measured article phases the model was 16-33% faster than the device.
+
+Re-checked on 2026-09-13 against a 32 MB device running the NuttX port
+(`tools/bench-device.txt` in that tree, taken with `WREMU_BOARD_REV=7`):
+CoreMark 1.23x, Dhrystone 1.27x, Whetstone 1.19x, ramspeed 1.12-1.70x. The
+per-operation loops agree within 6% where the code is in SDRAM and a tight
+loop, and are up to 29% fast where it is longer or in internal RAM. So the
+16-33% band above still describes it. Two things found while re-checking are
+worth knowing: an application runs on the timings `SDRAM_retime()` leaves,
+not the loader's, and a guest that never programs the SDRAM controller used
+to be modelled with no memory system at all. Use it
 to identify expensive work and compare candidates, then confirm improvements
 on hardware. Historical
 calibration data and its retired harness remain in Git at `7aa4ee84`.

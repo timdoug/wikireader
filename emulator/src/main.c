@@ -208,25 +208,30 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
  * system at all. That is not a small difference. It is most of why this
  * ran CoreMark five times faster than the device it models.
  *
- * So start the controller where the loader leaves it. The values are
- * init_ram()'s, from samo-lib/include/boards/samo_a1.h: the stock timings
- * tRP 4, tRAS 8 and tRC 15, auto-refresh 0x8c, arbitration and both queues
- * on, and the geometry the board revision selects. They go in through the
- * ordinary register writes so that the model derives everything from them
- * exactly as it would have if the guest had done it.
+ * So start the controller where an application finds it -- which is not
+ * where the flash loader leaves it. init_ram() brings the SDRAM up on its
+ * most conservative timings and grifo then calls SDRAM_retime(), and that
+ * is what everything loaded afterwards runs on. A device asked for its own
+ * registers agrees: "tRP 2, tRAS 4, tRC 6, refresh 0x120" came back off the
+ * card.
+ *
+ * The rest is init_ram()'s: arbitration and both queues on, and the
+ * geometry the board revision selects. They go in through the ordinary
+ * register writes so that the model derives everything from them exactly as
+ * it would have if the guest had done it.
  */
 static void sdramc_boot_state(struct mem *mem)
 {
 	const char *rev = getenv("WREMU_BOARD_REV");
 	unsigned long r = rev ? strtoul(rev, NULL, 0) : 8;
 	bool small = r == 8 || r == 6;   /* 16 MB boards; the rest are 32 */
-	uint32_t ctl = ((4u - 1) << 12) | ((8u - 1) << 8) | ((15u - 1) << 4) |
+	uint32_t ctl = ((2u - 1) << 12) | ((4u - 1) << 8) | ((6u - 1) << 4) |
 		       (small ? 0x2u : 0x3u);
 
 	mem_write(mem, REG_BASE + 0x1600, 4, 0);          /* INI: off first */
 	mem_write(mem, REG_BASE + 0x1610, 4, 0x8000000b); /* ARBON|CAS1|APPON|IQB */
 	mem_write(mem, REG_BASE + 0x1604, 4, ctl);
-	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff008c); /* SCKON|SELEN|SELCO|AURCO */
+	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff0120); /* SCKON|SELEN|SELCO|AURCO */
 	mem_write(mem, REG_BASE + 0x1600, 4, 0x14);       /* SDON|INIMRS */
 }
 

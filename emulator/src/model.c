@@ -23,6 +23,7 @@ struct model model = {
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
+	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.dq_iram_extra = 2,
 	.dq_hit = 1,
 };
@@ -45,6 +46,7 @@ static const struct {
 	{ "sd_read_gap", &model.sd_read_gap, NULL },
 	{ "sd_write_latency", &model.sd_write_latency, NULL },
 	{ "iram_fetch_wait", NULL, &model.iram_fetch_wait },
+	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
 	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
@@ -86,10 +88,12 @@ void model_describe(FILE *out)
 	fprintf(out, "--- model: branch_taken %u/%u, iqb_first %u, iqb_word_gap %u,"
 		" dq_extra %u, wr_ticks %u, wr_rd_turn %u, dma_extra %u, dma_mem_extra %u,"
 		" sd_read_latency %lu, sd_init_latency %lu, sd_read_gap %lu, sd_write_latency %lu,"
-		" iram_fetch_wait %u, dq_iram_extra %u, dq_hit %u ---\n",
+		" iram_fetch_wait %u, ivram_fetch_wait %u, dq_iram_extra %u,"
+		" dq_hit %u ---\n",
 		model.branch_taken, model.branch_taken_iram, model.iqb_first,
 		model.iqb_word_gap, model.dq_extra, model.wr_ticks,
 		model.wr_rd_turn, model.dma_extra, model.dma_mem_extra, model.sd_read_latency,
 		model.sd_init_latency, model.sd_read_gap, model.sd_write_latency,
-		model.iram_fetch_wait, model.dq_iram_extra, model.dq_hit);
+		model.iram_fetch_wait, model.ivram_fetch_wait,
+		model.dq_iram_extra, model.dq_hit);
 }
