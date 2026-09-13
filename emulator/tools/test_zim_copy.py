@@ -48,7 +48,7 @@ def address(n): return '0x'+re.search(r'^([0-9a-f]+) [A-Za-z] '+n+'$',symbols,re
 with (OUT/'run.txt').open('w') as out:
  subprocess.run([str(exe),'-c',str(img),'-b',address('copy_test_done'),'-D',address('copy_test_result'),'-L','16','-O',str(OUT/'result.bin'),'-n','2000000000',str(ROOT/'samo-lib/mbr/file-loader.elf')],cwd=OUT,stdout=out,stderr=subprocess.STDOUT,check=True,timeout=240)
 result=struct.unpack('<4I',(OUT/'result.bin').read_bytes())
-assert result[1]==0 and (result[0]==2 if fault else result[0]==709 and result[2]>0),result
+assert result[1]==0 and (result[0]==2 if fault else result[0]==708 and result[2]>0),result
 if fault:
  print('PASS: lost DMA trigger times out, restores registers, copies with CPU and disables further attempts')
  sys.exit(0)

@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdint.h>
 #include "zim_copy.h"
-size_t zim_memory_bank_size(void) { return 4u << 20; }
 volatile unsigned long copy_test_result[4]; /* cases, failure, DMA calls, bytes */
 static unsigned char expected[32832];
 static unsigned char initial[32832];
@@ -142,9 +141,10 @@ int grifo_main(int argc, char **argv)
     bulk(dst,src,8192);
     check(zim_copy_stats.dma_calls==before+1); /* resumes when the owner clears it */
     before=zim_copy_stats.dma_calls;
-    bulk(src+0x100000,src,8192);
-    check(zim_copy_stats.dma_calls==before); /* same-bank CPU dispatch */
-    check(zim_copy_diag.layout>0);
+    /* There used to be a same-bank copy here, checking that it was left to
+       the CPU.  The hardware has no per-bank open row -- two addresses evict
+       one another however far apart they are -- so the copy path no longer
+       asks where a buffer sits and there is nothing left to reject. */
     /* A0 is outside DMA's accessible areas; IVRAM is a valid destination. */
     bulk((unsigned char *)0x81a10,src,5120);
     check(zim_copy_stats.dma_calls==before+1);
