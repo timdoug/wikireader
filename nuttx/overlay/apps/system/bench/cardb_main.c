@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/statfs.h>
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -116,6 +117,7 @@ int main(int argc, FAR char *argv[])
   fd = bench_card_open(path);
 
   dprintf(fd, "# the card at four block sizes, for the latency and the rate\n");
+  bench_card_geometry(fd);
 
   for (i = 0; i < count; i++)
     {

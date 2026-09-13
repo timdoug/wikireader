@@ -20,6 +20,7 @@
  */
 
 int  bench_card_open(const char *path);
+void bench_card_geometry(int fd);
 void bench_card_close(int fd, const char *path);
 
 #endif /* __APPS_SYSTEM_BENCH_BENCH_CARD_H */

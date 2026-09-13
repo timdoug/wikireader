@@ -184,7 +184,15 @@ def run_emulator(args):
     # because they only read, would fail every write with EIO.
     fat = load_fat_helper(args.wikireader.resolve())
     card = out / "card.img"
-    fat.make_image(card, {"init.app": app.read_bytes()})
+    # The card's shape decides what sdbench measures: fs_fat32.c clips a
+    # multi-sector read to the sectors left in the cluster, so one sector a
+    # cluster means the driver never issues CMD18 and the same read takes
+    # 9.78 s where 32 KiB clusters take 2.63. The default is what every
+    # earlier run used; `cardb` on the device prints its own geometry, and
+    # matching it here is the difference between comparing the card and
+    # comparing two formattings.
+    fat.make_image(card, {"init.app": app.read_bytes()},
+                   args.sectors_per_cluster)
 
     (out / "input.txt").write_text("bench\n")
 
@@ -272,6 +280,10 @@ def main():
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/benchmarks")
     parser.add_argument("--limit", type=int, default=20_000_000_000)
+    parser.add_argument("--sectors-per-cluster", type=int, default=1,
+                        help="cluster size of the emulated card, in 512-byte "
+                             "sectors; match the device's, which cardb "
+                             "reports in its geometry line")
     parser.add_argument("--compare", type=Path,
                         help="a captured device session to compare against")
     parser.add_argument("--parse", type=Path,

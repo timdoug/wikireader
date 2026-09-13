@@ -7,6 +7,7 @@
 #include <nuttx/config.h>
 
 #include <sys/mount.h>
+#include <sys/statfs.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,6 +37,33 @@ static void bench_card_mount(void)
     {
       printf("card remounted\n");
     }
+}
+
+/* What shape the filesystem is, which decides how much of the card a read
+ * can ask for at once.
+ *
+ * fs_fat32.c clips a multi-sector read to the sectors left in the cluster,
+ * so a volume with one sector per cluster never issues CMD18 and pays a
+ * command, a response and a token poll for every 512 bytes; the same 2.9 MB
+ * read takes 9.78 s at that geometry and 2.63 s at 32 KiB clusters. A
+ * throughput number therefore says as much about the card's formatting as
+ * about the card, and comparing one against an emulated card of a different
+ * shape compares nothing. Record it next to the numbers.
+ */
+
+void bench_card_geometry(int fd)
+{
+  struct statfs buf;
+
+  if (statfs(CONFIG_SYSTEM_BENCH_MOUNT, &buf) < 0)
+    {
+      dprintf(fd, "# geometry: statfs failed (%d)\n", errno);
+      return;
+    }
+
+  dprintf(fd, "# geometry: type 0x%lx, block %ld, blocks %ld, free %ld\n",
+          (unsigned long)buf.f_type, (long)buf.f_bsize,
+          (long)buf.f_blocks, (long)buf.f_bfree);
 }
 
 int bench_card_open(const char *path)
