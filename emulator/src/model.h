@@ -50,6 +50,14 @@ struct model {
 	   the hardware; zero restores the old behaviour, which is the way to
 	   ask what code straddling a page boundary is costing. */
 	unsigned iq_row_evict;
+	/* The bus turn for a data read after a write, which is not the same
+	   as for an instruction fetch: a queue fill takes sixteen bytes per
+	   access and a load takes four, so a copy pays this four times as
+	   often per byte as a loop that only fetches. */
+	unsigned wr_rd_turn_data;
+	/* ...and the same turn in the other direction, a write after a data
+	   read, which a copy pays once a word just like the one above. */
+	unsigned rd_wr_turn;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;

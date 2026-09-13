@@ -246,7 +246,15 @@ static bool trace_row_set;
 static uint32_t trace_row;
 static unsigned trace_left = 48;
 static unsigned long trace_skip;   /* WREMU_ROWTRACE_SKIP: activations to pass first */
-static bool last_was_write;
+/* What the bus did last, for the turnaround: a write and a read cannot hand
+   the data lines over for free, and a data read is not a fetch -- a fill
+   takes sixteen bytes in one access where a load takes four. */
+enum { BUS_IDLE, BUS_WRITE, BUS_FETCH, BUS_READ };
+static unsigned last_bus_use;
+/* Where the bus last went, so that a turn back into the same row can be
+   distinguished from one that leaves it. */
+static unsigned last_bus_bank;
+static uint32_t last_bus_row;
 
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 {
@@ -316,6 +324,9 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	uint64_t tick = sd_tick(s);
 	uint64_t command;
 	uint64_t extra = (halfwords > 2 ? model.iqb_first : model.dq_extra) * tick;
+	uint64_t turn_floor = 0;
+	unsigned this_bank;
+	uint32_t this_row;
 
 	/* Data from code that is not itself coming over this bus; see
 	   model.h. */
@@ -323,16 +334,52 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	    wremu_cur_pc < 0x10000000u)
 		extra += model.dq_iram_extra * tick;
 
-	/* A read after a write waits for write recovery and the bus turn. */
-	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
-		now = s->bus_free + model.wr_rd_turn * tick;
-	last_was_write = false;
+	address_parts(s, addr, &this_bank, &this_row);
+
+	/* A read after a write waits for write recovery and the bus turn,
+	 * but only if it leaves the row the write went to: a value written
+	 * and read straight back comes out of the write buffer, which is what
+	 * a spilled stack slot does and what CoreMark is full of, while a
+	 * copy always reads a row away from the one it is writing and has to
+	 * wait for the drain. Charging both cost CoreMark 13% to buy a copy
+	 * the device does not run any faster.
+	 *
+	 * A fetch and a load do not pay the turn alike either: a fill takes
+	 * sixteen bytes in one access where a load takes four, so a copy
+	 * turns the bus round four times as often per byte as code that only
+	 * fetches, and one figure cannot serve for both.
+	 */
+	if (last_bus_use == BUS_WRITE &&
+	    (this_bank != last_bus_bank || this_row != last_bus_row)) {
+		unsigned turn = current_kind == MEM_CPU_FETCH
+			      ? model.wr_rd_turn : model.wr_rd_turn_data;
+
+		turn_floor = s->bus_free + turn * tick;
+	}
+
+	last_bus_use = current_kind == MEM_CPU_FETCH ? BUS_FETCH : BUS_READ;
+	last_bus_bank = this_bank;
+	last_bus_row = this_row;
 	command = select_row(s, addr, now);
 
 	for (unsigned i = 0; i < halfwords; i++) {
 		if (halfwords > 2)
 			extra += (i && !(i & 1)) ? model.iqb_word_gap * tick : 0;
 		ready[i] = command + (cas(s) + i + 1) * tick + extra;
+	}
+
+	/* The turn holds off the data and not the row commands: a precharge
+	 * and an activate go out on the command bus while the write's data is
+	 * still draining, so a copy whose two streams share a bank costs what
+	 * one four megabytes apart costs. The device says they do -- 124.17
+	 * and 131.61 cycles a pass -- and charging the two in series made the
+	 * far copy 34% cheaper, a saving it does not have.
+	 */
+	if (turn_floor > ready[0]) {
+		uint64_t shift = turn_floor - ready[0];
+
+		for (unsigned i = 0; i < halfwords; i++)
+			ready[i] += shift;
 	}
 	s->bus_free = ready[halfwords - 1];
 	s->last_sdram_access = s->bus_free;
@@ -355,13 +402,31 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 			       unsigned size, uint64_t now)
 {
 	uint64_t tick = sd_tick(s);
-	uint64_t command = select_row(s, addr, now);
+	uint64_t command;
+	uint64_t turn_floor = 0;
+	unsigned this_bank;
+	uint32_t this_row;
 	unsigned transfers = (size + (addr & 1) + 1) / 2;
+
+	address_parts(s, addr, &this_bank, &this_row);
+
+	/* The other half of the turn: handing the data lines back after a
+	 * read costs what taking them cost, under the same two conditions as
+	 * above -- a data read, and a row other than this one. */
+	if (last_bus_use == BUS_READ &&
+	    (this_bank != last_bus_bank || this_row != last_bus_row))
+		turn_floor = s->bus_free + model.rd_wr_turn * tick;
+
+	command = select_row(s, addr, now);
 
 	/* Writes are individual operations, one per external 16-bit transfer,
 	 * unless the fitted model gives every write a flat cost. */
 	s->bus_free = command + (model.wr_ticks ? model.wr_ticks : transfers) * tick;
-	last_was_write = true;
+	if (turn_floor > s->bus_free)
+		s->bus_free = turn_floor;
+	last_bus_use = BUS_WRITE;
+	last_bus_bank = this_bank;
+	last_bus_row = this_row;
 	s->last_sdram_access = s->bus_free;
 	flush_written(s, addr, size);
 	s->writes_timed++;

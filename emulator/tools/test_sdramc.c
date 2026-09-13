@@ -95,7 +95,7 @@ int main(void)
 	/* These are the manual's figures; the fitted controller overheads in
 	   model.c come on top of them, so hold them at zero here. */
 	model.iqb_first = model.iqb_word_gap = model.dq_extra = model.wr_ticks = 0;
-	model.wr_rd_turn = 0;
+	model.wr_rd_turn = model.wr_rd_turn_data = model.rd_wr_turn = 0;
 	model.dq_iram_extra = model.dq_hit = 0;
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	check64("cold IQB fetch waits tRCD + CAS + first data",

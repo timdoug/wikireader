@@ -23,6 +23,8 @@ struct model model = {
 	.dq_extra = 1,
 	.wr_ticks = 3,              /* refitted 2026-09-13 */
 	.wr_rd_turn = 3,
+	.wr_rd_turn_data = 19,     /* fitted 2026-09-13 */
+	.rd_wr_turn = 19,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
@@ -53,6 +55,8 @@ static const struct {
 	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
 	{ "iq_row_evict", NULL, &model.iq_row_evict },
 	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
+	{ "wr_rd_turn_data", NULL, &model.wr_rd_turn_data },
+	{ "rd_wr_turn", NULL, &model.rd_wr_turn },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
 };
@@ -91,13 +95,14 @@ void model_init(void)
 void model_describe(FILE *out)
 {
 	fprintf(out, "--- model: branch_taken %u/%u, iqb_first %u, iqb_word_gap %u,"
-		" dq_extra %u, wr_ticks %u, wr_rd_turn %u, dma_extra %u, dma_mem_extra %u,"
+		" dq_extra %u, wr_ticks %u, wr_rd_turn %u/%u/%u, dma_extra %u, dma_mem_extra %u,"
 		" sd_read_latency %lu, sd_init_latency %lu, sd_read_gap %lu, sd_write_latency %lu,"
 		" iram_fetch_wait %u, ivram_fetch_wait %u, dq_iram_extra %u,"
 		" dq_hit %u ---\n",
 		model.branch_taken, model.branch_taken_iram, model.iqb_first,
 		model.iqb_word_gap, model.dq_extra, model.wr_ticks,
-		model.wr_rd_turn, model.dma_extra, model.dma_mem_extra, model.sd_read_latency,
+		model.wr_rd_turn, model.wr_rd_turn_data, model.rd_wr_turn,
+		model.dma_extra, model.dma_mem_extra, model.sd_read_latency,
 		model.sd_init_latency, model.sd_read_gap, model.sd_write_latency,
 		model.iram_fetch_wait, model.ivram_fetch_wait,
 		model.dq_iram_extra, model.dq_hit);
