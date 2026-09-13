@@ -40,6 +40,10 @@ struct model model = {
 	   taken it and a run of stores with nothing between them fills up. */
 	.write_post = 1,
 	.call_extra = 2,
+	/* Eight MCLK a register access. The device runs eight reads of a
+	   controller register at 82.50 cycles a pass where the same loop of
+	   adds costs 15.15; this was zero until it was asked. */
+	.mmio_wait = 8,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	/* What the card is busy for after taking a block. The device spends
@@ -80,6 +84,7 @@ static const struct {
 	{ "row_change_extra", NULL, &model.row_change_extra },
 	{ "write_post", NULL, &model.write_post },
 	{ "call_extra", NULL, &model.call_extra },
+	{ "mmio_wait", NULL, &model.mmio_wait },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
 };

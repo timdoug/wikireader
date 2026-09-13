@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "mem.h"
+#include "model.h"
 
 bool mem_init(struct mem *m)
 {
@@ -46,6 +47,18 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 		  unsigned size, uint64_t now)
 {
 	struct mem *m = ctx;
+
+	/* A peripheral register is not free, and until the device was asked
+	 * this charged nothing at all: eight reads of the SDRAM controller's
+	 * timing register cost the machine 82.50 cycles a pass against the
+	 * 15.15 the same loop costs with adds in it, so one costs about nine.
+	 * Every driver on this part is a loop over registers, which is why
+	 * the card benchmark spends most of its time somewhere the profile
+	 * could not account for.
+	 */
+	if (model.mmio_wait && addr - REG_BASE < REG_SIZE)
+		return model.mmio_wait;
+
 	return m->wait ? m->wait(m->wait_ctx, access, addr, size, now) : 0;
 }
 

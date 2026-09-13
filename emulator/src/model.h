@@ -80,6 +80,8 @@ struct model {
 	/* What a call or a return costs beyond the manual's figure, for the
 	   queue it discards. */
 	unsigned call_extra;
+	/* What one peripheral register access costs, in MCLK. */
+	unsigned mmio_wait;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;
