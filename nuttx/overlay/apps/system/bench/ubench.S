@@ -611,5 +611,33 @@ ub_mmio:
 	.global	ub_mmio_end
 ub_mmio_end:
 
+/* Eight consecutive words a pass where loadseq reads four.
+ *
+ * loadseq is the loop the model is furthest out on, at 1.21 of the device:
+ * reads that walk through an open row. If the controller pipelines them --
+ * one CAS after another without paying the full latency each time -- then
+ * doubling the run should cost less than twice as much, and the model, which
+ * charges every read in full, would be wrong by more here than there. If it
+ * costs exactly twice, there is no pipelining and the error is elsewhere.
+ *
+ * Thirty-two bytes a pass, so the caller must give it thirty-two per pass.
+ */
+
+	.p2align 5
+	.global	ub_loadseq8
+	.type	ub_loadseq8,@function
+ub_loadseq8:
+	ld.w	%r5,1
+1:
+	.rept	8
+	ld.w	%r4,[%r7]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_loadseq8_end
+ub_loadseq8_end:
+
 	.global	ub_block_end
 ub_block_end:
