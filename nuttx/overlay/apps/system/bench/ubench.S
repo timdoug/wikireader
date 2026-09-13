@@ -350,5 +350,34 @@ ub_copyb:
 	.global	ub_copyb_end
 ub_copyb_end:
 
+/* The same copy with the two streams four megabytes apart instead of half a
+ * megabyte. The bank bits start at four megabytes on this geometry, so this
+ * pair lands in different banks and both rows can stay open, where the pair
+ * above lands in one bank and every alternation closes the other's row.
+ *
+ * If the device is much faster here, the cost of a copy is row thrashing
+ * and belongs in the row accounting; if it is the same, it is bus
+ * turnaround and wants a parameter of its own.
+ */
+
+	.p2align 5
+	.global	ub_copyfar
+	.type	ub_copyfar,@function
+ub_copyfar:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x400000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_copyfar_end
+ub_copyfar_end:
+
 	.global	ub_block_end
 ub_block_end:

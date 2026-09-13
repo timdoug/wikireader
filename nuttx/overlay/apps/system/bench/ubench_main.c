@@ -68,6 +68,12 @@
 #define UB_STREAM_REPEAT 32
 /* Sixteen bytes a pass through the first half, writing to the second. */
 #define UB_COPY_PASSES   (UB_STREAM_BYTES / 2 / 16)
+
+/* Far enough apart to be in another bank: four megabytes, plus the half a
+ * megabyte each stream walks. Skipped if there is no room for it.
+ */
+
+#define UB_FAR_BYTES     (5 * 1024 * 1024)
 #define UB_LONG_PASSES 400000
 
 /****************************************************************************
@@ -119,11 +125,14 @@ extern void ub_storeseq(unsigned long passes, volatile void *buffer);
 extern void ub_storeseq_end(void);
 extern void ub_copyb(unsigned long passes, volatile void *buffer);
 extern void ub_copyb_end(void);
+extern void ub_copyfar(unsigned long passes, volatile void *buffer);
+extern void ub_copyfar_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
 extern void ub_straight_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
+static FAR uint8_t *g_far;
 
 /****************************************************************************
  * Private Functions
@@ -161,7 +170,8 @@ static double ub_run(const struct ub_case_s *test)
        * given is its own, so each repeat covers the same ground.
        */
 
-      fn(test->passes, test->stream ? (FAR void *)g_stream : g_scratch);
+      fn(test->passes, test->fn == ub_copyfar ? (FAR void *)g_far :
+                   test->stream ? (FAR void *)g_stream : g_scratch);
     }
 
   clock_gettime(CLOCK_MONOTONIC, &end);
@@ -251,6 +261,7 @@ int main(int argc, FAR char *argv[])
     { "loadseq    ", ub_loadseq,  ub_loadseq_end,  UB_STREAM_PASSES, 11, false, true },
     { "storeseq   ", ub_storeseq, ub_storeseq_end, UB_STREAM_PASSES, 11, false, true },
     { "copyw      ", ub_copyb, ub_copyb_end, UB_COPY_PASSES, 11, false, true },
+    { "copyfar    ", ub_copyfar, ub_copyfar_end, UB_COPY_PASSES, 11, false, true },
     { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false , false },
     { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  , false },
   };
@@ -277,6 +288,7 @@ int main(int argc, FAR char *argv[])
 
   memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
 
+  g_far = malloc(UB_FAR_BYTES);   /* optional: only the far copy needs it */
   g_stream = malloc(UB_STREAM_BYTES);
   if (g_stream == NULL)
     {
@@ -296,7 +308,16 @@ int main(int argc, FAR char *argv[])
 
   for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
     {
-      double seconds = ub_run(&cases[i]);
+      double seconds;
+
+      if (cases[i].fn == ub_copyfar && g_far == NULL)
+        {
+          dprintf(fd, "UB %-12s   no room for a 5 MB buffer\n",
+                  cases[i].name);
+          continue;
+        }
+
+      seconds = ub_run(&cases[i]);
       double cycles = seconds * CONFIG_S1C33E07_MCLK / cases[i].passes;
       size_t bytes = (uintptr_t)cases[i].end - (uintptr_t)cases[i].fn;
 
