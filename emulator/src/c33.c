@@ -810,10 +810,18 @@ void c33_step(struct c33 *c)
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
 	if (c->bus.wait)
 		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
-	if (at < 0x10000000u)
+	if (at < 0x10000000u && (!model.iram_word_fetch || !(at & 2)))
 		/* A0 RAM and the other internal memories are not the same
 		   thing: fetching from A0 measured exactly one cycle, and
-		   from IVRAM about two. */
+		   from IVRAM about two.
+		   
+		   Under iram_word_fetch the charge falls on the fetch that
+		   starts a 32-bit word and not on the halfword after it, the
+		   internal bus being 32 bits wide. The device says so by the
+		   slope: its loops out of internal RAM cost about 0.9 cycles
+		   a code byte whatever the instructions are, where a charge
+		   per instruction makes a loop of two-byte ones cost twice as
+		   much a byte as a loop of four-byte ones. */
 		c->clk += at < IVRAM_BASE ? model.iram_fetch_wait
 					  : model.ivram_fetch_wait;
 	uint64_t clk_fetched = c->clk;

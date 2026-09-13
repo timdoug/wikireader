@@ -19,7 +19,7 @@ struct model model = {
 	/* Refitted 2026-09-13 against a 60 MHz guest clock. Everything here
 	   was a fifth larger while the timer ran at 48. */
 	.branch_taken = 5,          /* refitted 2026-09-13, see README */
-	.branch_taken_iram = 3,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
+	.branch_taken_iram = 6,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
 	/* half-MCLK. The micro loops want eight and Dhrystone wants zero:
 	   they all fit the queue, so they measure the fill of a line that is
 	   refetched every pass, where a program with a real code footprint
@@ -27,7 +27,7 @@ struct model model = {
 	.iqb_first = 1,
 	.iqb_word_gap = 0,
 	.dq_extra = 0,
-	.wr_ticks = 7,         /* refitted once writes were posted */
+	.wr_ticks = 9,         /* refitted once writes were posted */
 	/* Zero since the row model: three clocks of bus turn stood in for
 	   what a copy really pays, which is a row change on every access,
 	   and charging both now costs more than the device does. */
@@ -50,6 +50,12 @@ struct model model = {
 	   all 1.16 to 1.21 of the device for that one reason, and the fetch
 	   loops carried it too. */
 	.cas_first = 0,
+	/* The internal bus is 32 bits wide: the wait falls on the fetch that
+	   starts a word, not on the halfword after it. Charging every
+	   instruction made a loop of two-byte ones cost twice as much a byte
+	   as a loop of four-byte ones, and the device's loops out of
+	   internal RAM all cost about 0.9 cycles a code byte. */
+	.iram_word_fetch = 1,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	/* What the card is busy for after taking a block. The device spends
@@ -92,6 +98,7 @@ static const struct {
 	{ "call_extra", NULL, &model.call_extra },
 	{ "mmio_wait", NULL, &model.mmio_wait },
 	{ "cas_first", NULL, &model.cas_first },
+	{ "iram_word_fetch", NULL, &model.iram_word_fetch },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
 };

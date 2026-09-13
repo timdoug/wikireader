@@ -85,6 +85,9 @@ struct model {
 	/* Which cycle after the read command the first halfword lands on:
 	   CAS, or the one after it. */
 	unsigned cas_first;
+	/* Whether the internal-RAM fetch wait falls per 32-bit word rather
+	   than per instruction. */
+	unsigned iram_word_fetch;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;
