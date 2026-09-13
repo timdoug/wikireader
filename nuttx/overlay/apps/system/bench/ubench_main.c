@@ -130,6 +130,62 @@ static double ub_run(const struct ub_case_s *test)
          (end.tv_nsec - start.tv_nsec) / 1000000000.0;
 }
 
+/* Where the boundary is.
+ *
+ * These numbers moved by a factor of four when an unrelated source file
+ * shifted the loops, and by nothing at all when the loop was deliberately
+ * offset by sixteen bytes. So something larger than sixteen bytes is
+ * expensive to cross and a 26-byte loop usually does not. The way to find
+ * it is to put the same loop where it must cross a given boundary and see
+ * which one costs: each offset below is sixteen bytes short of a power of
+ * two, so the loop straddles it, and 0 is the control that straddles
+ * nothing.
+ */
+
+static const unsigned g_offsets[] =
+{
+  0, 16, 48, 112, 240, 496, 1008, 2032
+};
+
+#define UB_ARENA_ALIGN 4096
+#define UB_ARENA_SIZE  8192
+
+static void ub_boundary(int fd, size_t span)
+{
+  FAR uint8_t *arena = memalign(UB_ARENA_ALIGN, UB_ARENA_SIZE);
+  int i;
+
+  if (arena == NULL)
+    {
+      dprintf(fd, "# no room for the boundary sweep\n");
+      return;
+    }
+
+  for (i = 0; i < (int)(sizeof(g_offsets) / sizeof(g_offsets[0])); i++)
+    {
+      unsigned off = g_offsets[i];
+      FAR uint8_t *at = arena + off;
+      struct timespec start;
+      struct timespec end;
+      double seconds;
+
+      memcpy(at, (FAR const void *)ub_alu, span);
+
+      clock_gettime(CLOCK_MONOTONIC, &start);
+      ((ub_fn_t)at)(UB_PASSES, g_scratch);
+      clock_gettime(CLOCK_MONOTONIC, &end);
+
+      seconds = (end.tv_sec - start.tv_sec) +
+                (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+
+      dprintf(fd, "UBO offset %5u crosses %5u  %9.3f %10.2f\n", off,
+              off ? off + 16 : 0, seconds,
+              seconds * CONFIG_S1C33E07_MCLK / UB_PASSES);
+    }
+
+  free(arena);
+}
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -200,6 +256,9 @@ int main(int argc, FAR char *argv[])
               bytes, cases[i].instructions, seconds, cycles,
               cycles / cases[i].instructions);
     }
+
+  dprintf(fd, "# the same 26-byte loop, placed to straddle each boundary\n");
+  ub_boundary(fd, (uintptr_t)ub_alu_end - (uintptr_t)ub_alu);
 
   if (standalone)
     {
