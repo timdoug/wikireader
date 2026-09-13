@@ -196,12 +196,12 @@ can be overridden with `WREMU_MODEL=name=value,...`.
 
 | Parameter | Default | Meaning |
 | --- | ---: | --- |
-| `branch_taken` | 5 | taken branch cycles with an SDRAM target |
+| `branch_taken` | 8 | taken branch cycles with an SDRAM target |
 | `branch_taken_iram` | 4 | taken branch cycles with an internal-RAM target |
 | `iqb_first` | 3 | extra SDCLK ticks before an instruction-queue fill |
-| `iqb_word_gap` | 2 | extra ticks between words of that fill |
+| `iqb_word_gap` | 4 | extra ticks between words of that fill |
 | `dq_extra` | 1 | extra ticks on a data-queue fill |
-| `wr_ticks` | 0 | fixed CPU write ticks; zero uses transfer timing |
+| `wr_ticks` | 3 | fixed CPU write ticks; zero uses transfer timing |
 | `wr_rd_turn` | 3 | extra ticks for an SDRAM read after a write |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `sd_read_latency` | 60000 | cycles from a read command to the data token |
@@ -215,6 +215,20 @@ can be overridden with `WREMU_MODEL=name=value,...`.
 
 Calibration microbenchmarks agreed within 12%, most within 5%. In the
 measured article phases the model was 16-33% faster than the device.
+
+Refitted on 2026-09-13. The NuttX port's `ubench` runs a loop of known size
+and content at 18, 26, 42, 74 and 138 bytes, from SDRAM and from internal
+RAM, with every routine aligned so that size is the only thing varying. The
+device's curve has its knee in the same place as the model's -- cheap below
+about 32 bytes, 2.4x dearer a byte above it -- so the shape was right and the
+error was a near-uniform 24%. `branch_taken` 5 -> 8, `iqb_word_gap` 2 -> 4
+and `wr_ticks` 0 -> 3 fit that curve within 6%, and the benchmarks that were
+no part of the fit moved with it: CoreMark 1.23x -> 1.03x, Dhrystone 1.27x ->
+1.08x, Whetstone 1.19x -> 0.97x.
+
+What remains out is ramspeed through the C library, 1.41x on memcpy and 0.80x
+on memset -- out in both directions, so not one missing cost -- and the card,
+whose waits are still zero.
 
 Re-checked on 2026-09-13 against a 32 MB device running the NuttX port
 (`tools/bench-device.txt` in that tree, taken with `WREMU_BOARD_REV=7`):

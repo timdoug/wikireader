@@ -5,7 +5,10 @@
 
 /*
  * Hardware-calibrated defaults for the 32 MB WikiReader (board 7), fitted
- * 2026-09-07. See README.md, Calibration, for scope and timing limits.
+ * 2026-09-07 and three of them refitted 2026-09-13 against a device running
+ * the NuttX port's ubench: a loop of known size and content, run at a range
+ * of sizes and from both memories, which separates the cost of a fetch from
+ * the cost of what was fetched. See README.md, Calibration.
  * The manual-only values are branch costs of 3 and every overhead 0.
  */
 /* The PC of the instruction being executed, for the SDRAM row trace
@@ -13,12 +16,12 @@
 uint32_t wremu_cur_pc;
 
 struct model model = {
-	.branch_taken = 5,
+	.branch_taken = 8,          /* refitted 2026-09-13, see README */
 	.branch_taken_iram = 4,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
 	.iqb_first = 3,
-	.iqb_word_gap = 2,
+	.iqb_word_gap = 4,          /* refitted 2026-09-13 */
 	.dq_extra = 1,
-	.wr_ticks = 0,
+	.wr_ticks = 3,              /* refitted 2026-09-13 */
 	.wr_rd_turn = 3,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,

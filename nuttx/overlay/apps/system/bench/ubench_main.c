@@ -76,6 +76,8 @@ extern void ub_block_start(unsigned long passes, volatile void *buffer);
 extern void ub_block_end(unsigned long passes, volatile void *buffer);
 extern void ub_alu(unsigned long passes, volatile void *buffer);
 extern void ub_alu_end(void);
+extern void ub_alu_off(unsigned long passes, volatile void *buffer);
+extern void ub_alu_off_end(void);
 extern void ub_wide(unsigned long passes, volatile void *buffer);
 extern void ub_wide_end(void);
 extern void ub_load(unsigned long passes, volatile void *buffer);
@@ -138,6 +140,7 @@ int main(int argc, FAR char *argv[])
   {
     { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false },
     { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  },
+    { "alu+16 sdram", ub_alu_off, ub_alu_off_end,  UB_PASSES,      11, false },
     { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false },
     { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  },
     { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false },

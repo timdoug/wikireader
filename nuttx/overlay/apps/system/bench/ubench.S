@@ -87,6 +87,29 @@ ub_wide_end:
  * is the cost of the load itself.
  */
 
+/* The alu loop again, deliberately out of step: the same instructions half
+ * a boundary along. Alignment is worth a factor of three and a half on the
+ * device and four on the model, which is too much to leave as something
+ * that happens to a measurement rather than something it reports.
+ */
+
+	.p2align 5
+	.space	16
+	.global	ub_alu_off
+	.type	ub_alu_off,@function
+ub_alu_off:
+	ld.w	%r5,1
+1:
+	.rept	8
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_alu_off_end
+ub_alu_off_end:
+
 	.p2align 5
 	.global	ub_load
 	.type	ub_load,@function
