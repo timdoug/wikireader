@@ -93,10 +93,16 @@ int main(void)
 	 * mem_wait are the CPU's MCLK count after preceding operations.
 	 */
 	/* These are the manual's figures; the fitted controller overheads in
-	   model.c come on top of them, so hold them at zero here. */
+	   model.c come on top of them, so hold them at zero here. The clock
+	   goes back to one SDCLK per MCLK for the same reason: the checks
+	   below count the manual's SDCLK, and the device's own divider --
+	   two MCLK to the SDCLK, which is what model.c now defaults to --
+	   would double every one of them. */
 	model.iqb_first = model.iqb_word_gap = model.dq_extra = model.wr_ticks = 0;
-	model.wr_rd_turn = model.wr_rd_turn_data = model.rd_wr_turn = 0;
-	model.dq_iram_extra = model.dq_hit = 0;
+	model.wr_rd_turn = model.dq_iram_extra = model.dq_hit = 0;
+	model.row_change_extra = 0;
+	model.sdclk_half = 2;
+	model.row_ports = 0;   /* the manual's per-bank rows; see below */
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	check64("cold IQB fetch waits tRCD + CAS + first data",
 		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 7);
@@ -119,7 +125,25 @@ int main(void)
 	check64("DQB hits include DMA reads",
 		sdramc.dq_hits, 1);
 
-	/* DBF makes one SDCLK half of an MCLK; waits round up to whole MCLKs. */
+	/* What the device does instead of the manual's per-bank rows: two data
+	 * addresses evict one another however far apart they are. Reading two
+	 * a kilobyte apart alternately costs it 141.75 cycles a pass and two
+	 * four megabytes apart -- another bank, by the geometry table -- costs
+	 * 140.10, so the second must cost the model what the first does.
+	 */
+	model.row_ports = 1;
+	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
+	mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0);
+	check64("a read a kilobyte away changes rows",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 20), 12);
+	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
+	mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0);
+	check64("...and one four megabytes away costs the same",
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400000, 4, 20), 12);
+	model.row_ports = 0;
+
+	/* DBF makes one SDCLK half of what it otherwise is; waits round up to
+	   whole MCLKs. */
 	timing_setup(&mem, &sdramc, 0x8000002b, 0x00000fff);
 	check64("double-frequency cold fetch is four MCLKs",
 		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 4);

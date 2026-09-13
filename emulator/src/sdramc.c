@@ -73,9 +73,18 @@ static const struct geometry geometry[8] = {
 	{ 2, 11,  9 }, { 4, 12,  9 }, { 4, 12, 10 }, { 8, 12, 10 },
 };
 
+/* One SDCLK, in the half-MCLK units this module counts in.
+ *
+ * DBF selects the faster of the controller's two clocks. What the slower one
+ * is the device had to say: a read that changes rows costs it 8.5 MCLK more
+ * than one that does not, against a programmed tRP + tRCD of four SDCLK, so
+ * an SDCLK is two MCLK and not one. The model ran the memory at twice the
+ * speed of the machine, and every fitted overhead above it has been carrying
+ * some of the difference.
+ */
 static uint64_t sd_tick(const struct sdramc *s)
 {
-	return s->reg[OFF_APP] & DBF ? 1 : 2;
+	return s->reg[OFF_APP] & DBF ? model.sdclk_half / 2 : model.sdclk_half;
 }
 
 static unsigned trp(const struct sdramc *s)
@@ -246,15 +255,30 @@ static bool trace_row_set;
 static uint32_t trace_row;
 static unsigned trace_left = 48;
 static unsigned long trace_skip;   /* WREMU_ROWTRACE_SKIP: activations to pass first */
-/* What the bus did last, for the turnaround: a write and a read cannot hand
-   the data lines over for free, and a data read is not a fetch -- a fill
-   takes sixteen bytes in one access where a load takes four. */
-enum { BUS_IDLE, BUS_WRITE, BUS_FETCH, BUS_READ };
-static unsigned last_bus_use;
-/* Where the bus last went, so that a turn back into the same row can be
-   distinguished from one that leaves it. */
-static unsigned last_bus_bank;
-static uint32_t last_bus_row;
+static bool last_was_write;
+
+/* Which row of the whole device an address is in, bank bits and all: with
+   the banks collapsed onto one row register the bank bits are part of what
+   makes two rows different, and masking them off made two addresses four
+   megabytes apart look like the same row. */
+static uint32_t row_identity(const struct sdramc *s, uint32_t addr)
+{
+	const struct geometry *g = &geometry[s->reg[OFF_CTL] & 7];
+
+	return (addr - SDRAM_BASE) >> (g->col_bits + 1);
+}
+
+/* Which row register an access uses: the bank its address decodes to, or,
+   under the model's row_ports, the kind of access it is. */
+static unsigned row_port(unsigned kind)
+{
+	switch (kind) {
+	case MEM_CPU_FETCH:            return 0;
+	case MEM_DMA_READ:
+	case MEM_DMA_WRITE:            return 2;
+	default:                       return 1;
+	}
+}
 
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 {
@@ -264,6 +288,10 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	unsigned b;
 
 	address_parts(s, addr, &b, &row);
+	if (model.row_ports) {
+		row = row_identity(s, addr);
+		b = row_port(current_kind);
+	}
 	s->kind_bank[current_kind][b]++;
 	if (s->bank[b].valid && s->bank[b].row == row) {
 		s->bank_last_kind[b] = current_kind;
@@ -307,7 +335,8 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 		s->pair_hist[i].n++;
 		s->pair_last[b] = r;
 	}
-	return at + trp(s) * tick; /* T24NS programs both tRP and tRCD. */
+	/* T24NS programs both tRP and tRCD. */
+	return at + trp(s) * tick + model.row_change_extra;
 }
 
 /*
@@ -323,64 +352,19 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 {
 	uint64_t tick = sd_tick(s);
 	uint64_t command;
-	uint64_t extra = (halfwords > 2 ? model.iqb_first : model.dq_extra) * tick;
-	uint64_t turn_floor = 0;
-	unsigned this_bank;
-	uint32_t this_row;
-
-	/* Data from code that is not itself coming over this bus; see
-	   model.h. */
-	if (halfwords <= 2 && current_kind != MEM_DMA_READ &&
-	    wremu_cur_pc < 0x10000000u)
-		extra += model.dq_iram_extra * tick;
-
-	address_parts(s, addr, &this_bank, &this_row);
-
-	/* A read after a write waits for write recovery and the bus turn,
-	 * but only if it leaves the row the write went to: a value written
-	 * and read straight back comes out of the write buffer, which is what
-	 * a spilled stack slot does and what CoreMark is full of, while a
-	 * copy always reads a row away from the one it is writing and has to
-	 * wait for the drain. Charging both cost CoreMark 13% to buy a copy
-	 * the device does not run any faster.
-	 *
-	 * A fetch and a load do not pay the turn alike either: a fill takes
-	 * sixteen bytes in one access where a load takes four, so a copy
-	 * turns the bus round four times as often per byte as code that only
-	 * fetches, and one figure cannot serve for both.
-	 */
-	if (last_bus_use == BUS_WRITE &&
-	    (this_bank != last_bus_bank || this_row != last_bus_row)) {
-		unsigned turn = current_kind == MEM_CPU_FETCH
-			      ? model.wr_rd_turn : model.wr_rd_turn_data;
-
-		turn_floor = s->bus_free + turn * tick;
-	}
-
-	last_bus_use = current_kind == MEM_CPU_FETCH ? BUS_FETCH : BUS_READ;
-	last_bus_bank = this_bank;
-	last_bus_row = this_row;
+	uint64_t extra = halfwords > 2 ? model.iqb_first : model.dq_extra;
+	/* A read after a write waits for write recovery and the bus turn. */
+	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
+		now = s->bus_free + model.wr_rd_turn * tick;
+	last_was_write = false;
 	command = select_row(s, addr, now);
 
 	for (unsigned i = 0; i < halfwords; i++) {
 		if (halfwords > 2)
-			extra += (i && !(i & 1)) ? model.iqb_word_gap * tick : 0;
+			extra += (i && !(i & 1)) ? model.iqb_word_gap : 0;
 		ready[i] = command + (cas(s) + i + 1) * tick + extra;
 	}
 
-	/* The turn holds off the data and not the row commands: a precharge
-	 * and an activate go out on the command bus while the write's data is
-	 * still draining, so a copy whose two streams share a bank costs what
-	 * one four megabytes apart costs. The device says they do -- 124.17
-	 * and 131.61 cycles a pass -- and charging the two in series made the
-	 * far copy 34% cheaper, a saving it does not have.
-	 */
-	if (turn_floor > ready[0]) {
-		uint64_t shift = turn_floor - ready[0];
-
-		for (unsigned i = 0; i < halfwords; i++)
-			ready[i] += shift;
-	}
 	s->bus_free = ready[halfwords - 1];
 	s->last_sdram_access = s->bus_free;
 	return command;
@@ -402,31 +386,14 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 			       unsigned size, uint64_t now)
 {
 	uint64_t tick = sd_tick(s);
-	uint64_t command;
-	uint64_t turn_floor = 0;
-	unsigned this_bank;
-	uint32_t this_row;
+	uint64_t command = select_row(s, addr, now);
 	unsigned transfers = (size + (addr & 1) + 1) / 2;
-
-	address_parts(s, addr, &this_bank, &this_row);
-
-	/* The other half of the turn: handing the data lines back after a
-	 * read costs what taking them cost, under the same two conditions as
-	 * above -- a data read, and a row other than this one. */
-	if (last_bus_use == BUS_READ &&
-	    (this_bank != last_bus_bank || this_row != last_bus_row))
-		turn_floor = s->bus_free + model.rd_wr_turn * tick;
-
-	command = select_row(s, addr, now);
 
 	/* Writes are individual operations, one per external 16-bit transfer,
 	 * unless the fitted model gives every write a flat cost. */
-	s->bus_free = command + (model.wr_ticks ? model.wr_ticks : transfers) * tick;
-	if (turn_floor > s->bus_free)
-		s->bus_free = turn_floor;
-	last_bus_use = BUS_WRITE;
-	last_bus_bank = this_bank;
-	last_bus_row = this_row;
+	s->bus_free = command + (model.wr_ticks ? model.wr_ticks
+					       : transfers * tick);
+	last_was_write = true;
 	s->last_sdram_access = s->bus_free;
 	flush_written(s, addr, size);
 	s->writes_timed++;
@@ -438,7 +405,6 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 {
 	struct sdramc *s = ctx;
 	uint64_t now, ready, wait;
-
 	if (addr < SDRAM_BASE || addr - SDRAM_BASE >= SDRAM_SIZE ||
 	    !(s->reg[OFF_INI] & SDON) || !(s->reg[OFF_APP] & APPON) ||
 	    !s->initialised)
@@ -515,7 +481,12 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 		if (s->dq.valid && s->dq.tag == tag) {
 			s->dq_hits++;
 			if (model.dq_hit) {
-				uint64_t at = now + model.dq_hit * sd_tick(s);
+				/* dq_hit counts in half-MCLK, not SDCLK: the
+				   queue answers out of the controller rather
+				   than over the bus, and the device puts the
+				   cost at one MCLK -- half an SDCLK, which
+				   the coarser unit cannot say. */
+				uint64_t at = now + model.dq_hit;
 				if (s->dq.ready[0] < at) s->dq.ready[0] = at;
 				if (s->dq.ready[1] < at) s->dq.ready[1] = at;
 			}

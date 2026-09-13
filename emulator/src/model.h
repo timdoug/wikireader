@@ -18,6 +18,11 @@ struct model {
 	unsigned branch_taken_iram;
 	/* Extra SDCLK ticks before the first halfword of an instruction-queue
 	   line fill (controller and bus overhead). */
+	/* The controller's own overheads, in half-MCLK. They are the
+	   pipelining inside the controller rather than anything the SDRAM
+	   does, and the device puts several of them at half an SDCLK, which
+	   is a figure the bus clock cannot express. The datasheet timings --
+	   tRP, tRAS, tRC, CAS -- stay in SDCLK, through sd_tick. */
 	unsigned iqb_first;
 	/* Extra ticks between successive words of a line fill: the controller
 	   fetches a line as separate 32-bit reads, not one burst. */
@@ -50,14 +55,25 @@ struct model {
 	   the hardware; zero restores the old behaviour, which is the way to
 	   ask what code straddling a page boundary is costing. */
 	unsigned iq_row_evict;
-	/* The bus turn for a data read after a write, which is not the same
-	   as for an instruction fetch: a queue fill takes sixteen bytes per
-	   access and a load takes four, so a copy pays this four times as
-	   often per byte as a loop that only fetches. */
-	unsigned wr_rd_turn_data;
-	/* ...and the same turn in the other direction, a write after a data
-	   read, which a copy pays once a word just like the one above. */
-	unsigned rd_wr_turn;
+	/* How many rows the controller can hold open, and what decides which
+	   one a request lands on. Set, the row register is chosen by what the
+	   access is -- a fetch, a load or a store, the display's DMA -- and
+	   not by which bank the address decodes to, so two data addresses
+	   evict one another however far apart they are. The device says they
+	   do: reading two addresses a kilobyte apart costs 141.75 cycles a
+	   pass and four megabytes apart, in another bank by the geometry
+	   table, costs 140.10. */
+	unsigned row_ports;
+	/* An SDCLK in half-MCLK units, with DBF clear. Two is SDCLK = MCLK;
+	   four is SDCLK = MCLK/2, which is what the device measures. */
+	unsigned sdclk_half;
+	/* What changing rows costs beyond tRP + tRCD, in half-MCLK. The
+	   device reads a row it has open in CAS + data and one it has not in
+	   about an SDCLK more than the datasheet's two timings account for,
+	   which is the controller issuing the precharge rather than the
+	   array performing it. Without it the two cannot both be right:
+	   loadseq wants a cheaper read and rowthrash a dearer miss. */
+	unsigned row_change_extra;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;
@@ -72,7 +88,7 @@ struct model {
 	   A0 RAM measured 1.6 cycles against the device's 2.6, and why the
 	   decoder's byte traffic, which hits the queue three times in four,
 	   came out a fifth fast. */
-	unsigned dq_hit;
+	unsigned dq_hit;        /* in half-MCLK: 2 is one cycle */
 };
 
 extern struct model model;
