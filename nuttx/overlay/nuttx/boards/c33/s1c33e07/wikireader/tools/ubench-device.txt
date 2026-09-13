@@ -17,15 +17,20 @@ UB loadb sdram      26    11     1.540      23.10       2.10
 UB storeb sdrm      26    11     2.430      36.45       3.31
 UB loadseq          26    11     0.043      40.05       3.64
 UB storeseq         26    11     0.026      24.03       2.18
-UB copyw            34    11     0.071     131.61      11.96
+UB copyw            34    11     0.067     124.17      11.29
+UB copyfar          34    11     0.071     131.61      11.96
 UB long  sdram     138    67     1.220     183.00       2.73
 UB long  ivram     138    67     0.700     105.00       1.57
+UB ext2  sdram      58    11     5.630      84.45       7.68
+UB ext2  ivram      58    11     3.300      49.50       4.50
+UB rowthrash        32    11     9.450     141.75      12.89
+UB bankpair         34    11     9.340     140.10      12.74
 # the same 26-byte loop, placed to straddle each boundary
-UBO offset     0 crosses     0      1.010      15.15
-UBO offset    16 crosses    32      1.010      15.15
+UBO offset     0 crosses     0      1.000      15.00
+UBO offset    16 crosses    32      1.000      15.00
 UBO offset    48 crosses    64      1.010      15.15
-UBO offset   112 crosses   128      1.000      15.00
+UBO offset   112 crosses   128      1.010      15.15
 UBO offset   240 crosses   256      1.010      15.15
 UBO offset   496 crosses   512      1.010      15.15
-UBO offset  1008 crosses  1024      3.160      47.40
-UBO offset  2032 crosses  2048      3.160      47.40
+UBO offset  1008 crosses  1024      3.150      47.25
+UBO offset  2032 crosses  2048      3.150      47.25
