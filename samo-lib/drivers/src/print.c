@@ -29,7 +29,12 @@
 #include "print.h"
 
 
-int print_char(int c)
+/* Not inlined: the transmit poll is several instructions and the decimal
+ * printers below expand into a chain of digit cases, so inlining it put a
+ * copy of the loop in each one.  That cost the boot stages hundreds of
+ * bytes of the 7424 the MBR can load, for a call per character next to a
+ * wait on a serial port. */
+int __attribute__((noinline)) print_char(int c)
 {
 	if (c == '\n') {
 		print_char('\r');
@@ -59,7 +64,7 @@ void print_int(int value)
 }
 
 
-static void print_uint_1(unsigned int value)
+static void __attribute__((noinline)) print_uint_1(unsigned int value)
 {
 	if (0 != value) {
 		print_uint_1(value / 10);

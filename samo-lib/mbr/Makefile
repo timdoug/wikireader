@@ -73,6 +73,14 @@ LDFLAGS = -static --strip-all -s --no-gc-sections -N -L${MINI_LIBC}
 # RAM (and the MBR itself in 512 bytes).  Compile them for size and let each
 # application link retain only the call graph rooted at its fixed entry.
 BOOT_OPT ?= -Os
+
+# All a boot program can be.  The menu finds programs by their header every
+# 8 KiB of FLASH (menu.c) and the code starts 0x300 into that, so 0x1d00 is
+# what is left; mbr.c loads the same amount into A0 RAM.  Nothing else
+# diagnoses an overflow -- image07 writes each region at its offset, so the
+# next region quietly overwrites the tail and the program boots without it,
+# which is how the file loader came to print an empty file name.
+BOOT_PAYLOAD_MAX = 7424
 BOOT_APPLICATION_OBJECTS = version.o menu.o hello.o memory-test.o hw-test.o file-loader.o rs232-loader.o
 mbr.o ${BOOT_APPLICATION_OBJECTS}: OPT = ${BOOT_OPT}
 ${BOOT_APPLICATION_OBJECTS}: CFLAGS += -ffunction-sections -fdata-sections
@@ -142,6 +150,11 @@ ${1}.elf: ${2} application.lds ${1}.o $${LIBS}
 
 ${1}: ${1}.elf ${1}.header
 	$${OBJCOPY} $${OBJCOPY_FLAGS} $${OBJCOPY_SECTIONS} $$< $$@
+	@size=$$$$(wc -c < $$@); \
+	if [ $$$$size -gt $${BOOT_PAYLOAD_MAX} ]; then \
+		echo "$$@: $$$$size bytes, $${BOOT_PAYLOAD_MAX} is all the MBR loads" >&2; \
+		rm -f $$@; exit 1; \
+	fi
 
 endef
 
