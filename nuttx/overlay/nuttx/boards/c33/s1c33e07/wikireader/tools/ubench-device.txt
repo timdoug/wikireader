@@ -9,17 +9,22 @@ UB wide  ivram      42    11     2.220      33.30       3.03
 UB load  sdram      26    11     1.540      23.10       2.10
 UB load  ivram      26    11     1.880      28.20       2.56
 UB store sdram      26    11     2.430      36.45       3.31
-UB store ivram      26    11     3.030      45.45       4.13
+UB store ivram      26    11     3.040      45.60       4.15
 UB size 4           18     7     0.740      11.10       1.59
 UB size 16          42    19     4.020      60.30       3.17
 UB size 32          74    35     0.670     100.50       2.87
-UB long  sdram     138    67     1.210     181.50       2.71
+UB loadb sdram      26    11     1.540      23.10       2.10
+UB storeb sdrm      26    11     2.430      36.45       3.31
+UB loadseq          26    11     0.043      40.05       3.64
+UB storeseq         26    11     0.026      24.03       2.18
+UB copyw            34    11     0.071     131.61      11.96
+UB long  sdram     138    67     1.220     183.00       2.73
 UB long  ivram     138    67     0.700     105.00       1.57
 # the same 26-byte loop, placed to straddle each boundary
-UBO offset     0 crosses     0      1.000      15.00
-UBO offset    16 crosses    32      1.000      15.00
-UBO offset    48 crosses    64      1.000      15.00
-UBO offset   112 crosses   128      1.010      15.15
+UBO offset     0 crosses     0      1.010      15.15
+UBO offset    16 crosses    32      1.010      15.15
+UBO offset    48 crosses    64      1.010      15.15
+UBO offset   112 crosses   128      1.000      15.00
 UBO offset   240 crosses   256      1.010      15.15
 UBO offset   496 crosses   512      1.010      15.15
 UBO offset  1008 crosses  1024      3.160      47.40
