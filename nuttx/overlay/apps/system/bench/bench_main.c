@@ -34,6 +34,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "bench_card.h"
 #include "builtin/builtin.h"
 #include "nshlib/nshlib.h"
 
@@ -241,27 +242,8 @@ int main(int argc, FAR char *argv[])
   int failures = 0;
   int fd;
 
-  /* Appending, so that this process and the benchmarks it starts can write
-   * to the file without keeping each other's offsets in mind; truncating
-   * here as well, so that a second run is a second file rather than two.
-   */
-
-  fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
-  if (fd < 0)
-    {
-      /* Better to print the numbers where they can at least be read than to
-       * refuse to measure anything.
-       */
-
-      printf("bench: cannot write %s (%d); results follow instead\n",
-             path, errno);
-      fd = STDOUT_FILENO;
-      tofile = false;
-    }
-  else
-    {
-      printf("bench: writing %s\n", path);
-    }
+  fd = bench_card_open(path);
+  tofile = fd != STDOUT_FILENO;
 
   bench_memory(fd);
 
@@ -285,27 +267,9 @@ int main(int argc, FAR char *argv[])
       return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-  /* Get it onto the card and then take the filesystem down, so that pulling
-   * the card is safe the moment this says it is.
-   */
-
-  fsync(fd);
-  close(fd);
-  sync();
-
   printf("bench: %d of %d ran, %" PRIu32 " s total\n", count - failures,
          count, (bench_uptime_ms() - started) / 1000);
-
-  if (umount(CONFIG_SYSTEM_BENCH_MOUNT) < 0)
-    {
-      printf("bench: %s is written but %s would not unmount (%d): "
-             "poweroff before removing the card\n", path,
-             CONFIG_SYSTEM_BENCH_MOUNT, errno);
-    }
-  else
-    {
-      printf("bench: %s written, card unmounted -- safe to remove\n", path);
-    }
+  bench_card_close(fd, path);
 
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

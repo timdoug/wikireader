@@ -19,6 +19,15 @@
  * only ub_wide changes the size, and it changes nothing else, which is what
  * makes it the measurement of what a byte of instruction costs.
  *
+ * Each routine is aligned to thirty-two bytes, which puts every loop body
+ * at the same offset from a boundary. Without that the numbers move by a
+ * factor of four when an unrelated source file is added to the program,
+ * because what is being measured is then partly where the linker happened
+ * to put the loop -- a real effect on the device and a useless one in an
+ * instrument meant to vary size alone. The alignment goes before the entry
+ * and not inside: padding between the entry and the loop is executed, and
+ * it is zeros.
+ *
  * All of it is position independent -- relative branches, no literals, no
  * calls -- so the same instructions can be run out of internal RAM and out
  * of SDRAM and compared.  There is no instruction cache on this part, so
@@ -28,12 +37,14 @@
  */
 
 	.text
+	.p2align 5
 	.global	ub_block_start
 	.type	ub_block_start,@function
 ub_block_start:
 
 /* Eight adds: no memory operands, sixteen-bit instructions throughout. */
 
+	.p2align 5
 	.global	ub_alu
 	.type	ub_alu,@function
 ub_alu:
@@ -56,6 +67,7 @@ ub_alu_end:
  * out the same size as the one above, which is what happened first.
  */
 
+	.p2align 5
 	.global	ub_wide
 	.type	ub_wide,@function
 ub_wide:
@@ -75,6 +87,7 @@ ub_wide_end:
  * is the cost of the load itself.
  */
 
+	.p2align 5
 	.global	ub_load
 	.type	ub_load,@function
 ub_load:
@@ -95,6 +108,7 @@ ub_load_end:
  * times off it.
  */
 
+	.p2align 5
 	.global	ub_store
 	.type	ub_store,@function
 ub_store:
@@ -117,6 +131,7 @@ ub_store_end:
  * the story.
  */
 
+	.p2align 5
 	.global	ub_straight
 	.type	ub_straight,@function
 ub_straight:
@@ -142,6 +157,7 @@ ub_straight_end:
 
 /* 4 adds before the branch: one point on the size sweep. */
 
+	.p2align 5
 	.global	ub_s4
 	.type	ub_s4,@function
 ub_s4:
@@ -159,6 +175,7 @@ ub_s4_end:
 
 /* 16 adds before the branch: one point on the size sweep. */
 
+	.p2align 5
 	.global	ub_s16
 	.type	ub_s16,@function
 ub_s16:
@@ -176,6 +193,7 @@ ub_s16_end:
 
 /* 32 adds before the branch: one point on the size sweep. */
 
+	.p2align 5
 	.global	ub_s32
 	.type	ub_s32,@function
 ub_s32:

@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #include <time.h>
 
+#include "bench_card.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -150,6 +152,17 @@ int main(int argc, FAR char *argv[])
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
+
+  /* Standard output is where this goes when something else is collecting
+   * it -- bench redirects it into the file with everything else. Run on
+   * its own from the prompt it has a terminal instead, which nobody can
+   * read a table off, so it keeps its own file and unmounts the card.
+   */
+
+  FAR const char *path = argc > 1 ? argv[1] :
+                         CONFIG_SYSTEM_BENCH_MOUNT "/ubench.txt";
+  bool standalone = isatty(STDOUT_FILENO);
+  int fd = standalone ? bench_card_open(path) : STDOUT_FILENO;
   int i;
 
   if (span > UB_IVRAM_SIZE)
@@ -160,10 +173,15 @@ int main(int argc, FAR char *argv[])
 
   memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
 
-  printf("# microbenchmark, %u MHz, %u passes\n",
-         (unsigned)(CONFIG_S1C33E07_MCLK / 1000000), UB_PASSES);
-  printf("# %-12s %6s %5s %9s %10s %10s\n", "loop", "bytes", "insn",
-         "seconds", "cyc/pass", "cyc/instr");
+  dprintf(fd, "# microbenchmark, %u MHz, %u passes\n",
+          (unsigned)(CONFIG_S1C33E07_MCLK / 1000000), UB_PASSES);
+  dprintf(fd, "# sdram: tRP %u, tRAS %u, tRC %u, refresh 0x%x\n",
+          (unsigned)(((*(FAR volatile uint32_t *)0x00301604) >> 12) & 3) + 1,
+          (unsigned)(((*(FAR volatile uint32_t *)0x00301604) >> 8) & 7) + 1,
+          (unsigned)(((*(FAR volatile uint32_t *)0x00301604) >> 4) & 15) + 1,
+          (unsigned)((*(FAR volatile uint32_t *)0x00301608) & 0xfff));
+  dprintf(fd, "# %-12s %6s %5s %9s %10s %10s\n", "loop", "bytes", "insn",
+          "seconds", "cyc/pass", "cyc/instr");
 
   for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
     {
@@ -175,9 +193,14 @@ int main(int argc, FAR char *argv[])
        * the loop body is what repeats, and is four bytes less.
        */
 
-      printf("UB %-12s %6zu %5u %9.3f %10.2f %10.2f\n", cases[i].name,
-             bytes, cases[i].instructions, seconds, cycles,
-             cycles / cases[i].instructions);
+      dprintf(fd, "UB %-12s %6zu %5u %9.3f %10.2f %10.2f\n", cases[i].name,
+              bytes, cases[i].instructions, seconds, cycles,
+              cycles / cases[i].instructions);
+    }
+
+  if (standalone)
+    {
+      bench_card_close(fd, path);
     }
 
   return EXIT_SUCCESS;
