@@ -221,18 +221,17 @@ with `WREMU_MODEL=name=value,...`.
 | `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
-| `sd_read_latency` | 60000 | cycles from a read command to the data token |
+| `sd_read_latency` | 12000 | cycles from a read command to the data token |
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
-| `sd_write_latency` | 93000 | programming busy cycles after a written block |
+| `sd_write_latency` | 47000 | programming busy cycles after a written block |
 | `iram_fetch_wait` | 0 | extra cycles per A0 RAM instruction fetch |
 | `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
 | `iq_row_evict` | 1 | a queue line dies when its row is closed; 0 prices a page crossing |
 
 Against the device: 34 `ubench` loops at 0.091 RMS log error with 27 within
-10%, CoreMark 0.95x, Dhrystone 1.00x, Whetstone 0.99x, and card writes
-0.97-1.01x across a 512-32768 byte block sweep. Card reads are 0.74x and the
-profile puts that time in driver code rather than in the card. Two loops
+10%, CoreMark 0.95x, Dhrystone 1.00x, Whetstone 0.99x, and the card within
+3.1% on all eight points of a 512-32768 byte read and write sweep. Two loops
 that copy behind a growing tail of code (`copydisp`, `mix16/64/96`) are a
 constant ~43 cycles dear at every size; the per-line fill charge is right,
 so it is data accesses overlapping fills, and four attempts to model that
@@ -282,11 +281,19 @@ identify expensive work and compare candidates, then confirm improvements
 on hardware. Historical calibration data and its retired harness remain in
 Git at `7aa4ee84`.
 
-The three separate card waits were added on 2026-09-09. `sd_write_latency`
-was fitted on 2026-09-13 from `cardb`, which sweeps the block size so that
-a fixed cost per operation and a cost per byte can be told apart; the other
-two are still zero and are mechanisms for fitting measured waits rather
-than measured defaults.
+The three separate card waits were added on 2026-09-09. `sd_read_latency`
+and `sd_write_latency` were fitted on 2026-09-13 from `cardb`, which sweeps
+the block size so that a fixed cost per operation and a cost per byte can
+be told apart; `sd_init_latency` and `sd_read_gap` are still zero and are
+mechanisms for fitting measured waits rather than measured defaults.
+
+Fit those two on a filesystem with one sector per cluster. The driver then
+issues a command per 512 bytes, which is what makes a per-command cost
+visible: `sd_read_latency` had sat at 60000 -- a millisecond a command --
+through every earlier calibration, because the only card workload ever
+measured was grifo reading 255 sectors at a time, where it is a rounding
+error. At one command a sector it was most of the read time, and the model
+ran at 0.66-0.78 of the device across the sweep.
 They use MCLK cycles (60,000 cycles/ms at 60 MHz). Initialization polls
 return idle until ready, streamed reads delay only the next data token,
 and programming busy survives chip deselection. CPU and DMA costs retain

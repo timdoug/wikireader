@@ -57,12 +57,17 @@ struct model model = {
 	   internal RAM all cost about 0.9 cycles a code byte. */
 	.iram_word_fetch = 1,
 	.dma_extra = 30,
-	.sd_read_latency = 60000,
-	/* What the card is busy for after taking a block. The device spends
-	   2.73 ms a sector more writing than reading and the model only
-	   1.00; the difference is the card programming itself, which nothing
-	   had ever measured -- this parameter was zero. */
-	.sd_write_latency = 93000,
+	/* Both refitted 2026-09-13 against a cardb sweep whose filesystem has
+	   one sector per cluster, so the driver issues a command per 512
+	   bytes and a per-command cost is most of the time rather than a
+	   rounding error. Read latency had been 60000 -- a millisecond a
+	   command -- which nothing could see while the only card workload
+	   measured was grifo reading 255 sectors at a time. */
+	.sd_read_latency = 12000,
+	/* What the card is busy for after taking a block: the device spends
+	   longer writing a sector than reading one, and the difference is the
+	   card programming itself. */
+	.sd_write_latency = 47000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
