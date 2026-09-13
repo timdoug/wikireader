@@ -631,9 +631,38 @@ and layout. These are individual samples, not averages or measurements of
 battery energy. The final font change reduced initialization from 663.6 ms
 by 79.2 ms (11.9%); article/image differences in that round were small.
 
-The calibrated emulator is useful for comparing work and checking rendering.
-Its storage latency and some memory-heavy phases differ from hardware;
-confirm timing improvements on a physical device with matching builds.
+## Emulator against hardware, 2026-09-13
+
+The model had never been checked against a real article load since its
+parameters were refitted, so this is that check: the same binaries, the same
+124 GB `wikipedia_en_all_maxi_2026-02` archive, and the same measurement on
+both sides -- `zimlog.on` on the boot volume, `retrieve_us` out of
+`zimpage.log`, which the wrapper in `zim_page.c` writes.
+
+| Article, cold | Hardware | Emulator | Ratio |
+| --- | ---: | ---: | ---: |
+| Cat, retrieval | 2621.1 ms | 2692.3 ms | 1.027 |
+| ...its card reads | 356.9 ms | 351.8 ms | 0.986 |
+| Tokyo, retrieval | 3416.3 ms | 3386.8 ms | 0.991 |
+
+Cat's work is byte-identical on both: 523 sectors in 51-52 read calls, 25
+DMA copies, 257,024 CPU and 125,004 DMA copy bytes. Tokyo was the second
+article of the hardware session and the first of the emulated one, so its
+copy counters are not comparable and only its total is.
+
+Cached retrieval of either article costs the device 55.1 ms with no reads.
+
+This is also what the memory model's remaining error is worth in practice.
+ramspeed still reads 0.78-0.87 on memcpy and 1.09-1.11 on memset, and the
+instruction-fetch/data overlap behind that is measured but unmodelled; a
+2.6-second article load is full of bulk copying and lands within 3%, so
+that gap does not reach anything real.
+
+Tokyo reads 576 KB for one article, in 825 calls averaging 1.36 sectors.
+Against Cat's 52 calls of 10.06 sectors that fits 55 us per read call plus
+677 us per sector -- about 756 KB/s sustained. So the call count is worth
+only about 44 ms of its 807 ms of I/O; the bytes are the cost, and they are
+the CJK glyph loads.
 
 ## SPI width transition fix
 

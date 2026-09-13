@@ -1,0 +1,12 @@
+ZIMPAGE v1 index=3768721 result=0 retrieve_us=2621064 read_calls=52 read_sectors=523 read_us=356927 read_errors=0 copy_cpu_bytes=257024 copy_dma_bytes=125004 copy_dma_calls=25 copy_dma_errors=0
+ZIMCOPY v1 scope=cumulative large=39 unaligned=0 identical=0 overlap=1 source=3 layout=0 eligible=35 attempts=36 latched=0 busy=0 trigger=0 irq=0 failed=0 dma_calls=36 dma_errors=0 reset_irq=1
+ZIMCOPY_STATE v1 kind=reset attempt=1 dst=00081a00 src=10081fe0 bytes=4480 enabled=0 tf0=0 fdma=17 edma=0 select=9900 count0=0 control0=0 source0=00000000 dest0=00000000 adv0=0 mode=1 acctime=0 gate=3b0c736e idma=0
+ZIMPAGE v1 index=17123187 result=0 retrieve_us=3416264 read_calls=825 read_sectors=1125 read_us=806647 read_errors=0 copy_cpu_bytes=361088 copy_dma_bytes=571164 copy_dma_calls=52 copy_dma_errors=0
+ZIMCOPY v1 scope=cumulative large=78 unaligned=0 identical=0 overlap=2 source=11 layout=0 eligible=65 attempts=93 latched=0 busy=0 trigger=0 irq=0 failed=0 dma_calls=93 dma_errors=0 reset_irq=1
+ZIMCOPY_STATE v1 kind=reset attempt=1 dst=00081a00 src=10081fe0 bytes=4480 enabled=0 tf0=0 fdma=17 edma=0 select=9900 count0=0 control0=0 source0=00000000 dest0=00000000 adv0=0 mode=1 acctime=0 gate=3b0c736e idma=0
+ZIMPAGE v1 index=3768721 result=0 retrieve_us=55068 read_calls=0 read_sectors=0 read_us=0 read_errors=0 copy_cpu_bytes=0 copy_dma_bytes=1025620 copy_dma_calls=64 copy_dma_errors=0
+ZIMCOPY v1 scope=cumulative large=100 unaligned=0 identical=0 overlap=2 source=19 layout=0 eligible=79 attempts=167 latched=0 busy=0 trigger=0 irq=0 failed=0 dma_calls=167 dma_errors=0 reset_irq=1
+ZIMCOPY_STATE v1 kind=reset attempt=1 dst=00081a00 src=10081fe0 bytes=4480 enabled=0 tf0=0 fdma=17 edma=0 select=9900 count0=0 control0=0 source0=00000000 dest0=00000000 adv0=0 mode=1 acctime=0 gate=3b0c736e idma=0
+ZIMPAGE v1 index=17123187 result=0 retrieve_us=55036 read_calls=0 read_sectors=0 read_us=0 read_errors=0 copy_cpu_bytes=0 copy_dma_bytes=1025620 copy_dma_calls=64 copy_dma_errors=0
+ZIMCOPY v1 scope=cumulative large=111 unaligned=0 identical=0 overlap=2 source=26 layout=0 eligible=83 attempts=231 latched=0 busy=0 trigger=0 irq=0 failed=0 dma_calls=231 dma_errors=0 reset_irq=1
+ZIMCOPY_STATE v1 kind=reset attempt=1 dst=00081a00 src=10081fe0 bytes=4480 enabled=0 tf0=0 fdma=17 edma=0 select=9900 count0=0 control0=0 source0=00000000 dest0=00000000 adv0=0 mode=1 acctime=0 gate=3b0c736e idma=0
