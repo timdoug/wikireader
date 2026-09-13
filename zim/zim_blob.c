@@ -9,14 +9,6 @@
 #include <string.h>
 #include "zim_copy.h"
 
-#if defined(__c33__)
-void *zim_alloc_bank_local(size_t size);
-void *zim_alloc_other_bank(size_t size, const void *avoid);
-#else
-#define zim_alloc_bank_local malloc
-#define zim_alloc_other_bank(size, avoid) malloc(size)
-#endif
-
 #define ZIM_REDIRECT_MIME 0xffff
 #define ZIM_REDIRECT_LIMIT 64
 #define ZIM_STREAM_BUFFER_SIZE (64 * 1024)
@@ -88,10 +80,8 @@ extern unsigned ZSTD_isError(size_t code);
  * exactly once if the leading offset table reports a larger cluster.
  */
 /* The literal scratch buffer and the literal Huffman table do not depend
- * on the cluster, so they are placed once and kept.  Allocating them per
- * cluster meant a bank walk per article, whose cost depends on the state
- * of the heap: on one device run it took 200 ms that no timer accounted
- * for, while the emulator's heap needed no fillers at all. */
+ * on the cluster, so they are placed once and kept rather than allocated
+ * and freed per article. */
 static unsigned char *scratch_literals;
 #if defined(__c33__)
 static unsigned char *scratch_huftable;
@@ -239,29 +229,10 @@ static int read_uncompressed_blob(const ZIM_ARCHIVE *archive,
 	return capacity < *blob_size ? ZIM_ERR_TRUNCATED : ZIM_OK;
 }
 
-/* SDRAM bank placement of the decoder's streams: the controller keeps one
- * row open per bank, so buffers used together belong in different banks.
- * The placement is relative rather than by bank number, because the stride
- * differs between boards and the register does not give it (4 MB on both
- * units measured, including the 32 MB board whose ADDRC implies 8 MB; see
- * zim_alloc.c).  The cluster output with its literal scratch buffer goes
- * away from the text buffer the converter writes, and the decoder context
- * away from the output. */
-static const void *decoder_avoid;
-
-/* The buffer the converter writes while reading the decoded cluster; the
- * reader registers it so the output can be placed in another bank. */
-static const void *reader_buffer;
-
-void zim_blob_set_reader_buffer(const void *buffer)
-{
-	reader_buffer = buffer;
-}
-
 static void *decoder_alloc(void *opaque, size_t size)
 {
 	(void)opaque;
-	return zim_alloc_other_bank(size, decoder_avoid);
+	return malloc(size);
 }
 
 static void decoder_free(void *opaque, void *address)
@@ -393,24 +364,13 @@ static int cluster_open(const ZIM_ARCHIVE *archive, uint64_t cluster_start,
 			return ZIM_ERR_RANGE;
 		}
 	}
-	/* The output away from the text buffer, the context away from the
-	 * output (see decoder_avoid), and the literal scratch buffer away
-	 * from both the output and the compressed input: the literal decoder
-	 * reads the input and writes the literals, and the sequence loop
-	 * reads the literals and writes the output, so with any two in one
-	 * bank each copy would open two rows. */
-	cluster.output = zim_alloc_other_bank(capacity, reader_buffer);
-	decoder_avoid = cluster.output;
+	cluster.output = malloc(capacity);
 	cluster.stream = ZSTD_createDStream_advanced(decoder_memory);
 	if (!scratch_literals)
-		scratch_literals = zim_alloc_other_bank(ZSTD_DCtx_literalBufferSize(),
-							reader_buffer);
+		scratch_literals = malloc(ZSTD_DCtx_literalBufferSize());
 #if defined(__c33__)
-	/* The literal Huffman table in a bank other than the literals', which
-	 * the literal decoder writes while reading it. */
 	if (!scratch_huftable)
-		scratch_huftable = zim_alloc_other_bank(ZSTD_DCtx_hufTableSize(),
-							scratch_literals);
+		scratch_huftable = malloc(ZSTD_DCtx_hufTableSize());
 	if (!scratch_huftable ||
 	    ZSTD_isError(ZSTD_DCtx_setHufTableBuffer(cluster.stream,
 						     scratch_huftable))) {

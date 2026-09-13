@@ -81,12 +81,12 @@ int LOG_CODE __wrap_render_article_with_pcf(void)
                  * are hex. Diagnostics never clear a rejected DMA flag. */
                 n = snprintf(line, sizeof(line),
                     "ZIMCOPY v1 scope=cumulative large=%lu unaligned=%lu identical=%lu "
-                    "overlap=%lu source=%lu layout=%lu eligible=%lu bank=%lu "
+                    "overlap=%lu source=%lu layout=%lu eligible=%lu "
                     "attempts=%lu latched=%lu busy=%lu trigger=%lu irq=%lu failed=%lu "
                     "dma_calls=%lu dma_errors=%lu reset_irq=%lu\n",
                     diagnostic.large, diagnostic.unaligned, diagnostic.identical,
                     diagnostic.overlap, diagnostic.source, diagnostic.layout,
-                    diagnostic.eligible, diagnostic.bank, diagnostic.attempts,
+                    diagnostic.eligible, diagnostic.attempts,
                     diagnostic.latched, diagnostic.busy, diagnostic.trigger,
                     diagnostic.irq, diagnostic.failed,
                     total_copies.dma_calls, total_copies.dma_errors, diagnostic.reset_irq);

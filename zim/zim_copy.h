@@ -19,7 +19,7 @@ typedef struct {
     unsigned long mode, acctime, gate, idma;
 } ZIM_COPY_STATE;
 typedef struct {
-    unsigned long large, unaligned, identical, overlap, source, layout, eligible, bank;
+    unsigned long large, unaligned, identical, overlap, source, layout, eligible;
     unsigned long attempts, latched, busy, trigger, irq, failed, reset_irq;
     ZIM_COPY_STATE first_guard, first_fault, first_reset;
 } ZIM_COPY_DIAG;

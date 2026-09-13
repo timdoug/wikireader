@@ -8,7 +8,6 @@
 #include <string.h>
 #include "zim_copy.h"
 
-extern size_t zim_memory_bank_size(void);
 
 ZIM_COPY_STATS zim_copy_stats;
 ZIM_COPY_DIAG zim_copy_diag;
@@ -169,12 +168,8 @@ large_copy(void *dst, const void *src, size_t n)
     }
     if (!overlap && n >= 4096 && sa >= 0x10000000 && sa < 0x12000000 &&
         n <= 0x12000000 - sa) {
-        size_t bank = zim_memory_bank_size();
-        zim_copy_diag.bank = bank;
         int ivram = da >= 0x80000 && da < 0x83000 && n <= 0x83000 - da;
-        int other = da >= 0x10000000 && da < 0x12000000 && n <= 0x12000000-da &&
-            sa / bank == (sa+n-1) / bank && da / bank == (da+n-1) / bank &&
-            sa / bank != da / bank;
+        int other = da >= 0x10000000 && da < 0x12000000 && n <= 0x12000000-da;
         if (ivram || other) {
             ++zim_copy_diag.eligible;
             while (n >= 4096) {

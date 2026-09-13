@@ -9,12 +9,6 @@
 #include "zim_html.h"
 #include "zim_overlay.h"
 
-#if defined(__c33__)
-void *zim_alloc_other_bank(size_t size, const void *avoid);
-#else
-#define zim_alloc_other_bank(size, avoid) malloc(size)
-#endif
-
 #define ARTICLE_TEXT_WIDTH (LCD_BUF_WIDTH_PIXELS - LCD_LEFT_MARGIN * 2)
 
 static int append_byte(unsigned char *output, size_t capacity, size_t *used,
@@ -310,9 +304,7 @@ wrap_body(const unsigned char *text, size_t text_size,
 	capacity -= TRUNCATION_RESERVE;
 	word_break_init();
 	memcpy(word_break, word_break_classes, 256);
-	/* The link table is moved into the article at the end, word by word
-	 * between the two; from another bank that is one row each. */
-	links = zim_alloc_other_bank(MAX_ARTICLE_LINKS * sizeof(*links), article);
+	links = malloc(MAX_ARTICLE_LINKS * sizeof(*links));
 	if (!links)
 		return -1;
 	memset(&header, 0, sizeof(header));

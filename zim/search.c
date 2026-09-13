@@ -20,9 +20,6 @@
 #include "zim_archive.h"
 #include "zim_article.h"
 
-void *zim_alloc_bank_local(size_t size);
-void *zim_alloc_other_bank(size_t size, const void *avoid);
-void zim_blob_set_reader_buffer(const void *buffer);
 #include "zim_blob.h"
 #include "zim_catalog.h"
 #include "zim_file.h"
@@ -1403,12 +1400,7 @@ int retrieve_article(long encoded_index)
 	if (!raw_buffer)
 		raw_buffer = memory_allocate(ZIM_RAW_BUFFER_SIZE, "zim-raw");
 	if (!text_buffer)
-		/* The converter reads the decoded cluster and writes here, and
-		 * the wrapper reads here and writes the article buffer, so this
-		 * one goes whole into a bank other than the article buffer's,
-		 * and zim_blob.c puts the cluster elsewhere again. */
-		text_buffer = zim_alloc_other_bank(FILE_BUFFER_SIZE, file_buffer);
-	zim_blob_set_reader_buffer(text_buffer);
+		text_buffer = malloc(FILE_BUFFER_SIZE);
 	if (!raw_buffer || !text_buffer)
 		goto error;
 	if (deferred_image_decoder) {
