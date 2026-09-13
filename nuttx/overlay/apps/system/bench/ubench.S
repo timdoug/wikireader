@@ -459,5 +459,126 @@ ub_bankpair:
 	.global	ub_bankpair_end
 ub_bankpair_end:
 
+/* The C library's memcpy, shape for shape: one word a turn round the loop
+ * with a compare and a branch, where copyw does four with one.
+ *
+ * The device disagrees with itself about a copy. ramspeed puts the system
+ * memcpy at 8866 KB/s, which is 26.4 cycles a word, and ub_copyb -- the same
+ * two post-incrementing accesses, unrolled four times -- at 31.0. The model
+ * cannot be right about both, and it matters which is real: memcpy is the
+ * operation the machine actually spends its time in. If this loop comes back
+ * near 26 the unrolling is what costs, and if it comes back near 31 the
+ * fifteen percent is ramspeed's ten millisecond clock.
+ *
+ * Four bytes a pass, so the caller must give it four bytes per pass.
+ */
+
+	.p2align 5
+	.global	ub_copyloop
+	.type	ub_copyloop,@function
+ub_copyloop:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_copyloop_end
+ub_copyloop_end:
+
+/* A load with a displacement rather than a bare register, which is what a
+ * compiler emits for a structure field and a stack slot and is therefore most
+ * of the loads in CoreMark and Dhrystone. Against ub_load, which addresses
+ * [%r7] directly, the difference is what the ext prefix and the addition
+ * cost on a load rather than on an add.
+ */
+
+	.p2align 5
+	.global	ub_lddisp
+	.type	ub_lddisp,@function
+ub_lddisp:
+	ld.w	%r5,1
+1:
+	.rept	8
+	xld.w	%r4,[%r7+0x100]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_lddisp_end
+ub_lddisp_end:
+
+/* Multiply, which the cost table puts at seven clocks and nothing has ever
+ * checked. Whetstone and Dhrystone are 0.94-0.97 of the device and the error
+ * leans the same way in all three of the big benchmarks, which is the shape
+ * of one instruction class being wrong rather than the memory.
+ */
+
+	.p2align 5
+	.global	ub_mult
+	.type	ub_mult,@function
+ub_mult:
+	ld.w	%r5,1
+1:
+	.rept	8
+	mlt.w	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_mult_end
+ub_mult_end:
+
+/* Call and return, at four clocks each by the table, plus whatever the stack
+ * traffic costs -- and the stack is somewhere the rest of this file never
+ * touches. Dhrystone is a procedure-call benchmark before it is anything
+ * else.
+ */
+
+	.p2align 5
+	.global	ub_callret
+	.type	ub_callret,@function
+ub_callret:
+	ld.w	%r5,1
+1:
+	.rept	8
+	call	2f
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+2:
+	ret
+	.global	ub_callret_end
+ub_callret_end:
+
+/* Push and pop, two clocks each by the table, and four words of stack
+ * traffic a pass. Every call in a compiled program is wrapped in these.
+ */
+
+	.p2align 5
+	.global	ub_pushpop
+	.type	ub_pushpop,@function
+ub_pushpop:
+	ld.w	%r5,1
+1:
+	.rept	4
+	push	%r4
+	pop	%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_pushpop_end
+ub_pushpop_end:
+
 	.global	ub_block_end
 ub_block_end:

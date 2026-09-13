@@ -68,6 +68,8 @@
 #define UB_STREAM_REPEAT 32
 /* Sixteen bytes a pass through the first half, writing to the second. */
 #define UB_COPY_PASSES   (UB_STREAM_BYTES / 2 / 16)
+/* ...and four bytes a pass for the loop that copies a word at a time. */
+#define UB_WORD_PASSES   (UB_STREAM_BYTES / 2 / 4)
 
 /* Far enough apart to be in another bank: four megabytes, plus the half a
  * megabyte each stream walks. Skipped if there is no room for it.
@@ -136,6 +138,16 @@ extern void ub_rowthrash(unsigned long passes, volatile void *buffer);
 extern void ub_rowthrash_end(void);
 extern void ub_bankpair(unsigned long passes, volatile void *buffer);
 extern void ub_bankpair_end(void);
+extern void ub_copyloop(unsigned long passes, volatile void *buffer);
+extern void ub_copyloop_end(void);
+extern void ub_lddisp(unsigned long passes, volatile void *buffer);
+extern void ub_lddisp_end(void);
+extern void ub_mult(unsigned long passes, volatile void *buffer);
+extern void ub_mult_end(void);
+extern void ub_callret(unsigned long passes, volatile void *buffer);
+extern void ub_callret_end(void);
+extern void ub_pushpop(unsigned long passes, volatile void *buffer);
+extern void ub_pushpop_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -275,6 +287,11 @@ int main(int argc, FAR char *argv[])
     { "ext2  ivram", ub_ext2, ub_ext2_end, UB_PASSES, 11, true  , false , false },
     { "rowthrash  ", ub_rowthrash, ub_rowthrash_end, UB_PASSES, 11, false , false , true  },
     { "bankpair   ", ub_bankpair, ub_bankpair_end, UB_PASSES, 11, false , false , true  },
+    { "copyloop   ", ub_copyloop, ub_copyloop_end, UB_WORD_PASSES, 5, false , true , false },
+    { "lddisp     ", ub_lddisp, ub_lddisp_end, UB_PASSES, 11, false , false , false },
+    { "mult       ", ub_mult, ub_mult_end, UB_PASSES, 11, false , false , false },
+    { "callret    ", ub_callret, ub_callret_end, UB_PASSES, 11, false , false , false },
+    { "pushpop    ", ub_pushpop, ub_pushpop_end, UB_PASSES, 11, false , false , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
