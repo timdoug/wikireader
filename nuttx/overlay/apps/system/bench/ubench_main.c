@@ -91,6 +91,7 @@ struct ub_case_s
   unsigned instructions;   /* per pass, counted from ubench.S */
   bool internal;           /* run it from internal RAM */
   bool stream;             /* walks through the buffer rather than sitting */
+  bool far;                /* wants the buffer with four megabytes in it */
 };
 
 /****************************************************************************
@@ -129,6 +130,12 @@ extern void ub_copyfar(unsigned long passes, volatile void *buffer);
 extern void ub_copyfar_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
 extern void ub_straight_end(void);
+extern void ub_ext2(unsigned long passes, volatile void *buffer);
+extern void ub_ext2_end(void);
+extern void ub_rowthrash(unsigned long passes, volatile void *buffer);
+extern void ub_rowthrash_end(void);
+extern void ub_bankpair(unsigned long passes, volatile void *buffer);
+extern void ub_bankpair_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -170,7 +177,7 @@ static double ub_run(const struct ub_case_s *test)
        * given is its own, so each repeat covers the same ground.
        */
 
-      fn(test->passes, test->fn == ub_copyfar ? (FAR void *)g_far :
+      fn(test->passes, test->far ? (FAR void *)g_far :
                    test->stream ? (FAR void *)g_stream : g_scratch);
     }
 
@@ -244,26 +251,30 @@ int main(int argc, FAR char *argv[])
 {
   static const struct ub_case_s cases[] =
   {
-    { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false , false },
-    { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  , false },
-    { "alu+16 sdram", ub_alu_off, ub_alu_off_end,  UB_PASSES,      11, false , false },
-    { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false , false },
-    { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  , false },
-    { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false , false },
-    { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  , false },
-    { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false , false },
-    { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  , false },
-    { "size 4     ", ub_s4, ub_s4_end, UB_PASSES, 7, false , false },
-    { "size 16    ", ub_s16, ub_s16_end, UB_PASSES, 19, false , false },
-    { "size 32    ", ub_s32, ub_s32_end, UB_LONG_PASSES, 35, false , false },
-    { "loadb sdram", ub_loadb,   ub_loadb_end,   UB_PASSES, 11, false, false },
-    { "storeb sdrm", ub_storeb,  ub_storeb_end,  UB_PASSES, 11, false, false },
-    { "loadseq    ", ub_loadseq,  ub_loadseq_end,  UB_STREAM_PASSES, 11, false, true },
-    { "storeseq   ", ub_storeseq, ub_storeseq_end, UB_STREAM_PASSES, 11, false, true },
-    { "copyw      ", ub_copyb, ub_copyb_end, UB_COPY_PASSES, 11, false, true },
-    { "copyfar    ", ub_copyfar, ub_copyfar_end, UB_COPY_PASSES, 11, false, true },
-    { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false , false },
-    { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  , false },
+    { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false , false , false },
+    { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  , false , false },
+    { "alu+16 sdram", ub_alu_off, ub_alu_off_end,  UB_PASSES,      11, false , false , false },
+    { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false , false , false },
+    { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  , false , false },
+    { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false , false , false },
+    { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  , false , false },
+    { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false , false , false },
+    { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  , false , false },
+    { "size 4     ", ub_s4, ub_s4_end, UB_PASSES, 7, false , false , false },
+    { "size 16    ", ub_s16, ub_s16_end, UB_PASSES, 19, false , false , false },
+    { "size 32    ", ub_s32, ub_s32_end, UB_LONG_PASSES, 35, false , false , false },
+    { "loadb sdram", ub_loadb,   ub_loadb_end,   UB_PASSES, 11, false, false , false },
+    { "storeb sdrm", ub_storeb,  ub_storeb_end,  UB_PASSES, 11, false, false , false },
+    { "loadseq    ", ub_loadseq,  ub_loadseq_end,  UB_STREAM_PASSES, 11, false, true , false },
+    { "storeseq   ", ub_storeseq, ub_storeseq_end, UB_STREAM_PASSES, 11, false, true , false },
+    { "copyw      ", ub_copyb, ub_copyb_end, UB_COPY_PASSES, 11, false, true , false },
+    { "copyfar    ", ub_copyfar, ub_copyfar_end, UB_COPY_PASSES, 11, false, true , true  },
+    { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false , false , false },
+    { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  , false , false },
+    { "ext2  sdram", ub_ext2, ub_ext2_end, UB_PASSES, 11, false , false , false },
+    { "ext2  ivram", ub_ext2, ub_ext2_end, UB_PASSES, 11, true  , false , false },
+    { "rowthrash  ", ub_rowthrash, ub_rowthrash_end, UB_PASSES, 11, false , false , true  },
+    { "bankpair   ", ub_bankpair, ub_bankpair_end, UB_PASSES, 11, false , false , true  },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
@@ -310,7 +321,7 @@ int main(int argc, FAR char *argv[])
     {
       double seconds;
 
-      if (cases[i].fn == ub_copyfar && g_far == NULL)
+      if (cases[i].far && g_far == NULL)
         {
           dprintf(fd, "UB %-12s   no room for a 5 MB buffer\n",
                   cases[i].name);

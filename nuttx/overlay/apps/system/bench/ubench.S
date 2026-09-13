@@ -379,5 +379,85 @@ ub_copyfar:
 	.global	ub_copyfar_end
 ub_copyfar_end:
 
+/* Two ext prefixes on every instruction instead of one.
+ *
+ * ub_wide is eight instructions of four bytes where ub_alu is eight of two,
+ * and the device charges twelve cycles a pass more for them from internal
+ * RAM where the model charges six and a half. That gap is either the extra
+ * halfword to fetch or the ext prefix itself, which is a separate
+ * instruction on this part rather than a field of the one it extends, and
+ * the two cannot be told apart from one point. Six bytes an instruction
+ * gives the second point: whatever an ext costs, this pays it twice.
+ */
+
+	.p2align 5
+	.global	ub_ext2
+	.type	ub_ext2,@function
+ub_ext2:
+	ld.w	%r5,1
+1:
+	.rept	8
+	xadd	%r4,0x100000
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ext2_end
+ub_ext2_end:
+
+/* Two addresses a kilobyte apart, read alternately: one row of one bank
+ * against another row of the same bank, so every access is a row miss and
+ * what it measures is tRP + tRCD + CAS with nothing else in it. Everything
+ * else here either sits in one row or walks through rows at a rate the loop
+ * decides; this is the only loop that pays for a row change every time.
+ */
+
+	.p2align 5
+	.global	ub_rowthrash
+	.type	ub_rowthrash,@function
+ub_rowthrash:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,1024
+1:
+	.rept	4
+	ld.w	%r4,[%r7]
+	ld.w	%r4,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_rowthrash_end
+ub_rowthrash_end:
+
+/* The same alternation four megabytes apart, which on this geometry is the
+ * bank stride: if the two rows can stay open at once this costs what reading
+ * one address costs, and if the controller holds one row for the whole
+ * device it costs what the loop above costs. The emulator's geometry table
+ * says the first, on the strength of a measurement made for the reader's
+ * buffer placement, and the copy loops have since given reason to ask again.
+ */
+
+	.p2align 5
+	.global	ub_bankpair
+	.type	ub_bankpair,@function
+ub_bankpair:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x400000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]
+	ld.w	%r4,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bankpair_end
+ub_bankpair_end:
+
 	.global	ub_block_end
 ub_block_end:
