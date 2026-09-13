@@ -148,6 +148,8 @@ extern void ub_callret(unsigned long passes, volatile void *buffer);
 extern void ub_callret_end(void);
 extern void ub_pushpop(unsigned long passes, volatile void *buffer);
 extern void ub_pushpop_end(void);
+extern void ub_mmio(unsigned long passes, volatile void *buffer);
+extern void ub_mmio_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -292,6 +294,7 @@ int main(int argc, FAR char *argv[])
     { "mult       ", ub_mult, ub_mult_end, UB_PASSES, 11, false , false , false },
     { "callret    ", ub_callret, ub_callret_end, UB_PASSES, 11, false , false , false },
     { "pushpop    ", ub_pushpop, ub_pushpop_end, UB_PASSES, 11, false , false , false },
+    { "mmio       ", ub_mmio, ub_mmio_end, UB_PASSES, 11, false , false , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;

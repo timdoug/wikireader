@@ -580,5 +580,36 @@ ub_pushpop:
 	.global	ub_pushpop_end
 ub_pushpop_end:
 
+/* Reading a peripheral register, which nothing else here does.
+ *
+ * The card benchmark says the model is 25% slow on reads, and the profile
+ * says that time is not the card: the payload is a sixth of it and the rest
+ * is the driver, running the same code the device runs in 73% of the
+ * cycles. A driver is a loop over registers, and every register access in
+ * this machine -- the display, the touch panel, the card, the serial port --
+ * goes through the same bus, which no measurement has ever priced.
+ *
+ * The SDRAM controller's timing register is the one to read: it is on the
+ * peripheral bus like the rest, it has no side effects at all, and ubench
+ * already reads it once for the header it prints.
+ */
+
+	.p2align 5
+	.global	ub_mmio
+	.type	ub_mmio,@function
+ub_mmio:
+	ld.w	%r5,1
+	xld.w	%r8,0x301604
+1:
+	.rept	8
+	ld.w	%r4,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_mmio_end
+ub_mmio_end:
+
 	.global	ub_block_end
 ub_block_end:

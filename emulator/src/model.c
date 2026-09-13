@@ -16,28 +16,30 @@
 uint32_t wremu_cur_pc;
 
 struct model model = {
-	.branch_taken = 8,          /* refitted 2026-09-13, see README */
-	.branch_taken_iram = 4,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
+	/* Refitted 2026-09-13 against a 60 MHz guest clock. Everything here
+	   was a fifth larger while the timer ran at 48. */
+	.branch_taken = 5,          /* refitted 2026-09-13, see README */
+	.branch_taken_iram = 3,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
 	/* half-MCLK. The micro loops want eight and Dhrystone wants zero:
 	   they all fit the queue, so they measure the fill of a line that is
 	   refetched every pass, where a program with a real code footprint
 	   measures a queue that misses constantly. Four splits it. */
-	.iqb_first = 4,
+	.iqb_first = 2,
 	.iqb_word_gap = 0,
-	.dq_extra = 1,
-	.wr_ticks = 10,         /* refitted once writes were posted */
+	.dq_extra = 0,
+	.wr_ticks = 7,         /* refitted once writes were posted */
 	/* Zero since the row model: three clocks of bus turn stood in for
 	   what a copy really pays, which is a row change on every access,
 	   and charging both now costs more than the device does. */
 	.wr_rd_turn = 0,
 	.row_ports = 1,
 	.sdclk_half = 4,
-	.row_change_extra = 4,
+	.row_change_extra = 2,
 	/* One: the device copies a word at a time faster than four at a
 	   time, which only happens if a store retires before the bus has
 	   taken it and a run of stores with nothing between them fills up. */
 	.write_post = 1,
-	.call_extra = 4,
+	.call_extra = 2,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	/* What the card is busy for after taking a block. The device spends
@@ -49,7 +51,7 @@ struct model model = {
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
 	.dq_iram_extra = 2,
-	.dq_hit = 2,
+	.dq_hit = 1,
 };
 
 static const struct {
