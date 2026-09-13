@@ -226,6 +226,15 @@ and `wr_ticks` 0 -> 3 fit that curve within 6%, and the benchmarks that were
 no part of the fit moved with it: CoreMark 1.23x -> 1.03x, Dhrystone 1.27x ->
 1.08x, Whetstone 1.19x -> 0.97x.
 
+A loop that straddles a 1 KB page costs the device 3.2x what the same loop
+costs anywhere else, and the model charged nothing for it: its instruction
+queue held two 16-byte lines for ever, where the hardware cannot keep a line
+whose row has been precharged to reach the other. Queue lines are now
+evicted when a fill activates another row of the same bank, and the cliff
+lands within 2% -- 3.22 seconds against 3.16. Everything either side of it is
+unchanged, which is the point: seven of the eight places the loop can sit
+were already right.
+
 What remains out is ramspeed through the C library, 1.41x on memcpy and 0.80x
 on memset -- out in both directions, so not one missing cost -- and the card,
 whose waits are still zero.

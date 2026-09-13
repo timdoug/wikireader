@@ -398,8 +398,41 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 			s->iq_hits++;
 			ready = s->iq[slot].ready[word];
 		} else {
+			unsigned fill_bank;
+			uint32_t fill_row;
+
 			prepare_external_access(s, now);
 			slot = s->iq_next++ & 1;
+
+			/*
+			 * A queue line is only good while its row is open. A
+			 * burst cannot cross a page boundary, so filling from
+			 * another row of the same bank precharges the one the
+			 * other line came from and leaves it stale.
+			 *
+			 * It shows up as a cliff. A loop that fits the queue
+			 * costs the device 15 cycles a pass wherever it sits,
+			 * until it straddles a 1 KB page -- its two lines then
+			 * land in adjacent rows of one bank, each fill throws
+			 * the other away, and it costs 47. Without this the
+			 * model held both lines for ever and charged 14.55 at
+			 * every offset, which is the right answer for seven of
+			 * the eight places the loop can be and wrong for the
+			 * one that matters.
+			 */
+
+			address_parts(s, tag, &fill_bank, &fill_row);
+			for (unsigned i = 0; i < 2; i++) {
+				unsigned bank;
+				uint32_t row;
+
+				if (!s->iq[i].valid || i == slot)
+					continue;
+				address_parts(s, s->iq[i].tag, &bank, &row);
+				if (bank == fill_bank && row != fill_row)
+					s->iq[i].valid = false;
+			}
+
 			s->iq[slot].valid = true;
 			s->iq[slot].tag = tag;
 			schedule_read(s, tag, 8, now, s->iq[slot].ready);
