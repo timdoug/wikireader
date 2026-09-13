@@ -19,20 +19,37 @@ STAGE = ROOT / "build/wr128/mem-dma"
 TOOLCHAIN = ROOT / "host-tools/toolchain-c33/work/install/bin"
 
 
-def make_image(path, files):
-    part, sectors, reserved, fatsize = 2048, 125000, 32, 1000
+def make_image(path, files, sectors_per_cluster=1):
+    """Build a FAT32 image.  One sector per cluster is the default because
+    every existing caller was written against that geometry, but it is the
+    worst case for read throughput: fs_fat32.c clips a multi-sector read to
+    the sectors left in the cluster, so single-sector clusters mean the SD
+    driver never issues CMD18 and pays a command, a response and a token
+    poll for every 512 bytes.  Pass a real card's cluster size to measure
+    the card rather than the fixture."""
+    spc = sectors_per_cluster
+    assert spc >= 1 and (spc & (spc - 1)) == 0
+    part, reserved = 2048, 32
+    # FAT32 is a cluster count, not a signature: keep enough of them that a
+    # driver counting clusters still calls this FAT32 as the size grows.
+    clusters = max(65600, 122968 // spc)
+    fatsize = max(1000, ((clusters + 2) * 4 + 511) // 512)
+    sectors = reserved + 2 * fatsize + clusters * spc
     data_sector = part + reserved + 2 * fatsize
     fat = bytearray(fatsize * 512)
     struct.pack_into('<III', fat, 0, 0x0ffffff8, 0x0fffffff, 0x0fffffff)
     root = bytearray(4096)
     objects = [(2, root)]
-    for c in range(2, 10):
-        struct.pack_into('<I', fat, c * 4, c + 1 if c < 9 else 0x0fffffff)
-    cluster = 10
+    root_clusters = max(1, (len(root) + 512 * spc - 1) // (512 * spc))
+    last_root = 2 + root_clusters - 1
+    for c in range(2, last_root + 1):
+        struct.pack_into('<I', fat, c * 4,
+                         c + 1 if c < last_root else 0x0fffffff)
+    cluster = last_root + 1
     for i, (name, content) in enumerate(files.items()):
         stem, ext = name.upper().split('.')
         assert len(stem) <= 8 and len(ext) <= 3
-        count = max(1, (len(content) + 511) // 512)
+        count = max(1, (len(content) + 512 * spc - 1) // (512 * spc))
         for c in range(cluster, cluster + count):
             struct.pack_into('<I', fat, c*4, c+1 if c+1 < cluster+count else 0x0fffffff)
         off = i * 32
@@ -42,14 +59,14 @@ def make_image(path, files):
         struct.pack_into('<HI', root, off+26, cluster & 65535, len(content))
         objects.append((cluster, content))
         cluster += count
-    assert len(files) < 128 and cluster < 120000
+    assert len(files) < 128 and cluster < clusters + 2
     mbr = bytearray(512)
     mbr[450] = 0x0c
     struct.pack_into('<II', mbr, 454, part, sectors)
     mbr[510:] = b'\x55\xaa'
     vbr = bytearray(512)
     vbr[:11] = b'\xeb\x58\x90MSWIN4.1'
-    struct.pack_into('<HBHBHHBHHHII', vbr, 11, 512, 1, reserved, 2, 0, 0, 0xf8, 0, 63, 255, part, sectors)
+    struct.pack_into('<HBHBHHBHHHII', vbr, 11, 512, spc, reserved, 2, 0, 0, 0xf8, 0, 63, 255, part, sectors)
     struct.pack_into('<IHHIHH', vbr, 36, fatsize, 0, 0, 2, 1, 6)
     vbr[64], vbr[66] = 0x80, 0x29
     struct.pack_into('<I', vbr, 67, 0x12345678)
@@ -58,9 +75,8 @@ def make_image(path, files):
     struct.pack_into('<I', fsinfo, 0, 0x41615252)
     # The builder knows this allocation state. Unknown hints make the
     # first boot scan the FAT before writing a diagnostic, skewing timing.
-    data_clusters = sectors - reserved - 2 * fatsize
     struct.pack_into('<III', fsinfo, 484, 0x61417272,
-                     data_clusters - (cluster - 2), cluster - 1)
+                     clusters - (cluster - 2), cluster - 1)
     struct.pack_into('<I', fsinfo, 508, 0xaa550000)
     with path.open('wb') as out:
         out.truncate((part+sectors)*512)
@@ -74,7 +90,7 @@ def make_image(path, files):
         for offset in (reserved, reserved+fatsize):
             put(part+offset, fat)
         for c, content in objects:
-            put(data_sector+c-2, content)
+            put(data_sector + (c - 2) * spc, content)
 
 
 def read_file(path, wanted):
@@ -85,6 +101,7 @@ def read_file(path, wanted):
         part = struct.unpack_from('<I', read(0, 512), 454)[0]
         vbr = read(part*512, 512)
         reserved = struct.unpack_from('<H', vbr, 14)[0]
+        spc = vbr[13]
         fatsize = struct.unpack_from('<I', vbr, 36)[0]
         fat = read((part+reserved)*512, fatsize*512)
         data = (part+reserved+2*fatsize)*512
@@ -94,7 +111,7 @@ def read_file(path, wanted):
             while 2 <= c < 0x0ffffff8:
                 assert c not in seen
                 seen.add(c)
-                result.extend(read(data+(c-2)*512, 512))
+                result.extend(read(data+(c-2)*512*spc, 512*spc))
                 c = struct.unpack_from('<I', fat, c*4)[0] & 0x0fffffff
             return result
         root = chain(2)

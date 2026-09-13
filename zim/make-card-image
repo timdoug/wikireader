@@ -127,8 +127,10 @@ for zim_file in "$@"; do
 	zim_bytes=$(( zim_bytes + $(stat -f %z "$zim_file") ))
 done
 # The boot partition holds the stock files, the apps, and any native data
-# sets; the 64 MiB floor leaves room for history and settings.
-boot_mib=$(( 64 + (native_bytes + native_bytes / 20 + 1024 * 1024 - 1) / (1024 * 1024) ))
+# sets.  The floor is 320 MiB rather than the 64 the contents need: FAT32
+# wants 65525 clusters, and the volume is formatted below with 4 KiB ones
+# so that reads are not clipped to a single sector.
+boot_mib=$(( 320 + (native_bytes + native_bytes / 20 + 1024 * 1024 - 1) / (1024 * 1024) ))
 # Add ample exFAT metadata and copy slack for the archives.
 image_mib=$(( boot_mib + (zim_bytes + 192 * 1024 * 1024 + 1024 * 1024 - 1) / (1024 * 1024) ))
 boot_label="WRBOOT$$"
@@ -171,6 +173,22 @@ echo "Partitioning $device..."
 diskutil partitionDisk "$device" MBR \
 	FAT32 "$boot_label" "${boot_mib}M" \
 	ExFAT "$content_label" R >/dev/null
+
+# diskutil gives a FAT32 volume the smallest cluster that fits, which for a
+# boot volume this size is one sector.  That is the worst case for reading:
+# the filesystem clips a multi-sector read to the sectors left in the
+# cluster, so every 512 bytes of the kernel, the reader and its fonts costs
+# a command, a response and a token poll of its own.  Reading this tree's
+# 2.9 MB NuttX image through the same driver takes 9.78 s at one sector a
+# cluster and 3.45 s at eight.  So say the cluster size rather than take
+# what is offered; the volume is sized to keep FAT32's 65525 clusters at
+# that size.
+diskutil unmount "${device}s1" >/dev/null
+newfs_msdos -F 32 -c 8 -v "$boot_label" "/dev/r${device#/dev/}s1" >/dev/null 2>&1 || {
+	echo "error: could not format the boot volume with 4 KiB clusters" >&2
+	exit 1
+}
+diskutil mount "${device}s1" >/dev/null
 
 boot_mount=$(diskutil info "${device}s1" | sed -n 's/^ *Mount Point: *//p')
 content_mount=$(diskutil info "${device}s2" | sed -n 's/^ *Mount Point: *//p')
