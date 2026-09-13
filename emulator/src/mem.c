@@ -55,8 +55,13 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 	 * Every driver on this part is a loop over registers, which is why
 	 * the card benchmark spends most of its time somewhere the profile
 	 * could not account for.
+	 *
+	 * The CPU's accesses only: what the DMA engine pays to reach the SPI
+	 * port is dma_extra, fitted separately, and charging both would be
+	 * the same cost twice.
 	 */
-	if (model.mmio_wait && addr - REG_BASE < REG_SIZE)
+	if (model.mmio_wait && addr - REG_BASE < REG_SIZE &&
+	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
 		return model.mmio_wait;
 
 	return m->wait ? m->wait(m->wait_ctx, access, addr, size, now) : 0;

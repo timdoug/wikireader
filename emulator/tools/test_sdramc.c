@@ -91,6 +91,11 @@ int main(void)
 	 * Manual II.4.1.3 and II.4.2: CAS2, tRCD4, an eight-halfword
 	 * instruction slot, and a two-halfword data buffer. Times passed to
 	 * mem_wait are the CPU's MCLK count after preceding operations.
+	 *
+	 * The first halfword lands on the CAS cycle itself and not the one
+	 * after it, which is what CAS latency means and what the device
+	 * measures: every figure below is one less than it was, because the
+	 * model used to charge that extra cycle on every read.
 	 */
 	/* These are the manual's figures; the fitted controller overheads in
 	   model.c come on top of them, so hold them at zero here. The clock
@@ -106,21 +111,21 @@ int main(void)
 	model.row_ports = 0;   /* the manual's per-bank rows; see below */
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	check64("cold IQB fetch waits tRCD + CAS + first data",
-		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 7);
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 6);
 	check64("next prefetched IQB halfword has no wait",
 		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE + 2, 2, 8), 0);
 	check64("next IQB line waits only CAS after previous burst",
-		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE + 16, 2, 14), 3);
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE + 16, 2, 14), 2);
 	check64("cold 32-bit DQB read waits for both burst halfwords",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 24), 4);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 24), 3);
 	check64("DQB hit inserts no SDRAM wait",
 		mem_wait(&mem, MEM_DMA_READ, SDRAM_BASE + 0x102, 2, 28), 0);
 	check64("32-bit write takes two individual bus operations",
 		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE + 0x100, 4, 28), 2);
 	check64("write flushes matching DQB data",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 30), 4);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x100, 4, 30), 3);
 	check64("changing row observes precharge and activation timings",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 34), 12);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 34), 11);
 	check64("IQB hit counter records buffered instruction fetch",
 		sdramc.iq_hits, 1);
 	check64("DQB hits include DMA reads",
@@ -148,25 +153,26 @@ int main(void)
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0);
 	check64("a read a kilobyte away changes rows",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 20), 12);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400, 4, 20), 11);
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
 	mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0);
 	check64("...and one four megabytes away costs the same",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400000, 4, 20), 12);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 0x400000, 4, 20), 11);
 	model.row_ports = 0;
 
 	/* DBF makes one SDCLK half of what it otherwise is; waits round up to
-	   whole MCLKs. */
+	   whole MCLKs. Three, not four, since the first halfword arrives on
+	   the CAS cycle. */
 	timing_setup(&mem, &sdramc, 0x8000002b, 0x00000fff);
-	check64("double-frequency cold fetch is four MCLKs",
-		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 4);
+	check64("double-frequency cold fetch is three MCLKs",
+		mem_wait(&mem, MEM_CPU_FETCH, SDRAM_BASE, 2, 0), 3);
 
 	/* AURCO begins at zero: 0x8c therefore expires every 141 SDCLKs. */
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x0000008c);
 	check64("prime DQB before refresh",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 8);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 7);
 	check64("due auto-refresh adds tRP + tRFC before a cold read",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 145), 23);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 145), 22);
 	check64("auto-refresh counter records the issued refresh",
 		sdramc.refreshes, 1);
 
@@ -174,13 +180,13 @@ int main(void)
 	timing_setup(&mem, &sdramc, 0x8000000b,
 		     SELEN | (0x7f << 16) | 0x8c);
 	check64("prime DQB before self-refresh",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 8);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 7);
 	check64("buffer hit does not wake SDRAM from self-refresh",
 		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 140), 0);
 	check64("buffer hit records no self-refresh exit",
 		sdramc.self_refresh_exits, 0);
 	check64("self-refresh exit adds tXSR+1 before a cold read",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 140), 24);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 140), 23);
 	check64("self-refresh exit is counted", sdramc.self_refresh_exits, 1);
 
 	sdramc_reset(&sdramc);

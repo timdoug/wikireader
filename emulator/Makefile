@@ -60,19 +60,19 @@ test-exception: tools/test_exception.c src/c33.o src/model.o src/mem.o
 	/tmp/test_exception
 
 # LCD sub-window (PIP) compositing, against grifo's own window arithmetic.
-test-lcd: tools/test_lcd.c src/lcd.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_lcd tools/test_lcd.c src/lcd.o src/mem.o $(SDL_LIBS)
+test-lcd: tools/test_lcd.c src/lcd.o src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_lcd tools/test_lcd.c src/lcd.o src/mem.o src/model.o $(SDL_LIBS)
 	/tmp/test_lcd
 
 # ADC scaling, checked by running grifo's own conversions over the counts.
-test-adc: tools/test_adc.c src/periph.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o
+test-adc: tools/test_adc.c src/periph.o src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o src/model.o
 	/tmp/test_adc
 
 # Window events: the path from an SDL click to the touch panel, which
 # scripted runs bypass entirely by calling touch_post() directly.
-test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_display tools/test_display.c src/display.o src/lcd.o src/mem.o $(SDL_LIBS)
+test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_display tools/test_display.c src/display.o src/lcd.o src/mem.o src/model.o $(SDL_LIBS)
 	/tmp/test_display
 
 # SD writes: the path that makes the guest's history outlive a run.
@@ -104,8 +104,8 @@ test-event-wait:
 	/tmp/test_event_wait
 
 # Watchdog, and above all the clock gate that keeps it quiet in suspend.
-test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o $(SDL_LIBS)
+test-wdt: tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_wdt tools/test_wdt.c src/wdt.o src/cmu.o src/mem.o src/model.o $(SDL_LIBS)
 	/tmp/test_wdt
 
 # A timeout with RESEN restarts the machine rather than ending the run. That
@@ -148,8 +148,8 @@ test-wdt-reset: wremu
 	fi
 
 # CMU protect gate and the 60 MHz the timebase depends on.
-test-cmu: tools/test_cmu.c src/cmu.o src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o
+test-cmu: tools/test_cmu.c src/cmu.o src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_cmu tools/test_cmu.c src/cmu.o src/mem.o src/model.o
 	/tmp/test_cmu
 
 # Cascaded timer 0/5 reads and the per-channel count-pause register.
@@ -163,8 +163,8 @@ test-sdramc: tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
 	/tmp/test_sdramc
 
 # Fixed CPU/product/model/version bytes at the documented identification area.
-test-chipid: tools/test_chipid.c src/mem.o
-	$(CC) $(CFLAGS) -o /tmp/test_chipid tools/test_chipid.c src/mem.o
+test-chipid: tools/test_chipid.c src/mem.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_chipid tools/test_chipid.c src/mem.o src/model.o
 	/tmp/test_chipid
 
 # GPIO reset masks and the modeled key/power interrupt inputs.
@@ -247,6 +247,6 @@ clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)
 
 .PHONY: test-uart
-test-uart: tools/test_uart.c src/uart.o src/itc.o src/mem.o
+test-uart: tools/test_uart.c src/uart.o src/itc.o src/mem.o src/model.o
 	$(CC) $(CFLAGS) -o /tmp/test_uart $^ $(SDL_LIBS)
 	/tmp/test_uart

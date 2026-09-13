@@ -362,7 +362,7 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	for (unsigned i = 0; i < halfwords; i++) {
 		if (halfwords > 2)
 			extra += (i && !(i & 1)) ? model.iqb_word_gap : 0;
-		ready[i] = command + (cas(s) + i + 1) * tick + extra;
+		ready[i] = command + (cas(s) + i + model.cas_first) * tick + extra;
 	}
 
 	s->bus_free = ready[halfwords - 1];

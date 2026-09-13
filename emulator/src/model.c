@@ -44,6 +44,12 @@ struct model model = {
 	   controller register at 82.50 cycles a pass where the same loop of
 	   adds costs 15.15; this was zero until it was asked. */
 	.mmio_wait = 8,
+	/* Zero: the first halfword lands on the CAS cycle itself, which is
+	   what CAS latency means. Charging the cycle after it made every
+	   external read two MCLK dear -- loadseq, loadseq8 and copyloop were
+	   all 1.16 to 1.21 of the device for that one reason, and the fetch
+	   loops carried it too. */
+	.cas_first = 0,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	/* What the card is busy for after taking a block. The device spends
@@ -85,6 +91,7 @@ static const struct {
 	{ "write_post", NULL, &model.write_post },
 	{ "call_extra", NULL, &model.call_extra },
 	{ "mmio_wait", NULL, &model.mmio_wait },
+	{ "cas_first", NULL, &model.cas_first },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
 };

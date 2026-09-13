@@ -82,6 +82,9 @@ struct model {
 	unsigned call_extra;
 	/* What one peripheral register access costs, in MCLK. */
 	unsigned mmio_wait;
+	/* Which cycle after the read command the first halfword lands on:
+	   CAS, or the one after it. */
+	unsigned cas_first;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;
