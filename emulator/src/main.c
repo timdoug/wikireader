@@ -235,6 +235,31 @@ static void sdramc_boot_state(struct mem *mem)
 	mem_write(mem, REG_BASE + 0x1600, 4, 0x14);       /* SDON|INIMRS */
 }
 
+/*
+ * ...and the clock, for the same reason.
+ *
+ * grifo sets the PLL up before it runs anything -- "48 MHz / 8 input ->
+ * 60 MHz output" -- and a program loaded straight from an ELF never sees
+ * that happen. The CMU then reports OSC3's 48 MHz, which is what the timer
+ * block counts at, while the guest programs its tick divider from the 60 MHz
+ * its configuration says the part runs at. Every interval the guest measured
+ * was therefore a quarter too long: ubench's alu loop came out at 14.40
+ * cycles a pass where the machine really took 18.15.
+ *
+ * This is the third bug of the shape "the device is never in the state a
+ * direct boot starts in", after the SDRAM timing registers and the refresh
+ * counters. The real answer is to boot grifo the way the device does; until
+ * the benchmark harness does that, a direct boot starts on grifo's values.
+ */
+static void cmu_boot_state(struct mem *mem)
+{
+	/* PROTECT off, then OSCSEL_PLL with OSC3 running, PLLINDIV 8 and
+	   PLLN 10, PLL powered: 48 / 8 * 10 = 60 MHz, MCLKDIV clear. */
+	mem_write(mem, REG_BASE + 0x1b24, 4, 0x96);
+	mem_write(mem, REG_BASE + 0x1b0c, 4, (10u - 1) << 4 | 1u);
+	mem_write(mem, REG_BASE + 0x1b08, 4, (7u << 20) | (3u << 2) | (1u << 1));
+}
+
 int main(int argc, char **argv)
 {
 	model_init();
@@ -653,8 +678,10 @@ int main(int argc, char **argv)
 	port_watch_sdram(&port, &cpu);
 
 	/* The loader would have done this; a direct ELF boot has no loader. */
-	if (!eeprom_path)
+	if (!eeprom_path) {
 		sdramc_boot_state(&mem);
+		cmu_boot_state(&mem);
+	}
 
 	touch_set_clock(&touch, MCLK_HZ);
 	touch_set_cmu(&touch, &cmu);
