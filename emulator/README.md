@@ -169,63 +169,84 @@ per-source-line cost that includes memory stalls. Cycles, not instruction
 counts, are what to look at on this core: the ZIM article load below runs at
 3.5 to 4.7 cycles per instruction, and an instruction-count profile of it
 ranks the wrong lines. The CPU has no cache; the model charges a row change
-of about 2 tRP + waits on tRAS/tRC for every move to another 1 KiB row of a
-bank (the WikiReader measurements use 4 MiB bank strides), closes every bank at each
-auto-refresh, and treats the two-slot 16-byte instruction queue as the only
-fetch buffering.
+for every move to another 1 KiB row, closes every bank at each auto-refresh,
+and treats the two-slot 16-byte instruction queue as the only fetch
+buffering. A row register belongs to the access port (fetch, data, DMA) and
+not to the bank, so two data addresses evict one another however far apart
+they are; the device measures a pair 4 MB apart at the same cost as a pair
+a kilobyte apart, and bank separation buys nothing.
 
 ZIM reader article load, Simple English `Cat`, retrieval to render entry,
 run from the repository root with a card from `zim/make-card-image`:
 
 ```sh
-./emulator/wremu -R -e samo-lib/mbr/flash.rom -c /tmp/card.dmg \
+./emulator/wremu -R -c /tmp/card.dmg samo-lib/grifo/grifo.elf \
     -T 40,36,100000000 -K 300000000,CAT -T 30,40,500000000 \
-    -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt -n 1000000000
+    -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt -n 1200000000
 ```
 
-Use addresses from the matching `zim/zim.map`. The first tap picks the reader
-on the launcher menu, so `-Z` cannot be used. Scripted tap release is
+Use addresses from the matching `zim/zim.map`; they move with every build.
+Booting `grifo.elf` rather than `-e samo-lib/mbr/flash.rom` skips the
+file-loader's LCD initialization, which is over long before the window
+opens, and is what the benchmark harness does. The first tap picks the
+reader on the launcher menu, so `-Z` cannot be used. Scripted tap release is
 delivered when the emulator next idles; a faster build can therefore render
 extra frames while the scripted touch remains held.
 
 ### Calibration
 
-The defaults in `src/model.c` were fitted on 2026-09-07 to an early 32 MB
-WikiReader running the retimed kernel (`WREMU_BOARD_REV=7`). Parameters
-can be overridden with `WREMU_MODEL=name=value,...`.
+The defaults in `src/model.c` were refitted on 2026-09-13 against a 32 MB
+WikiReader running the NuttX port's `ubench`, `bench` and `cardb`
+(`nuttx/overlay/apps/system/bench/*-device.txt`), booted through grifo so
+that the machine state matches the device's. Parameters can be overridden
+with `WREMU_MODEL=name=value,...`.
 
 | Parameter | Default | Meaning |
 | --- | ---: | --- |
-| `branch_taken` | 8 | taken branch cycles with an SDRAM target |
-| `branch_taken_iram` | 4 | taken branch cycles with an internal-RAM target |
-| `iqb_first` | 3 | extra SDCLK ticks before an instruction-queue fill |
-| `iqb_word_gap` | 4 | extra ticks between words of that fill |
-| `dq_extra` | 1 | extra ticks on a data-queue fill |
-| `wr_ticks` | 3 | fixed CPU write ticks; zero uses transfer timing |
-| `wr_rd_turn` | 3 | extra ticks for an SDRAM read after a write |
+| `branch_taken` | 5 | taken branch cycles with an SDRAM target |
+| `branch_taken_iram` | 6 | taken branch cycles with an internal-RAM target |
+| `call_extra` | 2 | extra cycles a call or return pays for the queue it discards |
+| `iqb_first` | 1 | extra half-MCLK before an instruction-queue fill |
+| `iqb_word_gap` | 0 | extra half-MCLK between words of that fill |
+| `dq_extra` | 0 | extra half-MCLK on a data-queue fill |
+| `dq_hit` | 1 | ...and on a data-queue hit |
+| `dq_iram_extra` | 2 | ...for data access from internal-RAM code |
+| `wr_ticks` | 9 | half-MCLK of bus occupancy per written halfword |
+| `write_post` | 1 | a store retires into the controller's buffer; 0 blocks the CPU |
+| `wr_rd_turn` | 0 | extra half-MCLK for an SDRAM read after a write |
+| `sdclk_half` | 4 | half-MCLK per SDCLK; the device divides MCLK by two |
+| `row_ports` | 1 | the open row belongs to the access port, not the bank |
+| `row_change_extra` | 1 | extra half-MCLK on a row change |
+| `cas_first` | 0 | the first halfword lands on the CAS cycle, not after it |
+| `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
+| `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `sd_read_latency` | 60000 | cycles from a read command to the data token |
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
-| `sd_write_latency` | 0 | programming busy cycles after a written block |
+| `sd_write_latency` | 93000 | programming busy cycles after a written block |
 | `iram_fetch_wait` | 0 | extra cycles per A0 RAM instruction fetch |
 | `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
 | `iq_row_evict` | 1 | a queue line dies when its row is closed; 0 prices a page crossing |
-| `dq_iram_extra` | 2 | extra ticks for data access from internal-RAM code |
-| `dq_hit` | 1 | extra ticks for a data-queue hit |
 
-Calibration microbenchmarks agreed within 12%, most within 5%. In the
-measured article phases the model was 16-33% faster than the device.
+Against the device: 34 `ubench` loops at 0.091 RMS log error with 27 within
+10%, CoreMark 0.95x, Dhrystone 1.00x, Whetstone 0.99x, and card writes
+0.97-1.01x across a 512-32768 byte block sweep. Card reads are 0.74x and the
+profile puts that time in driver code rather than in the card. Two loops
+that copy behind a growing tail of code (`copydisp`, `mix16/64/96`) are a
+constant ~43 cycles dear at every size; the per-line fill charge is right,
+so it is data accesses overlapping fills, and four attempts to model that
+overlap were each refuted by `bytecopy`, which pays its fetches serially.
 
-Refitted on 2026-09-13. The NuttX port's `ubench` runs a loop of known size
-and content at 18, 26, 42, 74 and 138 bytes, from SDRAM and from internal
-RAM, with every routine aligned so that size is the only thing varying. The
-device's curve has its knee in the same place as the model's -- cheap below
-about 32 bytes, 2.4x dearer a byte above it -- so the shape was right and the
-error was a near-uniform 24%. `branch_taken` 5 -> 8, `iqb_word_gap` 2 -> 4
-and `wr_ticks` 0 -> 3 fit that curve within 6%, and the benchmarks that were
-no part of the fit moved with it: CoreMark 1.23x -> 1.03x, Dhrystone 1.27x ->
-1.08x, Whetstone 1.19x -> 0.97x.
+`iqb_first` is a deliberate compromise at 1. Every `ubench` loop fits the
+instruction queue and so measures the fill of a line refetched every pass,
+which wants a larger value; Dhrystone has a real code footprint and a queue
+that misses constantly, and wants zero. Do not fit it against either alone.
+
+Compare on the same binary. Adding `ubench` loops moves the device's own
+CoreMark and Dhrystone -- Dhrystone was 15232 on one build and 13708 on the
+next -- so a stale reference can make a model that is 0.3% out look 10% out.
+Re-run `bench` on the device whenever the image changes.
 
 A loop that straddles a 1 KB page costs the device 3.2x what the same loop
 costs anywhere else. In aggregate that is small -- CoreMark scores 30.51 with
@@ -249,26 +270,23 @@ lands within 2% -- 3.22 seconds against 3.16. Everything either side of it is
 unchanged, which is the point: seven of the eight places the loop can sit
 were already right.
 
-What remains out is ramspeed through the C library, 1.41x on memcpy and 0.80x
-on memset -- out in both directions, so not one missing cost -- and the card,
-whose waits are still zero.
+Three things found while fitting are worth knowing: an application runs on
+the timings `SDRAM_retime()` leaves, not the loader's; a guest that never
+programs the SDRAM controller used to be modelled with no memory system at
+all; and a direct ELF boot skips grifo's PLL setup, so the CMU reported
+OSC3's 48 MHz while NuttX programmed its tick divider from the 60 MHz in
+its config, and every guest-measured second ran a quarter long. All three
+are the same shape -- the device is never in the state a direct boot starts
+in -- which is why the benchmark harness now boots grifo. Use the model to
+identify expensive work and compare candidates, then confirm improvements
+on hardware. Historical calibration data and its retired harness remain in
+Git at `7aa4ee84`.
 
-Re-checked on 2026-09-13 against a 32 MB device running the NuttX port
-(`tools/bench-device.txt` in that tree, taken with `WREMU_BOARD_REV=7`):
-CoreMark 1.23x, Dhrystone 1.27x, Whetstone 1.19x, ramspeed 1.12-1.70x. The
-per-operation loops agree within 6% where the code is in SDRAM and a tight
-loop, and are up to 29% fast where it is longer or in internal RAM. So the
-16-33% band above still describes it. Two things found while re-checking are
-worth knowing: an application runs on the timings `SDRAM_retime()` leaves,
-not the loader's, and a guest that never programs the SDRAM controller used
-to be modelled with no memory system at all. Use it
-to identify expensive work and compare candidates, then confirm improvements
-on hardware. Historical
-calibration data and its retired harness remain in Git at `7aa4ee84`.
-
-The three separate card waits were added on 2026-09-09. Their defaults are
-zero because the current card has not yet been calibrated by boot phase;
-they are mechanisms for fitting measured waits, not measured defaults.
+The three separate card waits were added on 2026-09-09. `sd_write_latency`
+was fitted on 2026-09-13 from `cardb`, which sweeps the block size so that
+a fixed cost per operation and a cost per byte can be told apart; the other
+two are still zero and are mechanisms for fitting measured waits rather
+than measured defaults.
 They use MCLK cycles (60,000 cycles/ms at 60 MHz). Initialization polls
 return idle until ready, streamed reads delay only the next data token,
 and programming busy survives chip deselection. CPU and DMA costs retain
