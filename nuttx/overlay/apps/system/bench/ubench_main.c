@@ -50,6 +50,14 @@
  */
 
 #define UB_PASSES      4000000
+
+/* The walking loops cover sixteen bytes a pass, so a megabyte of buffer is
+ * 65536 of them -- far enough to cross a thousand pages and to leave no row
+ * usefully open.
+ */
+
+#define UB_STREAM_BYTES  (1024 * 1024)
+#define UB_STREAM_PASSES (UB_STREAM_BYTES / 16)
 #define UB_LONG_PASSES 400000
 
 /****************************************************************************
@@ -66,6 +74,7 @@ struct ub_case_s
   unsigned long passes;
   unsigned instructions;   /* per pass, counted from ubench.S */
   bool internal;           /* run it from internal RAM */
+  bool stream;             /* walks through the buffer rather than sitting */
 };
 
 /****************************************************************************
@@ -90,10 +99,19 @@ extern void ub_s16(unsigned long passes, volatile void *buffer);
 extern void ub_s16_end(void);
 extern void ub_s32(unsigned long passes, volatile void *buffer);
 extern void ub_s32_end(void);
+extern void ub_loadb(unsigned long passes, volatile void *buffer);
+extern void ub_loadb_end(void);
+extern void ub_storeb(unsigned long passes, volatile void *buffer);
+extern void ub_storeb_end(void);
+extern void ub_loadseq(unsigned long passes, volatile void *buffer);
+extern void ub_loadseq_end(void);
+extern void ub_storeseq(unsigned long passes, volatile void *buffer);
+extern void ub_storeseq_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
 extern void ub_straight_end(void);
 
 static uint32_t g_scratch[8];
+static FAR uint8_t *g_stream;
 
 /****************************************************************************
  * Private Functions
@@ -123,7 +141,7 @@ static double ub_run(const struct ub_case_s *test)
   ub_fn_t fn = ub_relocate(test->fn, test->internal);
 
   clock_gettime(CLOCK_MONOTONIC, &start);
-  fn(test->passes, g_scratch);
+  fn(test->passes, test->stream ? (FAR void *)g_stream : g_scratch);
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   return (end.tv_sec - start.tv_sec) +
@@ -194,20 +212,24 @@ int main(int argc, FAR char *argv[])
 {
   static const struct ub_case_s cases[] =
   {
-    { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false },
-    { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  },
-    { "alu+16 sdram", ub_alu_off, ub_alu_off_end,  UB_PASSES,      11, false },
-    { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false },
-    { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  },
-    { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false },
-    { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  },
-    { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false },
-    { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  },
-    { "size 4     ", ub_s4, ub_s4_end, UB_PASSES, 7, false },
-    { "size 16    ", ub_s16, ub_s16_end, UB_PASSES, 19, false },
-    { "size 32    ", ub_s32, ub_s32_end, UB_LONG_PASSES, 35, false },
-    { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false },
-    { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  },
+    { "alu   sdram", ub_alu,      ub_alu_end,      UB_PASSES,      11, false , false },
+    { "alu   ivram", ub_alu,      ub_alu_end,      UB_PASSES,      11, true  , false },
+    { "alu+16 sdram", ub_alu_off, ub_alu_off_end,  UB_PASSES,      11, false , false },
+    { "wide  sdram", ub_wide,     ub_wide_end,     UB_PASSES,      11, false , false },
+    { "wide  ivram", ub_wide,     ub_wide_end,     UB_PASSES,      11, true  , false },
+    { "load  sdram", ub_load,     ub_load_end,     UB_PASSES,      11, false , false },
+    { "load  ivram", ub_load,     ub_load_end,     UB_PASSES,      11, true  , false },
+    { "store sdram", ub_store,    ub_store_end,    UB_PASSES,      11, false , false },
+    { "store ivram", ub_store,    ub_store_end,    UB_PASSES,      11, true  , false },
+    { "size 4     ", ub_s4, ub_s4_end, UB_PASSES, 7, false , false },
+    { "size 16    ", ub_s16, ub_s16_end, UB_PASSES, 19, false , false },
+    { "size 32    ", ub_s32, ub_s32_end, UB_LONG_PASSES, 35, false , false },
+    { "loadb sdram", ub_loadb,   ub_loadb_end,   UB_PASSES, 11, false, false },
+    { "storeb sdrm", ub_storeb,  ub_storeb_end,  UB_PASSES, 11, false, false },
+    { "loadseq    ", ub_loadseq,  ub_loadseq_end,  UB_STREAM_PASSES, 11, false, true },
+    { "storeseq   ", ub_storeseq, ub_storeseq_end, UB_STREAM_PASSES, 11, false, true },
+    { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false , false },
+    { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
@@ -231,6 +253,13 @@ int main(int argc, FAR char *argv[])
     }
 
   memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
+
+  g_stream = malloc(UB_STREAM_BYTES);
+  if (g_stream == NULL)
+    {
+      printf("ubench: no room for the streaming buffer\n");
+      return EXIT_FAILURE;
+    }
 
   dprintf(fd, "# microbenchmark, %u MHz, %u passes\n",
           (unsigned)(CONFIG_S1C33E07_MCLK / 1000000), UB_PASSES);

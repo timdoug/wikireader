@@ -233,5 +233,91 @@ ub_s32:
 ub_s32_end:
 
 
+
+/* Byte accesses, which nothing above measures: the C library's memcpy is a
+ * byte at a time, and its cost in the model is 1.41x the device's.
+ */
+
+	.p2align 5
+	.global	ub_loadb
+	.type	ub_loadb,@function
+ub_loadb:
+	ld.w	%r5,1
+1:
+	.rept	8
+	ld.b	%r4,[%r7]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_loadb_end
+ub_loadb_end:
+
+	.p2align 5
+	.global	ub_storeb
+	.type	ub_storeb,@function
+ub_storeb:
+	ld.w	%r5,1
+1:
+	.rept	8
+	ld.b	[%r7],%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_storeb_end
+ub_storeb_end:
+
+/* ...and walking through memory rather than standing still. Everything
+ * above reads and writes one address, so the row is always open and the
+ * cost of changing one never appears -- which is the regime memcpy and
+ * memset spend all their time in. Four words a pass, sixteen bytes, so the
+ * caller must give it sixteen bytes per pass to walk through.
+ */
+
+	.p2align 5
+	.global	ub_loadseq
+	.type	ub_loadseq,@function
+ub_loadseq:
+	ld.w	%r5,1
+1:
+	ld.w	%r4,[%r7]
+	xadd	%r7,4
+	ld.w	%r4,[%r7]
+	xadd	%r7,4
+	ld.w	%r4,[%r7]
+	xadd	%r7,4
+	ld.w	%r4,[%r7]
+	xadd	%r7,4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_loadseq_end
+ub_loadseq_end:
+
+	.p2align 5
+	.global	ub_storeseq
+	.type	ub_storeseq,@function
+ub_storeseq:
+	ld.w	%r5,1
+1:
+	ld.w	[%r7],%r4
+	xadd	%r7,4
+	ld.w	[%r7],%r4
+	xadd	%r7,4
+	ld.w	[%r7],%r4
+	xadd	%r7,4
+	ld.w	[%r7],%r4
+	xadd	%r7,4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_storeseq_end
+ub_storeseq_end:
+
 	.global	ub_block_end
 ub_block_end:
