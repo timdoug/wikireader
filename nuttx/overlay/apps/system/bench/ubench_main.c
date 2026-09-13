@@ -58,6 +58,14 @@
 
 #define UB_STREAM_BYTES  (1024 * 1024)
 #define UB_STREAM_PASSES (UB_STREAM_BYTES / 16)
+
+/* One walk of a megabyte is 65536 passes and takes about twenty
+ * milliseconds, which a ten millisecond clock measures to two ticks: the
+ * answers came out as multiples of 9.155 cycles a pass and moved by that
+ * much when nothing had changed. Walk it enough times to be worth timing.
+ */
+
+#define UB_STREAM_REPEAT 32
 /* Sixteen bytes a pass through the first half, writing to the second. */
 #define UB_COPY_PASSES   (UB_STREAM_BYTES / 2 / 16)
 #define UB_LONG_PASSES 400000
@@ -143,13 +151,23 @@ static double ub_run(const struct ub_case_s *test)
   struct timespec start;
   struct timespec end;
   ub_fn_t fn = ub_relocate(test->fn, test->internal);
+  unsigned repeat = test->stream ? UB_STREAM_REPEAT : 1;
+  unsigned i;
 
   clock_gettime(CLOCK_MONOTONIC, &start);
-  fn(test->passes, test->stream ? (FAR void *)g_stream : g_scratch);
+  for (i = 0; i < repeat; i++)
+    {
+      /* A walking loop starts again at the beginning; the pointer it was
+       * given is its own, so each repeat covers the same ground.
+       */
+
+      fn(test->passes, test->stream ? (FAR void *)g_stream : g_scratch);
+    }
+
   clock_gettime(CLOCK_MONOTONIC, &end);
 
-  return (end.tv_sec - start.tv_sec) +
-         (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+  return ((end.tv_sec - start.tv_sec) +
+          (end.tv_nsec - start.tv_nsec) / 1000000000.0) / repeat;
 }
 
 /* Where the boundary is.
