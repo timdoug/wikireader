@@ -210,6 +210,7 @@ can be overridden with `WREMU_MODEL=name=value,...`.
 | `sd_write_latency` | 0 | programming busy cycles after a written block |
 | `iram_fetch_wait` | 0 | extra cycles per A0 RAM instruction fetch |
 | `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
+| `iq_row_evict` | 1 | a queue line dies when its row is closed; 0 prices a page crossing |
 | `dq_iram_extra` | 2 | extra ticks for data access from internal-RAM code |
 | `dq_hit` | 1 | extra ticks for a data-queue hit |
 
@@ -227,7 +228,20 @@ no part of the fit moved with it: CoreMark 1.23x -> 1.03x, Dhrystone 1.27x ->
 1.08x, Whetstone 1.19x -> 0.97x.
 
 A loop that straddles a 1 KB page costs the device 3.2x what the same loop
-costs anywhere else, and the model charged nothing for it: its instruction
+costs anywhere else. In aggregate that is small -- CoreMark scores 30.51 with
+the eviction modelled and 30.70 without, so 0.6% of it goes on code lying
+across page boundaries, although 21% of its instruction-queue misses involve
+one. It is a lottery rather than a tax: most loops never straddle, the ones
+that do pay 3.2x, and whether any of them is hot is a property of one build.
+`WREMU_MODEL=iq_row_evict=0` prices it for any other workload.
+
+That makes it a thing to find rather than to prevent. Aligning every loop is
+the wrong trade: `-falign-loops=32` works on this backend but does not stop a
+1 KB crossing, and `-falign-loops=1024:30`, whose max-skip would pad only the
+loops that need it, emits a bare `.align 10` because the C33 backend has no
+ASM_OUTPUT_MAX_SKIP_ALIGN -- every loop in the image padded to a kilobyte.
+
+The mechanism, for the record, and the model charged nothing for it: its instruction
 queue held two 16-byte lines for ever, where the hardware cannot keep a line
 whose row has been precharged to reach the other. Queue lines are now
 evicted when a fill activates another row of the same bank, and the cliff
