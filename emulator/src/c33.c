@@ -914,7 +914,15 @@ void c33_step(struct c33 *c)
 			/* Save the first prefix, not the third (6.3.10). */
 			take_exception(c, 2, c->cur_pc - 4);
 		}
-		return;   /* prefixes never complete an instruction */
+		/* A prefix completes no instruction but is one: it is fetched
+		   and it takes its cycle (cycle_cost gives OP_EXT 1), and the
+		   early return here skipped the accounting at the bottom of
+		   the step. Code in internal RAM showed it -- the device runs
+		   a loop of two-prefix instructions at 49.5 cycles a pass and
+		   the model ran it at 33.0, which is sixteen prefixes at one
+		   cycle each. */
+		c->clk += 1;
+		return;
 
 	case OP_NOP:
 		break;
