@@ -165,6 +165,18 @@ static void execute(struct sdcard *sd)
 		respond(sd, 0x00);
 		return;
 	}
+	if (app && idx == 23) {                 /* ACMD23: pre-erase count */
+		/*
+		 * How many blocks a multi-block write is about to send, so the
+		 * card can erase them together. Nothing here has to erase, but
+		 * the answer cannot be "illegal command": NuttX's SPI driver
+		 * sends this before every CMD25 and gives up on the whole
+		 * transfer if the R1 is not clean, so a card without it does
+		 * no multi-block writing at all.
+		 */
+		respond(sd, 0x00);
+		return;
+	}
 
 	switch (idx) {
 	case 1:                                  /* SEND_OP_COND (MMC) */
