@@ -1,0 +1,17 @@
+# microbenchmark, 60 MHz, 4000000 passes
+# sdram: tRP 2, tRAS 4, tRC 6, refresh 0x120
+# loop          bytes  insn   seconds   cyc/pass  cyc/instr
+UB alu   sdram      26    11     1.010      15.15       1.38
+UB alu   ivram      26    11     1.420      21.30       1.94
+UB alu+16 sdram     26    11     1.010      15.15       1.38
+UB wide  sdram      42    11     4.020      60.30       5.48
+UB wide  ivram      42    11     2.220      33.30       3.03
+UB load  sdram      26    11     1.540      23.10       2.10
+UB load  ivram      26    11     1.880      28.20       2.56
+UB store sdram      26    11     2.430      36.45       3.31
+UB store ivram      26    11     3.030      45.45       4.13
+UB size 4           18     7     0.740      11.10       1.59
+UB size 16          42    19     4.020      60.30       3.17
+UB size 32          74    35     0.670     100.50       2.87
+UB long  sdram     138    67     1.270     190.50       2.84
+UB long  ivram     138    67     0.700     105.00       1.57
