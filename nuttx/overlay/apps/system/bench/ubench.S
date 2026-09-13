@@ -639,5 +639,73 @@ ub_loadseq8:
 	.global	ub_loadseq8_end
 ub_loadseq8_end:
 
+/* Eight words a pass, addressed by displacement rather than by
+ * post-increment, with one bump of each pointer at the end.
+ *
+ * This is the shape a compiler emits for an unrolled copy, and it is what
+ * ramspeed's own memcpy turns into: eight of "*d32 = *s32; d32++; s32++"
+ * with the increments folded into offsets. The model is 0.73 of the device
+ * there while being 0.99 on copyw, which is the same work by
+ * post-increment, so the difference is in the addressing and not in the
+ * copying. Thirty-two bytes a pass.
+ */
+
+	.p2align 5
+	.global	ub_copydisp
+	.type	ub_copydisp,@function
+ub_copydisp:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	xld.w	%r4,[%r7+0]
+	xld.w	[%r8+0],%r4
+	xld.w	%r4,[%r7+4]
+	xld.w	[%r8+4],%r4
+	xld.w	%r4,[%r7+8]
+	xld.w	[%r8+8],%r4
+	xld.w	%r4,[%r7+12]
+	xld.w	[%r8+12],%r4
+	xld.w	%r4,[%r7+16]
+	xld.w	[%r8+16],%r4
+	xld.w	%r4,[%r7+20]
+	xld.w	[%r8+20],%r4
+	xld.w	%r4,[%r7+24]
+	xld.w	[%r8+24],%r4
+	xld.w	%r4,[%r7+28]
+	xld.w	[%r8+28],%r4
+	xadd	%r7,32
+	xadd	%r8,32
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_copydisp_end
+ub_copydisp_end:
+
+/* ...and the same copy a byte at a time, which is what both libraries fall
+ * back to when the two addresses are not aligned alike, and what the C
+ * library's memcpy does for every byte of a short one. Eight bytes a pass.
+ */
+
+	.p2align 5
+	.global	ub_bytecopy
+	.type	ub_bytecopy,@function
+ub_bytecopy:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bytecopy_end
+ub_bytecopy_end:
+
 	.global	ub_block_end
 ub_block_end:

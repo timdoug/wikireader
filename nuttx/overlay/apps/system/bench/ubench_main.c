@@ -72,6 +72,10 @@
 #define UB_WORD_PASSES   (UB_STREAM_BYTES / 2 / 4)
 /* ...and thirty-two for the one that reads eight words. */
 #define UB_WIDE_PASSES   (UB_STREAM_BYTES / 32)
+/* Thirty-two bytes a pass through the first half, and eight for the byte
+ * copy, which would take all day over a megabyte otherwise. */
+#define UB_COPY32_PASSES (UB_STREAM_BYTES / 2 / 32)
+#define UB_BYTE_PASSES   (UB_STREAM_BYTES / 2 / 8)
 
 /* Far enough apart to be in another bank: four megabytes, plus the half a
  * megabyte each stream walks. Skipped if there is no room for it.
@@ -154,6 +158,10 @@ extern void ub_mmio(unsigned long passes, volatile void *buffer);
 extern void ub_mmio_end(void);
 extern void ub_loadseq8(unsigned long passes, volatile void *buffer);
 extern void ub_loadseq8_end(void);
+extern void ub_copydisp(unsigned long passes, volatile void *buffer);
+extern void ub_copydisp_end(void);
+extern void ub_bytecopy(unsigned long passes, volatile void *buffer);
+extern void ub_bytecopy_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -300,6 +308,8 @@ int main(int argc, FAR char *argv[])
     { "pushpop    ", ub_pushpop, ub_pushpop_end, UB_PASSES, 11, false , false , false },
     { "mmio       ", ub_mmio, ub_mmio_end, UB_PASSES, 11, false , false , false },
     { "loadseq8   ", ub_loadseq8, ub_loadseq8_end, UB_WIDE_PASSES, 11, false , true , false },
+    { "copydisp   ", ub_copydisp, ub_copydisp_end, UB_COPY32_PASSES, 20, false , true , false },
+    { "bytecopy   ", ub_bytecopy, ub_bytecopy_end, UB_BYTE_PASSES, 19, false , true , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
