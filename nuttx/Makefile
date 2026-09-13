@@ -95,10 +95,16 @@ test:
 # NuttX's benchmarks, run on the emulated device.  Not a test -- it prints a
 # table, and the number that matters is how it compares with the same image on
 # real hardware, which the script will line up alongside.
+#
+# It boots grifo off a card holding nuttx.app as init.app, which is what the
+# device does; loading the ELF straight in leaves the machine in a state it is
+# never in, and that has now cost three bugs.  Needs nuttx.app, so it depends
+# on the build.
 .PHONY: bench
-bench:
+bench: nuttx.app
 	python3 ${WORK}/boards/c33/s1c33e07/wikireader/tools/run_benchmarks.py \
-		--wikireader ${ROOT_DIR} --image ${WORK}/nuttx
+		--wikireader ${ROOT_DIR} --app ${HERE}/nuttx.app \
+		--grifo ${ROOT_DIR}/samo-lib/grifo/grifo.elf
 
 # Two builds from clean, compared.  The whole point of a reproducible build is
 # that "did this change the output?" has an answer, and the way to keep that

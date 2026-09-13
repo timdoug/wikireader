@@ -147,10 +147,34 @@ def load_fat_helper(wikireader):
 
 
 def run_emulator(args):
+    """Boot the way the device boots.
+
+    Loading the NuttX ELF straight into the emulator leaves the machine in a
+    state it is never in on the device: the boot loader and grifo between
+    them program the SDRAM controller, the refresh counters and the PLL, and
+    a direct load does none of it. Every one of those has cost a bug, and
+    the PLL one was expensive -- the timer block ran at the crystal's 48 MHz
+    while NuttX divided for the 60 MHz grifo would have set, so every
+    interval the guest measured came out a quarter long and every fitted
+    parameter in the model quietly absorbed it.
+
+    So this runs grifo, off a card holding the application as init.app,
+    which is the name grifo chains to when it has nothing else to do. The
+    same binary, the same loader, the same machine state. ubench's alu loop
+    then measures 15.15 cycles a pass against the device's 15.15, where the
+    direct boot managed 18.15.
+    """
     emulator = args.wikireader.resolve() / "emulator/wremu"
     if not emulator.exists():
         print(f"SKIP: {emulator} is missing; build the emulator first")
         return None
+
+    grifo = args.grifo.resolve()
+    app = args.app.resolve()
+    for needed in (grifo, app):
+        if not needed.exists():
+            print(f"SKIP: {needed} is missing")
+            return None
 
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -160,14 +184,16 @@ def run_emulator(args):
     # because they only read, would fail every write with EIO.
     fat = load_fat_helper(args.wikireader.resolve())
     card = out / "card.img"
-    fat.make_image(card, {"readme.txt": b"scratch card\n"})
+    fat.make_image(card, {"init.app": app.read_bytes()})
 
     (out / "input.txt").write_text("bench\n")
 
+    # Late enough that the prompt is there to type at: grifo has to bring the
+    # card up and load three megabytes off it before NuttX starts.
     command = [str(emulator), "-c", str(card), "-n", str(args.limit),
                "--uart-input", str(out / "input.txt"),
-               "--uart-start", "60000000", "--uart-gap", "200000",
-               str(args.image.resolve())]
+               "--uart-start", "250000000", "--uart-gap", "200000",
+               str(grifo)]
     with (out / "benchmarks.log").open("w") as log:
         # The device these numbers are compared against is one of the 32 MB
         # boards -- its own SDRAM controller reports ADDRC 3 -- and the
@@ -237,7 +263,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wikireader", type=Path,
                         default=Path.home() / "wikireader")
-    parser.add_argument("--image", type=Path, default=root / "nuttx")
+    parser.add_argument("--app", type=Path, default=root / "nuttx/nuttx.app",
+                        help="the application, installed on the card as "
+                             "init.app")
+    parser.add_argument("--grifo", type=Path,
+                        default=root / "samo-lib/grifo/grifo.elf",
+                        help="the kernel the device boots; see run_emulator")
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/benchmarks")
     parser.add_argument("--limit", type=int, default=20_000_000_000)

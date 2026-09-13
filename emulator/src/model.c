@@ -24,7 +24,7 @@ struct model model = {
 	   they all fit the queue, so they measure the fill of a line that is
 	   refetched every pass, where a program with a real code footprint
 	   measures a queue that misses constantly. Four splits it. */
-	.iqb_first = 2,
+	.iqb_first = 1,
 	.iqb_word_gap = 0,
 	.dq_extra = 0,
 	.wr_ticks = 7,         /* refitted once writes were posted */
@@ -34,7 +34,7 @@ struct model model = {
 	.wr_rd_turn = 0,
 	.row_ports = 1,
 	.sdclk_half = 4,
-	.row_change_extra = 2,
+	.row_change_extra = 1,
 	/* One: the device copies a word at a time faster than four at a
 	   time, which only happens if a store retires before the bus has
 	   taken it and a run of stores with nothing between them fills up. */

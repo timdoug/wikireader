@@ -440,10 +440,10 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 
 	switch (op) {
 	case OP_INT:                            return 7;
-	/* Eight, not the seven the table gives: a loop of eight of them costs
-	   the device 62.40 cycles a pass against 15.15 for the same loop of
-	   adds, which is 5.9 a multiply over an add's one. */
-	case OP_MLT_W: case OP_MLTU_W:          return 8;
+	/* Seven, as the table says. It was briefly eight, fitted against a
+	   guest clock running a quarter slow; with the clock right the
+	   manual's figure is the one that matches. */
+	case OP_MLT_W: case OP_MLTU_W:          return 7;
 	case OP_MLT_H: case OP_MLTU_H:          return 5;
 	case OP_BRK:                            return 9;
 	case OP_HALT: case OP_SLP: case OP_RETI: case OP_RETD: return 5;
