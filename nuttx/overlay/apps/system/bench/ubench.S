@@ -707,5 +707,96 @@ ub_bytecopy:
 	.global	ub_bytecopy_end
 ub_bytecopy_end:
 
+/* The same copying, behind three different amounts of code.
+ *
+ * copydisp is the one loop the model is badly out on, at 1.38, and the
+ * arithmetic says why: its sixteen accesses at the device's own 15.7 cycles
+ * each come to 251, which is the whole of its 250.63, so the eighty-two
+ * bytes of code it fetches every pass cost the device nothing. The model
+ * charges about a hundred cycles for them. Somewhere in there the
+ * controller is filling instruction lines while the data accesses are in
+ * flight -- but a blanket overlap breaks bytecopy and store, which are
+ * happy with the serial account, so it is conditional and the condition is
+ * what these three measure.
+ *
+ * Each one copies the same sixteen bytes with the same eight accesses, and
+ * they differ only in how many adds follow: sixteen, sixty-four, ninety-six,
+ * which is 32, 128 and 192 bytes of extra code. Ninety-six is as far as the
+ * loop's own branch reaches.
+ *
+ * An add is one cycle, so if fetching hides entirely behind the copying then
+ * mix64 costs mix16 plus 48 and mix96 plus 80. If it does not hide at all,
+ * each is that plus about twenty cycles for every sixteen bytes of code --
+ * 168 and 280 more. There is no reading those two apart wrongly.
+ *
+ * %r9 takes the adds so that the copy's own registers are left alone.
+ */
+
+	.p2align 5
+	.global	ub_mix16
+	.type	ub_mix16,@function
+ub_mix16:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	.endr
+	.rept	16
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_mix16_end
+ub_mix16_end:
+
+	.p2align 5
+	.global	ub_mix64
+	.type	ub_mix64,@function
+ub_mix64:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	.endr
+	.rept	64
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_mix64_end
+ub_mix64_end:
+
+	.p2align 5
+	.global	ub_mix96
+	.type	ub_mix96,@function
+ub_mix96:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	.endr
+	.rept	96
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_mix96_end
+ub_mix96_end:
+
 	.global	ub_block_end
 ub_block_end:

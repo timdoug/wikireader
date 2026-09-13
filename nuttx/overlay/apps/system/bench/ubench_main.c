@@ -162,6 +162,12 @@ extern void ub_copydisp(unsigned long passes, volatile void *buffer);
 extern void ub_copydisp_end(void);
 extern void ub_bytecopy(unsigned long passes, volatile void *buffer);
 extern void ub_bytecopy_end(void);
+extern void ub_mix16(unsigned long passes, volatile void *buffer);
+extern void ub_mix16_end(void);
+extern void ub_mix64(unsigned long passes, volatile void *buffer);
+extern void ub_mix64_end(void);
+extern void ub_mix96(unsigned long passes, volatile void *buffer);
+extern void ub_mix96_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -310,6 +316,9 @@ int main(int argc, FAR char *argv[])
     { "loadseq8   ", ub_loadseq8, ub_loadseq8_end, UB_WIDE_PASSES, 11, false , true , false },
     { "copydisp   ", ub_copydisp, ub_copydisp_end, UB_COPY32_PASSES, 20, false , true , false },
     { "bytecopy   ", ub_bytecopy, ub_bytecopy_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "mix16      ", ub_mix16, ub_mix16_end, UB_COPY_PASSES, 27, false , true , false },
+    { "mix64      ", ub_mix64, ub_mix64_end, UB_COPY_PASSES, 75, false , true , false },
+    { "mix96      ", ub_mix96, ub_mix96_end, UB_COPY_PASSES, 107, false , true , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
