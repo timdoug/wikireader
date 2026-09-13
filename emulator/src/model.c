@@ -40,6 +40,11 @@ struct model model = {
 	.call_extra = 4,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
+	/* What the card is busy for after taking a block. The device spends
+	   2.73 ms a sector more writing than reading and the model only
+	   1.00; the difference is the card programming itself, which nothing
+	   had ever measured -- this parameter was zero. */
+	.sd_write_latency = 93000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
