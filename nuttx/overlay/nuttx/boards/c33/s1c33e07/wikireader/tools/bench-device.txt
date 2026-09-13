@@ -5,9 +5,9 @@
 Running CoreMark...
 2K performance run parameters for coremark.
 CoreMark Size    : 666
-Total ticks      : 1360
-Total time (secs): 13.600000
-Iterations/Sec   : 29.411765
+Total ticks      : 1394
+Total time (secs): 13.940000
+Iterations/Sec   : 28.694405
 Iterations       : 400
 Compiler version : GCC16.2.0
 Compiler flags   : -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx
@@ -18,7 +18,7 @@ seedcrc          : 0xe9f5
 [0]crcstate      : 0x8e3a
 [0]crcfinal      : 0x25b5
 Correct operation validated. See README.md for run and reporting rules.
-CoreMark 1.0 : 29.411765 / GCC16.2.0 -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx / HEAP
+CoreMark 1.0 : 28.694405 / GCC16.2.0 -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx / HEAP
 # WikiReader benchmark run
 # NuttX 13.0.1-RC1 61a904a2a0-dirty c33
 # command: dhrystone 200000
@@ -43,7 +43,7 @@ Arr_1_Glob[8]:       7
 Arr_2_Glob[8][7]:    200010
         should be:   Number_Of_Runs + 10
 Ptr_Glob->
-  Ptr_Comp:          271872280
+  Ptr_Comp:          271827320
         should be:   (implementation-dependent)
   Discr:             0
         should be:   0
@@ -54,7 +54,7 @@ Ptr_Glob->
   Str_Comp:          DHRYSTONE PROGRAM, SOME STRING
         should be:   DHRYSTONE PROGRAM, SOME STRING
 Next_Ptr_Glob->
-  Ptr_Comp:          271872280
+  Ptr_Comp:          271827320
         should be:   (implementation-dependent), same as above
   Discr:             0
         should be:   0
@@ -77,21 +77,21 @@ Str_1_Loc:           DHRYSTONE PROGRAM, 1'ST STRING
 Str_2_Loc:           DHRYSTONE PROGRAM, 2'ND STRING
         should be:   DHRYSTONE PROGRAM, 2'ND STRING
 
-Microseconds for one run through Dhrystone:       65.7 
-Dhrystones per Second:                           15232 
+Microseconds for one run through Dhrystone:       72.9 
+Dhrystones per Second:                           13708 
 
 # WikiReader benchmark run
 # NuttX 13.0.1-RC1 61a904a2a0-dirty c33
 # command: whetstone 10
 
-Loops: 10, Iterations: 1, Duration: 66700 millisecond.
+Loops: 10, Iterations: 1, Duration: 66690 millisecond.
 C Converted Double Precision Whetstones: 15.0 KIPS
 # WikiReader benchmark run
 # NuttX 13.0.1-RC1 61a904a2a0-dirty c33
 # command: ramspeed -a -s 1048576 -n 20
 RAM Speed: Allocate RW buffers on heap
-RAM Speed: Write address: 0x1044f110
-RAM Speed: Read address: 0x1054f118
+RAM Speed: Write address: 0x1033c248
+RAM Speed: Read address: 0x1043c250
 RAM Speed: Size: 1048576 bytes
 RAM Speed: Value: 0x00
 RAM Speed: Repeat number: 20
@@ -99,7 +99,7 @@ RAM Speed: Interrupts disabled: false
 ______memcpy performance______
 ______Perform 32 Bytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: internal memcpy():	 Rate = 62.500 KB/s	[cost: 10.000 ms]
 ______Perform 64 Bytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
@@ -111,40 +111,40 @@ RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 512 Bytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: internal memcpy():	 Rate = 1000.000 KB/s	[cost: 10.000 ms]
 ______Perform 1 KBytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: internal memcpy():	 Rate = 2000.000 KB/s	[cost: 10.000 ms]
 ______Perform 2 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 4000.000 KB/s	[cost: 10.000 ms]
+RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 4 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 10.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 10.000 ms]
 ______Perform 8 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 16000.000 KB/s	[cost: 10.000 ms]
-RAM Speed: internal memcpy():	 Rate = 5333.333 KB/s	[cost: 30.000 ms]
+RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 20.000 ms]
+RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 20.000 ms]
 ______Perform 16 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 40.000 ms]
-RAM Speed: internal memcpy():	 Rate = 6400.000 KB/s	[cost: 50.000 ms]
+RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 40.000 ms]
 ______Perform 32 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 9142.857 KB/s	[cost: 70.000 ms]
+RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 80.000 ms]
 RAM Speed: internal memcpy():	 Rate = 7111.111 KB/s	[cost: 90.000 ms]
 ______Perform 64 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 9142.857 KB/s	[cost: 140.000 ms]
 RAM Speed: internal memcpy():	 Rate = 6736.842 KB/s	[cost: 190.000 ms]
 ______Perform 128 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8827.586 KB/s	[cost: 290.000 ms]
-RAM Speed: internal memcpy():	 Rate = 7111.111 KB/s	[cost: 360.000 ms]
+RAM Speed: internal memcpy():	 Rate = 6736.842 KB/s	[cost: 380.000 ms]
 ______Perform 256 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8827.586 KB/s	[cost: 580.000 ms]
 RAM Speed: internal memcpy():	 Rate = 6918.919 KB/s	[cost: 740.000 ms]
 ______Perform 512 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8827.586 KB/s	[cost: 1160.000 ms]
-RAM Speed: internal memcpy():	 Rate = 6965.986 KB/s	[cost: 1470.000 ms]
+RAM Speed: internal memcpy():	 Rate = 6872.483 KB/s	[cost: 1490.000 ms]
 ______Perform 1024 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 8865.801 KB/s	[cost: 2310.000 ms]
-RAM Speed: internal memcpy():	 Rate = 6989.761 KB/s	[cost: 2930.000 ms]
+RAM Speed: system memcpy():	 Rate = 8827.586 KB/s	[cost: 2320.000 ms]
+RAM Speed: internal memcpy():	 Rate = 6872.483 KB/s	[cost: 2980.000 ms]
 ______memset performance______
 ______Perform 32 Bytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
@@ -153,19 +153,19 @@ ______Perform 64 Bytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 128 Bytes access______
-RAM Speed: system memset():	 Rate = 250.000 KB/s	[cost: 10.000 ms]
+RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 256 Bytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 512 Bytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: internal memset():	 Rate = 1000.000 KB/s	[cost: 10.000 ms]
 ______Perform 1 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 2 KBytes access______
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: system memset():	 Rate = 4000.000 KB/s	[cost: 10.000 ms]
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 4 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
@@ -174,41 +174,74 @@ ______Perform 8 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 10.000 ms]
 ______Perform 16 KBytes access______
-RAM Speed: system memset():	 Rate = 32000.000 KB/s	[cost: 10.000 ms]
+RAM Speed: system memset():	 Rate = 16000.000 KB/s	[cost: 20.000 ms]
 RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 20.000 ms]
 ______Perform 32 KBytes access______
-RAM Speed: system memset():	 Rate = 32000.000 KB/s	[cost: 20.000 ms]
+RAM Speed: system memset():	 Rate = 21333.333 KB/s	[cost: 30.000 ms]
 RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 40.000 ms]
 ______Perform 64 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 50.000 ms]
-RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 80.000 ms]
+RAM Speed: internal memset():	 Rate = 18285.714 KB/s	[cost: 70.000 ms]
 ______Perform 128 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 100.000 ms]
-RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 160.000 ms]
+RAM Speed: internal memset():	 Rate = 17066.667 KB/s	[cost: 150.000 ms]
 ______Perform 256 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 200.000 ms]
-RAM Speed: internal memset():	 Rate = 15515.152 KB/s	[cost: 330.000 ms]
+RAM Speed: internal memset():	 Rate = 17066.667 KB/s	[cost: 300.000 ms]
 ______Perform 512 KBytes access______
-RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 400.000 ms]
-RAM Speed: internal memset():	 Rate = 15753.846 KB/s	[cost: 650.000 ms]
+RAM Speed: system memset():	 Rate = 24975.610 KB/s	[cost: 410.000 ms]
+RAM Speed: internal memset():	 Rate = 17066.667 KB/s	[cost: 600.000 ms]
 ______Perform 1024 KBytes access______
 RAM Speed: system memset():	 Rate = 25283.951 KB/s	[cost: 810.000 ms]
-RAM Speed: internal memset():	 Rate = 15875.969 KB/s	[cost: 1290.000 ms]
+RAM Speed: internal memset():	 Rate = 17066.667 KB/s	[cost: 1200.000 ms]
 # WikiReader benchmark run
 # NuttX 13.0.1-RC1 61a904a2a0-dirty c33
 # command: ubench
 # microbenchmark, 60 MHz, 4000000 passes
+# sdram: tRP 2, tRAS 4, tRC 6, refresh 0x120
 # loop          bytes  insn   seconds   cyc/pass  cyc/instr
-UB alu   sdram      26    11     3.470      52.05       4.73
-UB alu   ivram      26    11     1.420      21.30       1.94
-UB wide  sdram      42    11     4.870      73.05       6.64
+UB alu   sdram      26    11     1.010      15.15       1.38
+UB alu   ivram      26    11     1.410      21.15       1.92
+UB alu+16 sdram     26    11     1.000      15.00       1.36
+UB wide  sdram      42    11     4.030      60.45       5.50
 UB wide  ivram      42    11     2.220      33.30       3.03
 UB load  sdram      26    11     1.540      23.10       2.10
 UB load  ivram      26    11     1.880      28.20       2.56
-UB store sdram      26    11     5.830      87.45       7.95
-UB store ivram      26    11     3.030      45.45       4.13
-UB long  sdram     138    67     1.220     183.00       2.73
-UB long  ivram     138    67     0.700     105.00       1.57
+UB store sdram      26    11     2.430      36.45       3.31
+UB store ivram      26    11     3.040      45.60       4.15
+UB size 4           18     7     0.730      10.95       1.56
+UB size 16          42    19     4.030      60.45       3.18
+UB size 32          74    35     0.670     100.50       2.87
+UB loadb sdram      26    11     1.540      23.10       2.10
+UB storeb sdrm      26    11     2.430      36.45       3.31
+UB loadseq          26    11     0.044      40.34       3.67
+UB storeseq         26    11     0.025      23.75       2.16
+UB copyw            34    11     0.067     124.17      11.29
+UB copyfar          34    11     0.071     131.61      11.96
+UB long  sdram     138    67     1.210     181.50       2.71
+UB long  ivram     138    67     0.710     106.50       1.59
+UB ext2  sdram      58    11     5.630      84.45       7.68
+UB ext2  ivram      58    11     3.300      49.50       4.50
+UB rowthrash        32    11     9.450     141.75      12.89
+UB bankpair         34    11     9.340     140.10      12.74
+UB copyloop         22     5     0.060      27.47       5.49
+UB lddisp           42    11     4.490      67.35       6.12
+UB mult             26    11     4.160      62.40       5.67
+UB callret          28    11    11.410     171.15      15.56
+UB pushpop          26    11     3.890      58.35       5.30
+UB mmio             32    11     5.510      82.65       7.51
+UB loadseq8         26    11     0.041      76.10       6.92
+UB copydisp         82    20     0.068     250.63      12.53
+UB bytecopy         50    19     0.159     145.91       7.68
+# the same 26-byte loop, placed to straddle each boundary
+UBO offset     0 crosses     0      1.000      15.00
+UBO offset    16 crosses    32      1.010      15.15
+UBO offset    48 crosses    64      1.010      15.15
+UBO offset   112 crosses   128      1.010      15.15
+UBO offset   240 crosses   256      1.010      15.15
+UBO offset   496 crosses   512      1.000      15.00
+UBO offset  1008 crosses  1024      3.150      47.25
+UBO offset  2032 crosses  2048      3.150      47.25
 # WikiReader benchmark run
 # NuttX 13.0.1-RC1 61a904a2a0-dirty c33
 # command: selftest
@@ -227,13 +260,13 @@ ST 5 of 5 interpreters ran
 Using block size = 4096 bytes, sync = false
 
 Testing Sequential Write Speed...
-  Run  1:    101.0 KB/s, max write time: 190.000 ms (21.1 KB/s), fsync: 20.000 ms
-  Run  2:    117.0 KB/s, max write time: 70.000 ms (57.1 KB/s), fsync: 20.000 ms
-  Run  3:    121.6 KB/s, max write time: 70.000 ms (57.1 KB/s), fsync: 10.000 ms
-  Avg   :    113.2 KB/s, 0.344 MB written.
+  Run  1:    120.4 KB/s, max write time: 60.000 ms (66.7 KB/s), fsync: 30.000 ms
+  Run  2:    120.4 KB/s, max write time: 60.000 ms (66.7 KB/s), fsync: 10.000 ms
+  Run  3:    119.2 KB/s, max write time: 70.000 ms (57.1 KB/s), fsync: 20.000 ms
+  Avg   :    120.0 KB/s, 0.363 MB written.
 
 Testing Sequential Read Speed...
-  Run  1:    276.0 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
-  Run  2:    262.1 KB/s, max read/verify time: 20.0000 ms (200.0 KB/s)
-  Avg   :    272.9 KB/s, 0.344 MB and verified
-# 7 of 7 benchmarks ran, in 144 seconds
+  Run  1:    344.0 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
+  Run  2:    311.1 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
+  Avg   :    341.3 KB/s, 0.363 MB and verified
+# 7 of 7 benchmarks ran, in 236 seconds
