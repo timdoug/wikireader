@@ -15,6 +15,29 @@
 
 #include "bench_card.h"
 
+/* Put the card back if the last command took it away.
+ *
+ * Every one of these commands unmounts when it has written its results, so
+ * that the card can be pulled out as soon as the screen says so -- which
+ * means the second command of a session finds no filesystem and cannot
+ * write anything at all. That is what ubench followed by cardb did: four
+ * runs of "Can't open benchmark file /sd/sd_bench", because ubench had
+ * already unmounted it.
+ *
+ * The partition the board mounts at boot is the first one, with the whole
+ * card as the fallback for a card with no partition table, and this tries
+ * them in the same order.
+ */
+
+static void bench_card_mount(void)
+{
+  if (mount("/dev/mmcsd01", CONFIG_SYSTEM_BENCH_MOUNT, "vfat", 0, NULL) == 0 ||
+      mount("/dev/mmcsd0", CONFIG_SYSTEM_BENCH_MOUNT, "vfat", 0, NULL) == 0)
+    {
+      printf("card remounted\n");
+    }
+}
+
 int bench_card_open(const char *path)
 {
   /* Appending, so that everything written to it keeps its order without
@@ -23,6 +46,12 @@ int bench_card_open(const char *path)
    */
 
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
+
+  if (fd < 0)
+    {
+      bench_card_mount();
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
+    }
 
   if (fd < 0)
     {
