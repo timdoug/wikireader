@@ -169,9 +169,15 @@ def run_emulator(args):
                "--uart-start", "60000000", "--uart-gap", "200000",
                str(args.image.resolve())]
     with (out / "benchmarks.log").open("w") as log:
+        # The device these numbers are compared against is one of the 32 MB
+        # boards -- its own SDRAM controller reports ADDRC 3 -- and the
+        # emulator defaults to the 16 MB kind. Model the machine being
+        # compared with, unless the caller has said otherwise.
+        env = {**os.environ, "WREMU_HOLD_MS": "33"}
+        env.setdefault("WREMU_BOARD_REV", "7")
+
         subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
-                       check=True, timeout=7200,
-                       env={**os.environ, "WREMU_HOLD_MS": "33"})
+                       check=True, timeout=7200, env=env)
 
     console = clean(
         (out / "benchmarks.log").read_bytes().decode(errors="replace"))
