@@ -58,6 +58,8 @@
 
 #define UB_STREAM_BYTES  (1024 * 1024)
 #define UB_STREAM_PASSES (UB_STREAM_BYTES / 16)
+/* Sixteen bytes a pass through the first half, writing to the second. */
+#define UB_COPY_PASSES   (UB_STREAM_BYTES / 2 / 16)
 #define UB_LONG_PASSES 400000
 
 /****************************************************************************
@@ -107,6 +109,8 @@ extern void ub_loadseq(unsigned long passes, volatile void *buffer);
 extern void ub_loadseq_end(void);
 extern void ub_storeseq(unsigned long passes, volatile void *buffer);
 extern void ub_storeseq_end(void);
+extern void ub_copyb(unsigned long passes, volatile void *buffer);
+extern void ub_copyb_end(void);
 extern void ub_straight(unsigned long passes, volatile void *buffer);
 extern void ub_straight_end(void);
 
@@ -228,6 +232,7 @@ int main(int argc, FAR char *argv[])
     { "storeb sdrm", ub_storeb,  ub_storeb_end,  UB_PASSES, 11, false, false },
     { "loadseq    ", ub_loadseq,  ub_loadseq_end,  UB_STREAM_PASSES, 11, false, true },
     { "storeseq   ", ub_storeseq, ub_storeseq_end, UB_STREAM_PASSES, 11, false, true },
+    { "copyw      ", ub_copyb, ub_copyb_end, UB_COPY_PASSES, 11, false, true },
     { "long  sdram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, false , false },
     { "long  ivram", ub_straight, ub_straight_end, UB_LONG_PASSES, 67, true  , false },
   };

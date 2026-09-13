@@ -319,5 +319,36 @@ ub_storeseq:
 	.global	ub_storeseq_end
 ub_storeseq_end:
 
+
+/* Two streams at once, which is what a copy is: read here, write half a
+ * megabyte away, and advance both. One walking stream leaves one row open
+ * and this leaves two, in whichever banks the two addresses land in -- the
+ * regime memcpy spends all its time in, and the one the model is 1.41x fast
+ * on.
+ *
+ * Words, not bytes. The memcpy this board links is the architecture's, not
+ * the byte loop in libs/libc/string that CONFIG_LIBC_ARCH_MEMCPY leaves out
+ * of the build, and its inner loop is "ld.w %r9,[%r7]+ / ld.w [%r6]+,%r9".
+ */
+
+	.p2align 5
+	.global	ub_copyb
+	.type	ub_copyb,@function
+ub_copyb:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.w	%r4,[%r7]+
+	ld.w	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_copyb_end
+ub_copyb_end:
+
 	.global	ub_block_end
 ub_block_end:
