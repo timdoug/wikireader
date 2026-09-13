@@ -101,6 +101,7 @@ int main(void)
 	model.iqb_first = model.iqb_word_gap = model.dq_extra = model.wr_ticks = 0;
 	model.wr_rd_turn = model.dq_iram_extra = model.dq_hit = 0;
 	model.row_change_extra = 0;
+	model.write_post = 0;  /* what the bus does, not what the CPU waits */
 	model.sdclk_half = 2;
 	model.row_ports = 0;   /* the manual's per-bank rows; see below */
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
@@ -124,6 +125,18 @@ int main(void)
 		sdramc.iq_hits, 1);
 	check64("DQB hits include DMA reads",
 		sdramc.dq_hits, 1);
+
+	/* A posted write does not stop the CPU, but the bus is still busy:
+	 * the device copies a word at a time faster than four at a time, and
+	 * a store that blocked until the bus had taken it could not do that.
+	 */
+	model.write_post = 1;
+	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
+	check64("a posted write does not hold the CPU up",
+		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE, 4, 0), 0);
+	check64("...but the next write waits for the buffer to drain",
+		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE + 4, 4, 1), 5);
+	model.write_post = 0;
 
 	/* What the device does instead of the manual's per-bank rows: two data
 	 * addresses evict one another however far apart they are. Reading two

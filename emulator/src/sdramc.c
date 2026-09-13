@@ -502,6 +502,28 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 	} else {
 		prepare_external_access(s, now);
 		ready = schedule_write(s, addr, size, now);
+
+		/* A posted write does not hold the CPU up: it goes into the
+		 * controller's buffer and drains behind whatever the program
+		 * does next, which is why the device copies a word at a time
+		 * faster than four at a time -- the compare and the branch
+		 * between two accesses are free time for the bus. The buffer
+		 * is shallow, so a run of stores with nothing between them
+		 * fills it and waits; write_post is how many it holds.
+		 */
+		if (model.write_post) {
+			unsigned i, oldest = 0;
+
+			for (i = 0; i < model.write_post &&
+				    i < SDRAMC_WRITE_POST_MAX; i++)
+				if (s->posted[i] < s->posted[oldest])
+					oldest = i;
+			if (s->posted[oldest] <= now)
+				ready = now;          /* room: post it */
+			else
+				ready = s->posted[oldest];
+			s->posted[oldest] = s->bus_free;
+		}
 	}
 
 	wait = ready > now ? (ready - now + 1) / 2 : 0;

@@ -18,10 +18,14 @@ uint32_t wremu_cur_pc;
 struct model model = {
 	.branch_taken = 8,          /* refitted 2026-09-13, see README */
 	.branch_taken_iram = 4,     /* cpu-loop-a0/ivram/dstram all measure 5.0 */
-	.iqb_first = 8,          /* half-MCLK, refitted 2026-09-13 */
+	/* half-MCLK. The micro loops want eight and Dhrystone wants zero:
+	   they all fit the queue, so they measure the fill of a line that is
+	   refetched every pass, where a program with a real code footprint
+	   measures a queue that misses constantly. Four splits it. */
+	.iqb_first = 4,
 	.iqb_word_gap = 0,
 	.dq_extra = 1,
-	.wr_ticks = 6,
+	.wr_ticks = 10,         /* refitted once writes were posted */
 	/* Zero since the row model: three clocks of bus turn stood in for
 	   what a copy really pays, which is a row change on every access,
 	   and charging both now costs more than the device does. */
@@ -29,6 +33,11 @@ struct model model = {
 	.row_ports = 1,
 	.sdclk_half = 4,
 	.row_change_extra = 4,
+	/* One: the device copies a word at a time faster than four at a
+	   time, which only happens if a store retires before the bus has
+	   taken it and a run of stores with nothing between them fills up. */
+	.write_post = 1,
+	.call_extra = 4,
 	.dma_extra = 30,
 	.sd_read_latency = 60000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
@@ -62,6 +71,8 @@ static const struct {
 	{ "row_ports", NULL, &model.row_ports },
 	{ "sdclk_half", NULL, &model.sdclk_half },
 	{ "row_change_extra", NULL, &model.row_change_extra },
+	{ "write_post", NULL, &model.write_post },
+	{ "call_extra", NULL, &model.call_extra },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
 	{ "dq_hit", NULL, &model.dq_hit },
 };

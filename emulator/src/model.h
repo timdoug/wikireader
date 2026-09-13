@@ -74,6 +74,12 @@ struct model {
 	   array performing it. Without it the two cannot both be right:
 	   loadseq wants a cheaper read and rowthrash a dearer miss. */
 	unsigned row_change_extra;
+	/* How many writes the controller can hold without stopping the CPU.
+	   Zero makes every write block until the bus has taken it. */
+	unsigned write_post;
+	/* What a call or a return costs beyond the manual's figure, for the
+	   queue it discards. */
+	unsigned call_extra;
 	/* Extra SDCLK ticks before a read that follows a write on the SDRAM
 	   bus (write recovery and bus turnaround). */
 	unsigned wr_rd_turn;

@@ -15,6 +15,9 @@
    See the geometry table in sdramc.c. */
 #define SDRAMC_MAX_BANKS 8
 
+/* The deepest write buffer the model will consider. */
+#define SDRAMC_WRITE_POST_MAX 8
+
 struct sdramc {
 	uint32_t reg[SDRAMC_LEN / 4];
 	bool     initialised;
@@ -48,6 +51,8 @@ struct sdramc {
 	struct mem *mem;   /* receives the configured size for address aliasing */
 
 	/* Diagnostics: controller transactions, not host memory copies. */
+	/* When each posted write leaves the controller's buffer. */
+	uint64_t posted[SDRAMC_WRITE_POST_MAX];
 	uint64_t activations;   /* row activates: each one is a page miss */
 	uint64_t act_kind[5][5]; /* [previous access kind][this kind] per bank */
 	uint64_t act_bank[SDRAMC_MAX_BANKS];
