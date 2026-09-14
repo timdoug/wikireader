@@ -71,6 +71,15 @@ struct model model = {
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
+	/* Six bytes of fetch lookahead.  What decides whether a loop stays
+	   resident is not how many lines it spans but where it ends: the
+	   device runs a body fast while its offset inside the 16-byte line
+	   plus its size is at most about 27 bytes, and slowly from 30.  A
+	   fetcher running six bytes ahead pulls in a third line before the
+	   branch goes back, and the third evicts the first.  Zero prices a
+	   loop by span alone, which reads three of the sixteen probe loops
+	   2.5x fast. */
+	.iq_lookahead = 6,
 	.dq_iram_extra = 2,
 	.dq_hit = 1,
 };
@@ -95,6 +104,7 @@ static const struct {
 	{ "iram_fetch_wait", NULL, &model.iram_fetch_wait },
 	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
 	{ "iq_row_evict", NULL, &model.iq_row_evict },
+	{ "iq_lookahead", NULL, &model.iq_lookahead },
 	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
 	{ "row_ports", NULL, &model.row_ports },
 	{ "sdclk_half", NULL, &model.sdclk_half },

@@ -1324,7 +1324,7 @@ int main(int argc, char **argv)
 		 */
 		nop_run = (cpu.last_insn == 0) ? nop_run + 1 : 0;
 		if (nop_run > 8) {
-			stop = "runaway: >256 consecutive zero words";
+			stop = "runaway: >8 consecutive zero instructions";
 			break;
 		}
 	}

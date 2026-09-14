@@ -55,6 +55,7 @@ struct model {
 	   the hardware; zero restores the old behaviour, which is the way to
 	   ask what code straddling a page boundary is costing. */
 	unsigned iq_row_evict;
+	unsigned iq_lookahead;
 	/* How many rows the controller can hold open, and what decides which
 	   one a request lands on. Set, the row register is chosen by what the
 	   access is -- a fetch, a load or a store, the display's DMA -- and

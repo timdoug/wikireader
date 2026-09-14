@@ -1244,7 +1244,9 @@ ub_bcal2:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	2
+	.rept	1
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1266,7 +1268,9 @@ ub_bcal4:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	4
+	.rept	2
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1288,7 +1292,9 @@ ub_bcal6:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	6
+	.rept	3
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1310,7 +1316,9 @@ ub_bcal8:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	8
+	.rept	4
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1332,7 +1340,9 @@ ub_bcal10:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	10
+	.rept	5
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1354,7 +1364,9 @@ ub_bcal12:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	12
+	.rept	6
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1376,7 +1388,9 @@ ub_bcal14:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	14
+	.rept	7
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1430,7 +1444,9 @@ ub_bcs10o4:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	4
+	.rept	2
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	ld.b	[%r8]+,%r4
@@ -1449,7 +1465,9 @@ ub_bcs10o8:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	8
+	.rept	4
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	ld.b	[%r8]+,%r4
@@ -1468,7 +1486,9 @@ ub_bcs10o12:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	12
+	.rept	6
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	ld.b	[%r8]+,%r4
@@ -1508,7 +1528,9 @@ ub_bcs18o4:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	4
+	.rept	2
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	4
@@ -1530,7 +1552,9 @@ ub_bcs18o8:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	8
+	.rept	4
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	4
@@ -1552,7 +1576,9 @@ ub_bcs18o12:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	12
+	.rept	6
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	4
@@ -1595,7 +1621,9 @@ ub_bcs26o4:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	4
+	.rept	2
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1617,7 +1645,9 @@ ub_bcs26o8:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	8
+	.rept	4
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1639,7 +1669,9 @@ ub_bcs26o12:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	12
+	.rept	6
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	8
@@ -1682,7 +1714,9 @@ ub_bcs34o4:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	4
+	.rept	2
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	12
@@ -1704,7 +1738,9 @@ ub_bcs34o8:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	8
+	.rept	4
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	12
@@ -1726,7 +1762,9 @@ ub_bcs34o12:
 	ld.w	%r8,%r7
 	xadd	%r8,0x80000
 	.p2align 4
-	.space	12
+	.rept	6
+	ld.w	%r4,%r4
+	.endr
 1:
 	ld.ub	%r4,[%r7]+
 	.rept	12

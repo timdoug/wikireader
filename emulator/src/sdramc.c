@@ -472,6 +472,41 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 			s->iq_misses++;
 			ready = s->iq[slot].ready[word];
 		}
+
+		/*
+		 * The fetch unit runs ahead of the instruction being executed,
+		 * so a loop whose body ends near the end of its second line
+		 * pulls in a third before the branch takes it back, and the
+		 * third evicts the first.  That, and not how many lines a body
+		 * spans, is what decides whether a loop is resident here.  The
+		 * device runs one fast while its offset inside the line plus
+		 * its size is at most about 27 bytes and slowly from 30: a
+		 * 26-byte body is fast at offset 0 and 2.5x slower at offset 4,
+		 * an 18-byte one is fast until offset 12, and a 10-byte one is
+		 * fast anywhere.  Spans alone predict none of that.
+		 */
+
+		if (model.iq_lookahead) {
+			uint32_t ahead = (addr + model.iq_lookahead) & ~15u;
+			unsigned i;
+
+			if (ahead != tag) {
+				for (i = 0; i < 2; i++)
+					if (s->iq[i].valid &&
+					    s->iq[i].tag == ahead)
+						break;
+				if (i == 2) {
+					unsigned pslot = s->iq_next++ & 1;
+
+					prepare_external_access(s, now);
+					s->iq[pslot].valid = true;
+					s->iq[pslot].tag = ahead;
+					schedule_read(s, ahead, 8, now,
+						      s->iq[pslot].ready);
+					s->iq_prefetches++;
+				}
+			}
+		}
 	} else if (access == MEM_CPU_READ || access == MEM_DMA_READ ||
 		   access == MEM_CPU_FETCH) {
 		uint32_t tag = addr & ~3u;

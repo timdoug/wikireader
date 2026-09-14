@@ -235,12 +235,33 @@ static int bench_run(int fd, FAR const struct benchmark_s *bench)
 
 int main(int argc, FAR char *argv[])
 {
-  FAR const char *path = argc > 1 ? argv[1] : CONFIG_SYSTEM_BENCH_OUTPUT;
+  /* An argument beginning with a slash says where the results go; any
+   * other argument names a benchmark to run.  Re-running one of them on
+   * the device is how a model change gets judged against the same binary,
+   * and waiting three minutes for ubench to say nothing new is how that
+   * stops happening.
+   */
+
+  FAR const char *path = CONFIG_SYSTEM_BENCH_OUTPUT;
   int count = sizeof(g_benchmarks) / sizeof(g_benchmarks[0]);
+  int selected = 0;
   bool tofile = true;
   uint32_t started;
   int failures = 0;
   int fd;
+  int a;
+
+  for (a = 1; a < argc; a++)
+    {
+      if (argv[a][0] == '/')
+        {
+          path = argv[a];
+        }
+      else
+        {
+          selected++;
+        }
+    }
 
   fd = bench_card_open(path);
   tofile = fd != STDOUT_FILENO;
@@ -250,6 +271,25 @@ int main(int argc, FAR char *argv[])
   started = bench_uptime_ms();
   for (int i = 0; i < count; i++)
     {
+      if (selected > 0)
+        {
+          int want = 0;
+
+          for (a = 1; a < argc; a++)
+            {
+              if (argv[a][0] != '/' &&
+                  strcmp(argv[a], g_benchmarks[i].name) == 0)
+                {
+                  want = 1;
+                }
+            }
+
+          if (!want)
+            {
+              continue;
+            }
+        }
+
       printf("[%d/%d] %s ", i + 1, count, g_benchmarks[i].name);
       fflush(stdout);
 
