@@ -13,7 +13,9 @@ each one ends with, and fails on any "FAIL"/"Error" the guest prints along the
 way.
 
 The same commands work typed at the device's own prompt, which is the point:
-a run here and a run on hardware are comparing the same thing.
+a run here and a run on hardware are comparing the same thing. On the device
+`libct` runs the whole list onto the card in one go; --parse checks the file
+it writes against these same patterns.
 """
 
 import argparse
@@ -59,6 +61,28 @@ def run(emulator, image, out, limit):
     return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
 
 
+def verify(text, where):
+    """Check a transcript from either side against the patterns above."""
+    bad = [line for line in text.splitlines() if TROUBLE.search(line)]
+    if bad:
+        print("Guest reported failures:")
+        for line in bad[:10]:
+            print("   ", line.strip())
+        raise SystemExit(f"see {where}")
+
+    missing = [cmd for cmd, want, _ in SUITES if not re.search(want, text)]
+    if missing:
+        raise SystemExit(f"No success line from: {', '.join(missing)}; "
+                         f"see {where}")
+
+    checks = len(re.findall(r": PASSED", text)) + \
+        sum(int(m) for m in re.findall(r"OK: (\d+)", text)) + \
+        len(re.findall(r"\[PASS\]", text)) + \
+        sum(int(m) for m in re.findall(r"SUCCESSFUL: (\d+)", text))
+    print(f"PASS: {len(SUITES)} libc suites, {checks} checks; {where}")
+    return 0
+
+
 def main():
     root = Path(__file__).resolve().parents[5]
     parser = argparse.ArgumentParser(description=__doc__)
@@ -68,7 +92,14 @@ def main():
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/libc")
     parser.add_argument("--limit", type=int, default=8_000_000_000)
+    parser.add_argument("--parse", type=Path,
+                        help="check a libc.txt written by the device's libct "
+                             "command instead of running the emulator")
     args = parser.parse_args()
+
+    if args.parse is not None:
+        raw = args.parse.read_bytes().decode(errors="replace")
+        return verify(raw.replace("\r", ""), args.parse)
 
     emulator = args.wikireader.resolve() / "emulator/wremu"
     if not emulator.exists():
@@ -80,26 +111,7 @@ def main():
     text = run(emulator, args.image.resolve(), out, args.limit)
     (out / "console.txt").write_text(text)
 
-    bad = [line for line in text.splitlines() if TROUBLE.search(line)]
-    if bad:
-        print("Guest reported failures:")
-        for line in bad[:10]:
-            print("   ", line.strip())
-        raise SystemExit(f"see {out / 'console.txt'}")
-
-    missing = [cmd for cmd, want, _ in SUITES
-               if not re.search(want, text)]
-    if missing:
-        raise SystemExit(f"No success line from: {', '.join(missing)}; "
-                         f"see {out / 'console.txt'}")
-
-    checks = len(re.findall(r": PASSED", text)) + \
-        sum(int(m) for m in re.findall(r"OK: (\d+)", text)) + \
-        len(re.findall(r"\[PASS\]", text)) + \
-        sum(int(m) for m in re.findall(r"SUCCESSFUL: (\d+)", text))
-    print(f"PASS: {len(SUITES)} libc suites, {checks} checks; "
-          f"{out / 'console.txt'}")
-    return 0
+    return verify(text, out / "console.txt")
 
 
 if __name__ == "__main__":
