@@ -71,15 +71,21 @@ struct model model = {
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
-	/* Six bytes of fetch lookahead.  What decides whether a loop stays
-	   resident is not how many lines it spans but where it ends: the
-	   device runs a body fast while its offset inside the 16-byte line
-	   plus its size is at most about 27 bytes, and slowly from 30.  A
-	   fetcher running six bytes ahead pulls in a third line before the
-	   branch goes back, and the third evicts the first.  Zero prices a
-	   loop by span alone, which reads three of the sixteen probe loops
-	   2.5x fast. */
-	.iq_lookahead = 6,
+	/* Off, and the reason is worth keeping.  The device runs a loop body
+	   fast while its offset inside the 16-byte line plus its size is at
+	   most about 27 bytes and slowly from 30 -- not by how many lines it
+	   spans, which is what this model charges by.  A fetcher running six
+	   bytes ahead reproduces that rule exactly: it takes the sixteen-loop
+	   size-and-offset sweep from 0.372 RMS log error to 0.104 and gets
+	   every fast/slow call right where charging by span gets three wrong.
+
+	   It is still off because it makes real code worse, measured against
+	   the same binary on the device: CoreMark 1.05 -> 0.87 and Dhrystone
+	   1.01 -> 0.92.  The eviction it models is real; the bus time it
+	   charges for the prefetch is what the benchmarks cannot afford, and
+	   a prefetch that fills only when the interface is otherwise idle is
+	   the thing to try next.  Set it to 6 to price the loops instead. */
+	.iq_lookahead = 0,
 	.dq_iram_extra = 2,
 	.dq_hit = 1,
 };
