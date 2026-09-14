@@ -1,31 +1,31 @@
 # microbenchmark, 60 MHz, 4000000 passes
 # sdram: tRP 2, tRAS 4, tRC 6, refresh 0x120
 # loop          bytes  insn   seconds   cyc/pass  cyc/instr
-UB alu   sdram      26    11     1.010      15.15       1.38
-UB alu   ivram      26    11     1.420      21.30       1.94
+UB alu   sdram      26    11     1.000      15.00       1.36
+UB alu   ivram      26    11     1.410      21.15       1.92
 UB alu+16 sdram     26    11     1.010      15.15       1.38
-UB wide  sdram      42    11     4.020      60.30       5.48
+UB wide  sdram      42    11     4.030      60.45       5.50
 UB wide  ivram      42    11     2.220      33.30       3.03
-UB load  sdram      26    11     1.540      23.10       2.10
-UB load  ivram      26    11     1.880      28.20       2.56
+UB load  sdram      26    11     1.550      23.25       2.11
+UB load  ivram      26    11     1.890      28.35       2.58
 UB store sdram      26    11     2.430      36.45       3.31
-UB store ivram      26    11     3.040      45.60       4.15
+UB store ivram      26    11     3.030      45.45       4.13
 UB size 4           18     7     0.740      11.10       1.59
-UB size 16          42    19     4.020      60.30       3.17
+UB size 16          42    19     4.030      60.45       3.18
 UB size 32          74    35     0.670     100.50       2.87
-UB loadb sdram      26    11     1.540      23.10       2.10
-UB storeb sdrm      26    11     2.430      36.45       3.31
-UB loadseq          26    11     0.043      40.05       3.64
+UB loadb sdram      26    11     1.550      23.25       2.11
+UB storeb sdrm      26    11     2.440      36.60       3.33
+UB loadseq          26    11     0.044      40.34       3.67
 UB storeseq         26    11     0.026      24.03       2.18
-UB copyw            34    11     0.067     124.17      11.29
+UB copyw            34    11     0.068     124.74      11.34
 UB copyfar          34    11     0.071     131.61      11.96
 UB long  sdram     138    67     1.220     183.00       2.73
-UB long  ivram     138    67     0.700     105.00       1.57
+UB long  ivram     138    67     0.710     106.50       1.59
 UB ext2  sdram      58    11     5.630      84.45       7.68
-UB ext2  ivram      58    11     3.300      49.50       4.50
+UB ext2  ivram      58    11     3.290      49.35       4.49
 UB rowthrash        32    11     9.450     141.75      12.89
 UB bankpair         34    11     9.340     140.10      12.74
-UB copyloop         22     5     0.059      27.32       5.46
+UB copyloop         22     5     0.060      27.47       5.49
 UB lddisp           42    11     4.490      67.35       6.12
 UB mult             26    11     4.160      62.40       5.67
 UB callret          28    11    11.400     171.00      15.55
@@ -34,15 +34,22 @@ UB mmio             32    11     5.500      82.50       7.50
 UB loadseq8         26    11     0.041      76.10       6.92
 UB copydisp         82    20     0.068     249.48      12.47
 UB bytecopy         50    19     0.159     145.91       7.68
+UB bcskew1          52    19     0.155     142.19       7.48
+UB bcskew2          52    19     0.156     142.77       7.51
+UB bcskew3          52    19     0.156     142.77       7.51
+UB ld2              50    19     0.278     254.06      13.37
+UB ld2skew          52    19     0.283     259.21      13.64
+UB st2              50    19     0.208     190.26      10.01
+UB st2skew          52    19     0.213     194.55      10.24
 UB mix16            66    27     0.089     164.22       6.08
-UB mix64           162    75     0.157     287.25       3.83
+UB mix64           162    75     0.159     291.82       3.89
 UB mix96           226   107     0.199     365.07       3.41
 # the same 26-byte loop, placed to straddle each boundary
-UBO offset     0 crosses     0      1.000      15.00
-UBO offset    16 crosses    32      1.000      15.00
+UBO offset     0 crosses     0      1.010      15.15
+UBO offset    16 crosses    32      1.010      15.15
 UBO offset    48 crosses    64      1.000      15.00
-UBO offset   112 crosses   128      1.010      15.15
+UBO offset   112 crosses   128      1.000      15.00
 UBO offset   240 crosses   256      1.000      15.00
-UBO offset   496 crosses   512      1.000      15.00
+UBO offset   496 crosses   512      1.010      15.15
 UBO offset  1008 crosses  1024      3.150      47.25
-UBO offset  2032 crosses  2048      3.150      47.25
+UBO offset  2032 crosses  2048      3.160      47.40
