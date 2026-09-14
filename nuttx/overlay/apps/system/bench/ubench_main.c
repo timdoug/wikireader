@@ -78,6 +78,8 @@
 #define UB_BYTE_PASSES   (UB_STREAM_BYTES / 2 / 8)
 /* ...and one for the padded loops, so they cover the same ground. */
 #define UB_PAD_PASSES    (UB_STREAM_BYTES / 2)
+/* ...and a quarter of the buffer each for the four-pointer loop. */
+#define UB_ACC_PASSES    (UB_STREAM_BYTES / 8)
 
 /* Far enough apart to be in another bank: four megabytes, plus the half a
  * megabyte each stream walks. Skipped if there is no room for it.
@@ -196,6 +198,12 @@ extern void ub_bcpad8(unsigned long passes, volatile void *buffer);
 extern void ub_bcpad8_end(void);
 extern void ub_bcwide4(unsigned long passes, volatile void *buffer);
 extern void ub_bcwide4_end(void);
+extern void ub_bcacc1(unsigned long passes, volatile void *buffer);
+extern void ub_bcacc1_end(void);
+extern void ub_bcacc2(unsigned long passes, volatile void *buffer);
+extern void ub_bcacc2_end(void);
+extern void ub_bcacc4(unsigned long passes, volatile void *buffer);
+extern void ub_bcacc4_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -367,6 +375,14 @@ int main(int argc, FAR char *argv[])
     { "bcpad4     ", ub_bcpad4, ub_bcpad4_end, UB_PAD_PASSES, 9, false , true , false },
     { "bcpad8     ", ub_bcpad8, ub_bcpad8_end, UB_PAD_PASSES, 13, false , true , false },
     { "bcwide4    ", ub_bcwide4, ub_bcwide4_end, UB_PAD_PASSES, 9, false , true , false },
+
+    /* Thirteen instructions and twenty-six bytes each; one, two and four of
+     * them touch memory.  Whether the body costs once or once per access.
+     */
+
+    { "bcacc1     ", ub_bcacc1, ub_bcacc1_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcacc2     ", ub_bcacc2, ub_bcacc2_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcacc4     ", ub_bcacc4, ub_bcacc4_end, UB_ACC_PASSES, 13, false , true , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;

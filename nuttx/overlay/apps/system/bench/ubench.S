@@ -1116,5 +1116,89 @@ ub_bcwide4:
 	.global	ub_bcwide4_end
 ub_bcwide4_end:
 
+/* Does the cost follow the number of data accesses, at one body size?
+ *
+ * bcpad said the device pays for the bytes of a loop body and not for the
+ * instructions in it, and UBO says a 22-byte body with no data access at all
+ * is free at every offset.  So size only costs when something in the loop
+ * touches memory, and what is not known is whether one access is enough to
+ * pay for the whole body or whether each one pays again.
+ *
+ * All three bodies are thirteen instructions and twenty-six bytes.  They
+ * differ only in how many of those instructions are loads or stores: one,
+ * two, four.  The loop is aligned by itself rather than inherited from the
+ * entry, because the prologues are different lengths here and the offset of
+ * the body inside its line would otherwise vary with them.
+ *
+ * Each pointer walks its own quarter of the buffer so that four accesses
+ * cost four misses rather than four hits in one queue entry.
+ */
+
+	.p2align 5
+	.global	ub_bcacc1
+	.type	ub_bcacc1,@function
+ub_bcacc1:
+	ld.w	%r5,1
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	9
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcacc1_end
+ub_bcacc1_end:
+
+	.p2align 5
+	.global	ub_bcacc2
+	.type	ub_bcacc2,@function
+ub_bcacc2:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcacc2_end
+ub_bcacc2_end:
+
+	.p2align 5
+	.global	ub_bcacc4
+	.type	ub_bcacc4,@function
+ub_bcacc4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x40000
+	ld.w	%r10,%r7
+	xadd	%r10,0x80000
+	ld.w	%r11,%r7
+	xadd	%r11,0xc0000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	ld.ub	%r12,[%r10]+
+	ld.b	[%r11]+,%r12
+	.rept	6
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcacc4_end
+ub_bcacc4_end:
+
 	.global	ub_block_end
 ub_block_end:
