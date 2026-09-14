@@ -1,0 +1,23 @@
+# microbenchmark, 60 MHz, 4000000 passes
+# sdram: tRP 2, tRAS 4, tRC 6, refresh 0x120
+# loop          bytes  insn   seconds   cyc/pass  cyc/instr
+UB bcskew1          52    19     0.156     142.48       7.50
+UB bcskew2          52    19     0.156     143.05       7.53
+UB bcskew3          52    19     0.156     142.77       7.51
+UB bcs10o0          28     5     0.036      16.59       3.32
+UB bcs10o4          32     5     0.036      16.59       3.32
+UB bcs10o8          36     5     0.036      16.59       3.32
+UB bcs10o12         40     5     0.036      16.59       3.32
+UB bcs18o0          36     9     0.045      20.60       2.29
+UB bcs18o4          40     9     0.045      20.60       2.29
+UB bcs18o8          44     9     0.045      20.60       2.29
+UB bcs18o12         48     9     0.125      57.22       6.36
+UB bcs26o0          44    13     0.053      24.32       1.87
+UB bcs26o4          48    13     0.133      60.80       4.68
+UB bcs26o8          52    13     0.130      59.65       4.59
+UB bcs26o12         56    13     0.131      60.08       4.62
+UB bcs34o0          52    17     0.139      63.80       3.75
+UB bcs34o4          56    17     0.140      64.09       3.77
+UB bcs34o8          60    17     0.144      66.09       3.89
+UB bcs34o12         64    17     0.169      77.39       4.55
+# the same 26-byte loop, placed to straddle each boundary
