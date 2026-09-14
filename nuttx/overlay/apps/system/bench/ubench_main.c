@@ -220,6 +220,38 @@ extern void ub_bcal12(unsigned long passes, volatile void *buffer);
 extern void ub_bcal12_end(void);
 extern void ub_bcal14(unsigned long passes, volatile void *buffer);
 extern void ub_bcal14_end(void);
+extern void ub_bcs10o0(unsigned long passes, volatile void *buffer);
+extern void ub_bcs10o0_end(void);
+extern void ub_bcs10o4(unsigned long passes, volatile void *buffer);
+extern void ub_bcs10o4_end(void);
+extern void ub_bcs10o8(unsigned long passes, volatile void *buffer);
+extern void ub_bcs10o8_end(void);
+extern void ub_bcs10o12(unsigned long passes, volatile void *buffer);
+extern void ub_bcs10o12_end(void);
+extern void ub_bcs18o0(unsigned long passes, volatile void *buffer);
+extern void ub_bcs18o0_end(void);
+extern void ub_bcs18o4(unsigned long passes, volatile void *buffer);
+extern void ub_bcs18o4_end(void);
+extern void ub_bcs18o8(unsigned long passes, volatile void *buffer);
+extern void ub_bcs18o8_end(void);
+extern void ub_bcs18o12(unsigned long passes, volatile void *buffer);
+extern void ub_bcs18o12_end(void);
+extern void ub_bcs26o0(unsigned long passes, volatile void *buffer);
+extern void ub_bcs26o0_end(void);
+extern void ub_bcs26o4(unsigned long passes, volatile void *buffer);
+extern void ub_bcs26o4_end(void);
+extern void ub_bcs26o8(unsigned long passes, volatile void *buffer);
+extern void ub_bcs26o8_end(void);
+extern void ub_bcs26o12(unsigned long passes, volatile void *buffer);
+extern void ub_bcs26o12_end(void);
+extern void ub_bcs34o0(unsigned long passes, volatile void *buffer);
+extern void ub_bcs34o0_end(void);
+extern void ub_bcs34o4(unsigned long passes, volatile void *buffer);
+extern void ub_bcs34o4_end(void);
+extern void ub_bcs34o8(unsigned long passes, volatile void *buffer);
+extern void ub_bcs34o8_end(void);
+extern void ub_bcs34o12(unsigned long passes, volatile void *buffer);
+extern void ub_bcs34o12_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -410,6 +442,25 @@ int main(int argc, FAR char *argv[])
     { "bcal10     ", ub_bcal10, ub_bcal10_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcal12     ", ub_bcal12, ub_bcal12_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcal14     ", ub_bcal14, ub_bcal14_end, UB_ACC_PASSES, 13, false , true , false },
+
+    /* Four sizes at four offsets. */
+
+    { "bcs10o0", ub_bcs10o0, ub_bcs10o0_end, UB_ACC_PASSES, 4, false , true , false },
+    { "bcs10o4", ub_bcs10o4, ub_bcs10o4_end, UB_ACC_PASSES, 4, false , true , false },
+    { "bcs10o8", ub_bcs10o8, ub_bcs10o8_end, UB_ACC_PASSES, 4, false , true , false },
+    { "bcs10o12", ub_bcs10o12, ub_bcs10o12_end, UB_ACC_PASSES, 4, false , true , false },
+    { "bcs18o0", ub_bcs18o0, ub_bcs18o0_end, UB_ACC_PASSES, 8, false , true , false },
+    { "bcs18o4", ub_bcs18o4, ub_bcs18o4_end, UB_ACC_PASSES, 8, false , true , false },
+    { "bcs18o8", ub_bcs18o8, ub_bcs18o8_end, UB_ACC_PASSES, 8, false , true , false },
+    { "bcs18o12", ub_bcs18o12, ub_bcs18o12_end, UB_ACC_PASSES, 8, false , true , false },
+    { "bcs26o0", ub_bcs26o0, ub_bcs26o0_end, UB_ACC_PASSES, 12, false , true , false },
+    { "bcs26o4", ub_bcs26o4, ub_bcs26o4_end, UB_ACC_PASSES, 12, false , true , false },
+    { "bcs26o8", ub_bcs26o8, ub_bcs26o8_end, UB_ACC_PASSES, 12, false , true , false },
+    { "bcs26o12", ub_bcs26o12, ub_bcs26o12_end, UB_ACC_PASSES, 12, false , true , false },
+    { "bcs34o0", ub_bcs34o0, ub_bcs34o0_end, UB_ACC_PASSES, 16, false , true , false },
+    { "bcs34o4", ub_bcs34o4, ub_bcs34o4_end, UB_ACC_PASSES, 16, false , true , false },
+    { "bcs34o8", ub_bcs34o8, ub_bcs34o8_end, UB_ACC_PASSES, 16, false , true , false },
+    { "bcs34o12", ub_bcs34o12, ub_bcs34o12_end, UB_ACC_PASSES, 16, false , true , false },
 
     /* The same body again at four positions inside the fetch line. */
 

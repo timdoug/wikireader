@@ -1390,5 +1390,355 @@ ub_bcal14:
 	.global	ub_bcal14_end
 ub_bcal14_end:
 
+/* The size and offset surface, one load and one store throughout.
+ *
+ * Two edges of it are measured and they disagree about what the rule is.
+ * A 26-byte body costs 24.32 cycles at offset 0 and 58 to 61 at every other
+ * offset, which says alignment.  But a 10-byte body at offset 10 costs
+ * 17.49 while an 18-byte one at the same offset costs 52.54, which says
+ * size.  Neither alone predicts the other, so this fills the square in:
+ * four sizes at four offsets, everything else held still.
+ *
+ * Bodies are ld.ub, N adds, ld.b, sub, cmp, jrne -- ten bytes plus two a
+ * pad instruction.  The offset is set by aligning after the prologue and
+ * then padding with zeros, which decode as nop and run once per call.
+ */
+
+	.p2align 5
+	.global	ub_bcs10o0
+	.type	ub_bcs10o0,@function
+ub_bcs10o0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs10o0_end
+ub_bcs10o0_end:
+
+	.p2align 5
+	.global	ub_bcs10o4
+	.type	ub_bcs10o4,@function
+ub_bcs10o4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	4
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs10o4_end
+ub_bcs10o4_end:
+
+	.p2align 5
+	.global	ub_bcs10o8
+	.type	ub_bcs10o8,@function
+ub_bcs10o8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	8
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs10o8_end
+ub_bcs10o8_end:
+
+	.p2align 5
+	.global	ub_bcs10o12
+	.type	ub_bcs10o12,@function
+ub_bcs10o12:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	12
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs10o12_end
+ub_bcs10o12_end:
+
+	.p2align 5
+	.global	ub_bcs18o0
+	.type	ub_bcs18o0,@function
+ub_bcs18o0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs18o0_end
+ub_bcs18o0_end:
+
+	.p2align 5
+	.global	ub_bcs18o4
+	.type	ub_bcs18o4,@function
+ub_bcs18o4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs18o4_end
+ub_bcs18o4_end:
+
+	.p2align 5
+	.global	ub_bcs18o8
+	.type	ub_bcs18o8,@function
+ub_bcs18o8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	8
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs18o8_end
+ub_bcs18o8_end:
+
+	.p2align 5
+	.global	ub_bcs18o12
+	.type	ub_bcs18o12,@function
+ub_bcs18o12:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	12
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs18o12_end
+ub_bcs18o12_end:
+
+	.p2align 5
+	.global	ub_bcs26o0
+	.type	ub_bcs26o0,@function
+ub_bcs26o0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs26o0_end
+ub_bcs26o0_end:
+
+	.p2align 5
+	.global	ub_bcs26o4
+	.type	ub_bcs26o4,@function
+ub_bcs26o4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs26o4_end
+ub_bcs26o4_end:
+
+	.p2align 5
+	.global	ub_bcs26o8
+	.type	ub_bcs26o8,@function
+ub_bcs26o8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	8
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs26o8_end
+ub_bcs26o8_end:
+
+	.p2align 5
+	.global	ub_bcs26o12
+	.type	ub_bcs26o12,@function
+ub_bcs26o12:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	12
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs26o12_end
+ub_bcs26o12_end:
+
+	.p2align 5
+	.global	ub_bcs34o0
+	.type	ub_bcs34o0,@function
+ub_bcs34o0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	12
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs34o0_end
+ub_bcs34o0_end:
+
+	.p2align 5
+	.global	ub_bcs34o4
+	.type	ub_bcs34o4,@function
+ub_bcs34o4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	4
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	12
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs34o4_end
+ub_bcs34o4_end:
+
+	.p2align 5
+	.global	ub_bcs34o8
+	.type	ub_bcs34o8,@function
+ub_bcs34o8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	8
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	12
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs34o8_end
+ub_bcs34o8_end:
+
+	.p2align 5
+	.global	ub_bcs34o12
+	.type	ub_bcs34o12,@function
+ub_bcs34o12:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	.p2align 4
+	.space	12
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	12
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcs34o12_end
+ub_bcs34o12_end:
+
 	.global	ub_block_end
 ub_block_end:
