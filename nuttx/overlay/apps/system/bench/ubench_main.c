@@ -377,8 +377,27 @@ int main(int argc, FAR char *argv[])
    * read a table off, so it keeps its own file and unmounts the card.
    */
 
-  FAR const char *path = argc > 1 ? argv[1] :
-                         CONFIG_SYSTEM_BENCH_MOUNT "/ubench.txt";
+  /* An argument beginning with a slash is where the table goes; anything
+   * else selects the loops whose name contains it.  Running one loop is
+   * what makes fitting a parameter bearable: the whole set is over three
+   * minutes and a single loop is under one.
+   */
+
+  FAR const char *path = CONFIG_SYSTEM_BENCH_MOUNT "/ubench.txt";
+  FAR const char *only = NULL;
+  int a;
+
+  for (a = 1; a < argc; a++)
+    {
+      if (argv[a][0] == '/')
+        {
+          path = argv[a];
+        }
+      else
+        {
+          only = argv[a];
+        }
+    }
   bool standalone = isatty(STDOUT_FILENO);
   int fd = standalone ? bench_card_open(path) : STDOUT_FILENO;
   int i;
@@ -412,6 +431,11 @@ int main(int argc, FAR char *argv[])
   for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
     {
       double seconds;
+
+      if (only != NULL && strstr(cases[i].name, only) == NULL)
+        {
+          continue;
+        }
 
       if (cases[i].far && g_far == NULL)
         {
