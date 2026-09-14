@@ -39,70 +39,35 @@ scans its root, and the boot volume's `zim/` directory, for `*.zim` files.
 exFAT permits archives larger than FAT32's 4 GiB file limit and, for a
 contiguous file, avoids walking a large FAT chain at startup.
 
-Files stored with a FAT chain can take longer to open, especially full English
-Wikipedia. The reader initially reserves 512 bytes for up to 63 fragments,
-avoiding a separate sizing pass for ordinary copies. The kernel reads exFAT
-allocation metadata in batches of up to 255 sectors using a shared 127.5 KiB buffer;
-it never scans the archive contents to build this map. Each walk starts with
-an empty cache, and pending filesystem writes are flushed before reading it.
-Contiguous runs inside the buffer use sequential aligned word loads, with
-geometry and watchdog checks outside the inner loop. Filesystem
-calls must be serialized while this optional shared buffer is enabled.
-The larger batch passed the hardware startup/page test: 4.071 seconds from
-open to keyboard versus 4.536 with 32 sectors and 16 KiB. It reduces the
-allocation-map phase from 232 read commands to 30, with no DMA errors or fallback.
-Seek-map construction services the watchdog every 128 clusters and bounds the
-walk to the volume's cluster count. Older kernels could shut down on the opening
-screen if this scan exceeded their 20-second watchdog period.
+Opening a fragmented archive means walking its allocation metadata, which for
+full English Wikipedia is about 3.8 MB and most of the startup time. The
+reader reserves 512 bytes for up to 63 fragments, avoiding a separate sizing
+pass for ordinary copies. The kernel reads the metadata in batches of up to
+255 sectors through a shared 127.5 KiB buffer and never scans archive
+contents: 30 read commands for 7,396 sectors on the tested 128 GB card, where
+the February 2026 archive occupies 945,898 clusters in 13 fragments. Each
+walk starts with an empty cache, pending filesystem writes are flushed first,
+contiguous runs use sequential aligned word loads with geometry and watchdog
+checks outside the inner loop, and construction services the watchdog every
+128 clusters and bounds the walk to the volume's cluster count. Filesystem
+calls must be serialized while this shared buffer is enabled.
 
-Keep the scan buffer out of the stack. The current C33 compiler can schedule
-a comparison before a large stack-frame adjustment, whose expansion changes
-the condition flags before the comparison's branch. With the 16 KiB buffer on
-the stack this silently bypassed read-ahead on hardware despite passing host
-tests. The buffer lives in BSS; validate performance with the target binary.
+Aligned payloads transfer as 32-bit SPI characters with DMA
+(`SD_DMA_BITS=32`, the default; `SD_DMA_BITS=8` keeps the previous width for
+comparison), and the C33 `swap` instruction restores byte order in memory.
+Commands, tokens, CRCs and unaligned payloads stay byte-wide. Early
+filesystem setup uses byte DMA, with word mode enabled after the boot
+checkpoint. Bounded waits and partial-transfer recovery retain the byte
+fallback; overflow or inconsistent counts reject the block. The driver holds
+P67 at the idle clock level as GPIO across every width change, because
+otherwise disabling and re-enabling SPI advances the card's response by one
+bit — see the [hardware findings](PERFORMANCE.md#hardware-findings-the-code-depends-on),
+which also cover `f_lseek`'s alignment sensitivity and why the scan buffer
+must not live on the stack.
 
-On the tested 128 GB card, the February 2026 full English Wikipedia archive
-occupies 945,898 clusters in 13 fragments. The opening-screen delay fell from
-24 seconds to an estimated 5-6 seconds on hardware. These are manual
-observations from before startup logging was added. The corresponding
-emulator interval fell from 27.48 to 5.31 seconds, with roughly 0.33 seconds
-spent in the seek/map code and the rest largely in SD transfers and driver
-work. Each boot still reads about 3.8 MB of allocation metadata.
-
-32-bit DMA (`SD_DMA_BITS=32`) is now the default. The corrected kernel worked
-on hardware and measured 4.536 seconds from open to keyboard, down from the
-byte-DMA baseline's 5.654 seconds (19.77% less time). Its startup record has
-zero read errors, DMA timeouts or fallback. With the original 32-sector batch,
-the file phase read 7,393 sectors in 232 calls, all 3,785,216 payload bytes
-through word DMA. The matching
-emulator predicts 4.224 seconds overall; see [performance notes](PERFORMANCE.md)
-for phase measurements and exact kernel/app identities. `SD_DMA_BITS=8` keeps
-the previous width available for comparison.
-
-Keeping SPI word-wide across multiple sectors was also tested in the emulator.
-It reduces width changes but needs software to realign payloads around SD's
-inter-sector tokens and CRCs. The fastest measured candidate retains per-sector
-width changes and increases the read batch: 3.981 seconds versus 4.196 for its
-32-sector control. See the [batching comparison](PERFORMANCE.md#sd-read-batching-experiment).
-
-The driver holds P67 at the idle clock level as GPIO during SPI width changes;
-otherwise disabling/re-enabling SPI advances the card's response by one bit.
-Aligned payloads use 32-bit characters and the C33 `swap` instruction restores
-byte order in memory. Commands, tokens, CRCs and unaligned payloads remain
-byte-wide. Early filesystem setup uses byte DMA, with word mode enabled after
-the boot checkpoint. Bounded waits and partial-transfer recovery retain the
-byte fallback; overflow or inconsistent counts reject the block. See the
-[hardware diagnosis](PERFORMANCE.md#spi-width-transition-fix) for the probe
-results and emulator limits.
-
-The `f_lseek` function is 16-byte aligned on C33: unrelated kernel code growth
-had moved its 26-byte scan loop across three 16-byte blocks, exceeding the two
-buffer slots and adding almost a second. Check target disassembly and timing
-after changing that loop; C33 GCC treats this special seek branch as cold and
-does not automatically align its loop. `make -C emulator test-sd-dma-driver`
-executes the production backend as C33 code with byte-order, unaligned-buffer,
-CRC-boundary, timeout, overflow, GPIO restoration and SPI handoff checks in both
-width configurations.
+`make -C emulator test-sd-dma-driver` executes the production backend as C33
+code with byte-order, unaligned-buffer, CRC-boundary, timeout, overflow, GPIO
+restoration and SPI handoff checks in both width configurations.
 
 With more than one archive the keyboard shows the globe key of the original
 reader; it opens a list of the archives' own titles and sizes, and the choice
@@ -118,7 +83,7 @@ archives smaller than 4 GiB.
 
 Create an empty `zimlog.on` on the FAT32 boot volume to enable startup
 measurements. The matching kernel and app must both be installed: the app
-uses the new `file_profile` syscall (119). Each boot appends a record to
+uses the `file_profile` syscall (119). Each boot appends a record to
 `zimboot.log`, closing it after startup so a later normal shutdown is not
 needed to save the measurement. The log restarts when it reaches 64 KiB.
 Remove `zimlog.on` to disable profiling and startup log writes.
@@ -148,8 +113,8 @@ Ticks use the 60 MHz MCLK timer, with unsigned differences supporting a
 single wrap (individual intervals must be under about 71 seconds).
 
 Compare hardware with the same instrumented binaries: diagnostics can change
-both runtime overhead and instruction placement. See [performance notes](PERFORMANCE.md)
-for the measured phases and matching kernel/app identities.
+both runtime overhead and instruction placement. See
+[performance notes](PERFORMANCE.md) for the measured phases.
 
 ## Build
 
@@ -350,9 +315,11 @@ can measure those paths with addresses from the matching `zim.map`.
 
 The physical WikiReader with stock 2009 flash has passed startup, search,
 articles, links, scrolling, saved history, and idle/shutdown workflows.
-The four performance rounds were verified on a 32 MB device;
+Every performance round was verified on a 32 MB device;
 [the performance note](PERFORMANCE.md) records the final timings and scope.
-The 124 GB full English archive has been exercised in the emulator only.
+The 124 GB full English archive runs on the device as well as in the
+emulator: the startup, transport and article-load measurements in that note
+from 2026-09-08 onwards were taken on it, on a 128 GB card.
 
 ## Current limits
 
