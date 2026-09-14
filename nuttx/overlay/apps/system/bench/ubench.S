@@ -1020,5 +1020,101 @@ ub_mix96:
 	.global	ub_mix96_end
 ub_mix96_end:
 
+/* What a register instruction costs inside a byte copy, and whether the
+ * answer depends on how many there are or on how much room they take.
+ *
+ * stpncpy's byte loop costs the device 66.7 cycles a byte where memcpy's
+ * costs 16.2, and the two differ only in carrying seven more register
+ * instructions between the same load and store.  Seven cycles apiece is not
+ * what a register instruction costs anywhere else here -- ub_alu says 1.38
+ * -- and the model charges about one, which is why it reads that loop three
+ * times too fast.
+ *
+ * These four take one byte a pass, as stpncpy does, and pad the body with
+ * instructions that touch no memory.  Three of them hold the size per
+ * instruction and vary the count; the fourth holds the count of bcpad4 and
+ * pads to the size of bcpad8 using extended forms, which are four bytes
+ * where the others are two.  If the cost follows the count, it is issue; if
+ * it follows the size, it is fetch, and 32 bytes -- two queue lines -- is
+ * where it should show.
+ */
+
+	.p2align 5
+	.global	ub_bcpad0
+	.type	ub_bcpad0,@function
+ub_bcpad0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcpad0_end
+ub_bcpad0_end:
+
+	.p2align 5
+	.global	ub_bcpad4
+	.type	ub_bcpad4,@function
+ub_bcpad4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcpad4_end
+ub_bcpad4_end:
+
+	.p2align 5
+	.global	ub_bcpad8
+	.type	ub_bcpad8,@function
+ub_bcpad8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcpad8_end
+ub_bcpad8_end:
+
+	.p2align 5
+	.global	ub_bcwide4
+	.type	ub_bcwide4,@function
+ub_bcwide4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	4
+	xadd	%r9,0x10000
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcwide4_end
+ub_bcwide4_end:
+
 	.global	ub_block_end
 ub_block_end:

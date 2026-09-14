@@ -76,6 +76,8 @@
  * copy, which would take all day over a megabyte otherwise. */
 #define UB_COPY32_PASSES (UB_STREAM_BYTES / 2 / 32)
 #define UB_BYTE_PASSES   (UB_STREAM_BYTES / 2 / 8)
+/* ...and one for the padded loops, so they cover the same ground. */
+#define UB_PAD_PASSES    (UB_STREAM_BYTES / 2)
 
 /* Far enough apart to be in another bank: four megabytes, plus the half a
  * megabyte each stream walks. Skipped if there is no room for it.
@@ -186,6 +188,14 @@ extern void ub_mix64(unsigned long passes, volatile void *buffer);
 extern void ub_mix64_end(void);
 extern void ub_mix96(unsigned long passes, volatile void *buffer);
 extern void ub_mix96_end(void);
+extern void ub_bcpad0(unsigned long passes, volatile void *buffer);
+extern void ub_bcpad0_end(void);
+extern void ub_bcpad4(unsigned long passes, volatile void *buffer);
+extern void ub_bcpad4_end(void);
+extern void ub_bcpad8(unsigned long passes, volatile void *buffer);
+extern void ub_bcpad8_end(void);
+extern void ub_bcwide4(unsigned long passes, volatile void *buffer);
+extern void ub_bcwide4_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -346,6 +356,17 @@ int main(int argc, FAR char *argv[])
     { "mix16      ", ub_mix16, ub_mix16_end, UB_COPY_PASSES, 27, false , true , false },
     { "mix64      ", ub_mix64, ub_mix64_end, UB_COPY_PASSES, 75, false , true , false },
     { "mix96      ", ub_mix96, ub_mix96_end, UB_COPY_PASSES, 107, false , true , false },
+
+    /* A byte a pass with 0, 4 and 8 register instructions between the load
+     * and the store, and then bcpad4's count again at bcpad8's size.  Two
+     * of the four vary the count at one size per instruction, and two vary
+     * the size at one count.
+     */
+
+    { "bcpad0     ", ub_bcpad0, ub_bcpad0_end, UB_PAD_PASSES, 5, false , true , false },
+    { "bcpad4     ", ub_bcpad4, ub_bcpad4_end, UB_PAD_PASSES, 9, false , true , false },
+    { "bcpad8     ", ub_bcpad8, ub_bcpad8_end, UB_PAD_PASSES, 13, false , true , false },
+    { "bcwide4    ", ub_bcwide4, ub_bcwide4_end, UB_PAD_PASSES, 9, false , true , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
