@@ -48,7 +48,7 @@ memcmp:
   ld.w    %r9,%r6
   xor     %r9,%r7
   and     %r9,3
-  jrne    3f                        /* different alignments: byte at a time */
+  jrne    9f                        /* different alignments: merge words */
   cmp     %r8,8
   jrult   3f                        /* too short to pay for the setup */
 
@@ -100,6 +100,73 @@ memcmp:
 8:
   sub     %r4,%r5
   ret
+
+/* The pointers cannot be brought into agreement, so read whole words from
+ * the second and cut a word out of each pair to compare against the first.
+ * Going a byte at a time instead costs the device four times the traffic:
+ * 6.9 MB/s aligned against 1.7 mismatched at 32 KB. A word that differs is
+ * handed back to the byte loop, which finds which byte it was.
+ */
+
+9:
+  cmp     %r8,16
+  jrult   3b
+
+10:                                 /* bring the first pointer to a word */
+  ld.w    %r9,%r6
+  and     %r9,3
+  jreq    11f
+  ld.ub   %r4,[%r6]+
+  ld.ub   %r5,[%r7]+
+  cmp     %r4,%r5
+  jrne    8b
+  sub     %r8,1
+  jp      10b
+
+11:
+  ld.w    %r13,%r7
+  and     %r13,3                    /* where the second sits in its word */
+  sub     %r7,%r13
+  ld.w    %r9,%r13                  /* kept: the tail starts there too */
+  ld.w    %r10,%r13
+  sll     %r10,3
+  ld.w    %r11,4
+  sub     %r11,%r13
+  sll     %r11,3
+  ld.w    %r5,[%r7]+                /* the first of the pair */
+
+  sub     %r8,4                     /* the last pass reads one word ahead */
+  ld.w    %r13,%r8
+  and     %r13,3
+  sub     %r8,%r13
+  ld.w    %r4,%r13
+  add     %r4,4                     /* kept: what the byte loop is left */
+  add     %r8,%r6                   /* where the first pointer stops */
+
+12:
+  ld.w    %r12,[%r7]+               /* the second of the pair */
+  srl     %r5,%r10
+  ld.w    %r13,%r12
+  sll     %r13,%r11
+  or      %r5,%r13                  /* the second operand, realigned */
+  ld.w    %r13,[%r6]+
+  cmp     %r5,%r13
+  jrne    13f                       /* the difference is inside this word */
+  ld.w    %r5,%r12
+  cmp     %r6,%r8
+  jrne    12b
+
+  sub     %r7,4                     /* back to the word the tail starts in */
+  add     %r7,%r9                   /* and to the byte inside it */
+  ld.w    %r8,%r4
+  jp      3b
+
+13:                                 /* rescan the word that differed */
+  sub     %r6,4
+  sub     %r7,8
+  add     %r7,%r9
+  ld.w    %r8,4
+  jp      4b
   .size memcmp, .-memcmp
 
 #endif /* LIBC_BUILD_MEMCMP */
