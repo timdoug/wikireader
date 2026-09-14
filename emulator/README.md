@@ -236,36 +236,79 @@ code:
 | Workload | Result |
 | --- | --- |
 | 45 `ubench` loops | 0.139 RMS log error, 29 within 10% |
+| 16 `ubench bcs` fetch-window loops | 0.372 RMS log error; see below |
 | `ramspeed` | memcpy 0.78-0.87x, memset 1.09-1.11x |
-| 280 `arch_libctest` throughput points | median 1.000x, mean 1.061x |
-| CoreMark / Dhrystone / Whetstone | 0.97x / 1.03x / 0.99x |
+| 280 `arch_libctest` throughput points | median 0.936x, mean 1.009x |
+| CoreMark / Dhrystone | 1.05x / 1.01x, same binary both sides |
+| Whetstone | 0.99x |
 | `cardb`, eight points of a 512-32768 byte sweep | within 3.1%, mean 1.007x |
 | ZIM article load, Cat and Tokyo | 1.027x and 0.991x |
 
-`arch_libctest` also passes identically on both — sixteen routines, same
-output, same 18,284 bytes — which is the only check here of the emulator's
-ISA *semantics* rather than its timing.
+All eight of NuttX's C library suites pass identically on both — 196 checks,
+same output — which is the only check here of the emulator's ISA *semantics*
+rather than its timing. The device runs them in one go with `libct`.
 
-The residual is concentrated in synthetic loops that saturate the data bus
-while missing the instruction queue: `st2` 1.43x, `copydisp` 1.39x, `ld2w`
-1.35x, `ld2` 1.29x. `-Y` windows locate it exactly — `ld2` takes 6.42 M
-instruction-queue misses against `rowthrash`'s 115 k, because a 50-byte body
-does not fit two 16-byte lines where a 32-byte one does, and `bytecopy` gets
-75% data-queue hits where `ld2` gets 0.004%, its interleaved access being a
-write that does not evict the read queue. The model overcharges an
-instruction fill by roughly 24 cycles when the data bus is saturated and by
-half a cycle when it is idle.
+The `ubench` set is 69 loops now; the 0.139 figure covers the 45 that
+predate the fetch-window probes, and the 24 added for those are counted
+separately because they were chosen to sit where the model is worst.
 
-Do not try to close that with another scalar parameter. Six mechanisms have
-been fitted and refuted, each by a loop the previous one did not cover, and
-the best fit for the loops (0.097 RMS) puts CoreMark at 1.10x, Dhrystone at
-1.17x and Whetstone at 1.14x. The loops and real code want opposite values
-because they are in opposite regimes. The manual does not settle it either:
-figure II.4.2.1.1 puts the instruction and data queue buffers behind one
-address register, one queue-buffer controller and one SDRAM interface, so a
-separate fetch bus is structurally wrong however well it fits, and II.4.3
-(Bus Arbiter) covers only LCDC/DMA/CPU/SRAMC priority and says nothing about
-how a queue fill and a data access share that interface.
+### What the residual is
+
+The residual is in instruction fetch, and it has a measured rule.
+
+**A loop body is resident on the device while its offset inside the enclosing
+16-byte line plus its size is at most about 27 bytes, and not otherwise.**
+Sixteen `ubench` loops sweep four sizes across four offsets with one load and
+one store throughout (`ubench bcs`), and sorted by `offset + size` the split
+is total: every fast case ends at 26 or less and every slow one at 30 or
+more.
+
+| size | off 0 | off 4 | off 8 | off 12 |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 16.59 | 16.59 | 16.59 | 16.59 |
+| 18 | 20.60 | 20.60 | 20.60 | 57.22 |
+| 26 | 24.32 | 60.80 | 59.65 | 60.08 |
+| 34 | 63.80 | 64.09 | 66.09 | 77.39 |
+
+Neither size nor alignment alone predicts any of that, which is why it took
+so long to see. A 26-byte body is fast at offset 0 and 2.5x slower four
+bytes along; an 18-byte body is fast until offset 12; a 10-byte body is fast
+anywhere. It also explains the loops that looked contradictory: `ub_alu` is
+22 bytes at offset 2, ending at 24, so it is fast at every position the
+boundary table tries — that table moves whole functions by multiples of 16
+and so never varies the offset at all.
+
+The model charges by how many lines a body spans, which is `offset + size`
+up to 32. That reads three of the sixteen 2.5x fast and most of the rest
+1.17x slow, and it is why `stpncpy`'s 22-byte byte loop reads 3.2x fast in
+`arch_libctest`.
+
+**`iq_lookahead` implements the rule and is off.** Six bytes of fetch
+lookahead reproduces it exactly — a body ending past about 27 pulls in a
+third line before the branch takes it back, and the third evicts the first —
+and takes the sweep from 0.372 to 0.104 RMS log error with every fast/slow
+call correct. It is off because it makes real code worse, measured against
+the same binary on the device: CoreMark 1.05x to 0.87x, Dhrystone 1.01x to
+0.92x. The eviction is the measured part and the bus time charged for each
+prefetch is the modelled part, and only the first is wanted. **A prefetch
+that fills only when the SDRAM interface is otherwise idle is the thing to
+try next**, which is also what the manual's single shared interface suggests
+a queue-buffer controller would do. Set `iq_lookahead=6` to price loops
+rather than programs.
+
+Before that, six other mechanisms were fitted and refuted, each by a loop
+the previous one did not cover; the best fit for the loops among them
+(0.097 RMS) put CoreMark at 1.10x and Dhrystone at 1.17x. A separate fetch
+bus is structurally wrong whatever it fits: figure II.4.2.1.1 puts both
+queue buffers behind one address register, one queue-buffer controller and
+one SDRAM interface. II.4.3 (Bus Arbiter) covers only LCDC/DMA/CPU/SRAMC
+priority and says nothing about how a fill and a data access share that
+interface, which is the part still being guessed at.
+
+**For firmware, not just for the model:** keep a hot loop body within 26
+bytes of the enclosing 16-byte boundary. Aligning a loop is neither
+necessary nor sufficient — a small body is fine anywhere and a 34-byte body
+is slow even at offset 0. `-falign-loops` cannot express it.
 
 `iqb_first` is a deliberate compromise at 1. Every `ubench` loop fits the
 instruction queue and so measures the fill of a line refetched every pass,
@@ -309,8 +352,13 @@ boot starts in.
   reference can make a model that is 0.3% out look 10% out.
 
 Hence the benchmark harness boots grifo off a card, and `bench` is re-run on
-the device whenever the image changes. Historical calibration data and its
-retired harness remain in Git at `7aa4ee84`.
+the device whenever the image changes. `bench` takes benchmark names and
+`ubench` takes loop names, so re-running the two that decide a model change
+is half a minute on the device rather than five -- without that, the
+temptation is to judge against a reference from a different binary, which is
+how the fetch lookahead nearly got accepted and nearly got discarded on the
+same day. Historical calibration data and its retired harness remain in Git
+at `7aa4ee84`.
 
 ### The card
 
