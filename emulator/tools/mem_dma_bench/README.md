@@ -79,30 +79,11 @@ and benchmark. The harness supplies the loader's inherited stack; earlier
 FLASH stages are not modeled. Neither a ZIM nor an attached card is read.
 Builds, images, logs and JSON results go to `build/wr128/mem-dma`.
 
-The initial model runs completed all 94 cases at each of the three overhead
-settings. At zero additional overhead, 512-KiB same-bank DMA takes 42.35 ms,
-versus 55.26 ms for libc and 32.89 ms for the A0 batch. Different-bank DMA
-takes 25.13 ms, versus 38.35 ms for libc and 30.94 ms for the A0 batch.
-The 5-KiB IVRAM copy takes 0.204 ms for DMA, 0.341 ms for libc and 0.270 ms
-for the A0 batch. These predictions were saved before the hardware run.
+## Device results
 
-For the hardware comparison, use the installed `membench.app` SHA256 in
-`installed.json`, collect `membench.log`, and compare each matching
-`layout/method/bytes` row with `model-{0,2,4}.json`. The useful questions are
-which copy wins for each bank layout, where setup stops dominating, whether
-IVRAM DMA works as documented, and how much extra overhead the chip exhibits.
-
-## Hardware results, 2026-09-09
-
-All 94 cases passed on the 32-MiB reader: 282 timed transfers, with every
-output word and guard checked. The installed benchmark SHA256 was
-`e4876c36fca631076f5c177d5cc3198191d6ebd6cec03955aaf0e141ae2bc5cf`,
-identical to all three model runs. The kernel and ZIM application hashes
-also matched the installation manifest. The marker was consumed and normal
-startup restored. The subsequent ZIM startup log reached the keyboard in
-3.511737 seconds with no read/DMA errors, timeouts or fallback.
-
-Times below are medians of three samples, including setup and timer calls:
+All 94 cases pass on the 32 MiB reader: 282 timed transfers, every output
+word and guard checked. Times below are medians of three samples, including
+setup and timer calls:
 
 | Copy | Bytes | Existing libc | CPU batch, SDRAM code | CPU batch, A0 code | DMA32 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -116,6 +97,16 @@ A0 batch. Same-bank A0 batching takes 39.5% less time than libc and 7.9% less
 than DMA. Large fills take 19.4% less time with DMA. Copying the 5-KiB IVRAM
 window saves 135 us versus libc, or 62 us versus the A0 batch; these are
 small absolute savings, not a measured improvement to the reader UI.
+
+**Treat the bank labels as "4 MB apart" and "close together", not as banks.**
+Buffers here are spaced by an assumed 4 MiB bank stride. A later probe found
+that two *read* streams cost the device the same whatever their separation,
+which is why the reader no longer places anything by bank, and the timing
+model charges no distance penalty. That probe does not cover a copy, and this
+benchmark plainly measured distance mattering to one -- 57.6 ms against
+41.0 for libc, 37.8 against 20.6 for DMA -- while barely touching the
+batched A0 copy. Nothing here explains that; it is the open question in this
+file.
 
 Among tested sizes, DMA first beats libc at 1 KiB in all three copy layouts.
 It first beats the A0 batch at 4 KiB for different-bank and IVRAM copies;
@@ -152,12 +143,7 @@ read-only SELDO status bit: hardware `0x01ff0120`, model `0x03ff0120`.
 The model currently reports SELDO whenever self-refresh is enabled; that
 readback is a known approximation, not a different refresh interval.
 
-Raw logs, small executable identities, all samples and per-case model
-comparisons are saved in
-`build/wr128/mem-dma/hardware-20260909T040623Z/` (`hardware.json`,
-`comparison.json`, `comparison.csv`). No archive data was read during
-collection. The card was cleanly ejected and will start Wikipedia normally.
-These results support testing an A0 CPU batch for same-bank copies and DMA
-for sufficiently large other-bank copies/fills. They do not yet measure
-end-to-end page speed or CPU/DMA concurrency; unlimited DMA owns the bus
-throughout each transfer.
+These results are what the reader's bulk-copy helper is built on: an A0 CPU
+batch for ordinary copies and DMA for large ones and for fills. They do not
+measure end-to-end page speed or CPU/DMA concurrency; unlimited DMA owns the
+bus throughout each transfer.

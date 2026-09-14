@@ -7,26 +7,24 @@ the 240x208 touch display through SDL2.
 Build the firmware with the [modern C33 toolchain](../host-tools/toolchain-c33/README.md).
 See the [ZIM reader guide](../zim/README.md) for archive and card setup.
 
-## Status
+## What it runs
 
-- The mask-ROM effect, MBR, menu, file-loader, kernel, `init.app`, and
-  `wiki.app` boot from the current FLASH and card images.
-- Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
-  article, and scrolling framebuffers for the exercised workflows.
-- Kernel block reads use the documented SPI HSDMA/IDMA pipeline with bounded
-  completion polling; HALT-based DMA completion did not wake on hardware.
-  Pre-kernel reads and all card writes remain PIO.
-- `make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
-  display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO, and chip
-  identification.
-- Firmware and differential programs retire 57 of the 74 implemented PE
-  operations. Focused core tests cover most remaining forms.
-- Headless execution is deterministic and runs at about 80 million target
-  instructions per host second.
+The mask-ROM effect, MBR, menu, file-loader, kernel, `init.app`, `wiki.app`,
+`zim.app`, `doom.app` and the NuttX port all boot from FLASH and card images.
+Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
+article and scrolling framebuffers for the exercised workflows.
+
+`make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
+display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO and chip
+identification. It completes on a bare checkout; three targets skip and say
+so, wanting objdump captures or a local card image.
+
+Headless execution is deterministic and runs at about 80 million target
+instructions per host second.
 
 Timing follows the programmed clocks and memory/storage registers, with
 additional costs calibrated on hardware. See "Calibration" for the fitted
-parameters and the limits of absolute timing predictions.
+parameters and what absolute timing predictions are worth.
 
 ## Build and test
 
@@ -93,7 +91,7 @@ data.
 | Option | Purpose |
 | --- | --- |
 | `-g`, `-S N` | Open the SDL window at scale `N` (default 3). |
-| `-c FILE` | Attach a FAT32 card image. |
+| `-c FILE` | Attach a card image, plain FAT32 or MBR-partitioned. |
 | `-R` | Keep the card image read-only. |
 | `-e FILE` | Attach serial FLASH and use the hardware boot path. |
 | `-n N` | Stop after `N` target cycles/instructions; the GUI defaults to unlimited. |
@@ -173,8 +171,11 @@ for every move to another 1 KiB row, closes every bank at each auto-refresh,
 and treats the two-slot 16-byte instruction queue as the only fetch
 buffering. A row register belongs to the access port (fetch, data, DMA) and
 not to the bank, so two data addresses evict one another however far apart
-they are; the device measures a pair 4 MB apart at the same cost as a pair
-a kilobyte apart, and bank separation buys nothing.
+they are: the device reads a pair 4 MB apart at the same cost as a pair a
+kilobyte apart. That is measured for a pair of read streams and no more --
+a 512 KiB *copy* on the device does care about the separation, which nothing
+here explains. See
+[the memory-copy benchmark](tools/mem_dma_bench/README.md).
 
 ZIM reader article load, Simple English `Cat`, retrieval to render entry,
 run from the repository root with a card from `zim/make-card-image`:
@@ -229,28 +230,52 @@ with `WREMU_MODEL=name=value,...`.
 | `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
 | `iq_row_evict` | 1 | a queue line dies when its row is closed; 0 prices a page crossing |
 
-Against the device: 34 `ubench` loops at 0.091 RMS log error with 27 within
-10%, CoreMark 0.95x, Dhrystone 1.00x, Whetstone 0.99x, and the card within
-3.1% on all eight points of a 512-32768 byte read and write sweep. Two loops
-that copy behind a growing tail of code (`copydisp`, `mix16/64/96`) are a
-constant ~43 cycles dear at every size; the per-line fill charge is right,
-so it is data accesses overlapping fills, and four attempts to model that
-overlap were each refuted by `bytecopy`, which pays its fetches serially.
+Against the device, in rising order of how much the workload resembles real
+code:
+
+| Workload | Result |
+| --- | --- |
+| 45 `ubench` loops | 0.139 RMS log error, 29 within 10% |
+| `ramspeed` | memcpy 0.78-0.87x, memset 1.09-1.11x |
+| 280 `arch_libctest` throughput points | median 1.000x, mean 1.061x |
+| CoreMark / Dhrystone / Whetstone | 0.97x / 1.03x / 0.99x |
+| `cardb`, eight points of a 512-32768 byte sweep | within 3.1%, mean 1.007x |
+| ZIM article load, Cat and Tokyo | 1.027x and 0.991x |
+
+`arch_libctest` also passes identically on both — sixteen routines, same
+output, same 18,284 bytes — which is the only check here of the emulator's
+ISA *semantics* rather than its timing.
+
+The residual is concentrated in synthetic loops that saturate the data bus
+while missing the instruction queue: `st2` 1.43x, `copydisp` 1.39x, `ld2w`
+1.35x, `ld2` 1.29x. `-Y` windows locate it exactly — `ld2` takes 6.42 M
+instruction-queue misses against `rowthrash`'s 115 k, because a 50-byte body
+does not fit two 16-byte lines where a 32-byte one does, and `bytecopy` gets
+75% data-queue hits where `ld2` gets 0.004%, its interleaved access being a
+write that does not evict the read queue. The model overcharges an
+instruction fill by roughly 24 cycles when the data bus is saturated and by
+half a cycle when it is idle.
+
+Do not try to close that with another scalar parameter. Six mechanisms have
+been fitted and refuted, each by a loop the previous one did not cover, and
+the best fit for the loops (0.097 RMS) puts CoreMark at 1.10x, Dhrystone at
+1.17x and Whetstone at 1.14x. The loops and real code want opposite values
+because they are in opposite regimes. The manual does not settle it either:
+figure II.4.2.1.1 puts the instruction and data queue buffers behind one
+address register, one queue-buffer controller and one SDRAM interface, so a
+separate fetch bus is structurally wrong however well it fits, and II.4.3
+(Bus Arbiter) covers only LCDC/DMA/CPU/SRAMC priority and says nothing about
+how a queue fill and a data access share that interface.
 
 `iqb_first` is a deliberate compromise at 1. Every `ubench` loop fits the
 instruction queue and so measures the fill of a line refetched every pass,
 which wants a larger value; Dhrystone has a real code footprint and a queue
 that misses constantly, and wants zero. Do not fit it against either alone.
 
-Compare on the same binary. Adding `ubench` loops moves the device's own
-CoreMark and Dhrystone -- Dhrystone was 15232 on one build and 13708 on the
-next -- so a stale reference can make a model that is 0.3% out look 10% out.
-Re-run `bench` on the device whenever the image changes.
-
 A loop that straddles a 1 KB page costs the device 3.2x what the same loop
-costs anywhere else. In aggregate that is small -- CoreMark scores 30.51 with
-the eviction modelled and 30.70 without, so 0.6% of it goes on code lying
-across page boundaries, although 21% of its instruction-queue misses involve
+costs anywhere else. In aggregate that is small -- CoreMark loses 0.6%
+between the eviction modelled and not modelled, so that much of it goes on
+code lying across page boundaries, although 21% of its queue misses involve
 one. It is a lottery rather than a tax: most loops never straddle, the ones
 that do pay 3.2x, and whether any of them is hot is a property of one build.
 `WREMU_MODEL=iq_row_evict=0` prices it for any other workload.
@@ -261,50 +286,59 @@ the wrong trade: `-falign-loops=32` works on this backend but does not stop a
 loops that need it, emits a bare `.align 10` because the C33 backend has no
 ASM_OUTPUT_MAX_SKIP_ALIGN -- every loop in the image padded to a kilobyte.
 
-The mechanism, for the record, and the model charged nothing for it: its instruction
-queue held two 16-byte lines for ever, where the hardware cannot keep a line
-whose row has been precharged to reach the other. Queue lines are now
-evicted when a fill activates another row of the same bank, and the cliff
-lands within 2% -- 3.22 seconds against 3.16. Everything either side of it is
-unchanged, which is the point: seven of the eight places the loop can sit
-were already right.
+The mechanism is the instruction queue: the hardware cannot keep a line whose
+row has been precharged to reach the other, so a queue line is evicted when a
+fill activates another row of the same bank. With that, the cliff lands
+within 2% -- 3.22 seconds against 3.16 -- and the seven of eight positions
+that were already right are unchanged.
 
-Three things found while fitting are worth knowing: an application runs on
-the timings `SDRAM_retime()` leaves, not the loader's; a guest that never
-programs the SDRAM controller used to be modelled with no memory system at
-all; and a direct ELF boot skips grifo's PLL setup, so the CMU reported
-OSC3's 48 MHz while NuttX programmed its tick divider from the 60 MHz in
-its config, and every guest-measured second ran a quarter long. All three
-are the same shape -- the device is never in the state a direct boot starts
-in -- which is why the benchmark harness now boots grifo. Use the model to
-identify expensive work and compare candidates, then confirm improvements
-on hardware. Historical calibration data and its retired harness remain in
-Git at `7aa4ee84`.
+### Compare against the device, not against a direct boot
 
-The three separate card waits were added on 2026-09-09. `sd_read_latency`
-and `sd_write_latency` were fitted on 2026-09-13 from `cardb`, which sweeps
-the block size so that a fixed cost per operation and a cost per byte can
-be told apart; `sd_init_latency` and `sd_read_gap` are still zero and are
-mechanisms for fitting measured waits rather than measured defaults.
+Four traps, all the same shape: the device is never in the state a direct
+boot starts in.
 
-Fit those two on a filesystem with one sector per cluster. The driver then
-issues a command per 512 bytes, which is what makes a per-command cost
-visible: `sd_read_latency` had sat at 60000 -- a millisecond a command --
+- An application runs on the timings `SDRAM_retime()` leaves, not the
+  loader's.
+- A guest that never programs the SDRAM controller was once modelled with no
+  memory system at all, and ran at about a cycle an instruction.
+- A direct ELF boot skips grifo's PLL setup, so the CMU reports OSC3's
+  48 MHz while a guest configured for the real 60 divides its tick from that,
+  and every guest-measured second comes out a quarter long.
+- Adding `ubench` loops moves the device's own CoreMark and Dhrystone --
+  Dhrystone was 15232 on one build and 13708 on the next -- so a stale device
+  reference can make a model that is 0.3% out look 10% out.
+
+Hence the benchmark harness boots grifo off a card, and `bench` is re-run on
+the device whenever the image changes. Historical calibration data and its
+retired harness remain in Git at `7aa4ee84`.
+
+### The card
+
+`sd_read_latency` and `sd_write_latency` are fitted from `cardb`, which
+sweeps the block size so a fixed cost per operation can be told from a cost
+per byte. Fit them on a filesystem with one sector per cluster: the driver
+then issues a command per 512 bytes, which is what makes the per-command cost
+visible at all. `sd_read_latency` sat at 60000 -- a millisecond a command --
 through every earlier calibration, because the only card workload ever
 measured was grifo reading 255 sectors at a time, where it is a rounding
-error. At one command a sector it was most of the read time, and the model
-ran at 0.66-0.78 of the device across the sweep.
-They use MCLK cycles (60,000 cycles/ms at 60 MHz). Initialization polls
-return idle until ready, streamed reads delay only the next data token,
-and programming busy survives chip deselection. CPU and DMA costs retain
-their previous calibration.
+error; at one command a sector it was most of the read time and the model ran
+at 0.66-0.78 of the device. `sd_init_latency` and `sd_read_gap` are zero, and
+are mechanisms for fitting a measured wait rather than measured defaults.
 
-Match filesystem state as well as firmware before comparing boot times.
-A generated FAT32 fixture with unknown FSInfo hints and no existing
-`dma.txt` spent 647 ms creating its first diagnostic; its next boot took
-26 ms for that step. This was allocation work, not a measured card write
-delay. Builders should provide valid free-cluster and allocation hints.
-For an existing **synthetic** fixture, run:
+All four are MCLK cycles, 60,000 to the millisecond. Initialization polls
+return idle until ready, streamed reads delay only the next data token, and
+programming busy survives chip deselection.
+
+Device read numbers move about 20% run to run where writes repeat to a tenth
+of a percent. Do not fit reads tighter than that.
+
+Match filesystem state as well as firmware before comparing boot times. A
+generated FAT32 fixture with unknown FSInfo hints and no existing `dma.txt`
+spent 647 ms creating its first diagnostic and 26 ms for the same step on the
+next boot -- allocation work, not a card write delay. Give fixtures valid
+free-cluster and allocation hints, and include the card's boot files,
+directory order, existing logs and history. For an existing **synthetic**
+fixture:
 
 ```sh
 python3 emulator/tools/fat32_fixture.py /tmp/generated-card.img
@@ -312,21 +346,9 @@ make -C emulator test-sd-timing test-fat32-fixture
 ```
 
 The tool bounds its FAT read and accepts regular image files only. Do not
-apply it to captured physical metadata: the original allocation state is
-part of the evidence. Also include the card's boot files, directory order,
-existing logs, and history. The 2026-09-09 logical boot-file snapshot brought
-the exact installed firmware's kernel-to-reader estimate from 1.840 s to
-1.315 s, versus 1.398 s on hardware. That is 6% error instead of 32%, but
-the fixture still does not reproduce physical fragmentation or deleted
-directory slots. See [reader performance](../zim/PERFORMANCE.md) for the
-comparison and scope.
-
-The diagnostic kernel/app pair adds `KERNELBOOT` lines to `zimboot.log`:
-kind 1 is mounting, kind 2 is the diagnostic checkpoint, and kind 3 is an
-ELF load (`init.app`, then `zim.app`). These RAM snapshots include elapsed
-time, read counts, read/DMA time, and errors, and are saved after the
-keyboard is drawn. Install both binaries: the getter uses new syscall 120.
-They will distinguish missing card waits from different amounts of work.
+apply it to captured physical metadata: the original allocation state is part
+of the evidence. Even so, a fixture does not reproduce physical fragmentation
+or deleted directory slots.
 
 The summary separates executed instructions from fast-forwarded idle cycles:
 
@@ -408,12 +430,10 @@ MSB first. Focused tests check byte/halfword/word payloads, the wire-duration
 formula, TX terminal count preceding the final two RX completions, stale
 requests, and disabled request sources.
 
-The fitted `dma_extra=30` cost is retained for both engines. It is an
-empirical per-transfer allowance, not a measured arbitration waveform for
-the new pipeline. The physical startup test measured 2.182731 s of file DMA
-wait against the model's 2.119200 s, with no read errors or fallback. Total
-startup was 3.511686 s on hardware versus 3.309662 s in the model. One
-recorded boot supports this comparison; other workloads still need validation.
+The fitted `dma_extra=30` cost applies to both engines. It is an empirical
+per-transfer allowance, not a measured arbitration waveform. Against the
+device on a full-archive startup it puts file DMA wait at 2.119 s versus
+2.183 measured, and total startup at 3.310 s versus 3.512.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by
@@ -431,12 +451,12 @@ compares the same app on the model and physical hardware, with an unchanged
 kernel. `make test-mem-dma` checks the added controller semantics independently.
 
 ITC reset uses zero cause flags as a deterministic choice; the hardware manual
-marks them indeterminate. The reader's first integrated memory-copy test found
-`FDMA=0x17` with all channels disabled: its guard treated HSDMA0's reset cause
-as an outstanding transfer and skipped every copy. The C33 `test-zim-copy`
-suite exercises both set and cleared causes, including initialization of an
-unconfigured channel and preservation of a configured owner's completion.
-See the [hardware diagnosis](../zim/PERFORMANCE.md#dma-selection-diagnostics).
+marks them indeterminate, and the device really does come up with
+`FDMA=0x17` and no channel enabled, which cost the reader every memory DMA
+until it was found. The C33 `test-zim-copy` suite exercises both set and
+cleared causes, including initialization of an unconfigured channel and
+preservation of a configured owner's completion. See the
+[hardware findings](../zim/PERFORMANCE.md#hardware-findings-the-code-depends-on).
 
 SPI interrupt-enable and receive-mask registers are retained, and the receive
 mask is applied to received data. The summary's `spi config` line counts
@@ -452,9 +472,8 @@ that observed net effect on disable when the card is selected, P67 is muxed
 to SPI, and CPOL=0. Holding P67 at idle as GPIO prevents the advance. The
 `spi clock` summary counts unclamped disables. The exact physical edge,
 command/write bit assembly, and electrical pin-mux transients remain
-unmodeled. The corrected kernel reached the keyboard in 4.536 seconds on
-hardware versus 4.224 seconds in the emulator; see the [hardware findings and
-phase measurements](../zim/PERFORMANCE.md#spi-width-transition-fix).
+unmodeled. See the
+[hardware findings](../zim/PERFORMANCE.md#hardware-findings-the-code-depends-on).
 
 Known divergence: the model lets the channel-3 terminal-count cause wake a
 HALTed core. A real WikiReader (stock 2009 flash) never woke, and a kernel
@@ -569,14 +588,6 @@ make test-manual
 `tools/fit_data_ext.py` verify prefix composition. Generated tables are
 committed and are generation-time artifacts, not runtime dependencies.
 
-## Remaining opportunities
-
-1. Add independent runtime cases for implemented stack-special and indirect
-   jump forms not retired by firmware or generated C tests.
-2. Refine cross-bank SDRAM command/data overlap from the manual.
-3. Refine storage latency and article-phase costs against hardware.
-4. Model illegal delay-slot unstable behavior if a real workload needs it.
-
 Do not add unused SoC peripherals solely for completeness.
 
 ## Layout
@@ -599,10 +610,16 @@ Do not add unused SoC peripherals solely for completeness.
 
 - Illegal instructions in delay slots do not have an explicit unstable-state
   model.
-- Cross-bank SDRAM traffic is intentionally conservative.
-- Storage timing is fitted to one card; wake latency remains simplified.
-- Direct ELF boot skips the board's SDRAM initialization, so hardware timing
-  comparisons should use the FLASH boot path.
+- Cross-bank SDRAM command and data overlap is intentionally conservative,
+  and the manual does not document enough to do better.
+- Storage timing is fitted to one card; wake latency remains simplified. The
+  modelled card restart of roughly 11.5 ms is sequencing and settling only,
+  against 174 ms measured on a real card.
+- Booting an application ELF directly skips the board's SDRAM initialization
+  and leaves the memory system free. Boot `grifo.elf`, which programs the
+  controller, or the FLASH chain.
+- Stack-special and indirect jump forms that no firmware or generated C test
+  retires have no independent runtime case.
 - An emulator/firmware match alone is not proof of silicon behavior; the
   manual, binutils, focused model tests, and differential runs provide the
   independent checks above.
