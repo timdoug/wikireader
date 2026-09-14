@@ -162,6 +162,20 @@ extern void ub_copydisp(unsigned long passes, volatile void *buffer);
 extern void ub_copydisp_end(void);
 extern void ub_bytecopy(unsigned long passes, volatile void *buffer);
 extern void ub_bytecopy_end(void);
+extern void ub_bcskew1(unsigned long passes, volatile void *buffer);
+extern void ub_bcskew1_end(void);
+extern void ub_bcskew2(unsigned long passes, volatile void *buffer);
+extern void ub_bcskew2_end(void);
+extern void ub_bcskew3(unsigned long passes, volatile void *buffer);
+extern void ub_bcskew3_end(void);
+extern void ub_ld2(unsigned long passes, volatile void *buffer);
+extern void ub_ld2_end(void);
+extern void ub_ld2skew(unsigned long passes, volatile void *buffer);
+extern void ub_ld2skew_end(void);
+extern void ub_st2(unsigned long passes, volatile void *buffer);
+extern void ub_st2_end(void);
+extern void ub_st2skew(unsigned long passes, volatile void *buffer);
+extern void ub_st2skew_end(void);
 extern void ub_mix16(unsigned long passes, volatile void *buffer);
 extern void ub_mix16_end(void);
 extern void ub_mix64(unsigned long passes, volatile void *buffer);
@@ -316,6 +330,13 @@ int main(int argc, FAR char *argv[])
     { "loadseq8   ", ub_loadseq8, ub_loadseq8_end, UB_WIDE_PASSES, 11, false , true , false },
     { "copydisp   ", ub_copydisp, ub_copydisp_end, UB_COPY32_PASSES, 20, false , true , false },
     { "bytecopy   ", ub_bytecopy, ub_bytecopy_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "bcskew1    ", ub_bcskew1, ub_bcskew1_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "bcskew2    ", ub_bcskew2, ub_bcskew2_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "bcskew3    ", ub_bcskew3, ub_bcskew3_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2        ", ub_ld2, ub_ld2_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2skew    ", ub_ld2skew, ub_ld2skew_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "st2        ", ub_st2, ub_st2_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "st2skew    ", ub_st2skew, ub_st2skew_end, UB_BYTE_PASSES, 19, false , true , false },
     { "mix16      ", ub_mix16, ub_mix16_end, UB_COPY_PASSES, 27, false , true , false },
     { "mix64      ", ub_mix64, ub_mix64_end, UB_COPY_PASSES, 75, false , true , false },
     { "mix96      ", ub_mix96, ub_mix96_end, UB_COPY_PASSES, 107, false , true , false },

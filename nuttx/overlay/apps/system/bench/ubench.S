@@ -707,6 +707,173 @@ ub_bytecopy:
 	.global	ub_bytecopy_end
 ub_bytecopy_end:
 
+/* The same byte copy, with the two streams no longer agreeing modulo four.
+ *
+ * arch_libctest found this and nothing here had ever measured it: stpncpy
+ * runs at 18.2 cycles a byte on the device when source and destination are
+ * congruent -- which is exactly what ub_bytecopy costs, 145.91 for eight
+ * bytes -- and at 66.7 when they are not.  The model has no such cliff; it
+ * charges 20.7 either way, so it is 3.2x fast on the second case.  Neither
+ * side takes a misaligned-access trap, so this is the same instruction
+ * sequence on the same number of accesses, and the device is paying about
+ * 46 cycles a byte that nothing in the model accounts for.
+ *
+ * ub_bytecopy is the skew-0 control.  The source moves rather than the
+ * destination so that the walk stays inside the buffer.
+ *
+ * Skew 2 is the one to watch.  If the penalty is about congruence it will
+ * cost what 1 and 3 do; if it is about the width the controller can merge
+ * accesses into, a halfword-aligned stream should sit between skew 0 and
+ * skew 1.
+ */
+
+	.p2align 5
+	.global	ub_bcskew1
+	.type	ub_bcskew1,@function
+ub_bcskew1:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	add	%r7,1
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcskew1_end
+ub_bcskew1_end:
+
+	.p2align 5
+	.global	ub_bcskew2
+	.type	ub_bcskew2,@function
+ub_bcskew2:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	add	%r7,2
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcskew2_end
+ub_bcskew2_end:
+
+	.p2align 5
+	.global	ub_bcskew3
+	.type	ub_bcskew3,@function
+ub_bcskew3:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	add	%r7,3
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcskew3_end
+ub_bcskew3_end:
+
+/* Which half of the copy pays it: two byte streams read, and two written.
+ *
+ * The copy alternates a load against a store, so a penalty that needs two
+ * incongruent streams could belong to either side or to the pairing.  These
+ * four are the same walk with both accesses the same kind -- congruent and
+ * skewed, read and write -- so whichever pair separates is the one that
+ * carries it.  If neither does, it is the read-against-write pairing.
+ */
+
+	.p2align 5
+	.global	ub_ld2
+	.type	ub_ld2,@function
+ub_ld2:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2_end
+ub_ld2_end:
+
+	.p2align 5
+	.global	ub_ld2skew
+	.type	ub_ld2skew,@function
+ub_ld2skew:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	add	%r7,1
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2skew_end
+ub_ld2skew_end:
+
+	.p2align 5
+	.global	ub_st2
+	.type	ub_st2,@function
+ub_st2:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.b	[%r7]+,%r4
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_st2_end
+ub_st2_end:
+
+	.p2align 5
+	.global	ub_st2skew
+	.type	ub_st2skew,@function
+ub_st2skew:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+	add	%r7,1
+1:
+	.rept	8
+	ld.b	[%r7]+,%r4
+	ld.b	[%r8]+,%r4
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_st2skew_end
+ub_st2skew_end:
+
 /* The same copying, behind three different amounts of code.
  *
  * copydisp is the one loop the model is badly out on, at 1.38, and the
