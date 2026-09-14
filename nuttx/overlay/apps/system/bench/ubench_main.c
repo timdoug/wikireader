@@ -206,12 +206,20 @@ extern void ub_bcacc4(unsigned long passes, volatile void *buffer);
 extern void ub_bcacc4_end(void);
 extern void ub_bcal0(unsigned long passes, volatile void *buffer);
 extern void ub_bcal0_end(void);
+extern void ub_bcal2(unsigned long passes, volatile void *buffer);
+extern void ub_bcal2_end(void);
 extern void ub_bcal4(unsigned long passes, volatile void *buffer);
 extern void ub_bcal4_end(void);
+extern void ub_bcal6(unsigned long passes, volatile void *buffer);
+extern void ub_bcal6_end(void);
 extern void ub_bcal8(unsigned long passes, volatile void *buffer);
 extern void ub_bcal8_end(void);
+extern void ub_bcal10(unsigned long passes, volatile void *buffer);
+extern void ub_bcal10_end(void);
 extern void ub_bcal12(unsigned long passes, volatile void *buffer);
 extern void ub_bcal12_end(void);
+extern void ub_bcal14(unsigned long passes, volatile void *buffer);
+extern void ub_bcal14_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -392,12 +400,19 @@ int main(int argc, FAR char *argv[])
     { "bcacc2     ", ub_bcacc2, ub_bcacc2_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcacc4     ", ub_bcacc4, ub_bcacc4_end, UB_ACC_PASSES, 13, false , true , false },
 
-    /* The same body again at four positions inside the fetch line. */
+    /* The same body at every even offset inside the fetch line. */
 
     { "bcal0      ", ub_bcal0, ub_bcal0_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal2      ", ub_bcal2, ub_bcal2_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcal4      ", ub_bcal4, ub_bcal4_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal6      ", ub_bcal6, ub_bcal6_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcal8      ", ub_bcal8, ub_bcal8_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal10     ", ub_bcal10, ub_bcal10_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcal12     ", ub_bcal12, ub_bcal12_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal14     ", ub_bcal14, ub_bcal14_end, UB_ACC_PASSES, 13, false , true , false },
+
+    /* The same body again at four positions inside the fetch line. */
+
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
