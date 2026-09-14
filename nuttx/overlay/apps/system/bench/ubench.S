@@ -874,6 +874,61 @@ ub_st2skew:
 	.global	ub_st2skew_end
 ub_st2skew_end:
 
+/* Byte against word, on a loop that changes rows on every access.
+ *
+ * ld2 and rowthrash are both two read streams with a row change every
+ * access, and the device charges 15.88 cycles for ld2's and 17.72 for
+ * rowthrash's while the model charges 20.46 and 17.25.  So the device makes
+ * a byte read 1.84 cheaper than a word one -- one SDCLK, which is the extra
+ * halfword a word read waits for -- and the model makes it 3.21 dearer.
+ * Any uniform overlap moves the two together and one of them breaks; a
+ * same-kind overlap fitted to ld2 took rowthrash from 0.97 to 0.71.
+ *
+ * But the two differ in a second way: ld2 walks and rowthrash re-reads two
+ * fixed addresses.  These close the square.  ld2bf is rowthrash with byte
+ * loads, ld2w is ld2 with word loads, so each differs from an existing loop
+ * in the access size alone and whichever pair separates says which of the
+ * two it is.
+ */
+
+	.p2align 5
+	.global	ub_ld2bf
+	.type	ub_ld2bf,@function
+ub_ld2bf:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.ub	%r4,[%r7]
+	ld.ub	%r9,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2bf_end
+ub_ld2bf_end:
+
+	.p2align 5
+	.global	ub_ld2w
+	.type	ub_ld2w,@function
+ub_ld2w:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.w	%r4,[%r7]+
+	ld.w	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2w_end
+ub_ld2w_end:
+
 /* The same copying, behind three different amounts of code.
  *
  * copydisp is the one loop the model is badly out on, at 1.38, and the

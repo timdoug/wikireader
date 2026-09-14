@@ -176,6 +176,10 @@ extern void ub_st2(unsigned long passes, volatile void *buffer);
 extern void ub_st2_end(void);
 extern void ub_st2skew(unsigned long passes, volatile void *buffer);
 extern void ub_st2skew_end(void);
+extern void ub_ld2bf(unsigned long passes, volatile void *buffer);
+extern void ub_ld2bf_end(void);
+extern void ub_ld2w(unsigned long passes, volatile void *buffer);
+extern void ub_ld2w_end(void);
 extern void ub_mix16(unsigned long passes, volatile void *buffer);
 extern void ub_mix16_end(void);
 extern void ub_mix64(unsigned long passes, volatile void *buffer);
@@ -337,6 +341,8 @@ int main(int argc, FAR char *argv[])
     { "ld2skew    ", ub_ld2skew, ub_ld2skew_end, UB_BYTE_PASSES, 19, false , true , false },
     { "st2        ", ub_st2, ub_st2_end, UB_BYTE_PASSES, 19, false , true , false },
     { "st2skew    ", ub_st2skew, ub_st2skew_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2bf      ", ub_ld2bf, ub_ld2bf_end, UB_PASSES, 11, false , false , false },
+    { "ld2w       ", ub_ld2w, ub_ld2w_end, UB_COPY32_PASSES, 19, false , true , false },
     { "mix16      ", ub_mix16, ub_mix16_end, UB_COPY_PASSES, 27, false , true , false },
     { "mix64      ", ub_mix64, ub_mix64_end, UB_COPY_PASSES, 75, false , true , false },
     { "mix96      ", ub_mix96, ub_mix96_end, UB_COPY_PASSES, 107, false , true , false },
