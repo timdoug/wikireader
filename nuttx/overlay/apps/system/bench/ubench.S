@@ -1200,5 +1200,103 @@ ub_bcacc4:
 	.global	ub_bcacc4_end
 ub_bcacc4_end:
 
+/* One loop, one size, one pair of accesses, at four positions inside the
+ * sixteen-byte fetch line.
+ *
+ * bcacc2 and bcpad8 are the same thirteen instructions and twenty-six bytes
+ * with the same load and store, and the device runs one at 24.32 cycles and
+ * the other at 60.08.  The only difference between them is that one body
+ * starts on a line boundary and the other eight bytes into it.  Nothing else
+ * in this file varies that: UBO moves whole functions by multiples of
+ * sixteen, so the body keeps its offset, and every other loop inherits the
+ * entry's alignment and a prologue of the same length.
+ *
+ * The padding goes before the entry, where it is never executed.  Each
+ * prologue is eight bytes, so a gap of N puts the body at (N + 8) mod 16.
+ */
+
+	.p2align 5
+	.space	8
+	.global	ub_bcal0
+	.type	ub_bcal0,@function
+ub_bcal0:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcal0_end
+ub_bcal0_end:
+
+	.p2align 5
+	.space	12
+	.global	ub_bcal4
+	.type	ub_bcal4,@function
+ub_bcal4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcal4_end
+ub_bcal4_end:
+
+	.p2align 5
+	.global	ub_bcal8
+	.type	ub_bcal8,@function
+ub_bcal8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcal8_end
+ub_bcal8_end:
+
+	.p2align 5
+	.space	4
+	.global	ub_bcal12
+	.type	ub_bcal12,@function
+ub_bcal12:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	ld.ub	%r4,[%r7]+
+	.rept	8
+	add	%r9,%r5
+	.endr
+	ld.b	[%r8]+,%r4
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_bcal12_end
+ub_bcal12_end:
+
 	.global	ub_block_end
 ub_block_end:

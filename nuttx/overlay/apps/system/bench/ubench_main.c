@@ -204,6 +204,14 @@ extern void ub_bcacc2(unsigned long passes, volatile void *buffer);
 extern void ub_bcacc2_end(void);
 extern void ub_bcacc4(unsigned long passes, volatile void *buffer);
 extern void ub_bcacc4_end(void);
+extern void ub_bcal0(unsigned long passes, volatile void *buffer);
+extern void ub_bcal0_end(void);
+extern void ub_bcal4(unsigned long passes, volatile void *buffer);
+extern void ub_bcal4_end(void);
+extern void ub_bcal8(unsigned long passes, volatile void *buffer);
+extern void ub_bcal8_end(void);
+extern void ub_bcal12(unsigned long passes, volatile void *buffer);
+extern void ub_bcal12_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -383,6 +391,13 @@ int main(int argc, FAR char *argv[])
     { "bcacc1     ", ub_bcacc1, ub_bcacc1_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcacc2     ", ub_bcacc2, ub_bcacc2_end, UB_ACC_PASSES, 13, false , true , false },
     { "bcacc4     ", ub_bcacc4, ub_bcacc4_end, UB_ACC_PASSES, 13, false , true , false },
+
+    /* The same body again at four positions inside the fetch line. */
+
+    { "bcal0      ", ub_bcal0, ub_bcal0_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal4      ", ub_bcal4, ub_bcal4_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal8      ", ub_bcal8, ub_bcal8_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcal12     ", ub_bcal12, ub_bcal12_end, UB_ACC_PASSES, 13, false , true , false },
   };
 
   size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
