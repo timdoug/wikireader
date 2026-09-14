@@ -41,15 +41,17 @@ UB ld2              50    19     0.278     254.06      13.37
 UB ld2skew          52    19     0.283     259.21      13.64
 UB st2              50    19     0.208     190.26      10.01
 UB st2skew          52    19     0.213     194.55      10.24
-UB mix16            66    27     0.089     164.22       6.08
-UB mix64           162    75     0.159     291.82       3.89
+UB ld2bf            34    11     9.340     140.10      12.74
+UB ld2w             50    19     0.069     254.06      13.37
+UB mix16            66    27     0.094     172.23       6.38
+UB mix64           162    75     0.157     287.25       3.83
 UB mix96           226   107     0.199     365.07       3.41
 # the same 26-byte loop, placed to straddle each boundary
 UBO offset     0 crosses     0      1.010      15.15
-UBO offset    16 crosses    32      1.010      15.15
+UBO offset    16 crosses    32      1.000      15.00
 UBO offset    48 crosses    64      1.000      15.00
-UBO offset   112 crosses   128      1.000      15.00
-UBO offset   240 crosses   256      1.000      15.00
+UBO offset   112 crosses   128      1.010      15.15
+UBO offset   240 crosses   256      1.010      15.15
 UBO offset   496 crosses   512      1.010      15.15
 UBO offset  1008 crosses  1024      3.150      47.25
-UBO offset  2032 crosses  2048      3.160      47.40
+UBO offset  2032 crosses  2048      3.150      47.25
