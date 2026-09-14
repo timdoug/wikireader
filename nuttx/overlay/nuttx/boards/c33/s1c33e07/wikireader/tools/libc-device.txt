@@ -1,3 +1,257 @@
+# WikiReader C library test run
+# NuttX 13.0.1-RC1 61a904a2a0-dirty c33
+# command: atomic
+atomic test complete!
+# command: fmemopen_test
+fmemopen_read_test: read buffer: abcdefghijklmnopqrstuvwxyz
+fmemopen_read_test: successful
+fmemopen_write_test: read buffer: abcdefghijklmnopqrstuvwxyz
+fmemopen_write_test: successful
+fmemopen_seek_test: successful
+fmemopen_append_test: read buffer: abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz
+fmemopen_append_test: successful
+fmemopen tests: SUCCESSFUL: 4; FAILED: 0
+# command: fopencookie_test
+fopencookie_write_test: written buffer: abcdefghijklmnopqrstuvwxyz
+fopencookie_write_test: successful
+fopencookie_read_test: read buffer: abcdefghijklmnopqrstuvwxyz
+fopencookie_read_test: successful
+fopencookie_seek_test: pos 0, char a
+fopencookie_seek_test: pos 2, char c
+fopencookie_seek_test: pos 4, char e
+fopencookie_seek_test: pos 6, char g
+fopencookie_seek_test: pos 8, char i
+fopencookie_seek_test: pos 10, char k
+fopencookie_seek_test: pos 12, char m
+fopencookie_seek_test: pos 14, char o
+fopencookie_seek_test: pos 16, char q
+fopencookie_seek_test: pos 18, char s
+fopencookie_seek_test: pos 20, char u
+fopencookie_seek_test: pos 22, char w
+fopencookie_seek_test: pos 24, char y
+fopencookie_seek_test: successful
+fopencokie tests were successful.
+# command: open_memstream_test
+open_memstream_write_test: successful
+open_memstream_seek_test: successful
+open_memstream tests: SUCCESSFUL: 2; FAILED: 0
+# command: popen_test
+=== popen/dpopen test ===
+
+[TEST 1] popen read...
+  > hello_popen
+[PASS]
+[TEST 2] popen multi-arg...
+  > aaa bbb ccc
+[PASS]
+[TEST 3] pclose completes...
+[PASS]
+[TEST 4] popen invalid mode...
+[PASS]
+[TEST 5] dpopen read...
+  > hello_dpopen
+[PASS]
+[TEST 6] dpopen multi-arg...
+  > xxx yyy zzz
+[PASS]
+[TEST 7] dpclose completes...
+[PASS]
+
+=== Results: 0 failed ===
+# command: scanftest
+
+Testing sscanf()'s return-value,
+conversions, and assignments...
+Test #1 PASSED.
+Test #2 PASSED.
+Test #3 PASSED.
+Test #4 PASSED.
+Test #5 PASSED.
+Test #6 PASSED.
+Test #7 PASSED.
+Test #8 PASSED.
+Test #9 PASSED.
+Test #10 PASSED.
+Test #11 PASSED.
+Test #12 PASSED.
+Test #13 PASSED.
+Test #14 PASSED.
+Test #15 PASSED.
+Test #16 PASSED.
+Test #17 PASSED.
+Test #18 PASSED.
+Test #19 PASSED.
+Test #20 PASSED.
+Test #21 PASSED.
+Test #22 PASSED.
+Test #23 PASSED.
+Test #24 PASSED.
+Test #25 PASSED.
+Test #26 PASSED.
+Test #27 PASSED.
+Test #28 PASSED.
+Test #29 PASSED.
+Test #30 PASSED.
+Test #31 PASSED.
+Test #32 PASSED.
+Test #33 PASSED.
+Test #34 PASSED.
+Test #35 PASSED.
+Test #36 PASSED.
+Test #37 PASSED.
+Test #38 PASSED.
+Test #39 PASSED.
+Test #40 PASSED.
+Test #41 PASSED.
+Test #42 PASSED.
+Test #43 PASSED.
+Test #44 PASSED.
+Test #45 PASSED.
+Test #46 PASSED.
+Test #47 PASSED.
+Test #48 PASSED.
+Test #49 PASSED.
+Test #50 PASSED.
+Test #51 PASSED.
+Test #52 PASSED.
+Test #53 PASSED.
+Test #54 PASSED.
+Test #55 PASSED.
+Test #56 PASSED.
+Test #57 PASSED.
+Test #58 PASSED.
+Test #59 PASSED.
+Test #60 PASSED.
+Test #61 PASSED.
+Test #62 PASSED.
+Test #63 PASSED.
+Test #64 PASSED.
+Test #65 PASSED.
+Test #66 PASSED.
+Test #67 PASSED.
+Test #68 PASSED.
+Test #69 PASSED.
+
+Back to Back Test...
+Test PASSED.
+
+Testing fscanf()'s return-value,
+conversions, and assignments...
+Test #1 PASSED.
+Test #2 PASSED.
+Test #3 PASSED.
+Test #4 PASSED.
+Test #5 PASSED.
+Test #6 PASSED.
+Test #7 PASSED.
+Test #8 PASSED.
+Test #9 PASSED.
+Test #10 PASSED.
+Test #11 PASSED.
+Test #12 PASSED.
+Test #13 PASSED.
+Test #14 PASSED.
+Test #15 PASSED.
+Test #16 PASSED.
+Test #17 PASSED.
+Test #18 PASSED.
+Test #19 PASSED.
+Test #20 PASSED.
+Test #21 PASSED.
+Test #22 PASSED.
+Test #23 PASSED.
+Test #24 PASSED.
+Test #25 PASSED.
+Test #26 PASSED.
+Test #27 PASSED.
+Test #28 PASSED.
+Test #29 PASSED.
+Test #30 PASSED.
+Test #31 PASSED.
+Test #32 PASSED.
+Test #33 PASSED.
+Test #34 PASSED.
+Test #35 PASSED.
+Test #36 PASSED.
+Test #37 PASSED.
+Test #38 PASSED.
+Test #39 PASSED.
+Test #40 PASSED.
+Test #41 PASSED.
+Test #42 PASSED.
+Test #43 PASSED.
+Test #44 PASSED.
+Test #45 PASSED.
+Test #46 PASSED.
+Test #47 PASSED.
+Test #48 PASSED.
+Test #49 PASSED.
+Test #50 PASSED.
+Test #51 PASSED.
+Test #52 PASSED.
+Test #53 PASSED.
+Test #54 PASSED.
+Test #55 PASSED.
+Test #56 PASSED.
+Test #57 PASSED.
+Test #58 PASSED.
+Test #59 PASSED.
+Test #60 PASSED.
+Test #61 PASSED.
+Test #62 PASSED.
+Test #63 PASSED.
+Test #64 PASSED.
+Test #65 PASSED.
+Test #66 PASSED.
+Test #67 PASSED.
+Test #68 PASSED.
+Test #69 PASSED.
+
+Testing scanf()'s type-modifiers...
+Test #1 PASSED.
+Test #2 PASSED.
+Test #3 PASSED.
+Test #4 PASSED.
+Test #5 PASSED.
+Test #6 PASSED.
+Test #7 PASSED.
+Test #8 PASSED.
+Test #9 PASSED.
+Test #10 PASSED.
+Test #11 PASSED.
+Test #12 PASSED.
+Test #13 PASSED.
+Test #14 PASSED.
+Test #15 PASSED.
+Test #16 PASSED.
+Test #17 PASSED.
+Test #18 PASSED.
+Test #19 PASSED.
+Test #20 PASSED.
+Test #21 PASSED.
+Test #22 PASSED.
+Test #23 PASSED.
+Test #24 PASSED.
+Test #25 PASSED.
+Scanf tests done... OK: 164, FAILED: 0
+# command: wcstombs
+wcstombs Test application:
+
+Test Scenario: len is bigger than the size of the converted string. Expected the null-terminator at the end of the converted string.
+Return code: 13
+dst buffer (as uint8_t array): 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64 21 00 
+The character just after the return value is the null terminating character.
+
+Test Scenario: len is exactly the size of the converted string. Do not expected the null-terminator at the end of the converted string.
+Return code: 13
+dst buffer (as uint8_t array): 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64 21 aa 
+The character just after the return value is the expected 0xaa value. No null-terminator.
+
+Test Scenario: len is smaller than the size of the converted  string. Do not expected the null-terminator at the end of the converted string.
+Return code: 12
+dst buffer (as uint8_t array): 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64 aa aa 
+The character just after the return value is the expected 0xaa value. No null-terminator.
+# command: arch_libctest
 Testing memcpy...
 memcpy: PASSED
 memcpy(128) avg cycles: 0
@@ -56,21 +310,21 @@ Testing strchrnul...
 strchrnul: PASSED
 strchrnul(128) avg cycles: 0
 == throughput ==
-  memcpy       64 B  s+0/d+0        1.6 MB/s     0.000 cyc/B
-  memcpy       64 B  s+1/d+1        1.5 MB/s     0.000 cyc/B
+  memcpy       64 B  s+0/d+0        1.7 MB/s     0.000 cyc/B
+  memcpy       64 B  s+1/d+1        1.6 MB/s     0.000 cyc/B
   memcpy       64 B  s+1/d+2        1.3 MB/s     0.000 cyc/B
   memcpy       64 B  s+3/d+0        1.3 MB/s     0.000 cyc/B
   memcpy      512 B  s+0/d+0        5.6 MB/s     0.000 cyc/B
-  memcpy      512 B  s+1/d+1        5.5 MB/s     0.000 cyc/B
+  memcpy      512 B  s+1/d+1        5.6 MB/s     0.000 cyc/B
   memcpy      512 B  s+1/d+2        3.0 MB/s     0.000 cyc/B
-  memcpy      512 B  s+3/d+0        2.9 MB/s     0.000 cyc/B
+  memcpy      512 B  s+3/d+0        3.0 MB/s     0.000 cyc/B
   memcpy     4096 B  s+0/d+0        8.0 MB/s     0.000 cyc/B
   memcpy     4096 B  s+1/d+1        8.0 MB/s     0.000 cyc/B
   memcpy     4096 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
   memcpy     4096 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
-  memcpy    32768 B  s+0/d+0        8.3 MB/s     0.000 cyc/B
-  memcpy    32768 B  s+1/d+1        8.6 MB/s     0.000 cyc/B
-  memcpy    32768 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
+  memcpy    32768 B  s+0/d+0        8.6 MB/s     0.000 cyc/B
+  memcpy    32768 B  s+1/d+1        8.3 MB/s     0.000 cyc/B
+  memcpy    32768 B  s+1/d+2        3.7 MB/s     0.000 cyc/B
   memcpy    32768 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
   memmove      64 B  s+0/d+0        1.7 MB/s     0.000 cyc/B
   memmove      64 B  s+1/d+1        1.6 MB/s     0.000 cyc/B
@@ -79,12 +333,12 @@ strchrnul(128) avg cycles: 0
   memmove     512 B  s+0/d+0        6.7 MB/s     0.000 cyc/B
   memmove     512 B  s+1/d+1        6.6 MB/s     0.000 cyc/B
   memmove     512 B  s+1/d+2        6.5 MB/s     0.000 cyc/B
-  memmove     512 B  s+3/d+0        6.6 MB/s     0.000 cyc/B
+  memmove     512 B  s+3/d+0        6.7 MB/s     0.000 cyc/B
   memmove    4096 B  s+0/d+0       10.8 MB/s     0.000 cyc/B
   memmove    4096 B  s+1/d+1       10.5 MB/s     0.000 cyc/B
   memmove    4096 B  s+1/d+2       10.8 MB/s     0.000 cyc/B
   memmove    4096 B  s+3/d+0       10.5 MB/s     0.000 cyc/B
-  memmove   32768 B  s+0/d+0       11.5 MB/s     0.000 cyc/B
+  memmove   32768 B  s+0/d+0       12.0 MB/s     0.000 cyc/B
   memmove   32768 B  s+1/d+1       11.5 MB/s     0.000 cyc/B
   memmove   32768 B  s+1/d+2       11.5 MB/s     0.000 cyc/B
   memmove   32768 B  s+3/d+0       11.5 MB/s     0.000 cyc/B
@@ -92,14 +346,14 @@ strchrnul(128) avg cycles: 0
   memset       64 B  s+1/d+1        1.8 MB/s     0.000 cyc/B
   memset       64 B  s+1/d+2        1.8 MB/s     0.000 cyc/B
   memset       64 B  s+3/d+0        1.8 MB/s     0.000 cyc/B
-  memset      512 B  s+0/d+0        9.7 MB/s     0.000 cyc/B
+  memset      512 B  s+0/d+0        9.6 MB/s     0.000 cyc/B
   memset      512 B  s+1/d+1        9.6 MB/s     0.000 cyc/B
-  memset      512 B  s+1/d+2        9.5 MB/s     0.000 cyc/B
-  memset      512 B  s+3/d+0        9.7 MB/s     0.000 cyc/B
-  memset     4096 B  s+0/d+0       20.3 MB/s     0.000 cyc/B
+  memset      512 B  s+1/d+2        9.6 MB/s     0.000 cyc/B
+  memset      512 B  s+3/d+0        9.8 MB/s     0.000 cyc/B
+  memset     4096 B  s+0/d+0       20.5 MB/s     0.000 cyc/B
   memset     4096 B  s+1/d+1       20.3 MB/s     0.000 cyc/B
-  memset     4096 B  s+1/d+2       20.0 MB/s     0.000 cyc/B
-  memset     4096 B  s+3/d+0       20.5 MB/s     0.000 cyc/B
+  memset     4096 B  s+1/d+2       20.3 MB/s     0.000 cyc/B
+  memset     4096 B  s+3/d+0       20.3 MB/s     0.000 cyc/B
   memset    32768 B  s+0/d+0       24.0 MB/s     0.000 cyc/B
   memset    32768 B  s+1/d+1       24.0 MB/s     0.000 cyc/B
   memset    32768 B  s+1/d+2       24.0 MB/s     0.000 cyc/B
@@ -109,7 +363,7 @@ strchrnul(128) avg cycles: 0
   memcmp       64 B  s+1/d+2        0.9 MB/s     0.000 cyc/B
   memcmp       64 B  s+3/d+0        0.9 MB/s     0.000 cyc/B
   memcmp      512 B  s+0/d+0        4.8 MB/s     0.000 cyc/B
-  memcmp      512 B  s+1/d+1        4.7 MB/s     0.000 cyc/B
+  memcmp      512 B  s+1/d+1        4.6 MB/s     0.000 cyc/B
   memcmp      512 B  s+1/d+2        1.6 MB/s     0.000 cyc/B
   memcmp      512 B  s+3/d+0        1.6 MB/s     0.000 cyc/B
   memcmp     4096 B  s+0/d+0        6.5 MB/s     0.000 cyc/B
@@ -117,29 +371,29 @@ strchrnul(128) avg cycles: 0
   memcmp     4096 B  s+1/d+2        1.8 MB/s     0.000 cyc/B
   memcmp     4096 B  s+3/d+0        1.8 MB/s     0.000 cyc/B
   memcmp    32768 B  s+0/d+0        6.9 MB/s     0.000 cyc/B
-  memcmp    32768 B  s+1/d+1        6.9 MB/s     0.000 cyc/B
-  memcmp    32768 B  s+1/d+2        1.8 MB/s     0.000 cyc/B
-  memcmp    32768 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
+  memcmp    32768 B  s+1/d+1        6.7 MB/s     0.000 cyc/B
+  memcmp    32768 B  s+1/d+2        1.7 MB/s     0.000 cyc/B
+  memcmp    32768 B  s+3/d+0        1.8 MB/s     0.000 cyc/B
   memchr       64 B  s+0/d+0        1.2 MB/s     0.000 cyc/B
   memchr       64 B  s+1/d+1        1.1 MB/s     0.000 cyc/B
   memchr       64 B  s+3/d+0        1.1 MB/s     0.000 cyc/B
   memchr      512 B  s+0/d+0        2.9 MB/s     0.000 cyc/B
   memchr      512 B  s+1/d+1        2.8 MB/s     0.000 cyc/B
-  memchr      512 B  s+3/d+0        2.8 MB/s     0.000 cyc/B
-  memchr     4096 B  s+0/d+0        3.6 MB/s     0.000 cyc/B
+  memchr      512 B  s+3/d+0        2.9 MB/s     0.000 cyc/B
+  memchr     4096 B  s+0/d+0        3.8 MB/s     0.000 cyc/B
   memchr     4096 B  s+1/d+1        3.6 MB/s     0.000 cyc/B
   memchr     4096 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
-  memchr    32768 B  s+0/d+0        3.7 MB/s     0.000 cyc/B
+  memchr    32768 B  s+0/d+0        3.8 MB/s     0.000 cyc/B
   memchr    32768 B  s+1/d+1        3.8 MB/s     0.000 cyc/B
-  memchr    32768 B  s+3/d+0        3.7 MB/s     0.000 cyc/B
+  memchr    32768 B  s+3/d+0        3.8 MB/s     0.000 cyc/B
   strlen       64 B  s+0/d+0        1.7 MB/s     0.000 cyc/B
-  strlen       64 B  s+1/d+1        1.5 MB/s     0.000 cyc/B
-  strlen       64 B  s+3/d+0        1.6 MB/s     0.000 cyc/B
-  strlen      512 B  s+0/d+0        7.1 MB/s     0.000 cyc/B
-  strlen      512 B  s+1/d+1        6.8 MB/s     0.000 cyc/B
+  strlen       64 B  s+1/d+1        1.6 MB/s     0.000 cyc/B
+  strlen       64 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
+  strlen      512 B  s+0/d+0        7.2 MB/s     0.000 cyc/B
+  strlen      512 B  s+1/d+1        6.9 MB/s     0.000 cyc/B
   strlen      512 B  s+3/d+0        7.0 MB/s     0.000 cyc/B
   strlen     4096 B  s+0/d+0       11.8 MB/s     0.000 cyc/B
-  strlen     4096 B  s+1/d+1       11.5 MB/s     0.000 cyc/B
+  strlen     4096 B  s+1/d+1       11.8 MB/s     0.000 cyc/B
   strlen     4096 B  s+3/d+0       11.8 MB/s     0.000 cyc/B
   strlen    32768 B  s+0/d+0       13.0 MB/s     0.000 cyc/B
   strlen    32768 B  s+1/d+1       13.0 MB/s     0.000 cyc/B
@@ -154,7 +408,7 @@ strchrnul(128) avg cycles: 0
   strcmp      512 B  s+3/d+0        1.5 MB/s     0.000 cyc/B
   strcmp     4096 B  s+0/d+0        2.9 MB/s     0.000 cyc/B
   strcmp     4096 B  s+1/d+1        2.9 MB/s     0.000 cyc/B
-  strcmp     4096 B  s+1/d+2        1.7 MB/s     0.000 cyc/B
+  strcmp     4096 B  s+1/d+2        1.8 MB/s     0.000 cyc/B
   strcmp     4096 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
   strcmp    32768 B  s+0/d+0        2.9 MB/s     0.000 cyc/B
   strcmp    32768 B  s+1/d+1        2.9 MB/s     0.000 cyc/B
@@ -165,57 +419,57 @@ strchrnul(128) avg cycles: 0
   strncmp      64 B  s+1/d+2        0.9 MB/s     0.000 cyc/B
   strncmp      64 B  s+3/d+0        0.9 MB/s     0.000 cyc/B
   strncmp     512 B  s+0/d+0        2.2 MB/s     0.000 cyc/B
-  strncmp     512 B  s+1/d+1        2.1 MB/s     0.000 cyc/B
+  strncmp     512 B  s+1/d+1        2.2 MB/s     0.000 cyc/B
   strncmp     512 B  s+1/d+2        1.5 MB/s     0.000 cyc/B
   strncmp     512 B  s+3/d+0        1.5 MB/s     0.000 cyc/B
   strncmp    4096 B  s+0/d+0        2.5 MB/s     0.000 cyc/B
   strncmp    4096 B  s+1/d+1        2.5 MB/s     0.000 cyc/B
   strncmp    4096 B  s+1/d+2        1.6 MB/s     0.000 cyc/B
-  strncmp    4096 B  s+3/d+0        1.6 MB/s     0.000 cyc/B
+  strncmp    4096 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
   strncmp   32768 B  s+0/d+0        2.6 MB/s     0.000 cyc/B
   strncmp   32768 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
   strncmp   32768 B  s+1/d+2        1.7 MB/s     0.000 cyc/B
   strncmp   32768 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
   strcpy       64 B  s+0/d+0        1.2 MB/s     0.000 cyc/B
   strcpy       64 B  s+1/d+1        1.1 MB/s     0.000 cyc/B
-  strcpy       64 B  s+1/d+2        1.2 MB/s     0.000 cyc/B
+  strcpy       64 B  s+1/d+2        1.3 MB/s     0.000 cyc/B
   strcpy       64 B  s+3/d+0        1.2 MB/s     0.000 cyc/B
   strcpy      512 B  s+0/d+0        2.7 MB/s     0.000 cyc/B
-  strcpy      512 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
+  strcpy      512 B  s+1/d+1        2.7 MB/s     0.000 cyc/B
   strcpy      512 B  s+1/d+2        2.9 MB/s     0.000 cyc/B
   strcpy      512 B  s+3/d+0        2.9 MB/s     0.000 cyc/B
   strcpy     4096 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
   strcpy     4096 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
-  strcpy     4096 B  s+1/d+2        3.5 MB/s     0.000 cyc/B
+  strcpy     4096 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
   strcpy     4096 B  s+3/d+0        3.5 MB/s     0.000 cyc/B
   strcpy    32768 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
   strcpy    32768 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
-  strcpy    32768 B  s+1/d+2        3.7 MB/s     0.000 cyc/B
-  strcpy    32768 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
+  strcpy    32768 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
+  strcpy    32768 B  s+3/d+0        3.7 MB/s     0.000 cyc/B
   strlcpy      64 B  s+0/d+0        1.1 MB/s     0.000 cyc/B
   strlcpy      64 B  s+1/d+1        1.1 MB/s     0.000 cyc/B
   strlcpy      64 B  s+1/d+2        1.1 MB/s     0.000 cyc/B
   strlcpy      64 B  s+3/d+0        1.1 MB/s     0.000 cyc/B
   strlcpy     512 B  s+0/d+0        2.3 MB/s     0.000 cyc/B
-  strlcpy     512 B  s+1/d+1        2.2 MB/s     0.000 cyc/B
+  strlcpy     512 B  s+1/d+1        2.3 MB/s     0.000 cyc/B
   strlcpy     512 B  s+1/d+2        2.3 MB/s     0.000 cyc/B
   strlcpy     512 B  s+3/d+0        2.3 MB/s     0.000 cyc/B
-  strlcpy    4096 B  s+0/d+0        2.6 MB/s     0.000 cyc/B
+  strlcpy    4096 B  s+0/d+0        2.5 MB/s     0.000 cyc/B
   strlcpy    4096 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
-  strlcpy    4096 B  s+1/d+2        2.6 MB/s     0.000 cyc/B
-  strlcpy    4096 B  s+3/d+0        2.5 MB/s     0.000 cyc/B
+  strlcpy    4096 B  s+1/d+2        2.5 MB/s     0.000 cyc/B
+  strlcpy    4096 B  s+3/d+0        2.6 MB/s     0.000 cyc/B
   strlcpy   32768 B  s+0/d+0        2.6 MB/s     0.000 cyc/B
-  strlcpy   32768 B  s+1/d+1        2.7 MB/s     0.000 cyc/B
-  strlcpy   32768 B  s+1/d+2        2.6 MB/s     0.000 cyc/B
+  strlcpy   32768 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
+  strlcpy   32768 B  s+1/d+2        2.7 MB/s     0.000 cyc/B
   strlcpy   32768 B  s+3/d+0        2.6 MB/s     0.000 cyc/B
   strchr       64 B  s+0/d+0        1.0 MB/s     0.000 cyc/B
   strchr       64 B  s+1/d+1        0.9 MB/s     0.000 cyc/B
-  strchr       64 B  s+3/d+0        0.9 MB/s     0.000 cyc/B
+  strchr       64 B  s+3/d+0        1.0 MB/s     0.000 cyc/B
   strchr      512 B  s+0/d+0        2.1 MB/s     0.000 cyc/B
   strchr      512 B  s+1/d+1        2.0 MB/s     0.000 cyc/B
   strchr      512 B  s+3/d+0        2.0 MB/s     0.000 cyc/B
   strchr     4096 B  s+0/d+0        2.4 MB/s     0.000 cyc/B
-  strchr     4096 B  s+1/d+1        2.3 MB/s     0.000 cyc/B
+  strchr     4096 B  s+1/d+1        2.4 MB/s     0.000 cyc/B
   strchr     4096 B  s+3/d+0        2.4 MB/s     0.000 cyc/B
   strchr    32768 B  s+0/d+0        2.4 MB/s     0.000 cyc/B
   strchr    32768 B  s+1/d+1        2.4 MB/s     0.000 cyc/B
@@ -226,8 +480,8 @@ strchrnul(128) avg cycles: 0
   strrchr     512 B  s+0/d+0        2.0 MB/s     0.000 cyc/B
   strrchr     512 B  s+1/d+1        2.0 MB/s     0.000 cyc/B
   strrchr     512 B  s+3/d+0        2.0 MB/s     0.000 cyc/B
-  strrchr    4096 B  s+0/d+0        2.3 MB/s     0.000 cyc/B
-  strrchr    4096 B  s+1/d+1        2.4 MB/s     0.000 cyc/B
+  strrchr    4096 B  s+0/d+0        2.4 MB/s     0.000 cyc/B
+  strrchr    4096 B  s+1/d+1        2.3 MB/s     0.000 cyc/B
   strrchr    4096 B  s+3/d+0        2.4 MB/s     0.000 cyc/B
   strrchr   32768 B  s+0/d+0        2.4 MB/s     0.000 cyc/B
   strrchr   32768 B  s+1/d+1        2.4 MB/s     0.000 cyc/B
@@ -235,44 +489,44 @@ strchrnul(128) avg cycles: 0
   strchrnul     64 B  s+0/d+0        0.8 MB/s     0.000 cyc/B
   strchrnul     64 B  s+1/d+1        0.8 MB/s     0.000 cyc/B
   strchrnul     64 B  s+3/d+0        0.8 MB/s     0.000 cyc/B
-  strchrnul    512 B  s+0/d+0        1.8 MB/s     0.000 cyc/B
+  strchrnul    512 B  s+0/d+0        1.7 MB/s     0.000 cyc/B
   strchrnul    512 B  s+1/d+1        1.7 MB/s     0.000 cyc/B
   strchrnul    512 B  s+3/d+0        1.7 MB/s     0.000 cyc/B
   strchrnul   4096 B  s+0/d+0        2.0 MB/s     0.000 cyc/B
   strchrnul   4096 B  s+1/d+1        2.0 MB/s     0.000 cyc/B
   strchrnul   4096 B  s+3/d+0        2.0 MB/s     0.000 cyc/B
-  strchrnul  32768 B  s+0/d+0        2.1 MB/s     0.000 cyc/B
+  strchrnul  32768 B  s+0/d+0        2.0 MB/s     0.000 cyc/B
   strchrnul  32768 B  s+1/d+1        2.0 MB/s     0.000 cyc/B
-  strchrnul  32768 B  s+3/d+0        2.1 MB/s     0.000 cyc/B
+  strchrnul  32768 B  s+3/d+0        2.0 MB/s     0.000 cyc/B
   strnlen      64 B  s+0/d+0        1.4 MB/s     0.000 cyc/B
   strnlen      64 B  s+1/d+1        1.4 MB/s     0.000 cyc/B
   strnlen      64 B  s+3/d+0        1.4 MB/s     0.000 cyc/B
-  strnlen     512 B  s+0/d+0        3.5 MB/s     0.000 cyc/B
-  strnlen     512 B  s+1/d+1        3.6 MB/s     0.000 cyc/B
-  strnlen     512 B  s+3/d+0        3.5 MB/s     0.000 cyc/B
+  strnlen     512 B  s+0/d+0        3.6 MB/s     0.000 cyc/B
+  strnlen     512 B  s+1/d+1        3.5 MB/s     0.000 cyc/B
+  strnlen     512 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
   strnlen    4096 B  s+0/d+0        4.5 MB/s     0.000 cyc/B
   strnlen    4096 B  s+1/d+1        4.5 MB/s     0.000 cyc/B
   strnlen    4096 B  s+3/d+0        4.5 MB/s     0.000 cyc/B
-  strnlen   32768 B  s+0/d+0        4.7 MB/s     0.000 cyc/B
+  strnlen   32768 B  s+0/d+0        4.5 MB/s     0.000 cyc/B
   strnlen   32768 B  s+1/d+1        4.5 MB/s     0.000 cyc/B
   strnlen   32768 B  s+3/d+0        4.5 MB/s     0.000 cyc/B
   stpcpy       64 B  s+0/d+0        1.2 MB/s     0.000 cyc/B
   stpcpy       64 B  s+1/d+1        1.1 MB/s     0.000 cyc/B
-  stpcpy       64 B  s+1/d+2        1.2 MB/s     0.000 cyc/B
-  stpcpy       64 B  s+3/d+0        1.2 MB/s     0.000 cyc/B
-  stpcpy      512 B  s+0/d+0        2.7 MB/s     0.000 cyc/B
-  stpcpy      512 B  s+1/d+1        2.7 MB/s     0.000 cyc/B
-  stpcpy      512 B  s+1/d+2        2.9 MB/s     0.000 cyc/B
+  stpcpy       64 B  s+1/d+2        1.3 MB/s     0.000 cyc/B
+  stpcpy       64 B  s+3/d+0        1.3 MB/s     0.000 cyc/B
+  stpcpy      512 B  s+0/d+0        2.6 MB/s     0.000 cyc/B
+  stpcpy      512 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
+  stpcpy      512 B  s+1/d+2        3.0 MB/s     0.000 cyc/B
   stpcpy      512 B  s+3/d+0        2.9 MB/s     0.000 cyc/B
-  stpcpy     4096 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
-  stpcpy     4096 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
-  stpcpy     4096 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
-  stpcpy     4096 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
-  stpcpy    32768 B  s+0/d+0        3.2 MB/s     0.000 cyc/B
-  stpcpy    32768 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
+  stpcpy     4096 B  s+0/d+0        3.0 MB/s     0.000 cyc/B
+  stpcpy     4096 B  s+1/d+1        3.0 MB/s     0.000 cyc/B
+  stpcpy     4096 B  s+1/d+2        3.5 MB/s     0.000 cyc/B
+  stpcpy     4096 B  s+3/d+0        3.5 MB/s     0.000 cyc/B
+  stpcpy    32768 B  s+0/d+0        3.1 MB/s     0.000 cyc/B
+  stpcpy    32768 B  s+1/d+1        3.1 MB/s     0.000 cyc/B
   stpcpy    32768 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
   stpcpy    32768 B  s+3/d+0        3.7 MB/s     0.000 cyc/B
-  strncpy      64 B  s+0/d+0        1.1 MB/s     0.000 cyc/B
+  strncpy      64 B  s+0/d+0        1.2 MB/s     0.000 cyc/B
   strncpy      64 B  s+1/d+1        1.0 MB/s     0.000 cyc/B
   strncpy      64 B  s+1/d+2        1.1 MB/s     0.000 cyc/B
   strncpy      64 B  s+3/d+0        1.1 MB/s     0.000 cyc/B
@@ -280,11 +534,11 @@ strchrnul(128) avg cycles: 0
   strncpy     512 B  s+1/d+1        2.4 MB/s     0.000 cyc/B
   strncpy     512 B  s+1/d+2        2.3 MB/s     0.000 cyc/B
   strncpy     512 B  s+3/d+0        2.3 MB/s     0.000 cyc/B
-  strncpy    4096 B  s+0/d+0        2.9 MB/s     0.000 cyc/B
+  strncpy    4096 B  s+0/d+0        3.0 MB/s     0.000 cyc/B
   strncpy    4096 B  s+1/d+1        2.9 MB/s     0.000 cyc/B
-  strncpy    4096 B  s+1/d+2        2.6 MB/s     0.000 cyc/B
-  strncpy    4096 B  s+3/d+0        2.5 MB/s     0.000 cyc/B
-  strncpy   32768 B  s+0/d+0        2.9 MB/s     0.000 cyc/B
+  strncpy    4096 B  s+1/d+2        2.5 MB/s     0.000 cyc/B
+  strncpy    4096 B  s+3/d+0        2.6 MB/s     0.000 cyc/B
+  strncpy   32768 B  s+0/d+0        3.0 MB/s     0.000 cyc/B
   strncpy   32768 B  s+1/d+1        3.0 MB/s     0.000 cyc/B
   strncpy   32768 B  s+1/d+2        2.6 MB/s     0.000 cyc/B
   strncpy   32768 B  s+3/d+0        2.6 MB/s     0.000 cyc/B
@@ -292,16 +546,16 @@ strchrnul(128) avg cycles: 0
   strcat       64 B  s+1/d+1        1.0 MB/s     0.000 cyc/B
   strcat       64 B  s+1/d+2        1.1 MB/s     0.000 cyc/B
   strcat       64 B  s+3/d+0        1.1 MB/s     0.000 cyc/B
-  strcat      512 B  s+0/d+0        2.6 MB/s     0.000 cyc/B
+  strcat      512 B  s+0/d+0        2.7 MB/s     0.000 cyc/B
   strcat      512 B  s+1/d+1        2.6 MB/s     0.000 cyc/B
   strcat      512 B  s+1/d+2        2.8 MB/s     0.000 cyc/B
   strcat      512 B  s+3/d+0        2.8 MB/s     0.000 cyc/B
   strcat     4096 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
   strcat     4096 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
-  strcat     4096 B  s+1/d+2        3.6 MB/s     0.000 cyc/B
+  strcat     4096 B  s+1/d+2        3.5 MB/s     0.000 cyc/B
   strcat     4096 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
   strcat    32768 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
-  strcat    32768 B  s+1/d+1        3.2 MB/s     0.000 cyc/B
+  strcat    32768 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
   strcat    32768 B  s+1/d+2        3.7 MB/s     0.000 cyc/B
   strcat    32768 B  s+3/d+0        3.6 MB/s     0.000 cyc/B
   memccpy      64 B  s+0/d+0        1.0 MB/s     0.000 cyc/B
@@ -313,15 +567,15 @@ strchrnul(128) avg cycles: 0
   memccpy     512 B  s+1/d+2        2.3 MB/s     0.000 cyc/B
   memccpy     512 B  s+3/d+0        2.3 MB/s     0.000 cyc/B
   memccpy    4096 B  s+0/d+0        3.1 MB/s     0.000 cyc/B
-  memccpy    4096 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
-  memccpy    4096 B  s+1/d+2        2.6 MB/s     0.000 cyc/B
+  memccpy    4096 B  s+1/d+1        3.1 MB/s     0.000 cyc/B
+  memccpy    4096 B  s+1/d+2        2.8 MB/s     0.000 cyc/B
   memccpy    4096 B  s+3/d+0        2.8 MB/s     0.000 cyc/B
-  memccpy   32768 B  s+0/d+0        3.2 MB/s     0.000 cyc/B
+  memccpy   32768 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
   memccpy   32768 B  s+1/d+1        3.2 MB/s     0.000 cyc/B
   memccpy   32768 B  s+1/d+2        2.8 MB/s     0.000 cyc/B
   memccpy   32768 B  s+3/d+0        2.8 MB/s     0.000 cyc/B
   stpncpy      64 B  s+0/d+0        1.2 MB/s     0.000 cyc/B
-  stpncpy      64 B  s+1/d+1        1.0 MB/s     0.000 cyc/B
+  stpncpy      64 B  s+1/d+1        1.1 MB/s     0.000 cyc/B
   stpncpy      64 B  s+1/d+2        0.6 MB/s     0.000 cyc/B
   stpncpy      64 B  s+3/d+0        0.6 MB/s     0.000 cyc/B
   stpncpy     512 B  s+0/d+0        2.8 MB/s     0.000 cyc/B
@@ -332,8 +586,9 @@ strchrnul(128) avg cycles: 0
   stpncpy    4096 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
   stpncpy    4096 B  s+1/d+2        0.9 MB/s     0.000 cyc/B
   stpncpy    4096 B  s+3/d+0        0.9 MB/s     0.000 cyc/B
-  stpncpy   32768 B  s+0/d+0        3.3 MB/s     0.000 cyc/B
+  stpncpy   32768 B  s+0/d+0        3.4 MB/s     0.000 cyc/B
   stpncpy   32768 B  s+1/d+1        3.3 MB/s     0.000 cyc/B
   stpncpy   32768 B  s+1/d+2        0.9 MB/s     0.000 cyc/B
   stpncpy   32768 B  s+3/d+0        0.9 MB/s     0.000 cyc/B
 arch_libc_test Passed
+# 8 of 8 suites ran, in 147 seconds
