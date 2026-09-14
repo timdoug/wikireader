@@ -296,18 +296,17 @@ only `doom.app` with the rebuilt file to keep existing settings and saves.
 
 ## Startup
 
-Cold boot to the first title frame measures **4.39 seconds**, down from
-**6.27 seconds** in the preceding committed build and **22.90 seconds** before
-the original startup optimizations. Booting directly into E1M1 with
-`-warp 1 1 -skill 2` takes **6.87 seconds**, down from **7.56 seconds**, including
-level precaching and its first frame. These are emulator timings using the same
-shareware WAD and FAT32 fixture with 512-byte clusters. The instrumented hardware build
-measured **4.38 seconds from app entry to its first E1M1 frame**, versus
-5.78 seconds for the same scope in its emulator reference. This excludes
-FLASH/kernel loading and the launcher wait; see [PERFORMANCE.md](PERFORMANCE.md).
+Cold boot to the first title frame measures **4.39 seconds**, and booting
+directly into E1M1 with `-warp 1 1 -skill 2` takes **6.87 seconds** including
+level precaching and its first frame. These are emulator timings using the
+shareware WAD and a FAT32 fixture with 512-byte clusters. The instrumented
+hardware build measured **4.38 seconds from app entry to its first E1M1
+frame**, against 5.78 seconds for the same scope in its emulator reference.
+This excludes FLASH/kernel loading and the launcher wait; see
+[PERFORMANCE.md](PERFORMANCE.md).
 
-Large read-only files now build a cluster map on their first seek, so
-backward WAD reads do not repeatedly traverse the FAT allocation chain.
+Large read-only files build a cluster map on their first seek, so backward
+WAD reads do not repeatedly traverse the FAT allocation chain.
 The map is optional and retained until close; fragmented files can request
 a larger map, with bounded memory use and a fallback to ordinary seeking.
 Sprite initialization reads just dimensions and offsets, leaving image data

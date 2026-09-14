@@ -1,6 +1,7 @@
 # Sparrow status
 
-Where the implementation stands and what comes next. See [DESIGN.md](DESIGN.md)
+What the implementation does and what it has been measured at. See
+[DESIGN.md](DESIGN.md)
 for the rationale, [FORMAT.md](FORMAT.md) for compatibility, [README.md](README.md)
 for usage and [BENCHMARKS.md](BENCHMARKS.md) for the measurement record.
 
@@ -25,13 +26,13 @@ Full-corpus coverage and physical-device latency are unmeasured.
 
 ## What the benchmark establishes
 
-| Measurement | Previous | Current |
-| --- | --- | --- |
-| Training questions whose wording is recognized | 98 / 371 | 108 / 371 |
-| Test questions whose wording is recognized | 16 / 136 | 16 / 136 |
-| Exact training answers, fixed 5.11-million-record prefix | 0 / 371 | 1 / 371 |
-| Exact test answers, same prefix | 0 / 136 | 0 / 136 |
-| Exact training answers, separate official geography demo | 5 / 371 | 5 / 371 |
+| Measurement | Result |
+| --- | --- |
+| Training questions whose wording is recognized | 108 / 371 |
+| Test questions whose wording is recognized | 16 / 136 |
+| Exact training answers, fixed 5.11-million-record prefix | 1 / 371 |
+| Exact test answers, same prefix | 0 / 136 |
+| Exact training answers, separate official geography demo | 5 / 371 |
 
 The one exact training answer is Benjamin Franklin's child count, **3**. There
 is no demonstrated test-score gain. Wording coverage is not answer accuracy: the
@@ -48,37 +49,10 @@ report, not to paper over by loosening answers.
 verified against its published SHA-1 (103,048,420,178 compressed bytes); a full
 index has not been published from it.
 
-## Next steps, in order
-
-1. **Run the full-data baseline.** Check manifests and hashes, index/audit size,
-   ambiguous aliases, unsafe claims, oversized property groups and omitted
-   metadata. Summarize frozen before/after results in `BENCHMARKS.md`, keeping
-   wording recognition, answered questions, exact matches, unscorable gold and
-   snapshot mismatches separate.
-2. **Choose the next operation from training failures on complete data.** Group
-   failures by the existing `wording`, `entity`, `claims` and `bridge`
-   diagnostics, working from training questions and original dump statements.
-   Avoid further rule tuning around entities merely missing from a small prefix.
-3. **Prototype a bounded reverse index if training results justify it.** Measure
-   index size and candidate fan-out first, retain semantic qualifiers, and
-   abstain on overflow. General filtering and ordering need explicit bounded
-   operators; adding paraphrases alone will not cover them.
-4. **Improve semantics using independent cases.** Unsupported scope qualifiers,
-   date precision/calendars and quantities need explicit representations and
-   rules. Keep strict scoring for comparison and label any new evaluator metric
-   separately. Add an adapter for RuBQ or LC-QuAD and reserve an unused split
-   for independent validation.
-5. **Validate a full-size candidate on the device path.** Host engine against
-   the final index first, then a card/emulator setup that supports its actual
-   size, then physical-device tests. Measure cold/warm latency, memory, SD
-   activity and rendering. Exercise article links, History after reboot,
-   eviction and corruption.
-
 The host pipeline has no resumable staging and no failure recovery after
-publication; both are worth building before the next large job. Import is not
-checkpoint-resumable, so a failed run restarts the dump scan. If only evaluation
-fails after a successful publication, verify the index, manifest and audit and
-rerun evaluation rather than reimporting.
+publication. Import is not checkpoint-resumable, so a failed run restarts the
+dump scan. If only evaluation fails after a successful publication, verify the
+index, manifest and audit and rerun evaluation rather than reimporting.
 
 ## Running a full build
 

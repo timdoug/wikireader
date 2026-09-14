@@ -11,10 +11,9 @@ from a dated multistream dump. The full dated JSON dump is downloaded compressed
 and streamed during import. No uncompressed full dump file is needed. There is
 no API or SPARQL fetching workflow.
 
-For continuing development, start with [STATUS.md](STATUS.md): what works,
-current results and ordered next steps. [DESIGN.md](DESIGN.md) explains why the
-engine is built this way, and [BENCHMARKS.md](BENCHMARKS.md) has the latest
-measured coverage.
+Start with [STATUS.md](STATUS.md) for what works and what it measures.
+[DESIGN.md](DESIGN.md) explains why the engine is built this way, and
+[BENCHMARKS.md](BENCHMARKS.md) has the measured coverage.
 
 ## Use
 
@@ -198,10 +197,9 @@ include cache misses, filesystem mapping, CRC, CPU work and rendering.
 
 ## Reuse and independent evaluation
 
-[BENCHMARKS.md](BENCHMARKS.md) records the latest comparisons and limitations.
-The current grammar recognizes 108/371 training and 16/136 test questions;
-full-data answer scores are pending. The older small-sample results below
-remain as development history.
+[BENCHMARKS.md](BENCHMARKS.md) records the comparisons and limitations. The
+grammar recognizes 108/371 training and 16/136 test questions. Answer scores
+have only ever been measured against a record prefix, not the full corpus.
 
 The existing FatFs/64-bit file adapter, ZIM parser, article rendering, keyboard,
 links, fonts, emulator, and FAT test-image builder are reused directly.
