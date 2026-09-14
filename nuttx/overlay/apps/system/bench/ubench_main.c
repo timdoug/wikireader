@@ -445,28 +445,27 @@ int main(int argc, FAR char *argv[])
 
     /* Four sizes at four offsets. */
 
-    { "bcs10o0", ub_bcs10o0, ub_bcs10o0_end, UB_ACC_PASSES, 4, false , true , false },
-    { "bcs10o4", ub_bcs10o4, ub_bcs10o4_end, UB_ACC_PASSES, 4, false , true , false },
-    { "bcs10o8", ub_bcs10o8, ub_bcs10o8_end, UB_ACC_PASSES, 4, false , true , false },
-    { "bcs10o12", ub_bcs10o12, ub_bcs10o12_end, UB_ACC_PASSES, 4, false , true , false },
-    { "bcs18o0", ub_bcs18o0, ub_bcs18o0_end, UB_ACC_PASSES, 8, false , true , false },
-    { "bcs18o4", ub_bcs18o4, ub_bcs18o4_end, UB_ACC_PASSES, 8, false , true , false },
-    { "bcs18o8", ub_bcs18o8, ub_bcs18o8_end, UB_ACC_PASSES, 8, false , true , false },
-    { "bcs18o12", ub_bcs18o12, ub_bcs18o12_end, UB_ACC_PASSES, 8, false , true , false },
-    { "bcs26o0", ub_bcs26o0, ub_bcs26o0_end, UB_ACC_PASSES, 12, false , true , false },
-    { "bcs26o4", ub_bcs26o4, ub_bcs26o4_end, UB_ACC_PASSES, 12, false , true , false },
-    { "bcs26o8", ub_bcs26o8, ub_bcs26o8_end, UB_ACC_PASSES, 12, false , true , false },
-    { "bcs26o12", ub_bcs26o12, ub_bcs26o12_end, UB_ACC_PASSES, 12, false , true , false },
-    { "bcs34o0", ub_bcs34o0, ub_bcs34o0_end, UB_ACC_PASSES, 16, false , true , false },
-    { "bcs34o4", ub_bcs34o4, ub_bcs34o4_end, UB_ACC_PASSES, 16, false , true , false },
-    { "bcs34o8", ub_bcs34o8, ub_bcs34o8_end, UB_ACC_PASSES, 16, false , true , false },
-    { "bcs34o12", ub_bcs34o12, ub_bcs34o12_end, UB_ACC_PASSES, 16, false , true , false },
+    { "bcs10o0", ub_bcs10o0, ub_bcs10o0_end, UB_ACC_PASSES, 5, false , true , false },
+    { "bcs10o4", ub_bcs10o4, ub_bcs10o4_end, UB_ACC_PASSES, 5, false , true , false },
+    { "bcs10o8", ub_bcs10o8, ub_bcs10o8_end, UB_ACC_PASSES, 5, false , true , false },
+    { "bcs10o12", ub_bcs10o12, ub_bcs10o12_end, UB_ACC_PASSES, 5, false , true , false },
+    { "bcs18o0", ub_bcs18o0, ub_bcs18o0_end, UB_ACC_PASSES, 9, false , true , false },
+    { "bcs18o4", ub_bcs18o4, ub_bcs18o4_end, UB_ACC_PASSES, 9, false , true , false },
+    { "bcs18o8", ub_bcs18o8, ub_bcs18o8_end, UB_ACC_PASSES, 9, false , true , false },
+    { "bcs18o12", ub_bcs18o12, ub_bcs18o12_end, UB_ACC_PASSES, 9, false , true , false },
+    { "bcs26o0", ub_bcs26o0, ub_bcs26o0_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcs26o4", ub_bcs26o4, ub_bcs26o4_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcs26o8", ub_bcs26o8, ub_bcs26o8_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcs26o12", ub_bcs26o12, ub_bcs26o12_end, UB_ACC_PASSES, 13, false , true , false },
+    { "bcs34o0", ub_bcs34o0, ub_bcs34o0_end, UB_ACC_PASSES, 17, false , true , false },
+    { "bcs34o4", ub_bcs34o4, ub_bcs34o4_end, UB_ACC_PASSES, 17, false , true , false },
+    { "bcs34o8", ub_bcs34o8, ub_bcs34o8_end, UB_ACC_PASSES, 17, false , true , false },
+    { "bcs34o12", ub_bcs34o12, ub_bcs34o12_end, UB_ACC_PASSES, 17, false , true , false },
 
     /* The same body again at four positions inside the fetch line. */
 
   };
 
-  size_t span = (uintptr_t)ub_block_end - (uintptr_t)ub_block_start;
 
   /* Standard output is where this goes when something else is collecting
    * it -- bench redirects it into the file with everything else. Run on
@@ -499,13 +498,44 @@ int main(int argc, FAR char *argv[])
   int fd = standalone ? bench_card_open(path) : STDOUT_FILENO;
   int i;
 
-  if (span > UB_IVRAM_SIZE)
+  /* The internal-RAM copies keep each loop at its offset within the block,
+   * so the copy has to reach the end of the last one that is going to run
+   * -- and no further.  Copying the whole block was fine while every loop
+   * in the file fitted in the 4 KB window, and stopped being fine when the
+   * probe loops at the end pushed it past: 'ubench bcs' runs nothing out of
+   * internal RAM and was refused for the size of loops it was not going to
+   * use.
+   */
+
+  size_t need = 0;
+
+  for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
     {
-      printf("ubench: %zu bytes will not fit in internal RAM\n", span);
+      size_t end;
+
+      if (!cases[i].internal ||
+          (only != NULL && strstr(cases[i].name, only) == NULL))
+        {
+          continue;
+        }
+
+      end = (uintptr_t)cases[i].end - (uintptr_t)ub_block_start;
+      if (end > need)
+        {
+          need = end;
+        }
+    }
+
+  if (need > UB_IVRAM_SIZE)
+    {
+      printf("ubench: %zu bytes will not fit in internal RAM\n", need);
       return EXIT_FAILURE;
     }
 
-  memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, span);
+  if (need > 0)
+    {
+      memcpy((void *)UB_IVRAM_BASE, (const void *)ub_block_start, need);
+    }
 
   g_far = malloc(UB_FAR_BYTES);   /* optional: only the far copy needs it */
   g_stream = malloc(UB_STREAM_BYTES);
@@ -555,7 +585,10 @@ int main(int argc, FAR char *argv[])
     }
 
   dprintf(fd, "# the same 26-byte loop, placed to straddle each boundary\n");
-  ub_boundary(fd, (uintptr_t)ub_alu_end - (uintptr_t)ub_alu);
+  if (only == NULL)
+    {
+      ub_boundary(fd, (uintptr_t)ub_alu_end - (uintptr_t)ub_alu);
+    }
 
   if (standalone)
     {
