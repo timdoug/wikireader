@@ -54,12 +54,13 @@ On top of those:
 hardware register from the shell, which beats rebuilding to find out what one
 holds.
 
-`sz`/`rz` transfer on `/dev/console` and land files in `/tmp`; they were the
-only way anything left this device before the card was readable.
+`sz`/`rz` transfer on `/dev/console` and land files in `/tmp`, which is the
+way off the device for anything that should not go through the card.
 
-`nuttx.app` is 2,914,408 bytes, against 1,561,040 before any of this: 76 KB
+`nuttx.app` is 2,928,780 bytes, against 1,561,040 before any of this: 76 KB
 for the tools above, 38 KB for the card, 567 KB for the four interpreters,
-32 KB for the benchmarks, the rest for Toybox.
+46 KB for the benchmarks and the probe loops the model is fitted against,
+the rest for Toybox.
 
 ### Lua
 
@@ -419,7 +420,7 @@ the first thing here to exercise that much of, and two in the FAT driver,
 found by the card work below; they are fixed in `patches/nuttx.patch`. The
 others are Toybox's, in patches `0025` and `0028`.
 
-Three of the six are the same mistake: assuming plain `char` is unsigned. It
+Three of the eight are the same mistake: assuming plain `char` is unsigned. It
 is signed here — `DEFAULT_SIGNED_CHAR 1` in the compiler's C33 backend,
 because the chip's byte load sign-extends — and C leaves that choice to the
 implementation, so a byte of `0xff` read into a `char` compares equal to `-1`
@@ -520,31 +521,30 @@ terminal comes up anyway.
 
 ## Benchmarks
 
-`make bench` runs NuttX's benchmark applications on the emulated device and
-prints a table. It is not a test -- nothing passes or fails -- and the numbers
-on their own are only half of it: the emulator counts cycles and models SDRAM
-row activations and the SPI card, and the guest's clock is driven by those
-counts, so what comes out is emulated seconds. What they are worth is a
-question only the hardware answers.
-
-Both sides run the same thing, and what they run is a device command:
+`bench` is a device command that runs the benchmarks in turn and writes the
+results to the card. It is not a test -- nothing passes or fails. The same
+command runs under the emulator, so both columns come from the same file
+written the same way, and the difference between them is what the emulator's
+timing model is fitted against.
 
 ```
 nsh> bench
 bench: writing /sd/bench.txt
-[1/5] coremark 28.6 s
-[2/5] dhrystone 3.6 s
-[3/5] whetstone 17.6 s
-[4/5] ramspeed 4.5 s
-[5/5] sdbench 6.2 s
-bench: 5 of 5 ran, 60 s total
+[1/7] coremark 18.3 s
+[2/7] dhrystone 14.3 s
+[3/7] whetstone 67.1 s
+[4/7] ramspeed 17.2 s
+[5/7] ubench 206.0 s
+[6/7] selftest 1.1 s
+[7/7] sdbench 4.7 s
+bench: 7 of 7 ran, 328 s total
 bench: /sd/bench.txt written, card unmounted -- safe to remove
 ```
 
 `apps/system/bench` holds the iteration counts, starts each benchmark with the
 console output going to the file rather than to a 39-column panel, and
 unmounts the card when it has finished so that the line saying it is safe to
-remove is true. A minute, start to finish. Then:
+remove is true. A couple of minutes on the device. Then:
 
 ```sh
 make -C nuttx bench                       # types "bench" at the emulator
@@ -559,47 +559,35 @@ differently-argued benchmark run is worse than no comparison at all.
 a card you do not mind writing to -- and note that the emulator needs a
 writable card image, which is to say without `wremu -R`.
 
-From this tree, at 48 MHz:
+At 60 MHz, the device and the emulator modelling it:
 
 ```
-benchmark  metric                             emulator
-coremark   iterations/sec                       108.93
-           CoreMark/MHz                           2.27
-dhrystone  Dhrystones/sec                    56,179.00
-           VAX MIPS                              31.97
-whetstone  KIPS (double precision)               57.00
-ramspeed   memcpy internal @ 1024 KB    52,512.82 KB/s
-           memcpy system @ 1024 KB      23,540.23 KB/s
-           memset internal @ 1024 KB    85,333.33 KB/s
-           memset system @ 1024 KB      29,257.14 KB/s
-sdbench    sequential write                718.90 KB/s
-           sequential read + verify        320.00 KB/s
+benchmark  metric                             emulator            device   ratio
+coremark   iterations/sec                        27.91             28.69   0.97x
+           CoreMark/MHz                           0.47              0.48   0.97x
+dhrystone  Dhrystones/sec                    14,064.00         13,708.00   1.03x
+           VAX MIPS                               8.00              7.80   1.03x
+whetstone  KIPS (double precision)               14.90             15.00   0.99x
+ramspeed   memcpy internal @ 1024 KB     5,375.33 KB/s     6,872.48 KB/s   0.78x
+           memcpy system @ 1024 KB       7,641.79 KB/s     8,827.59 KB/s   0.87x
+           memset internal @ 1024 KB    18,618.18 KB/s    17,066.67 KB/s   1.09x
+           memset system @ 1024 KB      28,054.79 KB/s    25,283.95 KB/s   1.11x
+sdbench    sequential write                120.00 KB/s       120.00 KB/s   1.00x
+           sequential read + verify        269.60 KB/s       341.30 KB/s   0.79x
 ```
 
-Two things in that table are worth a second look even before the hardware
-column arrives. Whetstone is double precision on a chip with no
-floating-point unit, so 57 KIPS is a measurement of the software float
-library rather than of the processor. And ramspeed's own word-at-a-time
-memcpy is more than twice as fast as the C library's, with memset nearly
-three times -- the generic byte loops in `libs/libc/string` are what this
-board links, and something that copies a word at a time would be worth having.
+Whetstone is double precision on a chip with no floating-point unit, so
+15 KIPS measures the software float library rather than the processor.
+`sdbench`'s read ratio looks worse than it is: device card reads move about
+20% run to run, where writes repeat to a tenth of a percent. The memcpy and
+memset rows are the emulator's known weak spot, and
+[the emulator's calibration notes](../emulator/README.md#calibration) say
+what is behind them and why it does not reach real work.
 
-Getting that output into one file needed two things fixed. `exec_builtin()`
-has always carried all three streams in its redirection structure and acted on
-two of them, so a builtin's standard error went to the console whatever it was
-told -- which is the one thing `2> file` is asking not to happen, and it is
-where Dhrystone prints the variable checks that say the run was valid. And the
-first version of this handed each benchmark the *path* rather than a
-descriptor, which opens the file again per stream: two handles on one FAT file
-do not know about each other, and whichever closes last writes its own idea of
-the length into the directory entry. The file came back holding nothing but
-the headers. One descriptor, shared by dup2, is the only arrangement that
-works.
-
-Whetstone needed a fix to report anything at all: it times in milliseconds and
-then divides by `(ms * 1000)` where the benchmark it was converted from divided
-by seconds, which puts the answer out by a factor of a million. Every run of
-it printed `0.0 KIPS`.
+`ubench` is not in that table because it is 45 loops rather than a score; it
+is what the memory model is actually fitted against, and it lands at 0.139
+RMS log error with 29 loops within 10%. `selftest` runs a line of each of the
+five languages on the image and checks the answers.
 
 Three of the benchmarks in the tree are not in the set. `cachespeed` depends
 on `ARCH_ICACHE` and `ARCH_DCACHE`, and the C33 has neither -- which is the
@@ -607,6 +595,15 @@ answer it would have given anyway. `cyclictest` wants a `/dev/timer`
 character driver this board does not implement. `osperf` wants the
 high-priority work queue, and turning that on to measure it would add a
 thread to the shipping image.
+
+Two things about the plumbing are worth knowing before changing it.
+`exec_builtin()` carries all three streams in its redirection structure and
+acted on two, so a builtin's standard error went to the console whatever it
+was told -- which is where Dhrystone prints the variable checks that say the
+run was valid. And each benchmark must be handed a *descriptor*, not a path:
+opening the file per stream puts two handles on one FAT file, and whichever
+closes last writes its own idea of the length into the directory entry. One
+descriptor shared by `dup2` is the only arrangement that works.
 
 ## The card
 
@@ -881,9 +878,32 @@ application:
 * **No buttons, no power management.** The front buttons are not bound, and
   the device does not suspend. The idle loop halts, which is most of the
   benefit, but a NuttX session will flatten the batteries faster than the
-  reader does.
-* **Untested on hardware.** Every result here is from `wremu`. The emulator
-  models the SDRAM timing, the watchdog and the power rail, but not the
-  panel's electrical behaviour or power draw. The handoff in particular deserves a device before
-  it is trusted: it depends on Grifo's resident state being exactly as the
-  emulator leaves it.
+  reader does. Nobody has measured the current either way.
+* **No power measurement.** The emulator models the SDRAM timing, the
+  watchdog and the power rail, but not the panel's electrical behaviour or
+  power draw, and no meter has been put on the device.
+
+## On hardware
+
+It has run on a physical WikiReader since 2026-09-12 — display, touch, card
+and benchmarks — started from the launcher off the boot volume, with the
+handoff back through Grifo working both ways. The device's own benchmark
+results are kept beside the port as `*-device.txt` and are what the
+emulator's timing model is fitted against; see "Benchmarks" above.
+
+Three bugs surfaced there that no emulator run could have found, and they
+are worth knowing about before touching the same code:
+
+* **A whole-byte write to P5's function register took SDA10 with it.**
+  Configuring the card's chip select wrote all of `P5_03_CFP`; P53 carries an
+  SDRAM address line, and the machine died mid-instruction with the panel
+  frozen on its last contents, because the framebuffer is internal RAM and
+  nothing was left running to clear it. Use `modifyreg8` on the fields you
+  own.
+* **MCLK is 60 MHz, not 48.** The crystal is 48 and Grifo's PLL makes 60.
+  `CONFIG_S1C33E07_MCLK` said 48, which left the scheduler tick 25% fast,
+  `udelay` 25% short, the SPI clock high and both serial ports unusable.
+  The 48 MHz figure is right only for a loader that never starts the PLL.
+* **Touch runs at 9,600 baud, not 38,400.** `CTP_BPS` is 38400 in
+  `samo-lib/include/samo.h` and 9600 in `samo-lib/include/boards/samo_a1.h`,
+  which is this board and wins.

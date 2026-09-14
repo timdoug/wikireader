@@ -27,12 +27,14 @@ works and is unchanged.
   Engine source is vendored and pinned.
 - `nuttx` - `nuttx.app`, Apache NuttX on the C33: NSH with 139 Toybox
   commands (`awk grep sed find sort xargs tar` ...), `vi`, a hex editor, ZMODEM
-  transfer and a native TinyCC that compiles C33 code on the device,
-  including itself. It runs from the launcher like the other applications,
-  but takes the machine over from the kernel rather than calling it, and
-  keeps it until `poweroff` or `reboot`. The port is carried as an overlay
-  and patches against pinned upstream revisions, which the first build
-  fetches. It cannot read the card yet.
+  transfer, four interpreters (Lua, MicroPython, BASIC and the WikiReader's
+  own Forth) and a native TinyCC that compiles C33 code on the device, itself
+  included. It drives the card with its own SPI and MMC/SD drivers and mounts
+  the boot partition at `/sd`; the exFAT archive partition needs a driver it
+  does not have. It runs from the launcher like the other applications, but
+  takes the machine over from the kernel rather than calling it, and keeps it
+  until `poweroff` or `reboot`. The port is carried as an overlay and patches
+  against pinned upstream revisions, which the first build fetches.
 - `sparrow` - an offline factual answer engine over Wikidata claims. It works,
   but has only been measured against a sample; see `sparrow/STATUS.md`.
 
@@ -55,7 +57,7 @@ everything else looks for by default. Then, from the repository root:
 make wiki zim doom
 ```
 
-That builds all four applications; mini-libc, drivers, fatfs and grifo come in
+That builds all three applications; mini-libc, drivers, fatfs and grifo come in
 as dependencies.
 
 `make nuttx` builds `nuttx.app` as well. It is separate because it does not

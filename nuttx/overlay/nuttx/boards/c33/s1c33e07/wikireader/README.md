@@ -2,8 +2,11 @@
 
 NuttX support for the Epson S1C33E07 (C33 PE), using the modern
 `c33-epson-elf-` GCC toolchain in `~/wikireader`. NSH runs on the 240x208 LCD
-with a touch keyboard in wremu. Direct ELF boot and the complete emulated
-FLASH/menu/card-loader handoff both pass. Physical hardware has not been tested.
+with a touch keyboard, on a physical WikiReader since 2026-09-12 and in wremu.
+Direct ELF boot and the complete emulated FLASH/menu/card-loader handoff both
+pass. Except where a section says otherwise, the timings in this file are
+emulator measurements; `../../../../../../nuttx/README.md` records what the
+device found that the emulator could not.
 
 The `lcd` configuration provides a scrolling NXTerm terminal with a 6x9 font
 (40 columns, about 13 rows) and four keyboard rows. `nsh` remains a serial-only
@@ -54,69 +57,57 @@ native compiler generations and compare the generated compiler objects. Run
 ### Bootstrap speed
 
 `tcc -selfhost` and then rebuilding the compiler with the compiler it just
-produced ran 1,091 million instructions; it now runs 600 million. The complete
-three-generation `test_selfhost.py` run fell from 2,706 to 1,547 million, and
-the generated compiler object shrank from 903,657 to 613,897 bytes.
+produced runs 600 million instructions; the complete three-generation
+`test_selfhost.py` run is 1,547 million and the generated compiler object is
+613,897 bytes.
 
 **Quote the FLASH/card boot times.** A direct ELF boot never programs the
 SDRAM controller, so the emulator keeps a flat zero-wait window and every
-guest time measured that way is optimistic by about a factor of four. Timing
-the same two stages through the complete FLASH/card boot, where the SDRAM
-model is engaged:
+guest time measured that way is optimistic by about a factor of four. Through
+the complete FLASH/card boot, where the SDRAM model is engaged, stage 1 (the
+GCC-built compiler) takes 23.7 s and stage 2 (the compiler TinyCC built for
+itself) 51.5 s.
 
-| Stage | Direct ELF (no SDRAM model) | FLASH/card boot |
-| --- | ---: | ---: |
-| 1, the GCC-built compiler | 5.5 -> 3.9 s | 26.3 -> 23.7 s |
-| 2, the compiler TinyCC built for itself | 16.5 -> 8.8 s | 76.5 -> 51.5 s |
-| both | 22.0 -> 12.7 s | 102.8 -> 75.2 s |
+Those stages spend far longer stalled on SDRAM than executing, and there is
+no data cache on this part: the controller's data queue is a single word and
+hits 8% of the time, against 83% for the two-line instruction queue, so
+essentially every data read is a full SDRAM access, and half of all row
+activations are an instruction fetch trading places with a data access. Fewer
+spills, not faster instructions, is what the remaining time waits on. Times
+come from wremu probe timestamps around `tcc_main`.
 
-So the instruction count fell 1.82x but the realistic time only 1.37x: the
-run spends far longer stalled on SDRAM than executing. There is no data cache
-on this part. The controller's data queue is a single word and hits 8% of the
-time, against 83% for the two-line instruction queue, so essentially every
-data read is a full SDRAM access, and half of all row activations are an
-instruction fetch trading places with a data access. Fewer spills, not faster
-instructions, is what the remaining time is waiting for. Times come from wremu
-probe timestamps around `tcc_main`; hardware timing remains untested.
-
-Stage 1 is GCC-compiled code, so its row measures the libc change alone;
-stage 2 gets that plus the code generator, which is where most of the gain
-is. The generator changes are described under
-*Backend notes* in `tinycc/README.c33.md`: locals now reach their stack slot
-through a biased frame register instead of computing an address, branches
-carry one extension prefix instead of two, and a call whose arguments are all
-word-sized scalars in memory loads them straight into the ABI registers.
-
-The libc side is the string routines. The generic `memcpy`, `memmove`,
-`memset`, `strlen` and `memcmp` move a byte per pass, which costs the C33 five
-instructions; before this change they were about a third of stage 1's
-instructions, mostly TinyCC copying its own
-value-stack entries. `libs/libc/machine/c33` replaces them with word loops
-using the post-incrementing addressing mode, selected by
-`CONFIG_C33_STRING_FUNCTION` in all four board configurations. They are
-assembly, so a host build cannot run them; instead they are linked bare metal
-and checked against byte-loop oracles at every size to 70 and every source
-and destination alignment, including the overlapping `memmove` directions:
+Two things pay for most of that. The code generator, described under *Backend
+notes* in `tinycc/README.c33.md`, reaches locals through a biased frame
+register instead of computing an address, carries one extension prefix on a
+branch instead of two, and loads word-sized scalar arguments in memory
+straight into the ABI registers. And the string routines: the generic
+`memcpy`, `memmove`, `memset`, `strlen` and `memcmp` move a byte per pass,
+five C33 instructions each, and were about a third of stage 1's instructions,
+mostly TinyCC copying its own value-stack entries. `libs/libc/machine/c33`
+replaces them with word loops using the post-incrementing addressing mode,
+selected by `CONFIG_C33_STRING_FUNCTION` in all four board configurations.
+They are assembly, so a host build cannot run them; instead they are linked
+bare metal and checked against byte-loop oracles at every size to 70 and
+every source and destination alignment, including the overlapping `memmove`
+directions:
 
 ```sh
 python3 boards/c33/s1c33e07/wikireader/tools/test_string.py
 ```
 
-The copies are not worth handing to HSDMA. This port issues no DMA at all,
-and the bootstrap's 415,941 `memcpy` calls move 18.3 MB, a mean of **44 bytes**
-each, mostly TinyCC copying its own value-stack entries. The hardware
-measurements in `../wikireader/emulator/tools/mem_dma_bench/README.md`, taken
-on a 32 MiB reader, put the first size at which DMA beats a libc copy at
-1 KiB, about 23 times that mean, and DMA loses to a CPU batch until 4 KiB for
-different-bank copies and at every tested same-bank size. `memcpy` is 4.8% of
-the bootstrap now, so even an instantaneous one is a ceiling of under 5%.
-Unlimited-bus DMA also stalls the CPU rather than overlapping with it, a
-channel is one shared resource that a libc `memcpy` called from interrupt
-context would have to lock, and the firmware records a part that does not wake
-from HALT on DMA completion. Where those numbers do favour DMA is large
-different-bank copies and fills, 49.8% less time than libc at 512 KiB and
-19.4% for a fill, which is the SD transport the card driver will need and
-which the reader's own firmware already drives that way.
+The copies are not worth handing to HSDMA. The only DMA this port issues is
+the card driver's block transfers, and the bootstrap's 415,941 `memcpy` calls
+move 18.3 MB, a mean of **44 bytes** each. The device measurements in
+`../wikireader/emulator/tools/mem_dma_bench/README.md` put the first size at
+which DMA beats a libc copy at 1 KiB, about 23 times that mean, and DMA loses
+to a CPU batch until 4 KiB. `memcpy` is 4.8% of the bootstrap, so even an
+instantaneous one is a ceiling of under 5%. Unlimited-bus DMA also stalls the
+CPU rather than overlapping with it, a channel is one shared resource that a
+libc `memcpy` called from interrupt context would have to lock, and the
+firmware records a part that does not wake from HALT on DMA completion. Where
+those numbers do favour DMA is large copies and fills -- 49.8% less time than
+libc at 512 KiB and 19.4% for a fill -- which is the SD transport the card
+driver already uses.
 
 ## Build on this Mac
 
@@ -152,52 +143,30 @@ changes repaint only keys whose appearance changes; NX exposure events force
 a repaint of the affected keys, including their borders.
 
 The PTY sends ordinary output in chunks, preserving CR/LF processing and
-foreground signals. Previously it split every output byte into a separate
-pipe write, waking the display bridge and hiding/redrawing the cursor each
-time. Those changes reduced a `ps` workload to 71 terminal writes instead of
-895 and 154 ms of emulated output time instead of 513 ms. Packed glyph copies
-update destination bytes with masks instead of individual pixels.
+foreground signals, rather than splitting every output byte into its own pipe
+write. Packed glyph copies update destination bytes with masks instead of
+individual pixels.
 
-`CONFIG_NXTERM_BATCH` now composes each terminal write in a private 1bpp bitmap
+`CONFIG_NXTERM_BATCH` composes each terminal write in a private 1bpp bitmap
 and sends the changed rectangle to NX once, including cursor updates and any
 scrolling. This uses 3,600 bytes for the 240x120 text area plus bookkeeping.
 The bitmap retains existing pixels under spaces and short glyphs; source
 glyphs are copied immediately, and the final NX bitmap operation completes
 before the terminal lock is released and the buffer can be reused. Resizing
 preserves overlapping pixels and leaves the old buffer intact on allocation
-failure. The option currently supports monochrome framebuffer configurations.
-
-With batching and a byte-copy path for aligned bitmap updates, `ps` takes
-about 103 ms of emulated output time (4.10 million output instructions, down
-from 4.26 million before the C33 string routines above).
-The complete benchmark, including startup and typing, makes 126 NX bitmap
-submissions instead of 763. Alternating three runs of the old and new images
-on the same emulator gave median wall times of 0.333 and 0.225 seconds, a
-1.48x speedup, with identical console output and final pixels. This reduces
-guest work as well as emulator wall time; hardware timing remains untested.
+failure. The option supports monochrome framebuffer configurations only.
 
 Scrolling copies byte-aligned framebuffer rows with overlap-safe byte moves,
 preserving stride padding, and compacts saved characters in one pass per
-scroll. With batched rendering, three consecutive `help` listings (62 scrolls)
-take about 0.224 seconds of emulated output time, down from 0.329 seconds
-before rendering was batched, 1.35 seconds with just the scroll optimizations,
-and 3.46 seconds originally. The final console output and screen pixels are
-identical. Total executed instructions for that test fell from 152.46 million
-originally to 11.29 million, and to 10.66 million with the C33 string routines
-above. The interpreter also adds host overhead: guest timings are not
-wall-clock or physical-hardware measurements. The port retains the loader's
-48 MHz clock; it does not switch the PLL to 60 MHz.
+scroll.
 
-The emulator now rejects the usual no-pending-interrupt case by checking six
-flag/enable groups before scanning its 24 supported interrupt vectors. This
-avoids two full scans per guest instruction. In a headless `ps` comparison
-on this Mac, wall time fell from roughly 0.9 to 0.4 seconds with identical
-guest execution counts, console output and framebuffer pixels. Combining
-timer advancement and deadline scheduling in one pass, and skipping counter
-advancement when less than one prescaled tick has elapsed, further reduced
-the installed executable's median from 0.388 to 0.317 seconds (18% less time).
-Timers are still polled on every instruction. These changes improve host
-emulation speed; they do not change the guest clock or modeled instruction costs.
+Together those take a `ps` to 71 terminal writes and about 103 ms of emulated
+output time, and three consecutive `help` listings (62 scrolls) to 10.66
+million instructions and about 0.224 seconds. Both regressions check the
+console output and the screen pixels as well as the budget. These are guest
+times under the emulator, not wall-clock or device measurements, and they were
+taken when the port thought MCLK was 48 MHz rather than 60, so each is about a
+quarter long.
 
 The tested LCD image occupies 220,364 bytes of text/rodata, 1,048 bytes of
 initialized data and 15,488 bytes of BSS/reserved stack, before runtime heap
@@ -272,7 +241,9 @@ make -C "$HOME/wikireader/emulator" -j8 wremu test-uart
 * GCC C33 PE ABI, startup, SDRAM linker layout and aligned task stacks.
 * Exception vectors, full integer/ALR/AHR context save/restore, interrupt
   masking, task switches, exits, cancellation and signal delivery.
-* Periodic timer 2 scheduler tick, retaining the loader's 48 MHz MCLK.
+* Periodic timer 2 scheduler tick, divided from the 60 MHz MCLK Grifo's PLL
+  leaves running (`CONFIG_S1C33E07_MCLK`). A loader that never starts the PLL
+  leaves the 48 MHz crystal instead, and the tick then runs a quarter fast.
 * UART0 console at 57,600 baud, 8N1, with interrupt-driven RX/TX and NuttX's
   serial upper half; `/dev/console` and `/dev/ttyS0`.
 * LCD framebuffer at `0x00080000`, 1 bit per pixel, MSB first, 32-byte stride;
@@ -327,10 +298,10 @@ A synthetic emulator entry shim with initialized 16 MiB SDRAM geometry also
 passed the shell test; `free` reported a 16,511,200-byte heap with the OS-test
 image. This checked the heap cap before the full FLASH boot was available.
 
-The aggregate emulator `make check` could not complete: its decoder test
-needs absent `ref-*.txt` fixtures, and GUI boot targets need absent
-`images/wrcard.img`/`images/grifo.elf` fixtures. Available standalone targets
-were run separately.
+The aggregate emulator `make check` completes. Three targets skip on a bare
+checkout and say so: the binutils decode comparison wants `ref-*.txt` objdump
+captures, and the two GUI boot targets want
+`images/wrcard.img`/`images/grifo.elf`.
 
 The terminal regression uses 215 actual emulated panel taps and a drag. It
 checks letters, Shift, quoted punctuation, Backspace, cursor movement, Tab
@@ -385,16 +356,14 @@ python3 boards/c33/s1c33e07/wikireader/tools/test_vi.py
 Replacing a glyph in place costs a search of the saved character list. The
 search is skipped for any write at or past the position after the last
 character added, which is every write a scrolling terminal makes, so ordinary
-console output does not pay for it. Searching unconditionally cost 59% on the
-scrolling regression below; with the check, and with the cursor no longer
-erasing and restoring a glyph on every write, that same regression runs
-10,675,555 instructions against 10,888,208 before any of this.
+console output does not pay for it -- searching unconditionally costs 59% on
+the scrolling regression below.
 
 The redraw regression compares actual NX drawing calls for touch and UART
-input producing the same character. A normal tap adds just two interior fills
-and two glyph draws, for press/release, instead of the previous 76 fills and
-54 glyph draws. A Ctrl tap paints only its own highlight and retains it on
-release. The test also checks the resulting pixels:
+input producing the same character. A normal tap adds two interior fills and
+two glyph draws, for press and release. A Ctrl tap paints only its own
+highlight and retains it on release. The test also checks the resulting
+pixels:
 
 ```sh
 python3 boards/c33/s1c33e07/wikireader/tools/test_keyboard_redraw.py
@@ -433,16 +402,12 @@ python3 boards/c33/s1c33e07/wikireader/tools/test_emulator_speed.py \
 
 This alternates three runs of each executable, reports median command-to-prompt
 wall time, and requires identical guest work, console output and screen pixels.
-The emulator's interrupt regression also checks the fast rejection path against
+The emulator's interrupt regression checks its fast rejection path against
 20,000 register states, including individual flag/enable combinations, reserved
-bits, zero priorities and simultaneous causes. Those emulator-only changes
-retained the previous guest execution counts and final pixels in the 215-tap
-LCD and FLASH-boot tests.
-`make test-timer` in the emulator also compares 16,000 timer states reached by
-frequent polls versus larger time jumps, including fractional ticks, clock
-gating, pauses, comparison buffering and the timer 0/5 cascade. The timer
-optimization was additionally checked against the previous implementation
-across 200,000 operations with simulated and scripted wall-clock sources.
+bits, zero priorities and simultaneous causes, and `make test-timer` compares
+16,000 timer states reached by frequent polls against larger time jumps,
+including fractional ticks, clock gating, pauses, comparison buffering and the
+timer 0/5 cascade.
 
 Five host tests exercise the actual C implementation with ASan/UBSan:
 
@@ -481,17 +446,17 @@ checks control-character delivery to the opposite endpoint's foreground PID.
 
 ### Complete emulated FLASH/card boot
 
-The checkout's existing `file-loader` is **7,529 bytes**, while its MBR copies
-only **7,424 bytes**. Its filename table falls outside the copied region, and
-FLASH offset `0x4000` already belongs to the next application header. This
-explained the earlier empty-filename failure before NuttX was entered.
+The MBR copies **7,424 bytes** of a boot program and no more, which a
+file-loader can outgrow: past that its filename table falls outside the copied
+region, FLASH offset `0x4000` already belongs to the next application header,
+and the symptom is an empty filename before NuttX is ever entered.
+`samo-lib/mbr/Makefile` now fails the build when a program exceeds it.
 
 The fixture tool builds a **separate kernel-only loader**, preserving the GPL
 notice in the generated source. It uses the existing firmware libraries and
 linker script, rejects a payload larger than the slot/copy limit, and patches
-only `0x2300..0x3fff` in a copy of `flash.rom`. The current payload is 7,423
-bytes, leaving only one byte of headroom; this is an emulator boot fixture,
-not a production firmware packaging fix. The source checkout is not changed.
+only `0x2300..0x3fff` in a copy of `flash.rom`. The source checkout is not
+changed.
 
 ```sh
 python3 boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
@@ -563,18 +528,21 @@ the power-off run to end with the rail dropped and the device to stay down,
 and the reboot run to reset and come back up to the launcher. `--compile`
 additionally compiles and runs a C file on the device.
 
-The application is the stripped kernel: 1,562,064 bytes against 6,025,960, most
-of the difference being DWARF that Grifo's loader would skip anyway. It links
-`.text` at `0x10040000` and ends, with BSS and the idle stack, at `0x101d38e0`,
-so it occupies 1.6 MiB of the 16 MiB part. `free` under the emulator's 32 MiB
-geometry reports a 31,639,312-byte heap; `up_allocate_heap()` caps it to the
-controller's configured size, which is what a 16 MiB board depends on.
+The application is the stripped kernel: 2,928,780 bytes against 16,131,276,
+most of the difference being DWARF that Grifo's loader would skip anyway. It
+links `.text` at `0x10040000` and ends, with BSS and the idle stack, at
+`0x103290e0`, so it occupies 2.9 MiB of the 16 MiB part. `free` under the
+emulator's 32 MiB geometry reports about a 31.6 MB heap; `up_allocate_heap()`
+caps it to the controller's configured size, which is what a 16 MiB board
+depends on.
 
-The card is not readable once NuttX is running: this port has no SPI or MMC/SD
-driver, and only Grifo's loader touches the card, before NuttX is entered.
+The card is NuttX's own once it is running: `s1c33e07_spi.c` plus stock
+`mmcsd_spi`, `vfat` and the MBR reader mount the FAT32 boot partition at
+`/sd`. The exFAT partition registers as a block device and cannot be
+mounted, because NuttX's FAT driver does FAT12/16/32 only.
 
 This port currently supports the GNU make flat build and C applications.
-It has no CMake port, C++ runtime, setjmp/longjmp support, separate interrupt
+It has no CMake port, C++ runtime, separate interrupt
 stack, nested external IRQs, stack coloration or hardware debug transport.
 UART termios changes and flow control are not implemented. Timer 2, UART0 and UART1
 are the peripheral IRQs supported by the architecture code. The busy-wait
@@ -590,16 +558,23 @@ and every VT100 sequence have not been validated.
 
 ## Next: hardware and storage
 
-1. Test the card-loader handoff on a device using its existing known-good
-   FLASH firmware. Check SDRAM capacity, tick frequency, LCD timing/contrast,
-   touch coordinate mapping and UART receive errors.
-2. Add the SPI controller, card power/chip-select handling, NuttX MMC/SD and
-   FAT mounting so NSH can access the card after boot. At present only the
-   pre-NuttX loader reads the card.
-3. Add buttons, power management and suspend/wake behavior, then refine key
+Done since this list was written: the handoff runs on a device (2026-09-12),
+which corrected the tick frequency and the touch baud rate and found the P5
+function-register write that killed SDRAM; the SPI controller, card power and
+chip-select handling, MMC/SD and FAT mounting are in, so NSH reads and writes
+the card itself; and the loader size problem is fixed at the source —
+`samo-lib/mbr/Makefile` now fails the build when a boot program exceeds the
+7,424 bytes the MBR copies.
+
+What is left:
+
+1. exFAT, so the archive partition can be mounted rather than merely
+   registered. ChaN's FatFs is the plan.
+2. Card detect and hot-swap. `SPI_STATUS` always says a card is present, so a
+   missing one shows up as an identification timeout at boot.
+3. Buttons, power management and suspend/wake behavior, then refine key
    sizes/layout and terminal navigation on the physical panel.
-4. Address the independent firmware loader size/packaging issue before making
-   a new production FLASH image.
+4. A power measurement. Nothing here has been near a meter.
 
 The existing hardware manuals and working drivers under `~/wikireader`
 remain the reference. This port does not call the Grifo kernel or reuse its

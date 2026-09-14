@@ -2,14 +2,16 @@
 
 This checkout adds a C33 PE backend to TinyCC: `c33-gen.c` generates code,
 `c33-link.c` relocates it, and `c33-run.c` executes it in place. The target
-is used by a NuttX application that compiles C **on an emulated WikiReader**,
-so the compiler runs on the C33 as well as generating code for it.
+is used by a NuttX application that compiles C **on a WikiReader**, so the
+compiler runs on the C33 as well as generating code for it.
 
 The NuttX side of that port -- the NSH command, the target headers, the
 runtime the generated code links against and the application build -- is not
 here. It lives in `apps/interpreters/tinycc`, which finds this checkout
 through `CONFIG_INTERPRETERS_TCC_SRCDIR`; see its README for building,
-running and self-hosting. Physical WikiReader hardware has not been tested.
+running and self-hosting. It compiles and runs C on the physical device --
+the `selftest` command's `tcc` case is one of the five languages in the
+device's own benchmark log -- but every timing below is from the emulator.
 
 ## Coverage and limits
 
@@ -96,12 +98,14 @@ generated code.
 ## Bootstrap speed
 
 Rebuilding the compiler with the compiler it just produced takes about 52
-seconds of guest time at the WikiReader's 48 MHz, against 24 for the same
+seconds of guest time, against 24 for the same
 source under the GCC-built compiler, because this backend performs none of
 GCC's optimizations. Time those stages through the WikiReader's FLASH/card
 boot, not a direct ELF boot: the latter leaves the SDRAM controller
 unprogrammed and its wait states unmodeled, which flatters every measurement
 by roughly a factor of four. The board README has the measured breakdown.
+Those numbers were taken with the port's clock set to the 48 MHz crystal;
+MCLK is 60, so they run about a quarter long.
 
 ## Validation
 
