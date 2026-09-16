@@ -75,8 +75,14 @@ struct model {
 	   pass and four megabytes apart, in another bank by the geometry
 	   table, costs 140.10. */
 	unsigned row_ports;
-	/* An SDCLK in half-MCLK units, with DBF clear. Two is SDCLK = MCLK;
-	   four is SDCLK = MCLK/2, which is what the device measures. */
+	/* An SDCLK in half-MCLK units, with DBF clear. Two is SDCLK = MCLK,
+	   which is what the SDRAMC gets: III.1.9.4 runs the interface on
+	   OSC_W and MCLKDIV is 0. Four stood here for a day, fitted from a
+	   row change costing more than the programmed clocks account for --
+	   true, but of the controller's overhead, not of the clock. `ubench
+	   sdclk' sweeps one field at a time and takes the slope, which the
+	   overhead drops out of: 1.17 MCLK per tRC cycle against the four
+	   this said (boards/.../tools/ubench-sdclk-device.txt). */
 	unsigned sdclk_half;
 	/* What changing rows costs beyond tRP + tRCD, in half-MCLK. The
 	   device reads a row it has open in CAS + data and one it has not in

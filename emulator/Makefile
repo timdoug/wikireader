@@ -126,7 +126,7 @@ test-wdt-reset: wremu
 		-o /tmp/wdt_reset_guest.o && \
 	    "$(C33_BIN)/c33-epson-elf-ld" -Ttext 0x10000000 -e _start \
 		/tmp/wdt_reset_guest.o -o /tmp/wdt_reset_guest.elf && \
-	    ./wremu -n 200000 /tmp/wdt_reset_guest.elf \
+	    ./wremu --bare-elf -n 200000 /tmp/wdt_reset_guest.elf \
 		> /tmp/test_wdt_reset.log 2>&1 ; \
 	    boots=$$(grep -c '^B' /tmp/test_wdt_reset.log) ; \
 	    resets=$$(sed -n 's/^.*--- resets: \([0-9]*\);.*/\1/p' \

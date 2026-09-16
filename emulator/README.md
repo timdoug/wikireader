@@ -259,8 +259,19 @@ with `WREMU_MODEL=name=value,...`.
 | `iq_lookahead_seq` | 1 | the core's run-ahead only runs while the fetch stream is sequential |
 | `bank_floors` | 1 | tRAS and tRC belong to the physical bank, not to the row register |
 
+**The overheads below are mid-refit and every figure in this table is
+stale.** `ubench sdclk` measured the SDRAM clock on the device on
+2026-09-16 by sweeping one controller field at a time — a slope, which the
+controller's fixed overhead drops out of — and an SDCLK is one MCLK, not
+the two that was fitted out of a single row-change cost. `sdclk_half` and
+the tRCD charge are now what the device says, which cost the model nothing
+in *shape* (it tracks the tRC sweep to 4%, against 2.4x out before) and
+leaves it uniformly about 4.7 MCLK an access cheap, because the fitted
+overheads had been carrying the doubled clock. Refitting them wants a
+fresh `ubench` from the device at the corrected timings.
+
 Against the device, in rising order of how much the workload resembles real
-code:
+code — as of the last fit, at the timings of the morning of 2026-09-16:
 
 | Workload | Result |
 | --- | --- |

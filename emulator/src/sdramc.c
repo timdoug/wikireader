@@ -370,11 +370,12 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 		s->pair_hist[i].n++;
 		s->pair_last[b] = r;
 	}
-	/* T24NS programs tRCD as well as tRP.  Whether the device pays for it
-	   separately is what the rate sweep at two timings is for; with
-	   bank_floors off this keeps the original charge. */
-	if (!model.bank_floors)
-		at += trp(s) * tick;
+	/* T24NS programs tRCD as well as tRP, and the device pays for both.
+	   Sweeping the field alone moves a row change 2.56 MCLK a cycle
+	   against tRC's 1.17 -- twice, because an activation waits tRCD
+	   before the read whether or not a row had to be closed first
+	   (boards/.../tools/ubench-sdclk-device.txt). */
+	at += trp(s) * tick;
 	return at + model.row_change_extra;
 }
 

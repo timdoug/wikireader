@@ -34,7 +34,7 @@ struct model model = {
 	   and charging both now costs more than the device does. */
 	.wr_rd_turn = 0,
 	.row_ports = 1,
-	.sdclk_half = 4,
+	.sdclk_half = 2,
 	.row_change_extra = 1,
 	.bank_floors = 1,
 	/* One: the device copies a word at a time faster than four at a
