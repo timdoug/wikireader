@@ -52,7 +52,7 @@ index b40bab2a0f..2dd410998e 100644
  source "arch/hc/Kconfig"
  endif
 diff --git a/boards/Kconfig b/boards/Kconfig
-index 07dd158320..d853547c98 100644
+index 640e56c916..696e1f472a 100644
 --- a/boards/Kconfig
 +++ b/boards/Kconfig
 @@ -12,6 +12,10 @@ choice
@@ -66,7 +66,7 @@ index 07dd158320..d853547c98 100644
  config ARCH_BOARD_AMBER
  	bool "Amber Web Server"
  	depends on ARCH_CHIP_ATMEGA128
-@@ -3867,6 +3871,7 @@ endif # ARCH_BOARD_CUSTOM
+@@ -3878,6 +3882,7 @@ endif # ARCH_BOARD_CUSTOM
  
  config ARCH_BOARD
  	string
@@ -74,7 +74,7 @@ index 07dd158320..d853547c98 100644
  	default "amber"                        if ARCH_BOARD_AMBER
  	default "arduino-mega2560"             if ARCH_BOARD_ARDUINO_MEGA2560
  	default "arduino-due"                  if ARCH_BOARD_ARDUINO_DUE
-@@ -5968,3 +5973,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
+@@ -5983,3 +5988,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
  endif # BOARD_ETC_ROMFS_PASSWD_EXTRA_ENABLE
  
  endif # BOARD_ETC_ROMFS_PASSWD_ENABLE
@@ -222,10 +222,10 @@ index c4f2eab5ce..ca9591b0e9 100644
         * pipe driver.
         *
 diff --git a/fs/fat/fs_fat32dirent.c b/fs/fat/fs_fat32dirent.c
-index ac70349a51..5ba912a239 100644
+index fd0f39259a..f27643ed89 100644
 --- a/fs/fat/fs_fat32dirent.c
 +++ b/fs/fat/fs_fat32dirent.c
-@@ -1158,13 +1158,23 @@ static int fat_path2dirname(FAR const char **path,
+@@ -1158,14 +1158,23 @@ static int fat_path2dirname(FAR const char **path,
         *   - we are creating file on NuttX -> write it as short file name
         */
  
@@ -244,14 +244,14 @@ index ac70349a51..5ba912a239 100644
            /* Get short file name for given path */
  
 -          char name[DIR_MAXFNAME];
--          memcpy(name, dirinfo->fd_lfname, DIR_MAXFNAME);
 +          char name[DIR_MAXFNAME + 2];
-           FAR const char *tmp = (FAR const char *)name;
-+
+           FAR const char *tmp;
+ 
+-          memcpy(name, dirinfo->fd_lfname, DIR_MAXFNAME);
 +          strlcpy(name, (FAR const char *)dirinfo->fd_lfname, sizeof(name));
+           tmp = (FAR const char *)name;
            if (fat_parsesfname(&tmp, dirinfo, NULL) != OK)
              {
-               /* The name fits the short form's length but cannot be
 diff --git a/graphics/Kconfig b/graphics/Kconfig
 index a7ac40c012..a6996e6156 100644
 --- a/graphics/Kconfig
@@ -2412,7 +2412,7 @@ index 873e9b66ac..1fe7672689 100644
            r = s;
          }
 diff --git a/libs/libc/unistd/lib_sysconf.c b/libs/libc/unistd/lib_sysconf.c
-index 428482aea5..389277d5f5 100644
+index 20655721c1..a52e946f84 100644
 --- a/libs/libc/unistd/lib_sysconf.c
 +++ b/libs/libc/unistd/lib_sysconf.c
 @@ -239,6 +239,9 @@ long sysconf(int name)

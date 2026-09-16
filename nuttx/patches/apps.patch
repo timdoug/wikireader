@@ -1,5 +1,5 @@
 diff --git a/Makefile b/Makefile
-index 74cb37d..bdd2916 100644
+index 74cb37da3..bdd2916d5 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -116,7 +116,14 @@ ifeq ($(CONFIG_MODULES),)
@@ -18,7 +18,7 @@ index 74cb37d..bdd2916 100644
  endif
  
 diff --git a/benchmarks/whetstone/whetstone.c b/benchmarks/whetstone/whetstone.c
-index dbc8247..106102d 100644
+index dbc8247fd..106102d8e 100644
 --- a/benchmarks/whetstone/whetstone.c
 +++ b/benchmarks/whetstone/whetstone.c
 @@ -453,7 +453,14 @@ IILOOP:
@@ -38,7 +38,7 @@ index dbc8247..106102d 100644
      {
        printf("C Converted Double Precision Whetstones: %.1f MIPS\n",
 diff --git a/builtin/exec_builtin.c b/builtin/exec_builtin.c
-index f6edf1a..45e9f20 100644
+index f6edf1a5f..45e9f2062 100644
 --- a/builtin/exec_builtin.c
 +++ b/builtin/exec_builtin.c
 @@ -203,6 +203,41 @@ int exec_builtin(FAR const char *appname, FAR char * const *argv,
@@ -84,7 +84,7 @@ index f6edf1a..45e9f20 100644
  
  #ifdef CONFIG_LIBC_EXECFUNCS
 diff --git a/interpreters/lua/Makefile b/interpreters/lua/Makefile
-index 40daf76..91f697d 100644
+index 40daf76ed..91f697d3c 100644
 --- a/interpreters/lua/Makefile
 +++ b/interpreters/lua/Makefile
 @@ -47,7 +47,7 @@ CSRCS        += nuttx_linit.c
@@ -97,7 +97,7 @@ index 40daf76..91f697d 100644
  endif
  
 diff --git a/interpreters/lua/nuttx_linit.c b/interpreters/lua/nuttx_linit.c
-index 904eb9f..997a541 100644
+index 904eb9f81..997a54189 100644
 --- a/interpreters/lua/nuttx_linit.c
 +++ b/interpreters/lua/nuttx_linit.c
 @@ -49,7 +49,23 @@
@@ -125,7 +125,7 @@ index 904eb9f..997a541 100644
  #include "luamod_list.h"
    {NULL, NULL},
 diff --git a/nshlib/Kconfig b/nshlib/Kconfig
-index 8f1740a..3416eab 100644
+index 8f1740a18..3416eab69 100644
 --- a/nshlib/Kconfig
 +++ b/nshlib/Kconfig
 @@ -225,6 +225,29 @@ config NSH_DISABLEBG
@@ -159,7 +159,7 @@ index 8f1740a..3416eab 100644
  	bool "Enable alias support"
  	default !DEFAULT_SMALL
 diff --git a/nshlib/nsh.h b/nshlib/nsh.h
-index 9ac148b..11443fb 100644
+index 9ac148b94..11443fb3b 100644
 --- a/nshlib/nsh.h
 +++ b/nshlib/nsh.h
 @@ -848,6 +848,9 @@ int nsh_dropbearstart(void);
@@ -173,7 +173,7 @@ index 9ac148b..11443fb 100644
  #ifdef CONFIG_NSH_BUILTIN_APPS
  int nsh_builtin(FAR struct nsh_vtbl_s *vtbl, FAR const char *cmd,
 diff --git a/nshlib/nsh_command.c b/nshlib/nsh_command.c
-index 14a375e..b2a304d 100644
+index 14a375ebc..b2a304d87 100644
 --- a/nshlib/nsh_command.c
 +++ b/nshlib/nsh_command.c
 @@ -1253,6 +1253,34 @@ static int cmd_expr(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
@@ -212,7 +212,7 @@ index 14a375e..b2a304d 100644
  {
    const struct cmdmap_s  *cmdmap;
 diff --git a/nshlib/nsh_parse.c b/nshlib/nsh_parse.c
-index 9de45b8..b458daa 100644
+index 9de45b887..b458daa3a 100644
 --- a/nshlib/nsh_parse.c
 +++ b/nshlib/nsh_parse.c
 @@ -39,6 +39,10 @@
@@ -277,7 +277,7 @@ index 9de45b8..b458daa 100644
         * file descriptor.
         */
 diff --git a/system/toybox/Kconfig.commands b/system/toybox/Kconfig.commands
-index 6cc64eb..631a1a1 100644
+index 6cc64eb0f..631a1a19a 100644
 --- a/system/toybox/Kconfig.commands
 +++ b/system/toybox/Kconfig.commands
 @@ -12,6 +12,18 @@
@@ -518,7 +518,7 @@ index 6cc64eb..631a1a1 100644
  	bool "yes"
  	default y
 diff --git a/testing/libc/arch_libc/arch_libc_test_main.c b/testing/libc/arch_libc/arch_libc_test_main.c
-index 1382bd6..df17d4f 100644
+index 1382bd62e..df17d4f35 100644
 --- a/testing/libc/arch_libc/arch_libc_test_main.c
 +++ b/testing/libc/arch_libc/arch_libc_test_main.c
 @@ -1017,6 +1017,22 @@ static int test_strchr(void)
