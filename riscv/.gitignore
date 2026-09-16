@@ -1,0 +1,11 @@
+# Build outputs: everything here is produced by `make` or a run harness.
+build/
+linux/
+lib/
+__pycache__/
+*.app
+*.ico
+*.map
+*.dump
+*.asm33
+.DS_Store

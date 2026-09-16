@@ -1,0 +1,16 @@
+
+rv32: kernel        insns      cycles    cyc/insn    kIPS
+rv32: alu             40100 14383893  358.70  167
+rv32: branch          58061 20138435  346.85  172
+rv32: mul             52101 19955515  383.02  156
+rv32: div             28086 19064354  678.78  88
+rv32: load            65636 23581350  359.27  167
+rv32: store           65655 20566655  313.25  191
+rv32: copy            82044 29022641  353.74  169
+rv32: bytes          196711 67083116  341.02  175
+rv32: crc            327778 117722673  359.15  167
+rv32: sieve          399563 133970576  335.29  178
+rv32: total    1365535 insns, 482363669 cycles, 353.24 cyc/insn, 169 kIPS
+rv32: stopped, reason 1
+
+353.24 cyc/insn, 169 kIPS
