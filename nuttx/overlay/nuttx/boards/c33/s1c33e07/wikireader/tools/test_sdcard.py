@@ -30,12 +30,13 @@ point: a run on hardware compares against the same transcript.
 
 import argparse
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+
+import wr_boot
 
 # Written by the guest, read back from the image by this script.
 RESULT_NAME = "result.txt"
@@ -56,12 +57,6 @@ def payload():
     return bytes(data[:PAYLOAD_SIZE])
 
 
-def load_fat_helper(wikireader):
-    helper = wikireader / "emulator/tools/mem_dma_bench/run.py"
-    spec = importlib.util.spec_from_file_location("wr_fat_fixture", helper)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def run(command, out, name):
@@ -83,7 +78,8 @@ def main():
     parser.add_argument("--image", type=Path, default=root / "nuttx")
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/sdcard")
-    parser.add_argument("--limit", type=int, default=1_500_000_000)
+    parser.add_argument("--limit", type=int,
+                        default=1_500_000_000 + wr_boot.BOOT_CYCLES)
     args = parser.parse_args()
 
     wikireader = args.wikireader.resolve()
@@ -94,12 +90,12 @@ def main():
 
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    fat = load_fat_helper(wikireader)
-
     card = out / "card.img"
     content = payload()
     digest = hashlib.md5(content).hexdigest()
-    fat.make_image(card, {PAYLOAD_NAME: content})
+    fat = wr_boot.make_card(card, args.image.resolve(), wikireader,
+                            {PAYLOAD_NAME: content})
+    flash = wr_boot.make_flash(out, wikireader)
     if fat.read_file(card, PAYLOAD_NAME) != content:
         raise SystemExit("Card image did not read back its own payload")
 
@@ -115,9 +111,11 @@ def main():
     source = out / "input.txt"
     source.write_text(commands)
 
-    text = run([str(emulator), "-n", str(args.limit), "-c", str(card),
-                "--uart-input", str(source), "--uart-start", "60000000",
-                "--uart-gap", "400000", str(args.image.resolve())],
+    text = run([str(emulator), "-n", str(args.limit),
+                *wr_boot.boot_args(card, flash),
+                "--uart-input", str(source),
+                "--uart-start", wr_boot.UART_START,
+                "--uart-gap", "400000"],
                out, "sdcard.log")
     (out / "console.txt").write_text(text)
 

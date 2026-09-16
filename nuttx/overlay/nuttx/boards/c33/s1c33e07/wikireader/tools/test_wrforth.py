@@ -20,12 +20,13 @@ Everything here is typed the same way at the device's own prompt.
 """
 
 import argparse
-import importlib.util
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+
+import wr_boot
 
 # Each command, and what the transcript must hold afterwards.
 SESSION = [
@@ -48,12 +49,6 @@ SESSION = [
 PAYLOAD = b"first line\nsecond line\nthird line\n"
 
 
-def load_fat_helper(wikireader):
-    helper = wikireader / "emulator/tools/mem_dma_bench/run.py"
-    spec = importlib.util.spec_from_file_location("wr_fat_fixture", helper)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def main():
@@ -64,7 +59,8 @@ def main():
     parser.add_argument("--image", type=Path, default=root / "nuttx")
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/wrforth")
-    parser.add_argument("--limit", type=int, default=3_000_000_000)
+    parser.add_argument("--limit", type=int,
+                        default=3_000_000_000 + wr_boot.BOOT_CYCLES)
     args = parser.parse_args()
 
     wikireader = args.wikireader.resolve()
@@ -75,23 +71,22 @@ def main():
 
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    fat = load_fat_helper(wikireader)
-
     card = out / "card.img"
-    fat.make_image(card, {
+    wr_boot.make_card(card, args.image.resolve(), wikireader, {
         "cli.4th": (wikireader /
                     "samo-lib/forth/programs/cli.4th").read_bytes(),
         "hello.txt": PAYLOAD,
     })
+    flash = wr_boot.make_flash(out, wikireader)
 
     commands = ["wrforth"] + [line for line, _ in SESSION]
     commands += ["echo BACK_AT_THE_SHELL"]
     (out / "input.txt").write_text("\n".join(commands) + "\n")
 
-    command = [str(emulator), "-R", "-c", str(card), "-n", str(args.limit),
+    command = [str(emulator), "-R", *wr_boot.boot_args(card, flash),
+               "-n", str(args.limit),
                "--uart-input", str(out / "input.txt"),
-               "--uart-start", "60000000", "--uart-gap", "600000",
-               str(args.image.resolve())]
+               "--uart-start", wr_boot.UART_START, "--uart-gap", "600000"]
     with (out / "wrforth.log").open("w") as log:
         subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=1800,

@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+
+import wr_boot
 import sys
 
 # command -> (regex that must match, regex that must NOT match)
@@ -44,13 +46,17 @@ TROUBLE = re.compile(r"\bFAIL\b|FAILED: [1-9]|Error opening|Assertion|PANIC|"
                      r"unmapped read|misaligned", re.I)
 
 
-def run(emulator, image, out, limit):
+def run(emulator, image, out, limit, wikireader):
     source = out / "input.txt"
     source.write_text("".join(cmd + "\n" for cmd, _, _ in SUITES))
 
+    card = out / "card.img"
+    wr_boot.make_card(card, image, wikireader)
+    flash = wr_boot.make_flash(out, wikireader)
     command = [str(emulator), "-R", "-n", str(limit),
-               "--uart-input", str(source), "--uart-start", "20000000",
-               "--uart-gap", "400000", str(image)]
+               "--uart-input", str(source),
+               "--uart-start", wr_boot.UART_START,
+               "--uart-gap", "400000", *wr_boot.boot_args(card, flash)]
     with (out / "libc.log").open("w") as log:
         subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=3600,
@@ -108,7 +114,8 @@ def main():
 
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    text = run(emulator, args.image.resolve(), out, args.limit)
+    text = run(emulator, args.image.resolve(), out, args.limit,
+               args.wikireader)
     (out / "console.txt").write_text(text)
 
     return verify(text, out / "console.txt")

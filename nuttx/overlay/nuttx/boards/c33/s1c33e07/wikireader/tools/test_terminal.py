@@ -12,6 +12,8 @@ import struct
 import subprocess
 import zlib
 
+import wr_boot
+
 
 class Keyboard:
     def __init__(self, start):
@@ -108,8 +110,10 @@ def main():
     parser.add_argument("--wikireader", type=Path, default=Path.home() / "wikireader")
     parser.add_argument("--image", type=Path, default=root / "nuttx")
     parser.add_argument("--out", type=Path, default=root / "build/wikireader/lcd")
-    parser.add_argument("--flash", type=Path)
-    parser.add_argument("--card", type=Path)
+    parser.add_argument("--flash", type=Path,
+                        help="boot this FLASH image instead of a built one")
+    parser.add_argument("--card", type=Path,
+                        help="with --flash, the card that image boots from")
     args = parser.parse_args()
     if bool(args.flash) != bool(args.card):
         parser.error("--flash and --card must be supplied together")
@@ -120,9 +124,16 @@ def main():
     (out / "kernel.sha256").write_text(hashlib.sha256(payload).hexdigest() +
                                       "  kernel.elf\n")
     emulator = str(args.wikireader.resolve() / "emulator/wremu")
-    boot = (["-R", "-e", str(args.flash.resolve()), "-c", str(args.card.resolve())]
-            if args.flash else [str(out / "kernel.elf")])
-    start = 180_000_000 if args.flash else 20_000_000
+    if args.flash:
+        card, flash = args.card.resolve(), args.flash.resolve()
+    else:
+        # The whole boot, the way the device does it: the image under test
+        # goes on a card as init.app, under the grifo the loader chains to.
+        card = out / "card.img"
+        wr_boot.make_card(card, out / "kernel.elf", args.wikireader)
+        flash = wr_boot.make_flash(out, args.wikireader)
+    boot = ["-R", *wr_boot.boot_args(card, flash)]
+    start = int(wr_boot.UART_START)
     run([emulator, "-n", str(start), *boot], out, "startup.log")
     initial = read_pgm(out / "screen.pgm")
     write_png(out / "startup.png", initial)

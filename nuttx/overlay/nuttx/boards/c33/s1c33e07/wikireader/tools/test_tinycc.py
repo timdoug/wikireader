@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 
+import wr_boot
 from test_terminal import read_pgm, write_png
 
 
@@ -52,26 +53,34 @@ def main():
     commands += ['tcc -run /tmp/hello.c', 'echo REPEAT_STATUS=$?'] * 5
     commands += ['echo TINYCC_TEST_DONE']
     (out / 'input.txt').write_text('\n'.join(commands) + '\n')
+    card = out / 'card.img'
+    wr_boot.make_card(card, image, args.wikireader)
+    flash = wr_boot.make_flash(out, args.wikireader)
+
     def emulate(name, budget):
         folder = out / name
         folder.mkdir(exist_ok=True)
-        command = [str(args.wikireader / 'emulator/wremu'), '-n', str(budget),
-                   '--uart-input', str(folder / 'input.txt'), '--uart-start', '20000000',
-                   '--uart-gap', '60000', str(image)]
+        command = [str(args.wikireader / 'emulator/wremu'),
+                   '-n', str(budget + wr_boot.BOOT_CYCLES),
+                   '--uart-input', str(folder / 'input.txt'),
+                   '--uart-start', wr_boot.UART_START,
+                   '--uart-gap', '60000', *wr_boot.boot_args(card, flash)]
         (folder / 'command.json').write_text(json.dumps(command, indent=2) + '\n')
         with (folder / 'emulator.log').open('w') as log:
             subprocess.run(command, cwd=folder, stdout=log, stderr=subprocess.STDOUT,
-                           check=True, timeout=45)
-        return (folder / 'emulator.log').read_text().replace('\r', '')
+                           check=True, timeout=120)
+        return (folder / 'emulator.log').read_text(errors='replace').replace('\r', '')
 
-    cmd = [str(args.wikireader / 'emulator/wremu'), '-n', '3000000000',
-           '--uart-input', str(out / 'input.txt'), '--uart-start', '20000000',
-           '--uart-gap', '60000', str(image)]
+    cmd = [str(args.wikireader / 'emulator/wremu'),
+           '-n', str(3_000_000_000 + wr_boot.BOOT_CYCLES),
+           '--uart-input', str(out / 'input.txt'),
+           '--uart-start', wr_boot.UART_START,
+           '--uart-gap', '60000', *wr_boot.boot_args(card, flash)]
     (out / 'command.json').write_text(json.dumps(cmd, indent=2) + '\n')
     with (out / 'emulator.log').open('w') as log:
         subprocess.run(cmd, cwd=out, stdout=log, stderr=subprocess.STDOUT,
-                       check=True, timeout=90)
-    text = (out / 'emulator.log').read_text().replace('\r', '')
+                       check=True, timeout=180)
+    text = (out / 'emulator.log').read_text(errors='replace').replace('\r', '')
     for marker in (expected, 'TINYCC_TEST_DONE', 'Hello from native C33 C! argc=2',
                    'Hello from native C33 C! argc=1'):
         if '\n' + marker + '\n' not in text:

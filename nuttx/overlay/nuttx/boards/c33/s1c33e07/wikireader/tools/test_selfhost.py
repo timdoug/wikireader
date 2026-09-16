@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import wr_boot
 from test_terminal import read_pgm, write_png
 
 
@@ -66,13 +67,18 @@ def main():
     if any(len(line) >= 255 for line in commands):
         raise SystemExit('Fixture exceeds NSH line length')
     (out / 'input.txt').write_text('\n'.join(commands) + '\n')
-    command = [str(args.wikireader / 'emulator/wremu'), '-n', '12000000000',
-               '--uart-input', str(out / 'input.txt'), '--uart-start', '20000000',
-               '--uart-gap', '250000', str(image)]
+    card = out / 'card.img'
+    wr_boot.make_card(card, image, args.wikireader)
+    flash = wr_boot.make_flash(out, args.wikireader)
+    command = [str(args.wikireader / 'emulator/wremu'),
+               '-n', str(12_000_000_000 + wr_boot.BOOT_CYCLES),
+               '--uart-input', str(out / 'input.txt'),
+               '--uart-start', wr_boot.UART_START,
+               '--uart-gap', '250000', *wr_boot.boot_args(card, flash)]
     (out / 'command.json').write_text(json.dumps(command, indent=2) + '\n')
     with (out / 'emulator.log').open('w') as log:
         subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
-                       check=True, timeout=300)
+                       check=True, timeout=600)
     text = (out / 'emulator.log').read_text(errors='replace').replace('\r', '')
     for name in ('STAGE1', 'STAGE2', 'STAGE3', 'MATCH', 'INTEGER', 'FLOAT',
                  'OBJECT', 'RELOAD', 'RECOVERY', 'FIB'):
@@ -96,13 +102,15 @@ def main():
         "tcc -selfhost\ntcc -run /tmp/tcc.o -e 'int main(void) { for (;;) {} }'\n" +
         ' ' * 512 + '\x03\n' +
         'tcc -run /tmp/tcc.o -run /tmp/hello.c\necho INTERRUPT_STATUS=$?\n')
-    command = [str(args.wikireader / 'emulator/wremu'), '-n', '2000000000',
-               '--uart-input', str(interrupt / 'input.txt'), '--uart-start', '20000000',
-               '--uart-gap', '1000000', str(image)]
+    command = [str(args.wikireader / 'emulator/wremu'),
+               '-n', str(2_000_000_000 + wr_boot.BOOT_CYCLES),
+               '--uart-input', str(interrupt / 'input.txt'),
+               '--uart-start', wr_boot.UART_START,
+               '--uart-gap', '1000000', *wr_boot.boot_args(card, flash)]
     (interrupt / 'command.json').write_text(json.dumps(command, indent=2) + '\n')
     with (interrupt / 'emulator.log').open('w') as log:
         subprocess.run(command, cwd=interrupt, stdout=log, stderr=subprocess.STDOUT,
-                       check=True, timeout=120)
+                       check=True, timeout=240)
     interrupted = (interrupt / 'emulator.log').read_text(errors='replace').replace('\r', '')
     if ('\nINTERRUPT_STATUS=0\n' not in interrupted or
             '\nHello from native C33 C! argc=1\n' not in interrupted):

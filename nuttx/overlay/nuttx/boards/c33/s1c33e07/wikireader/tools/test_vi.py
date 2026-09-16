@@ -13,6 +13,8 @@ this would catch as garbage in the decoded screen.
 import re
 import subprocess
 import sys
+
+import wr_boot
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[5]
@@ -88,12 +90,16 @@ def run(name, keys, limit=12_000_000_000, dump=None):
     OUT.mkdir(parents=True, exist_ok=True)
     script = OUT / ("%s-input.bin" % name)
     script.write_bytes(keys)
-    cmd = [str(WREMU), "-n", str(limit), "--uart-input", str(script),
-           "--uart-start", "60000000", "--uart-gap", "30000000"]
+    card = OUT / "card.img"
+    wr_boot.make_card(card, ROOT / "nuttx", WREMU.parents[1])
+    flash = wr_boot.make_flash(OUT, WREMU.parents[1])
+    cmd = [str(WREMU), "-n", str(limit + wr_boot.BOOT_CYCLES),
+           "--uart-input", str(script),
+           "--uart-start", wr_boot.UART_START, "--uart-gap", "30000000"]
     if dump:
         cmd += ["-D", hex(FBADDR), "-L", str(STRIDE * HEIGHT),
                 "-O", str(OUT / dump)]
-    cmd.append(str(ROOT / "nuttx"))
+    cmd += wr_boot.boot_args(card, flash)
     log = subprocess.run(cmd, capture_output=True, text=True,
                          errors="replace", timeout=1800).stdout
     (OUT / ("%s.log" % name)).write_text(log)

@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 
+import wr_boot
 from test_terminal import read_pgm, run, write_png
 
 COMMAND = "ps; echo PS_DONE\n"
@@ -17,7 +18,8 @@ PROBES = ("cmd_ps", "nxterm_write", "nx_bitmap", "pty_write")
 
 
 def results(folder):
-    text = (folder / "emulator.log").read_bytes().decode().replace("\r", "")
+    text = (folder / "emulator.log").read_bytes().decode(
+        errors="replace").replace("\r", "")
     if "\nPS_DONE\nnsh> " not in text:
         raise SystemExit(f"ps did not finish: {folder}")
     probes = {}
@@ -69,15 +71,19 @@ def main():
     nm = wr / "host-tools/toolchain-c33/work/install/bin/c33-epson-elf-nm"
     symbols = subprocess.check_output([str(nm), str(image)], text=True)
     (out / "symbols.txt").write_text(symbols)
-    command = [str(wr / "emulator/wremu"), "-n", "100000000", "--uart-input",
-               str(out / "input.txt"), "--uart-start", "20000000",
+    card = out / "card.img"
+    wr_boot.make_card(card, image, wr)
+    flash = wr_boot.make_flash(out, wr)
+    command = [str(wr / "emulator/wremu"),
+               "-n", str(100000000 + wr_boot.BOOT_CYCLES), "--uart-input",
+               str(out / "input.txt"), "--uart-start", wr_boot.UART_START,
                "-F", str(out / "profile.txt")]
     for name in PROBES:
         match = re.search(r"^([0-9a-f]+) [tT] " + name + r"$", symbols, re.M)
         if match is None:
             raise SystemExit(f"Missing ELF symbol: {name}")
         command += ["-X", f"0x{match[1]},{name}"]
-    command += [str(image)]
+    command += wr_boot.boot_args(card, flash)
     (out / "command.json").write_text(json.dumps(command, indent=2) + "\n")
     run(command, out, "emulator.log")
     metrics, console = results(out)
@@ -96,7 +102,11 @@ def main():
         metrics["output_speedup"] = round(old["output_guest_ms"] /
                                           metrics["output_guest_ms"], 2)
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    if (metrics["executed_instructions"] > 8_000_000 or
+    # The budget is the span from the command to the last pixel, not the
+    # whole run: booting the way the device boots puts the loader, grifo and
+    # three megabytes off the card in front of the prompt, and that is not
+    # what this test is measuring.
+    if (metrics["output_instructions"] > 8_000_000 or
             metrics["terminal_writes"] > 120 or metrics["bitmap_updates"] > 160):
         raise SystemExit(f"ps output exceeded performance budget: {metrics}")
     print(f"PASS: ps completed with {metrics['terminal_writes']} terminal writes, "

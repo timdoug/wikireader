@@ -232,8 +232,12 @@ def main():
     done = re.search(r'^([0-9a-f]+) T test_done$', symbols, re.M)
     if not done:
         raise SystemExit('test_done symbol is missing')
+    # --bare-elf, and this is the case it exists for: what runs here is a
+    # bare-metal link of the libc sources, not firmware.  There is no loader
+    # to go through and nothing that depends on the state one would leave, so
+    # the boot would only add three seconds to every run.
     command = [str(args.wikireader / 'emulator/wremu'), '-n', '4000000000',
-               '-b', '0x' + done[1], str(elf)]
+               '-b', '0x' + done[1], '--bare-elf', str(elf)]
     log = subprocess.run(command, cwd=out, text=True, timeout=900,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
     (out / 'emulator.log').write_text(log)

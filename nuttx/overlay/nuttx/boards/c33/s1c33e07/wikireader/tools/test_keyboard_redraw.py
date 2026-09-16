@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 
+import wr_boot
 from test_terminal import read_pgm, run
 
 
@@ -32,21 +33,31 @@ def main():
             raise SystemExit(f"Missing ELF symbol: {name}")
         probes += ["-X", f"0x{match[1]},{name}"]
 
+    # Every event is measured from the shell prompt, which the boot has to
+    # reach first: the loader, grifo and the image off the card.  A probe
+    # count is only compared with another case's, so what the boot itself
+    # draws cancels out.
+    start = int(wr_boot.UART_START)
     counts = {}
     pixels = {}
     for case in ("idle", "control", "touch", "serial"):
         folder = out / case
         folder.mkdir(parents=True, exist_ok=True)
-        command = [str(wr / "emulator/wremu"), "-n", "30000000", *probes]
+        card = folder / "card.img"
+        wr_boot.make_card(card, image, wr)
+        flash = wr_boot.make_flash(folder, wr)
+        command = [str(wr / "emulator/wremu"), "-n", str(start + 30_000_000),
+                   *probes]
         if case == "control":
-            command += ["-T", "12,197,20000000"]
+            command += ["-T", f"12,197,{start}"]
         elif case == "touch":
-            command += ["-T", "12,131,20000000"]
+            command += ["-T", f"12,131,{start}"]
         elif case == "serial":
             (folder / "input.txt").write_text("q")
             command += ["--uart-input", str(folder / "input.txt"),
-                        "--uart-start", "20000000"]
-        text = run([*command, str(image)], folder, "emulator.log")
+                        "--uart-start", str(start)]
+        text = run([*command, *wr_boot.boot_args(card, flash)],
+                   folder, "emulator.log")
         counts[case] = {name: int(count) for name, count in re.findall(
             r"--- probe (nx_fill|nx_bitmap)\s+(\d+) hits", text)}
         if len(counts[case]) != 2:

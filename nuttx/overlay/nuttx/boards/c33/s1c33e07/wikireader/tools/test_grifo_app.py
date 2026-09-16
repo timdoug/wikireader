@@ -32,6 +32,8 @@ import re
 import subprocess
 import sys
 
+import wr_boot
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_terminal import read_pgm, write_png            # noqa: E402
 
@@ -63,6 +65,10 @@ def build_card(fat, path, wikireader, app):
     """
 
     files = {
+        # The boot loader reads this off the card and runs it; it is grifo,
+        # which then puts up the menu that init.app draws.
+        "kernel.elf": (wikireader /
+                       "samo-lib/grifo/grifo.elf").read_bytes(),
         "init.app": (wikireader /
                      "samo-lib/grifo/applications/init/init.app").read_bytes(),
         "nuttx.app": app.read_bytes(),
@@ -96,7 +102,7 @@ def run(command, out, name):
     return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
 
 
-def session(emulator, card, kernel, out, tag, commands, limit):
+def session(emulator, card, flash, out, tag, commands, limit):
     """Start NuttX from the menu, type commands, and return the transcript."""
 
     source = out / f"{tag}-input.txt"
@@ -105,7 +111,7 @@ def session(emulator, card, kernel, out, tag, commands, limit):
                "-T", f"{ICON0[0]},{ICON0[1]},100000000",
                "--uart-input", str(source),
                "--uart-start", "480000000", "--uart-gap", "200000",
-               "-R", "-c", str(card), str(kernel)]
+               "-R", *wr_boot.boot_args(card, flash)]
     (out / f"{tag}-command.json").write_text(json.dumps(command, indent=2) + "\n")
     text = run(command, out, f"{tag}.log")
     (out / f"{tag}-console.txt").write_text(text)
@@ -170,13 +176,14 @@ def main():
     fat = load_fat_helper(wikireader)
     card = out / "card.img"
     build_card(fat, card, wikireader, app)
+    flash = wr_boot.make_flash(out, wikireader)
 
     commands = "uname -a\nfree\n"
     if args.compile:
         commands += "tcc -run /tmp/hello.c\n"
     limit = 2_600_000_000 if args.compile else 1_400_000_000
 
-    text = session(emulator, card, kernel, out, "poweroff",
+    text = session(emulator, card, flash, out, "poweroff",
                    commands + "poweroff\n", limit)
     if "wikireader" not in text:
         raise SystemExit("uname did not report the board")
@@ -198,7 +205,7 @@ def main():
     if heap:
         print(f"heap: {int(heap.group(1)):,} bytes")
 
-    text = session(emulator, card, kernel, out, "reboot",
+    text = session(emulator, card, flash, out, "reboot",
                    "reboot\n", 1_600_000_000)
     check_exit_code(text, EXIT_REBOOT, out, "reboot")
 

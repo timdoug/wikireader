@@ -11,12 +11,21 @@ import statistics
 import subprocess
 import time
 
+import wr_boot
 
-def measure(emulator, image, folder):
+
+def measure(emulator, image, folder, wikireader):
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "input.txt").write_text("ps; echo PS_DONE\n")
-    command = [str(emulator), "-n", "100000000", "--uart-input",
-               str(folder / "input.txt"), "--uart-start", "20000000", str(image)]
+    # The guest work being timed has to be the work the device does, which
+    # means the whole boot in front of it.  Both runs pay the same for it.
+    card = folder / "card.img"
+    wr_boot.make_card(card, image, wikireader)
+    flash = wr_boot.make_flash(folder, wikireader)
+    command = [str(emulator), "-n", str(100_000_000 + wr_boot.BOOT_CYCLES),
+               "--uart-input", str(folder / "input.txt"),
+               "--uart-start", wr_boot.UART_START,
+               *wr_boot.boot_args(card, flash)]
     (folder / "command.json").write_text(json.dumps(command, indent=2) + "\n")
     data = b""
     start = end = None
@@ -25,7 +34,7 @@ def measure(emulator, image, folder):
         try:
             with selectors.DefaultSelector() as selector:
                 selector.register(process.stdout, selectors.EVENT_READ)
-                deadline = time.monotonic() + 60
+                deadline = time.monotonic() + 180
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0 or not selector.select(remaining):
@@ -62,6 +71,9 @@ def main():
                         default=Path.home() / "wikireader/emulator/wremu")
     parser.add_argument("--image", type=Path,
                         default=root / "build/wikireader/lcd/kernel.elf")
+    parser.add_argument("--wikireader", type=Path,
+                        default=Path.home() / "wikireader",
+                        help="the checkout the card and FLASH image come from")
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/emulator-speed-bench")
     args = parser.parse_args()
@@ -72,7 +84,8 @@ def main():
         for name in ("before", "after"):
             folder = out / f"{name}-{trial}"
             elapsed, work, console = measure(getattr(args, name).resolve(),
-                                             args.image.resolve(), folder)
+                                             args.image.resolve(), folder,
+                                             args.wikireader)
             result = (work, console, (folder / "screen.pgm").read_bytes())
             if reference is None:
                 reference = result

@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 
+import wr_boot
 from test_terminal import read_pgm, run, write_png
 
 COMMAND = "help; help; help; echo SCROLL_DONE\n"
@@ -17,7 +18,8 @@ PROBES = ("nxterm_scroll", "nxgl_moverectangle_1bpp", "cmd_help", "nxterm_write"
 
 
 def results(folder):
-    text = (folder / "emulator.log").read_text().replace("\r", "")
+    text = (folder / "emulator.log").read_text(
+        errors="replace").replace("\r", "")
     if "\nSCROLL_DONE\nnsh> " not in text or text.count("help usage:") != 3:
         raise SystemExit(f"Incomplete scrolling workload: {folder}")
     probes = {}
@@ -72,15 +74,19 @@ def main():
     nm = wr / "host-tools/toolchain-c33/work/install/bin/c33-epson-elf-nm"
     symbols = subprocess.check_output([str(nm), str(image)], text=True)
     (out / "symbols.txt").write_text(symbols)
-    command = [str(wr / "emulator/wremu"), "-n", "400000000", "--uart-input",
-               str(out / "input.txt"), "--uart-start", "20000000",
+    card = out / "card.img"
+    wr_boot.make_card(card, image, wr)
+    flash = wr_boot.make_flash(out, wr)
+    command = [str(wr / "emulator/wremu"),
+               "-n", str(400000000 + wr_boot.BOOT_CYCLES), "--uart-input",
+               str(out / "input.txt"), "--uart-start", wr_boot.UART_START,
                "-F", str(out / "profile.txt")]
     for name in PROBES:
         match = re.search(r"^([0-9a-f]+) [tT] " + name + r"$", symbols, re.M)
         if match is None:
             raise SystemExit(f"Missing ELF symbol: {name}")
         command += ["-X", f"0x{match[1]},{name}"]
-    command += [str(image)]
+    command += wr_boot.boot_args(card, flash)
     (out / "command.json").write_text(json.dumps(command, indent=2) + "\n")
     run(command, out, "emulator.log")
     metrics, console = results(out)
@@ -98,10 +104,12 @@ def main():
         metrics["output_speedup"] = round(old["output_guest_ms"] /
                                           metrics["output_guest_ms"], 2)
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    if metrics["executed_instructions"] > args.max_instructions:
+    # The scrolling itself, not the boot in front of it: the run now starts
+    # at the mask ROM and reaches the prompt through grifo.
+    if metrics["output_instructions"] > args.max_instructions:
         raise SystemExit(f"Scrolling exceeded instruction budget: {metrics}")
     print(f"PASS: {metrics['scrolls']} scrolls, "
-          f"{metrics['executed_instructions']:,} instructions, "
+          f"{metrics['output_instructions']:,} instructions, "
           f"{metrics['output_guest_ms']} ms guest output span. "
           f"Metrics: {out / 'metrics.json'}")
 

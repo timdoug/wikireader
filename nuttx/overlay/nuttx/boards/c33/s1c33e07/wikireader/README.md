@@ -28,8 +28,13 @@ defaults to `tinycc/` beside `apps/` in the NuttX root:
 export PATH="$PWD/.venv/bin:$HOME/wikireader/host-tools/toolchain-c33/work/install/bin:$PATH"
 tools/configure.sh -e -m -a apps wikireader:tcc KCONFIG_OLDDEFCONFIG=olddefconfig
 gmake -j8
-"$HOME/wikireader/emulator/wremu" -g nuttx
+$(python3 boards/c33/s1c33e07/wikireader/tools/wr_boot.py --image nuttx)
 ```
+
+That last line builds a card holding `nuttx` as `init.app` under grifo, and a
+FLASH image, and prints the emulator command that boots them. The emulator
+refuses a bare ELF: booting one skips the loader, so the SDRAM controller and
+the clocks are whatever it invents for them.
 
 In NSH, run `tcc -run /tmp/hello.c` or `tcc -run /tmp/fib.c`. The command creates
 those examples and minimal headers on its first invocation. Source files can
@@ -127,7 +132,8 @@ raw emulator output, a console transcript and the command used for the test.
 To use the terminal interactively, click the keys in the SDL window:
 
 ```sh
-"$HOME/wikireader/emulator/wremu" -g build/wikireader/lcd/kernel.elf
+$(python3 boards/c33/s1c33e07/wikireader/tools/wr_boot.py \
+    --image build/wikireader/lcd/kernel.elf)
 ```
 
 `Sh` applies to the next character. `123` switches to numbers and punctuation;

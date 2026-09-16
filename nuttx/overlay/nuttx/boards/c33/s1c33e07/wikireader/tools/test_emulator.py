@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import subprocess
 
+import wr_boot
+
 
 def main():
     root = Path(__file__).resolve().parents[5]
@@ -42,9 +44,14 @@ def main():
     source.write_text("\n".join(commands) + "\n")
 
     transcript = out / "emulator.log"
-    limit = "20000000000" if args.ostest else "500000000"
+    limit = str((20_000_000_000 if args.ostest else 500_000_000) +
+                wr_boot.BOOT_CYCLES)
+    card = out / "card.img"
+    wr_boot.make_card(card, image, args.wikireader)
+    flash = wr_boot.make_flash(out, args.wikireader)
     command = [str(emulator), "-n", limit, "--uart-input", str(source),
-               "--uart-start", "1000000", "--uart-gap", "50000", str(image)]
+               "--uart-start", wr_boot.UART_START, "--uart-gap", "50000",
+               *wr_boot.boot_args(card, flash)]
     with transcript.open("w") as log:
         result = subprocess.run(command, cwd=out, stdout=log,
                                 stderr=subprocess.STDOUT, timeout=600)
@@ -58,7 +65,11 @@ def main():
     for marker in ("C33_NSH_OK", "C33_TIMER_OK", "C33_TEST_DONE"):
         if not re.search(r"^" + marker + r"$", text, re.M):
             failures.append(f"missing output: {marker}")
-    for marker in ("NuttShell (NSH)", "Idle_Task", "nsh_main", "Umem"):
+    # The shell task is "nsh_main" only when NuttX's own init entry point is
+    # what started, which is what a direct ELF boot did.  Booted the way the
+    # device boots, grifo chains to the board application, and that is the
+    # task ps names as the shell's parent.
+    for marker in ("NuttShell (NSH)", "Idle_Task", "wikireader_main", "Umem"):
         if marker not in text:
             failures.append(f"missing output: {marker}")
     if args.ostest:
