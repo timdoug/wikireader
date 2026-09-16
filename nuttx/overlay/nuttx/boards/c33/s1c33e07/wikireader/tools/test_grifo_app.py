@@ -201,9 +201,17 @@ def main():
         raise SystemExit(f"The device came back after poweroff: "
                          f"see {out / 'poweroff-console.txt'}")
 
-    heap = re.search(r"Umem:\s+(\d+)", text)
+    # "free" prints a table with the arena on a row named Umem; it used to
+    # print "Umem:" and a total, and this quietly stopped reporting anything
+    # when it changed.
+    heap = re.search(r"^\s*(\d+)\s+\d+\s+(\d+)(?:\s+\d+){2}\s+\d+\s+\d+\s+"
+                     r"Umem\s*$", text, re.M)
     if heap:
-        print(f"heap: {int(heap.group(1)):,} bytes")
+        print(f"heap: {int(heap.group(1)):,} bytes, "
+              f"{int(heap.group(2)):,} free")
+    else:
+        raise SystemExit(f"free did not report the heap: see "
+                         f"{out / 'poweroff-console.txt'}")
 
     text = session(emulator, card, flash, out, "reboot",
                    "reboot\n", 1_600_000_000)

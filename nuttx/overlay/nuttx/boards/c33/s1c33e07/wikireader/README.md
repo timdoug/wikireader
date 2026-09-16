@@ -166,13 +166,19 @@ Scrolling copies byte-aligned framebuffer rows with overlap-safe byte moves,
 preserving stride padding, and compacts saved characters in one pass per
 scroll.
 
-Together those take a `ps` to 71 terminal writes and about 103 ms of emulated
-output time, and three consecutive `help` listings (62 scrolls) to 10.66
-million instructions and about 0.224 seconds. Both regressions check the
-console output and the screen pixels as well as the budget. These are guest
-times under the emulator, not wall-clock or device measurements, and they were
-taken when the port thought MCLK was 48 MHz rather than 60, so each is about a
-quarter long.
+Together those take a `ps` to 71 terminal writes, 126 bitmap updates and 4.38
+million instructions, about 463 ms of emulated output time, and three
+consecutive `help` listings (143 scrolls) to 17.21 million instructions and
+about 1.72 seconds. Both regressions check the console output and the screen
+pixels as well as the budget, and both budget the span from the command to
+the last pixel drawn rather than the whole run, which now starts at the mask
+ROM. These are guest times under the emulator, not wall-clock or device
+measurements.
+
+The scroll count is not comparable with an older one: `help` lists every
+builtin, and there are a great many more of those than there were -- the
+compiler, four interpreters, toybox, vi and the benchmarks. Per scroll the
+cost fell, 172,000 instructions to 120,000.
 
 The tested LCD image occupies 220,364 bytes of text/rodata, 1,048 bytes of
 initialized data and 15,488 bytes of BSS/reserved stack, before runtime heap
