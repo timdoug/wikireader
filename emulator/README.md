@@ -264,11 +264,12 @@ code:
 
 | Workload | Result |
 | --- | --- |
-| 45 `ubench` loops | 0.139 RMS log error, 29 within 10% |
+| 90 `ubench` loops | 0.105 RMS log error, 62 within 10%, 85 within 20% |
+| the `rowrate` sweep | 7.94 MCLK a row change on the device, 7.65 here |
 | 16 `ubench bcs` fetch-window loops | 0.372 RMS log error; see below |
 | `ramspeed` | memcpy 0.78-0.87x, memset 1.09-1.11x |
 | 280 `arch_libctest` throughput points | median 0.936x, mean 1.009x |
-| CoreMark / Dhrystone | 1.05x / 1.01x, same binary both sides |
+| CoreMark / Dhrystone | 0.96x / 0.78x, same binary both sides |
 | Whetstone | 0.99x |
 | `cardb`, eight points of a 512-32768 byte sweep | within 3.1%, mean 1.007x |
 | ZIM article load, Cat and Tokyo | 1.027x and 0.991x |

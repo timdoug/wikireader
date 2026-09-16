@@ -5,9 +5,9 @@
 Running CoreMark...
 2K performance run parameters for coremark.
 CoreMark Size    : 666
-Total ticks      : 1293
-Total time (secs): 12.930000
-Iterations/Sec   : 30.935808
+Total ticks      : 1373
+Total time (secs): 13.730000
+Iterations/Sec   : 29.133285
 Iterations       : 400
 Compiler version : GCC16.2.0
 Compiler flags   : -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx
@@ -18,7 +18,7 @@ seedcrc          : 0xe9f5
 [0]crcstate      : 0x8e3a
 [0]crcfinal      : 0x25b5
 Correct operation validated. See README.md for run and reporting rules.
-CoreMark 1.0 : 30.935808 / GCC16.2.0 -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx / HEAP
+CoreMark 1.0 : 29.133285 / GCC16.2.0 -O2 -fno-strict-aliasing -fno-common -g -ffile-prefix-map=/Users/timdoug/wikireader/nuttx/work/nuttx=nuttx / HEAP
 # WikiReader benchmark run
 # NuttX 13.0.1 88c8623ced-dirty c33
 # command: dhrystone 200000
@@ -43,7 +43,7 @@ Arr_1_Glob[8]:       7
 Arr_2_Glob[8][7]:    200010
         should be:   Number_Of_Runs + 10
 Ptr_Glob->
-  Ptr_Comp:          271849224
+  Ptr_Comp:          271853320
         should be:   (implementation-dependent)
   Discr:             0
         should be:   0
@@ -54,7 +54,7 @@ Ptr_Glob->
   Str_Comp:          DHRYSTONE PROGRAM, SOME STRING
         should be:   DHRYSTONE PROGRAM, SOME STRING
 Next_Ptr_Glob->
-  Ptr_Comp:          271849224
+  Ptr_Comp:          271853320
         should be:   (implementation-dependent), same as above
   Discr:             0
         should be:   0
@@ -77,21 +77,21 @@ Str_1_Loc:           DHRYSTONE PROGRAM, 1'ST STRING
 Str_2_Loc:           DHRYSTONE PROGRAM, 2'ND STRING
         should be:   DHRYSTONE PROGRAM, 2'ND STRING
 
-Microseconds for one run through Dhrystone:       66.9 
-Dhrystones per Second:                           14947 
+Microseconds for one run through Dhrystone:       66.1 
+Dhrystones per Second:                           15140 
 
 # WikiReader benchmark run
 # NuttX 13.0.1 88c8623ced-dirty c33
 # command: whetstone 10
 
-Loops: 10, Iterations: 1, Duration: 62090 millisecond.
+Loops: 10, Iterations: 1, Duration: 62070 millisecond.
 C Converted Double Precision Whetstones: 16.1 KIPS
 # WikiReader benchmark run
 # NuttX 13.0.1 88c8623ced-dirty c33
 # command: ramspeed -a -s 1048576 -n 20
 RAM Speed: Allocate RW buffers on heap
-RAM Speed: Write address: 0x103417b8
-RAM Speed: Read address: 0x104417c0
+RAM Speed: Write address: 0x103427b8
+RAM Speed: Read address: 0x104427c0
 RAM Speed: Size: 1048576 bytes
 RAM Speed: Value: 0x00
 RAM Speed: Repeat number: 20
@@ -111,7 +111,7 @@ RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 512 Bytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: Time-consuming is too short, please increase the <repeat number>
+RAM Speed: internal memcpy():	 Rate = 1000.000 KB/s	[cost: 10.000 ms]
 ______Perform 1 KBytes access ______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: internal memcpy():	 Rate = 2000.000 KB/s	[cost: 10.000 ms]
@@ -122,26 +122,26 @@ ______Perform 4 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 10.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 10.000 ms]
 ______Perform 8 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 16000.000 KB/s	[cost: 10.000 ms]
+RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 20.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 20.000 ms]
 ______Perform 16 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 30.000 ms]
-RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 40.000 ms]
+RAM Speed: system memcpy():	 Rate = 8000.000 KB/s	[cost: 40.000 ms]
+RAM Speed: internal memcpy():	 Rate = 10666.667 KB/s	[cost: 30.000 ms]
 ______Perform 32 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 60.000 ms]
-RAM Speed: internal memcpy():	 Rate = 9142.857 KB/s	[cost: 70.000 ms]
+RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 80.000 ms]
 ______Perform 64 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 120.000 ms]
-RAM Speed: internal memcpy():	 Rate = 8000.000 KB/s	[cost: 160.000 ms]
+RAM Speed: internal memcpy():	 Rate = 8533.333 KB/s	[cost: 150.000 ms]
 ______Perform 128 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 240.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8258.065 KB/s	[cost: 310.000 ms]
 ______Perform 256 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 480.000 ms]
+RAM Speed: system memcpy():	 Rate = 10448.980 KB/s	[cost: 490.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8258.065 KB/s	[cost: 620.000 ms]
 ______Perform 512 KBytes access ______
-RAM Speed: system memcpy():	 Rate = 10556.701 KB/s	[cost: 970.000 ms]
-RAM Speed: internal memcpy():	 Rate = 8258.065 KB/s	[cost: 1240.000 ms]
+RAM Speed: system memcpy():	 Rate = 10666.667 KB/s	[cost: 960.000 ms]
+RAM Speed: internal memcpy():	 Rate = 8192.000 KB/s	[cost: 1250.000 ms]
 ______Perform 1024 KBytes access ______
 RAM Speed: system memcpy():	 Rate = 10556.701 KB/s	[cost: 1940.000 ms]
 RAM Speed: internal memcpy():	 Rate = 8258.065 KB/s	[cost: 2480.000 ms]
@@ -159,14 +159,14 @@ ______Perform 256 Bytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 512 Bytes access______
-RAM Speed: system memset():	 Rate = 1000.000 KB/s	[cost: 10.000 ms]
+RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 1 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 2 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
-RAM Speed: internal memset():	 Rate = 4000.000 KB/s	[cost: 10.000 ms]
+RAM Speed: Time-consuming is too short, please increase the <repeat number>
 ______Perform 4 KBytes access______
 RAM Speed: Time-consuming is too short, please increase the <repeat number>
 RAM Speed: internal memset():	 Rate = 8000.000 KB/s	[cost: 10.000 ms]
@@ -174,11 +174,11 @@ ______Perform 8 KBytes access______
 RAM Speed: system memset():	 Rate = 16000.000 KB/s	[cost: 10.000 ms]
 RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 10.000 ms]
 ______Perform 16 KBytes access______
-RAM Speed: system memset():	 Rate = 32000.000 KB/s	[cost: 10.000 ms]
-RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 20.000 ms]
+RAM Speed: system memset():	 Rate = 16000.000 KB/s	[cost: 20.000 ms]
+RAM Speed: internal memset():	 Rate = 32000.000 KB/s	[cost: 10.000 ms]
 ______Perform 32 KBytes access______
-RAM Speed: system memset():	 Rate = 32000.000 KB/s	[cost: 20.000 ms]
-RAM Speed: internal memset():	 Rate = 16000.000 KB/s	[cost: 40.000 ms]
+RAM Speed: system memset():	 Rate = 21333.333 KB/s	[cost: 30.000 ms]
+RAM Speed: internal memset():	 Rate = 21333.333 KB/s	[cost: 30.000 ms]
 ______Perform 64 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 50.000 ms]
 RAM Speed: internal memset():	 Rate = 18285.714 KB/s	[cost: 70.000 ms]
@@ -186,8 +186,8 @@ ______Perform 128 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 100.000 ms]
 RAM Speed: internal memset():	 Rate = 18285.714 KB/s	[cost: 140.000 ms]
 ______Perform 256 KBytes access______
-RAM Speed: system memset():	 Rate = 26947.368 KB/s	[cost: 190.000 ms]
-RAM Speed: internal memset():	 Rate = 17655.172 KB/s	[cost: 290.000 ms]
+RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 200.000 ms]
+RAM Speed: internal memset():	 Rate = 18285.714 KB/s	[cost: 280.000 ms]
 ______Perform 512 KBytes access______
 RAM Speed: system memset():	 Rate = 25600.000 KB/s	[cost: 400.000 ms]
 RAM Speed: internal memset():	 Rate = 17964.912 KB/s	[cost: 570.000 ms]
@@ -199,68 +199,69 @@ RAM Speed: internal memset():	 Rate = 17964.912 KB/s	[cost: 1140.000 ms]
 # command: ubench
 # microbenchmark, 60 MHz, 4000000 passes
 # sdram: tRP 1, tRAS 2, tRC 3, refresh 0xe0
+# stream 0x10c00000, far 0x10342778
 # loop          bytes  insn   seconds   cyc/pass  cyc/instr
-UB alu   sdram      26    11     1.010      15.15       1.38
+UB alu   sdram      26    11     1.000      15.00       1.36
 UB alu   ivram      26    11     1.410      21.15       1.92
 UB alu+16 sdram     26    11     1.000      15.00       1.36
-UB wide  sdram      42    11     3.980      59.70       5.43
+UB wide  sdram      42    11     3.990      59.85       5.44
 UB wide  ivram      42    11     2.220      33.30       3.03
 UB load  sdram      26    11     1.540      23.10       2.10
 UB load  ivram      26    11     1.880      28.20       2.56
 UB store sdram      26    11     2.390      35.85       3.26
-UB store ivram      26    11     3.010      45.15       4.10
-UB size 4           18     7     0.740      11.10       1.59
-UB size 16          42    19     3.980      59.70       3.14
+UB store ivram      26    11     3.000      45.00       4.09
+UB size 4           18     7     0.730      10.95       1.56
+UB size 16          42    19     3.990      59.85       3.15
 UB size 32          74    35     0.670     100.50       2.87
 UB loadb sdram      26    11     1.540      23.10       2.10
-UB storeb sdrm      26    11     2.390      35.85       3.26
-UB loadseq          26    11     0.043      39.48       3.59
-UB storeseq         26    11     0.025      23.75       2.16
+UB storeb sdrm      26    11     2.380      35.70       3.25
+UB loadseq          26    11     0.043      39.77       3.62
+UB storeseq         26    11     0.025      23.46       2.13
 UB copyw            34    11     0.058     106.43       9.68
-UB copyfar          34    11     0.060     109.86       9.99
+UB copyfar          34    11     0.060     110.44      10.04
 UB long  sdram     138    67     1.210     181.50       2.71
 UB long  ivram     138    67     0.700     105.00       1.57
 UB ext2  sdram      58    11     5.600      84.00       7.64
-UB ext2  ivram      58    11     3.300      49.50       4.50
+UB ext2  ivram      58    11     3.290      49.35       4.49
 UB rowthrash        32    11     8.020     120.30      10.94
 UB bankpair         34    11     7.880     118.20      10.75
-UB copyloop         22     5     0.050      23.17       4.63
+UB copyloop         22     5     0.050      23.03       4.61
 UB lddisp           42    11     4.450      66.75       6.07
-UB mult             26    11     4.150      62.25       5.66
-UB callret          28    11    11.360     170.40      15.49
+UB mult             26    11     4.160      62.40       5.67
+UB callret          28    11    11.370     170.55      15.50
 UB pushpop          26    11     3.860      57.90       5.26
-UB mmio             32    11     5.460      81.90       7.45
-UB loadseq8         26    11     0.041      76.10       6.92
+UB mmio             32    11     5.450      81.75       7.43
+UB loadseq8         26    11     0.041      75.53       6.87
 UB copydisp         82    20     0.058     215.15      10.76
-UB bytecopy         50    19     0.145     133.04       7.00
-UB bcskew1          52    19     0.144     131.89       6.94
-UB bcskew2          52    19     0.144     131.89       6.94
-UB bcskew3          52    19     0.144     131.89       6.94
+UB bytecopy         50    19     0.146     133.32       7.02
+UB bcskew1          52    19     0.144     132.18       6.96
+UB bcskew2          52    19     0.144     132.18       6.96
+UB bcskew3          52    19     0.144     132.18       6.96
 UB ld2              50    19     0.239     219.15      11.53
 UB ld2skew          52    19     0.244     223.16      11.75
 UB st2              50    19     0.170     155.35       8.18
 UB st2skew          52    19     0.174     159.07       8.37
 UB ld2bf            34    11     7.880     118.20      10.75
 UB ld2w             50    19     0.060     219.73      11.56
-UB mix16            66    27     0.080     147.06       5.45
+UB mix16            66    27     0.082     151.06       5.59
 UB mix64           162    75     0.146     267.22       3.56
 UB mix96           226   107     0.190     348.47       3.26
 UB bcpad0           22     5     0.144      16.45       3.29
-UB bcpad4           30     9     0.444      50.78       5.64
+UB bcpad4           30     9     0.445      50.96       5.66
 UB bcpad8           38    13     0.507      58.04       4.46
-UB bcwide4          38     9     0.507      58.04       6.45
+UB bcwide4          38     9     0.508      58.08       6.45
 UB bcacc1           44    13     0.042      19.45       1.50
 UB bcacc2           44    13     0.051      23.46       1.80
-UB bcacc4           60    13     0.099      45.49       3.50
+UB bcacc4           60    13     0.099      45.35       3.49
 UB bcal0            44    13     0.051      23.46       1.80
-UB bcal2            46    13     0.126      57.51       4.42
-UB bcal4            48    13     0.129      59.08       4.54
-UB bcal6            50    13     0.124      56.93       4.38
+UB bcal2            46    13     0.123      56.22       4.32
+UB bcal4            48    13     0.137      62.80       4.83
+UB bcal6            50    13     0.124      56.79       4.37
 UB bcal8            52    13     0.127      58.08       4.47
 UB bcal10           54    13     0.127      58.08       4.47
 UB bcal12           56    13     0.127      58.08       4.47
 UB bcal14           58    13     0.129      59.22       4.56
-UB bcs10o0          28     5     0.034      15.59       3.12
+UB bcs10o0          28     5     0.033      15.45       3.09
 UB bcs10o4          32     5     0.034      15.59       3.12
 UB bcs10o8          36     5     0.034      15.59       3.12
 UB bcs10o12         40     5     0.034      15.59       3.12
@@ -268,29 +269,33 @@ UB bcs18o0          36     9     0.042      19.45       2.16
 UB bcs18o4          40     9     0.042      19.45       2.16
 UB bcs18o8          44     9     0.042      19.45       2.16
 UB bcs18o12         48     9     0.121      55.22       6.14
-UB bcs26o0          44    13     0.113      51.78       3.98
+UB bcs26o0          44    13     0.051      23.46       1.80
 UB bcs26o4          48    13     0.129      59.08       4.54
 UB bcs26o8          52    13     0.127      58.08       4.47
-UB bcs26o12         56    13     0.127      58.22       4.48
+UB bcs26o12         56    13     0.135      61.94       4.76
 UB bcs34o0          52    17     0.136      62.08       3.65
 UB bcs34o4          56    17     0.136      62.23       3.66
 UB bcs34o8          60    17     0.140      64.23       3.78
-UB bcs34o12         64    17     0.165      75.67       4.45
-UB f128  sdram     270   131     2.300     345.00       2.63
+UB bcs34o12         64    17     0.166      75.82       4.46
+UB f128  sdram     270   131     2.310     346.50       2.65
 UB f256  sdram     526   259     4.480     672.00       2.59
 UB br32  sdram     138    67     2.070     310.50       4.63
-UB ld2fix           50    19     0.221     202.56      10.66
-UB ld1walk          42    19     0.124     113.58       5.98
+UB f1024 sdram    2062  1027     4.360    2616.00       2.55
+UB ld2fix           50    19     0.222     202.85      10.68
+UB ld1walk          42    19     0.124     113.87       5.99
+UB rowrate2         50    19     0.170     155.64       8.19
+UB rowrate4         50    19     0.139     127.32       6.70
+UB rowrate8         50    19     0.135     123.88       6.52
 UB ld2mix           50    19     0.228     209.14      11.01
 UB ld2near          48    19     0.243     222.30      11.70
 UB ld2far           50    19     0.250     228.88      12.05
 UB ld2small         26     7     3.030      45.45       6.49
 UB rtbig            56    23     9.640     144.60       6.29
 # the same 26-byte loop, placed to straddle each boundary
-UBO offset     0 crosses     0      1.000      15.00
-UBO offset    16 crosses    32      1.000      15.00
-UBO offset    48 crosses    64      1.000      15.00
-UBO offset   112 crosses   128      1.000      15.00
+UBO offset     0 crosses     0      1.010      15.15
+UBO offset    16 crosses    32      1.010      15.15
+UBO offset    48 crosses    64      1.010      15.15
+UBO offset   112 crosses   128      1.010      15.15
 UBO offset   240 crosses   256      1.010      15.15
 UBO offset   496 crosses   512      1.010      15.15
 UBO offset  1008 crosses  1024      2.890      43.35
@@ -313,13 +318,13 @@ ST 5 of 5 interpreters ran
 Using block size = 4096 bytes, sync = false
 
 Testing Sequential Write Speed...
-  Run  1:    126.7 KB/s, max write time: 60.000 ms (66.7 KB/s), fsync: 10.000 ms
-  Run  2:    123.1 KB/s, max write time: 60.000 ms (66.7 KB/s), fsync: 20.000 ms
-  Run  3:    126.7 KB/s, max write time: 50.000 ms (80.0 KB/s), fsync: 10.000 ms
-  Avg   :    125.5 KB/s, 0.375 MB written.
+  Run  1:    122.8 KB/s, max write time: 60.000 ms (66.7 KB/s), fsync: 10.000 ms
+  Run  2:    125.5 KB/s, max write time: 50.000 ms (80.0 KB/s), fsync: 20.000 ms
+  Run  3:     87.1 KB/s, max write time: 280.000 ms (14.3 KB/s), fsync: 10.000 ms
+  Avg   :    111.8 KB/s, 0.332 MB written.
 
 Testing Sequential Read Speed...
-  Run  1:    284.0 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
-  Run  2:    285.7 KB/s, max read/verify time: 20.0000 ms (200.0 KB/s)
-  Avg   :    284.4 KB/s, 0.375 MB and verified
-# 7 of 7 benchmarks ran, in 563 seconds
+  Run  1:    296.0 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
+  Run  2:    293.3 KB/s, max read/verify time: 10.0000 ms (400.0 KB/s)
+  Avg   :    295.7 KB/s, 0.332 MB and verified
+# 7 of 7 benchmarks ran, in 580 seconds
