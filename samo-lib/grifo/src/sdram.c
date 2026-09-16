@@ -27,26 +27,40 @@
 /*
  * The boot loader in flash brings the SDRAM up with every timing field at
  * its maximum (samo-lib/include/boards/samo_a1.h: tRP 4, tRAS 8, tRC 15
- * clocks, refresh every 141) although its own comment works out 1, 3, and
- * 4 clocks for the part.  Each row change then costs about 19 clocks
- * instead of 7, and 13% of the bus goes to refresh.  The board's
+ * clocks, refresh every 140) although its own comment works out 1, 3, and
+ * 4 clocks for the part -- and that comment has the clock right, at the
+ * source rate, where this file had it wrong for a day.  Left alone the
+ * fields are two to three times what the part asks and the refresh three
+ * times more often than it needs.  The board's
  * EM48AM1684VTD-75 (Circuits/SAMO_PM_V3_SCH) needs tRP/tRCD 20 ns, tRAS
  * 45 ns, tRC/tRFC 65 ns, tXSR 75 ns, and a refresh every 7.8 us.
  *
- * The fields count SDCLK, and an SDCLK is two MCLK: the device times a read
- * that changes rows 8.5 MCLK above one that does not, against a programmed
- * tRP + tRCD of four of them (emulator/src/sdramc.c).  So a field clock is
- * 33.3 ns at the 60 MHz MCLK rather than 16.7, and the values below give 33,
- * 67 and 100 ns and a refresh every 7.5 us.  Sizing them against MCLK
- * instead halves every figure on paper, which reads as comfortably inside the
- * part while asking three times what it needs of the timings and refreshing
- * more slowly than it allows.
+ * The fields count SDCLK, and an SDCLK is one MCLK -- 16.7 ns at 60 MHz.
+ * III.1.9.4 of the technical manual has the SDRAM interface running on
+ * OSC_W, the clock MCLK is divided from, and CMU.c leaves MCLKDIV at 0, so
+ * the two are the same; II.4.4.7 says as much from the other side, that DBF
+ * is for when they are not.  An earlier version of this file said two, from
+ * a row change costing 8.5 MCLK against four programmed clocks -- which
+ * says two only if the controller's own overhead is nothing, and it is
+ * about six MCLK.  `ubench sdclk' settled it on the device by sweeping one
+ * field at a time and taking the slope, where the overhead cancels: tRC
+ * costs 1.17 MCLK a cycle, tRAS the same within the quantisation, and the
+ * refresh interval scales the same way (tools/ubench-sdclk-device.txt).
  *
- * Tightening them to what the part asks is worth, in the emulator, 4% of
- * coremark, 7% of dhrystone, 37% of the C33 assembly memcpy's throughput and
- * 6% of the time the terminal spends scrolling.  tRC 2 rather than 3 is
- * another half a percent and leaves 1.7 ns on a 65 ns requirement, which is
- * not enough to hold the same field's tRFC honestly.
+ * So, against the part's 20 / 45 / 65 ns and a 7.8 us refresh: tRP and tRCD
+ * 2 cycles (33.3 ns), tRAS 3 (50 ns), and 5 rather than 4 for the third
+ * field because it programs tXSR as well, and leaving self-refresh wants
+ * 75 ns where tRC and tRFC want 65.  AURCO 0x1c0 refreshes every 7.47 us,
+ * just inside the part and nearly twice as far apart as the loader's.
+ *
+ * The values this file shipped before -- 1, 2, 3 -- came from the same
+ * factor of two and were 16.7 / 33.3 / 50 ns: under the part on all three,
+ * and under tXSR by more than half.  They ran, as out-of-spec memory
+ * timings do until they do not.  Honouring the part costs what the sweep
+ * measures directly: a row change in the same bank goes from 15.19 to
+ * 17.63 MCLK, the tRP field being the one that moves it, at 2.56 MCLK a
+ * cycle because it is charged twice.  The refresh going the other way
+ * gives about half a MCLK of that back.
  *
  * SDRAM_TIMING=STOCK leaves the loader's registers alone.  The values are
  * in sdram.h because SuspendCode, which puts the SDRAM into self-refresh

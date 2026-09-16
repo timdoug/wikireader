@@ -247,13 +247,13 @@ static void sdramc_boot_state(struct mem *mem)
 	const char *rev = getenv("WREMU_BOARD_REV");
 	unsigned long r = rev ? strtoul(rev, NULL, 0) : 7;   /* see port.c */
 	bool small = r == 8 || r == 6;   /* 16 MB boards; the rest are 32 */
-	uint32_t ctl = ((1u - 1) << 12) | ((2u - 1) << 8) | ((3u - 1) << 4) |
+	uint32_t ctl = ((2u - 1) << 12) | ((3u - 1) << 8) | ((5u - 1) << 4) |
 		       (small ? 0x2u : 0x3u);
 
 	mem_write(mem, REG_BASE + 0x1600, 4, 0);          /* INI: off first */
 	mem_write(mem, REG_BASE + 0x1610, 4, 0x8000000b); /* ARBON|CAS1|APPON|IQB */
 	mem_write(mem, REG_BASE + 0x1604, 4, ctl);
-	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff00e0); /* SCKON|SELEN|SELCO|AURCO */
+	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff01c0); /* SCKON|SELEN|SELCO|AURCO */
 	mem_write(mem, REG_BASE + 0x1600, 4, 0x14);       /* SDON|INIMRS */
 }
 

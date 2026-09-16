@@ -33,10 +33,10 @@
 #define SDRAM_CLKS_TRC  15
 #define SDRAM_REFRESH   0x8c
 #else
-#define SDRAM_CLKS_TRP  1
-#define SDRAM_CLKS_TRAS 2
-#define SDRAM_CLKS_TRC  3
-#define SDRAM_REFRESH   0xe0
+#define SDRAM_CLKS_TRP  2
+#define SDRAM_CLKS_TRAS 3
+#define SDRAM_CLKS_TRC  5
+#define SDRAM_REFRESH   0x1c0
 #endif
 
 /* Call once, after Suspend_initialise has copied the A0 RAM code. */
