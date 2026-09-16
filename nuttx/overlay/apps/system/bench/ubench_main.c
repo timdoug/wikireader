@@ -396,6 +396,199 @@ static void ub_boundary(int fd, size_t span)
 }
 
 /****************************************************************************
+ * What an SDCLK is
+ ****************************************************************************/
+
+/* The controller's timing fields count SDCLK, and every figure the memory
+ * model produces rests on what an SDCLK is in MCLK.  That number has never
+ * been measured.  It was inferred: the device charges 8.5 MCLK for a read
+ * that changes rows against four programmed clocks, which says two MCLK an
+ * SDCLK only if the controller's own overhead is nothing, and the overhead
+ * is plainly not nothing.  The technical manual says one -- III.1.9.4 has
+ * the SDRAM interface running on OSC_W, the clock MCLK is divided from, and
+ * MCLKDIV is 0 on this board, so OSC_W is MCLK -- and the loader's own
+ * comment (samo_a1.h, "48MHz => 20ns clock cycle") agrees with the manual.
+ *
+ * A slope settles it and needs no overhead assumption at all: lengthen one
+ * field, leave everything else alone, and divide the extra MCLK by the extra
+ * SDCLK.  Whatever the fixed cost of an access is, it subtracts out.
+ *
+ * rowthrash alternates two addresses 1 KB apart, which is the next row of
+ * the same bank, so every one of its accesses precharges and activates and
+ * all three fields are on its critical path.  alu never leaves the loop it
+ * is in and load never leaves one row: those two are the control, and they
+ * should not move at all except when the refresh interval does.
+ *
+ * Nothing here is a risk to the part.  Every setting is longer than the one
+ * the machine is already running, and the refresh sweep only ever refreshes
+ * more often than it has to.
+ */
+
+typedef void (*ub_retime_t)(uint32_t ctl, uint32_t ref);
+
+extern void ub_retime(uint32_t ctl, uint32_t ref);
+extern void ub_retime_end(void);
+
+#define UB_SDRAMC_CTL  0x00301604
+#define UB_SDRAMC_REF  0x00301608
+
+#define UB_T24NS(x)    (((x) - 1) << 12)   /* tRP, and tRCD with it */
+#define UB_T60NS(x)    (((x) - 1) << 8)    /* tRAS */
+#define UB_T80NS(x)    (((x) - 1) << 4)    /* tRC, and tRFC with it */
+#define UB_FIELDS      (UB_T24NS(4) | UB_T60NS(8) | UB_T80NS(16))
+
+/* Long enough that the 10 ms tick the clock counts in is a fraction of a
+ * percent of the answer, short enough that the whole sweep is a minute.
+ */
+
+#define UB_SWEEP_PASSES 400000
+#define UB_QUIET_PASSES 2000000
+
+/* Accesses per pass of rowthrash: four each of two addresses. */
+
+#define UB_THRASH_ACCESSES 8
+
+struct ub_sweep_s
+{
+  FAR const char *field;   /* which one this row is moving */
+  unsigned trp;
+  unsigned tras;
+  unsigned trc;
+  unsigned aurco;
+};
+
+/* The shipped interval, from grifo's sdram.h: held fixed everywhere except
+ * where it is the thing being swept.
+ */
+
+#define UB_REFRESH 0xe0
+
+static const struct ub_sweep_s g_sweep[] =
+{
+  /* tRP is tRCD as well, so a step of one puts two more SDCLK on the path
+   * from precharge to data.  A straight line, no knee: the cleanest of the
+   * three.
+   */
+
+  { "tRP",  1, 3, 4,  UB_REFRESH },
+  { "tRP",  2, 3, 4,  UB_REFRESH },
+  { "tRP",  3, 3, 4,  UB_REFRESH },
+  { "tRP",  4, 3, 4,  UB_REFRESH },
+
+  /* tRC is the floor between one activation of a bank and the next, so it
+   * does nothing until it exceeds what the access already costs and is a
+   * straight line after that.  Where the knee falls is a second answer:
+   * near 14 if an SDCLK is one MCLK, near 7 if it is two.
+   */
+
+  { "tRC",  1, 3, 4,  UB_REFRESH },
+  { "tRC",  1, 3, 6,  UB_REFRESH },
+  { "tRC",  1, 3, 8,  UB_REFRESH },
+  { "tRC",  1, 3, 10, UB_REFRESH },
+  { "tRC",  1, 3, 12, UB_REFRESH },
+  { "tRC",  1, 3, 14, UB_REFRESH },
+  { "tRC",  1, 3, 16, UB_REFRESH },
+
+  /* tRAS holds the row open before it may be precharged, and with tRC short
+   * it is tRAS + tRP that decides how soon the next activation may go.
+   */
+
+  { "tRAS", 1, 3, 4,  UB_REFRESH },
+  { "tRAS", 1, 4, 4,  UB_REFRESH },
+  { "tRAS", 1, 5, 4,  UB_REFRESH },
+  { "tRAS", 1, 6, 4,  UB_REFRESH },
+  { "tRAS", 1, 7, 4,  UB_REFRESH },
+  { "tRAS", 1, 8, 4,  UB_REFRESH },
+
+  /* The refresh counter counts SDCLK too, and refreshing steals the bus
+   * from everything including instruction fetch -- so this one moves the
+   * controls, and what it costs per refresh is a number the model wants
+   * anyway.  Only downwards: more often than the part needs is safe.
+   */
+
+  { "ref",  1, 3, 4,  0x20 },
+  { "ref",  1, 3, 4,  0x40 },
+  { "ref",  1, 3, 4,  0x80 },
+  { "ref",  1, 3, 4,  UB_REFRESH },
+};
+
+static void ub_sweep(int fd)
+{
+  /* Three probes: one that never touches memory beyond its own fetch, one
+   * that touches one row of it, and one that changes row on every access.
+   */
+
+  static const struct ub_case_s probes[] =
+  {
+    { "alu",       ub_alu,       ub_alu_end,       UB_QUIET_PASSES,
+      11, false, false, false },
+    { "load",      ub_load,      ub_load_end,      UB_QUIET_PASSES,
+      11, false, false, false },
+    { "rowthrash", ub_rowthrash, ub_rowthrash_end, UB_SWEEP_PASSES,
+      11, false, false, true },
+  };
+
+  FAR volatile uint32_t *ctlp = (FAR volatile uint32_t *)UB_SDRAMC_CTL;
+  FAR volatile uint32_t *refp = (FAR volatile uint32_t *)UB_SDRAMC_REF;
+  uint32_t ctl0 = *ctlp;
+  uint32_t ref0 = *refp;
+  size_t bytes = (uintptr_t)ub_retime_end - (uintptr_t)ub_retime;
+  ub_retime_t retime = (ub_retime_t)UB_IVRAM_BASE;
+  int i;
+
+  if (g_far == NULL)
+    {
+      dprintf(fd, "# no 5 MB buffer, so no sweep\n");
+      return;
+    }
+
+  /* Its own copy at the base of the window rather than the block offset the
+   * measured loops use, so that adding it moved none of them.
+   */
+
+  memcpy((FAR void *)UB_IVRAM_BASE, (FAR const void *)ub_retime, bytes);
+
+  dprintf(fd, "# sweep: one field at a time, the others held.  The slope of\n"
+              "# cyc/access against the field is MCLK per SDCLK -- 1 if the\n"
+              "# manual is right, 2 if the model's fitted value is.\n");
+  dprintf(fd, "# %-5s %4s %4s %4s %6s %10s %8s %8s %9s %8s\n",
+          "field", "tRP", "tRAS", "tRC", "ref", "ctl", "alu", "load",
+          "rowthr", "rt/acc");
+
+  for (i = 0; i < (int)(sizeof(g_sweep) / sizeof(g_sweep[0])); i++)
+    {
+      const struct ub_sweep_s *s = &g_sweep[i];
+      uint32_t ctl = (ctl0 & ~(uint32_t)UB_FIELDS) |
+                     UB_T24NS(s->trp) | UB_T60NS(s->tras) | UB_T80NS(s->trc);
+      uint32_t ref = (ref0 & ~(uint32_t)0xfff) | s->aurco;
+      double cycles[3];
+      int p;
+
+      retime(ctl, ref);
+
+      for (p = 0; p < 3; p++)
+        {
+          cycles[p] = ub_run(&probes[p]) * CONFIG_S1C33E07_MCLK /
+                      probes[p].passes;
+        }
+
+      /* The register is read back rather than reprinted: the device has
+       * refused a write to this block before.
+       */
+
+      dprintf(fd, "SW %-5s %4u %4u %4u  0x%03x 0x%08" PRIx32
+                  " %8.2f %8.2f %9.2f %8.2f\n",
+              s->field, s->trp, s->tras, s->trc, s->aurco, *ctlp,
+              cycles[0], cycles[1], cycles[2],
+              cycles[2] / UB_THRASH_ACCESSES);
+    }
+
+  retime(ctl0, ref0);
+  dprintf(fd, "# restored ctl 0x%08" PRIx32 " ref 0x%08" PRIx32 "\n",
+          *ctlp, *refp);
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -632,6 +825,22 @@ int main(int argc, FAR char *argv[])
      its own header rather than in a later argument about the numbers. */
 
   dprintf(fd, "# stream %p, far %p\n", g_stream, g_far);
+
+  /* Not a selection of loops but a different instrument: the loops are the
+   * same three throughout and what varies is the controller underneath them.
+   */
+
+  if (only != NULL && strcmp(only, "sdclk") == 0)
+    {
+      ub_sweep(fd);
+      if (standalone)
+        {
+          bench_card_close(fd, path);
+        }
+
+      return EXIT_SUCCESS;
+    }
+
   dprintf(fd, "# %-12s %6s %5s %9s %10s %10s\n", "loop", "bytes", "insn",
           "seconds", "cyc/pass", "cyc/instr");
 

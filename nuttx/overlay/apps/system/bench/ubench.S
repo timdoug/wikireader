@@ -2143,3 +2143,48 @@ ub_f1024_end:
 
 	.global	ub_block_end
 ub_block_end:
+
+/*
+ * Reprogram the controller's timing, from somewhere that is not SDRAM.
+ *
+ * Outside the measured block on purpose: everything above is placed where it
+ * is and the numbers move when that changes, so this goes after the end
+ * marker and is copied to internal RAM on its own rather than by the block
+ * offset every loop shares.
+ *
+ * The rules are Grifo's SuspendCode's: no stack, no calls, no globals, and
+ * no SDRAM access between the write and the settling.  Interrupts go off
+ * first because the vector table and every handler behind it live in SDRAM,
+ * and come back on only if they were on.  %r6 is the configuration register,
+ * %r7 the refresh register, in that order because that is the order
+ * II.4.1.5 initialises them in.
+ */
+
+	.p2align 5
+	.global	ub_retime
+	.type	ub_retime,@function
+ub_retime:
+	ld.w	%r4,%psr
+	and	%r4,0x10
+	psrclr	0x4
+	xld.w	%r5,0x301604
+	ld.w	[%r5],%r6
+	xld.w	%r5,0x301608
+	ld.w	[%r5],%r7
+	/* Settle, out of a counter rather than a run of nops: a nop on this
+	   part assembles to a zero halfword, and sixty-four of them in a row
+	   is indistinguishable from a guest that has jumped into erased
+	   memory -- which the emulator stops on, rightly. */
+	xld.w	%r8,64
+	ld.w	%r9,1
+2:
+	sub	%r8,%r9
+	cmp	%r8,0
+	jrne	2b
+	cmp	%r4,0
+	jreq	1f
+	psrset	0x4
+1:
+	ret
+	.global	ub_retime_end
+ub_retime_end:

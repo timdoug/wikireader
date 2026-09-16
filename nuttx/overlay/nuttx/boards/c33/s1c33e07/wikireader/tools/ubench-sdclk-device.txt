@@ -1,0 +1,29 @@
+# microbenchmark, 60 MHz, 4000000 passes
+# sdram: tRP 1, tRAS 2, tRC 3, refresh 0xe0
+# stream 0x10c00000, far 0x10341338
+# sweep: one field at a time, the others held.  The slope of
+# cyc/access against the field is MCLK per SDCLK -- 1 if the
+# manual is right, 2 if the model's fitted value is.
+# field  tRP tRAS  tRC    ref        ctl      alu     load    rowthr   rt/acc
+SW tRP      1    3    4  0x0e0 0x00000233    15.00    23.10    121.50    15.19
+SW tRP      2    3    4  0x0e0 0x00001233    15.30    23.10    141.00    17.63
+SW tRP      3    3    4  0x0e0 0x00002233    15.30    23.10    162.00    20.25
+SW tRP      4    3    4  0x0e0 0x00003233    15.30    23.10    183.00    22.88
+SW tRC      1    3    4  0x0e0 0x00000233    15.00    23.10    121.50    15.19
+SW tRC      1    3    6  0x0e0 0x00000253    15.00    23.10    121.50    15.19
+SW tRC      1    3    8  0x0e0 0x00000273    15.30    23.10    124.50    15.56
+SW tRC      1    3   10  0x0e0 0x00000293    15.00    23.10    136.50    17.06
+SW tRC      1    3   12  0x0e0 0x000002b3    15.00    23.40    153.00    19.13
+SW tRC      1    3   14  0x0e0 0x000002d3    15.30    23.10    171.00    21.38
+SW tRC      1    3   16  0x0e0 0x000002f3    15.00    23.10    190.50    23.81
+SW tRAS     1    3    4  0x0e0 0x00000233    15.30    23.10    120.00    15.00
+SW tRAS     1    4    4  0x0e0 0x00000333    15.30    23.10    120.00    15.00
+SW tRAS     1    5    4  0x0e0 0x00000433    15.30    23.10    120.00    15.00
+SW tRAS     1    6    4  0x0e0 0x00000533    15.30    23.10    121.50    15.19
+SW tRAS     1    7    4  0x0e0 0x00000633    15.00    23.10    123.00    15.38
+SW tRAS     1    8    4  0x0e0 0x00000733    15.00    23.40    126.00    15.75
+SW ref      1    3    4  0x020 0x00000233    15.00    23.10    126.00    15.75
+SW ref      1    3    4  0x040 0x00000233    15.00    23.10    124.50    15.56
+SW ref      1    3    4  0x080 0x00000233    15.00    23.10    121.50    15.19
+SW ref      1    3    4  0x0e0 0x00000233    15.00    23.10    121.50    15.19
+# restored ctl 0x00000123 ref 0x01ff00e0
