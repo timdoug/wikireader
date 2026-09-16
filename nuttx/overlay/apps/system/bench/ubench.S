@@ -1778,5 +1778,261 @@ ub_bcs34o12:
 	.global	ub_bcs34o12_end
 ub_bcs34o12_end:
 
+/* What a byte of instruction costs a program with a real code footprint.
+ *
+ * Everything above is a loop small enough to argue about: the queue holds
+ * two sixteen-byte lines, so a body of 26 or 42 bytes is partly resident
+ * and what it measures is residency rather than fetch.  The model splits
+ * the difference -- iqb_first is four half-MCLK because "the micro loops
+ * want eight and Dhrystone wants zero" -- and nothing here could say which
+ * end was right, because nothing here had a footprint.
+ *
+ * The rv32 interpreter built entirely into SDRAM does, and the device runs
+ * it 10% cheaper than the model does, uniformly across ten guest workloads.
+ * These extend the size sweep past the point where residency can help at
+ * all: at 266 and 522 bytes every fetch misses, so the cost per byte is the
+ * asymptote and the difference from ub_straight's 138 is what one fill
+ * costs.  Two points beyond the knee is what separates them.
+ *
+ * They stay under a kilobyte on purpose.  A body that straddles a 1 KB page
+ * costs 3.2x, which would be measuring iq_row_evict instead.  They are also
+ * SDRAM-only and last in the block: the internal-RAM copy reaches the end
+ * of the last loop that will run from there, so a case added here can never
+ * be one of those.
+ */
+
+	.p2align 5
+	.global	ub_f128
+	.type	ub_f128,@function
+ub_f128:
+	ld.w	%r5,1
+1:
+	.rept	128
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	xjrne	1b			/* jrne reaches +-256 bytes; this body is longer */
+	ret
+	.global	ub_f128_end
+ub_f128_end:
+
+	.p2align 5
+	.global	ub_f256
+	.type	ub_f256,@function
+ub_f256:
+	ld.w	%r5,1
+1:
+	.rept	256
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	xjrne	1b			/* jrne reaches +-256 bytes; this body is longer */
+	ret
+	.global	ub_f256_end
+ub_f256_end:
+
+/* The same instruction count as ub_straight with a taken branch every
+ * other one, so the pair prices a taken branch in SDRAM on its own.
+ *
+ * branch_taken is 5 and was fitted where branches were a small part of
+ * what was being measured; here they are half of it.  The jump goes to the
+ * next instruction, which is the cheapest target there is -- no row change,
+ * the line already being fetched -- so what is left is what the fetch path
+ * pays for restarting, and nothing else.
+ */
+
+	.p2align 5
+	.global	ub_br32
+	.type	ub_br32,@function
+ub_br32:
+	ld.w	%r5,1
+1:
+	.rept	32
+	add	%r4,%r5
+	jp	9f
+9:
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_br32_end
+ub_br32_end:
+
+/* What it is about two streams that this model gets wrong.
+ *
+ * ld2 and st2 -- two streams read alternately, both walking forward -- are
+ * the loops the model overcharges most, by a quarter to a third.  Nothing
+ * else in the file is: one stream walking is right (loadseq 0.993), and two
+ * addresses alternated while standing still is right (rowthrash 1.056).
+ * Queue depth, the row-change price and the write buffer have each been
+ * tried against that and are each refuted, so the thing to do is take ld2
+ * apart one property at a time rather than guess at another parameter.
+ *
+ * Every loop below is ld2 with exactly one property changed: the same
+ * sixteen byte reads a pass, the same loop, the same pass count, so any
+ * difference is the property and not the shape.
+ *
+ *   ld2fix    the two addresses stand still        (walking is the thing?)
+ *   ld1walk   one stream instead of two            (two is the thing?)
+ *   ld2mix    one walks, one stands still          (which of them matters?)
+ *   ld2near   the two streams a row apart, not 512K   (separation?)
+ *   ld2far    ...and four megabytes apart, another bank
+ */
+
+	.p2align 5
+	.global	ub_ld2fix
+	.type	ub_ld2fix,@function
+ub_ld2fix:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]
+	ld.ub	%r9,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2fix_end
+ub_ld2fix_end:
+
+	.p2align 5
+	.global	ub_ld1walk
+	.type	ub_ld1walk,@function
+ub_ld1walk:
+	ld.w	%r5,1
+1:
+	.rept	16
+	ld.ub	%r4,[%r7]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld1walk_end
+ub_ld1walk_end:
+
+	.p2align 5
+	.global	ub_ld2mix
+	.type	ub_ld2mix,@function
+ub_ld2mix:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2mix_end
+ub_ld2mix_end:
+
+	.p2align 5
+	.global	ub_ld2near
+	.type	ub_ld2near,@function
+ub_ld2near:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x400
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2near_end
+ub_ld2near_end:
+
+	.p2align 5
+	.global	ub_ld2far
+	.type	ub_ld2far,@function
+ub_ld2far:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x400000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2far_end
+ub_ld2far_end:
+
+/* Is it the code footprint and the row changes together?
+ *
+ * Sorted by whether the body outruns the instruction queue and whether the
+ * data changes rows, every loop in this file falls where it should: the
+ * model overcharges by a fifth to a third exactly when both are true, and
+ * is right within 2% when either is false.  rowthrash alternates two rows
+ * in a 32-byte body and fits; ld2fix alternates two rows in a 50-byte body
+ * and is 0.782.  Nothing else distinguishes them -- not walking, not the
+ * separation, not the access width, all of which have been measured and
+ * ruled out.
+ *
+ * These two cross the pair over.  ld2small is ld2fix with a body small
+ * enough to stay resident and nothing else changed; rtbig is rowthrash with
+ * adds padding its body past the window and its accesses untouched.  If the
+ * reading is right, ld2small comes back near 1.0 and rtbig drops to about
+ * 0.8, and the fault is bus contention between fetch and data rather than
+ * anything in the data path on its own.
+ */
+
+	.p2align 5
+	.global	ub_ld2small
+	.type	ub_ld2small,@function
+ub_ld2small:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	2
+	ld.ub	%r4,[%r7]
+	ld.ub	%r9,[%r8]
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_ld2small_end
+ub_ld2small_end:
+
+	.p2align 5
+	.global	ub_rtbig
+	.type	ub_rtbig,@function
+ub_rtbig:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,1024
+1:
+	.rept	4
+	ld.w	%r4,[%r7]
+	ld.w	%r4,[%r8]
+	.endr
+	.rept	12
+	add	%r9,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_rtbig_end
+ub_rtbig_end:
+
 	.global	ub_block_end
 ub_block_end:

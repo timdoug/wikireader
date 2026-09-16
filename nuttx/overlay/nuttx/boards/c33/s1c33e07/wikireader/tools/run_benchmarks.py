@@ -191,17 +191,32 @@ def run_emulator(args):
     # earlier run used; `cardb` on the device prints its own geometry, and
     # matching it here is the difference between comparing the card and
     # comparing two formattings.
-    fat.make_image(card, {"init.app": app.read_bytes()},
+    # The whole boot, not just the application: mask ROM, MBR, kernel.elf,
+    # init.app.  Handing the emulator a bare grifo.elf is what this did until
+    # the emulator stopped accepting one, and it was always the wrong thing --
+    # a direct boot leaves the SDRAM controller, the clocks and the serial
+    # line in a state the hardware is never in, which is exactly what a
+    # benchmark must not do.
+    fat.make_image(card, {"kernel.elf": grifo.read_bytes(),
+                          "init.app": app.read_bytes()},
                    args.sectors_per_cluster)
+    flash = out / "flash.rom"
+    # This one keeps its output in the build tree rather than a temp dir, so
+    # the file is still there from last time and make-flash.py will not
+    # overwrite.
+    flash.unlink(missing_ok=True)
+    subprocess.run([sys.executable,
+                    str(args.wikireader.resolve() / "samo-lib/mbr/make-flash.py"),
+                    str(flash)], check=True, stdout=subprocess.DEVNULL)
 
     (out / "input.txt").write_text("bench\n")
 
     # Late enough that the prompt is there to type at: grifo has to bring the
     # card up and load three megabytes off it before NuttX starts.
-    command = [str(emulator), "-c", str(card), "-n", str(args.limit),
+    command = [str(emulator), "-c", str(card), "-e", str(flash),
+               "-n", str(args.limit),
                "--uart-input", str(out / "input.txt"),
-               "--uart-start", "250000000", "--uart-gap", "200000",
-               str(grifo)]
+               "--uart-start", "250000000", "--uart-gap", "200000"]
     with (out / "benchmarks.log").open("w") as log:
         # The device these numbers are compared against is one of the 32 MB
         # boards -- its own SDRAM controller reports ADDRC 3 -- and the

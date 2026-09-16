@@ -252,6 +252,26 @@ extern void ub_bcs34o8(unsigned long passes, volatile void *buffer);
 extern void ub_bcs34o8_end(void);
 extern void ub_bcs34o12(unsigned long passes, volatile void *buffer);
 extern void ub_bcs34o12_end(void);
+extern void ub_f128(unsigned long passes, volatile void *buffer);
+extern void ub_f128_end(void);
+extern void ub_f256(unsigned long passes, volatile void *buffer);
+extern void ub_f256_end(void);
+extern void ub_br32(unsigned long passes, volatile void *buffer);
+extern void ub_br32_end(void);
+extern void ub_ld2fix(unsigned long passes, volatile void *buffer);
+extern void ub_ld2fix_end(void);
+extern void ub_ld1walk(unsigned long passes, volatile void *buffer);
+extern void ub_ld1walk_end(void);
+extern void ub_ld2mix(unsigned long passes, volatile void *buffer);
+extern void ub_ld2mix_end(void);
+extern void ub_ld2near(unsigned long passes, volatile void *buffer);
+extern void ub_ld2near_end(void);
+extern void ub_ld2far(unsigned long passes, volatile void *buffer);
+extern void ub_ld2far_end(void);
+extern void ub_ld2small(unsigned long passes, volatile void *buffer);
+extern void ub_ld2small_end(void);
+extern void ub_rtbig(unsigned long passes, volatile void *buffer);
+extern void ub_rtbig_end(void);
 
 static uint32_t g_scratch[8];
 static FAR uint8_t *g_stream;
@@ -461,6 +481,25 @@ int main(int argc, FAR char *argv[])
     { "bcs34o4", ub_bcs34o4, ub_bcs34o4_end, UB_ACC_PASSES, 17, false , true , false },
     { "bcs34o8", ub_bcs34o8, ub_bcs34o8_end, UB_ACC_PASSES, 17, false , true , false },
     { "bcs34o12", ub_bcs34o12, ub_bcs34o12_end, UB_ACC_PASSES, 17, false , true , false },
+    /* Past the knee: every fetch misses the queue, so these say what a
+       byte costs a program with a footprint, and ub_br32 what a taken
+       branch costs when branches are half the instructions. */
+    { "f128  sdram", ub_f128, ub_f128_end, UB_LONG_PASSES, 131, false , false , false },
+    { "f256  sdram", ub_f256, ub_f256_end, UB_LONG_PASSES, 259, false , false , false },
+    { "br32  sdram", ub_br32, ub_br32_end, UB_LONG_PASSES, 67, false , false , false },
+    /* ld2 with one property changed each, to find which one the model has
+       wrong.  Same sixteen byte reads and same pass count as ld2 itself, so
+       they compare against it directly. */
+    { "ld2fix     ", ub_ld2fix, ub_ld2fix_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld1walk    ", ub_ld1walk, ub_ld1walk_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2mix     ", ub_ld2mix, ub_ld2mix_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2near    ", ub_ld2near, ub_ld2near_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "ld2far     ", ub_ld2far, ub_ld2far_end, UB_BYTE_PASSES, 19, false , false , true  },
+    /* The pair that crosses code footprint over against row changes: a
+       two-row loop small enough to stay resident, and a resident two-row
+       loop padded until it is not. */
+    { "ld2small   ", ub_ld2small, ub_ld2small_end, UB_PASSES, 7, false , true , false },
+    { "rtbig      ", ub_rtbig, ub_rtbig_end, UB_PASSES, 23, false , false , true  },
 
     /* The same body again at four positions inside the fetch line. */
 
