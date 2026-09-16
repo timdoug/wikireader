@@ -1,103 +1,103 @@
 # microbenchmark, 60 MHz, 4000000 passes
-# sdram: tRP 1, tRAS 2, tRC 3, refresh 0xe0
-# stream 0x11400000, far 0x10d00008
+# sdram: tRP 2, tRAS 3, tRC 5, refresh 0x1c0
+# stream 0x10c00000, far 0x10341320
 # loop          bytes  insn   seconds   cyc/pass  cyc/instr
-UB alu   sdram      26    11     1.010      15.15       1.38
-UB alu   ivram      26    11     1.420      21.30       1.94
-UB alu+16 sdram     26    11     1.010      15.15       1.38
-UB wide  sdram      42    11     3.980      59.70       5.43
+UB alu   sdram      26    11     1.000      15.00       1.36
+UB alu   ivram      26    11     1.410      21.15       1.92
+UB alu+16 sdram     26    11     1.000      15.00       1.36
+UB wide  sdram      42    11     4.000      60.00       5.45
 UB wide  ivram      42    11     2.220      33.30       3.03
-UB load  sdram      26    11     1.550      23.25       2.11
-UB load  ivram      26    11     1.880      28.20       2.56
-UB store sdram      26    11     2.390      35.85       3.26
+UB load  sdram      26    11     1.540      23.10       2.10
+UB load  ivram      26    11     1.890      28.35       2.58
+UB store sdram      26    11     2.380      35.70       3.25
 UB store ivram      26    11     3.010      45.15       4.10
-UB size 4           18     7     0.740      11.10       1.59
-UB size 16          42    19     3.980      59.70       3.14
+UB size 4           18     7     0.730      10.95       1.56
+UB size 16          42    19     4.000      60.00       3.16
 UB size 32          74    35     0.670     100.50       2.87
 UB loadb sdram      26    11     1.540      23.10       2.10
-UB storeb sdrm      26    11     2.390      35.85       3.26
-UB loadseq          26    11     0.043      39.48       3.59
+UB storeb sdrm      26    11     2.380      35.70       3.25
+UB loadseq          26    11     0.043      40.05       3.64
 UB storeseq         26    11     0.025      23.75       2.16
-UB copyw            34    11     0.058     106.43       9.68
-UB copyfar          34    11     0.049      90.98       8.27
+UB copyw            34    11     0.067     123.60      11.24
+UB copyfar          34    11     0.071     130.46      11.86
 UB long  sdram     138    67     1.210     181.50       2.71
 UB long  ivram     138    67     0.710     106.50       1.59
-UB ext2  sdram      58    11     5.590      83.85       7.62
+UB ext2  sdram      58    11     5.610      84.15       7.65
 UB ext2  ivram      58    11     3.300      49.50       4.50
-UB rowthrash        32    11     7.750     116.25      10.57
-UB bankpair         34    11     6.630      99.45       9.04
-UB copyloop         22     5     0.050      23.17       4.63
-UB lddisp           42    11     4.460      66.90       6.08
-UB mult             26    11     4.150      62.25       5.66
-UB callret          28    11    11.360     170.40      15.49
-UB pushpop          26    11     3.860      57.90       5.26
-UB mmio             32    11     5.460      81.90       7.45
-UB loadseq8         26    11     0.041      76.10       6.92
-UB copydisp         82    20     0.058     215.15      10.76
-UB bytecopy         50    19     0.145     133.04       7.00
-UB bcskew1          52    19     0.144     131.89       6.94
-UB bcskew2          52    19     0.144     131.89       6.94
-UB bcskew3          52    19     0.144     131.89       6.94
-UB ld2              50    19     0.239     219.15      11.53
-UB ld2skew          52    19     0.244     223.45      11.76
-UB st2              50    19     0.170     155.64       8.19
-UB st2skew          52    19     0.174     159.07       8.37
-UB ld2bf            34    11     7.880     118.20      10.75
-UB ld2w             50    19     0.059     218.58      11.50
-UB mix16            66    27     0.082     151.63       5.62
-UB mix64           162    75     0.146     267.22       3.56
-UB mix96           226   107     0.190     347.90       3.25
-UB bcpad0           22     5     0.144      16.45       3.29
-UB bcpad4           30     9     0.443      50.68       5.63
-UB bcpad8           38    13     0.507      58.04       4.46
-UB bcwide4          38     9     0.508      58.08       6.45
+UB rowthrash        32    11     9.390     140.85      12.80
+UB bankpair         34    11     9.250     138.75      12.61
+UB copyloop         22     5     0.060      27.47       5.49
+UB lddisp           42    11     4.470      67.05       6.10
+UB mult             26    11     4.160      62.40       5.67
+UB callret          28    11    11.320     169.80      15.44
+UB pushpop          26    11     3.900      58.50       5.32
+UB mmio             32    11     5.490      82.35       7.49
+UB loadseq8         26    11     0.041      75.53       6.87
+UB copydisp         82    20     0.067     247.19      12.36
+UB bytecopy         50    19     0.155     141.62       7.45
+UB bcskew1          52    19     0.154     140.76       7.41
+UB bcskew2          52    19     0.155     141.62       7.45
+UB bcskew3          52    19     0.154     141.33       7.44
+UB ld2              50    19     0.276     252.34      13.28
+UB ld2skew          52    19     0.281     256.92      13.52
+UB st2              50    19     0.206     188.54       9.92
+UB st2skew          52    19     0.210     192.26      10.12
+UB ld2bf            34    11     9.250     138.75      12.61
+UB ld2w             50    19     0.069     252.91      13.31
+UB mix16            66    27     0.093     170.52       6.32
+UB mix64           162    75     0.155     284.39       3.79
+UB mix96           226   107     0.199     365.07       3.41
+UB bcpad0           22     5     0.152      17.42       3.48
+UB bcpad4           30     9     0.418      47.85       5.32
+UB bcpad8           38    13     0.518      59.29       4.56
+UB bcwide4          38     9     0.518      59.29       6.59
 UB bcacc1           44    13     0.042      19.45       1.50
-UB bcacc2           44    13     0.051      23.46       1.80
-UB bcacc4           60    13     0.099      45.35       3.49
-UB bcal0            44    13     0.051      23.46       1.80
-UB bcal2            46    13     0.123      56.08       4.31
-UB bcal4            48    13     0.137      62.80       4.83
-UB bcal6            50    13     0.124      56.79       4.37
-UB bcal8            52    13     0.127      58.08       4.47
-UB bcal10           54    13     0.127      58.08       4.47
-UB bcal12           56    13     0.127      58.08       4.47
-UB bcal14           58    13     0.129      59.22       4.56
-UB bcs10o0          28     5     0.034      15.59       3.12
-UB bcs10o4          32     5     0.034      15.59       3.12
-UB bcs10o8          36     5     0.034      15.59       3.12
-UB bcs10o12         40     5     0.034      15.59       3.12
-UB bcs18o0          36     9     0.042      19.45       2.16
-UB bcs18o4          40     9     0.042      19.45       2.16
-UB bcs18o8          44     9     0.042      19.45       2.16
-UB bcs18o12         48     9     0.121      55.22       6.14
-UB bcs26o0          44    13     0.051      23.46       1.80
-UB bcs26o4          48    13     0.129      59.08       4.54
-UB bcs26o8          52    13     0.127      58.08       4.47
-UB bcs26o12         56    13     0.135      61.94       4.76
-UB bcs34o0          52    17     0.136      62.08       3.65
-UB bcs34o4          56    17     0.136      62.23       3.66
-UB bcs34o8          60    17     0.140      64.23       3.78
-UB bcs34o12         64    17     0.166      75.82       4.46
-UB f128  sdram     270   131     2.310     346.50       2.65
-UB f256  sdram     526   259     4.470     670.50       2.59
-UB br32  sdram     138    67     2.070     310.50       4.63
-UB f1024 sdram    2062  1027     4.360    2616.00       2.55
-UB ld2fix           50    19     0.222     202.85      10.68
-UB ld1walk          42    19     0.124     113.58       5.98
-UB rowrate2         50    19     0.170     155.64       8.19
-UB rowrate4         50    19     0.139     127.32       6.70
-UB rowrate8         50    19     0.136     124.17       6.54
-UB ld2mix           50    19     0.228     209.14      11.01
-UB ld2near          48    19     0.243     222.02      11.69
-UB ld2far           50    19     0.210     192.26      10.12
-UB ld2small         26     7     3.030      45.45       6.49
-UB rtbig            56    23     9.350     140.25       6.10
+UB bcacc2           44    13     0.053      24.60       1.89
+UB bcacc4           60    13     0.117      53.36       4.10
+UB bcal0            44    13     0.053      24.60       1.89
+UB bcal2            46    13     0.129      59.22       4.56
+UB bcal4            48    13     0.148      67.95       5.23
+UB bcal6            50    13     0.128      58.51       4.50
+UB bcal8            52    13     0.130      59.37       4.57
+UB bcal10           54    13     0.130      59.37       4.57
+UB bcal12           56    13     0.130      59.37       4.57
+UB bcal14           58    13     0.132      60.37       4.64
+UB bcs10o0          28     5     0.036      16.59       3.32
+UB bcs10o4          32     5     0.036      16.59       3.32
+UB bcs10o8          36     5     0.035      16.45       3.29
+UB bcs10o12         40     5     0.035      16.45       3.29
+UB bcs18o0          36     9     0.045      20.60       2.29
+UB bcs18o4          40     9     0.045      20.60       2.29
+UB bcs18o8          44     9     0.045      20.60       2.29
+UB bcs18o12         48     9     0.123      56.51       6.28
+UB bcs26o0          44    13     0.053      24.60       1.89
+UB bcs26o4          48    13     0.132      60.37       4.64
+UB bcs26o8          52    13     0.129      59.22       4.56
+UB bcs26o12         56    13     0.147      67.23       5.17
+UB bcs34o0          52    17     0.139      63.66       3.74
+UB bcs34o4          56    17     0.139      63.66       3.74
+UB bcs34o8          60    17     0.143      65.52       3.85
+UB bcs34o12         64    17     0.167      76.53       4.50
+UB f128  sdram     270   131     2.330     349.50       2.67
+UB f256  sdram     526   259     4.530     679.50       2.62
+UB br32  sdram     138    67     2.080     312.00       4.66
+UB f1024 sdram    2062  1027     4.380    2628.00       2.56
+UB ld2fix           50    19     0.257     235.46      12.39
+UB ld1walk          42    19     0.124     113.30       5.96
+UB rowrate2         50    19     0.188     172.52       9.08
+UB rowrate4         50    19     0.148     135.90       7.15
+UB rowrate8         50    19     0.140     128.17       6.75
+UB ld2mix           50    19     0.265     242.61      12.77
+UB ld2near          48    19     0.279     255.49      13.45
+UB ld2far           50    19     0.290     265.50      13.97
+UB ld2small         26     7     3.560      53.40       7.63
+UB rtbig            56    23    10.980     164.70       7.16
 # the same 26-byte loop, placed to straddle each boundary
-UBO offset     0 crosses     0      1.000      15.00
-UBO offset    16 crosses    32      1.000      15.00
+UBO offset     0 crosses     0      1.010      15.15
+UBO offset    16 crosses    32      1.010      15.15
 UBO offset    48 crosses    64      1.000      15.00
 UBO offset   112 crosses   128      1.000      15.00
 UBO offset   240 crosses   256      1.000      15.00
-UBO offset   496 crosses   512      1.000      15.00
-UBO offset  1008 crosses  1024      2.880      43.20
-UBO offset  2032 crosses  2048      2.880      43.20
+UBO offset   496 crosses   512      1.010      15.15
+UBO offset  1008 crosses  1024      3.180      47.70
+UBO offset  2032 crosses  2048      3.180      47.70
