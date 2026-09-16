@@ -13,6 +13,7 @@
 /* Up to eight open rows: the 32 MB boards measure a 4 MB bank stride over
    32 MB, which is more banks than the controller's ADDRC field implies.
    See the geometry table in sdramc.c. */
+#define SDRAMC_MAX_DQ 2
 #define SDRAMC_MAX_BANKS 8
 
 /* The deepest write buffer the model will consider. */
@@ -43,11 +44,19 @@ struct sdramc {
 		uint64_t ready[8];
 	} iq[2];
 	unsigned iq_next;
+	/* Two entries, because two streams read alternately is the shape half
+	   of memcpy and every one of ubench's two-stream loops has.  How many
+	   of them the model uses is model.dq_entries. */
 	struct {
 		bool valid;
 		uint32_t tag;
 		uint64_t ready[2];
-	} dq;
+	} dq[SDRAMC_MAX_DQ];
+	unsigned dq_next;
+	/* When the array as a whole is available again: a refresh precharges
+	   every bank and self-refresh exit wakes the device, and no activation
+	   may overlap either, however free the data bus is. */
+	uint64_t array_free;
 
 	struct mem *mem;   /* receives the configured size for address aliasing */
 

@@ -9,6 +9,7 @@
 #define WREMU_MODEL_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 struct model {
@@ -104,10 +105,30 @@ struct model {
 	   decoder's byte traffic, which hits the queue three times in four,
 	   came out a fifth fast. */
 	unsigned dq_hit;        /* in half-MCLK: 2 is one cycle */
+	/* MCLK an unconditional jump owes the fetch path, as a floor on the
+	   next fetch's wait rather than an addition to it: what the queue had
+	   run ahead and read is for an address the program is no longer going
+	   to, and the execute cost the manual gives is free to hide under a
+	   fetch schedule that the device does not get to overlap.
+	   branch_taken prices the conditional case and fits it; nothing has
+	   ever priced this one, which takes the manual's flat three. */
+	unsigned branch_bubble;
+	/* How many 32-bit words the data queue holds. One was never a
+	   measurement; it was what the model happened to have. Two streams
+	   read alternately -- memcpy, and every two-stream loop in ubench --
+	   then miss on every access where the device does not. */
+	unsigned dq_entries;
+	/* Whether a row activation may proceed while the data bus is busy
+	   with another access, instead of queueing behind it. */
+	unsigned act_overlap;
 };
 
 extern struct model model;
 extern uint32_t wremu_cur_pc;
+/* Set by the core when it fetches from somewhere other than where it left
+   off -- a jump, a call, a return, an interrupt -- and cleared once that
+   fetch has been served.  Whoever serves it decides what a restart costs. */
+extern bool wremu_fetch_restart;
 
 /* Apply WREMU_MODEL overrides to the defaults. */
 void model_init(void);

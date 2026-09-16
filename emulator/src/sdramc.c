@@ -132,8 +132,10 @@ static void empty_queues(struct sdramc *s)
 		s->bank[i].valid = false;
 	for (unsigned i = 0; i < 2; i++)
 		s->iq[i].valid = false;
-	s->dq.valid = false;
+	for (unsigned i = 0; i < SDRAMC_MAX_DQ; i++)
+		s->dq[i].valid = false;
 	s->iq_next = 0;
+	s->dq_next = 0;
 }
 
 static void address_parts(const struct sdramc *s, uint32_t addr,
@@ -175,6 +177,7 @@ static void service_refresh(struct sdramc *s, uint64_t now)
 				start = earliest;
 		}
 	s->bus_free = start + (trp(s) + trc(s)) * tick;
+	s->array_free = s->bus_free;
 	s->next_refresh += n * period;
 	s->refreshes += n;
 	s->last_sdram_access = s->bus_free;
@@ -210,6 +213,8 @@ static void prepare_external_access(struct sdramc *s, uint64_t now)
 		uint64_t exit = now + (trc(s) + 1) * sd_tick(s);
 		if (s->bus_free < exit)
 			s->bus_free = exit;
+		if (s->array_free < exit)
+			s->array_free = exit;
 		s->self_refresh = false;
 		s->next_refresh = 0; /* self-refresh reset the auto-refresh counter */
 		s->self_refresh_exits++;
@@ -283,7 +288,15 @@ static unsigned row_port(unsigned kind)
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 {
 	uint64_t tick = sd_tick(s);
+	/* Without act_overlap the whole access, precharge and activation
+	   included, queues behind the data bus. With it the activation starts
+	   as soon as the request does and only the transfer serialises --
+	   which is what the parts do: ACTIVATE is a command, tRCD elapses
+	   inside the bank, and another bank may be moving data throughout. */
 	uint64_t at = s->bus_free > now ? s->bus_free : now;
+
+	if (model.act_overlap)
+		at = s->array_free > now ? s->array_free : now;
 	uint32_t row;
 	unsigned b;
 
@@ -353,11 +366,29 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	uint64_t tick = sd_tick(s);
 	uint64_t command;
 	uint64_t extra = halfwords > 2 ? model.iqb_first : model.dq_extra;
+
+	/* A data read issued by code that is not itself coming over this bus
+	   costs more than the bus timings account for; see model.h.
+	   This charge existed, was fitted, and was then dropped by the row-model
+	   refit while its parameter, its documentation and its override entry
+	   all stayed -- so the model has been silently missing it since, and
+	   dq_iram_extra could be set to anything without changing an answer.
+	   The rv32 interpreter is what noticed: it is the only workload here
+	   that runs almost entirely from internal RAM, and the device charges
+	   it a fifth more than the model does. */
+	if (halfwords <= 2 && current_kind != MEM_DMA_READ &&
+	    wremu_cur_pc < 0x10000000u)
+		extra += model.dq_iram_extra * tick;
+
 	/* A read after a write waits for write recovery and the bus turn. */
 	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
 		now = s->bus_free + model.wr_rd_turn * tick;
 	last_was_write = false;
 	command = select_row(s, addr, now);
+	/* The transfer still waits for the bus even where the activation did
+	   not. */
+	if (model.act_overlap && command < s->bus_free)
+		command = s->bus_free;
 
 	for (unsigned i = 0; i < halfwords; i++) {
 		if (halfwords > 2)
@@ -378,8 +409,10 @@ static void flush_written(struct sdramc *s, uint32_t addr, unsigned size)
 		if (s->iq[i].valid && addr <= s->iq[i].tag + 15 &&
 		    last >= s->iq[i].tag)
 			s->iq[i].valid = false;
-	if (s->dq.valid && addr <= s->dq.tag + 3 && last >= s->dq.tag)
-		s->dq.valid = false;
+	for (unsigned i = 0; i < SDRAMC_MAX_DQ; i++)
+		if (s->dq[i].valid && addr <= s->dq[i].tag + 3 &&
+		    last >= s->dq[i].tag)
+			s->dq[i].valid = false;
 }
 
 static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
@@ -388,6 +421,13 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	uint64_t tick = sd_tick(s);
 	uint64_t command = select_row(s, addr, now);
 	unsigned transfers = (size + (addr & 1) + 1) / 2;
+
+	/* The transfer waits for the bus even where the activation did not --
+	   the same clamp reads get, and it was missing here. Under
+	   act_overlap every store in a run started at `now`, so the bus never
+	   filled up and ramspeed's memset ran at twice the device's rate. */
+	if (model.act_overlap && command < s->bus_free)
+		command = s->bus_free;
 
 	/* Writes are individual operations, one per external 16-bit transfer,
 	 * unless the fitted model gives every write a flat cost. */
@@ -419,6 +459,7 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 	if (access == MEM_CPU_FETCH && (s->reg[OFF_APP] & IQBEN)) {
 		uint32_t tag = addr & ~15u;
+
 		unsigned word = (addr >> 1) & 7;
 		unsigned slot;
 
@@ -513,7 +554,15 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 		unsigned first = (addr >> 1) & 1;
 		unsigned last = ((addr + size - 1) >> 1) & 1;
 
-		if (s->dq.valid && s->dq.tag == tag) {
+		unsigned entries = model.dq_entries ? model.dq_entries : 1;
+		unsigned slot;
+
+		if (entries > SDRAMC_MAX_DQ)
+			entries = SDRAMC_MAX_DQ;
+		for (slot = 0; slot < entries; slot++)
+			if (s->dq[slot].valid && s->dq[slot].tag == tag)
+				break;
+		if (slot < entries) {
 			s->dq_hits++;
 			if (model.dq_hit) {
 				/* dq_hit counts in half-MCLK, not SDCLK: the
@@ -522,18 +571,19 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 				   cost at one MCLK -- half an SDCLK, which
 				   the coarser unit cannot say. */
 				uint64_t at = now + model.dq_hit;
-				if (s->dq.ready[0] < at) s->dq.ready[0] = at;
-				if (s->dq.ready[1] < at) s->dq.ready[1] = at;
+				if (s->dq[slot].ready[0] < at) s->dq[slot].ready[0] = at;
+				if (s->dq[slot].ready[1] < at) s->dq[slot].ready[1] = at;
 			}
 		} else {
 			prepare_external_access(s, now);
-			s->dq.valid = true;
-			s->dq.tag = tag;
-			schedule_read(s, tag, 2, now, s->dq.ready);
+			slot = s->dq_next++ % entries;
+			s->dq[slot].valid = true;
+			s->dq[slot].tag = tag;
+			schedule_read(s, tag, 2, now, s->dq[slot].ready);
 			s->dq_misses++;
 		}
-		ready = s->dq.ready[first] > s->dq.ready[last]
-		      ? s->dq.ready[first] : s->dq.ready[last];
+		ready = s->dq[slot].ready[first] > s->dq[slot].ready[last]
+		      ? s->dq[slot].ready[first] : s->dq[slot].ready[last];
 	} else {
 		prepare_external_access(s, now);
 		ready = schedule_write(s, addr, size, now);
@@ -559,6 +609,21 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 				ready = s->posted[oldest];
 			s->posted[oldest] = s->bus_free;
 		}
+	}
+
+	/* The fetch after a jump waits for the fetch path to restart whatever
+	   the queue happens to hold, so this is a floor and not an addition:
+	   the line the target sits in is very often already there -- a jump to
+	   the next instruction never leaves it -- and charging only the queue
+	   makes such a jump free, which the device says it is not.  ubench's
+	   br32 is long with half its adds replaced by jumps to the following
+	   instruction, same bytes and same instruction count, and the device
+	   charges 312 cycles against 183. */
+	if (access == MEM_CPU_FETCH && wremu_fetch_restart && model.branch_bubble) {
+		uint64_t floor = now + 2 * (uint64_t)model.branch_bubble;
+
+		if (ready < floor)
+			ready = floor;
 	}
 
 	wait = ready > now ? (ready - now + 1) / 2 : 0;

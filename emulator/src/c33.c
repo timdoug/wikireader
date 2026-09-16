@@ -806,6 +806,10 @@ void c33_step(struct c33 *c)
 
 	c->cur_pc = at;
 	wremu_cur_pc = at;
+	/* A jump leaves the fetch path holding halfwords for an address the
+	   program is no longer going to, and it could not have started on the
+	   target any earlier than this. */
+	c->fetch_seq = at + 2;
 	uint64_t clk0 = c->clk;
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
 	if (c->bus.wait)
@@ -824,6 +828,13 @@ void c33_step(struct c33 *c)
 		   much a byte as a loop of four-byte ones. */
 		c->clk += at < IVRAM_BASE ? model.iram_fetch_wait
 					  : model.ivram_fetch_wait;
+	/* Internal RAM has no queue to serve the fetch out of, so the bubble
+	   is simply added here; in SDRAM it is a floor on the queue's wait
+	   and sdramc applies it.  Cleared either way, so that a jump into a
+	   region charging nothing cannot leave it set for the fetch after. */
+	if (wremu_fetch_restart && at < 0x10000000u)
+		c->clk += model.branch_bubble;
+	wremu_fetch_restart = false;
 	uint64_t clk_fetched = c->clk;
 
 	/*
@@ -1265,6 +1276,11 @@ void c33_step(struct c33 *c)
 	case OP_CALL_D:
 	case OP_JP:
 	case OP_JP_D: {
+		/* Only the undelayed form: a delay slot exists to be executed
+		   while the fetch path restarts, so jp.d has already paid for
+		   the bubble with the instruction after it. */
+		if (op == OP_JP)
+			wremu_fetch_restart = true;
 		uint32_t target;
 		if ((f->shape_id == SHAPE_R)) {
 			/* Register branch targets always have their LSB handled as 0. */
@@ -1315,6 +1331,8 @@ void c33_step(struct c33 *c)
 
 	case OP_JPR:
 	case OP_JPR_D: {
+		if (op == OP_JPR)
+			wremu_fetch_restart = true;
 		/* jpr likewise treats its signed register displacement as even. */
 		uint32_t target = at + pc_value(c->r[a]);
 		if (op == OP_JPR_D) {

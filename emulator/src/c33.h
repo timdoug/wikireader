@@ -65,6 +65,11 @@ struct c33 {
 	uint32_t sr[SR_COUNT];
 	uint32_t pc;
 
+	/* Where the fetcher would have gone next if nothing had jumped, so a
+	   control transfer can be recognised without enumerating opcodes --
+	   returns, interrupts and delay slots all fall out of it. */
+	uint32_t fetch_seq;
+
 	/* ext prefix accumulator */
 	uint32_t ext[2];
 	unsigned n_ext;
