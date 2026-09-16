@@ -1,8 +1,32 @@
 # wremu - WikiReader full-system emulator
 
-`wremu` boots the WikiReader's Epson S1C33E07 firmware from ELF files or
-through the serial-FLASH boot chain, attaches a FAT32 card image, and presents
-the 240x208 touch display through SDL2.
+`wremu` boots the WikiReader's Epson S1C33E07 firmware through the
+serial-FLASH boot chain, attaches a FAT32 card image, and presents the
+240x208 touch display through SDL2.
+
+## Everything boots the way the hardware does
+
+```sh
+emulator/wremu -e flash.rom -c card.img
+```
+
+Mask ROM, MBR, file-loader, `kernel.elf`, `init.app` -- the whole chain,
+every time. `samo-lib/mbr/make-flash.py` builds a FLASH image for a run.
+
+There is no shortcut, and that is deliberate. A direct ELF boot skips the
+loader, so the SDRAM controller, the PLL and the serial line are left in a
+state the hardware is never in, and the emulator has to invent plausible
+values for them. Four separate bugs have come from that gap: a guest clock
+25% slow, a memory model that was not switched on at all, CPU benchmarks
+5x off, and a console that could not receive a byte because
+`init_rs232_ch0()` had never run. Each looked like a bug in the thing being
+developed.
+
+`--bare-elf IMAGE` still runs an ELF with no boot. **It is only for the
+toolchain test suites** -- `tests/dejagnu`, `tests/abi` and
+`doom/tests/c33_math_test.py` -- which run compiler output rather than
+firmware and have no loader to go through. Nothing that runs on a
+WikiReader may use it, for development or for measurement.
 
 Build the firmware with the [modern C33 toolchain](../host-tools/toolchain-c33/README.md).
 See the [ZIM reader guide](../zim/README.md) for archive and card setup.
@@ -206,12 +230,15 @@ with `WREMU_MODEL=name=value,...`.
 | --- | ---: | --- |
 | `branch_taken` | 5 | taken branch cycles with an SDRAM target |
 | `branch_taken_iram` | 6 | taken branch cycles with an internal-RAM target |
+| `branch_bubble` | 4 | MCLK an *undelayed* `jp`/`jpr` owes the fetch path, as a floor on the next fetch's wait |
 | `call_extra` | 2 | extra cycles a call or return pays for the queue it discards |
 | `iqb_first` | 1 | extra half-MCLK before an instruction-queue fill |
 | `iqb_word_gap` | 0 | extra half-MCLK between words of that fill |
 | `dq_extra` | 0 | extra half-MCLK on a data-queue fill |
 | `dq_hit` | 1 | ...and on a data-queue hit |
-| `dq_iram_extra` | 2 | ...for data access from internal-RAM code |
+| `dq_entries` | 1 | 32-bit words the data queue holds; the device measures one |
+| `act_overlap` | 1 | a row activation may proceed while the data bus is busy elsewhere |
+| `dq_iram_extra` | 2 | ...in SDCLK, for a data read issued by code running from internal RAM |
 | `wr_ticks` | 9 | half-MCLK of bus occupancy per written halfword |
 | `write_post` | 1 | a store retires into the controller's buffer; 0 blocks the CPU |
 | `wr_rd_turn` | 0 | extra half-MCLK for an SDRAM read after a write |
@@ -334,6 +361,333 @@ row has been precharged to reach the other, so a queue line is evicted when a
 fill activates another row of the same bank. With that, the cliff lands
 within 2% -- 3.22 seconds against 3.16 -- and the seven of eight positions
 that were already right are unchanged.
+
+### What internal-RAM code costs, and the charge that went missing
+
+The `ubench` loops that price internal RAM are small and self-contained, so
+for a long time nothing in the tree ran mostly out of A0 RAM and the IVRAM
+window at once. The rv32 interpreter does, and it found two errors of
+opposite sign. Its four placement builds run one guest workload with more
+and more of the interpreter in internal RAM, and `riscv/fit-model.py` scores
+them against the device's own reports:
+
+| what runs where | device / model |
+| --- | ---: |
+| all in SDRAM | 0.905 |
+| code in A0 RAM | 0.970 |
+| code and machine state in A0 RAM | 1.047 |
+| assembly hot path, state and dispatch table internal | 1.093 |
+
+**`dq_iram_extra` had become dead code.** It charges a data read issued by
+code that is not itself coming over the SDRAM bus, it was fitted at 2 SDCLK,
+and the row-model refit (`eb75315e`) deleted the line in `schedule_read`
+that applied it while leaving the parameter, this table's entry, the
+`model_describe` output and the `WREMU_MODEL` override all in place. The
+symptom was silence: sweeping it changed no answer at all. Restored, the two
+internal-RAM-heavy builds go from 1.047 and 1.093 to **0.999 and 1.030**,
+overall RMS log error from 0.0927 to 0.0877, and the 117 checks in
+`make test-sdramc test-isa test-dma` still pass.
+
+Two things it does not fix. Code running **from SDRAM is modelled about 10%
+too expensive**, near-uniformly across kernels -- the 0.905 row, which no
+internal-RAM parameter touches. And the charge has the wrong shape: it is
+right where such data accesses are few (0.999, 1.030) and too big where they
+are many, which is the middle build's 0.884. `iqb_first=0` and
+`branch_taken_iram=12` each take a little more off the residual (0.0794
+together), but both were fitted against `ubench` and neither should move
+until `ubench` has been rerun on the device to check what that would cost.
+
+### What an unconditional jump costs the fetch path
+
+`ubench`'s `br32` is `long` with half its adds replaced by an undelayed `jp`
+to the *following* instruction: the same 67 instructions in the same 138
+bytes, differing in nothing but that. The device runs it in 312 cycles
+against `long`'s 183. The model ran it in 193.
+
+The queue had already fetched the line the target sits in — a jump two
+bytes ahead never leaves it — so serving the fetch cost nothing, and the
+three execute cycles the manual gives `jp` hid under a fetch schedule the
+device does not get to overlap. `branch_taken` never applied: it is reached
+only from the conditional branches, and `jp`/`jpr` take the flat figure.
+So the conditional case was priced and fitted and the unconditional one had
+never been priced at all.
+
+`branch_bubble` is a floor on the next fetch's wait rather than an addition
+to it, because what the fetcher had run ahead and read is for an address the
+program is no longer going to. At 4 MCLK `br32` lands on 318 against 312 and
+**every other loop in the file is unchanged to the cycle** — `alu sdram`
+0.990, `long` 0.992, `f128` 1.000, `alu ivram` 1.000.
+
+It applies only to the undelayed forms. A delay slot exists to be executed
+while the fetch path restarts, so `jp.d` has already paid for the bubble
+with the instruction after it; charging it too costs the rv32 interpreter's
+C builds 0.884 → 0.808, since a compiler fills delay slots and an
+interpreter is mostly jumps.
+
+Two other shapes were tried against the same measurement and rejected. A
+flat charge on *every* control transfer breaks the conditional case that
+already fits — `alu`'s one taken `jrne` a pass is priced by `branch_taken`
+and wants nothing more. Evicting the queue on a branch does not fix `br32`
+at all, because its 138-byte body thrashes the queue either way, and costs
+`alu` 15.15 → 39.60 against a device that says 15.00: a resident loop then
+refetches itself every pass.
+
+The cost is small and worth naming. Scored against the rv32 interpreter's
+four builds the RMS log error goes from 0.0877 to 0.0902, because the two
+middle builds were already too expensive for an unrelated reason — the
+data-movement overcharge below — and this pushes them further the same way.
+The build that ships, the assembly one, improves: 1.030 to **1.009**.
+
+### What is from the manuals and what is fitted
+
+Two documents: `s1c33.pdf`, the 181-page C33 PE core manual, and
+`id001557.pdf`, the 1015-page S1C33E07 technical manual. It is worth being
+explicit about which half of this model comes from them, because the fitted
+half is where the errors live and the grounded half is not up for
+negotiation.
+
+**Structure, from the manual, and the model matches it.** IQB is "2 slots ×
+8 × 16 bits" on 128-bit boundaries, filled 8 halfwords at a time on a miss,
+"the two slots used alternately" (II.4.2.2) -- which is the model's two
+16-byte lines and its round-robin `iq_next`. DQB "consists of two-stage
+16-bit buffers ... Buffer 0 and Buffer 1 correspond to two-burst reading",
+one 32-bit line in two halves, which is `dq_entries = 1` (II.4.2.3); a
+second entry was tried and the device refused it independently. DQB is
+inactive for instruction fetch while IQB is on and inactive for every write;
+a write flushes a matching IQB or DQB entry (II.4.2.4). `jp` is three
+cycles and `jp.d` two (core manual 5.14.2), which is what `cycle_cost()`
+charges -- and the reason given for the delayed form, that "the instruction
+that follows it has already been fetched", is the documented basis for
+`branch_bubble` applying only to the undelayed one. tRP, tRAS and tRC come
+from the configuration register, the refresh counter is 12-bit, and the bus
+arbiter's priority is LCDC, DMA, CPU, SRAMC (II.4.3).
+
+**Fitted, with no figure in either manual.** Every overhead:
+`branch_bubble`, `iq_lookahead`, `iqb_first`, `dq_extra`, `dq_hit`,
+`row_change_extra`, `call_extra`, `mmio_wait`, `iram_fetch_wait`,
+`ivram_fetch_wait`, `dq_iram_extra`, `act_overlap`, `cas_first`,
+`iram_word_fetch`, `wr_ticks` and the card latencies. The manuals give
+structure and instruction cycles; they do not price a wait state on a
+system bus, and that is most of what this model is.
+
+Two of the fitted ones are worth naming against the documentation.
+`iq_lookahead = 6` has no basis in the SDRAMC chapter -- the manual
+describes demand fetching, not a run-ahead prefetcher -- but the CPU summary
+says the core has "a 2-stage pipeline and 4 instruction queues", four
+16-bit entries being eight bytes of run-ahead, and six is what the device's
+residency rule fits. The mechanism is documented in the core's chapter and
+the value is measured. `branch_bubble = 4` sits on top of the manual's three
+cycles for `jp` and is not in either book: the device charges four more than
+an `add` for a jump to the next instruction, where the manual's figures
+account for two.
+
+**Two places the model contradicts the manual, both on measurement.**
+`write_post = 1` buffers one store, where II.4.2.4 says "the internal wait
+signal input to the C33 PE Core is asserted until the SDRAM interface has
+finished writing to the SDRAM" -- no posting at all. The device says
+otherwise: it copies a word at a time faster than four at a time, which
+only happens if a store retires before the bus has taken it, and
+`write_post = 0` takes the rv32 interpreter from 0.0793 to 0.0947.
+`row_ports = 1` gives the open row to the access kind rather than the bank,
+where the manual supports "max. 4 SDRAM banks and bank active mode"; the
+device charges the same for two addresses a kilobyte apart and four
+megabytes apart, which under the geometry table are different banks. That
+geometry is separately suspect -- both 32 MB boards behave as 4 MB banks
+where the table says 8 MB -- and the discrepancy is unexplained.
+
+### Whole programs
+
+Loops and one interpreter say what the model does with cycles; these say
+what it does with a program. `nuttx/` has the suite and `make bench` runs
+it both sides -- the device command `bench`, then
+`run_benchmarks.py --compare`. Emulator over device, so above one is the
+model running fast:
+
+| | ratio |
+| --- | ---: |
+| CoreMark | 0.98 |
+| Dhrystone | 0.92 |
+| Whetstone | 0.98 |
+| ramspeed memset, internal | 1.08 |
+| ramspeed memset, system | 1.12 |
+| ramspeed memcpy, internal | 0.84 |
+| ramspeed memcpy, system | 0.87 |
+| sdbench write / read | 1.07 / 1.04 |
+
+0.090 RMS log error over the eleven figures, worst case 0.84x.
+
+The three CPU benchmarks land within 8%, and that is the check the fetch
+lookahead was originally reversed on: enabling it used to take CoreMark
+from 1.05 to 0.87 and Dhrystone from 1.01 to 0.92. With activations
+overlapping the data bus it is on and they are 0.98 and 0.92 -- the damage
+it did was contention that no longer exists.
+
+Whole programs also found what the loops could not. `act_overlap` has to
+clamp the transfer to the bus in `schedule_write` as well as
+`schedule_read`, and for a while it only did the second: a store began the
+moment it was issued however busy the bus was, so a run of them never
+filled it. `ubench` called that 12% on `storeseq`, because `storeseq` is a
+loop with other work in it. ramspeed's memset is nothing but stores and
+called it **2.11x**. Clamping both puts memset at 1.08, takes the suite
+from 0.236 to 0.090 RMS, and adds eight loops to `ubench`'s 10% band.
+
+What is left is memcpy, 0.84 and 0.87 -- the model is slow where it was
+fast. `ubench`'s `copyw` is 0.722 and looks like the same thing; it is not,
+and the two have to be separated.
+
+Turning the fetch lookahead off decides it. `copyw` goes 0.722 -> 1.019 and
+`copyfar` 0.762 -> 1.070, so those two really are the lookahead's doing: a
+body that already thrashes the two slots is made worse by pulling a third
+line. But memcpy goes 0.84 -> **0.81**, slightly *worse*, so whatever ails
+it is not the lookahead, and a hand-written four-word copy loop does not
+predict what libc's memcpy does. Meanwhile CoreMark goes 0.98 -> 1.20.
+
+The lookahead is better on all three measures and stays on:
+
+| | on | off |
+| --- | ---: | ---: |
+| whole-program RMS | **0.090** | 0.119 |
+| ubench RMS | **0.206** | 0.259 |
+| ubench within 10% | **51/86** | 49/86 |
+| rv32 RMS | 0.0793 | 0.0785 |
+
+So the remaining error is the one that has been there all along and is now
+much smaller: loops alternating two data streams, modelled 20% too
+expensive -- `st2` 0.781, `copydisp` 0.755, memcpy 0.84 and 0.87 -- which
+`act_overlap` took from 0.67 without finishing. `copyw` and `copyfar` are a
+separate and smaller debt, owed to the lookahead, and priced above.
+
+### Fetch and data on one bus: activation overlap
+
+The largest error the model had was a cluster of loops charged 20 to 34%
+too much, and it is now understood and mostly gone. What follows is how it
+was found, because the route matters more than the answer.
+
+`ld2` and friends -- two streams read alternately -- looked like a data-path
+problem, and four data-path explanations were tried and refuted (below).
+Five loops then took `ld2` apart one property at a time and the device said
+it was none of them: not walking (`ld2fix` 0.782 against `ld2`'s 0.776), not
+the separation (0.789 to 0.829 from one row to four megabytes), not the
+access width (`ld2` and `ld2w` come back at 254.06 apiece, identical to the
+cycle). One stream instead of two is 0.983.
+
+What placed them was sorting on two properties together:
+
+| | data changes rows | data stays in one row |
+| --- | --- | --- |
+| **body outruns the fetch window** | 0.70-0.83 | 0.98-1.01 |
+| **body stays resident** | 1.026 | 0.99-1.00 |
+
+Fifteen of sixteen loops, and neither property does anything alone.
+`rowthrash` and `rtbig` then tested it directly: they differ in nothing but
+twelve adds padding the body past the window, and the device charges 24.90
+cycles for them where the model charged 75.75 -- 2.7 cycles a code byte,
+where a fetch-only loop measures 1.33 in both.
+
+The cause was in `select_row`. Every access began at `max(bus_free, now)`,
+so a row activation queued behind whatever the data bus was doing. Real
+parts do not work that way: ACTIVATE is a command, tRCD elapses inside the
+bank, and another bank may be moving data throughout. `act_overlap` starts
+the activation when the request arrives and serialises only the transfer.
+
+| | before | after | device |
+| --- | ---: | ---: | ---: |
+| `st2` | 0.697 | **0.856** | |
+| `st2skew` | 0.665 | 0.805 | |
+| `ld2fix` | 0.782 | 0.869 | |
+| `copydisp` | 0.720 | 0.823 | |
+| `rtbig` | 0.779 | 0.842 | |
+| `loadseq` | 0.993 | 1.000 | |
+| `rowthrash` | 1.026 | 1.036 | |
+
+ubench goes from 0.273 to 0.261 RMS log error with six more loops inside
+10%, and the rv32 interpreter's four builds from 0.0902 to 0.0793 -- its
+all-SDRAM build from 0.905 to **1.008**. It costs `storeseq`, 1.012 to
+1.120: writes now retire too cheaply.
+
+One thing the overlap must not do is skip an array-wide wait. A refresh
+precharges every bank and self-refresh exit wakes the device, and nothing
+may activate through either however idle the data bus is; `array_free`
+tracks that separately from `bus_free`. Without it the self-refresh exit
+test drops from 23 cycles to 19, which is how the omission announced
+itself.
+
+### The data-movement overcharge, and four things it is not
+
+The largest error left is a cluster of loops that move data, and only those:
+`st2skew` 0.665, `st2` 0.697, `copydisp` 0.717, `ld2w` 0.732, `ld2` 0.776,
+`mix16` 0.795 — the model charges them 20 to 34% too much. The rv32
+interpreter's SDRAM-resident builds say the same thing at 0.905 and 0.871,
+so it is two independent workloads with one sign.
+
+The signature is sharp and narrows it a long way. Single-stream loops are
+right — `loadseq` 0.993, `storeseq` 1.012, `copyw` 1.014 — and so are loops
+that alternate between two *fixed* addresses, `rowthrash` 1.056 and
+`bankpair` 1.015. What is overcharged is alternating between two streams
+that walk.
+
+Four explanations have been tried against the measurements and are not it:
+
+* **A second data-queue entry.** The obvious reading of "two streams", and
+  wrong twice: `rowthrash` collapses to 23.10 against a device saying
+  145.95, and the target loops do not move at all — `st2` stays at 0.697.
+  The device holds one word, which that loop now says outright.
+* **`row_change_extra=0`.** Moves the cluster a little (`ld2` 0.776 →
+  0.809) and takes `rowthrash` to 1.124 and `bankpair` to 1.079 for it.
+  Net zero, and the parameter's own comment predicted this: loadseq wants a
+  cheaper read and rowthrash a dearer miss.
+* **`write_post=4`.** Fixes the same-address store bursts — `store sdram`
+  0.877 → 0.972, `storeb` 0.881 → 0.972 — and breaks the walking one,
+  `storeseq` 1.012 → 1.273. `st2` again does not move.
+* **`dq_hit`.** No effect at any value on the rv32 workload.
+
+So it is not queue depth, not the row-change price, not write buffering.
+Whatever it is, it distinguishes a stream that walks from one that stands
+still, which no parameter here currently does.
+
+Five loops in `ubench` take `ld2` apart one property at a time to find out
+which -- same sixteen byte reads a pass, same loop, same pass count, so a
+difference is the property and not the shape. The model says all five cost
+within 8% of each other, so **any spread the device shows is the mechanism**:
+
+| loop | model | `ld2` with |
+| --- | ---: | --- |
+| `ld2` | 327.30 | — (the device says 254.06) |
+| `ld2fix` | 304.13 | both addresses standing still |
+| `ld2mix` | 313.00 | one walking, one standing |
+| `ld2near` | 327.30 | the streams one row apart, not 512 KB |
+| `ld2far` | 320.43 | four megabytes apart, another bank |
+| `ld1walk` | 115.30 | one stream instead of two |
+
+The device answered: **none of them**. `ld2fix` is 0.782 against `ld2`'s
+0.776, so walking is not it. `ld2near` through `ld2far` run 0.789 to 0.829
+across a span of four megabytes, so the separation is not it. `ld1walk`, one
+stream instead of two, is 0.983. And `ld2` and `ld2w` come back at 254.06
+apiece -- **identical to the cycle** -- where the model charges the word read
+a megahertz-cycle more for its second halfword.
+
+Sorting every loop in the file by two properties does place them, though:
+
+| | data changes rows | data stays in one row |
+| --- | --- | --- |
+| **body outruns the queue** | 0.70-0.83 | 0.98-1.01 |
+| **body stays resident** | 1.026 | 0.99-1.00 |
+
+Fifteen of sixteen. The model overcharges only where code must be fetched
+constantly *and* the data accesses change rows -- contention between fetch
+and data on the one bus, which it evidently serialises harder than the
+hardware does. Neither property alone does anything: `rowthrash` alternates
+two rows in a 32-byte body and fits at 1.026, `ld1walk` outruns the queue
+with its data in one row and fits at 0.983. (`bankpair`, 34 bytes, only just
+misses and sits at 1.015.)
+
+`ld2small` and `rtbig` cross the pair over and are the test of it:
+`ld2small` is `ld2fix` with a body small enough to stay resident and nothing
+else changed, and `rtbig` is `rowthrash` with adds padding its body past the
+window and its accesses untouched. The model puts them at 65.49 and 213.90.
+If the reading is right the device says about 65 for the first and about 171
+for the second; if it is backwards, they come back the other way round and
+the fault is in the number of accesses rather than the contention.
 
 ### Compare against the device, not against a direct boot
 

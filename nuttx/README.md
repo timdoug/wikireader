@@ -584,10 +584,55 @@ memset rows are the emulator's known weak spot, and
 [the emulator's calibration notes](../emulator/README.md#calibration) say
 what is behind them and why it does not reach real work.
 
-`ubench` is not in that table because it is 45 loops rather than a score; it
-is what the memory model is actually fitted against, and it lands at 0.139
+`ubench` is not in that table because it is loops rather than a score; it
+is what the memory model is actually fitted against, and it lands at 0.141
 RMS log error with 29 loops within 10%. `selftest` runs a line of each of the
 five languages on the image and checks the answers.
+
+`tools/run_ubench.py` drives it in the emulator the way `run_benchmarks.py`
+drives `bench` — the same card, the same grifo, through the real flash chain
+— and `--compare /Volumes/WRBOOT/ubench.txt` puts the two columns side by
+side. On the device: boot NuttX from the launcher, type `ubench`, wait for
+it to say the card can come out. It writes `/sd/ubench.txt`.
+
+All 79 loops in one sitting, 2026-09-15, which is what `ubench-device.txt`
+now holds. The disagreement falls into three groups, and only one of them
+was where it was assumed to be.
+
+**Instruction fetch from SDRAM is right, and not the problem.** The
+pure-fetch loops land within 1% — `alu sdram` 0.990, `long sdram` 0.992,
+`size 16` 1.000 — and the two loops added to test the asymptote agree:
+`f128` is 354.00 against 354.00 modelled and `f256` 687.00 against 702.00,
+so at 270 and 526 bytes, well past any residency, a code byte costs what
+the model says. `iqb_first` does not need moving. That retires the reading
+the rv32 interpreter's all-SDRAM build first suggested.
+
+**An unconditional jump was undercharged: `br32` came back at 1.612.** It
+is `long` with half its adds replaced by `jp` to the very next instruction
+— the same 67 instructions in the same 138 bytes — and the device charges
+129 cycles more for those 32 jumps where the model charged 9. The taken
+branch cost in `cycle_cost()` is reached only from the *conditional*
+branches; `jp` and `jpr` took the manual's flat 3, and what the hardware
+pays for restarting its fetch was not modelled. `branch_bubble` now prices
+it and the loop lands at 0.981 with every other loop unchanged; the
+[emulator's notes](../emulator/README.md#what-an-unconditional-jump-costs-the-fetch-path)
+have the mechanism and the two shapes that were tried and rejected.
+
+**The fetch-window family misses in both directions**, by up to 2.9x:
+`bcs18o12` 2.935, `bcpad4` 2.744, `bcal4` and `bcs26o4` 2.624 where the
+model says fast and the device says slow, and `bcal8` through `bcal14`,
+`bcs26o8`, `bcs26o12` around 0.84 the other way. That is the known
+`iq_lookahead` question — the lookahead predicts every one of these
+correctly and is off because it made real code worse. It still does:
+scored against the rv32 interpreter's four builds, which is a real-code
+measure the decision did not have at the time, `iq_lookahead=6` takes the
+RMS log error from 0.0877 to 0.0955. Two independent real-code measures
+now say the same thing, so the note in `model.c` stands and the thing to
+try is still a prefetch that fills only when the interface is idle.
+
+The data-movement cluster is unchanged and still the largest single
+group: `st2` 0.697, `ld2w` 0.732, `copydisp` 0.717, `mix16` 0.795 — the
+model charges loops that move data 20 to 34% too much.
 
 Three of the benchmarks in the tree are not in the set. `cachespeed` depends
 on `ARCH_ICACHE` and `ARCH_DCACHE`, and the C33 has neither -- which is the
