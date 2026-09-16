@@ -23,7 +23,7 @@ def main():
     out = Path(tempfile.mkdtemp(prefix='smoke-', dir=work))
     symbols = dict((name, address) for address, name in re.findall(
         r'^\s+(0x[0-9a-f]+)\s+(\w+)\s*$', (ROOT / 'doom/doom.map').read_text(), re.M))
-    subprocess.run([sys.executable, str(ROOT / 'doom/make-flash.py'), str(out / 'flash.rom')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'), str(out / 'flash.rom')], check=True)
     scenarios = {
         'gameplay': ['-N', '0,72000000', '-T', '120,20,90000000', '-T', '220,20,110000000',
                      '-N', '1,130000000', '-T', '60,195,150000000', '-T', '60,195,175000000'],

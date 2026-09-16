@@ -27,7 +27,7 @@ def main():
     shutil.copyfile(args.map, out / 'doom.map')
     symbols = dict((name, address) for address, name in re.findall(
         r'^\s+(0x[0-9a-f]+)\s+(\w+)\s*$', (out / 'doom.map').read_text(), re.M))
-    subprocess.run([sys.executable, str(ROOT / 'doom/make-flash.py'), str(out / 'flash.rom')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'), str(out / 'flash.rom')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'doom/make-card.py'), str(out / 'card.img'),
                     str(args.wad.resolve()), '--app', str(out / 'doom.app'), '--args', args.args], check=True)
     start, end = symbols['wr_engine_init'], symbols['doom_frame_ready']

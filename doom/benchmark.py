@@ -29,7 +29,7 @@ def main():
     symbols = dict((name, address) for address, name in re.findall(
         r'^\s+(0x[0-9a-f]+)\s+(\w+)\s*$', (out / 'doom.map').read_text(), re.M))
     frame = symbols['doom_frame_ready']
-    subprocess.run([sys.executable, str(ROOT / 'doom/make-flash.py'), str(out / 'flash.rom')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'), str(out / 'flash.rom')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'doom/make-card.py'), str(out / 'card.img'),
                     str(args.wad.resolve()), '--app', str(out / 'doom.app'),
                     '--args', '-playdemo demo1' if args.scene == 'demo' else

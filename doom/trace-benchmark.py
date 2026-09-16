@@ -28,7 +28,7 @@ def main():
     out = Path(tempfile.mkdtemp(prefix='trace-', dir=ROOT / 'build/doom'))
     for name in ('doom.app', 'doom.map', 'doom.dump'):
         shutil.copyfile(ROOT / 'doom' / name, out / name)
-    subprocess.run([sys.executable, str(ROOT / 'doom/make-flash.py'), str(out / 'flash.rom')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'), str(out / 'flash.rom')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'doom/make-card.py'), str(out / 'card.img'),
                     str(args.wad.resolve()), '--app', str(out / 'doom.app'), '--args=-wrbench'], check=True)
     symbols = dict((name, address) for address, name in re.findall(

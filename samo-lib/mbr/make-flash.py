@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
-"""Build an emulator-only kernel loader that fits its existing FLASH slot.
+"""Build the FLASH image the emulator boots from.
 
-The current full boot loader overlaps the next diagnostic slot when linked
-against the larger modern libraries. This fixture keeps only the kernel entry.
-Physical WikiReaders use their factory FLASH; they only need doom.app on SD.
+This is the real boot loader -- file-loader.c, compiled from this
+directory -- with its LoadList trimmed to the one entry an emulator run
+needs.  The full list overlaps the next diagnostic slot when linked against
+the larger modern libraries, which is why flash.rom as the mbr Makefile
+builds it currently stops partway through its banner.
+
+Every emulator run of anything that runs on a WikiReader goes through this:
+mask ROM, MBR, this loader, kernel.elf, init.app.  The emulator refuses to
+boot a bare ELF without --bare-elf, which exists only for the toolchain
+test suites.  Physical WikiReaders use their factory FLASH and need only
+the application on the card.
 """
 import argparse
 from pathlib import Path
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def build(output, toolchain):
@@ -23,7 +31,7 @@ def build(output, toolchain):
     cc = str(toolchain / 'c33-epson-elf-gcc')
     includes = ('samo-lib/mbr', 'samo-lib/drivers/include', 'samo-lib/fatfs/src',
                 'samo-lib/fatfs/config/c33/read-only', 'samo-lib/mini-libc/include', 'samo-lib/include')
-    with tempfile.TemporaryDirectory(prefix='doom-loader-', dir=output.parent) as tmp:
+    with tempfile.TemporaryDirectory(prefix='flash-loader-', dir=output.parent) as tmp:
         tmp = Path(tmp)
         (tmp / 'loader.c').write_text(source)
         subprocess.run([cc, '-mc33pe', '-Os', '-fgnu89-inline', '-mno-long-calls',
