@@ -31,8 +31,22 @@
  * 4 clocks for the part.  Each row change then costs about 19 clocks
  * instead of 7, and 13% of the bus goes to refresh.  The board's
  * EM48AM1684VTD-75 (Circuits/SAMO_PM_V3_SCH) needs tRP/tRCD 20 ns, tRAS
- * 45 ns, tRC/tRFC 65 ns, tXSR 75 ns, and a refresh every 7.8 us; at the 60
- * MHz MCLK (16.7 ns) the values below give 33, 67, 100 ns and 4.8 us.
+ * 45 ns, tRC/tRFC 65 ns, tXSR 75 ns, and a refresh every 7.8 us.
+ *
+ * The fields count SDCLK, and an SDCLK is two MCLK: the device times a read
+ * that changes rows 8.5 MCLK above one that does not, against a programmed
+ * tRP + tRCD of four of them (emulator/src/sdramc.c).  So a field clock is
+ * 33.3 ns at the 60 MHz MCLK rather than 16.7, and the values below give 33,
+ * 67 and 100 ns and a refresh every 7.5 us.  Sizing them against MCLK
+ * instead halves every figure on paper, which reads as comfortably inside the
+ * part while asking three times what it needs of the timings and refreshing
+ * more slowly than it allows.
+ *
+ * Tightening them to what the part asks is worth, in the emulator, 4% of
+ * coremark, 7% of dhrystone, 37% of the C33 assembly memcpy's throughput and
+ * 6% of the time the terminal spends scrolling.  tRC 2 rather than 3 is
+ * another half a percent and leaves 1.7 ns on a 65 ns requirement, which is
+ * not enough to hold the same field's tRFC honestly.
  *
  * SDRAM_TIMING=STOCK leaves the loader's registers alone.  The values are
  * in sdram.h because SuspendCode, which puts the SDRAM into self-refresh

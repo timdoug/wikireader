@@ -224,9 +224,10 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
  * So start the controller where an application finds it -- which is not
  * where the flash loader leaves it. init_ram() brings the SDRAM up on its
  * most conservative timings and grifo then calls SDRAM_retime(), and that
- * is what everything loaded afterwards runs on. A device asked for its own
- * registers agrees: "tRP 2, tRAS 4, tRC 6, refresh 0x120" came back off the
- * card.
+ * is what everything loaded afterwards runs on, so the values below follow
+ * samo-lib/grifo/src/sdram.h.  A device asked for its own registers agrees:
+ * "tRP 2, tRAS 4, tRC 6, refresh 0x120" came back off the card, which is what
+ * that header held when it was asked.
  *
  * The rest is init_ram()'s: arbitration and both queues on, and the
  * geometry the board revision selects. They go in through the ordinary
@@ -246,13 +247,13 @@ static void sdramc_boot_state(struct mem *mem)
 	const char *rev = getenv("WREMU_BOARD_REV");
 	unsigned long r = rev ? strtoul(rev, NULL, 0) : 7;   /* see port.c */
 	bool small = r == 8 || r == 6;   /* 16 MB boards; the rest are 32 */
-	uint32_t ctl = ((2u - 1) << 12) | ((4u - 1) << 8) | ((6u - 1) << 4) |
+	uint32_t ctl = ((1u - 1) << 12) | ((2u - 1) << 8) | ((3u - 1) << 4) |
 		       (small ? 0x2u : 0x3u);
 
 	mem_write(mem, REG_BASE + 0x1600, 4, 0);          /* INI: off first */
 	mem_write(mem, REG_BASE + 0x1610, 4, 0x8000000b); /* ARBON|CAS1|APPON|IQB */
 	mem_write(mem, REG_BASE + 0x1604, 4, ctl);
-	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff0120); /* SCKON|SELEN|SELCO|AURCO */
+	mem_write(mem, REG_BASE + 0x1608, 4, 0x01ff00e0); /* SCKON|SELEN|SELCO|AURCO */
 	mem_write(mem, REG_BASE + 0x1600, 4, 0x14);       /* SDON|INIMRS */
 }
 
