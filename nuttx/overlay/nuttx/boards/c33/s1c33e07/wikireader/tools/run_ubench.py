@@ -43,6 +43,9 @@ def run_emulator(args):
     fat.make_image(card, {"kernel.elf": args.grifo.resolve().read_bytes(),
                           "init.app": args.app.resolve().read_bytes()}, 64)
     flash = out / "flash.rom"
+    # make-flash.py will not overwrite, and this output lives in the build
+    # tree rather than a temp dir, so last run's file is still there.
+    flash.unlink(missing_ok=True)
     subprocess.run([sys.executable,
                     str(args.wikireader.resolve() / "samo-lib/mbr/make-flash.py"),
                     str(flash)], check=True, stdout=subprocess.DEVNULL)
