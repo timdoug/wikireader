@@ -36,6 +36,7 @@ struct model model = {
 	.row_ports = 1,
 	.sdclk_half = 4,
 	.row_change_extra = 1,
+	.bank_floors = 1,
 	/* One: the device copies a word at a time faster than four at a
 	   time, which only happens if a store retires before the bus has
 	   taken it and a run of stores with nothing between them fills up. */
@@ -101,6 +102,7 @@ struct model model = {
 	   12% is the better instrument, because the 3x cases were calling
 	   fast loops slow. */
 	.iq_lookahead = 6,
+	.iq_lookahead_seq = 1,
 	.dq_iram_extra = 2,
 	/* Four, from ubench's br32: `long` with half its adds replaced by an
 	   undelayed jump to the following instruction, the same 67
@@ -177,10 +179,12 @@ static const struct {
 	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
 	{ "iq_row_evict", NULL, &model.iq_row_evict },
 	{ "iq_lookahead", NULL, &model.iq_lookahead },
+	{ "iq_lookahead_seq", NULL, &model.iq_lookahead_seq },
 	{ "wr_rd_turn", NULL, &model.wr_rd_turn },
 	{ "row_ports", NULL, &model.row_ports },
 	{ "sdclk_half", NULL, &model.sdclk_half },
 	{ "row_change_extra", NULL, &model.row_change_extra },
+	{ "bank_floors", NULL, &model.bank_floors },
 	{ "write_post", NULL, &model.write_post },
 	{ "call_extra", NULL, &model.call_extra },
 	{ "mmio_wait", NULL, &model.mmio_wait },

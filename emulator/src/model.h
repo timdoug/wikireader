@@ -28,6 +28,13 @@ struct model {
 	/* Extra ticks between successive words of a line fill: the controller
 	   fetches a line as separate 32-bit reads, not one burst. */
 	unsigned iqb_word_gap;
+	/* tRAS and tRC are the array recovering, so they belong to the
+	   physical bank.  0 charges them against the previous access on the
+	   row register instead, which is what this did when the register was
+	   indexed by access port: with two streams alternating, tRC then
+	   binds on every access and at the loader's old timings that alone
+	   was 12 of the 13.52 MCLK it put on a row change. */
+	unsigned bank_floors;
 	/* Extra ticks on every data-queue fill (a 32-bit read). */
 	unsigned dq_extra;
 	/* Ticks a CPU write occupies the bus regardless of size; 0 keeps the
@@ -57,6 +64,8 @@ struct model {
 	   ask what code straddling a page boundary is costing. */
 	unsigned iq_row_evict;
 	unsigned iq_lookahead;
+	/* 1: the lookahead only runs while the fetch stream is sequential. */
+	unsigned iq_lookahead_seq;
 	/* How many rows the controller can hold open, and what decides which
 	   one a request lands on. Set, the row register is chosen by what the
 	   access is -- a fetch, a load or a store, the display's DMA -- and

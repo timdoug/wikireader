@@ -32,12 +32,23 @@ struct sdramc {
 	uint64_t bus_free;
 	uint64_t next_refresh;
 	uint64_t last_sdram_access;
+	/* Where the last instruction fetch went, so the lookahead can tell a
+	   stream that is flowing from one that has just been redirected. */
+	uint32_t last_fetch;
 	bool self_refresh;
 	struct {
 		bool valid;
 		uint32_t row;
 		uint64_t activated;
 	} bank[SDRAMC_MAX_BANKS];
+	/* When bank[] is indexed by access port rather than by bank
+	   (model.row_ports), tRAS and tRC still belong to the array: this is
+	   when each physical bank was last activated, so the floors do not
+	   serialise accesses the eight banks overlap. */
+	struct {
+		bool valid;
+		uint64_t activated;
+	} phys[SDRAMC_MAX_BANKS];
 	struct {
 		bool valid;
 		uint32_t tag;

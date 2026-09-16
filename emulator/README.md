@@ -256,6 +256,8 @@ with `WREMU_MODEL=name=value,...`.
 | `iram_fetch_wait` | 0 | extra cycles per A0 RAM instruction fetch |
 | `ivram_fetch_wait` | 1 | ...and per fetch from IVRAM or DSTRAM |
 | `iq_row_evict` | 1 | a queue line dies when its row is closed; 0 prices a page crossing |
+| `iq_lookahead_seq` | 1 | the core's run-ahead only runs while the fetch stream is sequential |
+| `bank_floors` | 1 | tRAS and tRC belong to the physical bank, not to the row register |
 
 Against the device, in rising order of how much the workload resembles real
 code:
@@ -310,18 +312,29 @@ up to 32. That reads three of the sixteen 2.5x fast and most of the rest
 1.17x slow, and it is why `stpncpy`'s 22-byte byte loop reads 3.2x fast in
 `arch_libctest`.
 
-**`iq_lookahead` implements the rule and is off.** Six bytes of fetch
-lookahead reproduces it exactly — a body ending past about 27 pulls in a
-third line before the branch takes it back, and the third evicts the first —
-and takes the sweep from 0.372 to 0.104 RMS log error with every fast/slow
-call correct. It is off because it makes real code worse, measured against
-the same binary on the device: CoreMark 1.05x to 0.87x, Dhrystone 1.01x to
-0.92x. The eviction is the measured part and the bus time charged for each
-prefetch is the modelled part, and only the first is wanted. **A prefetch
-that fills only when the SDRAM interface is otherwise idle is the thing to
-try next**, which is also what the manual's single shared interface suggests
-a queue-buffer controller would do. Set `iq_lookahead=6` to price loops
-rather than programs.
+**`iq_lookahead` implements the rule, is on, and runs only while the fetch
+stream is flowing.** Six bytes of lookahead reproduces the rule exactly — a
+body ending past about 27 pulls in a third line before the branch takes it
+back, and the third evicts the first — taking the sweep from 0.372 to 0.104
+RMS log error with every fast/slow call correct.
+
+The run-ahead is the core's, not the controller's: II.4.2.2 and II.4.2.4 of
+the chip manual have the SDRAMC filling a slot only on a miss, while the CPU
+is specified as "internal 2-stage pipeline and **4 instruction queues**", up
+to eight bytes in front of what is executing. The C33 core manual's 5.14.2
+says what happens at a branch — the delayed forms exist precisely because
+"the instruction that follows it has already been fetched", so the undelayed
+forms discard that fetch and the stream restarts from the target.
+
+`iq_lookahead_seq` (default 1) is that restart: no run-ahead on a fetch more
+than four bytes from the last one, because a fetcher that has just been
+redirected is not yet ahead of anything. Without it, `ubench`'s `callret`
+prefetched the line past its callee on every one of its eight call/ret pairs
+a pass and cost 543.15 cycles against the device's 171.00 — a 28-byte loop
+that fits the two-slot queue entirely. With it, 153.90. Across the loops
+whose comparison does not depend on where the heap put a buffer, RMS log
+error falls 0.2657 to 0.0673, and CoreMark, Dhrystone, `memcpy` and `sdbench`
+each move slightly closer to the device.
 
 Before that, six other mechanisms were fitted and refuted, each by a loop
 the previous one did not cover; the best fit for the loops among them

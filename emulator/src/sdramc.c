@@ -298,9 +298,10 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	if (model.act_overlap)
 		at = s->array_free > now ? s->array_free : now;
 	uint32_t row;
-	unsigned b;
+	unsigned b, pb;
 
 	address_parts(s, addr, &b, &row);
+	pb = b;
 	if (model.row_ports) {
 		row = row_identity(s, addr);
 		b = row_port(current_kind);
@@ -314,19 +315,40 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	s->act_bank[b]++;
 	s->bank_last_kind[b] = current_kind;
 
-	if (s->bank[b].valid) {
-		uint64_t earliest = s->bank[b].activated + tras(s) * tick;
-		if (at < earliest)
-			at = earliest;
-		at += trp(s) * tick;
-		earliest = s->bank[b].activated + trc(s) * tick;
-		if (at < earliest)
-			at = earliest;
+	/*
+	 * Closing the open row costs tRP.  tRAS and tRC are the array
+	 * recovering and belong to the physical bank, which is not the same
+	 * thing as the row register when row_ports collapses every data
+	 * address onto one: charging them against the previous access on the
+	 * port serialises accesses the eight banks overlap.  With the ubench
+	 * rate sweep at two timings the device says a row change costs tRP
+	 * and a constant -- 4 + 5.87 MCLK programmed one way, 2 + 5.90 the
+	 * other -- while this charged tRC as well, and tRC alone was 12 of
+	 * the 13.52 it put on a change the device measures at 9.87.
+	 */
+	{
+		unsigned fb = model.bank_floors ? pb : b;
+		bool open = model.bank_floors ? s->phys[fb].valid
+					      : s->bank[fb].valid;
+		uint64_t since = model.bank_floors ? s->phys[fb].activated
+						   : s->bank[fb].activated;
+
+		if (open) {
+			uint64_t earliest = since + tras(s) * tick;
+			if (at < earliest)
+				at = earliest;
+			at += trp(s) * tick;
+			earliest = since + trc(s) * tick;
+			if (at < earliest)
+				at = earliest;
+		}
 	}
 
 	s->bank[b].valid = true;
 	s->bank[b].row = row;
 	s->bank[b].activated = at;
+	s->phys[pb].valid = true;
+	s->phys[pb].activated = at;
 	s->activations++;
 	if (sdramc_trace_on && trace_row_set &&
 	    ((addr - SDRAM_BASE) >> 10) == trace_row && trace_left &&
@@ -348,8 +370,12 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 		s->pair_hist[i].n++;
 		s->pair_last[b] = r;
 	}
-	/* T24NS programs both tRP and tRCD. */
-	return at + trp(s) * tick + model.row_change_extra;
+	/* T24NS programs tRCD as well as tRP.  Whether the device pays for it
+	   separately is what the rate sweep at two timings is for; with
+	   bank_floors off this keeps the original charge. */
+	if (!model.bank_floors)
+		at += trp(s) * tick;
+	return at + model.row_change_extra;
 }
 
 /*
@@ -527,7 +553,21 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 		 * fast anywhere.  Spans alone predict none of that.
 		 */
 
-		if (model.iq_lookahead) {
+		/*
+		 * Only while the stream is flowing.  The fetcher runs ahead of
+		 * the instruction being executed, but a redirect restarts it,
+		 * and a fetcher that has just restarted is not yet ahead of
+		 * anything: it cannot have pulled the line past its target.
+		 * callret is the case that says so -- eight call/ret pairs a
+		 * pass, every fetch in it a redirect, and the device holds the
+		 * 28-byte loop in the queue at 21.4 cycles a pair while this
+		 * prefetched the line past the callee on every one of them and
+		 * charged 68.8.
+		 */
+		bool flowing = addr > s->last_fetch && addr - s->last_fetch <= 4;
+
+		s->last_fetch = addr;
+		if (model.iq_lookahead && (flowing || !model.iq_lookahead_seq)) {
 			uint32_t ahead = (addr + model.iq_lookahead) & ~15u;
 			unsigned i;
 
