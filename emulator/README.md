@@ -139,7 +139,7 @@ under "Calibration" for an experiment; the summary's `--- model` line shows
 the set in use. `WREMU_SDRAM_TIMING=tRP,tRAS,tRC` (clocks) and `WREMU_SDRAM_AURCO=N`
 replace every firmware write of the SDRAM controller's timing and refresh
 registers, so one image can be timed under the boot loader's stock values
-(`4,8,15` and `0x8c`) or the kernel's retimed ones (`2,4,6` and `0x120`).
+(`4,8,15` and `0x8c`) or the kernel's retimed ones (`2,3,5` and `0x1c0`).
 `WREMU_SUSPEND_DIV=N` shortens the firmware's 120-second suspend interval
 for testing without modifying the guest. `WREMU_HOLD_MS=N` changes how long
 scripted taps and presses are held before release (default 33 ms).
@@ -259,25 +259,25 @@ with `WREMU_MODEL=name=value,...`.
 | `iq_lookahead_seq` | 1 | the core's run-ahead only runs while the fetch stream is sequential |
 | `bank_floors` | 1 | tRAS and tRC belong to the physical bank, not to the row register |
 
-**The overheads below are mid-refit and every figure in this table is
-stale.** `ubench sdclk` measured the SDRAM clock on the device on
-2026-09-16 by sweeping one controller field at a time — a slope, which the
-controller's fixed overhead drops out of — and an SDCLK is one MCLK, not
-the two that was fitted out of a single row-change cost. `sdclk_half` and
-the tRCD charge are now what the device says, which cost the model nothing
-in *shape* (it tracks the tRC sweep to 4%, against 2.4x out before) and
-leaves it uniformly about 4.7 MCLK an access cheap, because the fitted
-overheads had been carrying the doubled clock. Refitting them wants a
-fresh `ubench` from the device at the corrected timings.
+`ubench sdclk` measured the SDRAM clock on the device on 2026-09-16 by
+sweeping one controller field at a time — a slope, which the controller's
+fixed overhead drops out of — and **an SDCLK is one MCLK**, not the two
+that had been fitted out of a single row-change cost. Halving `sdclk_half`
+halved every controller cost denominated in it, and the deficit that left
+was not a blur: 10.7 MCLK on each sixteen-byte queue line and 1.5 MCLK on
+each data read, which `iqb_word_gap` and `dq_extra` now carry. The refit
+that followed is below; `mmio_wait` and `wr_ticks` moved with it.
 
 Against the device, in rising order of how much the workload resembles real
-code — as of the last fit, at the timings of the morning of 2026-09-16:
+code. The `ubench` rows are current; **everything from `ramspeed` down was
+measured before the clock was corrected and is stale** until those are run
+again.
 
 | Workload | Result |
 | --- | --- |
-| 90 `ubench` loops | 0.105 RMS log error, 62 within 10%, 85 within 20% |
-| the `rowrate` sweep | 7.94 MCLK a row change on the device, 7.65 here |
-| 16 `ubench bcs` fetch-window loops | 0.372 RMS log error; see below |
+| 90 `ubench` loops | 0.0898 RMS log error, 64 within 10%, 87 within 20% |
+| the `rowrate` sweep | 7.39 MCLK a row change on the device, 8.87 here |
+| 19 `ubench bcs` fetch-window loops | 0.103 RMS log error, from 0.372; see below |
 | `ramspeed` | memcpy 0.78-0.87x, memset 1.09-1.11x |
 | 280 `arch_libctest` throughput points | median 0.936x, mean 1.009x |
 | CoreMark / Dhrystone | 0.96x / 0.78x, same binary both sides |

@@ -26,16 +26,24 @@ struct model model = {
 	   refetched every pass, where a program with a real code footprint
 	   measures a queue that misses constantly. Four splits it. */
 	.iqb_first = 1,
-	.iqb_word_gap = 0,
-	.dq_extra = 0,
-	.wr_ticks = 9,         /* refitted once writes were posted */
+	/* Refitted 2026-09-16, once the SDRAM clock was measured rather than
+	   fitted.  Halving sdclk_half halved every controller cost that was
+	   denominated in it, and the deficit that left was not spread evenly:
+	   it was 10.7 MCLK on each sixteen-byte queue line -- f256, f1024,
+	   long and wide agree on that to 4% -- and 1.5 MCLK on each data
+	   read, which is what these two now carry.  The device's line fill
+	   is four separate 32-bit reads (II.4.2.2), so the fetch term goes
+	   per word. */
+	.iqb_word_gap = 6,
+	.dq_extra = 3,
+	.wr_ticks = 8,         /* refitted once writes were posted */
 	/* Zero since the row model: three clocks of bus turn stood in for
 	   what a copy really pays, which is a row change on every access,
 	   and charging both now costs more than the device does. */
 	.wr_rd_turn = 0,
 	.row_ports = 1,
 	.sdclk_half = 2,
-	.row_change_extra = 1,
+	.row_change_extra = 5,
 	.bank_floors = 1,
 	/* One: the device copies a word at a time faster than four at a
 	   time, which only happens if a store retires before the bus has
@@ -45,7 +53,7 @@ struct model model = {
 	/* Eight MCLK a register access. The device runs eight reads of a
 	   controller register at 82.50 cycles a pass where the same loop of
 	   adds costs 15.15; this was zero until it was asked. */
-	.mmio_wait = 8,
+	.mmio_wait = 5,
 	/* Zero: the first halfword lands on the CAS cycle itself, which is
 	   what CAS latency means. Charging the cycle after it made every
 	   external read two MCLK dear -- loadseq, loadseq8 and copyloop were
