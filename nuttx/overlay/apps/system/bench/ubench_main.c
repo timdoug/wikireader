@@ -57,6 +57,10 @@
  */
 
 #define UB_STREAM_BYTES  (1024 * 1024)
+
+/* One SDRAM bank: col_bits 9 + row_bits 12 + one for the halfword, so the
+   bank bits start at 4 MB and this pins every stream's bank and row. */
+#define UB_STREAM_ALIGN  (4 * 1024 * 1024)
 #define UB_STREAM_PASSES (UB_STREAM_BYTES / 16)
 
 /* One walk of a megabyte is 65536 passes and takes about twenty
@@ -87,6 +91,10 @@
 
 #define UB_FAR_BYTES     (5 * 1024 * 1024)
 #define UB_LONG_PASSES 400000
+
+/* A 2 KB body at 400,000 passes is a billion instructions; the fetch path it
+   measures does not need that many to settle. */
+#define UB_FETCH_PASSES 100000
 
 /****************************************************************************
  * Private Types
@@ -262,6 +270,14 @@ extern void ub_ld2fix(unsigned long passes, volatile void *buffer);
 extern void ub_ld2fix_end(void);
 extern void ub_ld1walk(unsigned long passes, volatile void *buffer);
 extern void ub_ld1walk_end(void);
+extern void ub_rowrate2(unsigned long passes, volatile void *buffer);
+extern void ub_rowrate2_end(void);
+extern void ub_rowrate4(unsigned long passes, volatile void *buffer);
+extern void ub_rowrate4_end(void);
+extern void ub_rowrate8(unsigned long passes, volatile void *buffer);
+extern void ub_rowrate8_end(void);
+extern void ub_f1024(unsigned long passes, volatile void *buffer);
+extern void ub_f1024_end(void);
 extern void ub_ld2mix(unsigned long passes, volatile void *buffer);
 extern void ub_ld2mix_end(void);
 extern void ub_ld2near(unsigned long passes, volatile void *buffer);
@@ -487,11 +503,15 @@ int main(int argc, FAR char *argv[])
     { "f128  sdram", ub_f128, ub_f128_end, UB_LONG_PASSES, 131, false , false , false },
     { "f256  sdram", ub_f256, ub_f256_end, UB_LONG_PASSES, 259, false , false , false },
     { "br32  sdram", ub_br32, ub_br32_end, UB_LONG_PASSES, 67, false , false , false },
+    { "f1024 sdram", ub_f1024, ub_f1024_end, UB_FETCH_PASSES, 1027, false , false , false },
     /* ld2 with one property changed each, to find which one the model has
        wrong.  Same sixteen byte reads and same pass count as ld2 itself, so
        they compare against it directly. */
     { "ld2fix     ", ub_ld2fix, ub_ld2fix_end, UB_BYTE_PASSES, 19, false , true , false },
     { "ld1walk    ", ub_ld1walk, ub_ld1walk_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "rowrate2   ", ub_rowrate2, ub_rowrate2_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "rowrate4   ", ub_rowrate4, ub_rowrate4_end, UB_BYTE_PASSES, 19, false , true , false },
+    { "rowrate8   ", ub_rowrate8, ub_rowrate8_end, UB_BYTE_PASSES, 19, false , true , false },
     { "ld2mix     ", ub_ld2mix, ub_ld2mix_end, UB_BYTE_PASSES, 19, false , true , false },
     { "ld2near    ", ub_ld2near, ub_ld2near_end, UB_BYTE_PASSES, 19, false , true , false },
     { "ld2far     ", ub_ld2far, ub_ld2far_end, UB_BYTE_PASSES, 19, false , false , true  },
@@ -577,7 +597,23 @@ int main(int argc, FAR char *argv[])
     }
 
   g_far = malloc(UB_FAR_BYTES);   /* optional: only the far copy needs it */
-  g_stream = malloc(UB_STREAM_BYTES);
+
+  /* Aligned to a bank, not wherever the heap happens to be.  The two-stream
+   * loops read addresses a fixed distance apart, so which rows and which
+   * banks they land in is decided by this pointer's low bits -- and with a
+   * plain malloc those move with whatever ran before.  ld2 measured 212.86
+   * cycles a pass on its own and 254.06 inside bench, same binary, same
+   * device, same controller settings: a 19% swing from heap state alone,
+   * which is larger than the effects these loops exist to measure.
+   */
+
+  g_stream = memalign(UB_STREAM_ALIGN, UB_STREAM_BYTES);
+  if (g_stream == NULL)
+    {
+      printf("ubench: no bank-aligned room; falling back, "
+             "results will not compare across runs\n");
+      g_stream = malloc(UB_STREAM_BYTES);
+    }
   if (g_stream == NULL)
     {
       printf("ubench: no room for the streaming buffer\n");
@@ -591,6 +627,11 @@ int main(int argc, FAR char *argv[])
           (unsigned)(((*(FAR volatile uint32_t *)0x00301604) >> 8) & 7) + 1,
           (unsigned)(((*(FAR volatile uint32_t *)0x00301604) >> 4) & 15) + 1,
           (unsigned)((*(FAR volatile uint32_t *)0x00301608) & 0xfff));
+  /* Where the streams live decides which rows and banks the two-stream
+     loops touch, so a run that cannot be compared with another says so in
+     its own header rather than in a later argument about the numbers. */
+
+  dprintf(fd, "# stream %p, far %p\n", g_stream, g_far);
   dprintf(fd, "# %-12s %6s %5s %9s %10s %10s\n", "loop", "bytes", "insn",
           "seconds", "cyc/pass", "cyc/instr");
 

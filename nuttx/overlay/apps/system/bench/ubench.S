@@ -2034,5 +2034,112 @@ ub_rtbig:
 	.global	ub_rtbig_end
 ub_rtbig_end:
 
+/*
+ * How often a row changes, at a fixed number of accesses.
+ *
+ * ld2 changes rows on every access and ld1walk on almost none, and between
+ * those two the cost of a change and the cost of an access cannot be told
+ * apart: one number, two unknowns.  These take N bytes from one stream
+ * before N from another half a megabyte away -- a row change either way,
+ * whatever the geometry says -- so a pass makes the same sixteen accesses
+ * with 8, 4 or 2 row changes among them.  Same instruction count and same
+ * body length as ld2, so the instruction queue behaves identically and only
+ * the rate differs.  Cost per access against changes per access is then a
+ * straight line whose slope is the change and whose intercept is the access.
+ */
+
+	.p2align 5
+	.global	ub_rowrate2
+	.type	ub_rowrate2,@function
+ub_rowrate2:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	4
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r4,[%r7]+
+	ld.ub	%r9,[%r8]+
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_rowrate2_end
+ub_rowrate2_end:
+
+	.p2align 5
+	.global	ub_rowrate4
+	.type	ub_rowrate4,@function
+ub_rowrate4:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	2
+	.rept	4
+	ld.ub	%r4,[%r7]+
+	.endr
+	.rept	4
+	ld.ub	%r9,[%r8]+
+	.endr
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_rowrate4_end
+ub_rowrate4_end:
+
+	.p2align 5
+	.global	ub_rowrate8
+	.type	ub_rowrate8,@function
+ub_rowrate8:
+	ld.w	%r5,1
+	ld.w	%r8,%r7
+	xadd	%r8,0x80000
+1:
+	.rept	8
+	ld.ub	%r4,[%r7]+
+	.endr
+	.rept	8
+	ld.ub	%r9,[%r8]+
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	jrne	1b
+	ret
+	.global	ub_rowrate8_end
+ub_rowrate8_end:
+
+/*
+ * Instruction fetch that outgrows a row.
+ *
+ * f128 and f256 are 256 and 512 bytes of straight line, so they fetch
+ * through several queue lines but never leave one 1 KB row.  This one is
+ * 2 KB and row-aligned, so half its fetches land in the row after the one
+ * before them.  Real code does this constantly and the tiny loops here never
+ * do, which is the gap the model has to be right about: the device gained a
+ * quarter of its CoreMark from faster row changes where the model expected
+ * a twenty-fifth.
+ */
+
+	.p2align 10
+	.global	ub_f1024
+	.type	ub_f1024,@function
+ub_f1024:
+	ld.w	%r5,1
+1:
+	.rept	1024
+	add	%r4,%r5
+	.endr
+	sub	%r6,%r5
+	cmp	%r6,0
+	xjrne	1b			/* jrne reaches +-256 bytes; this body is longer */
+	ret
+	.global	ub_f1024_end
+ub_f1024_end:
+
 	.global	ub_block_end
 ub_block_end:
