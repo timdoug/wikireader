@@ -24,6 +24,20 @@ Regenerating the seed, when the Forth has changed enough to be worth it:
 
     make -C nuttx CONFIG=forthseed
     cp nuttx/nuttx.app samo-lib/forth/seed/wrforth-seed.app
+
+**The seed in the tree needs that doing before this will run.**  This
+script used to hand the seed to the emulator as a bare ELF, which no longer
+boots -- a direct boot leaves the SDRAM controller, the clocks and the
+serial line in a state the hardware is never in, and the serial line is how
+this drives the metacompiler.  It now puts the seed on the card as init.app
+under a kernel.elf and boots the whole chain, which is right and is what
+every other harness here does.  The seed itself does not survive that
+handoff: grifo chains through `jpr.d %r0` at 0x10000200 with r0 holding
+0x00300281, a peripheral register address rather than a code offset, and
+execution lands in zeros before the seed prints anything.  It was built and
+only ever exercised under the direct boot, so it has never had to.  The
+same NuttX configuration built today boots the chain perfectly well as
+nuttx.app, so regenerating is expected to be the whole fix.
 """
 
 import argparse
@@ -74,7 +88,7 @@ def load_fat_helper(root):
     return module
 
 
-def metacompile(root, here, seed, work, limit, awk):
+def metacompile(root, here, seed, work, limit, awk, grifo):
     fat = load_fat_helper(root)
 
     symbols = work / "forth-symbols.fi"
@@ -84,21 +98,33 @@ def metacompile(root, here, seed, work, limit, awk):
                         str(here / "forth-vector.fi")],
                        stdout=out, check=True)
 
-    files = {"forth.ini": DRIVER}
+    # The seed goes on the card as init.app, under a kernel.elf, and the run
+    # boots the whole chain.  It used to be handed to the emulator as a bare
+    # ELF, which no longer boots at all: a direct boot leaves the SDRAM
+    # controller, the clocks and the serial line in a state the hardware is
+    # never in, and the serial line is how this drives the metacompiler.
+    files = {"forth.ini": DRIVER,
+             "kernel.elf": grifo.read_bytes(),
+             "init.app": seed.read_bytes()}
     for name, source in SOURCES.items():
         files[name] = (symbols if source == "forth-symbols.fi"
                        else here / source).read_bytes()
 
     card = work / "card.img"
     fat.make_image(card, files)
+    flash = work / "flash.rom"
+    subprocess.run([sys.executable, str(root / "samo-lib/mbr/make-flash.py"),
+                    str(flash)], check=True, stdout=subprocess.DEVNULL)
 
     script = work / "commands.txt"
     script.write_text(COMMANDS)
 
     command = [str(root / "emulator/wremu"), "-n", str(limit),
-               "-c", str(card), "--uart-input", str(script),
-               "--uart-start", "30000000", "--uart-gap", "400000",
-               str(seed)]
+               "-c", str(card), "-e", str(flash),
+               "--uart-input", str(script),
+               # Late enough that the prompt is there to type at: the loader
+               # and grifo run first, and grifo loads the seed off the card.
+               "--uart-start", "250000000", "--uart-gap", "400000"]
     with (work / "console.log").open("wb") as log:
         subprocess.run(command, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=3600,
@@ -129,12 +155,15 @@ def main():
     parser.add_argument("--body", type=Path,
                         help="write only the metacompiler's output here")
     parser.add_argument("--awk", default=os.environ.get("AWK", "awk"))
+    parser.add_argument("--grifo", type=Path,
+                        default=root / "samo-lib/grifo/grifo.elf",
+                        help="the kernel the card boots before the seed")
     parser.add_argument("--limit", type=int, default=40_000_000_000)
     parser.add_argument("--keep", type=Path,
                         help="working directory to keep for inspection")
     args = parser.parse_args()
 
-    for needed in (root / "emulator/wremu", args.seed):
+    for needed in (root / "emulator/wremu", args.seed, args.grifo):
         if not needed.exists():
             raise SystemExit(f"{needed} is missing")
 
@@ -143,7 +172,8 @@ def main():
     work = Path(context.name) if context else args.keep
     work.mkdir(parents=True, exist_ok=True)
     try:
-        body = metacompile(root, here, args.seed, work, args.limit, args.awk)
+        body = metacompile(root, here, args.seed, work, args.limit, args.awk,
+                           args.grifo)
     finally:
         if context:
             context.cleanup()

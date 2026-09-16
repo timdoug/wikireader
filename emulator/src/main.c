@@ -4,6 +4,7 @@
  * Milestone: load an ELF image, execute from its entry point, and trace.
  */
 
+#include <signal.h>
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,12 +38,24 @@ static unsigned long hold_cycles = 2000000UL;
 static void usage(const char *p)
 {
 	fprintf(stderr,
-		"usage: %s [-t N] [-n N] [-m] <image.elf>\n"
+		"usage: %s [-t N] [-n N] [-m] -e flash.rom -c card.img\n"
+		"\n"
+		"The machine boots the way the hardware does: the FLASH image\n"
+		"runs the boot loader, which loads kernel.elf from the card,\n"
+		"which chains to init.app.  Use this for everything.\n"
 		"  -t N   trace the first N instructions\n"
 		"  -n N   stop after N instructions (default 1000000; unlimited with -g)\n"
 		"  -m     trace unclaimed MMIO register accesses\n"
 		"  -s     trace grifo syscalls by name\n"
 		"  -A     accepted for compatibility; alignment traps are always on\n"
+		"  --bare-elf IMAGE  run a bare ELF with no boot at all.\n"
+		"         ONLY for the toolchain test suites, which run compiler\n"
+		"         output rather than firmware.  Never use it to develop\n"
+		"         or measure anything that runs on a WikiReader: it fakes\n"
+		"         the SDRAM controller and clock state the boot loader\n"
+		"         would have programmed, so the machine is close to the\n"
+		"         real one but not equal to it, and every difference has\n"
+		"         cost someone a day.  Boot through -e instead.\n"
 		"  -g     show the panel in a live SDL2 window\n"
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
@@ -220,10 +233,18 @@ static void machine_power_on(struct c33 *cpu, struct mem *mem,
  * register writes so that the model derives everything from them exactly as
  * it would have if the guest had done it.
  */
+static volatile sig_atomic_t signalled;
+
+static void note_signal(int sig)
+{
+	(void)sig;
+	signalled = 1;
+}
+
 static void sdramc_boot_state(struct mem *mem)
 {
 	const char *rev = getenv("WREMU_BOARD_REV");
-	unsigned long r = rev ? strtoul(rev, NULL, 0) : 8;
+	unsigned long r = rev ? strtoul(rev, NULL, 0) : 7;   /* see port.c */
 	bool small = r == 8 || r == 6;   /* 16 MB boards; the rest are 32 */
 	uint32_t ctl = ((2u - 1) << 12) | ((4u - 1) << 8) | ((6u - 1) << 4) |
 		       (small ? 0x2u : 0x3u);
@@ -289,6 +310,7 @@ int main(int argc, char **argv)
 	unsigned step; };
 	struct script_drag drags[NSCRIPT]; unsigned ndrags = 0;
 	const char *eeprom_path = NULL;
+	bool bare_elf = false;
 /* How long a scripted press is held before release; WREMU_HOLD_MS overrides. */
 #define HOLD_CYCLES  hold_cycles
 /* Total span of a scripted drag, from its first packet to its last. */
@@ -394,6 +416,10 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
 			limit = strtoul(argv[++i], NULL, 0);
 			limit_given = true;
+		}
+		else if (!strcmp(argv[i], "--bare-elf") && i + 1 < argc) {
+			bare_elf = true;
+			path = argv[++i];
 		}
 		else if (!strcmp(argv[i], "-e") && i + 1 < argc)
 			eeprom_path = argv[++i];
@@ -528,6 +554,21 @@ int main(int argc, char **argv)
 		else { usage(argv[0]); return 2; }
 	}
 	if (!path && !eeprom_path) { usage(argv[0]); return 2; }
+	if (path && !bare_elf) {
+		fprintf(stderr,
+			"error: %s is a bare ELF and this emulator no longer boots one\n"
+			"       implicitly.  Firmware must go through the real boot:\n"
+			"         %s -e flash.rom -c card.img\n"
+			"       where the card holds kernel.elf and init.app.  A direct\n"
+			"       boot skips the loader, so the SDRAM controller, the\n"
+			"       clocks and the serial line are all in a state the\n"
+			"       hardware is never in, and firmware measured or debugged\n"
+			"       that way has repeatedly been wrong.\n"
+			"       The toolchain test suites, which run compiler output\n"
+			"       rather than firmware, pass --bare-elf instead.\n",
+			path, argv[0]);
+		return 2;
+	}
 
 	/* Interactive runs should keep going until the window is closed. */
 	if (gui && !limit_given)
@@ -677,8 +718,10 @@ int main(int argc, char **argv)
 	   now that both of them exist. */
 	port_watch_sdram(&port, &cpu);
 
-	/* The loader would have done this; a direct ELF boot has no loader. */
-	if (!eeprom_path) {
+	/* Only --bare-elf gets here, and this is why it is not for firmware:
+	   the loader would have programmed the SDRAM controller and the
+	   clocks, so without one the emulator has to invent them. */
+	if (bare_elf) {
 		sdramc_boot_state(&mem);
 		cmu_boot_state(&mem);
 	}
@@ -740,6 +783,11 @@ int main(int argc, char **argv)
 	unsigned rn = 0;
 	unsigned long nop_run = 0;
 	const char *stop = NULL;
+	/* A run that has to be stopped from outside -- a Linux boot driven by
+	   a script, say -- still wants the panel written out and the counters
+	   printed, so a signal ends the loop rather than the process. */
+	signal(SIGTERM, note_signal);
+	signal(SIGINT, note_signal);
 
 	while (!cpu.halted && retired_before_reset + cpu.cycles < limit) {
 		/*
@@ -1066,6 +1114,10 @@ int main(int argc, char **argv)
 
 		/* Executing a long run of zero words means we have fallen out
 		 * of real code into blank memory. */
+		if (signalled) {
+			stop = "interrupted";
+			break;
+		}
 		if (port.power_off_requested) {
 			if (!disp.open) {
 				stop = "powered off";

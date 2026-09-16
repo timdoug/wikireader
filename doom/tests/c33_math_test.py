@@ -35,7 +35,9 @@ def main():
     run([args.toolchain / 'c33-epson-elf-ld', '-T', ROOT / 'doom/tests/math.lds',
          out / 'start.o', out / 'test.o', out / 'math.o', libgcc, '-o', out / 'math.elf'])
     with (out / 'run.log').open('w') as log:
-        run([ROOT / 'emulator/wremu', '-n', '300000000', out / 'math.elf'],
+        # --bare-elf: this is arithmetic compiled for the core, not firmware.
+        run([ROOT / 'emulator/wremu', '-n', '300000000',
+             '--bare-elf', out / 'math.elf'],
             cwd=out, stdout=log, stderr=subprocess.STDOUT, timeout=180)
     log = (out / 'run.log').read_text()
     actual = re.findall(r'^[0-9a-f]{8}$', log, re.M)

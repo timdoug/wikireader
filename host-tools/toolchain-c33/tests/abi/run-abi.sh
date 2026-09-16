@@ -47,7 +47,8 @@ build() {                       # build <name> <callee-cc> <caller-cc>
 		"${LIBC}" "$(newcc -print-libgcc-file-name)" "$(oldcc -print-libgcc-file-name)" \
 		-o "${WORK}/${name}.elf" 2>>"${WORK}/${name}.log" \
 		|| { echo "${name}: link failed"; sed -n 1,5p "${WORK}/${name}.log"; return 1; }
-	"${EMU}" -n 200000000 "${WORK}/${name}.elf" 2>&1 |
+	# --bare-elf: compiler output, not firmware.  See the emulator usage.
+	"${EMU}" -n 200000000 --bare-elf "${WORK}/${name}.elf" 2>&1 |
 		grep -E '^[0-9a-f]{8}$' > "${WORK}/${name}.out"
 }
 

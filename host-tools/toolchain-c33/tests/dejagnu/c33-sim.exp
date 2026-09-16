@@ -361,7 +361,9 @@ proc c33-sim_load {dest prog args} {
     }
     set limit [expr {wide($base_limit) * $host_timeout / $base_host_timeout}]
 
-    set command [list $env(C33_EMU) -n $limit -b 0x10000002 $prog]
+    # --bare-elf: these are compiler output, not firmware.  Nothing that
+    # runs on a WikiReader may use it; see the emulator usage text.
+    set command [list $env(C33_EMU) -n $limit -b 0x10000002 --bare-elf $prog]
     set state [local_exec $command "" "" $host_timeout]
     set output [lindex $state 1]
 

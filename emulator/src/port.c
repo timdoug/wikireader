@@ -245,9 +245,14 @@ void port_reset(struct port *p)
 }
 
 /* Port A holds the board revision in its low nibble, inverted: the boot
-   code computes 8 ^ (PA & 0x0f). Revision 8 (the default here) and 6 are
-   the 16 MB boards; the early 32 MB boards report anything else, so
-   WREMU_BOARD_REV=7 emulates one of those. */
+   code computes 8 ^ (PA & 0x0f), and samo_a1.h programs the SDRAM
+   controller for 16 MB when that comes out 8 or 6 and for 32 MB otherwise.
+   The default here is 7, a 32 MB board, because that is the only kind
+   anyone has produced: the physical WikiReader this port is developed
+   against reports ADDRC=3, and no 16 MB board has turned up.  The 16 MB
+   branch in the firmware is still reachable with WREMU_BOARD_REV=8, which
+   is worth keeping -- it is the configuration that would catch an
+   application assuming it has the larger memory. */
 static uint8_t porta_value;
 
 static bool porta_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
@@ -271,7 +276,7 @@ void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 
 	p->itc = itc;
 	port_reset(p);
-	porta_value = (uint8_t)(0x08u ^ (rev ? strtoul(rev, NULL, 0) & 0x0fu : 0x08u));
+	porta_value = (uint8_t)(0x08u ^ (rev ? strtoul(rev, NULL, 0) & 0x0fu : 0x07u));
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 	mem_add_mmio(m, "porta", PORTA_BASE, PORTA_LEN, porta_mmio, p);
 }
