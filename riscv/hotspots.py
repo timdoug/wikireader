@@ -39,6 +39,24 @@ def line_map(obj):
     return mapping
 
 
+def symbol(mapfile, name):
+    """A global's link address, out of the map file.
+
+    The profile has to be windowed to the run, and these are what bracket
+    it.  Without a window it covers the whole boot -- and grifo runs its own
+    code from the same A0 RAM the interpreter is later loaded into, so its
+    SPI loop and the hot path share addresses and the profile cannot tell
+    them apart.  That put 2.2 million executions of grifo's card reader onto
+    four instructions of the dispatch macro, and made the interpreter look
+    twenty percent dearer than the run it was measured in.
+    """
+    match = re.search(r'^\s+(0x[0-9a-f]+)\s+' + re.escape(name) + r'$',
+                      mapfile, re.M)
+    if not match:
+        raise SystemExit(f'no {name} in riscv.map')
+    return match[1]
+
+
 def fastcode_span(mapfile):
     match = re.search(r'^\.fastcode\s+(0x\S+)\s+(0x\S+)', mapfile, re.M)
     start, size = int(match[1], 16), int(match[2], 16)
@@ -51,8 +69,11 @@ def main():
     parser.add_argument('--top', type=int, default=16)
     args = parser.parse_args()
 
+    mapfile = (HERE / 'riscv.map').read_text()
+    window = f'{symbol(mapfile, "rv32_run")},{symbol(mapfile, "power_off")}'
     run = subprocess.run([sys.executable, str(HERE / 'run.py'), '--app', str(args.app),
-                          '--limit', '4000000000', '--timeout', '150', '--profile'],
+                          '--limit', '4000000000', '--timeout', '300', '--profile',
+                          '--window', window],
                          cwd=HERE, capture_output=True, text=True)
     profile = re.search(r'^profile: (.*)$', run.stdout, re.M)
     guest = re.search(r'rv32: total\s+(\d+) insns, (\d+) cycles, ([\d.]+) cyc/insn', run.stdout)
@@ -62,7 +83,7 @@ def main():
         raise SystemExit('run produced no profile')
     insns, cycles, cpi = int(guest[1]), int(guest[2]), float(guest[3])
 
-    lo, hi = fastcode_span((HERE / 'riscv.map').read_text())
+    lo, hi = fastcode_span(mapfile)
     rows = []
     for line in Path(profile[1]).read_text().split('\n'):
         if line.strip():

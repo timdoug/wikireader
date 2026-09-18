@@ -119,8 +119,19 @@ def main():
                         help='show the panel in a window; clicks are touches')
     parser.add_argument('--launcher', action='store_true',
                         help='boot to the icon panel and pick from there')
+    parser.add_argument('--args',
+                        help='run the application with these arguments, through '
+                             'a one-entry launcher: grifo chains straight into a '
+                             'panel with a single icon, so this needs no tap')
     parser.add_argument('--profile', action='store_true',
                         help='write a per-address profile next to the log')
+    parser.add_argument('--window', metavar='START,END',
+                        help='profile only between the first hits of two '
+                             'addresses.  Without one the profile covers the '
+                             'whole run, and grifo boots from the same A0 RAM '
+                             'the interpreter later occupies -- its SPI loop '
+                             'and the hot path share addresses, and the '
+                             'profile cannot tell them apart')
     parser.add_argument('--expect', type=Path, default=here / 'build/ref.txt',
                         help='kernel checksums from the native reference build')
     parser.add_argument('--dtb', type=Path,
@@ -139,7 +150,13 @@ def main():
     out = Path(tempfile.mkdtemp(prefix='wr-riscv-'))
     card = out / 'card.img'
     files = {'KERNEL.ELF': (ROOT / 'samo-lib/grifo/grifo.elf').read_bytes()}
-    if args.launcher:
+    if args.args:
+        files['INIT.APP'] = (ROOT / 'samo-lib/grifo/applications/init/init.app').read_bytes()
+        files['RISCV.APP'] = args.app.read_bytes()
+        files['RISCV.ICO'] = (here / 'riscv.ico').read_bytes()
+        files['RVBENCH.BIN'] = args.image.read_bytes()
+        files['INIT.INI'] = f'riscv.ico : riscv.app {args.args}\n'.encode()
+    elif args.launcher:
         # Grifo chains to init.app; the stock one reads init.ini and draws
         # the icon panel.  It only draws it for two entries or more -- with
         # one it boots straight into it -- so both go on the card.
@@ -174,6 +191,8 @@ def main():
         cmd += ['-g']
     if args.profile:
         cmd += ['-F', 'profile.txt']
+    if args.window:
+        cmd += ['-Y', args.window]
     for tap in args.tap:
         cmd += ['-T', tap]
     if args.type:
@@ -188,16 +207,16 @@ def main():
                                 stderr=subprocess.STDOUT, timeout=args.timeout)
     text = log.read_text(errors='replace')
     sys.stdout.write(''.join(line + '\n' for line in text.splitlines()
-                             if args.dtb or line.startswith('rv32:') or 'bench' in line
+                             if args.dtb or args.args or line.startswith('rv32:') or 'bench' in line
                              or re.match(r'^(alu|branch|mul|div|load|store|copy|bytes|crc|sieve|done) ', line)))
-    if 'rv32: total' not in text and not args.dtb:
+    if 'rv32: total' not in text and not args.dtb and not args.args:
         print(f'run did not finish; full log at {log}', file=sys.stderr)
         return 1
     # On the device the card is the only copy of the numbers, so check here
     # that it really got them: the same write, the same filesystem driver.
     # Searching the raw image rather than mounting it -- the report is one
     # cluster, so it is contiguous, and this needs no privileges.
-    if not args.dtb and not args.launcher:
+    if not args.dtb and not args.launcher and not args.args:
         # Searching the raw image rather than mounting it: no privileges
         # needed, and the report is one cluster so it cannot be fragmented.
         # The pattern has to include the numbers -- the unfilled format
@@ -213,7 +232,7 @@ def main():
     # The host test cannot exercise C33 assembly, so the checksums the guest
     # prints are the only thing standing between a fast interpreter and a
     # wrong one.  Compare them against the native reference every run.
-    if args.expect.exists() and not args.dtb:
+    if args.expect.exists() and not args.dtb and not args.args:
         want = args.expect.read_text().split()
         got = re.findall(r'^(\w+) (0x[0-9a-f]{8})$', text, re.M)
         got = [piece for pair in got for piece in pair]

@@ -6,7 +6,7 @@ include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = riscv
 ICON = YES
-SOURCES = riscv.c rv32.c console.c rv32_hot.s
+SOURCES = riscv.c rv32.c console.c rv32_hot.s jit_probe.s
 CFLAGS += -std=gnu11 -fwrapv -fno-strict-aliasing
 LDFLAGS += -T memory.lds
 
@@ -34,7 +34,7 @@ ifeq (1,$(strip $(ASM)))
 CFLAGS += -DRV32_ASM
 endif
 
-EXTRA_TARGETS += build/rvbench.bin rvlinux.ico
+EXTRA_TARGETS += build/rvbench.bin rvlinux.ico rvjit.ico
 
 include $(GRIFO_APPLICATION_POST)
 
@@ -93,3 +93,13 @@ test: build/rvbench.bin | build
 .PHONY: bench
 bench: riscv.app build/rvbench.bin
 	python3 run.py
+
+# What a guest actually executes, on the build machine and at native speed:
+# a Linux boot is thirty-eight million instructions, which is nine minutes
+# under the full-system emulator and under a second here.
+.PHONY: mix
+mix: | build
+	$(HOST_CC) -std=c11 -O2 -Wall -Wextra -Werror -fwrapv \
+	    tests/host_mix.c rv32.c -o build/host_mix
+	./build/host_mix --image linux/Image --dtb linux/wr-sh.dtb \
+	    --until '# ' --quiet
