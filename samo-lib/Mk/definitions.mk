@@ -142,10 +142,8 @@ REQUIRED_PHP = $(eval $(call REQUIRED_PHP_1,$(strip ${1}),$(strip ${2})))
 LICENSES := ${ROOT_DIR}/Licenses
 
 # The original wiki application moved under deprecated/ and wiki/ was built
-# from it; nothing in ALL_TARGETS reads these any more.  They are kept
-# pointing at the real location for deprecated/mahatma.  host-tools/hash-gen
-# also names them but cannot build either way: it wants a search_hash.c that
-# is no longer anywhere in the tree.
+# from it.  Nothing in ALL_TARGETS reads these; deprecated/mahatma is the
+# only thing left that names them, so they point at where the tree went.
 WIKI_APP = ${ROOT_DIR}/deprecated/wiki-app/
 WIKI_APP_INCLUDE = ${WIKI_APP}
 WIKI_APP_SRC = ${WIKI_APP}
@@ -188,10 +186,6 @@ GRIFO_LIB = ${GRIFO}/lib/libgrifo.a
 LZMA = ${SAMO_LIB}/lzma
 LZMA_INCLUDE = ${LZMA}
 LZMA_SRC = ${LZMA}
-
-MAHATMA = ${SAMO_LIB}/mahatma
-MAHATMA_INCLUDE = ${MAHATMA}
-MAHATMA_SRC = ${MAHATMA}
 
 FORTH = ${SAMO_LIB}/forth
 FORTH_INCLUDE = ${FORTH}
