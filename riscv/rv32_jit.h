@@ -82,6 +82,8 @@
 enum {
 	RV32_JIT_DECLINE = 0,  /* an instruction, or an address, this cannot do */
 	RV32_JIT_BUDGET  = 1,  /* the batch is spent; nothing was executed */
+	RV32_JIT_CHARGED = 2,  /* the batch is spent, and the block that found
+	                          it so had already charged for itself */
 };
 
 typedef struct rv32_jit {
@@ -132,8 +134,13 @@ typedef struct rv32_jit {
 	uint32_t  entries;
 	uint32_t  warmups;     /* chunks the interpreter ran instead */
 	uint32_t  regions;     /* translated, and the guest instructions in
-	                          them counting every unrolled copy */
+	                          them, each counted once however it is laid
+	                          out */
 	uint32_t  insns;
+	uint32_t  entries_made; /* blocks given an entry from outside, later */
+	uint32_t  loops;        /* loops whose checks were hoisted, and how
+	                           many of them fit the fetch window */
+	uint32_t  resident;
 } rv32_jit_t;
 
 extern rv32_jit_t rv32_jit;

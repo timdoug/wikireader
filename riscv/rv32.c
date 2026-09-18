@@ -822,8 +822,14 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 				s->retired += did;
 				s->cycle_lo += did;
 				/* A block that has started runs whole, so this
-				   can overrun the batch by one block's worth. */
+				   can overrun the batch by one block's worth.  A
+				   loop laid out to fit the fetch window charges
+				   before it checks and refuses a pass the batch
+				   cannot afford: what is left of the batch then is
+				   the interpreter's, or this would ask again. */
 				budget = did >= budget ? 0 : budget - did;
+				if (!did)
+					rv32_jit.step = 1;
 				continue;
 			}
 			rv32_jit.step = 0;

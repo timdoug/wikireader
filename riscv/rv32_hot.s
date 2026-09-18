@@ -43,6 +43,9 @@
 	.set	OFF_RAM, 132
 	.set	OFF_RAM_SIZE, 136
 	.set	OFF_RESERVE, 140
+	.ifndef	BOUNDARY_LEFT			; the Makefile sets it, with a
+	.set	BOUNDARY_LEFT, 0		; translator behind: half of
+	.endif					; rv32_jit.h's RV32_JIT_CHUNK
 
 	.section .fastcode,"ax"
 	.align	1
@@ -199,6 +202,14 @@ rv32_hot:
 
 ; A computed target must land inside guest RAM and on a word boundary.
 ; Anything else goes back to C, so that traps are built in one place.
+;
+; With a translator behind this, once half the batch is gone the batch ends
+; at the next taken transfer, with p at its target.  The translator takes
+; over wherever the interpreter stops, and a region that starts in the
+; middle of a block is that block's tail forever, with its head reached
+; later from another region through a writeback and a reload every time.
+; Stopping here makes every region start at a function, a return point or a
+; loop head.  The interpreter alone has no use for it and does not pay.
 .Lcheck_target:
 	cmp	%r1,%r2
 	jrult	.Lbad_target
@@ -208,6 +219,13 @@ rv32_hot:
 	and	%r9,0x3
 	jrne	.Lbad_target
 	WRITEBACK
+	.if	BOUNDARY_LEFT
+	xcmp	%r6,BOUNDARY_LEFT
+	jrugt	1f
+	sub	%r6,0x1			; this one ran: DISPATCH's count is
+	xjp	.Lleave			; one ahead of what has executed
+1:
+	.endif
 	DISPATCH
 .Lbad_target:
 	ld.w	%r1,%r14		; the instruction that jumped

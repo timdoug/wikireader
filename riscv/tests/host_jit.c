@@ -139,6 +139,15 @@ struct piece {
 	{ "jalr x1,8(x6)",        { i_type(8, 6, 0, 1, 0x67) }, 1 }, \
 	{ "ecall (declined after an addi)", \
 	  { i_type(1, 6, 0, 5, 0x13), 0x00000073 }, 2 }, \
+	{ "byte loop, after two nops: sb x7,0(x6); addi x6,x6,1; bne x6,x8,-8", \
+	  { 0x00000013, 0x00000013, \
+	    s_type(0, 7, 6, 0, 0x23), i_type(1, 6, 0, 6, 0x13), \
+	    b_type(-8, 8, 6, 1, 0x63) }, 5 }, \
+	{ "copy loop, after two nops: lw x14,0(x11); addi x11,x11,4; sw x14,0(x31); addi x31,x31,4; bltu x11,x13,-16", \
+	  { 0x00000013, 0x00000013, \
+	    i_type(0, 11, 2, 14, 0x03), i_type(4, 11, 0, 11, 0x13), \
+	    s_type(0, 14, 31, 2, 0x23), i_type(4, 31, 0, 31, 0x13), \
+	    b_type(-16, 13, 11, 6, 0x63) }, 7 }, \
 }
 
 int main(void)
@@ -175,9 +184,15 @@ int main(void)
 			at[2] = (uint8_t)(ir >> 16);
 			at[3] = (uint8_t)(ir >> 24);
 		}
-		if (!rv32_jit_block(&s, RV_RAM_BASE)) {
-			printf("; %s: not translated\n", p->what);
-			continue;
+		/* Straight to the translator: rv32_jit_block() would want the
+		   piece interpreted a dozen times first. */
+		{
+			int full;
+
+			if (!translate(&s, RV_RAM_BASE, &full)) {
+				printf("; %s: not translated\n", p->what);
+				continue;
+			}
 		}
 		printf("\n; ---- %s  (%u bytes)\n", p->what,
 		       (unsigned)(rv32_jit.code_used - was));

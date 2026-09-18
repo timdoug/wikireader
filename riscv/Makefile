@@ -61,6 +61,13 @@ riscv.app: memory.lds
 # this file is read, so the override has to be per target.
 build/rv32.o build/riscv.o build/console.o build/rv32_jit.o: CFLAGS += -mlong-calls
 
+# With a translator behind it, the interpreter ends a chunk at the next
+# taken transfer once half of it is spent, so that regions start at block
+# boundaries; without one the test would only cost the interpreter.
+ifeq (1,$(strip $(JIT)))
+build/rv32_hot.o: ASFLAGS += --defsym BOUNDARY_LEFT=128
+endif
+
 # The guest image.  A separate architecture with a separate toolchain, so it
 # is built here rather than through the C33 rules.
 RISCV_PREFIX ?= riscv64-unknown-elf-
@@ -94,8 +101,16 @@ build/divtest.elf: guest/start.S guest/divtest.c guest/divtable.h guest/bench.ld
 build/divtest.bin: build/divtest.elf
 	$(RISCV_PREFIX)objcopy -O binary $< $@
 
+.PHONY: jitscan
+IMAGE ?= build/rvbench.bin
+AT ?= 80000000
+jitscan: | build
+	$(HOST_CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fwrapv -Wno-unused-function \
+	    tests/host_scan.c -o build/host_scan
+	./build/host_scan $(IMAGE) $(AT)
+
 .PHONY: divtest
-divtest: riscv.app build/divtest.bin | build
+divtest: build/divtest.bin | build
 	$(HOST_CC) -std=c11 -O2 -Wall -Wextra -Werror -fwrapv tests/divref.c -o build/divref
 	./build/divref > build/divref.txt
 	python3 run.py --image build/divtest.bin --expect build/divref.txt --timeout 300

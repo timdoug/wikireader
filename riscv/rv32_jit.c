@@ -160,7 +160,7 @@ enum {                           /* branches */
 /* The cold section of a trace: every path that leaves the ordinary one, kept
    until the last block is emitted and then laid out after it.  A device
    access rejoins the block; the others hand the block to the runtime. */
-enum { C_FAULT, C_DEV_LOAD, C_DEV_STORE, C_EXIT, C_ENTRY };
+enum { C_FAULT, C_DEV_LOAD, C_DEV_STORE, C_EXIT, C_ENTRY, C_LOOP };
 
 #define NO_ENTRY 0xffffffffu
 
@@ -190,6 +190,9 @@ struct tc {
 	unsigned  i;            /* the instruction being emitted */
 
 	unsigned  ncold;
+	uint64_t  nocheck;      /* accesses in the block, by instruction, whose
+	                           range a loop's entry has already checked */
+	unsigned  nls;          /* loop-check sites waiting for their cold copy */
 
 	unsigned  nrb;          /* the region's blocks, and the jumps between */
 	unsigned  nfix;         /* them still to be filled in */
@@ -417,75 +420,6 @@ INLINE void cold_site(struct cold *c, uint32_t at)
 	c->site = at;
 }
 
-static void region_jump(struct tc *t, uint32_t target);
-static uint32_t entry(struct tc *t, const uint8_t *map, unsigned bidx,
-		      uint32_t warm);
-
-static void emit_cold(struct tc *t)
-{
-	uint32_t base = (uint32_t)(uintptr_t)t->base;
-	unsigned k, j;
-
-	for (k = 0; k < t->ncold; ++k) {
-		struct cold *c = &colds[k];
-		unsigned kind = c->info & 0xff, reg = (c->info >> 8) & 0xff;
-		unsigned align = c->info >> 16;
-		uint32_t bad[2];
-		unsigned nbad = 0;
-
-		if (kind == C_ENTRY) {
-			/* Another region's block, wanted from this one and
-			   entered from outside for the first time: its entry
-			   is made here, and belongs to it from now on. */
-			struct jit_block *b = &rv32_jit.blk[c->code];
-
-			b->off = entry(t, b->map, c->code, b->warm);
-			slot(b->pc)[0] = b->pc;
-			slot(b->pc)[1] = base + b->off;
-			patch(c->site, base + b->off);
-			continue;
-		}
-		land_far(t, c->site, t->off);
-		if (kind == C_EXIT) {
-			region_jump(t, c->code);
-			continue;
-		}
-		/* The one branch a memory access takes covers misaligned as
-		   well as outside RAM.  Only a device access goes on from here,
-		   so the two are told apart now, where it costs nothing. */
-		if (kind != C_FAULT && align) {
-			rr(t, O_MOV, R13, R4);
-			ri(t, I_AND, R13, align);
-			bad[nbad++] = fwd(t, B_NE);
-		}
-		switch (kind) {
-		case C_DEV_LOAD:
-			xjump(t, B_CALL,
-			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_load);
-			if (reg != R5)
-				rr(t, O_MOV, reg, R5);
-			xjump(t, B_JP, base + c->rejoin);
-			break;
-		case C_DEV_STORE:
-			if (reg != R5)
-				rr(t, O_MOV, R5, reg);
-			xjump(t, B_CALL,
-			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_store);
-			bad[nbad++] = fwd(t, B_NE);     /* C has to do it */
-			xjump(t, B_JP, base + c->rejoin);
-			break;
-		default:
-			break;
-		}
-		if (kind == C_FAULT || nbad) {
-			for (j = 0; j < nbad; ++j)
-				land(t, bad[j]);
-			ri(t, I_MOV, R5, c->code);
-			xjump(t, B_JP, (uint32_t)(uintptr_t)rv32_jit_stub_fault);
-		}
-	}
-	t->ncold = 0;
-}
 
 /* ---- guest instructions ------------------------------------------------ */
 
@@ -652,6 +586,8 @@ INLINE struct cold *address(struct tc *t, unsigned rs1, int32_t off,
 	if (off)
 		addimm(t, R4, (uint32_t)off, 0);
 	rr(t, O_ADD, R4, R8);
+	if (t->nocheck & ((uint64_t)1 << t->i))
+		return NULL;            /* the loop's entry checked its range */
 	rr(t, O_MOV, R13, R4);
 	rr(t, O_SUB, R13, R2);
 	c = cold_new(t, kind, reg, align, RV32_JIT_DECLINE);
@@ -760,6 +696,111 @@ static void mulhsu(struct tc *t, unsigned rd, unsigned rs1, unsigned rs2)
 	done(t, rd, hd);
 }
 
+/* The CSRs that are a word of the machine state and nothing else: which
+   word, and whether the guest may write it.  -1 for one that is not --
+   the instruction counter, which only C keeps -- or that is nothing at all,
+   where the answer is zero and the write is dropped, which is what
+   rv32_csr_hot() does and what this does in a word. */
+static int csr_word(uint32_t csr, int *writable)
+{
+	*writable = 1;
+	switch (csr) {
+	case 0x300: return offsetof(rv32_t, mstatus);
+	case 0x304: return offsetof(rv32_t, mie);
+	case 0x305: return offsetof(rv32_t, mtvec);
+	case 0x340: return offsetof(rv32_t, mscratch);
+	case 0x341: return offsetof(rv32_t, mepc);
+	case 0x342: return offsetof(rv32_t, mcause);
+	case 0x343: return offsetof(rv32_t, mtval);
+	case 0x344: return offsetof(rv32_t, mip);
+	case 0xc00: case 0xb00: *writable = 0; return offsetof(rv32_t, cycle_lo);
+	case 0xc80: case 0xb80: *writable = 0; return offsetof(rv32_t, cycle_hi);
+	case 0xc01: *writable = 0; return offsetof(rv32_t, time_lo);
+	case 0xc81: *writable = 0; return offsetof(rv32_t, time_hi);
+	case 0xc02: case 0xb02: case 0xc82: case 0xb82:
+		return -1;
+	default:
+		*writable = 0;
+		return -2;
+	}
+}
+
+/* A CSR access that is a load and a store on the machine state: a Linux
+   boot masks and unmasks interrupts in mstatus every two hundred
+   instructions, and through the helper each one was a call, a save, C and
+   a restore.  Says whether it did it. */
+static int csr_inline(struct tc *t, uint32_t ir, unsigned rd, unsigned rs1,
+		      unsigned f3)
+{
+	uint32_t csr = ir >> 20;
+	int writable, off = csr_word(csr, &writable);
+	unsigned op = f3 & 3, imm = f3 & 4;
+	unsigned hd, h1 = 0, hnew;
+	/* rs and rc with a zero source read and write nothing. */
+	int writes = writable && (op == 1 || rs1 != 0);
+	int reads = rd != 0 || op != 1;
+
+	if (off == -1)
+		return 0;
+	if (csr == 0x301) {                             /* misa, a constant */
+		if (rd) {
+			hd = def(t, rd, R4);
+			ri(t, I_MOV, hd, 0x40001101u);
+			done(t, rd, hd);
+		}
+		return 1;
+	}
+	if (off == -2) {
+		if (rd) {
+			hd = def(t, rd, R4);
+			ri(t, I_MOV, hd, 0);
+			done(t, rd, hd);
+		}
+		return 1;
+	}
+	if (reads) {
+		ext(t, (uint32_t)off);
+		rr(t, O_LDW, R5, R0);                   /* the old value */
+	}
+	if (writes) {
+		if (op == 1) {
+			if (imm) {
+				ri(t, I_MOV, R13, rs1);
+				hnew = R13;
+			} else {
+				hnew = use(t, rs1, R13);
+			}
+		} else if (imm) {
+			rr(t, O_MOV, R13, R5);
+			if (op == 2)
+				ri(t, I_OR, R13, rs1);
+			else
+				ri(t, I_AND, R13, ~(uint32_t)rs1);
+			hnew = R13;
+		} else {
+			h1 = use(t, rs1, R4);   /* not %r13: the new value's */
+			if (op == 2) {
+				rr(t, O_MOV, R13, R5);
+				rr(t, O_OR, R13, h1);
+			} else {
+				rr(t, O_MOV, R13, h1);
+				rr(t, O_NOT, R13, R13);
+				rr(t, O_AND, R13, R5);
+			}
+			hnew = R13;
+		}
+		ext(t, (uint32_t)off);
+		rr(t, O_STW, hnew, R0);
+	}
+	if (rd) {
+		hd = def(t, rd, R5);
+		if (hd != R5)
+			rr(t, O_MOV, hd, R5);
+		done(t, rd, hd);
+	}
+	return 1;
+}
+
 /* One guest instruction.  Control transfers emit everything except how the
    block is left, which the trace builder decides. */
 static void insn(struct tc *t, uint32_t pc, uint32_t ir)
@@ -839,7 +880,8 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 			    f3 == 2 ? 3 : (f3 == 1 || f3 == 5) ? 1 : 0,
 			    C_DEV_LOAD, hd);
 		rr(t, kind[f3], hd, R4);
-		c->rejoin = t->off;     /* the device leaves its word there too */
+		if (c)
+			c->rejoin = t->off;     /* the device leaves its word there too */
 		done(t, rd, hd);
 		return;
 	}
@@ -856,7 +898,8 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 		c = address(t, rs1, imm_s(ir), f3 == 2 ? 3 : f3 == 1 ? 1 : 0,
 			    C_DEV_STORE, hv);
 		rr(t, kind[f3], hv, R4);        /* the value first, the base second */
-		c->rejoin = t->off;     /* a device store is already done */
+		if (c)
+			c->rejoin = t->off;     /* a device store is already done */
 		return;
 	}
 
@@ -928,8 +971,11 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 		}
 
 	case 0x73: {                                    /* csrrw/s/c, and -i */
-		struct cold *c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_DECLINE);
+		struct cold *c;
 
+		if (csr_inline(t, ir, rd, rs1, f3))
+			return;
+		c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_DECLINE);
 		if (f3 & 4)
 			ri(t, I_MOV, R4, rs1);          /* the immediate */
 		else {
@@ -985,7 +1031,7 @@ enum { T_BRANCH, T_JAL, T_JALR, T_DECLINE, T_CAP };
 
 #define BLOCK_CAP 200
 #define INSN_ROOM 128       /* the most any one instruction emits, hot and cold */
-#define BLOCK_ROOM 320      /* entries, budget check and exits */
+#define BLOCK_ROOM 512      /* entries, a loop's checks, and exits */
 
 static unsigned scan(rv32_t *s, uint32_t pc, int *term)
 {
@@ -1212,8 +1258,417 @@ struct fixup {
 	uint8_t  kind;
 };
 
-static struct rblock rb[REGION_BLOCKS];
+/* In internal RAM: discovery and layout walk it a few thousand times a
+   region, and a region a day is a small thing. */
+static struct rblock rb[REGION_BLOCKS] RV32_HOTDATA;
 static struct fixup fixups[REGION_BLOCKS * 8];
+
+/* ---- loops ---------------------------------------------------------------
+ *
+ * A loop that is one block long, whose exit condition counts a register up
+ * by a constant, touches a range of addresses that can be known before it
+ * starts: the register runs from its value now to the bound it is compared
+ * with, and every other register stepped in the body runs alongside it.  So
+ * the range is checked once, at the loop's entry -- both ends of it, in RAM
+ * and aligned -- and the loop itself carries no checks at all.  When the
+ * check fails, or the loop's shape is not what this assumes (a stride that
+ * does not divide the distance, a bound below the start), a copy of the
+ * loop with every access checked runs instead, in the cold section.
+ *
+ * What it is worth: the device runs a loop whose body ends within 27 bytes
+ * of a 16-byte line from the fetch queue, at the speed of internal RAM;
+ * one word longer and every pass fetches it again.  The kernel's memcpy
+ * loop is six words unchecked and eighteen checked, and rvbench's byte
+ * loops are the same shape.  A loop that fits is laid out once, on a line,
+ * with the batch charged and checked in one word and a branch; one that
+ * does not is unrolled as any other.
+ */
+
+#define LOOP_MAX 64             /* instructions; the hoisted set is a mask */
+#define LOOP_SITES 256
+
+struct loop {
+	unsigned prim;          /* the register the exit condition counts */
+	unsigned e;             /* what it is compared with; 0 is x0 */
+	unsigned cond;          /* the branch's funct3: 1 ne, 4 lt, 6 ltu, and
+	                           5 ge, 7 geu with the count on the right */
+	int32_t  stride[32];    /* per register: its constant step a pass */
+	uint8_t  sreg[32];      /* ...or the register it steps by */
+	uint8_t  from[32];      /* a register that is an invariant plus a
+	                           stepped one: which, and which */
+	uint8_t  plus[32];
+	uint8_t  at[32];        /* where it is stepped or made */
+	uint64_t hoisted;       /* accesses, by instruction, needing no check */
+	uint32_t bases;         /* the registers they are based on */
+	int32_t  lo[32], hi[32];/* per base: the offsets touched, first byte
+	                           to last */
+	uint8_t  wmax[32];      /* ...and the widest access */
+};
+
+static struct loop lp;
+static uint32_t lsites[LOOP_SITES];
+
+static int pow2(uint32_t v)
+{
+	return v && !(v & (v - 1));
+}
+
+static unsigned log2u(uint32_t v)
+{
+	unsigned k = 0;
+
+	while (v > 1) {
+		v >>= 1;
+		++k;
+	}
+	return k;
+}
+
+/* Is g stepped each pass -- by a constant, or by an invariant register? */
+static int stepped(const struct loop *L, unsigned g)
+{
+	return g && (L->stride[g] != 0 || L->sreg[g] != 0);
+}
+
+/* Where an access's base stands, a pass in: the register it steps with,
+   the invariant it is offset by, and the constant a step adds if the
+   access comes after the step.  0 when the base cannot be placed. */
+static int base_of(const struct loop *L, unsigned b, unsigned j,
+		   unsigned *ind, unsigned *plus, int32_t *adj)
+{
+	*plus = 0;
+	*adj = 0;
+	if (L->from[b]) {
+		if (j <= L->at[b])
+			return 0;       /* before it is made: last pass's value */
+		*ind = L->from[b];
+		*plus = L->plus[b];
+		if (L->at[b] > L->at[*ind]) {
+			if (L->sreg[*ind])
+				return 0;
+			*adj = L->stride[*ind];
+		}
+		return 1;
+	}
+	*ind = b;
+	if (j > L->at[b]) {
+		if (L->sreg[b])
+			return 0;
+		*adj = L->stride[b];
+	}
+	return 1;
+}
+
+/* Can the block's accesses be checked at its entry?  Fills lp and says which
+   ones.  Everything used is required to be in a register already, which for
+   a loop's own registers it always is. */
+static int loop_analyse(struct tc *t, const struct rblock *r)
+{
+	struct loop *L = &lp;
+	uint32_t written = 0, twice = 0, other = 0, ir;
+	unsigned rs1, rs2, rd, f3, j, g;
+	int32_t c;
+
+	if (r->n < 2 || r->n > LOOP_MAX)
+		return 0;
+	memset(L, 0, sizeof *L);
+	for (j = 0; j + 1 < r->n; ++j) {
+		ir = fetch(t->s, r->pc + 4 * j);
+		regs_of(ir, &rs1, &rs2, &rd);
+		if (!rd)
+			continue;
+		if (written & (1u << rd))
+			twice |= 1u << rd;
+		written |= 1u << rd;
+		L->at[rd] = (uint8_t)j;
+		if ((ir & 0x7f) == 0x13 && ((ir >> 12) & 7) == 0 && rs1 == rd &&
+		    imm_i(ir) != 0) {
+			L->stride[rd] = imm_i(ir);
+		} else if ((ir & 0x7f) == 0x33 && (ir >> 25) == 0 &&
+			   ((ir >> 12) & 7) == 0 && (rs1 == rd || rs2 == rd) &&
+			   rs1 != rs2) {
+			L->sreg[rd] = (uint8_t)(rs1 == rd ? rs2 : rs1);
+		} else if ((ir & 0x7f) == 0x33 && (ir >> 25) == 0 &&
+			   ((ir >> 12) & 7) == 0 && rs1 != rd && rs2 != rd &&
+			   rs1 != rs2) {
+			L->from[rd] = (uint8_t)rs1;     /* settled below */
+			L->plus[rd] = (uint8_t)rs2;
+		} else {
+			other |= 1u << rd;
+		}
+	}
+	/* Stepped: written once, by adding to itself something that is not
+	   written at all.  Made: written once, an invariant plus a stepped. */
+	for (g = 1; g < 32; ++g) {
+		if ((twice | other) & (1u << g)) {
+			L->stride[g] = 0;
+			L->sreg[g] = 0;
+			L->from[g] = 0;
+		}
+		if (L->sreg[g] && (written & (1u << L->sreg[g])))
+			L->sreg[g] = 0;
+	}
+	for (g = 1; g < 32; ++g) {
+		unsigned a, b;
+
+		if (!L->from[g])
+			continue;
+		a = L->from[g], b = L->plus[g];
+		if (stepped(L, b) && !(written & (1u << a)))
+			L->from[g] = (uint8_t)b, L->plus[g] = (uint8_t)a;
+		else if (!(stepped(L, a) && !(written & (1u << b))))
+			L->from[g] = 0;
+		if (L->from[g] && (L->from[L->from[g]] || !t->hreg[L->plus[g]]))
+			L->from[g] = 0;         /* one step removed at most */
+	}
+#define INDUCTION(g) (stepped(L, g) && !L->from[g] && t->hreg[g] && \
+		      (L->stride[g] > 0 || (L->sreg[g] && t->hreg[L->sreg[g]])))
+#define INVARIANT(g) ((g) == 0 || (!(written & (1u << (g))) && t->hreg[g]))
+
+	ir = fetch(t->s, r->pc + 4 * (r->n - 1));
+	rs1 = (ir >> 15) & 31;
+	rs2 = (ir >> 20) & 31;
+	f3 = (ir >> 12) & 7;
+	if (f3 == 1 && INDUCTION(rs1) && INVARIANT(rs2)) {
+		L->prim = rs1, L->e = rs2;
+	} else if (f3 == 1 && INDUCTION(rs2) && INVARIANT(rs1)) {
+		L->prim = rs2, L->e = rs1;
+	} else if ((f3 == 4 || f3 == 6) && INDUCTION(rs1) && INVARIANT(rs2)) {
+		L->prim = rs1, L->e = rs2;
+	} else if ((f3 == 5 || f3 == 7) && INDUCTION(rs2) && INVARIANT(rs1)) {
+		L->prim = rs2, L->e = rs1;      /* e >= p: while p <= e */
+	} else {
+		return 0;
+	}
+	L->cond = f3;
+	c = L->stride[L->prim];
+	/* A `while not equal` loop stops only if the stride divides the
+	   distance, which is a mask test for a power of two and nothing
+	   this wants to emit otherwise. */
+	if (f3 == 1 && (L->sreg[L->prim] || !pow2((uint32_t)c)))
+		return 0;
+
+	for (j = 0; j + 1 < r->n; ++j) {
+		unsigned op, base, w, ind, plus;
+		int32_t off, o, adj;
+
+		ir = fetch(t->s, r->pc + 4 * j);
+		op = ir & 0x7f;
+		if (op != 0x03 && op != 0x23)
+			continue;
+		f3 = (ir >> 12) & 7;
+		if ((f3 & 3) == 3)
+			continue;
+		w = 1u << (f3 & 3);
+		base = (ir >> 15) & 31;
+		off = op == 0x03 ? imm_i(ir) : imm_s(ir);
+		if (INVARIANT(base)) {
+			o = off;
+		} else {
+			if (!(stepped(L, base) || L->from[base]) || !t->hreg[base])
+				continue;
+			if (!base_of(L, base, j, &ind, &plus, &adj))
+				continue;
+			/* In step with the count: the same register, or a
+			   constant multiple of a constant; and with the width. */
+			if (L->sreg[ind] ? L->sreg[ind] != L->sreg[L->prim] :
+			    (L->sreg[L->prim] || L->stride[ind] % c != 0 ||
+			     L->stride[ind] % (int32_t)w != 0))
+				continue;
+			if (!L->sreg[ind] && L->stride[ind] < 0)
+				continue;
+			o = off + adj;
+		}
+		if (!(L->bases & (1u << base))) {
+			L->bases |= 1u << base;
+			L->lo[base] = o;
+			L->hi[base] = o + (int32_t)w - 1;
+			L->wmax[base] = (uint8_t)w;
+		} else {
+			if (o < L->lo[base])
+				L->lo[base] = o;
+			if (o + (int32_t)w - 1 > L->hi[base])
+				L->hi[base] = o + (int32_t)w - 1;
+			if (w > L->wmax[base])
+				L->wmax[base] = (uint8_t)w;
+		}
+		L->hoisted |= (uint64_t)1 << j;
+	}
+	/* The low end is checked aligned to the widest access, which covers
+	   the rest only if each sits at a multiple of its own width from it;
+	   and a register step has to keep the alignment too, which only a
+	   byte access can be sure of. */
+	for (j = 0; j + 1 < r->n; ++j) {
+		unsigned base, w, ind, plus;
+		int32_t off, o, adj = 0;
+
+		if (!(L->hoisted & ((uint64_t)1 << j)))
+			continue;
+		ir = fetch(t->s, r->pc + 4 * j);
+		w = 1u << ((ir >> 12) & 3);
+		base = (ir >> 15) & 31;
+		off = (ir & 0x7f) == 0x03 ? imm_i(ir) : imm_s(ir);
+		if (!INVARIANT(base))
+			base_of(L, base, j, &ind, &plus, &adj);
+		o = off + adj;
+		if ((o - L->lo[base]) % (int32_t)w != 0 ||
+		    (w > 1 && !INVARIANT(base) && L->sreg[ind]))
+			L->hoisted &= ~((uint64_t)1 << j);
+	}
+	if (!L->hoisted)
+		return 0;
+	/* Every base still wanted has to be one some hoisted access uses. */
+	L->bases = 0;
+	for (j = 0; j + 1 < r->n; ++j)
+		if (L->hoisted & ((uint64_t)1 << j))
+			L->bases |= 1u << ((fetch(t->s, r->pc + 4 * j) >> 15) & 31);
+#undef INDUCTION
+#undef INVARIANT
+	return 1;
+}
+
+/* One end of a range: %r4 = the host address of h + off, and a far branch
+   to the cold copy unless it is in RAM -- aligned to the width, when one is
+   given, by the same rotated compare a single access makes. */
+static void loop_check(struct tc *t, unsigned h, int32_t off, unsigned width)
+{
+	if (h != R4)
+		rr(t, O_MOV, R4, h);
+	if (off)
+		addimm(t, R4, (uint32_t)off, 0);
+	rr(t, O_ADD, R4, R8);
+	rr(t, O_MOV, R13, R4);
+	rr(t, O_SUB, R13, R2);
+	switch (width) {
+	case 4:
+		shift(t, S_RR, R13, 2);
+		rr(t, O_CMP, R13, R3);
+		break;
+	case 2:
+		shift(t, S_RR, R13, 1);
+		ri(t, I_CMP, R13, t->s->ram_size >> 1);
+		break;
+	default:
+		shift(t, S_SRL, R13, 2);
+		rr(t, O_CMP, R13, R3);
+		break;
+	}
+	lsites[t->nls++] = jfar(t, B_UGE);
+}
+
+/* The checks, at the loop's entry.  %r5 holds the counted register's last
+   value once it is known; %r4 and %r13 are the check's. */
+static void loop_checks(struct tc *t)
+{
+	struct loop *L = &lp;
+	unsigned hp = t->hreg[L->prim], he = L->e ? t->hreg[L->e] : 0;
+	unsigned hs = L->sreg[L->prim] ? t->hreg[L->sreg[L->prim]] : 0;
+	int32_t c = L->stride[L->prim];
+	unsigned b;
+
+	if (he)
+		rr(t, O_MOV, R5, he);
+	else
+		ri(t, I_MOV, R5, 0);
+	if (hs) {
+		/* A register step has to be positive, and for an unsigned
+		   loop must not carry the count past the top of memory. */
+		ri(t, I_CMP, hs, 0);
+		lsites[t->nls++] = jfar(t, B_LE);
+		if (L->cond == 6 || L->cond == 7) {
+			rr(t, O_MOV, R4, R5);
+			rr(t, O_ADD, R4, hs);
+			lsites[t->nls++] = jfar(t, B_ULT);
+		}
+	}
+	if (L->cond == 1) {
+		/* Counting to the bound: it has to lie ahead, a whole number
+		   of steps away.  The last value is one step short of it. */
+		rr(t, O_CMP, hp, R5);
+		lsites[t->nls++] = jfar(t, B_UGE);
+		if (c > 1) {
+			rr(t, O_MOV, R4, R5);
+			rr(t, O_SUB, R4, hp);
+			ri(t, I_AND, R4, (uint32_t)c - 1);
+			lsites[t->nls++] = jfar(t, B_NE);
+		}
+		addimm(t, R5, (uint32_t)c, 1);
+	} else {
+		/* Counting while below the bound, or up to it: the last value
+		   is that, unless the loop is already past it, when the one
+		   pass it makes anyway uses the value it has.  Signed or
+		   unsigned as the branch is: a signed loop over RAM addresses
+		   compared with a small positive bound runs until it wraps,
+		   and the signed larger of the two is the bound, which is then
+		   found to be outside RAM. */
+		uint32_t over;
+
+		if (L->cond == 4 || L->cond == 6)
+			addimm(t, R5, 1, 1);
+		rr(t, O_CMP, R5, hp);
+		over = fwd(t, L->cond & 2 ? B_UGE : B_GE);
+		rr(t, O_MOV, R5, hp);
+		land(t, over);
+	}
+	for (b = 0; b < 32; ++b) {
+		unsigned hb, ind, plus, hplus = 0;
+		int32_t adj = 0, m = 1;
+		int fixed;
+
+		if (!(L->bases & (1u << b)))
+			continue;
+		fixed = !(stepped(L, b) || L->from[b]);
+		if (b) {
+			hb = t->hreg[b];
+		} else {
+			ri(t, I_MOV, R4, 0);
+			hb = R4;
+		}
+		if (fixed) {
+			loop_check(t, hb, L->lo[b], L->wmax[b]);
+			if (L->hi[b] - L->lo[b] + 1 == L->wmax[b])
+				continue;       /* one access: the low end covered it */
+			if (!b) {
+				ri(t, I_MOV, R4, 0);
+				hb = R4;
+			}
+			loop_check(t, hb, L->hi[b], 1);
+			continue;
+		}
+		/* The adjustment for an access after the step is in lo and hi
+		   already; what is wanted here is the register stepped and the
+		   invariant added, if any. */
+		base_of(L, b, LOOP_MAX, &ind, &plus, &adj);
+		if (plus)
+			hplus = t->hreg[plus];
+		if (!L->sreg[ind])
+			m = L->stride[ind] / c;
+		/* The low end: the stepped register's value now, plus the
+		   invariant. */
+		rr(t, O_MOV, R4, t->hreg[ind]);
+		if (hplus)
+			rr(t, O_ADD, R4, hplus);
+		loop_check(t, R4, L->lo[b], L->wmax[b]);
+		/* The high end: as many steps from its first as the count's
+		   last is from the count's first, each this register's multiple
+		   of the count's. */
+		rr(t, O_MOV, R4, R5);
+		rr(t, O_SUB, R4, hp);
+		if (m != 1) {
+			if (pow2((uint32_t)m)) {
+				shift(t, S_SLL, R4, log2u((uint32_t)m));
+			} else {
+				ri(t, I_MOV, R13, (uint32_t)m);
+				rr(t, O_MLTU, R4, R13);
+				rr(t, O_SPEC, R4, 2);           /* ld.w %r4,%alr */
+			}
+		}
+		rr(t, O_ADD, R4, t->hreg[ind]);
+		if (hplus)
+			rr(t, O_ADD, R4, hplus);
+		loop_check(t, R4, L->hi[b], 1);
+	}
+}
 
 static int in_region(unsigned nrb, uint32_t pc)
 {
@@ -1585,11 +2040,86 @@ static void emit_block(struct tc *t, unsigned i)
 
 	t->bidx = rv32_jit.blk_used + i;
 	r->off = NO_ENTRY;
+	t->nocheck = 0;
 	if (!fallen_into(t, i))
 		inline_entry(t, r);
 	else if (r->head)
 		align(t);
 	r->warm = t->off;
+
+	/* A loop onto its own start, with its accesses checkable at the
+	   entry: see loop_analyse().  The checks come first, then the loop
+	   laid out once if it fits the fetch window and unrolled if not, and
+	   the copy that checks every access goes in the cold section. */
+	if (r->term == T_BRANCH && taken == r->pc &&
+	    t->nls + 2 * 32 + 2 <= LOOP_SITES && loop_analyse(t, r)) {
+		struct cold *c = cold_new(t, C_LOOP, 0, 0, 0);
+		unsigned f3 = (ir >> 12) & 7;
+		uint32_t top, ncold;
+
+		c->code = i;
+		c->site = t->nls;
+		loop_checks(t);
+		c->rejoin = t->nls - c->site;
+		t->nocheck = lp.hoisted;
+
+		/* Resident: on a 16-byte line, the charge and the check one
+		   word and a branch, and the back edge a short branch. */
+		while (t->off & 15)
+			w(t, 0);
+		top = t->off;
+		ncold = t->ncold;
+		t->i = 0;
+		addimm(t, R6, r->n, 1);
+		cold_site(cold_new(t, C_FAULT, 0, 0, RV32_JIT_CHARGED),
+			  jfar(t, B_LT));
+		for (j = 0; j < r->n; ++j) {
+			t->i = j;
+			insn(t, r->pc + 4 * j, fetch(t->s, r->pc + 4 * j));
+		}
+		rv32_jit.loops++;
+		if (t->off + 2 - top <= 26) {
+			/* The charge and the check are the one subtraction:
+			   a pass that would take the batch below zero is not
+			   made, and its charge is given back.  The batch is
+			   then a few instructions from done, and rv32_run()
+			   hands those to the interpreter rather than come back
+			   here to be refused again. */
+			w(t, (cond_of(f3, 0) << 8) |
+			     (((top - t->off) / 2) & 0xff));
+			rv32_jit.resident++;
+		} else {
+			/* Too long for the window: back up and unroll it. */
+			t->off = top;
+			t->ncold = ncold;
+			budget_check(t);
+			for (u = 0; u < r->unroll; ++u) {
+				addimm(t, R6, r->n, 1);
+				for (j = 0; j < r->n; ++j) {
+					t->i = j;
+					insn(t, r->pc + 4 * j,
+					     fetch(t->s, r->pc + 4 * j));
+				}
+				if (u + 1 < r->unroll) {
+					uint32_t site = jfar(t, cond_of(f3, 1));
+
+					if (next_is_fall) {
+						fix(&t->nfix, site, i + 1, FIX_BRANCH);
+					} else {
+						struct cold *x = cold_new(t, C_EXIT, 0, 0, 0);
+
+						x->code = r->pc + 4 * r->n;
+						cold_site(x, site);
+					}
+				}
+			}
+			land_far(t, jfar(t, cond_of(f3, 0)), top);
+		}
+		t->nocheck = 0;
+		if (!next_is_fall)
+			region_jump(t, r->pc + 4 * r->n);
+		return;
+	}
 	if (r->head)
 		budget_check(t);
 
@@ -1658,6 +2188,101 @@ static void emit_block(struct tc *t, unsigned i)
 	region_jump(t, r->pc + 4 * r->n);
 }
 
+/* The cold section, after the region's last block: every path that left
+   the ordinary one. */
+static void emit_cold(struct tc *t)
+{
+	uint32_t base = (uint32_t)(uintptr_t)t->base;
+	unsigned k, j;
+
+	for (k = 0; k < t->ncold; ++k) {
+		struct cold *c = &colds[k];
+		unsigned kind = c->info & 0xff, reg = (c->info >> 8) & 0xff;
+		unsigned align = c->info >> 16;
+		uint32_t bad[2];
+		unsigned nbad = 0;
+
+		if (kind == C_LOOP) {
+			/* The checked copy of a hoisted loop: every access
+			   checked, the batch checked at the top, laid out once.
+			   Its exits are the block's own. */
+			struct rblock *r = &rb[c->code];
+			uint32_t top, f3 = fetch(t->s, r->pc + 4 * (r->n - 1)) >> 12 & 7;
+			unsigned i;
+
+			for (j = 0; j < c->rejoin; ++j)
+				land_far(t, lsites[c->site + j], t->off);
+			t->bidx = rv32_jit.blk_used + c->code;
+			t->nocheck = 0;
+			if (t->off & 2)
+				w(t, 0);
+			top = t->off;
+			budget_check(t);
+			addimm(t, R6, r->n, 1);
+			for (i = 0; i < r->n; ++i) {
+				t->i = i;
+				insn(t, r->pc + 4 * i, fetch(t->s, r->pc + 4 * i));
+			}
+			land_far(t, jfar(t, cond_of(f3, 0)), top);
+			region_jump(t, r->pc + 4 * r->n);
+			continue;
+		}
+		if (kind == C_ENTRY) {
+			/* Another region's block, wanted from this one and
+			   entered from outside for the first time: its entry
+			   is made here, and belongs to it from now on. */
+			struct jit_block *b = &rv32_jit.blk[c->code];
+
+			b->off = entry(t, b->map, c->code, b->warm);
+			rv32_jit.entries_made++;
+			slot(b->pc)[0] = b->pc;
+			slot(b->pc)[1] = base + b->off;
+			patch(c->site, base + b->off);
+			continue;
+		}
+		land_far(t, c->site, t->off);
+		if (kind == C_EXIT) {
+			region_jump(t, c->code);
+			continue;
+		}
+		/* The one branch a memory access takes covers misaligned as
+		   well as outside RAM.  Only a device access goes on from here,
+		   so the two are told apart now, where it costs nothing. */
+		if (kind != C_FAULT && align) {
+			rr(t, O_MOV, R13, R4);
+			ri(t, I_AND, R13, align);
+			bad[nbad++] = fwd(t, B_NE);
+		}
+		switch (kind) {
+		case C_DEV_LOAD:
+			xjump(t, B_CALL,
+			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_load);
+			if (reg != R5)
+				rr(t, O_MOV, reg, R5);
+			xjump(t, B_JP, base + c->rejoin);
+			break;
+		case C_DEV_STORE:
+			if (reg != R5)
+				rr(t, O_MOV, R5, reg);
+			xjump(t, B_CALL,
+			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_store);
+			bad[nbad++] = fwd(t, B_NE);     /* C has to do it */
+			xjump(t, B_JP, base + c->rejoin);
+			break;
+		default:
+			break;
+		}
+		if (kind == C_FAULT || nbad) {
+			for (j = 0; j < nbad; ++j)
+				land(t, bad[j]);
+			ri(t, I_MOV, R5, c->code);
+			xjump(t, B_JP, (uint32_t)(uintptr_t)rv32_jit_stub_fault);
+		}
+	}
+	t->ncold = 0;
+	t->nls = 0;
+}
+
 /* Translate the region at pc.  Returns where to enter, or NULL with *full
    set when the cache has no room for even its first block. */
 /* The translator's state, in internal RAM.  On the stack it was the
@@ -1691,7 +2316,7 @@ static uint8_t *translate(rv32_t *s, uint32_t pc, int *full)
 	for (;;) {
 		total = 0;
 		for (i = 0; i < nrb; ++i)
-			total += rb[i].n * rb[i].unroll;
+			total += rb[i].n * (rb[i].unroll + 1);
 		if (t->off + total * INSN_ROOM + nrb * BLOCK_ROOM <= t->end &&
 		    rv32_jit.blk_used + nrb <= rv32_jit.blk_max &&
 		    3 * total + 8 * nrb + 4 <= COLD_MAX)
@@ -1714,11 +2339,14 @@ static uint8_t *translate(rv32_t *s, uint32_t pc, int *full)
 	/* A block some earlier region is already waiting to jump to gets its
 	   entry now, so that record() can patch the link. */
 	for (i = 0; i < nrb; ++i)
-		if (rb[i].off == NO_ENTRY && link_pending(rb[i].pc))
+		if (rb[i].off == NO_ENTRY && link_pending(rb[i].pc)) {
 			rb[i].off = entry(t, t->map, rv32_jit.blk_used + i,
 					  rb[i].warm);
+			rv32_jit.entries_made++;
+		}
 	rv32_jit.regions++;
-	rv32_jit.insns += total;
+	for (i = 0; i < nrb; ++i)
+		rv32_jit.insns += rb[i].n;
 	for (i = 0; i < t->nfix; ++i) {
 		uint32_t warm = rb[fixups[i].target].warm;
 
@@ -1833,6 +2461,7 @@ uint8_t *rv32_jit_block(rv32_t *s, uint32_t pc)
 					  b->warm, &end);
 			rv32_jit.bytes += end - rv32_jit.code_used;
 			rv32_jit.code_used = (end + 3) & ~3u;
+			rv32_jit.entries_made++;
 		} else {
 			rv32_jit_flush();
 			b = NULL;
@@ -1884,6 +2513,10 @@ uint32_t rv32_jit_fault(rv32_t *s, uint32_t code)
 	rv32_jit.back = 0;
 	if (kind == RV32_JIT_BUDGET)
 		return pc;                      /* nothing was charged yet */
+	if (kind == RV32_JIT_CHARGED) {
+		rv32_jit.back = b->n;           /* charged, and did not run */
+		return pc;
+	}
 	/* An address the translation cannot take, a target it cannot reach,
 	   a width it cannot align.  The instruction itself is translatable,
 	   so re-entering would fault in exactly the same place: this one is
@@ -1956,7 +2589,10 @@ int rv32_jit_init(void *arena, uint32_t bytes)
 	rv32_jit.blk_hash_mask = hb - 1;
 	rv32_jit.link_hash_mask = hl - 1;
 
-	p = (uint8_t *)(((uintptr_t)p + 3) & ~(uintptr_t)3);
+	/* On a 16-byte line: a loop laid out to fit the fetch window is
+	   placed by its offset in the cache, and the offset has to be the
+	   address's. */
+	p = (uint8_t *)(((uintptr_t)p + 15) & ~(uintptr_t)15);
 	if (p >= end || (uint32_t)(end - p) < 64u * 1024)
 		return 0;
 	rv32_jit.code = p;
