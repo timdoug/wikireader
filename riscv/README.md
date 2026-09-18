@@ -129,12 +129,13 @@ guest instruction:
 | all in SDRAM | 349.8 | 171 kIPS |
 | interpreter in A0 RAM (`FAST=1`) | 122.0 | 491 kIPS |
 | and machine state too (`STATE=1`) | 99.1 | 605 kIPS |
-| hand-written hot path (`ASM=1`) | **75.4** | **796 kIPS** |
-| translated (`JIT=1`) | **37.5** | **1600 kIPS** |
+| hand-written hot path (`ASM=1`) | **72.5** | **827 kIPS** |
+| translated (`JIT=1`) | **13.3** | **4,500 kIPS** |
 
-On silicon the fourth row is **80.5 cyc/insn, 745 kIPS**; the translator has
-not been on hardware yet. On a Linux boot the answer is the other way round --
-see [the translator](#the-translator).
+On silicon the fourth row measured **80.5 cyc/insn, 745 kIPS** when it was
+75.4 here; the translator has not been on hardware yet. A Linux boot is a
+different workload and gets a smaller factor -- see
+[the translator](#the-translator).
 
 ## The device against the model
 
@@ -176,8 +177,8 @@ so hard to read. The ratio climbs monotonically as code moves into
 internal RAM, and within each build it climbs again from the kernels that
 are mostly guest memory traffic (crc, sieve) to the ones that are almost
 pure interpreter (alu, branch). `div` is the tell: its cycles are mostly
-libgcc's divide, which `memory.lds` puts in the LCD window buffer in
-*every* build, and it is the one kernel undercharged even in the
+the divide, which every build runs from the LCD window buffer (libgcc's
+then, `rv32_div.s` now), and it is the one kernel undercharged even in the
 all-in-SDRAM column — 1.005 where everything around it is 0.90.
 
 That pointed at internal-RAM execution, and the cause turned out to be a
@@ -217,8 +218,8 @@ Internal RAM is the budget everything competes for:
 
 | region | holds | used |
 | --- | --- | ---: |
-| A0 RAM, `0xc00` | hot path, machine state, the divide helper, the probe's code buffer | 4,804 of 5,056 |
-| LCD window, `0x81a00` | the 1024-entry dispatch table, libgcc's divide | 4,852 of 5,632 |
+| A0 RAM, `0xc00` | hot path, machine state, the probe's code buffer | 4,804 of 5,056 |
+| LCD window, `0x81a00` | the 1024-entry dispatch table (halfword entries), the divide, and with `JIT=1` the translator's runtime and its working state | 5,594 of 5,632 |
 
 ## What a Linux boot executes
 
@@ -447,13 +448,14 @@ depends only on the instruction word.
 
 | cycles a guest instruction, in the emulator | interpreter | translator |
 | --- | ---: | ---: |
-| `rvbench`, whole run | 75.4 | **21.1** |
-| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **44.7** |
+| `rvbench`, whole run | 72.5 | **13.3** |
+| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.8** |
 
 Both boot to the shell and the benchmark's instruction counts and checksums
-are identical either way. The boot spends 39% of its cycles in translated
-code, 23% translating, and 10% interpreting code that has not yet earned a
-translation; the rest is the runtime between the three.
+are identical either way. The boot spends 41% of its cycles in translated
+code, 16% translating and 8% interpreting code that has not yet earned a
+translation; what is left is the runtime between the three, and a share the
+per-address profile cannot see at all.
 
 What the code looks like, and the measurement behind each choice:
 
@@ -466,6 +468,17 @@ What the code looks like, and the measurement behind each choice:
   nothing. Leaving it stores what it wrote; entering it loads the map. The
   device measured the difference between this and fetching every operand from
   the register file as 3.5 cycles a guest instruction against 19.9.
+- **Regions start at block boundaries.** The interpreter runs in chunks, and
+  once half a chunk is spent it ends the chunk at the next taken transfer,
+  so that the translator takes over at a function, a return point or a loop
+  head rather than wherever the chunk ran out. A region that began in the
+  middle of a block was that block's tail forever.
+- **A block gets an entry from outside its region only when something wants
+  one.** The first block and the block after every call have theirs inline,
+  so that a call or a return lands once; any other block gets one -- the
+  map loaded, the batch checked -- when a link, a lookup or a fault resuming
+  there asks, which most never do. A boot laid out 13,600 of them in advance
+  and used a thousand.
 - **Code size is time.** SDRAM-resident code costs about 2.5 cycles a word to
   fetch, sequentially, so every word in a loop is paid for on every pass. A
   load or store therefore checks its address with one rotate and one compare:
@@ -473,8 +486,26 @@ What the code looks like, and the measurement behind each choice:
   only if the address is inside RAM and aligned, and `%r3` holds `size / 4`
   for exactly that. The alternative was four words of alignment test and two
   compares with a prefixed branch apiece.
+- **A loop's checks are made once, at its entry.** A loop that is one block
+  long, whose exit counts a register up by a constant or by an invariant
+  register, touches a range of addresses that is known before it starts:
+  both ends are checked on the way in, for every register the loop steps
+  and every one it makes as an invariant plus a stepped one, and the loop
+  carries no checks. When a check fails, a copy with every access checked
+  runs from the cold section. The device runs a loop that ends within 27
+  bytes of a 16-byte line from its fetch queue, at the speed of internal
+  RAM, so a loop that then fits is laid out once on a line -- the batch
+  charged and checked by one subtraction -- and one that does not is
+  unrolled. `rvbench`'s loads went from 22 cycles a guest instruction to
+  11 and its stores from 19 to 8.
+- **Accesses through `sp`, `gp` and `tp` share one check a block.** None of
+  the three is ever a device, so a block's accesses through one of them,
+  with the register not written in between, are checked by the first as a
+  span and the rest carry only their address; a span that fails goes to the
+  interpreter. A quarter of the boot's cycles inside the cache were access
+  checks, now a seventh.
 - **Nothing watches stores.** RISC-V says a fetch need not see a store until
-  a `fence.i`, and Linux issues one after writing code, six times a boot. So
+  a `fence.i`, and Linux issues one after writing code, twice a boot. So
   `fence.i` is the invalidation: every block keeps a checksum of the words it
   was translated from, and a fence retires the regions whose words changed --
   each entry becomes a link waiting for the new translation. The page-map
@@ -484,38 +515,52 @@ What the code looks like, and the measurement behind each choice:
   the ordinary path never takes a branch. A taken branch landing in SDRAM
   code costs twenty to thirty cycles -- the profile shows it on the first
   instruction after every loop head -- which is also why loops that are one
-  block long are unrolled two or four times and why loop heads are aligned.
+  block long and do not fit the window are unrolled, and why loop heads are
+  aligned.
 - **The batch is checked at loop heads and region entries only.** Every cycle
   in a region passes through a backward jump, so that is enough to stop a
   batch, and it takes five words out of every other block.
+- **The divide is thirty-two identical steps in the window buffer**, entered
+  where the quotient's bit count says, so a divide runs only the bits it
+  needs; `rv32_div.s` serves the interpreter and the translated code by two
+  entries. libgcc's divide ran from the same internal RAM and still cost
+  1,600 cycles a call, a bit a pass through two loops; this is about 370,
+  and it took the divide from a third of `rvbench` to a sixth.
 - **The runtime is in internal RAM**, beside the interpreter's table, and
-  saves seven registers rather than fifteen. A `pushn %r14` with the stack at
-  the top of SDRAM cost ninety cycles; a landing in SDRAM code costs thirty
-  and in internal RAM six, and every stub is entered by one jump and left by
-  another.
-- **CSRs and atomics are calls, not declines.** A Linux boot masks and unmasks
-  interrupts with a CSR write and takes every lock with an atomic, one of the
-  two every two hundred instructions, and a decline -- back to C, one
+  puts the seven registers it saves in internal RAM too, with the batch
+  counter parked in the multiplier's result register while a base register
+  is freed: a stack word at the top of SDRAM cost ten cycles to read back.
+  A landing in SDRAM code costs thirty and in internal RAM six, and every
+  stub is entered by one jump and left by another.
+- **CSRs that are a word of the machine state are a load and a store**
+  inline; the counters and the constants likewise. Atomics are a call into
+  C with the registers kept. A Linux boot masks and unmasks interrupts in
+  `mstatus` every two hundred instructions, and a decline -- back to C, one
   instruction interpreted, a lookup and a re-entry -- is about two thousand
-  cycles. `rv32.c` has the helpers; the runtime keeps the registers.
+  cycles.
+- **The translator's own state is in internal RAM**: its cursor, the region
+  table, the loop and group analyses. On the stack, every emitted word read
+  the cursor from one SDRAM row and wrote the word to another, and the
+  region table was walked a few thousand times a region.
 
 The code cache is an eighth of the board in SDRAM, which is where `jit_probe.s`
-measured a well-translated loop running fastest. A boot emits 2.3 MB and never
-flushes on a 32 MB board; a 16 MB board's cache is 2 MB, and a boot there
-would flush once.
+measured a well-translated loop running fastest. A boot emits 1.6 MB and
+never flushes.
 
 ### Translating has to be earned
 
 Translating one guest instruction costs a few thousand cycles from SDRAM;
-interpreting it costs 85. So `rv32_hot.s` is still there and still has the
-whole of A0 RAM. It interprets in chunks of 256 guest instructions, and between
-chunks the code cache is asked whether the pc has a translation. Guest code
-earns one by being run. Hotness is counted per 256-byte region rather than per
-block, because the interpreter stops where its chunk runs out and not at a
-block head: a loop keeps landing in the same region however its iterations are
-cut up, and a straight run through cold code touches each region once. Twelve
-chunks is the threshold; eight and six measured the same to within one percent,
-since what translating saves at one end it spends at the other.
+interpreting it costs 75. So `rv32_hot.s` is still there and still has the
+whole of A0 RAM. It interprets in chunks of up to 256 guest instructions, and
+between chunks the code cache is asked whether the pc has a translation. Guest
+code earns one by being run. Hotness is counted per 256-byte region rather
+than per block: a loop keeps landing in the same region however its
+iterations are cut up, and a straight run through cold code touches each
+region once. Twelve chunks is the threshold. Six is a percent better on the
+boot and five percent worse on the benchmark, whose one-shot code then gets
+translated; twenty-four and forty-eight are worse on both, since the code a
+boot runs is worth translating and what it saves at one end it spends at the
+other.
 
 ### Reading a run
 
@@ -523,10 +568,17 @@ since what translating saves at one end it spends at the other.
 guest instructions with what it has retired and what that cost, and the boot
 is read off the first line after the kernel's `Run /bin/sh as init process`.
 The same lines carry the translator's counters -- blocks, bytes, flushes,
-entries, declines by kind, warm-up chunks, fences -- and the counters found
-every real problem in the translator's history: a flush a boot should have
-none of, and a `jump` decline count that is not near zero is a translated
-`jalr` checking its target wrongly.
+entries, declines by kind, warm-up chunks, fences, regions and the
+instructions in them, entries made on demand, loops hoisted and resident --
+and the counters found every real problem in the translator's history: a
+flush a boot should have none of, a `jump` decline count that is not near
+zero is a translated `jalr` checking its target wrongly, and a boot that
+retires twice the instructions is a CSR write that went missing.
+
+`make jitscan IMAGE=... AT="..."` translates an image on the build machine,
+a region from each address given, and says how much code came out and how
+many loops were hoisted: the question a run cannot answer -- why was that
+loop not hoisted? -- answered in a second with a debugger to hand.
 
 `jitprof.py` is the profile of the code cache itself. The translator's output
 has no symbols, so it dumps the cache from the emulator's memory at the end of
@@ -539,8 +591,12 @@ the translator, the interpreter and each stub show up by name.
 
 `make jitenc` emits every C33 instruction the translator can produce, in bytes
 and in assembly, assembles the second and diffs it against the first: 3,679
-encodings. `make jitdis` puts a translated guest instruction of each kind
-through the toolchain's disassembler, to be read against what it should be.
+encodings. `make jitdis` puts a translated guest instruction of each kind,
+and two loops, through the toolchain's disassembler, to be read against what
+it should be. `make divtest` runs every M-extension operation over a table of
+edge operands in the emulator against a native answer, because the divide is
+assembly with RISC-V's special cases built in and `rvbench` only produces the
+operand shapes its kernel happens to.
 
 They exist because of a real one. The shift-immediate encoding changes shape at
 a count of sixteen -- `srl %rd,15` and `srl %rd,16` are not one opcode with one
@@ -643,7 +699,9 @@ the guest prints against that same reference on every emulator run. That
 is the only thing standing between a fast interpreter and a wrong one, and
 the benchmark deliberately exercises what the assembly implements
 separately: signed and unsigned divide and remainder, and all three
-multiplies.
+multiplies. `make divtest` does the divide's edge cases -- a zero divisor,
+the overflowing signed pair, every power of two -- which the benchmark's
+operands never reach.
 
 ## Layout
 
@@ -656,11 +714,16 @@ multiplies.
   the cold section, block linking, the code cache and what `fence.i` retires.
 - `rv32_jitrt.s` — the runtime a translated block is entered from and leaves
   by, in the window buffer: the entry, the lookup an indirect guest jump
-  takes, the device registers, CSRs, atomics, the divides, and the one way a
+  takes, the device registers, the CSRs C keeps, atomics, and the one way a
   block gives up.
+- `rv32_div.s` — the guest's divides, in the window buffer, for the
+  interpreter and the translated code alike.
 - `tests/host_enc.c`, `jitenc.py` — every instruction the emitter can produce,
   against what the toolchain's assembler makes of the same thing.
-  `tests/host_jit.c` disassembles what a guest instruction becomes.
+  `tests/host_jit.c` disassembles what a guest instruction becomes, and
+  `tests/host_scan.c` translates a whole image and reports on each region.
+  `guest/divtest.c` and `tests/divref.c` are the divide's edge cases and
+  their native answer.
 - `jit_probe.s`, `jit_probe.h` — what a translator would emit for the blocks
   a Linux boot spends its time in, copied into SDRAM and into A0 RAM and
   timed in both. `install-jit-probe.sh` puts it on a card and takes it off
@@ -668,8 +731,8 @@ multiplies.
 - `console.c`, `font6x9.h` — the terminal on the panel: 40x13 characters
   over a four-row keyboard, following the NuttX terminal's geometry, layout
   and font so the two consoles on this machine match.
-- `memory.lds` — the window-buffer reservation: the dispatch tables, and
-  libgcc's division, which is otherwise the worst code in the program.
+- `memory.lds` — the window-buffer reservation: the dispatch tables, the
+  divide, and the translator's runtime and working state.
 - `riscv.c` — the Grifo application: loads an image, runs it in batches,
   reports, and cuts the power rail so a run costs the benchmark and nothing
   more.
