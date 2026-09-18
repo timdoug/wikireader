@@ -34,11 +34,13 @@
 #include <string.h>
 
 void *
-memchr(s, c, n)
-const void *s;
-register unsigned char c;
-register size_t n;
+memchr(const void *s, int c_arg, register size_t n)
 {
+    /* string.h prototypes the second parameter as int; the old-style
+       definition said unsigned char and relied on the default argument
+       promotions to narrow it here.  Do that narrowing explicitly. */
+    register unsigned char c = (unsigned char)c_arg;
+
     if (n != 0)
     {
         register const unsigned char *p = s;

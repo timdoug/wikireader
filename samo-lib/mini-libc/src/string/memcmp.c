@@ -33,9 +33,7 @@
 
 
 int
-memcmp(s1, s2, n)
-const void *s1, *s2;
-size_t n;
+memcmp(const void *s1, const void *s2, size_t n)
 {
     if (n != 0)
     {

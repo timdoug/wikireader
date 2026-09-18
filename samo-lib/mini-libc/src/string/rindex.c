@@ -36,12 +36,10 @@
 
 char *
 #ifdef STRRCHR
-strrchr(p, ch)
+strrchr(register const char *p, register int ch)
 #else
-rindex(p, ch)
+rindex(register const char *p, register int ch)
 #endif
-register const char *p;
-register int ch;
 {
     register char *save;
 

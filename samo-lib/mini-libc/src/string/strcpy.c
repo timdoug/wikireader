@@ -35,9 +35,7 @@
 #include <string.h>
 
 char *
-strcpy(to, from)
-register char *to;
-register const char *from;
+strcpy(register char *to, register const char *from)
 {
     char *save = to;
 

@@ -7,9 +7,7 @@
 #include <ctype.h>
 
 int
-strncasecmp(s1, s2, n)
-const char *s1, *s2;
-register size_t n;
+strncasecmp(const char *s1, const char *s2, register size_t n)
 {
     if (n != 0)
     {

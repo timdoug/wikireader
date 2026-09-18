@@ -37,8 +37,7 @@
  * ffs -- vax ffs instruction
  */
 int
-ffs(mask)
-register int mask;
+ffs(register int mask)
 {
     register int bit;
 

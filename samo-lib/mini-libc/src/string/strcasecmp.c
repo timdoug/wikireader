@@ -36,8 +36,7 @@
 #include <ctype.h>
 
 int
-strcasecmp(s1, s2)
-const char *s1, *s2;
+strcasecmp(const char *s1, const char *s2)
 {
     register const u_char
     *us1 = (const u_char *)s1,

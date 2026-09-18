@@ -50,10 +50,7 @@ static char sccsid[] = "@(#)strtoul.c	8.1 (Berkeley) 6/4/93";
 /* ATT! ldiv does not work here cause of out-of-range error. */
  
 unsigned long
-strtoul(nptr, endptr, base)
-const char *nptr;
-char **endptr;
-register int base;
+strtoul(const char *nptr, char **endptr, register int base)
 {
     register const char *s = nptr;
     register unsigned long acc;

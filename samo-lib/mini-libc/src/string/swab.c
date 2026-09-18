@@ -37,10 +37,7 @@
 #include <string.h>
 
 void
-swab(from, to, len)
-const void *from;
-void *to;
-size_t len;
+swab(const void *from, void *to, size_t len)
 {
     register unsigned long temp;
     register int n;

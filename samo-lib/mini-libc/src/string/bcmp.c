@@ -32,9 +32,7 @@
 #include <string.h>
 
 int
-bcmp(b1, b2, length)
-const void *b1, *b2;
-register size_t length;
+bcmp(const void *b1, const void *b2, register size_t length)
 {
     register char *p1, *p2;
 

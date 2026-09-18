@@ -41,8 +41,7 @@
  * Compare strings.
  */
 int
-strcmp(s1, s2)
-register const char *s1, *s2;
+strcmp(register const char *s1, register const char *s2)
 {
     while (*s1 == *s2++)
         if (*s1++ == 0)

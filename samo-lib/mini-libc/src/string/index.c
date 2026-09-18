@@ -37,12 +37,16 @@
 
 char *
 #ifdef STRCHR
-strchr(p, ch)
+strchr(register const char *p, int ch_arg)
 #else
-index(p, ch)
+index(register const char *p, int ch_arg)
 #endif
-register const char *p, ch;
 {
+    /* The old-style definition declared ch as a char, which the default
+       argument promotions passed as an int and narrowed here.  A prototype
+       has to say int and narrow explicitly to keep that. */
+    const char ch = (char)ch_arg;
+
     for (;; ++p)
     {
         if (*p == ch)

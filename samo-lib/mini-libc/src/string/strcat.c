@@ -33,9 +33,7 @@
 #include <string.h>
 
 char *
-strcat(s, append)
-register char *s;
-register const char *append;
+strcat(register char *s, register const char *append)
 {
     char *save = s;
 
