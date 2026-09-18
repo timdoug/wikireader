@@ -93,7 +93,7 @@ typedef struct rv32 {
    something else -- and because the size of the win is the measurement.
    With RV32_ASM the A0 RAM belongs to the assembly hot path instead: the C
    interpreter has become the cold fallback and stays in SDRAM. */
-#if defined(RV32_FASTCODE) && !defined(RV32_ASM)
+#if defined(RV32_FASTCODE) && !defined(RV32_ASM) && !defined(RV32_JIT)
 #define RV32_HOT __attribute__((section(".fastcode")))
 #else
 #define RV32_HOT

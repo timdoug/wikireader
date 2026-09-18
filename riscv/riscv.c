@@ -14,6 +14,9 @@
 #include "console.h"
 #include "jit_probe.h"
 #include "rv32.h"
+#ifdef RV32_JIT
+#include "rv32_jit.h"
+#endif
 
 /* Guest RAM is whatever the board has spare.  ram_size() reads the SDRAM
    controller, so this gives the guest 28 MB on a 32 MB board and 12 on a
@@ -573,6 +576,31 @@ int grifo_main(int argc, char **argv)
 	say(path);
 	say("...\n");
 
+#ifdef RV32_JIT
+	/* The code cache is claimed before the guest, which then takes whatever
+	   is left: a translator with nowhere to put its output is no use, and a
+	   megabyte holds far more than the 385 KiB of guest code a whole Linux
+	   boot executes even at this translation's density. */
+	{
+		/* An eighth of the board, which is four megabytes on this one
+		   and two on a 16 MB one.  A Linux boot executes 385 KiB of
+		   guest code and this translation is about thirty bytes a
+		   guest instruction, so the whole boot fits and never has to
+		   be thrown away -- and throwing it away is expensive out of
+		   all proportion: at one megabyte the cache filled ten times
+		   over a boot, every block was translated five times, and the
+		   translator was 80% of the run. */
+		uint32_t want = (uint32_t)board_ram() / 8;
+		void *arena;
+
+		if (want > 4u * 1024 * 1024)
+			want = 4u * 1024 * 1024;
+		arena = memory_allocate(want, "rv32 jit");
+		if (!arena || !rv32_jit_init(arena, want))
+			say("no code cache; interpreting\n");
+	}
+#endif
+
 	/* Take as much as the allocator will give, largest first. */
 	for (guest_ram_size = (uint32_t)board_ram() - RAM_RESERVE;
 	     guest_ram_size >= RAM_MINIMUM; guest_ram_size -= 1024 * 1024) {
@@ -678,6 +706,24 @@ int grifo_main(int argc, char **argv)
 	report("rv32: stopped, reason ");
 	report_u64((uint32_t)stop);
 	report_char('\n');
+#ifdef RV32_JIT
+	/* What the cache cost to fill and how often it was not enough: a
+	   translator that spends its time translating is the failure mode the
+	   cycle count alone would not name. */
+	report("rv32: jit ");
+	report_u64(rv32_jit.blocks);
+	report(" blocks, ");
+	report_u64(rv32_jit.bytes);
+	report(" bytes, ");
+	report_u64(rv32_jit.flushes);
+	report(" flushes, ");
+	report_u64(rv32_jit.entries);
+	report(" entries, ");
+	report_u64(rv32_jit.declines);
+	report(" declines, ");
+	report_u64(rv32_jit.stores);
+	report(" watched stores\n");
+#endif
 	if (report_truncated)
 		report("rv32: report truncated\n");
 

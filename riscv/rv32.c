@@ -13,6 +13,9 @@
 #include <stddef.h>
 
 #include "rv32.h"
+#ifdef RV32_JIT
+#include "rv32_jit.h"
+#endif
 
 /* The offsets only have to hold where the assembly runs; the host
    reference build has 64-bit pointers and a different layout. */
@@ -181,9 +184,11 @@ RV32_MMIO int rv32_mmio_store_hot(rv32_t *s, uint32_t addr, uint32_t value)
 	return 0;
 }
 
+#if defined(RV32_ASM) || defined(RV32_JIT)
 #ifdef RV32_ASM
 /* rv32_hot.s */
 uint32_t rv32_hot(rv32_t *s, uint32_t budget);
+#endif
 
 /* The M-extension operations the assembly does not do itself: the divides,
    and the one mixed-sign multiply.  It calls this rather than declining,
@@ -730,7 +735,40 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 		s->pc = s->mtvec & ~3u;
 	}
 
-#ifdef RV32_ASM
+#ifdef RV32_JIT
+	/* Translated code runs until it meets something it was not translated
+	   for, and hands back the guest pc of exactly that instruction; the C
+	   interpreter executes that one and the loop tries again.  Progress is
+	   guaranteed for the same reason it is with the assembly path: the
+	   fallback always consumes one instruction. */
+	if (rv32_jit.code) {
+		while (budget) {
+			uint8_t *code;
+			uint32_t did;
+
+			code = rv32_jit.step ? NULL : rv32_jit_block(s, s->pc);
+			if (!code) {
+				rv32_jit.step = 0;
+				rv32_stop_t stop = rv32_interpret(s, 1);
+
+				--budget;
+				rv32_jit_reserve(s);
+				if (stop != RV_RAN_OUT)
+					return stop;
+				continue;
+			}
+			rv32_jit.entries++;
+			did = rv32_jit_enter(s, budget, code);
+			s->retired += did;
+			s->cycle_lo += did;
+			/* A block that has started runs whole, so `did` can
+			   overrun the batch by up to one block's worth. */
+			budget = did >= budget ? 0 : budget - did;
+		}
+		return RV_RAN_OUT;
+	}
+	return rv32_interpret(s, budget);
+#elif defined(RV32_ASM)
 	/* The assembly runs until it meets something it does not implement;
 	   the C interpreter then executes exactly that one instruction and
 	   the assembly picks up again.  Progress is guaranteed because the

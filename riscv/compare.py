@@ -20,6 +20,7 @@ VARIANTS = {
     'code':       ['FAST=1', 'STATE=0', 'ASM=0'],
     'code+state': ['FAST=1', 'STATE=1', 'ASM=0'],
     'asm':        ['FAST=1', 'STATE=1', 'ASM=1'],
+    'jit':        ['FAST=1', 'STATE=1', 'JIT=1'],
 }
 
 
@@ -32,7 +33,7 @@ def build(name, flags, scale):
     # Deleting the objects rather than touching the sources: consecutive
     # builds land inside one filesystem timestamp tick, and make then decides
     # the object is current and silently gives every variant the same binary.
-    for stale in ('build/riscv.o', 'build/rv32.o',
+    for stale in ('build/riscv.o', 'build/rv32.o', 'build/rv32_jit.o', 'build/rv32_jitrt.o',
                   'lib/libapplication.a', 'riscv.app'):
         (HERE / stale).unlink(missing_ok=True)
     subprocess.run(['make', f'SCALE={scale}', *flags], cwd=HERE, check=True,
@@ -40,7 +41,8 @@ def build(name, flags, scale):
     mapfile = (HERE / 'riscv.map').read_text()
     got = (section_size(mapfile, '.fastcode') > 0,
            section_size(mapfile, '.fastbss') > 0)
-    want = ('FAST=1' in flags or 'ASM=1' in flags, 'STATE=1' in flags)
+    want = ('FAST=1' in flags or 'ASM=1' in flags or 'JIT=1' in flags,
+            'STATE=1' in flags)
     if got != want:
         raise SystemExit(f'{name}: built with (code, state) in internal RAM '
                          f'= {got}, asked for {want}')

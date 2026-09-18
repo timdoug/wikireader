@@ -6,7 +6,7 @@ include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = riscv
 ICON = YES
-SOURCES = riscv.c rv32.c console.c rv32_hot.s jit_probe.s
+SOURCES = riscv.c rv32.c console.c jit_probe.s
 CFLAGS += -std=gnu11 -fwrapv -fno-strict-aliasing
 LDFLAGS += -T memory.lds
 
@@ -28,6 +28,21 @@ ifeq (1,$(strip $(STATE)))
 CFLAGS += -DRV32_FASTSTATE
 endif
 
+# JIT=1 translates instead of interpreting: the code cache goes in SDRAM,
+# which is where jit_probe.s measured a well-translated loop running fastest,
+# and only the entry and the exits need the fast memory.  It replaces the
+# assembly hot path rather than joining it -- the two want the same A0 RAM,
+# and what the translator cannot do the C interpreter still does.
+JIT ?= 0
+JITSKIP ?= 0
+ifeq (1,$(strip $(JIT)))
+CFLAGS += -DRV32_JIT -DJIT_SKIP=$(strip $(JITSKIP))
+SOURCES += rv32_jit.c rv32_jitrt.s
+ASM = 0
+else
+SOURCES += rv32_hot.s
+endif
+
 # ASM=1 runs the hand-written hot path (rv32_hot.s) and leaves the C
 # interpreter in SDRAM as the fallback for what it declines.
 ifeq (1,$(strip $(ASM)))
@@ -47,7 +62,7 @@ riscv.app: memory.lds
 # for the guest's divide, which memory.lds places in the window buffer for
 # every build.  rules.mk appends -mno-long-calls to CFLAGS after this file is
 # read, so the override has to be per target.
-build/rv32.o build/riscv.o build/console.o: CFLAGS += -mlong-calls
+build/rv32.o build/riscv.o build/console.o build/rv32_jit.o: CFLAGS += -mlong-calls
 
 # The guest image.  A separate architecture with a separate toolchain, so it
 # is built here rather than through the C33 rules.
@@ -103,3 +118,24 @@ mix: | build
 	    tests/host_mix.c rv32.c -o build/host_mix
 	./build/host_mix --image linux/Image --dtb linux/wr-sh.dtb \
 	    --until '# ' --quiet
+
+# Every instruction the translator's emitter can produce, against what the
+# toolchain's assembler makes of the same thing.  A wrong field is a different
+# instruction, and a different instruction is a guest that misbehaves minutes
+# later and somewhere else.
+.PHONY: jitenc
+jitenc: | build
+	$(HOST_CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fwrapv \
+	    tests/host_enc.c -o build/host_enc
+	python3 jitenc.py
+
+# What the translator emits, read back through the toolchain's disassembler.
+# A wrong field lands as some other instruction and shows up minutes into a
+# boot; here it is visible in a second.
+.PHONY: jitdis
+jitdis: | build
+	$(HOST_CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fwrapv \
+	    tests/host_jit.c -o build/host_jit
+	./build/host_jit > build/jitdis.s
+	$(TOOLCHAIN_BIN)/c33-epson-elf-as -mc33pe -o build/jitdis.o build/jitdis.s
+	$(TOOLCHAIN_BIN)/c33-epson-elf-objdump -d build/jitdis.o

@@ -8,4 +8,5 @@ __pycache__/
 *.map
 *.dump
 *.asm33
+screen.pgm
 .DS_Store
