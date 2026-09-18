@@ -732,6 +732,7 @@ int main(int argc, char **argv)
 
 	sd_set_clock(&sd, &cpu.clk);
 	dma_set_clock(&dma, &cpu.clk);
+	uart_set_clock(&uart, &cpu.clk);
 	/* A -Y window starts closed; reaching prof_start opens it. */
 	cpu.profile = (prof_start || prof_ms1 > 0) ? false : profile;
 	cpu.pc_profile = (prof_start || prof_ms1 > 0) ? false : pc_profile;

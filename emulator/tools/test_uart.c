@@ -37,6 +37,32 @@ int main(void)
     assert(uart_receive(&u, 'Z'));
     uart_reset(&u);
     assert(u.rx_count == 0 && !uart_can_receive(&u));
+
+    /* Transmit takes a frame a byte once the shift register is busy.  At
+       57600 baud, DIVMD 8, BRTRD 64: a bit is 2 * 65 * 8 = 1040 cycles and
+       a frame 10,400.  The first byte starts at once and the second waits in
+       the buffer, so TDBE clears until the first frame is done. */
+    uint64_t clock = 1000;
+    uart_set_clock(&u, &clock);
+    mem_write(&m, REG + 0xb04, 1, 0x10);          /* IRDA: DIVMD 1/8 */
+    mem_write(&m, REG + 0xb06, 1, 64);            /* BRTRDL */
+    mem_write(&m, REG + 0xb07, 1, 0);             /* BRTRDM */
+    assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* TDBE: idle */
+    mem_write(&m, REG + 0xb00, 1, 'a');
+    assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* shifting, buffer free */
+    assert(mem_read(&m, REG + 0xb02, 1) & 0x20);  /* TEND: busy */
+    mem_write(&m, REG + 0xb00, 1, 'b');
+    assert(!(mem_read(&m, REG + 0xb02, 1) & 2));  /* buffer full */
+    clock = 1000 + 10399;
+    assert(!(mem_read(&m, REG + 0xb02, 1) & 2));
+    clock = 1000 + 10400;
+    assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* 'b' has started */
+    assert(mem_read(&m, REG + 0xb02, 1) & 0x20);
+    clock = 1000 + 20800;
+    assert(!(mem_read(&m, REG + 0xb02, 1) & 0x20)); /* the line is idle */
+    uart_set_clock(&u, NULL);
+    mem_write(&m, REG + 0xb00, 1, 'c');
+    assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* untimed: at once */
     mem_free(&m);
     puts("UART FIFO/IRQ/reset: PASS");
     return 0;

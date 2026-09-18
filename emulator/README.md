@@ -1120,8 +1120,18 @@ For an NSH image, for example:
 ```
 
 `make test-uart` checks FIFO ordering, overflow, receive/error interrupt
-priority, flag reassertion while data remains, and UART reset. TX remains an
-immediately completed transfer in the model.
+priority, flag reassertion while data remains, UART reset, and that transmit
+takes the time the line takes.
+
+Transmit is timed from the baud rate registers the firmware programs: a bit
+is 2 * (BRTRD + 1) DIVMD clocks of the CPU's clock, a frame ten of them --
+10,400 cycles at 57600 baud -- and the transmitter is the hardware's one-byte
+buffer in front of a shift register, so TDBE clears while a byte waits and
+firmware that polls it waits a frame a byte from the third byte of a run.
+It was measured before it was modelled: the translator's first run on
+silicon (`riscv/`) read 1.75x the emulator, and the whole difference was
+console output, four hundred million cycles of a Linux boot, which this
+charged nothing for.
 
 Scripted `-T` taps, `-N` buttons and `-G` drags each accept up to 256 events.
 Malformed events and scripts exceeding this limit are rejected instead of
