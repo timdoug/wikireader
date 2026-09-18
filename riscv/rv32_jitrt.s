@@ -26,9 +26,8 @@
 	.set	OFF_RAM_SIZE, 136
 
 	.set	JOFF_MAP, 0			; rv32_jit.h's RV32_JOFF_*
-	.set	JOFF_WATCH_LO, 4
-	.set	JOFF_WATCH_HI, 8
-	.set	JOFF_BACK, 12
+	.set	JOFF_PAGE, 4
+	.set	JOFF_BACK, 8
 	.set	JIT_MASK, 32767			; rv32_jit.h's RV32_JIT_MASK
 
 ; This is in SDRAM, not A0 RAM: rv32_hot.s needs every byte of the fast memory
@@ -57,10 +56,8 @@ rv32_jit_enter:
 	sll	%r8,31				; subtracting it and adding it are
 	add	%r8,%r2				; the same modulo 2^32
 	xld.w	%r4,rv32_jit
-	ext	JOFF_WATCH_LO
-	ld.w	%r9,[%r4]
-	ext	JOFF_WATCH_HI
-	ld.w	%r10,[%r4]
+	ext	JOFF_PAGE
+	ld.w	%r9,[%r4]			; the page map a store checks
 	jp	%r13
 
 ; Store the guest pc back and return the number retired.  The count can exceed
@@ -108,7 +105,7 @@ rv32_jit_stub_decline:				; an instruction, or an address
 	xjp	.Ljit_ask
 
 	.globl	rv32_jit_stub_store
-rv32_jit_stub_store:				; a store inside the watched range
+rv32_jit_stub_store:				; a store into a marked page
 	ld.w	%r13,0x1
 	ld.w	%r14,%r4			; where it went
 	xjp	.Ljit_ask

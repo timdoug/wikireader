@@ -15,11 +15,11 @@
  *   %r3   ram_end
  *   %r6   instructions left in the batch, counted down a block at a time
  *   %r8   ram - RV_RAM_BASE, so a guest address converts with one add
- *   %r9   watch_lo, %r10 watch_hi -- the host range a store must stay out of
+ *   %r9   the page map a store checks itself against
  *   %r4, %r5, %r13, %r14  scratch
  *
- * %r1, %r7, %r11 and %r12 are free, which is what a register allocator would
- * have to work with.  %r15 is not: it is the global data pointer.
+ * %r1, %r7, %r10, %r11 and %r12 are free, which is what a register allocator
+ * would have to work with.  %r15 is not: it is the global data pointer.
  */
 
 #ifndef RV32_JIT_H
@@ -30,9 +30,8 @@
 /* Byte offsets rv32_jit.s depends on.  rv32_jit.c asserts every one of them
    against the struct, so the two cannot drift apart silently. */
 #define RV32_JOFF_MAP      0
-#define RV32_JOFF_WATCH_LO 4
-#define RV32_JOFF_WATCH_HI 8
-#define RV32_JOFF_BACK    12
+#define RV32_JOFF_PAGE     4
+#define RV32_JOFF_BACK     8
 
 /* The map the runtime probes on an indirect jump: a direct-mapped cache of
    guest pc to translated code, two words a slot, indexed by (pc >> 2).  It is
@@ -72,15 +71,29 @@
    rv32_jit_fault(). */
 enum {
 	RV32_JIT_DECLINE = 0,  /* an instruction, or an address, this cannot do */
-	RV32_JIT_STORE   = 1,  /* a store inside the watched range */
+	RV32_JIT_STORE   = 1,  /* a store into a page the map marks */
 	RV32_JIT_BUDGET  = 2,  /* the batch is spent; s->pc is the block head */
 };
 
 typedef struct rv32_jit {
 	/* Shared with the assembly; see RV32_JOFF_* above. */
 	uint32_t *map;
-	uint32_t  watch_lo;    /* host addresses, a half-open range */
-	uint32_t  watch_hi;
+	/* One byte per 256 bytes of guest RAM: bit 0 says it holds code that
+	   has been translated, bit 1 that a load reserved a word in it.  A
+	   store into either is the runtime's business and every other store --
+	   which is nearly all of them -- reads a zero and carries on.
+	   
+	   256 bytes because 4 KB was too coarse to tell a program's text from
+	   the data right after it: rvbench writes its bss, which shares a page
+	   with its code, and flushed the whole cache thirty-four times in one
+	   run of the benchmark.
+	   
+	   This was a single span from the lowest guest address with code in it
+	   to the highest, which is two compares instead of a load.  By the time
+	   a Linux boot reaches userspace that span is seven megabytes and holds
+	   the kernel's data as well as its text: two hundred thousand ordinary
+	   stores a boot left the code cache to be told they were ordinary. */
+	uint8_t  *page;
 	/* Instructions the block charged the batch for and did not execute.
 	   A block charges for all of itself before it starts, so that a batch
 	   which overruns is still counted exactly; when it gives up half way
@@ -99,6 +112,8 @@ typedef struct rv32_jit {
 	uint16_t *blk_hash;    /* guest pc -> block index, open addressed */
 	uint32_t  blk_hash_mask;
 	uint8_t  *hot;         /* how often each region has been interpreted */
+	uint32_t  page_max;
+	uint32_t  held;        /* where bit 1 is set, or ~0 */
 	uint8_t  *mark;        /* bytes of code a guest instruction became */
 	uint32_t  mark_max;
 	uint32_t  mark_used;
@@ -131,7 +146,7 @@ extern rv32_jit_t rv32_jit;
 /* Carve the arena into a code cache and its tables.  Returns 0 if what it was
    given is too small to be worth using, in which case the caller should fall
    back to the interpreter. */
-int rv32_jit_init(void *arena, uint32_t bytes);
+int rv32_jit_init(void *arena, uint32_t bytes, uint32_t ram_size);
 
 /* The translated code for a guest pc, translating it if need be.  NULL when
    the instruction there is one this cannot translate -- the caller then has
@@ -143,9 +158,8 @@ uint8_t *rv32_jit_block(rv32_t *s, uint32_t pc);
    is ignored otherwise. */
 uint32_t rv32_jit_fault(rv32_t *s, uint32_t ra, uint32_t kind, uint32_t addr);
 
-/* Bring the watched range up to date after C has run an instruction: a load
-   reserved makes every store interesting, a store conditional makes them dull
-   again. */
+/* Bring the page map up to date after C has run an instruction: a load
+   reserved marks the page it reserved in, a store conditional unmarks it. */
 void rv32_jit_reserve(rv32_t *s);
 
 /* Throw the cache away.  Safe only from outside it. */

@@ -50,12 +50,14 @@ rv32_jit_t rv32_jit;
    pointers are twice the size and put the two words somewhere else. */
 #if __SIZEOF_POINTER__ == 4
 _Static_assert(offsetof(rv32_jit_t, map) == RV32_JOFF_MAP, "asm offset");
-_Static_assert(offsetof(rv32_jit_t, watch_lo) == RV32_JOFF_WATCH_LO, "asm offset");
-_Static_assert(offsetof(rv32_jit_t, watch_hi) == RV32_JOFF_WATCH_HI, "asm offset");
+_Static_assert(offsetof(rv32_jit_t, page) == RV32_JOFF_PAGE, "asm offset");
 _Static_assert(offsetof(rv32_jit_t, back) == RV32_JOFF_BACK, "asm offset");
 #endif
 
 #define NO_RESERVATION 0xffffffffu
+
+/* The page map's granularity: one byte per 256 bytes of guest RAM. */
+#define PAGE_SHIFT 8
 
 /* The runtime, in rv32_jit.s.  Each stub is the target of a call from inside
    the code cache and never returns to it. */
@@ -542,7 +544,7 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 
 	case 0x23: {                                    /* store */
 		static const unsigned kind[4] = { O_STB, O_STH, O_STW, 0 };
-		uint32_t below, above, rejoin;
+		uint32_t plain, rejoin;
 		struct paths p;
 
 		getx(t, R5, rs2);               /* before %r13 is the align scratch */
@@ -550,17 +552,19 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 		rejoin = device_path(t, &p,
 				     (uint32_t)(uintptr_t)rv32_jit_stub_dev_store);
 		rr(t, kind[f3], R5, R4);        /* the value first, the base second */
-		/* A store inside the watched range is either into code that has
-		   been translated or into a word some load reserved.  Both are
-		   rare and both belong to C; with nothing watched the range is
-		   empty and neither branch is taken. */
-		rr(t, O_CMP, R4, R9);
-		below = fwd(t, B_ULT);
-		rr(t, O_CMP, R4, R10);
-		above = fwd(t, B_UGE);
+		/* A store into a page that holds translated code, or the word
+		   some load reserved, is the runtime's business.  Every other
+		   store -- which is nearly all of them -- reads a zero out of
+		   the page map and carries on. */
+		rr(t, O_MOV, R13, R4);
+		rr(t, O_SUB, R13, R2);
+	shift(t, S_SRL, R13, PAGE_SHIFT);
+		rr(t, O_ADD, R13, R9);
+		rr(t, O_LDUB, R13, R13);
+		ri(t, I_CMP, R13, 0);
+		plain = fwd(t, B_EQ);
 		xjump(t, B_CALL, (uint32_t)(uintptr_t)rv32_jit_stub_store);
-		land(t, below);
-		land(t, above);
+		land(t, plain);
 		land(t, rejoin);        /* a device store is already done */
 		return;
 	}
@@ -737,6 +741,23 @@ static void link_resolve(uint32_t pc, uint32_t code)
 	}
 }
 
+static void mark_page(uint32_t pc)
+{
+	uint32_t page = (pc - RV_RAM_BASE) >> PAGE_SHIFT;
+
+	if (page < rv32_jit.page_max)
+		rv32_jit.page[page] |= 1;
+}
+
+static int page_has_code(uint32_t pc)
+{
+	uint32_t page = (pc - RV_RAM_BASE) >> PAGE_SHIFT;
+
+	if (page >= rv32_jit.page_max)
+		return 1;       /* out of the map's reach: be conservative */
+	return rv32_jit.page[page] & 1;
+}
+
 static struct jit_block *record(rv32_t *s, uint32_t pc, uint32_t off, unsigned n)
 {
 	struct jit_block *b;
@@ -773,6 +794,13 @@ static struct jit_block *record(rv32_t *s, uint32_t pc, uint32_t off, unsigned n
 			rv32_jit.code_hi = pc + 4 * n;
 	}
 	rv32_jit_reserve(s);
+	{
+		uint32_t at;
+
+		for (at = pc; at < pc + 4 * n; at += 1u << PAGE_SHIFT)
+			mark_page(at);
+		mark_page(pc + 4 * n - 4);
+	}
 	link_resolve(pc, (uint32_t)(uintptr_t)(rv32_jit.code + off));
 	rv32_jit.blocks++;
 	return b;
@@ -962,28 +990,24 @@ static uint8_t *translate(rv32_t *s, uint32_t pc)
 
 void rv32_jit_reserve(rv32_t *s)
 {
-	uint32_t base = (uint32_t)(uintptr_t)s->ram;
+	uint32_t page = ~0u;
 
-	if (s->reservation != NO_RESERVATION) {
-		/* Every store has to be seen until the reservation is settled,
-		   which is what widening the watched range to all of guest RAM
-		   does -- no extra instruction anywhere, and the sequences this
-		   costs anything in are three instructions long. */
-		rv32_jit.watch_lo = base;
-		rv32_jit.watch_hi = base + s->ram_size;
-	} else if (rv32_jit.code_hi != rv32_jit.code_lo) {
-		rv32_jit.watch_lo = base + (rv32_jit.code_lo - RV_RAM_BASE);
-		rv32_jit.watch_hi = base + (rv32_jit.code_hi - RV_RAM_BASE);
-	} else {
-		rv32_jit.watch_lo = 0;
-		rv32_jit.watch_hi = 0;
-	}
+	if (s->reservation != NO_RESERVATION)
+		page = (s->reservation - RV_RAM_BASE) >> PAGE_SHIFT;
+	if (page == rv32_jit.held)
+		return;
+	if (rv32_jit.held < rv32_jit.page_max)
+		rv32_jit.page[rv32_jit.held] &= ~2u;
+	if (page < rv32_jit.page_max)
+		rv32_jit.page[page] |= 2;
+	rv32_jit.held = page;
 }
 
 void rv32_jit_flush(void)
 {
 	memset(rv32_jit.map, 0, RV32_JIT_SLOTS * 2 * sizeof(uint32_t));
 	memset(rv32_jit.hot, 0, RV32_JIT_HOT_SLOTS);
+	memset(rv32_jit.page, 0, rv32_jit.page_max);
 	memset(rv32_jit.blk_hash, 0xff,
 	       (rv32_jit.blk_hash_mask + 1) * sizeof(uint16_t));
 	memset(rv32_jit.link_hash, 0xff,
@@ -993,7 +1017,8 @@ void rv32_jit_flush(void)
 	rv32_jit.mark_used = 0;
 	rv32_jit.link_used = 0;
 	rv32_jit.code_lo = rv32_jit.code_hi = 0;
-	rv32_jit.watch_lo = rv32_jit.watch_hi = 0;
+	memset(rv32_jit.page, 0, rv32_jit.page_max);
+	rv32_jit.held = ~0u;
 	rv32_jit.flushes++;
 }
 
@@ -1126,14 +1151,14 @@ uint32_t rv32_jit_fault(rv32_t *s, uint32_t ra, uint32_t kind, uint32_t addr)
 
 		if ((g & ~3u) == s->reservation)
 			s->reservation = NO_RESERVATION;
-		if (g >= rv32_jit.code_lo && g < rv32_jit.code_hi)
+		if (page_has_code(g))
 			rv32_jit_flush();
 		rv32_jit_reserve(s);
 	}
 	return pc + 4;
 }
 
-int rv32_jit_init(void *arena, uint32_t bytes)
+int rv32_jit_init(void *arena, uint32_t bytes, uint32_t ram_size)
 {
 	uint8_t *p = arena;
 	uint8_t *end = (uint8_t *)arena + bytes;
@@ -1169,6 +1194,10 @@ int rv32_jit_init(void *arena, uint32_t bytes)
 	   about thirty-five bytes of code an instruction. */
 	rv32_jit.hot = p;
 	p += RV32_JIT_HOT_SLOTS;
+	/* One byte per 256 bytes of guest RAM, which a store reads. */
+	rv32_jit.page_max = (ram_size >> PAGE_SHIFT) + 1;
+	rv32_jit.page = p;
+	p += (rv32_jit.page_max + 3) & ~3u;
 	rv32_jit.mark = p;
 	rv32_jit.mark_max = ((uint32_t)(end - p) / 24) & ~3u;
 	p += rv32_jit.mark_max;         /* a multiple of four: what follows is

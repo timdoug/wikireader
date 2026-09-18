@@ -438,6 +438,79 @@ exact. The one internal-RAM row that misses is `alu_mem`, 19% dear, whose data
 is the register file in A0 RAM: dense internal loads and stores from internal
 code. Both are recorded in `emulator/README.md`.
 
+## The translator
+
+`make JIT=1` builds it. Guest instructions become C33 instructions once,
+which is what the 40 cycles of every 75 inside `DISPATCH` are: work that
+depends only on the instruction word.
+
+What it emits is the naive form `jit_probe.s` calls `alu_mem` -- every operand
+out of the guest register file and every result back into it -- because a
+register allocator is a separate piece of work and this one had to be right
+first. On `rvbench` that is **38.1 cycles a guest instruction against the
+assembly path's 75.4**, with every kernel's instruction count and checksum
+unchanged.
+
+Three things about the shape, each of them a measurement:
+
+- **Traces, not blocks.** The fall-through of a conditional branch and the
+  target of an unconditional jump are laid out immediately after their
+  predecessor, which is the exit `exit_none` measures at nothing against
+  `exit_link`'s 23.4 cycles. A trace stops at an indirect jump, at an
+  instruction this cannot translate, or when it reaches code that exists.
+  Every basic block inside one is still registered by its own guest pc, so a
+  jump into the middle finds it.
+- **Exits are three words naming a guest pc and a jump to the runtime's
+  lookup**, overwritten with a direct jump the moment the target exists. The
+  three words are emitted long-hand rather than through the immediate helper,
+  because the patch has to be exactly the same size.
+- **Device addresses are done from inside the code cache**, the way
+  `rv32_hot.s` learned to do them. Leaving them to C first cost about four
+  thousand cycles apiece -- a return, an instruction interpreted from SDRAM, a
+  lookup and a re-entry -- and made the translator slower than the interpreter
+  it was replacing.
+
+The code cache is an eighth of the board in SDRAM, which is where `jit_probe.s`
+measured a well-translated loop running fastest and where there is room for the
+385 KiB of guest code a boot executes. At a megabyte it filled ten times over a
+boot, every block was translated five times, and the translator was 80% of the
+run.
+
+### Translating has to be earned
+
+Translating one guest instruction is about 1,400 C33 instructions, and from
+SDRAM that is some 6,800 cycles. Interpreting it is 85. **Break-even is around
+eighty executions**, and a Linux boot executes 385 KiB of guest code most of
+which runs once. Translating all of it made the boot *slower* than the
+interpreter: 99.6 cycles a guest instruction against 85.3.
+
+So `rv32_hot.s` is still there and still has the whole of A0 RAM. It interprets
+in chunks of 256 guest instructions, and between chunks the code cache is asked
+whether the pc has a translation. Guest code earns one by being run. Hotness is
+counted per 256-byte region rather than per block, because the interpreter
+stops where its chunk runs out and not at a block head: a loop keeps landing in
+the same region however its iterations are cut up, and a straight run through
+cold code touches each region once.
+
+Over the same stretch of a boot that is 8,048 blocks translated against 21,267,
+1.3 MB of code against 3.3 MB, and no cache flush where there had been one.
+
+### The encoding is checked against the assembler
+
+`make jitenc` emits every C33 instruction the translator can produce, in bytes
+and in assembly, assembles the second and diffs it against the first: 3,423
+encodings. `make jitdis` puts a translated guest instruction of each kind
+through the toolchain's disassembler, to be read against what it should be.
+
+They exist because of a real one. The shift-immediate encoding changes shape at
+a count of sixteen -- `srl %rd,15` and `srl %rd,16` are not one opcode with one
+field -- and composing it arithmetically was right for every count the
+disassembly happened to show. Linux booted into a delay loop it could never
+leave, and finding out why took six full-system boots and a bisection over
+which classes of guest instruction the translator was allowed to touch. That
+bisection is still there, as `make JIT=1 JITSKIP=n`: each bit hands one class
+back to the C interpreter, which is known good.
+
 ## Why the assembly is faster, which is not instruction count
 
 A taken branch costs about six cycles, so what a guest instruction pays for

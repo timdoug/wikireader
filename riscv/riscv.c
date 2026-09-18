@@ -48,6 +48,10 @@ static unsigned long board_ram(void)
 
 static uint8_t *guest_ram;
 static uint32_t guest_ram_size;
+#ifdef RV32_JIT
+static void *jit_arena;
+static uint32_t jit_bytes;
+#endif
 
 static rv32_t machine RV32_STATE;
 
@@ -591,13 +595,11 @@ int grifo_main(int argc, char **argv)
 		   over a boot, every block was translated five times, and the
 		   translator was 80% of the run. */
 		uint32_t want = (uint32_t)board_ram() / 8;
-		void *arena;
 
 		if (want > 4u * 1024 * 1024)
 			want = 4u * 1024 * 1024;
-		arena = memory_allocate(want, "rv32 jit");
-		if (!arena || !rv32_jit_init(arena, want))
-			say("no code cache; interpreting\n");
+		jit_arena = memory_allocate(want, "rv32 jit");
+		jit_bytes = jit_arena ? want : 0;
 	}
 #endif
 
@@ -646,6 +648,12 @@ int grifo_main(int argc, char **argv)
 
 	machine.ram = guest_ram;
 	machine.ram_size = guest_ram_size;
+#ifdef RV32_JIT
+	/* After the guest, because the page map a store checks is sized to the
+	   guest's RAM. */
+	if (!jit_bytes || !rv32_jit_init(jit_arena, jit_bytes, guest_ram_size))
+		say("no code cache; interpreting\n");
+#endif
 	machine.putchar = console_out;
 	machine.getchar = console_in;
 	machine.mark = on_mark;
