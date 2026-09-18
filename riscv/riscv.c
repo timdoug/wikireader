@@ -651,7 +651,7 @@ int grifo_main(int argc, char **argv)
 #ifdef RV32_JIT
 	if (!jit_bytes || !rv32_jit_init(jit_arena, jit_bytes))
 		say("no code cache; interpreting\n");
-	else
+	else if ((rv32_jit.clock = timer_get), 1)
 		/* Where the code cache is, so that a memory dump of it can be
 		   read against the profile: jitprof.py. */
 		debug_printf("rv32: jit code at %08lx, %lu bytes\n",
@@ -775,6 +775,15 @@ int grifo_main(int argc, char **argv)
 	report(" regions of ");
 	report_u64(rv32_jit.insns);
 	report(" insns translated\n");
+	/* Where the cycles went, by the timer: the device's answer to the
+	   emulator's profile, which cannot be run there. */
+	report("rv32: jit cycles: translating ");
+	report_u64(rv32_jit.cyc_translate);
+	report(", interpreting ");
+	report_u64(rv32_jit.cyc_interpret);
+	report(", in the cache ");
+	report_u64(rv32_jit.cyc_cache);
+	report("\n");
 #endif
 	if (report_truncated)
 		report("rv32: report truncated\n");

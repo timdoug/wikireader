@@ -141,6 +141,14 @@ typedef struct rv32_jit {
 	uint32_t  loops;        /* loops whose checks were hoisted, and how
 	                           many of them fit the fetch window */
 	uint32_t  resident;
+	/* Where the time went, by the application's clock: translating,
+	   interpreting, and inside the code cache.  rv32_run() keeps them
+	   through the clock the application supplies, which the build
+	   machine's tests do not. */
+	uint32_t (*clock)(void);
+	uint64_t  cyc_translate;
+	uint64_t  cyc_interpret;
+	uint64_t  cyc_cache;
 } rv32_jit_t;
 
 extern rv32_jit_t rv32_jit;

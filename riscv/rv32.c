@@ -815,10 +815,21 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 			uint8_t *code;
 			uint32_t did;
 
+			uint32_t t0 = rv32_jit.clock ? rv32_jit.clock() : 0;
+
 			code = rv32_jit.step ? NULL : rv32_jit_block(s, s->pc);
+			if (rv32_jit.clock) {
+				uint32_t t1 = rv32_jit.clock();
+
+				rv32_jit.cyc_translate += (uint32_t)(t1 - t0);
+				t0 = t1;
+			}
 			if (code) {
 				rv32_jit.entries++;
 				did = rv32_jit_enter(s, budget, code);
+				if (rv32_jit.clock)
+					rv32_jit.cyc_cache +=
+						(uint32_t)(rv32_jit.clock() - t0);
 				s->retired += did;
 				s->cycle_lo += did;
 				/* A block that has started runs whole, so this
@@ -838,6 +849,9 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 					? budget : RV32_JIT_CHUNK;
 
 				did = rv32_hot(s, want);
+				if (rv32_jit.clock)
+					rv32_jit.cyc_interpret +=
+						(uint32_t)(rv32_jit.clock() - t0);
 				s->retired += did;
 				s->cycle_lo += did;
 				budget -= did;

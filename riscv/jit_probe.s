@@ -424,6 +424,102 @@ jp_ld_res_far:
 	.globl	jp_ld_res_far_end
 jp_ld_res_far_end:
 
+; The store kernel's loop as laid out to be resident -- sw a5,0(a4); addi
+; a5,1; addi a4,4; bne a5,a2 -- which the device ran at 15.3 cycles a guest
+; instruction against the model's 8.0, twice the resident load loop above
+; whose only difference is the store.  a1 walks the stream, a3 is its end.
+	.balign	16
+	.globl	jp_st_res
+jp_st_res:
+	LD_SETUP
+	.balign	16, 0
+1:	sub	%r6,0x4
+	ext	0x0
+	jrlt	9f
+	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.w	[%r4],%r9
+	add	%r9,0x1
+	add	%r1,0x4
+	cmp	%r1,%r10
+	jrne	1b
+9:	LD_DONE
+	.globl	jp_st_res_end
+jp_st_res_end:
+
+	.balign	16
+	.globl	jp_st_res_nb
+jp_st_res_nb:
+	LD_SETUP
+	.balign	16, 0
+1:	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.w	[%r4],%r9
+	add	%r9,0x1
+	add	%r1,0x4
+	cmp	%r1,%r10
+	jrne	1b
+9:	LD_DONE
+	.globl	jp_st_res_nb_end
+jp_st_res_nb_end:
+
+; The sieve's memset -- sb a3,0(a5); addi a5,1; bne a5,a4 -- a byte a pass,
+; the pass count setting the end.
+	.balign	16
+	.globl	jp_sb_res
+jp_sb_res:
+	PROLOGUE
+	ext	X_A1
+	ld.w	%r1,[%r0]
+	ld.w	%r10,%r1
+	add	%r10,%r6		; the end: one byte a pass
+	xld.w	%r6,0x7fffffff
+	ld.w	%r9,0x1
+	.balign	16, 0
+1:	sub	%r6,0x3
+	ext	0x0
+	jrlt	9f
+	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.b	[%r4],%r9
+	add	%r1,0x1
+	cmp	%r1,%r10
+	jrne	1b
+9:	EPILOGUE
+	.globl	jp_sb_res_end
+jp_sb_res_end:
+
+; The sieve's inner loop -- sb zero,0(a4); add a5,a5,a3; add a4,a4,a3; bge
+; a2,a5 -- striding by three, the device's worst kernel at 3.2x the model.
+	.balign	16
+	.globl	jp_sieve_res
+jp_sieve_res:
+	PROLOGUE
+	ext	X_A1
+	ld.w	%r9,[%r0]		; a4, the pointer
+	ld.w	%r11,0x0		; a5, the index
+	ld.w	%r12,0x3		; a3, the stride
+	ld.w	%r10,%r6		; a2: three a pass, less one
+	add	%r10,%r6
+	add	%r10,%r6
+	sub	%r10,0x1
+	xld.w	%r6,0x7fffffff
+	.balign	16, 0
+1:	sub	%r6,0x4
+	ext	0x0
+	jrlt	9f
+	ld.w	%r5,0x0
+	ld.w	%r4,%r9
+	add	%r4,%r8
+	ld.b	[%r4],%r5
+	add	%r11,%r12
+	add	%r9,%r12
+	cmp	%r10,%r11
+	jrge	1b
+9:	EPILOGUE
+	.globl	jp_sieve_res_end
+jp_sieve_res_end:
+
 ; -------------------------------------------------------------- the copy ---
 ;
 ; The kernel's memcpy word loop, which is 4.2% of a Linux boot on its own:
