@@ -53,7 +53,7 @@ def main():
     subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'),
                     str(flash)], check=True, stdout=subprocess.DEVNULL)
 
-    cmd = [str(ROOT / 'emulator/wremu'), '-R', '-c', str(card), '-e', str(flash),
+    cmd = [str(ROOT / 'emulator/wremu'), '-c', str(card), '-e', str(flash),
            '-n', '200000000000']
     if args.profile:
         cmd += ['-F', 'profile.txt']

@@ -55,7 +55,25 @@ static uint32_t jit_bytes;
 
 static rv32_t machine RV32_STATE;
 
-/* timer_get() is 32 bits and wraps every 71 seconds at 60 MHz, so elapsed
+/* The clock, read from the two timer counters the way Grifo's Timer_get()
+   reads them.  Grifo's is a system call, some four hundred cycles on the
+   C33, and the measurement below reads the clock a hundred thousand times a
+   boot: through the call that was 4% of the boot, and the profile showed
+   the trap handler above the translator.  The counters are 16 bits each
+   and the high one is read twice so a carry between the reads is seen. */
+static inline uint32_t clock_now(void)
+{
+	uint32_t high1, low, high2;
+
+	do {
+		high1 = REG_T16_TC5;
+		low = REG_T16_TC0;
+		high2 = REG_T16_TC5;
+	} while (high1 != high2);
+	return (high2 << 16) | low;
+}
+
+/* The clock is 32 bits and wraps every 71 seconds at 60 MHz, so elapsed
    time is accumulated from deltas taken far more often than that. */
 static uint32_t last_tick;
 static uint64_t elapsed_cycles;
@@ -73,16 +91,25 @@ static uint32_t untimed_from;
 
 static void untimed_begin(void)
 {
-	untimed_from = timer_get();
+	untimed_from = clock_now();
 }
 
 static void untimed_end(void)
 {
-	uint32_t spent = (uint32_t)(timer_get() - untimed_from);
+	uint32_t spent = (uint32_t)(clock_now() - untimed_from);
 
 	last_tick += spent;
 	console_cycles += spent;
 }
+
+/* A Linux boot has no end to report at, so the application watches the
+   guest's console for the kernel's line that says it is about to run its
+   first process, and reports there: the same number boot.py reads off the
+   emulator, taken on the device by the device.  The kernel goes on to the
+   shell afterwards. */
+static const char boot_line[] = "Run /bin/sh as init process";
+static unsigned boot_matched;
+static bool boot_seen;
 
 /* The guest's console: the panel, and the emulator's stdout so a run can
    be read back from a log. */
@@ -93,6 +120,12 @@ static void console_out(void *arg, int c)
 	console_put(c);
 	debug_print_char(c);
 	untimed_end();
+	if (c == boot_line[boot_matched]) {
+		if (boot_line[++boot_matched] == 0)
+			boot_seen = true;
+	} else {
+		boot_matched = c == boot_line[0];
+	}
 }
 
 /* Say something on the panel and the serial log at once.  The panel is the
@@ -124,7 +157,7 @@ static unsigned mark_count;
 
 static void tick(void)
 {
-	uint32_t now = timer_get();
+	uint32_t now = clock_now();
 	elapsed_cycles += (uint32_t)(now - last_tick);
 	last_tick = now;
 }
@@ -265,6 +298,49 @@ static void report_kips(uint64_t cycles, uint32_t insns)
 	/* insns / (cycles / 60e6) in thousands = insns * 60000 / cycles */
 	uint64_t ignored;
 	report_u64(cycles ? divmod_u64((uint64_t)insns * 60000u, cycles, &ignored) : 0);
+}
+
+/* What the run cost beyond the guest's instructions, for the report: the
+   translator's counters and where the cycles went by the timer, and the
+   console's cycles, which no number here includes. */
+static void report_run(void)
+{
+#ifdef RV32_JIT
+	/* What the cache cost to fill and how often it was not enough: a
+	   translator that spends its time translating is the failure mode the
+	   cycle count alone would not name. */
+	report("rv32: jit ");
+	report_u64(rv32_jit.blocks);
+	report(" blocks, ");
+	report_u64(rv32_jit.bytes);
+	report(" bytes, ");
+	report_u64(rv32_jit.flushes);
+	report(" flushes, ");
+	report_u64(rv32_jit.entries);
+	report(" entries, ");
+	report_u64(rv32_jit.declines);
+	report(" declines, ");
+	report_u64(rv32_jit.fences);
+	report(" fences retiring ");
+	report_u64(rv32_jit.stale);
+	report(" regions; ");
+	report_u64(rv32_jit.regions);
+	report(" regions of ");
+	report_u64(rv32_jit.insns);
+	report(" insns translated\n");
+	/* Where the cycles went, by the timer: the device's answer to the
+	   emulator's profile, which cannot be run there. */
+	report("rv32: jit cycles: translating ");
+	report_u64(rv32_jit.cyc_translate);
+	report(", interpreting ");
+	report_u64(rv32_jit.cyc_interpret);
+	report(", in the cache ");
+	report_u64(rv32_jit.cyc_cache);
+	report("\n");
+#endif
+	report("rv32: console output: ");
+	report_u64(console_cycles);
+	report(" cycles, left out of the kernels' and the total\n");
 }
 
 /* Write the report beside the image it measured: rvbench.bin -> rvbench.txt,
@@ -677,7 +753,7 @@ int grifo_main(int argc, char **argv)
 #ifdef RV32_JIT
 	if (!jit_bytes || !rv32_jit_init(jit_arena, jit_bytes))
 		say("no code cache; interpreting\n");
-	else if ((rv32_jit.clock = timer_get), 1)
+	else if ((rv32_jit.clock = clock_now), 1)
 		/* Where the code cache is, so that a memory dump of it can be
 		   read against the profile: jitprof.py. */
 		debug_printf("rv32: jit code at %08lx, %lu bytes\n",
@@ -693,7 +769,8 @@ int grifo_main(int argc, char **argv)
 	   that the per-call setup does not show up in the measurement. */
 	enum { BATCH = 16384 };
 	rv32_stop_t stop = RV_RAN_OUT;
-	last_tick = timer_get();
+	bool boot_saved = false;
+	last_tick = clock_now();
 	for (unsigned long batch = 0; batch < 2000000ul; ++batch) {
 		stop = rv32_run(&machine, BATCH, BATCH);
 		console_poll();
@@ -738,6 +815,22 @@ int grifo_main(int argc, char **argv)
 			untimed_end();
 		}
 		watchdog(WATCHDOG_KEY);
+		if (boot_seen && !boot_saved) {
+			boot_saved = true;
+			tick();
+			report("rv32: linux booted: ");
+			report_u64(machine.retired);
+			report(" insns, ");
+			report_u64(elapsed_cycles);
+			report(" cycles, ");
+			report_cpi(elapsed_cycles, (uint32_t)machine.retired);
+			report(" cyc/insn\n");
+			report_run();
+			untimed_begin();
+			say(report_save(path, report_name) ? "rv32: boot report saved\n"
+							   : "rv32: boot report not saved\n");
+			untimed_end();
+		}
 		if (stop != RV_RAN_OUT)
 			break;
 	}
@@ -780,44 +873,7 @@ int grifo_main(int argc, char **argv)
 	report("rv32: stopped, reason ");
 	report_u64((uint32_t)stop);
 	report_char('\n');
-#ifdef RV32_JIT
-	/* What the cache cost to fill and how often it was not enough: a
-	   translator that spends its time translating is the failure mode the
-	   cycle count alone would not name. */
-	report("rv32: jit ");
-	report_u64(rv32_jit.blocks);
-	report(" blocks, ");
-	report_u64(rv32_jit.bytes);
-	report(" bytes, ");
-	report_u64(rv32_jit.flushes);
-	report(" flushes, ");
-	report_u64(rv32_jit.entries);
-	report(" entries, ");
-	report_u64(rv32_jit.declines);
-	report(" declines, ");
-	report_u64(rv32_jit.fences);
-	report(" fences retiring ");
-	report_u64(rv32_jit.stale);
-	report(" regions; ");
-	report_u64(rv32_jit.regions);
-	report(" regions of ");
-	report_u64(rv32_jit.insns);
-	report(" insns translated\n");
-	/* Where the cycles went, by the timer: the device's answer to the
-	   emulator's profile, which cannot be run there. */
-	report("rv32: jit cycles: translating ");
-	report_u64(rv32_jit.cyc_translate);
-	report(", interpreting ");
-	report_u64(rv32_jit.cyc_interpret);
-	report(", in the cache ");
-	report_u64(rv32_jit.cyc_cache);
-	report("\n");
-#endif
-	report("rv32: console output: ");
-	report_u64(console_cycles);
-	report(" cycles, left out of the kernels' and the total\n");
-#ifdef RV32_JIT
-#endif
+	report_run();
 	if (report_truncated)
 		report("rv32: report truncated\n");
 
