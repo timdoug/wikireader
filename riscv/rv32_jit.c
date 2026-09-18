@@ -1539,7 +1539,7 @@ static int loop_analyse(struct tc *t, const struct rblock *r)
 	   and a register step has to keep the alignment too, which only a
 	   byte access can be sure of. */
 	for (j = 0; j + 1 < r->n; ++j) {
-		unsigned base, w, ind, plus;
+		unsigned base, w, ind = 0, plus;
 		int32_t off, o, adj = 0;
 
 		if (!(L->hoisted & ((uint64_t)1 << j)))
@@ -1651,7 +1651,7 @@ static void loop_checks(struct tc *t)
 		land(t, over);
 	}
 	for (b = 0; b < 32; ++b) {
-		unsigned hb, ind, plus, hplus = 0;
+		unsigned hb, ind = 0, plus, hplus = 0;
 		int32_t adj = 0, m = 1;
 		int fixed;
 

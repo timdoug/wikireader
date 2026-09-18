@@ -449,7 +449,7 @@ depends only on the instruction word.
 | cycles a guest instruction, in the emulator | interpreter | translator |
 | --- | ---: | ---: |
 | `rvbench`, whole run | 72.5 | **13.3** |
-| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.8** |
+| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.3** |
 
 Both boot to the shell and the benchmark's instruction counts and checksums
 are identical either way. The boot spends 41% of its cycles in translated
@@ -541,7 +541,14 @@ What the code looks like, and the measurement behind each choice:
 - **The translator's own state is in internal RAM**: its cursor, the region
   table, the loop and group analyses. On the stack, every emitted word read
   the cursor from one SDRAM row and wrote the word to another, and the
-  region table was walked a few thousand times a region.
+  region table was walked a few thousand times a region. The translator is
+  built `-O3`, which is 1.2% of a boot over `-O2`; `-Os` is 6% worse.
+- **What did not pay**: laying a small leaf callee out inside the caller's
+  region, its `ret` a jump to the return point. 339 calls a boot inlined and
+  the boot was 2.7% slower: the copies and the scan for callees cost more
+  translation than the calls saved, and a callee inlined at one site still
+  needs its own translation for every other. A warm-up threshold of six,
+  likewise, and mapping only registers used three times.
 
 The code cache is an eighth of the board in SDRAM, which is where `jit_probe.s`
 measured a well-translated loop running fastest. A boot emits 1.6 MB and

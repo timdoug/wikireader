@@ -61,6 +61,11 @@ riscv.app: memory.lds
 # this file is read, so the override has to be per target.
 build/rv32.o build/riscv.o build/console.o build/rv32_jit.o: CFLAGS += -mlong-calls
 
+# The translator runs from SDRAM, where a call and its return are two fetch
+# restarts: -O3's inlining is worth 1.2% of a Linux boot over -O2, and -Os,
+# which should suit fetch-bound code, is 6% worse.
+build/rv32_jit.o: CFLAGS += -O3
+
 # With a translator behind it, the interpreter ends a chunk at the next
 # taken transfer once half of it is spent, so that regions start at block
 # boundaries; without one the test would only cost the interpreter.
