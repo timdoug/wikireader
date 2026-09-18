@@ -130,12 +130,13 @@ guest instruction:
 | interpreter in A0 RAM (`FAST=1`) | 122.0 | 491 kIPS |
 | and machine state too (`STATE=1`) | 99.1 | 605 kIPS |
 | hand-written hot path (`ASM=1`) | **72.5** | **827 kIPS** |
-| translated (`JIT=1`) | **13.3** | **4,500 kIPS** |
+| translated (`JIT=1`) | **13.1** | **4,570 kIPS** |
 
-On silicon the fourth row measured **80.5 cyc/insn, 745 kIPS** when it was
-75.4 here; the translator has not been on hardware yet. A Linux boot is a
-different workload and gets a smaller factor -- see
-[the translator](#the-translator).
+On silicon the translated build measures **13.4 cyc/insn, 4,490 kIPS**
+(`rvbench-jit-device.txt`), 1.02 of the emulator, every kernel within a few
+percent. The interpreter measured 80.5 when it was 75.4 here, but that
+number still includes the console -- see below. A Linux boot is a different
+workload and gets a smaller factor -- see [the translator](#the-translator).
 
 ## The device against the model
 
@@ -166,6 +167,21 @@ Whole benchmark, device over model, before any of this was fixed:
 and as it stands, after `dq_iram_extra`, `branch_bubble`, `act_overlap` and
 the fetch lookahead: **0.979, 0.872, 0.979, 1.010**, RMS log error 0.0786
 against 0.0927 when the first of these was measured.
+
+Those four device numbers include something the emulator does not charge
+for: the console. Grifo's serial line runs at 57600 baud, about ten thousand
+cycles a character, and the benchmark's checksum lines plus the
+application's progress line -- the latter printed inside the sieve kernel --
+are 15 million cycles on the device, 14% of the interpreter's run. It came
+to light when the translator first ran on silicon and read 1.75x the
+emulator: the split the application now reports by its own timer
+(translating, interpreting, in the cache) agreed on the first and last and
+put the whole difference in the interpreter bracket, where cold code prints,
+and in the gap between brackets, where the progress line is. Console output
+is now timed and kept out of every number the report carries, and reported
+on its own line; with it out, the translated build is 1.02 of the emulator.
+The four interpreter runs above were taken before that and would each read
+a few percent lower, which `fit-model.py` has not been told.
 
 **Every instruction count is identical**, kernel for kernel, in all four —
 which is the first thing the runs prove: the hand-written hot path retires
@@ -446,13 +462,18 @@ code. Both are recorded in `emulator/README.md`.
 which is what the 40 cycles of every 75 inside `DISPATCH` are: work that
 depends only on the instruction word.
 
-| cycles a guest instruction, in the emulator | interpreter | translator |
-| --- | ---: | ---: |
-| `rvbench`, whole run | 72.5 | **13.3** |
-| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.3** |
+| cycles a guest instruction | interpreter | translator | translator, on silicon |
+| --- | ---: | ---: | ---: |
+| `rvbench`, whole run | 72.5 | **13.1** | **13.4** |
+| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.3** | boots; not timed |
 
 Both boot to the shell and the benchmark's instruction counts and checksums
-are identical either way. The boot spends 41% of its cycles in translated
+are identical either way, on the device too. On silicon every kernel is
+within a few percent of the emulator and the divide is faster; the probe
+(`jit_probe.s`, `rvjit-device.txt`) has the emitted loops themselves --
+the alu loop, the load, store, memset and sieve loops laid out to fit the
+fetch window -- and the device runs each within 10% of the model, the
+prefixed branches and the batch check included. The boot spends 41% of its cycles in translated
 code, 16% translating and 8% interpreting code that has not yet earned a
 translation; what is left is the runtime between the three, and a share the
 per-address profile cannot see at all.
