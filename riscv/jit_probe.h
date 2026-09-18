@@ -54,6 +54,12 @@ enum { JP_NONE, JP_WALK, JP_STREAM, JP_COPIED, JP_DRAINED };
 	X(ld_check,   5,  16000, 24, JP_WALK) \
 	X(copy_reg,   5,      0,  6, JP_COPIED) \
 	X(copy_mem,   5,      0,  6, JP_STREAM) \
+	X(alu_jit,   10,  20000,  4, JP_NONE) \
+	X(alu_short, 10,  20000,  4, JP_NONE) \
+	X(alu_plain, 10,  20000,  4, JP_NONE) \
+	X(ld_res,     4,      0,  6, JP_STREAM) \
+	X(ld_res_nb,  4,      0,  6, JP_STREAM) \
+	X(ld_res_far, 4,      0,  6, JP_STREAM) \
 	X(exit_none, 64,  10000,  3, JP_DRAINED) \
 	X(exit_link, 64,  10000,  3, JP_DRAINED) \
 	X(exit_hash, 64,  10000,  3, JP_DRAINED)

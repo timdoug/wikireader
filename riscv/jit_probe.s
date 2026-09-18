@@ -245,6 +245,185 @@ jp_ld_check:
 	.globl	jp_ld_check_end
 jp_ld_check_end:
 
+; ------------------------------------------------- what the translator emits --
+;
+; The first translator on silicon (2026-09-18) ran rvbench at 23.4 cycles a
+; guest instruction against the model's 13.3, and the alu kernel -- no memory
+; traffic at all -- at 20.6 against 10.5, while alu_reg above agrees with
+; the model to the cycle.  So these are the emitted loops, byte for byte,
+; and the same loops with one thing changed at a time: the prefixed
+; branches made short, the batch check taken out.  Whichever variant the
+; device prices differently from the model is the construct the model has
+; wrong.
+;
+; alu_jit is rvbench's alu loop as the translator lays it out: the batch
+; check at a 16-byte-aligned head, two copies of the ten-instruction body,
+; the first leaving by a prefixed forward branch and the second by a
+; prefixed backward one.  %r11 is the guest's counter, so a pass is one
+; copy; %r6 is a batch that never runs out.
+
+	.macro	ALU_BODY
+	sub	%r6,0xa
+	ld.w	%r1,%r12
+	xor	%r1,%r9
+	add	%r7,%r1
+	ld.w	%r1,%r7
+	add	%r1,%r10
+	xor	%r9,%r1
+	ld.w	%r14,%r9
+	sll	%r14,0x1
+	ld.w	%r1,%r7
+	srl	%r1,0x3
+	sub	%r11,0x1
+	add	%r10,%r14
+	add	%r12,%r1
+	ld.w	%r5,0x0
+	cmp	%r11,%r5
+	.endm
+
+	.macro	ALU_SETUP
+	PROLOGUE
+	ld.w	%r11,%r6		; the guest's counter
+	xld.w	%r6,0x7fffffff		; a batch that never runs out
+	ld.w	%r1,%r2			; the state words, any values
+	ld.w	%r7,%r3
+	ld.w	%r9,%r8
+	ld.w	%r10,%r7
+	ld.w	%r12,%r0
+	ld.w	%r14,%r2
+	.endm
+
+	.balign	16
+	.globl	jp_alu_jit
+jp_alu_jit:
+	ALU_SETUP
+	.balign	16, 0
+1:	cmp	%r6,0x0
+	ext	0x0
+	jrle	9f
+	ALU_BODY
+	ext	0x0
+	jreq	9f
+	ALU_BODY
+	ext	-1
+	jrne	1b
+9:	EPILOGUE
+	.globl	jp_alu_jit_end
+jp_alu_jit_end:
+
+; The same with the three branches short: does a prefixed branch cost more
+; than its extra word?
+	.balign	16
+	.globl	jp_alu_short
+jp_alu_short:
+	ALU_SETUP
+	.balign	16, 0
+1:	cmp	%r6,0x0
+	jrle	9f
+	ALU_BODY
+	jreq	9f
+	ALU_BODY
+	jrne	1b
+9:	EPILOGUE
+	.globl	jp_alu_short_end
+jp_alu_short_end:
+
+; And without the batch at all: the body twice and a short branch back,
+; which is alu_reg's shape with this loop's instructions.
+	.balign	16
+	.globl	jp_alu_plain
+jp_alu_plain:
+	ALU_SETUP
+	.balign	16, 0
+1:	ALU_BODY
+	jreq	9f
+	ALU_BODY
+	jrne	1b
+9:	EPILOGUE
+	.globl	jp_alu_plain_end
+jp_alu_plain_end:
+
+; rvbench's load loop as laid out to fit the fetch window: twenty bytes on a
+; 16-byte line, the batch charged and checked by one subtraction and a
+; prefixed branch, the back edge short.  The device ran the kernel at 17.5
+; cycles a guest instruction against the model's 11.1, which is exactly a
+; refetch of the two lines every pass -- as if it were not resident.  a1
+; walks the stream; a3 is its end; the sum goes in %r9.
+
+	.macro	LD_SETUP
+	PROLOGUE
+	xld.w	%r6,0x7fffffff
+	ext	X_A1
+	ld.w	%r1,[%r0]
+	ext	X_A3
+	ld.w	%r10,[%r0]
+	ld.w	%r9,0x0
+	.endm
+
+	.macro	LD_DONE
+	ext	X_A1
+	ld.w	[%r0],%r1
+	EPILOGUE
+	.endm
+
+	.balign	16
+	.globl	jp_ld_res
+jp_ld_res:
+	LD_SETUP
+	.balign	16, 0
+1:	sub	%r6,0x4
+	ext	0x0
+	jrlt	9f
+	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.w	%r11,[%r4]
+	add	%r1,0x4
+	add	%r9,%r11
+	cmp	%r1,%r10
+	jrne	1b
+9:	LD_DONE
+	.globl	jp_ld_res_end
+jp_ld_res_end:
+
+; The same without the batch: sixteen bytes, one short branch.
+	.balign	16
+	.globl	jp_ld_res_nb
+jp_ld_res_nb:
+	LD_SETUP
+	.balign	16, 0
+1:	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.w	%r11,[%r4]
+	add	%r1,0x4
+	add	%r9,%r11
+	cmp	%r1,%r10
+	jrne	1b
+9:	LD_DONE
+	.globl	jp_ld_res_nb_end
+jp_ld_res_nb_end:
+
+; And with the back edge prefixed, as an unrolled loop's is: twenty-two
+; bytes, still inside the window by the rule.
+	.balign	16
+	.globl	jp_ld_res_far
+jp_ld_res_far:
+	LD_SETUP
+	.balign	16, 0
+1:	sub	%r6,0x4
+	ext	0x0
+	jrlt	9f
+	ld.w	%r4,%r1
+	add	%r4,%r8
+	ld.w	%r11,[%r4]
+	add	%r1,0x4
+	add	%r9,%r11
+	cmp	%r1,%r10
+	ext	-1
+	jrne	1b
+9:	LD_DONE
+	.globl	jp_ld_res_far_end
+jp_ld_res_far_end:
+
 ; -------------------------------------------------------------- the copy ---
 ;
 ; The kernel's memcpy word loop, which is 4.2% of a Linux boot on its own:
