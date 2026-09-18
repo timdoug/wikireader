@@ -19,11 +19,8 @@ static inline int wr_fixed_mul(int a, int b)
 #ifdef WR_C33
 unsigned wr_reciprocal_unsigned(unsigned d)
     __attribute__((section(".fastcode"), noinline));
-unsigned wr_divmod_unsigned(unsigned n, unsigned d, int remainder)
-    __attribute__((section(".fastcode"), noinline));
 #else
 unsigned wr_reciprocal_unsigned(unsigned d);
-unsigned wr_divmod_unsigned(unsigned n, unsigned d, int remainder);
 #endif
 
 static inline unsigned wr_reciprocal(unsigned d)

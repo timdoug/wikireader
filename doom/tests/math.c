@@ -2,6 +2,11 @@
 #include "dt.h"
 #include "../c33_math.h"
 
+#ifndef DT_HOST
+extern unsigned long __udivmodsi4(unsigned long num, unsigned long den,
+                                  int modwanted);
+#endif
+
 static unsigned reciprocal(unsigned d)
 {
 #ifdef DT_HOST
@@ -31,11 +36,13 @@ static void division(unsigned n, unsigned d)
             emit((unsigned)((int)n % (int)d));
         }
     }
+    /* libgcc's divide entered directly, which is the only way to reach the
+       zero divisor: it answers a zero quotient and the dividend, as the
+       generic routine this replaced did. */
 #ifdef DT_HOST
     emit(d ? n / d : 0); emit(d ? n % d : n);
 #else
-    unsigned (*volatile divide)(unsigned, unsigned, int) = wr_divmod_unsigned;
-    emit(divide(n, d, 0)); emit(divide(n, d, 1));
+    emit(__udivmodsi4(n, d, 0)); emit(__udivmodsi4(n, d, 1));
 #endif
 }
 

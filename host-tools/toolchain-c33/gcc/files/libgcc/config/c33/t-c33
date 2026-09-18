@@ -4,17 +4,21 @@
 # libgcc2.c only supplies the double-word routines
 # (__divdi3 and friends), so the single-word ones have to come from here.
 #
-# These three are GCC's own generic C implementations, shipped in this tree.
-# The original toolchain reached the same conclusion: patch 0003 in
-# host-tools/toolchain-patches replaced EPSON's hand-written divide-step
+# The sign handling and the two wrappers are GCC's own generic C, shipped in
+# this tree.  The original toolchain reached the same conclusion: patch 0003
+# in host-tools/toolchain-patches replaced EPSON's hand-written divide-step
 # assembly with these files because those instructions do not exist on PE.
 # They live in libgcc/ now; in gcc 3.3 they were under libgcc/config/.
 #
-#   udivmodsi4.c  __udivmodsi4   the actual long division
-#   udivmod.c     __udivsi3, __umodsi3
-#   divmod.c      __divsi3,  __modsi3   (sign handling around the above)
+#   config/c33/udivmodsi4.c  __udivmodsi4   the actual long division
+#   udivmod.c                __udivsi3, __umodsi3
+#   divmod.c                 __divsi3,  __modsi3   (sign handling around it)
+#
+# The long division itself is ours: the generic one produces all 32 quotient
+# bits whatever the operands are, which costs about 1,600 cycles a divide on
+# this core.  See config/c33/udivmodsi4.c.
 
 LIB2ADD += \
-	$(srcdir)/udivmodsi4.c \
+	$(srcdir)/config/c33/udivmodsi4.c \
 	$(srcdir)/udivmod.c \
 	$(srcdir)/divmod.c
