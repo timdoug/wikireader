@@ -184,6 +184,92 @@ RV32_MMIO int rv32_mmio_store_hot(rv32_t *s, uint32_t addr, uint32_t value)
 	return 0;
 }
 
+#ifdef RV32_JIT
+/* A CSR access from translated code: the same registers the interpreter
+   below knows, read and written the same way.  Returns nonzero for the one
+   it cannot do -- instret, which is only exact inside the interpreter's
+   batch -- and the interpreter then executes it. */
+int rv32_csr_hot(rv32_t *s, uint32_t ir, uint32_t rs1, uint32_t *out)
+{
+	uint32_t csr = ir >> 20;
+	uint32_t funct3 = (ir >> 12) & 7;
+	uint32_t write = (funct3 & 4) ? ((ir >> 15) & 0x1f) : rs1;
+	uint32_t old, new_value;
+
+	switch (csr) {
+	case 0x300: old = s->mstatus; break;
+	case 0x301: old = 0x40001101; break;  /* misa: rv32ima */
+	case 0x304: old = s->mie; break;
+	case 0x305: old = s->mtvec; break;
+	case 0x340: old = s->mscratch; break;
+	case 0x341: old = s->mepc; break;
+	case 0x342: old = s->mcause; break;
+	case 0x343: old = s->mtval; break;
+	case 0x344: old = s->mip; break;
+	case 0xc00: case 0xb00: old = s->cycle_lo; break;
+	case 0xc80: case 0xb80: old = s->cycle_hi; break;
+	case 0xc01: old = s->time_lo; break;
+	case 0xc81: old = s->time_hi; break;
+	case 0xc02: case 0xb02: case 0xc82: case 0xb82:
+		return 1;
+	default: old = 0; break;
+	}
+	switch (funct3 & 3) {
+	case 1: new_value = write; break;
+	case 2: new_value = old | write; break;
+	default: new_value = old & ~write; break;
+	}
+	if ((funct3 & 3) != 1 && ((ir >> 15) & 0x1f) == 0)
+		new_value = old;
+	switch (csr) {
+	case 0x300: s->mstatus = new_value; break;
+	case 0x304: s->mie = new_value; break;
+	case 0x305: s->mtvec = new_value; break;
+	case 0x340: s->mscratch = new_value; break;
+	case 0x341: s->mepc = new_value; break;
+	case 0x342: s->mcause = new_value; break;
+	case 0x343: s->mtval = new_value; break;
+	case 0x344: s->mip = new_value; break;
+	default: break;
+	}
+	*out = old;
+	return 0;
+}
+
+/* An atomic from translated code, on a host address the code has already
+   checked is inside RAM and aligned.  Returns what goes in rd. */
+uint32_t rv32_amo_hot(rv32_t *s, uint32_t ir, uint8_t *p, uint32_t b)
+{
+	uint32_t op = ir >> 27;
+	uint32_t old = *(uint32_t *)p;
+	uint32_t addr = RV_RAM_BASE + (uint32_t)(p - s->ram);
+
+	if (op == 2) {           /* LR.W */
+		s->reservation = addr;
+		return old;
+	}
+	if (op == 3) {           /* SC.W */
+		if (s->reservation != addr)
+			return 1;
+		*(uint32_t *)p = b;
+		s->reservation = NO_RESERVATION;
+		return 0;
+	}
+	switch (op) {
+	case 0x00: *(uint32_t *)p = old + b; break;
+	case 0x01: *(uint32_t *)p = b; break;
+	case 0x04: *(uint32_t *)p = old ^ b; break;
+	case 0x08: *(uint32_t *)p = old | b; break;
+	case 0x0c: *(uint32_t *)p = old & b; break;
+	case 0x10: *(uint32_t *)p = (int32_t)old < (int32_t)b ? b : old; break;
+	case 0x14: *(uint32_t *)p = (int32_t)old > (int32_t)b ? b : old; break;
+	case 0x18: *(uint32_t *)p = old < b ? b : old; break;
+	default:   *(uint32_t *)p = old > b ? b : old; break;
+	}
+	return old;
+}
+#endif
+
 #if defined(RV32_ASM) || defined(RV32_JIT)
 #ifdef RV32_ASM
 /* rv32_hot.s */
@@ -503,6 +589,11 @@ RV32_HOT static rv32_stop_t rv32_interpret(rv32_t *s, uint32_t budget)
 		}
 
 		op_fence:  /* 0x0f */
+#ifdef RV32_JIT
+			/* fence.i: code may have changed under a translation. */
+			if (((ir >> 12) & 7) == 1 && rv32_jit.code)
+				rv32_jit_fence(s);
+#endif
 			rdid = 0;
 			goto writeback;
 
@@ -775,7 +866,6 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 				rv32_stop_t stop = rv32_interpret(s, 1);
 
 				--budget;
-				rv32_jit_reserve(s);
 				if (stop != RV_RAN_OUT)
 					return stop;
 			}

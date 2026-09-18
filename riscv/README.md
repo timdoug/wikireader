@@ -445,87 +445,100 @@ code. Both are recorded in `emulator/README.md`.
 which is what the 40 cycles of every 75 inside `DISPATCH` are: work that
 depends only on the instruction word.
 
-What it emits is the naive form `jit_probe.s` calls `alu_mem` -- every operand
-out of the guest register file and every result back into it -- because a
-register allocator is a separate piece of work and this one had to be right
-first. On `rvbench` that is **38.1 cycles a guest instruction against the
-assembly path's 75.4**, with every kernel's instruction count and checksum
-unchanged.
+| cycles a guest instruction, in the emulator | interpreter | translator |
+| --- | ---: | ---: |
+| `rvbench`, whole run | 75.4 | **21.1** |
+| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **44.7** |
 
-Three things about the shape, each of them a measurement:
+Both boot to the shell and the benchmark's instruction counts and checksums
+are identical either way. The boot spends 39% of its cycles in translated
+code, 23% translating, and 10% interpreting code that has not yet earned a
+translation; the rest is the runtime between the three.
 
-- **Traces, not blocks.** The fall-through of a conditional branch and the
-  target of an unconditional jump are laid out immediately after their
-  predecessor, which is the exit `exit_none` measures at nothing against
-  `exit_link`'s 23.4 cycles. A trace stops at an indirect jump, at an
-  instruction this cannot translate, or when it reaches code that exists.
-  Every basic block inside one is still registered by its own guest pc, so a
-  jump into the middle finds it.
-- **Exits are three words naming a guest pc and a jump to the runtime's
-  lookup**, overwritten with a direct jump the moment the target exists. The
-  three words are emitted long-hand rather than through the immediate helper,
-  because the patch has to be exactly the same size.
-- **Device addresses are done from inside the code cache**, the way
-  `rv32_hot.s` learned to do them. Leaving them to C first cost about four
-  thousand cycles apiece -- a return, an instruction interpreted from SDRAM, a
-  lookup and a re-entry -- and made the translator slower than the interpreter
-  it was replacing.
+What the code looks like, and the measurement behind each choice:
+
+- **Registers are allocated per region.** A region is every block reachable
+  from its entry through branches and plain jumps -- not calls, which are
+  where one function's registers end and another's begin, though the return
+  point after a call is included. The whole region shares one map of seven
+  C33 registers holding its most used guest registers, with the blocks inside
+  loops counted four times over, so a jump within a region loads and stores
+  nothing. Leaving it stores what it wrote; entering it loads the map. The
+  device measured the difference between this and fetching every operand from
+  the register file as 3.5 cycles a guest instruction against 19.9.
+- **Code size is time.** SDRAM-resident code costs about 2.5 cycles a word to
+  fetch, sequentially, so every word in a loop is paid for on every pass. A
+  load or store therefore checks its address with one rotate and one compare:
+  the offset into RAM rotated right by the access's width is below `size / 4`
+  only if the address is inside RAM and aligned, and `%r3` holds `size / 4`
+  for exactly that. The alternative was four words of alignment test and two
+  compares with a prefixed branch apiece.
+- **Nothing watches stores.** RISC-V says a fetch need not see a store until
+  a `fence.i`, and Linux issues one after writing code, six times a boot. So
+  `fence.i` is the invalidation: every block keeps a checksum of the words it
+  was translated from, and a fence retires the regions whose words changed --
+  each entry becomes a link waiting for the new translation. The page-map
+  check this replaced was eight words on every store.
+- **Every check branches out, never over.** Device accesses, misaligned
+  addresses and the batch check live in a cold section after the region, so
+  the ordinary path never takes a branch. A taken branch landing in SDRAM
+  code costs twenty to thirty cycles -- the profile shows it on the first
+  instruction after every loop head -- which is also why loops that are one
+  block long are unrolled two or four times and why loop heads are aligned.
+- **The batch is checked at loop heads and region entries only.** Every cycle
+  in a region passes through a backward jump, so that is enough to stop a
+  batch, and it takes five words out of every other block.
+- **The runtime is in internal RAM**, beside the interpreter's table, and
+  saves seven registers rather than fifteen. A `pushn %r14` with the stack at
+  the top of SDRAM cost ninety cycles; a landing in SDRAM code costs thirty
+  and in internal RAM six, and every stub is entered by one jump and left by
+  another.
+- **CSRs and atomics are calls, not declines.** A Linux boot masks and unmasks
+  interrupts with a CSR write and takes every lock with an atomic, one of the
+  two every two hundred instructions, and a decline -- back to C, one
+  instruction interpreted, a lookup and a re-entry -- is about two thousand
+  cycles. `rv32.c` has the helpers; the runtime keeps the registers.
 
 The code cache is an eighth of the board in SDRAM, which is where `jit_probe.s`
-measured a well-translated loop running fastest and where there is room for the
-385 KiB of guest code a boot executes. At a megabyte it filled ten times over a
-boot, every block was translated five times, and the translator was 80% of the
-run.
+measured a well-translated loop running fastest. A boot emits 2.3 MB and never
+flushes on a 32 MB board; a 16 MB board's cache is 2 MB, and a boot there
+would flush once.
 
 ### Translating has to be earned
 
-Translating one guest instruction is about 1,400 C33 instructions, and from
-SDRAM that is some 6,800 cycles. Interpreting it is 85. **Break-even is around
-eighty executions**, and a Linux boot executes 385 KiB of guest code most of
-which runs once. Translating all of it made the boot *slower* than the
-interpreter: 99.6 cycles a guest instruction against 85.3.
+Translating one guest instruction costs a few thousand cycles from SDRAM;
+interpreting it costs 85. So `rv32_hot.s` is still there and still has the
+whole of A0 RAM. It interprets in chunks of 256 guest instructions, and between
+chunks the code cache is asked whether the pc has a translation. Guest code
+earns one by being run. Hotness is counted per 256-byte region rather than per
+block, because the interpreter stops where its chunk runs out and not at a
+block head: a loop keeps landing in the same region however its iterations are
+cut up, and a straight run through cold code touches each region once. Twelve
+chunks is the threshold; eight and six measured the same to within one percent,
+since what translating saves at one end it spends at the other.
 
-So `rv32_hot.s` is still there and still has the whole of A0 RAM. It interprets
-in chunks of 256 guest instructions, and between chunks the code cache is asked
-whether the pc has a translation. Guest code earns one by being run. Hotness is
-counted per 256-byte region rather than per block, because the interpreter
-stops where its chunk runs out and not at a block head: a loop keeps landing in
-the same region however its iterations are cut up, and a straight run through
-cold code touches each region once.
+### Reading a run
 
-Over the same stretch of a boot that is 8,048 blocks translated against 21,267,
-1.3 MB of code against 3.3 MB, and no cache flush where there had been one.
+`boot.py` times a Linux boot: the application prints a line every million
+guest instructions with what it has retired and what that cost, and the boot
+is read off the first line after the kernel's `Run /bin/sh as init process`.
+The same lines carry the translator's counters -- blocks, bytes, flushes,
+entries, declines by kind, warm-up chunks, fences -- and the counters found
+every real problem in the translator's history: a flush a boot should have
+none of, and a `jump` decline count that is not near zero is a translated
+`jalr` checking its target wrongly.
 
-### Where it stands
-
-| | interpreter | translator |
-| --- | ---: | ---: |
-| `rvbench`, whole run | 75.4 | **38.4** |
-| Linux, reset to `Run /bin/sh as init process` | **87.2** | 92.6 |
-
-Both boot to the shell and the benchmark's instruction counts and checksums are
-identical either way, so this is a speed difference and not a correctness one.
-Two workloads, opposite answers, and the reason is what each one asks of a
-translator. `rvbench` runs ten small kernels tens of thousands of times: every
-one of them earns its translation in the first few hundred instructions and is
-then run from the code cache for the rest of the run. A boot executes 385 KiB
-of guest code, most of it once, and spends much of its time in code that will
-never be worth translating.
-
-What is left to gain is the same thing `jit_probe.s` said it would be. Measured
-on the boot, translated code runs at about 37 cycles a guest instruction where
-the interpreter needs 85 -- 2.3x, which is roughly the gap between `alu_mem`
-(19.85) and the interpreter, and nothing like the gap between `alu_reg` (3.50)
-and it. **Every operand still comes out of the guest register file and every
-result goes back**, and the device measured that as the difference between 2.8x
-and 15x. Allocating registers inside a block would halve the code as well as
-the time, which halves what translating costs too -- and translating is a
-quarter of the boot on its own.
+`jitprof.py` is the profile of the code cache itself. The translator's output
+has no symbols, so it dumps the cache from the emulator's memory at the end of
+a windowed run, disassembles it, and shows every instruction with the cycles
+the profile charged it, hottest runs first; `--boot` does it for the Linux
+boot. What is outside the cache is attributed by symbol, statics included, so
+the translator, the interpreter and each stub show up by name.
 
 ### The encoding is checked against the assembler
 
 `make jitenc` emits every C33 instruction the translator can produce, in bytes
-and in assembly, assembles the second and diffs it against the first: 3,423
+and in assembly, assembles the second and diffs it against the first: 3,679
 encodings. `make jitdis` puts a translated guest instruction of each kind
 through the toolchain's disassembler, to be read against what it should be.
 
@@ -536,7 +549,10 @@ disassembly happened to show. Linux booted into a delay loop it could never
 leave, and finding out why took six full-system boots and a bisection over
 which classes of guest instruction the translator was allowed to touch. That
 bisection is still there, as `make JIT=1 JITSKIP=n`: each bit hands one class
-back to the C interpreter, which is known good.
+back to the C interpreter, which is known good. Two more since: an `ext`
+before `add %rd,imm` composes above the six-bit field, not in it, which put a
+helper's result 2 KB past its struct; and a register that changed meaning in
+one place and not another, which the `jump` decline count caught.
 
 ## Why the assembly is faster, which is not instruction count
 
@@ -636,11 +652,12 @@ multiplies.
 - `rv32_hot.s` — the hot path. Implements the common opcodes and declines
   the rest to the C interpreter. With `JIT=1` it is still what interprets
   everything the translator has not earned its way into.
-- `rv32_jit.c`, `rv32_jit.h` — the translator: guest instructions to C33
-  instructions, traces, block linking, the code cache and what invalidates it.
+- `rv32_jit.c`, `rv32_jit.h` — the translator: regions, the register map,
+  the cold section, block linking, the code cache and what `fence.i` retires.
 - `rv32_jitrt.s` — the runtime a translated block is entered from and leaves
-  by: the entry, the lookup an indirect guest jump takes, the device
-  registers, and the three ways a block gives up.
+  by, in the window buffer: the entry, the lookup an indirect guest jump
+  takes, the device registers, CSRs, atomics, the divides, and the one way a
+  block gives up.
 - `tests/host_enc.c`, `jitenc.py` — every instruction the emitter can produce,
   against what the toolchain's assembler makes of the same thing.
   `tests/host_jit.c` disassembles what a guest instruction becomes.
@@ -665,6 +682,8 @@ multiplies.
 - `compare.py`, `hotspots.py`, `hotspots_asm.py` — what a placement is worth,
   which C source line is spending the cycles, and which instruction of the
   assembly path is.
+- `boot.py`, `jitprof.py` — a Linux boot timed to the shell, and the code
+  cache profiled instruction by instruction.
 - `make-icons.py` — regenerates the two launcher icons. The XPMs are
   checked in, so the build needs no network.
 

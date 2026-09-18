@@ -376,6 +376,10 @@ rv32_hot:
 3:	ld.w	%r10,0x0		; a store writes no register
 	DISPATCH
 
+; fence.i goes to C rather than through here, because the translator has to
+; hear about it: it is the one point at which guest code is allowed to have
+; changed underneath a translation.
+
 ; ---- arithmetic.  The immediate forms and the register forms have
 ; separate entries, so neither tests which it is.
 
@@ -666,7 +670,7 @@ rv32_hot:
 	.long	.Llb, .Llh, .Llw, .Ldecline_far			; 0x03 load
 	.long	.Llbu, .Llhu, .Ldecline_far, .Ldecline_far
 	HOLE	11			; 0x04 .. 0x0e
-	.long	.Lfence, .Lfence, .Ldecline_far, .Ldecline_far	; 0x0f
+	.long	.Lfence, .Ldecline_far, .Ldecline_far, .Ldecline_far	; 0x0f: fence.i is C's
 	.long	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
 	HOLE	3			; 0x10 .. 0x12
 	.long	.Laddi, .Lslli, .Lslti, .Lsltiu			; 0x13 op-imm

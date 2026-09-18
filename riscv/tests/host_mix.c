@@ -76,6 +76,7 @@ static struct counts all, phase;
 static char tail[256];          /* the last bytes the guest printed */
 static unsigned tail_len;
 static bool quiet;
+static unsigned long long fence_i;
 
 static const char *feed;        /* keystrokes to deliver once prompted */
 static bool prompted;
@@ -352,7 +353,13 @@ static bool classify(uint32_t pc, uint32_t ir)
 	}
 	case 0x2f: bump(K_AMO, D_AMO); break;
 	case 0x73: bump(K_SYSTEM, D_SYSTEM); ends = true; break;
-	case 0x0f: bump(K_FENCE, f3 > 1 ? D_HOLE : D_NONE); break;
+	case 0x0f:
+		bump(K_FENCE, f3 > 1 ? D_HOLE : D_NONE);
+		/* fence.i is where a translator learns that code has changed,
+		   and what one costs depends on how often a boot executes one. */
+		if (f3 == 1)
+			fence_i++;
+		break;
 	default:   bump(K_OTHER, D_HOLE); break;
 	}
 	return ends;
@@ -366,6 +373,7 @@ static void report_counts(const char *title, const struct counts *c)
 	       (unsigned long long)c->total);
 	if (!c->total)
 		return;
+	printf("fence.i executed %llu times\n", fence_i);
 	printf("%-10s %14s %7s\n", "kind", "count", "share");
 	for (int i = 0; i < K_KINDS; ++i)
 		if (c->kind[i])

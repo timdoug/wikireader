@@ -25,16 +25,13 @@
 /* The runtime lives in rv32_jitrt.s and there is no C33 here to run it.  Only
    the addresses matter, and only for displacements the disassembler will show
    as nonsense either way. */
-void rv32_jit_stub_decline(void) {}
-void rv32_jit_stub_store(void) {}
-void rv32_jit_stub_budget(void) {}
+void rv32_jit_stub_fault(void) {}
 void rv32_jit_stub_indirect(void) {}
 void rv32_jit_stub_dev_load(void) {}
 void rv32_jit_stub_dev_store(void) {}
-uint32_t rv32_divop(uint32_t f, uint32_t a, uint32_t b)
-{
-	(void)f; (void)a; return b;
-}
+void rv32_jit_stub_divop(void) {}
+void rv32_jit_stub_csr(void) {}
+void rv32_jit_stub_amo(void) {}
 
 #include "../rv32_jit.c"
 
@@ -155,7 +152,7 @@ int main(void)
 	memset(&s, 0, sizeof s);
 	s.ram = ram;
 	s.ram_size = sizeof ram;
-	s.reservation = NO_RESERVATION;
+	s.reservation = 0xffffffffu;
 
 	if (!rv32_jit_init(arena, sizeof arena)) {
 		fprintf(stderr, "the arena is too small\n");

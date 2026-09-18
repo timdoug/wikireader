@@ -649,10 +649,14 @@ int grifo_main(int argc, char **argv)
 	machine.ram = guest_ram;
 	machine.ram_size = guest_ram_size;
 #ifdef RV32_JIT
-	/* After the guest, because the page map a store checks is sized to the
-	   guest's RAM. */
-	if (!jit_bytes || !rv32_jit_init(jit_arena, jit_bytes, guest_ram_size))
+	if (!jit_bytes || !rv32_jit_init(jit_arena, jit_bytes))
 		say("no code cache; interpreting\n");
+	else
+		/* Where the code cache is, so that a memory dump of it can be
+		   read against the profile: jitprof.py. */
+		debug_printf("rv32: jit code at %08lx, %lu bytes\n",
+			     (unsigned long)(uintptr_t)rv32_jit.code,
+			     (unsigned long)rv32_jit.code_size);
 #endif
 	machine.putchar = console_out;
 	machine.getchar = console_in;
@@ -671,6 +675,32 @@ int grifo_main(int argc, char **argv)
 		   and a slow kernel can run for more than the 71 seconds that
 		   covers, which silently loses 2^32 cycles from the total. */
 		tick();
+		/* A line every million guest instructions, for a run that has
+		   no end to report at: a Linux boot is read off these against
+		   the kernel's own timestamps, which count guest instructions. */
+		if ((batch & 63) == 63) {
+			debug_printf("rv32: at %lu insns, %lu cycles\n",
+				     (unsigned long)machine.retired,
+				     (unsigned long)elapsed_cycles);
+#ifdef RV32_JIT
+			debug_printf("rv32: jit %lu blocks, %lu bytes, %lu flushes, "
+				     "%lu entries, %lu declines (%lu mem: %lu dev "
+				     "%lu align; %lu jump), %lu warmups, "
+				     "%lu fences retiring %lu\n",
+				     (unsigned long)rv32_jit.blocks,
+				     (unsigned long)rv32_jit.bytes,
+				     (unsigned long)rv32_jit.flushes,
+				     (unsigned long)rv32_jit.entries,
+				     (unsigned long)rv32_jit.declines,
+				     (unsigned long)rv32_jit.dec_mem,
+				     (unsigned long)rv32_jit.dec_dev,
+				     (unsigned long)rv32_jit.dec_align,
+				     (unsigned long)rv32_jit.dec_jump,
+				     (unsigned long)rv32_jit.warmups,
+				     (unsigned long)rv32_jit.fences,
+				     (unsigned long)rv32_jit.stale);
+#endif
+		}
 		watchdog(WATCHDOG_KEY);
 		if (stop != RV_RAN_OUT)
 			break;
@@ -729,8 +759,10 @@ int grifo_main(int argc, char **argv)
 	report(" entries, ");
 	report_u64(rv32_jit.declines);
 	report(" declines, ");
-	report_u64(rv32_jit.stores);
-	report(" watched stores\n");
+	report_u64(rv32_jit.fences);
+	report(" fences retiring ");
+	report_u64(rv32_jit.stale);
+	report(" regions\n");
 #endif
 	if (report_truncated)
 		report("rv32: report truncated\n");

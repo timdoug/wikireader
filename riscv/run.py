@@ -125,6 +125,9 @@ def main():
                              'panel with a single icon, so this needs no tap')
     parser.add_argument('--profile', action='store_true',
                         help='write a per-address profile next to the log')
+    parser.add_argument('--dump', metavar='ADDR,LEN',
+                        help='write LEN bytes of memory from ADDR, as they '
+                             'are when the run ends, to dump.bin next to the log')
     parser.add_argument('--window', metavar='START,END',
                         help='profile only between the first hits of two '
                              'addresses.  Without one the profile covers the '
@@ -191,6 +194,9 @@ def main():
         cmd += ['-g']
     if args.profile:
         cmd += ['-F', 'profile.txt']
+    if args.dump:
+        addr, length = args.dump.split(',')
+        cmd += ['-D', addr, '-L', length, '-O', 'dump.bin']
     if args.window:
         cmd += ['-Y', args.window]
     for tap in args.tap:

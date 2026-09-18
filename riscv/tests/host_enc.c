@@ -22,16 +22,13 @@
 #include "../rv32.h"
 #include "../rv32_jit.h"
 
-void rv32_jit_stub_decline(void) {}
-void rv32_jit_stub_store(void) {}
-void rv32_jit_stub_budget(void) {}
+void rv32_jit_stub_fault(void) {}
 void rv32_jit_stub_indirect(void) {}
 void rv32_jit_stub_dev_load(void) {}
 void rv32_jit_stub_dev_store(void) {}
-uint32_t rv32_divop(uint32_t f, uint32_t a, uint32_t b)
-{
-	(void)f; (void)a; return b;
-}
+void rv32_jit_stub_divop(void) {}
+void rv32_jit_stub_csr(void) {}
+void rv32_jit_stub_amo(void) {}
 
 #include "../rv32_jit.c"
 
@@ -178,6 +175,9 @@ int main(void)
 			start();
 			shift(&t, S_SRA, regs[a], b);
 			show("sra %%r%u,%u", regs[a], b);
+			start();
+			shift(&t, S_RR, regs[a], b);
+			show("rr %%r%u,%u", regs[a], b);
 		}
 
 	/* The guest register file, addressed by a prefix. */
