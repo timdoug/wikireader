@@ -123,10 +123,10 @@ guest instruction:
 
 | build | cyc/insn | guest speed |
 | --- | ---: | ---: |
-| all in SDRAM | 403.0 | 148 kIPS |
-| interpreter in A0 RAM (`FAST=1`) | 123.3 | 486 kIPS |
-| and machine state too (`STATE=1`) | 96.3 | 623 kIPS |
-| hand-written hot path (`ASM=1`) | **73.3** | **819 kIPS** |
+| all in SDRAM | 349.8 | 171 kIPS |
+| interpreter in A0 RAM (`FAST=1`) | 122.0 | 491 kIPS |
+| and machine state too (`STATE=1`) | 99.1 | 605 kIPS |
+| hand-written hot path (`ASM=1`) | **75.4** | **796 kIPS** |
 
 On silicon the last row is **80.5 cyc/insn, 745 kIPS**.
 
@@ -238,7 +238,10 @@ expensive thing the interpreter does and it is worth nothing here.
 interpreter for device addresses (0.82% of all instructions, mostly the UART
 the kernel prints through), CSR and system instructions (0.30%), atomics
 (0.14%) and misaligned accesses (0.02%). The benchmark declines one in 5,076,
-so this cost does not appear anywhere above.
+so this cost appears in none of the numbers taken against it. The device
+accesses no longer decline -- `rv32_hot.s` calls the helpers itself, and
+`rv32.h` puts them in the window buffer -- which leaves the CSRs and the
+atomics, and those turn out to be the expensive ones.
 
 Control flow is looser than the benchmark's: 8.16 instructions between
 control transfers, and 64% of branches taken against 88%.
@@ -307,11 +310,11 @@ one row each. Per retired guest instruction, on the Linux boot:
 
 | | cycles | share |
 | --- | ---: | ---: |
-| `DISPATCH` — fetch, decode, dispatch | 40.2 | 50% |
-| the bodies' own work | 14.5 | 18% |
-| operand and writeback macros | 15.2 | 19% |
-| the C interpreter, for what was declined | 11.4 | 14% |
-| **total** | **81.3** | |
+| `DISPATCH` — fetch, decode, dispatch | 40.1 | 53% |
+| the bodies' own work | 14.2 | 19% |
+| operand and writeback macros | 15.2 | 20% |
+| the C interpreter, for what is still declined | 5.5 | 7% |
+| **total** | **75.1** | |
 
 Inside `DISPATCH`, the guest instruction fetch — one `ld.w %r5,[%r1]` from
 SDRAM — is **11.1 cycles** and half a row activation. The indirect jump that
@@ -321,9 +324,18 @@ table index and two register offsets.
 
 So about two thirds of every guest instruction is decode and dispatch: work
 that depends only on the instruction word, and that a translator would do
-once instead of every time. The declined instructions cost roughly 885 cycles
-each, which is what a return to C, one instruction interpreted from SDRAM and
-a re-entry come to.
+once instead of every time.
+
+The last row is what a declined instruction costs: a return to C, one
+instruction interpreted from SDRAM, and a re-entry. It was 6.99 cycles a
+guest instruction, 546 a decline, until the device accesses stopped
+declining -- two thirds of them by count, and `rv32_hot.s` now calls the
+helpers itself. That took the whole boot from 76.79 cycles a guest
+instruction to 75.07, and it says something about the rest: the device
+accesses were the *cheap* declines. What is left costs about 890 cycles
+apiece, which is what a CSR instruction or an atomic goes through in the C
+interpreter, and at 0.44% of the instruction stream that is 3.9 cycles a
+guest instruction still on the table.
 
 A profile has to be windowed to the run to say any of this. `pc_profile`
 buckets are cumulative and grifo boots from the same A0 RAM the interpreter
@@ -333,6 +345,12 @@ four instructions of `DISPATCH`, and the hot path comes out a fifth dearer
 than the run it was measured in. `run.py --window START,END` passes the
 emulator's `-Y`, and both hotspots tools now bracket the run with `rv32_run`
 and `power_off`.
+
+The start address has to be one only the application reaches, which
+`rv32_hot` is not: grifo runs its own code from the same A0 RAM, so a window
+opened at `0xcf4` opens during grifo's boot and takes in the 3.4 MB card read
+that loads the kernel. That is worth 11 cycles a guest instruction of SD and
+SPI, and it is why this section once reported 81.3 where the run is 76.8.
 
 ## What translated code would cost
 

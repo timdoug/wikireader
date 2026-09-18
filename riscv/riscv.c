@@ -274,15 +274,25 @@ static const char *report_save(const char *image, const char *named)
  * the model gets within a few percent; this one has to come off the device.
  */
 
-/* Enough for the longest template, checked below rather than assumed.  What
-   is left of A0 RAM once the interpreter and the guest register file have
-   taken theirs is about 700 bytes. */
-#define JIT_CODE_BYTES 320
-/* ".fastcode.probe" rather than ".fastcode": memory.lds places the plain
-   section first and the dotted ones after it, so the interpreter keeps the
-   addresses it was measured at and the buffer takes what is left. */
+/* Enough for the longest template that is measured in A0 RAM -- alu_reg, at
+   180 bytes -- and not a byte more, because this competes with the hot path
+   for the same 5 KB.  A template too big for it is reported as such rather
+   than silently skipped; the exit chains are 474 bytes and SDRAM-only for
+   this reason. */
+#define JIT_CODE_BYTES 192
+/* ".fastcode.probe" rather than ".fastcode": the linker script places the
+   plain section first and the dotted ones after it, so the interpreter keeps
+   the addresses it was measured at and the buffer takes what is left.
+   Under the placement switch like everything else, because compare.py checks
+   that the all-in-SDRAM build really has nothing in internal RAM and a
+   probe buffer sitting there unconditionally is exactly the kind of thing
+   that check exists to catch. */
+#ifdef RV32_FASTCODE
 static uint8_t jit_a0_code[JIT_CODE_BYTES]
 	__attribute__((section(".fastcode.probe"))) __attribute__((aligned(4)));
+#else
+static uint8_t jit_a0_code[JIT_CODE_BYTES] __attribute__((aligned(4)));
+#endif
 
 /* The stream the copy and load templates walk.  Two of them, a megabyte
    apart, so the pair behaves like a real copy rather than like one open

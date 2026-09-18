@@ -109,6 +109,18 @@ typedef struct rv32 {
 #define RV32_HOTDATA
 #endif
 
+/* The device paths go in the LCD window buffer rather than in SDRAM: they
+   are not the cold code they were taken for, and the assembly hot path calls
+   them directly rather than declining the instruction.  Under the same
+   switch as everything else, so a build that wants none of this placement
+   gets none of it -- and so that the host test, which has neither section,
+   compiles the same source. */
+#ifdef RV32_FASTCODE
+#define RV32_MMIO __attribute__((noinline)) __attribute__((section(".ivram_code")))
+#else
+#define RV32_MMIO __attribute__((noinline))
+#endif
+
 /* RV32_FASTSTATE puts the machine itself -- the guest register file above
    all -- in the same internal RAM.  Every guest instruction reads one to
    three registers and writes one, so in SDRAM that is several row accesses

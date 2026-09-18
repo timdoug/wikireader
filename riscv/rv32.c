@@ -90,7 +90,16 @@ void rv32_reset(rv32_t *s, uint32_t entry, uint32_t dtb)
    Deliberately not inlined and deliberately not in .fastcode: a device
    access is slow whatever happens, and A0 RAM is 5 KB that the decode path
    has better uses for. */
-static __attribute__((noinline)) rv32_stop_t
+/* The device paths were deliberately kept out of internal RAM: they had been
+   inlined into .fastcode, and marking them noinline freed 380 bytes and cost
+   nothing.  That was measured against guest/bench.c, which touches a device
+   four times in a whole run.  A Linux boot does it once in 121 instructions
+   -- 0.8% of everything it executes, two thirds of everything the assembly
+   path declines -- so they are hot code now, and they live in the window
+   buffer where rv32_hot.s can afford to call them.  RV32_MMIO is in rv32.h,
+   with the other placement switches. */
+
+RV32_MMIO static rv32_stop_t
 mmio_store(rv32_t *s, uint32_t addr, uint32_t value)
 {
 	if (addr == RV_UART_BASE) {
@@ -126,14 +135,14 @@ mmio_store(rv32_t *s, uint32_t addr, uint32_t value)
 
 /* The console source is drained into a one-byte holding register so that the
    guest can poll the line-status bit without consuming input. */
-static int console_peek(rv32_t *s)
+RV32_MMIO static int console_peek(rv32_t *s)
 {
 	if (s->pending_char < 0 && s->getchar)
 		s->pending_char = s->getchar(s->console_arg);
 	return s->pending_char;
 }
 
-static __attribute__((noinline)) uint32_t mmio_load(rv32_t *s, uint32_t addr)
+RV32_MMIO uint32_t rv32_mmio_load(rv32_t *s, uint32_t addr)
 {
 	if (addr == RV_UART_BASE) {
 		int c = console_peek(s);
@@ -153,6 +162,22 @@ static __attribute__((noinline)) uint32_t mmio_load(rv32_t *s, uint32_t addr)
 		return s->timecmp_lo;
 	if (addr == RV_CLINT_BASE + 0x4004)
 		return s->timecmp_hi;
+	return 0;
+}
+
+/* Carry out a device store, or say that the C interpreter has to.
+ *
+ * Two addresses it has to.  The marker reads the retired count, and rv32_hot
+ * does not publish that until it returns; SYSCON stops the machine, which is
+ * a thing only the interpreter's caller can do.  Both are once-a-run
+ * addresses, so declining them costs nothing and keeps the benchmark's
+ * per-kernel instruction counts honest.
+ */
+RV32_MMIO int rv32_mmio_store_hot(rv32_t *s, uint32_t addr, uint32_t value)
+{
+	if (addr == RV_MARK || addr == RV_SYSCON)
+		return 1;
+	mmio_store(s, addr, value);      /* cannot stop for any other address */
 	return 0;
 }
 
@@ -335,7 +360,7 @@ RV32_HOT static rv32_stop_t rv32_interpret(rv32_t *s, uint32_t budget)
 				goto take_trap;
 			}
 			if (off >= ram_size) {
-				rval = mmio_load(s, addr);
+				rval = rv32_mmio_load(s, addr);
 				goto writeback;
 			}
 			switch (width) {

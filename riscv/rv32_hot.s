@@ -272,7 +272,7 @@ rv32_hot:
 	jrult	6f
 	cmp	%r9,%r3
 	jrult	5f
-6:	xjp	.Ldecline_far
+6:	xjp	.Lmmio_load
 5:
 	.endm
 
@@ -329,7 +329,7 @@ rv32_hot:
 	jrult	6f
 	cmp	%r9,%r3
 	jrult	5f
-6:	xjp	.Ldecline_far
+6:	xjp	.Lmmio_store
 5:	ld.w	%r13,%r5		; x[rs2], the value
 	sll	%r13,7
 	srl	%r13,27
@@ -562,6 +562,82 @@ rv32_hot:
 	ld.w	%r10,[%sp+0x4]
 	add	%sp,0x5
 	WRITEBACK
+	DISPATCH
+
+; ---- devices.  An access outside guest RAM is a device register, and a Linux
+; boot makes one every 121 instructions -- two thirds of everything this path
+; declines, against four times in a whole run of the benchmark.  Handing one
+; back costs about four hundred cycles in the C interpreter, so they are done
+; from here instead, the way the divides are, with the helpers in the window
+; buffer.  What is still declined is what C has to see for itself: a
+; misaligned access, because that raises a trap, and a store to the marker or
+; to SYSCON, because those read the retired count and stop the machine.
+;
+; The width's mask comes out of funct3 rather than out of a separate stub per
+; body: this is 0.8% of the instruction stream and six instructions here are
+; cheaper than six copies of the stub in A0 RAM.
+
+	.macro	DEVICE_ADDR			; %r4 = the guest address, aligned
+	ld.w	%r4,%r5
+	srl	%r4,12
+	and	%r4,0x3			; log2 of the width: b 0, h 1, w 2
+	ld.w	%r13,0x1
+	sll	%r13,%r4
+	sub	%r13,0x1
+	ld.w	%r4,%r9
+	sub	%r4,%r8			; the guest address the helper wants
+	and	%r13,%r4
+	jreq	1f
+	xjp	.Ldecline_far		; misaligned: C raises the trap
+1:
+	.endm
+
+	.macro	SAVE_CALLER
+	sub	%sp,0x4
+	ld.w	[%sp+0x0],%r6
+	ld.w	[%sp+0x1],%r7
+	ld.w	[%sp+0x2],%r8
+	ld.w	[%sp+0x3],%r10
+	.endm
+
+	.macro	RESTORE_CALLER
+	ld.w	%r6,[%sp+0x0]
+	ld.w	%r7,[%sp+0x1]
+	ld.w	%r8,[%sp+0x2]
+	ld.w	%r10,[%sp+0x3]
+	add	%sp,0x4
+	.endm
+
+.Lmmio_load:				; %r9 host address, %r5 ir, %r10 rd*4
+	DEVICE_ADDR
+	SAVE_CALLER
+	ld.w	%r6,%r0
+	ld.w	%r7,%r4
+	xcall	rv32_mmio_load
+	ld.w	%r11,%r4		; whatever the device read as
+	RESTORE_CALLER
+	WRITEBACK
+	DISPATCH
+
+.Lmmio_store:				; %r9 host address, %r5 ir
+	DEVICE_ADDR
+	ld.w	%r13,%r5		; x[rs2], the value
+	sll	%r13,7
+	srl	%r13,27
+	sll	%r13,2
+	add	%r13,%r0
+	ld.w	%r11,[%r13]
+	SAVE_CALLER
+	ld.w	%r6,%r0
+	ld.w	%r7,%r4
+	ld.w	%r8,%r11
+	xcall	rv32_mmio_store_hot
+	ld.w	%r13,%r4		; nonzero: this one is C's to do
+	RESTORE_CALLER
+	cmp	%r13,0x0
+	jreq	2f
+	xjp	.Ldecline_far
+2:	ld.w	%r10,0x0		; a store writes no register
 	DISPATCH
 
 .Lfence:				; nothing is cached or reordered
