@@ -1,0 +1,2 @@
+rv32: linux booted: 33734656 insns, 2500281075 cycles, 74.12 cyc/insn
+rv32: console output: 138127067 cycles, left out of the kernels' and the total

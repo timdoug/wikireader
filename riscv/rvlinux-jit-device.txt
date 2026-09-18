@@ -1,0 +1,4 @@
+rv32: linux booted: 33704665 insns, 1219831086 cycles, 36.19 cyc/insn
+rv32: jit 14395 blocks, 1640320 bytes, 0 flushes, 17167 entries, 0 declines, 2 fences retiring 0 regions; 2634 regions of 60933 insns translated
+rv32: jit cycles: translating 317178658, interpreting 110352199, in the cache 861001353
+rv32: console output: 401306187 cycles, left out of the kernels' and the total

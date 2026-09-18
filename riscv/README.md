@@ -129,14 +129,15 @@ guest instruction:
 | all in SDRAM | 349.8 | 171 kIPS |
 | interpreter in A0 RAM (`FAST=1`) | 122.0 | 491 kIPS |
 | and machine state too (`STATE=1`) | 99.1 | 605 kIPS |
-| hand-written hot path (`ASM=1`) | **72.5** | **827 kIPS** |
-| translated (`JIT=1`) | **13.1** | **4,570 kIPS** |
+| hand-written hot path (`ASM=1`) | **72.1** | **832 kIPS** |
+| translated (`JIT=1`) | **12.9** | **4,670 kIPS** |
 
-On silicon the translated build measures **13.4 cyc/insn, 4,490 kIPS**
-(`rvbench-jit-device.txt`), 1.02 of the emulator, every kernel within a few
-percent. The interpreter measured 80.5 when it was 75.4 here, but that
-number still includes the console -- see below. A Linux boot is a different
-workload and gets a smaller factor -- see [the translator](#the-translator).
+On silicon, with the console's cycles out of the count as they are here:
+the interpreter **72.7 cyc/insn** (`rvint-device.txt`) and the translated
+build **13.2 cyc/insn, 4,560 kIPS** (`rvbench-jit-device.txt`), 1.01 and
+1.02 of the emulator, every kernel within a few percent. A Linux boot is a
+different workload and gets a smaller factor -- see
+[the translator](#the-translator).
 
 ## The device against the model
 
@@ -179,9 +180,13 @@ emulator: the split the application now reports by its own timer
 put the whole difference in the interpreter bracket, where cold code prints,
 and in the gap between brackets, where the progress line is. Console output
 is now timed and kept out of every number the report carries, and reported
-on its own line; with it out, the translated build is 1.02 of the emulator.
-The four interpreter runs above were taken before that and would each read
-a few percent lower, which `fit-model.py` has not been told.
+on its own line. With it out, all four workloads agree with the emulator to
+two percent -- rvbench interpreted 72.7 against 72.1, translated 13.2
+against 12.9; the Linux boot interpreted 74.1 against 74.3, translated 36.2
+against 36.2 (`rvint-device.txt`, `rvbench-jit-device.txt`,
+`rvintlx-device.txt`, `rvlinux-jit-device.txt`). The four placement runs
+above were taken before the console was kept out and each still carries
+about a tenth of it, which `fit-model.py` has not been told.
 
 **Every instruction count is identical**, kernel for kernel, in all four —
 which is the first thing the runs prove: the hand-written hot path retires
@@ -462,14 +467,14 @@ code. Both are recorded in `emulator/README.md`.
 which is what the 40 cycles of every 75 inside `DISPATCH` are: work that
 depends only on the instruction word.
 
-| cycles a guest instruction | interpreter | translator | translator, on silicon |
+| cycles a guest instruction | interpreter | translator | both, on silicon |
 | --- | ---: | ---: | ---: |
-| `rvbench`, whole run | 72.5 | **13.1** | **13.4** |
-| Linux, reset to `Run /bin/sh as init process` (`boot.py`) | 74.3 | **36.3** | boots; not timed |
+| `rvbench`, whole run | 72.1 | **12.9** | 72.7 / **13.2** |
+| Linux, reset to `Run /bin/sh as init process` | 74.3 | **36.2** | 74.1 / **36.2** |
 
 Both boot to the shell and the benchmark's instruction counts and checksums
-are identical either way, on the device too. On silicon every kernel is
-within a few percent of the emulator and the divide is faster; the probe
+are identical either way, on the device too. On silicon every number is
+within two percent of the emulator and the divide is faster; the probe
 (`jit_probe.s`, `rvjit-device.txt`) has the emitted loops themselves --
 the alu loop, the load, store, memset and sieve loops laid out to fit the
 fetch window -- and the device runs each within 10% of the model, the
@@ -595,6 +600,9 @@ other.
 `boot.py` times a Linux boot: the application prints a line every million
 guest instructions with what it has retired and what that cost, and the boot
 is read off the first line after the kernel's `Run /bin/sh as init process`.
+The application watches its own console for that line too and writes a
+report to the card there -- `rvlinux.txt` beside `rvlinux.bin` -- which is
+how the boot is timed on the device.
 The same lines carry the translator's counters -- blocks, bytes, flushes,
 entries, declines by kind, warm-up chunks, fences, regions and the
 instructions in them, entries made on demand, loops hoisted and resident --
