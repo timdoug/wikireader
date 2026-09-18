@@ -55,13 +55,44 @@ static uint32_t jit_bytes;
 
 static rv32_t machine RV32_STATE;
 
+/* timer_get() is 32 bits and wraps every 71 seconds at 60 MHz, so elapsed
+   time is accumulated from deltas taken far more often than that. */
+static uint32_t last_tick;
+static uint64_t elapsed_cycles;
+
+/* What the console costs is kept out of the measurement: on the device a
+   character goes down the serial line at 57600 baud, ten thousand cycles
+   each, and the emulator charges nothing for it.  The translator's first
+   run on silicon read 1.75x the emulator on rvbench, and two thirds of
+   the difference was the benchmark's own checksum lines and one progress
+   line of the application's, printed inside the sieve kernel.  A stretch
+   between untimed_begin() and untimed_end() moves the clock's origin past
+   itself, so the next tick() does not see it; what it cost is reported. */
+static uint64_t console_cycles;
+static uint32_t untimed_from;
+
+static void untimed_begin(void)
+{
+	untimed_from = timer_get();
+}
+
+static void untimed_end(void)
+{
+	uint32_t spent = (uint32_t)(timer_get() - untimed_from);
+
+	last_tick += spent;
+	console_cycles += spent;
+}
+
 /* The guest's console: the panel, and the emulator's stdout so a run can
    be read back from a log. */
 static void console_out(void *arg, int c)
 {
 	(void)arg;
+	untimed_begin();
 	console_put(c);
 	debug_print_char(c);
+	untimed_end();
 }
 
 /* Say something on the panel and the serial log at once.  The panel is the
@@ -90,11 +121,6 @@ static struct {
 	uint64_t cycles;
 } marks[MAX_MARKS];
 static unsigned mark_count;
-
-/* timer_get() is 32 bits and wraps every 71 seconds at 60 MHz, so elapsed
-   time is accumulated from deltas taken far more often than that. */
-static uint32_t last_tick;
-static uint64_t elapsed_cycles;
 
 static void tick(void)
 {
@@ -679,6 +705,7 @@ int grifo_main(int argc, char **argv)
 		   no end to report at: a Linux boot is read off these against
 		   the kernel's own timestamps, which count guest instructions. */
 		if ((batch & 63) == 63) {
+			untimed_begin();
 			debug_printf("rv32: at %lu insns, %lu cycles\n",
 				     (unsigned long)machine.retired,
 				     (unsigned long)elapsed_cycles);
@@ -708,6 +735,7 @@ int grifo_main(int argc, char **argv)
 				     (unsigned long)rv32_jit.loops,
 				     (unsigned long)rv32_jit.resident);
 #endif
+			untimed_end();
 		}
 		watchdog(WATCHDOG_KEY);
 		if (stop != RV_RAN_OUT)
@@ -784,6 +812,11 @@ int grifo_main(int argc, char **argv)
 	report(", in the cache ");
 	report_u64(rv32_jit.cyc_cache);
 	report("\n");
+#endif
+	report("rv32: console output: ");
+	report_u64(console_cycles);
+	report(" cycles, left out of the kernels' and the total\n");
+#ifdef RV32_JIT
 #endif
 	if (report_truncated)
 		report("rv32: report truncated\n");

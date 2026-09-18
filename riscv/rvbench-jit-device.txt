@@ -1,17 +1,18 @@
 
 rv32: kernel        insns      cycles    cyc/insn    kIPS
-rv32: alu             40100 824100  20.55  2919
-rv32: branch          58061 1441436  24.83  2416
-rv32: mul             52101 1139183  21.86  2744
-rv32: div             28086 3618810  128.85  465
-rv32: load            65636 1148940  17.50  3427
-rv32: store           65655 1002686  15.27  3928
-rv32: copy            82044 1656724  20.19  2971
-rv32: bytes          196711 2090790  10.63  5645
-rv32: crc            327778 3998663  12.20  4918
-rv32: sieve          399563 13416325  33.58  1786
-rv32: total    1365535 insns, 31901253 cycles, 23.36 cyc/insn, 2568 kIPS
+rv32: alu             40100 839130  20.93  2867
+rv32: branch          58061 1454323  25.05  2395
+rv32: mul             52101 1185590  22.76  2636
+rv32: div             28086 3627004  129.14  464
+rv32: load            65636 1196899  18.24  3290
+rv32: store           65655 1029224  15.68  3827
+rv32: copy            82044 1671144  20.37  2945
+rv32: bytes          196711 2117307  10.76  5574
+rv32: crc            327778 4012707  12.24  4901
+rv32: sieve          399563 13506792  33.80  1774
+rv32: total    1365535 insns, 32281758 cycles, 23.64 cyc/insn, 2538 kIPS
 rv32: stopped, reason 1
 rv32: jit 67 blocks, 7520 bytes, 0 flushes, 124 entries, 1 declines, 0 fences retiring 0 regions; 22 regions of 309 insns translated
+rv32: jit cycles: translating 1871109, interpreting 5653648, in the cache 15476722
 
-23.36 cyc/insn, 2568 kIPS
+23.64 cyc/insn, 2538 kIPS

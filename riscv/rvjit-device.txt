@@ -24,11 +24,19 @@ rv32: ld_res_nb    sdram     70      4  16.10  4.03
 rv32: ld_res_nb    a0ram     70      4  17.32  4.33
 rv32: ld_res_far   sdram     78      4  20.17  5.04
 rv32: ld_res_far   a0ram     78      4  20.17  5.04
+rv32: st_res       sdram     76      4  16.10  4.03
+rv32: st_res       a0ram     76      4  16.10  4.03
+rv32: st_res_nb    sdram     70      4  12.17  3.04
+rv32: st_res_nb    a0ram     70      4  13.25  3.31
+rv32: sb_res       sdram     70      3  15.14  5.05
+rv32: sb_res       a0ram     70      3  15.14  5.05
+rv32: sieve_res    sdram     74      4  18.14  4.54
+rv32: sieve_res    a0ram     74      4  17.32  4.33
 rv32: exit_none    sdram    158     64  178.19  2.78
 rv32: exit_none    a0ram    158     64  69.06  1.08
-rv32: exit_link    sdram    476     64  370.66  5.79
+rv32: exit_link    sdram    476     64  370.65  5.79
 rv32: exit_link    a0ram  does not fit
 rv32: exit_hash    sdram    480     64  691.14  10.80
 rv32: exit_hash    a0ram  does not fit
 
-jit probe done
+jit probe do
