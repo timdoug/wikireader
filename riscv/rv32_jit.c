@@ -191,7 +191,13 @@ struct tc {
 
 	unsigned  ncold;
 	uint64_t  nocheck;      /* accesses in the block, by instruction, whose
-	                           range a loop's entry has already checked */
+	                           range a loop's entry, or a group's head,
+	                           has already checked */
+	uint64_t  ghead;        /* the heads of groups: one check for a span */
+	int16_t   glo[64];      /* per head: the span's lowest offset from the
+	                           base, and its length in bytes with the widest
+	                           access's log2 in the top two bits */
+	uint16_t  glen[64];
 	unsigned  nls;          /* loop-check sites waiting for their cold copy */
 
 	unsigned  nrb;          /* the region's blocks, and the jumps between */
@@ -581,6 +587,40 @@ INLINE struct cold *address(struct tc *t, unsigned rs1, int32_t off,
 	struct cold *c;
 	unsigned h1 = use(t, rs1, R4);
 
+	if (t->i < 64 && (t->ghead & ((uint64_t)1 << t->i))) {
+		/* The head of a group: the whole span is checked, from its
+		   lowest byte, against RAM's size less its length, and the
+		   others in the group need nothing.  See group_analyse(). */
+		int32_t lo = t->glo[t->i];
+		uint32_t len = t->glen[t->i] & 0x3fff, size = t->s->ram_size;
+
+		if (h1 != R4)
+			rr(t, O_MOV, R4, h1);
+		if (lo)
+			addimm(t, R4, (uint32_t)lo, 0);
+		rr(t, O_ADD, R4, R8);
+		rr(t, O_MOV, R13, R4);
+		rr(t, O_SUB, R13, R2);
+		c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_DECLINE);
+		switch (t->glen[t->i] >> 14) {
+		case 2:
+			shift(t, S_RR, R13, 2);
+			ri(t, I_CMP, R13, ((size - len) >> 2) + 1);
+			break;
+		case 1:
+			shift(t, S_RR, R13, 1);
+			ri(t, I_CMP, R13, ((size - len) >> 1) + 1);
+			break;
+		default:
+			shift(t, S_SRL, R13, 2);
+			ri(t, I_CMP, R13, (size - len) >> 2);
+			break;
+		}
+		cold_site(c, jfar(t, B_UGE));
+		if (off != lo)
+			addimm(t, R4, (uint32_t)(off - lo), 0);
+		return NULL;
+	}
 	if (h1 != R4)
 		rr(t, O_MOV, R4, h1);
 	if (off)
@@ -1970,6 +2010,87 @@ static int fallen_into(struct tc *t, unsigned i)
 	}
 }
 
+/* Accesses through the stack, global and thread pointers, grouped: every
+   access in a block through one of these, with the register not written in
+   between, is checked by the first as one span -- in RAM at both ends and
+   aligned to the widest -- and the rest carry only their address.  These
+   three are never a device, so the span failing is a guest that is already
+   lost, and that goes to the interpreter as a decline rather than needing
+   a checked copy of the block.  Sets t->ghead, t->nocheck and the spans.
+   A block longer than the masks is not grouped past them.
+
+   One pass, decoding each word once: the first version walked the block
+   three times through regs_of() and cost more than the checks it saved.
+   An access whose offset is not a multiple of its width is left out, and
+   the span's low end has to be a multiple of the widest, which together
+   put every member at a whole number of its width from the low end. */
+struct grp {
+	int32_t lo, hi;
+	uint64_t members;
+	uint8_t n, head, wmax;
+};
+
+/* In internal RAM, like the translator's state: on the stack these were
+   read and written from SDRAM a few times a guest instruction. */
+static struct grp groups[3] RV32_HOTDATA;
+
+static void group_close(struct tc *t, struct grp *G)
+{
+	if (G->n >= 2 && G->lo % (int32_t)G->wmax == 0) {
+		t->ghead |= (uint64_t)1 << G->head;
+		t->nocheck |= G->members;
+		t->glo[G->head] = (int16_t)G->lo;
+		t->glen[G->head] = (uint16_t)((G->hi - G->lo + 1) |
+					      (G->wmax == 4 ? 2 : G->wmax == 2 ? 1 : 0) << 14);
+	}
+	G->n = 0;
+}
+
+static void group_analyse(struct tc *t, const struct rblock *r)
+{
+	unsigned j, b, n = r->n < 64 ? r->n : 64;
+
+	t->ghead = 0;
+	groups[0].n = groups[1].n = groups[2].n = 0;
+	for (j = 0; j < n; ++j) {
+		uint32_t ir = fetch(t->s, r->pc + 4 * j);
+		unsigned op = ir & 0x7f, f3 = (ir >> 12) & 7;
+		unsigned rs1 = (ir >> 15) & 31, rd = (ir >> 7) & 31;
+
+		if ((op == 0x03 || op == 0x23) && (f3 & 3) != 3 &&
+		    rs1 >= 2 && rs1 <= 4) {
+			unsigned w = 1u << (f3 & 3);
+			int32_t off = op == 0x03 ? imm_i(ir) : imm_s(ir);
+			struct grp *G = &groups[rs1 - 2];
+
+			if (off % (int32_t)w == 0) {
+				if (G->n == 0) {
+					G->head = (uint8_t)j;
+					G->lo = off;
+					G->hi = off + (int32_t)w - 1;
+					G->wmax = (uint8_t)w;
+					G->members = 0;
+				} else {
+					if (off < G->lo)
+						G->lo = off;
+					if (off + (int32_t)w - 1 > G->hi)
+						G->hi = off + (int32_t)w - 1;
+					if (w > G->wmax)
+						G->wmax = (uint8_t)w;
+					G->members |= (uint64_t)1 << j;
+				}
+				G->n++;
+			}
+		}
+		/* Stores and branches write nothing; everything else names
+		   rd, and writing the base ends its group. */
+		if (op != 0x23 && op != 0x63 && rd >= 2 && rd <= 4)
+			group_close(t, &groups[rd - 2]);
+	}
+	for (b = 0; b < 3; ++b)
+		group_close(t, &groups[b]);
+}
+
 /* A block's entry from outside its region: the map loaded, the batch
    checked, and a jump to the block's inline code.  Not every block gets one.
    A region's first block and the block after every call have theirs inline,
@@ -2041,6 +2162,7 @@ static void emit_block(struct tc *t, unsigned i)
 	t->bidx = rv32_jit.blk_used + i;
 	r->off = NO_ENTRY;
 	t->nocheck = 0;
+	t->ghead = 0;
 	if (!fallen_into(t, i))
 		inline_entry(t, r);
 	else if (r->head)
@@ -2116,12 +2238,14 @@ static void emit_block(struct tc *t, unsigned i)
 			land_far(t, jfar(t, cond_of(f3, 0)), top);
 		}
 		t->nocheck = 0;
+		t->ghead = 0;
 		if (!next_is_fall)
 			region_jump(t, r->pc + 4 * r->n);
 		return;
 	}
 	if (r->head)
 		budget_check(t);
+	group_analyse(t, r);
 
 	/* A loop that is one block long is laid out several times over, each
 	   copy leaving by a forward branch that is not taken while the loop
@@ -2214,6 +2338,8 @@ static void emit_cold(struct tc *t)
 				land_far(t, lsites[c->site + j], t->off);
 			t->bidx = rv32_jit.blk_used + c->code;
 			t->nocheck = 0;
+			t->ghead = 0;
+			group_analyse(t, r);
 			if (t->off & 2)
 				w(t, 0);
 			top = t->off;
