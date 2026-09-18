@@ -65,6 +65,11 @@ LIBS += ${DRIVERS_LIB}
 # the sources are built with, or it returns the base-core multilib.
 LIBS += $(shell $(CC) $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
+# grifo.lds puts code and data in one segment, which is what this machine
+# wants: no MMU, no W^X to enforce, one RAM region.  binutils 2.39 and later
+# warn about the RWX LOAD segment that results.
+LDFLAGS += --no-warn-rwx-segments
+
 BUILD_PREFIX := build/
 
 MAKE_SYSCALL := scripts/MakeSystemCalls

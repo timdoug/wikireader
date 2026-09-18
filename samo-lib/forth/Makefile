@@ -71,7 +71,10 @@ LIBS += ${DRIVERS_LIB}
 LIBS += ${MINI_LIBC_LIB}
 LIBS += $(shell ${CROSS_GCC} ${TARGET_ARCH_FLAGS} -print-libgcc-file-name)
 
-CROSS_LDFLAGS = -static --strip-all --no-gc-sections --omagic
+# --omagic makes text writable and drops the page alignment between segments,
+# which is what this machine wants: no MMU, no W^X to enforce, one RAM region.
+# binutils 2.39 and later warn about the RWX LOAD segment that results.
+CROSS_LDFLAGS = -static --strip-all --no-gc-sections --omagic --no-warn-rwx-segments
 CROSS_ASFLAGS = -mc33pe --fatal-warnings
 CLEAN_FILES =
 

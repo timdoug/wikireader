@@ -52,7 +52,12 @@ LIBS += ${MINI_LIBC_LIB}
 # the sources are built with, or it returns the base-core multilib.
 LIBS += $(shell $(CC) $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
-LDFLAGS += -static --strip-all -s --no-gc-sections -N
+# -N (--omagic) makes text writable and drops the page alignment between
+# segments, which is what this machine wants: no MMU, no W^X to enforce, and
+# one RAM region for everything.  binutils 2.39 and later warn about the RWX
+# LOAD segment that results, so say the segment is intended rather than let
+# every application link print it.
+LDFLAGS += -static --strip-all -s --no-gc-sections -N --no-warn-rwx-segments
 
 BUILD_PREFIX := build/
 

@@ -76,6 +76,16 @@ BOOT_OPT ?= -Os
 ${BUILD_PREFIX}mmc.o: OPT = ${BOOT_OPT}
 ${BUILD_OBJECTS}: CFLAGS += -ffunction-sections -fdata-sections
 
+# suspend() is linked into A0 RAM (forth.lds, flash.lds) while the functions
+# it calls on the way in and out stay in SDRAM, so its direct calls span
+# 256MB.  scall reaches +/-4MB, which is why 7147c78e could drop -mlong-calls
+# everywhere else: no other section here is placed away from the code it
+# calls.  Without this, suspend()'s tail call to mmc_disk_initialize is an
+# xjp.d with one ext prefix -- 21 bits, +/-2MB -- and the link fails with
+# "relocation truncated to fit: R_C33_S_RM".  The 2009 forth.elf makes the
+# same call as an xcall.d with two prefixes; this restores that.
+${BUILD_PREFIX}suspend.o: CFLAGS += -mlong-calls
+
 .PHONY: all
 all:  ${TARGETS}
 

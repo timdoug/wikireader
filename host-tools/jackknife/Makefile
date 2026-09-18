@@ -34,7 +34,14 @@ MK_DIR   := ${ROOT_DIR}/samo-lib/Mk
 include ${MK_DIR}/definitions.mk
 # ---END_UPDATE_MAKEFILE: End of auto included code
 
-LDFLAGS = -static --strip-all -s --no-gc-sections -N -L${MINI_LIBC}
+# These are ld options passed through the gcc driver.  gcc 3.3.2 forwarded any
+# unrecognised "--" option to the linker; gcc 16 rejects them, so spell them
+# -Wl, rather than relying on that.  Both programs here are self-contained --
+# neither object has a single undefined symbol -- and only their .text is kept
+# (see the objcopy below), so -nostdlib: gcc 16 otherwise looks for a crt0.o
+# and a -lc that this bare-metal target has never had.
+LDFLAGS = -static -nostdlib -Wl,--strip-all -s -Wl,--no-gc-sections -N \
+          -Wl,--no-warn-rwx-segments
 OBJCOPY_FLAGS = -I elf32-c33 -O binary
 
 CFLAGS += -I${SAMO_LIB_INCLUDE} -I${MINI_LIBC_INCLUDE}

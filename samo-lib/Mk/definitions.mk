@@ -141,7 +141,12 @@ REQUIRED_PHP = $(eval $(call REQUIRED_PHP_1,$(strip ${1}),$(strip ${2})))
 
 LICENSES := ${ROOT_DIR}/Licenses
 
-WIKI_APP = ${ROOT_DIR}/wiki-app/
+# The original wiki application moved under deprecated/ and wiki/ was built
+# from it; nothing in ALL_TARGETS reads these any more.  They are kept
+# pointing at the real location for deprecated/mahatma.  host-tools/hash-gen
+# also names them but cannot build either way: it wants a search_hash.c that
+# is no longer anywhere in the tree.
+WIKI_APP = ${ROOT_DIR}/deprecated/wiki-app/
 WIKI_APP_INCLUDE = ${WIKI_APP}
 WIKI_APP_SRC = ${WIKI_APP}
 

@@ -42,19 +42,18 @@ INCLUDES += -I$(MINI_LIBC_INCLUDE)
 INCLUDES += -I${DRIVERS_INCLUDE}
 INCLUDES += -I${FATFS_CONFIG_INCLUDE} -I${FATFS_INCLUDE}
 INCLUDES += -I${SAMO_LIB_INCLUDE}
-INCLUDES += -I$(INDEXING_INCLUDE)
-INCLUDES += -I$(MINILZO_INCLUDE)
-INCLUDES += -I$(WIKI_APP_INCLUDE)
 
 LIBS += ${FATFS_LIB}
 LIBS += ${DRIVERS_LIB}
 LIBS += ${MINI_LIBC_LIB}
-LIBS += $(shell $(CC) -print-libgcc-file-name)
+LIBS += $(shell $(CC) $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
+
+# flash.lds puts code and data in one segment, which is what this machine
+# wants: no MMU, no W^X to enforce, one RAM region.  binutils 2.39 and later
+# warn about the RWX LOAD segment that results.
+LDFLAGS += --no-warn-rwx-segments
 
 BUILD_PREFIX := build/
-
-vpath %.c $(WIKI_APP_SRC):$(INDEXING_SRC):$(MINILZO_SRC)
-
 
 OBJECTS = flash.o
 

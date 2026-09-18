@@ -67,7 +67,12 @@ LIBS += ${DRIVERS_LIB}
 LIBS += ${MINI_LIBC_LIB}
 LIBS += $(shell ${CC} $(TARGET_ARCH_FLAGS) -print-libgcc-file-name)
 
-LDFLAGS = -static --strip-all -s --no-gc-sections -N -L${MINI_LIBC}
+# Every library above is named by full path, so there is nothing for -L to
+# find; ${MINI_LIBC} is the source directory, not a library directory.
+# -N (--omagic) makes text writable and drops the page alignment between
+# segments, which is what these boot stages want; binutils 2.39 and later
+# warn about the RWX LOAD segment that results.
+LDFLAGS = -static --strip-all -s --no-gc-sections -N --no-warn-rwx-segments
 
 # Unlike the SDRAM applications, these boot stages must fit in the 8 KiB A0
 # RAM (and the MBR itself in 512 bytes).  Compile them for size and let each
