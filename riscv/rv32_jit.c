@@ -983,6 +983,7 @@ void rv32_jit_reserve(rv32_t *s)
 void rv32_jit_flush(void)
 {
 	memset(rv32_jit.map, 0, RV32_JIT_SLOTS * 2 * sizeof(uint32_t));
+	memset(rv32_jit.hot, 0, RV32_JIT_HOT_SLOTS);
 	memset(rv32_jit.blk_hash, 0xff,
 	       (rv32_jit.blk_hash_mask + 1) * sizeof(uint16_t));
 	memset(rv32_jit.link_hash, 0xff,
@@ -1012,10 +1013,20 @@ uint8_t *rv32_jit_block(rv32_t *s, uint32_t pc)
 	}
 	/* An instruction this cannot translate is the caller's to interpret,
 	   and nothing about the cache has to change for it.  Asking first is
-	   what keeps a decline -- one instruction in 78 -- from looking like a
-	   cache that is full. */
+	   what keeps a decline from looking like a cache that is full. */
 	if (!can_do(fetch(s, pc)))
 		return NULL;
+	/* And code that has not been run enough to repay translating it is the
+	   interpreter's, for now. */
+	{
+		uint8_t *seen = &rv32_jit.hot[(pc >> 8) & RV32_JIT_HOT_MASK];
+
+		if (*seen < RV32_JIT_HOT) {
+			++*seen;
+			rv32_jit.warmups++;
+			return NULL;
+		}
+	}
 	code = translate(s, pc);
 	if (code)
 		return code;
@@ -1156,6 +1167,8 @@ int rv32_jit_init(void *arena, uint32_t bytes)
 	p += hb * sizeof(uint16_t);
 	/* One byte a guest instruction, and a block of this shape averages
 	   about thirty-five bytes of code an instruction. */
+	rv32_jit.hot = p;
+	p += RV32_JIT_HOT_SLOTS;
 	rv32_jit.mark = p;
 	rv32_jit.mark_max = ((uint32_t)(end - p) / 24) & ~3u;
 	p += rv32_jit.mark_max;         /* a multiple of four: what follows is

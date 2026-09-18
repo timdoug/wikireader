@@ -25,6 +25,9 @@ python3 hotspots.py --app build/riscv-code+state.app   # C cycles by line
 python3 hotspots_asm.py                # the assembly path, by instruction
 make mix             # what a Linux boot executes, natively, in a second
 python3 run.py --args jit              # what translated code would cost
+make JIT=1           # translate instead of interpreting
+make jitenc          # every instruction the translator emits, vs the assembler
+make jitdis          # ...and what a guest instruction becomes, disassembled
 ```
 
 ## From the icon panel
@@ -127,8 +130,10 @@ guest instruction:
 | interpreter in A0 RAM (`FAST=1`) | 122.0 | 491 kIPS |
 | and machine state too (`STATE=1`) | 99.1 | 605 kIPS |
 | hand-written hot path (`ASM=1`) | **75.4** | **796 kIPS** |
+| translated (`JIT=1`) | **37.5** | **1600 kIPS** |
 
-On silicon the last row is **80.5 cyc/insn, 745 kIPS**.
+On silicon the fourth row is **80.5 cyc/insn, 745 kIPS**; the translator has
+not been on hardware yet.
 
 ## The device against the model
 

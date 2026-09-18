@@ -737,33 +737,48 @@ rv32_stop_t rv32_run(rv32_t *s, uint32_t budget, uint32_t time_ticks)
 
 #ifdef RV32_JIT
 	/* Translated code runs until it meets something it was not translated
-	   for, and hands back the guest pc of exactly that instruction; the C
-	   interpreter executes that one and the loop tries again.  Progress is
-	   guaranteed for the same reason it is with the assembly path: the
-	   fallback always consumes one instruction. */
+	   for, and hands back the guest pc of exactly that instruction.  What
+	   is not translated -- because it is not worth translating yet, or
+	   because this cannot translate it at all -- the assembly hot path
+	   interprets, in chunks, so that code which turns out to be hot is
+	   noticed without asking after every instruction.  Progress is
+	   guaranteed the same way it always was: the C fallback consumes one. */
 	if (rv32_jit.code) {
 		while (budget) {
 			uint8_t *code;
 			uint32_t did;
 
 			code = rv32_jit.step ? NULL : rv32_jit_block(s, s->pc);
-			if (!code) {
-				rv32_jit.step = 0;
+			if (code) {
+				rv32_jit.entries++;
+				did = rv32_jit_enter(s, budget, code);
+				s->retired += did;
+				s->cycle_lo += did;
+				/* A block that has started runs whole, so this
+				   can overrun the batch by one block's worth. */
+				budget = did >= budget ? 0 : budget - did;
+				continue;
+			}
+			rv32_jit.step = 0;
+			{
+				uint32_t want = budget < RV32_JIT_CHUNK
+					? budget : RV32_JIT_CHUNK;
+
+				did = rv32_hot(s, want);
+				s->retired += did;
+				s->cycle_lo += did;
+				budget -= did;
+				if (did == want)
+					continue;
+			}
+			{
 				rv32_stop_t stop = rv32_interpret(s, 1);
 
 				--budget;
 				rv32_jit_reserve(s);
 				if (stop != RV_RAN_OUT)
 					return stop;
-				continue;
 			}
-			rv32_jit.entries++;
-			did = rv32_jit_enter(s, budget, code);
-			s->retired += did;
-			s->cycle_lo += did;
-			/* A block that has started runs whole, so `did` can
-			   overrun the batch by up to one block's worth. */
-			budget = did >= budget ? 0 : budget - did;
 		}
 		return RV_RAN_OUT;
 	}

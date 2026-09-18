@@ -28,20 +28,19 @@ ifeq (1,$(strip $(STATE)))
 CFLAGS += -DRV32_FASTSTATE
 endif
 
-# JIT=1 translates instead of interpreting: the code cache goes in SDRAM,
+# JIT=1 translates as well as interpreting: the code cache goes in SDRAM,
 # which is where jit_probe.s measured a well-translated loop running fastest,
-# and only the entry and the exits need the fast memory.  It replaces the
-# assembly hot path rather than joining it -- the two want the same A0 RAM,
-# and what the translator cannot do the C interpreter still does.
+# and the assembly hot path keeps the whole of A0 RAM because it is still what
+# runs everything not worth translating.  The two together is the point --
+# translating costs about 6,800 cycles a guest instruction, so code that runs
+# once should never see the translator at all.
 JIT ?= 0
 JITSKIP ?= 0
 ifeq (1,$(strip $(JIT)))
 CFLAGS += -DRV32_JIT -DJIT_SKIP=$(strip $(JITSKIP))
 SOURCES += rv32_jit.c rv32_jitrt.s
-ASM = 0
-else
-SOURCES += rv32_hot.s
 endif
+SOURCES += rv32_hot.s
 
 # ASM=1 runs the hand-written hot path (rv32_hot.s) and leaves the C
 # interpreter in SDRAM as the fallback for what it declines.

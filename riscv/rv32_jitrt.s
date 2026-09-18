@@ -29,9 +29,13 @@
 	.set	JOFF_WATCH_LO, 4
 	.set	JOFF_WATCH_HI, 8
 	.set	JOFF_BACK, 12
-	.set	JIT_MASK, 4095			; rv32_jit.h's RV32_JIT_MASK
+	.set	JIT_MASK, 32767			; rv32_jit.h's RV32_JIT_MASK
 
-	.section .fastcode,"ax"
+; This is in SDRAM, not A0 RAM: rv32_hot.s needs every byte of the fast memory
+; and is still what interprets everything the translator has not earned its way
+; into.  What that costs is one entry and one exit per two hundred guest
+; instructions, and one call per device register.
+	.section .text,"ax"
 	.align	1
 
 ; ---------------------------------------------------------------- entry --

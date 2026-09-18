@@ -37,9 +37,35 @@
 /* The map the runtime probes on an indirect jump: a direct-mapped cache of
    guest pc to translated code, two words a slot, indexed by (pc >> 2).  It is
    a cache and not an index -- a collision throws the older entry away and the
-   block it named is found again through C, which is slower and still right. */
-#define RV32_JIT_SLOTS 4096
+   block it named is found again through C, which is slower and still right.
+
+   Slower by a lot, though: finding it through C means leaving the code cache,
+   and a Linux boot translates seventeen thousand blocks.  At four thousand
+   slots it left four million times in one boot; this is a quarter of a
+   megabyte and the boot's block heads fit in it with room over. */
+#define RV32_JIT_SLOTS 32768
 #define RV32_JIT_MASK  (RV32_JIT_SLOTS - 1)
+
+/* Translating is expensive -- about 1,400 C33 instructions for one guest
+   instruction, which from SDRAM is some 6,800 cycles -- and a Linux boot
+   executes 385 KiB of guest code, most of it once.  Translating everything
+   made the boot *slower* than the interpreter: 99.6 cycles a guest instruction
+   against 85.3.  So a stretch of guest code has to earn its translation by
+   being run, and until it has, rv32_hot.s interprets it at about the same
+   speed the interpreter always managed.
+   
+   Hotness is counted by 256-byte region of guest code rather than by block,
+   because the interpreter stops wherever its batch runs out and not at a block
+   head: a loop keeps landing in the same region however its iterations are
+   cut up, and a straight run through cold code touches each region once. */
+#define RV32_JIT_HOT_SLOTS 8192
+#define RV32_JIT_HOT_MASK  (RV32_JIT_HOT_SLOTS - 1)
+#ifndef RV32_JIT_HOT
+#define RV32_JIT_HOT 12
+#endif
+/* Guest instructions the interpreter runs between chances to notice that the
+   code it is in has become worth translating. */
+#define RV32_JIT_CHUNK 256
 
 /* Why a translated block gave up.  The stub that carries each one is named in
    the code cache by its address, so these are the argument the runtime hands
@@ -72,6 +98,7 @@ typedef struct rv32_jit {
 	uint32_t  blk_used;
 	uint16_t *blk_hash;    /* guest pc -> block index, open addressed */
 	uint32_t  blk_hash_mask;
+	uint8_t  *hot;         /* how often each region has been interpreted */
 	uint8_t  *mark;        /* bytes of code a guest instruction became */
 	uint32_t  mark_max;
 	uint32_t  mark_used;
@@ -96,6 +123,7 @@ typedef struct rv32_jit {
 	uint32_t  dec_jump;    /* ...a target outside RAM or off a word */
 	uint32_t  stores;
 	uint32_t  entries;
+	uint32_t  warmups;     /* chunks the interpreter ran instead */
 } rv32_jit_t;
 
 extern rv32_jit_t rv32_jit;
