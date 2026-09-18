@@ -1,0 +1,22 @@
+
+rv32: jit template     where  bytes  guest    cyc/pass  cyc/guest
+rv32: alu_reg      sdram    180     60  210.07  3.50
+rv32: alu_reg      a0ram    180     60  77.06  1.28
+rv32: alu_mem      sdram    128      8  158.84  19.85
+rv32: alu_mem      a0ram    128      8  93.01  11.63
+rv32: ld_free      sdram     96      5  150.04  30.01
+rv32: ld_free      a0ram     96      5  78.66  15.73
+rv32: ld_check     sdram    128      5  201.77  40.35
+rv32: ld_check     a0ram    128      5  102.70  20.54
+rv32: copy_reg     sdram     48      5  26.10  5.22
+rv32: copy_reg     a0ram     48      5  27.28  5.46
+rv32: copy_mem     sdram    100      5  144.65  28.93
+rv32: copy_mem     a0ram    100      5  75.01  15.00
+rv32: exit_none    sdram    158     64  178.19  2.78
+rv32: exit_none    a0ram    158     64  69.06  1.08
+rv32: exit_link    sdram    474     64  365.69  5.71
+rv32: exit_link    a0ram  does not fit
+rv32: exit_hash    sdram    480     64  691.14  10.80
+rv32: exit_hash    a0ram  does not fit
+
+jit probe done

@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "console.h"
+#include "jit_probe.h"
 #include "rv32.h"
 
 /* Guest RAM is whatever the board has spare.  ram_size() reads the SDRAM
@@ -138,11 +139,15 @@ static uint64_t divmod_u64(uint64_t value, uint64_t divisor, uint64_t *rem)
    numbers are also buffered and written to the card, which is the copy that
    survives.  The panel is 40 columns and gets the summary only; the table
    below is half as wide again and would wrap into nonsense. */
-static char report_buf[1024];
+/* Eighteen template rows and a header outgrew the kilobyte this was, and a
+   truncated report is exactly the kind of quiet loss the card copy exists to
+   prevent.  It is ordinary .bss in SDRAM and costs nothing. */
+static char report_buf[2048];
 static unsigned report_used;
 static bool report_truncated;
 static bool report_to_panel;
 static bool hold_at_end;
+static bool probe_only;
 
 static void report_char(char c)
 {
@@ -254,6 +259,195 @@ static const char *report_save(const char *image, const char *named)
 	return ok ? path : NULL;
 }
 
+/* ---- the translator probe ------------------------------------------------
+ *
+ * What translated code would cost, measured by running some.  jit_probe.s
+ * holds the sequences a translator would emit for blocks a Linux boot
+ * actually spends its time in; this copies each one into SDRAM and then into
+ * A0 RAM and times it in both, because a code cache in internal RAM is about
+ * twice as cheap to fetch from and there is only room for a few kilobytes.
+ *
+ * It exists because the emulator cannot answer this.  Its model is known to
+ * charge SDRAM-resident code about ten percent too much, and code walking two
+ * streams twenty to thirty percent too much (emulator/README.md), and
+ * translated code is both of those at once.  Every other number in this file
+ * the model gets within a few percent; this one has to come off the device.
+ */
+
+/* Enough for the longest template, checked below rather than assumed.  What
+   is left of A0 RAM once the interpreter and the guest register file have
+   taken theirs is about 700 bytes. */
+#define JIT_CODE_BYTES 320
+/* ".fastcode.probe" rather than ".fastcode": memory.lds places the plain
+   section first and the dotted ones after it, so the interpreter keeps the
+   addresses it was measured at and the buffer takes what is left. */
+static uint8_t jit_a0_code[JIT_CODE_BYTES]
+	__attribute__((section(".fastcode.probe"))) __attribute__((aligned(4)));
+
+/* The stream the copy and load templates walk.  Two of them, a megabyte
+   apart, so the pair behaves like a real copy rather than like one open
+   row. */
+#define JIT_STREAM (256u * 1024)
+
+static uint32_t jit_regs[32] RV32_STATE;
+static uint32_t jit_table[2 * JP_BLOCKS];
+
+static void jit_probe(void)
+{
+	static const struct {
+		const char *name;
+		const void *start;
+		const uint8_t *end;
+		uint32_t guest;     /* guest instructions a pass stands for */
+		uint32_t passes;    /* 0: the template runs the stream instead */
+		uint32_t repeats;
+		unsigned check;
+	} templates[] = {
+#define JP_ROW(name, guest, passes, repeats, check) \
+		{ #name, (const void *)jp_##name, jp_##name##_end, \
+		  guest, passes, repeats, check },
+		JP_TEMPLATES(JP_ROW)
+#undef JP_ROW
+	};
+
+	uint8_t *stream = memory_allocate(2 * JIT_STREAM + 4096, "jit stream");
+	uint8_t *code = memory_allocate(4096 + 1024, "jit code");
+	if (!stream || !code) {
+		say("no memory for the probe\n");
+		return;
+	}
+	/* Both buffers on a row boundary: ubench measured a malloc'd stream
+	   swinging a two-stream loop by 19% on its alignment alone, so where
+	   these land is recorded rather than left to chance. */
+	uint8_t *src = (uint8_t *)(((uint32_t)stream + 1023) & ~1023u);
+	uint8_t *dst = src + JIT_STREAM;
+	uint8_t *sdram_code = (uint8_t *)(((uint32_t)code + 1023) & ~1023u);
+
+	struct jit_ctx ctx;
+	ctx.regs = jit_regs;
+	ctx.ram = src;
+	ctx.ram_end = src + 2 * JIT_STREAM;
+	/* The templates hold guest addresses in the register file and convert
+	   them the way rv32_hot.s does, so the probe needs a guest address
+	   space: RV_RAM_BASE maps onto the stream. */
+	ctx.adj = (uint32_t)src - RV_RAM_BASE;
+	ctx.table = jit_table;
+
+	report("\nrv32: jit template     where  bytes  guest    cyc/pass  cyc/guest\n");
+	debug_printf("rv32: code sdram %08lx a0 %08lx, stream %08lx\n",
+		     (unsigned long)sdram_code, (unsigned long)jit_a0_code,
+		     (unsigned long)src);
+
+	for (unsigned t = 0; t < sizeof templates / sizeof templates[0]; ++t) {
+		uint32_t bytes = (uint32_t)(templates[t].end -
+					    (const uint8_t *)templates[t].start);
+		for (unsigned place = 0; place < 2; ++place) {
+			uint8_t *where = place ? jit_a0_code : sdram_code;
+			if (place && bytes > sizeof jit_a0_code) {
+				report("rv32: ");
+				report_left(templates[t].name, 12);
+				report(" a0ram  does not fit\n");
+				continue;
+			}
+			memcpy(where, templates[t].start, bytes);
+
+			/* The lookup's targets are addresses inside the copy,
+			   so they exist only once the copy does -- which is
+			   the one thing in here a translator would also have
+			   to do.  The tags are what jit_probe.s hashes: block
+			   i answers to 0x1000 + i*4, so (tag >> 2) & 7 is i. */
+			if (templates[t].start == (const void *)jp_exit_hash) {
+				uint32_t head = (uint32_t)(jp_exit_hash_blocks -
+							   (const uint8_t *)jp_exit_hash);
+				if (bytes != head + JP_BLOCKS * JP_SLOT) {
+					report("rv32: exit_hash layout mismatch\n");
+					continue;
+				}
+				for (unsigned b = 0; b < JP_BLOCKS; ++b) {
+					jit_table[2 * b] = 0x1000 + b * 4;
+					jit_table[2 * b + 1] =
+						(uint32_t)where + head + b * JP_SLOT;
+				}
+			}
+
+			/* The copy templates run until the source reaches the
+			   end, so their pass count is the stream and not an
+			   argument; every other one is told how many. */
+			bool walks_stream = templates[t].passes == 0;
+			uint32_t passes = walks_stream ? JIT_STREAM / 4
+						       : templates[t].passes;
+			uint64_t cycles = 0;
+			bool ran = true;
+
+			for (unsigned r = 0; r < templates[t].repeats; ++r) {
+				for (unsigned i = 0; i < 32; ++i)
+					jit_regs[i] = 0;
+				jit_regs[11] = RV_RAM_BASE;                 /* a1 */
+				jit_regs[13] = RV_RAM_BASE + JIT_STREAM;    /* a3 */
+				jit_regs[31] = RV_RAM_BASE + JIT_STREAM;    /* t6 */
+				ctx.src = src;
+				ctx.dst = dst;
+				ctx.end = src + JIT_STREAM;
+
+				watchdog(WATCHDOG_KEY);
+				uint32_t t0 = timer_get();
+				uint32_t left = ((jp_fn)where)(passes, &ctx);
+				cycles += (uint32_t)(timer_get() - t0);
+				watchdog(WATCHDOG_KEY);
+
+				/* A template that fails a bound check leaves
+				   through its epilogue having done part of the
+				   work, and the number that comes out of that
+				   is a fast lie -- ld_check first measured
+				   half the cost of ld_free, which does
+				   strictly less.  So every run says where it
+				   left the register it walks with. */
+				(void)left;
+				switch (templates[t].check) {
+				case JP_WALK:
+					ran = jit_regs[11] ==
+						RV_RAM_BASE + 16 * passes;
+					break;
+				case JP_STREAM:
+					ran = jit_regs[11] ==
+						RV_RAM_BASE + JIT_STREAM;
+					break;
+				case JP_DRAINED:
+					ran = left == 0;
+					break;
+				case JP_COPIED:
+					ran = *(uint32_t *)(dst + JIT_STREAM - 4)
+						== *(uint32_t *)(src + JIT_STREAM - 4);
+					break;
+				}
+				if (!ran)
+					break;
+			}
+			if (!ran) {
+				report("rv32: ");
+				report_left(templates[t].name, 12);
+				report(place ? " a0ram" : " sdram");
+				report("  stopped early\n");
+				continue;
+			}
+
+			uint64_t guest = (uint64_t)passes * templates[t].guest
+				* templates[t].repeats;
+			passes *= templates[t].repeats;
+			report("rv32: ");
+			report_left(templates[t].name, 12);
+			report_left(place ? " a0ram" : " sdram", 7);
+			report_right(bytes, 6);
+			report_right(templates[t].guest, 7);
+			report("  ");
+			report_cpi((uint64_t)cycles, passes);
+			report("  ");
+			report_cpi((uint64_t)cycles, (uint32_t)guest);
+			report_char('\n');
+		}
+	}
+}
+
 /* ---- image loading ------------------------------------------------------ */
 
 /* The device tree states how much RAM the guest has, and it was built for
@@ -317,6 +511,10 @@ int grifo_main(int argc, char **argv)
 		   already has. */
 		if (strcmp(argv[i], "hold") == 0)
 			hold_at_end = true;
+		/* "jit" measures translated code instead of running a guest:
+		   no image, no interpreter, just the templates. */
+		if (strcmp(argv[i], "jit") == 0)
+			probe_only = true;
 		size_t len = strlen(argv[i]);
 		if (!path && len > 4 && strcmp(argv[i] + len - 4, ".bin") == 0)
 			path = argv[i];
@@ -333,6 +531,34 @@ int grifo_main(int argc, char **argv)
 	lcd_window_disable();
 	console_init();
 	say("rv32ima\n");
+
+	if (probe_only) {
+		say("Translator probe...\n");
+		last_tick = timer_get();
+		jit_probe();
+		if (report_truncated)
+			report("rv32: report truncated\n");
+		report_to_panel = true;
+		report("\njit probe done\n");
+		const char *saved = report_save("rvjit.bin", report_name);
+		if (saved) {
+			say("saved ");
+			say(saved);
+			say("\n");
+		} else {
+			say("not saved to the card.\n");
+		}
+		if (saved && !hold_at_end)
+			power_off();
+		say("press a key when you have read this.\n");
+		for (;;) {
+			console_poll();
+			watchdog(WATCHDOG_KEY);
+			if (console_get() >= 0)
+				break;
+		}
+		power_off();
+	}
 	say("Loading ");
 	say(path);
 	say("...\n");

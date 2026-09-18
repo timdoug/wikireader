@@ -5,6 +5,8 @@ Two 64x64 monochrome XPMs, which the build turns into Grifo .ico files:
 
   riscv.xpm    "RV32", drawn with the terminal's own 6x9 font scaled up, so
                changing the wording is a one-line edit rather than pixel art
+  rvjit.xpm    "JIT", the translator probe -- a developer measurement, on the
+               panel only while it is being taken
   rvlinux.xpm  Tux, from the 64x64 bitmap beside this script
 
 Tux is Larry Ewing's (lewing@isc.tamu.edu), made with The GIMP; his terms
@@ -147,6 +149,8 @@ def main():
 
     write_xpm(HERE / 'riscv.xpm', 'riscv_icon', text_icon('RV', '32'),
               'launcher icon for the interpreter benchmark.')
+    write_xpm(HERE / 'rvjit.xpm', 'rvjit_icon', text_icon('JIT', 'PROB'),
+              'launcher icon for the translator probe.')
     write_xpm(HERE / 'rvlinux.xpm', 'rvlinux_icon', tux(args.logo),
               "launcher icon for Linux: Tux, by Larry Ewing\n"
               "   (lewing@isc.tamu.edu) with The GIMP, from tux_64x64.pbm.")
