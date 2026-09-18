@@ -22,3 +22,12 @@ LIB2ADD += \
 	$(srcdir)/config/c33/udivmodsi4.c \
 	$(srcdir)/udivmod.c \
 	$(srcdir)/divmod.c
+
+# The four entry points are jumps into __udivmodsi4, and on this machine an
+# application may want that one routine somewhere the ordinary call cannot
+# reach: internal RAM is at the bottom of the map and the program runs from
+# SDRAM at 0x10000000, 268 MB away, which is why a divide placed in A0 RAM
+# used to need a hand-written bridge.  Long calls here cost one instruction
+# word in each wrapper and let a linker script put the division wherever the
+# fetch is cheapest, with no second copy of it.
+udivmod.o udivmod_s.o divmod.o divmod_s.o: LIBGCC2_CFLAGS += -mlong-calls

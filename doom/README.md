@@ -197,8 +197,9 @@ tracing, early errors and card-write failures.
 calculations. It runs the actual C33 multiply instruction and calls the
 reciprocal helper in A0, covering signs, overflow-bit truncation, accumulator
 clobbers, all divisors from 1 through 65,536, power-of-two boundaries and
-random inputs. It also checks general unsigned division/remainder and the
-compiler's signed and unsigned `/` and `%` entry points through the A0 bridge.
+random inputs. It also checks libgcc's `__udivmodsi4` directly, which is the
+only way to reach a zero divisor, and the compiler's signed and unsigned `/`
+and `%` entry points.
 
 `tests/replay.py` compares 1,500 frames of the built-in DEMO1 at one simulation
 tic per frame, including indexed pixels, palettes and player state, under
@@ -258,9 +259,12 @@ the hot unsigned texture-scale divisions, moved floor span generation/mapping
 into A0, and cached the current wall/floor light tables there. The complete
 1,500-frame replay comparison matches the preceding renderer.
 
-Wall setup and general division/remainder also run in A0.
-The original libgcc entry points reach the exact divider through a short
-SDRAM bridge, retaining signed division and remainder behavior. Floor and
+Wall setup also runs in A0, and so does general division and remainder:
+`memory.lds` puts libgcc's `__udivmodsi4` there, where the game's 447
+divides a frame cost 171 cycles each instead of the 304 they cost fetching
+their own code out of SDRAM. The compiler's `/` and `%` entry points stay in
+SDRAM and reach it by long jump, so there is no second copy of the division
+and no bridge. Floor and
 ceiling textures can use the 4 KiB LCD window cache: a new texture is admitted
 when its plane covers at least 2,048 texels, and small planes leave the current
 entry intact. Keys use WAD lump identities rather than reusable zone addresses.
