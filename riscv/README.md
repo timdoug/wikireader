@@ -133,7 +133,8 @@ guest instruction:
 | translated (`JIT=1`) | **37.5** | **1600 kIPS** |
 
 On silicon the fourth row is **80.5 cyc/insn, 745 kIPS**; the translator has
-not been on hardware yet.
+not been on hardware yet. On a Linux boot the answer is the other way round --
+see [the translator](#the-translator).
 
 ## The device against the model
 
@@ -495,6 +496,32 @@ cold code touches each region once.
 Over the same stretch of a boot that is 8,048 blocks translated against 21,267,
 1.3 MB of code against 3.3 MB, and no cache flush where there had been one.
 
+### Where it stands
+
+| | interpreter | translator |
+| --- | ---: | ---: |
+| `rvbench`, whole run | 75.4 | **38.4** |
+| Linux, reset to `Run /bin/sh as init process` | **87.2** | 92.6 |
+
+Both boot to the shell and the benchmark's instruction counts and checksums are
+identical either way, so this is a speed difference and not a correctness one.
+Two workloads, opposite answers, and the reason is what each one asks of a
+translator. `rvbench` runs ten small kernels tens of thousands of times: every
+one of them earns its translation in the first few hundred instructions and is
+then run from the code cache for the rest of the run. A boot executes 385 KiB
+of guest code, most of it once, and spends much of its time in code that will
+never be worth translating.
+
+What is left to gain is the same thing `jit_probe.s` said it would be. Measured
+on the boot, translated code runs at about 37 cycles a guest instruction where
+the interpreter needs 85 -- 2.3x, which is roughly the gap between `alu_mem`
+(19.85) and the interpreter, and nothing like the gap between `alu_reg` (3.50)
+and it. **Every operand still comes out of the guest register file and every
+result goes back**, and the device measured that as the difference between 2.8x
+and 15x. Allocating registers inside a block would halve the code as well as
+the time, which halves what translating costs too -- and translating is a
+quarter of the boot on its own.
+
 ### The encoding is checked against the assembler
 
 `make jitenc` emits every C33 instruction the translator can produce, in bytes
@@ -607,7 +634,16 @@ multiplies.
 - `rv32.c`, `rv32.h` — the interpreter. Portable C; the C33-specific part is
   three section attributes and where the build puts them.
 - `rv32_hot.s` — the hot path. Implements the common opcodes and declines
-  the rest to the C interpreter.
+  the rest to the C interpreter. With `JIT=1` it is still what interprets
+  everything the translator has not earned its way into.
+- `rv32_jit.c`, `rv32_jit.h` — the translator: guest instructions to C33
+  instructions, traces, block linking, the code cache and what invalidates it.
+- `rv32_jitrt.s` — the runtime a translated block is entered from and leaves
+  by: the entry, the lookup an indirect guest jump takes, the device
+  registers, and the three ways a block gives up.
+- `tests/host_enc.c`, `jitenc.py` — every instruction the emitter can produce,
+  against what the toolchain's assembler makes of the same thing.
+  `tests/host_jit.c` disassembles what a guest instruction becomes.
 - `jit_probe.s`, `jit_probe.h` — what a translator would emit for the blocks
   a Linux boot spends its time in, copied into SDRAM and into A0 RAM and
   timed in both. `install-jit-probe.sh` puts it on a card and takes it off
