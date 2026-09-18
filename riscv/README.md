@@ -22,6 +22,9 @@ make test            # interpreter vs a native build of the same kernels
 make ASM=0           # without the assembly hot path, C only
 python3 compare.py   # build every placement and run them all, one table
 python3 hotspots.py --app build/riscv-code+state.app   # C cycles by line
+python3 hotspots_asm.py                # the assembly path, by instruction
+make mix             # what a Linux boot executes, natively, in a second
+python3 run.py --args jit              # what translated code would cost
 ```
 
 ## From the icon panel
@@ -208,8 +211,209 @@ Internal RAM is the budget everything competes for:
 
 | region | holds | used |
 | --- | --- | ---: |
-| A0 RAM, `0xc00` | hot path, machine state, the divide helper | 4,352 of 5,056 |
+| A0 RAM, `0xc00` | hot path, machine state, the divide helper, the probe's code buffer | 4,804 of 5,056 |
 | LCD window, `0x81a00` | the 1024-entry dispatch table, libgcc's divide | 4,852 of 5,632 |
+
+## What a Linux boot executes
+
+Every number above is against `guest/bench.c`, which is a mix chosen to
+exercise the interpreter rather than one anything really runs. `make mix`
+runs the same interpreter over `linux/Image` on the build machine, one
+instruction at a time, and says what a real guest does instead: thirty-eight
+million instructions from reset to the shell prompt, which is nine minutes
+under the full-system emulator and seven tenths of a second here.
+
+| | op-imm | load | store | op | branch | jal | jalr | lui | mul | div |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Linux | 29.0% | 20.0% | 18.0% | 14.9% | 9.2% | 3.3% | 2.7% | 1.6% | 0.56% | **0.01%** |
+| `rvbench` | 30.9% | 11.1% | 8.0% | 28.5% | 19.1% | 0.02% | 0.00% | 0.00% | 1.83% | 0.59% |
+
+Two differences matter. Linux moves memory: 38% of its instructions are
+loads and stores against the benchmark's 19%. And it does not divide — 2,128
+divides in the whole boot, one instruction in eighteen thousand, where the
+benchmark's `div` kernel is 10% of its cycles. The divide is the most
+expensive thing the interpreter does and it is worth nothing here.
+
+**It declines one instruction in 78.** The hot path hands back to the C
+interpreter for device addresses (0.82% of all instructions, mostly the UART
+the kernel prints through), CSR and system instructions (0.30%), atomics
+(0.14%) and misaligned accesses (0.02%). The benchmark declines one in 5,076,
+so this cost does not appear anywhere above.
+
+Control flow is looser than the benchmark's: 8.16 instructions between
+control transfers, and 64% of branches taken against 88%.
+
+The code is small and the hot part of it is tiny:
+
+| covering | blocks | guest instructions |
+| --- | ---: | ---: |
+| 50% of everything executed | 89 | 3,638 |
+| 80% | 585 | 9,577 |
+| 90% | 1,235 | 46,748 |
+| all of it | 16,574 | 642,574 |
+
+98,713 distinct instructions are executed in the whole boot — 385 KiB of
+guest code — and 89 basic blocks account for half of it. The hottest single
+block is 1,902 instructions of straight-line ChaCha20, entered 2,367 times
+and 11.9% of the boot on its own; the five after it are the kernel's memcpy
+word loop, its unrolled copy, its memset, its memcpy byte loop and memcmp,
+another 15% between them.
+
+And the guest almost never writes to code it has run: **26 pages in the
+entire boot**, one per 1.46 million instructions, 25 distinct pages of the
+372 it executes from.
+
+`make mix` also times the boot between one console line and the next, which
+needs no marker chosen in advance and catches the phases nobody printed the
+start of. Two thirds of the boot -- 25.2 million instructions of 37.9 -- is a
+single gap that ends at `Serial: 8250/16550 driver`, and nothing is printed
+inside it. It is the initcalls, and the 4 KiB spans the instructions land in
+say what they are doing: 17.2% in the kernel's memcpy and memset, 13.6% in the
+add-xor-rotate block at `0x800e7000`, 4.7% in the nanosecond arithmetic at
+`0x80046000`. **No decompressor appears anywhere**, and the reason is that the
+image carries its initramfs as a plain cpio -- 245 `070701` headers in the
+clear at file offset `0x1917c4`. `populate_rootfs` is the largest single
+thing this boot does and what it costs is the copy, not an unpacking.
+
+## What a translator would have to hold in registers
+
+The templates above say register allocation is worth 5.5x. Whether it is
+reachable is a question about the guest, and `make mix` answers it: for every
+basic block, which guest registers it touches and which it reads before it
+writes. Weighted by the instructions executed in blocks of that size:
+
+| registers | blocks touching at most that many | ...live in at the top of the block |
+| ---: | ---: | ---: |
+| 4 | 17.8% | 66.4% |
+| 6 | 40.1% | 84.9% |
+| 8 | 56.2% | 88.8% |
+| 10 | 66.5% | 91.5% |
+| 16 | 81.9% | 96.1% |
+
+The C33 has about nine registers to spare once the register-file base, the
+address adjustment, both ends of guest RAM and a scratch pair are live. Two
+thirds of everything executed is in a block whose entire working set fits in
+that, and **89% is in a block needing eight or fewer values loaded at entry** —
+so the prologue a translated block pays to get started is four to eight loads
+from internal RAM, not thirty-two. What does not fit is the long unrolled
+crypto, which is where an allocator would have to spill; that is the ordinary
+job of a linear scan and not a reason to skip one.
+
+## Where the cycles go
+
+`hotspots_asm.py` attributes the emulator's per-address profile to the
+instructions of `rv32_hot.s`, gathering all forty copies of `DISPATCH` into
+one row each. Per retired guest instruction, on the Linux boot:
+
+| | cycles | share |
+| --- | ---: | ---: |
+| `DISPATCH` — fetch, decode, dispatch | 40.2 | 50% |
+| the bodies' own work | 14.5 | 18% |
+| operand and writeback macros | 15.2 | 19% |
+| the C interpreter, for what was declined | 11.4 | 14% |
+| **total** | **81.3** | |
+
+Inside `DISPATCH`, the guest instruction fetch — one `ld.w %r5,[%r1]` from
+SDRAM — is **11.1 cycles** and half a row activation. The indirect jump that
+ends it is 2. The other 27 cycles are twenty-five instructions that take the
+instruction word apart, at about a cycle each, and put it back together as a
+table index and two register offsets.
+
+So about two thirds of every guest instruction is decode and dispatch: work
+that depends only on the instruction word, and that a translator would do
+once instead of every time. The declined instructions cost roughly 885 cycles
+each, which is what a return to C, one instruction interpreted from SDRAM and
+a re-entry come to.
+
+A profile has to be windowed to the run to say any of this. `pc_profile`
+buckets are cumulative and grifo boots from the same A0 RAM the interpreter
+is later loaded into, so its card-reading SPI loop and the dispatch macro
+share addresses: unwindowed, 2.2 million executions of grifo's loop land on
+four instructions of `DISPATCH`, and the hot path comes out a fifth dearer
+than the run it was measured in. `run.py --window START,END` passes the
+emulator's `-Y`, and both hotspots tools now bracket the run with `rv32_run`
+and `power_off`.
+
+## What translated code would cost
+
+`jit_probe.s` holds what a translator would emit for the blocks a Linux boot
+spends its time in, hand-written and honest about the whole cost — the guest
+register file addressed through an `ext` prefix, guest addresses checked
+against both ends of RAM the way `rv32_hot.s` checks them. Each template is
+position-independent, so `riscv.c` copies it into SDRAM and then into A0 RAM
+and times the same bytes in both. This is a question for the hardware:
+`emulator/README.md` has SDRAM-resident code about 10% too dear and two
+walking streams 20 to 30% too dear, and translated code is both at once. So
+the numbers here are the device's, in cycles per guest instruction:
+
+| template | guest | SDRAM | A0 RAM |
+| --- | --- | ---: | ---: |
+| `alu_reg` — ChaCha20's quarter round, values in registers | 20 a round | **3.50** | 1.28 |
+| `alu_mem` — the same, every operand through the register file | 8 a pass | 19.85 | 11.63 |
+| `ld_free` — a guest load, bound test hoisted | 5 a pass | 30.01 | 15.73 |
+| `ld_check` — the same load, checked on every access | 5 a pass | 40.35 | 20.54 |
+| `copy_reg` — the memcpy word loop, pointers in registers | 5 a pass | **5.22** | 5.46 |
+| `copy_mem` — the same loop, nothing held, every access checked | 5 a pass | 28.93 | 15.00 |
+| `exit_none` — eight blocks, each laid out after the last | 64 a pass | 2.78 | 1.08 |
+| `exit_link` — the same eight, chained by patched jumps | 64 a pass | 5.71 | 474 B |
+| `exit_hash` — the same eight, chained through a lookup | 64 a pass | 10.80 | 474 B |
+
+Device numbers, from `rvjit-device.txt`, against the interpreter's 80.5 on the
+same silicon. The last two are SDRAM only: 474 bytes against the 316 A0 RAM
+has left, and on the evidence of `copy_reg` a code cache belongs in SDRAM
+anyway. Four things here decide how a translator should be written.
+
+**Register allocation inside a block is worth more than everything else put
+together.** The same five guest instructions of the kernel's memcpy are 5.22
+cycles each with the three pointers in C33 registers and 28.93 with none:
+twelve bytes of code against a hundred, 15.4x against 2.8x. The ALU pair says
+the same, 3.50 against 19.85. Hoisting the bound test out of a loop is a
+further 34% on a load, 40.35 to 30.01.
+
+**A code cache in internal RAM is not worth building.** `copy_reg` is the
+fastest thing here and it is *faster in SDRAM than in A0 RAM* — 5.22 against
+5.46 — because twelve bytes fit the 27-byte window a loop has to be inside to
+be fetched once rather than every pass, and because a data read issued by code
+running from internal RAM is charged for it. Internal RAM is worth 1.7x to the
+templates that hold nothing in registers and nothing at all to the ones that
+do: it compensates for bad code generation and does not reward good. The
+interpreter needs it because a dispatch loop cannot satisfy that window at any
+alignment. Translated blocks can.
+
+**A block exit costs more than the block.** `exit_none`, `exit_link` and
+`exit_hash` are the same eight blocks of eight instructions each: run straight
+through, chained with a patched jump apiece, and chained through the lookup an
+indirect guest jump has to use. 2.78, 5.71 and 10.80 cycles a guest
+instruction, which is
+
+| exit | cycles |
+| --- | ---: |
+| successor laid out next, no jump at all | 0 |
+| a patched direct jump | 23.4 |
+| a lookup, which `jalr` has no alternative to | 64.1 |
+
+against a body of eight instructions that costs 22. A Linux boot leaves a
+block every 8.16 instructions and 23% of those exits are `jalr`, so an average
+exit is 32.8 cycles and **block exits alone are 4.0 cycles a guest
+instruction** -- as much as the body of a well-translated block.
+
+Two things follow for a translator. Lay blocks out along the hot path rather
+than as isolated units, because a successor placed immediately after its
+predecessor costs nothing at all and one placed anywhere else costs 23.
+And cache return addresses: most `jalr` are returns, and a call site that
+pushes the translated return address turns a 64-cycle lookup into a 23-cycle
+jump on the commonest indirect branch there is.
+
+**The model was wrong in the direction nobody expected.** SDRAM-resident code
+is charged about 10% too much for the interpreter, so these templates were
+expected to come in under it; they came in over, by 4 to 18%, and the error
+tracks SDRAM *data* traffic alongside the code stream rather than the code
+itself. `alu_reg` in SDRAM, a pure instruction stream, is exact to the
+hundredth. `ld_free` and `ld_check`, which walk a data stream underneath that
+code stream, are 14 and 18% dear — while the same loads issued from A0 RAM are
+exact. The one internal-RAM row that misses is `alu_mem`, 19% dear, whose data
+is the register file in A0 RAM: dense internal loads and stores from internal
+code. Both are recorded in `emulator/README.md`.
 
 ## Why the assembly is faster, which is not instruction count
 
@@ -308,6 +512,10 @@ multiplies.
   three section attributes and where the build puts them.
 - `rv32_hot.s` — the hot path. Implements the common opcodes and declines
   the rest to the C interpreter.
+- `jit_probe.s`, `jit_probe.h` — what a translator would emit for the blocks
+  a Linux boot spends its time in, copied into SDRAM and into A0 RAM and
+  timed in both. `install-jit-probe.sh` puts it on a card and takes it off
+  again.
 - `console.c`, `font6x9.h` — the terminal on the panel: 40x13 characters
   over a four-row keyboard, following the NuttX terminal's geometry, layout
   and font so the two consoles on this machine match.
@@ -320,8 +528,11 @@ multiplies.
   `riscv64-unknown-elf-gcc -march=rv32ima_zicsr`.
 - `tests/host_run.c` — runs a guest image under the interpreter on the build
   machine; `tests/ref.c` is the native reference for the checksums.
-- `compare.py`, `hotspots.py` — the two measurements worth taking: what a
-  placement is worth, and which source line is spending the cycles.
+  `tests/host_mix.c` runs one there too, stepping it, and reports what the
+  guest executed rather than what it cost.
+- `compare.py`, `hotspots.py`, `hotspots_asm.py` — what a placement is worth,
+  which C source line is spending the cycles, and which instruction of the
+  assembly path is.
 - `make-icons.py` — regenerates the two launcher icons. The XPMs are
   checked in, so the build needs no network.
 

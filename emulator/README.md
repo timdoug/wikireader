@@ -714,6 +714,59 @@ If the reading is right the device says about 65 for the first and about 171
 for the second; if it is backwards, they come back the other way round and
 the fault is in the number of accesses rather than the contention.
 
+### The translator templates, which miss the other way
+
+`riscv/jit_probe.s` is twelve more measurements on the device, and they are
+worth reading against the section above because they carry the opposite sign.
+They are hand-written translations of guest basic blocks, run from SDRAM and
+from A0 RAM; `riscv/rvjit-device.txt` is the device's answer and
+`riscv/README.md` the reading of it. Device over model:
+
+| template | SDRAM | A0 RAM |
+| --- | ---: | ---: |
+| `alu_reg` | **1.000** | 0.970 |
+| `alu_mem` | 1.040 | **1.193** |
+| `ld_free` | 1.145 | 1.003 |
+| `ld_check` | 1.179 | 1.000 |
+| `copy_reg` | 1.074 | 1.034 |
+| `copy_mem` | 1.127 | 1.102 |
+| `exit_none` | 1.038 | 0.972 |
+| `exit_link` | **0.913** | — |
+| `exit_hash` | 1.071 | — |
+
+The interpreter's all-in-SDRAM build says SDRAM-resident code is charged
+about 10% too much, so these were expected under the model. Every one of them
+is over it.
+
+What separates the rows is not the code but what runs underneath it.
+`alu_reg` in SDRAM is a pure instruction stream with no data access at all,
+and the model gets it exactly: 3.50 against 3.50. `ld_free` and `ld_check`
+are the same code shape walking a data stream beneath the code stream, and
+they are 14 and 18% dear -- while the same loads issued from A0 RAM, where
+only the data comes off the bus, are exact to a thousandth. So the error is
+in fetch running against data, and it appears as an *under*charge where the
+two-stream loops in `ubench` are an overcharge. Those alternate two *data*
+streams; these alternate a code stream with a data stream. One bus, two
+readings, opposite signs -- which says the contention term is wrong in shape
+and not merely in size.
+
+`exit_link` is the exception that names the other error. It is eight blocks
+chained by patched jumps, so its fetch stream is nothing but broken runs, and
+it is the one row the device beats the model at -- 0.913, against 1.038 for
+the same eight blocks run straight through as `exit_none`. The interpreter's
+all-in-SDRAM build says 0.905 and a dispatch loop is jumps all the way down,
+so two independent workloads now put the overcharge on the *jump* rather than
+on SDRAM-resident code in general. `branch_bubble` and the queue restart under
+it are about a tenth too dear; sequential fetch is if anything slightly cheap.
+
+`alu_mem` in A0 RAM is the one internal-RAM row that misses, by 19%, and it
+is the only template whose data is also internal: twenty-one `ext`-displaced
+loads and stores into the register file in A0 RAM across fifty-two
+instructions, nothing touching SDRAM at all. Fifteen cycles a pass, about
+0.7 of a cycle an access, that the model does not charge for a dense stream
+of internal data from internal code. The interpreter does exactly this on
+every guest instruction it executes.
+
 ### Compare against the device, not against a direct boot
 
 Four traps, all the same shape: the device is never in the state a direct
