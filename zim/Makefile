@@ -66,6 +66,7 @@ SOURCES += zstd_c33_seq.s   # the sequence loop, in A0 RAM
 build/zstddeclib.o: CFLAGS += -mlong-calls
 # The HTML converter and wrapper run as IVRAM overlays (zim_overlay.h);
 # calls between them and the rest of the program span 256 MB.
+build/search.o: CFLAGS += -falign-loops=16
 build/zim_html.o: CFLAGS += -mlong-calls
 build/zim_article.o: CFLAGS += -mlong-calls
 build/vp8_dec.o: CFLAGS += -mlong-calls
