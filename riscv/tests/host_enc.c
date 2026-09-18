@@ -41,7 +41,6 @@ static void start(void)
 	t.base = buf;
 	t.off = 0;
 	t.end = sizeof buf;
-	t.full = 0;
 }
 
 /* One case: what came out, and what it should have been called. */

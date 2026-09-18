@@ -277,37 +277,13 @@ uint32_t rv32_hot(rv32_t *s, uint32_t budget);
 #endif
 
 /* The M-extension operations the assembly does not do itself: the divides,
-   and the one mixed-sign multiply.  It calls this rather than declining,
-   because declining costs a round trip out of the hot path and back in
-   through the whole C interpreter, and real code divides often enough for
-   that to show.  The semantics here are RISC-V's, which differ from C's on
-   division by zero and on the one overflowing signed case. */
-#ifdef RV32_FASTCODE
-__attribute__((section(".fastcode")))
-#endif
-uint32_t rv32_divop(uint32_t funct3, uint32_t a, uint32_t b)
-{
-	switch (funct3) {
-	case 2:  /* MULHSU */
-		return (uint32_t)(((int64_t)(int32_t)a * (int64_t)(uint64_t)b) >> 32);
-	case 4:  /* DIV */
-		if (b == 0)
-			return 0xffffffffu;
-		if (a == 0x80000000u && b == 0xffffffffu)
-			return a;
-		return (uint32_t)((int32_t)a / (int32_t)b);
-	case 5:  /* DIVU */
-		return b == 0 ? 0xffffffffu : a / b;
-	case 6:  /* REM */
-		if (b == 0)
-			return a;
-		if (a == 0x80000000u && b == 0xffffffffu)
-			return 0;
-		return (uint32_t)((int32_t)a % (int32_t)b);
-	default: /* REMU */
-		return b == 0 ? a : a % b;
-	}
-}
+   and the one mixed-sign multiply.  rv32_div.s, in the window buffer; it
+   is called rather than declined to, because declining costs a round trip
+   out of the hot path and back in through the whole C interpreter, and real
+   code divides often enough for that to show.  The semantics are RISC-V's,
+   which differ from C's on division by zero and on the one overflowing
+   signed case. */
+uint32_t rv32_divop(uint32_t funct3, uint32_t a, uint32_t b);
 #endif
 
 /* ---- the interpreter --------------------------------------------------- */

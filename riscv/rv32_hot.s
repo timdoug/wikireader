@@ -75,9 +75,9 @@
 	srl	%r13,12
 	and	%r13,0x7
 	or	%r9,%r13
-	sll	%r9,2
+	sll	%r9,1
 	add	%r9,%r7
-	ld.w	%r9,[%r9]
+	ld.uh	%r9,[%r9]		; a halfword: every body is in A0 RAM
 	jp.d	%r9
 	add	%r1,0x4			; p now points at the next instruction
 8:	xjp	.Lleave
@@ -654,49 +654,51 @@ rv32_hot:
 ; field is part of an immediate (lui, auipc, jal) name the same body eight
 ; times; encodings whose low two bits are not both set are compressed
 ; instructions, which this core does not implement, and land on the decline
-; entry like any other hole.
+; entry like any other hole.  An entry is a halfword: every body is in A0
+; RAM, below 0x2000, and the 2 KB the other half took is what the divide
+; and the translator's runtime live in.
 
 	.section .ivram_code,"ax"
-	.align	2
+	.align	1
 
 	.macro	HOLE n
 	.rept	\n * 8
-	.long	.Ldecline_far
+	.short	.Ldecline_far
 	.endr
 	.endm
 
 .Ltable:
 	HOLE	3			; 0x00 .. 0x02
-	.long	.Llb, .Llh, .Llw, .Ldecline_far			; 0x03 load
-	.long	.Llbu, .Llhu, .Ldecline_far, .Ldecline_far
+	.short	.Llb, .Llh, .Llw, .Ldecline_far			; 0x03 load
+	.short	.Llbu, .Llhu, .Ldecline_far, .Ldecline_far
 	HOLE	11			; 0x04 .. 0x0e
-	.long	.Lfence, .Ldecline_far, .Ldecline_far, .Ldecline_far	; 0x0f: fence.i is C's
-	.long	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
+	.short	.Lfence, .Ldecline_far, .Ldecline_far, .Ldecline_far	; 0x0f: fence.i is C's
+	.short	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
 	HOLE	3			; 0x10 .. 0x12
-	.long	.Laddi, .Lslli, .Lslti, .Lsltiu			; 0x13 op-imm
-	.long	.Lxori, .Lsrxi, .Lori, .Landi
+	.short	.Laddi, .Lslli, .Lslti, .Lsltiu			; 0x13 op-imm
+	.short	.Lxori, .Lsrxi, .Lori, .Landi
 	HOLE	3			; 0x14 .. 0x16
 	.rept	8						; 0x17 auipc
-	.long	.Lauipc
+	.short	.Lauipc
 	.endr
 	HOLE	11			; 0x18 .. 0x22
-	.long	.Lsb, .Lsh, .Lsw, .Ldecline_far			; 0x23 store
-	.long	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
+	.short	.Lsb, .Lsh, .Lsw, .Ldecline_far			; 0x23 store
+	.short	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
 	HOLE	15			; 0x24 .. 0x32
-	.long	.Laddsub, .Lsll, .Lslt, .Lsltu			; 0x33 op
-	.long	.Lxor, .Lsrx, .Lor, .Land
+	.short	.Laddsub, .Lsll, .Lslt, .Lsltu			; 0x33 op
+	.short	.Lxor, .Lsrx, .Lor, .Land
 	HOLE	3			; 0x34 .. 0x36
 	.rept	8						; 0x37 lui
-	.long	.Llui
+	.short	.Llui
 	.endr
 	HOLE	43			; 0x38 .. 0x62
-	.long	.Lbeq, .Lbne, .Ldecline_far, .Ldecline_far	; 0x63 branch
-	.long	.Lblt, .Lbge, .Lbltu, .Lbgeu
+	.short	.Lbeq, .Lbne, .Ldecline_far, .Ldecline_far	; 0x63 branch
+	.short	.Lblt, .Lbge, .Lbltu, .Lbgeu
 	HOLE	3			; 0x64 .. 0x66
-	.long	.Ljalr, .Ldecline_far, .Ldecline_far, .Ldecline_far	; 0x67
-	.long	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
+	.short	.Ljalr, .Ldecline_far, .Ldecline_far, .Ldecline_far	; 0x67
+	.short	.Ldecline_far, .Ldecline_far, .Ldecline_far, .Ldecline_far
 	HOLE	7			; 0x68 .. 0x6e
 	.rept	8						; 0x6f jal
-	.long	.Ljal
+	.short	.Ljal
 	.endr
 	HOLE	16			; 0x70 .. 0x7f

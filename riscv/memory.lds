@@ -8,17 +8,12 @@ SECTIONS {
     .ivram_data 0x81a00 (NOLOAD) : {
         *(.ivram_data)
     }
-    /* The guest's divide becomes a call to libgcc, and libgcc in SDRAM is
-       the worst code in the program: a division loop that misses the
-       instruction queue on every pass.  The kernel's ELF loader places a
-       section by its address, so giving these objects an address in the
-       window buffer is all it takes to run them from internal RAM. */
-    .ivram_code 0x81c00 : {
+    /* The interpreter's dispatch table, the translator's runtime and the
+       guest's divide (rv32_div.s).  The kernel's ELF loader places a
+       section by its address, so an address in the window buffer is all it
+       takes to run them from internal RAM. */
+    .ivram_code ALIGN(4) : {
         *(.ivram_code)
-        *libgcc.a:divmod.o(.text .rodata)
-        *libgcc.a:udivmod.o(.text .rodata)
-        *libgcc.a:udivmodsi4.o(.text .rodata)
-        *libgcc.a:_clz.o(.text .rodata)
     }
 }
 INSERT AFTER .lcd;

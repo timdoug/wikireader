@@ -686,7 +686,8 @@ int grifo_main(int argc, char **argv)
 			debug_printf("rv32: jit %lu blocks, %lu bytes, %lu flushes, "
 				     "%lu entries, %lu declines (%lu mem: %lu dev "
 				     "%lu align; %lu jump), %lu warmups, "
-				     "%lu fences retiring %lu\n",
+				     "%lu fences retiring %lu, %lu regions of "
+				     "%lu insns\n",
 				     (unsigned long)rv32_jit.blocks,
 				     (unsigned long)rv32_jit.bytes,
 				     (unsigned long)rv32_jit.flushes,
@@ -698,7 +699,9 @@ int grifo_main(int argc, char **argv)
 				     (unsigned long)rv32_jit.dec_jump,
 				     (unsigned long)rv32_jit.warmups,
 				     (unsigned long)rv32_jit.fences,
-				     (unsigned long)rv32_jit.stale);
+				     (unsigned long)rv32_jit.stale,
+				     (unsigned long)rv32_jit.regions,
+				     (unsigned long)rv32_jit.insns);
 #endif
 		}
 		watchdog(WATCHDOG_KEY);
@@ -762,7 +765,11 @@ int grifo_main(int argc, char **argv)
 	report_u64(rv32_jit.fences);
 	report(" fences retiring ");
 	report_u64(rv32_jit.stale);
-	report(" regions\n");
+	report(" regions; ");
+	report_u64(rv32_jit.regions);
+	report(" regions of ");
+	report_u64(rv32_jit.insns);
+	report(" insns translated\n");
 #endif
 	if (report_truncated)
 		report("rv32: report truncated\n");

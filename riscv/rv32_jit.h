@@ -131,6 +131,9 @@ typedef struct rv32_jit {
 	uint32_t  stale;
 	uint32_t  entries;
 	uint32_t  warmups;     /* chunks the interpreter ran instead */
+	uint32_t  regions;     /* translated, and the guest instructions in
+	                          them counting every unrolled copy */
+	uint32_t  insns;
 } rv32_jit_t;
 
 extern rv32_jit_t rv32_jit;

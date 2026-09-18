@@ -14,8 +14,8 @@
 ; translated block can, and jit_probe.s measured a well-translated loop running
 ; *faster* from SDRAM than from internal RAM.  So the code cache is in SDRAM
 ; and what lives in the fast memory is only this: the entry, the lookup an
-; indirect guest jump takes, the one way a block gives up, and the two device
-; helpers that come back.
+; indirect guest jump takes, the one way a block gives up, and the helpers
+; that come back.
 
 	.set	OFF_PC, 128
 	.set	OFF_RAM, 132
@@ -142,50 +142,54 @@ rv32_jit_stub_fault:				; %r5 = code
 ; every 110 instructions -- two thirds of everything this would otherwise hand
 ; back to C.  Handing one back costs a return, one instruction interpreted from
 ; SDRAM, a lookup and a re-entry, which measured about four thousand cycles;
-; doing it here is a call and a return.  These are the only stubs that go back
-; into the code cache, and they do it with `ret`: the address the block's `call`
-; pushed is still on the stack.
+; doing it here is a call and a return.  These stubs go back into the code
+; cache with `ret`: the address the block's `call` pushed is still on the
+; stack.  The divide is rv32_div.s, and needs none of this.
 ;
-; What the block has live and C is free to clobber goes on the stack around
-; the call: the batch counter and the six allocated registers that are not
-; %r1.  The stack is at the top of SDRAM, so every word of it is a bus cycle
-; and this is chosen over pushn, which would be fifteen words each way for
-; two instructions.  %r8 is not saved: it is a function of %r2, which C
-; keeps, and three words rebuild it.
 ;
-; Both halves are subroutines rather than macros, so that the five stubs fit
-; beside the interpreter's table: a call here lands in internal RAM and costs
-; six cycles, not thirty.  Each leaves its own return address on the stack
-; and goes back through a register it has just saved or is about to restore,
-; so the saved words sit at a fixed offset and %r13 -- which three stubs
-; arrive with an argument in -- survives the save.
+; What the block has live and C is free to clobber -- the batch counter and
+; the six allocated registers that are not %r1 -- is put away around the
+; call, in internal RAM: the stack is at the top of SDRAM, where every word
+; read back cost ten cycles, and pushn would be fifteen words each way.  The
+; two halves are subroutines rather than macros, so that the stubs fit
+; beside the interpreter's table, and a call here lands in internal RAM and
+; costs six cycles, not thirty.  The save needs a register to address the
+; area with before any is free, so the batch counter goes into the
+; multiplier's result register first: nothing holds a product across a call.
+; %r8 is not saved: it is a function of %r2, which C keeps, and three words
+; rebuild it.
 
-.Lsave:						; call: [sp] = the return address
-	sub	%sp,0x7
-	ld.w	[%sp+0x0],%r6
-	ld.w	[%sp+0x1],%r7
-	ld.w	[%sp+0x2],%r9
-	ld.w	[%sp+0x3],%r10
-	ld.w	[%sp+0x4],%r11
-	ld.w	[%sp+0x5],%r12
-	ld.w	[%sp+0x6],%r14
-	ld.w	%r6,[%sp+0x7]
-	jp	%r6				; leaving eight words
+	.section .ivram_data,"aw",@nobits
+	.align	2
+.Lregs:	.skip	7 * 4
+	.section .ivram_code,"ax"
 
-.Lrestore:					; call: saved words at [sp+1..7]
-	ld.w	%r6,[%sp+0x1]
-	ld.w	%r7,[%sp+0x2]
-	ld.w	%r9,[%sp+0x3]
-	ld.w	%r10,[%sp+0x4]
-	ld.w	%r11,[%sp+0x5]
-	ld.w	%r12,[%sp+0x6]
-	ld.w	%r14,[%sp+0x7]
-	ld.w	%r13,[%sp+0x0]
-	add	%sp,0x9				; both return addresses too
-	ld.w	%r8,0x1				; ram - RV_RAM_BASE, again
+.Lsave:
+	ld.w	%alr,%r6
+	xld.w	%r6,.Lregs
+	ld.w	[%r6]+,%r7
+	ld.w	[%r6]+,%r9
+	ld.w	[%r6]+,%r10
+	ld.w	[%r6]+,%r11
+	ld.w	[%r6]+,%r12
+	ld.w	[%r6]+,%r14
+	ld.w	%r7,%alr
+	ld.w	[%r6],%r7
+	ret
+
+.Lrestore:				; %r4 and %r5 are the answer, kept
+	xld.w	%r13,.Lregs
+	ld.w	%r7,[%r13]+
+	ld.w	%r9,[%r13]+
+	ld.w	%r10,[%r13]+
+	ld.w	%r11,[%r13]+
+	ld.w	%r12,[%r13]+
+	ld.w	%r14,[%r13]+
+	ld.w	%r6,[%r13]
+	ld.w	%r8,0x1			; ram - RV_RAM_BASE, again
 	sll	%r8,31
 	add	%r8,%r2
-	jp	%r13
+	ret
 
 ; The C interpreter truncates nothing on a device access -- rv32.c hands the
 ; whole word back on a load and the whole register out on a store -- so the
@@ -253,22 +257,5 @@ rv32_jit_stub_amo:				; %r13 ir, %r4 host address, %r5 value -> %r5
 	ld.w	%r6,%r0				; arg0: s
 	xcall	rv32_amo_hot
 	ld.w	%r5,%r4
-	call	.Lrestore
-	ret
-
-; ------------------------------------------------------- the divides ------
-;
-; The M operations with no C33 instruction behind them: rv32_divop in rv32.c,
-; called the same way and with the same registers kept.  A block wants its
-; result in some register of its own, and it is cheaper to move it there
-; afterwards than to make the call site the size of this.
-
-	.globl	rv32_jit_stub_divop
-rv32_jit_stub_divop:				; %r13 funct3, %r4 a, %r5 b -> %r4
-	call	.Lsave
-	ld.w	%r6,%r13
-	ld.w	%r7,%r4
-	ld.w	%r8,%r5
-	xcall	rv32_divop
 	call	.Lrestore
 	ret

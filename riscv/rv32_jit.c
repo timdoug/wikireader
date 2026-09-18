@@ -82,7 +82,8 @@ void rv32_jit_stub_indirect(void);
 
 struct jit_block {
 	uint32_t pc;     /* the guest pc it starts at; 0 once retired */
-	uint32_t off;    /* its cold entry: where the map is loaded */
+	uint32_t off;    /* its cold entry: where the map is loaded; NO_ENTRY
+	                    until something outside its region wants one */
 	uint32_t warm;   /* its warm entry: the map is already in place */
 	uint32_t sum;    /* of the guest words it was translated from */
 	uint16_t n;      /* guest instructions in it */
@@ -159,14 +160,15 @@ enum {                           /* branches */
 /* The cold section of a trace: every path that leaves the ordinary one, kept
    until the last block is emitted and then laid out after it.  A device
    access rejoins the block; the others hand the block to the runtime. */
-enum { C_FAULT, C_DEV_LOAD, C_DEV_STORE, C_EXIT };
+enum { C_FAULT, C_DEV_LOAD, C_DEV_STORE, C_EXIT, C_ENTRY };
+
+#define NO_ENTRY 0xffffffffu
 
 struct cold {
-	uint8_t  kind;
-	uint8_t  reg;           /* a device load's destination, a store's value */
-	uint8_t  align;         /* the access's alignment mask, checked again */
-	uint8_t  nsite;
-	uint32_t site[3];       /* the prefixed branches that come here */
+	uint32_t info;          /* kind | reg << 8 | align << 16: the register
+	                           a device load lands in or a store takes, and
+	                           the access's alignment mask, checked again */
+	uint32_t site;          /* the prefixed branch that comes here */
 	uint32_t rejoin;        /* where a device access goes back to */
 	uint32_t code;          /* what the runtime is told, or an exit's pc */
 };
@@ -179,7 +181,6 @@ struct tc {
 	uint8_t  *base;     /* where the code will run */
 	uint32_t  off;
 	uint32_t  end;      /* the offset it must stop before */
-	int       full;
 
 	/* The block being emitted. */
 	uint8_t   map[NSLOT];   /* guest register in each slot, 0 = none */
@@ -189,7 +190,6 @@ struct tc {
 	unsigned  i;            /* the instruction being emitted */
 
 	unsigned  ncold;
-	uint32_t  coldbytes;    /* what the cold section will take */
 
 	unsigned  nrb;          /* the region's blocks, and the jumps between */
 	unsigned  nfix;         /* them still to be filled in */
@@ -201,12 +201,12 @@ struct tc {
    instruction with them as calls. */
 #define INLINE static inline __attribute__((always_inline))
 
+/* No room check per word: translate() trims the region to what the cache
+   has room for before a word of it is emitted, at the most any instruction
+   and any block can take, so the check here was only ever a load and a
+   compare on the translator's hottest line. */
 INLINE void w(struct tc *t, unsigned v)
 {
-	if (t->off + 2 > t->end) {
-		t->full = 1;
-		return;
-	}
 	*(uint16_t *)(t->base + t->off) = (uint16_t)v;     /* always even */
 	t->off += 2;
 }
@@ -295,8 +295,6 @@ INLINE uint32_t fwd(struct tc *t, unsigned op)
 
 INLINE void land(struct tc *t, uint32_t at)
 {
-	if (t->full)
-		return;
 	t->base[at] = (uint8_t)((t->off - at) / 2);
 }
 
@@ -316,8 +314,6 @@ INLINE void land_far(struct tc *t, uint32_t at, uint32_t target)
 {
 	uint32_t h = (uint32_t)((int32_t)(target - (at + 2)) / 2);
 
-	if (t->full)
-		return;
 	t->base[at] = (uint8_t)(h >> 8);
 	t->base[at + 1] = (uint8_t)(0xc0 | ((h >> 16) & 0x1f));
 	t->base[at + 2] = (uint8_t)h;
@@ -388,30 +384,42 @@ static void writeback(struct tc *t, uint32_t set)
 
 /* ---- the cold section -------------------------------------------------- */
 
+static uint32_t *slot(uint32_t pc)
+{
+	return rv32_jit.map + 2 * ((pc >> 2) & RV32_JIT_MASK);
+}
+
+static void patch(uint32_t off, uint32_t code)
+{
+	struct tc t;
+
+	memset(&t, 0, sizeof t);
+	t.base = rv32_jit.code;
+	t.off = off;
+	t.end = off + 6;
+	xjump(&t, B_JP, code);
+}
+
+/* Two words: the table is in SDRAM, in a row that is neither the code's nor
+   the guest's, and this is made once per memory access. */
 INLINE struct cold *cold_new(struct tc *t, unsigned kind, unsigned reg,
-			     unsigned why)
+			     unsigned align, unsigned why)
 {
 	struct cold *c = &colds[t->ncold++];
 
-	c->kind = (uint8_t)kind;
-	c->reg = (uint8_t)reg;
-	c->align = 0;
-	c->nsite = 0;
-	c->rejoin = 0;
+	c->info = kind | (reg << 8) | (align << 16);
 	c->code = t->bidx | (t->i << 16) | (why << 24);
-	/* The most each kind emits, in bytes, so the room check can be made
-	   before the block and not per word. */
-	t->coldbytes += kind == C_DEV_STORE ? 36 : kind == C_DEV_LOAD ? 32 :
-			kind == C_EXIT ? 4 * NSLOT + 12 : 12;
 	return c;
 }
 
 INLINE void cold_site(struct cold *c, uint32_t at)
 {
-	c->site[c->nsite++] = at;
+	c->site = at;
 }
 
 static void region_jump(struct tc *t, uint32_t target);
+static uint32_t entry(struct tc *t, const uint8_t *map, unsigned bidx,
+		      uint32_t warm);
 
 static void emit_cold(struct tc *t)
 {
@@ -420,35 +428,47 @@ static void emit_cold(struct tc *t)
 
 	for (k = 0; k < t->ncold; ++k) {
 		struct cold *c = &colds[k];
-
+		unsigned kind = c->info & 0xff, reg = (c->info >> 8) & 0xff;
+		unsigned align = c->info >> 16;
 		uint32_t bad[2];
 		unsigned nbad = 0;
 
-		for (j = 0; j < c->nsite; ++j)
-			land_far(t, c->site[j], t->off);
-		if (c->kind == C_EXIT) {
+		if (kind == C_ENTRY) {
+			/* Another region's block, wanted from this one and
+			   entered from outside for the first time: its entry
+			   is made here, and belongs to it from now on. */
+			struct jit_block *b = &rv32_jit.blk[c->code];
+
+			b->off = entry(t, b->map, c->code, b->warm);
+			slot(b->pc)[0] = b->pc;
+			slot(b->pc)[1] = base + b->off;
+			patch(c->site, base + b->off);
+			continue;
+		}
+		land_far(t, c->site, t->off);
+		if (kind == C_EXIT) {
 			region_jump(t, c->code);
 			continue;
 		}
 		/* The one branch a memory access takes covers misaligned as
 		   well as outside RAM.  Only a device access goes on from here,
 		   so the two are told apart now, where it costs nothing. */
-		if (c->kind != C_FAULT && c->align) {
+		if (kind != C_FAULT && align) {
 			rr(t, O_MOV, R13, R4);
-			ri(t, I_AND, R13, c->align);
+			ri(t, I_AND, R13, align);
 			bad[nbad++] = fwd(t, B_NE);
 		}
-		switch (c->kind) {
+		switch (kind) {
 		case C_DEV_LOAD:
 			xjump(t, B_CALL,
 			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_load);
-			if (c->reg != R5)
-				rr(t, O_MOV, c->reg, R5);
+			if (reg != R5)
+				rr(t, O_MOV, reg, R5);
 			xjump(t, B_JP, base + c->rejoin);
 			break;
 		case C_DEV_STORE:
-			if (c->reg != R5)
-				rr(t, O_MOV, R5, c->reg);
+			if (reg != R5)
+				rr(t, O_MOV, R5, reg);
 			xjump(t, B_CALL,
 			      (uint32_t)(uintptr_t)rv32_jit_stub_dev_store);
 			bad[nbad++] = fwd(t, B_NE);     /* C has to do it */
@@ -457,7 +477,7 @@ static void emit_cold(struct tc *t)
 		default:
 			break;
 		}
-		if (c->kind == C_FAULT || nbad) {
+		if (kind == C_FAULT || nbad) {
 			for (j = 0; j < nbad; ++j)
 				land(t, bad[j]);
 			ri(t, I_MOV, R5, c->code);
@@ -465,7 +485,6 @@ static void emit_cold(struct tc *t)
 		}
 	}
 	t->ncold = 0;
-	t->coldbytes = 0;
 }
 
 /* ---- guest instructions ------------------------------------------------ */
@@ -635,8 +654,7 @@ INLINE struct cold *address(struct tc *t, unsigned rs1, int32_t off,
 	rr(t, O_ADD, R4, R8);
 	rr(t, O_MOV, R13, R4);
 	rr(t, O_SUB, R13, R2);
-	c = cold_new(t, kind, reg, RV32_JIT_DECLINE);
-	c->align = (uint8_t)align;
+	c = cold_new(t, kind, reg, align, RV32_JIT_DECLINE);
 	switch (align) {
 	case 3:
 		shift(t, S_RR, R13, 2);
@@ -701,8 +719,8 @@ INLINE void op3(struct tc *t, unsigned op, int commutes,
 	done(t, rd, hd);
 }
 
-/* The divides, which have no C33 instruction behind them: the runtime's
-   wrapper keeps what the block has live and calls rv32.c. */
+/* The divides, which have no C33 instruction behind them: rv32_div.s, in
+   internal RAM, keeping every register but the three it is handed. */
 static void mcall(struct tc *t, unsigned rd, unsigned rs1, unsigned rs2,
 		  unsigned f3)
 {
@@ -777,7 +795,7 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 		return;                                 /* the trace does the jump */
 
 	case 0x67: {                                    /* jalr */
-		struct cold *c = cold_new(t, C_FAULT, 0, RV32_JIT_DECLINE);
+		struct cold *c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_DECLINE);
 
 		h1 = use(t, rs1, R13);
 		if (h1 != R13)
@@ -910,7 +928,7 @@ static void insn(struct tc *t, uint32_t pc, uint32_t ir)
 		}
 
 	case 0x73: {                                    /* csrrw/s/c, and -i */
-		struct cold *c = cold_new(t, C_FAULT, 0, RV32_JIT_DECLINE);
+		struct cold *c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_DECLINE);
 
 		if (f3 & 4)
 			ri(t, I_MOV, R4, rs1);          /* the immediate */
@@ -967,7 +985,7 @@ enum { T_BRANCH, T_JAL, T_JALR, T_DECLINE, T_CAP };
 
 #define BLOCK_CAP 200
 #define INSN_ROOM 128       /* the most any one instruction emits, hot and cold */
-#define BLOCK_ROOM 256      /* cold entry, budget check and exits */
+#define BLOCK_ROOM 320      /* entries, budget check and exits */
 
 static unsigned scan(rv32_t *s, uint32_t pc, int *term)
 {
@@ -1011,10 +1029,6 @@ static unsigned scan(rv32_t *s, uint32_t pc, int *term)
 	return n;
 }
 
-static uint32_t *slot(uint32_t pc)
-{
-	return rv32_jit.map + 2 * ((pc >> 2) & RV32_JIT_MASK);
-}
 
 static uint32_t bhash(uint32_t pc)
 {
@@ -1046,16 +1060,6 @@ static uint32_t entry_of(struct jit_block *b)
 	return (uint32_t)(uintptr_t)rv32_jit.code + b->off;
 }
 
-static void patch(uint32_t off, uint32_t code)
-{
-	struct tc t;
-
-	memset(&t, 0, sizeof t);
-	t.base = rv32_jit.code;
-	t.off = off;
-	t.end = off + 6;
-	xjump(&t, B_JP, code);
-}
 
 /* Every exit whose target was not laid out next waits on this list until the
    target exists, and is then overwritten with a direct jump to it. */
@@ -1074,6 +1078,24 @@ static void link_add(uint32_t pc, uint32_t off)
 		  rv32_jit.link_hash[i];
 	rv32_jit.link_hash[i] = (uint16_t)rv32_jit.link_used;
 	rv32_jit.link_used++;
+}
+
+/* Is anything waiting to jump to pc? */
+static int link_pending(uint32_t pc)
+{
+	uint32_t m = rv32_jit.link_hash_mask;
+	uint32_t i = (bhash(pc) >> 8) & m;
+	uint32_t at = rv32_jit.link_hash[i] == 0xffff ? 0xffffffffu :
+		      rv32_jit.link_hash[i];
+
+	while (at != 0xffffffffu) {
+		struct jit_link *l = &rv32_jit.link[at];
+
+		if (l->pc == pc && l->off != 0xffffffffu)
+			return 1;
+		at = l->next;
+	}
+	return 0;
 }
 
 static void link_resolve(struct jit_block *b)
@@ -1129,10 +1151,11 @@ static struct jit_block *record(rv32_t *s, uint32_t pc, uint32_t off,
 	rv32_jit.blk_hash[i] = (uint16_t)rv32_jit.blk_used;
 	rv32_jit.blk_used++;
 
-	slot(pc)[0] = pc;
-	slot(pc)[1] = (uint32_t)(uintptr_t)(rv32_jit.code + off);
-
-	link_resolve(b);
+	if (off != NO_ENTRY) {
+		slot(pc)[0] = pc;
+		slot(pc)[1] = (uint32_t)(uintptr_t)(rv32_jit.code + off);
+		link_resolve(b);
+	}
 	rv32_jit.blocks++;
 	return b;
 }
@@ -1408,7 +1431,7 @@ static void budget_check(struct tc *t)
 	struct cold *c;
 
 	t->i = 0;
-	c = cold_new(t, C_FAULT, 0, RV32_JIT_BUDGET);
+	c = cold_new(t, C_FAULT, 0, 0, RV32_JIT_BUDGET);
 	ri(t, I_CMP, R6, 0);
 	cold_site(c, jfar(t, B_LE));
 }
@@ -1435,7 +1458,15 @@ static void region_jump(struct tc *t, uint32_t target)
 	writeback(t, t->wb);
 	b = find(target);
 	if (b) {
-		xjump(t, B_JP, entry_of(b));
+		if (b->off != NO_ENTRY) {
+			xjump(t, B_JP, entry_of(b));
+		} else {
+			struct cold *c = cold_new(t, C_ENTRY, 0, 0, 0);
+
+			c->code = (uint32_t)(b - rv32_jit.blk);
+			cold_site(c, t->off);
+			xjump(t, B_JP, 0);
+		}
 		return;
 	}
 	{
@@ -1462,6 +1493,88 @@ static void align(struct tc *t)
 		w(t, 0);                        /* nop */
 }
 
+/* Does the block laid out before this one run into it?  A branch's or a
+   capped block's fall-through does, and so does a plain jump whose target
+   was laid out next; a call never does, whatever follows it. */
+static int fallen_into(struct tc *t, unsigned i)
+{
+	struct rblock *p;
+	uint32_t ir;
+
+	if (i == 0)
+		return 0;
+	p = &rb[i - 1];
+	switch (p->term) {
+	case T_BRANCH: case T_CAP:
+		return p->pc + 4 * p->n == rb[i].pc;
+	case T_JAL:
+		ir = fetch(t->s, p->pc + 4 * (p->n - 1));
+		return ((ir >> 7) & 31) == 0 && succ_taken(t->s, p) == rb[i].pc;
+	default:
+		return 0;
+	}
+}
+
+/* A block's entry from outside its region: the map loaded, the batch
+   checked, and a jump to the block's inline code.  Not every block gets one.
+   A region's first block and the block after every call have theirs inline,
+   because nothing falls into them and a return should land once; any other
+   block gets one only when something outside the region turns out to want
+   it -- a link, a lookup, a fault resuming there -- which most never do.  A
+   Linux boot made 13,600 blocks and most of its two megabytes of code was
+   these, laid out for every block in advance. */
+static uint32_t entry(struct tc *t, const uint8_t *map, unsigned bidx,
+		      uint32_t warm)
+{
+	uint32_t off, over;
+	unsigned k;
+
+	align(t);
+	off = t->off;
+	for (k = 0; k < NSLOT; ++k)
+		if (map[k])
+			getx(t, slot_reg[k], map[k]);
+	ri(t, I_CMP, R6, 0);
+	over = jfar(t, B_GT);
+	land_far(t, over, warm);
+	ri(t, I_MOV, R5, bidx | (RV32_JIT_BUDGET << 24));
+	xjump(t, B_JP, (uint32_t)(uintptr_t)rv32_jit_stub_fault);
+	return off;
+}
+
+/* Made after the region, or for an old block on demand, at the end of the
+   cache: room for it is the caller's to check. */
+static uint32_t entry_at(uint32_t off, const uint8_t *map, unsigned bidx,
+			 uint32_t warm, uint32_t *end)
+{
+	struct tc t;
+
+	memset(&t, 0, sizeof t);
+	t.base = rv32_jit.code;
+	t.off = off;
+	off = entry(&t, map, bidx, warm);
+	*end = t.off;
+	return off;
+}
+
+#define ENTRY_ROOM 64       /* the most entry() emits, aligned */
+
+/* The inline kind: the loads, then the block itself.  A loop head is
+   checked at its warm entry, where the back edge lands; any other block
+   once, on the way in. */
+static void inline_entry(struct tc *t, struct rblock *r)
+{
+	unsigned k;
+
+	align(t);
+	r->off = t->off;
+	for (k = 0; k < NSLOT; ++k)
+		if (t->map[k])
+			getx(t, slot_reg[k], t->map[k]);
+	if (!r->head)
+		budget_check(t);
+}
+
 static void emit_block(struct tc *t, unsigned i)
 {
 	struct rblock *r = &rb[i];
@@ -1471,26 +1584,14 @@ static void emit_block(struct tc *t, unsigned i)
 	unsigned j, u, unroll = 1;
 
 	t->bidx = rv32_jit.blk_used + i;
-	if (i == 0) {
-		/* The region's own entry.  Nothing falls through into its
-		   first block, so the loads go inline and a call or a return
-		   lands once, not once on a trampoline and again here. */
-		unsigned k;
-
+	r->off = NO_ENTRY;
+	if (!fallen_into(t, i))
+		inline_entry(t, r);
+	else if (r->head)
 		align(t);
-		r->off = t->off;
-		for (k = 0; k < NSLOT; ++k)
-			if (t->map[k])
-				getx(t, slot_reg[k], t->map[k]);
-		r->warm = t->off;
+	r->warm = t->off;
+	if (r->head)
 		budget_check(t);
-	} else {
-		if (r->head)
-			align(t);
-		r->warm = t->off;
-		if (r->head)
-			budget_check(t);
-	}
 
 	/* A loop that is one block long is laid out several times over, each
 	   copy leaving by a forward branch that is not taken while the loop
@@ -1499,9 +1600,9 @@ static void emit_block(struct tc *t, unsigned i)
 	   makes most of the back edges fall-throughs instead. */
 	unroll = r->unroll;
 
-	for (u = 0; u < unroll && !t->full; ++u) {
+	for (u = 0; u < unroll; ++u) {
 		addimm(t, R6, r->n, 1);
-		for (j = 0; j < r->n && !t->full; ++j) {
+		for (j = 0; j < r->n; ++j) {
 			t->i = j;
 			insn(t, r->pc + 4 * j, fetch(t->s, r->pc + 4 * j));
 		}
@@ -1511,7 +1612,7 @@ static void emit_block(struct tc *t, unsigned i)
 			if (next_is_fall) {
 				fix(&t->nfix, site, i + 1, FIX_BRANCH);
 			} else {
-				struct cold *c = cold_new(t, C_EXIT, 0, 0);
+				struct cold *c = cold_new(t, C_EXIT, 0, 0, 0);
 
 				c->code = r->pc + 4 * r->n;
 				cold_site(c, site);
@@ -1559,18 +1660,23 @@ static void emit_block(struct tc *t, unsigned i)
 
 /* Translate the region at pc.  Returns where to enter, or NULL with *full
    set when the cache has no room for even its first block. */
+/* The translator's state, in internal RAM.  On the stack it was the
+   hottest thing in the translator: every emitted word read the cursor and
+   wrote it back to one SDRAM row and the word itself to another. */
+static struct tc tcs RV32_HOTDATA;
+
 static uint8_t *translate(rv32_t *s, uint32_t pc, int *full)
 {
-	struct tc t;
-	unsigned nrb, i, k, total;
+	struct tc *t = &tcs;
+	unsigned nrb, i, total;
 	uint32_t base;
 
-	memset(&t, 0, sizeof t);
-	t.s = s;
-	t.base = rv32_jit.code;
-	t.off = rv32_jit.code_used;
-	t.end = rv32_jit.code_size;
-	base = (uint32_t)(uintptr_t)t.base;
+	memset(t, 0, sizeof *t);
+	t->s = s;
+	t->base = rv32_jit.code;
+	t->off = rv32_jit.code_used;
+	t->end = rv32_jit.code_size;
+	base = (uint32_t)(uintptr_t)t->base;
 	*full = 0;
 
 	nrb = discover(s, pc);
@@ -1586,9 +1692,9 @@ static uint8_t *translate(rv32_t *s, uint32_t pc, int *full)
 		total = 0;
 		for (i = 0; i < nrb; ++i)
 			total += rb[i].n * rb[i].unroll;
-		if (t.off + total * INSN_ROOM + nrb * BLOCK_ROOM <= t.end &&
+		if (t->off + total * INSN_ROOM + nrb * BLOCK_ROOM <= t->end &&
 		    rv32_jit.blk_used + nrb <= rv32_jit.blk_max &&
-		    3 * total + 4 * nrb + 4 <= COLD_MAX)
+		    3 * total + 8 * nrb + 4 <= COLD_MAX)
 			break;
 		if (--nrb == 0) {
 			*full = 1;
@@ -1596,56 +1702,45 @@ static uint8_t *translate(rv32_t *s, uint32_t pc, int *full)
 		}
 	}
 
-	choose(&t, nrb);
-	t.nrb = nrb;
-	t.nfix = 0;
+	choose(t, nrb);
+	t->nrb = nrb;
+	t->nfix = 0;
 
-	/* The cold entries: the map loaded, the batch checked, then into the
-	   block.  Every path into the region comes through one of these,
-	   except into its first block, whose entry is inline. */
-	for (i = 0; i < nrb; ++i) {
-		rb[i].warm = 0xffffffffu;
-		if (i == 0)
-			continue;
-		align(&t);
-		rb[i].off = t.off;
-		t.bidx = rv32_jit.blk_used + i;
-		for (k = 0; k < NSLOT; ++k)
-			if (t.map[k])
-				getx(&t, slot_reg[k], t.map[k]);
-		budget_check(&t);
-		fix(&t.nfix, t.off, i, FIX_JUMP);
-		xjump(&t, B_JP, 0);
-	}
 	for (i = 0; i < nrb; ++i)
-		emit_block(&t, i);
-	emit_cold(&t);
-	if (t.full) {
-		*full = 1;
-		return NULL;
-	}
-	for (i = 0; i < t.nfix; ++i) {
+		rb[i].warm = 0xffffffffu;
+	for (i = 0; i < nrb; ++i)
+		emit_block(t, i);
+	emit_cold(t);
+	/* A block some earlier region is already waiting to jump to gets its
+	   entry now, so that record() can patch the link. */
+	for (i = 0; i < nrb; ++i)
+		if (rb[i].off == NO_ENTRY && link_pending(rb[i].pc))
+			rb[i].off = entry(t, t->map, rv32_jit.blk_used + i,
+					  rb[i].warm);
+	rv32_jit.regions++;
+	rv32_jit.insns += total;
+	for (i = 0; i < t->nfix; ++i) {
 		uint32_t warm = rb[fixups[i].target].warm;
 
 		if (fixups[i].kind == FIX_BRANCH) {
-			land_far(&t, fixups[i].site, warm);
+			land_far(t, fixups[i].site, warm);
 		} else {
 			struct tc f;
 
 			memset(&f, 0, sizeof f);
-			f.base = t.base;
+			f.base = t->base;
 			f.off = fixups[i].site;
 			f.end = f.off + 6;
 			xjump(&f, B_JP, base + warm);
 		}
 	}
 	for (i = 0; i < nrb; ++i)
-		record(s, rb[i].pc, rb[i].off, rb[i].warm, rb[i].n, t.map,
+		record(s, rb[i].pc, rb[i].off, rb[i].warm, rb[i].n, t->map,
 		       rv32_jit.blk_used - i, nrb);
 
-	rv32_jit.bytes += t.off - rv32_jit.code_used;
-	rv32_jit.code_used = (t.off + 3) & ~3u;
-	return t.base + rb[0].off;
+	rv32_jit.bytes += t->off - rv32_jit.code_used;
+	rv32_jit.code_used = (t->off + 3) & ~3u;
+	return t->base + rb[0].off;
 }
 
 /* ---- what the runtime calls -------------------------------------------- */
@@ -1668,14 +1763,15 @@ static void retire(uint32_t first, uint32_t n)
 		while (rv32_jit.blk_hash[h] != (uint16_t)i)
 			h = (h + 1) & m;
 		rv32_jit.blk_hash[h] = H_DEAD;
-		if (slot(b->pc)[0] == b->pc)
-			slot(b->pc)[0] = 0;
-
-		memset(&t, 0, sizeof t);
-		t.base = rv32_jit.code;
-		t.off = b->off;
-		t.end = b->off + 12;
-		link_add(b->pc, exit_to(&t, b->pc));
+		if (b->off != NO_ENTRY) {
+			if (slot(b->pc)[0] == b->pc)
+				slot(b->pc)[0] = 0;
+			memset(&t, 0, sizeof t);
+			t.base = rv32_jit.code;
+			t.off = b->off;
+			t.end = b->off + 12;
+			link_add(b->pc, exit_to(&t, b->pc));
+		}
 		b->pc = 0;
 	}
 	rv32_jit.stale++;
@@ -1727,6 +1823,21 @@ uint8_t *rv32_jit_block(rv32_t *s, uint32_t pc)
 	if (!good_target(s, pc) || !in_ram(s, pc + 3))
 		return NULL;
 	b = find(pc);
+	if (b && b->off == NO_ENTRY) {
+		/* Entered from outside its region for the first time. */
+		if (rv32_jit.code_used + ENTRY_ROOM <= rv32_jit.code_size) {
+			uint32_t end;
+
+			b->off = entry_at(rv32_jit.code_used, b->map,
+					  (unsigned)(b - rv32_jit.blk),
+					  b->warm, &end);
+			rv32_jit.bytes += end - rv32_jit.code_used;
+			rv32_jit.code_used = (end + 3) & ~3u;
+		} else {
+			rv32_jit_flush();
+			b = NULL;
+		}
+	}
 	if (b) {
 		/* Put it back in the map on the way past: it is there to be
 		   found by the runtime, and a collision took it out. */

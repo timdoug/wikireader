@@ -40,7 +40,7 @@ ifeq (1,$(strip $(JIT)))
 CFLAGS += -DRV32_JIT -DJIT_SKIP=$(strip $(JITSKIP))
 SOURCES += rv32_jit.c rv32_jitrt.s
 endif
-SOURCES += rv32_hot.s
+SOURCES += rv32_hot.s rv32_div.s
 
 # ASM=1 runs the hand-written hot path (rv32_hot.s) and leaves the C
 # interpreter in SDRAM as the fallback for what it declines.
@@ -57,10 +57,8 @@ riscv.app: memory.lds
 
 # Internal RAM is at 0xc00 and 0x81a00, SDRAM at 0x10040000, far outside the
 # reach of the C33's short call.  Every call into or out of those regions has
-# to take the long form -- including the ones the compiler makes to libgcc
-# for the guest's divide, which memory.lds places in the window buffer for
-# every build.  rules.mk appends -mno-long-calls to CFLAGS after this file is
-# read, so the override has to be per target.
+# to take the long form.  rules.mk appends -mno-long-calls to CFLAGS after
+# this file is read, so the override has to be per target.
 build/rv32.o build/riscv.o build/console.o build/rv32_jit.o: CFLAGS += -mlong-calls
 
 # The guest image.  A separate architecture with a separate toolchain, so it
@@ -85,6 +83,22 @@ build/echo.elf: guest/start.S guest/echo.c guest/bench.lds | build
 
 build/echo.bin: build/echo.elf
 	$(RISCV_PREFIX)objcopy -O binary $< $@
+
+# The M extension over a table of edge operands, in the emulator against a
+# native answer: the divide is assembly with RISC-V's special cases built in,
+# and rvbench only produces the operand shapes its kernel happens to.
+build/divtest.elf: guest/start.S guest/divtest.c guest/divtable.h guest/bench.lds | build
+	$(RISCV_PREFIX)gcc $(RVCFLAGS) -T guest/bench.lds \
+	    guest/start.S guest/divtest.c -o $@
+
+build/divtest.bin: build/divtest.elf
+	$(RISCV_PREFIX)objcopy -O binary $< $@
+
+.PHONY: divtest
+divtest: riscv.app build/divtest.bin | build
+	$(HOST_CC) -std=c11 -O2 -Wall -Wextra -Werror -fwrapv tests/divref.c -o build/divref
+	./build/divref > build/divref.txt
+	python3 run.py --image build/divtest.bin --expect build/divref.txt --timeout 300
 
 .PHONY: echo
 echo: build/echo.bin
