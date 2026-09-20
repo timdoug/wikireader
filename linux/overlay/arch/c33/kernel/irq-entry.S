@@ -92,6 +92,21 @@ c33_exception:
 c33_restore:
 	psrclr 4
 	ld.w %sp,%r6
+	/*
+	 * RETI consumes its PC/PSR pair from the current stack.  The saved SP
+	 * can differ from that stack: exec installs a new userspace stack and
+	 * signal delivery will move it again.  Build a three-word return shim
+	 * below the requested SP.  POP restores r4 and leaves RETI immediately
+	 * below the final userspace SP.
+	 */
+	xld.w %r4,[%sp+72]
+	xsub %r4,12
+	xld.w %r5,[%sp+16]
+	xld.w [%r4+0],%r5
+	xld.w %r5,[%sp+88]
+	xld.w [%r4+4],%r5
+	xld.w %r5,[%sp+92]
+	xld.w [%r4+8],%r5
 	xld.w %r5,[%sp+64]
 	ld.w %alr,%r5
 	xld.w %r5,[%sp+68]
@@ -100,7 +115,6 @@ c33_restore:
 	xld.w %r1,[%sp+4]
 	xld.w %r2,[%sp+8]
 	xld.w %r3,[%sp+12]
-	xld.w %r4,[%sp+16]
 	xld.w %r5,[%sp+20]
 	xld.w %r6,[%sp+24]
 	xld.w %r7,[%sp+28]
@@ -112,7 +126,10 @@ c33_restore:
 	xld.w %r13,[%sp+52]
 	xld.w %r14,[%sp+56]
 	xld.w %r15,[%sp+60]
-	add %sp,22
+	xld.w %r4,[%sp+72]
+	xsub %r4,12
+	ld.w %sp,%r4
+	pop %r4
 	reti
 	.size c33_restore,.-c33_restore
 	.size c33_exception,.-c33_exception
