@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap relocation-free C33 text in a version-4 bFLT header."""
+"""Wrap a relocation-free C33 code image in a version-4 bFLT header."""
 
 import argparse
 import struct

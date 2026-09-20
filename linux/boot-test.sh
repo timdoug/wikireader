@@ -22,7 +22,7 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 python3 "$fixture_tool" --wikireader "$root" --image "$kernel" \
 	--out "$work/fixture"
-printf 'x' >"$work/uart.in"
+printf 'p' >"$work/uart.in"
 
 (
 	cd "$work"
@@ -37,9 +37,13 @@ printf 'x' >"$work/uart.in"
 syscall_marker="C33: entered userspace syscall path"
 expected="WikiReader native C33 userspace is alive!"
 rx_expected="UART RX reached Linux userspace."
+irq_expected="C33 UART: received vector 57 interrupt"
+shell_expected="pid 1"
 if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$rx_expected" "$work/boot.log" >/dev/null; then
+   ! grep -F "$irq_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$rx_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$shell_expected" "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux did not complete the PID 1 UART round trip." >&2
 	exit 1
@@ -50,6 +54,6 @@ if grep -F "Kernel panic" "$work/boot.log" >/dev/null; then
 	exit 1
 fi
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|WikiReader native|UART RX reached" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|WikiReader native|c33 shell:|UART RX reached|pid 1" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

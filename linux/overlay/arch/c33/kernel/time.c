@@ -22,7 +22,6 @@
 #define C33_TIMER_DIV      64UL
 
 void c33_timer_interrupt(void);
-void c33_uart_poll_rx(void);
 
 static inline unsigned char c33_read8(unsigned long address)
 {
@@ -57,7 +56,6 @@ static inline void c33_write32(unsigned long value, unsigned long address)
 void c33_timer_interrupt(void)
 {
 	c33_write8(C33_TIMER2_IRQ_BIT, C33_INT_F16T23);
-	c33_uart_poll_rx();
 	legacy_timer_tick(1);
 }
 

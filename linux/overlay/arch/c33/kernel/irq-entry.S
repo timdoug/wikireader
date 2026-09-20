@@ -11,6 +11,14 @@ c33_timer_vector:
 	xjp c33_exception
 	.size c33_timer_vector,.-c33_timer_vector
 
+	.global c33_uart_rx_vector
+	.type c33_uart_rx_vector,@function
+c33_uart_rx_vector:
+	push %r4
+	xld.w %r4,57
+	xjp c33_exception
+	.size c33_uart_rx_vector,.-c33_uart_rx_vector
+
 	.global c33_fault_vector
 	.type c33_fault_vector,@function
 c33_fault_vector:
@@ -125,6 +133,10 @@ c33_vector_table:
 	.long c33_unhandled_vector
 	.endr
 	.long c33_timer_vector
-	.rept 217
+	.rept 18
+	.long c33_unhandled_vector
+	.endr
+	.long c33_uart_rx_vector
+	.rept 198
 	.long c33_unhandled_vector
 	.endr

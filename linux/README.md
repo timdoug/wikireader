@@ -13,11 +13,16 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
 ```
 
 Linux initializes 32 MiB of SDRAM, the interrupt controller and 100 Hz timer,
-runs the scheduler, registers the polling `ttyC330` UART console, and loads a
-tiny bFLT initramfs process as PID 1. PID 1 writes a startup message, waits in
-native userspace for a console byte, reads it through the Linux TTY layer,
-prints a second confirmation, and remains alive while timer interrupts keep
-preempting userspace.
+runs the scheduler, registers the interrupt-driven `ttyC330` UART console, and
+loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
+`h`/`p` shell: it reads commands through the Linux TTY layer, invokes
+`getpid()` for `p`, and remains alive while timer interrupts keep preempting
+native C33 userspace.
+
+The current PID 1 is deliberately relocation-free. A position-independent
+assembly entry point finds its message table, while compiled C uses stack state,
+PC-relative calls, and four syscall veneers. The build rejects any loadable C
+relocation other than C33 PC-relative call halves.
 
 ## macOS and Linux responsibilities
 
@@ -63,14 +68,15 @@ final ELF and flat binary in `linux/artifacts/`.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, injects a byte into
-UART0 after PID 1 starts, and passes only if userspace reads the byte and
-prints its response without a kernel panic. The fixture and emulator display
-output are kept outside the checkout and removed afterward.
+UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
+the `p` command, and the shell prints `pid 1` without a kernel panic. The
+fixture and emulator display output are kept outside the checkout and removed
+afterward.
 
 ## What comes next
 
-The polling UART is deliberately simple bring-up code. The next useful
-vertical slice is interrupt-driven UART RX plus a small C library and shell.
-Signal delivery, `rt_sigreturn`, and architecture-specific bFLT relocation
-rules also need validation before larger applications. After that come
-SD/block/filesystem support and the WikiReader panel, input, and power drivers.
+The next useful vertical slice is general C33 bFLT relocation support, followed
+by a less constrained C library and line-oriented shell. Signal delivery and
+`rt_sigreturn` also need validation before larger applications. After that
+come SD/block/filesystem support and the WikiReader panel, input, and power
+drivers.

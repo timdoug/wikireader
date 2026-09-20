@@ -14,9 +14,11 @@
 #define C33_IRQ_RESET_MODE    (C33_REG_BASE + 0x29f)
 #define C33_SYSCALL_VECTOR    12
 #define C33_TIMER2_VECTOR     38
+#define C33_UART0_RX_VECTOR   57
 
 extern unsigned long c33_vector_table[];
 extern void c33_timer_interrupt(void);
+extern void c33_uart_rx_interrupt(void);
 extern void *const c33_sys_call_table[];
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs);
@@ -68,7 +70,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		return regs;
 	}
 
-	if (vector != C33_TIMER2_VECTOR) {
+	if (vector != C33_TIMER2_VECTOR && vector != C33_UART0_RX_VECTOR) {
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
 			 vector, regs->pc, regs->sp, regs->psr);
 		for (i = 0; i < 16; i += 4)
@@ -80,7 +82,10 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	}
 
 	irq_enter();
-	c33_timer_interrupt();
+	if (vector == C33_TIMER2_VECTOR)
+		c33_timer_interrupt();
+	else
+		c33_uart_rx_interrupt();
 	irq_exit();
 
 	set_irq_regs(old_regs);

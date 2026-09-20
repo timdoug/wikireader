@@ -17,9 +17,12 @@
 #define C33_UART0_BRTRUN    0x00300b05UL
 #define C33_UART0_BRTRDL    0x00300b06UL
 #define C33_UART0_BRTRDM    0x00300b07UL
+#define C33_UART0_IRQ_PRIO  0x0030026aUL
+#define C33_UART0_IRQ_EN    0x00300276UL
 #define C33_UART0_IRQ_FLAGS 0x00300286UL
 #define C33_UART_RX_READY   1
 #define C33_UART_TX_READY   2
+#define C33_UART_RX_IRQ     (1 << 1)
 #define C33_UART_MCLK_HZ    48000000UL
 #define C33_UART_BAUD       115200UL
 #define C33_UART_DIVISOR    ((C33_UART_MCLK_HZ + C33_UART_BAUD * 8) / \
@@ -31,7 +34,7 @@ static bool c33_tty_ready;
 static bool c33_tty_opened;
 
 struct tty_driver *c33_console_device(struct console *console, int *index);
-void c33_uart_poll_rx(void);
+void c33_uart_rx_interrupt(void);
 
 static void c33_uart_hw_init(void)
 {
@@ -42,6 +45,8 @@ static void c33_uart_hw_init(void)
 	*(volatile unsigned char *)C33_UART0_BRTRDL = C33_UART_DIVISOR;
 	*(volatile unsigned char *)C33_UART0_BRTRUN = 1;
 	*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = 7;
+	*(volatile unsigned char *)C33_UART0_IRQ_PRIO =
+		(*(volatile unsigned char *)C33_UART0_IRQ_PRIO & 0x8f) | 0x50;
 }
 
 static void c33_uart_putc(unsigned char ch)
@@ -60,14 +65,17 @@ static int c33_tty_open(struct tty_struct *tty, struct file *file)
 
 	tty->driver_data = &c33_tty_port;
 	ret = tty_port_open(&c33_tty_port, tty, file);
-	if (!ret)
+	if (!ret && !READ_ONCE(c33_tty_opened)) {
 		WRITE_ONCE(c33_tty_opened, true);
+		*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = C33_UART_RX_IRQ;
+		*(volatile unsigned char *)C33_UART0_IRQ_EN |= C33_UART_RX_IRQ;
+	}
 	return ret;
 }
 
 static void c33_tty_close(struct tty_struct *tty, struct file *file)
 {
-	/* The built-in console remains the polling target after its first open. */
+	/* The built-in console remains the RX interrupt target after first open. */
 	tty_port_close(&c33_tty_port, tty, file);
 }
 
@@ -114,15 +122,17 @@ struct tty_driver *c33_console_device(struct console *console, int *index)
 	return c33_tty_driver;
 }
 
-void c33_uart_poll_rx(void)
+void c33_uart_rx_interrupt(void)
 {
 	volatile unsigned char *rx = (void *)C33_UART0_RXD;
 	volatile unsigned char *status = (void *)C33_UART0_STATUS;
 	bool inserted = false;
 	int limit = 16;
 
+	*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = C33_UART_RX_IRQ;
 	if (!READ_ONCE(c33_tty_ready) || !READ_ONCE(c33_tty_opened))
 		return;
+	pr_info_once("C33 UART: received vector 57 interrupt\n");
 
 	while ((*status & C33_UART_RX_READY) && limit--) {
 		tty_insert_flip_char(&c33_tty_port, *rx, TTY_NORMAL);

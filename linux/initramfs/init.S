@@ -1,57 +1,72 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-	.text
+	.section .text.start,"ax"
 	.global _start
 	.type _start,@function
 _start:
-	/* CALL pushes the address immediately after itself: the message. */
-	call 1f
-message:
+	/* CALL leaves a position-independent pointer to the message table. */
+	call .Lmessages_end
+.Lmessages:
+.Lbanner_size:
+	.byte .Lbanner_end-.Lbanner
+.Lbanner:
 	.ascii "WikiReader native C33 userspace is alive!\n"
-message_end:
-1:	pop %r7
-
-	/* write(1, message, message_end - message) */
-	xld.w %r4,64
-	xld.w %r6,1
-	xld.w %r8,42
-	int 0
-
-	/* fcntl(0, F_SETFL, O_NONBLOCK), then wait for one UART byte. */
-	xld.w %r4,25
-	ld.w %r6,0
-	ld.w %r7,4
-	xld.w %r8,0x800
-	int 0
-	sub %sp,1
-.Lread:
-	xld.w %r4,63
-	ld.w %r6,0
-	ld.w %r7,%sp
-	ld.w %r8,1
-	int 0
-	cmp %r4,1
-	jrne .Lread
-
-	/* A second message proves UART RX reached a Linux userspace read(). */
-	call 2f
-rx_message:
+.Lbanner_end:
+	.byte .Lhelp_end-.Lhelp
+.Lhelp:
+	.ascii "c33 shell: h=help p=getpid\n"
+.Lhelp_end:
+	.byte .Lprompt_end-.Lprompt
+.Lprompt:
+	.ascii "c33> "
+.Lprompt_end:
+	.byte .Lrx_end-.Lrx
+.Lrx:
 	.ascii "UART RX reached Linux userspace.\n"
-rx_message_end:
-	.balign 2
-2:	pop %r7
-	xld.w %r4,64
-	ld.w %r6,1
-	xld.w %r8,33
-	int 0
-
-	/* Stay alive while timer interrupts preempt native userspace. */
-.Lalive:
-	jp .Lalive
-
-	.if (message_end-message) != 42
-	.error "update the write length"
-	.endif
-	.if (rx_message_end-rx_message) != 33
-	.error "update the RX message length"
-	.endif
+.Lrx_end:
+	.byte .Lpid_end-.Lpid
+.Lpid:
+	.ascii "pid "
+.Lpid_end:
+	.byte .Lnewline_end-.Lnewline
+.Lnewline:
+	.ascii "\n"
+.Lnewline_end:
+.Lmessages_end:
+	pop %r6
+	call init_main
+.Lhang:
+	jp .Lhang
 	.size _start,.-_start
+
+	.text
+	.global c33_fcntl
+	.type c33_fcntl,@function
+c33_fcntl:
+	xld.w %r4,25
+	int 0
+	ret
+	.size c33_fcntl,.-c33_fcntl
+
+	.global c33_read
+	.type c33_read,@function
+c33_read:
+	xld.w %r4,63
+	int 0
+	ret
+	.size c33_read,.-c33_read
+
+	.global c33_write
+	.type c33_write,@function
+c33_write:
+	xld.w %r4,64
+	int 0
+	ret
+	.size c33_write,.-c33_write
+
+	.global c33_getpid
+	.type c33_getpid,@function
+c33_getpid:
+	xld.w %r4,172
+	int 0
+	ret
+	.size c33_getpid,.-c33_getpid

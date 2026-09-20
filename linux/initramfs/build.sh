@@ -12,12 +12,24 @@ manifest=$3
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 mkdir -p "$build"
-"${cross}as" -mc33pe "$here/init.S" -o "$build/init.o"
-if "${cross}readelf" -r "$build/init.o" | grep -q 'R_C33'; then
-	echo "init contains relocations and cannot use the minimal bFLT wrapper" >&2
+"${cross}as" -mc33pe "$here/init.S" -o "$build/init-start.o"
+"${cross}gcc" -mc33pe -Os -ffreestanding -fno-builtin \
+	-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-ffunction-sections -fdata-sections -c "$here/init.c" -o "$build/init-c.o"
+"${cross}objcopy" --remove-section=.debug_frame "$build/init-c.o" \
+	"$build/init-c-code.o"
+if "${cross}readelf" -rW "$build/init-c-code.o" | grep 'R_C33' | \
+	grep -Ev 'R_C33_S_R(M|L)' >/dev/null; then
+	echo "init C code contains a non-PC-relative relocation" >&2
 	exit 1
 fi
-"${cross}objcopy" -O binary --only-section=.text "$build/init.o" \
+"${cross}ld" --gc-sections -T "$here/init.ld" -o "$build/init.elf" \
+	"$build/init-start.o" "$build/init-c-code.o"
+if "${cross}readelf" -rW "$build/init.elf" | grep -q 'R_C33'; then
+	echo "linked init still contains relocations" >&2
+	exit 1
+fi
+"${cross}objcopy" -O binary --only-section=.text "$build/init.elf" \
 	"$build/init.text"
 python3 "$here/make-flat.py" "$build/init.text" "$build/init"
 chmod 755 "$build/init"
