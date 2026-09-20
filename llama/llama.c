@@ -247,9 +247,24 @@ int grifo_main(int argc, char **argv)
 
 	/* The profiler's buckets are cumulative over a whole run, so an idle
 	   loop waiting for a keypress buries the generation it is meant to
-	   measure.  Under -once the app stops instead. */
-	if (once)
-		return 0;
+	   measure.  Under -once the machine stops instead.
+	 *
+	 * It has to be power_off and not a return: returning hands control
+	 * back to init, which finds one entry in init.ini and auto-chains
+	 * straight back here, so the app runs forever and the flag does the
+	 * opposite of what it is called.
+	 */
+	if (once) {
+		/* The serial line transmits at its baud rate -- about ten
+		   thousand cycles a character -- and there is no flush in
+		   the grifo API, so cutting the power here would truncate
+		   the line just printed.  Give the last few hundred
+		   characters time to reach the wire. */
+		watchdog(WATCHDOG_KEY);
+		delay_us(100000);
+		watchdog(WATCHDOG_KEY);
+		power_off();
+	}
 
 	for (;;) {
 		event_t e;

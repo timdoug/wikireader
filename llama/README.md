@@ -28,9 +28,18 @@ Checkpoints come from
 reads the fp32 `.bin` files directly and needs numpy but not PyTorch.
 
 Application arguments: `-n` tokens, `-i` prompt, `-v` to echo the story to
-the serial console, `-once` to stop after one run instead of waiting for a
-keypress (the profiler's buckets are cumulative, so an idle loop buries
+the serial console, `-once` to power the machine off after one run instead
+of idling (the profiler's buckets are cumulative, so an idle loop buries
 what it is meant to measure).
+
+`-once` has to power off rather than return. Returning from `grifo_main`
+hands control back to `init`, which finds one entry in `init.ini` and
+chains straight back into the app -- so the story generates, the app
+"exits", and it all starts again, which looks a great deal like a watchdog
+reset and is not one. Powering off also needs a delay first: the serial
+line runs at its baud rate, about ten thousand cycles a character, and
+there is no flush in the grifo API, so cutting the power immediately
+truncates the last line printed.
 
 ## What the part gives you
 
