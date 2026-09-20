@@ -77,14 +77,22 @@ with the repository's normal firmware targets if they are not present.
 
 ```sh
 make -C linux fetch
+make -C linux libc
 make -C linux build
 make -C linux boot-test
 ```
 
-`fetch` reconstructs the pinned upstream kernel revision from `revisions` on
-the VM disk, applies `patches/`, then installs `overlay/`. Each `build` also
-refreshes `overlay/` in the VM source tree so iterative port changes cannot be
-silently missed. It leaves the final kernel in `linux/artifacts/`.
+`fetch` reconstructs the pinned upstream kernel and uClibc-ng revisions from
+`revisions` on the VM disk, applies their patches, then installs their
+overlays. Each kernel build also refreshes `overlay/` in the VM source tree so
+iterative port changes cannot be silently missed. It leaves the final kernel
+in `linux/artifacts/`.
+
+`libc` builds and installs a static, no-MMU C33 uClibc-ng with the native
+asm-generic syscall ABI and time64 interfaces. Its link regression compiles a
+real `stdio.h` program, resolves it with the C33 PE `libgcc`, verifies that the
+ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
+`linux/artifacts/uclibc-smoke`.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, injects two bytes into
@@ -97,6 +105,6 @@ checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is C33 uClibc-ng architecture glue and a minimal
-BusyBox configuration. After that come SD/block/filesystem support and the
-WikiReader panel, input, and power drivers.
+The next useful vertical slice is running the uClibc smoke binary under the
+kernel, followed by a minimal static BusyBox configuration. After that come
+SD/block/filesystem support and the WikiReader panel, input, and power drivers.

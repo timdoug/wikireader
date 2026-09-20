@@ -1,0 +1,54 @@
+diff --git a/extra/Configs/Config.in b/extra/Configs/Config.in
+index 376679828..b12772c0e 100644
+--- a/extra/Configs/Config.in
++++ b/extra/Configs/Config.in
+@@ -17,6 +17,7 @@ choice
+ 	default TARGET_bfin if DESIRED_TARGET_ARCH = "bfin"
+ 	default TARGET_cris if DESIRED_TARGET_ARCH = "cris"
+ 	default TARGET_csky if DESIRED_TARGET_ARCH = "csky"
++	default TARGET_c33 if DESIRED_TARGET_ARCH = "c33"
+ 	default TARGET_frv if DESIRED_TARGET_ARCH = "frv"
+ 	default TARGET_h8300 if DESIRED_TARGET_ARCH = "h8300"
+ 	default TARGET_hppa if DESIRED_TARGET_ARCH = "hppa"
+@@ -71,5 +72,8 @@ config TARGET_cris
+ config TARGET_csky
+ 	bool "csky"
+ 
++config TARGET_c33
++	bool "c33"
++
+ config TARGET_frv
+ 	bool "frv"
+@@ -205,6 +209,10 @@ if TARGET_csky
+ source "extra/Configs/Config.csky"
+ endif
+ 
++if TARGET_c33
++source "extra/Configs/Config.c33"
++endif
++
+ if TARGET_frv
+ source "extra/Configs/Config.frv"
+ endif
+@@ -1044,5 +1048,6 @@ config UCLIBC_USE_TIME64
+ 	bool "Use *time64 syscalls instead of 32bit ones (if possible)"
+ 	depends on TARGET_arc                            || \
+ 		   TARGET_arm                            || \
++		   TARGET_c33                            || \
+ 		   TARGET_csky                           || \
+ 		   TARGET_i386                           || \
+diff --git a/Rules.mak b/Rules.mak
+index d92c16c1e..89f5bce19 100644
+--- a/Rules.mak
++++ b/Rules.mak
+@@ -432,5 +432,10 @@ ifeq ($(TARGET_ARCH),sh)
+ endif
+ endif
+ 
++ifeq ($(TARGET_ARCH),c33)
++	CPU_CFLAGS-y += -mc33pe -medda32 -mlong-calls
++	CPU_LDFLAGS-y += -mc33pe -medda32 -mlong-calls
++endif
++
+ ifeq ($(TARGET_ARCH),h8300)
+ 	CPU_CFLAGS-$(CONFIG_H8300H) += -mh -mint32

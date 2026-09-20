@@ -1,0 +1,2 @@
+TARGET_c33=y
+DO_C99_MATH=y

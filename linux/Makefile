@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch build boot-test shell
+.PHONY: vm provision toolchain fetch libc build boot-test shell
 
 vm:
 	./vm.sh
@@ -16,6 +16,9 @@ toolchain: vm
 
 fetch: vm
 	$(SHELL_IN_VM) ./linux/fetch.sh
+
+libc: vm
+	$(SHELL_IN_VM) ./linux/uclibc/build.sh
 
 build: vm
 	$(SHELL_IN_VM) ./linux/build.sh
