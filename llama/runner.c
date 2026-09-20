@@ -4,6 +4,16 @@
 
 #include "runner.h"
 
+const char *llama_stop_text(llama_stop_reason r)
+{
+	switch (r) {
+	case LLAMA_STOP_END_OF_TEXT: return "end of story";
+	case LLAMA_STOP_TOKEN_LIMIT: return "-n token limit";
+	case LLAMA_STOP_CONTEXT_FULL: return "context full";
+	}
+	return "unknown";
+}
+
 int llama_run(llama_model *m, llama_tokenizer *tok,
 	      const llama_run_options *opt, llama_run_stats *stats)
 {
@@ -13,9 +23,16 @@ int llama_run(llama_model *m, llama_tokenizer *tok,
 
 	memset(stats, 0, sizeof *stats);
 
+	/* No limit given means run until the model finishes the story or the
+	   context fills, which is what someone who did not ask for a limit
+	   is asking for. */
 	steps = opt->steps;
-	if (steps <= 0 || steps > m->cfg.seq_len)
+	if (steps <= 0 || steps > m->cfg.seq_len) {
+		stats->stop = LLAMA_STOP_CONTEXT_FULL;
 		steps = m->cfg.seq_len;
+	} else {
+		stats->stop = LLAMA_STOP_TOKEN_LIMIT;
+	}
 
 	prompt_tokens = llama_alloc((size_t)steps * sizeof *prompt_tokens,
 				    "llama.prompt");
@@ -63,8 +80,10 @@ int llama_run(llama_model *m, llama_tokenizer *tok,
 		}
 
 		/* BOS marks the end of a story in these checkpoints. */
-		if (next == TOK_BOS || next == TOK_EOS)
+		if (next == TOK_BOS || next == TOK_EOS) {
+			stats->stop = LLAMA_STOP_END_OF_TEXT;
 			break;
+		}
 		token = next;
 	}
 	stats->total_us = llama_now_us() - began;

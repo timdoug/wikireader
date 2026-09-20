@@ -19,7 +19,7 @@ make test                 # teacher-forced accuracy against an fp32 reference
 
 make TOOLCHAIN_BIN=../host-tools/toolchain-c33/work/install/bin
 python3 tools/convert.py stories260K.bin model.wrl
-python3 make-card.py -f /tmp/card.img model.wrl tok512.bin --args "-v -n 32"
+python3 make-card.py -f /tmp/card.img model.wrl tok512.bin --args='-v' 
 ../emulator/wremu -R -e ../samo-lib/mbr/flash.rom -c /tmp/card.img -n 900000000
 ```
 
@@ -27,7 +27,25 @@ Checkpoints come from
 [tinyllamas](https://huggingface.co/karpathy/tinyllamas); `tools/convert.py`
 reads the fp32 `.bin` files directly and needs numpy but not PyTorch.
 
-Application arguments: `-n` tokens, `-i` prompt, `-v` to echo the story to
+**Application arguments live on the card, not on the emulator command
+line.** `make-card.py --args='...'` writes them into `init.ini`, so a limit
+set when the image was built is still in force however wremu is invoked
+later. The app prints them at startup and says why it stopped, because a
+run that ends after forty tokens on a card that said `-n 40` otherwise
+looks exactly like a run that broke:
+
+```
+llama: arguments: -v -n 40
+llama: 40 tokens, ... ; stopped: -n token limit
+```
+
+Note the two unrelated `-n` flags: **wremu's** `-n` is an instruction
+budget, the **app's** `-n` is a token count. Omit the app's and it
+generates until the model ends the story -- stories260K writes about 208
+tokens and then emits BOS. (argparse refuses a lone value that looks like
+an option, so write `--args='-v'`, not `--args "-v"`.)
+
+Arguments: `-n` tokens, `-i` prompt, `-v` to echo the story to
 the serial console, `-once` to power the machine off after one run instead
 of idling (the profiler's buckets are cumulative, so an idle loop buries
 what it is meant to measure).
@@ -39,6 +57,12 @@ burned a core simulating a machine doing nothing. **Timings printed under
 `-g` are wall clock, not guest cycles** -- `main.c` calls
 `timer_use_wallclock` when there is a window, deliberately, so quote the
 headless number.
+
+The panel needs no help: grifo's `LCD.c` wraps at the edge and scrolls at
+the bottom. An earlier version counted rows here and stopped the run when
+it thought the page was full, which was redundant, disagreed with the real
+layout, and would have cut a long story short on a display that handles
+one fine.
 
 `-once` has to power off rather than return. Returning from `grifo_main`
 hands control back to `init`, which finds one entry in `init.ini` and

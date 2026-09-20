@@ -98,7 +98,8 @@ def make_card(output, model, vocab, arguments,
         # <icon> : <command>; init.app ignores an entry whose icon is
         # missing, and chains straight into the command when there is
         # exactly one.
-        "INIT.INI": ("llama.ico : llama.app " + arguments + "\n").encode(),
+        "INIT.INI": ("llama.ico : llama.app " + arguments.strip()
+                     + "\n").encode(),
     }
     if files["MODEL.WRL"][:4] != b"WRL2":
         raise ValueError(f"{model} is not a WRL2 weight file; run tools/convert.py")
@@ -213,7 +214,17 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     parser.add_argument("model", type=Path, help="a .wrl from tools/convert.py")
     parser.add_argument("vocab", type=Path, help="llama2.c tokenizer.bin")
-    parser.add_argument("--args", default="", help='e.g. "-v -n 64"')
+    # argparse refuses a lone value that looks like an option, so
+    # `--args "-v"` fails while `--args "-v -n 64"` works. Use the equals
+    # form, which is never ambiguous.
+    parser.add_argument(
+        "--args", default="", metavar="'-v -n 64'",
+        help="application arguments, baked into init.ini on the card and "
+             "passed to llama.app. Write them as --args='-v'. These have "
+             "nothing to do with wremu's own -n, which is an instruction "
+             "budget; the app's -n is a token count, and omitting it "
+             "generates until the story ends.",
+    )
     parser.add_argument("--app", type=Path, default=ROOT / "llama/llama.app")
     parser.add_argument(
         "-f", "--force", action="store_true",

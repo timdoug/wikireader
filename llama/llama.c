@@ -58,57 +58,19 @@ uint32_t llama_now_us(void)
 
 static int verbose;
 
-/* The panel is 240x208 with a 6x9 font, so 39 columns by 23 rows.  Rather
-   than scroll -- which would mean repainting the whole frame for every
-   token, at about a hundred milliseconds each -- the text wraps and then
-   stops, and the run ends when the page is full. */
-enum {
-	SCREEN_COLS = 39,
-	SCREEN_ROWS = 23,
-};
-
-typedef struct {
-	int col, row, full;
-} screen;
-
-static void screen_putc(screen *s, char c)
-{
-	if (s->full)
-		return;
-	if (c == '\n') {
-		s->col = 0;
-		if (++s->row >= SCREEN_ROWS) {
-			s->full = 1;
-			return;
-		}
-		/* The panel needs the newline too, not just the column
-		   counter: without this the model's own line breaks -- and
-		   TinyStories emits them -- were counted and then dropped,
-		   so the text ran on and the row bookkeeping described a
-		   layout the screen did not have. */
-		lcd_print_char(c);
-		return;
-	}
-	if (c < ' ')
-		return;
-	if (s->col >= SCREEN_COLS) {
-		s->col = 0;
-		if (++s->row >= SCREEN_ROWS) {
-			s->full = 1;
-			return;
-		}
-	}
-	lcd_print_char(c);
-	s->col++;
-}
-
+/* grifo's LCD.c wraps at the panel edge and scrolls at the bottom -- see
+   scroll() there, called from both paths.  An earlier version of this
+   counted columns and rows itself and stopped the run when it thought the
+   page was full, which was both redundant and wrong: the arithmetic
+   disagreed with the real layout, and it would have cut a long story short
+   on a display that handles one perfectly well. */
 static void emit(void *ctx, const char *piece)
 {
-	screen *s = ctx;
 	const char *c;
 
+	(void)ctx;
 	for (c = piece; *c; c++)
-		screen_putc(s, *c);
+		lcd_print_char(*c);
 	if (verbose)
 		debug_print(piece);
 	llama_token_ready();
@@ -182,7 +144,6 @@ int grifo_main(int argc, char **argv)
 	llama_run_options opt;
 	llama_run_stats stats;
 	llama_status st;
-	screen sc;
 	uint32_t load_us;
 
 	for (i = 1; i < argc; i++) {
@@ -195,6 +156,17 @@ int grifo_main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-i") && i + 1 < argc)
 			prompt = argv[++i];
 	}
+
+	/* The arguments come from init.ini on the card, not from the command
+	   that started the emulator, so they are invisible unless printed.
+	   A run that stops after forty tokens because the card says -n 40 is
+	   indistinguishable from a broken one otherwise. */
+	debug_print("llama: arguments:");
+	for (i = 1; i < argc; i++) {
+		debug_print(" ");
+		debug_print(argv[i]);
+	}
+	debug_print(steps > 0 ? "\n" : "  (no -n: until the story ends)\n");
 
 	lcd_clear(LCD_WHITE);
 	lcd_print("Loading model...\n");
@@ -229,10 +201,8 @@ int grifo_main(int argc, char **argv)
 		     (unsigned)wbytes, (unsigned)(load_us / 1000u));
 
 	lcd_clear(LCD_WHITE);
-	memset(&sc, 0, sizeof sc);
 	memset(&opt, 0, sizeof opt);
 	opt.emit = emit;
-	opt.ctx = &sc;
 	opt.steps = steps;
 	opt.prompt = prompt;
 
@@ -256,23 +226,21 @@ int grifo_main(int argc, char **argv)
 				   stats.macs) : 0;
 
 		debug_printf("llama: %d tokens, %u ms forward, %u us/token, "
-			     "%u MACs, %u.%02u cycles/MAC\n",
+			     "%u MACs, %u.%02u cycles/MAC; stopped: %s\n",
 			     stats.tokens, (unsigned)ms, (unsigned)per_token,
 			     (unsigned)stats.macs,
 			     (unsigned)(cycles_per_mac_x100 / 100u),
-			     (unsigned)(cycles_per_mac_x100 % 100u));
+			     (unsigned)(cycles_per_mac_x100 % 100u),
+			     llama_stop_text(stats.stop));
 
 		/* And on the panel, so a run that has finished does not look
 		   like one that has stopped responding.  Under the emulator's
 		   window timer_get is wall clock rather than guest cycles, so
 		   this number is the host's and not the device's -- the
 		   headless run is the one to quote. */
-		if (!sc.full) {
-			screen_putc(&sc, '\n');
-			screen_putc(&sc, '\n');
-			lcd_printf("[%d tokens, %u ms each]",
-				   stats.tokens, (unsigned)(per_token / 1000u));
-		}
+		lcd_printf("\n\n[%d tokens, %u ms each: %s]",
+			   stats.tokens, (unsigned)(per_token / 1000u),
+			   llama_stop_text(stats.stop));
 	}
 
 	/* The profiler's buckets are cumulative over a whole run, so an idle

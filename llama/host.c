@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 {
 	const char *weights = NULL, *vocab = NULL, *prompt = NULL;
 	const char *forced = NULL;
-	int steps = 256, quiet = 0, i;
+	int steps = 0, quiet = 0, i;
 	void *wimage, *timage;
 	size_t wbytes, tbytes;
 	llama_model model;
@@ -193,11 +193,12 @@ int main(int argc, char **argv)
 
 		fprintf(stderr,
 			"%d tokens in %.3f s (%.1f tok/s), %u MACs, "
-			"%.1f MAC/token\n",
+			"%.1f MAC/token; stopped: %s\n",
 			stats.tokens, secs,
 			secs > 0 ? stats.tokens / secs : 0.0,
 			stats.macs,
-			stats.tokens ? (double)stats.macs / stats.tokens : 0.0);
+			stats.tokens ? (double)stats.macs / stats.tokens : 0.0,
+			llama_stop_text(stats.stop));
 	}
 
 	llama_tokenizer_free(&tok, "llama");
