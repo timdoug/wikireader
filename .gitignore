@@ -15,7 +15,7 @@ gcc-*
 binutils
 binutils-*
 install
-KERNEL*
+/KERNEL*
 *.map
 *.elf
 stamp-*

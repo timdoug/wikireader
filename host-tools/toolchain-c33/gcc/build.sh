@@ -21,7 +21,7 @@ TARBALL="gcc-${GCC_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/${TARBALL}"
 SRC="${WORK}/gcc-${GCC_VERSION}"
 
-BINUTILS_BIN="${HERE}/../binutils/work/install/bin"
+BINUTILS_BIN="${WORK}/install/bin"
 if [ ! -x "${BINUTILS_BIN}/${TARGET}-as" ]; then
 	echo "warning: ${TARGET}-as not found in ${BINUTILS_BIN}" >&2
 	echo "         run ../binutils/build.sh first" >&2
@@ -87,6 +87,7 @@ done
 	--enable-languages=c \
 	--without-headers --with-newlib \
 	--enable-initfini-array \
+	--disable-analyzer \
 	--disable-libssp --disable-libquadmath --disable-libatomic \
 	--disable-libgomp --disable-nls --disable-shared --disable-threads \
 	${CONFIG_MATH}

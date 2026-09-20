@@ -11,12 +11,12 @@
 # source tree out from under you, leaving empty directories and a build that
 # fails in confusing ways.
 #
-#   ./rebuild.sh
+#   ./rebuild.sh [workdir]
 
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-WORK="${HERE}/../work"
+WORK=${1:-${C33_TOOLCHAIN_WORK:-${HERE}/../work}}
 PREFIX="${WORK}/install"
 SRC="${WORK}/gcc-16.2.0"
 TARBALL=gcc-16.2.0.tar.xz

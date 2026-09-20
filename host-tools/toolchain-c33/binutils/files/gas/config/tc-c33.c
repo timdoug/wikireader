@@ -18,9 +18,9 @@
    the Free Software Foundation, 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
+#include "as.h"
 #include <stdio.h>
 #include <ctype.h>
-#include "as.h"
 #include "subsegs.h"     
 #include "opcode/c33.h"
 #include "elf/c33.h"
@@ -65,9 +65,9 @@ const char comment_chars[] = ";";
 /* Characters which start a comment at the beginning of a line.  */
 const char line_comment_chars[] = "#";
 
-/* Characters which may be used to separate multiple commands on a 
-   single line.  */
-const char line_separator_chars[] = "";
+/* Linux assembler macros need a separator distinct from ';', which starts a
+   C33 comment.  ARC uses the same backtick convention through ASM_NL.  */
+const char line_separator_chars[] = "`";
 
 /* Characters which are used to indicate an exponent in a floating 
    point number.  */

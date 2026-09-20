@@ -1,0 +1,76 @@
+# Native C33 Linux
+
+This directory contains the no-MMU Linux port for the Epson S1C33E07
+WikiReader. Linux executes directly on the C33. `wremu` models the WikiReader
+hardware for development and regression testing; it does not run Linux under
+a different guest ISA.
+
+The current milestone boots the complete production-style path:
+
+```text
+mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
+                  -> kernel.elf at 0x10040000 -> native C33 Linux
+```
+
+Linux initializes 32 MiB of SDRAM, the interrupt controller and 100 Hz timer,
+runs the scheduler, registers the polling `ttyC330` UART console, and loads a
+tiny bFLT initramfs process as PID 1. PID 1 writes a startup message, waits in
+native userspace for a console byte, reads it through the Linux TTY layer,
+prints a second confirmation, and remains alive while timer interrupts keep
+preempting userspace.
+
+## macOS and Linux responsibilities
+
+The macOS host owns the checkout, Lima orchestration, `wremu`, fixture
+generation, and artifact inspection. A small ARM64 Debian Lima VM builds the
+C33 cross-toolchain and kernel because Linux Kbuild and the historical C33
+toolchain are most reliable on a real Linux userspace.
+
+The VM uses Apple Virtualization.framework on Apple Silicon. Its kernel source,
+toolchain build trees, and kernel output tree stay on the VM's native disk;
+only port sources, build recipes, and final artifacts cross the VirtioFS mount.
+This avoids putting a Linux kernel build tree on macOS APFS or VirtioFS.
+
+## One-time setup
+
+From the repository root:
+
+```sh
+make -C emulator
+make -C linux vm
+make -C linux provision
+make -C linux toolchain
+```
+
+`provision` installs the Debian build prerequisites. `toolchain` builds a
+Linux-hosted `c33-epson-elf-` GCC/binutils toolchain; it does not reuse the
+Mach-O executables under `host-tools/toolchain-c33/work`.
+
+The boot fixture also links the existing MBR support libraries. Build them
+with the repository's normal firmware targets if they are not present.
+
+## Build and test
+
+```sh
+make -C linux fetch
+make -C linux build
+make -C linux boot-test
+```
+
+`fetch` reconstructs the pinned upstream kernel revision from `revisions` on
+the VM disk, applies `patches/`, then installs `overlay/`. `build` leaves the
+final ELF and flat binary in `linux/artifacts/`.
+
+`boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
+fixture, boots it through the full emulated hardware path, injects a byte into
+UART0 after PID 1 starts, and passes only if userspace reads the byte and
+prints its response without a kernel panic. The fixture and emulator display
+output are kept outside the checkout and removed afterward.
+
+## What comes next
+
+The polling UART is deliberately simple bring-up code. The next useful
+vertical slice is interrupt-driven UART RX plus a small C library and shell.
+Signal delivery, `rt_sigreturn`, and architecture-specific bFLT relocation
+rules also need validation before larger applications. After that come
+SD/block/filesystem support and the WikiReader panel, input, and power drivers.

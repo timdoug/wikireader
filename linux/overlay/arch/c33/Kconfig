@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config C33
+	bool
+	default y
+	select ARCH_32BIT_OFF_T
+	select ARCH_HAS_BINFMT_FLAT
+	select ARCH_NO_PREEMPT
+	select ARCH_NO_SWAP
+	select BINFMT_FLAT_ARGVP_ENVP_ON_STACK
+	select CPU_NO_EFFICIENT_FFS
+	select GENERIC_ATOMIC64
+	select GENERIC_CPU_DEVICES
+	select GENERIC_IRQ_SHOW
+	select GENERIC_LIB_ASHLDI3
+	select GENERIC_LIB_ASHRDI3
+	select GENERIC_LIB_LSHRDI3
+	select GENERIC_LIB_MULDI3
+	select HAVE_PAGE_SIZE_4KB
+	select HAVE_UID16
+	select LEGACY_TIMER_TICK
+	select NO_DMA
+	select THREAD_INFO_IN_TASK
+	select UACCESS_MEMCPY
+
+config CPU_LITTLE_ENDIAN
+	def_bool y
+
+config GENERIC_CSUM
+	def_bool y
+
+config GENERIC_CALIBRATE_DELAY
+	def_bool y
+
+config GENERIC_HWEIGHT
+	def_bool y
+
+config NO_IOPORT_MAP
+	def_bool y
+
+config MMU
+	def_bool n
+
+config NR_CPUS
+	int
+	default 1
+
+config HZ
+	int
+	default 100
+
+menu "C33 platform options"
+
+config C33_WIKIREADER
+	bool "Openmoko WikiReader"
+	default y
+	help
+	  Build for the S1C33E07 WikiReader with 32 MiB of SDRAM.
+
+config PHYSICAL_START
+	hex "SDRAM base"
+	default 0x10000000
+
+config C33_KERNEL_START
+	hex "Kernel load address"
+	default 0x10040000
+	help
+	  The FLASH-resident file loader remains below this address and loads the
+	  ELF image here.
+
+config C33_MEMORY_SIZE
+	hex "SDRAM size"
+	default 0x02000000
+
+config CMDLINE
+	string "Built-in kernel command line"
+	default "console=ttyC330,115200"
+
+endmenu
+
+source "kernel/Kconfig.hz"
