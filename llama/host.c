@@ -78,9 +78,45 @@ static void emit(void *ctx, const char *piece)
 	fflush(stdout);
 }
 
+/* Teacher-forced top-1 predictions.
+ *
+ * Free-running generation is a bad accuracy measure: greedy decoding turns
+ * one differing logit into a different token, and from there the two runs
+ * write different stories for reasons that have nothing to do with
+ * arithmetic.  Feeding a fixed token sequence and reporting what the model
+ * would have predicted at each position measures the arithmetic alone, and
+ * a reference implementation can be compared against it position by
+ * position.
+ */
+static int teacher(llama_model *model, llama_tokenizer *tok, const char *text)
+{
+	int *tokens = malloc((size_t)model->cfg.seq_len * sizeof *tokens);
+	int n, pos;
+
+	if (!tokens)
+		return 1;
+	n = llama_encode(tok, text, 1, 0, tokens, model->cfg.seq_len);
+	if (n < 1) {
+		free(tokens);
+		return 1;
+	}
+	for (pos = 0; pos < n; pos++) {
+		int32_t *logits = llama_forward(model, tokens[pos], pos);
+		int best = 0, i;
+
+		for (i = 1; i < model->cfg.vocab_size; i++)
+			if (logits[i] > logits[best])
+				best = i;
+		printf("%d %d\n", tokens[pos], best);
+	}
+	free(tokens);
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	const char *weights = NULL, *vocab = NULL, *prompt = NULL;
+	const char *forced = NULL;
 	int steps = 256, quiet = 0, i;
 	void *wimage, *timage;
 	size_t wbytes, tbytes;
@@ -99,6 +135,8 @@ int main(int argc, char **argv)
 			prompt = argv[++i];
 		else if (!strcmp(argv[i], "-q"))
 			quiet = 1;
+		else if (!strcmp(argv[i], "-teacher") && i + 1 < argc)
+			forced = argv[++i];
 		else if (!weights)
 			weights = argv[i];
 		else {
@@ -109,7 +147,8 @@ int main(int argc, char **argv)
 	if (!weights || !vocab) {
 		fprintf(stderr,
 			"usage: %s <model.wrl> -z <tokenizer.bin> "
-			"[-n steps] [-i prompt] [-q]\n", argv[0]);
+			"[-n steps] [-i prompt] [-q] [-teacher text]\n",
+			argv[0]);
 		return 2;
 	}
 
@@ -134,6 +173,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "%s: bad tokenizer\n", vocab);
 		return 1;
 	}
+
+	if (forced)
+		return teacher(&model, &tok, forced);
 
 	memset(&opt, 0, sizeof opt);
 	opt.emit = emit;

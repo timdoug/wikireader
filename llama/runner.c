@@ -33,7 +33,7 @@ int llama_run(llama_model *m, llama_tokenizer *tok,
 	token = prompt_tokens[0];
 	for (pos = 0; pos < steps; pos++) {
 		uint32_t t0 = llama_now_us();
-		float *logits = llama_forward(m, token, pos);
+		int32_t *logits = llama_forward(m, token, pos);
 
 		stats->forward_us += llama_now_us() - t0;
 		stats->macs += llama_macs(m, pos);
@@ -44,7 +44,7 @@ int llama_run(llama_model *m, llama_tokenizer *tok,
 		} else {
 			/* Argmax over the logits. */
 			int best = 0, i;
-			float best_val = logits[0];
+			int32_t best_val = logits[0];
 
 			for (i = 1; i < m->cfg.vocab_size; i++)
 				if (logits[i] > best_val) {

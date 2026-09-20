@@ -4,17 +4,18 @@ A port of [llama2.c](https://github.com/karpathy/llama2.c) to the 60 MHz
 S1C33E07. It generates TinyStories text on the device, with every weight
 held as int8.
 
-`stories260K` runs and produces the same story llama2.c's fp32 `run.c`
-does, token for token. It is not fast: **1.21 seconds a token**, where the
-integer arithmetic alone would allow about 70 milliseconds. The gap is
-measured and is almost entirely one thing -- see [what costs
+`stories260K` runs at **118 milliseconds a token**, and agrees with an
+fp32 reference on the top-1 prediction at every teacher-forced position.
+There is no floating point anywhere in the forward pass: not in the
+matmuls, not in RMSNorm, softmax, SwiGLU or RoPE, and not in the weight
+file. That is where almost all of the speed came from -- see [what costs
 what](#what-costs-what).
 
 ## Use
 
 ```sh
 make host                 # host build of the same model and tokenizer
-make test                 # checks the output against llama2.c's fp32
+make test                 # teacher-forced accuracy against an fp32 reference
 
 make TOOLCHAIN_BIN=../host-tools/toolchain-c33/work/install/bin
 python3 tools/convert.py stories260K.bin model.wrl
@@ -54,28 +55,75 @@ fit in RAM is bound by the card and by nothing else.
 
 ## What costs what
 
-Measured with `wremu -F` over 19 tokens of `stories260K`, attributed by
-`tools/profile.py`:
+Measured with `wremu -F` on `stories260K`, attributed by
+`tools/profile.py`, before and after the activation path was converted:
 
-| | share of cycles |
-| --- | ---: |
-| soft float (`__mulsf3`, `__unpack_f`, `__pack_f`, `__addsf3`, ...) | **80%** |
-| `matmul` -- every int8 weight in the model | 8% |
-| everything else | 12% |
+| share of cycles | int8 weights, fp32 activations | everything integer |
+| --- | ---: | ---: |
+| soft float | **80%** | **0%** |
+| `matmul` -- every int8 weight | 8% | 59% |
+| normalisation and exponent bookkeeping | -- | 15% |
+| `llama_forward` itself (attention, SwiGLU, RoPE) | 1% | 14% |
+| integer divide, `exp`, `isqrt` | -- | 8% |
+| ms a token, 8 tokens | 1214 | **118** |
+| ms a token, 32 tokens | 1817 | **131** |
 
-The model's actual arithmetic is 8% of the runtime. The other 80% is the
-fp32 that surrounds it: RMSNorm, the attention dot products, SwiGLU, the
-softmax, the RoPE rotation, and -- the largest single contributor -- the
-three soft-float operations at the end of every output row of every
-matmul, `xout[i] = (float)acc * (w->s[i] * xs)`. There are 3,512 such rows
-per token at dim 64, which is 10,500 float operations spent scaling the
-results of 259,328 integer ones.
+The first port quantized the *weights* but kept llama2.c's fp32
+*activations*: quantize, int8 matmul, dequantize back to float, RMSNorm and
+SwiGLU and softmax in float, quantize again. int8 covered the O(weights)
+work and float covered the O(dim) work around it, which on this part is
+backwards -- 259,328 integer multiply-accumulates at 18 cycles, wrapped in
+about 24,000 float operations at 250.
 
-**This is why the port is slow, and it is not fixable piecemeal.** Scaling
-a matmul row cheaply requires its consumer to take fixed point, which
-requires RMSNorm and SwiGLU to produce it, which requires the attention
-path to carry it. The whole activation path has to become integer at once
-or none of it can.
+The largest single contributor was the three soft-float operations ending
+every output row of every matmul, `xout[i] = (float)acc * (w->s[i] * xs)`:
+3,512 rows a token at dim 64, so ten thousand float operations spent
+scaling the results of a quarter million integer ones.
+
+**It was not fixable piecemeal.** Scaling a matmul row cheaply needs its
+consumer to take fixed point, which needs RMSNorm and SwiGLU to produce it,
+which needs the attention path to carry it. The whole activation path had
+to convert at once.
+
+### How the fixed point works
+
+Every activation vector is `int32` values carrying a **power-of-two
+exponent and nothing else**: `value[i] = v[i] * 2^-e`. Exponents add, so
+a matmul's output exponent is just `input_e + tensor_e - shift`, and no
+scale ever has to be multiplied into the data.
+
+That works because a non-power-of-two scale appears in exactly one place --
+RMSNorm's `sqrt(n)/sqrt(sum x^2)` -- and is multiplied into the data there,
+where a single 32-bit divide a call covers a whole vector. RMSNorm is also
+the one operation that is *easier* in fixed point than in float: the input
+exponent divides out, because normalising is what it means.
+
+Two rules keep every product inside an `int32`:
+
+- **Nothing widens.** gcc compiles `(int64_t)a * b` to a call to
+  `__muldi3`, which was 5% of the old profile on its own. Both operands are
+  cut to fifteen bits before every multiply instead.
+- **Nothing divides that does not have to.** There is no hardware divide
+  either. The softmax normalises with one reciprocal per head rather than
+  one per score, and attention weights come out in Q7 -- 128 is one, so the
+  weighted sum of values carries a shift and not a division.
+
+The KV cache is int8 with one exponent per (layer, position), a quarter of
+what fp32 took. Positions therefore have different exponents, so scores and
+values are brought to the smallest exponent in the cache before being
+compared or summed -- shifting down is exact, shifting up would overflow.
+
+`fixed.c` supplies what libm would have: `exp` by Horner in Q12 (each step
+rounds; five truncations compound into more error than the dropped
+fifth-order term did), a bit-by-bit integer square root, and a `ilog2`,
+since the PE core drops `SCAN0`/`SCAN1` along with `MAC`.
+
+Accuracy is measured rather than assumed. `make test` feeds a fixed token
+sequence to both this and an fp32 numpy reference and compares the top-1
+prediction at every position: **45 of 45**. Free-running greedy generation
+follows llama2.c's fp32 output for 42 tokens and then takes a different but
+equally sensible turn, which is what one differing logit does under argmax
+and says nothing about the arithmetic.
 
 ### The matmul
 
@@ -99,8 +147,8 @@ stream, which is otherwise perfectly sequential.
 
 Moving the activation vector into A0 internal RAM (`llama_alloc_fast`, via
 the `.fastbss` section the standard application linker script already
-places there) took row activations to **0.157 per MAC and the matmul to
-18.1 cycles per MAC**, 2.0x. It is 236 bytes of internal RAM.
+places there) took row activations to **0.13 per MAC and the matmul to
+17.2 cycles per MAC**, 2.1x. It is 236 bytes of internal RAM.
 
 The remaining gap to the ~12 cycles the instruction timings allow is the
 two byte loads: `ld.ub` walking a buffer measured 7.08 cycles each, against
@@ -109,18 +157,24 @@ per `ld.w` and unpacking them with shifts is the next thing to try.
 
 ## Format
 
-`tools/convert.py` writes int8 weights with **one fp32 scale per output
-row**, not upstream's fixed groups of 64.
+`tools/convert.py` writes int8 weights with **one scale per output row**,
+not upstream's fixed groups of 64 -- and the scale is an int16 mantissa
+over a shared power-of-two exponent, not a float.
 
 That is not a preference. `runq.c` walks groups with `for (j = 0; j <= n -
 GS; j += GS)`, which assumes the row length is a multiple of the group
 size. stories260K's `hidden_dim` is 172, so on the `w2` matmul that loop
 covers 128 of 172 weights and silently drops the other 44. The model then
 generates `Once upon upon upon upon` and nothing in the tool chain reports
-a problem. A scale per row divides every shape exactly, and costs one
-float multiply per output element instead of one per group. On this
-checkpoint it is also no less accurate, because `dim` is 64 and the two
-schemes then agree exactly.
+a problem. A scale per row divides every shape exactly. On this checkpoint
+it is also no less accurate, because `dim` is 64 and the two schemes then
+agree exactly.
+
+One exponent for a whole tensor costs precision on its smallest row: a
+spread of 2^k leaves the smallest scale 15 - k bits. Every array in these
+checkpoints spreads by at most 13x, which leaves eleven bits, but
+`encode_scales` checks rather than assuming -- a row scale that quietly
+rounds to zero deletes an output row with no symptom except worse text.
 
 The RoPE cos/sin table is in the weight file too: `run.c` calls `powf`,
 `cosf` and `sinf` for every token, and there is no libm here -- mini-libc
@@ -134,8 +188,8 @@ measured 18.1 cycles each on a 60 MHz part:
 
 | model | dim / layers | int8 weights | MACs/token | forward |
 | --- | --- | ---: | ---: | ---: |
-| stories260K | 64 / 5 | 0.28 MB | 0.26 M | measured 1.21 s (80% soft float) |
-| stories15M | 288 / 6 | 16 MB | 15.2 M | 4.6 s, integer only |
+| stories260K | 64 / 5 | 0.28 MB | 0.26 M | **measured 118 ms** |
+| stories15M | 288 / 6 | 16 MB | 15.2 M | 4.4 s |
 | stories42M | 512 / 8 | 45 MB | 43.7 M | card-bound: 45 MB a token at 0.8 MB/s |
 | stories110M | 768 / 12 | 116 MB | 110 M | card-bound, minutes a token |
 
@@ -147,8 +201,8 @@ its 15.2M MACs a token in the 32000-entry classifier. llama2.c documents
 training a custom tokenizer, and notes that a 4096-entry vocabulary trained
 on TinyStories gives the same sequence lengths as the 32000-entry one. At
 vocab 4096 a dim-288 model drops to 7.2M MACs and 7.6 MB, and a dim-128 one
-to 2.1M MACs and 1.9 MB -- which, if the float were gone, would read at
-about the speed a person does.
+to 2.1M MACs and 1.9 MB, which at the measured 17.2 cycles a MAC is about
+0.6 seconds a token -- roughly reading speed.
 
 ## Files
 
@@ -157,9 +211,10 @@ about the speed a person does.
 | `model.c` | the forward pass; `matmul`, `quantize`, `rmsnorm`, `softmax` |
 | `tokenizer.c` | SentencePiece BPE, reading llama2.c's own `tokenizer.bin` |
 | `runner.c` | the generation loop, greedy |
-| `fmath.c` | `expf` and `rsqrtf`, because there is no libm |
+| `fixed.c` | `exp`, integer square root and `ilog2`, because there is no libm |
 | `llama.c` | Grifo entry, screen, and the internal-RAM arena |
 | `host.c` | the same model and tokenizer behind malloc and stdio |
 | `tools/convert.py` | fp32 checkpoint to int8, and the RoPE table |
 | `tools/profile.py` | attributes a `wremu -F` profile using the link map |
+| `tools/reference.py` | an fp32 forward pass in numpy, for the accuracy test |
 | `make-card.py` | a FAT32 emulator card, built in memory and written once |

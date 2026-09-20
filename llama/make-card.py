@@ -99,8 +99,8 @@ def make_card(output, model, vocab, arguments, app=ROOT / "llama/llama.app"):
         # exactly one.
         "INIT.INI": ("llama.ico : llama.app " + arguments + "\n").encode(),
     }
-    if files["MODEL.WRL"][:4] != b"WRL1":
-        raise ValueError(f"{model} is not a WRL1 weight file; run tools/convert.py")
+    if files["MODEL.WRL"][:4] != b"WRL2":
+        raise ValueError(f"{model} is not a WRL2 weight file; run tools/convert.py")
 
     spc = SECTORS_PER_CLUSTER
     part, reserved, fat_sectors = 2048, 32, 2048

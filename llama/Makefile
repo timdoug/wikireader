@@ -5,7 +5,7 @@ include $(MK_DIR)/definitions.mk
 include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = llama
-SOURCES = llama.c model.c tokenizer.c runner.c fmath.c
+SOURCES = llama.c model.c tokenizer.c runner.c fixed.c
 CFLAGS += -std=gnu11
 
 include $(GRIFO_APPLICATION_POST)
@@ -21,8 +21,8 @@ HOST_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 .PHONY: host
 host: build/wrllama
 
-build/wrllama: host.c model.c tokenizer.c runner.c fmath.c $(wildcard *.h) | build
-	$(HOST_CC) $(HOST_CFLAGS) -o $@ host.c model.c tokenizer.c runner.c fmath.c
+build/wrllama: host.c model.c tokenizer.c runner.c fixed.c $(wildcard *.h) | build
+	$(HOST_CC) $(HOST_CFLAGS) -o $@ host.c model.c tokenizer.c runner.c fixed.c
 
 .PHONY: test
 test: build/wrllama

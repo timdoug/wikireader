@@ -18,6 +18,12 @@ its shape, and costs one float multiply per output element instead of one
 per group.  On this model it is also no less accurate, because `dim` is 64
 and the two schemes then agree exactly.
 
+**Nothing in the output is floating point.** The device has no FPU, so a
+scale that arrives as an fp32 would be multiplied by a call into libgcc --
+which measured 80% of the whole forward pass before this. Every scale is
+written as an int16 mantissa with one shared power-of-two exponent per
+tensor, so the device applies it with `mlt.w` and a shift.
+
 Rounding matches `torch.round`: numpy and torch both round halves to even,
 so a checkpoint quantized here matches one quantized by `export.py`.
 """
@@ -28,8 +34,8 @@ import sys
 
 import numpy as np
 
-MAGIC = b"WRL1"
-VERSION = 1
+MAGIC = b"WRL2"
+VERSION = 2
 HEADER_BYTES = 64
 
 
@@ -129,6 +135,54 @@ def quantize_rows(w):
     return q, scale, float(err)
 
 
+def encode_scales(values, what="scales", allow_underflow=0.0):
+    """Float array -> (int16 mantissas, shared exponent) with v = m * 2^-e.
+
+    One exponent for the whole array rather than one per element, so the
+    device applies a scale with a multiply and a single shift it already
+    knows.  The cost is precision on the smallest entries: an array whose
+    largest and smallest magnitudes differ by 2^k leaves the smallest with
+    15 - k significant bits.
+
+    Every weight and norm array in these checkpoints spreads by at most
+    13x, which leaves the smallest entry eleven bits -- but nothing checks
+    that for a checkpoint nobody has tried yet, and a scale that quietly
+    rounds to zero deletes a whole output row without any symptom but worse
+    text.  So it is checked, and `allow_underflow` is the fraction of
+    entries a caller is willing to lose.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    vmax = np.abs(v).max()
+    if vmax == 0:
+        return np.zeros(v.shape, np.int16), 0
+    # The largest e with vmax * 2^e still inside an int16.
+    e = int(np.floor(np.log2(32767.0 / vmax)))
+    m = np.clip(np.round(v * (2.0**e)), -32767, 32767).astype(np.int16)
+
+    nonzero = v != 0
+    if nonzero.any():
+        lost = np.abs(m[nonzero]) < 8
+        fraction = lost.sum() / nonzero.sum()
+        if fraction > allow_underflow:
+            raise SystemExit(
+                f"{what}: {lost.sum()} of {nonzero.sum()} entries lose all "
+                f"but three bits under one shared exponent (spread "
+                f"{np.abs(v[nonzero]).max() / np.abs(v[nonzero]).min():.0f}x). "
+                "A per-row exponent would be needed for this checkpoint."
+            )
+    return m, e
+
+
+def write_scaled(f, values, what="scales", allow_underflow=0.0):
+    """int16 mantissas followed by the int32 shared exponent."""
+    m, e = encode_scales(values, what, allow_underflow)
+    if m.size % 2:
+        raise SystemExit(f"{what}: scaled vectors must have an even length")
+    f.write(m.astype("<i2").tobytes())
+    f.write(struct.pack("<i", e))
+    return m, e
+
+
 def convert(src, dst):
     config, t = read_legacy(src)
     n_layers = config["n_layers"]
@@ -137,12 +191,16 @@ def convert(src, dst):
     # on a four-byte boundary.  All the shapes here already do; refuse
     # rather than emit a file the fast kernel would misread.
     for name in ("tok_embeddings", "wq", "wk", "wv", "wo", "w1", "w2", "w3"):
-        n = t[name].shape[-1]
+        n, d = t[name].shape[-1], t[name].shape[-2]
         if n % 4:
             raise SystemExit(
                 f"{name} has row length {n}, which is not a multiple of four; "
                 "the device kernel loads rows a word at a time"
             )
+        # The mantissa array is int16 and the exponent after it is int32, so
+        # an odd row count would leave the exponent unaligned.
+        if d % 2:
+            raise SystemExit(f"{name} has an odd row count {d}")
 
     # Weights in the order the forward pass reads them, a layer at a time,
     # so that a model too big for RAM can later be streamed from the card in
@@ -175,32 +233,37 @@ def convert(src, dst):
             raise SystemExit("header overflowed its 64 bytes")
         f.write(b"\0" * pad)
 
-        # The norms stay fp32.  There are only (2 * n_layers + 1) * dim of
-        # them and they scale activations rather than being summed over, so
-        # quantizing them would cost accuracy and save nothing measurable.
+        # The norms multiply activations rather than being summed over, so
+        # they keep more precision than the weights do: int16 mantissas
+        # against the weights' int8.
         for i in range(n_layers):
-            f.write(t["attention_norm"][i].astype("<f4").tobytes())
+            write_scaled(f, t["attention_norm"][i], f"attention_norm.{i}")
         for i in range(n_layers):
-            f.write(t["ffn_norm"][i].astype("<f4").tobytes())
-        f.write(t["norm"].astype("<f4").tobytes())
+            write_scaled(f, t["ffn_norm"][i], f"ffn_norm.{i}")
+        write_scaled(f, t["norm"], "norm")
 
         # The rotation table, interleaved cos/sin, one pair per (position,
         # frequency).  run.c calls powf, cosf and sinf here for every token
         # it generates, and there is no libm on the device -- mini-libc has
         # no math.h at all.  The values depend only on the checkpoint's
-        # seq_len and head_size, so they belong in the file.
-        f.write(rope_table(config).astype("<f4").tobytes())
+        # seq_len and head_size, so they belong in the file.  They are all
+        # in [-1, 1], so the shared exponent makes this plain Q14.
+        # One sine in the table underflows: sin of a 3e-5 angle, where
+        # rounding to zero turns a rotation that is already the identity to
+        # eleven decimal places into the identity.
+        write_scaled(f, rope_table(config).reshape(-1), "rope",
+                     allow_underflow=0.001)
 
         worst, worst_name = 0.0, ""
         for name, w in tensors:
             q, s, err = quantize_rows(w)
             f.write(q.tobytes())
-            f.write(s.astype("<f4").tobytes())
+            write_scaled(f, s, f"{name} row scales")
             if err > worst:
                 worst, worst_name = err, name
 
     weight_bytes = sum(w.size for _, w in tensors)
-    scale_bytes = sum(w.shape[0] * 4 for _, w in tensors)
+    scale_bytes = sum(w.shape[0] * 2 + 4 for _, w in tensors)
     print(
         f"{dst}: dim {config['dim']}, hidden {config['hidden_dim']}, "
         f"{n_layers} layers, {config['n_heads']} heads "
