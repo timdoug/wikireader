@@ -4,7 +4,7 @@ A port of [llama2.c](https://github.com/karpathy/llama2.c) to the 60 MHz
 S1C33E07. It generates TinyStories text on the device, with every weight
 held as int8.
 
-`stories260K` runs at **118 milliseconds a token**, and agrees with an
+`stories260K` runs at **119 milliseconds a token**, and agrees with an
 fp32 reference on the top-1 prediction at every teacher-forced position.
 There is no floating point anywhere in the forward pass: not in the
 matmuls, not in RMSNorm, softmax, SwiGLU or RoPE, and not in the weight
@@ -31,6 +31,14 @@ Application arguments: `-n` tokens, `-i` prompt, `-v` to echo the story to
 the serial console, `-once` to power the machine off after one run instead
 of idling (the profiler's buckets are cumulative, so an idle loop buries
 what it is meant to measure).
+
+The app halts when it is finished, in `event_wait`, rather than polling
+`event_get` in a loop. Polling kicked the watchdog a million times a run
+and never let the guest halt, so under the emulator's window the host
+burned a core simulating a machine doing nothing. **Timings printed under
+`-g` are wall clock, not guest cycles** -- `main.c` calls
+`timer_use_wallclock` when there is a window, deliberately, so quote the
+headless number.
 
 `-once` has to power off rather than return. Returning from `grifo_main`
 hands control back to `init`, which finds one entry in `init.ini` and
@@ -164,6 +172,15 @@ two byte loads: `ld.ub` walking a buffer measured 7.08 cycles each, against
 9.44 for a word load that carries four times as much. Loading four weights
 per `ld.w` and unpacking them with shifts is the next thing to try.
 
+**`model.o` is built with `-falign-loops=16`, and that is load-bearing.**
+Editing the screen code in `llama.c` and nothing else once moved this loop
+across a fetch-line boundary: its fetch stall went from 4.2% of its cycles
+to 71.2%, its cycles per instruction from 2.46 to 8.78, and a token from
+130 ms to 330. Nothing about the loop changed; the linker put it somewhere
+else. Aligning it makes the number reproducible instead of lucky, and it
+was worth 130 -> 119 ms outright, because `reduce_to` was straddling a line
+too.
+
 ## Format
 
 `tools/convert.py` writes int8 weights with **one scale per output row**,
@@ -197,7 +214,7 @@ measured 18.1 cycles each on a 60 MHz part:
 
 | model | dim / layers | int8 weights | MACs/token | forward |
 | --- | --- | ---: | ---: | ---: |
-| stories260K | 64 / 5 | 0.28 MB | 0.26 M | **measured 118 ms** |
+| stories260K | 64 / 5 | 0.28 MB | 0.26 M | **measured 119 ms** |
 | stories15M | 288 / 6 | 16 MB | 15.2 M | 4.4 s |
 | stories42M | 512 / 8 | 45 MB | 43.7 M | card-bound: 45 MB a token at 0.8 MB/s |
 | stories110M | 768 / 12 | 116 MB | 110 M | card-bound, minutes a token |

@@ -77,8 +77,16 @@ static void screen_putc(screen *s, char c)
 		return;
 	if (c == '\n') {
 		s->col = 0;
-		if (++s->row >= SCREEN_ROWS)
+		if (++s->row >= SCREEN_ROWS) {
 			s->full = 1;
+			return;
+		}
+		/* The panel needs the newline too, not just the column
+		   counter: without this the model's own line breaks -- and
+		   TinyStories emits them -- were counted and then dropped,
+		   so the text ran on and the row bookkeeping described a
+		   layout the screen did not have. */
+		lcd_print_char(c);
 		return;
 	}
 	if (c < ' ')
@@ -145,6 +153,16 @@ static void *load(const char *path, size_t *bytes, const char *tag)
 	buf[length] = 0;
 	*bytes = (size_t)length;
 	return buf;
+}
+
+/* event_wait calls this after its two-minute timeout; true means keep
+   waiting.  The story stays on the panel until the reader is done with
+   it, which is the whole point of stopping here rather than powering
+   off. */
+static bool idle_forever(void *arg)
+{
+	(void)arg;
+	return true;
 }
 
 static void fail(const char *what, const char *why)
@@ -243,6 +261,18 @@ int grifo_main(int argc, char **argv)
 			     (unsigned)stats.macs,
 			     (unsigned)(cycles_per_mac_x100 / 100u),
 			     (unsigned)(cycles_per_mac_x100 % 100u));
+
+		/* And on the panel, so a run that has finished does not look
+		   like one that has stopped responding.  Under the emulator's
+		   window timer_get is wall clock rather than guest cycles, so
+		   this number is the host's and not the device's -- the
+		   headless run is the one to quote. */
+		if (!sc.full) {
+			screen_putc(&sc, '\n');
+			screen_putc(&sc, '\n');
+			lcd_printf("[%d tokens, %u ms each]",
+				   stats.tokens, (unsigned)(per_token / 1000u));
+		}
 	}
 
 	/* The profiler's buckets are cumulative over a whole run, so an idle
@@ -266,12 +296,19 @@ int grifo_main(int argc, char **argv)
 		power_off();
 	}
 
+	/* Wait on the event, rather than spinning on the absence of one.
+	 *
+	 * The first version of this polled event_get in a loop and kicked the
+	 * watchdog a million times a run.  On the device that is a flat
+	 * battery; under the emulator's window it is worse, because the guest
+	 * never halts, so the host burns a core simulating a machine doing
+	 * nothing and the window stops feeling alive.  event_wait puts the
+	 * CPU in HALT until something actually happens.
+	 */
 	for (;;) {
 		event_t e;
 
-		while (event_get(&e) != EVENT_NONE)
-			if (e.item_type == EVENT_BATTERY_LOW)
-				power_off();
-		watchdog(WATCHDOG_KEY);
+		if (event_wait(&e, idle_forever, NULL) == EVENT_BATTERY_LOW)
+			power_off();
 	}
 }
