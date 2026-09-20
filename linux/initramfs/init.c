@@ -44,7 +44,6 @@ static const struct message_record messages[] = {
 
 static unsigned int command_count;
 static volatile unsigned char digit_base = '0';
-static unsigned char child_stack[4096] __attribute__((aligned(16)));
 
 static void write_all(const char *buffer, size_t count)
 {
@@ -79,8 +78,8 @@ static void process_test(void)
 	long waited;
 	int status = 0;
 
-	/* clone(CLONE_VM | SIGCHLD) with a private child stack. */
-	pid = c33_clone(0x111, child_stack + sizeof(child_stack), 0, 0, 0);
+	/* The asm-generic no-MMU vfork ABI is clone(CLONE_VM|CLONE_VFORK). */
+	pid = c33_clone(0x4111, 0, 0, 0, 0);
 	if (pid <= 0) {
 		put_message(MESSAGE_PROCESS_FAIL);
 		return;

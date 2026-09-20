@@ -77,13 +77,18 @@ c33_exception:
 	xadd %r5,96
 	xld.w [%sp+72],%r5
 
-	/* C33 ABI: vector in r6, pt_regs pointer in r7. */
-	ld.w %r6,%r4
-	ld.w %r7,%sp
+	/* Move user exceptions onto the current task's kernel stack. */
+	ld.w %r6,%sp
 	ld.w %r5,%sp
 	xand %r5,0xfffffff0
 	ld.w %sp,%r5
 	xld.w %r15,__dp
+	xcall c33_exception_enter
+	ld.w %r7,%r4
+	xld.w %r6,[%r7+76]
+	ld.w %r5,%r7
+	xand %r5,0xfffffff0
+	ld.w %sp,%r5
 	xcall c33_handle_irq
 	ld.w %r6,%r4
 
@@ -91,6 +96,9 @@ c33_exception:
 	.type c33_restore,@function
 c33_restore:
 	psrclr 4
+	xld.w %r15,__dp
+	xcall c33_exception_exit
+	ld.w %r6,%r4
 	ld.w %sp,%r6
 	/*
 	 * RETI consumes its PC/PSR pair from the current stack.  The saved SP

@@ -20,8 +20,8 @@ loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
 alive while timer interrupts keep preempting native C33 userspace.
 
 Before entering the shell, PID 1 also runs a process-lifecycle regression. It
-uses the asm-generic `clone` ABI with a separate no-MMU stack, executes a
-second bFLT image as `/child`, and reaps its exit status with `wait4`. This
+uses the asm-generic `clone(CLONE_VM | CLONE_VFORK)` ABI, executes a second
+bFLT image as `/child`, and reaps its exit status with `wait4`. This
 exercises the live syscall register frame, task creation, scheduling, exec,
 exit, and parent wakeup without relying on a C library.
 

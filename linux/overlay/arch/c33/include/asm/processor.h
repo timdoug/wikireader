@@ -14,9 +14,10 @@ struct thread_struct {
 	unsigned long ksp;
 	unsigned long usp;
 	struct pt_regs *regs;
+	unsigned long in_kernel;
 };
 
-#define INIT_THREAD { .ksp = 0, .usp = 0, .regs = NULL }
+#define INIT_THREAD { .ksp = 0, .usp = 0, .regs = NULL, .in_kernel = 1 }
 
 struct task_struct;
 extern void start_thread(struct pt_regs *regs, unsigned long pc,

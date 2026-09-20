@@ -5,7 +5,7 @@
 #define instruction_pointer(regs) ((regs)->pc)
 #define user_stack_pointer(regs) ((regs)->sp)
 #define profile_pc(regs) instruction_pointer(regs)
-#define user_mode(regs) (1)
+#define user_mode(regs) ((regs)->reserved != 0)
 #define interrupts_enabled(regs) ((regs)->psr & (1 << 4))
 #define current_pt_regs() (current->thread.regs)
 #endif

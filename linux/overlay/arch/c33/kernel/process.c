@@ -12,6 +12,33 @@
 
 struct task_struct *c33_current_task = &init_task;
 
+asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs);
+asmlinkage struct pt_regs *c33_exception_exit(struct pt_regs *regs);
+
+asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
+{
+	struct pt_regs *kernel_regs;
+
+	if (current->thread.in_kernel) {
+		regs->reserved = 0;
+		return regs;
+	}
+
+	kernel_regs = task_pt_regs(current);
+	*kernel_regs = *regs;
+	kernel_regs->reserved = 1;
+	current->thread.in_kernel = 1;
+	current->thread.regs = kernel_regs;
+	return kernel_regs;
+}
+
+asmlinkage struct pt_regs *c33_exception_exit(struct pt_regs *regs)
+{
+	if (user_mode(regs))
+		current->thread.in_kernel = 0;
+	return regs;
+}
+
 void arch_cpu_idle(void);
 
 void arch_cpu_idle(void)
@@ -74,6 +101,7 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	regs->sp = sp;
 	regs->psr = 1 << 4;
 	regs->orig_r4 = -1;
+	regs->reserved = 1;
 	current->thread.usp = sp;
 }
 
@@ -92,6 +120,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	memset(switch_sp, 0, 4 * sizeof(*switch_sp) + sizeof(*childregs));
 	p->thread.regs = childregs;
 	p->thread.ksp = (unsigned long)switch_sp;
+	p->thread.in_kernel = 1;
 
 	if (unlikely(args->fn)) {
 		/* POPN restores r0-r3, then RET leaves SP on these two words. */
