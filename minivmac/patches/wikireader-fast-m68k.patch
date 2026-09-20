@@ -1,0 +1,198 @@
+diff --git a/src/MINEM68K.c b/src/MINEM68K.c
+index 3e9d4e8..90a112e 100644
+--- a/src/MINEM68K.c
++++ b/src/MINEM68K.c
+@@ -40,6 +40,19 @@
+ 
+ #include "MINEM68K.h"
+ 
++#ifndef MINIVMAC_FAST_M68K
++#define MINIVMAC_FAST_M68K
++#endif
++#ifndef MINIVMAC_FAST_M68K_DATA
++#define MINIVMAC_FAST_M68K_DATA
++#endif
++#ifndef MINIVMAC_FAST_M68K_BSS
++#define MINIVMAC_FAST_M68K_BSS
++#endif
++#ifndef MINIVMAC_JIT
++#define MINIVMAC_JIT 0
++#endif
++
+ /*
+ 	ReportAbnormalID unused 0x0123 - 0x01FF
+ */
+@@ -247,7 +260,7 @@ LOCALVAR struct regstruct
+ #else
+ 	DecOpR disp_table[disp_table_sz];
+ #endif
+-} regs;
++} regs MINIVMAC_FAST_M68K_BSS;
+ 
+ #define ui5r_MSBisSet(x) (((si5r)(x)) < 0)
+ 
+@@ -557,7 +570,8 @@ FORWARDPROC DoCodeFPU_dflt(void);
+ 
+ typedef void (*func_pointer_t)(void);
+ 
+-LOCALVAR const func_pointer_t OpDispatch[kNumIKinds + 1] = {
++LOCALVAR const func_pointer_t OpDispatch[kNumIKinds + 1]
++	MINIVMAC_FAST_M68K_DATA = {
+ 	DoCodeTst /* kIKindTst */,
+ 	DoCodeCmpB /* kIKindCmpB */,
+ 	DoCodeCmpW /* kIKindCmpW */,
+@@ -800,7 +814,11 @@ LOCALINLINEPROC UnDecodeNextInstruction(ui4rr Cycles)
+ #endif
+ }
+ 
++#if MINIVMAC_JIT
+ LOCALPROC m68k_go_MaxCycles(void)
++#else
++LOCALPROC MINIVMAC_FAST_M68K m68k_go_MaxCycles(void)
++#endif
+ {
+ 	ui4rr Cycles;
+ 	DecOpYR y;
+@@ -846,9 +864,9 @@ LOCALPROC m68k_go_MaxCycles(void)
+ 	UnDecodeNextInstruction(Cycles);
+ }
+ 
+-FORWARDFUNC ui5r my_reg_call get_byte_ext(CPTR addr);
++FORWARDFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_byte_ext(CPTR addr);
+ 
+-LOCALFUNC ui5r my_reg_call get_byte(CPTR addr)
++LOCALFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_byte(CPTR addr)
+ {
+ 	ui3p m = (addr & V_regs.MATCrdB.usemask) + V_regs.MATCrdB.usebase;
+ 
+@@ -871,9 +889,9 @@ LOCALPROC my_reg_call put_byte(CPTR addr, ui5r b)
+ 	}
+ }
+ 
+-FORWARDFUNC ui5r my_reg_call get_word_ext(CPTR addr);
++FORWARDFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_word_ext(CPTR addr);
+ 
+-LOCALFUNC ui5r my_reg_call get_word(CPTR addr)
++LOCALFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_word(CPTR addr)
+ {
+ 	ui3p m = (addr & V_regs.MATCrdW.usemask) + V_regs.MATCrdW.usebase;
+ 	if ((addr & V_regs.MATCrdW.cmpmask) == V_regs.MATCrdW.cmpvalu) {
+@@ -1192,7 +1210,8 @@ LOCALFUNC ui5r my_reg_call DecodeAddr_PCIndex(ui3rr ArgDat)
+ 
+ typedef ui5r (my_reg_call *DecodeAddrP)(ui3rr ArgDat);
+ 
+-LOCALVAR const DecodeAddrP DecodeAddrDispatch[kNumAMds] = {
++LOCALVAR const DecodeAddrP DecodeAddrDispatch[kNumAMds]
++	MINIVMAC_FAST_M68K_DATA = {
+ 	(DecodeAddrP)nullpr /* kAMdRegB */,
+ 	(DecodeAddrP)nullpr /* kAMdRegW */,
+ 	(DecodeAddrP)nullpr /* kAMdRegL */,
+@@ -1461,7 +1480,8 @@ LOCALFUNC ui5r my_reg_call DecodeGetSrcDst_Dat4(ui3rr ArgDat)
+ 
+ typedef ui5r (my_reg_call *DecodeGetSrcDstP)(ui3rr ArgDat);
+ 
+-LOCALVAR const DecodeGetSrcDstP DecodeGetSrcDstDispatch[kNumAMds] = {
++LOCALVAR const DecodeGetSrcDstP DecodeGetSrcDstDispatch[kNumAMds]
++	MINIVMAC_FAST_M68K_DATA = {
+ 	DecodeGetSrcDst_RegB /* kAMdRegB */,
+ 	DecodeGetSrcDst_RegW /* kAMdRegW */,
+ 	DecodeGetSrcDst_RegL /* kAMdRegL */,
+@@ -1722,7 +1742,8 @@ LOCALPROC my_reg_call DecodeSetSrcDst_PCIndexL(ui5r v, ui3rr ArgDat)
+ 
+ typedef void (my_reg_call *DecodeSetSrcDstP)(ui5r v, ui3rr ArgDat);
+ 
+-LOCALVAR const DecodeSetSrcDstP DecodeSetSrcDstDispatch[kNumAMds] = {
++LOCALVAR const DecodeSetSrcDstP DecodeSetSrcDstDispatch[kNumAMds]
++	MINIVMAC_FAST_M68K_DATA = {
+ 	DecodeSetSrcDst_RegB /* kAMdRegB */,
+ 	DecodeSetSrcDst_RegW /* kAMdRegW */,
+ 	DecodeSetSrcDst_RegL /* kAMdRegL */,
+@@ -2055,7 +2076,7 @@ LOCALFUNC ui5r my_reg_call DecodeGetSetSrcDst_PCIndexL(ui3rr ArgDat)
+ typedef ui5r (my_reg_call *DecodeGetSetSrcDstP)(ui3rr ArgDat);
+ 
+ LOCALVAR const DecodeGetSetSrcDstP
+-	DecodeGetSetSrcDstDispatch[kNumAMds] =
++	DecodeGetSetSrcDstDispatch[kNumAMds] MINIVMAC_FAST_M68K_DATA =
+ {
+ 	DecodeGetSetSrcDst_RegB /* kAMdRegB */,
+ 	DecodeGetSetSrcDst_RegW /* kAMdRegW */,
+@@ -2932,7 +2953,8 @@ FORWARDPROC my_reg_call cctrue_Dflt(cond_actP t_act, cond_actP f_act);
+ 
+ typedef void (my_reg_call *cctrueP)(cond_actP t_act, cond_actP f_act);
+ 
+-LOCALVAR const cctrueP cctrueDispatch[CCdispSz + 1] = {
++LOCALVAR const cctrueP cctrueDispatch[CCdispSz + 1]
++	MINIVMAC_FAST_M68K_DATA = {
+ 	cctrue_T /* kLazyFlagsDefault T */,
+ 	cctrue_F /* kLazyFlagsDefault F */,
+ 	cctrue_HI /* kLazyFlagsDefault HI */,
+@@ -8301,7 +8323,7 @@ LOCALPROC local_customreset(void)
+ 	Em_Enter();
+ }
+ 
+-LOCALFUNC ATTep LocalFindATTel(CPTR addr)
++LOCALFUNC MINIVMAC_FAST_M68K ATTep LocalFindATTel(CPTR addr)
+ {
+ 	ATTep prev;
+ 	ATTep p;
+@@ -8330,7 +8352,7 @@ LOCALFUNC ATTep LocalFindATTel(CPTR addr)
+ 	return p;
+ }
+ 
+-LOCALPROC SetUpMATC(
++LOCALPROC MINIVMAC_FAST_M68K SetUpMATC(
+ 	MATCp CurMATC,
+ 	ATTep p)
+ {
+@@ -8340,7 +8362,7 @@ LOCALPROC SetUpMATC(
+ 	CurMATC->usebase = p->usebase;
+ }
+ 
+-LOCALFUNC ui5r my_reg_call get_byte_ext(CPTR addr)
++LOCALFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_byte_ext(CPTR addr)
+ {
+ 	ATTep p;
+ 	ui3p m;
+@@ -8399,7 +8421,7 @@ Label_Retry:
+ 	}
+ }
+ 
+-LOCALFUNC ui5r my_reg_call get_word_ext(CPTR addr)
++LOCALFUNC MINIVMAC_FAST_M68K ui5r my_reg_call get_word_ext(CPTR addr)
+ {
+ 	ui5r Data;
+ 
+@@ -8653,6 +8675,10 @@ LOCALPROC do_trace(void)
+ 	NeedToGetOut();
+ }
+ 
++#if MINIVMAC_JIT
++#include "WRM68KJIT.h"
++#endif
++
+ GLOBALPROC m68k_go_nCycles(ui5b n)
+ {
+ 	Em_Enter();
+@@ -8678,7 +8704,22 @@ GLOBALPROC m68k_go_nCycles(ui5b n)
+ 		if (V_regs.t1 != 0) {
+ 			do_trace();
+ 		}
++#if MINIVMAC_INDIRECT_FAST_M68K
++		{
++#if MINIVMAC_JIT
++			void (*volatile run)(void) = MiniVMac_JIT_MaxCycles;
++#else
++			void (*volatile run)(void) = m68k_go_MaxCycles;
++#endif
++			run();
++		}
++#else
++#if MINIVMAC_JIT
++		MiniVMac_JIT_MaxCycles();
++#else
+ 		m68k_go_MaxCycles();
++#endif
++#endif
+ 		V_MaxCyclesToGo += V_regs.MoreCyclesToGo;
+ 		V_regs.MoreCyclesToGo = 0;
+ 	}

@@ -25,6 +25,10 @@ works and is unchanged.
 - `wiki` - the original reader application, with fixes.
 - `doom` - `doom.app`. Monochrome, touch movement, front-button controls.
   Engine source is vendored and pinned.
+- `minivmac` - `minivmac.app`, a soundless 512 KiB Macintosh 128K. It uses
+  user-supplied ROM/floppy images, scales the 512x342 Mac display to the
+  240x160 upper panel, and provides direct-touch mouse input. Upstream Mini
+  vMac is fetched at a pinned revision on the first build.
 - `nuttx` - `nuttx.app`, Apache NuttX on the C33: NSH with 139 Toybox
   commands (`awk grep sed find sort xargs tar` ...), `vi`, a hex editor, ZMODEM
   transfer, four interpreters (Lua, MicroPython, BASIC and the WikiReader's
@@ -59,6 +63,10 @@ make wiki zim doom
 
 That builds all three applications; mini-libc, drivers, fatfs and grifo come in
 as dependencies.
+
+`make minivmac` builds the Macintosh emulator separately. Its first build
+fetches the pinned upstream source. See `minivmac/README.md` for the required
+card layout and ROM/disk names.
 
 `make nuttx` builds `nuttx.app` as well. It is separate because it does not
 build from this tree: the first run clones NuttX, nuttx-apps and TinyCC at

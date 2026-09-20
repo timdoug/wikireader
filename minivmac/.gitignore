@@ -1,0 +1,8 @@
+/build/
+/lib/
+/work/
+__pycache__/
+/minivmac.app
+/minivmac.dump
+/minivmac.ico
+/minivmac.map
