@@ -32,8 +32,14 @@
  * source rate, where this file had it wrong for a day.  Left alone the
  * fields are two to three times what the part asks and the refresh three
  * times more often than it needs.  The board's
- * EM48AM1684VTD-75 (Circuits/SAMO_PM_V3_SCH) needs tRP/tRCD 20 ns, tRAS
- * 45 ns, tRC/tRFC 65 ns, tXSR 75 ns, and a refresh every 7.8 us.
+ * EM48AM1684VTD-75 (Circuits/SAMO_PM_V3_SCH, and A1 and V1 carry the same
+ * part) needs tRP/tRCD 20 ns, tRAS 45 ns and tRC 67 ns, from the -75
+ * column of the AC table in its datasheet -- EOL_EM48AM1684VTD, eorex,
+ * June 2009, which is not in the tree because .gitignore drops the PDFs
+ * at the root.  The same table gives tRRD 15 ns and tCK 10 ns at CL2, so
+ * CL2 is good to 100 MHz, and the part wants 8,192 refresh cycles in
+ * 64 ms, one every 7.8 us.  It does not specify tRFC or tXSR at all; the
+ * 75 ns used for tXSR below is the one figure here it does not source.
  *
  * The fields count SDCLK, and an SDCLK is one MCLK -- 16.7 ns at 60 MHz.
  * III.1.9.4 of the technical manual has the SDRAM interface running on
@@ -47,11 +53,14 @@
  * costs 1.17 MCLK a cycle, tRAS the same within the quantisation, and the
  * refresh interval scales the same way (tools/ubench-sdclk-device.txt).
  *
- * So, against the part's 20 / 45 / 65 ns and a 7.8 us refresh: tRP and tRCD
- * 2 cycles (33.3 ns), tRAS 3 (50 ns), and 5 rather than 4 for the third
- * field because it programs tXSR as well, and leaving self-refresh wants
- * 75 ns where tRC and tRFC want 65.  AURCO 0x1c0 refreshes every 7.47 us,
- * just inside the part and nearly twice as far apart as the loader's.
+ * So, against the part's 20 / 45 / 67 ns and a 7.8 us refresh: tRP and tRCD
+ * 2 cycles (33.3 ns), tRAS 3 (50 ns), and the third field 5 (83.3 ns).
+ * Every one of those is the smallest value the part allows at this clock,
+ * and the third is not a choice made for tXSR's sake: four cycles is
+ * 66.67 ns and tRC asks 67, so it misses by a third of a nanosecond.
+ * There is no value between four and five to reach for.  AURCO 0x1c0
+ * refreshes every 7.47 us, just inside the part and nearly twice as far
+ * apart as the loader's.
  *
  * The values this file shipped before -- 1, 2, 3 -- came from the same
  * factor of two and were 16.7 / 33.3 / 50 ns: under the part on all three,

@@ -87,7 +87,14 @@ static inline void init_ram(void)
 	/* enter RAM setup mode */
 	REG_SDRAMC_INI = 0x14;
 
-	/* SDRAM command sequence: PALL - REF - REF - MRS (for MT48LC16M16A2) */
+	/* SDRAM command sequence: PALL - REF - REF - MRS.  The sequence is
+	   the one Epson's reference design gives for an MT48LC16M16A2; the
+	   part actually on the board is an EM48AM1684VTD-75F (all three
+	   schematics in Circuits/, U2004 on V3), the same 256 Mb 16M x 16
+	   organisation, so the sequence and the mode register carry over.
+	   Its timings are not Micron's: samo-lib/grifo/src/sdram.c has them
+	   from the part's own datasheet, checked against a device sweep.
+	   Read that before changing any of them. */
 	REG_SDRAMC_INI = 0x12;	/* INIPRE */
 	RAMDUMMY = 0x0;		/* dummy write */
 
