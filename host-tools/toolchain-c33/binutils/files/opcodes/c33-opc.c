@@ -627,12 +627,12 @@ const struct c33_opcode c33_advance_opcodes32[] =
 { "reti",   OP_CLASS0_1(0x13),      OP_CLASS0_1_MASK,       {UNUSED},           0,  0},
 { "push",   OP_CLASS0_1(0x00),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "pop",    OP_CLASS0_1(0x01),      OP_CLASS0_1_MASK,       {RD01},             0,  0}, /* Adv */
-{ "pushs",  OP_CLASS0_1(0x02),      OP_CLASS0_1_MASK,       {SS02},             0,  0}, /* Adv */
-{ "pops",   OP_CLASS0_1(0x03),      OP_CLASS0_1_MASK,       {SD02},             0,  0}, /* Adv */
+{ "pushs",  OP_CLASS0_1(0x02) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SS02},             0,  0}, /* Adv */
+{ "pops",   OP_CLASS0_1(0x03) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SD02},             0,  0}, /* Adv */
 { "mac.w",  OP_CLASS0_1(0x04),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "mac.hw", OP_CLASS0_1(0x05),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "macclr", OP_CLASS0_1(0x06),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},/* Adv */
-{ "ld.cf",  OP_CLASS0_1(0x07),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},/* Adv */
+{ "ld.cf",  OP_CLASS0_1(0x07) | 0x0010, 0xffff,             {UNUSED},           0,  10},/* Adv */
 { "div.w",  OP_CLASS0_1(0x09),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
 { "divu.w", OP_CLASS0_1(0x08),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
 { "repeat", OP_CLASS0_1(0x0a),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
@@ -950,8 +950,8 @@ const struct c33_opcode c33_advance_opcodes32[] =
 { "sat.w",  OP_CLASS5(0xbd),        OP_CLASS5_MASK,         {RD,RS2},           0,  0}, /* Adv */
 { "sat.uw", OP_CLASS5(0xbe),        OP_CLASS5_MASK,         {RD,RS2},           0,  0}, /* Adv */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* Adv */
-{ "psrset", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_01},      0, 0},  /* Adv */
-{ "psrclr", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_10},      0, 0},  /* Adv */
+{ "psrset", OP_CLASS5(0xbf) | 0x0040, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_01},      0, 0},  /* Adv */
+{ "psrclr", OP_CLASS5(0xbf) | 0x0080, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_10},      0, 0},  /* Adv */
 
 { "ext",    OP_CLASS1(0x3f),        OP_CLASS1_MASK,         {RS2,OP_SHIFT,IMM2},0,  0}, /* Adv */
 { "ext",    OP_CLASS1(0x3f),        OP_CLASS1_MASK,         {RS2},              0,  0}, /* Adv */
@@ -1022,9 +1022,9 @@ const struct c33_opcode c33_pe_opcodes32[] =
 { "reti",   OP_CLASS0_1(0x13),      OP_CLASS0_1_MASK,       {UNUSED},           0,  0},
 { "push",   OP_CLASS0_1(0x00),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* PE */
 { "pop",    OP_CLASS0_1(0x01),      OP_CLASS0_1_MASK,       {RD01},             0,  0}, /* PE */
-{ "pushs",  OP_CLASS0_1(0x02),      OP_CLASS0_1_MASK,       {SS02},             0,  0}, /* PE */
-{ "pops",   OP_CLASS0_1(0x03),      OP_CLASS0_1_MASK,       {SD02},             0,  0}, /* PE */
-{ "ld.cf",  OP_CLASS0_1(0x07),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},  /* PE */ /* add 2004/07/07 T.Tazaki */
+{ "pushs",  OP_CLASS0_1(0x02) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SS02},             0,  0}, /* PE */
+{ "pops",   OP_CLASS0_1(0x03) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SD02},             0,  0}, /* PE */
+{ "ld.cf",  OP_CLASS0_1(0x07) | 0x0010, 0xffff,             {UNUSED},           0,  10},  /* PE */ /* add 2004/07/07 T.Tazaki */
 //{ "div.w",  OP_CLASS0_1(0x09),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* PE */ /* del 2004/07/07 T.Tazaki */
 //{ "divu.w", OP_CLASS0_1(0x08),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* PE */ /* del 2004/07/07 T.Tazaki */
 
@@ -1269,8 +1269,8 @@ const struct c33_opcode c33_pe_opcodes32[] =
 { "ld.c",   OP_CLASS5(0xb1),        OP_CLASS5_MASK,         {RD,IMM5},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "ld.c",   OP_CLASS5(0xb5),        OP_CLASS5_MASK,         {IMM5,RS},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* PE */	/* add T.Tazaki 2004/07/07 */
-{ "psrset", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_01},      0, 0},  /* PE */
-{ "psrclr", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_10},      0, 0},  /* PE */
+{ "psrset", OP_CLASS5(0xbf) | 0x0040, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_01},      0, 0},  /* PE */
+{ "psrclr", OP_CLASS5(0xbf) | 0x0080, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_10},      0, 0},  /* PE */
 
 /* class 6 */
 
@@ -1550,12 +1550,12 @@ const struct c33_opcode c33_advance_opcodes[] =
 { "reti",   OP_CLASS0_1(0x13),      OP_CLASS0_1_MASK,       {UNUSED},           0,  0},
 { "push",   OP_CLASS0_1(0x00),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "pop",    OP_CLASS0_1(0x01),      OP_CLASS0_1_MASK,       {RD01},             0,  0}, /* Adv */
-{ "pushs",  OP_CLASS0_1(0x02),      OP_CLASS0_1_MASK,       {SS02},             0,  0}, /* Adv */
-{ "pops",   OP_CLASS0_1(0x03),      OP_CLASS0_1_MASK,       {SD02},             0,  0}, /* Adv */
+{ "pushs",  OP_CLASS0_1(0x02) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SS02},             0,  0}, /* Adv */
+{ "pops",   OP_CLASS0_1(0x03) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SD02},             0,  0}, /* Adv */
 { "mac.w",  OP_CLASS0_1(0x04),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "mac.hw", OP_CLASS0_1(0x05),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* Adv */
 { "macclr", OP_CLASS0_1(0x06),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},/* Adv */
-{ "ld.cf",  OP_CLASS0_1(0x07),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},/* Adv */
+{ "ld.cf",  OP_CLASS0_1(0x07) | 0x0010, 0xffff,             {UNUSED},           0,  10},/* Adv */
 { "div.w",  OP_CLASS0_1(0x09),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
 { "divu.w", OP_CLASS0_1(0x08),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
 { "repeat", OP_CLASS0_1(0x0a),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* Adv */
@@ -1854,8 +1854,8 @@ const struct c33_opcode c33_advance_opcodes[] =
 { "sat.w",  OP_CLASS5(0xbd),        OP_CLASS5_MASK,         {RD,RS2},           0,  0}, /* Adv */
 { "sat.uw", OP_CLASS5(0xbe),        OP_CLASS5_MASK,         {RD,RS2},           0,  0}, /* Adv */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* Adv */
-{ "psrset", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_01},      0, 0},  /* Adv */
-{ "psrclr", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_10},      0, 0},  /* Adv */
+{ "psrset", OP_CLASS5(0xbf) | 0x0040, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_01},      0, 0},  /* Adv */
+{ "psrclr", OP_CLASS5(0xbf) | 0x0080, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_10},      0, 0},  /* Adv */
 
 { "ext",    OP_CLASS1(0x3f),        OP_CLASS1_MASK,         {RS2,OP_SHIFT,IMM2},0,  0}, /* Adv */
 { "ext",    OP_CLASS1(0x3f),        OP_CLASS1_MASK,         {RS2},              0,  0}, /* Adv */
@@ -1886,9 +1886,9 @@ const struct c33_opcode c33_pe_opcodes[] =
 { "reti",   OP_CLASS0_1(0x13),      OP_CLASS0_1_MASK,       {UNUSED},           0,  0},
 { "push",   OP_CLASS0_1(0x00),      OP_CLASS0_1_MASK,       {RS01},             0,  0}, /* PE */
 { "pop",    OP_CLASS0_1(0x01),      OP_CLASS0_1_MASK,       {RD01},             0,  0}, /* PE */
-{ "pushs",  OP_CLASS0_1(0x02),      OP_CLASS0_1_MASK,       {SS02},             0,  0}, /* PE */
-{ "pops",   OP_CLASS0_1(0x03),      OP_CLASS0_1_MASK,       {SD02},             0,  0}, /* PE */
-{ "ld.cf",  OP_CLASS0_1(0x07),      OP_CLASS0_1_MASK,       {UNUSED},           0,  10},  /* PE */ /* add 2004/07/07 T.Tazaki */
+{ "pushs",  OP_CLASS0_1(0x02) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SS02},             0,  0}, /* PE */
+{ "pops",   OP_CLASS0_1(0x03) | 0x0010, OP_CLASS0_1_MASK | 0x0030, {SD02},             0,  0}, /* PE */
+{ "ld.cf",  OP_CLASS0_1(0x07) | 0x0010, 0xffff,             {UNUSED},           0,  10},  /* PE */ /* add 2004/07/07 T.Tazaki */
 //{ "div.w",  OP_CLASS0_1(0x09),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* PE */ /* del 2004/07/07 T.Tazaki */
 //{ "divu.w", OP_CLASS0_1(0x08),      OP_CLASS0_1_MASK,       {RB01},             0,  0}, /* PE */ /* del 2004/07/07 T.Tazaki */
 
@@ -2121,8 +2121,8 @@ const struct c33_opcode c33_pe_opcodes[] =
 { "ld.c",   OP_CLASS5(0xb1),        OP_CLASS5_MASK,         {RD,IMM5},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "ld.c",   OP_CLASS5(0xb5),        OP_CLASS5_MASK,         {IMM5,RS},          0,  0}, /* PE */	/* add T.Tazaki 2004/07/07 */
 { "do.c",   OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM6_OP3},         0, 0},  /* PE */	/* add T.Tazaki 2004/07/07 */
-{ "psrset", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_01},      0, 0},  /* PE */
-{ "psrclr", OP_CLASS5(0xbf),        OP_CLASS5_MASK,         {IMM5_OP3_10},      0, 0},  /* PE */
+{ "psrset", OP_CLASS5(0xbf) | 0x0040, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_01},      0, 0},  /* PE */
+{ "psrclr", OP_CLASS5(0xbf) | 0x0080, OP_CLASS5_MASK | 0x00e0, {IMM5_OP3_10},      0, 0},  /* PE */
 
 /* class 6 */
 

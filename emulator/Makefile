@@ -9,7 +9,7 @@ SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/model.o src/main.o
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual test-sleigh
 
 all: wremu
 
@@ -239,6 +239,12 @@ difftest: wremu
 # an authority independent of binutils. Needs the PDF and pdftotext.
 test-manual:
 	python3 tools/check_manual_encodings.py ../s1c33.pdf
+
+# Optional third decoder oracle.  GMMan's source must first be compiled with
+# Ghidra's support/sleigh tool, and Python needs the pypcode package.
+S1C33_SLEIGH ?= ../s1c33_sleigh
+test-sleigh:
+	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
 check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot

@@ -17,14 +17,14 @@ WikiReader firmware.
 | BFD and ELF | C33 objects, relocations, common sections, local-symbol merging, CTF, plugins, and all three core flags work. |
 | gas | C33 Standard, Advanced, and PE assembly, `ext` prefixes, constants, relocations, and DWARF location views work. |
 | ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. |
-| objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core. |
+| objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core and words that violate fixed opcode bits. |
 | GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
 
 The exact-source binutils testsuites have no unexpected failures:
 
 | Suite | Results |
 | --- | --- |
-| gas | 338 passes, 10 unsupported |
+| gas | 339 passes, 10 unsupported |
 | binutils | 240 passes, 18 untested, 17 unsupported |
 | ld | 479 passes, 13 expected failures, 28 untested, 235 unsupported |
 

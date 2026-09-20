@@ -208,6 +208,14 @@ int main(void)
 	} undefined[] = {
 		{ 0x0001, "reserved nop encoding" },
 		{ 0x0300, "invalid encoding" },
+		/* Fixed-zero bits accepted by the old binutils opcode masks. */
+		{ 0x01d1, "ld.cf with reserved low bits" },
+		{ 0x00b2, "pushs with reserved opcode bits" },
+		{ 0x00c2, "pops with reserved opcode bits (0x00c_)" },
+		{ 0x00e2, "pops with reserved opcode bits (0x00e_)" },
+		{ 0x00f2, "pops with reserved opcode bits (0x00f_)" },
+		{ 0xbf60, "psrset with reserved bit 5" },
+		{ 0xbfa0, "psrclr with reserved bit 5" },
 		{ 0x8b10, "div0s" }, { 0x8f10, "div0u" },
 		{ 0x9310, "div1" },  { 0x9710, "div2s" },
 		{ 0x9b00, "div3s" }, { 0xb210, "mac" },

@@ -17,6 +17,7 @@ if [istarget c33-*-*] {
     run_list_test "branch-align" "-mc33pe" "C33 rejects misaligned extended branch displacements"
     run_list_test "branch-align-label" "-mc33pe" "C33 rejects an odd local branch target"
     run_dump_test "pe-added"
+    run_dump_test "pe-fixed-bits"
     run_dump_test "pe-removed-dis"
     run_dump_test "std-removed-dis"
 }

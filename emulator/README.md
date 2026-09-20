@@ -875,8 +875,9 @@ reset establishes TTBR `0x00c00000`, a PE IDIR type byte of `0x06`, and DBBR
 The generated decoder contains the union of Standard, Advanced, and PE
 binutils tables. A separate PE-valid bitmap rejects the nine Standard
 instructions removed from PE and the 18 Advanced-only operations. The
-coprocessor forms are intentionally absent because the S1C33E07 has no
-attached coprocessor.
+coprocessor forms decode, but execution is intentionally unsupported because
+the S1C33E07 has no attached coprocessor; reaching one stops with a diagnostic
+rather than inventing values for an unattached interface.
 
 SDRAM timing is active after firmware programs `SDON`, MRS, and `APPON`.
 The model derives geometry and waits from SDRAMC registers, tracks active
@@ -1067,6 +1068,21 @@ make test-manual
 `tools/derive_fields.py` solves operand fields; `tools/fit_ext.py` and
 `tools/fit_data_ext.py` verify prefix composition. Generated tables are
 committed and are generation-time artifacts, not runtime dependencies.
+
+GMMan's Ghidra processor module can be used as an independent third decoder
+oracle. Compile its `data/languages/s1c33.slaspec` with Ghidra's
+`support/sleigh`, install the optional `pypcode` Python package, and run:
+
+```sh
+make test-sleigh S1C33_SLEIGH=/path/to/s1c33_sleigh
+```
+
+The check runs all 65,536 base words. It permits only the 370 cases where the
+core manual says a reserved special-register, stack-register, or PSR-bit
+operand executes as a no-op and SLEIGH elects not to decode it. SLEIGH p-code
+is not used as an execution oracle: its upstream README still lists semantic
+validation as unfinished, and the current source has known carry-in and
+`popn` issues.
 
 Do not add unused SoC peripherals solely for completeness.
 

@@ -1,0 +1,13 @@
+	.text
+	pushs %alr
+	pops %ahr
+	ld.cf
+	psrset 0x1f
+	psrclr 0x1f
+	.short 0x00b2
+	.short 0x00c2
+	.short 0x00e2
+	.short 0x00f2
+	.short 0x01d1
+	.short 0xbf60
+	.short 0xbfa0
