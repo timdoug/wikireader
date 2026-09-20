@@ -24,7 +24,7 @@ struct message_record {
 #define MESSAGE(text) { text, sizeof(text) - 1 }
 
 static const struct message_record messages[] = {
-	MESSAGE("WikiReader native C33 userspace is alive!\n"),
+	MESSAGE("*** HARDWARE PASS: native C33 Linux reached PID 1 ***\n"),
 	MESSAGE("c33 shell: h=help p=getpid c=command-count\n"),
 	MESSAGE("c33> "),
 	MESSAGE("UART RX reached Linux userspace.\n"),

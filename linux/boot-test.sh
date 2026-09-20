@@ -35,7 +35,7 @@ printf 'pc' >"$work/uart.in"
 ) >"$work/boot.log" 2>&1
 
 syscall_marker="C33: entered userspace syscall path"
-expected="WikiReader native C33 userspace is alive!"
+expected="*** HARDWARE PASS: native C33 Linux reached PID 1 ***"
 rx_expected="UART RX reached Linux userspace."
 irq_expected="C33 UART: received vector 57 interrupt"
 shell_expected="pid 1"
@@ -56,6 +56,9 @@ if grep -F "Kernel panic" "$work/boot.log" >/dev/null; then
 	exit 1
 fi
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|WikiReader native|c33 shell:|UART RX reached|pid 1|commands 2" \
+python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 7
+cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
+
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|HARDWARE PASS|c33 shell:|UART RX reached|pid 1|commands 2" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

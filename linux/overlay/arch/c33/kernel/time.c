@@ -4,6 +4,8 @@
 #include <linux/init.h>
 #include <linux/timekeeping.h>
 
+#include <asm/wikireader.h>
+
 #define C33_REG_BASE       0x00300000UL
 #define C33_INT_P16T23     (C33_REG_BASE + 0x267)
 #define C33_INT_E16T23     (C33_REG_BASE + 0x273)
@@ -82,6 +84,7 @@ void __init time_init(void)
 	c33_write16(c33_read16(C33_T16_PAUSE) & ~(1 << 2),
 		    C33_T16_PAUSE);
 	c33_write16(2 | 1, C33_T16_CTL2);
+	c33_lcd_checkpoint(3);
 }
 
 void read_persistent_clock64(struct timespec64 *ts)

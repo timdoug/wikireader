@@ -11,6 +11,7 @@
 
 #include <asm/sections.h>
 #include <asm/setup.h>
+#include <asm/wikireader.h>
 
 unsigned long memory_start;
 unsigned long memory_end;
@@ -41,12 +42,16 @@ static void early_uart_puts(const char *s)
 static void c33_console_write(struct console *console, const char *s,
 			      unsigned int count)
 {
+	const char *start = s;
+	unsigned int original_count = count;
+
 	(void)console;
 	while (count--) {
 		if (*s == '\n')
 			early_uart_putc('\r');
 		early_uart_putc(*s++);
 	}
+	c33_lcd_write(start, original_count);
 }
 
 static struct console c33_console = {
@@ -65,6 +70,7 @@ asmlinkage __visible void __init c33_start(void)
 	     p < (unsigned long *)__bss_stop; p++)
 		*p = 0;
 
+	c33_lcd_init();
 	early_uart_puts("\r\nC33 Linux: entry\r\n");
 	start_kernel();
 }
@@ -87,6 +93,7 @@ void __init setup_arch(char **cmdline_p)
 	min_low_pfn = PFN_UP(memory_start);
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
+	c33_lcd_checkpoint(1);
 }
 
 void __init arch_cpu_finalize_init(void)

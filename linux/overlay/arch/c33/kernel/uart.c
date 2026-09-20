@@ -9,6 +9,8 @@
 #include <linux/tty_driver.h>
 #include <linux/tty_port.h>
 
+#include <asm/wikireader.h>
+
 #define C33_UART0_TXD       0x00300b00UL
 #define C33_UART0_RXD       0x00300b01UL
 #define C33_UART0_STATUS    0x00300b02UL
@@ -86,6 +88,8 @@ static ssize_t c33_tty_write(struct tty_struct *tty, const u8 *buf,
 
 	for (i = 0; i < count; i++)
 		c33_uart_putc(buf[i]);
+	c33_lcd_write(buf, count);
+	c33_lcd_checkpoint(5);
 	return count;
 }
 
@@ -140,6 +144,8 @@ void c33_uart_rx_interrupt(void)
 	}
 	if (inserted)
 		tty_flip_buffer_push(&c33_tty_port);
+	if (inserted)
+		c33_lcd_checkpoint(6);
 }
 
 static int __init c33_tty_init(void)
@@ -176,6 +182,7 @@ static int __init c33_tty_init(void)
 
 	c33_tty_driver = driver;
 	WRITE_ONCE(c33_tty_ready, true);
+	c33_lcd_checkpoint(4);
 	pr_info("C33 UART: registered /dev/ttyC330\n");
 	return 0;
 }

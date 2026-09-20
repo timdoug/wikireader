@@ -53,6 +53,8 @@ menu "C33 platform options"
 config C33_WIKIREADER
 	bool "Openmoko WikiReader"
 	default y
+	select FONT_8x16
+	select FONT_SUPPORT
 	help
 	  Build for the S1C33E07 WikiReader with 32 MiB of SDRAM.
 

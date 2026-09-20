@@ -7,6 +7,7 @@
 
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
+#include <asm/wikireader.h>
 
 #define C33_REG_BASE          0x00300000UL
 #define C33_IRQ_ENABLE_FIRST  (C33_REG_BASE + 0x270)
@@ -42,6 +43,7 @@ void __init init_IRQ(void)
 
 	__asm__ volatile ("ld.w %%ttbr,%0" : : "r" (c33_vector_table)
 			  : "memory");
+	c33_lcd_checkpoint(2);
 }
 
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
@@ -71,6 +73,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	}
 
 	if (vector != C33_TIMER2_VECTOR && vector != C33_UART0_RX_VECTOR) {
+		c33_lcd_fault(vector);
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
 			 vector, regs->pc, regs->sp, regs->psr);
 		for (i = 0; i < 16; i += 4)

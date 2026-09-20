@@ -19,6 +19,12 @@ loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
 `getpid()` for `p`, reports its global command counter for `c`, and remains
 alive while timer interrupts keep preempting native C33 userspace.
 
+The UART console is mirrored to a 30-column text console in the LCD framebuffer
+left active by the card loader. A fixed strip below the text records memory,
+interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
+scrolls. An unhandled exception replaces it with a solid fault bar. This makes
+real-hardware boot results visible without attaching to the serial pads.
+
 PID 1 is ordinary linked C apart from its entry point and four syscall veneers.
 The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
 split `R_C33_H`/`R_C33_M`/`R_C33_L` absolute addresses into the bFLT relocation
@@ -73,7 +79,8 @@ silently missed. It leaves the final kernel in `linux/artifacts/`.
 fixture, boots it through the full emulated hardware path, injects two bytes into
 UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
 the `p` and `c` commands, and the shell prints `pid 1` and `commands 2` without
-a kernel panic. The fixture and emulator display output are kept outside the
+a kernel panic. It also checks the final display image for text and all seven
+LCD checkpoints. The fixture and emulator display output are kept outside the
 checkout and removed afterward.
 
 ## What comes next
