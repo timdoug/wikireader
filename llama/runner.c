@@ -1,0 +1,74 @@
+/* The generation loop, GPL-3.0-or-later. */
+
+#include <string.h>
+
+#include "runner.h"
+
+int llama_run(llama_model *m, llama_tokenizer *tok,
+	      const llama_run_options *opt, llama_run_stats *stats)
+{
+	int *prompt_tokens;
+	int n_prompt, steps, pos, token, next = TOK_BOS;
+	uint32_t began;
+
+	memset(stats, 0, sizeof *stats);
+
+	steps = opt->steps;
+	if (steps <= 0 || steps > m->cfg.seq_len)
+		steps = m->cfg.seq_len;
+
+	prompt_tokens = llama_alloc((size_t)steps * sizeof *prompt_tokens,
+				    "llama.prompt");
+	if (!prompt_tokens)
+		return -1;
+
+	n_prompt = llama_encode(tok, opt->prompt ? opt->prompt : "",
+				1, 0, prompt_tokens, steps);
+	if (n_prompt < 1) {
+		llama_release(prompt_tokens, "llama.prompt");
+		return -1;
+	}
+
+	began = llama_now_us();
+	token = prompt_tokens[0];
+	for (pos = 0; pos < steps; pos++) {
+		uint32_t t0 = llama_now_us();
+		float *logits = llama_forward(m, token, pos);
+
+		stats->forward_us += llama_now_us() - t0;
+		stats->macs += llama_macs(m, pos);
+		stats->tokens++;
+
+		if (pos + 1 < n_prompt) {
+			next = prompt_tokens[pos + 1];
+		} else {
+			/* Argmax over the logits. */
+			int best = 0, i;
+			float best_val = logits[0];
+
+			for (i = 1; i < m->cfg.vocab_size; i++)
+				if (logits[i] > best_val) {
+					best_val = logits[i];
+					best = i;
+				}
+			next = best;
+		}
+
+		if (opt->emit) {
+			char scratch[8];
+			const char *piece = llama_decode(tok, token, next,
+							 scratch);
+
+			opt->emit(opt->ctx, piece);
+		}
+
+		/* BOS marks the end of a story in these checkpoints. */
+		if (next == TOK_BOS || next == TOK_EOS)
+			break;
+		token = next;
+	}
+	stats->total_us = llama_now_us() - began;
+
+	llama_release(prompt_tokens, "llama.prompt");
+	return stats->tokens;
+}

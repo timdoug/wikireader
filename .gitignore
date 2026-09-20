@@ -28,6 +28,11 @@ log
 build
 backup
 
+# Native C33 Linux build products are normally kept on the Lima VM, but keep
+# accidental local reconstructions out of the repository too.
+/linux/work/
+/linux/artifacts/
+
 # Epson manuals: obtainable from Epson or the Internet Archive, not vendored.
 # See host-tools/toolchain-c33/gcc/ABI.md.
 /*.pdf
@@ -35,3 +40,10 @@ backup
 /ROOT_IMAGE.7z
 # Emulator screen captures.
 /*.png
+
+# llama app build products
+llama/build/
+llama/llama.app
+llama/llama.map
+llama/llama.dump
+llama/lib/
