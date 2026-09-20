@@ -5,6 +5,11 @@ long c33_fcntl(int fd, int command, unsigned long argument);
 long c33_read(int fd, void *buffer, size_t count);
 long c33_write(int fd, const void *buffer, size_t count);
 long c33_getpid(void);
+long c33_clone(unsigned long flags, void *stack, void *parent_tid,
+	       void *child_tid, unsigned long tls);
+long c33_execve(const char *path, char *const argv[], char *const envp[]);
+long c33_wait4(long pid, int *status, int options, void *rusage);
+void c33_exit(int status);
 
 enum message {
 	MESSAGE_BANNER,
@@ -13,6 +18,8 @@ enum message {
 	MESSAGE_RX,
 	MESSAGE_PID,
 	MESSAGE_COMMANDS,
+	MESSAGE_PROCESS_PASS,
+	MESSAGE_PROCESS_FAIL,
 	MESSAGE_NEWLINE,
 };
 
@@ -30,11 +37,14 @@ static const struct message_record messages[] = {
 	MESSAGE("UART RX reached Linux userspace.\n"),
 	MESSAGE("pid "),
 	MESSAGE("commands "),
+	MESSAGE("C33 process test: clone -> execve -> wait4 passed\n"),
+	MESSAGE("C33 process test FAILED\n"),
 	MESSAGE("\n"),
 };
 
 static unsigned int command_count;
 static volatile unsigned char digit_base = '0';
+static unsigned char child_stack[4096] __attribute__((aligned(16)));
 
 static void write_all(const char *buffer, size_t count)
 {
@@ -53,6 +63,35 @@ static void put_message(enum message index)
 	write_all(messages[index].text, messages[index].size);
 }
 
+void clone_child(void)
+{
+	static char child_path[] = "/child";
+	char *argv[] = { child_path, 0 };
+	char *envp[] = { 0 };
+
+	c33_execve(child_path, argv, envp);
+	c33_exit(127);
+}
+
+static void process_test(void)
+{
+	long pid;
+	long waited;
+	int status = 0;
+
+	/* clone(CLONE_VM | SIGCHLD) with a private child stack. */
+	pid = c33_clone(0x111, child_stack + sizeof(child_stack), 0, 0, 0);
+	if (pid <= 0) {
+		put_message(MESSAGE_PROCESS_FAIL);
+		return;
+	}
+	waited = c33_wait4(pid, &status, 0, 0);
+	if (waited == pid && status == (23 << 8))
+		put_message(MESSAGE_PROCESS_PASS);
+	else
+		put_message(MESSAGE_PROCESS_FAIL);
+}
+
 void init_main(void)
 {
 	char input;
@@ -60,6 +99,7 @@ void init_main(void)
 	int rx_reported = 0;
 
 	c33_fcntl(0, 4, 0x800);
+	process_test();
 	put_message(MESSAGE_BANNER);
 	put_message(MESSAGE_HELP);
 	put_message(MESSAGE_PROMPT);

@@ -40,12 +40,16 @@ rx_expected="UART RX reached Linux userspace."
 irq_expected="C33 UART: received vector 57 interrupt"
 shell_expected="pid 1"
 count_expected="commands 2"
+process_expected="C33 process test: clone -> execve -> wait4 passed"
+child_expected="C33 child: execve reached /child"
 if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$rx_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$count_expected" "$work/boot.log" >/dev/null; then
+   ! grep -F "$count_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$child_expected" "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux did not complete the PID 1 UART round trip." >&2
 	exit 1
@@ -59,6 +63,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 7
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|HARDWARE PASS|c33 shell:|UART RX reached|pid 1|commands 2" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|HARDWARE PASS|c33 shell:|UART RX reached|pid 1|commands 2" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

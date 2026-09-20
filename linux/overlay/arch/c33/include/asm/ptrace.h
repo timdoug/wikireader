@@ -7,5 +7,5 @@
 #define profile_pc(regs) instruction_pointer(regs)
 #define user_mode(regs) (1)
 #define interrupts_enabled(regs) ((regs)->psr & (1 << 4))
-#define current_pt_regs() task_pt_regs(current)
+#define current_pt_regs() (current->thread.regs)
 #endif

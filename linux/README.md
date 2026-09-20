@@ -19,13 +19,19 @@ loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
 `getpid()` for `p`, reports its global command counter for `c`, and remains
 alive while timer interrupts keep preempting native C33 userspace.
 
+Before entering the shell, PID 1 also runs a process-lifecycle regression. It
+uses the asm-generic `clone` ABI with a separate no-MMU stack, executes a
+second bFLT image as `/child`, and reaps its exit status with `wait4`. This
+exercises the live syscall register frame, task creation, scheduling, exec,
+exit, and parent wakeup without relying on a C library.
+
 The UART console is mirrored to a 30-column text console in the LCD framebuffer
 left active by the card loader. A fixed strip below the text records memory,
 interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
 scrolls. An unhandled exception replaces it with a solid fault bar. This makes
 real-hardware boot results visible without attaching to the serial pads.
 
-PID 1 is ordinary linked C apart from its entry point and four syscall veneers.
+PID 1 is ordinary linked C apart from its entry point and syscall veneers.
 The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
 split `R_C33_H`/`R_C33_M`/`R_C33_L` absolute addresses into the bFLT relocation
 table. The kernel loader reconstructs and rewrites those three-instruction
@@ -79,13 +85,14 @@ silently missed. It leaves the final kernel in `linux/artifacts/`.
 fixture, boots it through the full emulated hardware path, injects two bytes into
 UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
 the `p` and `c` commands, and the shell prints `pid 1` and `commands 2` without
-a kernel panic. It also checks the final display image for text and all seven
-LCD checkpoints. The fixture and emulator display output are kept outside the
+a kernel panic. It additionally requires `/child` to run and PID 1 to reap its
+exit status. The test checks the final display image for text and all seven LCD
+checkpoints. The fixture and emulator display output are kept outside the
 checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is a small C library and line-oriented shell.
-Signal delivery and `rt_sigreturn` also need validation before larger
-applications. After that come SD/block/filesystem support and the WikiReader
-panel, input, and power drivers.
+The next useful vertical slice is signal delivery and `rt_sigreturn`, followed
+by the C33 uClibc-ng architecture glue and a minimal BusyBox configuration.
+After that come SD/block/filesystem support and the WikiReader panel, input,
+and power drivers.

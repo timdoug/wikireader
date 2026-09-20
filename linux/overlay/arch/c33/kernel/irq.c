@@ -54,6 +54,10 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	int i;
 
 	if (vector == C33_SYSCALL_VECTOR) {
+		struct pt_regs *old_task_regs = current->thread.regs;
+
+		/* Generic clone and exec code must see this live syscall frame. */
+		current->thread.regs = regs;
 		nr = regs->r[4];
 		regs->orig_r4 = nr;
 		if (nr < NR_syscalls) {
@@ -68,6 +72,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		} else {
 			regs->r[4] = -ENOSYS;
 		}
+		current->thread.regs = old_task_regs;
 		set_irq_regs(old_regs);
 		return regs;
 	}
