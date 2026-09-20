@@ -84,7 +84,8 @@ def icon_bytes(art=LLAMA_ICON, size=64):
     return bytes(out)
 
 
-def make_card(output, model, vocab, arguments, app=ROOT / "llama/llama.app"):
+def make_card(output, model, vocab, arguments,
+              app=ROOT / "llama/llama.app", force=False):
     files = {
         "KERNEL.ELF": (ROOT / "samo-lib/grifo/grifo.elf").read_bytes(),
         "INIT.APP": (
@@ -171,8 +172,25 @@ def make_card(output, model, vocab, arguments, app=ROOT / "llama/llama.app"):
     )
     struct.pack_into("<I", info, 508, 0xAA550000)
 
-    # Exclusive creation: never overwrite an existing image or a device.
-    with output.open("xb") as image:
+    # Exclusive creation by default: an image path is one slip away from a
+    # device node, and this writes a partition table to sector zero.
+    # --force relaxes that only for an ordinary file, which is what the
+    # build-and-run loop actually wants to replace.
+    if force and output.exists():
+        if not output.is_file():
+            raise SystemExit(
+                f"{output} is not a regular file; refusing to overwrite it "
+                "even with --force"
+            )
+        output.unlink()
+    try:
+        image = output.open("xb")
+    except FileExistsError:
+        raise SystemExit(
+            f"{output} already exists. Pass --force to replace it, or "
+            f"remove it first."
+        ) from None
+    with image:
         image.truncate((part + sectors) * 512)
 
         def write(sector, data):
@@ -197,5 +215,10 @@ if __name__ == "__main__":
     parser.add_argument("vocab", type=Path, help="llama2.c tokenizer.bin")
     parser.add_argument("--args", default="", help='e.g. "-v -n 64"')
     parser.add_argument("--app", type=Path, default=ROOT / "llama/llama.app")
+    parser.add_argument(
+        "-f", "--force", action="store_true",
+        help="replace the output if it is an ordinary file",
+    )
     args = parser.parse_args()
-    make_card(args.output, args.model, args.vocab, args.args, args.app)
+    make_card(args.output, args.model, args.vocab, args.args, args.app,
+              args.force)

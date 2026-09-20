@@ -19,7 +19,7 @@ make test                 # teacher-forced accuracy against an fp32 reference
 
 make TOOLCHAIN_BIN=../host-tools/toolchain-c33/work/install/bin
 python3 tools/convert.py stories260K.bin model.wrl
-python3 make-card.py /tmp/card.img model.wrl tok512.bin --args "-v -n 32"
+python3 make-card.py -f /tmp/card.img model.wrl tok512.bin --args "-v -n 32"
 ../emulator/wremu -R -e ../samo-lib/mbr/flash.rom -c /tmp/card.img -n 900000000
 ```
 
@@ -226,4 +226,4 @@ to 2.1M MACs and 1.9 MB, which at the measured 17.2 cycles a MAC is about
 | `tools/convert.py` | fp32 checkpoint to int8, and the RoPE table |
 | `tools/profile.py` | attributes a `wremu -F` profile using the link map |
 | `tools/reference.py` | an fp32 forward pass in numpy, for the accuracy test |
-| `make-card.py` | a FAT32 emulator card, built in memory and written once |
+| `make-card.py` | a FAT32 emulator card, built in memory and written once (`-f` to replace one, never a device node) |
