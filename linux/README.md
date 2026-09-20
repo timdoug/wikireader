@@ -25,6 +25,11 @@ bFLT image as `/child`, and reaps its exit status with `wait4`. This
 exercises the live syscall register frame, task creation, scheduling, exec,
 exit, and parent wakeup without relying on a C library.
 
+The same regression installs a `SIGUSR1` handler with `rt_sigaction`, delivers
+the signal to PID 1, and returns through the C33 `rt_sigreturn` trampoline. The
+kernel saves and restores the complete integer context, signal mask, and
+alternate-stack state in an aligned `ucontext` frame on the userspace stack.
+
 The UART console is mirrored to a 30-column text console in the LCD framebuffer
 left active by the card loader. A fixed strip below the text records memory,
 interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
@@ -92,7 +97,6 @@ checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is signal delivery and `rt_sigreturn`, followed
-by the C33 uClibc-ng architecture glue and a minimal BusyBox configuration.
-After that come SD/block/filesystem support and the WikiReader panel, input,
-and power drivers.
+The next useful vertical slice is C33 uClibc-ng architecture glue and a minimal
+BusyBox configuration. After that come SD/block/filesystem support and the
+WikiReader panel, input, and power drivers.

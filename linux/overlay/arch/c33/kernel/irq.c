@@ -7,6 +7,7 @@
 
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
+#include <asm/syscalls.h>
 #include <asm/wikireader.h>
 
 #define C33_REG_BASE          0x00300000UL
@@ -72,6 +73,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		} else {
 			regs->r[4] = -ENOSYS;
 		}
+		c33_do_notify_resume(regs, 1);
 		current->thread.regs = old_task_regs;
 		set_irq_regs(old_regs);
 		return regs;
@@ -95,6 +97,8 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	else
 		c33_uart_rx_interrupt();
 	irq_exit();
+	if (user_mode(regs))
+		c33_do_notify_resume(regs, 0);
 
 	set_irq_regs(old_regs);
 	return regs;

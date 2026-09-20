@@ -142,6 +142,16 @@ c33_restore:
 	.size c33_restore,.-c33_restore
 	.size c33_exception,.-c33_exception
 
+	.global c33_rt_sigreturn_trampoline
+	.type c33_rt_sigreturn_trampoline,@function
+c33_rt_sigreturn_trampoline:
+	xld.w %r4,139
+	int 0
+1:
+	halt
+	jp 1b
+	.size c33_rt_sigreturn_trampoline,.-c33_rt_sigreturn_trampoline
+
 	.section .vectors,"a"
 	.balign 1024
 	.global c33_vector_table

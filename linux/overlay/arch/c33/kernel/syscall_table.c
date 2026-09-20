@@ -8,7 +8,7 @@
 #define __SYSCALL(nr, call) [nr] = (call),
 
 #define sys_mmap2 sys_mmap_pgoff
-#define sys_rt_sigreturn sys_ni_syscall
+#define sys_rt_sigreturn c33_sys_rt_sigreturn
 
 void *const c33_sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls - 1] = sys_ni_syscall,

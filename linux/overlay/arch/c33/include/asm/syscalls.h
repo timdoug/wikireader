@@ -4,4 +4,9 @@
 
 #include <asm-generic/syscalls.h>
 
+struct pt_regs;
+
+asmlinkage long c33_sys_rt_sigreturn(void);
+void c33_do_notify_resume(struct pt_regs *regs, int in_syscall);
+
 #endif

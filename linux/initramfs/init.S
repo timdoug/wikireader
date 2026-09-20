@@ -77,3 +77,19 @@ c33_exit:
 1:
 	jp 1b
 	.size c33_exit,.-c33_exit
+
+	.global c33_kill
+	.type c33_kill,@function
+c33_kill:
+	xld.w %r4,129
+	int 0
+	ret
+	.size c33_kill,.-c33_kill
+
+	.global c33_rt_sigaction
+	.type c33_rt_sigaction,@function
+c33_rt_sigaction:
+	xld.w %r4,134
+	int 0
+	ret
+	.size c33_rt_sigaction,.-c33_rt_sigaction

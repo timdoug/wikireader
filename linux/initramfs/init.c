@@ -10,6 +10,9 @@ long c33_clone(unsigned long flags, void *stack, void *parent_tid,
 long c33_execve(const char *path, char *const argv[], char *const envp[]);
 long c33_wait4(long pid, int *status, int options, void *rusage);
 void c33_exit(int status);
+long c33_kill(long pid, int signal);
+long c33_rt_sigaction(int signal, const void *action, void *old_action,
+		      size_t signal_set_size);
 
 enum message {
 	MESSAGE_BANNER,
@@ -20,6 +23,8 @@ enum message {
 	MESSAGE_COMMANDS,
 	MESSAGE_PROCESS_PASS,
 	MESSAGE_PROCESS_FAIL,
+	MESSAGE_SIGNAL_PASS,
+	MESSAGE_SIGNAL_FAIL,
 	MESSAGE_NEWLINE,
 };
 
@@ -39,11 +44,20 @@ static const struct message_record messages[] = {
 	MESSAGE("commands "),
 	MESSAGE("C33 process test: clone -> execve -> wait4 passed\n"),
 	MESSAGE("C33 process test FAILED\n"),
+	MESSAGE("C33 signal test: handler -> rt_sigreturn passed\n"),
+	MESSAGE("C33 signal test FAILED\n"),
 	MESSAGE("\n"),
 };
 
 static unsigned int command_count;
 static volatile unsigned char digit_base = '0';
+static volatile unsigned int signal_seen;
+
+struct c33_sigaction {
+	void (*handler)(int);
+	unsigned long flags;
+	unsigned long mask[2];
+};
 
 static void write_all(const char *buffer, size_t count)
 {
@@ -91,6 +105,27 @@ static void process_test(void)
 		put_message(MESSAGE_PROCESS_FAIL);
 }
 
+static void signal_handler(int signal)
+{
+	signal_seen = signal;
+}
+
+static void signal_test(void)
+{
+	struct c33_sigaction action = {
+		.handler = signal_handler,
+		.flags = 0,
+		.mask = { 0, 0 },
+	};
+
+	signal_seen = 0;
+	if (c33_rt_sigaction(10, &action, 0, sizeof(action.mask)) == 0 &&
+	    c33_kill(c33_getpid(), 10) == 0 && signal_seen == 10)
+		put_message(MESSAGE_SIGNAL_PASS);
+	else
+		put_message(MESSAGE_SIGNAL_FAIL);
+}
+
 void init_main(void)
 {
 	char input;
@@ -99,6 +134,7 @@ void init_main(void)
 
 	c33_fcntl(0, 4, 0x800);
 	process_test();
+	signal_test();
 	put_message(MESSAGE_BANNER);
 	put_message(MESSAGE_HELP);
 	put_message(MESSAGE_PROMPT);
