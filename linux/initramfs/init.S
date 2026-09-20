@@ -3,36 +3,6 @@
 	.global _start
 	.type _start,@function
 _start:
-	/* CALL leaves a position-independent pointer to the message table. */
-	call .Lmessages_end
-.Lmessages:
-.Lbanner_size:
-	.byte .Lbanner_end-.Lbanner
-.Lbanner:
-	.ascii "WikiReader native C33 userspace is alive!\n"
-.Lbanner_end:
-	.byte .Lhelp_end-.Lhelp
-.Lhelp:
-	.ascii "c33 shell: h=help p=getpid\n"
-.Lhelp_end:
-	.byte .Lprompt_end-.Lprompt
-.Lprompt:
-	.ascii "c33> "
-.Lprompt_end:
-	.byte .Lrx_end-.Lrx
-.Lrx:
-	.ascii "UART RX reached Linux userspace.\n"
-.Lrx_end:
-	.byte .Lpid_end-.Lpid
-.Lpid:
-	.ascii "pid "
-.Lpid_end:
-	.byte .Lnewline_end-.Lnewline
-.Lnewline:
-	.ascii "\n"
-.Lnewline_end:
-.Lmessages_end:
-	pop %r6
 	call init_main
 .Lhang:
 	jp .Lhang

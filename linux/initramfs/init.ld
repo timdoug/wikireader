@@ -2,11 +2,22 @@ ENTRY(_start)
 
 SECTIONS
 {
-	. = 0;
+	/* binfmt_flat deliberately leaves an encoded zero pointer untouched. */
+	. = 4;
 	.text : {
 		*(.text.start)
 		*(.text .text.*)
 		*(.rodata .rodata.*)
+		. = ALIGN(4);
+	}
+	.data : {
+		*(.data .data.*)
+		*(.sdata .sdata.*)
+	}
+	.bss : {
+		*(.bss .bss.*)
+		*(.sbss .sbss.*)
+		*(COMMON)
 	}
 	/DISCARD/ : {
 		*(.comment)

@@ -15,14 +15,16 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
 Linux initializes 32 MiB of SDRAM, the interrupt controller and 100 Hz timer,
 runs the scheduler, registers the interrupt-driven `ttyC330` UART console, and
 loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
-`h`/`p` shell: it reads commands through the Linux TTY layer, invokes
-`getpid()` for `p`, and remains alive while timer interrupts keep preempting
-native C33 userspace.
+`h`/`p`/`c` shell: it reads commands through the Linux TTY layer, invokes
+`getpid()` for `p`, reports its global command counter for `c`, and remains
+alive while timer interrupts keep preempting native C33 userspace.
 
-The current PID 1 is deliberately relocation-free. A position-independent
-assembly entry point finds its message table, while compiled C uses stack state,
-PC-relative calls, and four syscall veneers. The build rejects any loadable C
-relocation other than C33 PC-relative call halves.
+PID 1 is ordinary linked C apart from its entry point and four syscall veneers.
+The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
+split `R_C33_H`/`R_C33_M`/`R_C33_L` absolute addresses into the bFLT relocation
+table. The kernel loader reconstructs and rewrites those three-instruction
+addresses when it maps the process. The regression image deliberately contains
+string pointers in text, initialized data, and BSS state.
 
 ## macOS and Linux responsibilities
 
@@ -63,20 +65,20 @@ make -C linux boot-test
 ```
 
 `fetch` reconstructs the pinned upstream kernel revision from `revisions` on
-the VM disk, applies `patches/`, then installs `overlay/`. `build` leaves the
-final ELF and flat binary in `linux/artifacts/`.
+the VM disk, applies `patches/`, then installs `overlay/`. Each `build` also
+refreshes `overlay/` in the VM source tree so iterative port changes cannot be
+silently missed. It leaves the final kernel in `linux/artifacts/`.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
-fixture, boots it through the full emulated hardware path, injects a byte into
+fixture, boots it through the full emulated hardware path, injects two bytes into
 UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
-the `p` command, and the shell prints `pid 1` without a kernel panic. The
-fixture and emulator display output are kept outside the checkout and removed
-afterward.
+the `p` and `c` commands, and the shell prints `pid 1` and `commands 2` without
+a kernel panic. The fixture and emulator display output are kept outside the
+checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is general C33 bFLT relocation support, followed
-by a less constrained C library and line-oriented shell. Signal delivery and
-`rt_sigreturn` also need validation before larger applications. After that
-come SD/block/filesystem support and the WikiReader panel, input, and power
-drivers.
+The next useful vertical slice is a small C library and line-oriented shell.
+Signal delivery and `rt_sigreturn` also need validation before larger
+applications. After that come SD/block/filesystem support and the WikiReader
+panel, input, and power drivers.

@@ -12,15 +12,29 @@ enum message {
 	MESSAGE_PROMPT,
 	MESSAGE_RX,
 	MESSAGE_PID,
+	MESSAGE_COMMANDS,
 	MESSAGE_NEWLINE,
 };
 
-static const char *message_at(const char *table, unsigned int index)
-{
-	while (index--)
-		table += 1 + (unsigned char)table[0];
-	return table;
-}
+struct message_record {
+	const char *text;
+	size_t size;
+};
+
+#define MESSAGE(text) { text, sizeof(text) - 1 }
+
+static const struct message_record messages[] = {
+	MESSAGE("WikiReader native C33 userspace is alive!\n"),
+	MESSAGE("c33 shell: h=help p=getpid c=command-count\n"),
+	MESSAGE("c33> "),
+	MESSAGE("UART RX reached Linux userspace.\n"),
+	MESSAGE("pid "),
+	MESSAGE("commands "),
+	MESSAGE("\n"),
+};
+
+static unsigned int command_count;
+static volatile unsigned char digit_base = '0';
 
 static void write_all(const char *buffer, size_t count)
 {
@@ -34,40 +48,44 @@ static void write_all(const char *buffer, size_t count)
 	}
 }
 
-static void put_message(const char *table, enum message index)
+static void put_message(enum message index)
 {
-	const char *message = message_at(table, index);
-
-	write_all(message + 1, (unsigned char)message[0]);
+	write_all(messages[index].text, messages[index].size);
 }
 
-void init_main(const char *messages)
+void init_main(void)
 {
 	char input;
-	char pid;
+	char number;
 	int rx_reported = 0;
 
 	c33_fcntl(0, 4, 0x800);
-	put_message(messages, MESSAGE_BANNER);
-	put_message(messages, MESSAGE_HELP);
-	put_message(messages, MESSAGE_PROMPT);
+	put_message(MESSAGE_BANNER);
+	put_message(MESSAGE_HELP);
+	put_message(MESSAGE_PROMPT);
 
 	for (;;) {
 		if (c33_read(0, &input, 1) != 1)
 			continue;
 
 		if (!rx_reported) {
-			put_message(messages, MESSAGE_RX);
+			put_message(MESSAGE_RX);
 			rx_reported = 1;
 		}
+		command_count++;
 		if (input == 'h') {
-			put_message(messages, MESSAGE_HELP);
+			put_message(MESSAGE_HELP);
 		} else if (input == 'p') {
-			put_message(messages, MESSAGE_PID);
-			pid = '0' + c33_getpid();
-			write_all(&pid, 1);
-			put_message(messages, MESSAGE_NEWLINE);
+			put_message(MESSAGE_PID);
+			number = digit_base + c33_getpid();
+			write_all(&number, 1);
+			put_message(MESSAGE_NEWLINE);
+		} else if (input == 'c') {
+			put_message(MESSAGE_COMMANDS);
+			number = digit_base + command_count;
+			write_all(&number, 1);
+			put_message(MESSAGE_NEWLINE);
 		}
-		put_message(messages, MESSAGE_PROMPT);
+		put_message(MESSAGE_PROMPT);
 	}
 }

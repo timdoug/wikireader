@@ -14,24 +14,18 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 mkdir -p "$build"
 "${cross}as" -mc33pe "$here/init.S" -o "$build/init-start.o"
 "${cross}gcc" -mc33pe -Os -ffreestanding -fno-builtin \
+	-medda32 \
 	-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ffunction-sections -fdata-sections -c "$here/init.c" -o "$build/init-c.o"
 "${cross}objcopy" --remove-section=.debug_frame "$build/init-c.o" \
 	"$build/init-c-code.o"
-if "${cross}readelf" -rW "$build/init-c-code.o" | grep 'R_C33' | \
-	grep -Ev 'R_C33_S_R(M|L)' >/dev/null; then
-	echo "init C code contains a non-PC-relative relocation" >&2
-	exit 1
-fi
-"${cross}ld" --gc-sections -T "$here/init.ld" -o "$build/init.elf" \
+"${cross}ld" --gc-sections --emit-relocs -T "$here/init.ld" -o "$build/init.elf" \
 	"$build/init-start.o" "$build/init-c-code.o"
-if "${cross}readelf" -rW "$build/init.elf" | grep -q 'R_C33'; then
-	echo "linked init still contains relocations" >&2
+if ! "${cross}readelf" -rW "$build/init.elf" | grep -q 'R_C33_H'; then
+	echo "linked init does not exercise C33 absolute relocations" >&2
 	exit 1
 fi
-"${cross}objcopy" -O binary --only-section=.text "$build/init.elf" \
-	"$build/init.text"
-python3 "$here/make-flat.py" "$build/init.text" "$build/init"
+python3 "$here/make-flat.py" "$build/init.elf" "$build/init"
 chmod 755 "$build/init"
 printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /init %s/init 0755 0 0\n' \
 	"$build" >"$manifest"
