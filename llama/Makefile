@@ -5,7 +5,7 @@ include $(MK_DIR)/definitions.mk
 include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = llama
-SOURCES = llama.c model.c tokenizer.c runner.c fixed.c
+SOURCES = llama.c keys.c model.c tokenizer.c runner.c fixed.c
 CFLAGS += -std=gnu11
 
 # There is no instruction cache on this part and the fetch window is 27

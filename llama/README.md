@@ -45,8 +45,8 @@ generates until the model ends the story -- stories260K writes about 208
 tokens and then emits BOS. (argparse refuses a lone value that looks like
 an option, so write `--args='-v'`, not `--args "-v"`.)
 
-Arguments: `-n` tokens, `-i` prompt, `-v` to echo the story to
-the serial console, `-once` to power the machine off after one run instead
+Arguments: `-k` for the on-screen keyboard, `-n` tokens, `-i` prompt,
+`-v` to echo the story to the serial console, `-once` to power the machine off after one run instead
 of idling (the profiler's buckets are cumulative, so an idle loop buries
 what it is meant to measure).
 
@@ -72,6 +72,37 @@ reset and is not one. Powering off also needs a delay first: the serial
 line runs at its baud rate, about ten thousand cycles a character, and
 there is no flush in the grifo API, so cutting the power immediately
 truncates the last line printed.
+
+## Prompts
+
+With no prompt the input is a single token -- BOS -- and the model writes
+whatever follows "start of text", which for a TinyStories checkpoint is
+"Once upon a time". It is the same story every run because decoding is
+greedy argmax, which is deterministic; nothing is being seeded.
+
+`-k` puts a keyboard up and generates from what is typed, then offers it
+again so a second prompt does not mean rebooting. `keys.c` draws it
+directly rather than linking wiki/keyboard.c, which carries guilib, the
+glyph renderer, the image tables and the language handling -- the whole GUI
+stack, for an app whose binary is seventeen kilobytes.
+
+The geometry matches what the emulator's `-K` already assumes
+(`src/touch.c`, `touch_key_pos`): ten columns on a 24-pixel pitch, rows
+whose centres are 139, 168 and 195, QWERTY with backspace ending the middle
+row and `#` bottom right. So scripted typing works with no emulator change:
+
+```sh
+./wremu -R -e ../samo-lib/mbr/flash.rom -c /tmp/card.img \
+    -n 900000000 -K 100000000,'LILY SAW A CAT#'
+```
+
+`#` is the GO key. The hardware Search button submits as well.
+
+Note that grifo's text cursor is addressed in **character cells, not
+pixels** (`LCD_AtXY` sets `TextColumn`/`TextRow`) and the font is 8x13, so
+the panel is 30 columns by 16 rows. Key rows are two text rows tall and
+start at pixel 130, which puts each of the emulator's three tap heights in
+a different row and leaves labels on a cell boundary.
 
 ## What the part gives you
 

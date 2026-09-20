@@ -9,6 +9,7 @@
 #include <grifo.h>
 #include <string.h>
 
+#include "keys.h"
 #include "runner.h"
 
 #define MODEL_PATH "/model.wrl"
@@ -138,7 +139,8 @@ int grifo_main(int argc, char **argv)
 	static llama_model model;
 	static llama_tokenizer tok;
 	const char *prompt = NULL;
-	int steps = 0, once = 0, i;
+	int steps = 0, once = 0, ask = 0, i;
+	char typed[64];
 	void *wimage, *timage;
 	size_t wbytes, tbytes;
 	llama_run_options opt;
@@ -155,6 +157,8 @@ int grifo_main(int argc, char **argv)
 			steps = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-i") && i + 1 < argc)
 			prompt = argv[++i];
+		else if (!strcmp(argv[i], "-k"))
+			ask = 1;
 	}
 
 	/* The arguments come from init.ini on the card, not from the command
@@ -200,47 +204,75 @@ int grifo_main(int argc, char **argv)
 		     model.cfg.dim, model.cfg.n_layers, model.cfg.vocab_size,
 		     (unsigned)wbytes, (unsigned)(load_us / 1000u));
 
-	lcd_clear(LCD_WHITE);
-	memset(&opt, 0, sizeof opt);
-	opt.emit = emit;
-	opt.steps = steps;
-	opt.prompt = prompt;
+	for (;;) {
+		if (ask) {
+			/* -k puts the keyboard up and uses what is typed.
+			   An empty line means the unprompted story, which is
+			   what the model writes from BOS alone. */
+			if (keys_read_line(typed, sizeof typed,
+					   "Prompt, then GO:") < 0)
+				power_off();
+			prompt = typed[0] ? typed : NULL;
+		}
 
-	if (llama_run(&model, &tok, &opt, &stats) < 0) {
-		fail("Generation failed", "out of memory");
-		return 1;
-	}
-	llama_run_done();
+		lcd_clear(LCD_WHITE);
+		memset(&opt, 0, sizeof opt);
+		opt.emit = emit;
+		opt.steps = steps;
+		opt.prompt = prompt;
 
-	/* Milliseconds per token and cycles per multiply-accumulate: the two
-	   numbers that say whether this part can run a transformer at all.
-	   Integer throughout -- a division into a float would be a libgcc
-	   call, and this is the one place the answer has to be exact. */
-	{
-		uint32_t ms = stats.forward_us / 1000u;
-		uint32_t per_token = stats.tokens ?
-				     stats.forward_us / stats.tokens : 0;
-		uint32_t cycles_per_mac_x100 = stats.macs ?
-			(uint32_t)(((uint64_t)stats.forward_us *
-				    TIMER_CountsPerMicroSecond * 100u) /
-				   stats.macs) : 0;
+		if (llama_run(&model, &tok, &opt, &stats) < 0) {
+			fail("Generation failed", "out of memory");
+			return 1;
+		}
+		llama_run_done();
 
-		debug_printf("llama: %d tokens, %u ms forward, %u us/token, "
-			     "%u MACs, %u.%02u cycles/MAC; stopped: %s\n",
-			     stats.tokens, (unsigned)ms, (unsigned)per_token,
-			     (unsigned)stats.macs,
-			     (unsigned)(cycles_per_mac_x100 / 100u),
-			     (unsigned)(cycles_per_mac_x100 % 100u),
-			     llama_stop_text(stats.stop));
+		/* Milliseconds a token and cycles per multiply-accumulate:
+		   the two numbers that say whether this part can run a
+		   transformer at all.  Integer throughout -- a division into
+		   a float would be a libgcc call, and this is the one place
+		   the answer has to be exact. */
+		{
+			uint32_t per_token = stats.tokens ?
+					     stats.forward_us / stats.tokens : 0;
+			uint32_t cyc_x100 = stats.macs ?
+				(uint32_t)(((uint64_t)stats.forward_us *
+					    TIMER_CountsPerMicroSecond * 100u) /
+					   stats.macs) : 0;
 
-		/* And on the panel, so a run that has finished does not look
-		   like one that has stopped responding.  Under the emulator's
-		   window timer_get is wall clock rather than guest cycles, so
-		   this number is the host's and not the device's -- the
-		   headless run is the one to quote. */
-		lcd_printf("\n\n[%d tokens, %u ms each: %s]",
-			   stats.tokens, (unsigned)(per_token / 1000u),
-			   llama_stop_text(stats.stop));
+			debug_printf("llama: %d tokens, %u ms forward, "
+				     "%u us/token, %u MACs, "
+				     "%u.%02u cycles/MAC; stopped: %s\n",
+				     stats.tokens,
+				     (unsigned)(stats.forward_us / 1000u),
+				     (unsigned)per_token,
+				     (unsigned)stats.macs,
+				     (unsigned)(cyc_x100 / 100u),
+				     (unsigned)(cyc_x100 % 100u),
+				     llama_stop_text(stats.stop));
+
+			lcd_printf("\n\n[%d tokens, %u ms each: %s]",
+				   stats.tokens,
+				   (unsigned)(per_token / 1000u),
+				   llama_stop_text(stats.stop));
+		}
+
+		if (!ask)
+			break;
+
+		/* Wait for a touch, then offer the keyboard again, so a
+		   second prompt does not mean rebooting the machine. */
+		{
+			event_t e;
+
+			lcd_print("  (touch for another)");
+			do {
+				if (event_wait(&e, idle_forever, NULL) ==
+				    EVENT_BATTERY_LOW)
+					power_off();
+			} while (e.item_type != EVENT_TOUCH_DOWN &&
+				 e.item_type != EVENT_BUTTON_DOWN);
+		}
 	}
 
 	/* The profiler's buckets are cumulative over a whole run, so an idle
