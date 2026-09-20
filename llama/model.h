@@ -79,7 +79,8 @@ typedef struct {
 	int32_t *hb2;  int hb2_e;
 	int32_t *q;    int q_e;
 	int32_t *scratch;		/* max(dim, hidden_dim) */
-	int32_t *logits;		/* argmax needs no scale at all */
+	int32_t *logits;
+	int logits_e;			/* argmax ignores this; a softmax cannot */
 	int32_t *att;			/* Q12 scores, then Q7 weights */
 	int8_t *xq;   int xq_e;
 	int8_t *hq;   int hq_e;

@@ -139,7 +139,8 @@ int grifo_main(int argc, char **argv)
 	static llama_model model;
 	static llama_tokenizer tok;
 	const char *prompt = NULL;
-	int steps = 0, once = 0, ask = 0, i;
+	int steps = 0, once = 0, ask = 0, temperature = 0, i;
+	unsigned long seed = 0;
 	char typed[64];
 	void *wimage, *timage;
 	size_t wbytes, tbytes;
@@ -159,6 +160,12 @@ int grifo_main(int argc, char **argv)
 			prompt = argv[++i];
 		else if (!strcmp(argv[i], "-k"))
 			ask = 1;
+		else if (!strcmp(argv[i], "-t") && i + 1 < argc) {
+			temperature = llama_parse_temperature(argv[++i]);
+			if (temperature < 0)
+				temperature = 0;
+		} else if (!strcmp(argv[i], "-s") && i + 1 < argc)
+			seed = (unsigned long)atoi(argv[++i]);
 	}
 
 	/* The arguments come from init.ini on the card, not from the command
@@ -220,6 +227,13 @@ int grifo_main(int argc, char **argv)
 		opt.emit = emit;
 		opt.steps = steps;
 		opt.prompt = prompt;
+		opt.temperature_q8 = temperature;
+		/* Zero asks llama_run for the clock.  On hardware that is
+		   different every run, because it counts the time the reader
+		   spent typing; headless in the emulator it is not, because
+		   the guest clock is derived from cycles so that runs stay
+		   reproducible.  -s pins it either way. */
+		opt.seed = seed;
 
 		if (llama_run(&model, &tok, &opt, &stats) < 0) {
 			fail("Generation failed", "out of memory");

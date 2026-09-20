@@ -117,7 +117,8 @@ int main(int argc, char **argv)
 {
 	const char *weights = NULL, *vocab = NULL, *prompt = NULL;
 	const char *forced = NULL;
-	int steps = 0, quiet = 0, i;
+	int steps = 0, quiet = 0, temperature = 0, i;
+	unsigned long seed = 0;
 	void *wimage, *timage;
 	size_t wbytes, tbytes;
 	llama_model model;
@@ -137,6 +138,14 @@ int main(int argc, char **argv)
 			quiet = 1;
 		else if (!strcmp(argv[i], "-teacher") && i + 1 < argc)
 			forced = argv[++i];
+		else if (!strcmp(argv[i], "-t") && i + 1 < argc) {
+			temperature = llama_parse_temperature(argv[++i]);
+			if (temperature < 0) {
+				fprintf(stderr, "bad temperature %s\n", argv[i]);
+				return 2;
+			}
+		} else if (!strcmp(argv[i], "-s") && i + 1 < argc)
+			seed = strtoul(argv[++i], NULL, 0);
 		else if (!weights)
 			weights = argv[i];
 		else {
@@ -147,7 +156,8 @@ int main(int argc, char **argv)
 	if (!weights || !vocab) {
 		fprintf(stderr,
 			"usage: %s <model.wrl> -z <tokenizer.bin> "
-			"[-n steps] [-i prompt] [-q] [-teacher text]\n",
+			"[-n steps] [-i prompt] [-t temperature] [-s seed] "
+			"[-q] [-teacher text]\n",
 			argv[0]);
 		return 2;
 	}
@@ -181,6 +191,8 @@ int main(int argc, char **argv)
 	opt.emit = emit;
 	opt.steps = steps;
 	opt.prompt = prompt;
+	opt.temperature_q8 = temperature;
+	opt.seed = seed;
 
 	if (llama_run(&model, &tok, &opt, &stats) < 0) {
 		fprintf(stderr, "generation failed\n");

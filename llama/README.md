@@ -45,8 +45,8 @@ generates until the model ends the story -- stories260K writes about 208
 tokens and then emits BOS. (argparse refuses a lone value that looks like
 an option, so write `--args='-v'`, not `--args "-v"`.)
 
-Arguments: `-k` for the on-screen keyboard, `-n` tokens, `-i` prompt,
-`-v` to echo the story to the serial console, `-once` to power the machine off after one run instead
+Arguments: `-k` for the on-screen keyboard, `-t` temperature, `-s` seed,
+`-n` tokens, `-i` prompt, `-v` to echo the story to the serial console, `-once` to power the machine off after one run instead
 of idling (the profiler's buckets are cumulative, so an idle loop buries
 what it is meant to measure).
 
@@ -97,6 +97,32 @@ row and `#` bottom right. So scripted typing works with no emulator change:
 ```
 
 `#` is the GO key. The hardware Search button submits as well.
+
+## Temperature
+
+Greedy decoding is deterministic, and on a model this small it loops --
+argmax has no way out of a cycle once it enters one, so a prompt reliably
+produces *"He wanted to play with his toys."* three times running. `-t`
+samples from the softmax instead:
+
+| | |
+| --- | --- |
+| greedy | *lily saw a cat named Tom. Tom was very happy. He wanted to play with his toys. He wanted to play with his toys.* |
+| `-t 0.7` | *lily saw a cat named Benny. He lived in a big tree with many pictures.* |
+| `-t 0.7`, another seed | *lily saw a cat and a small lion named Whiskers.* |
+
+0.7 is a good setting for stories260K; 1.0 wanders ("she was bug too") and
+0.5 barely leaves the greedy path.
+
+**This was not affordable before the forward pass went integer.** A softmax
+over the vocabulary is 512 exponentials a token here, and every one of them
+used to be a run through soft-float `expf`. Measured now: 19,906
+instructions and 2.28 ms a token, **1.8%** of a 125 ms token.
+
+`-s` pins the seed. Without it the clock seeds the sampler, which differs
+every run on hardware -- it counts the time the reader spent typing -- but
+not headless in the emulator, where the guest clock is derived from cycles
+so that runs stay reproducible.
 
 Note that grifo's text cursor is addressed in **character cells, not
 pixels** (`LCD_AtXY` sets `TextColumn`/`TextRow`) and the font is 8x13, so

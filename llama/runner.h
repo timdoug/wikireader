@@ -25,6 +25,13 @@ typedef struct {
 	void *ctx;
 	int steps;		/* tokens to generate; 0 for no limit */
 	const char *prompt;	/* NULL for an unprompted story */
+
+	/* Sampling temperature, Q8: 256 is 1.0, and 0 means take the
+	   argmax.  Greedy decoding on a model this small loops -- it has no
+	   way out of a cycle once it enters one -- so a temperature is what
+	   makes two runs of the same prompt differ. */
+	int temperature_q8;
+	unsigned long seed;	/* 0 asks the platform for one */
 } llama_run_options;
 
 typedef struct {
@@ -40,9 +47,14 @@ const char *llama_stop_text(llama_stop_reason r);
 /* Microseconds from an arbitrary epoch; each build supplies its own. */
 uint32_t llama_now_us(void);
 
-/* Greedy (argmax) decoding.  A sampler with a temperature would need a
-   softmax over the whole vocabulary -- 512 calls to expf a token here, and
-   32000 on a full-vocabulary model, each one a run of soft-float. */
+/* Temperature in Q8 from a decimal string: "0", "0.8", "1", "1.25".
+   Returns -1 if it is not a number. */
+int llama_parse_temperature(const char *text);
+
+/* Generate.  Greedy when temperature_q8 is zero, otherwise sampled from
+   the softmax of the logits.  Sampling was out of reach while the forward
+   pass was fp32 -- a softmax over the vocabulary meant 512 calls into
+   soft-float expf a token -- and costs about 1% now. */
 int llama_run(llama_model *m, llama_tokenizer *tok,
 	      const llama_run_options *opt, llama_run_stats *stats);
 

@@ -119,7 +119,34 @@ def main():
     else:
         print(f"ok: prompt round-trips ({got[:48]!r}...)")
 
-    # 4. A truncated weight file must be refused, not read as garbage
+    # 4. Sampling: reproducible for a seed, different across seeds, and
+    # not looping the way greedy does on a model this small.
+    a = run("-n", "36", "-t", "0.7", "-s", "7", "-i", "lily saw a cat")
+    b = run("-n", "36", "-t", "0.7", "-s", "7", "-i", "lily saw a cat")
+    c = run("-n", "36", "-t", "0.7", "-s", "8", "-i", "lily saw a cat")
+    if a != b:
+        print("FAIL: same seed gave different text")
+        failures += 1
+    elif a == c:
+        print("FAIL: different seeds gave identical text")
+        failures += 1
+    else:
+        print(f"ok: sampling is seeded and varies ({a[14:52]!r}...)")
+
+    # The temperature is parsed by hand -- mini-libc has no strtod, so the
+    # device cannot use one and the host must not either, or a card and a
+    # terminal disagree about what "0.80" means. Equivalent spellings have
+    # to give identical text for the same seed.
+    for x, y in (("1", "1.0"), ("0.5", "0.50"), ("0.8", "0.800")):
+        if run("-n", "20", "-t", x, "-s", "3", "-i", "a cat") != \
+           run("-n", "20", "-t", y, "-s", "3", "-i", "a cat"):
+            print(f"FAIL: temperature {x!r} and {y!r} parsed differently")
+            failures += 1
+            break
+    else:
+        print("ok: equivalent temperature spellings parse the same")
+
+    # 5. A truncated weight file must be refused, not read as garbage
     # weights: that failure mode generates plausible nonsense and reports
     # nothing at all.
     short = CACHE / "truncated.wrl"

@@ -18,6 +18,18 @@
 
 #define Q12_ONE 4096
 
+/* Shift right by `s`, or left if `s` is negative, saturating rather than
+   invoking undefined behaviour at the extremes.  Inline: the attention
+   path calls it once per cached position. */
+static inline int32_t wr_sshift(int32_t v, int s)
+{
+	if (s > 0)
+		return s >= 31 ? (v < 0 ? -1 : 0) : (v >> s);
+	if (s < 0)
+		return -s >= 31 ? 0 : (int32_t)((uint32_t)v << -s);
+	return v;
+}
+
 /* exp(x) for x <= 0, argument and result both Q12.  Returns 0 once the
    true value is below half a Q12 step.  The only callers are the attention
    softmax and the SwiGLU sigmoid, which both want exp of something

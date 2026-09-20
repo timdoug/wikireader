@@ -193,7 +193,12 @@ llama_status llama_open(llama_model *m, void *image, size_t bytes,
 	{
 		size_t dim = (size_t)cfg->dim;
 		size_t hid = (size_t)cfg->hidden_dim;
+		/* Wide enough for the sampler too: it exponentiates a whole
+		   vocabulary into this. */
 		size_t wide = dim > hid ? dim : hid;
+
+		if ((size_t)cfg->vocab_size > wide)
+			wide = (size_t)cfg->vocab_size;
 		size_t kvc = (size_t)cfg->n_layers * cfg->seq_len * cfg->kv_dim;
 		size_t kve = (size_t)cfg->n_layers * cfg->seq_len;
 
@@ -263,25 +268,6 @@ void llama_free(llama_model *m, const char *tag)
 }
 
 /* ---- kernels --------------------------------------------------------- */
-
-/* Shift right by `s`, or left if `s` is negative; saturating to zero
-   rather than invoking undefined behaviour at the extremes.  Exponent
-   differences between two activation vectors are usually small, but
-   nothing in the arithmetic guarantees it. */
-static int32_t sshift(int32_t v, int s)
-{
-	if (s > 0)
-		return s >= 31 ? (v < 0 ? -1 : 0) : (v >> s);
-	if (s < 0)
-		return -s >= 31 ? 0 : (int32_t)((uint32_t)v << -s);
-	return v;
-}
-
-/* Spread a vector back over the full width of an int32, adjusting its
-   exponent to match.  Repeated right shifts -- and there are ten residual
-   adds a token -- would otherwise walk the residual stream down to a few
-   significant bits. */
-int renormalize(int32_t *v, int n, int e);
 
 /* The magnitude of the largest element, as a bit position. */
 static int vec_bits(const int32_t *v, int n)
@@ -489,7 +475,7 @@ int residual_add(int32_t *x, int x_e, const int32_t *y, int y_e, int n)
 	int dx = x_e - e, dy = y_e - e, i;
 
 	for (i = 0; i < n; i++)
-		x[i] = sshift(x[i], dx) + sshift(y[i], dy);
+		x[i] = wr_sshift(x[i], dx) + wr_sshift(y[i], dy);
 	return renormalize(x, n, e);
 }
 
@@ -564,7 +550,7 @@ int32_t *llama_forward(llama_model *m, int token, int pos)
 				/* To the common exponent, then to Q12 with
 				   1/sqrt(head_size) folded in. */
 				acc >>= m->key_exp[eoff + t] - min_ke;
-				att[t] = sshift(acc * m->inv_root_head,
+				att[t] = wr_sshift(acc * m->inv_root_head,
 						score_e);
 			}
 
@@ -633,7 +619,7 @@ int32_t *llama_forward(llama_model *m, int token, int pos)
 			int e1 = m->hb_e - sh1;
 
 			for (i = 0; i < hidden_dim; i++) {
-				int32_t vq = sshift(m->hb[i], e1 - 12);
+				int32_t vq = wr_sshift(m->hb[i], e1 - 12);
 				int32_t ex = wr_exp_q12(vq > 0 ? -vq : vq);
 				int32_t sig;
 
@@ -656,13 +642,10 @@ int32_t *llama_forward(llama_model *m, int token, int pos)
 	}
 
 	m->xq_e = rmsnorm_i8(m->xq, m->scratch, x, dim, &m->rms_final);
-	{
-		int logits_e;
-
-		matmul(m->logits, &logits_e, m->xq, m->xq_e, &m->wcls, dim,
-		       c->vocab_size);
-	}
-	/* The caller takes an argmax, which needs no scale: every logit
-	   shares one exponent, so comparing them compares the reals. */
+	matmul(m->logits, &m->logits_e, m->xq, m->xq_e, &m->wcls, dim,
+	       c->vocab_size);
+	/* An argmax needs no scale -- every logit shares one exponent, so
+	   comparing them compares the reals -- but sampling does, because
+	   exp() cares how far apart they actually are. */
 	return m->logits;
 }
