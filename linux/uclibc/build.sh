@@ -13,6 +13,7 @@ uclibc_source=${WR_UCLIBC_SOURCE:-$guest_root/uclibc-ng}
 tool_dir=${C33_TOOLCHAIN_WORK:-$guest_root/toolchain}
 build_dir=${WR_UCLIBC_BUILD:-$guest_root/uclibc-build}
 headers_dir=${WR_LINUX_HEADERS:-$guest_root/linux-headers}
+headers_build=${WR_LINUX_HEADERS_BUILD:-$guest_root/linux-headers-build}
 install_dir=${WR_UCLIBC_INSTALL:-$guest_root/uclibc-install}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
 cross=$tool_dir/install/bin/c33-epson-elf-
@@ -30,9 +31,9 @@ if [ ! -d "$uclibc_source/.git" ]; then
 fi
 
 cp -R "$root/linux/overlay/." "$linux_source/"
-rm -rf "$headers_dir" "$build_dir" "$install_dir"
-mkdir -p "$headers_dir" "$build_dir" "$install_dir"
-make -C "$linux_source" ARCH=c33 CROSS_COMPILE="$cross" \
+rm -rf "$headers_dir" "$headers_build" "$build_dir" "$install_dir"
+mkdir -p "$headers_dir" "$headers_build" "$build_dir" "$install_dir"
+make -C "$linux_source" O="$headers_build" ARCH=c33 CROSS_COMPILE="$cross" \
 	INSTALL_HDR_PATH="$headers_dir" headers_install
 
 cp -R "$root/linux/uclibc/overlay/." "$uclibc_source/"

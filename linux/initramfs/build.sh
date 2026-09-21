@@ -1,14 +1,15 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 3 ]; then
-	echo "usage: $0 CROSS_PREFIX BUILD_DIR OUTPUT.list" >&2
+if [ "$#" -ne 4 ]; then
+	echo "usage: $0 CROSS_PREFIX BUILD_DIR OUTPUT.list UCLIBC_SMOKE" >&2
 	exit 2
 fi
 
 cross=$1
 build=$2
 manifest=$3
+uclibc_smoke=$4
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 mkdir -p "$build"
@@ -40,5 +41,5 @@ chmod 755 "$build/init"
 python3 "$here/make-flat.py" "$build/child.elf" "$build/child"
 chmod 755 "$build/child"
 
-printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /init %s/init 0755 0 0\nfile /child %s/child 0755 0 0\n' \
-	"$build" "$build" >"$manifest"
+printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /init %s/init 0755 0 0\nfile /child %s/child 0755 0 0\nfile /uclibc-smoke %s 0755 0 0\n' \
+	"$build" "$build" "$uclibc_smoke" >"$manifest"

@@ -20,7 +20,7 @@ fetch: vm
 libc: vm
 	$(SHELL_IN_VM) ./linux/uclibc/build.sh
 
-build: vm
+build: libc
 	$(SHELL_IN_VM) ./linux/build.sh
 
 boot-test:

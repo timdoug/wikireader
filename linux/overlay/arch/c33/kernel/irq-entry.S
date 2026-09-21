@@ -38,9 +38,9 @@ c33_syscall_vector:
 	.global c33_unhandled_vector
 	.type c33_unhandled_vector,@function
 c33_unhandled_vector:
-1:
-	halt
-	jp 1b
+	push %r4
+	xld.w %r4,255
+	xjp c33_exception
 	.size c33_unhandled_vector,.-c33_unhandled_vector
 
 	.type c33_exception,@function

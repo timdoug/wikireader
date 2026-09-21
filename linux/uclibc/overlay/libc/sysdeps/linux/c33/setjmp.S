@@ -33,7 +33,8 @@ __GI___sigsetjmp:
 	xld.w [%r6+JB_R2*4],%r2
 	xld.w [%r6+JB_R3*4],%r3
 	ld.w %r4,%sp
-	add %r4,1
+	/* CALL pushed a four-byte return address; resume at the caller's SP. */
+	add %r4,4
 	xld.w [%r6+JB_SP*4],%r4
 	xld.w %r4,[%sp]
 	xld.w [%r6+JB_PC*4],%r4

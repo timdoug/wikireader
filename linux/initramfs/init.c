@@ -25,6 +25,8 @@ enum message {
 	MESSAGE_PROCESS_FAIL,
 	MESSAGE_SIGNAL_PASS,
 	MESSAGE_SIGNAL_FAIL,
+	MESSAGE_LIBC_PASS,
+	MESSAGE_LIBC_FAIL,
 	MESSAGE_NEWLINE,
 };
 
@@ -46,12 +48,15 @@ static const struct message_record messages[] = {
 	MESSAGE("C33 process test FAILED\n"),
 	MESSAGE("C33 signal test: handler -> rt_sigreturn passed\n"),
 	MESSAGE("C33 signal test FAILED\n"),
+	MESSAGE("C33 libc test: crt -> stdio -> getpid -> longjmp passed\n"),
+	MESSAGE("C33 libc test FAILED\n"),
 	MESSAGE("\n"),
 };
 
 static unsigned int command_count;
 static volatile unsigned char digit_base = '0';
 static volatile unsigned int signal_seen;
+static const char *child_path;
 
 struct c33_sigaction {
 	void (*handler)(int);
@@ -78,31 +83,42 @@ static void put_message(enum message index)
 
 void clone_child(void)
 {
-	static char child_path[] = "/child";
-	char *argv[] = { child_path, 0 };
+	char *argv[] = { (char *)child_path, 0 };
 	char *envp[] = { 0 };
 
 	c33_execve(child_path, argv, envp);
 	c33_exit(127);
 }
 
-static void process_test(void)
+static int run_program(const char *path, int expected_status)
 {
 	long pid;
 	long waited;
 	int status = 0;
 
+	child_path = path;
 	/* The asm-generic no-MMU vfork ABI is clone(CLONE_VM|CLONE_VFORK). */
 	pid = c33_clone(0x4111, 0, 0, 0, 0);
-	if (pid <= 0) {
-		put_message(MESSAGE_PROCESS_FAIL);
-		return;
-	}
+	if (pid <= 0)
+		return 0;
 	waited = c33_wait4(pid, &status, 0, 0);
-	if (waited == pid && status == (23 << 8))
+	return waited == pid && status == (expected_status << 8);
+}
+
+static void process_test(void)
+{
+	if (run_program("/child", 23))
 		put_message(MESSAGE_PROCESS_PASS);
 	else
 		put_message(MESSAGE_PROCESS_FAIL);
+}
+
+static void libc_test(void)
+{
+	if (run_program("/uclibc-smoke", 0))
+		put_message(MESSAGE_LIBC_PASS);
+	else
+		put_message(MESSAGE_LIBC_FAIL);
 }
 
 static void signal_handler(int signal)
@@ -135,6 +151,7 @@ void init_main(void)
 	c33_fcntl(0, 4, 0x800);
 	process_test();
 	signal_test();
+	libc_test();
 	put_message(MESSAGE_BANNER);
 	put_message(MESSAGE_HELP);
 	put_message(MESSAGE_PROMPT);

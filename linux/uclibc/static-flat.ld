@@ -7,8 +7,8 @@ SECTIONS
 	.text : {
 		*(.text.start)
 		*(.text .text.*)
-		*(.init)
-		*(.fini)
+		KEEP(*(.init))
+		KEEP(*(.fini))
 		*(.rodata .rodata.*)
 		. = ALIGN(4);
 	}

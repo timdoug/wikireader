@@ -3,7 +3,7 @@
 	.global _start
 	.type _start,@function
 _start:
-	call init_main
+	xcall init_main
 .Lhang:
 	jp .Lhang
 	.size _start,.-_start

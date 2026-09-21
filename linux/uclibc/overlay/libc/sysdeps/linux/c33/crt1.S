@@ -30,7 +30,7 @@ _start:
 	xld.w %r6,main
 	xld.w %r7,[%r0]
 	ld.w %r8,%r0
-	add %r8,1
+	add %r8,4
 	xld.w %r9,_init
 	xcall __uClibc_main
 

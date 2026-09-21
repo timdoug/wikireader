@@ -30,6 +30,11 @@ the signal to PID 1, and returns through the C33 `rt_sigreturn` trampoline. The
 kernel saves and restores the complete integer context, signal mask, and
 alternate-stack state in an aligned `ucontext` frame on the userspace stack.
 
+PID 1 then executes a static uClibc-ng bFLT program. The program enters through
+the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
+exits through libc, and is reaped by PID 1. This is the first regression using
+the conventional C userspace ABI rather than the initramfs syscall veneers.
+
 The UART console is mirrored to a 30-column text console in the LCD framebuffer
 left active by the card loader. A fixed strip below the text records memory,
 interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
@@ -92,19 +97,21 @@ in `linux/artifacts/`.
 asm-generic syscall ABI and time64 interfaces. Its link regression compiles a
 real `stdio.h` program, resolves it with the C33 PE `libgcc`, verifies that the
 ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
-`linux/artifacts/uclibc-smoke`.
+`linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
+image and embeds it in the initramfs as `/uclibc-smoke`.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, injects two bytes into
 UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
 the `p` and `c` commands, and the shell prints `pid 1` and `commands 2` without
 a kernel panic. It additionally requires `/child` to run and PID 1 to reap its
-exit status. The test checks the final display image for text and all seven LCD
-checkpoints. The fixture and emulator display output are kept outside the
-checkout and removed afterward.
+exit status, then requires the uClibc program's stdio and longjmp output and a
+clean zero-status reap. The test checks the final display image for text and all
+seven LCD checkpoints. The fixture and emulator display output are kept outside
+the checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is running the uClibc smoke binary under the
-kernel, followed by a minimal static BusyBox configuration. After that come
-SD/block/filesystem support and the WikiReader panel, input, and power drivers.
+The next useful vertical slice is a minimal static BusyBox configuration using
+the working uClibc toolchain. After that come SD/block/filesystem support and
+the WikiReader panel, input, and power drivers.
