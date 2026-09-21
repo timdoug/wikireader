@@ -3,6 +3,7 @@
 #include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/completion.h>
+#include <linux/cpu.h>
 #include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
@@ -50,6 +51,7 @@
 #define S1C33_DMA_ENABLE    0x0c
 #define S1C33_DMA_TRIGGER   0x0e
 #define S1C33_DMA_ADV_MODE  0x9c
+#define S1C33_DMA_ADV_TIME  0x9e
 #define S1C33_DMA_ADV_CTL2  0x82
 #define S1C33_DMA_ADV_SRC2  0x84
 #define S1C33_DMA_ADV_DST2  0x88
@@ -223,6 +225,26 @@ static irqreturn_t s1c33_spi_dma_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static void s1c33_spi_reset_dma(struct s1c33_spi *hw)
+{
+	/*
+	 * There is no HSDMA software-reset bit.  Establish the documented
+	 * reset-equivalent state before unmasking its interrupt: remove every
+	 * request source, stop both channels, discard pending trigger latches,
+	 * clear terminal-count and SPI request causes, and return to STD mode.
+	 */
+	writeb(0, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writew(0, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
+	writew(0, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
+	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_TRIGGER);
+	writew(1, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_TRIGGER);
+	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
+	       hw->itc + S1C33_ITC_DMA_FLAG);
+	writeb(S1C33_SPI_DMA_FLAGS, hw->itc + S1C33_ITC_SPI_FLAG);
+	writew(0, hw->dma + S1C33_DMA_ADV_MODE);
+	writew(0, hw->dma + S1C33_DMA_ADV_TIME);
+}
+
 static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 			      struct spi_transfer *transfer)
 {
@@ -230,7 +252,7 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 	u32 destination = (u32)(unsigned long)rx;
 	unsigned int words = transfer->len / 4;
 	unsigned int i;
-	u8 old_trigger;
+	bool busy_timeout;
 	bool completed;
 	bool irq_disabled = false;
 
@@ -244,6 +266,8 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 	s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 32, true);
 	hw->dummy = ~0U;
 	reinit_completion(&hw->dma_done);
+	/* Do not inherit a bootloader's live HSDMA request routing. */
+	writeb(0, hw->itc + S1C33_ITC_HS_TRIGGER);
 	writew(1, hw->dma + S1C33_DMA_ADV_MODE);
 	s1c33_hsdma_channel(hw, 3, words,
 			    (u32)(unsigned long)hw->base + S1C33_SPI_RXD,
@@ -252,17 +276,22 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 			    (u32)(unsigned long)&hw->dummy,
 			      (u32)(unsigned long)hw->base + S1C33_SPI_TXD,
 			      false, false);
-	old_trigger = readb(hw->itc + S1C33_ITC_HS_TRIGGER);
 	writeb(0x99, hw->itc + S1C33_ITC_HS_TRIGGER);
 	writeb(S1C33_SPI_DMA_FLAGS, hw->itc + S1C33_ITC_SPI_FLAG);
 	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
 	       hw->itc + S1C33_ITC_DMA_FLAG);
+	/*
+	 * HALT stops this part's hardware-request pipeline on real WikiReaders.
+	 * The transfer task may sleep normally, but keep Linux's otherwise-idle
+	 * CPU in its standard polling loop until both engines have stopped.
+	 */
+	cpu_idle_poll_ctrl(true);
 	writew(1, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
 	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
 	writel(~0U, hw->base + S1C33_SPI_TXD);
 
 	completed = wait_for_completion_timeout(&hw->dma_done,
-						msecs_to_jiffies(S1C33_DMA_TIMEOUT));
+					msecs_to_jiffies(S1C33_DMA_TIMEOUT));
 	if (!completed) {
 		/* Close the late-IRQ race before checking the latched cause. */
 		disable_irq(hw->dma_irq);
@@ -273,12 +302,17 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 	}
 	writew(0, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
 	writew(0, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
-	writeb(old_trigger, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writeb(0, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_TRIGGER);
+	writew(1, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_TRIGGER);
 	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
 	       hw->itc + S1C33_ITC_DMA_FLAG);
+	busy_timeout = completed &&
+		s1c33_spi_wait(hw, S1C33_SPI_BUSY, false);
+	cpu_idle_poll_ctrl(false);
 	if (irq_disabled)
 		enable_irq(hw->dma_irq);
-	if (!completed || s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
+	if (!completed || busy_timeout)
 		return -ETIMEDOUT;
 
 	for (i = 0; i < transfer->len; i += 4) {
@@ -382,14 +416,16 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	hw->pdata = pdata;
 	hw->control = ~0U;
 	init_completion(&hw->dma_done);
-	writeb((readb(hw->itc + S1C33_ITC_DMA_PRIORITY) & 0x8f) | 0x40,
-	       hw->itc + S1C33_ITC_DMA_PRIORITY);
+	s1c33_spi_reset_dma(hw);
+	/* Ch.3 level 4, Ch.2 disabled, and all documented reserved bits zero. */
+	writeb(0x40, hw->itc + S1C33_ITC_DMA_PRIORITY);
 	irq = platform_get_irq_byname(pdev, "rx-dma");
 	if (irq < 0)
 		return irq;
 	hw->dma_irq = irq;
 	ret = devm_request_irq(&pdev->dev, irq,
-			       s1c33_spi_dma_interrupt, 0, "s1c33-spi-rx", hw);
+			       s1c33_spi_dma_interrupt, 0,
+			       "s1c33-spi-rx", hw);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 				     "cannot request receive DMA interrupt\n");

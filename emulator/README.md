@@ -973,11 +973,13 @@ command/write bit assembly, and electrical pin-mux transients remain
 unmodeled. See the
 [hardware findings](../zim/PERFORMANCE.md#hardware-findings-the-code-depends-on).
 
-Known divergence: the model lets the channel-3 terminal-count cause wake a
-HALTed core. A real WikiReader (stock 2009 flash) never woke, and a kernel
-that slept on that cause hung on the boot splash. The kernel now polls the
-flag, which works on both. Do not rely on the emulator to tell you which
-interrupt causes wake HALT.
+Physical testing found that `HALT` gates the SPI-to-HSDMA request path. The
+SPI cause still latches, but the corresponding HSDMA trigger edge is lost and
+is not replayed after another interrupt wakes the core. The model reproduces
+that behavior. Linux sleeps on the HSDMA3 completion while temporarily using
+the scheduler's standard idle-poll mode, so other tasks remain schedulable but
+the idle thread cannot execute `HALT` during a transfer. Focused DMA tests
+cover the lost request and the full Linux boot regression exercises the fix.
 
 ### Peripherals
 

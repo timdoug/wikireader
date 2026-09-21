@@ -19,6 +19,7 @@ struct dma {
 	struct itc    *itc;
 	const struct cmu *cmu;
 	uint64_t *clock;
+	const bool *cpu_sleeping;
 	uint8_t reg[DMA_LEN];
 
 	bool servicing;
@@ -36,5 +37,6 @@ void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 		const struct cmu *cmu, struct sdcard *sd);
 void dma_reset(struct dma *d);
 void dma_set_clock(struct dma *d, uint64_t *clock);
+void dma_set_cpu_sleeping(struct dma *d, const bool *sleeping);
 
 #endif /* DMA_H */

@@ -195,9 +195,18 @@ board-specific chip-select callback.
 It also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
 transmit/receive pair. Short, unaligned, command, and write transfers retain a
 bounded programmed-I/O path, so the optimization remains entirely behind the
-standard SPI controller API. Bulk reads sleep on a Linux completion signaled by
-the HSDMA3 IRQ, with a bounded latched-cause check only for lost-interrupt
-recovery. The kernel includes FAT/VFAT and mounts the first
+standard SPI controller API. Probe establishes a documented reset-equivalent
+state before requesting the HSDMA3 IRQ: it disconnects request sources, stops
+both channels, clears their trigger and terminal-count latches, clears the SPI
+DMA causes, selects standard mode, and programs the interrupt-priority byte
+with every reserved bit zero. Bulk reads then sleep on a Linux completion
+signaled by HSDMA3. A bounded latched-cause check closes the completion-timeout
+race without changing the normal IRQ-driven path. Physical E07 parts stop
+advancing SPI-triggered HSDMA if the otherwise-idle core executes
+`HALT`, so the driver uses Linux's standard idle-poll control only while a DMA
+transfer is active. The calling task still sleeps on its completion and other
+runnable processes remain schedulable; only the idle task avoids `HALT` for
+the duration of the transfer. The kernel includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Early userspace leaves
 `linux.ok` there as a persistent, serial-port-free boot report.
 

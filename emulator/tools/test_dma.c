@@ -55,6 +55,7 @@ static void reset_all(struct mem *m, struct dma *dma, struct sdcard *sd,
 	cmu_reset(cmu);
 	sd_reset(sd);
 	sd->xfers = sd->xfers8 = sd->xfers16 = sd->xfers32 = 0;
+	sd->overflows = 0;
 	sd->shift_cycles = 0;
 	sd->wait_cycles = 0;
 	dma_reset(dma);
@@ -92,6 +93,7 @@ int main(void)
 	struct port port;
 	struct sdcard sd;
 	struct dma dma;
+	bool sleeping = false;
 	uint64_t clock = 0;
 	const uint32_t table = DSTRAM_BASE;
 	const uint32_t dst = SDRAM_BASE + 0x1000;
@@ -102,6 +104,7 @@ int main(void)
 	port_attach(&m, &port, &itc);
 	assert(sd_attach(&m, &sd, NULL, &port, NULL, true));
 	dma_attach(&m, &dma, &itc, &cmu, &sd);
+	dma_set_cpu_sleeping(&dma, &sleeping);
 
 	/*
 	 * MCBR=0 is MCLK/4 and BPT=7 is eight bits, so the first character
@@ -288,6 +291,24 @@ int main(void)
 		assert(mem_read(&m, REG(0x1700), 4) == sd.resp[i]);
 	}
 	assert(sd.resp_pos == 514 && sd.overflows == 0);
+
+	/* HALT loses SPI-to-HSDMA request edges on the physical E07. */
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 4);
+	mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+	sleeping = true;
+	clock = 260;
+	sd_poll(&sd);
+	sleeping = false;
+	assert(sd.xfers == 2 && !sd.busy && sd.overflows == 1);
+	assert(dma.hsdma_channel_transfers[2] == 1);
+	assert(dma.hsdma_channel_transfers[3] == 0);
+	assert(mem_read(&m, REG(0x1140), 2) == 126);
+	assert(mem_read(&m, REG(0x1150), 2) == 128);
+	assert(mem_read(&m, REG(0x114e), 2) == 0);
+	assert(mem_read(&m, REG(0x115e), 2) == 0);
+	assert(mem_read(&m, REG(0x0289), 1) == 0x30);
 
 	/* V.2.5 TX buffering and II.1.5 HSDMA2/3 trigger routing. The
 	 * expected wire duration is calculated from SPI bits and SPI_WAIT,

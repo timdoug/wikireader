@@ -342,6 +342,18 @@ static void service_spi(struct dma *d)
 static void spi_event(void *ctx, unsigned requests)
 {
 	struct dma *d = ctx;
+
+	/*
+	 * Physical S1C33E07 testing shows that HALT gates the SPI-to-HSDMA
+	 * request path.  The SPI cause still latches, but the edge does not
+	 * become an HSDMA trigger and is not replayed when another interrupt
+	 * wakes the core.  A driver must therefore keep the idle task out of
+	 * HALT while a hardware-triggered transfer is active.
+	 */
+	if (d->cpu_sleeping && *d->cpu_sleeping) {
+		d->itc->reg[ITC_FSPI] |= (uint8_t)requests;
+		return;
+	}
 	d->spi_event_pending |= requests;
 	service_spi(d);
 }
@@ -417,17 +429,24 @@ void dma_reset(struct dma *d)
 	struct itc *itc = d->itc;
 	const struct cmu *cmu = d->cmu;
 	uint64_t *clock = d->clock;
+	const bool *cpu_sleeping = d->cpu_sleeping;
 	memset(d, 0, sizeof *d);
 	d->mem = m;
 	d->itc = itc;
 	d->cmu = cmu;
 	d->clock = clock;
+	d->cpu_sleeping = cpu_sleeping;
 	put32(d, IDMA_BASE_LO, 0x200003a0u);
 }
 
 void dma_set_clock(struct dma *d, uint64_t *clock)
 {
 	d->clock = clock;
+}
+
+void dma_set_cpu_sleeping(struct dma *d, const bool *sleeping)
+{
+	d->cpu_sleeping = sleeping;
 }
 
 void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
