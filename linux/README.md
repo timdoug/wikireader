@@ -109,16 +109,28 @@ diagnostics, mounts procfs, sysfs, and devtmpfs, and then `init` respawns an
 interactive `hush` on `ttyC330`. `/diag-init` remains available as the old
 freestanding rescue shell.
 
+The native `wrsd` block driver powers and pin-muxes the WikiReader card slot,
+identifies SDSC and SDHC cards over the S1C33E07 SPI controller, exposes MBR
+partitions such as `/dev/wrsd1`, and supports bounded single-sector reads and
+writes. The kernel includes FAT/VFAT and mounts the first partition at
+`/mnt/sd` with synchronous writes. Early userspace leaves `linux.ok` there as
+a persistent, serial-port-free boot report. The initial driver intentionally
+uses polling; the already-proven HSDMA path is a later performance step.
+
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, and requires the
 BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
 kernel panic. It then injects an `echo` command into the real `hush` over UART0
 and verifies its output and vector 57 interrupt. The test also checks the final
 display image for text and all seven LCD checkpoints. The fixture and emulator
-display output are kept outside the checkout and removed afterward.
+display output are kept outside the checkout and removed afterward. The card
+fixture is writable only for this isolated run; after the guest exits, the
+host parses its raw FAT image and requires `linux.ok` to contain the expected
+status. A console claim without persisted card bytes therefore fails the test.
 
 ## What comes next
 
-The next useful vertical slice is SD/MMC block and FAT filesystem support, so
-userspace can persist a boot report on the card. After that come the WikiReader
-touch input, framebuffer, soft keyboard, and power drivers.
+The next useful vertical slice is WikiReader touch input and a small on-screen
+keyboard feeding the console. A framebuffer interface, SPI DMA, broader
+BusyBox configuration, and power management can then grow around those proven
+paths.

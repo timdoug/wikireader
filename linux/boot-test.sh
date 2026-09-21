@@ -5,6 +5,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kernel=$root/linux/artifacts/vmlinux
 emulator=$root/emulator/wremu
 fixture_tool=$root/nuttx/overlay/nuttx/boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
+fat_helper=$root/emulator/tools/mem_dma_bench/run.py
 
 if [ ! -f "$kernel" ]; then
 	echo "Kernel not found at $kernel" >&2
@@ -28,7 +29,7 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	cd "$work"
 	# Keep input out of the vendor menu and loader. PID 1 is running before
 	# 500M retired instructions; the remaining 60M cover RX and its reply.
-	"$emulator" -R -n 560000000 \
+	"$emulator" -n 560000000 \
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000
@@ -41,6 +42,7 @@ init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
 shell_ready="C33 BusyBox shell ready on ttyC330"
 shell_expected="C33 INTERACTIVE HUSH PASS"
+sd_expected="C33 SD/FAT: mounted /dev/wrsd1 and persisted linux.ok"
 process_expected="C33 process test: clone -> execve -> wait4 passed"
 child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
@@ -53,6 +55,7 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_ready" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$child_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$signal_expected" "$work/boot.log" >/dev/null || \
@@ -68,9 +71,15 @@ if grep -F "Kernel panic" "$work/boot.log" >/dev/null; then
 	exit 1
 fi
 
+if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
+	"$work/fixture/nuttx-card.img"; then
+	cat "$work/boot.log" >&2
+	echo "Native Linux did not persist its FAT status file." >&2
+	exit 1
+fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 7
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|HARDWARE PASS|INTERACTIVE HUSH" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|wrsd:|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 SD/FAT|HARDWARE PASS|INTERACTIVE HUSH" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."
