@@ -109,6 +109,8 @@ static unsigned int cursor_x;
 static unsigned int cursor_y;
 static unsigned int escape_state;
 static unsigned int escape_parameter;
+static unsigned int dirty_text_first = TEXT_ROWS;
+static unsigned int dirty_text_last;
 static int active_key = -1;
 static int fb_fd;
 static int log_fd;
@@ -175,6 +177,44 @@ static void clear_rows(unsigned int first, unsigned int count)
 	memset(framebuffer + first * LCD_STRIDE, 0, count * LCD_STRIDE);
 }
 
+static void write_rows(unsigned int first, unsigned int count)
+{
+	size_t offset = first * LCD_STRIDE;
+	size_t length = count * LCD_STRIDE;
+	size_t done = 0;
+
+	if (!count || first >= LCD_HEIGHT)
+		return;
+	if (count > LCD_HEIGHT - first)
+		length = (LCD_HEIGHT - first) * LCD_STRIDE;
+	if (lseek(fb_fd, offset, SEEK_SET) < 0)
+		return;
+	while (done < length) {
+		ssize_t written = write(fb_fd, framebuffer + offset + done,
+					length - done);
+
+		if (written <= 0)
+			return;
+		done += written;
+	}
+}
+
+static void mark_text_row(unsigned int row)
+{
+	if (row >= TEXT_ROWS)
+		return;
+	if (row < dirty_text_first)
+		dirty_text_first = row;
+	if (row > dirty_text_last)
+		dirty_text_last = row;
+}
+
+static void mark_all_text(void)
+{
+	dirty_text_first = 0;
+	dirty_text_last = TEXT_ROWS - 1;
+}
+
 static void draw_checkpoint(unsigned int stage)
 {
 	unsigned int x = stage * 16;
@@ -212,30 +252,58 @@ static void draw_key(int key, int pressed)
 			       pressed);
 }
 
-static void flush_display(void)
+static void draw_text_rows(unsigned int first, unsigned int last)
 {
 	unsigned int row;
 	unsigned int column;
-	int key;
 
-	clear_rows(0, STATUS_Y);
-	clear_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
-	for (row = 0; row < TEXT_ROWS; row++)
+	clear_rows(first * FONT_HEIGHT, (last - first + 1) * FONT_HEIGHT);
+	for (row = first; row <= last; row++)
 		for (column = 0; column < TEXT_COLUMNS; column++)
 			draw_character(column * FONT_WIDTH, row * FONT_HEIGHT,
 				       cells[row][column], 0);
+}
+
+static void flush_text(void)
+{
+	unsigned int first = dirty_text_first;
+	unsigned int last = dirty_text_last;
+
+	if (first >= TEXT_ROWS)
+		return;
+	draw_text_rows(first, last);
+	write_rows(first * FONT_HEIGHT, (last - first + 1) * FONT_HEIGHT);
+	dirty_text_first = TEXT_ROWS;
+	dirty_text_last = 0;
+}
+
+static void flush_key(int key)
+{
+	unsigned int row;
+	unsigned int first;
+	unsigned int last;
+
+	if (key < 0 || key >= KEY_ROWS * 10)
+		return;
+	row = key / 10;
+	first = KEYBOARD_Y + row * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS;
+	last = KEYBOARD_Y +
+		(row + 1) * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS - 1;
+	draw_key(key, key == active_key);
+	write_rows(first, last - first + 1);
+}
+
+static void flush_display(void)
+{
+	int key;
+
+	draw_text_rows(0, TEXT_ROWS - 1);
+	clear_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
 	for (key = 0; key < KEY_ROWS * 10; key++)
 		draw_key(key, key == active_key);
-	if (lseek(fb_fd, 0, SEEK_SET) < 0)
-		return;
-	for (size_t done = 0; done < sizeof(framebuffer);) {
-		ssize_t written = write(fb_fd, framebuffer + done,
-					sizeof(framebuffer) - done);
-
-		if (written <= 0)
-			return;
-		done += written;
-	}
+	write_rows(0, LCD_HEIGHT);
+	dirty_text_first = TEXT_ROWS;
+	dirty_text_last = 0;
 }
 
 static void scroll_terminal(void)
@@ -243,6 +311,7 @@ static void scroll_terminal(void)
 	memmove(cells[0], cells[1], (TEXT_ROWS - 1) * TEXT_COLUMNS);
 	memset(cells[TEXT_ROWS - 1], ' ', TEXT_COLUMNS);
 	cursor_y = TEXT_ROWS - 1;
+	mark_all_text();
 }
 
 static void terminal_newline(void)
@@ -270,9 +339,11 @@ static void terminal_byte(unsigned char byte)
 			memset(cells, ' ', sizeof(cells));
 			cursor_x = 0;
 			cursor_y = 0;
+			mark_all_text();
 		} else if (byte == 'K') {
 			memset(&cells[cursor_y][cursor_x], ' ',
 			       TEXT_COLUMNS - cursor_x);
+			mark_text_row(cursor_y);
 		} else if (byte == 'H' || byte == 'f') {
 			cursor_x = 0;
 			cursor_y = 0;
@@ -305,6 +376,7 @@ static void terminal_byte(unsigned char byte)
 	}
 	if (byte < 32)
 		return;
+	mark_text_row(cursor_y);
 	cells[cursor_y][cursor_x] = byte;
 	if (++cursor_x == TEXT_COLUMNS)
 		terminal_newline();
@@ -450,7 +522,7 @@ int main(void)
 				write(log_fd, output, count);
 				for (i = 0; i < count; i++)
 					terminal_byte(output[i]);
-				flush_display();
+				flush_text();
 			}
 		}
 		if (poll_fds[1].revents & POLLIN) {
@@ -476,13 +548,19 @@ int main(void)
 				else if (events[i].type == EV_KEY &&
 					 events[i].code == BTN_TOUCH &&
 					 events[i].value) {
+					int previous = active_key;
+
 					active_key = key_at(touch_x, touch_y);
 					draw_checkpoint(8);
-					flush_display();
+					if (previous != active_key) {
+						flush_key(previous);
+						flush_key(active_key);
+					}
 				} else if (events[i].type == EV_KEY &&
 					   events[i].code == BTN_TOUCH &&
 					   !events[i].value) {
 					int released = key_at(touch_x, touch_y);
+					int previous = active_key;
 
 					draw_checkpoint(9);
 					if (released >= 0 && released == active_key &&
@@ -491,7 +569,8 @@ int main(void)
 							     [released % 10], 1) == 1)
 						draw_checkpoint(10);
 					active_key = -1;
-					flush_display();
+					flush_key(previous);
+					write_rows(STATUS_Y, 6);
 				}
 			}
 		}

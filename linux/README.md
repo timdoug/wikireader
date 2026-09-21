@@ -43,8 +43,10 @@ before driver probe remain visible without attaching to the serial pads.
 Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
 It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
 `/dev/ptmx`, makes the PTY slave Hush's controlling terminal, and translates
-released soft keys into terminal input. BusyBox init respawns the frontend if
-it exits; the independent `ttyC0` recovery shell remains available throughout.
+released soft keys into terminal input. The frontend writes only changed text
+rows and key bands through fbdev, avoiding full-screen redraw latency on the
+14-BogoMIPS processor. BusyBox init respawns the frontend if it exits; the
+independent `ttyC0` recovery shell remains available throughout.
 
 The panel is registered with the Linux input subsystem as a 240x208
 absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and

@@ -16,6 +16,8 @@ struct uart {
 	unsigned long tx_count;
 	char          capture[4096];
 	size_t        capture_len;
+	char          trace_line[256];
+	size_t        trace_line_len;
 };
 
 void uart_attach(struct mem *m, struct uart *u, FILE *out);

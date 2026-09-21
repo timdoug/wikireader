@@ -16,6 +16,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "uart.h"
@@ -58,6 +59,27 @@ static void uart_settle(struct uart *u)
 	}
 }
 
+static void uart_trace_line(struct uart *u, uint8_t byte)
+{
+	const char *expected = getenv("WREMU_UART_TRACE");
+
+	if (!expected)
+		return;
+	if (byte == '\r')
+		return;
+	if (byte != '\n') {
+		if (u->trace_line_len + 1 < sizeof u->trace_line)
+			u->trace_line[u->trace_line_len++] = (char)byte;
+		return;
+	}
+	u->trace_line[u->trace_line_len] = '\0';
+	if (!*expected || !strcmp(u->trace_line, expected))
+		fprintf(stderr, "  [uart line at MCLK %llu] %s\n",
+			u->clock ? (unsigned long long)*u->clock : 0,
+			u->trace_line);
+	u->trace_line_len = 0;
+}
+
 static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		      bool is_write)
 {
@@ -80,6 +102,7 @@ static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				fputc((int)(*val & 0xff), u->out);
 				fflush(u->out);
 			}
+			uart_trace_line(u, (uint8_t)*val);
 			if (u->capture_len + 1 < sizeof u->capture)
 				u->capture[u->capture_len++] = (char)(*val & 0xff);
 			return true;
@@ -146,6 +169,7 @@ void uart_reset(struct uart *u)
 	u->rx_head = u->rx_count = u->control = u->errors = 0;
 	u->tx_buffered = false;
 	u->tx_done = 0;
+	u->trace_line_len = 0;
 }
 
 bool uart_can_receive(const struct uart *u)

@@ -6,6 +6,8 @@ kernel=$root/linux/artifacts/vmlinux
 emulator=$root/emulator/wremu
 fixture_tool=$root/nuttx/overlay/nuttx/boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
 fat_helper=$root/emulator/tools/mem_dma_bench/run.py
+touch_output="touch keyboard pass"
+touch_latency_limit=8000000
 
 if [ ! -f "$kernel" ]; then
 	echo "Kernel not found at $kernel" >&2
@@ -30,7 +32,7 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	# Keep input out of the vendor menu and loader. PID 1 is running before
 	# 500M retired instructions. UART proves the serial recovery path first;
 	# scripted panel taps then type into the userspace PTY console.
-	"$emulator" -n 800000000 \
+	WREMU_UART_TRACE="$touch_output" "$emulator" -n 800000000 \
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000 \
@@ -52,7 +54,6 @@ busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive to
 shell_ready="C33 BusyBox shell ready on ttyC0"
 shell_expected="C33 INTERACTIVE HUSH PASS"
 userspace_console_expected="C33 userspace console: fbdev + evdev + PTY shell ready"
-touch_output="touch keyboard pass"
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 sd_dma_expected="mmc_spi spi0.0: 32-bit HSDMA bulk reads use IRQ completion"
@@ -106,6 +107,26 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
 	echo "Native Linux did not complete the PID 1 UART round trip." >&2
 	exit 1
 fi
+
+touch_down=$(LC_ALL=C sed -n \
+	"s/.*\[key '#' down at [0-9-]*,[0-9-]*, MCLK \([0-9][0-9]*\)\].*/\1/p" \
+	"$work/boot.log" | tail -n 1)
+touch_echo=$(LC_ALL=C sed -n \
+	"s/.*\[uart line at MCLK \([0-9][0-9]*\)\] $touch_output/\1/p" \
+	"$work/boot.log" | tail -n 1)
+if [ -z "$touch_down" ] || [ -z "$touch_echo" ] || \
+   [ "$touch_echo" -lt "$touch_down" ]; then
+	echo "Touch-to-shell latency timestamps are missing or invalid." >&2
+	cat "$work/boot.log" >&2
+	exit 1
+fi
+touch_latency=$((touch_echo - touch_down))
+if [ "$touch_latency" -gt "$touch_latency_limit" ]; then
+	echo "Touch-to-shell latency is $touch_latency MCLK cycles; limit is $touch_latency_limit." >&2
+	cat "$work/boot.log" >&2
+	exit 1
+fi
+echo "Touch-to-shell latency passed: $touch_latency MCLK cycles"
 if grep -E "mmc[0-9]+: error -[0-9]+ whilst initialising" \
    "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2

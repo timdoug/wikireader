@@ -872,9 +872,12 @@ int main(int argc, char **argv)
 				if (touch_key_pos(type_text[type_idx], &kx, &ky)) {
 					touch_post(&touch, &cpu, kx, ky,
 						   type_phase == 0);
-					if (type_phase == 0)
-						fprintf(stderr, "  [key '%c' at %d,%d]\n",
-						       type_text[type_idx], kx, ky);
+					fprintf(stderr,
+						"  [key '%c' %s at %d,%d, MCLK %llu]\n",
+						type_text[type_idx],
+						type_phase == 0 ? "down" : "up",
+						kx, ky,
+						(unsigned long long)cpu.clk);
 				}
 				if (++type_phase == 2) { type_phase = 0; type_idx++; }
 			}
