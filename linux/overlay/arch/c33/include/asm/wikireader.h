@@ -8,5 +8,9 @@ void c33_lcd_init(void);
 void c33_lcd_write(const char *text, size_t count);
 void c33_lcd_checkpoint(unsigned int stage);
 void c33_lcd_fault(unsigned int vector);
+void c33_lcd_keyboard_init(void);
+void c33_lcd_keyboard_press(int key, bool pressed);
+bool c33_tty_inject_char(u8 ch);
+void c33_touch_interrupt(void);
 
 #endif

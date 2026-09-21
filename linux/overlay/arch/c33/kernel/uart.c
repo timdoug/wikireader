@@ -148,6 +148,16 @@ void c33_uart_rx_interrupt(void)
 		c33_lcd_checkpoint(6);
 }
 
+bool c33_tty_inject_char(u8 ch)
+{
+	if (!READ_ONCE(c33_tty_ready) || !READ_ONCE(c33_tty_opened))
+		return false;
+	if (tty_insert_flip_char(&c33_tty_port, ch, TTY_NORMAL) != 1)
+		return false;
+	tty_flip_buffer_push(&c33_tty_port);
+	return true;
+}
+
 static int __init c33_tty_init(void)
 {
 	struct tty_driver *driver;

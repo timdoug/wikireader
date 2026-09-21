@@ -121,8 +121,11 @@ uses polling; the already-proven HSDMA path is a later performance step.
 fixture, boots it through the full emulated hardware path, and requires the
 BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
 kernel panic. It then injects an `echo` command into the real `hush` over UART0
-and verifies its output and vector 57 interrupt. The test also checks the final
-display image for text and all seven LCD checkpoints. The fixture and emulator
+and verifies its output and vector 57 interrupt. It separately generates panel
+taps for a command and Enter key, requires the UART1 touch interrupt to feed
+that command through the on-screen keyboard into the same shell, and checks
+the resulting output. The test also checks the final display image for console
+text, all seven LCD checkpoints, and the three keyboard rows. The fixture and emulator
 display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
@@ -130,7 +133,6 @@ status. A console claim without persisted card bytes therefore fails the test.
 
 ## What comes next
 
-The next useful vertical slice is WikiReader touch input and a small on-screen
-keyboard feeding the console. A framebuffer interface, SPI DMA, broader
-BusyBox configuration, and power management can then grow around those proven
-paths.
+The next useful vertical slices are a broader BusyBox configuration and SPI
+DMA. A framebuffer interface, richer keyboard modes, and power management can
+then grow around the proven LCD, touch, console, and storage paths.
