@@ -21,6 +21,7 @@ def main():
     parser.add_argument("image", type=Path)
     parser.add_argument("--stages", type=int, default=7)
     parser.add_argument("--symbols", action="store_true")
+    parser.add_argument("--edited", action="store_true")
     args = parser.parse_args()
 
     width, height, pixels = read_pgm(args.image)
@@ -44,6 +45,12 @@ def main():
         raise SystemExit("LCD on-screen keyboard has no top border")
     if args.symbols and pixels[127 * width + 11] != 0:
         raise SystemExit("LCD on-screen keyboard did not switch to symbols")
+    if args.edited:
+        banner_pixels = sum(
+            pixel == 0 for pixel in pixels[: width * 8]
+        )
+        if banner_pixels < 20:
+            raise SystemExit("LCD terminal lost its banner while editing")
     print(f"LCD console passed: {args.stages} checkpoints, "
           f"{black_text_pixels} text and {black_keyboard_pixels} keyboard "
           "pixels")

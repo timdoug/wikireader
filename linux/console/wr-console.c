@@ -38,6 +38,9 @@
 #define WR_KEY_ENTER_FIRST	38
 #define WR_KEY_ENTER_LAST	39
 
+#define OUTPUT_BATCH_BYTES	8192
+#define OUTPUT_QUIET_MS		8
+
 struct glyph {
 	char character;
 	uint8_t rows[7];
@@ -460,6 +463,40 @@ static void terminal_newline(void)
 		scroll_terminal();
 }
 
+static void terminal_erase_line(unsigned int first, unsigned int last)
+{
+	if (first >= TEXT_COLUMNS)
+		return;
+	if (last >= TEXT_COLUMNS)
+		last = TEXT_COLUMNS - 1;
+	if (last < first)
+		return;
+	memset(&cells[cursor_y][first], ' ', last - first + 1);
+	mark_text_row(cursor_y);
+}
+
+static void terminal_erase_display(unsigned int mode)
+{
+	unsigned int row;
+
+	if (mode == 0) {
+		terminal_erase_line(cursor_x, TEXT_COLUMNS - 1);
+		for (row = cursor_y + 1; row < TEXT_ROWS; row++) {
+			memset(cells[row], ' ', TEXT_COLUMNS);
+			mark_text_row(row);
+		}
+	} else if (mode == 1) {
+		for (row = 0; row < cursor_y; row++) {
+			memset(cells[row], ' ', TEXT_COLUMNS);
+			mark_text_row(row);
+		}
+		terminal_erase_line(0, cursor_x);
+	} else if (mode == 2 || mode == 3) {
+		memset(cells, ' ', sizeof(cells));
+		mark_all_text();
+	}
+}
+
 static void terminal_byte(unsigned char byte)
 {
 	if (escape_state == 1) {
@@ -475,14 +512,14 @@ static void terminal_byte(unsigned char byte)
 		if (byte == ';')
 			return;
 		if (byte == 'J') {
-			memset(cells, ' ', sizeof(cells));
-			cursor_x = 0;
-			cursor_y = 0;
-			mark_all_text();
+			terminal_erase_display(escape_parameter);
 		} else if (byte == 'K') {
-			memset(&cells[cursor_y][cursor_x], ' ',
-			       TEXT_COLUMNS - cursor_x);
-			mark_text_row(cursor_y);
+			if (escape_parameter == 0)
+				terminal_erase_line(cursor_x, TEXT_COLUMNS - 1);
+			else if (escape_parameter == 1)
+				terminal_erase_line(0, cursor_x);
+			else if (escape_parameter == 2)
+				terminal_erase_line(0, TEXT_COLUMNS - 1);
 		} else if (byte == 'H' || byte == 'f') {
 			cursor_x = 0;
 			cursor_y = 0;
@@ -519,6 +556,33 @@ static void terminal_byte(unsigned char byte)
 	cells[cursor_y][cursor_x] = byte;
 	if (++cursor_x == TEXT_COLUMNS)
 		terminal_newline();
+}
+
+static void consume_terminal_output(int master_fd)
+{
+	unsigned char output[1024];
+	struct pollfd more = {
+		.fd = master_fd,
+		.events = POLLIN,
+	};
+	size_t total = 0;
+
+	for (;;) {
+		ssize_t count = read(master_fd, output, sizeof(output));
+		ssize_t i;
+
+		if (count <= 0)
+			break;
+		write(log_fd, output, count);
+		for (i = 0; i < count; i++)
+			terminal_byte(output[i]);
+		total += count;
+		if (total >= OUTPUT_BATCH_BYTES ||
+		    poll(&more, 1, OUTPUT_QUIET_MS) <= 0 ||
+		    !(more.revents & POLLIN))
+			break;
+	}
+	flush_text();
 }
 
 static int key_at(unsigned int x, unsigned int y)
@@ -708,16 +772,7 @@ int main(void)
 		if (poll(poll_fds, 2, -1) < 0)
 			continue;
 		if (poll_fds[0].revents & POLLIN) {
-			unsigned char output[128];
-			ssize_t count = read(master_fd, output, sizeof(output));
-			ssize_t i;
-
-			if (count > 0) {
-				write(log_fd, output, count);
-				for (i = 0; i < count; i++)
-					terminal_byte(output[i]);
-				flush_text();
-			}
+			consume_terminal_output(master_fd);
 		}
 		if (poll_fds[1].revents & POLLIN) {
 			ssize_t count = read(input_fd, events, sizeof(events));

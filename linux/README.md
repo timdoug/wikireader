@@ -46,8 +46,10 @@ It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
 released soft keys into terminal input. Its four-row keyboard provides
 lowercase and shifted letters, `123`/`ABC` symbol pages, Control, Tab, Space,
 cursor keys, Backspace, and Enter. The frontend writes only changed text rows
-and key bands through fbdev, avoiding full-screen redraw latency on the
-14-BogoMIPS processor. BusyBox init respawns the frontend if it exits; the
+and key bands through fbdev. PTY output is drained in bounded bursts so a
+scrolling command renders its latest screen instead of repainting once per
+small read on the 14-BogoMIPS processor. BusyBox init respawns the frontend if
+it exits; the
 independent `ttyC0` recovery shell remains available throughout.
 
 The panel is registered with the Linux input subsystem as a 240x208

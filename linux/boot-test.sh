@@ -36,7 +36,7 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000 \
-		-K "520000000,echo touch-keyboard pass#" \
+		-K "520000000,ecj<ho touch-keyboard pass#" \
 		-T 36,197,690000000 -T 108,175,700000000 \
 		-T 228,197,710000000
 ) >"$work/boot.log" 2>&1
@@ -159,7 +159,8 @@ if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
 	echo "Native Linux did not persist its FAT status file." >&2
 	exit 1
 fi
-python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols
+python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
+	--edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
 grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
