@@ -131,11 +131,12 @@ ordinary 8-bit full-duplex SPI semantics, but batches bulk transfers into
 all four SPI modes and the hardware's MCLK/4 through MCLK/512 divisors. It
 reprograms the clock before chip select is asserted because disabling the
 S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
-includes FAT/VFAT and mounts the first
+also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
+transmit/receive pair. Short, unaligned, command, and write transfers retain a
+bounded programmed-I/O path, so the optimization remains entirely behind the
+standard SPI controller API. The kernel includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Early userspace leaves
-`linux.ok` there as a persistent, serial-port-free boot report. The
-already-proven HSDMA path is a later controller performance step; MMC clients
-will not need to change when it lands.
+`linux.ok` there as a persistent, serial-port-free boot report.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, and requires the
@@ -150,9 +151,12 @@ display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
+The same regression requires the Linux driver to announce its HSDMA path and
+the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity.
 
 ## What comes next
 
-The next useful vertical slices are SPI DMA and a framebuffer interface.
-Richer keyboard modes and power management can then grow around the proven
-LCD, touch, console, storage, and recovery userspace paths.
+The next useful vertical slices are interrupt-driven SPI DMA completion and a
+framebuffer interface. Richer keyboard modes and power management can then
+grow around the proven LCD, touch, console, storage, and recovery userspace
+paths.

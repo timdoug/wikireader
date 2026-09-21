@@ -115,10 +115,14 @@ static struct s1c33_spi_platform_data wr_spi_pdata = {
 	.hold_clock = wr_spi_hold_clock,
 	.devices = wr_spi_devices,
 	.num_devices = ARRAY_SIZE(wr_spi_devices),
+	.dma_memory_start = 0x10000000,
+	.dma_memory_end = 0x12000000,
 };
 
 static const struct resource wr_spi_resources[] = {
-	DEFINE_RES_MEM(WR_REG_BASE + 0x1700, 0x20),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x271, 0x29, "itc"),
 };
 
 static int __init c33_devices_init(void)

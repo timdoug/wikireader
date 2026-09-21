@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
+#include <linux/swab.h>
 #include <linux/unaligned.h>
 
 #include <linux/platform_data/spi-s1c33.h>
@@ -27,13 +28,44 @@
 #define S1C33_SPI_ENABLE    BIT(0)
 #define S1C33_SPI_BUSY      BIT(6)
 #define S1C33_SPI_RX_FULL   BIT(2)
+#define S1C33_SPI_RX_DMA    BIT(2)
+#define S1C33_SPI_TX_DMA    BIT(3)
 
 #define S1C33_SPI_POLLS     1000000
 
+#define S1C33_DMA_HS2       0x40
+#define S1C33_DMA_HS3       0x50
+#define S1C33_DMA_COUNT     0x00
+#define S1C33_DMA_CONTROL   0x02
+#define S1C33_DMA_SOURCE_LO 0x04
+#define S1C33_DMA_SOURCE_HI 0x06
+#define S1C33_DMA_DEST_LO   0x08
+#define S1C33_DMA_DEST_HI   0x0a
+#define S1C33_DMA_ENABLE    0x0c
+#define S1C33_DMA_TRIGGER   0x0e
+#define S1C33_DMA_ADV_MODE  0x9c
+#define S1C33_DMA_ADV_CTL2  0x82
+#define S1C33_DMA_ADV_SRC2  0x84
+#define S1C33_DMA_ADV_DST2  0x88
+#define S1C33_DMA_ADV_CTL3  0x92
+#define S1C33_DMA_ADV_SRC3  0x94
+#define S1C33_DMA_ADV_DST3  0x98
+
+#define S1C33_ITC_DMA_FLAG   0x10
+#define S1C33_ITC_SPI_FLAG   0x18
+#define S1C33_ITC_HS_TRIGGER 0x28
+#define S1C33_HSDMA2_FLAG    BIT(2)
+#define S1C33_HSDMA3_FLAG    BIT(3)
+#define S1C33_SPI_DMA_FLAGS  (BIT(4) | BIT(5))
+
 struct s1c33_spi {
 	void __iomem *base;
+	void __iomem *dma;
+	void __iomem *itc;
 	const struct s1c33_spi_platform_data *pdata;
 	u32 control;
+	u32 dummy;
+	unsigned long dma_transfers;
 };
 
 static int s1c33_spi_wait(struct s1c33_spi *hw, u32 flag, bool wanted)
@@ -67,7 +99,8 @@ static unsigned int s1c33_spi_divisor(struct s1c33_spi *hw,
 static unsigned long s1c33_spi_configure(struct s1c33_spi *hw,
 					 unsigned int speed_hz,
 					 unsigned int mode,
-					 unsigned int bits)
+					 unsigned int bits,
+					 bool dma)
 {
 	unsigned long effective;
 	unsigned int divider = s1c33_spi_divisor(hw, speed_hz, &effective);
@@ -81,6 +114,8 @@ static unsigned long s1c33_spi_configure(struct s1c33_spi *hw,
 		control |= S1C33_SPI_CPHA;
 	if (mode & SPI_CPOL)
 		control |= S1C33_SPI_CPOL;
+	if (dma)
+		control |= S1C33_SPI_RX_DMA | S1C33_SPI_TX_DMA;
 
 	if (control == hw->control)
 		return effective;
@@ -125,7 +160,8 @@ static int s1c33_spi_prepare_message(struct spi_controller *controller,
 	 */
 	transfer = list_first_entry(&message->transfers, struct spi_transfer,
 				    transfer_list);
-	s1c33_spi_configure(hw, transfer->speed_hz, message->spi->mode, 8);
+	s1c33_spi_configure(hw, transfer->speed_hz, message->spi->mode, 8,
+			     false);
 	return 0;
 }
 
@@ -134,6 +170,108 @@ static void s1c33_spi_set_cs(struct spi_device *spi, bool high)
 	struct s1c33_spi *hw = spi_controller_get_devdata(spi->controller);
 
 	hw->pdata->set_cs(spi_get_chipselect(spi, 0), high);
+}
+
+static bool s1c33_spi_all_ones(const u8 *buffer, unsigned int length)
+{
+	unsigned int i;
+
+	if (!buffer)
+		return true;
+	for (i = 0; i < length; i++)
+		if (buffer[i] != 0xff)
+			return false;
+	return true;
+}
+
+static void s1c33_hsdma_channel(struct s1c33_spi *hw, unsigned int channel,
+				 unsigned int count, u32 source, u32 destination,
+				 bool increment_source,
+				 bool increment_destination)
+{
+	unsigned int base = channel == 2 ? S1C33_DMA_HS2 : S1C33_DMA_HS3;
+	unsigned int adv_control = channel == 2 ? S1C33_DMA_ADV_CTL2 :
+		S1C33_DMA_ADV_CTL3;
+	unsigned int adv_source = channel == 2 ? S1C33_DMA_ADV_SRC2 :
+		S1C33_DMA_ADV_SRC3;
+	unsigned int adv_destination = channel == 2 ? S1C33_DMA_ADV_DST2 :
+		S1C33_DMA_ADV_DST3;
+
+	writew(0, hw->dma + base + S1C33_DMA_ENABLE);
+	writew(1, hw->dma + adv_control);
+	writew(count, hw->dma + base + S1C33_DMA_COUNT);
+	writew(0x8000, hw->dma + base + S1C33_DMA_CONTROL);
+	writew(0, hw->dma + base + S1C33_DMA_SOURCE_LO);
+	writew(increment_source ? 0x2000 : 0,
+	       hw->dma + base + S1C33_DMA_SOURCE_HI);
+	writew(0, hw->dma + base + S1C33_DMA_DEST_LO);
+	writew(increment_destination ? 0x2000 : 0,
+	       hw->dma + base + S1C33_DMA_DEST_HI);
+	writel(source, hw->dma + adv_source);
+	writel(destination, hw->dma + adv_destination);
+	writew(1, hw->dma + base + S1C33_DMA_TRIGGER);
+}
+
+static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
+			      struct spi_transfer *transfer)
+{
+	u8 *rx = transfer->rx_buf;
+	u32 destination = (u32)(unsigned long)rx;
+	unsigned int words = transfer->len / 4;
+	unsigned int poll;
+	unsigned int i;
+	u8 old_trigger;
+	u8 flags = 0;
+
+	if (!rx || transfer->len < 64 || transfer->len & 3 ||
+	    destination & 3 || words > 0xffff ||
+	    destination < hw->pdata->dma_memory_start ||
+	    destination + transfer->len > hw->pdata->dma_memory_end ||
+	    !s1c33_spi_all_ones(transfer->tx_buf, transfer->len))
+		return -EOPNOTSUPP;
+
+	s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 32, true);
+	hw->dummy = ~0U;
+	writew(1, hw->dma + S1C33_DMA_ADV_MODE);
+	s1c33_hsdma_channel(hw, 3, words,
+			      (u32)(unsigned long)hw->base + S1C33_SPI_RXD,
+			      destination, false, true);
+	s1c33_hsdma_channel(hw, 2, words - 1,
+			      (u32)(unsigned long)&hw->dummy,
+			      (u32)(unsigned long)hw->base + S1C33_SPI_TXD,
+			      false, false);
+	old_trigger = readb(hw->itc + S1C33_ITC_HS_TRIGGER);
+	writeb(0x99, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writeb(S1C33_SPI_DMA_FLAGS, hw->itc + S1C33_ITC_SPI_FLAG);
+	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
+	       hw->itc + S1C33_ITC_DMA_FLAG);
+	writew(1, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
+	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
+	writel(~0U, hw->base + S1C33_SPI_TXD);
+
+	for (poll = 0; poll < S1C33_SPI_POLLS; poll++) {
+		flags = readb(hw->itc + S1C33_ITC_DMA_FLAG);
+		if (flags & S1C33_HSDMA3_FLAG)
+			break;
+		cpu_relax();
+	}
+	writew(0, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
+	writew(0, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
+	writeb(old_trigger, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
+	       hw->itc + S1C33_ITC_DMA_FLAG);
+	if (!(flags & S1C33_HSDMA3_FLAG) ||
+	    s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
+		return -ETIMEDOUT;
+
+	for (i = 0; i < transfer->len; i += 4) {
+		u32 value = get_unaligned((u32 *)(rx + i));
+
+		put_unaligned(swab32(value), (u32 *)(rx + i));
+	}
+	hw->dma_transfers++;
+	dev_info_once(&spi->dev, "32-bit HSDMA bulk reads active\n");
+	return 0;
 }
 
 static int s1c33_spi_transfer_one(struct spi_controller *controller,
@@ -146,11 +284,21 @@ static int s1c33_spi_transfer_one(struct spi_controller *controller,
 	unsigned long effective;
 	unsigned int i;
 	u32 value;
+	int ret;
 
 	if (transfer->bits_per_word != 8)
 		return -EINVAL;
+	ret = s1c33_spi_dma_read(hw, spi, transfer);
+	if (!ret) {
+		transfer->effective_speed_hz =
+			s1c33_spi_configure(hw, transfer->speed_hz,
+					    spi->mode, 32, true);
+		return 0;
+	}
+	if (ret != -EOPNOTSUPP)
+		return ret;
 	effective = s1c33_spi_configure(hw, transfer->speed_hz, spi->mode,
-					 transfer->len >= 4 ? 32 : 8);
+					 transfer->len >= 4 ? 32 : 8, false);
 	transfer->effective_speed_hz = effective;
 
 	for (i = 0; i + 4 <= transfer->len; i += 4) {
@@ -165,7 +313,7 @@ static int s1c33_spi_transfer_one(struct spi_controller *controller,
 			put_unaligned_be32(value, rx + i);
 	}
 	if (i != transfer->len)
-		s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 8);
+		s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 8, false);
 	for (; i < transfer->len; i++) {
 		if (s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
 			return -ETIMEDOUT;
@@ -196,10 +344,18 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	if (!controller)
 		return -ENOMEM;
 	hw = spi_controller_get_devdata(controller);
-	hw->base = devm_platform_ioremap_resource(pdev, 0);
+	hw->base = devm_platform_ioremap_resource_byname(pdev, "spi");
 	if (IS_ERR(hw->base))
 		return dev_err_probe(&pdev->dev, PTR_ERR(hw->base),
 				     "cannot map controller registers\n");
+	hw->dma = devm_platform_ioremap_resource_byname(pdev, "dma");
+	if (IS_ERR(hw->dma))
+		return dev_err_probe(&pdev->dev, PTR_ERR(hw->dma),
+				     "cannot map DMA registers\n");
+	hw->itc = devm_platform_ioremap_resource_byname(pdev, "itc");
+	if (IS_ERR(hw->itc))
+		return dev_err_probe(&pdev->dev, PTR_ERR(hw->itc),
+				     "cannot map interrupt registers\n");
 	hw->pdata = pdata;
 	hw->control = ~0U;
 

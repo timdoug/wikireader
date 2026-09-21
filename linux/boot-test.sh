@@ -51,8 +51,10 @@ touch_irq_expected="C33 touch: on-screen keyboard injected console input"
 touch_output="touch keyboard pass"
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
+sd_dma_expected="mmc_spi spi0.0: 32-bit HSDMA bulk reads active"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
+sd_dma_channels_expected='--- dma channels: HSDMA2 TX [1-9][0-9]*, HSDMA3 RX [1-9][0-9]* ---'
 process_expected="C33 process test: clone -> execve -> wait4 passed"
 child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
@@ -75,8 +77,10 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$touch_irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_probe_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$sd_dma_expected" "$work/boot.log" >/dev/null || \
    ! grep -F -- "$sd_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$sd_width_expected" "$work/boot.log" >/dev/null || \
+   ! grep -E -- "$sd_dma_channels_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$child_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$signal_expected" "$work/boot.log" >/dev/null || \
@@ -113,6 +117,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|mmc_spi|mmcblk0|spi width:|C33 IRQ:|c33-timer|c33-uart-rx|c33-touch|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|c33-timer|c33-uart-rx|c33-touch|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."
