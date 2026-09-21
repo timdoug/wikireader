@@ -2,14 +2,13 @@ diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
 index 1872f9d54..7d44cea78 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
-@@ -63,1 +63,9 @@
+@@ -63,1 +63,8 @@
 +config SPI_S1C33
 +	bool "Epson S1C33 SPI controller"
 +	depends on C33
 +	help
 +	  Enable the synchronous serial controller found in Epson S1C33
-+	  microcontrollers. The initial driver operates in polling mode;
-+	  supported controllers can add DMA without changing SPI clients.
++	  microcontrollers, including its word-wide and HSDMA transfer paths.
 +
  config SPI_AIROHA_SNFI
 diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
@@ -19,3 +18,23 @@ index 1f7c06a30..e8d799f1b 100644
 @@ -18,1 +18,2 @@
 +obj-$(CONFIG_SPI_S1C33)			+= spi-s1c33.o
  obj-$(CONFIG_SPI_AIROHA_SNFI)		+= spi-airoha-snfi.o
+diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
+--- a/drivers/video/fbdev/Kconfig
++++ b/drivers/video/fbdev/Kconfig
+@@ -47,1 +47,9 @@
++config FB_S1C33
++	bool "Epson S1C33 WikiReader framebuffer"
++	depends on FB && C33
++	select FB_IOMEM_HELPERS
++	help
++	  Expose the monochrome LCD framebuffer configured by the WikiReader
++	  loader through the standard Linux framebuffer interface.
++
+ config FB_HECUBA
+diff --git a/drivers/video/fbdev/Makefile b/drivers/video/fbdev/Makefile
+--- a/drivers/video/fbdev/Makefile
++++ b/drivers/video/fbdev/Makefile
+@@ -15,2 +15,3 @@
+ # Hardware specific drivers go first
++obj-$(CONFIG_FB_S1C33)            += s1c33fb.o
+ obj-$(CONFIG_FB_AMIGA)            += amifb.o c2p_planar.o

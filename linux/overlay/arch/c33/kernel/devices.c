@@ -127,6 +127,9 @@ static const struct resource wr_spi_resources[] = {
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_HSDMA3, "rx-dma"),
 };
 
+static const struct resource wr_lcd_resource =
+	DEFINE_RES_MEM(0x00080000, 32 * 208);
+
 static int __init c33_devices_init(void)
 {
 	struct platform_device *device;
@@ -158,6 +161,13 @@ static int __init c33_devices_init(void)
 		&wr_spi_pdata, sizeof(wr_spi_pdata));
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: SPI platform registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	device = platform_device_register_simple("s1c33-fb", -1,
+						 &wr_lcd_resource, 1);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: framebuffer registration failed: %ld\n",
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}

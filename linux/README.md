@@ -46,6 +46,11 @@ scrolls. Touch adds four more boxes for interrupt, packet start, complete
 packet, and injected key; a twelfth box means a UART1 receive error was seen.
 An unhandled exception replaces the strip with a solid fault bar. This makes
 real-hardware boot results visible without attaching to the serial pads.
+The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
+ordinary applications. The early renderer remains independent of fbdev so it
+can still report failures before platform drivers have probed. The kernel's
+standard monochrome Tux asset is enabled and briefly drawn when fbdev probes;
+later diagnostic console output naturally scrolls over it.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
@@ -156,11 +161,12 @@ host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
 The same regression requires the Linux driver to announce IRQ-driven HSDMA,
 requires vector 25 to have a nonzero `/proc/interrupts` count, and requires the
-emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity.
+emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity. It also
+checks fbdev geometry and reads and rewrites the complete `/dev/fb0` image.
 
 ## What comes next
 
-The next useful vertical slices are a framebuffer interface and fuller device
-description in standard kernel data structures. Richer keyboard modes and
-power management can then grow around the proven LCD, touch, console, storage,
-and recovery userspace paths.
+The next useful vertical slices are a standard input device for the touch
+panel and fuller device description in standard kernel data structures. Richer
+keyboard modes and power management can then grow around the proven LCD,
+touch, console, storage, and recovery userspace paths.

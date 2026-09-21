@@ -13,6 +13,16 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 echo "C33 IRQ: generic registrations"
 cat /proc/interrupts
+if [ "$(cat /sys/class/graphics/fb0/virtual_size)" = "240,208" ] &&
+	[ "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = "1" ] &&
+	dd if=/dev/fb0 of=/tmp/fb.snapshot bs=6656 count=1 2>/dev/null &&
+	[ "$(wc -c < /tmp/fb.snapshot)" = "6656" ] &&
+	dd if=/tmp/fb.snapshot of=/dev/fb0 bs=6656 count=1 2>/dev/null; then
+	rm -f /tmp/fb.snapshot
+	echo "C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
+else
+	echo "C33 framebuffer: registration FAILED"
+fi
 
 if /etc/init.d/busybox-test; then
 	:
