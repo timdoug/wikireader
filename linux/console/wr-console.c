@@ -24,7 +24,19 @@
 #define STATUS_Y	112
 #define KEYBOARD_Y	120
 #define KEY_WIDTH	24
-#define KEY_ROWS	3
+#define KEY_ROWS	4
+
+#define WR_KEY_BACKSPACE	19
+#define WR_KEY_SHIFT		20
+#define WR_KEY_CONTROL		30
+#define WR_KEY_SYMBOLS		31
+#define WR_KEY_TAB		32
+#define WR_KEY_SPACE_FIRST	33
+#define WR_KEY_SPACE_LAST	35
+#define WR_KEY_LEFT		36
+#define WR_KEY_RIGHT		37
+#define WR_KEY_ENTER_FIRST	38
+#define WR_KEY_ENTER_LAST	39
 
 struct glyph {
 	char character;
@@ -58,6 +70,32 @@ static const struct glyph glyphs[] = {
 	{ 'X', { 17, 17, 10, 4, 10, 17, 17 } },
 	{ 'Y', { 17, 17, 10, 4, 4, 4, 4 } },
 	{ 'Z', { 31, 1, 2, 4, 8, 16, 31 } },
+	{ 'a', { 0, 0, 14, 1, 15, 17, 15 } },
+	{ 'b', { 16, 16, 30, 17, 17, 17, 30 } },
+	{ 'c', { 0, 0, 14, 16, 16, 17, 14 } },
+	{ 'd', { 1, 1, 15, 17, 17, 17, 15 } },
+	{ 'e', { 0, 0, 14, 17, 31, 16, 14 } },
+	{ 'f', { 6, 9, 8, 28, 8, 8, 8 } },
+	{ 'g', { 0, 0, 15, 17, 15, 1, 14 } },
+	{ 'h', { 16, 16, 30, 17, 17, 17, 17 } },
+	{ 'i', { 4, 0, 12, 4, 4, 4, 14 } },
+	{ 'j', { 2, 0, 6, 2, 2, 18, 12 } },
+	{ 'k', { 16, 16, 18, 20, 24, 20, 18 } },
+	{ 'l', { 12, 4, 4, 4, 4, 4, 14 } },
+	{ 'm', { 0, 0, 26, 21, 21, 17, 17 } },
+	{ 'n', { 0, 0, 30, 17, 17, 17, 17 } },
+	{ 'o', { 0, 0, 14, 17, 17, 17, 14 } },
+	{ 'p', { 0, 0, 30, 17, 30, 16, 16 } },
+	{ 'q', { 0, 0, 15, 17, 15, 1, 1 } },
+	{ 'r', { 0, 0, 22, 25, 16, 16, 16 } },
+	{ 's', { 0, 0, 15, 16, 14, 1, 30 } },
+	{ 't', { 8, 8, 28, 8, 8, 9, 6 } },
+	{ 'u', { 0, 0, 17, 17, 17, 19, 13 } },
+	{ 'v', { 0, 0, 17, 17, 17, 10, 4 } },
+	{ 'w', { 0, 0, 17, 17, 21, 21, 10 } },
+	{ 'x', { 0, 0, 17, 10, 4, 10, 17 } },
+	{ 'y', { 0, 0, 17, 17, 15, 1, 14 } },
+	{ 'z', { 0, 0, 31, 2, 4, 8, 31 } },
 	{ '0', { 14, 17, 19, 21, 25, 17, 14 } },
 	{ '1', { 4, 12, 4, 4, 4, 4, 14 } },
 	{ '2', { 14, 17, 1, 2, 4, 8, 31 } },
@@ -89,18 +127,38 @@ static const struct glyph glyphs[] = {
 	{ '$', { 4, 15, 20, 14, 5, 30, 4 } },
 	{ '%', { 17, 2, 4, 8, 16, 17, 0 } },
 	{ '\'', { 4, 4, 8, 0, 0, 0, 0 } },
+	{ '"', { 10, 10, 20, 0, 0, 0, 0 } },
+	{ ';', { 0, 12, 12, 0, 12, 4, 8 } },
+	{ '&', { 12, 18, 20, 8, 21, 18, 13 } },
+	{ '^', { 4, 10, 17, 0, 0, 0, 0 } },
+	{ '|', { 4, 4, 4, 4, 4, 4, 4 } },
+	{ '\\', { 16, 8, 8, 4, 2, 2, 1 } },
+	{ '`', { 8, 4, 0, 0, 0, 0, 0 } },
+	{ '{', { 2, 4, 4, 8, 4, 4, 2 } },
+	{ '}', { 8, 4, 4, 2, 4, 4, 8 } },
+	{ '~', { 0, 0, 9, 22, 0, 0, 0 } },
 };
 
-static const char *const key_labels[KEY_ROWS][10] = {
-	{ "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
-	{ "A", "S", "D", "F", "G", "H", "J", "K", "L", "BS" },
-	{ "Z", "X", "C", "V", "SP", "SP", "B", "N", "M", "EN" },
-};
-
-static const unsigned char key_values[KEY_ROWS][11] = {
+static const char letter_keys[3][11] = {
 	"qwertyuiop",
-	"asdfghjkl\177",
-	"zxcv  bnm\n",
+	"asdfghjkl",
+	"zxcvbnm-?",
+};
+
+static const char symbol_keys[2][2][11] = {
+	{
+		"1234567890",
+		"-/:;()$&@",
+	},
+	{
+		"!@#$%^&*()",
+		"[]{}<>|~`",
+	},
+};
+
+static const char symbol_third_row[2][10] = {
+	".'\"=+*_!\\",
+	",_`~=+*^\\",
 };
 
 static uint8_t framebuffer[LCD_BYTES];
@@ -112,6 +170,9 @@ static unsigned int escape_parameter;
 static unsigned int dirty_text_first = TEXT_ROWS;
 static unsigned int dirty_text_last;
 static int active_key = -1;
+static int shift_active;
+static int control_active;
+static int symbols_active;
 static int fb_fd;
 static int log_fd;
 
@@ -134,8 +195,6 @@ static const uint8_t *glyph_rows(unsigned char character)
 	static const uint8_t blank[7];
 	unsigned int i;
 
-	if (character >= 'a' && character <= 'z')
-		character -= 'a' - 'A';
 	for (i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++)
 		if ((unsigned char)glyphs[i].character == character)
 			return glyphs[i].rows;
@@ -226,6 +285,72 @@ static void draw_checkpoint(unsigned int stage)
 		framebuffer[y * LCD_STRIDE + (x >> 3)] = 0xff;
 }
 
+static int key_character(int key)
+{
+	int character;
+
+	if (key >= 0 && key < 10) {
+		character = symbols_active ? symbol_keys[shift_active][0][key] :
+			letter_keys[0][key];
+	} else if (key >= 10 && key < WR_KEY_BACKSPACE) {
+		character = symbols_active ?
+			symbol_keys[shift_active][1][key - 10] :
+			letter_keys[1][key - 10];
+	} else if (key > WR_KEY_SHIFT && key < WR_KEY_CONTROL) {
+		character = symbols_active ?
+			symbol_third_row[shift_active][key - WR_KEY_SHIFT - 1] :
+			letter_keys[2][key - WR_KEY_SHIFT - 1];
+	} else {
+		return -1;
+	}
+	if (!symbols_active && shift_active &&
+	    character >= 'a' && character <= 'z')
+		character -= 'a' - 'A';
+	return character;
+}
+
+static const char *key_label(int key, char label[4])
+{
+	const char *text = NULL;
+	int character;
+
+	switch (key) {
+	case WR_KEY_BACKSPACE:
+		text = "BS";
+		break;
+	case WR_KEY_SHIFT:
+		text = "Sh";
+		break;
+	case WR_KEY_CONTROL:
+		text = "Ctl";
+		break;
+	case WR_KEY_SYMBOLS:
+		text = symbols_active ? "ABC" : "123";
+		break;
+	case WR_KEY_TAB:
+		text = "Tab";
+		break;
+	case WR_KEY_SPACE_FIRST ... WR_KEY_SPACE_LAST:
+		text = "SP";
+		break;
+	case WR_KEY_LEFT:
+		text = "<";
+		break;
+	case WR_KEY_RIGHT:
+		text = ">";
+		break;
+	case WR_KEY_ENTER_FIRST ... WR_KEY_ENTER_LAST:
+		text = "EN";
+		break;
+	default:
+		character = key_character(key);
+		label[0] = character >= 0 ? character : ' ';
+		label[1] = '\0';
+		return label;
+	}
+	return text;
+}
+
 static void draw_key(int key, int pressed)
 {
 	unsigned int row = key / 10;
@@ -236,13 +361,17 @@ static void draw_key(int key, int pressed)
 		(row + 1) * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS - 1;
 	unsigned int x0 = column * KEY_WIDTH;
 	unsigned int x1 = x0 + KEY_WIDTH - 1;
-	const char *label = key_labels[row][column];
+	char label_buffer[4];
+	const char *label = key_label(key, label_buffer);
 	unsigned int label_length = strlen(label);
 	unsigned int label_x = x0 + (KEY_WIDTH - label_length * FONT_WIDTH) / 2;
 	unsigned int label_y = y0 + (y1 - y0 + 1 - FONT_HEIGHT) / 2;
 	unsigned int x;
 	unsigned int y;
 
+	pressed |= (key == WR_KEY_SHIFT && shift_active) ||
+		(key == WR_KEY_CONTROL && control_active) ||
+		(key == WR_KEY_SYMBOLS && symbols_active);
 	for (y = y0; y <= y1; y++)
 		for (x = x0; x <= x1; x++)
 			set_pixel(x, y, pressed || x == x0 || x == x1 ||
@@ -291,6 +420,16 @@ static void flush_key(int key)
 		(row + 1) * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS - 1;
 	draw_key(key, key == active_key);
 	write_rows(first, last - first + 1);
+}
+
+static void flush_keyboard(void)
+{
+	int key;
+
+	clear_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
+	for (key = 0; key < KEY_ROWS * 10; key++)
+		draw_key(key, key == active_key);
+	write_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
 }
 
 static void flush_display(void)
@@ -390,6 +529,61 @@ static int key_at(unsigned int x, unsigned int y)
 		return -1;
 	row = (y - KEYBOARD_Y) * KEY_ROWS / (LCD_HEIGHT - KEYBOARD_Y);
 	return row * 10 + x / KEY_WIDTH;
+}
+
+static int send_key(int master_fd, int key, int *redraw_keyboard)
+{
+	unsigned char output[3];
+	size_t length = 1;
+	int character;
+
+	*redraw_keyboard = 0;
+	if (key == WR_KEY_SHIFT) {
+		shift_active = !shift_active;
+		*redraw_keyboard = 1;
+		return 0;
+	}
+	if (key == WR_KEY_CONTROL) {
+		control_active = !control_active;
+		*redraw_keyboard = 1;
+		return 0;
+	}
+	if (key == WR_KEY_SYMBOLS) {
+		symbols_active = !symbols_active;
+		shift_active = 0;
+		*redraw_keyboard = 1;
+		return 0;
+	}
+	if (key == WR_KEY_BACKSPACE) {
+		output[0] = 0x7f;
+	} else if (key == WR_KEY_TAB) {
+		output[0] = '\t';
+	} else if (key >= WR_KEY_SPACE_FIRST && key <= WR_KEY_SPACE_LAST) {
+		output[0] = ' ';
+	} else if (key == WR_KEY_LEFT || key == WR_KEY_RIGHT) {
+		output[0] = 0x1b;
+		output[1] = '[';
+		output[2] = key == WR_KEY_LEFT ? 'D' : 'C';
+		length = 3;
+	} else if (key >= WR_KEY_ENTER_FIRST && key <= WR_KEY_ENTER_LAST) {
+		output[0] = '\n';
+	} else {
+		character = key_character(key);
+		if (character < 0)
+			return 0;
+		if (control_active &&
+		    (character == ' ' ||
+		     (character >= '@' && character <= '_') ||
+		     (character >= 'a' && character <= 'z')))
+			character &= 0x1f;
+		output[0] = character;
+	}
+	if (shift_active || control_active) {
+		shift_active = 0;
+		control_active = 0;
+		*redraw_keyboard = 1;
+	}
+	return write(master_fd, output, length) == (ssize_t)length;
 }
 
 static int open_pty(int *slave_fd)
@@ -561,15 +755,18 @@ int main(void)
 					   !events[i].value) {
 					int released = key_at(touch_x, touch_y);
 					int previous = active_key;
+					int redraw_keyboard = 0;
 
 					draw_checkpoint(9);
 					if (released >= 0 && released == active_key &&
-					    write(master_fd,
-						  &key_values[released / 10]
-							     [released % 10], 1) == 1)
+					    send_key(master_fd, released,
+						     &redraw_keyboard))
 						draw_checkpoint(10);
 					active_key = -1;
-					flush_key(previous);
+					if (redraw_keyboard)
+						flush_keyboard();
+					else
+						flush_key(previous);
 					write_rows(STATUS_Y, 6);
 				}
 			}

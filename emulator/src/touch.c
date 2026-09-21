@@ -231,25 +231,30 @@ void touch_poll(struct touch *t, struct c33 *cpu)
 
 /*
  * On-screen keyboard geometry, measured from the rendered framebuffer:
- * ten columns on a 24-pixel pitch centred at x = 12 + 24*i, and three rows
- * centred at y = 139, 168, 195. The space bar spans columns 4..5.
+ * ten columns on a 24-pixel pitch centred at x = 12 + 24*i, and four rows
+ * centred at y = 131, 153, 175, 197. The space bar spans columns 3..5.
  */
 static const char *const kb_rows[3] = {
 	"QWERTYUIOP",
 	"ASDFGHJKL<",       /* '<' is backspace */
-	"ZXCV  BNM#",       /* '#' is the 123 key */
+	"^ZXCVBNM-?",       /* '^' is Shift */
 };
 
 bool touch_key_pos(char ch, int *x, int *y)
 {
-	static const int row_y[3] = { 139, 168, 195 };
+	static const int row_y[4] = { 131, 153, 175, 197 };
 
 	if (ch >= 'a' && ch <= 'z')
 		ch = (char)(ch - 'a' + 'A');
 
-	if (ch == ' ') {                 /* space bar spans two columns */
-		*x = 12 + 24 * 4 + 12;
-		*y = row_y[2];
+	if (ch == ' ') {                 /* space bar spans three columns */
+		*x = 12 + 24 * 4;
+		*y = row_y[3];
+		return true;
+	}
+	if (ch == '#') {                 /* Enter, for scripted shell input */
+		*x = 12 + 24 * 9;
+		*y = row_y[3];
 		return true;
 	}
 	for (int r = 0; r < 3; r++)

@@ -163,7 +163,8 @@ LCD controller's framebuffer address with the MCLK time; while the firmware
 scrolls by repointing that address, this is one line per displayed frame and
 the cleanest way to measure scrolling frame rate, since it costs the guest
 nothing (a serial trace inside the firmware stalls it for tens of ms a line).
-`WREMU_UART_TRACE=TEXT` timestamps an exact UART output line in MCLK cycles.
+`WREMU_UART_TRACE=TEXT` timestamps an exact UART output line in MCLK cycles;
+separate multiple exact lines with `|`.
 Together with the cycle-stamped `-K` key events, this provides a deterministic
 touch-to-response latency measurement without pacing the emulator in wall
 time.

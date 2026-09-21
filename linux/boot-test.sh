@@ -6,7 +6,7 @@ kernel=$root/linux/artifacts/vmlinux
 emulator=$root/emulator/wremu
 fixture_tool=$root/nuttx/overlay/nuttx/boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
 fat_helper=$root/emulator/tools/mem_dma_bench/run.py
-touch_output="touch keyboard pass"
+touch_output="touch-keyboard pass"
 touch_latency_limit=8000000
 
 if [ ! -f "$kernel" ]; then
@@ -32,11 +32,13 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	# Keep input out of the vendor menu and loader. PID 1 is running before
 	# 500M retired instructions. UART proves the serial recovery path first;
 	# scripted panel taps then type into the userspace PTY console.
-	WREMU_UART_TRACE="$touch_output" "$emulator" -n 800000000 \
+	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 800000000 \
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000 \
-		-K "520000000,echo touch keyboard pass#"
+		-K "520000000,echo touch-keyboard pass#" \
+		-T 36,197,690000000 -T 108,175,700000000 \
+		-T 228,197,710000000
 ) >"$work/boot.log" 2>&1
 
 syscall_marker="C33: entered userspace syscall path"
@@ -127,6 +129,12 @@ if [ "$touch_latency" -gt "$touch_latency_limit" ]; then
 	exit 1
 fi
 echo "Touch-to-shell latency passed: $touch_latency MCLK cycles"
+if ! LC_ALL=C grep -E \
+   '\[uart line at MCLK [0-9]+\] / # =$' "$work/boot.log" >/dev/null; then
+	echo "The 123 keyboard page did not send '=' to the shell." >&2
+	cat "$work/boot.log" >&2
+	exit 1
+fi
 if grep -E "mmc[0-9]+: error -[0-9]+ whilst initialising" \
    "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
@@ -151,9 +159,9 @@ if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
 	echo "Native Linux did not persist its FAT status file." >&2
 	exit 1
 fi
-python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
+python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

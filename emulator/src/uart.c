@@ -59,6 +59,24 @@ static void uart_settle(struct uart *u)
 	}
 }
 
+static bool uart_trace_matches(const char *expected, const char *line)
+{
+	const char *separator;
+	size_t length;
+
+	if (!*expected)
+		return true;
+	do {
+		separator = strchr(expected, '|');
+		length = separator ? (size_t)(separator - expected) :
+			strlen(expected);
+		if (strlen(line) == length && !memcmp(line, expected, length))
+			return true;
+		expected = separator ? separator + 1 : NULL;
+	} while (expected);
+	return false;
+}
+
 static void uart_trace_line(struct uart *u, uint8_t byte)
 {
 	const char *expected = getenv("WREMU_UART_TRACE");
@@ -73,7 +91,7 @@ static void uart_trace_line(struct uart *u, uint8_t byte)
 		return;
 	}
 	u->trace_line[u->trace_line_len] = '\0';
-	if (!*expected || !strcmp(u->trace_line, expected))
+	if (uart_trace_matches(expected, u->trace_line))
 		fprintf(stderr, "  [uart line at MCLK %llu] %s\n",
 			u->clock ? (unsigned long long)*u->clock : 0,
 			u->trace_line);
