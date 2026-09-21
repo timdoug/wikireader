@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/console.h>
 #include <linux/export.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -7,7 +6,6 @@
 #include <linux/mm.h>
 #include <linux/start_kernel.h>
 #include <linux/string.h>
-#include <linux/tty_driver.h>
 
 #include <asm/sections.h>
 #include <asm/setup.h>
@@ -21,7 +19,6 @@ EXPORT_SYMBOL(memory_end);
 extern void paging_init(void);
 asmlinkage __visible void __init c33_start(void);
 void __init arch_cpu_finalize_init(void);
-struct tty_driver *c33_console_device(struct console *console, int *index);
 
 static void early_uart_putc(char c)
 {
@@ -39,29 +36,6 @@ static void early_uart_puts(const char *s)
 		early_uart_putc(*s++);
 }
 
-static void c33_console_write(struct console *console, const char *s,
-			      unsigned int count)
-{
-	const char *start = s;
-	unsigned int original_count = count;
-
-	(void)console;
-	while (count--) {
-		if (*s == '\n')
-			early_uart_putc('\r');
-		early_uart_putc(*s++);
-	}
-	c33_lcd_write(start, original_count);
-}
-
-static struct console c33_console = {
-	.name = "ttyC33",
-	.write = c33_console_write,
-	.device = c33_console_device,
-	.flags = CON_PRINTBUFFER | CON_ENABLED,
-	.index = 0,
-};
-
 asmlinkage __visible void __init c33_start(void)
 {
 	unsigned long *p;
@@ -77,8 +51,6 @@ asmlinkage __visible void __init c33_start(void)
 
 void __init setup_arch(char **cmdline_p)
 {
-	register_console(&c33_console);
-
 	memory_start = PAGE_ALIGN((unsigned long)_end);
 	memory_end = CONFIG_PHYSICAL_START + CONFIG_C33_MEMORY_SIZE;
 

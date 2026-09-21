@@ -75,7 +75,7 @@ config C33_MEMORY_SIZE
 
 config CMDLINE
 	string "Built-in kernel command line"
-	default "console=ttyC330,115200"
+	default "console=ttyC0,115200"
 
 endmenu
 

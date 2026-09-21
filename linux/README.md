@@ -16,7 +16,7 @@ Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
 with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
 UART, touch, and SPI receive-DMA paths use normal `request_irq()` registrations
 visible in `/proc/interrupts`. Linux runs the scheduler, registers the
-interrupt-driven `ttyC330` UART console, and loads a tiny compiled-C bFLT
+interrupt-driven `ttyC0` UART console, and loads a tiny compiled-C bFLT
 process as PID 1.
 PID 1 provides an interactive
 `h`/`p`/`c` shell: it reads commands through the Linux TTY layer, invokes
@@ -130,7 +130,7 @@ utilities. The regular `build` target installs it as `/init`, `/bin/busybox`,
 and conventional applet symlinks. Its `rcS` runs the freestanding process,
 signal, and libc diagnostics, then exercises Hush control flow and a
 representative file/text/archive tool chain before mounting the SD card.
-`init` finally respawns an interactive `hush` on `ttyC330`. `/diag-init`
+`init` finally respawns an interactive `hush` on `ttyC0`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
 The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack

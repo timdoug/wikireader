@@ -1,2 +1,2 @@
 ::sysinit:/etc/init.d/rcS
-ttyC330::respawn:-/bin/sh
+ttyC0::respawn:-/bin/sh

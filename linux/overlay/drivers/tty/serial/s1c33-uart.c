@@ -1,0 +1,342 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Epson S1C33 asynchronous serial controller */
+#include <linux/console.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/serial.h>
+#include <linux/serial_core.h>
+#include <linux/tty_flip.h>
+
+#include <linux/platform_data/serial-s1c33.h>
+
+#include <asm/wikireader.h>
+
+#define S1C33_UART_TXD		0
+#define S1C33_UART_RXD		1
+#define S1C33_UART_STATUS	2
+#define S1C33_UART_CTL		3
+#define S1C33_UART_IRDA		4
+#define S1C33_UART_BRTRUN	5
+#define S1C33_UART_BRTRDL	6
+#define S1C33_UART_BRTRDM	7
+
+#define S1C33_UART_RX_READY	BIT(0)
+#define S1C33_UART_TX_READY	BIT(1)
+#define S1C33_UART_DEFAULT_BAUD	115200
+
+static struct uart_port *s1c33_uart_port;
+
+#ifdef CONFIG_SERIAL_S1C33_CONSOLE
+static struct console s1c33_uart_console;
+#endif
+
+static struct uart_driver s1c33_uart_driver = {
+	.owner		= THIS_MODULE,
+	.driver_name	= "s1c33-uart",
+	.dev_name	= "ttyC",
+	.major		= 0,
+	.minor		= 0,
+	.nr		= 1,
+#ifdef CONFIG_SERIAL_S1C33_CONSOLE
+	.cons		= &s1c33_uart_console,
+#endif
+};
+
+static void s1c33_uart_set_baud(struct uart_port *port, unsigned int baud)
+{
+	unsigned long divisor;
+
+	divisor = DIV_ROUND_CLOSEST(port->uartclk, baud * 16) - 1;
+	writeb(0xcb, port->membase + S1C33_UART_CTL);
+	writeb(0x10, port->membase + S1C33_UART_IRDA);
+	writeb(0, port->membase + S1C33_UART_BRTRUN);
+	writeb(divisor >> 8, port->membase + S1C33_UART_BRTRDM);
+	writeb(divisor, port->membase + S1C33_UART_BRTRDL);
+	writeb(1, port->membase + S1C33_UART_BRTRUN);
+}
+
+static void s1c33_uart_putchar(struct uart_port *port, unsigned char ch)
+{
+	while (!(readb(port->membase + S1C33_UART_STATUS) &
+		 S1C33_UART_TX_READY))
+		cpu_relax();
+	writeb(ch, port->membase + S1C33_UART_TXD);
+}
+
+static unsigned int s1c33_uart_tx_empty(struct uart_port *port)
+{
+	return readb(port->membase + S1C33_UART_STATUS) &
+		S1C33_UART_TX_READY ? TIOCSER_TEMT : 0;
+}
+
+static void s1c33_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
+{
+}
+
+static unsigned int s1c33_uart_get_mctrl(struct uart_port *port)
+{
+	return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
+}
+
+static void s1c33_uart_stop_tx(struct uart_port *port)
+{
+}
+
+static void s1c33_uart_start_tx(struct uart_port *port)
+{
+	u8 ch;
+
+	uart_port_tx(port, ch, true, ({
+		s1c33_uart_putchar(port, ch);
+		c33_lcd_write((const char *)&ch, 1);
+	}));
+	c33_lcd_checkpoint(5);
+}
+
+static void s1c33_uart_stop_rx(struct uart_port *port)
+{
+}
+
+static irqreturn_t s1c33_uart_rx_interrupt(int irq, void *data)
+{
+	struct uart_port *port = data;
+	unsigned long flags;
+	bool inserted = false;
+	int limit = 16;
+	u8 ch;
+
+	uart_port_lock_irqsave(port, &flags);
+	pr_info_once("C33 UART: received vector 57 interrupt\n");
+	while ((readb(port->membase + S1C33_UART_STATUS) &
+		S1C33_UART_RX_READY) && limit--) {
+		ch = readb(port->membase + S1C33_UART_RXD);
+		port->icount.rx++;
+		if (!uart_handle_sysrq_char(port, ch)) {
+			uart_insert_char(port, 0, 0, ch, TTY_NORMAL);
+			inserted = true;
+		}
+	}
+	if (inserted)
+		tty_flip_buffer_push(&port->state->port);
+	uart_port_unlock_irqrestore(port, flags);
+
+	if (inserted)
+		c33_lcd_checkpoint(6);
+	return IRQ_HANDLED;
+}
+
+static int s1c33_uart_startup(struct uart_port *port)
+{
+	return request_irq(port->irq, s1c33_uart_rx_interrupt, 0,
+			   "s1c33-uart-rx", port);
+}
+
+static void s1c33_uart_shutdown(struct uart_port *port)
+{
+	free_irq(port->irq, port);
+}
+
+static void s1c33_uart_set_termios(struct uart_port *port,
+				   struct ktermios *new,
+				   const struct ktermios *old)
+{
+	unsigned long flags;
+	unsigned int baud;
+
+	new->c_cflag &= ~(CSIZE | CSTOPB | PARENB | PARODD | CRTSCTS);
+	new->c_cflag |= CS8 | CLOCAL;
+	baud = uart_get_baud_rate(port, new, old, 300, 230400);
+
+	uart_port_lock_irqsave(port, &flags);
+	s1c33_uart_set_baud(port, baud);
+	uart_update_timeout(port, new->c_cflag, baud);
+	uart_port_unlock_irqrestore(port, flags);
+	tty_termios_encode_baud_rate(new, baud, baud);
+}
+
+static const char *s1c33_uart_type(struct uart_port *port)
+{
+	return "s1c33-uart";
+}
+
+static void s1c33_uart_config_port(struct uart_port *port, int flags)
+{
+	/* A non-zero type marks a configured port to serial_core. */
+	port->type = 1;
+}
+
+static int s1c33_uart_verify_port(struct uart_port *port,
+				  struct serial_struct *serial)
+{
+	return serial->type == PORT_UNKNOWN || serial->type == port->type ? 0 :
+		-EINVAL;
+}
+
+static const struct uart_ops s1c33_uart_ops = {
+	.tx_empty	= s1c33_uart_tx_empty,
+	.set_mctrl	= s1c33_uart_set_mctrl,
+	.get_mctrl	= s1c33_uart_get_mctrl,
+	.stop_tx	= s1c33_uart_stop_tx,
+	.start_tx	= s1c33_uart_start_tx,
+	.stop_rx	= s1c33_uart_stop_rx,
+	.startup	= s1c33_uart_startup,
+	.shutdown	= s1c33_uart_shutdown,
+	.set_termios	= s1c33_uart_set_termios,
+	.type		= s1c33_uart_type,
+	.config_port	= s1c33_uart_config_port,
+	.verify_port	= s1c33_uart_verify_port,
+};
+
+bool c33_tty_inject_char(u8 ch)
+{
+	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+
+	if (!port || !port->state || !tty_port_active(&port->state->port))
+		return false;
+	if (tty_insert_flip_char(&port->state->port, ch, TTY_NORMAL) != 1)
+		return false;
+	tty_flip_buffer_push(&port->state->port);
+	return true;
+}
+
+static int s1c33_uart_probe(struct platform_device *pdev)
+{
+	const struct s1c33_uart_platform_data *pdata =
+		dev_get_platdata(&pdev->dev);
+	struct uart_port *port;
+	struct resource *resource;
+	int ret;
+
+	if (!pdata || !pdata->clock_rate)
+		return -EINVAL;
+
+	port = devm_kzalloc(&pdev->dev, sizeof(*port), GFP_KERNEL);
+	if (!port)
+		return -ENOMEM;
+	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!resource)
+		return -EINVAL;
+	port->membase = devm_ioremap_resource(&pdev->dev, resource);
+	if (IS_ERR(port->membase))
+		return PTR_ERR(port->membase);
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
+		return ret;
+
+	port->dev = &pdev->dev;
+	port->mapbase = resource->start;
+	port->irq = ret;
+	port->uartclk = pdata->clock_rate;
+	port->iotype = UPIO_MEM;
+	port->flags = UPF_BOOT_AUTOCONF | UPF_FIXED_PORT | UPF_FIXED_TYPE;
+	port->ops = &s1c33_uart_ops;
+	port->fifosize = 1;
+	port->type = 1;
+	port->line = 0;
+	spin_lock_init(&port->lock);
+	s1c33_uart_set_baud(port, S1C33_UART_DEFAULT_BAUD);
+
+	platform_set_drvdata(pdev, port);
+	WRITE_ONCE(s1c33_uart_port, port);
+	ret = uart_add_one_port(&s1c33_uart_driver, port);
+	if (ret) {
+		WRITE_ONCE(s1c33_uart_port, NULL);
+		return ret;
+	}
+	c33_lcd_checkpoint(4);
+	dev_info(&pdev->dev,
+		 "C33 UART: registered /dev/ttyC0 through serial_core\n");
+	return 0;
+}
+
+static void s1c33_uart_remove(struct platform_device *pdev)
+{
+	struct uart_port *port = platform_get_drvdata(pdev);
+
+	WRITE_ONCE(s1c33_uart_port, NULL);
+	uart_remove_one_port(&s1c33_uart_driver, port);
+}
+
+static struct platform_driver s1c33_uart_platform_driver = {
+	.probe = s1c33_uart_probe,
+	.remove = s1c33_uart_remove,
+	.driver = {
+		.name = "s1c33-uart",
+	},
+};
+
+#ifdef CONFIG_SERIAL_S1C33_CONSOLE
+static void s1c33_uart_console_write(struct console *console, const char *s,
+				     unsigned int count)
+{
+	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+	unsigned long flags;
+
+	if (!port)
+		return;
+	uart_port_lock_irqsave(port, &flags);
+	uart_console_write(port, s, count, s1c33_uart_putchar);
+	uart_port_unlock_irqrestore(port, flags);
+	c33_lcd_write(s, count);
+	c33_lcd_checkpoint(5);
+}
+
+static int s1c33_uart_console_setup(struct console *console, char *options)
+{
+	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+	int baud = S1C33_UART_DEFAULT_BAUD;
+	int parity = 'n';
+	int bits = 8;
+	int flow = 'n';
+
+	if (!port)
+		return -ENODEV;
+	if (options)
+		uart_parse_options(options, &baud, &parity, &bits, &flow);
+	return uart_set_options(port, console, baud, parity, bits, flow);
+}
+
+static struct console s1c33_uart_console = {
+	.name	= "ttyC",
+	.write	= s1c33_uart_console_write,
+	.device	= uart_console_device,
+	.setup	= s1c33_uart_console_setup,
+	.flags	= CON_PRINTBUFFER,
+	.index	= -1,
+	.data	= &s1c33_uart_driver,
+};
+
+static int __init s1c33_uart_console_init(void)
+{
+	register_console(&s1c33_uart_console);
+	return 0;
+}
+console_initcall(s1c33_uart_console_init);
+#endif
+
+static int __init s1c33_uart_init(void)
+{
+	int ret;
+
+	ret = uart_register_driver(&s1c33_uart_driver);
+	if (ret)
+		return ret;
+	ret = platform_driver_register(&s1c33_uart_platform_driver);
+	if (ret)
+		uart_unregister_driver(&s1c33_uart_driver);
+	return ret;
+}
+module_init(s1c33_uart_init);
+
+static void __exit s1c33_uart_exit(void)
+{
+	platform_driver_unregister(&s1c33_uart_platform_driver);
+	uart_unregister_driver(&s1c33_uart_driver);
+}
+module_exit(s1c33_uart_exit);
+
+MODULE_DESCRIPTION("Epson S1C33 UART driver");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:s1c33-uart");

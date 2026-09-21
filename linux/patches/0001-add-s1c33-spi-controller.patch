@@ -37,6 +37,33 @@ index 1f7c06a30..e8d799f1b 100644
 @@ -18,1 +18,2 @@
 +obj-$(CONFIG_SPI_S1C33)			+= spi-s1c33.o
  obj-$(CONFIG_SPI_AIROHA_SNFI)		+= spi-airoha-snfi.o
+diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
+--- a/drivers/tty/serial/Kconfig
++++ b/drivers/tty/serial/Kconfig
+@@ -14,1 +14,17 @@
++config SERIAL_S1C33
++	bool "Epson S1C33 serial port support"
++	depends on C33
++	select SERIAL_CORE
++	help
++	  Enable the asynchronous serial controller found in Epson S1C33
++	  microcontrollers.
++
++config SERIAL_S1C33_CONSOLE
++	bool "Console on an Epson S1C33 serial port"
++	depends on SERIAL_S1C33=y
++	select SERIAL_CORE_CONSOLE
++	help
++	  Enable an S1C33 serial port as the system console. The console device
++	  is selected with a kernel command line option such as ttyC0.
++
+ source "drivers/tty/serial/8250/Kconfig"
+diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
+--- a/drivers/tty/serial/Makefile
++++ b/drivers/tty/serial/Makefile
+@@ -38,1 +38,2 @@
++obj-$(CONFIG_SERIAL_S1C33)		+= s1c33-uart.o
+ obj-$(CONFIG_SERIAL_ALTERA_JTAGUART)	+= altera_jtaguart.o
 diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
 --- a/drivers/video/fbdev/Kconfig
 +++ b/drivers/video/fbdev/Kconfig

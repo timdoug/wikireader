@@ -19,9 +19,9 @@ if [ -c /dev/input/event0 ] &&
 	(
 		if dd if=/dev/input/event0 of=/tmp/touch.events bs=16 count=4 2>/dev/null &&
 			[ "$(wc -c < /tmp/touch.events)" = "64" ]; then
-			echo "C33 input: /dev/input/event0 delivered touch events" > /dev/ttyC330
+			echo "C33 input: /dev/input/event0 delivered touch events" > /dev/ttyC0
 		else
-			echo "C33 input: evdev event capture FAILED" > /dev/ttyC330
+			echo "C33 input: evdev event capture FAILED" > /dev/ttyC0
 		fi
 	) &
 else
@@ -56,4 +56,4 @@ else
 fi
 
 echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
-echo "C33 BusyBox shell ready on ttyC330"
+echo "C33 BusyBox shell ready on ttyC0"

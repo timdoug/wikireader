@@ -6,6 +6,7 @@
 #include <linux/io.h>
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
+#include <linux/platform_data/serial-s1c33.h>
 #include <linux/platform_data/wikireader-touch.h>
 #include <linux/spi/mmc_spi.h>
 #include <linux/spi/spi.h>
@@ -47,6 +48,7 @@
 #define WR_SD_BUFEN       BIT(3)
 #define WR_SD_POWER_BITS  (WR_SD_VCCEN | WR_SD_BUFEN)
 #define WR_TOUCH_IRQS     (BIT(3) | BIT(4) | BIT(5))
+#define WR_UART0_IRQS     (BIT(0) | BIT(1) | BIT(2))
 
 static void wr_modify8(unsigned long address, u8 clear, u8 set)
 {
@@ -137,6 +139,11 @@ static const struct resource wr_spi_resources[] = {
 static const struct resource wr_lcd_resource =
 	DEFINE_RES_MEM(0x00080000, 32 * 208);
 
+static const struct resource wr_uart_resources[] = {
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b00, 8, "uart"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART0_RX, "rx"),
+};
+
 static const struct resource wr_touch_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b10, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_ERROR, "error"),
@@ -155,9 +162,16 @@ static void __init wr_touch_prepare(void)
 	wr_modify8(WR_SERIAL_PRIORITY, 7, 6);
 }
 
+static void __init wr_uart_prepare(void)
+{
+	writeb(WR_UART0_IRQS, (void __iomem *)WR_SERIAL_FLAGS);
+	wr_modify8(WR_SERIAL_PRIORITY, 0x70, 0x50);
+}
+
 static int __init c33_devices_init(void)
 {
 	struct wikireader_touch_platform_data touch_pdata;
+	struct s1c33_uart_platform_data uart_pdata;
 	struct platform_device *device;
 	u32 gate;
 
@@ -190,6 +204,16 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
+	wr_uart_prepare();
+	uart_pdata.clock_rate = c33_mclk_hz();
+	device = platform_device_register_resndata(NULL, "s1c33-uart", -1,
+		wr_uart_resources, ARRAY_SIZE(wr_uart_resources),
+		&uart_pdata, sizeof(uart_pdata));
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: UART platform registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
 	device = platform_device_register_simple("s1c33-fb", -1,
 						 &wr_lcd_resource, 1);
 	if (IS_ERR(device)) {
@@ -207,7 +231,7 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	pr_info("C33 devices: registered SPI/MMC, framebuffer, and touchscreen\n");
+	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, and touchscreen\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);

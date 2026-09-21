@@ -18,7 +18,22 @@ SECTIONS
 	_stext = .;
 	HEAD_TEXT_SECTION
 	.text : {
-		TEXT_TEXT
+		/*
+		 * S1C33 scall has a finite PC-relative range.  Keep cold text
+		 * between ordinary text and init text instead of at the start of
+		 * the image, so both sets of callers remain in range as the kernel
+		 * grows.
+		 */
+		ALIGN_FUNCTION();
+		*(.text.asan.* .text.tsan.*)
+		*(.text.unknown .text.unknown.*)
+		TEXT_SPLIT
+		. = ALIGN(PAGE_SIZE);
+		TEXT_HOT
+		*(TEXT_MAIN .text.fixup)
+		NOINSTR_TEXT
+		*(.ref.text)
+		TEXT_UNLIKELY
 		SCHED_TEXT
 		LOCK_TEXT
 		IRQENTRY_TEXT
