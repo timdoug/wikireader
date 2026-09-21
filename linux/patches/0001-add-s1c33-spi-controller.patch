@@ -1,18 +1,93 @@
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
-@@ -781,4 +781,10 @@ int serdev_controller_add(struct serdev_controller *ctrl)
- 	ret_of = of_serdev_register_devices(ctrl);
+@@ -55,6 +55,20 @@ static bool is_serdev_device(const struct device *dev)
+ 	return dev->type == &serdev_device_type;
+ }
+ 
++static bool serdev_software_node_match(struct device *dev,
++				       const struct device_driver *drv)
++{
++	const struct of_device_id *match;
++
++	if (!is_software_node(dev_fwnode(dev)) || !drv->of_match_table)
++		return false;
++	for (match = drv->of_match_table; match->compatible[0]; match++)
++		if (fwnode_device_is_compatible(dev_fwnode(dev),
++						match->compatible))
++			return true;
++	return false;
++}
++
+ static void serdev_ctrl_release(struct device *dev)
+ {
+ 	struct serdev_controller *ctrl = to_serdev_controller(dev);
+@@ -76,6 +92,9 @@ static int serdev_device_match(struct device *dev, const struct device_driver *d
+ 	if (acpi_driver_match_device(dev, drv))
+ 		return 1;
+ 
++	if (serdev_software_node_match(dev, drv))
++		return 1;
++
+ 	return of_driver_match_device(dev, drv);
+ }
+ 
+@@ -516,22 +535,22 @@ EXPORT_SYMBOL_GPL(serdev_controller_alloc);
+ 
+-static int of_serdev_register_devices(struct serdev_controller *ctrl)
++static int fwnode_serdev_register_devices(struct serdev_controller *ctrl)
+ {
+-	struct device_node *node;
++	struct fwnode_handle *node;
+ 	struct serdev_device *serdev = NULL;
+ 	int err;
+ 	bool found = false;
+ 
+-	for_each_available_child_of_node(ctrl->dev.of_node, node) {
+-		if (!of_property_present(node, "compatible"))
++	fwnode_for_each_available_child_node(dev_fwnode(&ctrl->dev), node) {
++		if (!fwnode_property_present(node, "compatible"))
+ 			continue;
+ 
+-		dev_dbg(&ctrl->dev, "adding child %pOF\n", node);
++		dev_dbg(&ctrl->dev, "adding child %pfw\n", node);
+ 
+ 		serdev = serdev_device_alloc(ctrl);
+ 		if (!serdev)
+ 			continue;
+ 
+-		device_set_node(&serdev->dev, of_fwnode_handle(node));
++		device_set_node(&serdev->dev, node);
+ 
+ 		err = serdev_device_add(serdev);
+ 		if (err) {
+@@ -765,8 +782,8 @@ static inline int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+  * the serdev core.
+  */
+ int serdev_controller_add(struct serdev_controller *ctrl)
+ {
+-	int ret_of, ret_acpi, ret;
++	int ret_fwnode, ret_acpi, ret;
+ 
+ 	/* Can't register until after driver model init */
+ 	if (WARN_ON(!is_registered))
+@@ -778,11 +795,12 @@ int serdev_controller_add(struct serdev_controller *ctrl)
+ 
+ 	pm_runtime_enable(&ctrl->dev);
+ 
+-	ret_of = of_serdev_register_devices(ctrl);
++	ret_fwnode = fwnode_serdev_register_devices(ctrl);
  	ret_acpi = acpi_serdev_register_devices(ctrl);
 -	if (ret_of && ret_acpi) {
-+	/*
-+	 * Legacy board code without firmware children may instantiate the
-+	 * serdev device after its controller has been registered.
-+	 */
-+	if (ret_of && ret_acpi &&
-+	    !device_property_read_bool(ctrl->host,
-+				       "linux,serdev-controller")) {
- 		dev_dbg(&ctrl->dev, "no devices registered: of:%pe acpi:%pe\n",
+-		dev_dbg(&ctrl->dev, "no devices registered: of:%pe acpi:%pe\n",
+-			ERR_PTR(ret_of), ERR_PTR(ret_acpi));
++	if (ret_fwnode && ret_acpi) {
++		dev_dbg(&ctrl->dev,
++			"no devices registered: fwnode:%pe acpi:%pe\n",
++			ERR_PTR(ret_fwnode), ERR_PTR(ret_acpi));
+ 		ret = -ENODEV;
+ 		goto err_rpm_disable;
+ 	}
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig

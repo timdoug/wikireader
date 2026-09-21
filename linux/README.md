@@ -52,12 +52,14 @@ absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and
 to the touchscreen through Linux's tty-backed serdev layer. The input driver
 therefore contains only the controller packet parser and evdev reporting; UART
 registers, baud programming, buffering, and interrupts belong to the serial
-driver. Since this legacy board file has neither DT nor ACPI children, a
-software property retains the serdev controller and board glue instantiates
-the child using the same explicit attachment pattern as in-tree legacy x86
-quirks. Keyboard geometry, labels, press state, and character translation are
-entirely userspace policy: the touchscreen driver does not know about keys or
-TTYs.
+driver. The legacy board description publishes UART1 and its touchscreen child
+as a software-node firmware graph. Serdev enumerates that child, matches its
+`compatible` property against the driver's normal firmware table, and binds it
+through the driver core without a platform wrapper or forced attachment. The
+node also carries the standard `current-speed` and touchscreen dimension
+properties consumed by the driver. Keyboard geometry, labels, press state, and
+character translation are entirely userspace policy: the touchscreen driver
+does not know about keys or TTYs.
 The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
 ordinary applications. The early renderer remains independent of fbdev so it
 can still report failures before platform drivers have probed. The kernel's
@@ -187,8 +189,9 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The next normalization slice is replacing the remaining legacy platform-data
-descriptions with a firmware-node representation that can enumerate serdev
-children without explicit driver attachment. Richer keyboard modes, console
-session management, and power management can then grow around the proven LCD,
-touch, PTY, storage, and recovery userspace paths.
+The next normalization slice is shrinking the remaining board callbacks and
+platform data behind standard clock, pin-control, GPIO, regulator, and DMA
+providers. That will let the UART, SPI/MMC, and framebuffer devices consume the
+same resource descriptions as device-tree systems. Richer keyboard modes,
+console session management, and power management can then grow around the
+proven LCD, touch, PTY, storage, and recovery userspace paths.

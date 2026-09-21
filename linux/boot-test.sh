@@ -79,7 +79,7 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "s1c33-uart1-rx" "$work/boot.log" >/dev/null || \
    ! grep -F "registered UART1 as a tty-backed serdev controller" \
 	"$work/boot.log" >/dev/null || \
-   ! grep -F "registered 240x208 touchscreen through serdev" \
+   ! grep -F "wikireader-touch serial0-0: registered 240x208 touchscreen through serdev" \
 	"$work/boot.log" >/dev/null || \
    ! grep -F "$init_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \

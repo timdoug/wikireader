@@ -150,9 +150,28 @@ static const struct resource wr_uart1_resources[] = {
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
 };
 
-static const struct property_entry wr_uart1_properties[] = {
-	PROPERTY_ENTRY_BOOL("linux,serdev-controller"),
+static const struct property_entry wr_touch_properties[] = {
+	PROPERTY_ENTRY_STRING("compatible", "openmoko,wikireader-touchscreen"),
+	PROPERTY_ENTRY_U32("current-speed", 9600),
+	PROPERTY_ENTRY_U32("touchscreen-size-x", 240),
+	PROPERTY_ENTRY_U32("touchscreen-size-y", 208),
 	{ }
+};
+
+static const struct software_node wr_uart1_node = {
+	.name = "uart1",
+};
+
+static const struct software_node wr_touch_node = {
+	.name = "touchscreen",
+	.parent = &wr_uart1_node,
+	.properties = wr_touch_properties,
+};
+
+static const struct software_node *wr_uart1_nodes[] = {
+	&wr_uart1_node,
+	&wr_touch_node,
+	NULL,
 };
 
 static void __init wr_touch_prepare(void)
@@ -179,7 +198,7 @@ static int __init c33_devices_init(void)
 	struct s1c33_uart_platform_data uart1_pdata;
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
-	struct platform_device *uart1;
+	int ret;
 	u32 gate;
 
 	/* WikiReader SPI pins, inactive chip selects, and SD power controls. */
@@ -240,24 +259,22 @@ static int __init c33_devices_init(void)
 	uart1_pdata.clock_rate = c33_mclk_hz();
 	uart1_pdata.default_baud = 9600;
 	uart1_pdata.control = 0x4b;
+	ret = software_node_register_node_group(wr_uart1_nodes);
+	if (ret) {
+		pr_err("C33 devices: UART1 firmware nodes failed: %d\n", ret);
+		return ret;
+	}
 	uart_info.id = 1;
 	uart_info.res = wr_uart1_resources;
 	uart_info.num_res = ARRAY_SIZE(wr_uart1_resources);
 	uart_info.data = &uart1_pdata;
 	uart_info.size_data = sizeof(uart1_pdata);
-	uart_info.properties = wr_uart1_properties;
-	uart1 = platform_device_register_full(&uart_info);
-	if (IS_ERR(uart1)) {
-		pr_err("C33 devices: UART1 platform registration failed: %ld\n",
-		       PTR_ERR(uart1));
-		return PTR_ERR(uart1);
-	}
-	device = platform_device_register_data(&uart1->dev,
-					       "wikireader-touch", -1,
-					       NULL, 0);
+	uart_info.fwnode = software_node_fwnode(&wr_uart1_node);
+	device = platform_device_register_full(&uart_info);
 	if (IS_ERR(device)) {
-		pr_err("C33 devices: touchscreen registration failed: %ld\n",
+		pr_err("C33 devices: UART1 platform registration failed: %ld\n",
 		       PTR_ERR(device));
+		software_node_unregister_node_group(wr_uart1_nodes);
 		return PTR_ERR(device);
 	}
 	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, and touchscreen\n");
