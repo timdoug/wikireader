@@ -1,0 +1,16 @@
+#!/bin/sh
+
+echo "C33 BusyBox init: PID 1 userspace started"
+
+if /diag-test; then
+	echo "C33 BusyBox init: diagnostic child passed"
+else
+	echo "C33 BusyBox init: diagnostic child FAILED"
+fi
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
+echo "C33 BusyBox shell ready on ttyC330"

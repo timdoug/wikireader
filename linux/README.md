@@ -102,22 +102,23 @@ ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 image and embeds it in the initramfs as `/uclibc-smoke`.
 
 `busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT with a
-small no-MMU configuration, including `hush` and basic core applets. The
-regular `build` target embeds it as `/busybox`; early PID 1 runs a `hush -c`
-command and verifies its exit status before presenting the diagnostic shell.
+small no-MMU configuration, including `init`, `hush`, mount tools, and basic
+core applets. The regular `build` target installs it as `/init` and
+`/bin/busybox`. Its `rcS` runs the freestanding process, signal, and libc
+diagnostics, mounts procfs, sysfs, and devtmpfs, and then `init` respawns an
+interactive `hush` on `ttyC330`. `/diag-init` remains available as the old
+freestanding rescue shell.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
-fixture, boots it through the full emulated hardware path, injects two bytes into
-UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
-the `p` and `c` commands, and the shell prints `pid 1` and `commands 2` without
-a kernel panic. It additionally requires `/child` to run and PID 1 to reap its
-exit status, then requires the uClibc program's stdio and longjmp output and a
-clean zero-status reap. The test checks the final display image for text and all
-seven LCD checkpoints. The fixture and emulator display output are kept outside
-the checkout and removed afterward.
+fixture, boots it through the full emulated hardware path, and requires the
+BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
+kernel panic. It then injects an `echo` command into the real `hush` over UART0
+and verifies its output and vector 57 interrupt. The test also checks the final
+display image for text and all seven LCD checkpoints. The fixture and emulator
+display output are kept outside the checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is making BusyBox the interactive initramfs
-shell. After that come SD/block/filesystem support and the WikiReader panel,
-input, and power drivers.
+The next useful vertical slice is SD/MMC block and FAT filesystem support, so
+userspace can persist a boot report on the card. After that come the WikiReader
+touch input, framebuffer, soft keyboard, and power drivers.

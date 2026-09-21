@@ -22,7 +22,7 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 python3 "$fixture_tool" --wikireader "$root" --image "$kernel" \
 	--out "$work/fixture"
-printf 'pc' >"$work/uart.in"
+printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 
 (
 	cd "$work"
@@ -35,31 +35,29 @@ printf 'pc' >"$work/uart.in"
 ) >"$work/boot.log" 2>&1
 
 syscall_marker="C33: entered userspace syscall path"
-expected="*** HARDWARE PASS: native C33 Linux reached PID 1 ***"
-rx_expected="UART RX reached Linux userspace."
+expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 irq_expected="C33 UART: received vector 57 interrupt"
-shell_expected="pid 1"
-count_expected="commands 2"
+init_expected="C33 BusyBox init: PID 1 userspace started"
+diagnostic_expected="C33 BusyBox init: diagnostic child passed"
+shell_ready="C33 BusyBox shell ready on ttyC330"
+shell_expected="C33 INTERACTIVE HUSH PASS"
 process_expected="C33 process test: clone -> execve -> wait4 passed"
 child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-busybox_output="C33 BusyBox 1.38.0: hush and echo reached userspace"
-busybox_expected="C33 BusyBox test: hush -> echo -> exit passed"
 if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$rx_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$init_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$shell_ready" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$count_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$child_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$signal_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$libc_output" "$work/boot.log" >/dev/null || \
-   ! grep -F "$libc_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$busybox_output" "$work/boot.log" >/dev/null || \
-   ! grep -F "$busybox_expected" "$work/boot.log" >/dev/null; then
+   ! grep -F "$libc_expected" "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux did not complete the PID 1 UART round trip." >&2
 	exit 1
@@ -73,6 +71,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 7
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 BusyBox|HARDWARE PASS|c33 shell:|UART RX reached|pid 1|commands 2" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|C33 UART:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|HARDWARE PASS|INTERACTIVE HUSH" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

@@ -29,6 +29,7 @@ enum message {
 	MESSAGE_LIBC_FAIL,
 	MESSAGE_BUSYBOX_PASS,
 	MESSAGE_BUSYBOX_FAIL,
+	MESSAGE_DIAGNOSTICS_PASS,
 	MESSAGE_NEWLINE,
 };
 
@@ -54,6 +55,7 @@ static const struct message_record messages[] = {
 	MESSAGE("C33 libc test FAILED\n"),
 	MESSAGE("C33 BusyBox test: hush -> echo -> exit passed\n"),
 	MESSAGE("C33 BusyBox test FAILED\n"),
+	MESSAGE("C33 diagnostic suite passed\n"),
 	MESSAGE("\n"),
 };
 
@@ -175,6 +177,10 @@ void init_main(void)
 	process_test();
 	signal_test();
 	libc_test();
+#ifdef DIAG_ONESHOT
+	put_message(MESSAGE_DIAGNOSTICS_PASS);
+	c33_exit(0);
+#else
 	busybox_test();
 	put_message(MESSAGE_BANNER);
 	put_message(MESSAGE_HELP);
@@ -204,4 +210,5 @@ void init_main(void)
 		}
 		put_message(MESSAGE_PROMPT);
 	}
+#endif
 }
