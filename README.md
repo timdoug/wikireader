@@ -1,13 +1,14 @@
 # WikiReader
 
-<img src="doc/wikireader.jpg" alt="A WikiReader running Linux, showing cpuinfo and uname output at a shell prompt" width="420">
+<img src="doc/wikireader.jpg" alt="A WikiReader running Linux, showing cpuinfo and uname output at a shell prompt" width="800">
 
 Firmware and tools for the Epson S1C33 WikiReader handheld. Forked from
 [stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
 
-Most of the work here is a current toolchain, a full-system emulator, and a
-reader for standard ZIM archives. The original dump-processing pipeline still
-works and is unchanged.
+Most of the work here is a current toolchain, a full-system emulator, a reader
+for standard ZIM archives, and the operating systems and emulators that run on
+the device. The original dump-processing pipeline still works and is
+unchanged.
 
 ## What's here
 
@@ -27,10 +28,12 @@ works and is unchanged.
 - `wiki` - the original reader application, with fixes.
 - `doom` - `doom.app`. Monochrome, touch movement, front-button controls.
   Engine source is vendored and pinned.
-- `minivmac` - `minivmac.app`, a soundless 512 KiB Macintosh 128K. It uses
-  user-supplied ROM/floppy images, scales the 512x342 Mac display to the
-  240x160 upper panel, and provides direct-touch mouse input. Upstream Mini
-  vMac is fetched at a pinned revision on the first build.
+- `minivmac` - `minivmac.app`, a soundless 4 MiB Macintosh Plus that boots
+  System 7.1 to the Finder. A 68000-to-C33 trace translator runs the hot paths
+  and falls back to Mini vMac's own handlers. The 512x342 screen is shown
+  through a native-resolution 240x160 viewport that pans at the edges, and
+  touch drives the mouse. ROM and floppy images are user-supplied. Upstream
+  Mini vMac is fetched at a pinned revision on the first build.
 - `nuttx` - `nuttx.app`, Apache NuttX on the C33: NSH with 139 Toybox
   commands (`awk grep sed find sort xargs tar` ...), `vi`, a hex editor, ZMODEM
   transfer, four interpreters (Lua, MicroPython, BASIC and the WikiReader's
@@ -41,6 +44,22 @@ works and is unchanged.
   takes the machine over from the kernel rather than calling it, and keeps it
   until `poweroff` or `reboot`. The port is carried as an overlay and patches
   against pinned upstream revisions, which the first build fetches.
+- `linux` - a no-MMU Linux 6.18 running natively on the C33, entered from the
+  same FLASH and file-loader chain as the firmware. It brings up 32 MiB of
+  SDRAM, generic IRQs, a 100 Hz tick, both UARTs on serial-core, and SPI with
+  MMC/SD and HSDMA reads, mounting the card's FAT partition. The panel is
+  `/dev/fb0` and the touchscreen `/dev/input/event0`, bound through serdev.
+  Userspace is static BusyBox 1.38 as PID 1, bFLT binaries linked against
+  uClibc-ng, a framebuffer terminal and soft keyboard on a PTY, and a recovery
+  shell on the serial port. The kernel builds in a Debian VM, not on macOS.
+- `riscv` - `riscv.app`, an rv32ima machine: an interpreter, and a translator
+  that emits native C33 code instead. It boots a no-MMU M-mode Linux with a
+  terminal and soft keyboard on the panel, and carries a bare-metal benchmark
+  image that attributes cost per guest kernel. The guest kernel and device
+  trees are fetched, not built here.
+- `llama` - `llama.app`, Llama 2 inference. `stories260K` generates at 119 ms
+  a token with int8 weights and no floating point anywhere in the forward
+  pass. Checkpoints come from `tinyllamas` and are converted on the host.
 - `sparrow` - an offline factual answer engine over Wikidata claims. It works,
   but has only been measured against a sample; see `sparrow/STATUS.md`.
 
@@ -74,6 +93,23 @@ card layout and ROM/disk names.
 build from this tree: the first run clones NuttX, nuttx-apps and TinyCC at
 pinned revisions, about 340 MB, and lays this repository's port over them. It
 also needs GNU `make` and `flock`. See `nuttx/README.md`.
+
+`make -C riscv` and `make -C llama` build `riscv.app` and `llama.app` with the
+same toolchain. `riscv/fetch-linux.sh` fetches the guest kernel and device
+trees the RISC-V Linux entry needs.
+
+Native Linux builds in an ARM64 Debian Lima VM, because Kbuild and the C33
+toolchain want a Linux userspace:
+
+```sh
+make -C linux provision    # once: the VM and its build prerequisites
+make -C linux toolchain    # once: a Linux-hosted C33 toolchain
+make -C linux build
+```
+
+`make -C linux boot-test` then boots the result through the full emulated
+path and checks the console, the card, the panel and the touch input. See
+`linux/README.md`.
 
 Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
 appended after `-Werror` and already defaults to `-O2`. Build output is
@@ -113,6 +149,11 @@ cd emulator
 `zim/make-card-image` (macOS) writes a two-partition card: FAT32 for the boot
 files, exFAT for the archive. `zim/README.md` has the layout and the launcher.
 Pass `--nuttx` to add `nuttx.app` to the menu.
+
+`install-card.sh` updates a card already made: with the boot partition
+mounted, it copies the built applications and icons over, rewrites their
+launcher entries in `init.ini` in place, and verifies every file again after
+a remount.
 
 ## Classic image build
 
