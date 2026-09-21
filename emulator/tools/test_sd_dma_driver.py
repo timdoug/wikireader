@@ -56,7 +56,8 @@ def run_driver(stage, elf, symbols, bits, tx):
     card.write_bytes(bytes(((i * 73) ^ (i >> 3) ^ 0x9d) & 255
                           for i in range(512)))
     result = stage / "result.bin"
-    run = subprocess.run([str(ROOT / "emulator/wremu"), "-R", "-c", str(card),
+    run = subprocess.run([str(ROOT / "emulator/wremu"), "--bare-elf",
+                          "-R", "-c", str(card),
                           "-b", "0x" + symbols["test_done"],
                           "-D", "0x" + symbols["test_result"], "-L", "16",
                           "-O", str(result), "-n", "10000000", str(elf)],

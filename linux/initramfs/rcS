@@ -18,15 +18,15 @@ else
 	echo "C33 BusyBox recovery suite FAILED"
 fi
 
-if mount -t vfat -o sync /dev/wrsd1 /mnt/sd; then
+if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
 	if echo "C33 Linux wrote this boot status" > /mnt/sd/linux.ok; then
 		sync
-		echo "C33 SD/FAT: mounted /dev/wrsd1 and persisted linux.ok"
+		echo "C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 	else
-		echo "C33 SD/FAT: status write FAILED"
+		echo "C33 MMC/SPI: status write FAILED"
 	fi
 else
-	echo "C33 SD/FAT: mount FAILED"
+	echo "C33 MMC/SPI: mount FAILED"
 fi
 
 echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"

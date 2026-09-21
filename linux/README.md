@@ -120,13 +120,17 @@ representative file/text/archive tool chain before mounting the SD card.
 `init` finally respawns an interactive `hush` on `ttyC330`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
-The native `wrsd` block driver powers and pin-muxes the WikiReader card slot,
-identifies SDSC and SDHC cards over the S1C33E07 SPI controller, exposes MBR
-partitions such as `/dev/wrsd1`, and supports bounded single-sector reads and
-writes. The kernel includes FAT/VFAT and mounts the first partition at
-`/mnt/sd` with synchronous writes. Early userspace leaves `linux.ok` there as
-a persistent, serial-port-free boot report. The initial driver intentionally
-uses polling; the already-proven HSDMA path is a later performance step.
+The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack
+power and pin-mux the WikiReader card slot, identify SDSC and SDHC cards, and
+expose standard devices such as `/dev/mmcblk0p1`. The controller handles all
+four SPI modes, 8-bit full-duplex polling transfers, and the hardware's
+MCLK/4 through MCLK/512 divisors. It reprograms the clock before chip select
+is asserted because disabling the S1C33 serial block while it drives SCLK
+creates a real stray edge. The kernel includes FAT/VFAT and mounts the first
+partition at `/mnt/sd` with synchronous writes. Early userspace leaves
+`linux.ok` there as a persistent, serial-port-free boot report. The
+already-proven HSDMA path is a later controller performance step; MMC clients
+will not need to change when it lands.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, and requires the

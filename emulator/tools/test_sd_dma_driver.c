@@ -65,6 +65,19 @@ static BYTE exchange(BYTE out)
     while (!(REG_SPI_STAT & RDFF)) ;
     return (BYTE)REG_SPI_RXD;
 }
+static unsigned block_crc16(const BYTE *data, unsigned length)
+{
+    unsigned crc = 0;
+    unsigned bit;
+
+    while (length--) {
+        crc ^= (unsigned)*data++ << 8;
+        for (bit = 0; bit < 8; bit++)
+            crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : crc << 1;
+        crc &= 0xffff;
+    }
+    return crc;
+}
 static void begin_read(void)
 {
     unsigned i;
@@ -131,7 +144,9 @@ static void run_case(unsigned offset, unsigned bytes, enum fault_kind injection)
     else
         CHECK(got == (int)bytes && !dma_given_up);
     for (i = (unsigned)got; i < 512; i++) dst[i] = exchange(0xff);
-    CHECK(exchange(0xff) == 0xff && exchange(0xff) == 0xff);
+    i = (unsigned)exchange(0xff) << 8;
+    i |= exchange(0xff);
+    CHECK(i == block_crc16(dst, 512));
     for (i = 0; i < 512; i++)
         CHECK(dst[i] == (BYTE)((i * 73) ^ (i >> 3) ^ 0x9d));
     for (i = 0; i < 4 + offset; i++) CHECK(buffer[i] == 0xa5);

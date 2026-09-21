@@ -1,0 +1,21 @@
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index 1872f9d54..7d44cea78 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -63,1 +63,9 @@
++config SPI_S1C33
++	bool "Epson S1C33 SPI controller"
++	depends on C33
++	help
++	  Enable the synchronous serial controller found in Epson S1C33
++	  microcontrollers. The initial driver operates in polling mode;
++	  supported controllers can add DMA without changing SPI clients.
++
+ config SPI_AIROHA_SNFI
+diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
+index 1f7c06a30..e8d799f1b 100644
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -18,1 +18,2 @@
++obj-$(CONFIG_SPI_S1C33)			+= spi-s1c33.o
+ obj-$(CONFIG_SPI_AIROHA_SNFI)		+= spi-airoha-snfi.o

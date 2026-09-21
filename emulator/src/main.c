@@ -46,6 +46,7 @@ static void usage(const char *p)
 		"  -t N   trace the first N instructions\n"
 		"  -n N   stop after N instructions (default 1000000; unlimited with -g)\n"
 		"  -m     trace unclaimed MMIO register accesses\n"
+		"  --trace-sd  trace SD-card commands and data transfers\n"
 		"  -s     trace grifo syscalls by name\n"
 		"  -A     accepted for compatibility; alignment traps are always on\n"
 		"  --bare-elf IMAGE  run a bare ELF with no boot at all.\n"
@@ -289,6 +290,7 @@ int main(int argc, char **argv)
 	unsigned long trace = 0, limit = 1000000;
 	bool limit_given = false;
 	bool trace_mmio = false;
+	bool trace_sd = false;
 	bool trace_syscalls = false;
 	bool gui = false; int gui_scale = 3;
 	bool profile = false;
@@ -446,6 +448,8 @@ int main(int argc, char **argv)
 			card_readonly = true;
 		else if (!strcmp(argv[i], "-m"))
 			trace_mmio = true;
+		else if (!strcmp(argv[i], "--trace-sd"))
+			trace_sd = true;
 		else if (!strcmp(argv[i], "-s"))
 			trace_syscalls = true;
 		else if (!strcmp(argv[i], "-A")) {
@@ -641,7 +645,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "error: cannot open card image %s\n", card);
 		return 1;
 	}
-	sd.trace = trace_mmio;
+	sd.trace = trace_sd || trace_mmio;
 
 	struct dma dma;
 	dma_attach(&mem, &dma, &itc, &cmu, &sd);

@@ -62,21 +62,42 @@ static uint8_t settle(struct mem *m)
 	return r;
 }
 
-static bool read_register(struct mem *m, uint8_t idx, uint8_t reg[16])
+static uint16_t crc16(const uint8_t *data, size_t len)
 {
-	command(m, idx, 0);
+	uint16_t crc = 0;
+
+	while (len--) {
+		crc ^= (uint16_t)*data++ << 8;
+		for (unsigned bit = 0; bit < 8; bit++)
+			crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+	}
+	return crc;
+}
+
+static bool read_payload(struct mem *m, uint8_t *data, size_t len)
+{
+	uint16_t expected;
+	uint16_t received;
+
 	if (settle(m) != 0x00)
 		return false;
 	for (int i = 0; i < 8; i++) {
-		if (xchg(m, 0xff) == 0xfe) {
-			for (int j = 0; j < 16; j++)
-				reg[j] = xchg(m, 0xff);
-			xchg(m, 0xff);
-			xchg(m, 0xff);
-			return true;
-		}
+		if (xchg(m, 0xff) != 0xfe)
+			continue;
+		for (size_t j = 0; j < len; j++)
+			data[j] = xchg(m, 0xff);
+		received = (uint16_t)xchg(m, 0xff) << 8;
+		received |= xchg(m, 0xff);
+		expected = crc16(data, len);
+		return received == expected;
 	}
 	return false;
+}
+
+static bool read_register(struct mem *m, uint8_t idx, uint8_t reg[16])
+{
+	command(m, idx, 0);
+	return read_payload(m, reg, 16);
 }
 
 /*
@@ -154,7 +175,66 @@ int main(void)
 		ok("CSD v2 capacity retains the SDXC-sized upper bits",
 		   mmc_csd_v2_sector_count(csd) == 134217728UL);
 		sd.blocks = BLOCKS;
+		ok("small image CSD rounds up to the SDHC capacity quantum",
+		   read_register(&mem, 9, csd) &&
+		   mmc_csd_v2_sector_count(csd) == 1024);
 	}
+
+	/* Linux mmc_spi's complete SDHC discovery/register sequence. */
+	command(&mem, 1, 0);
+	ok("CMD1 selects legacy byte addressing", settle(&mem) == 0x00 &&
+	   sd.byte_addressed);
+	command(&mem, 55, 0);
+	ok("CMD55 prefixes an application command", settle(&mem) == 0x00);
+	command(&mem, 41, 1u << 30);
+	ok("ACMD41 returns an SDHC card to block addressing",
+	   settle(&mem) == 0x00 && !sd.byte_addressed);
+	{
+		uint8_t scr[8];
+		uint8_t status[64];
+
+		command(&mem, 55, 0);
+		ok("CMD55 accepts SEND_SCR", settle(&mem) == 0x00);
+		command(&mem, 51, 0);
+		ok("ACMD51 returns a CRC-valid SD 2.0 SCR",
+		   read_payload(&mem, scr, sizeof scr) &&
+		   scr[0] == 0x02 && (scr[1] & 0x0f) == 0x05);
+
+		command(&mem, 55, 0);
+		ok("CMD55 accepts SD_STATUS", settle(&mem) == 0x00);
+		command(&mem, 13, 0);
+		ok("ACMD13 returns a CRC-valid 64-byte SD Status",
+		   read_payload(&mem, status, sizeof status));
+
+		command(&mem, 6, 0x00fffff0);
+		ok("CMD6 returns a CRC-valid switch-status register",
+		   read_payload(&mem, status, sizeof status));
+	}
+	command(&mem, 13, 0);
+	ok("CMD13 returns both bytes of the SPI R2 status",
+	   settle(&mem) == 0x00 && xchg(&mem, 0xff) == 0x00);
+	command(&mem, 59, 1);
+	ok("CMD59 accepts Linux enabling SPI data CRCs", settle(&mem) == 0x00);
+	{
+		uint8_t block[512];
+
+		command(&mem, 17, 0);
+		ok("CMD17 data carries the CRC16 Linux verifies",
+		   read_payload(&mem, block, sizeof block));
+	}
+
+	/* Removing slot power resets card protocol state, not the controller. */
+	sd.byte_addressed = true;
+	sd.expect_acmd = true;
+	sd.resp_bit = 3;
+	port.reg[OFF_P3D] |= 1u << 2;
+	sd_poll(&sd);
+	ok("slot power-off resets queued protocol and response alignment",
+	   !sd.card_powered && sd.idle && !sd.byte_addressed &&
+	   !sd.expect_acmd && sd.resp_bit == 0);
+	port.reg[OFF_P3D] &= (uint8_t)~(1u << 2);
+	sd_poll(&sd);
+	ok("slot power-on makes the reset card visible again", sd.card_powered);
 
 	command(&mem, 24, 7);                /* WRITE_BLOCK, block 7 */
 	ok("CMD24 is accepted", settle(&mem) == 0x00);

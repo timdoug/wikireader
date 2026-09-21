@@ -71,6 +71,29 @@ static void respond(struct sdcard *sd, uint8_t r1)
 	push(sd, r1);
 }
 
+static uint16_t data_crc16(const uint8_t *data, size_t len)
+{
+	uint16_t crc = 0;
+
+	while (len--) {
+		crc ^= (uint16_t)*data++ << 8;
+		for (unsigned bit = 0; bit < 8; bit++)
+			crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+	}
+	return crc;
+}
+
+static void queue_register(struct sdcard *sd, const uint8_t *data, size_t len)
+{
+	uint16_t crc = data_crc16(data, len);
+
+	push(sd, TOKEN_DATA);
+	for (size_t i = 0; i < len; i++)
+		push(sd, data[i]);
+	push(sd, crc >> 8);
+	push(sd, crc);
+}
+
 static bool read_block(struct sdcard *sd, uint32_t blk, uint8_t *out)
 {
 	if (!sd->img)
@@ -107,8 +130,9 @@ static void queue_block(struct sdcard *sd, uint32_t blk)
 		push(sd, buf[i]);
 	sd->block_last_pos = sd->resp_len - 1;
 	sd->block_timing = true;
-	push(sd, 0xFF);          /* CRC16, unchecked by the driver */
-	push(sd, 0xFF);
+	uint16_t crc = data_crc16(buf, sizeof buf);
+	push(sd, crc >> 8);
+	push(sd, crc);
 }
 
 /*
@@ -148,7 +172,7 @@ static void execute(struct sdcard *sd)
 	sd->commands++;
 	sd->streaming = false;
 
-	if (sd->trace && sd->commands <= 400)
+	if (sd->trace)
 		fprintf(stderr, "  SD %s%u arg=%#010x\n", app ? "ACMD" : "CMD",
 			idx, arg);
 
@@ -158,11 +182,16 @@ static void execute(struct sdcard *sd)
 			return;
 		}
 		sd->idle = false;
+		/* This model is SDHC: successful ACMD41 selects block addressing. */
+		sd->byte_addressed = false;
 		respond(sd, 0x00);
 		return;
 	}
 	if (app && idx == 13) {                 /* ACMD13: SD_STATUS */
+		uint8_t status[64] = { 0 };
+
 		respond(sd, 0x00);
+		queue_register(sd, status, sizeof status);
 		return;
 	}
 	if (app && idx == 23) {                 /* ACMD23: pre-erase count */
@@ -175,6 +204,16 @@ static void execute(struct sdcard *sd)
 		 * no multi-block writing at all.
 		 */
 		respond(sd, 0x00);
+		return;
+	}
+	if (app && idx == 51) {                 /* ACMD51: SEND_SCR */
+		/* SCR v2, mandatory one-bit and four-bit bus-width flags. */
+		static const uint8_t scr[8] = {
+			0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		};
+
+		respond(sd, 0x00);
+		queue_register(sd, scr, sizeof scr);
 		return;
 	}
 
@@ -218,6 +257,24 @@ static void execute(struct sdcard *sd)
 		push(sd, 0x80); push(sd, 0x00);
 		break;
 
+	case 6: {                                /* SWITCH_FUNC */
+		uint8_t status[64] = { 0 };
+
+		/* No optional high-speed/UHS functions advertised. */
+		respond(sd, 0x00);
+		queue_register(sd, status, sizeof status);
+		break;
+	}
+
+	case 13:                                 /* SEND_STATUS -> R2 */
+		respond(sd, 0x00);
+		push(sd, 0x00);
+		break;
+
+	case 59:                                 /* CRC_ON_OFF */
+		respond(sd, 0x00);
+		break;
+
 	case 16:                                 /* SET_BLOCKLEN */
 	case 12:                                 /* STOP_TRANSMISSION */
 		respond(sd, 0x00);
@@ -238,7 +295,8 @@ static void execute(struct sdcard *sd)
 			 * zero clock and a 1-byte sector out of a CSD that is
 			 * blank everywhere else.
 			 */
-			uint32_t csize = (uint32_t)(sd->blocks / 1024) - 1;
+			/* SDHC CSD capacity is quantized in 1024-sector units. */
+			uint32_t csize = (uint32_t)((sd->blocks + 1023) / 1024) - 1;
 			static const uint8_t fixed[16] = {
 				0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00, 0x00,
 				0x00, 0x00, 0x7f, 0x80, 0x0a, 0x40, 0x00, 0x01,
@@ -250,7 +308,8 @@ static void execute(struct sdcard *sd)
 		}
 		for (int i = 0; i < 16; i++)
 			push(sd, reg[i]);
-		push(sd, 0xFF); push(sd, 0xFF);
+		uint16_t crc = data_crc16(reg, sizeof reg);
+		push(sd, crc >> 8); push(sd, crc);
 		break;
 	}
 
@@ -460,6 +519,24 @@ static unsigned spi_bits(const struct sdcard *sd)
 
 static void start_queued_spi(struct sdcard *sd);
 
+static void reset_card_protocol(struct sdcard *sd)
+{
+	sd->token_ready = sd->init_ready = sd->write_ready = 0;
+	sd->initializing = false;
+	sd->cmdlen = 0;
+	sd->collecting = false;
+	sd->resp_len = sd->resp_pos = 0;
+	sd->resp_bit = 0;
+	sd->idle = true;
+	sd->expect_acmd = false;
+	sd->byte_addressed = false;
+	sd->streaming = false;
+	sd->awaiting_token = false;
+	sd->receiving = false;
+	sd->write_multi = false;
+	sd->block_timing = false;
+}
+
 static void dma_event(struct sdcard *sd, unsigned request)
 {
 	/* V.2.7: TXDE/RXDE independently gate the corresponding ITC cause. */
@@ -485,7 +562,8 @@ static void complete_spi(struct sdcard *sd)
 	/* Route the shared SPI bus by the two active-low chip selects. */
 	bool ee = sd->eeprom && sd->port &&
 		  port_cs_low(sd->port, CS_EEPROM_BIT);
-	bool card = !sd->port || port_cs_low(sd->port, CS_SDCARD_BIT);
+	bool card = sd->card_powered &&
+		(!sd->port || port_cs_low(sd->port, CS_SDCARD_BIT));
 	if (!ee && sd->eeprom_selected && sd->eeprom)
 		eeprom_deselect(sd->eeprom);
 	sd->eeprom_selected = ee;
@@ -567,6 +645,13 @@ static void start_queued_spi(struct sdcard *sd)
 
 void sd_poll(struct sdcard *sd)
 {
+	bool powered = !sd->port || port_sd_powered(sd->port);
+
+	if (powered != sd->card_powered) {
+		if (!powered)
+			reset_card_protocol(sd);
+		sd->card_powered = powered;
+	}
 	if (!sd->clock || sd->polling)
 		return;
 	sd->polling = true;
@@ -688,6 +773,7 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 	sd->idle = true;
 	sd->port = port;
 	sd->eeprom = eeprom;
+	sd->card_powered = !port || port_sd_powered(port);
 	sd->readonly = readonly;
 
 	if (path) {
@@ -714,27 +800,20 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 
 void sd_reset(struct sdcard *sd)
 {
-	sd->token_ready = sd->init_ready = sd->write_ready = 0;
-	sd->initializing = false;
-	sd->cmdlen = 0;
-	sd->collecting = false;
-	sd->resp_len = sd->resp_pos = 0;
-	sd->idle = true;
+	reset_card_protocol(sd);
 	sd->spi_ctl1 = 0;
 	sd->spi_int = sd->spi_rxmask = 0;
 	sd->busy_control_accesses = sd->unsafe_disables = 0;
-	sd->unclamped_disables = sd->resp_bit = 0;
+	sd->unclamped_disables = 0;
 	sd->spi_wait = 0;
 	sd->busy = false;
 	sd->tx_full = sd->shifting = sd->polling = false;
 	sd->deadline = sd->next_start = 0;
 	sd->character_cycles = 0;
-	sd->block_timing = false;
 	sd->rdff = sd->rdof = false;
 	sd->rxd = 0xff;
 	sd->eeprom_selected = false;
-	sd->byte_addressed = false;
-	sd->streaming = false;
+	sd->card_powered = !sd->port || port_sd_powered(sd->port);
 }
 
 void sd_close(struct sdcard *sd)

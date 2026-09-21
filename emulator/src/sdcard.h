@@ -28,6 +28,7 @@ struct sdcard {
 	const struct port *port;
 	struct eeprom     *eeprom;
 	bool               eeprom_selected;   /* to detect deselect edges */
+	bool               card_powered;
 
 	FILE     *img;
 	uint64_t  blocks;

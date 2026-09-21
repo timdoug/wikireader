@@ -891,6 +891,14 @@ The SD card operates in SPI mode. Character completion follows live `BPT`,
 `MCBR`, and `SPI_WAIT` values and updates `BSYF`, `TDEF`, `RDFF`, and `RDOF`
 at the scheduled event.
 
+The card model implements the standard SDHC initialization and register
+transactions used by Linux `mmc_spi`, including SCR, SD Status, switch
+status, status, and CRC enable commands. Read payloads carry calculated
+CRC16 values, and a successful ACMD41 changes the card from a loader's
+legacy byte-addressed CMD1 session back to SDHC block addressing. Use
+`--trace-sd` to log card commands without enabling the much noisier MMIO
+trace.
+
 The default read backend uses HSDMA3 for SPI RX and HSDMA2 to feed word TX.
 Byte payloads and the IDMA comparison build use IDMA channel `0x24` to write
 dummy TX data after RX completion. The model covers the dual-address

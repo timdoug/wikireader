@@ -47,7 +47,9 @@ shell_ready="C33 BusyBox shell ready on ttyC330"
 shell_expected="C33 INTERACTIVE HUSH PASS"
 touch_irq_expected="C33 touch: on-screen keyboard injected console input"
 touch_output="touch keyboard pass"
-sd_expected="C33 SD/FAT: mounted /dev/wrsd1 and persisted linux.ok"
+sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
+sd_probe_expected="mmc0: new SDHC card on SPI"
+sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 process_expected="C33 process test: clone -> execve -> wait4 passed"
 child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
@@ -63,6 +65,8 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$touch_irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$sd_probe_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F -- "$sd_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$child_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$signal_expected" "$work/boot.log" >/dev/null || \
@@ -70,6 +74,12 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$libc_expected" "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux did not complete the PID 1 UART round trip." >&2
+	exit 1
+fi
+if grep -E "mmc[0-9]+: error -[0-9]+ whilst initialising" \
+   "$work/boot.log" >/dev/null; then
+	cat "$work/boot.log" >&2
+	echo "Generic MMC required an avoidable card-initialisation retry." >&2
 	exit 1
 fi
 if ! LC_ALL=C tr -d '\015' <"$work/boot.log" | \
@@ -93,6 +103,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|wrsd:|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 SD/FAT|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|mmc_spi|mmcblk0|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."
