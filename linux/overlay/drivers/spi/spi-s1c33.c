@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Epson S1C33 synchronous serial interface controller. */
 #include <linux/bitops.h>
+#include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/errno.h>
 #include <linux/io.h>
@@ -67,6 +68,7 @@ struct s1c33_spi {
 	void __iomem *base;
 	void __iomem *dma;
 	void __iomem *itc;
+	struct clk *clk;
 	const struct s1c33_spi_platform_data *pdata;
 	u32 control;
 	u32 dummy;
@@ -91,7 +93,7 @@ static unsigned int s1c33_spi_divisor(struct s1c33_spi *hw,
 				       unsigned int requested,
 				       unsigned long *effective)
 {
-	unsigned long clock = hw->pdata->get_clock_rate();
+	unsigned long clock = clk_get_rate(hw->clk);
 	unsigned int setting = 0;
 	unsigned int divisor = 4;
 
@@ -360,12 +362,16 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	int irq;
 	int ret;
 
-	if (!pdata || !pdata->get_clock_rate || !pdata->set_cs)
+	if (!pdata || !pdata->set_cs)
 		return -EINVAL;
 	controller = devm_spi_alloc_host(&pdev->dev, sizeof(*hw));
 	if (!controller)
 		return -ENOMEM;
 	hw = spi_controller_get_devdata(controller);
+	hw->clk = devm_clk_get_enabled(&pdev->dev, NULL);
+	if (IS_ERR(hw->clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(hw->clk),
+				     "cannot enable input clock\n");
 	hw->base = devm_platform_ioremap_resource_byname(pdev, "spi");
 	if (IS_ERR(hw->base))
 		return dev_err_probe(&pdev->dev, PTR_ERR(hw->base),
@@ -393,7 +399,10 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, ret,
 				     "cannot request receive DMA interrupt\n");
 
-	clock = pdata->get_clock_rate();
+	clock = clk_get_rate(hw->clk);
+	if (!clock)
+		return dev_err_probe(&pdev->dev, -EINVAL,
+				     "input clock has no rate\n");
 	controller->bus_num = 0;
 	controller->num_chipselect = 1;
 	controller->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;

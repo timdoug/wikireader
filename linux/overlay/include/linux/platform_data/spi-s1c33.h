@@ -7,7 +7,6 @@
 struct spi_board_info;
 
 struct s1c33_spi_platform_data {
-	unsigned long (*get_clock_rate)(void);
 	void (*set_cs)(unsigned int chip_select, bool high);
 	void (*hold_clock)(bool hold, bool high);
 	struct spi_board_info *devices;

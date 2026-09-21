@@ -69,9 +69,17 @@ the userspace console replaces it after init completes.
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. Linux decodes the live CMU clock selection and
-uses that rate for the tick timer and both UART divisors. This also keeps a
-kernel entered by already-running firmware correct if that firmware selected
-the PLL first.
+publishes MCLK through the common clock framework. Both serial ports and the
+SPI controller acquire and enable that standard clock; their drivers no longer
+call a board-specific clock callback or receive a copied clock rate. The early
+tick timer uses the same hardware decoder before clock providers are available.
+This also keeps a kernel entered by already-running firmware correct if that
+firmware selected the PLL first. UART initial speeds and the touchscreen
+link's receive-only wiring are firmware properties, so the serial driver has
+no private platform data or board-supplied register encodings.
+The compact defconfig also enables the kernel's section garbage collection;
+unused code and data from generic subsystems are discarded while C33 retains
+its faster short-call model.
 
 PID 1 is ordinary linked C apart from its entry point and syscall veneers.
 The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
@@ -189,9 +197,10 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The next normalization slice is shrinking the remaining board callbacks and
-platform data behind standard clock, pin-control, GPIO, regulator, and DMA
-providers. That will let the UART, SPI/MMC, and framebuffer devices consume the
-same resource descriptions as device-tree systems. Richer keyboard modes,
-console session management, and power management can then grow around the
-proven LCD, touch, PTY, storage, and recovery userspace paths.
+The next normalization slice is replacing the remaining SPI chip-select,
+clock-pin hold, and MMC power callbacks with pin-control, GPIO, and regulator
+providers, then separating the embedded HSDMA implementation behind DMAengine.
+That will let SPI/MMC consume the same resources as device-tree systems.
+Richer keyboard modes, console session management, and power management can
+then grow around the proven LCD, touch, PTY, storage, and recovery userspace
+paths.

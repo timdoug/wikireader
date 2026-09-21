@@ -6,7 +6,6 @@
 #include <linux/io.h>
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
-#include <linux/platform_data/serial-s1c33.h>
 #include <linux/property.h>
 #include <linux/spi/mmc_spi.h>
 #include <linux/spi/spi.h>
@@ -120,7 +119,6 @@ static struct spi_board_info wr_spi_devices[] = {
 };
 
 static struct s1c33_spi_platform_data wr_spi_pdata = {
-	.get_clock_rate = c33_mclk_hz,
 	.set_cs = wr_spi_set_cs,
 	.hold_clock = wr_spi_hold_clock,
 	.devices = wr_spi_devices,
@@ -150,6 +148,17 @@ static const struct resource wr_uart1_resources[] = {
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
 };
 
+static const struct property_entry wr_uart0_properties[] = {
+	PROPERTY_ENTRY_U32("current-speed", 115200),
+	{ }
+};
+
+static const struct property_entry wr_uart1_properties[] = {
+	PROPERTY_ENTRY_U32("current-speed", 9600),
+	PROPERTY_ENTRY_BOOL("epson,rx-only"),
+	{ }
+};
+
 static const struct property_entry wr_touch_properties[] = {
 	PROPERTY_ENTRY_STRING("compatible", "openmoko,wikireader-touchscreen"),
 	PROPERTY_ENTRY_U32("current-speed", 9600),
@@ -158,8 +167,14 @@ static const struct property_entry wr_touch_properties[] = {
 	{ }
 };
 
+static const struct software_node wr_uart0_node = {
+	.name = "uart0",
+	.properties = wr_uart0_properties,
+};
+
 static const struct software_node wr_uart1_node = {
 	.name = "uart1",
+	.properties = wr_uart1_properties,
 };
 
 static const struct software_node wr_touch_node = {
@@ -168,7 +183,8 @@ static const struct software_node wr_touch_node = {
 	.properties = wr_touch_properties,
 };
 
-static const struct software_node *wr_uart1_nodes[] = {
+static const struct software_node *wr_uart_nodes[] = {
+	&wr_uart0_node,
 	&wr_uart1_node,
 	&wr_touch_node,
 	NULL,
@@ -194,12 +210,16 @@ static void __init wr_uart_prepare(void)
 
 static int __init c33_devices_init(void)
 {
-	struct s1c33_uart_platform_data uart0_pdata;
-	struct s1c33_uart_platform_data uart1_pdata;
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
 	int ret;
 	u32 gate;
+
+	ret = software_node_register_node_group(wr_uart_nodes);
+	if (ret) {
+		pr_err("C33 devices: UART firmware nodes failed: %d\n", ret);
+		return ret;
+	}
 
 	/* WikiReader SPI pins, inactive chip selects, and SD power controls. */
 	wr_modify8(WR_P6_FUNC47, 0xfc, 0x54);
@@ -233,15 +253,11 @@ static int __init c33_devices_init(void)
 		return PTR_ERR(device);
 	}
 	wr_uart_prepare();
-	uart0_pdata.clock_rate = c33_mclk_hz();
-	uart0_pdata.default_baud = 115200;
-	uart0_pdata.control = 0xcb;
 	uart_info.name = "s1c33-uart";
 	uart_info.id = 0;
 	uart_info.res = wr_uart0_resources;
 	uart_info.num_res = ARRAY_SIZE(wr_uart0_resources);
-	uart_info.data = &uart0_pdata;
-	uart_info.size_data = sizeof(uart0_pdata);
+	uart_info.fwnode = software_node_fwnode(&wr_uart0_node);
 	device = platform_device_register_full(&uart_info);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: UART0 platform registration failed: %ld\n",
@@ -256,25 +272,14 @@ static int __init c33_devices_init(void)
 		return PTR_ERR(device);
 	}
 	wr_touch_prepare();
-	uart1_pdata.clock_rate = c33_mclk_hz();
-	uart1_pdata.default_baud = 9600;
-	uart1_pdata.control = 0x4b;
-	ret = software_node_register_node_group(wr_uart1_nodes);
-	if (ret) {
-		pr_err("C33 devices: UART1 firmware nodes failed: %d\n", ret);
-		return ret;
-	}
 	uart_info.id = 1;
 	uart_info.res = wr_uart1_resources;
 	uart_info.num_res = ARRAY_SIZE(wr_uart1_resources);
-	uart_info.data = &uart1_pdata;
-	uart_info.size_data = sizeof(uart1_pdata);
 	uart_info.fwnode = software_node_fwnode(&wr_uart1_node);
 	device = platform_device_register_full(&uart_info);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: UART1 platform registration failed: %ld\n",
 		       PTR_ERR(device));
-		software_node_unregister_node_group(wr_uart1_nodes);
 		return PTR_ERR(device);
 	}
 	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, and touchscreen\n");

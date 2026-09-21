@@ -64,10 +64,12 @@ child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
+clock_expected="C33 clock: registered 48000000 Hz MCLK"
 if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_controller_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_userspace_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$dma_irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \

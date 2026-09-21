@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Epson S1C33 asynchronous serial controller */
+#include <linux/clk.h>
 #include <linux/console.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/serial.h>
 #include <linux/serial_core.h>
 #include <linux/tty_flip.h>
-
-#include <linux/platform_data/serial-s1c33.h>
 
 #define S1C33_UART_TXD		0
 #define S1C33_UART_RXD		1
@@ -23,6 +23,13 @@
 #define S1C33_UART_RX_READY	BIT(0)
 #define S1C33_UART_TX_READY	BIT(1)
 #define S1C33_UART_ERRORS	0x1c
+#define S1C33_UART_TX_ENABLE	BIT(7)
+#define S1C33_UART_RX_ENABLE	BIT(6)
+#define S1C33_UART_ONE_STOP_BIT	BIT(3)
+#define S1C33_UART_EIGHT_BIT_ASYNC 0x03
+#define S1C33_UART_8N1		(S1C33_UART_RX_ENABLE | \
+				 S1C33_UART_ONE_STOP_BIT | \
+				 S1C33_UART_EIGHT_BIT_ASYNC)
 #define S1C33_UART_DEFAULT_BAUD	115200
 #define S1C33_UART_NR		2
 
@@ -229,18 +236,31 @@ static const struct uart_ops s1c33_uart_ops = {
 
 static int s1c33_uart_probe(struct platform_device *pdev)
 {
-	const struct s1c33_uart_platform_data *pdata =
-		dev_get_platdata(&pdev->dev);
 	struct s1c33_uart *uart;
 	struct uart_port *port;
 	struct resource *resource;
+	struct clk *clk;
+	unsigned long clock_rate;
 	unsigned int baud;
 	int line = pdev->id;
 	int ret;
 
-	if (!pdata || !pdata->clock_rate || line < 0 ||
-	    line >= S1C33_UART_NR)
+	if (line < 0 || line >= S1C33_UART_NR)
 		return -EINVAL;
+	clk = devm_clk_get_enabled(&pdev->dev, NULL);
+	if (IS_ERR(clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(clk),
+				     "cannot enable input clock\n");
+	clock_rate = clk_get_rate(clk);
+	if (!clock_rate)
+		return dev_err_probe(&pdev->dev, -EINVAL,
+				     "input clock has no rate\n");
+	ret = device_property_read_u32(&pdev->dev, "current-speed", &baud);
+	if (ret)
+		baud = S1C33_UART_DEFAULT_BAUD;
+	if (!baud)
+		return dev_err_probe(&pdev->dev, -EINVAL,
+				     "invalid current-speed property\n");
 
 	uart = devm_kzalloc(&pdev->dev, sizeof(*uart), GFP_KERNEL);
 	if (!uart)
@@ -258,12 +278,14 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	uart->error_irq = platform_get_irq_byname_optional(pdev, "error");
 	if (uart->error_irq == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
-	uart->control = pdata->control;
+	uart->control = S1C33_UART_8N1;
+	if (!device_property_read_bool(&pdev->dev, "epson,rx-only"))
+		uart->control |= S1C33_UART_TX_ENABLE;
 
 	port->dev = &pdev->dev;
 	port->mapbase = resource->start;
 	port->irq = ret;
-	port->uartclk = pdata->clock_rate;
+	port->uartclk = clock_rate;
 	port->iotype = UPIO_MEM;
 	port->flags = UPF_BOOT_AUTOCONF | UPF_FIXED_PORT | UPF_FIXED_TYPE;
 	port->ops = &s1c33_uart_ops;
@@ -271,7 +293,6 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	port->type = 1;
 	port->line = line;
 	spin_lock_init(&port->lock);
-	baud = pdata->default_baud ?: S1C33_UART_DEFAULT_BAUD;
 	s1c33_uart_set_baud(port, baud);
 
 	platform_set_drvdata(pdev, port);
