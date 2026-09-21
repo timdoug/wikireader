@@ -11,6 +11,7 @@
 
 #include <linux/platform_data/spi-s1c33.h>
 
+#include <asm/irq.h>
 #include <asm/wikireader.h>
 
 #define WR_REG_BASE       0x00300000UL
@@ -122,7 +123,8 @@ static struct s1c33_spi_platform_data wr_spi_pdata = {
 static const struct resource wr_spi_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
-	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x271, 0x29, "itc"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x37, "itc"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_HSDMA3, "rx-dma"),
 };
 
 static int __init c33_devices_init(void)

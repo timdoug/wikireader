@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Epson S1C33 synchronous serial interface controller. */
 #include <linux/bitops.h>
+#include <linux/completion.h>
 #include <linux/errno.h>
 #include <linux/io.h>
+#include <linux/interrupt.h>
 #include <linux/irqflags.h>
+#include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
@@ -32,6 +35,7 @@
 #define S1C33_SPI_TX_DMA    BIT(3)
 
 #define S1C33_SPI_POLLS     1000000
+#define S1C33_DMA_TIMEOUT   1000
 
 #define S1C33_DMA_HS2       0x40
 #define S1C33_DMA_HS3       0x50
@@ -51,9 +55,10 @@
 #define S1C33_DMA_ADV_SRC3  0x94
 #define S1C33_DMA_ADV_DST3  0x98
 
-#define S1C33_ITC_DMA_FLAG   0x10
-#define S1C33_ITC_SPI_FLAG   0x18
-#define S1C33_ITC_HS_TRIGGER 0x28
+#define S1C33_ITC_DMA_PRIORITY 0x01
+#define S1C33_ITC_DMA_FLAG     0x1e
+#define S1C33_ITC_SPI_FLAG     0x26
+#define S1C33_ITC_HS_TRIGGER   0x36
 #define S1C33_HSDMA2_FLAG    BIT(2)
 #define S1C33_HSDMA3_FLAG    BIT(3)
 #define S1C33_SPI_DMA_FLAGS  (BIT(4) | BIT(5))
@@ -65,6 +70,8 @@ struct s1c33_spi {
 	const struct s1c33_spi_platform_data *pdata;
 	u32 control;
 	u32 dummy;
+	struct completion dma_done;
+	int dma_irq;
 	unsigned long dma_transfers;
 };
 
@@ -212,16 +219,24 @@ static void s1c33_hsdma_channel(struct s1c33_spi *hw, unsigned int channel,
 	writew(1, hw->dma + base + S1C33_DMA_TRIGGER);
 }
 
+static irqreturn_t s1c33_spi_dma_interrupt(int irq, void *data)
+{
+	struct s1c33_spi *hw = data;
+
+	complete(&hw->dma_done);
+	return IRQ_HANDLED;
+}
+
 static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 			      struct spi_transfer *transfer)
 {
 	u8 *rx = transfer->rx_buf;
 	u32 destination = (u32)(unsigned long)rx;
 	unsigned int words = transfer->len / 4;
-	unsigned int poll;
 	unsigned int i;
 	u8 old_trigger;
-	u8 flags = 0;
+	bool completed;
+	bool irq_disabled = false;
 
 	if (!rx || transfer->len < 64 || transfer->len & 3 ||
 	    destination & 3 || words > 0xffff ||
@@ -232,6 +247,7 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 
 	s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 32, true);
 	hw->dummy = ~0U;
+	reinit_completion(&hw->dma_done);
 	writew(1, hw->dma + S1C33_DMA_ADV_MODE);
 	s1c33_hsdma_channel(hw, 3, words,
 			      (u32)(unsigned long)hw->base + S1C33_SPI_RXD,
@@ -249,19 +265,24 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
 	writel(~0U, hw->base + S1C33_SPI_TXD);
 
-	for (poll = 0; poll < S1C33_SPI_POLLS; poll++) {
-		flags = readb(hw->itc + S1C33_ITC_DMA_FLAG);
-		if (flags & S1C33_HSDMA3_FLAG)
-			break;
-		cpu_relax();
+	completed = wait_for_completion_timeout(&hw->dma_done,
+						msecs_to_jiffies(S1C33_DMA_TIMEOUT));
+	if (!completed) {
+		/* Close the late-IRQ race before checking the latched cause. */
+		disable_irq(hw->dma_irq);
+		irq_disabled = true;
+		completed = completion_done(&hw->dma_done) ||
+			(readb(hw->itc + S1C33_ITC_DMA_FLAG) &
+			 S1C33_HSDMA3_FLAG);
 	}
 	writew(0, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
 	writew(0, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
 	writeb(old_trigger, hw->itc + S1C33_ITC_HS_TRIGGER);
 	writeb(S1C33_HSDMA2_FLAG | S1C33_HSDMA3_FLAG,
 	       hw->itc + S1C33_ITC_DMA_FLAG);
-	if (!(flags & S1C33_HSDMA3_FLAG) ||
-	    s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
+	if (irq_disabled)
+		enable_irq(hw->dma_irq);
+	if (!completed || s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
 		return -ETIMEDOUT;
 
 	for (i = 0; i < transfer->len; i += 4) {
@@ -270,7 +291,7 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 		put_unaligned(swab32(value), (u32 *)(rx + i));
 	}
 	hw->dma_transfers++;
-	dev_info_once(&spi->dev, "32-bit HSDMA bulk reads active\n");
+	dev_info_once(&spi->dev, "32-bit HSDMA bulk reads use IRQ completion\n");
 	return 0;
 }
 
@@ -336,6 +357,7 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	struct s1c33_spi *hw;
 	unsigned int i;
 	unsigned long clock;
+	int irq;
 	int ret;
 
 	if (!pdata || !pdata->get_clock_rate || !pdata->set_cs)
@@ -358,6 +380,18 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 				     "cannot map interrupt registers\n");
 	hw->pdata = pdata;
 	hw->control = ~0U;
+	init_completion(&hw->dma_done);
+	writeb((readb(hw->itc + S1C33_ITC_DMA_PRIORITY) & 0x8f) | 0x40,
+	       hw->itc + S1C33_ITC_DMA_PRIORITY);
+	irq = platform_get_irq_byname(pdev, "rx-dma");
+	if (irq < 0)
+		return irq;
+	hw->dma_irq = irq;
+	ret = devm_request_irq(&pdev->dev, irq,
+			       s1c33_spi_dma_interrupt, 0, "s1c33-spi-rx", hw);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret,
+				     "cannot request receive DMA interrupt\n");
 
 	clock = pdata->get_clock_rate();
 	controller->bus_num = 0;

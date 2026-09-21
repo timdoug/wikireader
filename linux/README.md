@@ -14,9 +14,10 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
 
 Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
 with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
-UART, and touch drivers use normal `request_irq()` registrations visible in
-`/proc/interrupts`. Linux runs the scheduler, registers the interrupt-driven
-`ttyC330` UART console, and loads a tiny compiled-C bFLT process as PID 1.
+UART, touch, and SPI receive-DMA paths use normal `request_irq()` registrations
+visible in `/proc/interrupts`. Linux runs the scheduler, registers the
+interrupt-driven `ttyC330` UART console, and loads a tiny compiled-C bFLT
+process as PID 1.
 PID 1 provides an interactive
 `h`/`p`/`c` shell: it reads commands through the Linux TTY layer, invokes
 `getpid()` for `p`, reports its global command counter for `c`, and remains
@@ -134,7 +135,9 @@ S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
 also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
 transmit/receive pair. Short, unaligned, command, and write transfers retain a
 bounded programmed-I/O path, so the optimization remains entirely behind the
-standard SPI controller API. The kernel includes FAT/VFAT and mounts the first
+standard SPI controller API. Bulk reads sleep on a Linux completion signaled by
+the HSDMA3 IRQ, with a bounded latched-cause check only for lost-interrupt
+recovery. The kernel includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Early userspace leaves
 `linux.ok` there as a persistent, serial-port-free boot report.
 
@@ -151,12 +154,13 @@ display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
-The same regression requires the Linux driver to announce its HSDMA path and
-the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity.
+The same regression requires the Linux driver to announce IRQ-driven HSDMA,
+requires vector 25 to have a nonzero `/proc/interrupts` count, and requires the
+emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity.
 
 ## What comes next
 
-The next useful vertical slices are interrupt-driven SPI DMA completion and a
-framebuffer interface. Richer keyboard modes and power management can then
-grow around the proven LCD, touch, console, storage, and recovery userspace
-paths.
+The next useful vertical slices are a framebuffer interface and fuller device
+description in standard kernel data structures. Richer keyboard modes and
+power management can then grow around the proven LCD, touch, console, storage,
+and recovery userspace paths.

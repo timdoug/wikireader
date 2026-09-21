@@ -3,6 +3,14 @@
 
 	.text
 
+	.global c33_hsdma3_vector
+	.type c33_hsdma3_vector,@function
+c33_hsdma3_vector:
+	push %r4
+	xld.w %r4,25
+	xjp c33_exception
+	.size c33_hsdma3_vector,.-c33_hsdma3_vector
+
 	.global c33_timer_vector
 	.type c33_timer_vector,@function
 c33_timer_vector:
@@ -180,7 +188,11 @@ c33_vector_table:
 	.long c33_unhandled_vector
 	.endr
 	.long c33_syscall_vector
-	.rept 25
+	.rept 12
+	.long c33_unhandled_vector
+	.endr
+	.long c33_hsdma3_vector
+	.rept 12
 	.long c33_unhandled_vector
 	.endr
 	.long c33_timer_vector
