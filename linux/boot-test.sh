@@ -50,6 +50,7 @@ touch_output="touch keyboard pass"
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
+sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
 process_expected="C33 process test: clone -> execve -> wait4 passed"
 child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
@@ -67,6 +68,7 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_probe_expected" "$work/boot.log" >/dev/null || \
    ! grep -F -- "$sd_clock_expected" "$work/boot.log" >/dev/null || \
+   ! grep -E -- "$sd_width_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$process_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$child_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$signal_expected" "$work/boot.log" >/dev/null || \
@@ -103,6 +105,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|mmc_spi|mmcblk0|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|mmc_spi|mmcblk0|spi width:|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

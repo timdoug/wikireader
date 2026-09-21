@@ -54,7 +54,7 @@ static void reset_all(struct mem *m, struct dma *dma, struct sdcard *sd,
 	itc_reset(itc);
 	cmu_reset(cmu);
 	sd_reset(sd);
-	sd->xfers = 0;
+	sd->xfers = sd->xfers8 = sd->xfers16 = sd->xfers32 = 0;
 	sd->shift_cycles = 0;
 	sd->wait_cycles = 0;
 	dma_reset(dma);
@@ -258,6 +258,7 @@ int main(void)
 		sd_poll(&sd);
 	}
 	assert(sd.resp_pos == 512 && sd.overflows == 0);
+	assert(sd.xfers8 == 0 && sd.xfers16 == 0 && sd.xfers32 == 128);
 	assert(dma.hsdma_transfers == 128 && dma.idma_transfers == 127);
 	assert(sd.shift_cycles == 512u * 32u);
 	assert(sd.wait_cycles == 0);

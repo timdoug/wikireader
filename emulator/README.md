@@ -891,6 +891,10 @@ The SD card operates in SPI mode. Character completion follows live `BPT`,
 `MCBR`, and `SPI_WAIT` values and updates `BSYF`, `TDEF`, `RDFF`, and `RDOF`
 at the scheduled event.
 
+The exit summary separates 8-, 16-, and 32-bit SPI characters. This makes
+controller batching and DMA fast paths observable in full-system tests rather
+than inferring them from a successful filesystem mount.
+
 The card model implements the standard SDHC initialization and register
 transactions used by Linux `mmc_spi`, including SCR, SD Status, switch
 status, status, and CRC enable commands. Read payloads carry calculated

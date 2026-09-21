@@ -122,11 +122,13 @@ remains available as the old freestanding rescue shell.
 
 The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack
 power and pin-mux the WikiReader card slot, identify SDSC and SDHC cards, and
-expose standard devices such as `/dev/mmcblk0p1`. The controller handles all
-four SPI modes, 8-bit full-duplex polling transfers, and the hardware's
-MCLK/4 through MCLK/512 divisors. It reprograms the clock before chip select
-is asserted because disabling the S1C33 serial block while it drives SCLK
-creates a real stray edge. The kernel includes FAT/VFAT and mounts the first
+expose standard devices such as `/dev/mmcblk0p1`. The controller presents
+ordinary 8-bit full-duplex SPI semantics, but batches bulk transfers into
+32-bit hardware characters while preserving their wire byte order. It handles
+all four SPI modes and the hardware's MCLK/4 through MCLK/512 divisors. It
+reprograms the clock before chip select is asserted because disabling the
+S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
+includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Early userspace leaves
 `linux.ok` there as a persistent, serial-port-free boot report. The
 already-proven HSDMA path is a later controller performance step; MMC clients

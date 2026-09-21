@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
+#include <linux/unaligned.h>
 
 #include <linux/platform_data/spi-s1c33.h>
 
@@ -18,7 +19,7 @@
 #define S1C33_SPI_STAT      0x14
 #define S1C33_SPI_INT       0x18
 
-#define S1C33_SPI_BPT_8     (7U << 10)
+#define S1C33_SPI_BPT(bits) (((bits) - 1U) << 10)
 #define S1C33_SPI_CPHA      BIT(9)
 #define S1C33_SPI_CPOL      BIT(8)
 #define S1C33_SPI_DIV_SHIFT 4
@@ -65,14 +66,15 @@ static unsigned int s1c33_spi_divisor(struct s1c33_spi *hw,
 
 static unsigned long s1c33_spi_configure(struct s1c33_spi *hw,
 					 unsigned int speed_hz,
-					 unsigned int mode)
+					 unsigned int mode,
+					 unsigned int bits)
 {
 	unsigned long effective;
 	unsigned int divider = s1c33_spi_divisor(hw, speed_hz, &effective);
 	unsigned int settle;
 	unsigned long flags;
 	u32 interrupts;
-	u32 control = S1C33_SPI_BPT_8 |
+	u32 control = S1C33_SPI_BPT(bits) |
 		(divider << S1C33_SPI_DIV_SHIFT) | S1C33_SPI_MASTER;
 
 	if (mode & SPI_CPHA)
@@ -123,7 +125,7 @@ static int s1c33_spi_prepare_message(struct spi_controller *controller,
 	 */
 	transfer = list_first_entry(&message->transfers, struct spi_transfer,
 				    transfer_list);
-	s1c33_spi_configure(hw, transfer->speed_hz, message->spi->mode);
+	s1c33_spi_configure(hw, transfer->speed_hz, message->spi->mode, 8);
 	return 0;
 }
 
@@ -143,13 +145,28 @@ static int s1c33_spi_transfer_one(struct spi_controller *controller,
 	u8 *rx = transfer->rx_buf;
 	unsigned long effective;
 	unsigned int i;
+	u32 value;
 
 	if (transfer->bits_per_word != 8)
 		return -EINVAL;
-	effective = s1c33_spi_configure(hw, transfer->speed_hz, spi->mode);
+	effective = s1c33_spi_configure(hw, transfer->speed_hz, spi->mode,
+					 transfer->len >= 4 ? 32 : 8);
 	transfer->effective_speed_hz = effective;
 
-	for (i = 0; i < transfer->len; i++) {
+	for (i = 0; i + 4 <= transfer->len; i += 4) {
+		if (s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
+			return -ETIMEDOUT;
+		value = tx ? get_unaligned_be32(tx + i) : ~0U;
+		writel(value, hw->base + S1C33_SPI_TXD);
+		if (s1c33_spi_wait(hw, S1C33_SPI_RX_FULL, true))
+			return -ETIMEDOUT;
+		value = readl(hw->base + S1C33_SPI_RXD);
+		if (rx)
+			put_unaligned_be32(value, rx + i);
+	}
+	if (i != transfer->len)
+		s1c33_spi_configure(hw, transfer->speed_hz, spi->mode, 8);
+	for (; i < transfer->len; i++) {
 		if (s1c33_spi_wait(hw, S1C33_SPI_BUSY, false))
 			return -ETIMEDOUT;
 		writel(tx ? tx[i] : 0xff, hw->base + S1C33_SPI_TXD);

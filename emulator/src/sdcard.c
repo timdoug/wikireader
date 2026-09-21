@@ -608,6 +608,12 @@ static void complete_spi(struct sdcard *sd)
 			sd->xfers, out, sd->rxd,
 			sd->collecting ? " (cmd)" : "");
 	sd->xfers++;
+	if (bits == 32)
+		sd->xfers32++;
+	else if (bits == 16)
+		sd->xfers16++;
+	else
+		sd->xfers8++;
 	/* A buffered word enters the inter-character wait independently of
 	 * RX DMA bus traffic. Its shift-start event remains on the wire clock. */
 	if (sd->clock && sd->tx_full)

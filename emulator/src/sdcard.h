@@ -103,6 +103,7 @@ struct sdcard {
 	bool trace;
 	bool trace_bytes;   /* per-byte SPI log; very verbose */
 	unsigned long xfers;
+	unsigned long xfers8, xfers16, xfers32;
 
 	/* TX request at shift start; RX request at character completion. */
 	sd_dma_event_fn dma_event;

@@ -1507,6 +1507,8 @@ done:
 	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
 	printf("--- spi: %lu characters, %llu shift cycles, %llu enforced wait cycles ---\n",
 	       sd.xfers, sd.shift_cycles, sd.wait_cycles);
+	printf("--- spi width: %lu 8-bit, %lu 16-bit, %lu 32-bit characters ---\n",
+	       sd.xfers8, sd.xfers16, sd.xfers32);
 	printf("--- spi config: %lu busy control accesses, %lu disables with interrupts set ---\n",
 	       sd.busy_control_accesses, sd.unsafe_disables);
 	printf("--- spi clock: %lu unclamped disables with SD selected ---\n",
