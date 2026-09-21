@@ -3,9 +3,11 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/interrupt.h>
 #include <linux/kernel.h>
 
 #include <asm/wikireader.h>
+#include <asm/irq.h>
 
 #define C33_REG_BASE             0x00300000UL
 #define C33_P0_DATA              (C33_REG_BASE + 0x380)
@@ -19,7 +21,6 @@
 #define C33_TOUCH_BRTRDL         (C33_REG_BASE + 0xb16)
 #define C33_TOUCH_BRTRDM         (C33_REG_BASE + 0xb17)
 #define C33_SERIAL_IRQ_PRIORITY  (C33_REG_BASE + 0x26a)
-#define C33_SERIAL_IRQ_ENABLE    (C33_REG_BASE + 0x276)
 #define C33_SERIAL_IRQ_FLAGS     (C33_REG_BASE + 0x286)
 
 #define C33_TOUCH_RX_READY       BIT(0)
@@ -145,13 +146,12 @@ static void touch_byte(u8 byte)
 	}
 }
 
-void c33_touch_interrupt(void)
+static irqreturn_t c33_touch_interrupt(int irq, void *dev_id)
 {
 	u8 status = touch_read(C33_TOUCH_STATUS);
 	int limit = 16;
 
 	c33_lcd_checkpoint(7);
-	touch_write(C33_TOUCH_IRQS, C33_SERIAL_IRQ_FLAGS);
 	if (status & C33_TOUCH_ERRORS) {
 		c33_lcd_checkpoint(11);
 		touch_state = 0;
@@ -164,11 +164,13 @@ void c33_touch_interrupt(void)
 			touch_byte(touch_read(C33_TOUCH_RXD));
 	}
 	touch_write(0, C33_TOUCH_STATUS);
+	return IRQ_HANDLED;
 }
 
 static int __init c33_touch_init(void)
 {
 	int limit = 8;
+	int ret;
 	unsigned long divisor =
 		(c33_mclk_hz() + C33_TOUCH_BAUD * 8) /
 		(C33_TOUCH_BAUD * 16) - 1;
@@ -195,7 +197,16 @@ static int __init c33_touch_init(void)
 	touch_write(0, C33_TOUCH_STATUS);
 	touch_write(C33_TOUCH_IRQS | BIT(5), C33_SERIAL_IRQ_FLAGS);
 	touch_modify(C33_SERIAL_IRQ_PRIORITY, 7, 6);
-	touch_modify(C33_SERIAL_IRQ_ENABLE, 0, C33_TOUCH_IRQS);
+	ret = request_irq(C33_IRQ_UART1_ERROR, c33_touch_interrupt, 0,
+			  "c33-touch-error", NULL);
+	if (ret)
+		return ret;
+	ret = request_irq(C33_IRQ_UART1_RX, c33_touch_interrupt, 0,
+			  "c33-touch-rx", NULL);
+	if (ret) {
+		free_irq(C33_IRQ_UART1_ERROR, NULL);
+		return ret;
+	}
 	pr_info("C33 touch: 9600-baud panel and on-screen keyboard ready\n");
 	return 0;
 }

@@ -2,6 +2,7 @@
 #include <linux/console.h>
 #include <linux/err.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/serial.h>
 #include <linux/tty.h>
@@ -10,6 +11,7 @@
 #include <linux/tty_port.h>
 
 #include <asm/wikireader.h>
+#include <asm/irq.h>
 
 #define C33_UART0_TXD       0x00300b00UL
 #define C33_UART0_RXD       0x00300b01UL
@@ -20,11 +22,9 @@
 #define C33_UART0_BRTRDL    0x00300b06UL
 #define C33_UART0_BRTRDM    0x00300b07UL
 #define C33_UART0_IRQ_PRIO  0x0030026aUL
-#define C33_UART0_IRQ_EN    0x00300276UL
 #define C33_UART0_IRQ_FLAGS 0x00300286UL
 #define C33_UART_RX_READY   1
 #define C33_UART_TX_READY   2
-#define C33_UART_RX_IRQ     (1 << 1)
 #define C33_UART_BAUD       115200UL
 
 static struct tty_driver *c33_tty_driver;
@@ -33,7 +33,6 @@ static bool c33_tty_ready;
 static bool c33_tty_opened;
 
 struct tty_driver *c33_console_device(struct console *console, int *index);
-void c33_uart_rx_interrupt(void);
 
 static void c33_uart_hw_init(void)
 {
@@ -70,8 +69,6 @@ static int c33_tty_open(struct tty_struct *tty, struct file *file)
 	ret = tty_port_open(&c33_tty_port, tty, file);
 	if (!ret && !READ_ONCE(c33_tty_opened)) {
 		WRITE_ONCE(c33_tty_opened, true);
-		*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = C33_UART_RX_IRQ;
-		*(volatile unsigned char *)C33_UART0_IRQ_EN |= C33_UART_RX_IRQ;
 	}
 	return ret;
 }
@@ -127,16 +124,15 @@ struct tty_driver *c33_console_device(struct console *console, int *index)
 	return c33_tty_driver;
 }
 
-void c33_uart_rx_interrupt(void)
+static irqreturn_t c33_uart_rx_interrupt(int irq, void *dev_id)
 {
 	volatile unsigned char *rx = (void *)C33_UART0_RXD;
 	volatile unsigned char *status = (void *)C33_UART0_STATUS;
 	bool inserted = false;
 	int limit = 16;
 
-	*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = C33_UART_RX_IRQ;
 	if (!READ_ONCE(c33_tty_ready) || !READ_ONCE(c33_tty_opened))
-		return;
+		return IRQ_HANDLED;
 	pr_info_once("C33 UART: received vector 57 interrupt\n");
 
 	while ((*status & C33_UART_RX_READY) && limit--) {
@@ -147,6 +143,7 @@ void c33_uart_rx_interrupt(void)
 		tty_flip_buffer_push(&c33_tty_port);
 	if (inserted)
 		c33_lcd_checkpoint(6);
+	return IRQ_HANDLED;
 }
 
 bool c33_tty_inject_char(u8 ch)
@@ -186,6 +183,14 @@ static int __init c33_tty_init(void)
 
 	ret = tty_register_driver(driver);
 	if (ret) {
+		tty_port_destroy(&c33_tty_port);
+		tty_driver_kref_put(driver);
+		return ret;
+	}
+	ret = request_irq(C33_IRQ_UART0_RX, c33_uart_rx_interrupt, 0,
+			  "c33-uart-rx", NULL);
+	if (ret) {
+		tty_unregister_driver(driver);
 		tty_port_destroy(&c33_tty_port);
 		tty_driver_kref_put(driver);
 		return ret;

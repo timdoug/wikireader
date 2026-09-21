@@ -12,9 +12,12 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
                   -> kernel.elf at 0x10040000 -> native C33 Linux
 ```
 
-Linux initializes 32 MiB of SDRAM, the interrupt controller and 100 Hz timer,
-runs the scheduler, registers the interrupt-driven `ttyC330` UART console, and
-loads a tiny compiled-C bFLT process as PID 1. PID 1 provides an interactive
+Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
+with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
+UART, and touch drivers use normal `request_irq()` registrations visible in
+`/proc/interrupts`. Linux runs the scheduler, registers the interrupt-driven
+`ttyC330` UART console, and loads a tiny compiled-C bFLT process as PID 1.
+PID 1 provides an interactive
 `h`/`p`/`c` shell: it reads commands through the Linux TTY layer, invokes
 `getpid()` for `p`, reports its global command counter for `c`, and remains
 alive while timer interrupts keep preempting native C33 userspace.
