@@ -6,7 +6,7 @@ set -eu
 usage()
 {
 	cat <<EOF
-usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... [--sparrow FILE] [--nuttx] ZIM_FILE...
+usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... [--sparrow FILE] [--nuttx] [--linux] ZIM_FILE...
        $(basename "$0") ZIM_FILE OUTPUT.dmg
 
 Create an MBR disk image with:
@@ -29,6 +29,10 @@ key and remembers the selection.
 compiler on the device itself.  Build it with "make nuttx" first.  It cannot
 read the card, so it does not need one, and it keeps the machine until
 "poweroff" or "reboot" stops it.
+
+--linux adds native C33 Linux to the launcher.  Build it with
+"make -C linux build" first.  Linux takes over the machine until poweroff or
+reboot; reboot returns through Grifo and starts the launcher again.
 
 The current GCC 16 Grifo kernel, init application, and zim.app must already
 be built. This command is for macOS and requires hdiutil and diskutil.
@@ -68,6 +72,8 @@ for arg in "$@"; do
 		want_dir=1
 	elif [ "$arg" = "--nuttx" ]; then
 		want_nuttx=1
+	elif [ "$arg" = "--linux" ]; then
+		want_linux=1
 	else
 		zim_files="${zim_files}${arg}
 "
@@ -92,6 +98,8 @@ zim_app="$root_dir/zim/zim.app"
 zim_icon="$root_dir/zim/zim.ico"
 nuttx_app="$root_dir/nuttx/nuttx.app"
 nuttx_icon="$root_dir/nuttx/nuttx.ico"
+linux_app="$root_dir/linux/artifacts/linux.app"
+linux_icon="$root_dir/linux/artifacts/linux.ico"
 nls="$root_dir/XML-Licenses/en/wiki.nls"
 
 case "$output" in
@@ -105,6 +113,7 @@ done
 [ ! -e "$output" ] || { echo "error: output already exists: $output" >&2; exit 2; }
 required_files="$kernel $init_app $zim_app $zim_icon $nls"
 [ -z "${want_nuttx:-}" ] || required_files="$required_files $nuttx_app $nuttx_icon"
+[ -z "${want_linux:-}" ] || required_files="$required_files $linux_app $linux_icon"
 for required in $required_files; do
 	[ -f "$required" ] || {
 		echo "error: required build output not found: $required" >&2
@@ -217,6 +226,12 @@ if [ -n "${want_nuttx:-}" ]; then
 	cp "$nuttx_icon" "$boot_mount/nuttx.ico"
 	# Third, so that the reader stays in the menu position people know.
 	echo 'nuttx.ico : nuttx.app started-from-init' >> "$boot_mount/init.ini"
+fi
+if [ -n "${want_linux:-}" ]; then
+	echo "Installing linux.app..."
+	cp "$linux_app" "$boot_mount/linux.app"
+	cp "$linux_icon" "$boot_mount/linux.ico"
+	echo 'linux.ico : linux.app started-from-init' >> "$boot_mount/init.ini"
 fi
 
 IFS='

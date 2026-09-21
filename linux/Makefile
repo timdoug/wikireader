@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc busybox console build boot-test shell
+.PHONY: vm provision toolchain fetch libc busybox console build boot-test app-test shell
 
 vm:
 	./vm.sh
@@ -31,6 +31,9 @@ build: busybox console
 
 boot-test:
 	./boot-test.sh
+
+app-test: build
+	./app-test.py
 
 shell: vm
 	$(LIMACTL) shell --workdir $(ROOT) $(VM)

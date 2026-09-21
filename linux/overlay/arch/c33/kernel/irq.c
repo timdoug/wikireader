@@ -57,6 +57,8 @@ static const struct c33_irq_source c33_irq_sources[NR_IRQS] = {
 
 extern unsigned long c33_vector_table[];
 extern void *const c33_sys_call_table[];
+unsigned long c33_boot_ttbr;
+int c33_grifo_booted;
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs);
 
@@ -108,6 +110,13 @@ void __init init_IRQ(void)
 	volatile unsigned char *reg;
 	unsigned int i;
 	unsigned int sources = 0;
+
+	/* Keep a resident Grifo's trap table for poweroff and reboot. */
+	__asm__ volatile ("ld.w %0, %%ttbr" : "=r" (c33_boot_ttbr));
+	c33_grifo_booted = c33_boot_ttbr == C33_GRIFO_TTBR;
+	pr_info("C33 boot: %s (incoming TTBR %08lx)\n",
+		c33_grifo_booted ? "Grifo application" : "standalone",
+		c33_boot_ttbr);
 
 	for (reg = (void *)C33_IRQ_ENABLE_FIRST;
 	     reg < (volatile unsigned char *)C33_IRQ_ENABLE_FIRST + 16; reg++)

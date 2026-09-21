@@ -11,6 +11,9 @@
 #include <asm/setup.h>
 #include <asm/wikireader.h>
 
+#define C33_WATCHDOG_WRITE_PROTECT ((volatile u16 *)0x00300660UL)
+#define C33_WATCHDOG_ENABLE        ((volatile u16 *)0x00300662UL)
+
 unsigned long memory_start;
 unsigned long memory_end;
 EXPORT_SYMBOL(memory_start);
@@ -43,6 +46,11 @@ asmlinkage __visible void __init c33_start(void)
 	for (p = (unsigned long *)__bss_start;
 	     p < (unsigned long *)__bss_stop; p++)
 		*p = 0;
+
+	/* Grifo arms a 20-second watchdog before starting an application. */
+	*C33_WATCHDOG_WRITE_PROTECT = 0x96;
+	*C33_WATCHDOG_ENABLE = 0;
+	*C33_WATCHDOG_WRITE_PROTECT = 0;
 
 	c33_lcd_init();
 	early_uart_puts("\r\nC33 Linux: entry\r\n");

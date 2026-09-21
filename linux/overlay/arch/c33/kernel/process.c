@@ -9,6 +9,13 @@
 #include <linux/string.h>
 
 #include <asm/processor.h>
+#include <asm/wikireader.h>
+
+#define C33_GRIFO_EXIT_POWER_OFF 1
+#define C33_GRIFO_EXIT_REBOOT    2
+#define C33_GRIFO_SYSCALL_EXIT   16
+#define C33_STRINGIFY_(value)    #value
+#define C33_STRINGIFY(value)     C33_STRINGIFY_(value)
 
 struct task_struct *c33_current_task = &init_task;
 
@@ -46,8 +53,23 @@ void arch_cpu_idle(void)
 	__asm__ volatile ("halt");
 }
 
+static __noreturn void c33_grifo_exit(unsigned long code)
+{
+	__asm__ volatile ("psrclr 4\n\t"
+			  "ld.w %%r6, %0\n\t"
+			  "ld.w %%ttbr, %1\n\t"
+			  "int 1\n\t"
+			  ".short " C33_STRINGIFY(C33_GRIFO_SYSCALL_EXIT)
+			  : : "r" (code), "r" (c33_boot_ttbr)
+			  : "%r6", "memory");
+	for (;;)
+		__asm__ volatile ("halt");
+}
+
 void machine_restart(char *command)
 {
+	if (c33_grifo_booted)
+		c33_grifo_exit(C33_GRIFO_EXIT_REBOOT);
 	for (;;)
 		__asm__ volatile ("halt");
 }
@@ -60,6 +82,8 @@ void machine_halt(void)
 
 void machine_power_off(void)
 {
+	if (c33_grifo_booted)
+		c33_grifo_exit(C33_GRIFO_EXIT_POWER_OFF);
 	machine_halt();
 }
 

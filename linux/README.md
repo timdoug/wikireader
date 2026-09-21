@@ -12,6 +12,14 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
                   -> kernel.elf at 0x10040000 -> native C33 Linux
 ```
 
+The same kernel is also emitted as `linux/artifacts/linux.app` for the normal
+Grifo tiled launcher. In that path the card keeps Grifo as `kernel.elf`, and
+the menu loads Linux at its existing `0x10040000` link address just as it loads
+`nuttx.app`. Linux disables Grifo's application watchdog before bringing up
+the kernel, saves the resident trap table, and hands `poweroff` and `reboot`
+back through Grifo; reboot therefore returns to the launcher. The direct image
+remains available as a recovery and bring-up path.
+
 Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
 with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
 both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
@@ -137,13 +145,17 @@ make -C linux busybox
 make -C linux console
 make -C linux build
 make -C linux boot-test
+make -C linux app-test
 ```
 
 `fetch` reconstructs the pinned upstream kernel and uClibc-ng revisions from
 `revisions` on the VM disk, applies their patches, then installs their
 overlays. Each kernel build also refreshes `overlay/` in the VM source tree so
 iterative port changes cannot be silently missed. It leaves the final kernel
-in `linux/artifacts/`.
+in `linux/artifacts/`, along with the stripped `linux.app` and its Tux launcher
+icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
+requires Linux and BusyBox to start, then uses the standard reboot syscall and
+requires Grifo's watchdog reset to return to the menu.
 
 `libc` builds and installs a static, no-MMU C33 uClibc-ng with the native
 asm-generic syscall ABI and time64 interfaces. Its link regression compiles a
@@ -152,7 +164,7 @@ ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 `linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
 image and embeds it in the initramfs as `/uclibc-smoke`.
 
-`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT. Its 77
+`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT. Its 79
 enabled applets cover an interactive `hush`, core file and text tools,
 checksums, archive/compression tools, filesystem inspection, and recovery
 utilities. The regular `build` target installs it as `/init`, `/bin/busybox`,

@@ -50,4 +50,8 @@ make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" olddefconfi
 make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" -j"$jobs" vmlinux
 cp "$build_dir/vmlinux" "$root/linux/artifacts/vmlinux"
 "${cross}objcopy" -O binary "$build_dir/vmlinux" "$root/linux/artifacts/vmlinux.bin"
+"${cross}strip" -o "$root/linux/artifacts/linux.app" "$build_dir/vmlinux"
+python3 "$root/samo-lib/grifo/scripts/xpm2icon" \
+	--icon="$root/linux/artifacts/linux.ico" "$root/riscv/rvlinux.xpm"
 "${cross}size" "$build_dir/vmlinux"
+printf '%s\n' "Grifo launcher image installed at linux/artifacts/linux.app"
