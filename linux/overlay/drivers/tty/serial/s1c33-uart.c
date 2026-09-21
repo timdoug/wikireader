@@ -24,9 +24,17 @@
 
 #define S1C33_UART_RX_READY	BIT(0)
 #define S1C33_UART_TX_READY	BIT(1)
+#define S1C33_UART_ERRORS	0x1c
 #define S1C33_UART_DEFAULT_BAUD	115200
+#define S1C33_UART_NR		2
 
-static struct uart_port *s1c33_uart_port;
+struct s1c33_uart {
+	struct uart_port port;
+	int error_irq;
+	u8 control;
+};
+
+static struct uart_port *s1c33_uart_ports[S1C33_UART_NR];
 
 #ifdef CONFIG_SERIAL_S1C33_CONSOLE
 static struct console s1c33_uart_console;
@@ -38,7 +46,7 @@ static struct uart_driver s1c33_uart_driver = {
 	.dev_name	= "ttyC",
 	.major		= 0,
 	.minor		= 0,
-	.nr		= 1,
+	.nr		= S1C33_UART_NR,
 #ifdef CONFIG_SERIAL_S1C33_CONSOLE
 	.cons		= &s1c33_uart_console,
 #endif
@@ -46,10 +54,11 @@ static struct uart_driver s1c33_uart_driver = {
 
 static void s1c33_uart_set_baud(struct uart_port *port, unsigned int baud)
 {
+	struct s1c33_uart *uart = container_of(port, struct s1c33_uart, port);
 	unsigned long divisor;
 
 	divisor = DIV_ROUND_CLOSEST(port->uartclk, baud * 16) - 1;
-	writeb(0xcb, port->membase + S1C33_UART_CTL);
+	writeb(uart->control, port->membase + S1C33_UART_CTL);
 	writeb(0x10, port->membase + S1C33_UART_IRDA);
 	writeb(0, port->membase + S1C33_UART_BRTRUN);
 	writeb(divisor >> 8, port->membase + S1C33_UART_BRTRDM);
@@ -90,9 +99,11 @@ static void s1c33_uart_start_tx(struct uart_port *port)
 
 	uart_port_tx(port, ch, true, ({
 		s1c33_uart_putchar(port, ch);
-		c33_lcd_write((const char *)&ch, 1);
+		if (!port->line)
+			c33_lcd_write((const char *)&ch, 1);
 	}));
-	c33_lcd_checkpoint(5);
+	if (!port->line)
+		c33_lcd_checkpoint(5);
 }
 
 static void s1c33_uart_stop_rx(struct uart_port *port)
@@ -108,7 +119,10 @@ static irqreturn_t s1c33_uart_rx_interrupt(int irq, void *data)
 	u8 ch;
 
 	uart_port_lock_irqsave(port, &flags);
-	pr_info_once("C33 UART: received vector 57 interrupt\n");
+	if (port->line)
+		c33_lcd_checkpoint(7);
+	else
+		pr_info_once("C33 UART: received vector 57 interrupt\n");
 	while ((readb(port->membase + S1C33_UART_STATUS) &
 		S1C33_UART_RX_READY) && limit--) {
 		ch = readb(port->membase + S1C33_UART_RXD);
@@ -122,19 +136,58 @@ static irqreturn_t s1c33_uart_rx_interrupt(int irq, void *data)
 		tty_flip_buffer_push(&port->state->port);
 	uart_port_unlock_irqrestore(port, flags);
 
-	if (inserted)
+	if (inserted && !port->line)
 		c33_lcd_checkpoint(6);
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t s1c33_uart_error_interrupt(int irq, void *data)
+{
+	struct uart_port *port = data;
+	int limit = 16;
+
+	if (!(readb(port->membase + S1C33_UART_STATUS) &
+	      S1C33_UART_ERRORS))
+		return IRQ_NONE;
+	c33_lcd_checkpoint(11);
+	while ((readb(port->membase + S1C33_UART_STATUS) &
+		S1C33_UART_RX_READY) && limit--)
+		readb(port->membase + S1C33_UART_RXD);
+	writeb(0, port->membase + S1C33_UART_STATUS);
 	return IRQ_HANDLED;
 }
 
 static int s1c33_uart_startup(struct uart_port *port)
 {
-	return request_irq(port->irq, s1c33_uart_rx_interrupt, 0,
-			   "s1c33-uart-rx", port);
+	struct s1c33_uart *uart = container_of(port, struct s1c33_uart, port);
+	static const char * const rx_names[] = {
+		"s1c33-uart0-rx", "s1c33-uart1-rx",
+	};
+	int limit = 16;
+	int ret;
+
+	while ((readb(port->membase + S1C33_UART_STATUS) &
+		S1C33_UART_RX_READY) && limit--)
+		readb(port->membase + S1C33_UART_RXD);
+	writeb(0, port->membase + S1C33_UART_STATUS);
+
+	ret = request_irq(port->irq, s1c33_uart_rx_interrupt, 0,
+			  rx_names[port->line], port);
+	if (ret || uart->error_irq < 0)
+		return ret;
+	ret = request_irq(uart->error_irq, s1c33_uart_error_interrupt, 0,
+			  "s1c33-uart1-error", port);
+	if (ret)
+		free_irq(port->irq, port);
+	return ret;
 }
 
 static void s1c33_uart_shutdown(struct uart_port *port)
 {
+	struct s1c33_uart *uart = container_of(port, struct s1c33_uart, port);
+
+	if (uart->error_irq >= 0)
+		free_irq(uart->error_irq, port);
 	free_irq(port->irq, port);
 }
 
@@ -191,7 +244,7 @@ static const struct uart_ops s1c33_uart_ops = {
 
 bool c33_tty_inject_char(u8 ch)
 {
-	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
 
 	if (!port || !port->state || !tty_port_active(&port->state->port))
 		return false;
@@ -205,25 +258,34 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 {
 	const struct s1c33_uart_platform_data *pdata =
 		dev_get_platdata(&pdev->dev);
+	struct s1c33_uart *uart;
 	struct uart_port *port;
 	struct resource *resource;
+	unsigned int baud;
+	int line = pdev->id;
 	int ret;
 
-	if (!pdata || !pdata->clock_rate)
+	if (!pdata || !pdata->clock_rate || line < 0 ||
+	    line >= S1C33_UART_NR)
 		return -EINVAL;
 
-	port = devm_kzalloc(&pdev->dev, sizeof(*port), GFP_KERNEL);
-	if (!port)
+	uart = devm_kzalloc(&pdev->dev, sizeof(*uart), GFP_KERNEL);
+	if (!uart)
 		return -ENOMEM;
+	port = &uart->port;
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!resource)
 		return -EINVAL;
 	port->membase = devm_ioremap_resource(&pdev->dev, resource);
 	if (IS_ERR(port->membase))
 		return PTR_ERR(port->membase);
-	ret = platform_get_irq(pdev, 0);
+	ret = platform_get_irq_byname(pdev, "rx");
 	if (ret < 0)
 		return ret;
+	uart->error_irq = platform_get_irq_byname_optional(pdev, "error");
+	if (uart->error_irq == -EPROBE_DEFER)
+		return -EPROBE_DEFER;
+	uart->control = pdata->control;
 
 	port->dev = &pdev->dev;
 	port->mapbase = resource->start;
@@ -234,20 +296,26 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	port->ops = &s1c33_uart_ops;
 	port->fifosize = 1;
 	port->type = 1;
-	port->line = 0;
+	port->line = line;
 	spin_lock_init(&port->lock);
-	s1c33_uart_set_baud(port, S1C33_UART_DEFAULT_BAUD);
+	baud = pdata->default_baud ?: S1C33_UART_DEFAULT_BAUD;
+	s1c33_uart_set_baud(port, baud);
 
 	platform_set_drvdata(pdev, port);
-	WRITE_ONCE(s1c33_uart_port, port);
+	WRITE_ONCE(s1c33_uart_ports[line], port);
 	ret = uart_add_one_port(&s1c33_uart_driver, port);
 	if (ret) {
-		WRITE_ONCE(s1c33_uart_port, NULL);
+		WRITE_ONCE(s1c33_uart_ports[line], NULL);
 		return ret;
 	}
-	c33_lcd_checkpoint(4);
-	dev_info(&pdev->dev,
-		 "C33 UART: registered /dev/ttyC0 through serial_core\n");
+	if (!line) {
+		c33_lcd_checkpoint(4);
+		dev_info(&pdev->dev,
+			 "registered /dev/ttyC0 through serial_core\n");
+	} else {
+		dev_info(&pdev->dev,
+			 "registered UART1 as a tty-backed serdev controller\n");
+	}
 	return 0;
 }
 
@@ -255,7 +323,7 @@ static void s1c33_uart_remove(struct platform_device *pdev)
 {
 	struct uart_port *port = platform_get_drvdata(pdev);
 
-	WRITE_ONCE(s1c33_uart_port, NULL);
+	WRITE_ONCE(s1c33_uart_ports[port->line], NULL);
 	uart_remove_one_port(&s1c33_uart_driver, port);
 }
 
@@ -271,7 +339,7 @@ static struct platform_driver s1c33_uart_platform_driver = {
 static void s1c33_uart_console_write(struct console *console, const char *s,
 				     unsigned int count)
 {
-	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
 	unsigned long flags;
 
 	if (!port)
@@ -285,7 +353,7 @@ static void s1c33_uart_console_write(struct console *console, const char *s,
 
 static int s1c33_uart_console_setup(struct console *console, char *options)
 {
-	struct uart_port *port = READ_ONCE(s1c33_uart_port);
+	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
 	int baud = S1C33_UART_DEFAULT_BAUD;
 	int parity = 'n';
 	int bits = 8;

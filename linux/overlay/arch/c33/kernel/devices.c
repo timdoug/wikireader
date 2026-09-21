@@ -7,7 +7,7 @@
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/serial-s1c33.h>
-#include <linux/platform_data/wikireader-touch.h>
+#include <linux/property.h>
 #include <linux/spi/mmc_spi.h>
 #include <linux/spi/spi.h>
 
@@ -139,15 +139,20 @@ static const struct resource wr_spi_resources[] = {
 static const struct resource wr_lcd_resource =
 	DEFINE_RES_MEM(0x00080000, 32 * 208);
 
-static const struct resource wr_uart_resources[] = {
+static const struct resource wr_uart0_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b00, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART0_RX, "rx"),
 };
 
-static const struct resource wr_touch_resources[] = {
+static const struct resource wr_uart1_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b10, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_ERROR, "error"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
+};
+
+static const struct property_entry wr_uart1_properties[] = {
+	PROPERTY_ENTRY_BOOL("linux,serdev-controller"),
+	{ }
 };
 
 static void __init wr_touch_prepare(void)
@@ -170,9 +175,11 @@ static void __init wr_uart_prepare(void)
 
 static int __init c33_devices_init(void)
 {
-	struct wikireader_touch_platform_data touch_pdata;
-	struct s1c33_uart_platform_data uart_pdata;
+	struct s1c33_uart_platform_data uart0_pdata;
+	struct s1c33_uart_platform_data uart1_pdata;
+	struct platform_device_info uart_info = { };
 	struct platform_device *device;
+	struct platform_device *uart1;
 	u32 gate;
 
 	/* WikiReader SPI pins, inactive chip selects, and SD power controls. */
@@ -197,20 +204,28 @@ static int __init c33_devices_init(void)
 	writeb(0, (void __iomem *)WR_IDMA_ENABLE);
 
 	device = platform_device_register_resndata(NULL, "s1c33-spi", -1,
-		wr_spi_resources, ARRAY_SIZE(wr_spi_resources),
-		&wr_spi_pdata, sizeof(wr_spi_pdata));
+						   wr_spi_resources,
+						   ARRAY_SIZE(wr_spi_resources),
+						   &wr_spi_pdata,
+						   sizeof(wr_spi_pdata));
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: SPI platform registration failed: %ld\n",
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
 	wr_uart_prepare();
-	uart_pdata.clock_rate = c33_mclk_hz();
-	device = platform_device_register_resndata(NULL, "s1c33-uart", -1,
-		wr_uart_resources, ARRAY_SIZE(wr_uart_resources),
-		&uart_pdata, sizeof(uart_pdata));
+	uart0_pdata.clock_rate = c33_mclk_hz();
+	uart0_pdata.default_baud = 115200;
+	uart0_pdata.control = 0xcb;
+	uart_info.name = "s1c33-uart";
+	uart_info.id = 0;
+	uart_info.res = wr_uart0_resources;
+	uart_info.num_res = ARRAY_SIZE(wr_uart0_resources);
+	uart_info.data = &uart0_pdata;
+	uart_info.size_data = sizeof(uart0_pdata);
+	device = platform_device_register_full(&uart_info);
 	if (IS_ERR(device)) {
-		pr_err("C33 devices: UART platform registration failed: %ld\n",
+		pr_err("C33 devices: UART0 platform registration failed: %ld\n",
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
@@ -222,10 +237,24 @@ static int __init c33_devices_init(void)
 		return PTR_ERR(device);
 	}
 	wr_touch_prepare();
-	touch_pdata.clock_rate = c33_mclk_hz();
-	device = platform_device_register_resndata(NULL, "wikireader-touch", -1,
-		wr_touch_resources, ARRAY_SIZE(wr_touch_resources),
-		&touch_pdata, sizeof(touch_pdata));
+	uart1_pdata.clock_rate = c33_mclk_hz();
+	uart1_pdata.default_baud = 9600;
+	uart1_pdata.control = 0x4b;
+	uart_info.id = 1;
+	uart_info.res = wr_uart1_resources;
+	uart_info.num_res = ARRAY_SIZE(wr_uart1_resources);
+	uart_info.data = &uart1_pdata;
+	uart_info.size_data = sizeof(uart1_pdata);
+	uart_info.properties = wr_uart1_properties;
+	uart1 = platform_device_register_full(&uart_info);
+	if (IS_ERR(uart1)) {
+		pr_err("C33 devices: UART1 platform registration failed: %ld\n",
+		       PTR_ERR(uart1));
+		return PTR_ERR(uart1);
+	}
+	device = platform_device_register_data(&uart1->dev,
+					       "wikireader-touch", -1,
+					       NULL, 0);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: touchscreen registration failed: %ld\n",
 		       PTR_ERR(device));

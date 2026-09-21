@@ -2,27 +2,14 @@
 /* UART-attached touchscreen used by the Openmoko WikiReader. */
 #include <linux/bitops.h>
 #include <linux/input.h>
-#include <linux/interrupt.h>
-#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-
-#include <linux/platform_data/wikireader-touch.h>
+#include <linux/serdev.h>
+#include <linux/serial_core.h>
 
 #include <asm/wikireader.h>
 
-#define WR_TOUCH_TXD          0x00
-#define WR_TOUCH_RXD          0x01
-#define WR_TOUCH_STATUS       0x02
-#define WR_TOUCH_CTL          0x03
-#define WR_TOUCH_IRDA         0x04
-#define WR_TOUCH_BRTRUN       0x05
-#define WR_TOUCH_BRTRDL       0x06
-#define WR_TOUCH_BRTRDM       0x07
-
-#define WR_TOUCH_RX_READY     BIT(0)
-#define WR_TOUCH_ERRORS       0x1c
-#define WR_TOUCH_BAUD         9600UL
+#define WR_TOUCH_BAUD         9600
 #define WR_TOUCH_PACKET_START 0xaa
 #define WR_TOUCH_WIDTH        240
 #define WR_TOUCH_HEIGHT       208
@@ -32,7 +19,6 @@
 #define WR_KEY_WIDTH          24
 
 struct wr_touch {
-	void __iomem *base;
 	struct input_dev *input;
 	u8 state;
 	u16 x;
@@ -40,16 +26,6 @@ struct wr_touch {
 	int active_key;
 	bool pressed;
 };
-
-static u8 wr_touch_read(struct wr_touch *touch, unsigned int reg)
-{
-	return readb(touch->base + reg);
-}
-
-static void wr_touch_write(struct wr_touch *touch, unsigned int reg, u8 value)
-{
-	writeb(value, touch->base + reg);
-}
 
 static int wr_touch_hit_key(unsigned int x, unsigned int y)
 {
@@ -153,54 +129,33 @@ static void wr_touch_byte(struct wr_touch *touch, u8 byte)
 	}
 }
 
-static irqreturn_t wr_touch_interrupt(int irq, void *data)
+static size_t wr_touch_receive_buf(struct serdev_device *serdev,
+				   const u8 *data, size_t count)
 {
-	struct wr_touch *touch = data;
-	u8 status = wr_touch_read(touch, WR_TOUCH_STATUS);
-	int limit = 16;
+	struct wr_touch *touch = serdev_device_get_drvdata(serdev);
+	size_t i;
 
-	c33_lcd_checkpoint(7);
-	if (status & WR_TOUCH_ERRORS) {
-		c33_lcd_checkpoint(11);
-		touch->state = 0;
-		while ((wr_touch_read(touch, WR_TOUCH_STATUS) & WR_TOUCH_RX_READY) &&
-		       limit--)
-			wr_touch_read(touch, WR_TOUCH_RXD);
-		if (touch->pressed)
-			wr_touch_report(touch, false, false);
-	} else {
-		while ((wr_touch_read(touch, WR_TOUCH_STATUS) & WR_TOUCH_RX_READY) &&
-		       limit--)
-			wr_touch_byte(touch,
-				      wr_touch_read(touch, WR_TOUCH_RXD));
-	}
-	wr_touch_write(touch, WR_TOUCH_STATUS, 0);
-	return IRQ_HANDLED;
+	for (i = 0; i < count; i++)
+		wr_touch_byte(touch, data[i]);
+	return count;
 }
 
-static int wr_touch_probe(struct platform_device *pdev)
+static const struct serdev_device_ops wr_touch_serdev_ops = {
+	.receive_buf = wr_touch_receive_buf,
+};
+
+static int wr_touch_serdev_probe(struct serdev_device *serdev)
 {
-	const struct wikireader_touch_platform_data *pdata =
-		dev_get_platdata(&pdev->dev);
 	struct wr_touch *touch;
 	struct input_dev *input;
-	unsigned long divisor;
-	int error_irq;
-	int limit = 8;
 	int ret;
-	int rx_irq;
 
-	if (!pdata || !pdata->clock_rate)
-		return -EINVAL;
-	touch = devm_kzalloc(&pdev->dev, sizeof(*touch), GFP_KERNEL);
+	touch = devm_kzalloc(&serdev->dev, sizeof(*touch), GFP_KERNEL);
 	if (!touch)
 		return -ENOMEM;
-	touch->base = devm_platform_ioremap_resource_byname(pdev, "uart");
-	if (IS_ERR(touch->base))
-		return PTR_ERR(touch->base);
 	touch->active_key = -1;
 
-	input = devm_input_allocate_device(&pdev->dev);
+	input = devm_input_allocate_device(&serdev->dev);
 	if (!input)
 		return -ENOMEM;
 	input->name = "WikiReader touchscreen";
@@ -211,53 +166,100 @@ static int wr_touch_probe(struct platform_device *pdev)
 	input_set_abs_params(input, ABS_Y, 0, WR_TOUCH_HEIGHT - 1, 0, 0);
 	__set_bit(INPUT_PROP_DIRECT, input->propbit);
 	touch->input = input;
-	platform_set_drvdata(pdev, touch);
-
-	divisor = (pdata->clock_rate + WR_TOUCH_BAUD * 8) /
-		(WR_TOUCH_BAUD * 16) - 1;
-	wr_touch_write(touch, WR_TOUCH_CTL, 0x4b);
-	wr_touch_write(touch, WR_TOUCH_IRDA, 0x10);
-	wr_touch_write(touch, WR_TOUCH_BRTRUN, 0);
-	wr_touch_write(touch, WR_TOUCH_BRTRDM, divisor >> 8);
-	wr_touch_write(touch, WR_TOUCH_BRTRDL, divisor);
-	wr_touch_write(touch, WR_TOUCH_BRTRUN, 1);
-	while ((wr_touch_read(touch, WR_TOUCH_STATUS) & WR_TOUCH_RX_READY) &&
-	       limit--)
-		wr_touch_read(touch, WR_TOUCH_RXD);
-	wr_touch_write(touch, WR_TOUCH_STATUS, 0);
+	serdev_device_set_drvdata(serdev, touch);
+	serdev_device_set_client_ops(serdev, &wr_touch_serdev_ops);
 
 	ret = input_register_device(input);
 	if (ret)
-		return dev_err_probe(&pdev->dev, ret,
+		return dev_err_probe(&serdev->dev, ret,
 				     "cannot register input device\n");
-	error_irq = platform_get_irq_byname(pdev, "error");
-	if (error_irq < 0)
-		return error_irq;
-	rx_irq = platform_get_irq_byname(pdev, "rx");
-	if (rx_irq < 0)
-		return rx_irq;
-	ret = devm_request_irq(&pdev->dev, error_irq, wr_touch_interrupt, 0,
-			       "wikireader-touch-error", touch);
+	ret = devm_serdev_device_open(&serdev->dev, serdev);
 	if (ret)
-		return dev_err_probe(&pdev->dev, ret,
-				     "cannot request error IRQ\n");
-	ret = devm_request_irq(&pdev->dev, rx_irq, wr_touch_interrupt, 0,
-			       "wikireader-touch-rx", touch);
-	if (ret)
-		return dev_err_probe(&pdev->dev, ret,
-				     "cannot request receive IRQ\n");
+		return dev_err_probe(&serdev->dev, ret,
+				     "cannot open UART transport\n");
+	if (serdev_device_set_baudrate(serdev, WR_TOUCH_BAUD) !=
+	    WR_TOUCH_BAUD)
+		return dev_err_probe(&serdev->dev, -EINVAL,
+				     "cannot set 9600 baud\n");
+	serdev_device_set_flow_control(serdev, false);
 
 	c33_lcd_keyboard_init();
-	dev_info(&pdev->dev,
-		 "registered 240x208 absolute touchscreen input device\n");
+	dev_info(&serdev->dev,
+		 "registered 240x208 touchscreen through serdev\n");
 	return 0;
 }
 
+static struct serdev_device_driver wr_touch_serdev_driver = {
+	.probe = wr_touch_serdev_probe,
+	.driver.name = "wikireader-touch-serdev",
+};
+
+/*
+ * Legacy board files have no DT or ACPI child to enumerate. Instantiate the
+ * serdev child explicitly, as the in-tree x86 legacy-board quirks do.
+ */
+static int wr_touch_platform_probe(struct platform_device *pdev)
+{
+	struct uart_port *port = dev_get_drvdata(pdev->dev.parent);
+	struct serdev_controller *controller;
+	struct serdev_device *serdev;
+	int ret;
+
+	if (!port || !port->state || !port->state->port.client_data)
+		return -EPROBE_DEFER;
+	controller = port->state->port.client_data;
+	serdev = serdev_device_alloc(controller);
+	if (!serdev)
+		return -ENOMEM;
+	ret = serdev_device_add(serdev);
+	if (ret) {
+		serdev_device_put(serdev);
+		return dev_err_probe(&pdev->dev, ret,
+				     "cannot add serdev child\n");
+	}
+	ret = device_driver_attach(&wr_touch_serdev_driver.driver,
+				   &serdev->dev);
+	if (ret) {
+		serdev_device_remove(serdev);
+		return dev_err_probe(&pdev->dev,
+				     ret == -EAGAIN ? -EPROBE_DEFER : ret,
+				     "cannot attach serdev driver\n");
+	}
+	platform_set_drvdata(pdev, serdev);
+	return 0;
+}
+
+static void wr_touch_platform_remove(struct platform_device *pdev)
+{
+	serdev_device_remove(platform_get_drvdata(pdev));
+}
+
 static struct platform_driver wr_touch_driver = {
-	.probe = wr_touch_probe,
+	.probe = wr_touch_platform_probe,
+	.remove = wr_touch_platform_remove,
 	.driver.name = "wikireader-touch",
 };
-module_platform_driver(wr_touch_driver);
+
+static int __init wr_touch_init(void)
+{
+	int ret;
+
+	ret = serdev_device_driver_register(&wr_touch_serdev_driver);
+	if (ret)
+		return ret;
+	ret = platform_driver_register(&wr_touch_driver);
+	if (ret)
+		serdev_device_driver_unregister(&wr_touch_serdev_driver);
+	return ret;
+}
+module_init(wr_touch_init);
+
+static void __exit wr_touch_exit(void)
+{
+	platform_driver_unregister(&wr_touch_driver);
+	serdev_device_driver_unregister(&wr_touch_serdev_driver);
+}
+module_exit(wr_touch_exit);
 
 MODULE_DESCRIPTION("Openmoko WikiReader touchscreen");
 MODULE_LICENSE("GPL");

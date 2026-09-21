@@ -14,7 +14,7 @@ mask-ROM behavior -> serial-FLASH MBR -> FAT32 file-loader
 
 Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
 with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
-UART, touch, and SPI receive-DMA paths use normal `request_irq()` registrations
+both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
 visible in `/proc/interrupts`. Linux runs the scheduler, registers the
 interrupt-driven `ttyC0` UART console, and loads a tiny compiled-C bFLT
 process as PID 1.
@@ -48,8 +48,15 @@ An unhandled exception replaces the strip with a solid fault bar. This makes
 real-hardware boot results visible without attaching to the serial pads.
 The panel is also registered with the Linux input subsystem as a 240x208
 absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and
-`BTN_TOUCH`. The current in-kernel key layout remains temporarily as a
-compatibility consumer while the soft keyboard moves to userspace.
+`BTN_TOUCH`. Its UART1 transport is a second S1C33 serial-core port connected
+to the touchscreen through Linux's tty-backed serdev layer. The input driver
+therefore contains only the controller packet parser and evdev reporting; UART
+registers, baud programming, buffering, and interrupts belong to the serial
+driver. Since this legacy board file has neither DT nor ACPI children, a
+software property retains the serdev controller and board glue instantiates
+the child using the same explicit attachment pattern as in-tree legacy x86
+quirks. The current in-kernel key layout remains temporarily as a compatibility
+consumer while the soft keyboard moves to userspace.
 The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
 ordinary applications. The early renderer remains independent of fbdev so it
 can still report failures before platform drivers have probed. The kernel's
@@ -155,7 +162,7 @@ fixture, boots it through the full emulated hardware path, and requires the
 BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
 kernel panic. It then injects an `echo` command into the real `hush` over UART0
 and verifies its output and vector 57 interrupt. It separately generates panel
-taps for a command and Enter key, requires the UART1 touch interrupt to feed
+taps for a command and Enter key, requires UART1 serial-core and serdev to feed
 that command through the on-screen keyboard into the same shell, and checks
 the resulting output. The test also checks the final display image for console
 text, all seven LCD checkpoints, and the three keyboard rows. The fixture and emulator
@@ -172,8 +179,8 @@ event records to arrive through `/dev/input/event0`.
 
 ## What comes next
 
-The next useful vertical slices are moving the soft keyboard policy to
-userspace, converting the S1C33 UART to serial core, and describing devices in
-standard kernel data structures. Richer keyboard modes and power management
-can then grow around the proven LCD, touch, console, storage, and recovery
-userspace paths.
+The next useful vertical slices are moving the soft keyboard policy and
+console-input injection to userspace, then replacing the legacy platform-data
+descriptions with a firmware-node representation that can enumerate serdev
+children directly. Richer keyboard modes and power management can then grow
+around the proven LCD, touch, console, storage, and recovery userspace paths.

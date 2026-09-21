@@ -76,9 +76,13 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$input_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$evdev_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "c33-timer" "$work/boot.log" >/dev/null || \
-   ! grep -F "s1c33-uart-rx" "$work/boot.log" >/dev/null || \
-   ! grep -F "wikireader-touch-error" "$work/boot.log" >/dev/null || \
-   ! grep -F "wikireader-touch-rx" "$work/boot.log" >/dev/null || \
+   ! grep -F "s1c33-uart0-rx" "$work/boot.log" >/dev/null || \
+   ! grep -F "s1c33-uart1-error" "$work/boot.log" >/dev/null || \
+   ! grep -F "s1c33-uart1-rx" "$work/boot.log" >/dev/null || \
+   ! grep -F "registered UART1 as a tty-backed serdev controller" \
+	"$work/boot.log" >/dev/null || \
+   ! grep -F "registered 240x208 touchscreen through serdev" \
+	"$work/boot.log" >/dev/null || \
    ! grep -F "$init_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$busybox_expected" "$work/boot.log" >/dev/null || \
@@ -127,6 +131,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart-rx|wikireader-touch|C33 UART:|C33 touch:|C33 input:|C33 framebuffer:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 UART:|C33 touch:|C33 input:|C33 framebuffer:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

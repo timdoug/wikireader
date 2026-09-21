@@ -1,14 +1,32 @@
+diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
+--- a/drivers/tty/serdev/core.c
++++ b/drivers/tty/serdev/core.c
+@@ -781,4 +781,10 @@ int serdev_controller_add(struct serdev_controller *ctrl)
+ 	ret_of = of_serdev_register_devices(ctrl);
+ 	ret_acpi = acpi_serdev_register_devices(ctrl);
+-	if (ret_of && ret_acpi) {
++	/*
++	 * Legacy board code without firmware children may instantiate the
++	 * serdev device after its controller has been registered.
++	 */
++	if (ret_of && ret_acpi &&
++	    !device_property_read_bool(ctrl->host,
++				       "linux,serdev-controller")) {
+ 		dev_dbg(&ctrl->dev, "no devices registered: of:%pe acpi:%pe\n",
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
-@@ -10,1 +10,9 @@
+@@ -10,1 +10,12 @@
 +config TOUCHSCREEN_WIKIREADER
 +	bool "Openmoko WikiReader touchscreen"
-+	depends on C33_WIKIREADER
++	depends on C33_WIKIREADER && SERIAL_S1C33
++	select SERIAL_DEV_BUS
++	select SERIAL_DEV_CTRL_TTYPORT
 +	help
 +	  Enable the UART-attached resistive touchscreen found in the
 +	  Openmoko WikiReader. The driver reports absolute coordinates and
 +	  contact state through the standard Linux input event interface.
++	  Its serial transport is managed by the kernel serdev bus.
 +
  config TOUCHSCREEN_88PM860X
 diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
@@ -21,13 +39,15 @@ diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
 index 1872f9d54..7d44cea78 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
-@@ -63,1 +63,8 @@
+@@ -63,1 +63,10 @@
 +config SPI_S1C33
 +	bool "Epson S1C33 SPI controller"
 +	depends on C33
 +	help
 +	  Enable the synchronous serial controller found in Epson S1C33
 +	  microcontrollers, including its word-wide and HSDMA transfer paths.
++	  The driver presents ordinary Linux SPI transfers to protocol drivers
++	  and uses DMA internally for suitable receive buffers.
 +
  config SPI_AIROHA_SNFI
 diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
@@ -40,14 +60,16 @@ index 1f7c06a30..e8d799f1b 100644
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 --- a/drivers/tty/serial/Kconfig
 +++ b/drivers/tty/serial/Kconfig
-@@ -14,1 +14,17 @@
+@@ -14,1 +14,21 @@
 +config SERIAL_S1C33
 +	bool "Epson S1C33 serial port support"
-+	depends on C33
++	depends on C33 && TTY
 +	select SERIAL_CORE
 +	help
 +	  Enable the asynchronous serial controller found in Epson S1C33
 +	  microcontrollers.
++	  The driver uses serial_core and supports tty-backed serdev clients
++	  as well as ordinary terminal devices.
 +
 +config SERIAL_S1C33_CONSOLE
 +	bool "Console on an Epson S1C33 serial port"
@@ -56,6 +78,8 @@ diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 +	help
 +	  Enable an S1C33 serial port as the system console. The console device
 +	  is selected with a kernel command line option such as ttyC0.
++	  Early kernel messages can therefore be observed before userspace
++	  starts on boards with a connected serial adapter.
 +
  source "drivers/tty/serial/8250/Kconfig"
 diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
@@ -67,7 +91,7 @@ diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
 diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
 --- a/drivers/video/fbdev/Kconfig
 +++ b/drivers/video/fbdev/Kconfig
-@@ -47,1 +47,9 @@
+@@ -47,1 +47,11 @@
 +config FB_S1C33
 +	bool "Epson S1C33 WikiReader framebuffer"
 +	depends on FB && C33
@@ -75,6 +99,8 @@ diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
 +	help
 +	  Expose the monochrome LCD framebuffer configured by the WikiReader
 +	  loader through the standard Linux framebuffer interface.
++	  Applications can access the display through the normal framebuffer
++	  device without depending on architecture-private drawing routines.
 +
  config FB_HECUBA
 diff --git a/drivers/video/fbdev/Makefile b/drivers/video/fbdev/Makefile
