@@ -1,5 +1,7 @@
 # WikiReader
 
+<img src="doc/wikireader.jpg" alt="A WikiReader running Linux, showing cpuinfo and uname output at a shell prompt" width="420">
+
 Firmware and tools for the Epson S1C33 WikiReader handheld. Forked from
 [stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
 
