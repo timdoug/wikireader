@@ -12,6 +12,7 @@ C33_M = 10
 C33_L = 11
 C33_PC_RELATIVE = {6, 7, 8, 24, 25, 26, 27, 28}
 C33_SPLIT_RELOC = 0x80000000
+FLAT_FLAG_RAM = 0x0001
 SHT_RELA = 4
 
 
@@ -165,7 +166,7 @@ def main():
         16 * 1024,      # stack
         data_end,
         len(relocations),
-        0x11,           # load into RAM and log the mapping
+        FLAT_FLAG_RAM,  # text relocations require a writable RAM image
         0,              # build date
         0, 0, 0, 0, 0,
     ]

@@ -152,6 +152,11 @@ if grep -F "Kernel panic" "$work/boot.log" >/dev/null; then
 	echo "Native Linux panicked after starting PID 1." >&2
 	exit 1
 fi
+if grep -F "binfmt_flat: Loading file:" "$work/boot.log" >/dev/null; then
+	cat "$work/boot.log" >&2
+	echo "A bFLT image unexpectedly enabled kernel load tracing." >&2
+	exit 1
+fi
 
 if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
 	"$work/fixture/nuttx-card.img"; then
@@ -163,6 +168,6 @@ python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
 	--edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."
