@@ -9,9 +9,10 @@
 
 #define EnableDragDrop 0
 #define WantOSGLUWR 1
+#define WantAutoScrollBorder 1
 
 #define kStrAppName "Mini vMac"
-#define kAppVariationStr "minivmac-37.03-wikireader-mac128k"
+#define kAppVariationStr "minivmac-37.03-wikireader-macplus-4m"
 #define kStrCopyrightYear "2026"
 #define kMaintainerName "WikiReader port"
 #define kStrHomePage "https://github.com/minivmac/minivmac"

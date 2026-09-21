@@ -10,10 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def make_card(output: Path, rom_path: Path, disk_path: Path):
     rom = rom_path.read_bytes()
     disk = disk_path.read_bytes()
-    if len(rom) != 65536 or int.from_bytes(rom[:4], 'big') not in (0x28BA61CE, 0x28BA4E50):
-        raise ValueError('Expected a supported 64 KiB Macintosh 128K ROM')
-    if len(disk) != 400 * 1024:
-        raise ValueError('Expected a raw 400 KiB Macintosh floppy image')
+    if len(rom) != 128 * 1024 or int.from_bytes(rom[:4], 'big') not in (
+            0x4D1EEEE1, 0x4D1EEAE1, 0x4D1F8172):
+        raise ValueError('Expected a supported 128 KiB Macintosh Plus ROM')
+    raw_sizes = {400 * 1024, 800 * 1024, 1440 * 1024}
+    dc42_sizes = {84 + size + (size // 512) * 12 for size in raw_sizes}
+    if len(disk) not in raw_sizes | dc42_sizes:
+        raise ValueError('Expected a 400K, 800K, or 1.44MB raw/DC42 disk image')
 
     root_files = {
         'KERNEL.ELF': (ROOT / 'samo-lib/grifo/grifo.elf').read_bytes(),
@@ -64,7 +67,7 @@ def make_card(output: Path, rom_path: Path, disk_path: Path):
     directory[:11] = b'.          '
     directory[32:64] = entry('', 0, 0, True)
     directory[32:43] = b'..         '
-    directory[64:96] = entry('MAC128K.ROM', rom_cluster, len(rom))
+    directory[64:96] = entry('MACPLUS.ROM', rom_cluster, len(rom))
     directory[96:128] = entry('DISK1.DSK', disk_cluster, len(disk))
     allocate(directory)
     root += entry('MINIVMAC', directory_cluster, 0, True)

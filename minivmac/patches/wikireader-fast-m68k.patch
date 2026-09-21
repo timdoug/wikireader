@@ -2,7 +2,7 @@ diff --git a/src/MINEM68K.c b/src/MINEM68K.c
 index 3e9d4e8..90a112e 100644
 --- a/src/MINEM68K.c
 +++ b/src/MINEM68K.c
-@@ -40,6 +40,19 @@
+@@ -40,6 +40,26 @@
  
  #include "MINEM68K.h"
  
@@ -18,11 +18,18 @@ index 3e9d4e8..90a112e 100644
 +#ifndef MINIVMAC_JIT
 +#define MINIVMAC_JIT 0
 +#endif
++#ifndef MINIVMAC_DECODE_CACHE
++#define MINIVMAC_DECODE_CACHE 0
++#endif
++#if MINIVMAC_DECODE_CACHE
++IMPORTFUNC blnr MiniVMac_LoadDecodeTable(ui3p table, ui5r size);
++IMPORTPROC MiniVMac_SaveDecodeTable(ui3p table, ui5r size);
++#endif
 +
  /*
  	ReportAbnormalID unused 0x0123 - 0x01FF
  */
-@@ -247,7 +260,7 @@ LOCALVAR struct regstruct
+@@ -247,7 +267,7 @@ LOCALVAR struct regstruct
  #else
  	DecOpR disp_table[disp_table_sz];
  #endif
@@ -31,7 +38,7 @@ index 3e9d4e8..90a112e 100644
  
  #define ui5r_MSBisSet(x) (((si5r)(x)) < 0)
  
-@@ -557,7 +570,8 @@ FORWARDPROC DoCodeFPU_dflt(void);
+@@ -557,7 +577,8 @@ FORWARDPROC DoCodeFPU_dflt(void);
  
  typedef void (*func_pointer_t)(void);
  
@@ -41,7 +48,7 @@ index 3e9d4e8..90a112e 100644
  	DoCodeTst /* kIKindTst */,
  	DoCodeCmpB /* kIKindCmpB */,
  	DoCodeCmpW /* kIKindCmpW */,
-@@ -800,7 +814,11 @@ LOCALINLINEPROC UnDecodeNextInstruction(ui4rr Cycles)
+@@ -800,7 +821,11 @@ LOCALINLINEPROC UnDecodeNextInstruction(ui4rr Cycles)
  #endif
  }
  
@@ -53,7 +60,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ui4rr Cycles;
  	DecOpYR y;
-@@ -846,9 +864,9 @@ LOCALPROC m68k_go_MaxCycles(void)
+@@ -846,9 +871,9 @@ LOCALPROC m68k_go_MaxCycles(void)
  	UnDecodeNextInstruction(Cycles);
  }
  
@@ -65,7 +72,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ui3p m = (addr & V_regs.MATCrdB.usemask) + V_regs.MATCrdB.usebase;
  
-@@ -871,9 +889,9 @@ LOCALPROC my_reg_call put_byte(CPTR addr, ui5r b)
+@@ -871,9 +896,9 @@ LOCALPROC my_reg_call put_byte(CPTR addr, ui5r b)
  	}
  }
  
@@ -77,7 +84,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ui3p m = (addr & V_regs.MATCrdW.usemask) + V_regs.MATCrdW.usebase;
  	if ((addr & V_regs.MATCrdW.cmpmask) == V_regs.MATCrdW.cmpvalu) {
-@@ -1192,7 +1210,8 @@ LOCALFUNC ui5r my_reg_call DecodeAddr_PCIndex(ui3rr ArgDat)
+@@ -1192,7 +1217,8 @@ LOCALFUNC ui5r my_reg_call DecodeAddr_PCIndex(ui3rr ArgDat)
  
  typedef ui5r (my_reg_call *DecodeAddrP)(ui3rr ArgDat);
  
@@ -87,7 +94,7 @@ index 3e9d4e8..90a112e 100644
  	(DecodeAddrP)nullpr /* kAMdRegB */,
  	(DecodeAddrP)nullpr /* kAMdRegW */,
  	(DecodeAddrP)nullpr /* kAMdRegL */,
-@@ -1461,7 +1480,8 @@ LOCALFUNC ui5r my_reg_call DecodeGetSrcDst_Dat4(ui3rr ArgDat)
+@@ -1461,7 +1487,8 @@ LOCALFUNC ui5r my_reg_call DecodeGetSrcDst_Dat4(ui3rr ArgDat)
  
  typedef ui5r (my_reg_call *DecodeGetSrcDstP)(ui3rr ArgDat);
  
@@ -97,7 +104,7 @@ index 3e9d4e8..90a112e 100644
  	DecodeGetSrcDst_RegB /* kAMdRegB */,
  	DecodeGetSrcDst_RegW /* kAMdRegW */,
  	DecodeGetSrcDst_RegL /* kAMdRegL */,
-@@ -1722,7 +1742,8 @@ LOCALPROC my_reg_call DecodeSetSrcDst_PCIndexL(ui5r v, ui3rr ArgDat)
+@@ -1722,7 +1749,8 @@ LOCALPROC my_reg_call DecodeSetSrcDst_PCIndexL(ui5r v, ui3rr ArgDat)
  
  typedef void (my_reg_call *DecodeSetSrcDstP)(ui5r v, ui3rr ArgDat);
  
@@ -107,7 +114,7 @@ index 3e9d4e8..90a112e 100644
  	DecodeSetSrcDst_RegB /* kAMdRegB */,
  	DecodeSetSrcDst_RegW /* kAMdRegW */,
  	DecodeSetSrcDst_RegL /* kAMdRegL */,
-@@ -2055,7 +2076,7 @@ LOCALFUNC ui5r my_reg_call DecodeGetSetSrcDst_PCIndexL(ui3rr ArgDat)
+@@ -2055,7 +2083,7 @@ LOCALFUNC ui5r my_reg_call DecodeGetSetSrcDst_PCIndexL(ui3rr ArgDat)
  typedef ui5r (my_reg_call *DecodeGetSetSrcDstP)(ui3rr ArgDat);
  
  LOCALVAR const DecodeGetSetSrcDstP
@@ -116,7 +123,7 @@ index 3e9d4e8..90a112e 100644
  {
  	DecodeGetSetSrcDst_RegB /* kAMdRegB */,
  	DecodeGetSetSrcDst_RegW /* kAMdRegW */,
-@@ -2932,7 +2953,8 @@ FORWARDPROC my_reg_call cctrue_Dflt(cond_actP t_act, cond_actP f_act);
+@@ -2932,7 +2960,8 @@ FORWARDPROC my_reg_call cctrue_Dflt(cond_actP t_act, cond_actP f_act);
  
  typedef void (my_reg_call *cctrueP)(cond_actP t_act, cond_actP f_act);
  
@@ -126,7 +133,7 @@ index 3e9d4e8..90a112e 100644
  	cctrue_T /* kLazyFlagsDefault T */,
  	cctrue_F /* kLazyFlagsDefault F */,
  	cctrue_HI /* kLazyFlagsDefault HI */,
-@@ -8301,7 +8323,7 @@ LOCALPROC local_customreset(void)
+@@ -8301,7 +8330,7 @@ LOCALPROC local_customreset(void)
  	Em_Enter();
  }
  
@@ -135,7 +142,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ATTep prev;
  	ATTep p;
-@@ -8330,7 +8352,7 @@ LOCALFUNC ATTep LocalFindATTel(CPTR addr)
+@@ -8330,7 +8359,7 @@ LOCALFUNC ATTep LocalFindATTel(CPTR addr)
  	return p;
  }
  
@@ -144,7 +151,7 @@ index 3e9d4e8..90a112e 100644
  	MATCp CurMATC,
  	ATTep p)
  {
-@@ -8340,7 +8362,7 @@ LOCALPROC SetUpMATC(
+@@ -8340,7 +8369,7 @@ LOCALPROC SetUpMATC(
  	CurMATC->usebase = p->usebase;
  }
  
@@ -153,7 +160,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ATTep p;
  	ui3p m;
-@@ -8399,7 +8421,7 @@ Label_Retry:
+@@ -8399,7 +8428,7 @@ Label_Retry:
  	}
  }
  
@@ -162,7 +169,7 @@ index 3e9d4e8..90a112e 100644
  {
  	ui5r Data;
  
-@@ -8653,6 +8675,10 @@ LOCALPROC do_trace(void)
+@@ -8653,6 +8682,10 @@ LOCALPROC do_trace(void)
  	NeedToGetOut();
  }
  
@@ -173,7 +180,7 @@ index 3e9d4e8..90a112e 100644
  GLOBALPROC m68k_go_nCycles(ui5b n)
  {
  	Em_Enter();
-@@ -8678,7 +8704,22 @@ GLOBALPROC m68k_go_nCycles(ui5b n)
+@@ -8678,7 +8711,22 @@ GLOBALPROC m68k_go_nCycles(ui5b n)
  		if (V_regs.t1 != 0) {
  			do_trace();
  		}
@@ -196,3 +203,16 @@ index 3e9d4e8..90a112e 100644
  		V_MaxCyclesToGo += V_regs.MoreCyclesToGo;
  		V_regs.MoreCyclesToGo = 0;
  	}
+@@ -8931,2 +8979,11 @@ GLOBALPROC MINEM68K_Init(
+-	M68KITAB_setup(regs.disp_table);
++#if MINIVMAC_DECODE_CACHE
++	if (!MiniVMac_LoadDecodeTable((ui3p)regs.disp_table,
++			disp_table_sz * 8)) {
++		M68KITAB_setup(regs.disp_table);
++		MiniVMac_SaveDecodeTable((ui3p)regs.disp_table,
++			disp_table_sz * 8);
++	}
++#else
++	M68KITAB_setup(regs.disp_table);
++#endif
+ }

@@ -21,8 +21,8 @@ git -C "$work" apply "$here/patches/wikireader-fast-m68k.patch"
 cc -O2 -o "$work/setup_t" "$work/setup/tool.c"
 (
 	cd "$work"
-	./setup_t -t ndsa -m 128K -mem 512K -sound 0 -speed a \
-		-fullscreen 0 -var-fullscreen 0 -magnify 0 -lang eng > setup.sh
+	./setup_t -t ndsa -m Plus -mem 4M -sound 0 -speed a -sony-tag 1 \
+		-fullscreen 1 -var-fullscreen 0 -magnify 0 -lang eng > setup.sh
 	sh setup.sh
 )
 
