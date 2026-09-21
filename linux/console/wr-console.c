@@ -38,8 +38,9 @@
 #define WR_KEY_ENTER_FIRST	38
 #define WR_KEY_ENTER_LAST	39
 
-#define OUTPUT_BATCH_BYTES	8192
+#define OUTPUT_BATCH_BYTES	256
 #define OUTPUT_QUIET_MS		8
+#define SCROLL_FRAME_MS		16
 
 struct glyph {
 	char character;
@@ -178,6 +179,7 @@ static int control_active;
 static int symbols_active;
 static int fb_fd;
 static int log_fd;
+static unsigned int scrolls_pending;
 
 static void log_text(const char *text)
 {
@@ -221,17 +223,23 @@ static void draw_character(unsigned int x, unsigned int y,
 			   unsigned char character, int inverse)
 {
 	const uint8_t *rows = glyph_rows(character);
-	unsigned int gx;
 	unsigned int gy;
+	unsigned int offset = x & 7;
+	uint16_t mask = 0xfc00U >> offset;
 
-	for (gy = 0; gy < FONT_HEIGHT; gy++)
-		for (gx = 0; gx < FONT_WIDTH; gx++) {
-			int foreground = gy < 7 && gx < 5 &&
-				(rows[gy] & (1U << (4 - gx)));
+	for (gy = 0; gy < FONT_HEIGHT; gy++) {
+		uint8_t *destination = framebuffer + (y + gy) * LCD_STRIDE +
+			(x >> 3);
+		uint16_t pixels = gy < 7 ?
+			((uint16_t)rows[gy] << 11) >> offset : 0;
 
-			set_pixel(x + gx, y + gy,
-				  inverse ? !foreground : foreground);
-		}
+		if (inverse)
+			pixels = ~pixels & mask;
+		destination[0] = (destination[0] & ~(mask >> 8)) |
+			(pixels >> 8);
+		destination[1] = (destination[1] & ~(uint8_t)mask) |
+			(uint8_t)pixels;
+	}
 }
 
 static void clear_rows(unsigned int first, unsigned int count)
@@ -403,10 +411,13 @@ static void flush_text(void)
 
 	if (first >= TEXT_ROWS)
 		return;
-	draw_text_rows(first, last);
 	write_rows(first * FONT_HEIGHT, (last - first + 1) * FONT_HEIGHT);
 	dirty_text_first = TEXT_ROWS;
 	dirty_text_last = 0;
+	if (scrolls_pending) {
+		poll(NULL, 0, SCROLL_FRAME_MS);
+		scrolls_pending = 0;
+	}
 }
 
 static void flush_key(int key)
@@ -452,8 +463,12 @@ static void scroll_terminal(void)
 {
 	memmove(cells[0], cells[1], (TEXT_ROWS - 1) * TEXT_COLUMNS);
 	memset(cells[TEXT_ROWS - 1], ' ', TEXT_COLUMNS);
+	memmove(framebuffer, framebuffer + FONT_HEIGHT * LCD_STRIDE,
+		(STATUS_Y - FONT_HEIGHT) * LCD_STRIDE);
+	clear_rows(STATUS_Y - FONT_HEIGHT, FONT_HEIGHT);
 	cursor_y = TEXT_ROWS - 1;
 	mark_all_text();
+	scrolls_pending++;
 }
 
 static void terminal_newline(void)
@@ -472,6 +487,7 @@ static void terminal_erase_line(unsigned int first, unsigned int last)
 	if (last < first)
 		return;
 	memset(&cells[cursor_y][first], ' ', last - first + 1);
+	draw_text_rows(cursor_y, cursor_y);
 	mark_text_row(cursor_y);
 }
 
@@ -493,6 +509,7 @@ static void terminal_erase_display(unsigned int mode)
 		terminal_erase_line(0, cursor_x);
 	} else if (mode == 2 || mode == 3) {
 		memset(cells, ' ', sizeof(cells));
+		clear_rows(0, STATUS_Y);
 		mark_all_text();
 	}
 }
@@ -554,13 +571,14 @@ static void terminal_byte(unsigned char byte)
 		return;
 	mark_text_row(cursor_y);
 	cells[cursor_y][cursor_x] = byte;
+	draw_character(cursor_x * FONT_WIDTH, cursor_y * FONT_HEIGHT, byte, 0);
 	if (++cursor_x == TEXT_COLUMNS)
 		terminal_newline();
 }
 
 static void consume_terminal_output(int master_fd)
 {
-	unsigned char output[1024];
+	unsigned char output[OUTPUT_BATCH_BYTES];
 	struct pollfd more = {
 		.fd = master_fd,
 		.events = POLLIN,
@@ -746,6 +764,9 @@ int main(void)
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\n"; *banner; banner++)
 		terminal_byte(*banner);
+	clear_rows(STATUS_Y, KEYBOARD_Y - STATUS_Y);
+	for (unsigned int stage = 0; stage < 4; stage++)
+		draw_checkpoint(stage);
 	draw_checkpoint(4);
 
 	master_fd = open_pty(&slave_fd);

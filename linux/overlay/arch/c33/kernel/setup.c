@@ -65,6 +65,7 @@ void __init setup_arch(char **cmdline_p)
 	min_low_pfn = PFN_UP(memory_start);
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
+	c33_lcd_console_register();
 	c33_lcd_checkpoint(1);
 }
 

@@ -48,7 +48,8 @@ static bool s1c33fb_show_boot_logo(struct fb_info *info)
 	    logo->width > S1C33_FB_WIDTH ||
 	    destination_y + logo->height > S1C33_FB_HEIGHT)
 		return false;
-	destination_x = S1C33_FB_WIDTH - logo->width;
+	/* The panel wiring puts the low-address edge at physical screen right. */
+	destination_x = 0;
 	if (destination_x & 7)
 		return false;
 	source_stride = DIV_ROUND_UP(logo->width, 8);

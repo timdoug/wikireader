@@ -4,6 +4,7 @@
 
 unsigned long c33_mclk_hz(void);
 void c33_lcd_init(void);
+void c33_lcd_console_register(void);
 void c33_lcd_checkpoint(unsigned int stage);
 void c33_lcd_fault(unsigned int vector);
 

@@ -36,20 +36,23 @@ the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
 exits through libc, and is reaped by PID 1. This is the first regression using
 the conventional C userspace ABI rather than the initramfs syscall veneers.
 
-The architecture's small early renderer writes `C33 LINUX` and four boot
-checkpoints into the LCD memory left active by the card loader. An unhandled
-exception replaces its checkpoint strip with a solid fault bar, so failures
-before driver probe remain visible without attaching to the serial pads.
+The architecture's small early renderer writes `C33 LINUX` into the LCD
+memory left active by the card loader, then becomes a temporary printk console
+that scrolls the ordinary kernel log until late init. Boot checkpoints remain
+visible below the text and an unhandled exception replaces their strip with a
+solid fault bar, so failures before userspace remain visible without attaching
+to the serial pads. The boot logo is placed on the physical right edge.
 Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
 It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
 `/dev/ptmx`, makes the PTY slave Hush's controlling terminal, and translates
 released soft keys into terminal input. Its four-row keyboard provides
 lowercase and shifted letters, `123`/`ABC` symbol pages, Control, Tab, Space,
 cursor keys, Backspace, and Enter. The frontend writes only changed text rows
-and key bands through fbdev. PTY output is drained in bounded bursts so a
-scrolling command renders its latest screen instead of repainting once per
-small read on the 14-BogoMIPS processor. BusyBox init respawns the frontend if
-it exits; the
+and key bands through fbdev. Packed glyph writes and overlap-safe framebuffer
+row moves make scrolling cheap; bounded output frames are paced when they
+scroll so commands remain visibly animated instead of either repainting every
+byte or jumping directly to their final screen. BusyBox init respawns the
+frontend if it exits; the
 independent `ttyC0` recovery shell remains available throughout.
 
 The panel is registered with the Linux input subsystem as a 240x208

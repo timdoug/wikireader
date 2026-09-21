@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/console.h>
 #include <linux/font.h>
+#include <linux/init.h>
 
 #include <asm/wikireader.h>
 
@@ -16,13 +18,14 @@
 #define C33_LCD_FONT_WIDTH     8
 #define C33_LCD_FONT_HEIGHT    16
 #define C33_LCD_COLUMNS        (C33_LCD_WIDTH / C33_LCD_FONT_WIDTH)
-#define C33_LCD_TEXT_ROWS      7
+#define C33_LCD_TEXT_ROWS      12
 #define C33_LCD_STATUS_Y       (C33_LCD_TEXT_ROWS * C33_LCD_FONT_HEIGHT)
 #define C33_LCD_STATUS_SIZE    6
 #define C33_LCD_STATUS_PITCH   16
 
 static unsigned int c33_lcd_column;
 static unsigned int c33_lcd_row;
+static bool c33_lcd_console_registered;
 static void c33_lcd_clear_rows(unsigned int first, unsigned int count)
 {
 	volatile u8 *fb = C33_LCD_FB + first * C33_LCD_STRIDE;
@@ -100,6 +103,38 @@ void c33_lcd_init(void)
 		c33_lcd_putc(banner[i]);
 	c33_lcd_checkpoint(0);
 }
+
+static void c33_lcd_console_write(struct console *console, const char *text,
+				  unsigned int length)
+{
+	unsigned int i;
+
+	for (i = 0; i < length; i++)
+		c33_lcd_putc(text[i]);
+}
+
+static struct console c33_lcd_console = {
+	.name = "c33lcd",
+	.write = c33_lcd_console_write,
+	.flags = CON_PRINTBUFFER | CON_ENABLED | CON_ANYTIME,
+	.index = 0,
+};
+
+void __init c33_lcd_console_register(void)
+{
+	register_console(&c33_lcd_console);
+	c33_lcd_console_registered = true;
+}
+
+static int __init c33_lcd_console_unregister(void)
+{
+	if (c33_lcd_console_registered) {
+		unregister_console(&c33_lcd_console);
+		c33_lcd_console_registered = false;
+	}
+	return 0;
+}
+late_initcall(c33_lcd_console_unregister);
 
 void c33_lcd_checkpoint(unsigned int stage)
 {
