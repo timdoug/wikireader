@@ -2,6 +2,8 @@
 /* Legacy board description for devices not yet described by a device tree. */
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/gpio/machine.h>
+#include <linux/gpio/property.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/mmc/host.h>
@@ -54,14 +56,6 @@ static void wr_modify8(unsigned long address, u8 clear, u8 set)
 	u8 value = readb((void __iomem *)address);
 
 	writeb((value & ~clear) | set, (void __iomem *)address);
-}
-
-static void wr_spi_set_cs(unsigned int chip_select, bool high)
-{
-	if (chip_select)
-		return;
-	wr_modify8(WR_P5_DATA, high ? 0 : WR_SD_CS,
-		   high ? WR_SD_CS : 0);
 }
 
 static void wr_spi_hold_clock(bool hold, bool high)
@@ -119,13 +113,15 @@ static struct spi_board_info wr_spi_devices[] = {
 };
 
 static struct s1c33_spi_platform_data wr_spi_pdata = {
-	.set_cs = wr_spi_set_cs,
 	.hold_clock = wr_spi_hold_clock,
 	.devices = wr_spi_devices,
 	.num_devices = ARRAY_SIZE(wr_spi_devices),
 	.dma_memory_start = 0x10000000,
 	.dma_memory_end = 0x12000000,
 };
+
+static const struct resource wr_gpio_resource =
+	DEFINE_RES_MEM(WR_REG_BASE + 0x380, 14);
 
 static const struct resource wr_spi_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
@@ -146,6 +142,21 @@ static const struct resource wr_uart1_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b10, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_ERROR, "error"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
+};
+
+static const struct software_node wr_gpio_node = {
+	.name = "s1c33-gpio",
+};
+
+static const struct property_entry wr_spi_properties[] = {
+	PROPERTY_ENTRY_GPIO("cs-gpios", &wr_gpio_node, 5 * 8,
+			    GPIO_ACTIVE_LOW),
+	{ }
+};
+
+static const struct software_node wr_spi_node = {
+	.name = "spi0",
+	.properties = wr_spi_properties,
 };
 
 static const struct property_entry wr_uart0_properties[] = {
@@ -183,7 +194,9 @@ static const struct software_node wr_touch_node = {
 	.properties = wr_touch_properties,
 };
 
-static const struct software_node *wr_uart_nodes[] = {
+static const struct software_node *wr_nodes[] = {
+	&wr_gpio_node,
+	&wr_spi_node,
 	&wr_uart0_node,
 	&wr_uart1_node,
 	&wr_touch_node,
@@ -210,14 +223,16 @@ static void __init wr_uart_prepare(void)
 
 static int __init c33_devices_init(void)
 {
+	struct platform_device_info gpio_info = { };
+	struct platform_device_info spi_info = { };
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
 	int ret;
 	u32 gate;
 
-	ret = software_node_register_node_group(wr_uart_nodes);
+	ret = software_node_register_node_group(wr_nodes);
 	if (ret) {
-		pr_err("C33 devices: UART firmware nodes failed: %d\n", ret);
+		pr_err("C33 devices: firmware nodes failed: %d\n", ret);
 		return ret;
 	}
 
@@ -242,11 +257,25 @@ static int __init c33_devices_init(void)
 	wr_modify8(WR_IDMAREQ_SPI, WR_IDMA_SPI_BIT, 0);
 	writeb(0, (void __iomem *)WR_IDMA_ENABLE);
 
-	device = platform_device_register_resndata(NULL, "s1c33-spi", -1,
-						   wr_spi_resources,
-						   ARRAY_SIZE(wr_spi_resources),
-						   &wr_spi_pdata,
-						   sizeof(wr_spi_pdata));
+	gpio_info.name = "s1c33-gpio";
+	gpio_info.id = -1;
+	gpio_info.res = &wr_gpio_resource;
+	gpio_info.num_res = 1;
+	gpio_info.fwnode = software_node_fwnode(&wr_gpio_node);
+	device = platform_device_register_full(&gpio_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: GPIO platform registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	spi_info.name = "s1c33-spi";
+	spi_info.id = -1;
+	spi_info.res = wr_spi_resources;
+	spi_info.num_res = ARRAY_SIZE(wr_spi_resources);
+	spi_info.data = &wr_spi_pdata;
+	spi_info.size_data = sizeof(wr_spi_pdata);
+	spi_info.fwnode = software_node_fwnode(&wr_spi_node);
+	device = platform_device_register_full(&spi_info);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: SPI platform registration failed: %ld\n",
 		       PTR_ERR(device));

@@ -166,7 +166,11 @@ ordinary 8-bit full-duplex SPI semantics, but batches bulk transfers into
 all four SPI modes and the hardware's MCLK/4 through MCLK/512 divisors. It
 reprograms the clock before chip select is asserted because disabling the
 S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
-also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
+registers all 56 port lines through gpiolib; SPI core acquires the SD slot's
+active-low chip select from the board's software-node graph and toggles its
+GPIO descriptor. Neither the SPI driver nor its platform data contains a
+board-specific chip-select callback.
+It also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
 transmit/receive pair. Short, unaligned, command, and write transfers retain a
 bounded programmed-I/O path, so the optimization remains entirely behind the
 standard SPI controller API. Bulk reads sleep on a Linux completion signaled by
@@ -197,10 +201,11 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The next normalization slice is replacing the remaining SPI chip-select,
-clock-pin hold, and MMC power callbacks with pin-control, GPIO, and regulator
-providers, then separating the embedded HSDMA implementation behind DMAengine.
-That will let SPI/MMC consume the same resources as device-tree systems.
+The next normalization slice is replacing the remaining SPI clock-pin hold
+and MMC power callbacks with pin-control and regulator consumers backed by the
+new GPIO provider, then separating the embedded HSDMA implementation behind
+DMAengine. That will let SPI/MMC consume the same resources as device-tree
+systems.
 Richer keyboard modes, console session management, and power management can
 then grow around the proven LCD, touch, PTY, storage, and recovery userspace
 paths.

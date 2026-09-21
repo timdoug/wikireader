@@ -10,6 +10,7 @@
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/spi/spi.h>
 #include <linux/swab.h>
 #include <linux/unaligned.h>
@@ -90,7 +91,7 @@ static int s1c33_spi_wait(struct s1c33_spi *hw, u32 flag, bool wanted)
 }
 
 static unsigned int s1c33_spi_divisor(struct s1c33_spi *hw,
-				       unsigned int requested,
+				      unsigned int requested,
 				       unsigned long *effective)
 {
 	unsigned long clock = clk_get_rate(hw->clk);
@@ -156,7 +157,7 @@ static int s1c33_spi_setup(struct spi_device *spi)
 }
 
 static int s1c33_spi_prepare_message(struct spi_controller *controller,
-				      struct spi_message *message)
+				     struct spi_message *message)
 {
 	struct s1c33_spi *hw = spi_controller_get_devdata(controller);
 	struct spi_transfer *transfer;
@@ -170,15 +171,8 @@ static int s1c33_spi_prepare_message(struct spi_controller *controller,
 	transfer = list_first_entry(&message->transfers, struct spi_transfer,
 				    transfer_list);
 	s1c33_spi_configure(hw, transfer->speed_hz, message->spi->mode, 8,
-			     false);
+			    false);
 	return 0;
-}
-
-static void s1c33_spi_set_cs(struct spi_device *spi, bool high)
-{
-	struct s1c33_spi *hw = spi_controller_get_devdata(spi->controller);
-
-	hw->pdata->set_cs(spi_get_chipselect(spi, 0), high);
 }
 
 static bool s1c33_spi_all_ones(const u8 *buffer, unsigned int length)
@@ -194,7 +188,7 @@ static bool s1c33_spi_all_ones(const u8 *buffer, unsigned int length)
 }
 
 static void s1c33_hsdma_channel(struct s1c33_spi *hw, unsigned int channel,
-				 unsigned int count, u32 source, u32 destination,
+				unsigned int count, u32 source, u32 destination,
 				 bool increment_source,
 				 bool increment_destination)
 {
@@ -252,10 +246,10 @@ static int s1c33_spi_dma_read(struct s1c33_spi *hw, struct spi_device *spi,
 	reinit_completion(&hw->dma_done);
 	writew(1, hw->dma + S1C33_DMA_ADV_MODE);
 	s1c33_hsdma_channel(hw, 3, words,
-			      (u32)(unsigned long)hw->base + S1C33_SPI_RXD,
+			    (u32)(unsigned long)hw->base + S1C33_SPI_RXD,
 			      destination, false, true);
 	s1c33_hsdma_channel(hw, 2, words - 1,
-			      (u32)(unsigned long)&hw->dummy,
+			    (u32)(unsigned long)&hw->dummy,
 			      (u32)(unsigned long)hw->base + S1C33_SPI_TXD,
 			      false, false);
 	old_trigger = readb(hw->itc + S1C33_ITC_HS_TRIGGER);
@@ -321,7 +315,7 @@ static int s1c33_spi_transfer_one(struct spi_controller *controller,
 	if (ret != -EOPNOTSUPP)
 		return ret;
 	effective = s1c33_spi_configure(hw, transfer->speed_hz, spi->mode,
-					 transfer->len >= 4 ? 32 : 8, false);
+					transfer->len >= 4 ? 32 : 8, false);
 	transfer->effective_speed_hz = effective;
 
 	for (i = 0; i + 4 <= transfer->len; i += 4) {
@@ -362,12 +356,13 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	int irq;
 	int ret;
 
-	if (!pdata || !pdata->set_cs)
+	if (!pdata)
 		return -EINVAL;
 	controller = devm_spi_alloc_host(&pdev->dev, sizeof(*hw));
 	if (!controller)
 		return -ENOMEM;
 	hw = spi_controller_get_devdata(controller);
+	device_set_node(&controller->dev, dev_fwnode(&pdev->dev));
 	hw->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(hw->clk))
 		return dev_err_probe(&pdev->dev, PTR_ERR(hw->clk),
@@ -405,21 +400,19 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 				     "input clock has no rate\n");
 	controller->bus_num = 0;
 	controller->num_chipselect = 1;
-	controller->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
+	controller->mode_bits = SPI_CPOL | SPI_CPHA;
 	controller->bits_per_word_mask = SPI_BPW_MASK(8);
+	controller->use_gpio_descriptors = true;
 	controller->min_speed_hz = clock / 512;
 	controller->max_speed_hz = clock / 4;
 	controller->setup = s1c33_spi_setup;
 	controller->prepare_message = s1c33_spi_prepare_message;
-	controller->set_cs = s1c33_spi_set_cs;
 	controller->transfer_one = s1c33_spi_transfer_one;
 
 	writel(0, hw->base + S1C33_SPI_CTL2);
 	writel(0, hw->base + S1C33_SPI_WAIT);
 	writel(0, hw->base + S1C33_SPI_INT);
 	readl(hw->base + S1C33_SPI_RXD);
-	pdata->set_cs(0, true);
-
 	platform_set_drvdata(pdev, controller);
 	ret = devm_spi_register_controller(&pdev->dev, controller);
 	if (ret)

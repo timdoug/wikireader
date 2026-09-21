@@ -88,6 +88,25 @@ diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
  		ret = -ENODEV;
  		goto err_rpm_disable;
  	}
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -643,1 +643,9 @@
++config GPIO_S1C33
++	bool "Epson S1C33 GPIO controller"
++	depends on C33
++	help
++	  Enable the GPIO controller for the seven eight-bit port banks in
++	  Epson S1C33 microcontrollers. GPIO consumers use standard descriptor
++	  lookups and the controller preserves unrelated pins during updates.
++
+ config GPIO_SAMA5D2_PIOBU
+diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -159,1 +159,2 @@
++obj-$(CONFIG_GPIO_S1C33)		+= gpio-s1c33.o
+ obj-$(CONFIG_GPIO_SAMA5D2_PIOBU)	+= gpio-sama5d2-piobu.o
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
