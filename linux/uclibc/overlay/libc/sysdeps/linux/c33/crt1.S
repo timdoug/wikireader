@@ -29,8 +29,8 @@ _start:
 	/* main, argc, argv, and app_init are passed in r6 through r9. */
 	xld.w %r6,main
 	xld.w %r7,[%r0]
-	ld.w %r8,%r0
-	add %r8,4
+	/* The C33 port selects BINFMT_FLAT_ARGVP_ENVP_ON_STACK. */
+	xld.w %r8,[%r0+4]
 	xld.w %r9,_init
 	xcall __uClibc_main
 

@@ -27,6 +27,8 @@ enum message {
 	MESSAGE_SIGNAL_FAIL,
 	MESSAGE_LIBC_PASS,
 	MESSAGE_LIBC_FAIL,
+	MESSAGE_BUSYBOX_PASS,
+	MESSAGE_BUSYBOX_FAIL,
 	MESSAGE_NEWLINE,
 };
 
@@ -50,6 +52,8 @@ static const struct message_record messages[] = {
 	MESSAGE("C33 signal test FAILED\n"),
 	MESSAGE("C33 libc test: crt -> stdio -> getpid -> longjmp passed\n"),
 	MESSAGE("C33 libc test FAILED\n"),
+	MESSAGE("C33 BusyBox test: hush -> echo -> exit passed\n"),
+	MESSAGE("C33 BusyBox test FAILED\n"),
 	MESSAGE("\n"),
 };
 
@@ -57,6 +61,7 @@ static unsigned int command_count;
 static volatile unsigned char digit_base = '0';
 static volatile unsigned int signal_seen;
 static const char *child_path;
+static char *const *child_argv;
 
 struct c33_sigaction {
 	void (*handler)(int);
@@ -83,20 +88,20 @@ static void put_message(enum message index)
 
 void clone_child(void)
 {
-	char *argv[] = { (char *)child_path, 0 };
 	char *envp[] = { 0 };
 
-	c33_execve(child_path, argv, envp);
+	c33_execve(child_path, child_argv, envp);
 	c33_exit(127);
 }
 
-static int run_program(const char *path, int expected_status)
+static int run_program(const char *path, char *const argv[], int expected_status)
 {
 	long pid;
 	long waited;
 	int status = 0;
 
 	child_path = path;
+	child_argv = argv;
 	/* The asm-generic no-MMU vfork ABI is clone(CLONE_VM|CLONE_VFORK). */
 	pid = c33_clone(0x4111, 0, 0, 0, 0);
 	if (pid <= 0)
@@ -107,7 +112,9 @@ static int run_program(const char *path, int expected_status)
 
 static void process_test(void)
 {
-	if (run_program("/child", 23))
+	char *argv[] = { "/child", 0 };
+
+	if (run_program("/child", argv, 23))
 		put_message(MESSAGE_PROCESS_PASS);
 	else
 		put_message(MESSAGE_PROCESS_FAIL);
@@ -115,10 +122,26 @@ static void process_test(void)
 
 static void libc_test(void)
 {
-	if (run_program("/uclibc-smoke", 0))
+	char *argv[] = { "/uclibc-smoke", 0 };
+
+	if (run_program("/uclibc-smoke", argv, 0))
 		put_message(MESSAGE_LIBC_PASS);
 	else
 		put_message(MESSAGE_LIBC_FAIL);
+}
+
+static void busybox_test(void)
+{
+	char *argv[] = {
+		"sh", "-c",
+		"echo C33 BusyBox 1.38.0: hush and echo reached userspace",
+		0,
+	};
+
+	if (run_program("/busybox", argv, 0))
+		put_message(MESSAGE_BUSYBOX_PASS);
+	else
+		put_message(MESSAGE_BUSYBOX_FAIL);
 }
 
 static void signal_handler(int signal)
@@ -152,6 +175,7 @@ void init_main(void)
 	process_test();
 	signal_test();
 	libc_test();
+	busybox_test();
 	put_message(MESSAGE_BANNER);
 	put_message(MESSAGE_HELP);
 	put_message(MESSAGE_PROMPT);

@@ -83,6 +83,7 @@ with the repository's normal firmware targets if they are not present.
 ```sh
 make -C linux fetch
 make -C linux libc
+make -C linux busybox
 make -C linux build
 make -C linux boot-test
 ```
@@ -100,6 +101,11 @@ ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 `linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
 image and embeds it in the initramfs as `/uclibc-smoke`.
 
+`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT with a
+small no-MMU configuration, including `hush` and basic core applets. The
+regular `build` target embeds it as `/busybox`; early PID 1 runs a `hush -c`
+command and verifies its exit status before presenting the diagnostic shell.
+
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, injects two bytes into
 UART0 after PID 1 starts, and passes only if vector 57 fires, userspace reads
@@ -112,6 +118,6 @@ the checkout and removed afterward.
 
 ## What comes next
 
-The next useful vertical slice is a minimal static BusyBox configuration using
-the working uClibc toolchain. After that come SD/block/filesystem support and
-the WikiReader panel, input, and power drivers.
+The next useful vertical slice is making BusyBox the interactive initramfs
+shell. After that come SD/block/filesystem support and the WikiReader panel,
+input, and power drivers.
