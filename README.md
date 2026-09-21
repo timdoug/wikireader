@@ -2,6 +2,12 @@
 
 <img src="doc/wikireader.jpg" alt="A WikiReader running Linux, showing cpuinfo and uname output at a shell prompt" width="800">
 
+<img src="doc/zim-article.jpg" alt="The ZIM reader showing the WikiReader article and its photograph" width="800">
+
+<img src="doc/zim-tokyo.jpg" alt="The Tokyo article, with Japanese text above a dithered skyline photograph" width="800">
+
+<img src="doc/zim-hafele-keating.jpg" alt="The Hafele-Keating experiment article and its photograph" width="800">
+
 Firmware and tools for the Epson S1C33 WikiReader handheld. Forked from
 [stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
 
