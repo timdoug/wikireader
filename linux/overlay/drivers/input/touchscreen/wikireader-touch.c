@@ -1,97 +1,38 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* UART-attached touchscreen used by the Openmoko WikiReader. */
-#include <linux/bitops.h>
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/serdev.h>
 #include <linux/serial_core.h>
 
-#include <asm/wikireader.h>
-
 #define WR_TOUCH_BAUD         9600
 #define WR_TOUCH_PACKET_START 0xaa
 #define WR_TOUCH_WIDTH        240
 #define WR_TOUCH_HEIGHT       208
-
-/* Temporary compatibility keyboard; userspace will replace this policy. */
-#define WR_KEYBOARD_Y         120
-#define WR_KEY_WIDTH          24
 
 struct wr_touch {
 	struct input_dev *input;
 	u8 state;
 	u16 x;
 	u16 y;
-	int active_key;
-	bool pressed;
 };
 
-static int wr_touch_hit_key(unsigned int x, unsigned int y)
-{
-	unsigned int row;
-
-	if (x >= WR_TOUCH_WIDTH || y < WR_KEYBOARD_Y || y >= WR_TOUCH_HEIGHT)
-		return -1;
-	row = (y - WR_KEYBOARD_Y) * 3 / (WR_TOUCH_HEIGHT - WR_KEYBOARD_Y);
-	return row * 10 + x / WR_KEY_WIDTH;
-}
-
-static u8 wr_touch_key_character(int key)
-{
-	static const u8 keys[3][10] = {
-		"qwertyuiop",
-		"asdfghjkl\b",
-		"zxcv  bnm\n",
-	};
-
-	return keys[key / 10][key % 10];
-}
-
-static void wr_touch_report(struct wr_touch *touch, bool pressed, bool valid)
+static void wr_touch_report(struct wr_touch *touch, bool pressed)
 {
 	unsigned int x = touch->x >> 1;
 	unsigned int y = touch->y >> 1;
-	int key = valid ? wr_touch_hit_key(x, y) : -1;
-	int previous = touch->active_key;
 
-	if (valid) {
-		input_report_abs(touch->input, ABS_X, x);
-		input_report_abs(touch->input, ABS_Y, y);
-	}
-	if (valid || (!pressed && touch->pressed)) {
-		input_report_key(touch->input, BTN_TOUCH, pressed);
-		input_sync(touch->input);
-		dev_info_once(&touch->input->dev,
-			      "reported absolute touch events through evdev\n");
-	}
-
-	if (pressed && !touch->pressed) {
-		touch->active_key = key;
-		if (key >= 0)
-			c33_lcd_keyboard_press(key, true);
-	} else if (pressed && touch->pressed && key != touch->active_key) {
-		touch->active_key = -1;
-		if (previous >= 0)
-			c33_lcd_keyboard_press(previous, false);
-	} else if (!pressed && touch->pressed) {
-		touch->active_key = -1;
-		if (previous >= 0)
-			c33_lcd_keyboard_press(previous, false);
-		if (valid && key == previous && previous >= 0 &&
-		    c33_tty_inject_char(wr_touch_key_character(previous))) {
-			c33_lcd_checkpoint(10);
-			pr_info_once("C33 touch: compatibility keyboard injected console input\n");
-		}
-	}
-	touch->pressed = pressed;
+	input_report_abs(touch->input, ABS_X, x);
+	input_report_abs(touch->input, ABS_Y, y);
+	input_report_key(touch->input, BTN_TOUCH, pressed);
+	input_sync(touch->input);
 }
 
 static void wr_touch_byte(struct wr_touch *touch, u8 byte)
 {
 	if (byte == WR_TOUCH_PACKET_START) {
 		touch->state = 1;
-		c33_lcd_checkpoint(8);
 		return;
 	}
 	if ((byte & 0x80) && byte != 0xff) {
@@ -117,10 +58,8 @@ static void wr_touch_byte(struct wr_touch *touch, u8 byte)
 			touch->y = (touch->y & 0x3f80) | byte;
 		break;
 	case 5:
-		if (byte <= 1) {
-			c33_lcd_checkpoint(9);
-			wr_touch_report(touch, byte, true);
-		}
+		if (byte <= 1)
+			wr_touch_report(touch, byte);
 		touch->state = 0;
 		break;
 	default:
@@ -153,8 +92,6 @@ static int wr_touch_serdev_probe(struct serdev_device *serdev)
 	touch = devm_kzalloc(&serdev->dev, sizeof(*touch), GFP_KERNEL);
 	if (!touch)
 		return -ENOMEM;
-	touch->active_key = -1;
-
 	input = devm_input_allocate_device(&serdev->dev);
 	if (!input)
 		return -ENOMEM;
@@ -183,7 +120,6 @@ static int wr_touch_serdev_probe(struct serdev_device *serdev)
 				     "cannot set 9600 baud\n");
 	serdev_device_set_flow_control(serdev, false);
 
-	c33_lcd_keyboard_init();
 	dev_info(&serdev->dev,
 		 "registered 240x208 touchscreen through serdev\n");
 	return 0;

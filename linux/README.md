@@ -16,14 +16,11 @@ Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
 with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
 both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
 visible in `/proc/interrupts`. Linux runs the scheduler, registers the
-interrupt-driven `ttyC0` UART console, and loads a tiny compiled-C bFLT
-process as PID 1.
-PID 1 provides an interactive
-`h`/`p`/`c` shell: it reads commands through the Linux TTY layer, invokes
-`getpid()` for `p`, reports its global command counter for `c`, and remains
-alive while timer interrupts keep preempting native C33 userspace.
+interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
+BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
+separate framebuffer console on a Unix98 PTY.
 
-Before entering the shell, PID 1 also runs a process-lifecycle regression. It
+Early userspace also runs a process-lifecycle regression. It
 uses the asm-generic `clone(CLONE_VM | CLONE_VFORK)` ABI, executes a second
 bFLT image as `/child`, and reaps its exit status with `wait4`. This
 exercises the live syscall register frame, task creation, scheduling, exec,
@@ -39,14 +36,17 @@ the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
 exits through libc, and is reaped by PID 1. This is the first regression using
 the conventional C userspace ABI rather than the initramfs syscall veneers.
 
-The UART console is mirrored to a 30-column text console in the LCD framebuffer
-left active by the card loader. A fixed strip below the text records memory,
-interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
-scrolls. Touch adds four more boxes for interrupt, packet start, complete
-packet, and injected key; a twelfth box means a UART1 receive error was seen.
-An unhandled exception replaces the strip with a solid fault bar. This makes
-real-hardware boot results visible without attaching to the serial pads.
-The panel is also registered with the Linux input subsystem as a 240x208
+The architecture's small early renderer writes `C33 LINUX` and four boot
+checkpoints into the LCD memory left active by the card loader. An unhandled
+exception replaces its checkpoint strip with a solid fault bar, so failures
+before driver probe remain visible without attaching to the serial pads.
+Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
+It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
+`/dev/ptmx`, makes the PTY slave Hush's controlling terminal, and translates
+released soft keys into terminal input. BusyBox init respawns the frontend if
+it exits; the independent `ttyC0` recovery shell remains available throughout.
+
+The panel is registered with the Linux input subsystem as a 240x208
 absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and
 `BTN_TOUCH`. Its UART1 transport is a second S1C33 serial-core port connected
 to the touchscreen through Linux's tty-backed serdev layer. The input driver
@@ -55,13 +55,14 @@ registers, baud programming, buffering, and interrupts belong to the serial
 driver. Since this legacy board file has neither DT nor ACPI children, a
 software property retains the serdev controller and board glue instantiates
 the child using the same explicit attachment pattern as in-tree legacy x86
-quirks. The current in-kernel key layout remains temporarily as a compatibility
-consumer while the soft keyboard moves to userspace.
+quirks. Keyboard geometry, labels, press state, and character translation are
+entirely userspace policy: the touchscreen driver does not know about keys or
+TTYs.
 The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
 ordinary applications. The early renderer remains independent of fbdev so it
 can still report failures before platform drivers have probed. The kernel's
 standard monochrome Tux asset is enabled and briefly drawn when fbdev probes;
-later diagnostic console output naturally scrolls over it.
+the userspace console replaces it after init completes.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
@@ -113,6 +114,7 @@ with the repository's normal firmware targets if they are not present.
 make -C linux fetch
 make -C linux libc
 make -C linux busybox
+make -C linux console
 make -C linux build
 make -C linux boot-test
 ```
@@ -140,6 +142,12 @@ representative file/text/archive tool chain before mounting the SD card.
 `init` finally respawns an interactive `hush` on `ttyC0`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
+`console` builds the static bFLT framebuffer frontend. It uses only standard
+fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application
+contains no S1C33 register access or private kernel ABI. The regular `build`
+target embeds it as `/sbin/wr-console`, and BusyBox init supervises it beside
+the serial recovery shell.
+
 The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack
 power and pin-mux the WikiReader card slot, identify SDSC and SDHC cards, and
 expose standard devices such as `/dev/mmcblk0p1`. The controller presents
@@ -161,11 +169,11 @@ partition at `/mnt/sd` with synchronous writes. Early userspace leaves
 fixture, boots it through the full emulated hardware path, and requires the
 BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
 kernel panic. It then injects an `echo` command into the real `hush` over UART0
-and verifies its output and vector 57 interrupt. It separately generates panel
-taps for a command and Enter key, requires UART1 serial-core and serdev to feed
-that command through the on-screen keyboard into the same shell, and checks
-the resulting output. The test also checks the final display image for console
-text, all seven LCD checkpoints, and the three keyboard rows. The fixture and emulator
+and verifies its output. It separately generates panel taps for a command and
+Enter key, requires UART1 serial-core and serdev to deliver evdev records, and
+requires the userspace frontend to execute that command through its PTY-backed
+Hush. The test also checks the final display image for console text, all eleven
+boot checkpoints, and the three keyboard rows. The fixture and emulator
 display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
@@ -173,14 +181,14 @@ status. A console claim without persisted card bytes therefore fails the test.
 The same regression requires the Linux driver to announce IRQ-driven HSDMA,
 requires vector 25 to have a nonzero `/proc/interrupts` count, and requires the
 emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity. It also
-checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, opens
-the evdev node before the scripted panel tap, and requires four complete input
-event records to arrive through `/dev/input/event0`.
+checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and
+requires the frontend to receive the scripted panel events from
+`/dev/input/event0`.
 
 ## What comes next
 
-The next useful vertical slices are moving the soft keyboard policy and
-console-input injection to userspace, then replacing the legacy platform-data
+The next normalization slice is replacing the remaining legacy platform-data
 descriptions with a firmware-node representation that can enumerate serdev
-children directly. Richer keyboard modes and power management can then grow
-around the proven LCD, touch, console, storage, and recovery userspace paths.
+children without explicit driver attachment. Richer keyboard modes, console
+session management, and power management can then grow around the proven LCD,
+touch, PTY, storage, and recovery userspace paths.

@@ -1,2 +1,3 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
+::respawn:/sbin/wr-console

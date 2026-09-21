@@ -11,8 +11,6 @@
 
 #include <linux/platform_data/serial-s1c33.h>
 
-#include <asm/wikireader.h>
-
 #define S1C33_UART_TXD		0
 #define S1C33_UART_RXD		1
 #define S1C33_UART_STATUS	2
@@ -97,13 +95,7 @@ static void s1c33_uart_start_tx(struct uart_port *port)
 {
 	u8 ch;
 
-	uart_port_tx(port, ch, true, ({
-		s1c33_uart_putchar(port, ch);
-		if (!port->line)
-			c33_lcd_write((const char *)&ch, 1);
-	}));
-	if (!port->line)
-		c33_lcd_checkpoint(5);
+	uart_port_tx(port, ch, true, s1c33_uart_putchar(port, ch));
 }
 
 static void s1c33_uart_stop_rx(struct uart_port *port)
@@ -119,10 +111,6 @@ static irqreturn_t s1c33_uart_rx_interrupt(int irq, void *data)
 	u8 ch;
 
 	uart_port_lock_irqsave(port, &flags);
-	if (port->line)
-		c33_lcd_checkpoint(7);
-	else
-		pr_info_once("C33 UART: received vector 57 interrupt\n");
 	while ((readb(port->membase + S1C33_UART_STATUS) &
 		S1C33_UART_RX_READY) && limit--) {
 		ch = readb(port->membase + S1C33_UART_RXD);
@@ -136,8 +124,6 @@ static irqreturn_t s1c33_uart_rx_interrupt(int irq, void *data)
 		tty_flip_buffer_push(&port->state->port);
 	uart_port_unlock_irqrestore(port, flags);
 
-	if (inserted && !port->line)
-		c33_lcd_checkpoint(6);
 	return IRQ_HANDLED;
 }
 
@@ -149,7 +135,6 @@ static irqreturn_t s1c33_uart_error_interrupt(int irq, void *data)
 	if (!(readb(port->membase + S1C33_UART_STATUS) &
 	      S1C33_UART_ERRORS))
 		return IRQ_NONE;
-	c33_lcd_checkpoint(11);
 	while ((readb(port->membase + S1C33_UART_STATUS) &
 		S1C33_UART_RX_READY) && limit--)
 		readb(port->membase + S1C33_UART_RXD);
@@ -242,18 +227,6 @@ static const struct uart_ops s1c33_uart_ops = {
 	.verify_port	= s1c33_uart_verify_port,
 };
 
-bool c33_tty_inject_char(u8 ch)
-{
-	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
-
-	if (!port || !port->state || !tty_port_active(&port->state->port))
-		return false;
-	if (tty_insert_flip_char(&port->state->port, ch, TTY_NORMAL) != 1)
-		return false;
-	tty_flip_buffer_push(&port->state->port);
-	return true;
-}
-
 static int s1c33_uart_probe(struct platform_device *pdev)
 {
 	const struct s1c33_uart_platform_data *pdata =
@@ -309,7 +282,6 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 		return ret;
 	}
 	if (!line) {
-		c33_lcd_checkpoint(4);
 		dev_info(&pdev->dev,
 			 "registered /dev/ttyC0 through serial_core\n");
 	} else {
@@ -347,8 +319,6 @@ static void s1c33_uart_console_write(struct console *console, const char *s,
 	uart_port_lock_irqsave(port, &flags);
 	uart_console_write(port, s, count, s1c33_uart_putchar);
 	uart_port_unlock_irqrestore(port, flags);
-	c33_lcd_write(s, count);
-	c33_lcd_checkpoint(5);
 }
 
 static int s1c33_uart_console_setup(struct console *console, char *options)

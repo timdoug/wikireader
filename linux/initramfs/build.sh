@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 5 ]; then
-	echo "usage: $0 CROSS_PREFIX BUILD_DIR OUTPUT.list UCLIBC_SMOKE BUSYBOX" >&2
+if [ "$#" -ne 6 ]; then
+	echo "usage: $0 CROSS_PREFIX BUILD_DIR OUTPUT.list UCLIBC_SMOKE BUSYBOX CONSOLE" >&2
 	exit 2
 fi
 
@@ -11,6 +11,7 @@ build=$2
 manifest=$3
 uclibc_smoke=$4
 busybox=$5
+console=$6
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 mkdir -p "$build"
@@ -53,8 +54,8 @@ chmod 755 "$build/diag-test"
 python3 "$here/make-flat.py" "$build/child.elf" "$build/child"
 chmod 755 "$build/child"
 
-printf 'dir /bin 0755 0 0\ndir /sbin 0755 0 0\ndir /etc 0755 0 0\ndir /etc/init.d 0755 0 0\ndir /dev 0755 0 0\ndir /proc 0555 0 0\ndir /sys 0555 0 0\ndir /tmp 01777 0 0\ndir /mnt 0755 0 0\ndir /mnt/sd 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /bin/busybox %s 0755 0 0\nslink /init bin/busybox 0755 0 0\nslink /bin/sh busybox 0755 0 0\nslink /bin/mount busybox 0755 0 0\nslink /bin/uname busybox 0755 0 0\nslink /bin/echo busybox 0755 0 0\nslink /bin/cat busybox 0755 0 0\nslink /bin/ls busybox 0755 0 0\nslink /bin/pwd busybox 0755 0 0\nslink /bin/ps busybox 0755 0 0\nslink /bin/dmesg busybox 0755 0 0\nslink /sbin/init ../bin/busybox 0755 0 0\nslink /sbin/reboot ../bin/busybox 0755 0 0\nfile /etc/inittab %s/inittab 0644 0 0\nfile /etc/init.d/rcS %s/rcS 0755 0 0\nfile /diag-init %s/diag-init 0755 0 0\nfile /diag-test %s/diag-test 0755 0 0\nfile /child %s/child 0755 0 0\nfile /uclibc-smoke %s 0755 0 0\n' \
-	"$busybox" "$here" "$here" "$build" "$build" "$build" \
+printf 'dir /bin 0755 0 0\ndir /sbin 0755 0 0\ndir /etc 0755 0 0\ndir /etc/init.d 0755 0 0\ndir /dev 0755 0 0\ndir /dev/pts 0755 0 0\ndir /proc 0555 0 0\ndir /sys 0555 0 0\ndir /tmp 01777 0 0\ndir /mnt 0755 0 0\ndir /mnt/sd 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /bin/busybox %s 0755 0 0\nslink /init bin/busybox 0755 0 0\nslink /bin/sh busybox 0755 0 0\nslink /bin/mount busybox 0755 0 0\nslink /bin/uname busybox 0755 0 0\nslink /bin/echo busybox 0755 0 0\nslink /bin/cat busybox 0755 0 0\nslink /bin/ls busybox 0755 0 0\nslink /bin/pwd busybox 0755 0 0\nslink /bin/ps busybox 0755 0 0\nslink /bin/dmesg busybox 0755 0 0\nslink /sbin/init ../bin/busybox 0755 0 0\nslink /sbin/reboot ../bin/busybox 0755 0 0\nfile /sbin/wr-console %s 0755 0 0\nfile /etc/inittab %s/inittab 0644 0 0\nfile /etc/init.d/rcS %s/rcS 0755 0 0\nfile /diag-init %s/diag-init 0755 0 0\nfile /diag-test %s/diag-test 0755 0 0\nfile /child %s/child 0755 0 0\nfile /uclibc-smoke %s 0755 0 0\n' \
+	"$busybox" "$console" "$here" "$here" "$build" "$build" "$build" \
 	"$uclibc_smoke" >"$manifest"
 
 # Keep every enabled recovery command available through a conventional path.

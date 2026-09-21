@@ -16,14 +16,6 @@ cat /proc/interrupts
 if [ -c /dev/input/event0 ] &&
 	[ "$(cat /sys/class/input/event0/device/name)" = "WikiReader touchscreen" ]; then
 	echo "C33 input: /dev/input/event0 absolute touchscreen registered"
-	(
-		if dd if=/dev/input/event0 of=/tmp/touch.events bs=16 count=4 2>/dev/null &&
-			[ "$(wc -c < /tmp/touch.events)" = "64" ]; then
-			echo "C33 input: /dev/input/event0 delivered touch events" > /dev/ttyC0
-		else
-			echo "C33 input: evdev event capture FAILED" > /dev/ttyC0
-		fi
-	) &
 else
 	echo "C33 input: touchscreen registration FAILED"
 fi
@@ -36,6 +28,13 @@ if [ "$(cat /sys/class/graphics/fb0/virtual_size)" = "240,208" ] &&
 	echo "C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
 else
 	echo "C33 framebuffer: registration FAILED"
+fi
+
+mkdir -p /dev/pts
+if mount -t devpts devpts /dev/pts; then
+	echo "C33 PTY: mounted devpts for userspace console"
+else
+	echo "C33 PTY: devpts mount FAILED"
 fi
 
 if /etc/init.d/busybox-test; then
@@ -57,3 +56,4 @@ fi
 
 echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 echo "C33 BusyBox shell ready on ttyC0"
+echo "C33 userspace framebuffer console scheduled by init"
