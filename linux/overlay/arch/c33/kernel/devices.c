@@ -6,6 +6,7 @@
 #include <linux/io.h>
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
+#include <linux/platform_data/wikireader-touch.h>
 #include <linux/spi/mmc_spi.h>
 #include <linux/spi/spi.h>
 
@@ -15,6 +16,8 @@
 #include <asm/wikireader.h>
 
 #define WR_REG_BASE       0x00300000UL
+#define WR_P0_DATA        (WR_REG_BASE + 0x380)
+#define WR_P0_DIR         (WR_REG_BASE + 0x381)
 #define WR_P3_DATA        (WR_REG_BASE + 0x386)
 #define WR_P3_DIR         (WR_REG_BASE + 0x387)
 #define WR_P5_DATA        (WR_REG_BASE + 0x38a)
@@ -22,7 +25,10 @@
 #define WR_P6_DATA        (WR_REG_BASE + 0x38c)
 #define WR_P6_DIR         (WR_REG_BASE + 0x38d)
 #define WR_P5_FUNC03      (WR_REG_BASE + 0x3aa)
+#define WR_P0_FUNC47      (WR_REG_BASE + 0x3a1)
 #define WR_P6_FUNC47      (WR_REG_BASE + 0x3ad)
+#define WR_SERIAL_PRIORITY (WR_REG_BASE + 0x26a)
+#define WR_SERIAL_FLAGS    (WR_REG_BASE + 0x286)
 #define WR_CMU_GATE1      (WR_REG_BASE + 0x1b04)
 #define WR_CMU_PROTECT    (WR_REG_BASE + 0x1b24)
 #define WR_HS2_ENABLE     (WR_REG_BASE + 0x114c)
@@ -40,6 +46,7 @@
 #define WR_SD_VCCEN       BIT(2)
 #define WR_SD_BUFEN       BIT(3)
 #define WR_SD_POWER_BITS  (WR_SD_VCCEN | WR_SD_BUFEN)
+#define WR_TOUCH_IRQS     (BIT(3) | BIT(4) | BIT(5))
 
 static void wr_modify8(unsigned long address, u8 clear, u8 set)
 {
@@ -130,8 +137,27 @@ static const struct resource wr_spi_resources[] = {
 static const struct resource wr_lcd_resource =
 	DEFINE_RES_MEM(0x00080000, 32 * 208);
 
+static const struct resource wr_touch_resources[] = {
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b10, 8, "uart"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_ERROR, "error"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
+};
+
+static void __init wr_touch_prepare(void)
+{
+	/* UART1 pin mux plus the panel reset connected to P07. */
+	wr_modify8(WR_P0_FUNC47, 3, 1);
+	wr_modify8(WR_P0_DIR, 0, BIT(7));
+	wr_modify8(WR_P0_DATA, 0, BIT(7));
+	fsleep(20);
+	wr_modify8(WR_P0_DATA, BIT(7), 0);
+	writeb(WR_TOUCH_IRQS, (void __iomem *)WR_SERIAL_FLAGS);
+	wr_modify8(WR_SERIAL_PRIORITY, 7, 6);
+}
+
 static int __init c33_devices_init(void)
 {
+	struct wikireader_touch_platform_data touch_pdata;
 	struct platform_device *device;
 	u32 gate;
 
@@ -171,7 +197,17 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	pr_info("C33 devices: registered SPI controller and MMC slot\n");
+	wr_touch_prepare();
+	touch_pdata.clock_rate = c33_mclk_hz();
+	device = platform_device_register_resndata(NULL, "wikireader-touch", -1,
+		wr_touch_resources, ARRAY_SIZE(wr_touch_resources),
+		&touch_pdata, sizeof(touch_pdata));
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: touchscreen registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	pr_info("C33 devices: registered SPI/MMC, framebuffer, and touchscreen\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);

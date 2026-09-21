@@ -1,3 +1,22 @@
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -10,1 +10,9 @@
++config TOUCHSCREEN_WIKIREADER
++	bool "Openmoko WikiReader touchscreen"
++	depends on C33_WIKIREADER
++	help
++	  Enable the UART-attached resistive touchscreen found in the
++	  Openmoko WikiReader. The driver reports absolute coordinates and
++	  contact state through the standard Linux input event interface.
++
+ config TOUCHSCREEN_88PM860X
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -10,1 +10,2 @@
++obj-$(CONFIG_TOUCHSCREEN_WIKIREADER)	+= wikireader-touch.o
+ obj-$(CONFIG_TOUCHSCREEN_88PM860X)	+= 88pm860x-ts.o
 diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
 index 1872f9d54..7d44cea78 100644
 --- a/drivers/spi/Kconfig
