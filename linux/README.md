@@ -43,6 +43,13 @@ packet, and injected key; a twelfth box means a UART1 receive error was seen.
 An unhandled exception replaces the strip with a solid fault bar. This makes
 real-hardware boot results visible without attaching to the serial pads.
 
+The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
+its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
+which this boot path replaces. Linux decodes the live CMU clock selection and
+uses that rate for the tick timer and both UART divisors. This also keeps a
+kernel entered by already-running firmware correct if that firmware selected
+the PLL first.
+
 PID 1 is ordinary linked C apart from its entry point and syscall veneers.
 The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
 split `R_C33_H`/`R_C33_M`/`R_C33_L` absolute addresses into the bFLT relocation

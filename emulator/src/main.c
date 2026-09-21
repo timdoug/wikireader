@@ -727,7 +727,8 @@ int main(int argc, char **argv)
 		cmu_boot_state(&mem);
 	}
 
-	touch_set_clock(&touch, MCLK_HZ);
+	/* Until firmware selects another source, EFSIF1 runs from OSC3. */
+	touch_set_clock(&touch, OSC3_HZ);
 	touch_set_cmu(&touch, &cmu);
 
 	sd_set_clock(&sd, &cpu.clk);

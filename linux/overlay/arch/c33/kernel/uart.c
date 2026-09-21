@@ -25,10 +25,7 @@
 #define C33_UART_RX_READY   1
 #define C33_UART_TX_READY   2
 #define C33_UART_RX_IRQ     (1 << 1)
-#define C33_UART_MCLK_HZ    60000000UL
 #define C33_UART_BAUD       115200UL
-#define C33_UART_DIVISOR    ((C33_UART_MCLK_HZ + C33_UART_BAUD * 8) / \
-			     (C33_UART_BAUD * 16) - 1)
 
 static struct tty_driver *c33_tty_driver;
 static struct tty_port c33_tty_port;
@@ -40,11 +37,15 @@ void c33_uart_rx_interrupt(void);
 
 static void c33_uart_hw_init(void)
 {
+	unsigned long divisor =
+		(c33_mclk_hz() + C33_UART_BAUD * 8) /
+		(C33_UART_BAUD * 16) - 1;
+
 	*(volatile unsigned char *)C33_UART0_CTL = 0xcb;
 	*(volatile unsigned char *)C33_UART0_IRDA = 0x10;
 	*(volatile unsigned char *)C33_UART0_BRTRUN = 0;
-	*(volatile unsigned char *)C33_UART0_BRTRDM = C33_UART_DIVISOR >> 8;
-	*(volatile unsigned char *)C33_UART0_BRTRDL = C33_UART_DIVISOR;
+	*(volatile unsigned char *)C33_UART0_BRTRDM = divisor >> 8;
+	*(volatile unsigned char *)C33_UART0_BRTRDL = divisor;
 	*(volatile unsigned char *)C33_UART0_BRTRUN = 1;
 	*(volatile unsigned char *)C33_UART0_IRQ_FLAGS = 7;
 	*(volatile unsigned char *)C33_UART0_IRQ_PRIO =

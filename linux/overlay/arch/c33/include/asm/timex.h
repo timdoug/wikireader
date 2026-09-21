@@ -2,5 +2,5 @@
 #ifndef _ASM_C33_TIMEX_H
 #define _ASM_C33_TIMEX_H
 #include <asm-generic/timex.h>
-#define CLOCK_TICK_RATE 60000000
+#define CLOCK_TICK_RATE 48000000
 #endif

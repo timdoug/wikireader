@@ -20,7 +20,6 @@
 #define C33_CMU_PROTECT    (C33_REG_BASE + 0x1b24)
 
 #define C33_TIMER2_IRQ_BIT (1 << 2)
-#define C33_BOOT_MCLK_HZ   60000000UL
 #define C33_TIMER_DIV      64UL
 
 void c33_timer_interrupt(void);
@@ -64,7 +63,7 @@ void c33_timer_interrupt(void)
 void __init time_init(void)
 {
 	unsigned long gate;
-	unsigned int count = C33_BOOT_MCLK_HZ / C33_TIMER_DIV / HZ;
+	unsigned int count = c33_mclk_hz() / C33_TIMER_DIV / HZ;
 
 	c33_write32(0x96, C33_CMU_PROTECT);
 	gate = c33_read32(C33_CMU_GATE1);

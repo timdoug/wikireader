@@ -4,6 +4,7 @@
 
 #include <linux/types.h>
 
+unsigned long c33_mclk_hz(void);
 void c33_lcd_init(void);
 void c33_lcd_write(const char *text, size_t count);
 void c33_lcd_checkpoint(unsigned int stage);

@@ -27,10 +27,7 @@
 #define C33_TOUCH_ERROR_IRQ      BIT(3)
 #define C33_TOUCH_RX_IRQ         BIT(4)
 #define C33_TOUCH_IRQS           (C33_TOUCH_ERROR_IRQ | C33_TOUCH_RX_IRQ)
-#define C33_TOUCH_MCLK_HZ        60000000UL
 #define C33_TOUCH_BAUD           9600UL
-#define C33_TOUCH_DIVISOR        ((C33_TOUCH_MCLK_HZ + C33_TOUCH_BAUD * 8) / \
-				   (C33_TOUCH_BAUD * 16) - 1)
 #define C33_TOUCH_PACKET_START   0xaa
 #define C33_TOUCH_KEYBOARD_Y     120
 #define C33_TOUCH_KEY_WIDTH      24
@@ -172,6 +169,9 @@ void c33_touch_interrupt(void)
 static int __init c33_touch_init(void)
 {
 	int limit = 8;
+	unsigned long divisor =
+		(c33_mclk_hz() + C33_TOUCH_BAUD * 8) /
+		(C33_TOUCH_BAUD * 16) - 1;
 
 	c33_lcd_keyboard_init();
 
@@ -179,8 +179,8 @@ static int __init c33_touch_init(void)
 	touch_write(0x4b, C33_TOUCH_CTL);
 	touch_write(0x10, C33_TOUCH_IRDA);
 	touch_write(0, C33_TOUCH_BRTRUN);
-	touch_write((u8)(C33_TOUCH_DIVISOR >> 8), C33_TOUCH_BRTRDM);
-	touch_write((u8)C33_TOUCH_DIVISOR, C33_TOUCH_BRTRDL);
+	touch_write((u8)(divisor >> 8), C33_TOUCH_BRTRDM);
+	touch_write((u8)divisor, C33_TOUCH_BRTRDL);
 	touch_write(1, C33_TOUCH_BRTRUN);
 
 	/* P07 resets the panel. */
