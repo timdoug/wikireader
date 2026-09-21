@@ -40,3 +40,9 @@ __vfork:
 	.weak vfork
 	.type vfork,@function
 	.set vfork,__vfork
+
+	/* uClibc calls the hidden alias from popen() and other libc internals. */
+	.global __GI_vfork
+	.hidden __GI_vfork
+	.type __GI_vfork,@function
+	.set __GI_vfork,__vfork

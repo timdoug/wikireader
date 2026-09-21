@@ -101,13 +101,15 @@ ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 `linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
 image and embeds it in the initramfs as `/uclibc-smoke`.
 
-`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT with a
-small no-MMU configuration, including `init`, `hush`, mount tools, and basic
-core applets. The regular `build` target installs it as `/init` and
-`/bin/busybox`. Its `rcS` runs the freestanding process, signal, and libc
-diagnostics, mounts procfs, sysfs, and devtmpfs, and then `init` respawns an
-interactive `hush` on `ttyC330`. `/diag-init` remains available as the old
-freestanding rescue shell.
+`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT. Its 77
+enabled applets cover an interactive `hush`, core file and text tools,
+checksums, archive/compression tools, filesystem inspection, and recovery
+utilities. The regular `build` target installs it as `/init`, `/bin/busybox`,
+and conventional applet symlinks. Its `rcS` runs the freestanding process,
+signal, and libc diagnostics, then exercises Hush control flow and a
+representative file/text/archive tool chain before mounting the SD card.
+`init` finally respawns an interactive `hush` on `ttyC330`. `/diag-init`
+remains available as the old freestanding rescue shell.
 
 The native `wrsd` block driver powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards over the S1C33E07 SPI controller, exposes MBR
@@ -133,6 +135,6 @@ status. A console claim without persisted card bytes therefore fails the test.
 
 ## What comes next
 
-The next useful vertical slices are a broader BusyBox configuration and SPI
-DMA. A framebuffer interface, richer keyboard modes, and power management can
-then grow around the proven LCD, touch, console, and storage paths.
+The next useful vertical slices are SPI DMA and a framebuffer interface.
+Richer keyboard modes and power management can then grow around the proven
+LCD, touch, console, storage, and recovery userspace paths.

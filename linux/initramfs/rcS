@@ -12,6 +12,12 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
+if /etc/init.d/busybox-test; then
+	:
+else
+	echo "C33 BusyBox recovery suite FAILED"
+fi
+
 if mount -t vfat -o sync /dev/wrsd1 /mnt/sd; then
 	if echo "C33 Linux wrote this boot status" > /mnt/sd/linux.ok; then
 		sync

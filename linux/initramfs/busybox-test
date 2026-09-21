@@ -1,0 +1,47 @@
+#!/bin/sh
+
+fail()
+{
+	echo "C33 BusyBox recovery suite FAILED: $1"
+	exit 1
+}
+
+exercise_hush()
+{
+	local count=0
+	local word
+
+	for word in one two three; do
+		count=$(expr "$count" + 1) || return 1
+	done
+	case "$count" in
+		3) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+work=/tmp/busybox-test
+rm -rf "$work" || fail rm
+mkdir "$work" || fail mkdir
+
+exercise_hush || fail hush
+printf 'alpha\nbeta\ngamma\n' >"$work/input" || fail printf
+cp "$work/input" "$work/copy" || fail cp
+cmp "$work/input" "$work/copy" || fail cmp
+grep -qx beta "$work/copy" || fail grep
+awk 'NR == 2 { print toupper($0) }' "$work/copy" >"$work/awk" || fail awk
+sed -n '3s/gamma/GAMMA/p' "$work/copy" >"$work/sed" || fail sed
+printf 'BETA\nGAMMA\n' >"$work/expected" || fail printf
+cat "$work/awk" "$work/sed" | cmp - "$work/expected" || fail pipeline
+
+tar -cf "$work/archive.tar" -C "$work" input copy || fail tar
+gzip -c "$work/input" >"$work/input.gz" || fail gzip
+gunzip -c "$work/input.gz" >"$work/roundtrip" || fail gunzip
+cmp "$work/input" "$work/roundtrip" || fail gzip-roundtrip
+sha256sum "$work/input" >"$work/input.sha256" || fail sha256sum
+test -s "$work/input.sha256" || fail test
+find "$work" -type f | sort >"$work/files" || fail find-sort
+grep -q '/archive.tar$' "$work/files" || fail find-result
+
+rm -rf "$work" || fail cleanup
+echo "C33 BusyBox recovery suite passed: hush + file/text/archive tools"

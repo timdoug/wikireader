@@ -42,6 +42,7 @@ expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 irq_expected="C33 UART: received vector 57 interrupt"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
+busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive tools"
 shell_ready="C33 BusyBox shell ready on ttyC330"
 shell_expected="C33 INTERACTIVE HUSH PASS"
 touch_irq_expected="C33 touch: on-screen keyboard injected console input"
@@ -57,6 +58,7 @@ if ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$init_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$busybox_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_ready" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$touch_irq_expected" "$work/boot.log" >/dev/null || \

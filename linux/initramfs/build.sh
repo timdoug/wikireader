@@ -56,3 +56,20 @@ chmod 755 "$build/child"
 printf 'dir /bin 0755 0 0\ndir /sbin 0755 0 0\ndir /etc 0755 0 0\ndir /etc/init.d 0755 0 0\ndir /dev 0755 0 0\ndir /proc 0555 0 0\ndir /sys 0555 0 0\ndir /tmp 01777 0 0\ndir /mnt 0755 0 0\ndir /mnt/sd 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /bin/busybox %s 0755 0 0\nslink /init bin/busybox 0755 0 0\nslink /bin/sh busybox 0755 0 0\nslink /bin/mount busybox 0755 0 0\nslink /bin/uname busybox 0755 0 0\nslink /bin/echo busybox 0755 0 0\nslink /bin/cat busybox 0755 0 0\nslink /bin/ls busybox 0755 0 0\nslink /bin/pwd busybox 0755 0 0\nslink /bin/ps busybox 0755 0 0\nslink /bin/dmesg busybox 0755 0 0\nslink /sbin/init ../bin/busybox 0755 0 0\nslink /sbin/reboot ../bin/busybox 0755 0 0\nfile /etc/inittab %s/inittab 0644 0 0\nfile /etc/init.d/rcS %s/rcS 0755 0 0\nfile /diag-init %s/diag-init 0755 0 0\nfile /diag-test %s/diag-test 0755 0 0\nfile /child %s/child 0755 0 0\nfile /uclibc-smoke %s 0755 0 0\n' \
 	"$busybox" "$here" "$here" "$build" "$build" "$build" \
 	"$uclibc_smoke" >"$manifest"
+
+# Keep every enabled recovery command available through a conventional path.
+# Hush can dispatch applets internally, but explicit links also work from
+# chroot scripts and from programs which call execve directly.
+for applet in \
+	awk basename blkid chmod chown chroot clear cmp cp cpio cut date dd df \
+	diff dirname du env expr false fdisk find grep gunzip gzip head \
+	hexdump hush id kill ln md5sum mkdir mkfifo mknod more mountpoint \
+	mv printf realpath reset rm rmdir sed seq sha256sum sleep sort \
+	stat strings sync tail tar tee test timeout touch tr true umount uniq \
+	unzip vi wc whoami xargs
+do
+	printf 'slink /bin/%s busybox 0755 0 0\n' "$applet"
+done >>"$manifest"
+
+printf 'file /etc/init.d/busybox-test %s/busybox-test 0755 0 0\n' \
+	"$here" >>"$manifest"
