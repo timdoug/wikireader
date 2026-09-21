@@ -38,10 +38,11 @@ the conventional C userspace ABI rather than the initramfs syscall veneers.
 
 The architecture's small early renderer writes `C33 LINUX` into the LCD
 memory left active by the card loader, then becomes a temporary printk console
-that scrolls the ordinary kernel log until late init. Boot checkpoints remain
-visible below the text and an unhandled exception replaces their strip with a
-solid fault bar, so failures before userspace remain visible without attaching
-to the serial pads. The boot logo is placed on the physical right edge.
+that scrolls 40 columns by 24 rows of the ordinary kernel log in Linux's
+standard 6x8 font until late init. Boot checkpoints remain visible below the
+text and an unhandled exception replaces their strip with a solid fault bar,
+so failures before userspace remain visible without attaching to the serial
+pads. The boot logo is placed on the physical right edge.
 Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
 It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
 `/dev/ptmx`, makes the PTY slave Hush's controlling terminal, and translates

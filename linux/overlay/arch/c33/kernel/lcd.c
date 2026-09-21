@@ -15,10 +15,10 @@
 #define C33_LCD_WIDTH          240
 #define C33_LCD_HEIGHT         208
 #define C33_LCD_STRIDE         32
-#define C33_LCD_FONT_WIDTH     8
-#define C33_LCD_FONT_HEIGHT    16
+#define C33_LCD_FONT_WIDTH     6
+#define C33_LCD_FONT_HEIGHT    8
 #define C33_LCD_COLUMNS        (C33_LCD_WIDTH / C33_LCD_FONT_WIDTH)
-#define C33_LCD_TEXT_ROWS      12
+#define C33_LCD_TEXT_ROWS      24
 #define C33_LCD_STATUS_Y       (C33_LCD_TEXT_ROWS * C33_LCD_FONT_HEIGHT)
 #define C33_LCD_STATUS_SIZE    6
 #define C33_LCD_STATUS_PITCH   16
@@ -61,7 +61,11 @@ static void c33_lcd_newline(void)
 static void c33_lcd_putc(unsigned char ch)
 {
 	const u8 *glyph;
-	volatile u8 *cell;
+	volatile u8 *destination;
+	u16 mask;
+	u16 pixels;
+	unsigned int x;
+	unsigned int offset;
 	unsigned int y;
 
 	if (ch == '\r') {
@@ -78,14 +82,23 @@ static void c33_lcd_putc(unsigned char ch)
 		} while (c33_lcd_column & 3);
 		return;
 	}
-	if (ch < 32 || ch >= font_vga_8x16.charcount)
+	if (ch < 32 || ch >= font_6x8.charcount)
 		ch = '?';
 
-	glyph = font_vga_8x16.data + ch * C33_LCD_FONT_HEIGHT;
-	cell = C33_LCD_FB + c33_lcd_row * C33_LCD_FONT_HEIGHT *
-		C33_LCD_STRIDE + c33_lcd_column;
-	for (y = 0; y < C33_LCD_FONT_HEIGHT; y++)
-		cell[y * C33_LCD_STRIDE] = glyph[y];
+	glyph = font_6x8.data + ch * C33_LCD_FONT_HEIGHT;
+	x = c33_lcd_column * C33_LCD_FONT_WIDTH;
+	offset = x & 7;
+	mask = 0xfc00U >> offset;
+	for (y = 0; y < C33_LCD_FONT_HEIGHT; y++) {
+		destination = C33_LCD_FB +
+			(c33_lcd_row * C33_LCD_FONT_HEIGHT + y) *
+			C33_LCD_STRIDE + (x >> 3);
+		pixels = ((u16)glyph[y] << 8) >> offset;
+		destination[0] = (destination[0] & ~(mask >> 8)) |
+			(pixels >> 8);
+		destination[1] = (destination[1] & ~(u8)mask) |
+			(u8)pixels;
+	}
 
 	if (++c33_lcd_column == C33_LCD_COLUMNS)
 		c33_lcd_newline();

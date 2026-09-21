@@ -1,0 +1,11 @@
+diff --git a/lib/fonts/Kconfig b/lib/fonts/Kconfig
+--- a/lib/fonts/Kconfig
++++ b/lib/fonts/Kconfig
+@@ -124,7 +124,6 @@ config FONT_TER16x32
+ 
+ config FONT_6x8
+ 	bool "OLED 6x8 font" if FONTS
+-	depends on FRAMEBUFFER_CONSOLE || DRM_PANIC
+ 	help
+ 	  This font is useful for small displays (OLED).
+ 
