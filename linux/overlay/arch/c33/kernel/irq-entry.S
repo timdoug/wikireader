@@ -19,6 +19,14 @@ c33_uart_rx_vector:
 	xjp c33_exception
 	.size c33_uart_rx_vector,.-c33_uart_rx_vector
 
+	.global c33_touch_error_vector
+	.type c33_touch_error_vector,@function
+c33_touch_error_vector:
+	push %r4
+	xld.w %r4,60
+	xjp c33_exception
+	.size c33_touch_error_vector,.-c33_touch_error_vector
+
 	.global c33_touch_rx_vector
 	.type c33_touch_rx_vector,@function
 c33_touch_rx_vector:
@@ -180,9 +188,10 @@ c33_vector_table:
 	.long c33_unhandled_vector
 	.endr
 	.long c33_uart_rx_vector
-	.rept 3
+	.rept 2
 	.long c33_unhandled_vector
 	.endr
+	.long c33_touch_error_vector
 	.long c33_touch_rx_vector
 	.rept 194
 	.long c33_unhandled_vector

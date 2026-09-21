@@ -33,7 +33,8 @@
 #define RDBFx        (1u << 0)   /* receive data buffer full */
 #define TDBEx        (1u << 1)
 
-#define CTP_IRQ_VECTOR 61
+#define CTP_ERROR_IRQ_VECTOR 60
+#define CTP_RX_IRQ_VECTOR    61
 
 static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		       bool is_write)
@@ -197,9 +198,9 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 		push_byte(t, 0xff);
 		t->garbled++;
 		t->events++;
-		itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
-		c33_raise_irq(cpu, CTP_IRQ_VECTOR,
-			      itc_priority(t->itc, CTP_IRQ_VECTOR));
+		itc_set_flag((struct itc *)t->itc, CTP_ERROR_IRQ_VECTOR);
+		c33_raise_irq(cpu, CTP_ERROR_IRQ_VECTOR,
+			      itc_priority(t->itc, CTP_ERROR_IRQ_VECTOR));
 		return;
 	}
 
@@ -211,17 +212,20 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 	push_byte(t, pressed ? 0x01 : 0x00);
 
 	t->events++;
-	itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
-	c33_raise_irq(cpu, CTP_IRQ_VECTOR, itc_priority(t->itc, CTP_IRQ_VECTOR));
+	itc_set_flag((struct itc *)t->itc, CTP_RX_IRQ_VECTOR);
+	c33_raise_irq(cpu, CTP_RX_IRQ_VECTOR,
+		      itc_priority(t->itc, CTP_RX_IRQ_VECTOR));
 }
 
 /* Re-assert the interrupt while bytes remain, so the handler drains the FIFO. */
 void touch_poll(struct touch *t, struct c33 *cpu)
 {
 	if (t->head != t->tail) {
-		itc_set_flag((struct itc *)t->itc, CTP_IRQ_VECTOR);
-		c33_raise_irq(cpu, CTP_IRQ_VECTOR,
-			      itc_priority(t->itc, CTP_IRQ_VECTOR));
+		unsigned vector = t->errors ? CTP_ERROR_IRQ_VECTOR :
+			CTP_RX_IRQ_VECTOR;
+
+		itc_set_flag((struct itc *)t->itc, vector);
+		c33_raise_irq(cpu, vector, itc_priority(t->itc, vector));
 	}
 }
 

@@ -38,7 +38,9 @@ the conventional C userspace ABI rather than the initramfs syscall veneers.
 The UART console is mirrored to a 30-column text console in the LCD framebuffer
 left active by the card loader. A fixed strip below the text records memory,
 interrupt, timer, UART, userspace, and UART-RX checkpoints even as the text
-scrolls. An unhandled exception replaces it with a solid fault bar. This makes
+scrolls. Touch adds four more boxes for interrupt, packet start, complete
+packet, and injected key; a twelfth box means a UART1 receive error was seen.
+An unhandled exception replaces the strip with a solid fault bar. This makes
 real-hardware boot results visible without attaching to the serial pads.
 
 PID 1 is ordinary linked C apart from its entry point and syscall veneers.

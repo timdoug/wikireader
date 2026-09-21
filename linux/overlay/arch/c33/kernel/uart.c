@@ -25,7 +25,7 @@
 #define C33_UART_RX_READY   1
 #define C33_UART_TX_READY   2
 #define C33_UART_RX_IRQ     (1 << 1)
-#define C33_UART_MCLK_HZ    48000000UL
+#define C33_UART_MCLK_HZ    60000000UL
 #define C33_UART_BAUD       115200UL
 #define C33_UART_DIVISOR    ((C33_UART_MCLK_HZ + C33_UART_BAUD * 8) / \
 			     (C33_UART_BAUD * 16) - 1)

@@ -90,7 +90,7 @@ if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
 	echo "Native Linux did not persist its FAT status file." >&2
 	exit 1
 fi
-python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 7
+python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
 grep -E "C33 Linux: entry|Linux version|Memory:|Calibrating delay loop|wrsd:|C33 UART:|C33 touch:|Run /init|binfmt_flat: Load|C33: entered userspace|C33 process test|C33 signal test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 SD/FAT|HARDWARE PASS|INTERACTIVE HUSH|touch keyboard pass" \

@@ -24,7 +24,9 @@
 
 #define C33_TOUCH_RX_READY       BIT(0)
 #define C33_TOUCH_ERRORS         0x1c
+#define C33_TOUCH_ERROR_IRQ      BIT(3)
 #define C33_TOUCH_RX_IRQ         BIT(4)
+#define C33_TOUCH_IRQS           (C33_TOUCH_ERROR_IRQ | C33_TOUCH_RX_IRQ)
 #define C33_TOUCH_MCLK_HZ        60000000UL
 #define C33_TOUCH_BAUD           9600UL
 #define C33_TOUCH_DIVISOR        ((C33_TOUCH_MCLK_HZ + C33_TOUCH_BAUD * 8) / \
@@ -96,8 +98,10 @@ static void touch_report(bool pressed, bool valid)
 		if (previous >= 0)
 			c33_lcd_keyboard_press(previous, false);
 		if (valid && key == previous && previous >= 0 &&
-		    c33_tty_inject_char(touch_key_character(previous)))
+		    c33_tty_inject_char(touch_key_character(previous))) {
+			c33_lcd_checkpoint(10);
 			pr_info_once("C33 touch: on-screen keyboard injected console input\n");
+		}
 	}
 	touch_pressed = pressed;
 }
@@ -106,6 +110,7 @@ static void touch_byte(u8 byte)
 {
 	if (byte == C33_TOUCH_PACKET_START) {
 		touch_state = 1;
+		c33_lcd_checkpoint(8);
 		return;
 	}
 	if ((byte & 0x80) && byte != 0xff) {
@@ -131,8 +136,10 @@ static void touch_byte(u8 byte)
 			touch_y = (touch_y & 0x3f80) | byte;
 		break;
 	case 5:
-		if (byte <= 1)
+		if (byte <= 1) {
+			c33_lcd_checkpoint(9);
 			touch_report(byte, true);
+		}
 		touch_state = 0;
 		break;
 	default:
@@ -146,8 +153,10 @@ void c33_touch_interrupt(void)
 	u8 status = touch_read(C33_TOUCH_STATUS);
 	int limit = 16;
 
-	touch_write(C33_TOUCH_RX_IRQ, C33_SERIAL_IRQ_FLAGS);
+	c33_lcd_checkpoint(7);
+	touch_write(C33_TOUCH_IRQS, C33_SERIAL_IRQ_FLAGS);
 	if (status & C33_TOUCH_ERRORS) {
+		c33_lcd_checkpoint(11);
 		touch_state = 0;
 		while ((touch_read(C33_TOUCH_STATUS) & C33_TOUCH_RX_READY) && limit--)
 			touch_read(C33_TOUCH_RXD);
@@ -162,6 +171,8 @@ void c33_touch_interrupt(void)
 
 static int __init c33_touch_init(void)
 {
+	int limit = 8;
+
 	c33_lcd_keyboard_init();
 
 	touch_modify(C33_P0_FUNC47, 3, 1);
@@ -178,10 +189,13 @@ static int __init c33_touch_init(void)
 	fsleep(20);
 	touch_modify(C33_P0_DATA, BIT(7), 0);
 
+	/* Discard any partial packet left by the boot menu before Linux reset it. */
+	while ((touch_read(C33_TOUCH_STATUS) & C33_TOUCH_RX_READY) && limit--)
+		touch_read(C33_TOUCH_RXD);
 	touch_write(0, C33_TOUCH_STATUS);
-	touch_write(C33_TOUCH_RX_IRQ, C33_SERIAL_IRQ_FLAGS);
+	touch_write(C33_TOUCH_IRQS | BIT(5), C33_SERIAL_IRQ_FLAGS);
 	touch_modify(C33_SERIAL_IRQ_PRIORITY, 7, 6);
-	touch_modify(C33_SERIAL_IRQ_ENABLE, 0, C33_TOUCH_RX_IRQ);
+	touch_modify(C33_SERIAL_IRQ_ENABLE, 0, C33_TOUCH_IRQS);
 	pr_info("C33 touch: 9600-baud panel and on-screen keyboard ready\n");
 	return 0;
 }

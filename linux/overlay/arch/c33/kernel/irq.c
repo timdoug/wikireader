@@ -17,6 +17,7 @@
 #define C33_SYSCALL_VECTOR    12
 #define C33_TIMER2_VECTOR     38
 #define C33_UART0_RX_VECTOR   57
+#define C33_TOUCH_ERROR_VECTOR 60
 #define C33_TOUCH_RX_VECTOR   61
 
 extern unsigned long c33_vector_table[];
@@ -81,6 +82,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	}
 
 	if (vector != C33_TIMER2_VECTOR && vector != C33_UART0_RX_VECTOR &&
+	    vector != C33_TOUCH_ERROR_VECTOR &&
 	    vector != C33_TOUCH_RX_VECTOR) {
 		c33_lcd_fault(vector);
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
@@ -96,7 +98,8 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	irq_enter();
 	if (vector == C33_TIMER2_VECTOR)
 		c33_timer_interrupt();
-	else if (vector == C33_TOUCH_RX_VECTOR)
+	else if (vector == C33_TOUCH_ERROR_VECTOR ||
+		 vector == C33_TOUCH_RX_VECTOR)
 		c33_touch_interrupt();
 	else
 		c33_uart_rx_interrupt();

@@ -20,7 +20,7 @@
 #define C33_CMU_PROTECT    (C33_REG_BASE + 0x1b24)
 
 #define C33_TIMER2_IRQ_BIT (1 << 2)
-#define C33_BOOT_MCLK_HZ   48000000UL
+#define C33_BOOT_MCLK_HZ   60000000UL
 #define C33_TIMER_DIV      64UL
 
 void c33_timer_interrupt(void);
