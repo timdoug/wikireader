@@ -30,6 +30,16 @@ else
 	echo "C33 framebuffer: registration FAILED"
 fi
 
+# Blanking is the only display power control the panel has; prove it works
+# and leave the screen on.
+blank=/sys/class/graphics/fb0/blank
+if echo 4 > $blank && [ "$(cat $blank)" = "4" ] &&
+	echo 0 > $blank && [ "$(cat $blank)" = "0" ]; then
+	echo "C33 display: fbdev blank and unblank passed"
+else
+	echo "C33 display: blank FAILED"
+fi
+
 mkdir -p /dev/pts
 if mount -t devpts devpts /dev/pts; then
 	echo "C33 PTY: mounted devpts for userspace console"
@@ -50,6 +60,7 @@ timer_report() {
 	dmesg | grep -E "C33 memory|C33 clock|s1c33-timer|clocksource|Delay loop"
 	grep MemTotal /proc/meminfo
 	echo "current_clocksource: $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)"
+	echo "fb0 blank state: $(cat /sys/class/graphics/fb0/blank)"
 	echo "--- interrupts, then again after sleeping 5 ---"
 	cat /proc/interrupts
 	read before rest < /proc/uptime

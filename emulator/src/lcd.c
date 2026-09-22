@@ -56,7 +56,15 @@ static bool lcd_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		return false;
 
 	if (is_write) {
+		bool was_driving = lcd_driving(l);
+
 		l->reg[idx] = *val;
+		if (was_driving != lcd_driving(l)) {
+			if (was_driving)
+				l->stops++;
+			else
+				l->starts++;
+		}
 		if (off - LCDC_BASE == OFF_MADD) {
 			l->fb_addr = *val;
 			if (l->trace)

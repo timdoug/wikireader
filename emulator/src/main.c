@@ -1504,6 +1504,9 @@ done:
 	       itc_enabled(&itc, 61) ? "enabled" : "DISABLED");
 	printf("\n--- lcd: %lu register writes, framebuffer=0x%08x ---\n",
 	       lcd.writes, lcd.fb_addr);
+	printf("--- lcd power: %lu stops, %lu starts, panel %s ---\n",
+	       lcd.stops, lcd.starts,
+	       lcd_driving(&lcd) ? "driving" : "stopped");
 	if (lcd.fb_addr) {
 		lcd_dump_ascii(&lcd, &mem, stdout);
 		if (lcd_write_pgm(&lcd, &mem, "screen.pgm"))

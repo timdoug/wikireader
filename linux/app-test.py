@@ -27,7 +27,7 @@ def require(path):
     return path
 
 
-LAUNCHER_ARGS = b"earlycon=s1c33,mmio,0x300b00 loglevel=7"
+LAUNCHER_ARGS = b"earlycon=s1c33,mmio,0x300b00 loglevel=7 wr.blank=5"
 
 
 def main():
@@ -88,6 +88,9 @@ def main():
             "Kernel command line: console=ttyC0,115200 " +
             LAUNCHER_ARGS.decode(),
             "bootconsole [s1c33] enabled",
+            # wr.blank=5 on that same line reaches the console frontend, so an
+            # idle panel powers down without a VT to blank it.
+            "C33 display: blanked while idle",
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "C33 LINUX APP PASS",

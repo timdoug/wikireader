@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Framebuffer view of the WikiReader LCD memory configured by the loader. */
 #include <linux/fb.h>
+#include <linux/gpio/consumer.h>
 #include <linux/io.h>
 #include <linux/linux_logo.h>
 #include <linux/module.h>
@@ -9,6 +10,18 @@
 #define S1C33_FB_WIDTH  240
 #define S1C33_FB_HEIGHT 208
 #define S1C33_FB_STRIDE 32
+
+/* Controller power save: 0 off, 2 doze, 3 driving the panel. */
+#define S1C33_LCDC_PS		0x04
+#define S1C33_LCDC_PS_MASK	0x3
+#define S1C33_LCDC_PS_OFF	0x0
+#define S1C33_LCDC_PS_DOZE	0x2
+#define S1C33_LCDC_PS_NORMAL	0x3
+
+struct s1c33fb {
+	void __iomem *lcdc;
+	struct gpio_desc *enable;
+};
 
 static const struct fb_fix_screeninfo s1c33fb_fix = {
 	.id = "s1c33-lcd",
@@ -30,8 +43,37 @@ static const struct fb_var_screeninfo s1c33fb_var = {
 	.vmode = FB_VMODE_NONINTERLACED,
 };
 
+/*
+ * The loader leaves the panel scanning, and Linux never reprograms its
+ * timing, so blanking is only the two controls that stop it: the power-save
+ * field and the panel's own enable line.  A blanked panel that keeps its
+ * bias voltage would fade rather than clear, so the enable line goes down
+ * first and comes back up last.
+ */
+static int s1c33fb_blank(int blank, struct fb_info *info)
+{
+	struct s1c33fb *fb = info->par;
+	u32 power = readl(fb->lcdc + S1C33_LCDC_PS) & ~S1C33_LCDC_PS_MASK;
+
+	switch (blank) {
+	case FB_BLANK_UNBLANK:
+		writel(power | S1C33_LCDC_PS_NORMAL, fb->lcdc + S1C33_LCDC_PS);
+		gpiod_set_value_cansleep(fb->enable, 1);
+		return 0;
+	case FB_BLANK_POWERDOWN:
+		gpiod_set_value_cansleep(fb->enable, 0);
+		writel(power | S1C33_LCDC_PS_OFF, fb->lcdc + S1C33_LCDC_PS);
+		return 0;
+	default:
+		gpiod_set_value_cansleep(fb->enable, 0);
+		writel(power | S1C33_LCDC_PS_DOZE, fb->lcdc + S1C33_LCDC_PS);
+		return 0;
+	}
+}
+
 static const struct fb_ops s1c33fb_ops = {
 	.owner = THIS_MODULE,
+	.fb_blank = s1c33fb_blank,
 	FB_DEFAULT_IOMEM_OPS,
 };
 
@@ -67,19 +109,34 @@ static int s1c33fb_probe(struct platform_device *pdev)
 	struct resource *resource;
 	struct fb_info *info;
 	void __iomem *screen;
+	struct s1c33fb *fb;
+	void __iomem *lcdc;
+	struct gpio_desc *enable;
 	int ret;
 
-	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	resource = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vram");
 	if (!resource)
 		return -EINVAL;
 	screen = devm_ioremap_resource(&pdev->dev, resource);
 	if (IS_ERR(screen))
 		return dev_err_probe(&pdev->dev, PTR_ERR(screen),
 				     "cannot map framebuffer\n");
+	lcdc = devm_platform_ioremap_resource_byname(pdev, "lcdc");
+	if (IS_ERR(lcdc))
+		return dev_err_probe(&pdev->dev, PTR_ERR(lcdc),
+				     "cannot map the controller\n");
+	/* The panel is already lit: adopt its state rather than glitching it. */
+	enable = devm_gpiod_get_optional(&pdev->dev, "enable", GPIOD_ASIS);
+	if (IS_ERR(enable))
+		return dev_err_probe(&pdev->dev, PTR_ERR(enable),
+				     "cannot claim the display enable\n");
 
-	info = framebuffer_alloc(0, &pdev->dev);
+	info = framebuffer_alloc(sizeof(*fb), &pdev->dev);
 	if (!info)
 		return -ENOMEM;
+	fb = info->par;
+	fb->lcdc = lcdc;
+	fb->enable = enable;
 	info->fbops = &s1c33fb_ops;
 	info->fix = s1c33fb_fix;
 	info->fix.smem_start = resource->start;

@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <linux/fb.h>
 #include <linux/input.h>
+#include <time.h>
 #include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -187,6 +188,16 @@ static unsigned int scrolls_pending;
  * the continuation of the same burst is paced.
  */
 static int burst_painted;
+/*
+ * There is no VT here, so nothing else would ever turn the panel off on a
+ * device that runs from two AA cells. The timeout comes from the kernel
+ * command line, which the launcher takes from a line on the card:
+ * wr.blank=<seconds>, and wr.blank=0 to keep the panel on.
+ */
+#define BLANK_SECONDS_DEFAULT	120
+static int blank_seconds = BLANK_SECONDS_DEFAULT;
+static int display_blanked;
+static long idle_since;
 
 static void log_text(const char *text)
 {
@@ -741,6 +752,48 @@ static pid_t start_shell(int master, int slave)
 	return child;
 }
 
+static long monotonic_seconds(void)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+		return 0;
+	return now.tv_sec;
+}
+
+static void read_blank_timeout(void)
+{
+	char cmdline[512];
+	const char *found;
+	int fd = open("/proc/cmdline", O_RDONLY);
+	ssize_t count;
+
+	if (fd < 0)
+		return;
+	count = read(fd, cmdline, sizeof(cmdline) - 1);
+	close(fd);
+	if (count <= 0)
+		return;
+	cmdline[count] = '\0';
+	found = strstr(cmdline, "wr.blank=");
+	if (found)
+		blank_seconds = atoi(found + strlen("wr.blank="));
+	if (blank_seconds < 0)
+		blank_seconds = 0;
+}
+
+static void set_display_blank(int blank)
+{
+	if (blank == display_blanked)
+		return;
+	if (ioctl(fb_fd, FBIOBLANK,
+		  blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK) < 0)
+		return;
+	display_blanked = blank;
+	log_text(blank ? "C33 display: blanked while idle\n"
+			: "C33 display: woken by touch\n");
+}
+
 int main(void)
 {
 	struct fb_var_screeninfo variable;
@@ -799,18 +852,39 @@ int main(void)
 	poll_fds[0].events = POLLIN;
 	poll_fds[1].fd = input_fd;
 	poll_fds[1].events = POLLIN;
+	read_blank_timeout();
+	idle_since = monotonic_seconds();
 	for (;;) {
-		if (poll(poll_fds, 2, -1) < 0)
+		int wait = -1;
+
+		if (blank_seconds && !display_blanked) {
+			long idle = monotonic_seconds() - idle_since;
+
+			if (idle >= blank_seconds) {
+				set_display_blank(1);
+			} else {
+				wait = (int)(blank_seconds - idle) * 1000;
+			}
+		}
+		if (poll(poll_fds, 2, wait) < 0)
 			continue;
 		if (poll_fds[0].revents & POLLIN) {
 			consume_terminal_output(master_fd);
+			idle_since = monotonic_seconds();
+			set_display_blank(0);
 		}
 		if (poll_fds[1].revents & POLLIN) {
 			ssize_t count = read(input_fd, events, sizeof(events));
 			unsigned int event_count;
 			unsigned int i;
+			int was_blanked = display_blanked;
 
 			if (count <= 0)
+				continue;
+			idle_since = monotonic_seconds();
+			set_display_blank(0);
+			/* The touch that wakes the panel must not also type. */
+			if (was_blanked)
 				continue;
 			event_count = count / sizeof(events[0]);
 			if (!touch_reported) {

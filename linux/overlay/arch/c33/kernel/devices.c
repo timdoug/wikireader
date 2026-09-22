@@ -130,8 +130,10 @@ static const struct resource wr_spi_resources[] = {
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_HSDMA3, "rx-dma"),
 };
 
-static const struct resource wr_lcd_resource =
-	DEFINE_RES_MEM(0x00080000, 32 * 208);
+static const struct resource wr_lcd_resources[] = {
+	DEFINE_RES_MEM_NAMED(0x00080000, 32 * 208, "vram"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1a00, 0x100, "lcdc"),
+};
 
 static const struct resource wr_uart0_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b00, 8, "uart"),
@@ -178,6 +180,18 @@ static const struct property_entry wr_touch_properties[] = {
 	{ }
 };
 
+/* The panel's display-enable line is P30; the controller is on its own. */
+static const struct property_entry wr_lcd_properties[] = {
+	PROPERTY_ENTRY_GPIO("enable-gpios", &wr_gpio_node, 3 * 8,
+			    GPIO_ACTIVE_HIGH),
+	{ }
+};
+
+static const struct software_node wr_lcd_node = {
+	.name = "lcd",
+	.properties = wr_lcd_properties,
+};
+
 static const struct software_node wr_uart0_node = {
 	.name = "uart0",
 	.properties = wr_uart0_properties,
@@ -197,6 +211,7 @@ static const struct software_node wr_touch_node = {
 static const struct software_node *wr_nodes[] = {
 	&wr_gpio_node,
 	&wr_spi_node,
+	&wr_lcd_node,
 	&wr_uart0_node,
 	&wr_uart1_node,
 	&wr_touch_node,
@@ -224,6 +239,7 @@ static void __init wr_uart_prepare(void)
 static int __init c33_devices_init(void)
 {
 	struct platform_device_info gpio_info = { };
+	struct platform_device_info lcd_info = { };
 	struct platform_device_info spi_info = { };
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
@@ -296,8 +312,12 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	device = platform_device_register_simple("s1c33-fb", -1,
-						 &wr_lcd_resource, 1);
+	lcd_info.name = "s1c33-fb";
+	lcd_info.id = -1;
+	lcd_info.res = wr_lcd_resources;
+	lcd_info.num_res = ARRAY_SIZE(wr_lcd_resources);
+	lcd_info.fwnode = software_node_fwnode(&wr_lcd_node);
+	device = platform_device_register_full(&lcd_info);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: framebuffer registration failed: %ld\n",
 		       PTR_ERR(device));

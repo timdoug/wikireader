@@ -110,6 +110,16 @@ node also carries the standard `current-speed` and touchscreen dimension
 properties consumed by the driver. Keyboard geometry, labels, press state, and
 character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
+The framebuffer driver also owns the two controls that stop the panel: the
+controller's power-save field and the display-enable line, which is an ordinary
+GPIO descriptor taken from the same software-node graph as the SD slot's chip
+select. `FBIOBLANK` therefore works, and because there is no VT to blank the
+screen on a machine that runs from two AA cells, the userspace console does it:
+it powers the panel down after `wr.blank=<seconds>` of no touch, wakes on the
+next one without letting that touch type, and keeps the panel on for
+`wr.blank=0`. The launcher's `init.ini` line carries that number, so the idle
+timeout is a card edit.
+
 The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
 ordinary applications. The early renderer remains independent of fbdev so it
 can still report failures before platform drivers have probed. The kernel's

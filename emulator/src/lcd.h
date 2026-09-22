@@ -19,6 +19,8 @@ struct lcd {
 	uint32_t reg[LCD_NREGS];
 	uint32_t fb_addr;        /* last value written to REG_LCDC_MADD */
 	unsigned long writes;
+	unsigned long stops;     /* transitions out of panel-driving mode */
+	unsigned long starts;    /* and back into it */
 	/* Host-side wiring, kept across lcd_reset: WREMU_LCD_TRACE=1 logs every
 	 * framebuffer-address write with the MCLK time, which is one line per
 	 * displayed frame while the firmware scrolls by repointing MADD. */

@@ -48,6 +48,8 @@ irq_controller_expected="C33 IRQ: registered 24 interrupt sources"
 irq_userspace_expected="C33 IRQ: generic registrations"
 dma_irq_expected='[[:space:]]25:[[:space:]]+[1-9][0-9]*[[:space:]]+S1C33-ITC[[:space:]]+s1c33-spi-rx'
 framebuffer_expected="C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
+blank_expected="C33 display: fbdev blank and unblank passed"
+lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
 tux_expected="s1c33-fb s1c33-fb: registered /dev/fb0, 240x208 mono; Tux logo shown"
 input_expected="C33 input: /dev/input/event0 absolute touchscreen registered"
 evdev_expected="C33 input: userspace console received evdev touch events"
@@ -79,6 +81,8 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$gpio_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$dma_irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$blank_expected" "$work/boot.log" >/dev/null || \
+   ! grep -E -- "$lcd_power_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$input_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$evdev_expected" "$work/boot.log" >/dev/null || \
