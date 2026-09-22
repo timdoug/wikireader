@@ -24,13 +24,23 @@ Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
 16 MiB production boards and the 32 MiB early ones; the same probed limit
 bounds the addresses the SPI driver will hand to HSDMA. It registers the
-S1C33 interrupt controller with Linux's generic IRQ subsystem and starts a
-100 Hz timer. The timer,
+S1C33 interrupt controller with Linux's generic IRQ subsystem. The timer,
 both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
 visible in `/proc/interrupts`. Linux runs the scheduler, registers the
 interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
 BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
 separate framebuffer console on a Unix98 PTY.
+
+Time comes from the 16-bit timer block through a `drivers/clocksource` driver
+rather than a jiffy tick. Channel 0 counts MCLK and its inverted comparison-B
+output is wired on the board to channel 5's external clock input, so the pair
+is one free-running 32-bit counter; that counter is the clocksource, the
+scheduler clock, and the reference `udelay()` spins against, which makes delays
+independent of where the linker placed the loop. Channel 2 is a clock event
+with both periodic and one-shot modes, so the kernel runs with high-resolution
+timers and an idle tick that stops. `loops_per_jiffy` is set from MCLK instead
+of being measured, and a sleeping process now wakes when it asked to rather
+than at the next tick.
 
 Early userspace also runs a process-lifecycle regression. It
 uses the asm-generic `clone(CLONE_VM | CLONE_VFORK)` ABI, executes a second
@@ -93,8 +103,9 @@ its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. Linux decodes the live CMU clock selection and
 publishes MCLK through the common clock framework. Both serial ports and the
 SPI controller acquire and enable that standard clock; their drivers no longer
-call a board-specific clock callback or receive a copied clock rate. The early
-tick timer uses the same hardware decoder before clock providers are available.
+call a board-specific clock callback or receive a copied clock rate. The
+clocksource and clock event take their rate from the same hardware decoder,
+which runs before clock providers exist.
 This also keeps a kernel entered by already-running firmware correct if that
 firmware selected the PLL first. UART initial speeds and the touchscreen
 link's receive-only wiring are firmware properties, so the serial driver has

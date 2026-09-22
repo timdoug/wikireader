@@ -1,0 +1,26 @@
+diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
+index 1119fbd52..e3b30faaf 100644
+--- a/drivers/clocksource/Kconfig
++++ b/drivers/clocksource/Kconfig
+@@ -783,4 +783,12 @@ config NXP_STM_TIMER
+           Enables the support for NXP System Timer Module found in the
+           s32g NXP platform series.
+ 
++config TIMER_S1C33
++	bool "Epson S1C33 16-bit timer block"
++	depends on C33 || COMPILE_TEST
++	help
++	  Enables the six-channel 16-bit timer block of the Epson S1C33E07.
++	  Two channels are cascaded into a free-running 32-bit clocksource and
++	  scheduler clock; a third provides the clock event.
++
+ endmenu
+diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
+index ec4452ee9..ae1c64b0d 100644
+--- a/drivers/clocksource/Makefile
++++ b/drivers/clocksource/Makefile
+@@ -95,3 +95,4 @@ obj-$(CONFIG_CLKSRC_LOONGSON1_PWM)	+= timer-loongson1-pwm.o
+ obj-$(CONFIG_EP93XX_TIMER)		+= timer-ep93xx.o
+ obj-$(CONFIG_RALINK_TIMER)		+= timer-ralink.o
+ obj-$(CONFIG_NXP_STM_TIMER)		+= timer-nxp-stm.o
++obj-$(CONFIG_TIMER_S1C33)		+= timer-s1c33.o

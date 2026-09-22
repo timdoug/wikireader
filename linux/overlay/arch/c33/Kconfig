@@ -16,10 +16,10 @@ config C33
 	select GENERIC_LIB_ASHRDI3
 	select GENERIC_LIB_LSHRDI3
 	select GENERIC_LIB_MULDI3
+	select GENERIC_SCHED_CLOCK
 	select HAVE_LD_DEAD_CODE_DATA_ELIMINATION
 	select HAVE_PAGE_SIZE_4KB
 	select HAVE_UID16
-	select LEGACY_TIMER_TICK
 	select NO_DMA
 	select THREAD_INFO_IN_TASK
 	select UACCESS_MEMCPY
@@ -28,9 +28,6 @@ config CPU_LITTLE_ENDIAN
 	def_bool y
 
 config GENERIC_CSUM
-	def_bool y
-
-config GENERIC_CALIBRATE_DELAY
 	def_bool y
 
 config GENERIC_HWEIGHT
@@ -57,6 +54,7 @@ config C33_WIKIREADER
 	default y
 	select FONT_6x8
 	select FONT_SUPPORT
+	select TIMER_S1C33
 	help
 	  Build for the S1C33E07 WikiReader.  The SDRAM size is read from the
 	  memory controller, so one image covers 16 MiB and 32 MiB boards.
