@@ -4,6 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
+#include <linux/sizes.h>
 #include <linux/start_kernel.h>
 #include <linux/string.h>
 
@@ -13,6 +14,8 @@
 
 #define C33_WATCHDOG_WRITE_PROTECT ((volatile u16 *)0x00300660UL)
 #define C33_WATCHDOG_ENABLE        ((volatile u16 *)0x00300662UL)
+#define C33_SDRAMC_CTL             ((volatile u32 *)0x00301604UL)
+#define C33_SDRAMC_ADDRC_MASK      7
 
 unsigned long memory_start;
 unsigned long memory_end;
@@ -57,15 +60,47 @@ asmlinkage __visible void __init c33_start(void)
 	start_kernel();
 }
 
+/*
+ * Board revisions differ: early WikiReaders carry 32 MiB of SDRAM, production
+ * rev 6 and V4 boards carry 16 MiB and alias the upper half.  The address
+ * configuration the loader programmed into the SDRAM controller is the only
+ * description of memory this machine has, so read it rather than trusting a
+ * build-time size.
+ */
+static unsigned long __init c33_ram_size(void)
+{
+	static const unsigned long addrc_size[8] __initconst = {
+		SZ_2M,  /*  1M x 16 bits x 1 */
+		SZ_8M,  /*  4M x 16 bits x 1 */
+		SZ_16M, /*  8M x 16 bits x 1 */
+		SZ_32M, /* 16M x 16 bits x 1 */
+		SZ_4M,  /*  2M x  8 bits x 2 */
+		SZ_16M, /*  8M x  8 bits x 2 */
+		SZ_32M, /* 16M x  8 bits x 2 */
+		SZ_64M, /* 32M x 16 bits x 1 */
+	};
+
+	return addrc_size[*C33_SDRAMC_CTL & C33_SDRAMC_ADDRC_MASK];
+}
+
 void __init setup_arch(char **cmdline_p)
 {
+	unsigned long size = c33_ram_size();
+
 	memory_start = PAGE_ALIGN((unsigned long)_end);
-	memory_end = CONFIG_PHYSICAL_START + CONFIG_C33_MEMORY_SIZE;
+	if (memory_start - CONFIG_PHYSICAL_START > size) {
+		/* The kernel itself does not fit: say so before faulting. */
+		early_uart_puts("\r\nC33 Linux: SDRAM too small for kernel\r\n");
+		size = CONFIG_C33_MEMORY_SIZE;
+	}
+	memory_end = CONFIG_PHYSICAL_START + size;
 
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
-	memblock_add(CONFIG_PHYSICAL_START, CONFIG_C33_MEMORY_SIZE);
+	memblock_add(CONFIG_PHYSICAL_START, size);
 	memblock_reserve(CONFIG_PHYSICAL_START,
 			 memory_start - CONFIG_PHYSICAL_START);
+	pr_info("C33 memory: %lu MiB of SDRAM at %08x\n",
+		size >> 20, CONFIG_PHYSICAL_START);
 
 	strscpy(boot_command_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
 	*cmdline_p = boot_command_line;

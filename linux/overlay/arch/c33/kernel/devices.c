@@ -15,6 +15,7 @@
 #include <linux/platform_data/spi-s1c33.h>
 
 #include <asm/irq.h>
+#include <asm/page.h>
 #include <asm/wikireader.h>
 
 #define WR_REG_BASE       0x00300000UL
@@ -116,8 +117,7 @@ static struct s1c33_spi_platform_data wr_spi_pdata = {
 	.hold_clock = wr_spi_hold_clock,
 	.devices = wr_spi_devices,
 	.num_devices = ARRAY_SIZE(wr_spi_devices),
-	.dma_memory_start = 0x10000000,
-	.dma_memory_end = 0x12000000,
+	.dma_memory_start = CONFIG_PHYSICAL_START,
 };
 
 static const struct resource wr_gpio_resource =
@@ -229,6 +229,9 @@ static int __init c33_devices_init(void)
 	struct platform_device *device;
 	int ret;
 	u32 gate;
+
+	/* SDRAM is the only memory HSDMA may reach; its size is probed. */
+	wr_spi_pdata.dma_memory_end = memory_end;
 
 	ret = software_node_register_node_group(wr_nodes);
 	if (ret) {

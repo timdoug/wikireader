@@ -58,7 +58,8 @@ config C33_WIKIREADER
 	select FONT_6x8
 	select FONT_SUPPORT
 	help
-	  Build for the S1C33E07 WikiReader with 32 MiB of SDRAM.
+	  Build for the S1C33E07 WikiReader.  The SDRAM size is read from the
+	  memory controller, so one image covers 16 MiB and 32 MiB boards.
 
 config PHYSICAL_START
 	hex "SDRAM base"
@@ -72,8 +73,13 @@ config C33_KERNEL_START
 	  ELF image here.
 
 config C33_MEMORY_SIZE
-	hex "SDRAM size"
+	hex "SDRAM size fallback"
 	default 0x02000000
+	help
+	  Used only when the SDRAM controller describes less memory than the
+	  kernel image already occupies.  Normal boots take the size from the
+	  controller's address configuration, so 16 MiB and 32 MiB boards both
+	  work with one image.
 
 config CMDLINE
 	string "Built-in kernel command line"

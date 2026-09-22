@@ -20,8 +20,12 @@ the kernel, saves the resident trap table, and hands `poweroff` and `reboot`
 back through Grifo; reboot therefore returns to the launcher. The direct image
 remains available as a recovery and bring-up path.
 
-Linux initializes 32 MiB of SDRAM, registers the S1C33 interrupt controller
-with Linux's generic IRQ subsystem, and starts a 100 Hz timer. The timer,
+Linux takes its memory size from the SDRAM controller's address
+configuration rather than a build-time constant, so one image serves both the
+16 MiB production boards and the 32 MiB early ones; the same probed limit
+bounds the addresses the SPI driver will hand to HSDMA. It registers the
+S1C33 interrupt controller with Linux's generic IRQ subsystem and starts a
+100 Hz timer. The timer,
 both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
 visible in `/proc/interrupts`. Linux runs the scheduler, registers the
 interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
