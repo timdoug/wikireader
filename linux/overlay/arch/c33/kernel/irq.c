@@ -176,9 +176,18 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	}
 
 	if (!c33_irq_source(vector)) {
+		int reg;
+
 		c33_lcd_fault(vector);
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
 			 vector, regs->pc, regs->sp, regs->psr);
+		/* Which cause was actually asserted is the whole question. */
+		for (reg = 0; reg < 16; reg += 8) {
+			pr_emerg("itc flags %d: %8ph\n", reg,
+				 (void *)(C33_IRQ_FLAG_FIRST + reg));
+			pr_emerg("itc enable %d: %8ph\n", reg,
+				 (void *)(C33_IRQ_ENABLE_FIRST + reg));
+		}
 		for (i = 0; i < 16; i += 4)
 			pr_emerg("r%d=%08lx r%d=%08lx r%d=%08lx r%d=%08lx\n",
 				i, regs->r[i], i + 1, regs->r[i + 1],

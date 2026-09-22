@@ -332,8 +332,14 @@ static int s1c33_uart_suspend(struct device *dev)
 {
 	struct uart_port *port = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
-		return enable_irq_wake(port->irq);
+	if (device_may_wakeup(dev)) {
+		int ret = enable_irq_wake(port->irq);
+
+		dev_dbg(dev, "IRQ %d armed as a wake source: %d\n",
+			port->irq, ret);
+		return ret;
+	}
+	dev_dbg(dev, "suspending the port\n");
 	return uart_suspend_port(&s1c33_uart_driver, port);
 }
 

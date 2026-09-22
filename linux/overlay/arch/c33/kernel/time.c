@@ -12,7 +12,7 @@ void __init time_init(void)
 	 * Clock providers are not up yet, so the timer takes the rate from
 	 * the same hardware decoder the clock driver publishes later.
 	 */
-	s1c33_timer_init(c33_mclk_hz(), C33_IRQ_TIMER2);
+	s1c33_timer_init(c33_mclk_hz(), C33_IRQ_TIMER2, C33_IRQ_TIMER3);
 	c33_lcd_checkpoint(3);
 }
 

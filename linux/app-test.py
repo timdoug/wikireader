@@ -55,6 +55,9 @@ def suspend_run(root, emulator, files, make_flash, fat):
                            stderr=subprocess.STDOUT, check=True, timeout=600,
                            env={**os.environ, "WREMU_HOLD_MS": "33"})
         text = log.read_bytes().decode(errors="replace").replace("\r", "")
+        # wremu writes its own scripted-event traces into the same stream,
+        # which can land in the middle of a line the guest was printing.
+        text = re.sub(r" *\[[a-z][^\]]*\]\n?", "", text)
 
     expected = [
         "C33 power: suspending until touch",
@@ -64,6 +67,10 @@ def suspend_run(root, emulator, files, make_flash, fat):
         "C33 display: woken by touch",
     ]
     missing = [marker for marker in expected if marker not in text]
+    # Channel 3 is the wake timer armed across suspend; it has to keep firing
+    # while the tick is frozen, or nothing would re-check the wake sources.
+    if not re.search(r"ch3 A \d+ B [1-9]", text):
+        missing.append("suspend wake timer matches")
     if missing or re.search(r"Kernel panic|suspend REFUSED", text):
         print(text, file=sys.stderr)
         raise SystemExit("Linux suspend regression failed; missing: " +

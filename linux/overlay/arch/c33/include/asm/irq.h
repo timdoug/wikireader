@@ -9,6 +9,7 @@
 #define C33_IRQ_HSDMA2       24
 #define C33_IRQ_HSDMA3       25
 #define C33_IRQ_TIMER2       38
+#define C33_IRQ_TIMER3       42
 #define C33_IRQ_UART0_ERROR  56
 #define C33_IRQ_UART0_RX     57
 #define C33_IRQ_UART0_TX     58

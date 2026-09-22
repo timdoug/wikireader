@@ -6,6 +6,7 @@
 #include <time.h>
 #include <poll.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -756,8 +757,9 @@ static pid_t start_shell(int master, int slave)
 static long monotonic_seconds(void)
 {
 	struct timespec now;
+	int ret = clock_gettime(CLOCK_MONOTONIC, &now);
 
-	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+	if (ret < 0)
 		return 0;
 	return now.tv_sec;
 }
@@ -794,8 +796,55 @@ static void read_timeouts(void)
  * write returns when the kernel has resumed; the touch that caused the wake
  * arrives afterwards and unblanks the panel like any other.
  */
+/*
+ * A device with no serial cannot say why it failed to wake, so each attempt
+ * leaves a line on the card: how long it slept, and how the touch interrupt
+ * count moved across it. A file that ends in "suspending" is a machine that
+ * never came back.
+ */
+static long touch_interrupt_count(void)
+{
+	char text[2048];
+	const char *line;
+	int fd = open("/proc/interrupts", O_RDONLY);
+	ssize_t count;
+
+	if (fd < 0)
+		return -1;
+	count = read(fd, text, sizeof(text) - 1);
+	close(fd);
+	if (count <= 0)
+		return -1;
+	text[count] = '\0';
+	line = strstr(text, "s1c33-uart1-rx");
+	if (!line)
+		return -1;
+	while (line > text && *line != '\n')
+		line--;
+	return atol(line + strspn(line, " \n") + strlen(" 61:"));
+}
+
+static void power_note(const char *what, long seconds, long touches)
+{
+	char line[128];
+	int fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND,
+		      0644);
+	int length;
+
+	if (fd < 0)
+		return;
+	length = snprintf(line, sizeof(line), "%s at %ld s, touch irqs %ld\n",
+			  what, seconds, touches);
+	if (length > 0)
+		write(fd, line, length);
+	close(fd);
+	sync();
+}
+
 static void suspend_until_touch(void)
 {
+	long before = monotonic_seconds();
+	long touches = touch_interrupt_count();
 	int fd = open("/sys/power/state", O_WRONLY);
 
 	if (fd < 0) {
@@ -804,6 +853,7 @@ static void suspend_until_touch(void)
 		return;
 	}
 	log_text("C33 power: suspending until touch\n");
+	power_note("suspending", before, touches);
 	if (write(fd, "freeze\n", 7) < 0) {
 		log_text("C33 power: suspend REFUSED\n");
 		suspend_seconds = 0;
@@ -811,6 +861,8 @@ static void suspend_until_touch(void)
 		log_text("C33 power: resumed\n");
 	}
 	close(fd);
+	power_note("resumed", monotonic_seconds() - before,
+		   touch_interrupt_count());
 }
 
 static void set_display_blank(int blank)

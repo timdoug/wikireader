@@ -3,69 +3,34 @@
 
 	.text
 
-	.global c33_hsdma3_vector
-	.type c33_hsdma3_vector,@function
-c33_hsdma3_vector:
-	push %r4
-	xld.w %r4,25
-	xjp c33_exception
-	.size c33_hsdma3_vector,.-c33_hsdma3_vector
+/*
+ * One stub per trap, generated rather than hand-counted. The table used to
+ * name only the vectors the port happened to use and send everything else to
+ * a catch-all that called itself vector 255, so the first interrupt from a
+ * timer channel added later panicked the kernel instead of being handled.
+ * Each stub now pushes its own number, which is also what an unexpected
+ * interrupt reports.
+ */
+#define C33_STUB_SIZE	16
 
-	.global c33_timer_vector
-	.type c33_timer_vector,@function
-c33_timer_vector:
+	.altmacro
+	.macro c33_vector_stub number
+	.balign C33_STUB_SIZE
 	push %r4
-	xld.w %r4,38
+	xld.w %r4,\number
 	xjp c33_exception
-	.size c33_timer_vector,.-c33_timer_vector
+	.endm
 
-	.global c33_uart_rx_vector
-	.type c33_uart_rx_vector,@function
-c33_uart_rx_vector:
-	push %r4
-	xld.w %r4,57
-	xjp c33_exception
-	.size c33_uart_rx_vector,.-c33_uart_rx_vector
-
-	.global c33_touch_error_vector
-	.type c33_touch_error_vector,@function
-c33_touch_error_vector:
-	push %r4
-	xld.w %r4,60
-	xjp c33_exception
-	.size c33_touch_error_vector,.-c33_touch_error_vector
-
-	.global c33_touch_rx_vector
-	.type c33_touch_rx_vector,@function
-c33_touch_rx_vector:
-	push %r4
-	xld.w %r4,61
-	xjp c33_exception
-	.size c33_touch_rx_vector,.-c33_touch_rx_vector
-
-	.global c33_fault_vector
-	.type c33_fault_vector,@function
-c33_fault_vector:
-	push %r4
-	xld.w %r4,6
-	xjp c33_exception
-	.size c33_fault_vector,.-c33_fault_vector
-
-	.global c33_syscall_vector
-	.type c33_syscall_vector,@function
-c33_syscall_vector:
-	push %r4
-	xld.w %r4,12
-	xjp c33_exception
-	.size c33_syscall_vector,.-c33_syscall_vector
-
-	.global c33_unhandled_vector
-	.type c33_unhandled_vector,@function
-c33_unhandled_vector:
-	push %r4
-	xld.w %r4,255
-	xjp c33_exception
-	.size c33_unhandled_vector,.-c33_unhandled_vector
+	.balign C33_STUB_SIZE
+	.global c33_vector_stubs
+c33_vector_stubs:
+	.set vector, 0
+	.rept 256
+	c33_vector_stub %vector
+	.set vector, vector + 1
+	.endr
+	.noaltmacro
+	.size c33_vector_stubs,.-c33_vector_stubs
 
 	.type c33_exception,@function
 c33_exception:
@@ -180,31 +145,8 @@ c33_rt_sigreturn_trampoline:
 	.balign 1024
 	.global c33_vector_table
 c33_vector_table:
-	.rept 6
-	.long c33_unhandled_vector
-	.endr
-	.long c33_fault_vector
-	.rept 5
-	.long c33_unhandled_vector
-	.endr
-	.long c33_syscall_vector
-	.rept 12
-	.long c33_unhandled_vector
-	.endr
-	.long c33_hsdma3_vector
-	.rept 12
-	.long c33_unhandled_vector
-	.endr
-	.long c33_timer_vector
-	.rept 18
-	.long c33_unhandled_vector
-	.endr
-	.long c33_uart_rx_vector
-	.rept 2
-	.long c33_unhandled_vector
-	.endr
-	.long c33_touch_error_vector
-	.long c33_touch_rx_vector
-	.rept 194
-	.long c33_unhandled_vector
+	.set vector, 0
+	.rept 256
+	.long c33_vector_stubs + vector * C33_STUB_SIZE
+	.set vector, vector + 1
 	.endr

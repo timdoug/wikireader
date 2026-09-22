@@ -16,6 +16,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/sched_clock.h>
+#include <linux/suspend.h>
 
 #include <linux/clocksource/timer-s1c33.h>
 
@@ -37,6 +38,7 @@
 #define S1C33_CLKCTL_ON		BIT(3)
 #define S1C33_CLKCTL_DIV1	0
 #define S1C33_CLKCTL_DIV64	4
+#define S1C33_CLKCTL_DIV4096	7
 
 #define S1C33_CMU_GATE1		0x00301b04UL
 #define S1C33_CMU_PROTECT	0x00301b24UL
@@ -61,6 +63,12 @@
 #define S1C33_COUNT_HIGH	5
 #define S1C33_EVENT		2
 #define S1C33_EVENT_DIVISOR	64
+#define S1C33_WAKE		3
+#define S1C33_WAKE_DIVISOR	4096
+#define S1C33_WAKE_SECONDS	2
+#define S1C33_CMU_TM3		BIT(16)
+#define S1C33_ITC_WAKE_FLAGS	0xc0
+#define S1C33_ITC_WAKE_PRIORITY	0x40
 
 /* The counter reaches CRB inclusive, so a period of n counts programs n - 1. */
 #define S1C33_MIN_DELTA		2
@@ -184,8 +192,8 @@ static void __init s1c33_timer_clocks_on(void)
 
 	writel(S1C33_CMU_PROTECT_OFF, (void __iomem *)S1C33_CMU_PROTECT);
 	gate = readl((void __iomem *)S1C33_CMU_GATE1);
-	writel(gate | S1C33_CMU_TM0 | S1C33_CMU_TM2 | S1C33_CMU_TM5,
-	       (void __iomem *)S1C33_CMU_GATE1);
+	writel(gate | S1C33_CMU_TM0 | S1C33_CMU_TM2 | S1C33_CMU_TM3 |
+	       S1C33_CMU_TM5, (void __iomem *)S1C33_CMU_GATE1);
 	writel(0, (void __iomem *)S1C33_CMU_PROTECT);
 
 	writeb((readb((void __iomem *)S1C33_P1_03_CFP) & ~S1C33_CFP_MASK) |
@@ -263,11 +271,76 @@ static void __init s1c33_clockevent_init(unsigned long rate, int irq)
 					S1C33_MIN_DELTA, S1C33_MAX_DELTA);
 }
 
-void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq)
+/*
+ * Suspend-to-idle stops the tick and then halts, which assumes the core leaves
+ * HALT for whatever interrupt is meant to wake it. This one does not always:
+ * the HSDMA completion cause demonstrably never woke it on silicon. Rather
+ * than trust that a touch will, keep a slow timer running across suspend so
+ * the core comes back regularly and takes whichever wake interrupt is already
+ * pending. It costs a few hundred microseconds every couple of seconds.
+ */
+static unsigned long s1c33_wake_rate;
+
+static irqreturn_t s1c33_wake_interrupt(int irq, void *dev_id)
+{
+	return IRQ_HANDLED;
+}
+
+static int s1c33_timer_suspend(void)
+{
+	unsigned long counts = s1c33_wake_rate * S1C33_WAKE_SECONDS;
+
+	if (!s1c33_wake_rate)
+		return 0;
+	if (counts > 0xffff)
+		counts = 0xffff;
+	t16_write(0, S1C33_T16_CTL(S1C33_WAKE));
+	t16_write(counts - 1, S1C33_T16_CRB(S1C33_WAKE));
+	t16_write(S1C33_CTL_PRESET, S1C33_T16_CTL(S1C33_WAKE));
+	t16_write(S1C33_CTL_PRUN, S1C33_T16_CTL(S1C33_WAKE));
+	return 0;
+}
+
+static void s1c33_timer_resume(void)
+{
+	t16_write(0, S1C33_T16_CTL(S1C33_WAKE));
+}
+
+/*
+ * Suspend-to-idle never reaches syscore_suspend(); it stops at the noirq
+ * phase and idles. These are the hooks that bracket that idle loop.
+ */
+static const struct platform_s2idle_ops s1c33_s2idle_ops = {
+	.prepare_late = s1c33_timer_suspend,
+	.restore_early = s1c33_timer_resume,
+};
+
+static void __init s1c33_wake_init(unsigned long rate, int irq)
+{
+	s1c33_wake_rate = rate;
+	t16_write(0, S1C33_T16_CTL(S1C33_WAKE));
+	t16_write(S1C33_CLKCTL_ON | S1C33_CLKCTL_DIV4096,
+		  S1C33_T16_CLKCTL(S1C33_WAKE));
+	t16_write(0xffff, S1C33_T16_CRA(S1C33_WAKE));
+	writeb((readb((void __iomem *)S1C33_ITC_PRIORITY) & 0x8f) |
+	       S1C33_ITC_WAKE_PRIORITY, (void __iomem *)S1C33_ITC_PRIORITY);
+	writeb(S1C33_ITC_WAKE_FLAGS, (void __iomem *)S1C33_ITC_FLAGS);
+	if (request_irq(irq, s1c33_wake_interrupt, IRQF_TIMER | IRQF_NO_SUSPEND,
+			"s1c33-wake", NULL)) {
+		pr_warn("s1c33-timer: no suspend wake timer on IRQ %d\n", irq);
+		s1c33_wake_rate = 0;
+		return;
+	}
+	s2idle_set_ops(&s1c33_s2idle_ops);
+}
+
+void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq, int wake_irq)
 {
 	s1c33_timer_clocks_on();
 	s1c33_counter_init(mclk_hz);
 	s1c33_clockevent_init(mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
-	pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d\n",
-		mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
+	s1c33_wake_init(mclk_hz / S1C33_WAKE_DIVISOR, wake_irq);
+	pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, %u s suspend wake on IRQ %d\n",
+		mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq,
+		S1C33_WAKE_SECONDS, wake_irq);
 }

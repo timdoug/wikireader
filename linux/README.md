@@ -98,13 +98,24 @@ independent `ttyC0` recovery shell remains available throughout.
 
 Suspend-to-idle works: `wr.suspend=<seconds>` on the launcher's line makes the
 console freeze the machine once nothing has touched it for that long, and the
-next touch resumes it. It is off unless that argument is given, because a
+next touch resumes it. A slow timer channel stays armed across the freeze,
+because suspend-to-idle stops the tick and then halts, which assumes the core
+leaves HALT for whatever interrupt is meant to wake it; the HSDMA completion
+cause demonstrably never woke it on silicon, so the core is brought back every
+couple of seconds to take whichever wake interrupt is already pending. It is off unless that argument is given, because a
 machine that suspends without a working wake source needs its batteries pulled.
 UART1 carries the standard `wakeup-source` property, so the serial driver arms
 its receiver as a wake interrupt instead of suspending the port, and the
 interrupt controller advertises `IRQCHIP_SKIP_SET_WAKE` because nothing powers
 it down. Deeper states are not offered: no `suspend_ops` is registered, since
 those need the SDRAM parked in self-refresh by code running from internal RAM.
+
+Every one of the 256 traps has its own entry and stub, generated rather than
+listed. The table used to name only the vectors the port happened to use, so
+the first interrupt from a timer channel added later reported itself as vector
+255 and panicked; an unexpected interrupt now says which one it was, and the
+fault dumps the interrupt controller's flag and enable registers so the cause
+is visible rather than inferred.
 
 The panel is registered with the Linux input subsystem as a 240x208
 absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and

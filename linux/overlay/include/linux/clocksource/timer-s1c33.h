@@ -5,7 +5,8 @@
 #include <linux/init.h>
 #include <linux/types.h>
 
-void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq);
+void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq,
+			     int wake_irq);
 
 /* Free-running 32-bit MCLK count; zero until the timer block is running. */
 u32 s1c33_timer_cycles(void);
