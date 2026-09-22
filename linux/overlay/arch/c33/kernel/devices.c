@@ -169,6 +169,7 @@ static const struct property_entry wr_uart0_properties[] = {
 static const struct property_entry wr_uart1_properties[] = {
 	PROPERTY_ENTRY_U32("current-speed", 9600),
 	PROPERTY_ENTRY_BOOL("epson,rx-only"),
+	PROPERTY_ENTRY_BOOL("wakeup-source"),
 	{ }
 };
 

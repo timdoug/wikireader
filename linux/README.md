@@ -96,6 +96,16 @@ touch-to-shell latency the boot test bounds. BusyBox init respawns the
 frontend if it exits; the
 independent `ttyC0` recovery shell remains available throughout.
 
+Suspend-to-idle works: `wr.suspend=<seconds>` on the launcher's line makes the
+console freeze the machine once nothing has touched it for that long, and the
+next touch resumes it. It is off unless that argument is given, because a
+machine that suspends without a working wake source needs its batteries pulled.
+UART1 carries the standard `wakeup-source` property, so the serial driver arms
+its receiver as a wake interrupt instead of suspending the port, and the
+interrupt controller advertises `IRQCHIP_SKIP_SET_WAKE` because nothing powers
+it down. Deeper states are not offered: no `suspend_ops` is registered, since
+those need the SDRAM parked in self-refresh by code running from internal RAM.
+
 The panel is registered with the Linux input subsystem as a 240x208
 absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and
 `BTN_TOUCH`. Its UART1 transport is a second S1C33 serial-core port connected

@@ -103,6 +103,9 @@ static struct irq_chip c33_irq_chip = {
 	.irq_mask = c33_irq_mask,
 	.irq_unmask = c33_irq_unmask,
 	.irq_ack = c33_irq_ack,
+	/* Nothing powers the controller down, so a wake source is simply an
+	 * interrupt that suspend leaves enabled. */
+	.flags = IRQCHIP_SKIP_SET_WAKE,
 };
 
 void __init init_IRQ(void)

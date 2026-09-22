@@ -30,6 +30,47 @@ def require(path):
 LAUNCHER_ARGS = b"earlycon=s1c33,mmio,0x300b00 loglevel=7 wr.blank=5"
 
 
+def suspend_run(root, emulator, files, make_flash, fat):
+    """A single-entry card auto-boots Linux; leave it alone until it sleeps."""
+    with tempfile.TemporaryDirectory(prefix="wr-linux-suspend-") as temporary:
+        out = Path(temporary)
+        card = out / "card.img"
+        flash = out / "flash.rom"
+        log = out / "boot.log"
+        card_files = dict(files)
+        card_files["init.ini"] = b"linux.ico : linux.app wr.blank=2 wr.suspend=6\n"
+        fat.make_image(card, card_files, 64)
+        subprocess.run([sys.executable, str(make_flash), str(flash)],
+                       check=True, stdout=subprocess.DEVNULL)
+        command = [
+            str(emulator), "-n", "3000000000",
+            # Nothing else runs, so the guest idles into suspend long before
+            # this tap; wremu advances an idle machine to its next scripted
+            # event, which is the touch that has to wake it.
+            "-T", f"{ICON0[0]},{ICON0[1]},2500000000",
+            "-R", "-c", str(card), "-e", str(flash),
+        ]
+        with log.open("w") as output:
+            subprocess.run(command, cwd=out, stdout=output,
+                           stderr=subprocess.STDOUT, check=True, timeout=600,
+                           env={**os.environ, "WREMU_HOLD_MS": "33"})
+        text = log.read_bytes().decode(errors="replace").replace("\r", "")
+
+    expected = [
+        "C33 power: suspending until touch",
+        "PM: suspend entry (s2idle)",
+        "PM: suspend exit",
+        "C33 power: resumed",
+        "C33 display: woken by touch",
+    ]
+    missing = [marker for marker in expected if marker not in text]
+    if missing or re.search(r"Kernel panic|suspend REFUSED", text):
+        print(text, file=sys.stderr)
+        raise SystemExit("Linux suspend regression failed; missing: " +
+                         ", ".join(missing or ["a clean suspend"]))
+    print("Suspend passed: idle -> s2idle -> touch -> resume")
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     emulator = require(root / "emulator/wremu")
@@ -106,6 +147,7 @@ def main():
 
     print("Launcher Linux passed: Grifo menu -> linux.app -> BusyBox -> "
           "reboot -> Grifo menu")
+    suspend_run(root, emulator, files, make_flash, fat)
     return 0
 
 

@@ -32,13 +32,16 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	# Keep input out of the vendor menu and loader. PID 1 is running before
 	# 500M retired instructions. UART proves the serial recovery path first;
 	# scripted panel taps then type into the userspace PTY console.
-	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 800000000 \
+	# The soft keyboard types into a PTY whose shell is still loading its
+	# own 1 MB image; anything typed before hush sets its terminal up is
+	# discarded, so leave the keys well clear of that.
+	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 900000000 \
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000 \
-		-K "520000000,ecj<ho touch-keyboard pass#" \
-		-T 36,197,690000000 -T 108,175,700000000 \
-		-T 228,197,710000000
+		-K "600000000,ecj<ho touch-keyboard pass#" \
+		-T 36,197,780000000 -T 108,175,790000000 \
+		-T 228,197,800000000
 ) >"$work/boot.log" 2>&1
 
 syscall_marker="C33: entered userspace syscall path"

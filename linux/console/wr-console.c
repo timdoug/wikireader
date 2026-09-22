@@ -196,6 +196,7 @@ static int burst_painted;
  */
 #define BLANK_SECONDS_DEFAULT	120
 static int blank_seconds = BLANK_SECONDS_DEFAULT;
+static int suspend_seconds;
 static int display_blanked;
 static long idle_since;
 
@@ -761,7 +762,7 @@ static long monotonic_seconds(void)
 	return now.tv_sec;
 }
 
-static void read_blank_timeout(void)
+static void read_timeouts(void)
 {
 	char cmdline[512];
 	const char *found;
@@ -778,8 +779,38 @@ static void read_blank_timeout(void)
 	found = strstr(cmdline, "wr.blank=");
 	if (found)
 		blank_seconds = atoi(found + strlen("wr.blank="));
+	found = strstr(cmdline, "wr.suspend=");
+	if (found)
+		suspend_seconds = atoi(found + strlen("wr.suspend="));
 	if (blank_seconds < 0)
 		blank_seconds = 0;
+	if (suspend_seconds < 0)
+		suspend_seconds = 0;
+}
+
+/*
+ * Suspend is opt-in from the same command line, because a machine that
+ * suspends without a working wake source needs its batteries pulled. The
+ * write returns when the kernel has resumed; the touch that caused the wake
+ * arrives afterwards and unblanks the panel like any other.
+ */
+static void suspend_until_touch(void)
+{
+	int fd = open("/sys/power/state", O_WRONLY);
+
+	if (fd < 0) {
+		log_text("C33 power: no suspend support\n");
+		suspend_seconds = 0;
+		return;
+	}
+	log_text("C33 power: suspending until touch\n");
+	if (write(fd, "freeze\n", 7) < 0) {
+		log_text("C33 power: suspend REFUSED\n");
+		suspend_seconds = 0;
+	} else {
+		log_text("C33 power: resumed\n");
+	}
+	close(fd);
 }
 
 static void set_display_blank(int blank)
@@ -852,20 +883,32 @@ int main(void)
 	poll_fds[0].events = POLLIN;
 	poll_fds[1].fd = input_fd;
 	poll_fds[1].events = POLLIN;
-	read_blank_timeout();
+	read_timeouts();
 	idle_since = monotonic_seconds();
 	for (;;) {
+		long idle = monotonic_seconds() - idle_since;
 		int wait = -1;
 
-		if (blank_seconds && !display_blanked) {
-			long idle = monotonic_seconds() - idle_since;
-
-			if (idle >= blank_seconds) {
-				set_display_blank(1);
-			} else {
-				wait = (int)(blank_seconds - idle) * 1000;
-			}
+		if (blank_seconds && !display_blanked && idle >= blank_seconds)
+			set_display_blank(1);
+		if (suspend_seconds && idle >= suspend_seconds) {
+			set_display_blank(1);
+			suspend_until_touch();
+			idle_since = monotonic_seconds();
+			idle = 0;
 		}
+		if (blank_seconds && !display_blanked)
+			wait = (int)(blank_seconds - idle) * 1000;
+		if (suspend_seconds) {
+			int until = (int)(suspend_seconds - idle) * 1000;
+
+			if (wait < 0 || until < wait)
+				wait = until;
+		}
+		if (wait < 0)
+			wait = -1;
+		else if (wait < 1)
+			wait = 1;
 		if (poll(poll_fds, 2, wait) < 0)
 			continue;
 		if (poll_fds[0].revents & POLLIN) {

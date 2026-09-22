@@ -295,6 +295,14 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	spin_lock_init(&port->lock);
 	s1c33_uart_set_baud(port, baud);
 
+	/*
+	 * A port whose firmware node says it can wake the system keeps its
+	 * receiver armed through suspend; that is how a touch on the panel
+	 * gets the machine back.
+	 */
+	device_init_wakeup(&pdev->dev,
+			   device_property_read_bool(&pdev->dev,
+						     "wakeup-source"));
 	platform_set_drvdata(pdev, port);
 	WRITE_ONCE(s1c33_uart_ports[line], port);
 	ret = uart_add_one_port(&s1c33_uart_driver, port);
@@ -320,11 +328,33 @@ static void s1c33_uart_remove(struct platform_device *pdev)
 	uart_remove_one_port(&s1c33_uart_driver, port);
 }
 
+static int s1c33_uart_suspend(struct device *dev)
+{
+	struct uart_port *port = dev_get_drvdata(dev);
+
+	if (device_may_wakeup(dev))
+		return enable_irq_wake(port->irq);
+	return uart_suspend_port(&s1c33_uart_driver, port);
+}
+
+static int s1c33_uart_resume(struct device *dev)
+{
+	struct uart_port *port = dev_get_drvdata(dev);
+
+	if (device_may_wakeup(dev))
+		return disable_irq_wake(port->irq);
+	return uart_resume_port(&s1c33_uart_driver, port);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(s1c33_uart_pm_ops, s1c33_uart_suspend,
+				s1c33_uart_resume);
+
 static struct platform_driver s1c33_uart_platform_driver = {
 	.probe = s1c33_uart_probe,
 	.remove = s1c33_uart_remove,
 	.driver = {
 		.name = "s1c33-uart",
+		.pm = pm_sleep_ptr(&s1c33_uart_pm_ops),
 	},
 };
 

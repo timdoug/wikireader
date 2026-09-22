@@ -86,3 +86,16 @@ config CMDLINE
 endmenu
 
 source "kernel/Kconfig.hz"
+
+menu "Power management options"
+
+config ARCH_SUSPEND_POSSIBLE
+	def_bool y
+	help
+	  Only suspend-to-idle is offered: nothing registers suspend_ops, so
+	  the deeper states that need the SDRAM put into self-refresh by code
+	  running out of internal RAM are not available yet.
+
+source "kernel/power/Kconfig"
+
+endmenu
