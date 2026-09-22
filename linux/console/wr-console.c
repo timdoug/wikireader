@@ -180,6 +180,13 @@ static int symbols_active;
 static int fb_fd;
 static int log_fd;
 static unsigned int scrolls_pending;
+/*
+ * Pacing keeps a burst of output readable, but it must never sit between a
+ * key and the first thing that key produced: that delay is the latency the
+ * user feels.  The first frame after input is painted immediately and only
+ * the continuation of the same burst is paced.
+ */
+static int burst_painted;
 
 static void log_text(const char *text)
 {
@@ -415,9 +422,11 @@ static void flush_text(void)
 	dirty_text_first = TEXT_ROWS;
 	dirty_text_last = 0;
 	if (scrolls_pending) {
-		poll(NULL, 0, SCROLL_FRAME_MS);
+		if (burst_painted)
+			poll(NULL, 0, SCROLL_FRAME_MS);
 		scrolls_pending = 0;
 	}
+	burst_painted = 1;
 }
 
 static void flush_key(int key)
@@ -595,7 +604,7 @@ static void consume_terminal_output(int master_fd)
 		for (i = 0; i < count; i++)
 			terminal_byte(output[i]);
 		total += count;
-		if (total >= OUTPUT_BATCH_BYTES ||
+		if (total >= OUTPUT_BATCH_BYTES || !burst_painted ||
 		    poll(&more, 1, OUTPUT_QUIET_MS) <= 0 ||
 		    !(more.revents & POLLIN))
 			break;
@@ -665,6 +674,7 @@ static int send_key(int master_fd, int key, int *redraw_keyboard)
 		control_active = 0;
 		*redraw_keyboard = 1;
 	}
+	burst_painted = 0;
 	return write(master_fd, output, length) == (ssize_t)length;
 }
 

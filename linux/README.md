@@ -74,7 +74,10 @@ cursor keys, Backspace, and Enter. The frontend writes only changed text rows
 and key bands through fbdev. Packed glyph writes and overlap-safe framebuffer
 row moves make scrolling cheap; bounded output frames are paced when they
 scroll so commands remain visibly animated instead of either repainting every
-byte or jumping directly to their final screen. BusyBox init respawns the
+byte or jumping directly to their final screen. Pacing never sits between a
+key and the first thing that key produced: the first frame of a burst is
+painted immediately and only its continuation is paced, which keeps the
+touch-to-shell latency the boot test bounds. BusyBox init respawns the
 frontend if it exits; the
 independent `ttyC0` recovery shell remains available throughout.
 
