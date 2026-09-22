@@ -1,0 +1,26 @@
+Linux (none) 6.18.52-dirty #147 Mon Sep 21 20:33:54 EDT 2026 c33
+<6>C33 memory: 32 MiB of SDRAM at 10000000
+<6>clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+<6>clocksource: s1c33-t16: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 31854340776 ns
+<6>s1c33-timer: 60000000 Hz counter, 937500 Hz clock event on IRQ 38
+<6>Delay loop: 600000 MCLK cycles per jiffy
+<6>C33 clock: registered 60000000 Hz MCLK
+<6>clocksource: Switched to clocksource s1c33-t16
+MemTotal:          29568 kB
+current_clocksource: s1c33-t16
+--- interrupts, then again after sleeping 5 ---
+           CPU0       
+ 25:        354 S1C33-ITC      s1c33-spi-rx
+ 38:       2808 S1C33-ITC      s1c33-timer
+ 57:          0 S1C33-ITC      s1c33-uart0-rx
+ 60:          1 S1C33-ITC      s1c33-uart1-error
+ 61:          1 S1C33-ITC      s1c33-uart1-rx
+           CPU0       
+ 25:        354 S1C33-ITC      s1c33-spi-rx
+ 38:       2950 S1C33-ITC      s1c33-timer
+ 57:          0 S1C33-ITC      s1c33-uart0-rx
+ 60:          1 S1C33-ITC      s1c33-uart1-error
+ 61:          1 S1C33-ITC      s1c33-uart1-rx
+uptime 28.59 -> 33.86
+expected: about 5 s plus one exec, and a timer count that grew by
+far less than 500, because the idle tick stops
