@@ -373,6 +373,29 @@ static int __init s1c33_uart_console_init(void)
 	return 0;
 }
 console_initcall(s1c33_uart_console_init);
+
+/*
+ * Before the platform device exists there is no port to lock or clock to
+ * query, so the early console writes through whatever the loader left
+ * programmed: "earlycon=s1c33,mmio,0x300b00" on the kernel command line.
+ */
+static void __init s1c33_uart_early_write(struct console *console,
+					  const char *s, unsigned int count)
+{
+	struct earlycon_device *device = console->data;
+
+	uart_console_write(&device->port, s, count, s1c33_uart_putchar);
+}
+
+static int __init s1c33_uart_early_setup(struct earlycon_device *device,
+					 const char *options)
+{
+	if (!device->port.membase)
+		return -ENODEV;
+	device->con->write = s1c33_uart_early_write;
+	return 0;
+}
+EARLYCON_DECLARE(s1c33, s1c33_uart_early_setup);
 #endif
 
 static int __init s1c33_uart_init(void)

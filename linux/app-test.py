@@ -27,6 +27,9 @@ def require(path):
     return path
 
 
+LAUNCHER_ARGS = b"earlycon=s1c33,mmio,0x300b00 loglevel=7"
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     emulator = require(root / "emulator/wremu")
@@ -49,8 +52,11 @@ def main():
             "linux.app": app.read_bytes(),
             "linux.ico": icon.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
-            "init.ini": (b"linux.ico : linux.app started-from-init\n"
-                         b"linux.ico : linux.app started-from-init\n"),
+            # The arguments are the kernel command line: the launcher is the
+            # only thing on this machine that can supply one, and it comes
+            # from a line on the card that needs no rebuild to change.
+            "init.ini": (b"linux.ico : linux.app " + LAUNCHER_ARGS + b"\n"
+                         b"linux.ico : linux.app " + LAUNCHER_ARGS + b"\n"),
         }
 
         fat.make_image(card, files, 64)
@@ -77,6 +83,11 @@ def main():
         expected = [
             "init choosing",
             "C33 Linux: entry",
+            # The launcher's arguments reached the kernel, and asking for an
+            # early console on that line produced one before the driver probed.
+            "Kernel command line: console=ttyC0,115200 " +
+            LAUNCHER_ARGS.decode(),
+            "bootconsole [s1c33] enabled",
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "C33 LINUX APP PASS",

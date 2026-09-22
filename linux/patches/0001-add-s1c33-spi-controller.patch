@@ -154,7 +154,7 @@ index 1f7c06a30..e8d799f1b 100644
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 --- a/drivers/tty/serial/Kconfig
 +++ b/drivers/tty/serial/Kconfig
-@@ -14,1 +14,21 @@
+@@ -14,1 +14,23 @@
 +config SERIAL_S1C33
 +	bool "Epson S1C33 serial port support"
 +	depends on C33 && TTY
@@ -169,9 +169,11 @@ diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 +	bool "Console on an Epson S1C33 serial port"
 +	depends on SERIAL_S1C33=y
 +	select SERIAL_CORE_CONSOLE
++	select SERIAL_EARLYCON
 +	help
 +	  Enable an S1C33 serial port as the system console. The console device
-+	  is selected with a kernel command line option such as ttyC0.
++	  is selected with a kernel command line option such as ttyC0, and
++	  earlycon=s1c33,mmio,<address> reports before the driver has probed.
 +	  Early kernel messages can therefore be observed before userspace
 +	  starts on boards with a connected serial adapter.
 +

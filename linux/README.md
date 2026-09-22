@@ -20,6 +20,17 @@ the kernel, saves the resident trap table, and hands `poweroff` and `reboot`
 back through Grifo; reboot therefore returns to the launcher. The direct image
 remains available as a recovery and bring-up path.
 
+Whatever arguments the launcher's `init.ini` line carries become the kernel
+command line. Grifo enters an application as `main(argc, argv)`, so the kernel
+copies those strings out of the launcher's memory before anything can reuse it
+and appends them to the built-in line; a later argument therefore wins over an
+earlier one, and a line with no arguments still gets a console. `console=`,
+`loglevel=`, `init=` and `earlycon=` are consequently editable on the card
+without building anything. Grifo parses at most ten arguments totalling 256
+bytes, and it is the only thing on this machine that can supply any: a direct
+boot arrives with whatever the loader left in those registers, so the kernel
+trusts them only when the incoming trap table says a launcher is resident.
+
 Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
 16 MiB production boards and the 32 MiB early ones; the same probed limit
@@ -57,6 +68,10 @@ PID 1 then executes a static uClibc-ng bFLT program. The program enters through
 the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
 exits through libc, and is reaped by PID 1. This is the first regression using
 the conventional C userspace ABI rather than the initramfs syscall veneers.
+
+With a serial adapter attached, `earlycon=s1c33,mmio,0x300b00` reports through
+the standard early console from the first parsed parameter until `ttyC0`
+takes over and the boot console hands off.
 
 The architecture's small early renderer writes `C33 LINUX` into the LCD
 memory left active by the card loader, then becomes a temporary printk console
