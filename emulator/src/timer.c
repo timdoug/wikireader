@@ -184,6 +184,13 @@ static struct matches advance_channel(struct timerblk *t, unsigned channel,
 	a = t->compare[channel][0];
 	b = t->compare[channel][1];
 	uint64_t period = (uint64_t)b + 1u;
+	/*
+	 * The reset presents count 0 to both comparators, so a comparison A of
+	 * zero matches here.  The firmware's 32-bit tick cascade depends on
+	 * that match: it is the one pulse per overflow that clocks timer 5.
+	 */
+	if (a == 0)
+		matches.a++;
 	if (ticks) {
 		matches.b += ticks / period;
 		uint64_t rem = ticks % period;

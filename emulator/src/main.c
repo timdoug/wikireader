@@ -1418,6 +1418,12 @@ done:
 	printf("--- timer: %lu reads, %llu MCLK cycles (%.2f cyc/instr) ---\n",
 	       timer.reads, (unsigned long long)cpu.clk,
 	       cpu.cycles ? (double)cpu.clk / (double)cpu.cycles : 0.0);
+	printf("--- timer matches:");
+	for (unsigned ch = 0; ch < 6; ch++)
+		if (timer.fires[ch][0] || timer.fires[ch][1])
+			printf(" ch%u A %lu B %lu", ch, timer.fires[ch][0],
+			       timer.fires[ch][1]);
+	printf(" ---\n");
 	printf("\n--- touch: %lu events, %lu bytes read, %lu irqs taken, %lu masked ---\n",
 	       touch.events, touch.bytes_read, cpu.irqs_taken, cpu.irqs_masked);
 	printf("--- ctp link: panel %u baud, receiver %u baud, %lu packets "

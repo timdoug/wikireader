@@ -253,6 +253,23 @@ int main(void)
 	check("timer 0's rising B edge clocks external timer 5",
 	      tick_get(&mem), 0x000100c8);
 
+	/*
+	 * The firmware's own cascade (drivers/src/tick.c) leaves OUTINV clear
+	 * and puts comparison A at zero, so the match that clocks timer 5 is
+	 * the one the counter reset presents to comparator A.
+	 */
+	mem_write(&mem, CR0A, 2, 0);
+	mem_write(&mem, CR0B, 2, 0xffff);
+	mem_write(&mem, CTL0, 2, PTM | PRESET);
+	mem_write(&mem, CTL5, 2, CKSL | PRESET);
+	mem_write(&mem, CNT_PAUSE, 2, PAUSE5 | PAUSE0);
+	mem_write(&mem, CTL0, 2, PTM | PRUN);
+	mem_write(&mem, CTL5, 2, CKSL | PRUN);
+	mem_write(&mem, CNT_PAUSE, 2, 0);
+	clk += 65536 + 100;
+	check("a comparison A of zero clocks timer 5 at each wrap",
+	      tick_get(&mem), 0x00010064);
+
 	mem_write(&mem, CTL2, 2, PRESET);
 	check("the PRESET command always reads back zero",
 	      mem_read(&mem, CTL2, 2), 0);
