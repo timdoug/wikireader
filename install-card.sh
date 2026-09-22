@@ -36,6 +36,8 @@ copy "${here}/riscv/linux/wr-sh.dtb"    rvlinux.dtb
 copy "${here}/doom/doom.ico"            doom.ico
 copy "${here}/nuttx/nuttx.app"          nuttx.app
 copy "${here}/nuttx/nuttx.ico"          nuttx.ico
+copy "${here}/linux/artifacts/linux.app" linux.app
+copy "${here}/linux/artifacts/linux.ico" linux.ico
 
 # ...and out of init.ini, whose order is the order of the launcher's grid.
 for gone in rvsdr.ico rva0.ico rva0s.ico; do
@@ -78,7 +80,8 @@ sleep 2
 diskutil mount "${device#/dev/}" >/dev/null
 sleep 2
 for f in riscv.app rvbench.bin \
-         rvlinux.bin rvlinux.dtb doom.ico nuttx.app nuttx.ico; do
+         rvlinux.bin rvlinux.dtb doom.ico nuttx.app nuttx.ico \
+         linux.app linux.ico; do
 	case $f in
 	riscv.app)   src=${here}/riscv/riscv.app ;;
 	rvbench.bin) src=${here}/riscv/build/rvbench.bin ;;
@@ -87,9 +90,12 @@ for f in riscv.app rvbench.bin \
 	doom.ico)    src=${here}/doom/doom.ico ;;
 	nuttx.app)   src=${here}/nuttx/nuttx.app ;;
 	nuttx.ico)   src=${here}/nuttx/nuttx.ico ;;
+	linux.app)   src=${here}/linux/artifacts/linux.app ;;
+	linux.ico)   src=${here}/linux/artifacts/linux.ico ;;
 	esac
 	cmp -s "$src" "$boot/$f" && echo "  ok $f" || { echo "  BAD $f" >&2; exit 1; }
 done
 echo "done"
 echo "the RV32 benchmark writes rvbench.txt to this card; read it back here"
 echo "afterwards to compare the device against the emulator's model"
+echo "native Linux writes linux.ok and linuxhw.txt, its memory and timer report"
