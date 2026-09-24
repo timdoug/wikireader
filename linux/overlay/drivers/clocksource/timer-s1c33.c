@@ -20,6 +20,8 @@
 
 #include <linux/clocksource/timer-s1c33.h>
 
+#include <asm/clock.h>
+
 #define S1C33_T16_BASE		0x00300780UL
 #define S1C33_T16_CRA(n)	(S1C33_T16_BASE + (n) * 8)
 #define S1C33_T16_CRB(n)	(S1C33_T16_BASE + (n) * 8 + 2)
@@ -40,12 +42,6 @@
 #define S1C33_CLKCTL_DIV64	4
 #define S1C33_CLKCTL_DIV4096	7
 
-#define S1C33_CMU_GATE1		0x00301b04UL
-#define S1C33_CMU_PROTECT	0x00301b24UL
-#define S1C33_CMU_PROTECT_OFF	0x96
-#define S1C33_CMU_TM0		BIT(13)
-#define S1C33_CMU_TM2		BIT(15)
-#define S1C33_CMU_TM5		BIT(18)
 
 /* TM0 output on P12 and the EXCL5 input on P74 carry the cascade. */
 #define S1C33_P1_03_CFP		0x003003a2UL
@@ -73,7 +69,6 @@
  * core ignores, the way it ignores an HSDMA completion.
  */
 #define S1C33_WAKE_SECONDS	4
-#define S1C33_CMU_TM3		BIT(16)
 #define S1C33_ITC_WAKE_FLAGS	0xc0
 #define S1C33_ITC_WAKE_PRIORITY	0x40
 
@@ -195,13 +190,12 @@ static irqreturn_t s1c33_timer_interrupt(int irq, void *dev_id)
 
 static void __init s1c33_timer_clocks_on(void)
 {
-	u32 gate;
-
-	writel(S1C33_CMU_PROTECT_OFF, (void __iomem *)S1C33_CMU_PROTECT);
-	gate = readl((void __iomem *)S1C33_CMU_GATE1);
-	writel(gate | S1C33_CMU_TM0 | S1C33_CMU_TM2 | S1C33_CMU_TM3 |
-	       S1C33_CMU_TM5, (void __iomem *)S1C33_CMU_GATE1);
-	writel(0, (void __iomem *)S1C33_CMU_PROTECT);
+	/*
+	 * time_init() runs long before the clock framework has a provider, so
+	 * the four channels this driver owns are gated by hand.
+	 */
+	c33_cmu_gate(C33_CMU_TM0 | C33_CMU_TM2 | C33_CMU_TM3 | C33_CMU_TM5,
+		     true);
 
 	writeb((readb((void __iomem *)S1C33_P1_03_CFP) & ~S1C33_CFP_MASK) |
 	       S1C33_P1_TM0, (void __iomem *)S1C33_P1_03_CFP);

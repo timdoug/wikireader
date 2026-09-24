@@ -4,7 +4,6 @@
 
 #define C33_GRIFO_TTBR 0x00000400UL
 
-unsigned long c33_mclk_hz(void);
 extern unsigned long c33_boot_ttbr;
 extern int c33_grifo_booted;
 void c33_lcd_init(void);

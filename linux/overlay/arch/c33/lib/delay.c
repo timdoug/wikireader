@@ -12,7 +12,7 @@
 #include <linux/kernel.h>
 #include <linux/processor.h>
 
-#include <asm/wikireader.h>
+#include <asm/clock.h>
 
 static unsigned long cycles_per_usec(void)
 {

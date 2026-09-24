@@ -58,11 +58,15 @@
 #define S1C33_DMA_ADV_CTL3  0x92
 #define S1C33_DMA_ADV_SRC3  0x94
 #define S1C33_DMA_ADV_DST3  0x98
+#define S1C33_DMA_IDMA_RUN  0x05
 
 #define S1C33_ITC_DMA_PRIORITY 0x01
 #define S1C33_ITC_DMA_FLAG     0x1e
 #define S1C33_ITC_SPI_FLAG     0x26
 #define S1C33_ITC_HS_TRIGGER   0x36
+#define S1C33_ITC_IDMA_REQ     0x38
+#define S1C33_ITC_IDMA_ENABLE  0x39
+#define S1C33_IDMA_SPI_BIT   BIT(4)
 #define S1C33_HSDMA2_FLAG    BIT(2)
 #define S1C33_HSDMA3_FLAG    BIT(3)
 #define S1C33_SPI_DMA_FLAGS  (BIT(4) | BIT(5))
@@ -232,8 +236,15 @@ static void s1c33_spi_reset_dma(struct s1c33_spi *hw)
 	 * reset-equivalent state before unmasking its interrupt: remove every
 	 * request source, stop both channels, discard pending trigger latches,
 	 * clear terminal-count and SPI request causes, and return to STD mode.
+	 * The card loader that ran before Linux may also have left the
+	 * intelligent DMA controller asking this port for service.
 	 */
 	writeb(0, hw->itc + S1C33_ITC_HS_TRIGGER);
+	writeb(readb(hw->itc + S1C33_ITC_IDMA_ENABLE) & ~S1C33_IDMA_SPI_BIT,
+	       hw->itc + S1C33_ITC_IDMA_ENABLE);
+	writeb(readb(hw->itc + S1C33_ITC_IDMA_REQ) & ~S1C33_IDMA_SPI_BIT,
+	       hw->itc + S1C33_ITC_IDMA_REQ);
+	writeb(0, hw->dma + S1C33_DMA_IDMA_RUN);
 	writew(0, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_ENABLE);
 	writew(0, hw->dma + S1C33_DMA_HS3 + S1C33_DMA_ENABLE);
 	writew(1, hw->dma + S1C33_DMA_HS2 + S1C33_DMA_TRIGGER);
@@ -385,6 +396,7 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 		dev_get_platdata(&pdev->dev);
 	struct spi_controller *controller;
 	struct s1c33_spi *hw;
+	struct clk *dma_clk;
 	unsigned int i;
 	unsigned long clock;
 	int irq;
@@ -401,6 +413,11 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	if (IS_ERR(hw->clk))
 		return dev_err_probe(&pdev->dev, PTR_ERR(hw->clk),
 				     "cannot enable input clock\n");
+	/* The bulk read path drives HSDMA, which has a gate of its own. */
+	dma_clk = devm_clk_get_enabled(&pdev->dev, "dma");
+	if (IS_ERR(dma_clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(dma_clk),
+				     "cannot enable DMA clock\n");
 	hw->base = devm_platform_ioremap_resource_byname(pdev, "spi");
 	if (IS_ERR(hw->base))
 		return dev_err_probe(&pdev->dev, PTR_ERR(hw->base),

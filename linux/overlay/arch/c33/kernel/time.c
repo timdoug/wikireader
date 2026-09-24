@@ -3,6 +3,7 @@
 #include <linux/init.h>
 #include <linux/timekeeping.h>
 
+#include <asm/clock.h>
 #include <asm/irq.h>
 #include <asm/wikireader.h>
 

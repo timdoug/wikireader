@@ -32,17 +32,7 @@
 #define WR_P6_FUNC47      (WR_REG_BASE + 0x3ad)
 #define WR_SERIAL_PRIORITY (WR_REG_BASE + 0x26a)
 #define WR_SERIAL_FLAGS    (WR_REG_BASE + 0x286)
-#define WR_CMU_GATE1      (WR_REG_BASE + 0x1b04)
-#define WR_CMU_PROTECT    (WR_REG_BASE + 0x1b24)
-#define WR_HS2_ENABLE     (WR_REG_BASE + 0x114c)
-#define WR_HS3_ENABLE     (WR_REG_BASE + 0x115c)
-#define WR_IDMA_ENABLE    (WR_REG_BASE + 0x1105)
-#define WR_IDMAREQ_SPI    (WR_REG_BASE + 0x29b)
-#define WR_IDMAEN_SPI     (WR_REG_BASE + 0x29c)
 
-#define WR_CMU_GATE1_DMA  BIT(1)
-#define WR_CMU_GATE1_SPI  BIT(6)
-#define WR_IDMA_SPI_BIT   BIT(4)
 #define WR_SD_CS          BIT(0)
 #define WR_EEPROM_CS      BIT(2)
 #define WR_CS_OUTPUTS     (WR_SD_CS | BIT(1) | WR_EEPROM_CS)
@@ -126,7 +116,7 @@ static const struct resource wr_gpio_resource =
 static const struct resource wr_spi_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
-	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x37, "itc"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_HSDMA3, "rx-dma"),
 };
 
@@ -245,7 +235,6 @@ static int __init c33_devices_init(void)
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
 	int ret;
-	u32 gate;
 
 	/* SDRAM is the only memory HSDMA may reach; its size is probed. */
 	wr_spi_pdata.dma_memory_end = memory_end;
@@ -263,19 +252,6 @@ static int __init c33_devices_init(void)
 	wr_modify8(WR_P5_DIR, 0, WR_CS_OUTPUTS);
 	wr_modify8(WR_P3_DIR, 0, WR_SD_POWER_BITS);
 	wr_mmc_setpower(NULL, 0);
-
-	writel(0x96, (void __iomem *)WR_CMU_PROTECT);
-	gate = readl((void __iomem *)WR_CMU_GATE1);
-	writel(gate | WR_CMU_GATE1_SPI | WR_CMU_GATE1_DMA,
-	       (void __iomem *)WR_CMU_GATE1);
-	writel(0, (void __iomem *)WR_CMU_PROTECT);
-
-	/* The card loader may have left its SPI DMA channels armed. */
-	writew(0, (void __iomem *)WR_HS2_ENABLE);
-	writew(0, (void __iomem *)WR_HS3_ENABLE);
-	wr_modify8(WR_IDMAEN_SPI, WR_IDMA_SPI_BIT, 0);
-	wr_modify8(WR_IDMAREQ_SPI, WR_IDMA_SPI_BIT, 0);
-	writeb(0, (void __iomem *)WR_IDMA_ENABLE);
 
 	gpio_info.name = "s1c33-gpio";
 	gpio_info.id = -1;

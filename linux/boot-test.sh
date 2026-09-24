@@ -52,7 +52,7 @@ irq_userspace_expected="C33 IRQ: generic registrations"
 dma_irq_expected='[[:space:]]25:[[:space:]]+[1-9][0-9]*[[:space:]]+S1C33-ITC[[:space:]]+s1c33-spi-rx'
 framebuffer_expected="C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
 blank_expected="C33 display: fbdev blank and unblank passed"
-clock_expected="C33 time: clock seeded from the installed image,"
+seeded_clock_expected="C33 time: clock seeded from the installed image,"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
 tux_expected="s1c33-fb s1c33-fb: registered /dev/fb0, 240x208 mono; Tux logo shown"
 input_expected="C33 input: /dev/input/event0 absolute touchscreen registered"
@@ -74,7 +74,7 @@ child_expected="C33 child: execve reached /child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-clock_expected="C33 clock: registered 48000000 Hz MCLK"
+clock_expected="C33 clock: registered 48000000 Hz MCLK and 3 peripheral gates"
 gpio_expected="s1c33-gpio s1c33-gpio: registered 56 GPIOs through gpiolib"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
@@ -86,7 +86,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$dma_irq_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$blank_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$seeded_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$lcd_power_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$input_expected" "$work/boot.log" >/dev/null || \
