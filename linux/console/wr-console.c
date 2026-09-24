@@ -802,41 +802,34 @@ static void read_timeouts(void)
  * count moved across it. A file that ends in "suspending" is a machine that
  * never came back.
  */
-static long touch_interrupt_count(void)
+static void set_display_blank(int blank);
+
+static void power_note(const char *what, long seconds)
 {
 	char text[2048];
-	const char *line;
-	int fd = open("/proc/interrupts", O_RDONLY);
-	ssize_t count;
-
-	if (fd < 0)
-		return -1;
-	count = read(fd, text, sizeof(text) - 1);
-	close(fd);
-	if (count <= 0)
-		return -1;
-	text[count] = '\0';
-	line = strstr(text, "s1c33-uart1-rx");
-	if (!line)
-		return -1;
-	while (line > text && *line != '\n')
-		line--;
-	return atol(line + strspn(line, " \n") + strlen(" 61:"));
-}
-
-static void power_note(const char *what, long seconds, long touches)
-{
-	char line[128];
+	char line[96];
 	int fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND,
 		      0644);
 	int length;
+	int source;
 
 	if (fd < 0)
 		return;
-	length = snprintf(line, sizeof(line), "%s at %ld s, touch irqs %ld\n",
-			  what, seconds, touches);
+	length = snprintf(line, sizeof(line), "%s at %ld s\n", what, seconds);
 	if (length > 0)
 		write(fd, line, length);
+	/*
+	 * Which interrupt moved is the only evidence there is for what woke
+	 * the machine, so keep the whole table rather than one parsed number.
+	 */
+	source = open("/proc/interrupts", O_RDONLY);
+	if (source >= 0) {
+		ssize_t count = read(source, text, sizeof(text));
+
+		if (count > 0)
+			write(fd, text, count);
+		close(source);
+	}
 	close(fd);
 	sync();
 }
@@ -844,7 +837,6 @@ static void power_note(const char *what, long seconds, long touches)
 static void suspend_until_touch(void)
 {
 	long before = monotonic_seconds();
-	long touches = touch_interrupt_count();
 	int fd = open("/sys/power/state", O_WRONLY);
 
 	if (fd < 0) {
@@ -853,7 +845,7 @@ static void suspend_until_touch(void)
 		return;
 	}
 	log_text("C33 power: suspending until touch\n");
-	power_note("suspending", before, touches);
+	power_note("suspending", before);
 	if (write(fd, "freeze\n", 7) < 0) {
 		log_text("C33 power: suspend REFUSED\n");
 		suspend_seconds = 0;
@@ -861,8 +853,14 @@ static void suspend_until_touch(void)
 		log_text("C33 power: resumed\n");
 	}
 	close(fd);
-	power_note("resumed", monotonic_seconds() - before,
-		   touch_interrupt_count());
+	power_note("resumed", monotonic_seconds() - before);
+	/*
+	 * The touch that woke the machine was spent on waking it: the kernel
+	 * takes that interrupt as its wake event, so no key arrives to turn
+	 * the panel back on. Light it here, or the machine resumes to a dark
+	 * screen and looks exactly as dead as it did asleep.
+	 */
+	set_display_blank(0);
 }
 
 static void set_display_blank(int blank)

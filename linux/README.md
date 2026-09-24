@@ -98,7 +98,10 @@ independent `ttyC0` recovery shell remains available throughout.
 
 Suspend-to-idle works: `wr.suspend=<seconds>` on the launcher's line makes the
 console freeze the machine once nothing has touched it for that long, and the
-next touch resumes it. A slow timer channel stays armed across the freeze,
+next touch resumes it, and lights the panel itself on the way out: the kernel
+spends that touch as its wake event, so no key arrives to do it and the
+machine would otherwise resume to a dark screen indistinguishable from a dead
+one. A slow timer channel stays armed across the freeze,
 because suspend-to-idle stops the tick and then halts, which assumes the core
 leaves HALT for whatever interrupt is meant to wake it; the HSDMA completion
 cause demonstrably never woke it on silicon, so the core is brought back every
