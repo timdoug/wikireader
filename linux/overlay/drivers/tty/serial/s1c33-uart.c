@@ -149,19 +149,31 @@ static irqreturn_t s1c33_uart_error_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * The receiver latches overrun and framing errors and stops taking characters
+ * until the status is written back, so anything that can leave a byte
+ * unread -- opening the port, or waking with one still in the register --
+ * has to clear it or the port never receives again.
+ */
+static void s1c33_uart_flush_rx(struct uart_port *port)
+{
+	int limit = 16;
+
+	while ((readb(port->membase + S1C33_UART_STATUS) &
+		S1C33_UART_RX_READY) && limit--)
+		readb(port->membase + S1C33_UART_RXD);
+	writeb(0, port->membase + S1C33_UART_STATUS);
+}
+
 static int s1c33_uart_startup(struct uart_port *port)
 {
 	struct s1c33_uart *uart = container_of(port, struct s1c33_uart, port);
 	static const char * const rx_names[] = {
 		"s1c33-uart0-rx", "s1c33-uart1-rx",
 	};
-	int limit = 16;
 	int ret;
 
-	while ((readb(port->membase + S1C33_UART_STATUS) &
-		S1C33_UART_RX_READY) && limit--)
-		readb(port->membase + S1C33_UART_RXD);
-	writeb(0, port->membase + S1C33_UART_STATUS);
+	s1c33_uart_flush_rx(port);
 
 	ret = request_irq(port->irq, s1c33_uart_rx_interrupt, 0,
 			  rx_names[port->line], port);
@@ -347,8 +359,17 @@ static int s1c33_uart_resume(struct device *dev)
 {
 	struct uart_port *port = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
-		return disable_irq_wake(port->irq);
+	if (device_may_wakeup(dev)) {
+		int ret = disable_irq_wake(port->irq);
+
+		/*
+		 * The character that woke the system was taken as the wake
+		 * event rather than read, and the ones behind it overran
+		 * while the machine was coming back.
+		 */
+		s1c33_uart_flush_rx(port);
+		return ret;
+	}
 	return uart_resume_port(&s1c33_uart_driver, port);
 }
 

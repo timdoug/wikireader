@@ -48,7 +48,7 @@ def suspend_run(root, emulator, files, make_flash, fat):
             # this tap; wremu advances an idle machine to its next scripted
             # event, which is the touch that has to wake it.
             "-T", f"{ICON0[0]},{ICON0[1]},2500000000",
-            "-R", "-c", str(card), "-e", str(flash),
+            "-c", str(card), "-e", str(flash),
         ]
         with log.open("w") as output:
             subprocess.run(command, cwd=out, stdout=output,
@@ -58,6 +58,19 @@ def suspend_run(root, emulator, files, make_flash, fat):
         # wremu writes its own scripted-event traces into the same stream,
         # which can land in the middle of a line the guest was printing.
         text = re.sub(r" *\[[a-z][^\]]*\]\n?", "", text)
+        notes = fat.read_file(card, "linuxpm.txt") or b""
+
+    # The interrupt that ends a suspend is taken as the wake event rather than
+    # handled, so unless it is replayed afterwards its character is never read
+    # and the port it arrived on never receives again: a machine that wakes
+    # once and then ignores the panel.
+    touches = [int(n) for n in
+               re.findall(r"^\s*\d+:\s+(\d+).*s1c33-uart1-rx",
+                          notes.decode(errors="replace"), re.M)]
+    if len(touches) < 2 or touches[1] <= touches[0]:
+        print(notes.decode(errors="replace"), file=sys.stderr)
+        raise SystemExit("Suspend regression failed: the touch interrupt that "
+                         f"woke the machine was never delivered: {touches}")
 
     expected = [
         "C33 power: suspending until touch",

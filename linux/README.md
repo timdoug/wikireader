@@ -101,7 +101,12 @@ console freeze the machine once nothing has touched it for that long, and the
 next touch resumes it, and lights the panel itself on the way out: the kernel
 spends that touch as its wake event, so no key arrives to do it and the
 machine would otherwise resume to a dark screen indistinguishable from a dead
-one. A slow timer channel stays armed across the freeze,
+one. The interrupt that ends a suspend is taken as the wake event rather than
+handled, so the architecture asks for software resend: without it the
+character that woke the machine is never read, the receiver latches its
+overrun and the panel is ignored from then on -- a machine that wakes once and
+then answers nothing. The serial driver clears that state on resume as well.
+A slow timer channel stays armed across the freeze,
 because suspend-to-idle stops the tick and then halts, which assumes the core
 leaves HALT for whatever interrupt is meant to wake it; the HSDMA completion
 cause demonstrably never woke it on silicon, so the core is brought back every
