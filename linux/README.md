@@ -110,6 +110,13 @@ interrupt controller advertises `IRQCHIP_SKIP_SET_WAKE` because nothing powers
 it down. Deeper states are not offered: no `suspend_ops` is registered, since
 those need the SDRAM parked in self-refresh by code running from internal RAM.
 
+The board carries one 48 MHz resonator and no backup cell, so the RTC block in
+the chip has neither a timebase nor standby power and this machine cannot keep
+wall-clock time at all. Early userspace therefore sets the clock from the date
+on the image it just booted, which makes everything the device writes stamped
+no earlier than its own install instead of 1970, and says so plainly when the
+card offers nothing better than the FAT floor.
+
 Every one of the 256 traps has its own entry and stub, generated rather than
 listed. The table used to name only the vectors the port happened to use, so
 the first interrupt from a timer channel added later reported itself as vector

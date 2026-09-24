@@ -13,6 +13,7 @@ import re
 import shlex
 import struct
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[3]
 STAGE = ROOT / "build/wr128/mem-dma"
@@ -55,6 +56,14 @@ def make_image(path, files, sectors_per_cluster=1):
         off = i * 32
         root[off:off+11] = (stem.ljust(8) + ext.ljust(3)).encode()
         root[off+11] = 0x20
+        # Real cards carry real dates, and a guest with no RTC has nothing
+        # else to set its clock from; a fixture stuck at the FAT floor would
+        # never exercise that.
+        now = time.localtime()
+        fat_date = ((now.tm_year - 1980) << 9) | (now.tm_mon << 5) | now.tm_mday
+        fat_time = (now.tm_hour << 11) | (now.tm_min << 5) | (now.tm_sec // 2)
+        struct.pack_into('<HH', root, off+22, fat_time, fat_date)
+        struct.pack_into('<H', root, off+18, fat_date)
         struct.pack_into('<H', root, off+20, cluster >> 16)
         struct.pack_into('<HI', root, off+26, cluster & 65535, len(content))
         objects.append((cluster, content))

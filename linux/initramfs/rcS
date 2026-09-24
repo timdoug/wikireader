@@ -59,6 +59,7 @@ timer_report() {
 	uname -a
 	dmesg | grep -E "C33 memory|C33 clock|s1c33-timer|clocksource|Delay loop"
 	echo "cmdline: $(cat /proc/cmdline)"
+	echo "date: $(date)"
 	grep MemTotal /proc/meminfo
 	echo "current_clocksource: $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)"
 	echo "fb0 blank state: $(cat /sys/class/graphics/fb0/blank)"
@@ -89,7 +90,24 @@ if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
 	# It sleeps to measure the tick, so it must not hold up init; the
 	# numbers are better taken against an otherwise idle system anyway.
 	report_to_card() {
-		if timer_report > /mnt/sd/linuxhw.txt 2>&1; then
+		# This board has one 48 MHz resonator and no backup cell, so there is no
+	# RTC to read and the clock starts at the epoch. Seed it from the newest
+	# thing on the card: everything the device writes is then stamped no
+	# earlier than the install it is running, instead of 1970.
+	stamp=
+	for image in /mnt/sd/linux.app /mnt/sd/LINUX.APP \
+		     /mnt/sd/kernel.elf /mnt/sd/KERNEL.ELF; do
+		stamp=$(date -r "$image" +%s 2>/dev/null) && break
+	done
+	# 1262304000 is 2010; below that the card is telling us the FAT floor
+	# rather than a date, and the epoch is the more honest answer.
+	if [ -n "$stamp" ] && [ "$stamp" -gt 1262304000 ] &&
+		date -s "@$stamp" >/dev/null 2>&1; then
+		echo "C33 time: clock seeded from the installed image, $(date)"
+	else
+		echo "C33 time: no clock source, running from the epoch"
+	fi
+	if timer_report > /mnt/sd/linuxhw.txt 2>&1; then
 			sync
 			echo "C33 time: wrote linuxhw.txt"
 		else
