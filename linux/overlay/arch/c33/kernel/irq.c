@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/entry-common.h>
 #include <linux/interrupt.h>
 #include <linux/hardirq.h>
+#include <linux/irq-entry-common.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
 #include <linux/irqdesc.h>
@@ -147,7 +149,8 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
-	unsigned long nr;
+	irqentry_state_t state;
+	long nr;
 	int i;
 
 	if (vector == C33_SYSCALL_VECTOR) {
@@ -155,25 +158,32 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 		/* Generic clone and exec code must see this live syscall frame. */
 		current->thread.regs = regs;
-		nr = regs->r[4];
-		regs->orig_r4 = nr;
-		if (nr < NR_syscalls) {
+		regs->orig_r4 = regs->r[4];
+		/*
+		 * Tracing, seccomp, and audit get their say here, and may
+		 * rewrite the number or ask for the call to be skipped.
+		 */
+		nr = syscall_enter_from_user_mode(regs, regs->r[4]);
+		local_irq_enable();
+		if (nr >= 0 && nr < NR_syscalls) {
 			c33_syscall_fn_t fn =
 				(c33_syscall_fn_t)c33_sys_call_table[nr];
 
 			pr_info_once("C33: entered userspace syscall path\n");
-			__asm__ volatile ("psrset 4" : : : "memory");
 			regs->r[4] = fn(regs->r[6], regs->r[7], regs->r[8],
 					regs->r[9], regs->r[10], regs->r[11]);
-			__asm__ volatile ("psrclr 4" : : : "memory");
-		} else {
+		} else if (nr != -1L) {
 			regs->r[4] = -ENOSYS;
 		}
-		c33_do_notify_resume(regs, 1);
+		syscall_exit_to_user_mode(regs);
+		regs->orig_r4 = -1L;
 		current->thread.regs = old_task_regs;
 		set_irq_regs(old_regs);
 		return regs;
 	}
+
+	/* Only a syscall frame carries a number; see arch_do_signal_or_restart(). */
+	regs->orig_r4 = -1L;
 
 	if (!c33_irq_source(vector)) {
 		int reg;
@@ -196,11 +206,11 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		panic("unhandled C33 exception");
 	}
 
-	irq_enter();
+	state = irqentry_enter(regs);
+	irq_enter_rcu();
 	generic_handle_irq(vector);
-	irq_exit();
-	if (user_mode(regs))
-		c33_do_notify_resume(regs, 0);
+	irq_exit_rcu();
+	irqentry_exit(regs, state);
 
 	set_irq_regs(old_regs);
 	return regs;

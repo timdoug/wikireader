@@ -64,6 +64,12 @@ the signal to PID 1, and returns through the C33 `rt_sigreturn` trampoline. The
 kernel saves and restores the complete integer context, signal mask, and
 alternate-stack state in an aligned `ucontext` frame on the userspace stack.
 
+Traps reach the kernel through `CONFIG_GENERIC_ENTRY`, so tracing, seccomp,
+and audit see every system call and the exit path is the generic one. The same
+regression proves it: a child that calls `PTRACE_TRACEME` before `execve()`
+must be stepped through several `PTRACE_SYSCALL` stops before it reaches its
+exit status, instead of running straight there.
+
 PID 1 then executes a static uClibc-ng bFLT program. The program enters through
 the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
 exits through libc, and is reaped by PID 1. This is the first regression using
@@ -329,7 +335,8 @@ requires the frontend to receive the scripted panel events from
 ## What comes next
 
 The SPI clock-pin hold is the last board callback in platform data; it wants a
-pin-control driver with a state that parks SCLK. The embedded HSDMA
+pin-control driver with a state that parks SCLK, which also means moving that
+hold out of the interrupt-disabled window it lives in today. The embedded HSDMA
 implementation still belongs behind DMAengine, which would also give the SPI
 driver the DMA mapping API instead of a board-supplied address window.
 Richer keyboard modes, console session management, and power management can

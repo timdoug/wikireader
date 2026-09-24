@@ -58,6 +58,12 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	memcpy(&regs->r[6], args, 6 * sizeof(args[0]));
 }
 
+/* There is no vDSO, so no signal return can come from one. */
+static inline bool arch_syscall_is_vdso_sigreturn(struct pt_regs *regs)
+{
+	return false;
+}
+
 static inline int syscall_get_arch(struct task_struct *task)
 {
 	return 107 | __AUDIT_ARCH_LE; /* EM_SE_C33 */

@@ -7,6 +7,7 @@
 #include <linux/uaccess.h>
 
 #include <asm/ptrace.h>
+#include <asm/syscall.h>
 #include <asm/syscalls.h>
 #include <asm/ucontext.h>
 
@@ -149,8 +150,14 @@ static void c33_restart_syscall(struct pt_regs *regs,
 	regs->pc -= 2;
 }
 
-static void c33_do_signal(struct pt_regs *regs, int in_syscall)
+/*
+ * The generic entry code calls this whenever a signal or a restart is due.
+ * Only a frame that entered through the syscall trap carries a number in
+ * orig_r4, and only such a frame may have its call restarted.
+ */
+void arch_do_signal_or_restart(struct pt_regs *regs)
 {
+	bool in_syscall = syscall_get_nr(current, regs) >= 0;
 	struct ksignal ksig;
 
 	if (get_signal(&ksig)) {
@@ -162,25 +169,4 @@ static void c33_do_signal(struct pt_regs *regs, int in_syscall)
 	if (in_syscall)
 		c33_restart_syscall(regs, NULL, false);
 	restore_saved_sigmask();
-}
-
-void c33_do_notify_resume(struct pt_regs *regs, int in_syscall)
-{
-	unsigned long flags;
-
-	if (!user_mode(regs))
-		return;
-
-	while ((flags = read_thread_flags()) & _TIF_WORK_MASK) {
-		local_irq_enable();
-		if (flags & _TIF_NEED_RESCHED)
-			schedule();
-		else if (flags & (_TIF_SIGPENDING | _TIF_NOTIFY_SIGNAL)) {
-			c33_do_signal(regs, in_syscall);
-			in_syscall = 0;
-		} else if (flags & _TIF_NOTIFY_RESUME) {
-			resume_user_mode_work(regs);
-		}
-		local_irq_disable();
-	}
 }

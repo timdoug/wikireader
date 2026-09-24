@@ -53,6 +53,14 @@ c33_clone:
 	ret
 	.size c33_clone,.-c33_clone
 
+	.global c33_ptrace
+	.type c33_ptrace,@function
+c33_ptrace:
+	xld.w %r4,117
+	int 0
+	ret
+	.size c33_ptrace,.-c33_ptrace
+
 	.global c33_execve
 	.type c33_execve,@function
 c33_execve:

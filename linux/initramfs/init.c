@@ -8,6 +8,8 @@ long c33_getpid(void);
 long c33_clone(unsigned long flags, void *stack, void *parent_tid,
 	       void *child_tid, unsigned long tls);
 long c33_execve(const char *path, char *const argv[], char *const envp[]);
+long c33_ptrace(long request, long pid, unsigned long addr,
+		unsigned long data);
 long c33_wait4(long pid, int *status, int options, void *rusage);
 void c33_exit(int status);
 long c33_kill(long pid, int signal);
@@ -25,6 +27,8 @@ enum message {
 	MESSAGE_PROCESS_FAIL,
 	MESSAGE_SIGNAL_PASS,
 	MESSAGE_SIGNAL_FAIL,
+	MESSAGE_TRACE_PASS,
+	MESSAGE_TRACE_FAIL,
 	MESSAGE_LIBC_PASS,
 	MESSAGE_LIBC_FAIL,
 	MESSAGE_BUSYBOX_PASS,
@@ -51,6 +55,8 @@ static const struct message_record messages[] = {
 	MESSAGE("C33 process test FAILED\n"),
 	MESSAGE("C33 signal test: handler -> rt_sigreturn passed\n"),
 	MESSAGE("C33 signal test FAILED\n"),
+	MESSAGE("C33 trace test: PTRACE_SYSCALL stopped the child passed\n"),
+	MESSAGE("C33 trace test FAILED\n"),
 	MESSAGE("C33 libc test: crt -> stdio -> getpid -> longjmp passed\n"),
 	MESSAGE("C33 libc test FAILED\n"),
 	MESSAGE("C33 BusyBox test: hush -> echo -> exit passed\n"),
@@ -64,6 +70,12 @@ static volatile unsigned char digit_base = '0';
 static volatile unsigned int signal_seen;
 static const char *child_path;
 static char *const *child_argv;
+static int trace_child;
+
+#define PTRACE_TRACEME 0
+#define PTRACE_SYSCALL 24
+/* wait4 reports a stop as 0x7f in the low byte and the signal above it. */
+#define WAIT_STOPPED 0x7f
 
 struct c33_sigaction {
 	void (*handler)(int);
@@ -92,6 +104,8 @@ void clone_child(void)
 {
 	char *envp[] = { 0 };
 
+	if (trace_child)
+		c33_ptrace(PTRACE_TRACEME, 0, 0, 0);
 	c33_execve(child_path, child_argv, envp);
 	c33_exit(127);
 }
@@ -120,6 +134,41 @@ static void process_test(void)
 		put_message(MESSAGE_PROCESS_PASS);
 	else
 		put_message(MESSAGE_PROCESS_FAIL);
+}
+
+/*
+ * The syscall path has to report to ptrace, not just run.  A traced child
+ * stops twice for every call it makes, so it must reach its exit status
+ * through several stops rather than in one step.
+ */
+static void trace_test(void)
+{
+	char *argv[] = { "/child", 0 };
+	long pid;
+	long waited;
+	int status = 0;
+	int stops = 0;
+
+	child_path = "/child";
+	child_argv = argv;
+	trace_child = 1;
+	pid = c33_clone(0x4111, 0, 0, 0, 0);
+	trace_child = 0;
+	if (pid <= 0) {
+		put_message(MESSAGE_TRACE_FAIL);
+		return;
+	}
+	waited = c33_wait4(pid, &status, 0, 0);
+	while (waited == pid && (status & 0xff) == WAIT_STOPPED && stops < 64) {
+		stops++;
+		if (c33_ptrace(PTRACE_SYSCALL, pid, 0, 0) != 0)
+			break;
+		waited = c33_wait4(pid, &status, 0, 0);
+	}
+	if (stops > 2 && status == (23 << 8))
+		put_message(MESSAGE_TRACE_PASS);
+	else
+		put_message(MESSAGE_TRACE_FAIL);
 }
 
 static void libc_test(void)
@@ -176,6 +225,7 @@ void init_main(void)
 	c33_fcntl(0, 4, 0x800);
 	process_test();
 	signal_test();
+	trace_test();
 	libc_test();
 #ifdef DIAG_ONESHOT
 	put_message(MESSAGE_DIAGNOSTICS_PASS);
