@@ -4,12 +4,8 @@
 
 #include <linux/types.h>
 
-struct spi_board_info;
-
 struct s1c33_spi_platform_data {
 	void (*hold_clock)(bool hold, bool high);
-	struct spi_board_info *devices;
-	unsigned int num_devices;
 	unsigned long dma_memory_start;
 	unsigned long dma_memory_end;
 };

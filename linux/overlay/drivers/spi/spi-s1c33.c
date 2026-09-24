@@ -397,7 +397,6 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	struct spi_controller *controller;
 	struct s1c33_spi *hw;
 	struct clk *dma_clk;
-	unsigned int i;
 	unsigned long clock;
 	int irq;
 	int ret;
@@ -471,11 +470,6 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 				     "cannot register SPI controller\n");
-	for (i = 0; i < pdata->num_devices; i++) {
-		if (!spi_new_device(controller, &pdata->devices[i]))
-			return dev_err_probe(&pdev->dev, -ENODEV,
-					     "cannot register SPI device %u\n", i);
-	}
 	dev_info(&pdev->dev, "SPI controller at %u..%u Hz\n",
 		 controller->min_speed_hz, controller->max_speed_hz);
 	return 0;

@@ -105,8 +105,6 @@ static struct spi_board_info wr_spi_devices[] = {
 
 static struct s1c33_spi_platform_data wr_spi_pdata = {
 	.hold_clock = wr_spi_hold_clock,
-	.devices = wr_spi_devices,
-	.num_devices = ARRAY_SIZE(wr_spi_devices),
 	.dma_memory_start = CONFIG_PHYSICAL_START,
 };
 
@@ -242,6 +240,13 @@ static int __init c33_devices_init(void)
 	ret = software_node_register_node_group(wr_nodes);
 	if (ret) {
 		pr_err("C33 devices: firmware nodes failed: %d\n", ret);
+		return ret;
+	}
+
+	/* The SPI core instantiates these once the controller claims bus 0. */
+	ret = spi_register_board_info(wr_spi_devices, ARRAY_SIZE(wr_spi_devices));
+	if (ret) {
+		pr_err("C33 devices: SPI board info failed: %d\n", ret);
 		return ret;
 	}
 
