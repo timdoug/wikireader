@@ -198,6 +198,7 @@ static int burst_painted;
 #define BLANK_SECONDS_DEFAULT	120
 static int blank_seconds = BLANK_SECONDS_DEFAULT;
 static int suspend_seconds;
+static int power_logging;
 static int display_blanked;
 static long idle_since;
 
@@ -784,6 +785,7 @@ static void read_timeouts(void)
 	found = strstr(cmdline, "wr.suspend=");
 	if (found)
 		suspend_seconds = atoi(found + strlen("wr.suspend="));
+	power_logging = strstr(cmdline, "wr.pmlog") != NULL;
 	if (blank_seconds < 0)
 		blank_seconds = 0;
 	if (suspend_seconds < 0)
@@ -808,11 +810,14 @@ static void power_note(const char *what, long seconds)
 {
 	char text[2048];
 	char line[96];
-	int fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND,
-		      0644);
+	int fd;
 	int length;
 	int source;
 
+	/* Writing a card is slow enough to be felt, so it is opt-in. */
+	if (!power_logging)
+		return;
+	fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
 	if (fd < 0)
 		return;
 	length = snprintf(line, sizeof(line), "%s at %ld s\n", what, seconds);
@@ -853,14 +858,14 @@ static void suspend_until_touch(void)
 		log_text("C33 power: resumed\n");
 	}
 	close(fd);
-	power_note("resumed", monotonic_seconds() - before);
 	/*
 	 * The touch that woke the machine was spent on waking it: the kernel
 	 * takes that interrupt as its wake event, so no key arrives to turn
-	 * the panel back on. Light it here, or the machine resumes to a dark
-	 * screen and looks exactly as dead as it did asleep.
+	 * the panel back on. Light it before anything slower happens, or the
+	 * wait for the screen is whatever else this function does.
 	 */
 	set_display_blank(0);
+	power_note("resumed", monotonic_seconds() - before);
 }
 
 static void set_display_blank(int blank)

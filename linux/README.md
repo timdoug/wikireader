@@ -106,11 +106,18 @@ handled, so the architecture asks for software resend: without it the
 character that woke the machine is never read, the receiver latches its
 overrun and the panel is ignored from then on -- a machine that wakes once and
 then answers nothing. The serial driver clears that state on resume as well.
-A slow timer channel stays armed across the freeze,
+The panel comes back before anything slower runs, since whatever the resume
+path does next is time the screen spends dark; `wr.pmlog` asks the console to
+append the interrupt tables either side of each suspend to `linuxpm.txt`, which
+is the only account of a wake a device with no serial can give, and is off by
+default because writing a card is slow enough to feel. A slow timer channel
+stays armed across the freeze,
 because suspend-to-idle stops the tick and then halts, which assumes the core
 leaves HALT for whatever interrupt is meant to wake it; the HSDMA completion
 cause demonstrably never woke it on silicon, so the core is brought back every
-couple of seconds to take whichever wake interrupt is already pending. It is off unless that argument is given, because a
+`s1c33_wake=<seconds>` to take whichever wake interrupt is already pending.
+`s1c33_wake=0` removes the poll, which is how to find out whether this silicon
+leaves HALT for a peripheral cause on its own. It is off unless that argument is given, because a
 machine that suspends without a working wake source needs its batteries pulled.
 UART1 carries the standard `wakeup-source` property, so the serial driver arms
 its receiver as a wake interrupt instead of suspending the port, and the

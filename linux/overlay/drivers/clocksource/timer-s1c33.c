@@ -280,6 +280,23 @@ static void __init s1c33_clockevent_init(unsigned long rate, int irq)
  * pending. It costs a few hundred microseconds every couple of seconds.
  */
 static unsigned long s1c33_wake_rate;
+static unsigned int s1c33_wake_seconds = S1C33_WAKE_SECONDS;
+
+/*
+ * Whether this core leaves HALT for a peripheral cause at all is a property of
+ * the silicon, not of Linux, and the only way to find out is to take the poll
+ * away and see whether the machine still wakes. s1c33_wake=0 does that;
+ * s1c33_wake=<seconds> tightens or loosens it.
+ */
+static int __init s1c33_wake_setup(char *options)
+{
+	unsigned int seconds;
+
+	if (options && !kstrtouint(options, 0, &seconds) && seconds <= 4)
+		s1c33_wake_seconds = seconds;
+	return 0;
+}
+early_param("s1c33_wake", s1c33_wake_setup);
 
 static irqreturn_t s1c33_wake_interrupt(int irq, void *dev_id)
 {
@@ -288,9 +305,9 @@ static irqreturn_t s1c33_wake_interrupt(int irq, void *dev_id)
 
 static int s1c33_timer_suspend(void)
 {
-	unsigned long counts = s1c33_wake_rate * S1C33_WAKE_SECONDS;
+	unsigned long counts = s1c33_wake_rate * s1c33_wake_seconds;
 
-	if (!s1c33_wake_rate)
+	if (!s1c33_wake_rate || !s1c33_wake_seconds)
 		return 0;
 	if (counts > 0xffff)
 		counts = 0xffff;
@@ -340,7 +357,11 @@ void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq, int wake_irq)
 	s1c33_counter_init(mclk_hz);
 	s1c33_clockevent_init(mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 	s1c33_wake_init(mclk_hz / S1C33_WAKE_DIVISOR, wake_irq);
-	pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, %u s suspend wake on IRQ %d\n",
-		mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq,
-		S1C33_WAKE_SECONDS, wake_irq);
+	if (s1c33_wake_seconds)
+		pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, %u s suspend wake on IRQ %d\n",
+			mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq,
+			s1c33_wake_seconds, wake_irq);
+	else
+		pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, no suspend wake poll\n",
+			mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 }
