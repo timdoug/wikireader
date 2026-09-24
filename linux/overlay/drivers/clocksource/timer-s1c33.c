@@ -65,7 +65,14 @@
 #define S1C33_EVENT_DIVISOR	64
 #define S1C33_WAKE		3
 #define S1C33_WAKE_DIVISOR	4096
-#define S1C33_WAKE_SECONDS	2
+/*
+ * A touch does wake this core out of HALT on its own -- measured on the
+ * device with the poll disabled -- so this is insurance rather than the wake
+ * path, and it is slow on purpose. It bounds how long the machine can stay
+ * asleep if some other wake source turns out to be one of the causes this
+ * core ignores, the way it ignores an HSDMA completion.
+ */
+#define S1C33_WAKE_SECONDS	4
 #define S1C33_CMU_TM3		BIT(16)
 #define S1C33_ITC_WAKE_FLAGS	0xc0
 #define S1C33_ITC_WAKE_PRIORITY	0x40

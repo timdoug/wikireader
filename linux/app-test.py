@@ -40,7 +40,8 @@ def suspend_run(root, emulator, files, make_flash, fat):
         card_files = dict(files)
         # wr.pmlog asks for the breadcrumbs this test reads back off the card.
         card_files["init.ini"] = (
-            b"linux.ico : linux.app wr.blank=2 wr.suspend=6 wr.pmlog\n")
+            b"linux.ico : linux.app wr.blank=2 wr.suspend=6 wr.pmlog"
+            b" s1c33_wake=1\n")
         fat.make_image(card, card_files, 64)
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)

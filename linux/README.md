@@ -116,8 +116,10 @@ because suspend-to-idle stops the tick and then halts, which assumes the core
 leaves HALT for whatever interrupt is meant to wake it; the HSDMA completion
 cause demonstrably never woke it on silicon, so the core is brought back every
 `s1c33_wake=<seconds>` to take whichever wake interrupt is already pending.
-`s1c33_wake=0` removes the poll, which is how to find out whether this silicon
-leaves HALT for a peripheral cause on its own. It is off unless that argument is given, because a
+`s1c33_wake=0` removes the poll. With it removed the device still wakes on the
+first touch, so this core does leave HALT for that cause and the poll is
+insurance against the ones it might not, the way it ignores an HSDMA
+completion; it is slow for the same reason. It is off unless that argument is given, because a
 machine that suspends without a working wake source needs its batteries pulled.
 UART1 carries the standard `wakeup-source` property, so the serial driver arms
 its receiver as a wake interrupt instead of suspending the port, and the
