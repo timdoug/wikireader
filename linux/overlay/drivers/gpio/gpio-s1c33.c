@@ -134,7 +134,15 @@ static struct platform_driver s1c33_gpio_driver = {
 	.probe = s1c33_gpio_probe,
 	.driver.name = "s1c33-gpio",
 };
-module_platform_driver(s1c33_gpio_driver);
+/*
+ * Register early: the board's fixed-voltage regulators take their enable
+ * lines from this chip, and the regulator core binds them at subsys level.
+ */
+static int __init s1c33_gpio_init(void)
+{
+	return platform_driver_register(&s1c33_gpio_driver);
+}
+postcore_initcall(s1c33_gpio_init);
 
 MODULE_DESCRIPTION("Epson S1C33 GPIO controller");
 MODULE_LICENSE("GPL");

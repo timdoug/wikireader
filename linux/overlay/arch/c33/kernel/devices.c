@@ -9,6 +9,8 @@
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
+#include <linux/regulator/fixed.h>
+#include <linux/regulator/machine.h>
 #include <linux/spi/mmc_spi.h>
 #include <linux/spi/spi.h>
 
@@ -36,9 +38,6 @@
 #define WR_SD_CS          BIT(0)
 #define WR_EEPROM_CS      BIT(2)
 #define WR_CS_OUTPUTS     (WR_SD_CS | BIT(1) | WR_EEPROM_CS)
-#define WR_SD_VCCEN       BIT(2)
-#define WR_SD_BUFEN       BIT(3)
-#define WR_SD_POWER_BITS  (WR_SD_VCCEN | WR_SD_BUFEN)
 #define WR_TOUCH_IRQS     (BIT(3) | BIT(4) | BIT(5))
 #define WR_UART0_IRQS     (BIT(0) | BIT(1) | BIT(2))
 
@@ -71,25 +70,79 @@ static void wr_spi_hold_clock(bool hold, bool high)
 	writeb(saved_data, (void __iomem *)WR_P6_DATA);
 }
 
-static void wr_mmc_setpower(struct device *dev, unsigned int vdd)
-{
-	if (!vdd) {
-		wr_modify8(WR_P3_DATA, WR_SD_POWER_BITS, WR_SD_VCCEN);
-		return;
-	}
+/*
+ * The card's 3.3 V rail is switched by P32 and the level buffer between the
+ * card and the S1C33 by P33.  The rail needs a millisecond to settle before
+ * the buffer may drive, and ten microseconds off before it may come back on;
+ * both are constraints the regulator core enforces on its own.
+ */
+static struct regulator_consumer_supply wr_sd_vcc_consumer =
+	REGULATOR_SUPPLY("vmmc", "spi0.0");
 
-	wr_modify8(WR_P3_DATA, WR_SD_POWER_BITS, WR_SD_VCCEN);
-	fsleep(10);
-	wr_modify8(WR_P3_DATA, WR_SD_POWER_BITS, 0);
-	mdelay(1);
-	wr_modify8(WR_P3_DATA, WR_SD_POWER_BITS, WR_SD_BUFEN);
-}
+static struct regulator_init_data wr_sd_vcc_init = {
+	.constraints = {
+		.name = "sd-vcc",
+		.min_uV = 3300000,
+		.max_uV = 3300000,
+		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies = 1,
+	.consumer_supplies = &wr_sd_vcc_consumer,
+};
+
+static struct fixed_voltage_config wr_sd_vcc_config = {
+	.supply_name = "sd-vcc",
+	.microvolts = 3300000,
+	.startup_delay = 1000,
+	.off_on_delay = 10,
+	.init_data = &wr_sd_vcc_init,
+};
+
+static struct regulator_consumer_supply wr_sd_buffer_consumer =
+	REGULATOR_SUPPLY("vqmmc", "spi0.0");
+
+static struct regulator_init_data wr_sd_buffer_init = {
+	.constraints = {
+		.name = "sd-buffer",
+		.min_uV = 3300000,
+		.max_uV = 3300000,
+		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies = 1,
+	.consumer_supplies = &wr_sd_buffer_consumer,
+};
+
+static struct fixed_voltage_config wr_sd_buffer_config = {
+	.supply_name = "sd-buffer",
+	.microvolts = 3300000,
+	.init_data = &wr_sd_buffer_init,
+};
+
+/*
+ * The enable lines come from a lookup table rather than a firmware node: the
+ * fixed-voltage driver asks its node for an under-voltage interrupt first,
+ * and a software node answers that question with an error it treats as fatal.
+ */
+static struct gpiod_lookup_table wr_sd_vcc_gpios = {
+	.dev_id = "reg-fixed-voltage.0",
+	.table = {
+		GPIO_LOOKUP("s1c33-gpio", 3 * 8 + 2, NULL, GPIO_ACTIVE_LOW),
+		{ }
+	},
+};
+
+static struct gpiod_lookup_table wr_sd_buffer_gpios = {
+	.dev_id = "reg-fixed-voltage.1",
+	.table = {
+		GPIO_LOOKUP("s1c33-gpio", 3 * 8 + 3, NULL, GPIO_ACTIVE_HIGH),
+		{ }
+	},
+};
 
 static struct mmc_spi_platform_data wr_mmc_pdata = {
 	.caps = MMC_CAP_NEEDS_POLL,
 	.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34,
 	.powerup_msecs = 10,
-	.setpower = wr_mmc_setpower,
 };
 
 static struct spi_board_info wr_spi_devices[] = {
@@ -229,6 +282,7 @@ static int __init c33_devices_init(void)
 {
 	struct platform_device_info gpio_info = { };
 	struct platform_device_info lcd_info = { };
+	struct platform_device_info regulator_info = { };
 	struct platform_device_info spi_info = { };
 	struct platform_device_info uart_info = { };
 	struct platform_device *device;
@@ -255,8 +309,6 @@ static int __init c33_devices_init(void)
 	wr_modify8(WR_P5_FUNC03, 0x3f, 0x01);
 	wr_modify8(WR_P5_DATA, 0, WR_CS_OUTPUTS);
 	wr_modify8(WR_P5_DIR, 0, WR_CS_OUTPUTS);
-	wr_modify8(WR_P3_DIR, 0, WR_SD_POWER_BITS);
-	wr_mmc_setpower(NULL, 0);
 
 	gpio_info.name = "s1c33-gpio";
 	gpio_info.id = -1;
@@ -266,6 +318,32 @@ static int __init c33_devices_init(void)
 	device = platform_device_register_full(&gpio_info);
 	if (IS_ERR(device)) {
 		pr_err("C33 devices: GPIO platform registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	/*
+	 * The card's supplies have to exist before the slot looks for them:
+	 * without a device tree a missing supply is an absent one, not a
+	 * reason to defer.
+	 */
+	gpiod_add_lookup_table(&wr_sd_vcc_gpios);
+	gpiod_add_lookup_table(&wr_sd_buffer_gpios);
+	regulator_info.name = "reg-fixed-voltage";
+	regulator_info.id = 0;
+	regulator_info.data = &wr_sd_vcc_config;
+	regulator_info.size_data = sizeof(wr_sd_vcc_config);
+	device = platform_device_register_full(&regulator_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: SD supply registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	regulator_info.id = 1;
+	regulator_info.data = &wr_sd_buffer_config;
+	regulator_info.size_data = sizeof(wr_sd_buffer_config);
+	device = platform_device_register_full(&regulator_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: SD buffer registration failed: %ld\n",
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}

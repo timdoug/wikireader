@@ -174,9 +174,12 @@ the userspace console replaces it after init completes.
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. Linux decodes the live CMU clock selection and
-publishes MCLK through the common clock framework. Both serial ports and the
-SPI controller acquire and enable that standard clock; their drivers no longer
-call a board-specific clock callback or receive a copied clock rate. The
+publishes MCLK through the common clock framework, with the clock-management
+unit's peripheral gates as its children. Both serial ports and the SPI
+controller acquire and enable a standard gated clock, and the SPI driver takes
+a second one for HSDMA; their drivers no longer call a board-specific clock
+callback or receive a copied clock rate. Only the timer block is gated by
+hand, because it starts before any provider exists. The
 clocksource and clock event take their rate from the same hardware decoder,
 which runs before clock providers exist.
 This also keeps a kernel entered by already-running firmware correct if that
@@ -278,8 +281,13 @@ reprograms the clock before chip select is asserted because disabling the
 S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
 registers all 56 port lines through gpiolib; SPI core acquires the SD slot's
 active-low chip select from the board's software-node graph and toggles its
-GPIO descriptor. Neither the SPI driver nor its platform data contains a
-board-specific chip-select callback.
+GPIO descriptor. Board code declares the slot itself through
+`spi_register_board_info()`, so the controller driver registers no devices of
+its own. The card's 3.3 V rail and the level buffer between it and the S1C33
+are two GPIO-switched fixed regulators that `mmc_spi` consumes as `vmmc` and
+`vqmmc`; the settling time before the buffer may drive and the off time before
+the rail may return are regulator constraints rather than sleeps in a board
+callback.
 It also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
 transmit/receive pair. Short, unaligned, command, and write transfers retain a
 bounded programmed-I/O path, so the optimization remains entirely behind the
@@ -320,11 +328,10 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The next normalization slice is replacing the remaining SPI clock-pin hold
-and MMC power callbacks with pin-control and regulator consumers backed by the
-new GPIO provider, then separating the embedded HSDMA implementation behind
-DMAengine. That will let SPI/MMC consume the same resources as device-tree
-systems.
+The SPI clock-pin hold is the last board callback in platform data; it wants a
+pin-control driver with a state that parks SCLK. The embedded HSDMA
+implementation still belongs behind DMAengine, which would also give the SPI
+driver the DMA mapping API instead of a board-supplied address window.
 Richer keyboard modes, console session management, and power management can
 then grow around the proven LCD, touch, PTY, storage, and recovery userspace
 paths.

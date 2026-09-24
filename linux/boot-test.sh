@@ -65,6 +65,8 @@ shell_expected="C33 INTERACTIVE HUSH PASS"
 userspace_console_expected="C33 userspace console: fbdev + evdev + PTY shell ready"
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
+# Without the trailing ", no poweroff" the slot found its regulators.
+sd_power_expected="mmc_spi spi0.0: SD/MMC host mmc0, no WP, cd polling"
 sd_dma_expected="mmc_spi spi0.0: 32-bit HSDMA bulk reads use IRQ completion"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
@@ -107,6 +109,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$userspace_console_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_probe_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$sd_power_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_dma_expected" "$work/boot.log" >/dev/null || \
    ! grep -F -- "$sd_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$sd_width_expected" "$work/boot.log" >/dev/null || \

@@ -1,0 +1,88 @@
+diff --git a/drivers/mmc/host/mmc_spi.c b/drivers/mmc/host/mmc_spi.c
+index 42936e248..e6fcc58de 100644
+--- a/drivers/mmc/host/mmc_spi.c
++++ b/drivers/mmc/host/mmc_spi.c
+@@ -22,6 +22,7 @@
+ #include <linux/mmc/host.h>
+ #include <linux/mmc/mmc.h>		/* for R1_SPI_* bit values */
+ #include <linux/mmc/slot-gpio.h>
++#include <linux/regulator/consumer.h>
+ 
+ #include <linux/spi/spi.h>
+ #include <linux/spi/mmc_spi.h>
+@@ -1030,6 +1031,27 @@ static char *mmc_powerstring(u8 power_mode)
+ 	return "?";
+ }
+ 
++/*
++ * A slot described by regulators switches through the regulator core; a slot
++ * described by a board file switches through its own callback.
++ */
++static void mmc_spi_setpower(struct mmc_spi_host *host, struct mmc_ios *ios)
++{
++	struct mmc_host *mmc = host->mmc;
++
++	if (host->pdata && host->pdata->setpower) {
++		host->pdata->setpower(&host->spi->dev, ios->vdd);
++		return;
++	}
++	if (ios->vdd) {
++		mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, ios->vdd);
++		mmc_regulator_enable_vqmmc(mmc);
++	} else {
++		mmc_regulator_disable_vqmmc(mmc);
++		mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, 0);
++	}
++}
++
+ static void mmc_spi_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ {
+ 	struct mmc_spi_host *host = mmc_priv(mmc);
+@@ -1037,7 +1059,8 @@ static void mmc_spi_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ 	if (host->power_mode != ios->power_mode) {
+ 		int		canpower;
+ 
+-		canpower = host->pdata && host->pdata->setpower;
++		canpower = (host->pdata && host->pdata->setpower) ||
++			!IS_ERR(mmc->supply.vmmc);
+ 
+ 		dev_dbg(&host->spi->dev, "power %s (%d)%s\n",
+ 				mmc_powerstring(ios->power_mode),
+@@ -1051,8 +1074,7 @@ static void mmc_spi_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ 			switch (ios->power_mode) {
+ 			case MMC_POWER_OFF:
+ 			case MMC_POWER_UP:
+-				host->pdata->setpower(&host->spi->dev,
+-						ios->vdd);
++				mmc_spi_setpower(host, ios);
+ 				if (ios->power_mode == MMC_POWER_UP)
+ 					msleep(host->powerup_msecs);
+ 			}
+@@ -1229,11 +1251,12 @@ static int mmc_spi_probe(struct spi_device *spi)
+ 		dev_warn(&spi->dev, "ASSUMING 3.2-3.4 V slot power\n");
+ 		mmc->ocr_avail = MMC_VDD_32_33|MMC_VDD_33_34;
+ 	}
+-	if (host->pdata && host->pdata->setpower) {
+-		host->powerup_msecs = host->pdata->powerup_msecs;
+-		if (!host->powerup_msecs || host->powerup_msecs > 250)
+-			host->powerup_msecs = 250;
+-	}
++	status = mmc_regulator_get_supply(mmc);
++	if (status)
++		goto fail_nobuf1;
++	host->powerup_msecs = host->pdata ? host->pdata->powerup_msecs : 0;
++	if (!host->powerup_msecs || host->powerup_msecs > 250)
++		host->powerup_msecs = 250;
+ 
+ 	/* Preallocate buffers */
+ 	host->data = kmalloc(sizeof(*host->data), GFP_KERNEL);
+@@ -1293,7 +1316,8 @@ static int mmc_spi_probe(struct spi_device *spi)
+ 	dev_info(&spi->dev, "SD/MMC host %s%s%s%s\n",
+ 			dev_name(&mmc->class_dev),
+ 			has_ro ? "" : ", no WP",
+-			(host->pdata && host->pdata->setpower)
++			((host->pdata && host->pdata->setpower) ||
++			 !IS_ERR(mmc->supply.vmmc))
+ 				? "" : ", no poweroff",
+ 			(mmc->caps & MMC_CAP_NEEDS_POLL)
+ 				? ", cd polling" : "");
