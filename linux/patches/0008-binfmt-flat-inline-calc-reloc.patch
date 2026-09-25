@@ -1,0 +1,57 @@
+diff --git a/fs/binfmt_flat.c b/fs/binfmt_flat.c
+index b5b5ca1a4..eb832e554 100644
+--- a/fs/binfmt_flat.c
++++ b/fs/binfmt_flat.c
+@@ -300,7 +300,24 @@ static int decompress_exec(struct linux_binprm *bprm, loff_t fpos, char *dst,
+ 
+ /****************************************************************************/
+ 
+-static unsigned long
++static noinline void
++reloc_failed(unsigned long r, struct lib_info *p)
++{
++	unsigned long start_brk = p->lib_list[0].start_brk;
++	unsigned long start_data = p->lib_list[0].start_data;
++	unsigned long text_len = p->lib_list[0].text_len;
++
++	pr_err("reloc outside program 0x%lx (0 - 0x%lx/0x%lx)",
++	       r, start_brk-start_data+text_len, text_len);
++	pr_cont(", killing %s!\n", current->comm);
++	send_sig(SIGSEGV, current, 0);
++}
++
++/*
++ * Called twice for every relocation, thousands of times an exec, so keep
++ * the rare failure report out of line and let the check itself inline.
++ */
++static __always_inline unsigned long
+ calc_reloc(unsigned long r, struct lib_info *p)
+ {
+ 	unsigned long addr;
+@@ -314,10 +331,9 @@ calc_reloc(unsigned long r, struct lib_info *p)
+ 	start_code = p->lib_list[0].start_code;
+ 	text_len = p->lib_list[0].text_len;
+ 
+-	if (r > start_brk - start_data + text_len) {
+-		pr_err("reloc outside program 0x%lx (0 - 0x%lx/0x%lx)",
+-		       r, start_brk-start_data+text_len, text_len);
+-		goto failed;
++	if (unlikely(r > start_brk - start_data + text_len)) {
++		reloc_failed(r, p);
++		return RELOC_FAILED;
+ 	}
+ 
+ 	if (r < text_len)			/* In text segment */
+@@ -327,12 +343,6 @@ calc_reloc(unsigned long r, struct lib_info *p)
+ 
+ 	/* Range checked already above so doing the range tests is redundant...*/
+ 	return addr;
+-
+-failed:
+-	pr_cont(", killing %s!\n", current->comm);
+-	send_sig(SIGSEGV, current, 0);
+-
+-	return RELOC_FAILED;
+ }
+ 
+ /****************************************************************************/

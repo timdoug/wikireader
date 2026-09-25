@@ -2,6 +2,7 @@
 #ifndef _ASM_C33_FLAT_H
 #define _ASM_C33_FLAT_H
 
+#include <linux/align.h>
 #include <linux/swab.h>
 #include <linux/unaligned.h>
 
@@ -25,6 +26,13 @@ static inline int flat_get_addr_from_rp(u32 __user *rp, u32 relval, u32 flags,
 
 		value = ((high & 0x1fff) << 19) |
 			((middle & 0x1fff) << 6) | ((low >> 4) & 0x3f);
+	} else if (IS_ALIGNED((unsigned long)p, 4)) {
+		/*
+		 * Every data relocation is a word-aligned pointer, and
+		 * get_unaligned is four byte loads on this core.  A BusyBox
+		 * exec applies some 2,800 of these.
+		 */
+		value = *(u32 *)p;
 	} else {
 		value = get_unaligned((u32 *)p);
 	}
@@ -49,6 +57,8 @@ static inline int flat_put_addr_at_rp(u32 __user *rp, u32 addr, u32 relval)
 		put_unaligned(high, (u16 *)p);
 		put_unaligned(middle, (u16 *)p + 1);
 		put_unaligned(low, (u16 *)p + 2);
+	} else if (IS_ALIGNED((unsigned long)p, 4)) {
+		*(u32 *)p = addr;
 	} else {
 		put_unaligned(addr, (u32 *)p);
 	}
