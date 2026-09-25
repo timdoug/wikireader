@@ -28,6 +28,7 @@ void __init arch_cpu_finalize_init(void);
 
 /* The launcher's arguments, copied out of its memory before anything runs. */
 static char c33_launcher_args[COMMAND_LINE_SIZE] __initdata;
+static bool c33_launched __initdata;
 
 static void early_uart_putc(char c)
 {
@@ -60,7 +61,10 @@ static void __init c33_save_launcher_args(int argc, char **argv)
 	int i;
 
 	__asm__ volatile ("ld.w %0, %%ttbr" : "=r" (ttbr));
-	if (ttbr != C33_GRIFO_TTBR || argc < 2 || argc > 16 || !argv)
+	if (ttbr != C33_GRIFO_TTBR)
+		return;
+	c33_launched = true;
+	if (argc < 2 || argc > 16 || !argv)
 		return;
 
 	/* argv[0] is the application's own name. */
@@ -153,6 +157,13 @@ void __init setup_arch(char **cmdline_p)
 			 CONFIG_CMDLINE, c33_launcher_args);
 	else
 		strscpy(boot_command_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
+	/*
+	 * A direct boot is the bring-up and recovery path, so it runs the
+	 * userspace self-tests; from the launcher they are asked for by name
+	 * on the init.ini line.  See the initramfs rcS.
+	 */
+	if (!c33_launched)
+		strlcat(boot_command_line, " wr.selftest", COMMAND_LINE_SIZE);
 	*cmdline_p = boot_command_line;
 	parse_early_param();
 

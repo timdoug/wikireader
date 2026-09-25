@@ -2,51 +2,70 @@
 
 echo "C33 BusyBox init: PID 1 userspace started"
 
-# Keep the freestanding test lines: they go into the card report below,
-# where a device without serial can show them.
-if /diag-test > /tmp/diag.txt; then
-	cat /tmp/diag.txt
-	echo "C33 BusyBox init: diagnostic child passed"
-else
-	cat /tmp/diag.txt
-	echo "C33 BusyBox init: diagnostic child FAILED"
-fi
-
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
-echo "C33 IRQ: generic registrations"
-cat /proc/interrupts
-touch_event=
-for n in /sys/class/input/event*; do
-	if [ "$(cat $n/device/name)" = "WikiReader touchscreen" ]; then
-		touch_event=/dev/input/${n##*/}
-	fi
-done
-if [ -n "$touch_event" ] && [ -c "$touch_event" ]; then
-	echo "C33 input: $touch_event absolute touchscreen registered"
-else
-	echo "C33 input: touchscreen registration FAILED"
-fi
-if [ "$(cat /sys/class/graphics/fb0/virtual_size)" = "240,208" ] &&
-	[ "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = "1" ] &&
-	dd if=/dev/fb0 of=/tmp/fb.snapshot bs=6656 count=1 2>/dev/null &&
-	[ "$(wc -c < /tmp/fb.snapshot)" = "6656" ] &&
-	dd if=/tmp/fb.snapshot of=/dev/fb0 bs=6656 count=1 2>/dev/null; then
-	rm -f /tmp/fb.snapshot
-	echo "C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
-else
-	echo "C33 framebuffer: registration FAILED"
-fi
 
-# Blanking is the only display power control the panel has; prove it works
-# and leave the screen on.
-blank=/sys/class/graphics/fb0/blank
-if echo 4 > $blank && [ "$(cat $blank)" = "4" ] &&
-	echo 0 > $blank && [ "$(cat $blank)" = "0" ]; then
-	echo "C33 display: fbdev blank and unblank passed"
-else
-	echo "C33 display: blank FAILED"
+# init starts the consoles only once this script ends, so a normal boot does
+# the setup and nothing else.  The checks below take several seconds; they
+# run when the command line carries wr.selftest, which the tests put on the
+# launcher's init.ini line and the kernel adds itself on a direct boot.
+selftest=
+read -r cmdline < /proc/cmdline
+case " $cmdline " in
+*" wr.selftest "*) selftest=1 ;;
+esac
+
+if [ -n "$selftest" ]; then
+	# Keep the freestanding test lines: they go into the card report below,
+	# where a device without serial can show them.
+	if /diag-test > /tmp/diag.txt; then
+		cat /tmp/diag.txt
+		echo "C33 BusyBox init: diagnostic child passed"
+	else
+		cat /tmp/diag.txt
+		echo "C33 BusyBox init: diagnostic child FAILED"
+	fi
+
+	echo "C33 IRQ: generic registrations"
+	cat /proc/interrupts
+	touch_event=
+	for n in /sys/class/input/event*; do
+		if [ "$(cat $n/device/name)" = "WikiReader touchscreen" ]; then
+			touch_event=/dev/input/${n##*/}
+		fi
+	done
+	if [ -n "$touch_event" ] && [ -c "$touch_event" ]; then
+		echo "C33 input: $touch_event absolute touchscreen registered"
+	else
+		echo "C33 input: touchscreen registration FAILED"
+	fi
+	if [ "$(cat /sys/class/graphics/fb0/virtual_size)" = "240,208" ] &&
+		[ "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = "1" ] &&
+		dd if=/dev/fb0 of=/tmp/fb.snapshot bs=6656 count=1 2>/dev/null &&
+		[ "$(wc -c < /tmp/fb.snapshot)" = "6656" ] &&
+		dd if=/tmp/fb.snapshot of=/dev/fb0 bs=6656 count=1 2>/dev/null; then
+		rm -f /tmp/fb.snapshot
+		echo "C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
+	else
+		echo "C33 framebuffer: registration FAILED"
+	fi
+
+	# Blanking is the only display power control the panel has; prove it works
+	# and leave the screen on.
+	blank=/sys/class/graphics/fb0/blank
+	if echo 4 > $blank && [ "$(cat $blank)" = "4" ] &&
+		echo 0 > $blank && [ "$(cat $blank)" = "0" ]; then
+		echo "C33 display: fbdev blank and unblank passed"
+	else
+		echo "C33 display: blank FAILED"
+	fi
+
+	if /etc/init.d/busybox-test; then
+		:
+	else
+		echo "C33 BusyBox recovery suite FAILED"
+	fi
 fi
 
 mkdir -p /dev/pts
@@ -54,12 +73,6 @@ if mount -t devpts devpts /dev/pts; then
 	echo "C33 PTY: mounted devpts for userspace console"
 else
 	echo "C33 PTY: devpts mount FAILED"
-fi
-
-if /etc/init.d/busybox-test; then
-	:
-else
-	echo "C33 BusyBox recovery suite FAILED"
 fi
 
 # A stock device has no serial, so what the kernel decided about memory and
@@ -115,7 +128,9 @@ timer_report() {
 }
 
 if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
-	if echo "C33 Linux wrote this boot status" > /mnt/sd/linux.ok; then
+	if [ -z "$selftest" ]; then
+		:
+	elif echo "C33 Linux wrote this boot status" > /mnt/sd/linux.ok; then
 		sync
 		echo "C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 	else
@@ -141,6 +156,7 @@ if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
 	else
 		echo "C33 time: no clock source, running from the epoch"
 	fi
+	[ -n "$selftest" ] || return 0
 	# Twenty quiet seconds first: the report is the only background work
 	# on the machine, and its execs and sync card writes would otherwise
 	# land on whatever the user is typing.  The boot test measures the
@@ -158,6 +174,7 @@ else
 	echo "C33 MMC/SPI: mount FAILED"
 fi
 
-echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
+[ -n "$selftest" ] &&
+	echo "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 echo "C33 BusyBox shell ready on ttyC0"
 echo "C33 userspace framebuffer console scheduled by init"

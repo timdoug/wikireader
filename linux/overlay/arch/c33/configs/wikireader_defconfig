@@ -11,6 +11,16 @@ CONFIG_NO_HZ_IDLE=y
 CONFIG_HIGH_RES_TIMERS=y
 CONFIG_TIMER_S1C33=y
 CONFIG_BLK_DEV_INITRD=y
+# The initramfs is linked in uncompressed: Grifo loads the extra bytes faster
+# than the kernel can inflate them, and there is no external initrd to decode.
+CONFIG_INITRAMFS_COMPRESSION_NONE=y
+# CONFIG_RD_GZIP is not set
+# CONFIG_RD_BZIP2 is not set
+# CONFIG_RD_LZMA is not set
+# CONFIG_RD_XZ is not set
+# CONFIG_RD_LZO is not set
+# CONFIG_RD_LZ4 is not set
+# CONFIG_RD_ZSTD is not set
 CONFIG_MODULES=n
 CONFIG_SMP=n
 CONFIG_PREEMPT_NONE=y
@@ -42,6 +52,9 @@ CONFIG_SERIAL_DEV_BUS=y
 CONFIG_SERIAL_DEV_CTRL_TTYPORT=y
 CONFIG_VT=n
 CONFIG_UNIX98_PTYS=y
+# Unix98 only: the 256 legacy BSD pairs cost 5.5 s of device registration
+# at boot, and nothing opens them.
+# CONFIG_LEGACY_PTYS is not set
 CONFIG_DEVPTS_FS=y
 CONFIG_INPUT=y
 CONFIG_INPUT_VIVALDIFMAP=n
@@ -80,3 +93,10 @@ CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO_NONE=y
 CONFIG_FRAME_POINTER=y
 CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y
+# One SD card behind SPI: mq-deadline is plenty.
+# CONFIG_MQ_IOSCHED_KYBER is not set
+# CONFIG_IOSCHED_BFQ is not set
+# The whole boot logs about 4 KB.  The ring buffer's record tables are sized
+# from this and are initialised data, so every doubling adds to what Grifo
+# loads from the card.
+CONFIG_LOG_BUF_SHIFT=15

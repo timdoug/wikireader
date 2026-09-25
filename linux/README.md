@@ -323,10 +323,15 @@ image and embeds it in the initramfs as `/uclibc-smoke`.
 enabled applets cover an interactive `hush`, core file and text tools,
 checksums, archive/compression tools, filesystem inspection, and recovery
 utilities. The regular `build` target installs it as `/init`, `/bin/busybox`,
-and conventional applet symlinks. Its `rcS` runs the freestanding process,
-signal, and libc diagnostics, then exercises Hush control flow and a
-representative file/text/archive tool chain before mounting the SD card.
-`init` finally respawns an interactive `hush` on `ttyC0`. `/diag-init`
+and conventional applet symlinks. Its `rcS` mounts the pseudo-filesystems,
+devpts and the SD card, and BusyBox init starts the consoles only once it
+ends. With `wr.selftest` on the command line it first runs the freestanding
+process, signal, and libc diagnostics, the display and input checks, and a
+Hush and file/text/archive tool suite, and later writes `linux.ok` and the
+`linuxhw.txt` device report to the card. The tests pass `wr.selftest` on the
+launcher's `init.ini` line, and the kernel appends it on a direct boot, the
+bring-up and recovery path. `init` finally respawns an interactive `hush` on
+`ttyC0`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
 `console` builds the static bFLT framebuffer frontend. It uses only standard
@@ -367,8 +372,9 @@ advancing SPI-triggered HSDMA if the otherwise-idle core executes
 transfer is active. The calling task still sleeps on its completion and other
 runnable processes remain schedulable; only the idle task avoids `HALT` for
 the duration of the transfer. The kernel includes FAT/VFAT and mounts the first
-partition at `/mnt/sd` with synchronous writes. Early userspace leaves
-`linux.ok` there as a persistent, serial-port-free boot report.
+partition at `/mnt/sd` with synchronous writes. Under `wr.selftest` early
+userspace leaves `linux.ok` there as a persistent, serial-port-free boot
+report.
 
 `boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
 fixture, boots it through the full emulated hardware path, and requires the

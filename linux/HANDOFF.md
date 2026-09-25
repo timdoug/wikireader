@@ -29,7 +29,10 @@ serial adapter is attached.
 A stock unit has no serial, so device results come back as files early
 userspace writes to the card: `linuxhw.txt` (memory, clocksource, regulators,
 input devices, contrast, the freestanding tests, interrupt counts, date) and
-`linuxpm.txt` under `wr.pmlog`. The report starts twenty quiet seconds after
+`linuxpm.txt` under `wr.pmlog`. `linuxhw.txt`, `linux.ok` and the userspace
+checks behind them only run with `wr.selftest` on the card's `init.ini` line,
+for example `linux.ico : linux.app wr.selftest`; a plain launcher boot skips
+them to reach the console sooner. The report starts twenty quiet seconds after
 the card mounts and takes another six, so give a boot half a minute before
 pulling the card; the delay keeps its execs and sync writes off whatever is
 being typed, which is also what makes the boot test's latency bound stable. The first silicon report is

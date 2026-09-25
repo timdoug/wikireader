@@ -27,7 +27,9 @@ def require(path):
     return path
 
 
-LAUNCHER_ARGS = b"earlycon=s1c33,mmio,0x300b00 loglevel=7 wr.blank=5"
+# wr.selftest runs the userspace checks rcS skips on a normal boot.
+LAUNCHER_ARGS = (b"earlycon=s1c33,mmio,0x300b00 loglevel=7 wr.blank=5"
+                 b" wr.selftest")
 
 
 def suspend_run(root, emulator, files, make_flash, fat):
