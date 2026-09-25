@@ -1518,8 +1518,10 @@ done:
 	printf("\n--- serial output: %lu bytes ---\n", uart.tx_count);
 	printf("--- wdt: %lu kicks, %lu timeouts, %lu writes blocked while"
 	       " protected ---\n", wdt.kicks, wdt.timeouts, wdt.blocked);
-	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows ---\n",
-	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows);
+	printf("--- sd: %lu commands, %lu blocks read, %lu written, %lu rx overflows,"
+	       " %lu exchanges with the buffer off ---\n",
+	       sd.commands, sd.blocks_read, sd.blocks_written, sd.overflows,
+	       sd.unbuffered_xfers);
 	printf("--- spi: %lu characters, %llu shift cycles, %llu enforced wait cycles ---\n",
 	       sd.xfers, sd.shift_cycles, sd.wait_cycles);
 	printf("--- spi width: %lu 8-bit, %lu 16-bit, %lu 32-bit characters ---\n",

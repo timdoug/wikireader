@@ -91,6 +91,7 @@ struct sdcard {
 	uint64_t  character_cycles;
 	uint64_t  byte_deadline;     /* current wire byte within an SPI character */
 	unsigned long overflows;
+	unsigned long unbuffered_xfers; /* card selected with the level buffer off */
 	unsigned long long shift_cycles;
 	unsigned long long wait_cycles;
 

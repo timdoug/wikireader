@@ -562,8 +562,15 @@ static void complete_spi(struct sdcard *sd)
 	/* Route the shared SPI bus by the two active-low chip selects. */
 	bool ee = sd->eeprom && sd->port &&
 		  port_cs_low(sd->port, CS_EEPROM_BIT);
-	bool card = sd->card_powered &&
+	bool selected = sd->card_powered &&
 		(!sd->port || port_cs_low(sd->port, CS_SDCARD_BIT));
+	/* The level buffer on P33 carries CS as well as the data lines: with
+	 * it off the card is as good as deselected and MISO idles high.  The
+	 * firmware and the kernel both raise the rail first and the buffer a
+	 * millisecond later; a driver that talks in between fails here. */
+	bool card = selected && (!sd->port || port_sd_buffered(sd->port));
+	if (selected && !card)
+		sd->unbuffered_xfers++;
 	if (!ee && sd->eeprom_selected && sd->eeprom)
 		eeprom_deselect(sd->eeprom);
 	sd->eeprom_selected = ee;
@@ -831,6 +838,7 @@ void sd_reset(struct sdcard *sd)
 	sd->busy_control_accesses = sd->unsafe_disables = 0;
 	sd->unclamped_disables = 0;
 	sd->gated_accesses = 0;
+	sd->unbuffered_xfers = 0;
 	sd->spi_wait = 0;
 	sd->busy = false;
 	sd->tx_full = sd->shifting = sd->polling = false;

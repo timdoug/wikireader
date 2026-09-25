@@ -135,6 +135,7 @@ int main(void)
 	/* Model the separate receive mask, including full-width unmasked data. */
 	reset_all(&m, &dma, &sd, &cmu, &itc);
 	sd_set_clock(&sd, NULL);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	mem_write(&m, REG(0x1708), 4, SPI_CTL1_32BIT_MASTER_DMA);
 	sd.resp[0] = 0x12;
@@ -234,6 +235,7 @@ int main(void)
 	clock = 0;
 	reset_all(&m, &dma, &sd, &cmu, &itc);
 	setup_read(&m, table, dst, true);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	for (unsigned i = 0; i < 512; i++)
 		sd.resp[i] = (uint8_t)((i * 73) ^ (i >> 3) ^ 0x9d);

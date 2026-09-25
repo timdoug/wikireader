@@ -988,7 +988,9 @@ The current model includes:
 - interrupt-controller priorities and read/modify/write register behavior;
 - LCD control, framebuffer capture, and SDL touch/front-button input;
 - EFSIF UART, SPI status, and serial FLASH;
-- GPIO selection, polarity, edge/level input, and the board's power control;
+- GPIO selection, polarity, edge/level input, and the board's power control,
+  including the SD slot's rail on P32 and its level buffer on P33, without
+  which the card is unreachable and MISO idles high;
 - six T16 channels, prescalers, comparison buffering, interrupts, and the
   timer-0-to-timer-5 cascade used by firmware;
 - CMU protection, oscillator/divider decoding, and derived MCLK, with the

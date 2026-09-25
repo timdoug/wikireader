@@ -62,6 +62,7 @@ int main(void)
 	assert(!fclose(image));
 	assert(mem_init(&memory));
 	port_reset(&port);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= ~(1u << CS_SDCARD_BIT);
 	assert(sd_attach(&memory, &card, path, &port, NULL, false));
 	sd_set_clock(&card, &ticks);
@@ -123,6 +124,7 @@ int main(void)
 	assert(exchange(255) == 0);
 	port.reg[OFF_P5D] |= 1u << CS_SDCARD_BIT;
 	assert(exchange(255) == 255);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= ~(1u << CS_SDCARD_BIT);
 	assert(exchange(255) == 0); /* programming survives deselection */
 	while (exchange(255) == 0) assert(ticks - start < 10000);

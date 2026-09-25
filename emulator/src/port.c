@@ -145,6 +145,11 @@ bool port_sd_powered(const struct port *p)
 	return (p->reg[OFF_P3D] & (1u << 2)) == 0;
 }
 
+bool port_sd_buffered(const struct port *p)
+{
+	return (p->reg[OFF_P3D] & (1u << 3)) != 0;
+}
+
 /*
  * Raise KINT0 if the buttons no longer match what the comparator was armed
  * with. grifo enables it with EK0 and re-arms from its handler by writing

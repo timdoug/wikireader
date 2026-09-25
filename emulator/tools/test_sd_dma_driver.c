@@ -161,6 +161,10 @@ static void run_tests(void)
 {
     SD_DMA_initialise();
     REG_P5_P5D = 5; /* card and EEPROM deselected */
+    /* Rail on (P32 low), level buffer on (P33 high): the board's slot as
+     * the firmware leaves it, and the only state in which the card can be
+     * reached at all. */
+    REG_P3_P3D = (uint8_t)((REG_P3_P3D & ~(1u << 2)) | (1u << 3));
     REG_P6_47_CFP = 0x54; /* physical SPI mux; exercise the clock hold */
     REG_P6_IOC6 = 0;
     REG_P6_P6D = 0x30;

@@ -99,5 +99,9 @@ bool port_cs_low(const struct port *p, unsigned bit);
 /* P32 is the active-low SD supply enable. P33 controls the bus buffer,
    so the card can draw power even before the buffer is enabled. */
 bool port_sd_powered(const struct port *p);
+/* P33, active high, enables the level buffer between the S1C33 and the
+   card: every bus line runs through it, so with it off the card sees no
+   clock and no chip select and the host reads an idle bus. */
+bool port_sd_buffered(const struct port *p);
 
 #endif /* PORT_H */

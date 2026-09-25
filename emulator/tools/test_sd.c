@@ -161,6 +161,7 @@ int main(void)
 		return 1;
 	memset(&port, 0, sizeof port);
 	port_reset(&port);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	if (!sd_attach(&mem, &sd, IMG, &port, NULL, false)) {
 		printf("cannot attach card image\n");
@@ -259,6 +260,19 @@ int main(void)
 	sd_poll(&sd);
 	ok("slot power-on makes the reset card visible again", sd.card_powered);
 
+	/* The level buffer is the second switch: rail on, buffer off is the
+	 * state the board is in for the millisecond after power-up, and a
+	 * command sent then reaches nothing. */
+	port.reg[OFF_P3D] &= (uint8_t)~(1u << 3);
+	command(&mem, 13, 0);                /* SEND_STATUS */
+	ok("with the level buffer off the card hears nothing and MISO idles",
+	   settle(&mem) == 0xff && sd.unbuffered_xfers == 14 && !sd.collecting);
+	port.reg[OFF_P3D] |= 1u << 3;
+	command(&mem, 13, 0);
+	ok("with the level buffer back on the card answers again",
+	   settle(&mem) == 0x00 && sd.unbuffered_xfers == 14);
+	(void)xchg(&mem, 0xff);              /* second R2 byte */
+
 	command(&mem, 24, 7);                /* WRITE_BLOCK, block 7 */
 	ok("CMD24 is accepted", settle(&mem) == 0x00);
 	ok("a block of command-shaped bytes is accepted",
@@ -301,6 +315,7 @@ int main(void)
 	/* Discard that unread CMD17 response, then exercise a CMD18 stream. */
 	port.reg[OFF_P5D] |= (uint8_t)(1u << CS_SDCARD_BIT);
 	ok("a deselected card releases MISO", xchg(&mem, 0xff) == 0xff);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	command(&mem, 18, 3);
 	ok("CMD18 is accepted", settle(&mem) == 0x00);
@@ -313,7 +328,8 @@ int main(void)
 		port.reg[OFF_P5D] |= (uint8_t)(1u << CS_SDCARD_BIT);
 		ok("deselecting CMD18 does not prefetch another sector",
 		   xchg(&mem, 0xff) == 0xff && sd.blocks_read == blocks);
-		port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
+		port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
+	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	}
 
 	sd_close(&sd);
@@ -324,6 +340,7 @@ int main(void)
 	if (!mem_init(&mem))
 		return 1;
 	port_reset(&port);
+	port.reg[OFF_P3D] |= 1u << 3;   /* level buffer on */
 	port.reg[OFF_P5D] &= (uint8_t)~(1u << CS_SDCARD_BIT);
 	if (!sd_attach(&mem, &sd, IMG, &port, NULL, true))
 		return 1;

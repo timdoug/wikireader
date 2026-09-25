@@ -60,8 +60,11 @@ was needed:
   wrong gate mask now fails the boot test instead of waiting for silicon.
 - The emulator models the SD rail (P32, active low) and the card refuses to
   work unpowered, which is why the regulator conversion failed loudly here
-  before it could fail on the card. It does **not** model the level-buffer
-  enable (P33).
+  before it could fail on the card. Since this round trip it also models the
+  level-buffer enable (P33): with the buffer off the card sees no clock and
+  no chip select and MISO idles high, and the `sd:` summary line counts the
+  exchanges made in that state. A driver that talks before `vqmmc` is up now
+  fails here.
 
 ## What is left, in the order I would take it
 
