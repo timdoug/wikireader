@@ -991,7 +991,10 @@ The current model includes:
 - GPIO selection, polarity, edge/level input, and the board's power control;
 - six T16 channels, prescalers, comparison buffering, interrupts, and the
   timer-0-to-timer-5 cascade used by firmware;
-- CMU protection, clock gates, oscillator/divider decoding, and derived MCLK;
+- CMU protection, oscillator/divider decoding, and derived MCLK, with the
+  clock gates honoured by the timers, the watchdog, HSDMA, the SPI block and
+  both EFSIF ports: an unclocked block drops writes, reads as zero and raises
+  no interrupt, and the run summary's `cmu gates` line counts that traffic;
 - ADC sweep/status behavior with physically plausible board values;
 - the watchdog, including its clock gate, its NMI output, and the reset it
   asserts, which restarts the machine; and

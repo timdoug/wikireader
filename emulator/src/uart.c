@@ -98,12 +98,25 @@ static void uart_trace_line(struct uart *u, uint8_t byte)
 	u->trace_line_len = 0;
 }
 
+/* Both EFSIO gates off means no register file and no bit clock: nothing is
+   sent, nothing is heard, and the firmware's own suspend keeps them on. */
+static bool uart_clocked(const struct uart *u)
+{
+	return !u->cmu || cmu_efsio_enabled(u->cmu);
+}
+
 static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		      bool is_write)
 {
 	struct uart *u = ctx;
 	uint32_t reg = off - EFSIF0_BASE;
 
+	if (!uart_clocked(u)) {
+		u->gated_accesses++;
+		if (!is_write)
+			*val = 0;
+		return true;
+	}
 	if (is_write) {
 		switch (reg) {
 		case OFF_TXD:
@@ -182,6 +195,11 @@ void uart_set_clock(struct uart *u, const uint64_t *clock)
 	u->clock = clock;
 }
 
+void uart_set_cmu(struct uart *u, const struct cmu *cmu)
+{
+	u->cmu = cmu;
+}
+
 void uart_reset(struct uart *u)
 {
 	u->rx_head = u->rx_count = u->control = u->errors = 0;
@@ -192,12 +210,13 @@ void uart_reset(struct uart *u)
 
 bool uart_can_receive(const struct uart *u)
 {
-	return (u->control & 0x40) && u->rx_count < sizeof u->rx;
+	return uart_clocked(u) && (u->control & 0x40) &&
+	       u->rx_count < sizeof u->rx;
 }
 
 bool uart_receive(struct uart *u, uint8_t byte)
 {
-	if (!(u->control & 0x40))
+	if (!uart_clocked(u) || !(u->control & 0x40))
 		return false;
 	if (u->rx_count == sizeof u->rx) {
 		u->errors |= 4; /* OER: discard the arriving byte on overflow. */
@@ -212,7 +231,7 @@ bool uart_receive(struct uart *u, uint8_t byte)
 
 void uart_poll(struct uart *u)
 {
-	if (!u->itc)
+	if (!u->itc || !uart_clocked(u))
 		return;
 	if (u->rx_count)
 		itc_set_flag(u->itc, 57);

@@ -53,9 +53,11 @@ SDXC.
 Two emulator gaps to keep in mind, since they are the reason that round trip
 was needed:
 
-- `wremu` honours the CMU gate bits for the timers, the watchdog and HSDMA
-  (`emulator/src/cmu.c`), but not for the SPI block or the UART. Of the three
-  gates the kernel registers, only the DMA one could fail here.
+- `wremu` honours the CMU gate bits for the timers, the watchdog, HSDMA and,
+  since this round trip, the SPI block and both serial ports
+  (`emulator/src/cmu.c`). An unclocked block drops writes, reads as zero and
+  raises nothing; the run summary's `cmu gates` line counts the traffic. So a
+  wrong gate mask now fails the boot test instead of waiting for silicon.
 - The emulator models the SD rail (P32, active low) and the card refuses to
   work unpowered, which is why the regulator conversion failed loudly here
   before it could fail on the card. It does **not** model the level-buffer

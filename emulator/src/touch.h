@@ -60,6 +60,8 @@ struct touch {
 	uint32_t clock_hz;       /* what the loader leaves the machine on */
 	const struct cmu *cmu;   /* ...and what it is running on now */
 	unsigned long garbled;   /* packets lost to a mismatched rate */
+	unsigned long gated_accesses; /* register traffic with the EFSIO gates off */
+	unsigned long gated_packets;  /* packets that arrived at an unclocked port */
 };
 
 void touch_attach(struct mem *m, struct touch *t, const struct itc *itc);

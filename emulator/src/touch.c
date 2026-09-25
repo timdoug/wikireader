@@ -36,12 +36,24 @@
 #define CTP_ERROR_IRQ_VECTOR 60
 #define CTP_RX_IRQ_VECTOR    61
 
+/* EFSIF1 shares the serial block's gates with the console port. */
+static bool touch_clocked(const struct touch *t)
+{
+	return !t->cmu || cmu_efsio_enabled(t->cmu);
+}
+
 static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		       bool is_write)
 {
 	struct touch *t = ctx;
 	uint32_t reg = off - EFSIF1_BASE;
 
+	if (!touch_clocked(t)) {
+		t->gated_accesses++;
+		if (!is_write)
+			*val = 0;
+		return true;
+	}
 	if (is_write) {
 		switch (reg) {
 		case OFF_STATUS:
@@ -182,6 +194,14 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 	unsigned tx = (unsigned)(x << CTP_SHIFT);
 	unsigned ty = (unsigned)(y << CTP_SHIFT);
 
+	/* An unclocked receiver hears nothing at all: no bytes, no interrupt,
+	   which on a device is a dead panel with no error to show for it. */
+	if (!touch_clocked(t)) {
+		t->gated_packets++;
+		t->events++;
+		return;
+	}
+
 	/*
 	 * A receiver clocked at the wrong rate does not hear a quieter
 	 * version of the packet: it samples the line in the wrong places and
@@ -220,7 +240,7 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 /* Re-assert the interrupt while bytes remain, so the handler drains the FIFO. */
 void touch_poll(struct touch *t, struct c33 *cpu)
 {
-	if (t->head != t->tail) {
+	if (t->head != t->tail && touch_clocked(t)) {
 		unsigned vector = t->errors ? CTP_ERROR_IRQ_VECTOR :
 			CTP_RX_IRQ_VECTOR;
 

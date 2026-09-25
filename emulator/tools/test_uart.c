@@ -4,6 +4,7 @@
 #include "../src/mem.h"
 #include "../src/uart.h"
 #include "../src/itc.h"
+#include "../src/cmu.h"
 #define REG 0x00300000u
 int main(void)
 {
@@ -63,6 +64,36 @@ int main(void)
     uart_set_clock(&u, NULL);
     mem_write(&m, REG + 0xb00, 1, 'c');
     assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* untimed: at once */
+
+    /* With either EFSIO gate off the port is dead: writes are dropped,
+       reads are zero, input is refused and no interrupt is raised.  Both
+       gates are on at reset; the kernel has to keep them that way. */
+    {
+        struct cmu cmu;
+        unsigned long sent = u.tx_count;
+
+        cmu_attach(&m, &cmu);
+        uart_set_cmu(&u, &cmu);
+        mem_write(&m, REG + 0xb03, 1, 0xcb);           /* RX enable */
+        assert(uart_can_receive(&u));
+        mem_write(&m, REG + 0x1b24, 4, 0x96);          /* PROTECT off */
+        mem_write(&m, REG + 0x1b04, 4, mem_read(&m, REG + 0x1b04, 4) & ~(1u << 5));
+        assert(!uart_can_receive(&u));
+        assert(!uart_receive(&u, 'Q'));
+        mem_write(&m, REG + 0xb00, 1, 'd');
+        assert(u.tx_count == sent);
+        assert(mem_read(&m, REG + 0xb02, 1) == 0);
+        assert(u.gated_accesses == 2);
+        mem_write(&m, REG + 0x1b04, 4, mem_read(&m, REG + 0x1b04, 4) | (1u << 5));
+        mem_write(&m, REG + 0x1b04, 4, mem_read(&m, REG + 0x1b04, 4) & ~(1u << 25));
+        mem_write(&m, REG + 0xb00, 1, 'e');
+        assert(u.tx_count == sent && u.gated_accesses == 3);
+        mem_write(&m, REG + 0x1b04, 4, mem_read(&m, REG + 0x1b04, 4) | (1u << 25));
+        mem_write(&m, REG + 0xb00, 1, 'f');
+        assert(u.tx_count == sent + 1 && u.gated_accesses == 3);
+        assert(uart_receive(&u, 'R'));
+        uart_set_cmu(&u, NULL);
+    }
     mem_free(&m);
     puts("UART FIFO/IRQ/reset: PASS");
     return 0;

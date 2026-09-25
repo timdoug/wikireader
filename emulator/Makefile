@@ -76,12 +76,12 @@ test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o src/model.o
 	/tmp/test_display
 
 # SD writes: the path that makes the guest's history outlive a run.
-test-sd: tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
-	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
+test-sd: tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
+	$(CC) $(CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
 	/tmp/test_sd
 
 .PHONY: test-sd-timing
-test-sd-timing: tools/test_sd_timing.c src/sdcard.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
+test-sd-timing: tools/test_sd_timing.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
 	$(CC) $(CFLAGS) -o /tmp/test_sd_timing $^ $(SDL_LIBS)
 	/tmp/test_sd_timing
 
@@ -253,6 +253,6 @@ clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d)
 
 .PHONY: test-uart
-test-uart: tools/test_uart.c src/uart.o src/itc.o src/mem.o src/model.o
+test-uart: tools/test_uart.c src/uart.o src/cmu.o src/itc.o src/mem.o src/model.o
 	$(CC) $(CFLAGS) -o /tmp/test_uart $^ $(SDL_LIBS)
 	/tmp/test_uart

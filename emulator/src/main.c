@@ -734,6 +734,8 @@ int main(int argc, char **argv)
 	/* Until firmware selects another source, EFSIF1 runs from OSC3. */
 	touch_set_clock(&touch, OSC3_HZ);
 	touch_set_cmu(&touch, &cmu);
+	sd_set_cmu(&sd, &cmu);
+	uart_set_cmu(&uart, &cmu);
 
 	sd_set_clock(&sd, &cpu.clk);
 	dma_set_clock(&dma, &cpu.clk);
@@ -1666,6 +1668,10 @@ done:
 	model_describe(stdout);
 	printf("--- cmu: %lu writes, %lu blocked while protected, mclk %u Hz ---\n",
 	       cmu.writes, cmu.blocked, cmu_mclk_hz(&cmu));
+	printf("--- cmu gates: %lu spi, %lu efsif0, %lu efsif1 accesses while"
+	       " unclocked, %lu touch packets lost ---\n",
+	       sd.gated_accesses, uart.gated_accesses, touch.gated_accesses,
+	       touch.gated_packets);
 	printf("--- stopped after %llu instructions ---\n",
 	       (unsigned long long)cpu.cycles);
 	if (cpu.fault) {

@@ -37,5 +37,10 @@ bool cmu_t16_enabled(const struct cmu *c, unsigned channel);
 bool cmu_clock_selected(const struct cmu *c);
 /* Whether MCLK is supplied to the shared IDMA/HSDMA controller. */
 bool cmu_dma_enabled(const struct cmu *c);
+/* Whether MCLK is supplied to the SPI block. */
+bool cmu_spi_enabled(const struct cmu *c);
+/* Whether the serial interface has both its bus clock and its baud-rate
+   generator clock; either one missing leaves EFSIF0 and EFSIF1 dead. */
+bool cmu_efsio_enabled(const struct cmu *c);
 
 #endif /* CMU_H */

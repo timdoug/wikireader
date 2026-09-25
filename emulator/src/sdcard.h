@@ -8,6 +8,7 @@
 #include "mem.h"
 #include "port.h"
 #include "eeprom.h"
+#include "cmu.h"
 
 #define SD_RESP_MAX 600      /* token + 512 data + CRC, with headroom */
 
@@ -66,6 +67,8 @@ struct sdcard {
 	bool      readonly;       /* image opened without write access */
 
 	/* SPI controller state */
+	const struct cmu *cmu;      /* optional: SPI_CKE gates the block */
+	unsigned long gated_accesses; /* register traffic while unclocked */
 	uint32_t  spi_ctl1;
 	uint32_t  spi_int;          /* stores enables; CPU IRQ delivery not modeled */
 	uint32_t  spi_rxmask;
@@ -118,6 +121,8 @@ void sd_reset(struct sdcard *sd);
 void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx);
 /* Attach the guest MCLK timeline and complete transfers that have come due. */
 void sd_set_clock(struct sdcard *sd, uint64_t *clock);
+/* Where to read the SPI clock gate; without one the block is always on. */
+void sd_set_cmu(struct sdcard *sd, const struct cmu *cmu);
 void sd_poll(struct sdcard *sd);
 
 #endif /* SDCARD_H */

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "mem.h"
 #include "itc.h"
+#include "cmu.h"
 
 struct uart {
 	FILE         *out;
@@ -11,6 +12,8 @@ struct uart {
 	uint8_t       rx[4], rx_head, rx_count, control, errors;
 	uint8_t       irda, brtrdl, brtrdm;   /* the baud rate, as programmed */
 	const uint64_t *clock;                /* the CPU's cycle count, if timed */
+	const struct cmu *cmu;                /* EFSIO clock gates, if modelled */
+	unsigned long gated_accesses;         /* register traffic while unclocked */
 	uint64_t      tx_done;                /* when the shift register frees */
 	bool          tx_buffered;            /* a byte waiting behind it */
 	unsigned long tx_count;
@@ -23,6 +26,8 @@ struct uart {
 void uart_attach(struct mem *m, struct uart *u, FILE *out);
 /* Time transmission by this clock; without one a write completes at once. */
 void uart_set_clock(struct uart *u, const uint64_t *clock);
+/* Where to read the EFSIO clock gates; without one the port is always on. */
+void uart_set_cmu(struct uart *u, const struct cmu *cmu);
 
 void uart_reset(struct uart *u);
 bool uart_can_receive(const struct uart *u);

@@ -140,6 +140,19 @@ bool cmu_dma_enabled(const struct cmu *c)
 	return (c->reg[OFF_GATEDCLK1 / 4] & (1u << 1)) != 0;
 }
 
+bool cmu_spi_enabled(const struct cmu *c)
+{
+	/* SPI_CKE is GATEDCLK1 D6. */
+	return (c->reg[OFF_GATEDCLK1 / 4] & (1u << 6)) != 0;
+}
+
+bool cmu_efsio_enabled(const struct cmu *c)
+{
+	/* EFSIOSAPB_CKE is GATEDCLK1 D5, EFSIOBR_HCKE D25. */
+	uint32_t both = (1u << 5) | (1u << 25);
+	return (c->reg[OFF_GATEDCLK1 / 4] & both) == both;
+}
+
 void cmu_reset(struct cmu *c)
 {
 	memset(c, 0, sizeof *c);

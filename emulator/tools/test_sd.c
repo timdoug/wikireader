@@ -15,6 +15,7 @@
 
 #include "../src/mem.h"
 #include "../src/sdcard.h"
+#include "../src/cmu.h"
 #include "../src/model.h"
 #include "../../samo-lib/drivers/include/mmc_csd.h"
 
@@ -166,6 +167,28 @@ int main(void)
 		return 1;
 	}
 	ok("an image opened for update is not write protected", !sd.readonly);
+	{
+		/* SPI_CKE off: the register file and the shifter both stop, so
+		 * a kernel that gates the block wrongly fails here, not on the
+		 * card.  The gate is on at reset. */
+		struct cmu cmu;
+		unsigned long before = sd.xfers;
+
+		cmu_attach(&mem, &cmu);
+		sd_set_cmu(&sd, &cmu);
+		mem_write(&mem, REG_BASE + 0x1b24, 4, 0x96);
+		mem_write(&mem, REG_BASE + 0x1b04, 4,
+			  mem_read(&mem, REG_BASE + 0x1b04, 4) & ~(1u << 6));
+		ok("an unclocked SPI block exchanges nothing and reads as zero",
+		   xchg(&mem, 0xff) == 0 && sd.xfers == before &&
+		   sd.gated_accesses == 2 && !sd.busy);
+		mem_write(&mem, REG_BASE + 0x1b04, 4,
+			  mem_read(&mem, REG_BASE + 0x1b04, 4) | (1u << 6));
+		ok("re-enabling SPI_CKE brings the bus back",
+		   xchg(&mem, 0xff) == 0xff && sd.xfers == before + 1 &&
+		   sd.gated_accesses == 2);
+		sd_set_cmu(&sd, NULL);
+	}
 	{
 		/* 64 GiB: C_SIZE bit 16 is the part the old driver dropped. */
 		uint8_t csd[16];

@@ -649,6 +649,14 @@ static void start_queued_spi(struct sdcard *sd)
 	}
 }
 
+/* SPI_CKE off stops the shift register and the register file alike; the
+   emulator otherwise passes a kernel that never turned the gate on, or that
+   turned it off again, and the failure waits for silicon. */
+static bool sd_clocked(const struct sdcard *sd)
+{
+	return !sd->cmu || cmu_spi_enabled(sd->cmu);
+}
+
 void sd_poll(struct sdcard *sd)
 {
 	bool powered = !sd->port || port_sd_powered(sd->port);
@@ -658,7 +666,7 @@ void sd_poll(struct sdcard *sd)
 			reset_card_protocol(sd);
 		sd->card_powered = powered;
 	}
-	if (!sd->clock || sd->polling)
+	if (!sd->clock || sd->polling || !sd_clocked(sd))
 		return;
 	sd->polling = true;
 	while (sd->busy && *sd->clock >= sd->deadline) {
@@ -684,6 +692,12 @@ static bool spi_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	struct sdcard *sd = ctx;
 	uint32_t reg = off - SPI_BASE;
 	sd_poll(sd);
+	if (!sd_clocked(sd)) {
+		sd->gated_accesses++;
+		if (!is_write)
+			*val = 0;
+		return true;
+	}
 	/* Diagnose violations of V.2.8, without inventing a particular chip
 	 * malfunction for operations the manual leaves undefined. */
 	if (sd->busy && (reg == OFF_CTL1 || reg == OFF_CTL2 || reg == OFF_WAIT))
@@ -772,6 +786,11 @@ void sd_set_clock(struct sdcard *sd, uint64_t *clock)
 	sd->clock = clock;
 }
 
+void sd_set_cmu(struct sdcard *sd, const struct cmu *cmu)
+{
+	sd->cmu = cmu;
+}
+
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 	       const struct port *port, struct eeprom *eeprom, bool readonly)
 {
@@ -811,6 +830,7 @@ void sd_reset(struct sdcard *sd)
 	sd->spi_int = sd->spi_rxmask = 0;
 	sd->busy_control_accesses = sd->unsafe_disables = 0;
 	sd->unclamped_disables = 0;
+	sd->gated_accesses = 0;
 	sd->spi_wait = 0;
 	sd->busy = false;
 	sd->tx_full = sd->shifting = sd->polling = false;
