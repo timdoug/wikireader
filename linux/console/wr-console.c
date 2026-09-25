@@ -239,15 +239,26 @@ static void log_text(const char *text)
 	}
 }
 
-static const uint8_t *glyph_rows(unsigned char character)
+/* Indexed by character, filled from glyphs[] at startup: searching the list
+   for every cell drawn was most of what a redraw cost. */
+static const uint8_t *glyph_index[128];
+
+static void index_glyphs(void)
 {
 	static const uint8_t blank[7];
 	unsigned int i;
 
+	for (i = 0; i < 128; i++)
+		glyph_index[i] = blank;
 	for (i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++)
-		if ((unsigned char)glyphs[i].character == character)
-			return glyphs[i].rows;
-	return blank;
+		if ((unsigned char)glyphs[i].character < 128)
+			glyph_index[(unsigned char)glyphs[i].character] =
+				glyphs[i].rows;
+}
+
+static const uint8_t *glyph_rows(unsigned char character)
+{
+	return glyph_index[character & 127];
 }
 
 static void set_pixel(unsigned int x, unsigned int y, int black)
@@ -261,6 +272,28 @@ static void set_pixel(unsigned int x, unsigned int y, int black)
 		framebuffer[y * LCD_STRIDE + (x >> 3)] |= mask;
 	else
 		framebuffer[y * LCD_STRIDE + (x >> 3)] &= ~mask;
+}
+
+/* Pixels x0..x1 of row y, a byte at a time between the partial ends. */
+static void fill_span(unsigned int x0, unsigned int x1, unsigned int y,
+		      int black)
+{
+	uint8_t *row = framebuffer + y * LCD_STRIDE;
+	unsigned int first = x0 >> 3;
+	unsigned int last = x1 >> 3;
+	uint8_t head = 0xff >> (x0 & 7);
+	uint8_t tail = 0xff << (7 - (x1 & 7));
+	unsigned int i;
+
+	if (first == last) {
+		head &= tail;
+		row[first] = black ? row[first] | head : row[first] & ~head;
+		return;
+	}
+	row[first] = black ? row[first] | head : row[first] & ~head;
+	for (i = first + 1; i < last; i++)
+		row[i] = black ? 0xff : 0;
+	row[last] = black ? row[last] | tail : row[last] & ~tail;
 }
 
 static void draw_character(unsigned int x, unsigned int y,
@@ -427,10 +460,15 @@ static void draw_key(int key, int pressed)
 	pressed |= (key == WR_KEY_SHIFT && shift_active) ||
 		(key == WR_KEY_CONTROL && control_active) ||
 		(key == WR_KEY_SYMBOLS && symbols_active);
-	for (y = y0; y <= y1; y++)
-		for (x = x0; x <= x1; x++)
-			set_pixel(x, y, pressed || x == x0 || x == x1 ||
-				  y == y0 || y == y1);
+	for (y = y0; y <= y1; y++) {
+		int solid = pressed || y == y0 || y == y1;
+
+		fill_span(x0, x1, y, solid);
+		if (!solid) {
+			set_pixel(x0, y, 1);
+			set_pixel(x1, y, 1);
+		}
+	}
 	for (x = 0; x < label_length; x++)
 		draw_character(label_x + x * FONT_WIDTH, label_y, label[x],
 			       pressed);
@@ -1272,6 +1310,8 @@ int main(void)
 	int input_fd;
 	int master_fd;
 	pid_t shell;
+
+	index_glyphs();
 
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)
