@@ -3044,8 +3044,8 @@ c33_option_override (void)
 
 /* Implement TARGET_ASM_RELOC_RW_MASK.  -msep-data text is shared, so
    read-only data holding an address goes to .data.rel.ro, as for PIC: the
-   same reasoning, a relocation the loader could not apply.  That covers jump
-   tables too.  */
+   same reasoning, a relocation the loader could not apply.  Jump tables hold
+   offsets there instead, and stay in text.  */
 
 static int
 c33_reloc_rw_mask (void)

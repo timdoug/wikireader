@@ -798,19 +798,24 @@ typedef enum
    the original assembler too, so the 3.3.2 backend sidestepped it the same
    way, with CASE_VECTOR_MODE Pmode and .long entries.
 
-   It is worth fixing in gas eventually; until then this is the shape that
-   works, and it costs two bytes per case.  */
+   The binutils 2.47 port resolves forward differences, .short and .long
+   alike, so -msep-data uses them (below).  Firmware keeps the absolute
+   form, which is one add cheaper per dispatch and changes nothing that has
+   been measured.  */
 
 #define ASM_OUTPUT_ADDR_VEC_ELT(FILE, VALUE) \
   fprintf (FILE, "\t.long .L%d\n", VALUE)
 
-/* This is how to output an element of a case-vector that is relative.  */
+/* -msep-data: each entry is the case's offset from the table, a link-time
+   constant, so the table needs no relocation and stays in the shared text.
+   Absolute entries cost every process a relocated copy in .data.rel.ro: 700
+   words of BusyBox's 2,819 relocations.  casesi adds the table's address
+   back.  */
 
-/* Disable the shift, which is for the currently disabled "switch"
-   opcode.  Se casesi in c33.md.  */
+#define CASE_VECTOR_PC_RELATIVE TARGET_SEP_DATA
 
-/* No ASM_OUTPUT_ADDR_DIFF_ELT: CASE_VECTOR_PC_RELATIVE is not defined, so
-   GCC never asks for a difference vector.  */
+#define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, BODY, VALUE, REL) \
+  fprintf (FILE, "\t.long .L%d-.L%d\n", VALUE, REL)
 
 #define ASM_OUTPUT_ALIGN(FILE, LOG)	\
   if ((LOG) != 0)			\
@@ -845,15 +850,9 @@ typedef enum
    for the index in the tablejump instruction.  */
 #define CASE_VECTOR_MODE Pmode
 
-/* Table entries are absolute addresses, so CASE_VECTOR_PC_RELATIVE stays
-   undefined -- see ASM_OUTPUT_ADDR_VEC_ELT above for why.  */
-
 /* The switch instruction requires that the jump table immediately follow
-   it.  -msep-data text may hold no absolute address, and the entries are
-   absolute, so there the tables go to .data.rel.ro.local instead (see
-   c33_reloc_rw_mask).  */
-#define JUMP_TABLES_IN_TEXT_SECTION \
-  (!TARGET_JUMP_TABLES_IN_DATA_SECTION && !TARGET_SEP_DATA)
+   it.  */
+#define JUMP_TABLES_IN_TEXT_SECTION (!TARGET_JUMP_TABLES_IN_DATA_SECTION)
 
 #undef ASM_OUTPUT_BEFORE_CASE_LABEL
 #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE) \

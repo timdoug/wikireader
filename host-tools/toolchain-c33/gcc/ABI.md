@@ -398,7 +398,8 @@ linker script defines `__dp` as the start of `.data`.
   `%r15 + doff` needs an `add`, and `add` clobbers the flags (see above).
   The pool words are ordinary data relocations.
 - Read-only data that holds an address goes to `.data.rel.ro`, as under
-  PIC. That includes jump tables.
+  PIC. Jump tables stay in text: each entry is the case's offset from the
+  table, and `casesi` adds the table's address back.
 - Calls and jumps stay `xcall`/`xjp`, which are PC-relative.
 
 `c33_legitimate_constant_p` rejects symbolic constants in this mode, so GCC's
