@@ -1,0 +1,126 @@
+# C33 Linux hand-off
+
+`README.md` describes what the port does and how to build it. This file is for
+whoever picks the work up next: what has been proven and where, what is left,
+and the things that cost a day to learn.
+
+## State
+
+The port boots the production path and the Grifo launcher path, mounts the
+card, runs BusyBox as PID 1, draws a userspace terminal on the panel, takes
+touch input, blanks the display when idle, suspends to idle, and wakes on a
+touch. `boot-test.sh` and `app-test.py` both pass.
+
+The card's `init.ini` line in use is:
+
+```text
+linux.ico : linux.app wr.blank=30 wr.suspend=60
+```
+
+Boot arguments reach the kernel from that line. Other knobs: `wr.pmlog` appends
+`/proc/interrupts` either side of each suspend to `linuxpm.txt` on the card,
+`s1c33_wake=<seconds>` sets the suspend wake poll (`0` disables it),
+`no_console_suspend` keeps printk alive through the suspend path, and
+`earlycon=s1c33,mmio,0x300b00` reports before platform drivers probe if a
+serial adapter is attached.
+
+## What is proven on hardware, and what is not
+
+A stock unit has no serial, so device results come back as files early
+userspace writes to the card: `linuxhw.txt` (memory, clocksource, interrupt
+counts, date) and `linuxpm.txt` under `wr.pmlog`. The first silicon report is
+checked in as `linux-device.txt`.
+
+Validated on the user's board:
+
+- SDRAM size probed from the controller; 32 MiB on that unit.
+- `s1c33-t16` is the live clocksource, so timer 0's output really does clock
+  timer 5 on the board, and the tick stops when idle.
+- MCLK is 60 MHz under Grifo, against the direct-boot fixture's 48 MHz.
+- Display blanking, suspend-to-idle, and tap-to-wake.
+- A touch wakes this core out of HALT by itself. Measured with the poll
+  disabled (`s1c33_wake=0`): the timer-3 count stayed at zero across the sleep
+  while the UART1 receive count climbed. The poll is slow insurance for causes
+  this core ignores, such as an HSDMA completion, not the wake path.
+
+**Not yet run on hardware:** the four most recent commits — clock gates,
+`spi_register_board_info()`, the SD regulators, and `GENERIC_ENTRY`. Two of
+them touch things the emulator does not model:
+
+- `wremu` ignores the CMU gate bits entirely. No emulated block checks them, so
+  a wrong gate mask passes every test here and fails only on silicon.
+- The emulator models the SD rail (P32, active low) and the card refuses to
+  work unpowered, which is why the regulator conversion failed loudly here
+  before it could fail on the card. It does **not** model the level-buffer
+  enable (P33).
+
+A device round trip for these is worth doing before building on them.
+
+## What is left, in the order I would take it
+
+1. **pinctrl.** `wr_spi_hold_clock()` in `arch/c33/kernel/devices.c` is the last
+   board callback in platform data. It is not just a matter of writing the
+   driver: the hold runs inside `local_irq_save()` in `s1c33_spi_configure()`,
+   and `pinctrl_select_state()` takes mutexes and can sleep, so that critical
+   section has to be restructured first — and it exists precisely because
+   disabling the serial block while it drives SCLK puts a stray edge on the
+   wire that can eat a card response bit. Doing it properly also means folding
+   `gpio-s1c33` into a combined pinctrl+gpio driver, since one driver has to own
+   the port registers.
+2. **DMAengine.** HSDMA2/3 live inside the SPI driver, `NO_DMA` is selected so
+   there is no DMA API at all, and the addressable window is passed as
+   `dma_memory_start`/`dma_memory_end` in platform data instead of coming from
+   `dma_map_single()`.
+3. **irqdomain and `drivers/irqchip`.** The ITC is an arch-local `irq_chip`
+   using hardware vector numbers directly as Linux IRQ numbers. This matters
+   for upstreaming, not for the device.
+4. **PWM and lcd class.** Timer 1 is the firmware's contrast PWM; Linux never
+   touches it, so there is no `/sys/class/lcd/*/contrast`.
+5. **fbcon/VT and uinput.** `console/wr-console.c` is a userspace terminal whose
+   soft keyboard writes a PTY instead of injecting input events, so keys are
+   visible to exactly one program. The pacing, blanking, and suspend policy in
+   it genuinely belong in userspace; the input path does not.
+6. **elf2flt** instead of the local `make-flat.py`, and **the overlay as a real
+   patch series** — both only bite when the pinned stable tag is bumped.
+
+Deliberately not framework code, because no framework equivalent exists: the
+suspend wake poll and the clock seeding both work around the absence of an RTC
+(the schematic has one 48 MHz resonator and no backup cell, so the SoC's RTC
+block has neither timebase nor standby power), and the `wr.*` console knobs are
+userspace policy.
+
+Test debt: `app-test.py` choreographs scripted typing against instruction
+counts and has drifted once already.
+
+## Traps
+
+- **`boot-test.sh` prints a filtered view of `boot.log`, not the log.** A new
+  assertion has to be added in two places: the check list and the final display
+  `grep -E`. It also once had two variables named `clock_expected`, which
+  silently killed one assertion.
+- **Always confirm an edit applied.** A scripted replace that did not match
+  whitespace once cost a device round trip debugging a gate bit that was never
+  written.
+- **Check the schematic before assuming a block is usable.** The SoC has an RTC;
+  this board cannot use it.
+- **`reg-fixed-voltage` asks its firmware node for an under-voltage IRQ**, and a
+  software node answers `-ENXIO`, which the driver treats as fatal. Use a
+  `gpiod_lookup_table` for regulator enable lines.
+- **Non-DT regulator lookups return `-ENODEV`, not `-EPROBE_DEFER`.** Ordering
+  has no slack: `gpio-s1c33` registers at `postcore_initcall` so the chip exists
+  when the fixed regulators bind at subsys level, and the regulator devices are
+  registered before the SPI controller.
+- **`GENERIC_ENTRY` expects things from the arch that have no defaults:**
+  `_TIF_UPROBE`, `PTRACE_SYSEMU`/`PTRACE_SYSEMU_SINGLESTEP`, `on_thread_stack()`,
+  `regs_irqs_disabled()`, `arch_syscall_is_vdso_sigreturn()`, a
+  `syscall_work` field in `struct thread_info`, and `HAVE_SYSCALL_TRACEPOINTS`.
+- **`GENERIC_ENTRY` does not give you strace.** It makes `PTRACE_SYSCALL` work,
+  which the early-userspace regression now proves, but strace itself has never
+  been ported to this architecture.
+- **Clocks the core needs early must not be registered as clocks.** The timer
+  gates are set through a raw accessor on purpose: nothing would hold a
+  reference, and the clock core turns off every gate no driver has claimed.
+- **This BusyBox has no `stat -c` and no `tail -1`.** `date -s @epoch` and
+  `date -r FILE +%s` do work.
+- **Driving the guest's own shell over UART** answers questions about userspace
+  in well under a minute, against a two-minute rebuild.
