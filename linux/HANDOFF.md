@@ -90,21 +90,16 @@ was needed:
    there is no DMA API at all, and the addressable window is passed as
    `dma_memory_start`/`dma_memory_end` in platform data instead of coming from
    `dma_map_single()`.
-3. **Interrupt-driven buttons.** The front buttons and the power switch are a
-   polled `gpio-keys-polled` device at 50 ms while the console has it open;
-   the port block's KINT0 comparator could raise them instead once
-   `gpio-s1c33` grows an irqchip half. The ITC itself is an irqchip behind an
-   irqdomain now (`drivers/irqchip/irq-s1c33.c`), so that half has a parent
-   to chain to.
-4. **ITC priorities.** The controller's priority nibbles are still written
-   by the drivers that know their cause (the timer and the serial ports); an
+3. **ITC priorities.** The controller's priority nibbles are still written
+   by the drivers that know their cause (the timer, the serial ports, and
+   the GPIO chip for the buttons); an
    `irq_set_priority`-style extension on the irqchip would move them.
-5. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+4. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device now and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace.
-6. **elf2flt** instead of the local `make-flat.py`, and **the overlay as a real
+5. **elf2flt** instead of the local `make-flat.py`, and **the overlay as a real
    patch series** — both only bite when the pinned stable tag is bumped.
 
 Done since the second round trip, emulator-tested and **not yet run on
@@ -124,6 +119,14 @@ and described active-low it re-pressed itself after every resume. The
 `wr.pmlog` file now records why each suspend happened and what the P0 and
 P6 port bytes read, which is how that was found without serial. Still
 unproven on silicon: the buttons on P60..P62 read high when pressed.
+
+Since then, emulator-tested only: the buttons and the switch interrupt
+instead of being polled. `gpio-s1c33` chains key input 0 (P60..P62, a
+mismatch comparator it re-arms with each state it reads) and port input 3
+(P03, one edge at a time, turned round after each), and they are an ordinary
+`gpio-keys` device. Idle at the prompt fell from 4.4% of the CPU to 1.0%.
+On the device, check that each front button and the switch still act once
+per press; `/proc/interrupts` counts them on the `s1c33-gpio` lines.
 
 Deliberately not framework code, because no framework equivalent exists: the
 suspend wake poll and the clock seeding both work around the absence of an RTC

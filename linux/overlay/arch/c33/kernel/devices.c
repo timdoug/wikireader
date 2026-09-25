@@ -170,8 +170,14 @@ static struct s1c33_spi_platform_data wr_spi_pdata = {
 	.dma_memory_start = CONFIG_PHYSICAL_START,
 };
 
-static const struct resource wr_gpio_resource =
-	DEFINE_RES_MEM(WR_REG_BASE + 0x380, 14);
+/* The port block, its interrupt selection registers, and the two causes the
+ * buttons and the power switch raise. */
+static struct resource wr_gpio_resources[] __initdata = {
+	DEFINE_RES_MEM(WR_REG_BASE + 0x380, 14),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x3c0, 0x16, "interrupt"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_KEY0, "key0"),
+	DEFINE_RES_IRQ_NAMED(C33_IRQ_PORT3, "port3"),
+};
 
 static struct resource wr_spi_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
@@ -263,14 +269,12 @@ static const struct software_node wr_touch_node = {
  * The three front buttons are P60..P62 and the power switch is P03, all
  * pressed high: on the board P03 reads low with nobody near the switch,
  * which the firmware's power_switch_pressed() helper also assumes, and an
- * active-low description made every resume report a fresh press.  The port
- * block can raise KINT0 for the buttons, but the GPIO driver has no
- * interrupt half yet, so they are polled while something has the device
- * open.
+ * active-low description made every resume report a fresh press.  All four
+ * interrupt through the GPIO chip (key input 0 and port input 3), and
+ * gpio-keys debounces them.
  */
 static const struct property_entry wr_buttons_properties[] = {
 	PROPERTY_ENTRY_STRING("label", "WikiReader buttons"),
-	PROPERTY_ENTRY_U32("poll-interval", 50),
 	{ }
 };
 
@@ -382,6 +386,7 @@ static int __init c33_devices_init(void)
 		return ret;
 	}
 
+	wr_map_irqs(wr_gpio_resources, ARRAY_SIZE(wr_gpio_resources));
 	wr_map_irqs(wr_spi_resources, ARRAY_SIZE(wr_spi_resources));
 	wr_map_irqs(wr_uart0_resources, ARRAY_SIZE(wr_uart0_resources));
 	wr_map_irqs(wr_uart1_resources, ARRAY_SIZE(wr_uart1_resources));
@@ -401,8 +406,8 @@ static int __init c33_devices_init(void)
 
 	gpio_info.name = "s1c33-gpio";
 	gpio_info.id = -1;
-	gpio_info.res = &wr_gpio_resource;
-	gpio_info.num_res = 1;
+	gpio_info.res = wr_gpio_resources;
+	gpio_info.num_res = ARRAY_SIZE(wr_gpio_resources);
 	gpio_info.fwnode = software_node_fwnode(&wr_gpio_node);
 	device = platform_device_register_full(&gpio_info);
 	if (IS_ERR(device)) {
@@ -507,7 +512,7 @@ static int __init c33_devices_init(void)
 	/* Buttons and the power switch as plain inputs. */
 	wr_modify8(WR_P6_FUNC03, 0x3f, 0);
 	wr_modify8(WR_P0_FUNC03, 0xc0, 0);
-	buttons_info.name = "gpio-keys-polled";
+	buttons_info.name = "gpio-keys";
 	buttons_info.id = -1;
 	buttons_info.fwnode = software_node_fwnode(&wr_buttons_node);
 	device = platform_device_register_full(&buttons_info);

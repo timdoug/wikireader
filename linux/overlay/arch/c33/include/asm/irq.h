@@ -9,6 +9,8 @@
  * numbers: the ITC's irqdomain (drivers/irqchip/irq-s1c33.c) maps them to
  * Linux ones, through s1c33_itc_irq().
  */
+#define C33_IRQ_PORT3        19
+#define C33_IRQ_KEY0         20
 #define C33_IRQ_HSDMA0       22
 #define C33_IRQ_HSDMA1       23
 #define C33_IRQ_HSDMA2       24
