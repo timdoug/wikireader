@@ -1,26 +1,63 @@
-Linux (none) 6.18.52-dirty #147 Mon Sep 21 20:33:54 EDT 2026 c33
+Linux (none) 6.18.52-dirty #197 Thu Sep 24 20:24:37 EDT 2026 c33
 <6>C33 memory: 32 MiB of SDRAM at 10000000
 <6>clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
 <6>clocksource: s1c33-t16: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 31854340776 ns
-<6>s1c33-timer: 60000000 Hz counter, 937500 Hz clock event on IRQ 38
+<6>s1c33-timer: 60000000 Hz counter, 937500 Hz clock event on IRQ 38, 4 s suspend wake on IRQ 42
 <6>Delay loop: 600000 MCLK cycles per jiffy
-<6>C33 clock: registered 60000000 Hz MCLK
+<6>C33 clock: registered 60000000 Hz MCLK and 3 peripheral gates
 <6>clocksource: Switched to clocksource s1c33-t16
-MemTotal:          29568 kB
+<6>s1c33-spi s1c33-spi: SPI controller at 117187..15000000 Hz
+<4>mmc_spi spi0.0: incomplete constraints, dummy supplies not allowed (id=vqmmc2)
+<6>mmc_spi spi0.0: SD/MMC host mmc0, no WP, cd polling
+<6>mmc_spi spi0.0: 32-bit HSDMA bulk reads use IRQ completion
+<4>mmc0: host does not support reading read-only switch, assuming write-enable
+<6>mmc0: new SDXC card on SPI
+<6>mmcblk0: mmc0:0000 GD4QT 119 GiB
+<6> mmcblk0: p1 p2
+<4>FAT-fs (mmcblk0p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+/sys/class/regulator/regulator.0/name:regulator-dummy
+/sys/class/regulator/regulator.1/name:sd-vcc
+/sys/class/regulator/regulator.2/name:sd-buffer
+/sys/class/regulator/regulator.1/state:enabled
+/sys/class/regulator/regulator.2/state:enabled
+/sys/class/regulator/regulator.1/microvolts:3300000
+/sys/class/regulator/regulator.2/microvolts:3300000
+/sys/class/regulator/regulator.0/num_users:1
+/sys/class/regulator/regulator.1/num_users:1
+/sys/class/regulator/regulator.2/num_users:1
+spi devices: spi0.0
+C33 child: execve reached /child
+C33 process test: clone -> execve -> wait4 passed
+C33 signal test: handler -> rt_sigreturn passed
+C33 child: execve reached /child
+C33 trace test: PTRACE_SYSCALL stopped the child passed
+C33 uClibc smoke: pid=26 longjmp=7
+C33 libc test: crt -> stdio -> getpid -> longjmp passed
+C33 diagnostic suite passed
+cmdline: console=ttyC0,115200 wr.blank=30 wr.suspend=60
+date: Thu Sep 24 20:26:45 UTC 2026
+MemTotal:          29440 kB
 current_clocksource: s1c33-t16
+fb0 blank state: 0
+uart1 wakeup: enabled
+uart1 wakeup: enabled
+/sys/devices/platform/s1c33-uart.1/power/wakeup: enabled
+/sys/devices/platform/s1c33-uart.1/power/wakeup_count: 0
 --- interrupts, then again after sleeping 5 ---
            CPU0       
  25:        354 S1C33-ITC      s1c33-spi-rx
- 38:       2808 S1C33-ITC      s1c33-timer
+ 38:       3814 S1C33-ITC      s1c33-timer
+ 42:          0 S1C33-ITC      s1c33-wake
  57:          0 S1C33-ITC      s1c33-uart0-rx
  60:          1 S1C33-ITC      s1c33-uart1-error
- 61:          1 S1C33-ITC      s1c33-uart1-rx
+ 61:         57 S1C33-ITC      s1c33-uart1-rx
            CPU0       
  25:        354 S1C33-ITC      s1c33-spi-rx
- 38:       2950 S1C33-ITC      s1c33-timer
+ 38:       3988 S1C33-ITC      s1c33-timer
+ 42:          0 S1C33-ITC      s1c33-wake
  57:          0 S1C33-ITC      s1c33-uart0-rx
  60:          1 S1C33-ITC      s1c33-uart1-error
- 61:          1 S1C33-ITC      s1c33-uart1-rx
-uptime 28.59 -> 33.86
+ 61:        162 S1C33-ITC      s1c33-uart1-rx
+uptime 38.32 -> 43.59
 expected: about 5 s plus one exec, and a timer count that grew by
 far less than 500, because the idle tick stops

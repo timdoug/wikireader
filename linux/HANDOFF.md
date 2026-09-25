@@ -43,18 +43,23 @@ Validated on the user's board:
   while the UART1 receive count climbed. The poll is slow insurance for causes
   this core ignores, such as an HSDMA completion, not the wake path.
 
-**Not yet run on hardware:** the four most recent commits — clock gates,
-`spi_register_board_info()`, the SD regulators, and `GENERIC_ENTRY`. Two of
-them touch things the emulator does not model:
+Validated 2026-09-24 in a second round trip (`linux-device.txt` is that
+report): the clock gates, `spi_register_board_info()`, the SD regulators and
+`GENERIC_ENTRY`. On the board `sd-vcc` and `sd-buffer` both report enabled with
+one user each, the card enumerates as `spi0.0`, the three freestanding tests
+pass, and blank, suspend and tap-to-wake still work. The card was a 119 GiB
+SDXC.
 
-- `wremu` ignores the CMU gate bits entirely. No emulated block checks them, so
-  a wrong gate mask passes every test here and fails only on silicon.
+Two emulator gaps to keep in mind, since they are the reason that round trip
+was needed:
+
+- `wremu` honours the CMU gate bits for the timers, the watchdog and HSDMA
+  (`emulator/src/cmu.c`), but not for the SPI block or the UART. Of the three
+  gates the kernel registers, only the DMA one could fail here.
 - The emulator models the SD rail (P32, active low) and the card refuses to
   work unpowered, which is why the regulator conversion failed loudly here
   before it could fail on the card. It does **not** model the level-buffer
   enable (P33).
-
-A device round trip for these is worth doing before building on them.
 
 ## What is left, in the order I would take it
 
