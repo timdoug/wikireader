@@ -24,6 +24,7 @@ config C33
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_UID16
 	select NO_DMA
+	select S1C33_ITC
 	select THREAD_INFO_IN_TASK
 	select UACCESS_MEMCPY
 

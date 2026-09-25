@@ -34,10 +34,15 @@ trusts them only when the incoming trap table says a launcher is resident.
 Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
 16 MiB production boards and the 32 MiB early ones; the same probed limit
-bounds the addresses the SPI driver will hand to HSDMA. It registers the
-S1C33 interrupt controller with Linux's generic IRQ subsystem. The timer,
-both UARTs, and SPI receive-DMA paths use normal `request_irq()` registrations
-visible in `/proc/interrupts`. Linux runs the scheduler, registers the
+bounds the addresses the SPI driver will hand to HSDMA. The S1C33 interrupt
+controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a linear
+irqdomain whose hardware interrupt numbers are the trap vectors; the arch
+calls its init from `init_IRQ()`, the board file maps the vectors it puts in
+platform resources through the domain, and the trap entry routes each vector
+to the domain rather than treating it as a Linux IRQ number. The domain's
+allocator prefers the hardware number when it is free, so `/proc/interrupts`
+still reads in vectors. The timer, both UARTs, and SPI receive-DMA paths use
+normal `request_irq()` registrations visible there. Linux runs the scheduler, registers the
 interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
 BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
 separate framebuffer console on a Unix98 PTY.

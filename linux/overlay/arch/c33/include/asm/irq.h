@@ -4,6 +4,11 @@
 
 #define NR_IRQS 64
 
+/*
+ * Trap vectors of the causes the board uses.  These are hardware interrupt
+ * numbers: the ITC's irqdomain (drivers/irqchip/irq-s1c33.c) maps them to
+ * Linux ones, through s1c33_itc_irq().
+ */
 #define C33_IRQ_HSDMA0       22
 #define C33_IRQ_HSDMA1       23
 #define C33_IRQ_HSDMA2       24

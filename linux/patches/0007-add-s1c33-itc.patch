@@ -1,0 +1,30 @@
+diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
+index a61c6dc63..8615f6b93 100644
+--- a/drivers/irqchip/Kconfig
++++ b/drivers/irqchip/Kconfig
+@@ -354,6 +354,13 @@ config VERSATILE_FPGA_IRQ_NR
+        default 4
+        depends on VERSATILE_FPGA_IRQ
+ 
++config S1C33_ITC
++	bool
++	select IRQ_DOMAIN
++	help
++	  The interrupt controller of the Epson S1C33 family, which turns
++	  peripheral causes into trap vectors.  Selected by the C33 arch.
++
+ config XTENSA_MX
+ 	bool
+ 	select IRQ_DOMAIN
+diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
+index 3de083f54..bee431106 100644
+--- a/drivers/irqchip/Makefile
++++ b/drivers/irqchip/Makefile
+@@ -63,6 +63,7 @@ obj-$(CONFIG_ST_IRQCHIP)		+= irq-st.o
+ obj-$(CONFIG_TB10X_IRQC)		+= irq-tb10x.o
+ obj-$(CONFIG_TS4800_IRQ)		+= irq-ts4800.o
+ obj-$(CONFIG_XTENSA)			+= irq-xtensa-pic.o
++obj-$(CONFIG_S1C33_ITC)			+= irq-s1c33.o
+ obj-$(CONFIG_XTENSA_MX)			+= irq-xtensa-mx.o
+ obj-$(CONFIG_XILINX_INTC)		+= irq-xilinx-intc.o
+ obj-$(CONFIG_IRQ_CROSSBAR)		+= irq-crossbar.o

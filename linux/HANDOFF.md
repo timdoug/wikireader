@@ -85,13 +85,15 @@ was needed:
    there is no DMA API at all, and the addressable window is passed as
    `dma_memory_start`/`dma_memory_end` in platform data instead of coming from
    `dma_map_single()`.
-3. **irqdomain and `drivers/irqchip`.** The ITC is an arch-local `irq_chip`
-   using hardware vector numbers directly as Linux IRQ numbers. This matters
-   for upstreaming, not for the device.
-4. **Interrupt-driven buttons.** The front buttons and the power switch are a
+3. **Interrupt-driven buttons.** The front buttons and the power switch are a
    polled `gpio-keys-polled` device at 50 ms while the console has it open;
    the port block's KINT0 comparator could raise them instead once
-   `gpio-s1c33` grows an irqchip half, which is the same work as item 3.
+   `gpio-s1c33` grows an irqchip half. The ITC itself is an irqchip behind an
+   irqdomain now (`drivers/irqchip/irq-s1c33.c`), so that half has a parent
+   to chain to.
+4. **ITC priorities.** The controller's priority nibbles are still written
+   by the drivers that know their cause (the timer and the serial ports); an
+   `irq_set_priority`-style extension on the irqchip would move them.
 5. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device now and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the

@@ -51,8 +51,10 @@ syscall_marker="C33: entered userspace syscall path"
 boot_path_expected="C33 boot: standalone (incoming TTBR "
 expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 irq_controller_expected="C33 IRQ: registered 24 interrupt sources"
+itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
 irq_userspace_expected="C33 IRQ: generic registrations"
-dma_irq_expected='[[:space:]]25:[[:space:]]+[1-9][0-9]*[[:space:]]+S1C33-ITC[[:space:]]+s1c33-spi-rx'
+# The column after the chip is the hardware number, the trap vector.
+dma_irq_expected='[[:space:]]25:[[:space:]]+[1-9][0-9]*[[:space:]]+S1C33-ITC[[:space:]]+25[[:space:]]+s1c33-spi-rx'
 framebuffer_expected="C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
 blank_expected="C33 display: fbdev blank and unblank passed"
 seeded_clock_expected="C33 time: clock seeded from the installed image,"
@@ -94,6 +96,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$gpio_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$dma_irq_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$itc_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$blank_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$seeded_clock_expected" "$work/boot.log" >/dev/null || \
@@ -195,6 +198,6 @@ python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
 	--edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

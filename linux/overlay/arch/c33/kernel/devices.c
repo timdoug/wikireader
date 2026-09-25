@@ -7,6 +7,7 @@
 #include <linux/init.h>
 #include <linux/input.h>
 #include <linux/io.h>
+#include <linux/irqchip/s1c33-itc.h>
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
@@ -172,7 +173,7 @@ static struct s1c33_spi_platform_data wr_spi_pdata = {
 static const struct resource wr_gpio_resource =
 	DEFINE_RES_MEM(WR_REG_BASE + 0x380, 14);
 
-static const struct resource wr_spi_resources[] = {
+static struct resource wr_spi_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
@@ -184,12 +185,12 @@ static const struct resource wr_lcd_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1a00, 0x100, "lcdc"),
 };
 
-static const struct resource wr_uart0_resources[] = {
+static struct resource wr_uart0_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b00, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART0_RX, "rx"),
 };
 
-static const struct resource wr_uart1_resources[] = {
+static struct resource wr_uart1_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x0b10, 8, "uart"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_ERROR, "error"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_UART1_RX, "rx"),
@@ -320,6 +321,24 @@ static const struct software_node *wr_nodes[] = {
 	NULL,
 };
 
+/* IRQ resources are written as trap vectors; the ITC domain names them. */
+static void __init wr_map_irqs(struct resource *resources, unsigned int count)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++) {
+		int irq;
+
+		if (!(resources[i].flags & IORESOURCE_IRQ))
+			continue;
+		irq = s1c33_itc_irq(resources[i].start);
+		if (irq < 0)
+			pr_err("C33 devices: no interrupt for vector %llu: %d\n",
+			       (unsigned long long)resources[i].start, irq);
+		resources[i].start = resources[i].end = irq;
+	}
+}
+
 static void __init wr_touch_prepare(void)
 {
 	/* UART1 pin mux plus the panel reset connected to P07. */
@@ -359,6 +378,10 @@ static int __init c33_devices_init(void)
 		pr_err("C33 devices: firmware nodes failed: %d\n", ret);
 		return ret;
 	}
+
+	wr_map_irqs(wr_spi_resources, ARRAY_SIZE(wr_spi_resources));
+	wr_map_irqs(wr_uart0_resources, ARRAY_SIZE(wr_uart0_resources));
+	wr_map_irqs(wr_uart1_resources, ARRAY_SIZE(wr_uart1_resources));
 
 	/* The SPI core instantiates these once the controller claims bus 0. */
 	ret = spi_register_board_info(wr_spi_devices, ARRAY_SIZE(wr_spi_devices));
