@@ -260,10 +260,13 @@ static const struct software_node wr_touch_node = {
 };
 
 /*
- * The three front buttons are P60..P62, pressed high, and the power switch
- * is P03, pressed low.  The port block can raise KINT0 for the buttons, but
- * the GPIO driver has no interrupt half yet, so they are polled while
- * something has the device open.
+ * The three front buttons are P60..P62 and the power switch is P03, all
+ * pressed high: on the board P03 reads low with nobody near the switch,
+ * which the firmware's power_switch_pressed() helper also assumes, and an
+ * active-low description made every resume report a fresh press.  The port
+ * block can raise KINT0 for the buttons, but the GPIO driver has no
+ * interrupt half yet, so they are polled while something has the device
+ * open.
  */
 static const struct property_entry wr_buttons_properties[] = {
 	PROPERTY_ENTRY_STRING("label", "WikiReader buttons"),
@@ -292,7 +295,7 @@ static const struct software_node wr_buttons_node = {
 WR_BUTTON(wr_button_random, "random", KEY_F1, 6 * 8 + 0, GPIO_ACTIVE_HIGH);
 WR_BUTTON(wr_button_search, "search", KEY_SEARCH, 6 * 8 + 1, GPIO_ACTIVE_HIGH);
 WR_BUTTON(wr_button_history, "history", KEY_BACK, 6 * 8 + 2, GPIO_ACTIVE_HIGH);
-WR_BUTTON(wr_button_power, "power", KEY_POWER, 0 * 8 + 3, GPIO_ACTIVE_LOW);
+WR_BUTTON(wr_button_power, "power", KEY_POWER, 0 * 8 + 3, GPIO_ACTIVE_HIGH);
 
 /* Timer 1 is the panel's contrast PWM; its output pin is P11. */
 static const struct resource wr_pwm_resources[] = {

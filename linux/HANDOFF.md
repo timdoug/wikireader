@@ -111,11 +111,14 @@ these should show, in `linuxhw.txt`, `contrast:2048` and three input device
 names, and on the panel: a readable screen through boot (the gate stayed on
 and the PWM was adopted, not restarted), `echo 3000 > /sys/class/lcd/wikireader/contrast`
 darkening it, typing still working, the history button recalling the last
-command, and the power switch putting it to sleep. Two assumptions only
-silicon can check: that P03 reads the power switch as a plain GPIO input
-with its function bits cleared, and that the buttons on P60..P62 read high
-when pressed. The emulator models both pins' data bits but not their function
-selection.
+command, and the power switch putting it to sleep. The third round trip
+(2026-09-25) proved the contrast (Grifo's saved 2216 came through), typing
+through uinput, and the switch, after a lesson: P03 idles low and is
+pressed high, the firmware's interrupt polarity comment notwithstanding,
+and described active-low it re-pressed itself after every resume. The
+`wr.pmlog` file now records why each suspend happened and what the P0 and
+P6 port bytes read, which is how that was found without serial. Still
+unproven on silicon: the buttons on P60..P62 read high when pressed.
 
 Deliberately not framework code, because no framework equivalent exists: the
 suspend wake poll and the clock seeding both work around the absence of an RTC

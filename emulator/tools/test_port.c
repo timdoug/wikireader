@@ -55,7 +55,7 @@ int main(void)
 	itc_attach(&mem, &itc);
 	port_attach(&mem, &port, &itc);
 
-	check("power input idles high", mem_read(&mem, P0D, 1), 0x08);
+	check("power input idles low", mem_read(&mem, P0D, 1), 0x00);
 	check("port interrupt polarity resets high/rising",
 	      mem_read(&mem, PPOL, 1), 0xff);
 	check("port interrupt trigger resets to edge",
@@ -92,23 +92,23 @@ int main(void)
 	check("reserved key-register hole stays zero",
 	      mem_read(&mem, REG_BASE + 0x3d1, 1), 0);
 
-	/* Reset selects a rising edge: the active-low press is not that edge. */
+	/* Reset selects a rising edge: the pressed-high switch is that edge. */
 	port_power_button(&port, &cpu, true);
-	check("default rising-edge mode ignores the falling press",
-	      mem_read(&mem, FLAGS, 1) & FP3, 0);
-	port_power_button(&port, &cpu, false);
-	check("default rising-edge mode accepts the release",
+	check("default rising-edge mode accepts the press",
 	      mem_read(&mem, FLAGS, 1) & FP3, FP3);
 	clear_flag(&mem, FP3);
+	port_power_button(&port, &cpu, false);
+	check("default rising-edge mode ignores the release",
+	      mem_read(&mem, FLAGS, 1) & FP3, 0);
 
-	mem_write(&mem, PPOL, 1, 0xf7);       /* FPT3 falling edge */
+	mem_write(&mem, PPOL, 1, 0xf7);       /* FPT3 falling edge, as grifo asks */
 	port_power_button(&port, &cpu, true);
-	check("programmed falling edge accepts the press",
+	check("programmed falling edge ignores the press",
+	      mem_read(&mem, FLAGS, 1) & FP3, 0);
+	port_power_button(&port, &cpu, false);
+	check("falling-edge mode accepts the release",
 	      mem_read(&mem, FLAGS, 1) & FP3, FP3);
 	clear_flag(&mem, FP3);
-	port_power_button(&port, &cpu, false);
-	check("falling-edge mode ignores the release",
-	      mem_read(&mem, FLAGS, 1) & FP3, 0);
 	mem_write(&mem, PSEL, 1, 0x80);       /* FPT3 selects P13, not P03 */
 	port_power_button(&port, &cpu, true);
 	check("P03 cannot trigger FPT3 when P13 is selected",

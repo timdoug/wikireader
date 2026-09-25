@@ -181,9 +181,13 @@ properties consumed by the driver. Keyboard geometry, labels, press state, and
 character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
 
-The three front buttons on P60..P62 and the power switch on P03 are a
-`gpio-keys-polled` device described by software nodes, reporting `KEY_F1`
-(random), `KEY_SEARCH`, `KEY_BACK` (history) and `KEY_POWER`. The port block
+The three front buttons on P60..P62 and the power switch on P03, all of
+them pressed high, are a `gpio-keys-polled` device described by software
+nodes, reporting `KEY_F1` (random), `KEY_SEARCH`, `KEY_BACK` (history) and
+`KEY_POWER`. The switch's polarity came from the board: described as
+active-low, every resume reported a fresh press, because a suspend releases
+all keys and the next poll re-reports a pin that was never released, and
+the machine slept again four seconds after each wake. The port block
 can raise KINT0 for the buttons, but the GPIO driver has no interrupt half
 yet, so they are polled every 50 ms while something holds the device open;
 the frontend does, so the poll runs whenever the console is up and stops

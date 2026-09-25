@@ -185,10 +185,12 @@ void port_button(struct port *p, struct c33 *cpu, unsigned n, bool pressed)
 }
 
 /*
- * The power switch is active low and edge triggered -- Button_initialise
- * clears SPPT3 in REG_PINTPOL_SPP07 and sets SEPT3 in REG_PINTEL_SEPT07 --
- * so the pin idles high and pressing pulls it down, and the interrupt is
- * the falling edge.
+ * The power switch idles low and a press drives P03 high: the board said so
+ * on 2026-09-25, when Linux read the pin as 0 with nobody near the switch,
+ * and the firmware's own power_switch_pressed() tests the bit set.  The
+ * firmware asks for an edge with SPPT3 clear in REG_PINTPOL_SPP07 and SEPT3
+ * set in REG_PINTEL_SEPT07, which is the falling edge, so its interrupt is
+ * the release, not the press.
  *
  * How long it is held makes no difference. Button_PowerInterrupt queues a
  * BUTTON_DOWN and a BUTTON_UP together from that one edge, so the
@@ -199,12 +201,12 @@ void port_power_button(struct port *p, struct c33 *cpu, bool pressed)
 {
 	bool was_high = (p->reg[OFF_P0D] & (1u << POWER_BIT)) != 0;
 	if (pressed)
-		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);   /* active low */
+		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);    /* pressed high */
 	else
-		p->reg[OFF_P0D] |= (uint8_t)(1u << POWER_BIT);
+		p->reg[OFF_P0D] &= (uint8_t)~(1u << POWER_BIT);
 	p->button_events++;
 
-	bool is_high = !pressed;
+	bool is_high = pressed;
 	bool rising = !was_high && is_high;
 	bool falling = was_high && !is_high;
 	bool polarity_high = (p->reg[OFF_PPOL] & (1u << 3)) != 0;
@@ -234,7 +236,7 @@ void port_reset(struct port *p)
 	 * receive sequence is in progress; leaving it low makes Suspend()
 	 * return immediately and turns the event wait into a busy loop. */
 	p->reg[OFF_P6D] = (1u << 5) | (1u << 4) | (1u << 3);
-	p->reg[OFF_P0D] = (1u << POWER_BIT);   /* power switch idles high */
+	p->reg[OFF_P0D] = 0;                   /* power switch idles low */
 
 	/*
 	 * SDA10 is already on P53. The emulator starts where the boot
