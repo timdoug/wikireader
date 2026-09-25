@@ -2,9 +2,13 @@
 
 echo "C33 BusyBox init: PID 1 userspace started"
 
-if /diag-test; then
+# Keep the freestanding test lines: they go into the card report below,
+# where a device without serial can show them.
+if /diag-test > /tmp/diag.txt; then
+	cat /tmp/diag.txt
 	echo "C33 BusyBox init: diagnostic child passed"
 else
+	cat /tmp/diag.txt
 	echo "C33 BusyBox init: diagnostic child FAILED"
 fi
 
@@ -57,7 +61,15 @@ fi
 # time has to leave on the card.
 timer_report() {
 	uname -a
-	dmesg | grep -E "C33 memory|C33 clock|s1c33-timer|clocksource|Delay loop"
+	dmesg | grep -E "C33 memory|C33 clock|s1c33-timer|clocksource|Delay loop|regulator|s1c33-spi|mmc_spi|mmc0|mmcblk0|C33 (process|signal|trace) test"
+	# One exec, not one per file: every exec here loads a 1 MB BusyBox and
+	# this runs while the console is being typed into.
+	grep -H . /sys/class/regulator/regulator.*/name \
+		/sys/class/regulator/regulator.*/state \
+		/sys/class/regulator/regulator.*/microvolts \
+		/sys/class/regulator/regulator.*/num_users 2>/dev/null
+	echo "spi devices: $(ls /sys/bus/spi/devices 2>/dev/null)"
+	cat /tmp/diag.txt
 	echo "cmdline: $(cat /proc/cmdline)"
 	echo "date: $(date)"
 	grep MemTotal /proc/meminfo
