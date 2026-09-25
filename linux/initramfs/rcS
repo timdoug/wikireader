@@ -2,9 +2,8 @@
 
 echo "C33 BusyBox init: PID 1 userspace started"
 
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev
+# Every mount is an exec of BusyBox, so the fstabs take them two at a go.
+mount -a
 
 # init starts the consoles only once this script ends, so a normal boot does
 # the setup and nothing else.  The checks below take several seconds; they
@@ -69,10 +68,15 @@ if [ -n "$selftest" ]; then
 fi
 
 mkdir -p /dev/pts
-if mount -t devpts devpts /dev/pts; then
+mount -a -T /etc/fstab.late
+late=$?
+if [ -c /dev/pts/ptmx ]; then
 	echo "C33 PTY: mounted devpts for userspace console"
 else
 	echo "C33 PTY: devpts mount FAILED"
+	# That failure is in the status too; ask about the card directly.
+	mountpoint -q /mnt/sd
+	late=$?
 fi
 
 # A stock device has no serial, so what the kernel decided about memory and
@@ -127,7 +131,7 @@ timer_report() {
 	echo "far less than 500, because the idle tick stops"
 }
 
-if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
+if [ "$late" = 0 ]; then
 	if [ -z "$selftest" ]; then
 		:
 	elif echo "C33 Linux wrote this boot status" > /mnt/sd/linux.ok; then
@@ -152,7 +156,7 @@ if mount -t vfat -o sync /dev/mmcblk0p1 /mnt/sd; then
 	# rather than a date, and the epoch is the more honest answer.
 	if [ -n "$stamp" ] && [ "$stamp" -gt 1262304000 ] &&
 		date -s "@$stamp" >/dev/null 2>&1; then
-		echo "C33 time: clock seeded from the installed image, $(date)"
+		echo "C33 time: clock seeded from the installed image, @$stamp"
 	else
 		echo "C33 time: no clock source, running from the epoch"
 	fi

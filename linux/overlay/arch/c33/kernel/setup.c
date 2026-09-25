@@ -158,12 +158,14 @@ void __init setup_arch(char **cmdline_p)
 	else
 		strscpy(boot_command_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
 	/*
-	 * A direct boot is the bring-up and recovery path, so it runs the
-	 * userspace self-tests; from the launcher they are asked for by name
-	 * on the init.ini line.  See the initramfs rcS.
+	 * A direct boot is the bring-up and recovery path, so it prints the
+	 * whole boot log and runs the userspace self-tests; from the launcher
+	 * both are asked for by name on the init.ini line.  See the initramfs
+	 * rcS.
 	 */
 	if (!c33_launched)
-		strlcat(boot_command_line, " wr.selftest", COMMAND_LINE_SIZE);
+		strlcat(boot_command_line, " loglevel=7 wr.selftest",
+			COMMAND_LINE_SIZE);
 	*cmdline_p = boot_command_line;
 	parse_early_param();
 

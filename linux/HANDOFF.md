@@ -22,7 +22,9 @@ Boot arguments reach the kernel from that line. Other knobs: `wr.pmlog` appends
 `s1c33_wake=<seconds>` sets the suspend wake poll (`0` disables it),
 `no_console_suspend` keeps printk alive through the suspend path, and
 `earlycon=s1c33,mmio,0x300b00` reports before platform drivers probe if a
-serial adapter is attached.
+serial adapter is attached. The console only prints warnings unless the line
+carries `loglevel=7`, which has to come before `earlycon=` for the early
+messages to show.
 
 ## What is proven on hardware, and what is not
 

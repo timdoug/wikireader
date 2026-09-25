@@ -100,3 +100,8 @@ CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y
 # from this and are initialised data, so every doubling adds to what Grifo
 # loads from the card.
 CONFIG_LOG_BUF_SHIFT=15
+# A stock unit is a touch panel with nothing on the serial port, and printk
+# writes the console synchronously: at 115200 baud, plus the early LCD
+# console, the boot log cost 0.4 s.  Warnings still show; loglevel=7 on the
+# init.ini line brings the rest back, and a direct boot asks for it.
+CONFIG_CONSOLE_LOGLEVEL_DEFAULT=4

@@ -27,8 +27,10 @@ def require(path):
     return path
 
 
-# wr.selftest runs the userspace checks rcS skips on a normal boot.
-LAUNCHER_ARGS = (b"earlycon=s1c33,mmio,0x300b00 loglevel=7 wr.blank=5"
+# wr.selftest runs the userspace checks rcS skips on a normal boot.  The
+# console is quiet by default, and early parameters take effect in order, so
+# loglevel=7 comes first or earlycon's own announcement is filtered out.
+LAUNCHER_ARGS = (b"loglevel=7 earlycon=s1c33,mmio,0x300b00 wr.blank=5"
                  b" wr.selftest")
 
 
@@ -41,9 +43,10 @@ def suspend_run(root, emulator, files, make_flash, fat):
         log = out / "boot.log"
         card_files = dict(files)
         # wr.pmlog asks for the breadcrumbs this test reads back off the card.
+        # loglevel=7 because the PM markers below are pr_info.
         card_files["init.ini"] = (
             b"linux.ico : linux.app wr.blank=2 wr.suspend=6 wr.pmlog"
-            b" s1c33_wake=1\n")
+            b" s1c33_wake=1 loglevel=7\n")
         fat.make_image(card, card_files, 64)
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
