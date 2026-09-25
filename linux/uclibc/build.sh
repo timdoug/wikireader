@@ -53,8 +53,8 @@ make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
 
 test -f "$build_dir/lib/libc.a"
 sysroot=$install_dir/usr/c33-linux-uclibc/usr
-gcc_lib=$("${cross}gcc" -mc33pe -print-libgcc-file-name)
-"${cross}gcc" -mc33pe -medda32 -mlong-calls -Os \
+gcc_lib=$("${cross}gcc" -mc33pe -msep-data -print-libgcc-file-name)
+"${cross}gcc" -mc33pe -msep-data -mlong-calls -Os \
 	-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ffunction-sections -fdata-sections -isystem "$sysroot/include" \
 	-c "$root/linux/uclibc/smoke.c" -o "$build_dir/smoke.o"
@@ -69,8 +69,8 @@ if [ -n "$undefined" ]; then
 	echo "$undefined" >&2
 	exit 1
 fi
-python3 "$root/linux/initramfs/make-flat.py" "$build_dir/smoke.elf" \
-	"$build_dir/uclibc-smoke"
+python3 "$root/linux/initramfs/make-flat.py" --shared-text \
+	"$build_dir/smoke.elf" "$build_dir/uclibc-smoke"
 chmod 755 "$build_dir/uclibc-smoke"
 mkdir -p "$root/linux/artifacts"
 cp "$build_dir/uclibc-smoke" "$root/linux/artifacts/uclibc-smoke"

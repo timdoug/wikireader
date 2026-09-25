@@ -1,6 +1,10 @@
 /* vfork for C33's stack-based CALL/RET convention.  */
 #include <features.h>
 
+#ifndef __C33_SEP_DATA__
+#error "uClibc for C33 is built -msep-data: errno is reached through %r15"
+#endif
+
 	.text
 	.align 1
 	.global __vfork
@@ -29,8 +33,9 @@ __vfork:
 	jrule 1f
 	not %r4,%r4
 	add %r4,1
-	xld.w %r5,errno
-	xld.w [%r5],%r4
+	ext doff_hi(errno)
+	ext doff_lo(errno)
+	ld.w [%r15],%r4
 	xld.w %r4,-1
 1:
 	push %r12

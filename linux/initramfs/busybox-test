@@ -45,3 +45,11 @@ grep -q '/archive.tar$' "$work/files" || fail find-result
 
 rm -rf "$work" || fail cleanup
 echo "C33 BusyBox recovery suite passed: hush + file/text/archive tools"
+
+# BusyBox is -msep-data code, whose text holds no absolute address, so the
+# kernel maps /bin/busybox read-only and every process running it uses that
+# one copy.  PID 1 and this grep must name the same text mapping.
+init_text=$(grep ' /bin/busybox$' /proc/1/maps) || fail "no text mapping in PID 1"
+own_text=$(grep ' /bin/busybox$' /proc/self/maps) || fail "no text mapping in grep"
+[ "$init_text" = "$own_text" ] || fail "private text: $init_text / $own_text"
+echo "C33 BusyBox shared text: ${init_text%% *} mapped once for every process"

@@ -78,6 +78,7 @@ optimization level, ABI hooks, or target flags.
 | `-mno-long-calls` | Prefer direct short calls and jumps where range permits. |
 | `-mlong-calls` | Use long direct call/jump forms. |
 | `-medda32` | Use absolute data addressing. |
+| `-msep-data` | Keep text free of absolute addresses so processes can share it; see `ABI.md`. |
 | `-memcpy` | Retained C33 target option. |
 
 The firmware currently uses `-mc33pe -mno-long-calls -medda32 -O2`.

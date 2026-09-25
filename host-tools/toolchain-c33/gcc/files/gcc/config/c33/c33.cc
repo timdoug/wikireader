@@ -901,6 +901,19 @@ c33_output_addr_const_extra (FILE * file, rtx x)
   return true;
 }
 
+/* -msep-data promises text with no absolute addresses in it, and
+   c33_legitimate_constant_p and c33_legitimate_address_p keep symbols out
+   of the forms below.  Anything that slips past them is a compiler bug;
+   stop here rather than emit a relocation the program loader cannot
+   honour in shared text.  */
+
+static void
+c33_check_sep_data (rtx x, rtx operand)
+{
+  if (TARGET_SEP_DATA && c33_symbolic_p (x))
+    fatal_insn ("absolute address under -msep-data:", operand);
+}
+
 /* Return appropriate code to load up a 1, 2, or 4 integer/floating
    point value.  */
 
@@ -942,6 +955,7 @@ output_move_single (rtx * operands)
 	  if (c33_dp_relative_address_p (addr))
 	    return "%p1ld%W1\t%0,[%%r15]";
 	  /* base+displacement, or an absolute address.  */
+	  c33_check_sep_data (addr, src);
 	  return "xld%W1\t%0,[%1]";
 	}
 
@@ -970,6 +984,7 @@ output_move_single (rtx * operands)
 	     ext prefixes and a two-byte instruction, six bytes either way.
 	     Loads and stores are unaffected and still go through the data
 	     area -- ld/st do not touch the flags.  */
+	  c33_check_sep_data (src, src);
 	  return "xld.w\t%0,%1";
 	}
     }
@@ -985,6 +1000,7 @@ output_move_single (rtx * operands)
 	    return "ld%W0\t[%0],%1";
 	  if (c33_dp_relative_address_p (addr))
 	    return "%p0ld%W0\t[%%r15],%1";
+	  c33_check_sep_data (addr, dst);
 	  return "xld%W0\t[%0],%1";
 	}
 
@@ -1020,7 +1036,10 @@ c33_output_extend (rtx *operands, const char *suffix)
       else if (c33_dp_relative_address_p (addr))
 	sprintf (buf, "%%p1ld.%s\t%%0,[%%%%r15]", suffix);
       else
-	sprintf (buf, "xld.%s\t%%0,[%%1]", suffix);
+	{
+	  c33_check_sep_data (addr, src);
+	  sprintf (buf, "xld.%s\t%%0,[%%1]", suffix);
+	}
     }
 
   return buf;
@@ -2693,6 +2712,11 @@ c33_issue_rate (void)
 static bool
 c33_legitimate_constant_p (machine_mode mode ATTRIBUTE_UNUSED, rtx x)
 {
+  /* Under -msep-data an address is never an immediate: emit_move_insn
+     sends it to the constant pool, which is in the data segment.  */
+  if (TARGET_SEP_DATA && c33_symbolic_p (x))
+    return false;
+
   return (GET_CODE (x) == CONST_DOUBLE
 	  || !(GET_CODE (x) == CONST
 	       && GET_CODE (XEXP (x, 0)) == PLUS
@@ -2714,7 +2738,11 @@ c33_legitimate_constant_p (machine_mode mode ATTRIBUTE_UNUSED, rtx x)
 
    The alternative is to materialise the 32-bit address in a register and
    dereference that, which costs an extra instruction and a scratch register
-   on every access.  -medda32 selects it; this is the default.  */
+   on every access.  -medda32 selects it; this is the default.
+
+   Under -msep-data the text and data segments are placed independently, so
+   only a symbol known to live in the data segment has a fixed displacement
+   from %r15; see c33_sep_data_symbol_p.  */
 
 bool
 c33_dp_relative_address_p (rtx x)
@@ -2727,7 +2755,63 @@ c33_dp_relative_address_p (rtx x)
   if (GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1)))
     x = XEXP (x, 0);
 
+  if (TARGET_SEP_DATA)
+    return c33_sep_data_symbol_p (x);
+
   return GET_CODE (x) == SYMBOL_REF || GET_CODE (x) == LABEL_REF;
+}
+
+/* -msep-data: the program's text is shared by every process running it, so
+   it may hold no absolute address; each process has its own data segment,
+   with %r15 pointing at its start.
+
+   True if SYM is in that data segment, so [%r15 + doff(SYM)] reaches it.
+   The constant pool qualifies because c33_select_rtx_section puts all of it
+   there.  So does any writable variable in a data or bss section.  Read-only
+   variables, string literals, functions and labels are in the text segment
+   and have no fixed displacement from %r15; their addresses are loaded from
+   the constant pool instead (see movsi).
+
+   A variable declared writable but defined read-only elsewhere would be
+   mis-addressed.  The bFLT converter checks every doff relocation lands in
+   the data segment, so that cannot pass silently.  */
+
+bool
+c33_sep_data_symbol_p (rtx sym)
+{
+  if (GET_CODE (sym) != SYMBOL_REF)
+    return false;
+  if (CONSTANT_POOL_ADDRESS_P (sym))
+    return true;
+
+  tree decl = SYMBOL_REF_DECL (sym);
+  if (decl == NULL_TREE
+      || !VAR_P (decl)
+      || TREE_READONLY (decl)
+      || DECL_THREAD_LOCAL_P (decl))
+    return false;
+
+  if (DECL_SECTION_NAME (decl))
+    {
+      const char *name = DECL_SECTION_NAME (decl);
+      return (startswith (name, ".data")
+	      || startswith (name, ".bss")
+	      || startswith (name, ".sdata")
+	      || startswith (name, ".sbss"));
+    }
+  return true;
+}
+
+/* True if X is or contains a symbolic address.  */
+
+bool
+c33_symbolic_p (rtx x)
+{
+  subrtx_iterator::array_type array;
+  FOR_EACH_SUBRTX (iter, array, x, ALL)
+    if (GET_CODE (*iter) == SYMBOL_REF || GET_CODE (*iter) == LABEL_REF)
+      return true;
+  return false;
 }
 
 /* Helper function for `c33_legitimate_address_p'.  */
@@ -2935,6 +3019,15 @@ TARGET_GNU_ATTRIBUTES (c33_attribute_table,
 static void
 c33_option_override (void)
 {
+  /* -medda32 is the default (see c33-common.cc); -msep-data needs the
+     data area, so it turns that off unless it was asked for by name.  */
+  if (TARGET_SEP_DATA)
+    {
+      if (TARGET_EXT_32 && (global_options_set.x_target_flags & MASK_EXT_32))
+	error ("%<-msep-data%> and %<-medda32%> are incompatible");
+      target_flags &= ~MASK_EXT_32;
+    }
+
   if (flag_exceptions || flag_non_call_exceptions)
     flag_omit_frame_pointer = 0;
 
@@ -2949,6 +3042,30 @@ c33_option_override (void)
     = build_target_option_node (&global_options, &global_options_set);
 }
 
+/* Implement TARGET_ASM_RELOC_RW_MASK.  -msep-data text is shared, so
+   read-only data holding an address goes to .data.rel.ro, as for PIC: the
+   same reasoning, a relocation the loader could not apply.  That covers jump
+   tables too.  */
+
+static int
+c33_reloc_rw_mask (void)
+{
+  return TARGET_SEP_DATA ? 3 : 0;
+}
+
+/* Implement TARGET_ASM_SELECT_RTX_SECTION.  -msep-data reaches the
+   constant pool through %r15 (c33_sep_data_symbol_p), so every entry must
+   be in the data segment, not just those carrying an address.  */
+
+static section *
+c33_select_rtx_section (machine_mode mode, rtx x,
+			unsigned HOST_WIDE_INT align)
+{
+  if (TARGET_SEP_DATA)
+    return data_section;
+  return default_elf_select_rtx_section (mode, x, align);
+}
+
 const char *
 c33_gen_movdi (rtx * operands)
 {
@@ -3056,6 +3173,12 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_ASM_SELECT_SECTION
 #define TARGET_ASM_SELECT_SECTION  c33_select_section
+
+#undef  TARGET_ASM_SELECT_RTX_SECTION
+#define TARGET_ASM_SELECT_RTX_SECTION  c33_select_rtx_section
+
+#undef  TARGET_ASM_RELOC_RW_MASK
+#define TARGET_ASM_RELOC_RW_MASK  c33_reloc_rw_mask
 
 /* The assembler supports switchable .bss sections, but
    c33_select_section doesn't yet make use of them.  */

@@ -64,6 +64,10 @@ medda32
 Target Mask(EXT_32)
 Do not use the %r15-relative default data area; address globals absolutely.
 
+msep-data
+Target Mask(SEP_DATA)
+Keep .text free of absolute addresses so it can be shared: reach data through %r15 and every other address through a word in the data segment.
+
 memcpy
 Target Mask(MEMCPY)
 Call memcpy for block moves rather than expanding them inline.

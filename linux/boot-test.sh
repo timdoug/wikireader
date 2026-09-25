@@ -32,9 +32,9 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	# Keep input out of the vendor menu and loader. PID 1 is running before
 	# 500M retired instructions. UART proves the serial recovery path first;
 	# scripted panel taps then type into the userspace PTY console.
-	# The soft keyboard types into a PTY whose shell is still loading its
-	# own 1 MB image; anything typed before hush sets its terminal up is
-	# discarded, so leave the keys well clear of that.
+	# The soft keyboard types into a PTY whose shell is still starting;
+	# anything typed before hush sets its terminal up is discarded, so
+	# leave the keys well clear of that.
 	# The buttons are polled every 50 ms; hold the scripted press longer.
 	WREMU_BUTTON_HOLD_MS=200 \
 	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 900000000 \
@@ -69,6 +69,7 @@ evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
 busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive tools"
+shared_text_expected="C33 BusyBox shared text: [0-9a-f]+-[0-9a-f]+ mapped once for every process"
 shell_ready="C33 BusyBox shell ready on ttyC0"
 shell_expected="C33 INTERACTIVE HUSH PASS"
 userspace_console_expected="C33 userspace console: fbdev + evdev + PTY shell ready"
@@ -119,6 +120,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$init_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$diagnostic_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$busybox_expected" "$work/boot.log" >/dev/null || \
+   ! grep -E "$shared_text_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_ready" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$userspace_console_expected" "$work/boot.log" >/dev/null || \

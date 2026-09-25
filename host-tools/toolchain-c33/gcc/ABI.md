@@ -379,6 +379,37 @@ Analogous `g`/`s`/`t`/`z` areas exist (`R_C33_GL`, `R_C33_SH/SL`,
 switches and by section attributes. `samo-lib` does not appear to use them, so
 they are lower priority than the default area.
 
+### `-msep-data`: shareable text
+
+Linux userland runs from bFLT files on a machine with no MMU. A program whose
+text contains absolute addresses has to be copied and relocated for every
+process. `-msep-data` removes those addresses, so the kernel can map one copy
+of the text read-only and share it between processes. Each process still
+gets its own data segment, and the kernel points `%r15` at its start. The
+linker script defines `__dp` as the start of `.data`.
+
+- Loads and stores of writable variables in `.data`/`.bss` use the default
+  data area (`[%r15]` plus `doff_hi`/`doff_lo`). The linker has already
+  resolved these offsets, so the loader does nothing.
+- Every other address is loaded from the constant pool, which `-msep-data`
+  puts in `.data`: `ld.w %rd,[%r15 + doff(.LCn)]`, where `.LCn: .long sym`.
+  This covers functions, string literals, read-only variables and labels.
+  It also covers the addresses of writable variables, because
+  `%r15 + doff` needs an `add`, and `add` clobbers the flags (see above).
+  The pool words are ordinary data relocations.
+- Read-only data that holds an address goes to `.data.rel.ro`, as under
+  PIC. That includes jump tables.
+- Calls and jumps stay `xcall`/`xjp`, which are PC-relative.
+
+`c33_legitimate_constant_p` rejects symbolic constants in this mode, so GCC's
+generic code sends them to the pool. `c33_sep_data_symbol_p` decides what
+`%r15` may reach. The move output routines stop with an internal error if an
+absolute symbol reaches them anyway. The linker refuses a `doff` below `__dp`.
+`linux/initramfs/make-flat.py --shared-text` fails if any text relocation
+remains, and it checks that every `doff` lands inside the data segment.
+`-msep-data` excludes `-medda32`, and libgcc has a `c33pe/sep-data`
+multilib.
+
 ## The `ext` prefix mechanism
 
 *Authoritative source: core manual section 5.6, pp. 25-30.*

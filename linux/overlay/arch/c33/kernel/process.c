@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/elfcore.h>
 #include <linux/kernel.h>
+#include <linux/mm_types.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
@@ -123,6 +124,12 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	memset(regs, 0, sizeof(*regs));
 	regs->pc = pc;
 	regs->sp = sp;
+	/*
+	 * -msep-data programs share their text between processes and reach
+	 * their own data through %r15, the default-data-area base (__dp, the
+	 * start of .data).  binfmt_flat has just placed that segment.
+	 */
+	regs->r[15] = current->mm->start_data;
 	regs->psr = 1 << 4;
 	regs->orig_r4 = -1;
 	regs->reserved = 1;

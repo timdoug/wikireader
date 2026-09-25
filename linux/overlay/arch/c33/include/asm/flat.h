@@ -58,11 +58,9 @@ static inline int flat_put_addr_at_rp(u32 __user *rp, u32 addr, u32 relval)
 
 #define flat_get_relocate_addr(rel)	((rel) & ~C33_FLAT_SPLIT_RELOC)
 
-/* The ABI reserves r15 as the default-data-area base. */
-#define FLAT_PLAT_INIT(regs) \
-	do { \
-		if (current->mm) \
-			(regs)->r[15] = current->mm->start_data; \
-	} while (0)
+/*
+ * No FLAT_PLAT_INIT: binfmt_flat calls it before start_thread(), which
+ * clears every register.  start_thread() sets %r15 itself.
+ */
 
 #endif

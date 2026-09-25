@@ -26,8 +26,14 @@
 # Selection is on the canonical -mcore=, which is what -mc33adv and -mc33pe
 # expand to.
 
-MULTILIB_OPTIONS  = mcore=c33adv/mcore=c33pe
-MULTILIB_DIRNAMES = c33adv c33pe
+MULTILIB_OPTIONS  = mcore=c33adv/mcore=c33pe msep-data
+MULTILIB_DIRNAMES = c33adv c33pe sep-data
+
+# -msep-data is the shared-text model for Linux bFLT programs, which only
+# run on the PE.  Its libgcc has to be built that way too: the default
+# multilib reads read-only tables through %r15, which under -msep-data
+# points at the data segment, not at them.
+MULTILIB_EXCEPTIONS = msep-data mcore=c33adv/msep-data
 
 # TCFLAGS is gone too: it carried -mno-app-regs -msmall-sld and two
 # -Wa,-mwarn-* options, none of which this compiler or assembler accepts.

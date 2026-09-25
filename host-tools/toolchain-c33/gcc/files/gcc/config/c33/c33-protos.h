@@ -34,6 +34,8 @@ extern rtx    c33_return_addr              (int);
 extern const char *output_move_single       (rtx *);
 extern const char *c33_output_extend    (rtx *, const char *);
 extern bool        c33_dp_relative_address_p (rtx);
+extern bool        c33_sep_data_symbol_p (rtx);
+extern bool        c33_symbolic_p (rtx);
 extern bool        c33_short_memory_p (rtx);
 extern bool        c33_bit_memory_p (rtx);
 extern int         c33_move_length (rtx_insn *);

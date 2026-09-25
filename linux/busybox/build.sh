@@ -65,7 +65,7 @@ if [ -n "$undefined" ]; then
 	echo "$undefined" >&2
 	exit 1
 fi
-python3 "$root/linux/initramfs/make-flat.py" \
+python3 "$root/linux/initramfs/make-flat.py" --shared-text \
 	"$build_dir/busybox_unstripped" "$build_dir/busybox"
 chmod 755 "$build_dir/busybox"
 cp "$build_dir/busybox" "$root/linux/artifacts/busybox"

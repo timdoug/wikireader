@@ -46,8 +46,8 @@ index d92c16c1e..89f5bce19 100644
  endif
  
 +ifeq ($(TARGET_ARCH),c33)
-+	CPU_CFLAGS-y += -mc33pe -medda32 -mlong-calls
-+	CPU_LDFLAGS-y += -mc33pe -medda32 -mlong-calls
++	CPU_CFLAGS-y += -mc33pe -msep-data -mlong-calls
++	CPU_LDFLAGS-y += -mc33pe -msep-data -mlong-calls
 +endif
 +
  ifeq ($(TARGET_ARCH),h8300)

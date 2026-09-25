@@ -10,6 +10,8 @@ C33_32 = 1
 C33_H = 9
 C33_M = 10
 C33_L = 11
+C33_DH = 12
+C33_DL = 13
 C33_PC_RELATIVE = {6, 7, 8, 24, 25, 26, 27, 28}
 C33_SPLIT_RELOC = 0x80000000
 FLAT_FLAG_RAM = 0x0001
@@ -98,7 +100,25 @@ def make_segments(sections):
     return text_image, data_image, bss_end - data_end
 
 
-def make_relocations(sections, image_size):
+def check_data_offset(sections, address, data_address, data_end):
+    """Check a %r15-relative (doff_hi/doff_lo) access lands in the data segment.
+
+    The linker has already resolved these against __dp, the start of .data,
+    and the kernel points %r15 at wherever it places that segment, so they
+    need no load-time relocation.  They are only right if the target really
+    is in .data or .bss: a variable declared writable but defined read-only
+    would be reached at a wrong address.
+    """
+    text = section_by_name(sections, ".text")
+    offset = address - text.address
+    high, low = struct.unpack_from("<HH", text.contents, offset)
+    target = data_address + (((high & 0x1fff) << 13) | (low & 0x1fff))
+    if not data_address <= target < data_end:
+        raise ValueError(f"%r15-relative access at 0x{address:x} reaches "
+                         f"0x{target:x}, outside the data segment")
+
+
+def make_relocations(sections, image_size, data_address, data_end):
     records = []
     loadable = {section.index for section in sections
                 if section.name in (".text", ".data")}
@@ -131,6 +151,16 @@ def make_relocations(sections, image_size):
             continue
         if kind in (C33_M, C33_L):
             raise ValueError(f"orphaned C33 split relocation at 0x{address:x}")
+        if kind == C33_DH:
+            pair = records[index:index + 2]
+            if (len(pair) != 2 or pair[1][:3] != (address + 2, C33_DL, symbol)
+                    or pair[1][3] != addend):
+                raise ValueError(f"incomplete doff relocation at 0x{address:x}")
+            check_data_offset(sections, address, data_address, data_end)
+            index += 2
+            continue
+        if kind == C33_DL:
+            raise ValueError(f"orphaned doff_lo relocation at 0x{address:x}")
         if kind == C33_32:
             relocations.append(address)
         elif kind != 0 and kind not in C33_PC_RELATIVE:
@@ -149,11 +179,27 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("elf", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--shared-text", action="store_true",
+                        help="fail unless the text needs no relocation, so "
+                             "the kernel can share it between processes")
     args = parser.parse_args()
 
     entry, sections = read_elf(args.elf)
     text, data, bss_size = make_segments(sections)
-    relocations = make_relocations(sections, len(text) + len(data))
+    relocations = make_relocations(sections, len(text) + len(data),
+                                   len(text), len(text) + len(data) + bss_size)
+    text_relocations = [relocation for relocation in relocations
+                        if relocation & ~C33_SPLIT_RELOC < len(text)]
+    if args.shared_text and text_relocations:
+        shown = ", ".join(f"0x{relocation & ~C33_SPLIT_RELOC:x}"
+                          for relocation in text_relocations[:8])
+        raise SystemExit(f"{args.elf}: {len(text_relocations)} relocations in "
+                         f"text, which -msep-data code should not have "
+                         f"(first at {shown})")
+    # Without FLAT_FLAG_RAM binfmt_flat maps the text read-only from the file,
+    # and a read-only private mapping is shared by every process running
+    # it.  Relocations in text need a private, writable copy instead.
+    flags = FLAT_FLAG_RAM if text_relocations else 0
     header_size = 64
     data_start = header_size + len(text)
     data_end = data_start + len(data)
@@ -166,7 +212,7 @@ def main():
         16 * 1024,      # stack
         data_end,
         len(relocations),
-        FLAT_FLAG_RAM,  # text relocations require a writable RAM image
+        flags,
         0,              # build date
         0, 0, 0, 0, 0,
     ]
@@ -175,7 +221,8 @@ def main():
     args.output.write_bytes(struct.pack(">4s15I", b"bFLT", *fields) +
                             text + data + relocation_table)
     print(f"bFLT: {len(text)} text, {len(data)} data, {bss_size} bss, "
-          f"{len(relocations)} relocations")
+          f"{len(relocations)} relocations, "
+          f"{'private' if text_relocations else 'shared'} text")
 
 
 if __name__ == "__main__":

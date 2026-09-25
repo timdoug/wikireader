@@ -247,6 +247,20 @@ table. The kernel loader reconstructs and rewrites those three-instruction
 addresses when it maps the process. The regression image deliberately contains
 string pointers in text, initialized data, and BSS state.
 
+uClibc, BusyBox and the console are built `-msep-data` (see
+`host-tools/toolchain-c33/gcc/ABI.md`). Their text holds no absolute address.
+Each process reaches its own data segment through `%r15`, which
+`start_thread` loads from `mm->start_data`, and every other address comes
+from a relocated word in that segment. With no text relocation, the converter
+leaves `FLAT_FLAG_RAM` clear. `binfmt_flat` then maps the text read-only from
+the file, and the kernel shares that mapping between every process running
+the program. From the initramfs, which is ramfs, the mapping is the file's
+own page cache, so an exec copies no text at all.
+`make-flat.py --shared-text` fails the build if a text relocation appears.
+The BusyBox suite checks that PID 1 and a child map the same `/bin/busybox`
+text. The freestanding diagnostics still carry text relocations and still
+load as private copies.
+
 ## macOS and Linux responsibilities
 
 The macOS host owns the checkout, Lima orchestration, `wremu`, fixture

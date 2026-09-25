@@ -63,10 +63,10 @@ else
 fi
 
 # A stock device has no serial, so what the kernel decided about memory and
-# time has to leave on the card.  Every external command here loads a 1 MB
-# BusyBox, which on this machine is a quarter of a second of copying, so the
-# report reads files with the shell's own read and keeps its execs to a
-# handful: uname, dmesg and grep, one grep over sysfs, date and sleep.
+# time has to leave on the card.  Every external command here is an exec of
+# BusyBox, close to a tenth of a second on this machine, so the report reads
+# files with the shell's own read and keeps its execs to a handful: uname,
+# dmesg and grep, one grep over sysfs, date and sleep.
 show_file() {
 	while read -r line; do
 		echo "$line"

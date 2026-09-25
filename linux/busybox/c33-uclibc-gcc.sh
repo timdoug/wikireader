@@ -19,13 +19,13 @@ for arg in "$@"; do
 	esac
 done
 
-common="-mc33pe -medda32 -mlong-calls -fno-stack-protector"
+common="-mc33pe -msep-data -mlong-calls -fno-stack-protector"
 if [ "$link" = no ]; then
 	exec "$gcc" $common -isystem "$sysroot/usr/include" \
 		-isystem "$headers_dir/include" "$@"
 fi
 
-gcc_lib=$($gcc -mc33pe -print-libgcc-file-name)
+gcc_lib=$($gcc -mc33pe -msep-data -print-libgcc-file-name)
 exec "$gcc" $common -isystem "$sysroot/usr/include" \
 	-isystem "$headers_dir/include" -nostdlib -static \
 	-Wl,-T,"$root/linux/uclibc/static-flat.ld" -Wl,--emit-relocs \

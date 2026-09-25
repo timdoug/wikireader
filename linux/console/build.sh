@@ -25,8 +25,8 @@ if [ -n "$undefined" ]; then
 	echo "$undefined" >&2
 	exit 1
 fi
-python3 "$root/linux/initramfs/make-flat.py" "$build_dir/wr-console.elf" \
-	"$build_dir/wr-console"
+python3 "$root/linux/initramfs/make-flat.py" --shared-text \
+	"$build_dir/wr-console.elf" "$build_dir/wr-console"
 chmod 755 "$build_dir/wr-console"
 cp "$build_dir/wr-console" "$root/linux/artifacts/wr-console"
 

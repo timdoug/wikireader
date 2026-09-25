@@ -107,6 +107,8 @@
 	builtin_define ("__c33pe__");		\
       if (TARGET_EXT_32)			\
 	builtin_define ("__C33_EDDA32__");	\
+      if (TARGET_SEP_DATA)			\
+	builtin_define ("__C33_SEP_DATA__");	\
       /* No FPU on any C33: floating point is soft, through libgcc.  */ \
       builtin_define ("__NO_FPU__");		\
     }						\
@@ -847,8 +849,11 @@ typedef enum
    undefined -- see ASM_OUTPUT_ADDR_VEC_ELT above for why.  */
 
 /* The switch instruction requires that the jump table immediately follow
-   it.  */
-#define JUMP_TABLES_IN_TEXT_SECTION (!TARGET_JUMP_TABLES_IN_DATA_SECTION)
+   it.  -msep-data text may hold no absolute address, and the entries are
+   absolute, so there the tables go to .data.rel.ro.local instead (see
+   c33_reloc_rw_mask).  */
+#define JUMP_TABLES_IN_TEXT_SECTION \
+  (!TARGET_JUMP_TABLES_IN_DATA_SECTION && !TARGET_SEP_DATA)
 
 #undef ASM_OUTPUT_BEFORE_CASE_LABEL
 #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE) \

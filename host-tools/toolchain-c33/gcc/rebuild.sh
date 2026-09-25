@@ -96,6 +96,12 @@ fi
 
 N=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
+# multilib.h is stamped against the Makefile, not the t-c33 fragment that
+# lists the multilibs, so a new multilib would otherwise go unnoticed.  It
+# is regenerated with move-if-change, so this rebuilds nothing when the
+# list is unchanged.
+rm -f gcc/s-mlib
+
 echo "==> building cc1"
 make -j"${N}" all-gcc
 make install-gcc

@@ -13,6 +13,9 @@ SECTIONS
 		. = ALIGN(4);
 	}
 	.data : {
+		/* -msep-data code reaches .data and .bss as %r15 + (sym - __dp);
+		   binfmt_flat loads %r15 with this segment's address. */
+		__dp = .;
 		*(.data .data.*)
 		*(.sdata .sdata.*)
 		. = ALIGN(4);
