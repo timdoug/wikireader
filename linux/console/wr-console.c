@@ -202,6 +202,8 @@ static int keyboard_reported;
 static int button_reported;
 static void set_display_blank(int blank);
 static void suspend_until_touch(void);
+static void power_line(const char *what);
+static long monotonic_seconds(void);
 static unsigned int scrolls_pending;
 /*
  * Pacing keeps a burst of output readable, but it must never sit between a
@@ -810,7 +812,11 @@ static int emit_key(unsigned int code, int shift, int control)
 		add_event(events, &count, EV_KEY, KEY_LEFTSHIFT, 0);
 	add_event(events, &count, EV_SYN, SYN_REPORT, 0);
 	length = (ssize_t)(count * sizeof(events[0]));
-	return write(uinput_fd, events, count * sizeof(events[0])) == length;
+	if (write(uinput_fd, events, count * sizeof(events[0])) != length) {
+		power_line("uinput write failed");
+		return 0;
+	}
+	return 1;
 }
 
 static int create_soft_keyboard(void)
@@ -917,6 +923,10 @@ static int keyboard_event(int master_fd, const struct input_event *event)
 	if (!event->value)
 		return 0;
 	button = button_name(event->code);
+	if (button) {
+		snprintf(line, sizeof(line), "button %s pressed", button);
+		power_line(line);
+	}
 	if (button && !button_reported) {
 		snprintf(line, sizeof(line), "C33 input: front button %s\n",
 			 button);
@@ -929,6 +939,7 @@ static int keyboard_event(int master_fd, const struct input_event *event)
 			log_text("C33 input: power switch suspends until touch\n");
 			set_display_blank(1);
 			suspend_until_touch();
+			idle_since = monotonic_seconds();
 		} else {
 			log_text("C33 input: power switch blanks the panel\n");
 			set_display_blank(1);
@@ -1116,6 +1127,54 @@ static void read_timeouts(void)
  */
 static void set_display_blank(int blank);
 
+/*
+ * The port data, direction and function bytes for P0 and P6: what the power
+ * switch and the buttons are reading, straight from the registers, for a
+ * device that cannot say so any other way.
+ */
+static void port_state(char *out, size_t size)
+{
+	static const unsigned long addresses[] = {
+		0x300380, 0x300381, 0x3003a0, 0x30038c, 0x30038d, 0x3003ac,
+	};
+	unsigned char values[6];
+	unsigned int i;
+	int fd = open("/dev/mem", O_RDONLY);
+
+	if (fd < 0) {
+		snprintf(out, size, "ports unreadable");
+		return;
+	}
+	for (i = 0; i < 6; i++)
+		if (lseek(fd, (off_t)addresses[i], SEEK_SET) < 0 ||
+		    read(fd, &values[i], 1) != 1)
+			values[i] = 0xee;
+	close(fd);
+	snprintf(out, size,
+		 "P0D=%02x IOC0=%02x P0CFP03=%02x P6D=%02x IOC6=%02x P6CFP03=%02x",
+		 values[0], values[1], values[2], values[3], values[4], values[5]);
+}
+
+static void power_line(const char *what)
+{
+	char ports[96];
+	char line[160];
+	int length;
+	int fd;
+
+	if (!power_logging)
+		return;
+	fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+	if (fd < 0)
+		return;
+	port_state(ports, sizeof(ports));
+	length = snprintf(line, sizeof(line), "%s: %s\n", what, ports);
+	if (length > 0)
+		write(fd, line, length);
+	close(fd);
+	sync();
+}
+
 static void power_note(const char *what, long seconds)
 {
 	char text[2048];
@@ -1133,6 +1192,14 @@ static void power_note(const char *what, long seconds)
 	length = snprintf(line, sizeof(line), "%s at %ld s\n", what, seconds);
 	if (length > 0)
 		write(fd, line, length);
+	{
+		char ports[96];
+
+		port_state(ports, sizeof(ports));
+		length = snprintf(line, sizeof(line), "%s\n", ports);
+		if (length > 0)
+			write(fd, line, length);
+	}
 	/*
 	 * Which interrupt moved is the only evidence there is for what woke
 	 * the machine, so keep the whole table rather than one parsed number.
@@ -1269,6 +1336,7 @@ int main(void)
 		if (blank_seconds && !display_blanked && idle >= blank_seconds)
 			set_display_blank(1);
 		if (suspend_seconds && idle >= suspend_seconds) {
+			power_line("idle timeout");
 			set_display_blank(1);
 			suspend_until_touch();
 			idle_since = monotonic_seconds();
