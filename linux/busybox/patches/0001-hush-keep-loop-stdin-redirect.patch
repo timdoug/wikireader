@@ -1,0 +1,63 @@
+diff --git a/shell/hush.c b/shell/hush.c
+index dcc6b22..0404cf6 100644
+--- a/shell/hush.c
++++ b/shell/hush.c
+@@ -8447,6 +8447,8 @@ struct squirrel {
+ 	int moved_to;
+ 	/* moved_to = n: fd was moved to n; restore back to orig_fd after redir */
+ 	/* moved_to = -1: fd was opened by redirect; close orig_fd after redir */
++	/* moved_to = -2: this redirect moved G.HFILE_stdin off fd 0; move it
++	 * back after redir (orig_fd is 0) */
+ };
+ 
+ static struct squirrel *append_squirrel(struct squirrel *sq, int i, int orig, int moved)
+@@ -8557,8 +8559,22 @@ static int save_fd_on_redirect(int fd, int avoid_fd, struct squirrel **sqp)
+ 	}
+ 
+ 	/* If this one of script's fds? */
+-	if (move_HFILEs_on_redirect(fd, avoid_fd))
++	if (move_HFILEs_on_redirect(fd, avoid_fd)) {
++		/* Interactive stdin moved off fd 0: note it in this redirect's
++		 * squirrel, so that only this redirect's restore puts it back.
++		 * Testcase: interactive "while read r; do :; done <FILE" -
++		 * restoring it after the first "read" (whose own restore has
++		 * no squirrel) made every later "read" read the terminal.
++		 */
++		if (fd == STDIN_FILENO && sqp != ERR_PTR
++		 && G.HFILE_stdin && G.HFILE_stdin->fd > STDIN_FILENO
++		) {
++			int i = 0;
++			if (*sqp) while ((*sqp)[i].orig_fd >= 0) i++;
++			*sqp = append_squirrel(*sqp, i, STDIN_FILENO, -2);
++		}
+ 		return 1; /* yes. "we closed fd" (actually moved it) */
++	}
+ 
+ 	/* Are we called for "exec 3>FILE"? Came through
+ 	 * redirect_and_varexp_helper(squirrel=ERR_PTR) -> setup_redirects(ERR_PTR)
+@@ -8597,10 +8613,14 @@ static int save_fd_on_redirect(int fd, int avoid_fd, struct squirrel **sqp)
+ 
+ static void restore_redirects(struct squirrel *sq)
+ {
++	int restore_stdin = 0;
++
+ 	if (sq) {
+ 		int i;
+ 		for (i = 0; sq[i].orig_fd >= 0; i++) {
+-			if (sq[i].moved_to >= 0) {
++			if (sq[i].moved_to == -2) {
++				restore_stdin = 1;
++			} else if (sq[i].moved_to >= 0) {
+ 				/* We simply die on error */
+ 				debug_printf_redir("restoring redirected fd from %d to %d\n", sq[i].moved_to, sq[i].orig_fd);
+ 				xmove_fd(sq[i].moved_to, sq[i].orig_fd);
+@@ -8612,7 +8632,8 @@ static void restore_redirects(struct squirrel *sq)
+ 		}
+ 		free(sq);
+ 	}
+-	if (G.HFILE_stdin
++	if (restore_stdin
++	 && G.HFILE_stdin
+ 	 && G.HFILE_stdin->fd > STDIN_FILENO
+ 	/* we compare > STDIN, not == STDIN, since hfgetc()
+ 	 * closes fd and sets ->fd to -1 if EOF is reached.
