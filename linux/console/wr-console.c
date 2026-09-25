@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <linux/fb.h>
 #include <linux/input.h>
+#include <linux/uinput.h>
 #include <time.h>
 #include <poll.h>
 #include <stdint.h>
@@ -181,6 +182,26 @@ static int control_active;
 static int symbols_active;
 static int fb_fd;
 static int log_fd;
+/*
+ * Key delivery.  The soft keyboard is a keyboard as far as Linux is
+ * concerned: it is a uinput device, and tapping a key here reports a press
+ * and release on it.  Everything that arrives on any keyboard-shaped evdev
+ * node -- that device, the front buttons, anything added later -- is turned
+ * into bytes for the shell's PTY below.  Keys are therefore visible to any
+ * program that reads evdev, not only to this one, and this program is the
+ * only keyboard driver a machine without a VT has.
+ */
+#define MAX_KEYBOARDS		4
+#define SOFT_KEYBOARD_NAME	"WikiReader soft keyboard"
+static int uinput_fd = -1;
+static int keyboard_fds[MAX_KEYBOARDS];
+static unsigned int keyboard_count;
+static int shift_down;
+static int control_down;
+static int keyboard_reported;
+static int button_reported;
+static void set_display_blank(int blank);
+static void suspend_until_touch(void);
 static unsigned int scrolls_pending;
 /*
  * Pacing keeps a burst of output readable, but it must never sit between a
@@ -636,10 +657,298 @@ static int key_at(unsigned int x, unsigned int y)
 	return row * 10 + x / KEY_WIDTH;
 }
 
+/* The US layout, which is what the soft keyboard's labels are. */
+static const struct {
+	unsigned short code;
+	char plain;
+	char shifted;
+} keymap[] = {
+	{ KEY_1, '1', '!' }, { KEY_2, '2', '@' }, { KEY_3, '3', '#' },
+	{ KEY_4, '4', '$' }, { KEY_5, '5', '%' }, { KEY_6, '6', '^' },
+	{ KEY_7, '7', '&' }, { KEY_8, '8', '*' }, { KEY_9, '9', '(' },
+	{ KEY_0, '0', ')' }, { KEY_MINUS, '-', '_' }, { KEY_EQUAL, '=', '+' },
+	{ KEY_Q, 'q', 'Q' }, { KEY_W, 'w', 'W' }, { KEY_E, 'e', 'E' },
+	{ KEY_R, 'r', 'R' }, { KEY_T, 't', 'T' }, { KEY_Y, 'y', 'Y' },
+	{ KEY_U, 'u', 'U' }, { KEY_I, 'i', 'I' }, { KEY_O, 'o', 'O' },
+	{ KEY_P, 'p', 'P' }, { KEY_LEFTBRACE, '[', '{' },
+	{ KEY_RIGHTBRACE, ']', '}' }, { KEY_A, 'a', 'A' }, { KEY_S, 's', 'S' },
+	{ KEY_D, 'd', 'D' }, { KEY_F, 'f', 'F' }, { KEY_G, 'g', 'G' },
+	{ KEY_H, 'h', 'H' }, { KEY_J, 'j', 'J' }, { KEY_K, 'k', 'K' },
+	{ KEY_L, 'l', 'L' }, { KEY_SEMICOLON, ';', ':' },
+	{ KEY_APOSTROPHE, '\'', '"' }, { KEY_GRAVE, '`', '~' },
+	{ KEY_BACKSLASH, '\\', '|' }, { KEY_Z, 'z', 'Z' }, { KEY_X, 'x', 'X' },
+	{ KEY_C, 'c', 'C' }, { KEY_V, 'v', 'V' }, { KEY_B, 'b', 'B' },
+	{ KEY_N, 'n', 'N' }, { KEY_M, 'm', 'M' }, { KEY_COMMA, ',', '<' },
+	{ KEY_DOT, '.', '>' }, { KEY_SLASH, '/', '?' }, { KEY_SPACE, ' ', ' ' },
+};
+
+/* Keys the soft keyboard reports that carry no character of their own. */
+static const unsigned short special_keys[] = {
+	KEY_ENTER, KEY_BACKSPACE, KEY_TAB, KEY_ESC, KEY_LEFT, KEY_RIGHT,
+	KEY_UP, KEY_DOWN, KEY_LEFTSHIFT, KEY_LEFTCTRL,
+};
+
+static int key_for_character(int character, int *shift)
+{
+	unsigned int i;
+
+	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++) {
+		if (keymap[i].plain == character) {
+			*shift = 0;
+			return keymap[i].code;
+		}
+		if (keymap[i].shifted == character) {
+			*shift = 1;
+			return keymap[i].code;
+		}
+	}
+	return -1;
+}
+
+static int character_for_key(unsigned int code, int shift)
+{
+	unsigned int i;
+
+	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
+		if (keymap[i].code == code)
+			return shift ? keymap[i].shifted : keymap[i].plain;
+	return -1;
+}
+
+/*
+ * What a key press means to the shell.  The front buttons have no terminal
+ * meaning of their own, so they get the three things a terminal on a device
+ * with no other keys most wants: an interrupt, completion, and the last
+ * command back.
+ */
+static size_t key_bytes(unsigned int code, int shift, int control,
+			unsigned char out[4])
+{
+	int character;
+
+	switch (code) {
+	case KEY_ENTER:
+	case KEY_KPENTER:
+		out[0] = '\r';
+		return 1;
+	case KEY_BACKSPACE:
+		out[0] = 0x7f;
+		return 1;
+	case KEY_TAB:
+	case KEY_SEARCH:
+		out[0] = '\t';
+		return 1;
+	case KEY_ESC:
+		out[0] = 0x1b;
+		return 1;
+	case KEY_F1:
+		out[0] = 0x03;			/* random: interrupt */
+		return 1;
+	case KEY_LEFT:
+	case KEY_RIGHT:
+	case KEY_UP:
+	case KEY_DOWN:
+	case KEY_BACK:
+		out[0] = 0x1b;
+		out[1] = '[';
+		out[2] = code == KEY_LEFT ? 'D' : code == KEY_RIGHT ? 'C' :
+			 code == KEY_DOWN ? 'B' : 'A';
+		return 3;
+	default:
+		character = character_for_key(code, shift);
+		if (character < 0)
+			return 0;
+		if (control &&
+		    (character == ' ' ||
+		     (character >= '@' && character <= '_') ||
+		     (character >= 'a' && character <= 'z')))
+			character &= 0x1f;
+		out[0] = (unsigned char)character;
+		return 1;
+	}
+}
+
+static int deliver_key(int master_fd, unsigned int code, int shift,
+		       int control)
+{
+	unsigned char output[4];
+	size_t length = key_bytes(code, shift, control, output);
+
+	if (!length)
+		return 0;
+	burst_painted = 0;
+	return write(master_fd, output, length) == (ssize_t)length;
+}
+
+static void add_event(struct input_event *events, unsigned int *count,
+		      unsigned int type, unsigned int code, int value)
+{
+	memset(&events[*count], 0, sizeof(events[0]));
+	events[*count].type = type;
+	events[*count].code = code;
+	events[*count].value = value;
+	(*count)++;
+}
+
+/* Press and release one key on the soft keyboard, with its modifiers. */
+static int emit_key(unsigned int code, int shift, int control)
+{
+	struct input_event events[10];
+	unsigned int count = 0;
+	ssize_t length;
+
+	if (shift)
+		add_event(events, &count, EV_KEY, KEY_LEFTSHIFT, 1);
+	if (control)
+		add_event(events, &count, EV_KEY, KEY_LEFTCTRL, 1);
+	add_event(events, &count, EV_KEY, code, 1);
+	add_event(events, &count, EV_SYN, SYN_REPORT, 0);
+	add_event(events, &count, EV_KEY, code, 0);
+	if (control)
+		add_event(events, &count, EV_KEY, KEY_LEFTCTRL, 0);
+	if (shift)
+		add_event(events, &count, EV_KEY, KEY_LEFTSHIFT, 0);
+	add_event(events, &count, EV_SYN, SYN_REPORT, 0);
+	length = (ssize_t)(count * sizeof(events[0]));
+	return write(uinput_fd, events, count * sizeof(events[0])) == length;
+}
+
+static int create_soft_keyboard(void)
+{
+	struct uinput_setup setup;
+	unsigned int i;
+	int fd;
+
+	fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	if (fd < 0)
+		return -1;
+	if (ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0)
+		goto fail;
+	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
+		if (ioctl(fd, UI_SET_KEYBIT, keymap[i].code) < 0)
+			goto fail;
+	for (i = 0; i < sizeof(special_keys) / sizeof(special_keys[0]); i++)
+		if (ioctl(fd, UI_SET_KEYBIT, special_keys[i]) < 0)
+			goto fail;
+	memset(&setup, 0, sizeof(setup));
+	setup.id.bustype = BUS_VIRTUAL;
+	strncpy(setup.name, SOFT_KEYBOARD_NAME, sizeof(setup.name) - 1);
+	if (ioctl(fd, UI_DEV_SETUP, &setup) < 0 || ioctl(fd, UI_DEV_CREATE) < 0)
+		goto fail;
+	return fd;
+fail:
+	close(fd);
+	return -1;
+}
+
+/*
+ * Sort the event nodes: the one with absolute axes is the touchscreen,
+ * anything else with keys is a keyboard, including the soft one just made.
+ */
+static void open_input_devices(int *touch_fd)
+{
+	unsigned int n;
+
+	*touch_fd = -1;
+	keyboard_count = 0;
+	for (n = 0; n < 16; n++) {
+		unsigned long evbits = 0;
+		char path[32];
+		int fd;
+
+		snprintf(path, sizeof(path), "/dev/input/event%u", n);
+		fd = open(path, O_RDONLY | O_NONBLOCK);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), &evbits) < 0) {
+			close(fd);
+			continue;
+		}
+		if (evbits & (1ul << EV_ABS)) {
+			if (*touch_fd < 0)
+				*touch_fd = fd;
+			else
+				close(fd);
+		} else if ((evbits & (1ul << EV_KEY)) &&
+			   keyboard_count < MAX_KEYBOARDS) {
+			keyboard_fds[keyboard_count++] = fd;
+		} else {
+			close(fd);
+		}
+	}
+}
+
+static const char *button_name(unsigned int code)
+{
+	switch (code) {
+	case KEY_F1:
+		return "random";
+	case KEY_SEARCH:
+		return "search";
+	case KEY_BACK:
+		return "history";
+	case KEY_POWER:
+		return "power";
+	default:
+		return NULL;
+	}
+}
+
+/* One event from a keyboard device.  Returns 1 if the shell got bytes. */
+static int keyboard_event(int master_fd, const struct input_event *event)
+{
+	const char *button;
+	char line[64];
+
+	if (event->type != EV_KEY)
+		return 0;
+	switch (event->code) {
+	case KEY_LEFTSHIFT:
+	case KEY_RIGHTSHIFT:
+		shift_down = event->value != 0;
+		return 0;
+	case KEY_LEFTCTRL:
+	case KEY_RIGHTCTRL:
+		control_down = event->value != 0;
+		return 0;
+	default:
+		break;
+	}
+	if (!event->value)
+		return 0;
+	button = button_name(event->code);
+	if (button && !button_reported) {
+		snprintf(line, sizeof(line), "C33 input: front button %s\n",
+			 button);
+		log_text(line);
+		button_reported = 1;
+	}
+	if (event->code == KEY_POWER) {
+		/* The switch cannot cut power here; it is the sleep button. */
+		if (suspend_seconds) {
+			log_text("C33 input: power switch suspends until touch\n");
+			set_display_blank(1);
+			suspend_until_touch();
+		} else {
+			log_text("C33 input: power switch blanks the panel\n");
+			set_display_blank(1);
+		}
+		return 0;
+	}
+	if (!deliver_key(master_fd, event->code, shift_down, control_down))
+		return 0;
+	if (!keyboard_reported) {
+		log_text("C33 input: keyboards feed the PTY through evdev\n");
+		keyboard_reported = 1;
+	}
+	return 1;
+}
+
 static int send_key(int master_fd, int key, int *redraw_keyboard)
 {
-	unsigned char output[3];
-	size_t length = 1;
+	unsigned int code;
+	int shift = 0;
+	int control = 0;
 	int character;
 
 	*redraw_keyboard = 0;
@@ -660,36 +969,37 @@ static int send_key(int master_fd, int key, int *redraw_keyboard)
 		return 0;
 	}
 	if (key == WR_KEY_BACKSPACE) {
-		output[0] = 0x7f;
+		code = KEY_BACKSPACE;
 	} else if (key == WR_KEY_TAB) {
-		output[0] = '\t';
+		code = KEY_TAB;
 	} else if (key >= WR_KEY_SPACE_FIRST && key <= WR_KEY_SPACE_LAST) {
-		output[0] = ' ';
+		code = KEY_SPACE;
 	} else if (key == WR_KEY_LEFT || key == WR_KEY_RIGHT) {
-		output[0] = 0x1b;
-		output[1] = '[';
-		output[2] = key == WR_KEY_LEFT ? 'D' : 'C';
-		length = 3;
+		code = key == WR_KEY_LEFT ? KEY_LEFT : KEY_RIGHT;
 	} else if (key >= WR_KEY_ENTER_FIRST && key <= WR_KEY_ENTER_LAST) {
-		output[0] = '\n';
+		code = KEY_ENTER;
 	} else {
+		int found;
+
 		character = key_character(key);
 		if (character < 0)
 			return 0;
-		if (control_active &&
-		    (character == ' ' ||
-		     (character >= '@' && character <= '_') ||
-		     (character >= 'a' && character <= 'z')))
-			character &= 0x1f;
-		output[0] = character;
+		found = key_for_character(character, &shift);
+		if (found < 0)
+			return 0;
+		code = (unsigned int)found;
+		control = control_active;
 	}
 	if (shift_active || control_active) {
 		shift_active = 0;
 		control_active = 0;
 		*redraw_keyboard = 1;
 	}
+	/* Without uinput the key goes straight to the shell, as it used to. */
+	if (uinput_fd < 0)
+		return deliver_key(master_fd, code, shift, control);
 	burst_painted = 0;
-	return write(master_fd, output, length) == (ssize_t)length;
+	return emit_key(code, shift, control);
 }
 
 static int open_pty(int *slave_fd)
@@ -884,10 +1194,12 @@ int main(void)
 {
 	struct fb_var_screeninfo variable;
 	struct fb_fix_screeninfo fixed;
-	struct pollfd poll_fds[2];
+	struct pollfd poll_fds[2 + MAX_KEYBOARDS];
 	struct input_event events[8];
 	unsigned int touch_x = 0;
 	unsigned int touch_y = 0;
+	unsigned int poll_count;
+	unsigned int k;
 	int touch_reported = 0;
 	int slave_fd;
 	int input_fd;
@@ -898,7 +1210,8 @@ int main(void)
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
 	fb_fd = open("/dev/fb0", O_RDWR);
-	input_fd = open("/dev/input/event0", O_RDONLY | O_NONBLOCK);
+	uinput_fd = create_soft_keyboard();
+	open_input_devices(&input_fd);
 	if (fb_fd < 0 || input_fd < 0 ||
 	    ioctl(fb_fd, FBIOGET_VSCREENINFO, &variable) < 0 ||
 	    ioctl(fb_fd, FBIOGET_FSCREENINFO, &fixed) < 0 ||
@@ -933,11 +1246,20 @@ int main(void)
 	draw_checkpoint(6);
 	flush_display();
 	log_text("C33 userspace console: fbdev + evdev + PTY shell ready\n");
+	if (uinput_fd >= 0)
+		log_text("C33 input: soft keyboard registered as a uinput device\n");
+	else
+		log_text("C33 input: no uinput, soft keys go straight to the PTY\n");
 
 	poll_fds[0].fd = master_fd;
 	poll_fds[0].events = POLLIN;
 	poll_fds[1].fd = input_fd;
 	poll_fds[1].events = POLLIN;
+	for (k = 0; k < keyboard_count; k++) {
+		poll_fds[2 + k].fd = keyboard_fds[k];
+		poll_fds[2 + k].events = POLLIN;
+	}
+	poll_count = 2 + keyboard_count;
 	read_timeouts();
 	idle_since = monotonic_seconds();
 	for (;;) {
@@ -964,8 +1286,36 @@ int main(void)
 			wait = -1;
 		else if (wait < 1)
 			wait = 1;
-		if (poll(poll_fds, 2, wait) < 0)
+		if (poll(poll_fds, poll_count, wait) < 0)
 			continue;
+		for (k = 0; k < keyboard_count; k++) {
+			ssize_t count;
+			unsigned int i;
+			int was_blanked = display_blanked;
+
+			if (!(poll_fds[2 + k].revents & POLLIN))
+				continue;
+			count = read(keyboard_fds[k], events, sizeof(events));
+			if (count <= 0)
+				continue;
+			/*
+			 * Only a press counts as activity: the release of the
+			 * key that blanked or suspended the machine arrives
+			 * afterwards and must not undo it.
+			 */
+			for (i = 0; i < count / sizeof(events[0]); i++)
+				if (events[i].type == EV_KEY && events[i].value)
+					break;
+			if (i == count / sizeof(events[0]))
+				continue;
+			idle_since = monotonic_seconds();
+			set_display_blank(0);
+			/* A key that wakes the panel is spent on waking it. */
+			if (was_blanked)
+				continue;
+			for (i = 0; i < count / sizeof(events[0]); i++)
+				keyboard_event(master_fd, &events[i]);
+		}
 		if (poll_fds[0].revents & POLLIN) {
 			consume_terminal_output(master_fd);
 			idle_since = monotonic_seconds();
@@ -1001,6 +1351,7 @@ int main(void)
 					 events[i].code == BTN_TOUCH &&
 					 events[i].value) {
 					int previous = active_key;
+
 
 					active_key = key_at(touch_x, touch_y);
 					draw_checkpoint(8);

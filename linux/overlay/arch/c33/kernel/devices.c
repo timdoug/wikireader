@@ -5,10 +5,12 @@
 #include <linux/gpio/machine.h>
 #include <linux/gpio/property.h>
 #include <linux/init.h>
+#include <linux/input.h>
 #include <linux/io.h>
 #include <linux/mmc/host.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
+#include <linux/pwm.h>
 #include <linux/regulator/fixed.h>
 #include <linux/regulator/machine.h>
 #include <linux/spi/mmc_spi.h>
@@ -30,8 +32,14 @@
 #define WR_P6_DATA        (WR_REG_BASE + 0x38c)
 #define WR_P6_DIR         (WR_REG_BASE + 0x38d)
 #define WR_P5_FUNC03      (WR_REG_BASE + 0x3aa)
+#define WR_P0_FUNC03      (WR_REG_BASE + 0x3a0)
 #define WR_P0_FUNC47      (WR_REG_BASE + 0x3a1)
+#define WR_P1_FUNC03      (WR_REG_BASE + 0x3a2)
+#define WR_P6_FUNC03      (WR_REG_BASE + 0x3ac)
 #define WR_P6_FUNC47      (WR_REG_BASE + 0x3ad)
+#define WR_T16_CHANNEL(n) (WR_REG_BASE + 0x780 + (n) * 8)
+#define WR_T16_CLKCTL(n)  (WR_REG_BASE + 0x7e0 + (n) * 2)
+#define WR_CONTRAST_TIMER 1
 #define WR_SERIAL_PRIORITY (WR_REG_BASE + 0x26a)
 #define WR_SERIAL_FLAGS    (WR_REG_BASE + 0x286)
 
@@ -250,6 +258,53 @@ static const struct software_node wr_touch_node = {
 	.properties = wr_touch_properties,
 };
 
+/*
+ * The three front buttons are P60..P62, pressed high, and the power switch
+ * is P03, pressed low.  The port block can raise KINT0 for the buttons, but
+ * the GPIO driver has no interrupt half yet, so they are polled while
+ * something has the device open.
+ */
+static const struct property_entry wr_buttons_properties[] = {
+	PROPERTY_ENTRY_STRING("label", "WikiReader buttons"),
+	PROPERTY_ENTRY_U32("poll-interval", 50),
+	{ }
+};
+
+static const struct software_node wr_buttons_node = {
+	.name = "buttons",
+	.properties = wr_buttons_properties,
+};
+
+#define WR_BUTTON(symbol, text, keycode, line, polarity)		\
+	static const struct property_entry symbol##_properties[] = {	\
+		PROPERTY_ENTRY_STRING("label", text),			\
+		PROPERTY_ENTRY_U32("linux,code", keycode),		\
+		PROPERTY_ENTRY_GPIO("gpios", &wr_gpio_node, line, polarity), \
+		{ }							\
+	};								\
+	static const struct software_node symbol = {			\
+		.name = text,						\
+		.parent = &wr_buttons_node,				\
+		.properties = symbol##_properties,			\
+	}
+
+WR_BUTTON(wr_button_random, "random", KEY_F1, 6 * 8 + 0, GPIO_ACTIVE_HIGH);
+WR_BUTTON(wr_button_search, "search", KEY_SEARCH, 6 * 8 + 1, GPIO_ACTIVE_HIGH);
+WR_BUTTON(wr_button_history, "history", KEY_BACK, 6 * 8 + 2, GPIO_ACTIVE_HIGH);
+WR_BUTTON(wr_button_power, "power", KEY_POWER, 0 * 8 + 3, GPIO_ACTIVE_LOW);
+
+/* Timer 1 is the panel's contrast PWM; its output pin is P11. */
+static const struct resource wr_pwm_resources[] = {
+	DEFINE_RES_MEM_NAMED(WR_T16_CHANNEL(WR_CONTRAST_TIMER), 8, "timer"),
+	DEFINE_RES_MEM_NAMED(WR_T16_CLKCTL(WR_CONTRAST_TIMER), 2, "clock"),
+};
+
+/* 4096 ticks of a 60 MHz MCLK, only used if the firmware left it stopped. */
+static struct pwm_lookup wr_pwm_lookup[] = {
+	PWM_LOOKUP("s1c33-pwm", 0, "wikireader-lcd", NULL, 68267,
+		   PWM_POLARITY_NORMAL),
+};
+
 static const struct software_node *wr_nodes[] = {
 	&wr_gpio_node,
 	&wr_spi_node,
@@ -257,6 +312,11 @@ static const struct software_node *wr_nodes[] = {
 	&wr_uart0_node,
 	&wr_uart1_node,
 	&wr_touch_node,
+	&wr_buttons_node,
+	&wr_button_random,
+	&wr_button_search,
+	&wr_button_history,
+	&wr_button_power,
 	NULL,
 };
 
@@ -285,6 +345,9 @@ static int __init c33_devices_init(void)
 	struct platform_device_info regulator_info = { };
 	struct platform_device_info spi_info = { };
 	struct platform_device_info uart_info = { };
+	struct platform_device_info pwm_info = { };
+	struct platform_device_info contrast_info = { };
+	struct platform_device_info buttons_info = { };
 	struct platform_device *device;
 	int ret;
 
@@ -394,7 +457,40 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, and touchscreen\n");
+	/* Contrast: timer 1 on P11, then the panel that consumes it. */
+	wr_modify8(WR_P1_FUNC03, 0x0c, 0x04);
+	pwm_info.name = "s1c33-pwm";
+	pwm_info.id = -1;
+	pwm_info.res = wr_pwm_resources;
+	pwm_info.num_res = ARRAY_SIZE(wr_pwm_resources);
+	device = platform_device_register_full(&pwm_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: PWM registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	pwm_add_table(wr_pwm_lookup, ARRAY_SIZE(wr_pwm_lookup));
+	contrast_info.name = "wikireader-lcd";
+	contrast_info.id = -1;
+	device = platform_device_register_full(&contrast_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: contrast registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	/* Buttons and the power switch as plain inputs. */
+	wr_modify8(WR_P6_FUNC03, 0x3f, 0);
+	wr_modify8(WR_P0_FUNC03, 0xc0, 0);
+	buttons_info.name = "gpio-keys-polled";
+	buttons_info.id = -1;
+	buttons_info.fwnode = software_node_fwnode(&wr_buttons_node);
+	device = platform_device_register_full(&buttons_info);
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: button registration failed: %ld\n",
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, touchscreen, contrast, and buttons\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);

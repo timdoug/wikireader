@@ -166,16 +166,19 @@ static const struct clk_ops c33_gate_ops = {
 C33_GATE(c33_spi_gate, "spi", C33_CMU_SPI);
 C33_GATE(c33_dma_gate, "hsdma", C33_CMU_DMA);
 C33_GATE(c33_efsio_gate, "efsio", C33_CMU_EFSIO);
+C33_GATE(c33_tm1_gate, "tm1", C33_CMU_TM1);
 
 /*
- * The timer gates are deliberately absent: the timer block starts from
- * time_init(), nothing would ever hold a reference to them, and the core
- * turns off every gate that no driver has claimed.
+ * The clocksource's timer gates are deliberately absent: the timer block
+ * starts from time_init(), nothing would ever hold a reference to them, and
+ * the core turns off every gate that no driver has claimed.  Timer 1 is the
+ * panel's contrast PWM and is a gate precisely because a driver holds it.
  */
 static struct c33_gate * const c33_gates[] = {
 	&c33_spi_gate,
 	&c33_dma_gate,
 	&c33_efsio_gate,
+	&c33_tm1_gate,
 };
 
 static const struct {
@@ -187,6 +190,7 @@ static const struct {
 	{ &c33_efsio_gate, NULL,  "s1c33-uart.1" },
 	{ &c33_spi_gate,   NULL,  "s1c33-spi" },
 	{ &c33_dma_gate,   "dma", "s1c33-spi" },
+	{ &c33_tm1_gate,   NULL,  "s1c33-pwm" },
 };
 
 static int __init c33_clock_init(void)

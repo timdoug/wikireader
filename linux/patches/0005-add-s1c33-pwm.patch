@@ -1,0 +1,35 @@
+diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
+index c2fd3f4b6..372679ebf 100644
+--- a/drivers/pwm/Kconfig
++++ b/drivers/pwm/Kconfig
+@@ -615,6 +615,18 @@ config PWM_ROCKCHIP
+ 	  Generic PWM framework driver for the PWM controller found on
+ 	  Rockchip SoCs.
+ 
++config PWM_S1C33
++	tristate "Epson S1C33 16-bit timer PWM"
++	depends on C33 || COMPILE_TEST
++	depends on COMMON_CLK
++	help
++	  Generic PWM framework driver for one channel of the 16-bit timer
++	  block in the Epson S1C33 family, such as the WikiReader panel
++	  contrast on the S1C33E07.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called pwm-s1c33.
++
+ config PWM_SAMSUNG
+ 	tristate "Samsung PWM support"
+ 	depends on PLAT_SAMSUNG || ARCH_S5PV210 || ARCH_EXYNOS || COMPILE_TEST
+diff --git a/drivers/pwm/Makefile b/drivers/pwm/Makefile
+index dfa8b4966..ab61b0d53 100644
+--- a/drivers/pwm/Makefile
++++ b/drivers/pwm/Makefile
+@@ -55,6 +55,7 @@ obj-$(CONFIG_PWM_RENESAS_RZG2L_GPT)	+= pwm-rzg2l-gpt.o
+ obj-$(CONFIG_PWM_RENESAS_RZ_MTU3)	+= pwm-rz-mtu3.o
+ obj-$(CONFIG_PWM_RENESAS_TPU)	+= pwm-renesas-tpu.o
+ obj-$(CONFIG_PWM_ROCKCHIP)	+= pwm-rockchip.o
++obj-$(CONFIG_PWM_S1C33)		+= pwm-s1c33.o
+ obj-$(CONFIG_PWM_SAMSUNG)	+= pwm-samsung.o
+ obj-$(CONFIG_PWM_SIFIVE)	+= pwm-sifive.o
+ obj-$(CONFIG_PWM_SL28CPLD)	+= pwm-sl28cpld.o

@@ -35,13 +35,16 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 	# The soft keyboard types into a PTY whose shell is still loading its
 	# own 1 MB image; anything typed before hush sets its terminal up is
 	# discarded, so leave the keys well clear of that.
+	# The buttons are polled every 50 ms; hold the scripted press longer.
+	WREMU_BUTTON_HOLD_MS=200 \
 	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 900000000 \
 		-e "$work/fixture/flash-nuttx.rom" \
 		-c "$work/fixture/nuttx-card.img" \
 		--uart-input "$work/uart.in" --uart-start 500000000 \
 		-K "600000000,ecj<ho touch-keyboard pass#" \
 		-T 36,197,780000000 -T 108,175,790000000 \
-		-T 228,197,800000000
+		-T 228,197,800000000 \
+		-N 1,820000000
 ) >"$work/boot.log" 2>&1
 
 syscall_marker="C33: entered userspace syscall path"
@@ -55,7 +58,11 @@ blank_expected="C33 display: fbdev blank and unblank passed"
 seeded_clock_expected="C33 time: clock seeded from the installed image,"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
 tux_expected="s1c33-fb s1c33-fb: registered /dev/fb0, 240x208 mono; Tux logo shown"
-input_expected="C33 input: /dev/input/event0 absolute touchscreen registered"
+input_expected="C33 input: /dev/input/event[0-9]+ absolute touchscreen registered"
+uinput_expected="C33 input: soft keyboard registered as a uinput device"
+keyboard_expected="C33 input: keyboards feed the PTY through evdev"
+button_expected="C33 input: front button search"
+contrast_expected="wikireader-lcd wikireader-lcd: contrast 2048 of 4095 adopted from the PWM"
 evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
@@ -77,7 +84,7 @@ signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-clock_expected="C33 clock: registered 48000000 Hz MCLK and 3 peripheral gates"
+clock_expected="C33 clock: registered 48000000 Hz MCLK and 4 peripheral gates"
 gpio_expected="s1c33-gpio s1c33-gpio: registered 56 GPIOs through gpiolib"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
@@ -92,7 +99,11 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$seeded_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$lcd_power_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$input_expected" "$work/boot.log" >/dev/null || \
+   ! grep -E "$input_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$uinput_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$keyboard_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$button_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$contrast_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$evdev_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "c33-timer" "$work/boot.log" >/dev/null || \
    ! grep -F "s1c33-uart0-rx" "$work/boot.log" >/dev/null || \
@@ -184,6 +195,6 @@ python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
 	--edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-spi|s1c33-fb|mmc_spi|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-spi-rx|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

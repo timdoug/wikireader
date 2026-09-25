@@ -27,8 +27,12 @@ serial adapter is attached.
 ## What is proven on hardware, and what is not
 
 A stock unit has no serial, so device results come back as files early
-userspace writes to the card: `linuxhw.txt` (memory, clocksource, interrupt
-counts, date) and `linuxpm.txt` under `wr.pmlog`. The first silicon report is
+userspace writes to the card: `linuxhw.txt` (memory, clocksource, regulators,
+input devices, contrast, the freestanding tests, interrupt counts, date) and
+`linuxpm.txt` under `wr.pmlog`. The report starts twenty quiet seconds after
+the card mounts and takes another six, so give a boot half a minute before
+pulling the card; the delay keeps its execs and sync writes off whatever is
+being typed, which is also what makes the boot test's latency bound stable. The first silicon report is
 checked in as `linux-device.txt`.
 
 Validated on the user's board:
@@ -84,14 +88,32 @@ was needed:
 3. **irqdomain and `drivers/irqchip`.** The ITC is an arch-local `irq_chip`
    using hardware vector numbers directly as Linux IRQ numbers. This matters
    for upstreaming, not for the device.
-4. **PWM and lcd class.** Timer 1 is the firmware's contrast PWM; Linux never
-   touches it, so there is no `/sys/class/lcd/*/contrast`.
-5. **fbcon/VT and uinput.** `console/wr-console.c` is a userspace terminal whose
-   soft keyboard writes a PTY instead of injecting input events, so keys are
-   visible to exactly one program. The pacing, blanking, and suspend policy in
-   it genuinely belong in userspace; the input path does not.
+4. **Interrupt-driven buttons.** The front buttons and the power switch are a
+   polled `gpio-keys-polled` device at 50 ms while the console has it open;
+   the port block's KINT0 comparator could raise them instead once
+   `gpio-s1c33` grows an irqchip half, which is the same work as item 3.
+5. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+   keyboard is a `uinput` device now and it feeds every keyboard-shaped evdev
+   node into the PTY, so keys reach any program; what remains is that the
+   terminal itself is not the kernel's. The pacing, blanking, and suspend
+   policy in it genuinely belong in userspace.
 6. **elf2flt** instead of the local `make-flat.py`, and **the overlay as a real
    patch series** — both only bite when the pinned stable tag is bumped.
+
+Done since the second round trip, emulator-tested and **not yet run on
+hardware**: the contrast PWM (`drivers/pwm/pwm-s1c33.c`, timer 1, with its
+CMU gate now a clock the driver holds), the lcd-class consumer
+(`/sys/class/lcd/wikireader/contrast`), the buttons and power switch as
+polled GPIO keys, and the uinput keyboard path. The device round trip for
+these should show, in `linuxhw.txt`, `contrast:2048` and three input device
+names, and on the panel: a readable screen through boot (the gate stayed on
+and the PWM was adopted, not restarted), `echo 3000 > /sys/class/lcd/wikireader/contrast`
+darkening it, typing still working, the history button recalling the last
+command, and the power switch putting it to sleep. Two assumptions only
+silicon can check: that P03 reads the power switch as a plain GPIO input
+with its function bits cleared, and that the buttons on P60..P62 read high
+when pressed. The emulator models both pins' data bits but not their function
+selection.
 
 Deliberately not framework code, because no framework equivalent exists: the
 suspend wake poll and the clock seeding both work around the absence of an RTC

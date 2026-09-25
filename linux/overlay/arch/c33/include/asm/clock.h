@@ -9,6 +9,7 @@
 #define C33_CMU_DMA	BIT(1)
 #define C33_CMU_SPI	BIT(6)
 #define C33_CMU_TM0	BIT(13)
+#define C33_CMU_TM1	BIT(14)
 #define C33_CMU_TM2	BIT(15)
 #define C33_CMU_TM3	BIT(16)
 #define C33_CMU_TM5	BIT(18)

@@ -88,10 +88,24 @@ so failures before userspace remain visible without attaching to the serial
 pads. The boot logo is placed on the physical right edge.
 Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
 It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
-`/dev/ptmx`, makes the PTY slave Hush's controlling terminal, and translates
-released soft keys into terminal input. Its four-row keyboard provides
-lowercase and shifted letters, `123`/`ABC` symbol pages, Control, Tab, Space,
-cursor keys, Backspace, and Enter. The frontend writes only changed text rows
+`/dev/ptmx`, and makes the PTY slave Hush's controlling terminal. Its four-row
+keyboard provides lowercase and shifted letters, `123`/`ABC` symbol pages,
+Control, Tab, Space, cursor keys, Backspace, and Enter. A released soft key is
+not written to the PTY directly: the frontend registers the soft keyboard as
+a `uinput` device and reports the key on it, with `KEY_LEFTSHIFT` and
+`KEY_LEFTCTRL` around it as a physical keyboard would, so the key is visible
+to any program that reads evdev. The frontend is also the machine's only
+keyboard driver, there being no VT: it opens every evdev node that has keys
+and no absolute axes -- the soft keyboard, the front buttons, anything added
+later -- and turns their presses into bytes for the PTY with a US keymap,
+falling back to writing the PTY directly if `/dev/uinput` is missing. The
+front buttons have no terminal meaning of their own and get the three things
+a terminal without other keys most wants: random is an interrupt (`^C`),
+search is Tab, and history is the up arrow. The power switch cannot cut power
+from Linux, so it is the sleep button: it suspends until the next touch when
+`wr.suspend` is set and blanks the panel otherwise. Only a press counts as
+activity, so the release of the key that blanked the machine does not wake
+it. The frontend writes only changed text rows
 and key bands through fbdev. Packed glyph writes and overlap-safe framebuffer
 row moves make scrolling cheap; bounded output frames are paced when they
 scroll so commands remain visibly animated instead of either repainting every
@@ -148,8 +162,8 @@ fault dumps the interrupt controller's flag and enable registers so the cause
 is visible rather than inferred.
 
 The panel is registered with the Linux input subsystem as a 240x208
-absolute touchscreen at `/dev/input/event0`, reporting `ABS_X`, `ABS_Y`, and
-`BTN_TOUCH`. Its UART1 transport is a second S1C33 serial-core port connected
+absolute touchscreen, found by its name rather than by event number since the
+buttons register first, reporting `ABS_X`, `ABS_Y`, and `BTN_TOUCH`. Its UART1 transport is a second S1C33 serial-core port connected
 to the touchscreen through Linux's tty-backed serdev layer. The input driver
 therefore contains only the controller packet parser and evdev reporting; UART
 registers, baud programming, buffering, and interrupts belong to the serial
@@ -161,6 +175,27 @@ node also carries the standard `current-speed` and touchscreen dimension
 properties consumed by the driver. Keyboard geometry, labels, press state, and
 character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
+
+The three front buttons on P60..P62 and the power switch on P03 are a
+`gpio-keys-polled` device described by software nodes, reporting `KEY_F1`
+(random), `KEY_SEARCH`, `KEY_BACK` (history) and `KEY_POWER`. The port block
+can raise KINT0 for the buttons, but the GPIO driver has no interrupt half
+yet, so they are polled every 50 ms while something holds the device open;
+the frontend does, so the poll runs whenever the console is up and stops
+across a suspend.
+
+The panel's contrast is a PWM: the firmware runs timer 1 at MCLK/4096 with
+comparison A as a 12-bit contrast number, 0 lightest and 4095 darkest, and
+leaves it running. `drivers/pwm/pwm-s1c33.c` drives one timer channel as a
+PWM chip, adopting the running configuration rather than restarting it and
+moving only comparison A when the period is unchanged so the output keeps its
+phase; it never touches the ADVMODE and PAUSE registers it shares with the
+clocksource. `drivers/video/backlight/wikireader_lcd.c` consumes it through a
+board `pwm_lookup` and exposes the firmware's number as
+`/sys/class/lcd/wikireader/contrast`, reading the value back from the PWM at
+probe so a boot changes nothing on the panel. Timer 1's CMU gate is a clock
+the PWM driver holds, which is what keeps the panel lit once the clock core
+turns off every gate nobody claimed.
 The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same software-node graph as the SD slot's chip
@@ -341,4 +376,6 @@ implementation still belongs behind DMAengine, which would also give the SPI
 driver the DMA mapping API instead of a board-supplied address window.
 Richer keyboard modes, console session management, and power management can
 then grow around the proven LCD, touch, PTY, storage, and recovery userspace
-paths.
+paths. The buttons want to be interrupt-driven through the port block's KINT
+comparator once the GPIO driver has an irqchip half, and an fbcon on the
+framebuffer would inherit the keyboard devices the frontend now publishes.
