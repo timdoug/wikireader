@@ -300,6 +300,12 @@ int main(int argc, char **argv)
 	uint64_t uart_due = 1000000, uart_gap = 50000;
 	if (getenv("WREMU_HOLD_MS"))
 		hold_cycles = strtoul(getenv("WREMU_HOLD_MS"), NULL, 0) * 60000UL;
+	/* A polled button needs a longer press than a tap; keep them apart so
+	   a long press does not also stretch every scripted key. */
+	unsigned long button_hold_cycles = hold_cycles;
+	if (getenv("WREMU_BUTTON_HOLD_MS"))
+		button_hold_cycles =
+			strtoul(getenv("WREMU_BUTTON_HOLD_MS"), NULL, 0) * 60000UL;
 	unsigned long drag_spacing = 300000UL;
 	if (getenv("WREMU_DRAG_MS"))
 		drag_spacing = strtoul(getenv("WREMU_DRAG_MS"), NULL, 0) * 60000UL;
@@ -941,7 +947,7 @@ int main(int argc, char **argv)
 					port_button(&port, &cpu, (unsigned)b->code, true);
 			}
 			if (b->down_done && !b->up_done &&
-			    cpu.cycles >= b->at + HOLD_CYCLES) {
+			    cpu.cycles >= b->at + button_hold_cycles) {
 				b->up_done = true;
 				fprintf(stderr, "  [button %d up]\n", b->code);
 				if (b->code == BUTTON_POWER_CODE)

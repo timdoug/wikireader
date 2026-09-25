@@ -142,7 +142,9 @@ registers, so one image can be timed under the boot loader's stock values
 (`4,8,15` and `0x8c`) or the kernel's retimed ones (`2,3,5` and `0x1c0`).
 `WREMU_SUSPEND_DIV=N` shortens the firmware's 120-second suspend interval
 for testing without modifying the guest. `WREMU_HOLD_MS=N` changes how long
-scripted taps and presses are held before release (default 33 ms).
+scripted taps and presses are held before release (default 33 ms), and
+`WREMU_BUTTON_HOLD_MS=N` overrides it for `-N` button presses alone, for a
+guest that polls its buttons.
 
 The window has its own input path (SDL events, wall-clock timers, a power-on
 reset when the device is switched on), so a bug seen only with the mouse may
