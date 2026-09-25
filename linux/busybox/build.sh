@@ -32,8 +32,9 @@ make -C "$source_dir" O="$build_dir" allnoconfig >/dev/null
 
 # BusyBox's allnoconfig treats KCONFIG_ALLCONFIG values as defaults and then
 # answers "no", so it does not actually enable a small config fragment.  Start
-# with its complete all-no config, apply our explicit yes values, then let
-# oldconfig resolve dependencies and newly exposed options to their defaults.
+# with its complete all-no config, apply our explicit values, yes and numbers
+# alike, then let oldconfig resolve dependencies and newly exposed options to
+# their defaults.
 for choice in \
 	INSTALL_APPLET_SYMLINKS INSTALL_APPLET_HARDLINKS \
 	INSTALL_APPLET_SCRIPT_WRAPPERS SH_IS_ASH SH_IS_NONE BASH_IS_ASH BASH_IS_HUSH
@@ -44,7 +45,7 @@ do
 done
 while IFS= read -r setting; do
 	case "$setting" in
-		CONFIG_*=y)
+		CONFIG_*=*)
 			name=${setting%%=*}
 			sed -i \
 				-e "s/^# ${name} is not set\$/${setting}/" \
