@@ -34,15 +34,15 @@ trusts them only when the incoming trap table says a launcher is resident.
 Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
 16 MiB production boards and the 32 MiB early ones; the same probed limit
-bounds the addresses the SPI driver will hand to HSDMA. The S1C33 interrupt
+bounds the addresses the SD driver will hand to HSDMA. The S1C33 interrupt
 controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a linear
 irqdomain whose hardware interrupt numbers are the trap vectors; the arch
 calls its init from `init_IRQ()`, the board file maps the vectors it puts in
 platform resources through the domain, and the trap entry routes each vector
 to the domain rather than treating it as a Linux IRQ number. The domain's
 allocator prefers the hardware number when it is free, so `/proc/interrupts`
-still reads in vectors. The timer, both UARTs, and SPI receive-DMA paths use
-normal `request_irq()` registrations visible there. Linux runs the scheduler, registers the
+still reads in vectors. The timer and both UARTs use normal `request_irq()`
+registrations visible there. Linux runs the scheduler, registers the
 interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
 BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
 separate framebuffer console on a Unix98 PTY.
@@ -225,9 +225,9 @@ The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. Linux decodes the live CMU clock selection and
 publishes MCLK through the common clock framework, with the clock-management
-unit's peripheral gates as its children. Both serial ports and the SPI
-controller acquire and enable a standard gated clock, and the SPI driver takes
-a second one for HSDMA; their drivers no longer call a board-specific clock
+unit's peripheral gates as its children. Both serial ports and the SD host
+acquire and enable a standard gated clock, and the SD host takes a second one
+for HSDMA; their drivers no longer call a board-specific clock
 callback or receive a copied clock rate. Only the timer block is gated by
 hand, because it starts before any provider exists. The
 clocksource and clock event take their rate from the same hardware decoder,
@@ -399,38 +399,39 @@ contains no S1C33 register access or private kernel ABI. It is installed as
 shell. Its shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
 card's `bin` folder runs by name.
 
-The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack
-power and pin-mux the WikiReader card slot, identify SDSC and SDHC cards, and
-expose standard devices such as `/dev/mmcblk0p1`. The controller presents
-ordinary 8-bit full-duplex SPI semantics, but batches bulk transfers into
-32-bit hardware characters while preserving their wire byte order. It handles
-all four SPI modes and the hardware's MCLK/4 through MCLK/512 divisors. It
-reprograms the clock before chip select is asserted because disabling the
-S1C33 serial block while it drives SCLK creates a real stray edge. The kernel
-registers all 56 port lines through gpiolib; SPI core acquires the SD slot's
-active-low chip select from the board's software-node graph and toggles its
-GPIO descriptor. Board code declares the slot itself through
-`spi_register_board_info()`, so the controller driver registers no devices of
-its own. The card's 3.3 V rail and the level buffer between it and the S1C33
-are two GPIO-switched fixed regulators that `mmc_spi` consumes as `vmmc` and
-`vqmmc`; the settling time before the buffer may drive and the off time before
-the rail may return are regulator constraints rather than sleeps in a board
-callback.
-It also sends aligned, all-ones bulk reads through the S1C33 HSDMA2/HSDMA3
-transmit/receive pair. Short, unaligned, command, and write transfers retain a
-bounded programmed-I/O path, so the optimization remains entirely behind the
-standard SPI controller API. Probe establishes a documented reset-equivalent
-state before requesting the HSDMA3 IRQ: it disconnects request sources, stops
-both channels, clears their trigger and terminal-count latches, clears the SPI
-DMA causes, selects standard mode, and programs the interrupt-priority byte
-with every reserved bit zero. Bulk reads then sleep on a Linux completion
-signaled by HSDMA3. A bounded latched-cause check closes the completion-timeout
-race without changing the normal IRQ-driven path. Physical E07 parts stop
-advancing SPI-triggered HSDMA if the otherwise-idle core executes
-`HALT`, so the driver uses Linux's standard idle-poll control only while a DMA
-transfer is active. The calling task still sleeps on its completion and other
-runnable processes remain schedulable; only the idle task avoids `HALT` for
-the duration of the transfer. The kernel includes FAT/VFAT and mounts the first
+`drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
+identifies SDSC and SDHC cards, and exposes standard devices such as
+`/dev/mmcblk0p1`. The card is the only device on the S1C33's synchronous
+serial interface, so the driver is an MMC host in SPI mode that owns the
+interface itself, instead of a generic SPI controller under `mmc_spi`. Its
+protocol handling (commands, responses, data tokens, write handshakes, CRC
+retries) follows `mmc_spi`; its transport is the controller's registers.
+Under `mmc_spi` each 512-byte block cost about four SPI messages, each
+validated, accounted, chip-selected and scheduled, plus a DMA interrupt that
+put the reader to sleep: about 1.9 ms a block on this CPU against 0.3 ms on
+the wire. Here commands and tokens are 8-bit programmed I/O, and each data
+block is one 32-bit HSDMA2/HSDMA3 transfer whose completion the CPU polls.
+A polling CPU also never executes `HALT`, which on physical E07 parts stops
+SPI-triggered HSDMA. Buffers HSDMA cannot reach fall back to 32-bit
+programmed I/O. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
+the original firmware run it. Block CRCs are checked unless
+`mmc_core.use_spi_crc=0`; the CRC loop is compiled with `-falign-loops=16`
+because at 26 bytes it runs from the C33's fetch buffer only from the start
+of a line, which made it three times faster. The driver reprograms the
+controller's clock and character size with SCLK held at its idle level,
+because disabling the serial block while it drives SCLK creates a real stray
+edge. The kernel registers all 56 port lines through gpiolib, and the driver
+takes the slot's active-low chip select from the board's software node. The
+card's 3.3 V rail and the level buffer between it and the S1C33 are two
+GPIO-switched fixed regulators that the driver consumes as `vmmc` and
+`vqmmc`; the settling time before the buffer may drive and the off time
+before the rail may return are regulator constraints rather than sleeps in a
+board callback. The card is non-removable, since the system runs from it,
+so the MMC core does not poll it.
+Probe establishes a documented reset-equivalent HSDMA state: it disconnects
+request sources, stops both channels, clears their trigger and terminal-count
+latches, clears the SPI DMA causes, selects standard mode, and gives the DMA
+channels no interrupt priority. The kernel includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Under `wr.selftest` early
 userspace leaves `linux.ok` there as a persistent, serial-port-free boot
 report.
@@ -448,20 +449,21 @@ display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
-The same regression requires the Linux driver to announce IRQ-driven HSDMA,
-requires vector 25 to have a nonzero `/proc/interrupts` count, and requires the
-emulator to report nonzero HSDMA2 transmit and HSDMA3 receive activity. It also
+The same regression requires the SD host to announce polled HSDMA block
+reads and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
+activity. It also
 checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and
 requires the frontend to receive the scripted panel events from
 `/dev/input/event0`.
 
 ## What comes next
 
-The SPI clock-pin hold is the last board callback in platform data; it wants a
+The SCLK hold is the last board callback in platform data; it wants a
 pin-control driver with a state that parks SCLK, which also means moving that
 hold out of the interrupt-disabled window it lives in today. The embedded HSDMA
-implementation still belongs behind DMAengine, which would also give the SPI
-driver the DMA mapping API instead of a board-supplied address window.
+implementation could sit behind DMAengine, which would give the SD host the
+DMA mapping API instead of a board-supplied address window, though its polled
+completion is the point.
 Richer keyboard modes, console session management, and power management can
 then grow around the proven LCD, touch, PTY, storage, and recovery userspace
 paths. The buttons want to be interrupt-driven through the port block's KINT

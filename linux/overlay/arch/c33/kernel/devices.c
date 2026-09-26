@@ -14,10 +14,8 @@
 #include <linux/pwm.h>
 #include <linux/regulator/fixed.h>
 #include <linux/regulator/machine.h>
-#include <linux/spi/mmc_spi.h>
-#include <linux/spi/spi.h>
 
-#include <linux/platform_data/spi-s1c33.h>
+#include <linux/platform_data/s1c33-sd.h>
 
 #include <asm/irq.h>
 #include <asm/page.h>
@@ -86,7 +84,7 @@ static void wr_spi_hold_clock(bool hold, bool high)
  * both are constraints the regulator core enforces on its own.
  */
 static struct regulator_consumer_supply wr_sd_vcc_consumer =
-	REGULATOR_SUPPLY("vmmc", "spi0.0");
+	REGULATOR_SUPPLY("vmmc", "s1c33-sd");
 
 static struct regulator_init_data wr_sd_vcc_init = {
 	.constraints = {
@@ -108,7 +106,7 @@ static struct fixed_voltage_config wr_sd_vcc_config = {
 };
 
 static struct regulator_consumer_supply wr_sd_buffer_consumer =
-	REGULATOR_SUPPLY("vqmmc", "spi0.0");
+	REGULATOR_SUPPLY("vqmmc", "s1c33-sd");
 
 static struct regulator_init_data wr_sd_buffer_init = {
 	.constraints = {
@@ -148,26 +146,15 @@ static struct gpiod_lookup_table wr_sd_buffer_gpios = {
 	},
 };
 
-static struct mmc_spi_platform_data wr_mmc_pdata = {
-	.caps = MMC_CAP_NEEDS_POLL,
-	.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34,
-	.powerup_msecs = 10,
-};
-
-static struct spi_board_info wr_spi_devices[] = {
-	{
-		.modalias = "mmc-spi-slot",
-		.platform_data = &wr_mmc_pdata,
-		.max_speed_hz = 12000000,
-		.bus_num = 0,
-		.chip_select = 0,
-		.mode = SPI_MODE_0,
-	},
-};
-
-static struct s1c33_spi_platform_data wr_spi_pdata = {
+/*
+ * The card is the only device on the synchronous serial interface, and
+ * s1c33-sd drives it directly as an MMC host in SPI mode.  It runs the card
+ * at MCLK/4, as Grifo and the original firmware do.
+ */
+static struct s1c33_sd_platform_data wr_sd_pdata = {
 	.hold_clock = wr_spi_hold_clock,
 	.dma_memory_start = CONFIG_PHYSICAL_START,
+	.powerup_msecs = 10,
 };
 
 /* The port block, its interrupt selection registers, and the two causes the
@@ -179,11 +166,10 @@ static struct resource wr_gpio_resources[] __initdata = {
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_PORT3, "port3"),
 };
 
-static struct resource wr_spi_resources[] __initdata = {
+static struct resource wr_sd_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
-	DEFINE_RES_IRQ_NAMED(C33_IRQ_HSDMA3, "rx-dma"),
 };
 
 static const struct resource wr_lcd_resources[] = {
@@ -206,15 +192,15 @@ static const struct software_node wr_gpio_node = {
 	.name = "s1c33-gpio",
 };
 
-static const struct property_entry wr_spi_properties[] = {
+static const struct property_entry wr_sd_properties[] = {
 	PROPERTY_ENTRY_GPIO("cs-gpios", &wr_gpio_node, 5 * 8,
 			    GPIO_ACTIVE_LOW),
 	{ }
 };
 
-static const struct software_node wr_spi_node = {
-	.name = "spi0",
-	.properties = wr_spi_properties,
+static const struct software_node wr_sd_node = {
+	.name = "sd",
+	.properties = wr_sd_properties,
 };
 
 static const struct property_entry wr_uart0_properties[] = {
@@ -315,7 +301,7 @@ static struct pwm_lookup wr_pwm_lookup[] = {
 
 static const struct software_node *wr_nodes[] = {
 	&wr_gpio_node,
-	&wr_spi_node,
+	&wr_sd_node,
 	&wr_lcd_node,
 	&wr_uart0_node,
 	&wr_uart1_node,
@@ -369,7 +355,7 @@ static int __init c33_devices_init(void)
 	struct platform_device_info gpio_info = { };
 	struct platform_device_info lcd_info = { };
 	struct platform_device_info regulator_info = { };
-	struct platform_device_info spi_info = { };
+	struct platform_device_info sd_info = { };
 	struct platform_device_info uart_info = { };
 	struct platform_device_info pwm_info = { };
 	struct platform_device_info contrast_info = { };
@@ -378,7 +364,7 @@ static int __init c33_devices_init(void)
 	int ret;
 
 	/* SDRAM is the only memory HSDMA may reach; its size is probed. */
-	wr_spi_pdata.dma_memory_end = memory_end;
+	wr_sd_pdata.dma_memory_end = memory_end;
 
 	ret = software_node_register_node_group(wr_nodes);
 	if (ret) {
@@ -387,16 +373,8 @@ static int __init c33_devices_init(void)
 	}
 
 	wr_map_irqs(wr_gpio_resources, ARRAY_SIZE(wr_gpio_resources));
-	wr_map_irqs(wr_spi_resources, ARRAY_SIZE(wr_spi_resources));
 	wr_map_irqs(wr_uart0_resources, ARRAY_SIZE(wr_uart0_resources));
 	wr_map_irqs(wr_uart1_resources, ARRAY_SIZE(wr_uart1_resources));
-
-	/* The SPI core instantiates these once the controller claims bus 0. */
-	ret = spi_register_board_info(wr_spi_devices, ARRAY_SIZE(wr_spi_devices));
-	if (ret) {
-		pr_err("C33 devices: SPI board info failed: %d\n", ret);
-		return ret;
-	}
 
 	/* WikiReader SPI pins, inactive chip selects, and SD power controls. */
 	wr_modify8(WR_P6_FUNC47, 0xfc, 0x54);
@@ -441,16 +419,16 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	spi_info.name = "s1c33-spi";
-	spi_info.id = -1;
-	spi_info.res = wr_spi_resources;
-	spi_info.num_res = ARRAY_SIZE(wr_spi_resources);
-	spi_info.data = &wr_spi_pdata;
-	spi_info.size_data = sizeof(wr_spi_pdata);
-	spi_info.fwnode = software_node_fwnode(&wr_spi_node);
-	device = platform_device_register_full(&spi_info);
+	sd_info.name = "s1c33-sd";
+	sd_info.id = -1;
+	sd_info.res = wr_sd_resources;
+	sd_info.num_res = ARRAY_SIZE(wr_sd_resources);
+	sd_info.data = &wr_sd_pdata;
+	sd_info.size_data = sizeof(wr_sd_pdata);
+	sd_info.fwnode = software_node_fwnode(&wr_sd_node);
+	device = platform_device_register_full(&sd_info);
 	if (IS_ERR(device)) {
-		pr_err("C33 devices: SPI platform registration failed: %ld\n",
+		pr_err("C33 devices: SD platform registration failed: %ld\n",
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
@@ -521,7 +499,7 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	pr_info("C33 devices: registered SPI/MMC, UART, framebuffer, touchscreen, contrast, and buttons\n");
+	pr_info("C33 devices: registered SD, UART, framebuffer, touchscreen, contrast, and buttons\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);

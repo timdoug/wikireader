@@ -79,14 +79,15 @@ was needed:
 
 1. **pinctrl.** `wr_spi_hold_clock()` in `arch/c33/kernel/devices.c` is the last
    board callback in platform data. It is not just a matter of writing the
-   driver: the hold runs inside `local_irq_save()` in `s1c33_spi_configure()`,
+   driver: the hold runs inside `local_irq_save()` in `sd_configure()`
+   (`drivers/mmc/host/s1c33-sd.c`),
    and `pinctrl_select_state()` takes mutexes and can sleep, so that critical
    section has to be restructured first — and it exists precisely because
    disabling the serial block while it drives SCLK puts a stray edge on the
    wire that can eat a card response bit. Doing it properly also means folding
    `gpio-s1c33` into a combined pinctrl+gpio driver, since one driver has to own
    the port registers.
-2. **DMAengine.** HSDMA2/3 live inside the SPI driver, `NO_DMA` is selected so
+2. **DMAengine.** HSDMA2/3 live inside the SD host driver, `NO_DMA` is selected so
    there is no DMA API at all, and the addressable window is passed as
    `dma_memory_start`/`dma_memory_end` in platform data instead of coming from
    `dma_map_single()`.
@@ -156,7 +157,7 @@ counts and has drifted once already.
 - **Non-DT regulator lookups return `-ENODEV`, not `-EPROBE_DEFER`.** Ordering
   has no slack: `gpio-s1c33` registers at `postcore_initcall` so the chip exists
   when the fixed regulators bind at subsys level, and the regulator devices are
-  registered before the SPI controller.
+  registered before the SD host.
 - **`GENERIC_ENTRY` expects things from the arch that have no defaults:**
   `_TIF_UPROBE`, `PTRACE_SYSEMU`/`PTRACE_SYSEMU_SINGLESTEP`, `on_thread_stack()`,
   `regs_irqs_disabled()`, `arch_syscall_is_vdso_sigreturn()`, a

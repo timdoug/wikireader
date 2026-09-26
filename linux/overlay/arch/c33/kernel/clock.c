@@ -188,8 +188,8 @@ static const struct {
 } c33_clock_consumers[] = {
 	{ &c33_efsio_gate, NULL,  "s1c33-uart.0" },
 	{ &c33_efsio_gate, NULL,  "s1c33-uart.1" },
-	{ &c33_spi_gate,   NULL,  "s1c33-spi" },
-	{ &c33_dma_gate,   "dma", "s1c33-spi" },
+	{ &c33_spi_gate,   NULL,  "s1c33-sd" },
+	{ &c33_dma_gate,   "dma", "s1c33-sd" },
 	{ &c33_tm1_gate,   NULL,  "s1c33-pwm" },
 };
 

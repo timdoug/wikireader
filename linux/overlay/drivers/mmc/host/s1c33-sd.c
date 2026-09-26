@@ -1,0 +1,939 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * SD cards on the Epson S1C33's synchronous serial interface.
+ *
+ * The WikiReader's card is the only device on this controller, so this is
+ * an MMC host in SPI mode that drives the controller itself, rather than a
+ * generic SPI controller under mmc_spi.  The protocol handling follows
+ * mmc_spi; the transport does not.  There a block costs several SPI
+ * messages, each validated, accounted, chip-selected and scheduled, and a
+ * DMA completion interrupt that puts the reader to sleep; on this CPU that
+ * came to about 1.9 ms a block against 0.3 ms on the wire.  Here every
+ * byte goes straight to the controller's registers, and a data block is one
+ * HSDMA transfer whose completion is polled.
+ *
+ * Protocol handling adapted from drivers/mmc/host/mmc_spi.c:
+ * (C) Copyright 2005, Intec Automation, Mike Lavender
+ * (C) Copyright 2006-2007, David Brownell
+ * (C) Copyright 2007, Axis Communications, Hans-Peter Nilsson
+ * (C) Copyright 2007, ATRON electronic GmbH, Jan Nikitenko
+ */
+#include <linux/bitops.h>
+#include <linux/clk.h>
+#include <linux/crc-itu-t.h>
+#include <linux/crc7.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
+#include <linux/highmem.h>
+#include <linux/io.h>
+#include <linux/irqflags.h>
+#include <linux/jiffies.h>
+#include <linux/mmc/host.h>
+#include <linux/mmc/mmc.h>
+#include <linux/mmc/slot-gpio.h>
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/regulator/consumer.h>
+#include <linux/scatterlist.h>
+#include <linux/swab.h>
+#include <linux/unaligned.h>
+
+#include <linux/platform_data/s1c33-sd.h>
+
+/* Synchronous serial interface channel 0 */
+#define SPI_RXD		0x00
+#define SPI_TXD		0x04
+#define SPI_CTL1	0x08
+#define SPI_CTL2	0x0c
+#define SPI_WAIT	0x10
+#define SPI_STAT	0x14
+#define SPI_INT		0x18
+
+#define SPI_BPT(bits)	(((bits) - 1U) << 10)
+#define SPI_DIV_SHIFT	4
+#define SPI_RX_DMA	BIT(2)
+#define SPI_TX_DMA	BIT(3)
+#define SPI_MASTER	BIT(1)
+#define SPI_ENABLE	BIT(0)
+#define SPI_BUSY	BIT(6)
+#define SPI_RX_FULL	BIT(2)
+
+#define SPI_POLLS	1000000
+
+/* High-speed DMA: channel 3 receives, channel 2 transmits all-ones */
+#define DMA_HS2		0x40
+#define DMA_HS3		0x50
+#define DMA_COUNT	0x00
+#define DMA_CONTROL	0x02
+#define DMA_SOURCE_LO	0x04
+#define DMA_SOURCE_HI	0x06
+#define DMA_DEST_LO	0x08
+#define DMA_DEST_HI	0x0a
+#define DMA_ENABLE	0x0c
+#define DMA_TRIGGER	0x0e
+#define DMA_ADV_MODE	0x9c
+#define DMA_ADV_TIME	0x9e
+#define DMA_ADV_CTL2	0x82
+#define DMA_ADV_SRC2	0x84
+#define DMA_ADV_DST2	0x88
+#define DMA_ADV_CTL3	0x92
+#define DMA_ADV_SRC3	0x94
+#define DMA_ADV_DST3	0x98
+#define DMA_IDMA_RUN	0x05
+
+/* Interrupt controller registers this port and its DMA use */
+#define ITC_DMA_PRIORITY	0x01
+#define ITC_DMA_FLAG		0x1e
+#define ITC_SPI_FLAG		0x26
+#define ITC_HS_TRIGGER		0x36
+#define ITC_IDMA_REQ		0x38
+#define ITC_IDMA_ENABLE		0x39
+#define ITC_IDMA_SPI_BIT	BIT(4)
+#define ITC_HSDMA2_FLAG		BIT(2)
+#define ITC_HSDMA3_FLAG		BIT(3)
+#define ITC_SPI_DMA_FLAGS	(BIT(4) | BIT(5))
+
+/* Data block tokens and responses (mmc_spi.c) */
+#define SPI_MMC_RESPONSE_CODE(x)	((x) & 0x1f)
+#define SPI_RESPONSE_ACCEPTED		((2 << 1) | 1)
+#define SPI_RESPONSE_CRC_ERR		((5 << 1) | 1)
+#define SPI_RESPONSE_WRITE_ERR		((6 << 1) | 1)
+#define SPI_TOKEN_SINGLE		0xfe
+#define SPI_TOKEN_MULTI_WRITE		0xfc
+#define SPI_TOKEN_STOP_TRAN		0xfd
+
+#define SD_BLOCKSIZE		512
+#define SD_BLOCKSATONCE		128
+#define SD_R1B_TIMEOUT_MS	3000
+#define SD_INIT_TIMEOUT_MS	3000
+
+struct s1c33_sd {
+	struct mmc_host *mmc;
+	struct device *dev;
+	void __iomem *base;
+	void __iomem *dma;
+	void __iomem *itc;
+	const struct s1c33_sd_platform_data *pdata;
+	struct gpio_desc *cs;
+	unsigned long clock;		/* MCLK, read once at probe */
+	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
+	u32 control;			/* CTL1 as programmed */
+	unsigned char power_mode;
+	u32 dummy;			/* all-ones source for DMA reads */
+	unsigned long dma_blocks;
+};
+
+/****************************************************************************/
+/* Transport */
+
+static int sd_wait(struct s1c33_sd *host, u32 flag, bool wanted)
+{
+	unsigned int count;
+
+	for (count = 0; count < SPI_POLLS; count++)
+		if (!!(readl(host->base + SPI_STAT) & flag) == wanted)
+			return 0;
+	return -ETIMEDOUT;
+}
+
+/*
+ * Program the character size and the clock.  The controller has to be
+ * disabled to change either, and disabling it while it drives SCLK puts an
+ * edge on the wire that can eat a card response bit, so the board holds
+ * the pin at its idle level across the change.  Most calls change nothing.
+ */
+static void sd_configure(struct s1c33_sd *host, unsigned int bits, bool dma)
+{
+	u32 control = SPI_BPT(bits) | host->divider << SPI_DIV_SHIFT |
+		SPI_MASTER;
+	unsigned int settle;
+	unsigned long flags;
+	u32 interrupts;
+
+	if (dma)
+		control |= SPI_RX_DMA | SPI_TX_DMA;
+	if (control == host->control)
+		return;
+	local_irq_save(flags);
+	if (host->pdata->hold_clock)
+		host->pdata->hold_clock(true, false);
+	interrupts = readl(host->base + SPI_INT);
+	writel(0, host->base + SPI_INT);
+	writel(0, host->base + SPI_CTL1);
+	writel(control, host->base + SPI_CTL1);
+	writel(control | SPI_ENABLE, host->base + SPI_CTL1);
+	for (settle = 4U << host->divider; settle; settle--)
+		cpu_relax();
+	if (host->pdata->hold_clock)
+		host->pdata->hold_clock(false, false);
+	writel(interrupts, host->base + SPI_INT);
+	local_irq_restore(flags);
+	host->control = control;
+}
+
+/* One byte each way; the controller must be in 8-bit characters. */
+static int sd_byte(struct s1c33_sd *host, u8 out)
+{
+	if (sd_wait(host, SPI_BUSY, false))
+		return -ETIMEDOUT;
+	writel(out, host->base + SPI_TXD);
+	if (sd_wait(host, SPI_RX_FULL, true))
+		return -ETIMEDOUT;
+	return readl(host->base + SPI_RXD) & 0xff;
+}
+
+static int sd_bytes(struct s1c33_sd *host, const u8 *tx, u8 *rx,
+		    unsigned int n)
+{
+	unsigned int i;
+	int value;
+
+	sd_configure(host, 8, false);
+	for (i = 0; i < n; i++) {
+		value = sd_byte(host, tx ? tx[i] : 0xff);
+		if (value < 0)
+			return value;
+		if (rx)
+			rx[i] = value;
+	}
+	return 0;
+}
+
+/* The card releases its data line eight clocks after it is deselected. */
+static void sd_deselect(struct s1c33_sd *host)
+{
+	gpiod_set_value(host->cs, 0);
+	sd_bytes(host, NULL, NULL, 1);
+}
+
+static void sd_select(struct s1c33_sd *host)
+{
+	gpiod_set_value(host->cs, 1);
+}
+
+/*
+ * Clock in bytes until one differs from @byte: the gap before a data
+ * token or response (all-ones) or the card's busy signal (zeroes).
+ */
+static int sd_skip(struct s1c33_sd *host, unsigned long timeout, u8 byte)
+{
+	unsigned long deadline = jiffies + timeout;
+	unsigned int count = 0;
+	int value;
+
+	sd_configure(host, 8, false);
+	for (;;) {
+		value = sd_byte(host, 0xff);
+		if (value != byte)
+			return value;
+		if (++count % 256)
+			continue;
+		if (time_after(jiffies, deadline))
+			return -ETIMEDOUT;
+		/* A write or an erase can keep a card busy for a while. */
+		cond_resched();
+	}
+}
+
+static int sd_wait_unbusy(struct s1c33_sd *host, unsigned long timeout)
+{
+	int value = sd_skip(host, timeout, 0);
+
+	return value < 0 ? value : 0;
+}
+
+static void sd_hsdma_channel(struct s1c33_sd *host, unsigned int channel,
+			     unsigned int count, u32 source, u32 destination,
+			     bool increment_source, bool increment_destination)
+{
+	unsigned int base = channel == 2 ? DMA_HS2 : DMA_HS3;
+
+	writew(0, host->dma + base + DMA_ENABLE);
+	writew(1, host->dma + (channel == 2 ? DMA_ADV_CTL2 : DMA_ADV_CTL3));
+	writew(count, host->dma + base + DMA_COUNT);
+	writew(0x8000, host->dma + base + DMA_CONTROL);
+	writew(0, host->dma + base + DMA_SOURCE_LO);
+	writew(increment_source ? 0x2000 : 0,
+	       host->dma + base + DMA_SOURCE_HI);
+	writew(0, host->dma + base + DMA_DEST_LO);
+	writew(increment_destination ? 0x2000 : 0,
+	       host->dma + base + DMA_DEST_HI);
+	writel(source,
+	       host->dma + (channel == 2 ? DMA_ADV_SRC2 : DMA_ADV_SRC3));
+	writel(destination,
+	       host->dma + (channel == 2 ? DMA_ADV_DST2 : DMA_ADV_DST3));
+	writew(1, host->dma + base + DMA_TRIGGER);
+}
+
+static void sd_dma_stop(struct s1c33_sd *host)
+{
+	writew(0, host->dma + DMA_HS2 + DMA_ENABLE);
+	writew(0, host->dma + DMA_HS3 + DMA_ENABLE);
+	writeb(0, host->itc + ITC_HS_TRIGGER);
+	writew(1, host->dma + DMA_HS2 + DMA_TRIGGER);
+	writew(1, host->dma + DMA_HS3 + DMA_TRIGGER);
+	writeb(ITC_HSDMA2_FLAG | ITC_HSDMA3_FLAG, host->itc + ITC_DMA_FLAG);
+}
+
+/*
+ * Read @len bytes, a multiple of four, as 32-bit characters: HSDMA channel
+ * 3 moves them to memory while channel 2 feeds all-ones to the transmitter.
+ * The CPU spins on channel 3's completion flag rather than sleeping for its
+ * interrupt; the block takes a fraction of a millisecond, less than the
+ * sleep and wakeup would, and a spinning CPU does not halt, which on this
+ * part would stop the DMA's request pipeline.
+ */
+static int sd_read_dma(struct s1c33_sd *host, u8 *rx, unsigned int len)
+{
+	u32 destination = (u32)(unsigned long)rx;
+	unsigned int words = len / 4;
+	unsigned long deadline;
+	unsigned int count = 0;
+	unsigned int i;
+	int ret = 0;
+
+	sd_configure(host, 32, true);
+	host->dummy = ~0U;
+	writeb(0, host->itc + ITC_HS_TRIGGER);
+	writew(1, host->dma + DMA_ADV_MODE);
+	sd_hsdma_channel(host, 3, words,
+			 (u32)(unsigned long)host->base + SPI_RXD,
+			 destination, false, true);
+	sd_hsdma_channel(host, 2, words - 1,
+			 (u32)(unsigned long)&host->dummy,
+			 (u32)(unsigned long)host->base + SPI_TXD,
+			 false, false);
+	writeb(0x99, host->itc + ITC_HS_TRIGGER);
+	writeb(ITC_SPI_DMA_FLAGS, host->itc + ITC_SPI_FLAG);
+	writeb(ITC_HSDMA2_FLAG | ITC_HSDMA3_FLAG, host->itc + ITC_DMA_FLAG);
+	writew(1, host->dma + DMA_HS3 + DMA_ENABLE);
+	writew(1, host->dma + DMA_HS2 + DMA_ENABLE);
+	writel(~0U, host->base + SPI_TXD);
+
+	/* At the slowest clock a block takes about 35 ms. */
+	deadline = jiffies + msecs_to_jiffies(100);
+	while (!(readb(host->itc + ITC_DMA_FLAG) & ITC_HSDMA3_FLAG)) {
+		if (++count % 1024 == 0 && time_after(jiffies, deadline)) {
+			ret = -ETIMEDOUT;
+			break;
+		}
+	}
+	sd_dma_stop(host);
+	if (!ret && sd_wait(host, SPI_BUSY, false))
+		ret = -ETIMEDOUT;
+	if (ret)
+		return ret;
+
+	/* The first byte on the wire arrives in each word's top byte. */
+	for (i = 0; i < words; i++)
+		((u32 *)rx)[i] = swab32(((u32 *)rx)[i]);
+	host->dma_blocks++;
+	return 0;
+}
+
+/* The same, by the CPU, for buffers HSDMA cannot reach. */
+static int sd_read_pio(struct s1c33_sd *host, u8 *rx, unsigned int len)
+{
+	unsigned int i;
+
+	sd_configure(host, 32, false);
+	for (i = 0; i < len; i += 4) {
+		if (sd_wait(host, SPI_BUSY, false))
+			return -ETIMEDOUT;
+		writel(~0U, host->base + SPI_TXD);
+		if (sd_wait(host, SPI_RX_FULL, true))
+			return -ETIMEDOUT;
+		put_unaligned_be32(readl(host->base + SPI_RXD), rx + i);
+	}
+	return 0;
+}
+
+static int sd_read_words(struct s1c33_sd *host, u8 *rx, unsigned int len)
+{
+	unsigned long address = (unsigned long)rx;
+
+	if (!(address & 3) && address >= host->pdata->dma_memory_start &&
+	    address + len <= host->pdata->dma_memory_end)
+		return sd_read_dma(host, rx, len);
+	return sd_read_pio(host, rx, len);
+}
+
+static int sd_write_words(struct s1c33_sd *host, const u8 *tx,
+			  unsigned int len)
+{
+	unsigned int i;
+
+	sd_configure(host, 32, false);
+	for (i = 0; i < len; i += 4) {
+		if (sd_wait(host, SPI_BUSY, false))
+			return -ETIMEDOUT;
+		writel(get_unaligned_be32(tx + i), host->base + SPI_TXD);
+		if (sd_wait(host, SPI_RX_FULL, true))
+			return -ETIMEDOUT;
+		readl(host->base + SPI_RXD);
+	}
+	return 0;
+}
+
+/*
+ * crc_itu_t(), compiled here so that its loop is aligned (see the
+ * Makefile).  The loop is 26 bytes, which the C33 runs from its fetch
+ * buffer only when it starts a 16-byte line; otherwise every byte of every
+ * block fetches it again from SDRAM, about 70 cycles a byte.
+ */
+static u16 sd_crc(const u8 *buf, unsigned int len)
+{
+	u16 crc = 0;
+
+	while (len--)
+		crc = crc_itu_t_byte(crc, *buf++);
+	return crc;
+}
+
+/****************************************************************************/
+/* Commands */
+
+/*
+ * For SPI, cmd->resp[0] holds R1_SPI bits in its low byte and any R2_SPI
+ * bits in the next; cmd->resp[1] holds the four bytes of R3 and R7.
+ * Returns zero or a negative errno, leaving the card selected only when
+ * @cs_on asks for it and all went well.
+ */
+static int sd_response(struct s1c33_sd *host, struct mmc_command *cmd,
+		       bool cs_on)
+{
+	unsigned int bitshift = 0;
+	u16 rotator;
+	u8 leftover = 0;
+	int value = 0;
+	int byte = 0xff;
+	int i;
+
+	/*
+	 * N(CR) is 1..8 all-ones bytes; some cards take longer.  The first is
+	 * ignored: after STOP_TRANSMISSION it can still carry data bits.
+	 */
+	byte = sd_byte(host, 0xff);
+	if (byte < 0) {
+		value = byte;
+		goto done;
+	}
+	byte = 0xff;
+	for (i = 1; i < 16 && byte == 0xff; i++) {
+		byte = sd_byte(host, 0xff);
+		if (byte < 0) {
+			value = byte;
+			goto done;
+		}
+	}
+	if (byte == 0xff) {
+		value = -ETIMEDOUT;
+		goto done;
+	}
+
+	if (byte & 0x80) {
+		/* A card that shifts its response by a few bits */
+		rotator = byte << 8;
+		byte = sd_byte(host, 0xff);
+		if (byte < 0) {
+			value = byte;
+			goto done;
+		}
+		rotator |= byte;
+		while (rotator & 0x8000) {
+			bitshift++;
+			rotator <<= 1;
+		}
+		cmd->resp[0] = rotator >> 8;
+		leftover = rotator;
+	} else {
+		cmd->resp[0] = byte;
+	}
+	cmd->error = 0;
+
+	if (cmd->resp[0] != 0) {
+		if ((R1_SPI_PARAMETER | R1_SPI_ADDRESS) & cmd->resp[0])
+			value = -EFAULT;
+		else if (R1_SPI_ILLEGAL_COMMAND & cmd->resp[0])
+			value = -ENOSYS;
+		else if (R1_SPI_COM_CRC & cmd->resp[0])
+			value = -EILSEQ;
+		else if ((R1_SPI_ERASE_SEQ | R1_SPI_ERASE_RESET) & cmd->resp[0])
+			value = -EIO;
+		/* else R1_SPI_IDLE: the card is still resetting */
+	}
+
+	switch (mmc_spi_resp_type(cmd)) {
+	case MMC_RSP_SPI_R1B:
+		/* R1 then busy: STOP_TRANSMISSION, erases */
+		sd_wait_unbusy(host, msecs_to_jiffies(cmd->busy_timeout ?
+				cmd->busy_timeout : SD_R1B_TIMEOUT_MS));
+		break;
+	case MMC_RSP_SPI_R2:
+		/* R1 then a second status byte: SEND_STATUS */
+		byte = sd_byte(host, 0xff);
+		if (byte < 0) {
+			value = byte;
+			goto done;
+		}
+		if (bitshift)
+			cmd->resp[0] |= ((leftover << 8) | (byte << bitshift)) &
+				0xff00;
+		else
+			cmd->resp[0] |= byte << 8;
+		break;
+	case MMC_RSP_SPI_R3:
+		/* R1 then four bytes: OCR, IF_COND */
+		rotator = leftover << 8;
+		cmd->resp[1] = 0;
+		for (i = 0; i < 4; i++) {
+			cmd->resp[1] <<= 8;
+			byte = sd_byte(host, 0xff);
+			if (byte < 0) {
+				value = byte;
+				goto done;
+			}
+			if (bitshift) {
+				rotator |= byte << bitshift;
+				cmd->resp[1] |= rotator >> 8;
+				rotator <<= 8;
+			} else {
+				cmd->resp[1] |= byte;
+			}
+		}
+		break;
+	case MMC_RSP_SPI_R1:
+		break;
+	default:
+		if (value >= 0)
+			value = -EINVAL;
+		goto done;
+	}
+
+	if (value >= 0 && cs_on)
+		return value;
+done:
+	if (value < 0)
+		cmd->error = value;
+	sd_deselect(host);
+	return value;
+}
+
+static int sd_command(struct s1c33_sd *host, struct mmc_command *cmd,
+		      bool cs_on)
+{
+	u8 frame[7];
+	int status;
+
+	/* An all-ones byte to be sure the card is ready, then the command. */
+	frame[0] = 0xff;
+	frame[1] = 0x40 | cmd->opcode;
+	put_unaligned_be32(cmd->arg, frame + 2);
+	frame[6] = crc7_be(0, frame + 1, 5) | 0x01;
+
+	sd_select(host);
+	status = sd_bytes(host, frame, NULL, sizeof(frame));
+	if (status < 0) {
+		cmd->error = status;
+		sd_deselect(host);
+		return status;
+	}
+	return sd_response(host, cmd, cs_on);
+}
+
+/****************************************************************************/
+/* Data */
+
+/*
+ * Read one block: skip the all-ones gap, find the start token, then the
+ * data and its CRC.  A card may shift the token, and so everything after
+ * it, by a few bits; that is undone here, as mmc_spi does.
+ */
+static int sd_read_block(struct s1c33_sd *host, u8 *buf, unsigned int len,
+			 unsigned long timeout)
+{
+	unsigned int bitshift;
+	u8 crc[2];
+	u8 leftover;
+	int status;
+
+	/* At least one card sends a zero byte before the all-ones. */
+	sd_configure(host, 8, false);
+	status = sd_byte(host, 0xff);
+	if (status == 0xff || status == 0)
+		status = sd_skip(host, timeout, 0xff);
+	if (status < 0)
+		return status;
+	/* A data error token: 0000xxxx */
+	if (!(status & 0xf0))
+		return -EIO;
+
+	bitshift = 7;
+	while (status & 0x80) {
+		status <<= 1;
+		bitshift--;
+	}
+	leftover = status << 1;
+
+	status = sd_read_words(host, buf, len);
+	if (!status)
+		status = sd_bytes(host, NULL, crc, sizeof(crc));
+	if (status)
+		return status;
+
+	if (bitshift) {
+		unsigned int bitright = 8 - bitshift;
+		unsigned int i;
+		u8 temp;
+
+		for (i = 0; i < len; i++) {
+			temp = buf[i];
+			buf[i] = leftover | (temp >> bitshift);
+			leftover = temp << bitright;
+		}
+		for (i = 0; i < sizeof(crc); i++) {
+			temp = crc[i];
+			crc[i] = leftover | (temp >> bitshift);
+			leftover = temp << bitright;
+		}
+	}
+
+	if (host->mmc->use_spi_crc &&
+	    get_unaligned_be16(crc) != sd_crc(buf, len))
+		return -EILSEQ;
+	return 0;
+}
+
+/*
+ * Write one block: a gap byte, the token, the data and its CRC, then the
+ * card's data-response byte and its busy signal.  Some cards answer a few
+ * bits late, so the response is looked for bit by bit, as mmc_spi does.
+ */
+static int sd_write_block(struct s1c33_sd *host, const u8 *buf,
+			  unsigned int len, bool multiple,
+			  unsigned long timeout)
+{
+	u8 head[2] = { 0xff, multiple ? SPI_TOKEN_MULTI_WRITE :
+					SPI_TOKEN_SINGLE };
+	u8 crc[2] = { 0xff, 0xff };
+	u8 reply[4];
+	u32 pattern;
+	int status;
+
+	if (host->mmc->use_spi_crc)
+		put_unaligned_be16(sd_crc(buf, len), crc);
+
+	status = sd_bytes(host, head, NULL, sizeof(head));
+	if (!status)
+		status = sd_write_words(host, buf, len);
+	if (!status)
+		status = sd_bytes(host, crc, NULL, sizeof(crc));
+	if (!status)
+		status = sd_bytes(host, NULL, reply, sizeof(reply));
+	if (status)
+		return status;
+
+	/* The first three bits are undefined; the code follows the first 0. */
+	pattern = get_unaligned_be32(reply) | 0xe0000000;
+	while (pattern & 0x80000000)
+		pattern <<= 1;
+	pattern >>= 27;
+
+	switch (pattern) {
+	case SPI_RESPONSE_ACCEPTED:
+		break;
+	case SPI_RESPONSE_CRC_ERR:
+		return -EILSEQ;
+	case SPI_RESPONSE_WRITE_ERR:
+		return -EIO;
+	default:
+		return -EPROTO;
+	}
+
+	/* Done if the busy signal already ended within the reply bytes. */
+	if (reply[3] & 0x01)
+		return 0;
+	return sd_wait_unbusy(host, timeout);
+}
+
+static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
+{
+	bool multiple = data->blocks > 1;
+	bool write = data->flags & MMC_DATA_WRITE;
+	struct scatterlist *sg;
+	unsigned long timeout;
+	unsigned int n_sg;
+	int status = 0;
+
+	timeout = data->timeout_ns / 1000 + data->timeout_clks * 1000000 /
+		(host->clock >> (host->divider + 2));
+	timeout = usecs_to_jiffies(timeout) + 1;
+
+	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
+		u8 *buf = kmap(sg_page(sg)) + sg->offset;
+		unsigned int length = sg->length;
+
+		while (length) {
+			unsigned int len = min(length, data->blksz);
+
+			if (write)
+				status = sd_write_block(host, buf, len,
+							multiple, timeout);
+			else
+				status = sd_read_block(host, buf, len,
+						       timeout);
+			if (status)
+				break;
+			data->bytes_xfered += len;
+			buf += len;
+			length -= len;
+			if (!multiple)
+				break;
+		}
+		if (!write)
+			flush_dcache_page(sg_page(sg));
+		kunmap(sg_page(sg));
+		if (status) {
+			data->error = status;
+			break;
+		}
+	}
+
+	/* A multiple-block write ends with its own token, then busy. */
+	if (write && multiple) {
+		u8 stop[2] = { SPI_TOKEN_STOP_TRAN, 0xff };
+
+		status = sd_bytes(host, stop, NULL, sizeof(stop));
+		if (!status)
+			status = sd_wait_unbusy(host, timeout);
+		if (status && !data->error)
+			data->error = status;
+	}
+}
+
+static void sd_request(struct mmc_host *mmc, struct mmc_request *mrq)
+{
+	struct s1c33_sd *host = mmc_priv(mmc);
+	int crc_retry = 5;
+	int status;
+
+retry:
+	status = sd_command(host, mrq->cmd, mrq->data != NULL);
+	if (status == 0 && mrq->data) {
+		sd_data(host, mrq->data);
+
+		/*
+		 * The odd CRC error is recovered from by stopping and
+		 * repeating the command, as mmc_spi does.
+		 */
+		if (mrq->data->error == -EILSEQ && crc_retry--) {
+			struct mmc_command stop = {
+				.opcode = MMC_STOP_TRANSMISSION,
+				.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B |
+					MMC_CMD_AC,
+			};
+
+			sd_command(host, &stop, false);
+			mrq->data->error = 0;
+			mrq->data->bytes_xfered = 0;
+			goto retry;
+		}
+
+		if (mrq->stop)
+			sd_command(host, mrq->stop, false);
+		else
+			sd_deselect(host);
+	}
+	mmc_request_done(mmc, mrq);
+}
+
+/****************************************************************************/
+/* Power and clock */
+
+/* See 6.4.1 in the simplified SD physical layer specification 2.0. */
+static void sd_initsequence(struct s1c33_sd *host)
+{
+	/* Let any earlier command finish, and skip what it left behind. */
+	sd_select(host);
+	sd_wait_unbusy(host, msecs_to_jiffies(SD_INIT_TIMEOUT_MS));
+	sd_bytes(host, NULL, NULL, 10);
+	/* At least 74 clocks with the card deselected, before CMD0. */
+	gpiod_set_value(host->cs, 0);
+	sd_bytes(host, NULL, NULL, 18);
+}
+
+static void sd_setpower(struct s1c33_sd *host, unsigned short vdd)
+{
+	struct mmc_host *mmc = host->mmc;
+
+	if (vdd) {
+		mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, vdd);
+		mmc_regulator_enable_vqmmc(mmc);
+	} else {
+		mmc_regulator_disable_vqmmc(mmc);
+		mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, 0);
+	}
+}
+
+static void sd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+{
+	struct s1c33_sd *host = mmc_priv(mmc);
+
+	if (ios->clock) {
+		unsigned int divider = 0;
+
+		while (divider < 7 && host->clock >> (divider + 2) > ios->clock)
+			divider++;
+		host->divider = divider;
+	}
+
+	if (host->power_mode == ios->power_mode)
+		return;
+	switch (ios->power_mode) {
+	case MMC_POWER_OFF:
+		sd_setpower(host, 0);
+		/* Leave the card's inputs low: MOSI by sending a zero. */
+		gpiod_set_value(host->cs, 0);
+		sd_bytes(host, (const u8[]){ 0 }, NULL, 1);
+		msleep(10);
+		break;
+	case MMC_POWER_UP:
+		sd_setpower(host, ios->vdd);
+		msleep(host->pdata->powerup_msecs);
+		break;
+	case MMC_POWER_ON:
+		sd_initsequence(host);
+		break;
+	}
+	host->power_mode = ios->power_mode;
+}
+
+static const struct mmc_host_ops sd_ops = {
+	.request	= sd_request,
+	.set_ios	= sd_set_ios,
+	.get_ro		= mmc_gpio_get_ro,
+	.get_cd		= mmc_gpio_get_cd,
+};
+
+/****************************************************************************/
+/* Probe */
+
+static void sd_reset_dma(struct s1c33_sd *host)
+{
+	/*
+	 * There is no HSDMA software-reset bit.  Establish the documented
+	 * reset-equivalent state: remove every request source, stop both
+	 * channels, discard pending trigger latches, clear terminal-count and
+	 * SPI request causes, and return to STD mode.  The card loader that
+	 * ran before Linux may also have left the intelligent DMA controller
+	 * asking this port for service.
+	 */
+	writeb(0, host->itc + ITC_HS_TRIGGER);
+	writeb(readb(host->itc + ITC_IDMA_ENABLE) & ~ITC_IDMA_SPI_BIT,
+	       host->itc + ITC_IDMA_ENABLE);
+	writeb(readb(host->itc + ITC_IDMA_REQ) & ~ITC_IDMA_SPI_BIT,
+	       host->itc + ITC_IDMA_REQ);
+	writeb(0, host->dma + DMA_IDMA_RUN);
+	sd_dma_stop(host);
+	writeb(ITC_SPI_DMA_FLAGS, host->itc + ITC_SPI_FLAG);
+	writew(0, host->dma + DMA_ADV_MODE);
+	writew(0, host->dma + DMA_ADV_TIME);
+}
+
+static int sd_probe(struct platform_device *pdev)
+{
+	const struct s1c33_sd_platform_data *pdata =
+		dev_get_platdata(&pdev->dev);
+	struct device *dev = &pdev->dev;
+	struct s1c33_sd *host;
+	struct mmc_host *mmc;
+	struct clk *clk;
+	int ret;
+
+	if (!pdata)
+		return -EINVAL;
+	mmc = devm_mmc_alloc_host(dev, sizeof(*host));
+	if (!mmc)
+		return -ENOMEM;
+	host = mmc_priv(mmc);
+	host->mmc = mmc;
+	host->dev = dev;
+	host->pdata = pdata;
+	host->control = ~0U;
+	host->power_mode = MMC_POWER_OFF;
+
+	clk = devm_clk_get_enabled(dev, NULL);
+	if (IS_ERR(clk))
+		return dev_err_probe(dev, PTR_ERR(clk),
+				     "cannot enable input clock\n");
+	/* Nothing changes MCLK while Linux runs. */
+	host->clock = clk_get_rate(clk);
+	if (!host->clock)
+		return dev_err_probe(dev, -EINVAL, "input clock has no rate\n");
+	clk = devm_clk_get_enabled(dev, "dma");
+	if (IS_ERR(clk))
+		return dev_err_probe(dev, PTR_ERR(clk),
+				     "cannot enable DMA clock\n");
+
+	host->base = devm_platform_ioremap_resource_byname(pdev, "spi");
+	if (IS_ERR(host->base))
+		return PTR_ERR(host->base);
+	host->dma = devm_platform_ioremap_resource_byname(pdev, "dma");
+	if (IS_ERR(host->dma))
+		return PTR_ERR(host->dma);
+	host->itc = devm_platform_ioremap_resource_byname(pdev, "itc");
+	if (IS_ERR(host->itc))
+		return PTR_ERR(host->itc);
+
+	host->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);
+	if (IS_ERR(host->cs))
+		return dev_err_probe(dev, PTR_ERR(host->cs),
+				     "cannot claim chip select\n");
+
+	sd_reset_dma(host);
+	/* Completion is polled: neither DMA channel interrupts. */
+	writeb(0, host->itc + ITC_DMA_PRIORITY);
+	writel(0, host->base + SPI_CTL2);
+	writel(0, host->base + SPI_WAIT);
+	writel(0, host->base + SPI_INT);
+	readl(host->base + SPI_RXD);
+
+	mmc->ops = &sd_ops;
+	mmc->caps = MMC_CAP_SPI | MMC_CAP_NONREMOVABLE;
+	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
+	mmc->f_min = max(host->clock >> 9, 400000UL);
+	mmc->f_max = host->clock >> 2;
+	mmc->max_blk_size = SD_BLOCKSIZE;
+	mmc->max_segs = SD_BLOCKSATONCE;
+	mmc->max_blk_count = SD_BLOCKSATONCE;
+	mmc->max_req_size = SD_BLOCKSATONCE * SD_BLOCKSIZE;
+	mmc->max_seg_size = mmc->max_req_size;
+	ret = mmc_regulator_get_supply(mmc);
+	if (ret)
+		return ret;
+	platform_set_drvdata(pdev, host);
+
+	ret = mmc_add_host(mmc);
+	if (ret)
+		return ret;
+	dev_info(dev, "SD host %s at up to %u Hz, polled HSDMA block reads\n",
+		 mmc_hostname(mmc), mmc->f_max);
+	return 0;
+}
+
+static void sd_remove(struct platform_device *pdev)
+{
+	struct s1c33_sd *host = platform_get_drvdata(pdev);
+
+	mmc_remove_host(host->mmc);
+}
+
+static struct platform_driver s1c33_sd_driver = {
+	.driver.name	= "s1c33-sd",
+	.probe		= sd_probe,
+	.remove		= sd_remove,
+};
+module_platform_driver(s1c33_sd_driver);
+
+MODULE_DESCRIPTION("Epson S1C33 SD card host, SPI mode");
+MODULE_LICENSE("GPL");
