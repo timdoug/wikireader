@@ -37,6 +37,7 @@ struct gb_hot {
 	uintptr_t hram, bias;
 	uint32_t size, steps, park, go;
 	uintptr_t hram_biased;			/* hram_io - 0xff00 */
+	int32_t stat0_left;	/* mode 3 has become 0 once left <= this */
 	uint32_t cb_get[8], cb_set[8], cb_op[32];
 };
 
@@ -115,6 +116,16 @@ static inline __attribute__((always_inline)) uint32_t tac_period(unsigned tac)
 	return 16u << (((tac + 3) & 3) * 2);
 }
 
+/* Where mode 3 ends as an event.  With the STAT mode 0 interrupt off, the
+   change to mode 0 only shows in STAT's mode bits, so it waits for the line
+   end, or the next event, or anything that reads or writes STAT: those run
+   the deferred cycles first (slow_read, meets_deferred) or, in hot.s, work
+   the mode out from the budget (gb_hot.stat0_left). */
+static inline __attribute__((always_inline)) int32_t hblank_end(unsigned stat)
+{
+	return stat & STAT_MODE_0_INTR ? LCD_MODE3_LCD_DRAW_END : LCD_LINE_CYCLES;
+}
+
 /* When the next deferred event is due, in cycles from the last batch.
    Inlined: it runs from SDRAM after a C step and from the window buffer
    after a hot.s event. */
@@ -125,7 +136,7 @@ static inline __attribute__((always_inline)) int32_t next_event(struct gb_s *g)
 	if (g->hram_io[IO_LCDC] & LCDC_ENABLE) {
 		unsigned mode = g->hram_io[IO_STAT] & STAT_MODE;
 		int32_t end = mode == IO_STAT_MODE_OAM_SCAN ? LCD_MODE2_OAM_SCAN_END
-			: mode == IO_STAT_MODE_LCD_DRAW ? LCD_MODE3_LCD_DRAW_END
+			: mode == IO_STAT_MODE_LCD_DRAW ? hblank_end(g->hram_io[IO_STAT])
 			: LCD_LINE_CYCLES;
 
 		next = end - (int32_t)g->counter.lcd_count;
@@ -359,7 +370,8 @@ static uint32_t (*volatile fast_ticks)(struct gb_s *, uint32_t, int) = ticks;
    LCD mode change, the same state changes as ticks() in the same order,
    but touching only what changes, and returning the next budget, which
    next_event() would give.  Everything else goes to ticks(). */
-static TICK_CODE int32_t event_tick(struct gb_s *g, uint32_t cycles)
+static inline __attribute__((always_inline)) int32_t
+event_tick(struct gb_s *g, uint32_t cycles)
 {
 	uint8_t *io = g->hram_io;
 	int rtc_on = g->mbc == 3 && (g->rtc_real.reg.high & 0x40) == 0;
@@ -369,7 +381,7 @@ static TICK_CODE int32_t event_tick(struct gb_s *g, uint32_t cycles)
 
 	if ((io[IO_SC] & SERIAL_SC_TX_START) || !(io[IO_LCDC] & LCDC_ENABLE)
 	    || (rtc_on && g->counter.rtc_count + cycles >= RTC_CYCLES)) {
-		(void)ticks(g, cycles, 0);
+		(void)fast_ticks(g, cycles, 0);		/* from either memory */
 		return next_event(g);
 	}
 
@@ -452,15 +464,22 @@ static TICK_CODE int32_t event_tick(struct gb_s *g, uint32_t cycles)
 	g->counter.lcd_count = lcd;
 
 	mode = stat & STAT_MODE;
-	lcd_next = (int32_t)(mode == IO_STAT_MODE_OAM_SCAN ? LCD_MODE2_OAM_SCAN_END
-			     : mode == IO_STAT_MODE_LCD_DRAW ? LCD_MODE3_LCD_DRAW_END
-			     : LCD_LINE_CYCLES) - (int32_t)lcd;
+	lcd_next = (mode == IO_STAT_MODE_OAM_SCAN ? LCD_MODE2_OAM_SCAN_END
+		    : mode == IO_STAT_MODE_LCD_DRAW ? hblank_end(stat)
+		    : LCD_LINE_CYCLES) - (int32_t)lcd;
 	if (lcd_next < next)
 		next = lcd_next;
 	return next < 1 ? 1 : next;
 }
 
-static int32_t (*volatile fast_event)(struct gb_s *, uint32_t) = event_tick;
+/* For Peanut's steps, in SDRAM: hot.s's events have their own copy in
+   gb_hot_event, in the window buffer, which has no room for two. */
+static __attribute__((noinline)) int32_t step_event(struct gb_s *g, uint32_t cycles)
+{
+	return event_tick(g, cycles);
+}
+
+static int32_t (*volatile fast_event)(struct gb_s *, uint32_t) = step_event;
 
 /* A step's timing, from Peanut's step (PEANUT_GB_TICKS): the HALT loop,
    or one event. */
@@ -521,13 +540,14 @@ static inline __attribute__((always_inline)) void ticked(struct gb_s *g)
 	budget = next_event(g);
 }
 
-/* Deferred cycles only show in DIV and TIMA: LY, STAT, IF and the serial
-   registers change at events, which are never deferred. */
+/* Deferred cycles only show in DIV, TIMA and STAT's mode bits (hblank_end):
+   LY, IF and the serial registers change at events, which are never
+   deferred. */
 static uint8_t slow_read(struct gb_s *g, uint_fast16_t address)
 {
 	if (address >= 0xff80 && address != 0xffff)
 		return g->hram_io[address - IO_ADDR];
-	if (address == 0xff04 || address == 0xff05)
+	if (address == 0xff04 || address == 0xff05 || address == 0xff41)
 		catch_up(g);
 	return __gb_read(g, (uint16_t)address);
 }
@@ -540,7 +560,8 @@ static int meets_deferred(struct gb_s *g, uint_fast16_t address)
 	if (address >= IO_ADDR) {
 		unsigned reg = address & 0xff;
 
-		return reg == 0x02 || (reg >= 0x04 && reg <= 0x07) || reg == 0x40;
+		return reg == 0x02 || (reg >= 0x04 && reg <= 0x07) || reg == 0x40
+			|| reg == 0x41;
 	}
 	if (address < 0x8000)
 		return g->mbc == 3 && address >= 0x6000;

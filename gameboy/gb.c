@@ -464,6 +464,19 @@ unsigned gbw_run_frame(void)
 #elif defined GBW_HOT
 /* hot.s runs the common instructions; C takes interrupts, the instructions
    hot.s gives back, and the events at the end of a batch. */
+/* hot.s's STAT reads: the budget left at which mode 3 has become mode 0
+   when that change is not an event (hblank_end), or never. */
+static inline __attribute__((always_inline)) int32_t stat0_left(void)
+{
+	unsigned stat = gb.hram_io[IO_STAT];
+
+	if (!(gb.hram_io[IO_LCDC] & LCDC_ENABLE)
+	    || (stat & STAT_MODE) != IO_STAT_MODE_LCD_DRAW
+	    || (stat & STAT_MODE_0_INTR))
+		return INT32_MIN;
+	return budget - (int32_t)(LCD_MODE3_LCD_DRAW_END - gb.counter.lcd_count);
+}
+
 static void to_hot(void)
 {
 	uint8_t f = gb.cpu_reg.f.reg;
@@ -478,6 +491,7 @@ static void to_hot(void)
 	hot.cf = f & 0x10 ? 0x80000000u : 0;
 	hot.hx = (f & 0x20 ? 0x10u : 0) | (f & 0x40 ? 0x200u : 0);
 	hot.left = budget - pending;
+	hot.stat0_left = stat0_left();
 }
 
 static void from_hot(void)
@@ -504,9 +518,9 @@ TICK_CODE void gb_hot_event(void)
 	pending = 0;
 	budget = event_tick(&gb, cycles);
 	hot.left = budget;
+	hot.stat0_left = stat0_left();
 	hot.go = !gb.gb_frame && !(gb.gb_ime && gb.hram_io[IO_IF]
 				   & gb.hram_io[IO_IE] & ANY_INTR);
-	++gbw_counts.events;
 }
 
 /* What the loop did, for the benchmark report: calls into hot.s, the

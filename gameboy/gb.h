@@ -59,7 +59,7 @@ unsigned gbw_run_frame(void);
 uint32_t gbw_hash(const uint8_t *picture);
 /* What the frame loop did, cumulative, when hot.s runs it. */
 struct gbw_counts {
-	unsigned long hot_calls, events, interrupts, given_back[256];
+	unsigned long hot_calls, interrupts, given_back[256];
 };
 extern struct gbw_counts gbw_counts;
 

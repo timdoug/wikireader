@@ -47,7 +47,7 @@ for name, size in (('READ', 64), ('WRITE', 64), ('REND', 64), ('RSIZE', 64),
                    ('A', 4), ('BC', 4), ('DE', 4), ('HL', 4), ('SP', 4),
                    ('PC', 4), ('ZV', 4), ('CF', 4), ('HX', 4), ('LEFT', 4),
                    ('HRAM', 4), ('BIAS', 4), ('SIZE', 4), ('STEPS', 4),
-                   ('PARK', 4), ('GO', 4), ('HRAMB', 4),
+                   ('PARK', 4), ('GO', 4), ('HRAMB', 4), ('STAT0', 4),
                    ('CBGET', 32), ('CBSET', 32), ('CBOP', 128)):
     OFF[name] = _at
     _at += size
@@ -161,6 +161,8 @@ class Handler:
         c(f'\txcmp\t{dst},0x80')                 # HRAM
         c(f'\txjruge\t{yes}')
         if table == 'READ':                       # plain I/O, as plain_io
+            c(f'\txcmp\t{dst},0x41')             # STAT: C works out the mode
+            c(f'\txjreq\t{no}')
             c(f'\tcmp\t{dst},4')
             c(f'\txjreq\t{no}')
             c(f'\tcmp\t{dst},5')
@@ -775,12 +777,34 @@ def plain_io(h, n, rewind):
     h.decline(rewind, 'jrult')
 
 
+def stat_mode(h):
+    """A was read from FF00+T0: if that was STAT in mode 3 and the change
+    to mode 0 is not an event (memory.h's hblank_end), work the mode out
+    from the budget."""
+    stat, back = f'{h.name}_stat', f'{h.name}_statb'
+    h.e(f'xcmp\t{T0},0x41')
+    h.e(f'jreq\t{stat}')
+    h.label(back)
+    c = h.cold.append
+    c(f'{stat}:')
+    c(f'\tld.w\t{T1},{A}')
+    c(f'\tand\t{T1},3')
+    c(f'\tcmp\t{T1},3')
+    c(f'\txjrne\t{back}')
+    c(f'\txld.w\t{T1},[{TB}+{OFF["STAT0"]}]')
+    c(f'\tcmp\t{LEFT},{T1}')
+    c(f'\txjrgt\t{back}')
+    c(f'\tand\t{A},-4')                      # mode 0
+    c(f'\txjp\t{back}')
+
+
 h = op(0xf0)                                    # LDH A,(n)
 h.e(f'ld.ub\t{T0},[{P}]+')
 plain_io(h, T0, 2)
 h.e(f'xld.w\t{T1},[{TB}+{OFF["HRAM"]}]')
 h.e(f'add\t{T1},{T0}')
 h.e(f'ld.ub\t{A},[{T1}]')
+stat_mode(h)
 h.next(12)
 h = op(0xf2)                                    # LD A,(C)
 h.e(f'ld.ub\t{T0},{BC}')
@@ -788,6 +812,7 @@ plain_io(h, T0, 1)
 h.e(f'xld.w\t{T1},[{TB}+{OFF["HRAM"]}]')
 h.e(f'add\t{T1},{T0}')
 h.e(f'ld.ub\t{A},[{T1}]')
+stat_mode(h)
 h.next(8)
 
 
@@ -1196,10 +1221,30 @@ def weights():
 
 
 WEIGHT = weights()
-# The window buffer also holds memory.h's ticks() and event_tick() and
-# gb.c's gb_hot_event().
-IVRAM_CODE = 0x1600 - STATE_END - 64 - 2300
-A0_CODE = int(next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--a0=')), '2080'), 0)
+# The window buffer and A0 RAM also hold gb.c's code and data there; the
+# Makefile names the compiled gb.o (--c-object) and objdump (--objdump).
+# hot.s's own shared code (.Lsetpc, the event stub, the idle loop) takes
+# about SHARED of the window buffer, and each section keeps some slack for
+# alignment and the exit stubs' rounding.
+def c_sections():
+    obj = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--c-object=')), None)
+    tool = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--objdump=')), None)
+    sizes = {}
+    if obj and tool:
+        import subprocess
+        for line in subprocess.run([tool, '-h', obj], capture_output=True,
+                                   text=True, check=True).stdout.splitlines():
+            p = line.split()
+            if len(p) >= 3 and p[0].isdigit():
+                sizes[p[1]] = sizes.get(p[1], 0) + int(p[2], 16)
+    return sizes
+
+
+C_SECTIONS = c_sections()
+SHARED, SLACK = 300, 40
+IVRAM_CODE = 0x1600 - STATE_END - C_SECTIONS.get('.ivram_code', 2300) - SHARED - SLACK
+A0_CODE = (0x13c0 - C_SECTIONS.get('.fastcode', 2400)
+           - C_SECTIONS.get('.fastbss', 700) - SLACK)
 
 order = []
 for c in sorted(handlers, key=lambda c: -WEIGHT.get(f'{c:02x}', 0)):

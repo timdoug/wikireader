@@ -72,9 +72,11 @@ touching.
   after, and events run in turn until one leaves an interrupt pending. It
   leaves at the loop instruction a step-by-step run would have reached.
 - **`memory.h`**: a 16-page memory map for the C paths, and timing that is
-  deferred until the next event. Only DIV and TIMA fall behind meanwhile;
-  an access that meets them, or a write that could move the next event,
-  runs the deferred cycles first. `event_tick()` runs one event touching
+  deferred until the next event. Only DIV, TIMA and STAT's mode bits fall
+  behind meanwhile; an access that meets them, or a write that could move
+  the next event, runs the deferred cycles first (hot.s works STAT's mode
+  out from its budget). With the STAT mode 0 interrupt off, the change to
+  HBlank is not an event, which leaves two a scanline. `event_tick()` runs one event touching
   only what changes and returns the next budget; `ticks()` does the rest,
   and Peanut's HALT loop -- about six passes a halted scanline -- with the
   counters and I/O registers held in locals for the whole wait. Both run
@@ -107,6 +109,9 @@ no HALT bug.
 - `build/host-check GAME FRAMES [SCRIPT]` runs Peanut's renderer beside
   `render.h` on every line; `build/host-check -fuzz N` does it on N frames of
   random VRAM, OAM and LCD registers.
+- `tests/statpoll.py` writes a test ROM that reads STAT and LY at every
+  phase of the line and logs them to work RAM, for the paths above that
+  work STAT's mode out instead of running an event.
 - `run.py` boots the real chain (FLASH loader, kernel, init.app) in the
   emulator, runs a scripted benchmark and compares the C33 build's frame
   hashes -- picture, WRAM, VRAM, OAM and I/O every 60 frames -- with
@@ -121,10 +126,10 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Speed |
 | --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 185% |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 188% |
 | Pokemon Red, intro (frames 421-540) | 176% |
-| Tetris, first piece falling (frames 721-840) | 171% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 118% |
+| Tetris, first piece falling (frames 721-840) | 194% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 127% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank

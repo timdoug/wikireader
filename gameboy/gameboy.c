@@ -517,9 +517,9 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 					break;
 				}
 		}
-		report("gb: per frame: %lu hot.s calls, %lu events inside, %lu given back, %lu interrupt or HALT steps\n",
-		       gbw_counts.hot_calls / frames, gbw_counts.events / frames,
-		       given / frames, gbw_counts.interrupts / frames);
+		report("gb: per frame: %lu hot.s calls, %lu given back, %lu interrupt or HALT steps\n",
+		       gbw_counts.hot_calls / frames, given / frames,
+		       gbw_counts.interrupts / frames);
 		report("gb: given back most: %02x %lu, %02x %lu, %02x %lu, %02x %lu\n",
 		       top[0], gbw_counts.given_back[top[0]] / frames,
 		       top[1], gbw_counts.given_back[top[1]] / frames,
