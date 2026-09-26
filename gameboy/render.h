@@ -177,16 +177,38 @@ fetch_stream(const uint8_t *map, unsigned first, unsigned tile_row,
 /* Which sprites each line shows, in OAM order, rebuilt when OAM or the
    sprite size changes: scanning all forty for every line cost two SDRAM
    loads a sprite, 144 times a frame. */
-static uint8_t line_count[LCD_HEIGHT];
+static uint8_t line_count[LCD_HEIGHT] __attribute__((aligned(4)));
 static uint8_t line_sprites[LCD_HEIGHT][NUM_SPRITES];
 static int sprites_dirty = 1;
 
-static __attribute__((noinline)) void bucket_sprites(unsigned lcdc)
+#ifdef __c33__
+/* Once a frame or so: in the default framebuffer's code, beside hot.s. */
+#define BUCKET_CODE __attribute__((section(".fbcode"), noinline))
+#else
+#define BUCKET_CODE __attribute__((noinline))
+#endif
+
+static BUCKET_CODE void bucket_sprites(unsigned lcdc)
 {
 	unsigned span = lcdc & LCDC_OBJ_SIZE ? 16 : 8;
+	uint32_t key[NUM_SPRITES];
 
-	memset(line_count, 0, sizeof line_count);
+	/* In (X, number) order, so that each line's list is too: the ten
+	   sprites Peanut shows on a line are its first ten, painted from the
+	   last.  One sort of forty keys, X above the number, when OAM
+	   changes, rather than one on every line with sprites. */
 	for (unsigned s = 0; s < NUM_SPRITES; ++s) {
+		uint32_t k = (uint32_t)gb.oam[4 * s + 1] << 8 | s;
+		unsigned place = s;
+
+		for (; place && key[place - 1] > k; --place)
+			key[place] = key[place - 1];
+		key[place] = k;
+	}
+	for (unsigned ly = 0; ly < LCD_HEIGHT; ly += 4)
+		*(uint32_t *)&line_count[ly] = 0;
+	for (unsigned i = 0; i < NUM_SPRITES; ++i) {
+		unsigned s = key[i] & 0xff;
 		/* On line ly when oy - 16 <= ly < oy - 16 + span. */
 		int top = gb.oam[4 * s] - 16;
 
@@ -201,36 +223,18 @@ static void (*volatile rebucket)(unsigned lcdc) = bucket_sprites;
 
 static RENDER_CODE void render_sprites(unsigned ly, unsigned lcdc)
 {
-	uint8_t order[MAX_SPRITES_LINE], xs[MAX_SPRITES_LINE];
-	unsigned count = 0;
+	uint8_t order[MAX_SPRITES_LINE];
+	unsigned count;
 	unsigned tall = lcdc & LCDC_OBJ_SIZE;
 	unsigned bg_zero = gb.hram_io[IO_BGP] & 3;
 	uint32_t zero0 = broadcast(bg_zero), zero1 = broadcast(bg_zero >> 1);
 	uint8_t *s0p = (uint8_t *)shade0, *s1p = (uint8_t *)shade1;
 
-	/* Insertion into (x, number) order, keeping the first ten. */
-	for (unsigned i = 0; i < line_count[ly]; ++i) {
-		unsigned s = line_sprites[ly][i];
-		unsigned ox = gb.oam[4 * s + 1];
-		unsigned place;
-
-		for (place = count; place != 0; --place)
-			if (xs[place - 1] < ox || (xs[place - 1] == ox
-						   && order[place - 1] < s))
-				break;
-		if (place >= MAX_SPRITES_LINE)
-			continue;
-		for (unsigned i = count; i > place; --i) {
-			if (i < MAX_SPRITES_LINE) {
-				order[i] = order[i - 1];
-				xs[i] = xs[i - 1];
-			}
-		}
-		if (count < MAX_SPRITES_LINE)
-			++count;
-		order[place] = (uint8_t)s;
-		xs[place] = (uint8_t)ox;
-	}
+	/* The line's list is in (x, number) order (bucket_sprites): the
+	   first ten are shown. */
+	count = line_count[ly] < MAX_SPRITES_LINE ? line_count[ly] : MAX_SPRITES_LINE;
+	for (unsigned i = 0; i < count; ++i)
+		order[i] = line_sprites[ly][i];
 
 	/* Lowest priority first, each painted over the last. */
 	while (count--) {

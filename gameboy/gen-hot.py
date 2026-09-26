@@ -1298,7 +1298,7 @@ for c in sorted(handlers, key=lambda c: -WEIGHT.get(f'{c:02x}', 0)):
             order.append((WEIGHT.get('cb', 0), g))
 
 # The default framebuffer after the machine's kilobyte (memory.lds).
-FB_CODE = 0x81a00 - 0x80400 - 64
+FB_CODE = 0x81a00 - 0x80400 - 64 - C_SECTIONS.get('.fbcode', 0)
 sections = {'.ivram_code': [], '.fastcode': [], '.fbcode': [], '.text': []}
 room = {'.ivram_code': IVRAM_CODE, '.fastcode': A0_CODE, '.fbcode': FB_CODE,
         '.text': 1 << 30}

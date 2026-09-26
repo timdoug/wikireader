@@ -83,7 +83,9 @@ touching.
   from the window buffer.
 - **`render.h`**: each scanline as big-endian 32-bit bit planes, so fine
   scrolling is a funnel shift, and palettes, sprite priority and the dither
-  are masks. Sprites are bucketed by line when OAM changes. On the C33,
+  are masks. Sprites are bucketed by line when OAM changes, in (X, number)
+  order, so each line's first ten are the ten it shows and nothing is sorted
+  per line. On the C33,
   lines without the window go through `render_bg.s`: the map row copied to
   A0 RAM in eight word loads, the tile fetch, the funnel, the palette and
   the dither, every pass unrolled, in about 630 instructions a line, half
@@ -131,10 +133,10 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Speed |
 | --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 210% |
-| Pokemon Red, intro (frames 421-540) | 193% |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 207% |
+| Pokemon Red, intro (frames 421-540) | 198% |
 | Tetris, first piece falling (frames 721-840) | 213% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 140% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 147% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank
