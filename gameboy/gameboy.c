@@ -1,9 +1,11 @@
 /*
  * A Game Boy for the WikiReader: Grifo glue around gb.c.
  *
- *   gameboy.app GAME.gb [threshold] [serial] [state=F] [frames=N] [script=...]
- *               [window=N]
+ *   gameboy.app [GAME.gb] [threshold] [serial] [state=F] [frames=N]
+ *               [script=...] [window=N]
  *
+ * With no game named it shows the games on the card to choose from, and
+ * Quit comes back to them.
  * threshold draws the grays as white and black instead of dithering them;
  * serial copies what the game sends on the link port to the console;
  * state= starts from a save state written by the host build.
@@ -557,6 +559,249 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 	}
 }
 
+/* The chooser: every .gb and .gbc in the card's root and in gameboy/, by
+   name, five to a page.  Drawn in the emulator's own buffer, like the
+   controls: the default framebuffer holds handlers (memory.lds). */
+enum {
+	PICK_MAX = 64,
+	PICK_TOP = 32,		/* the first entry */
+	PICK_ROW = 28,		/* an entry, two lines of text */
+	PICK_PAGE = 5,
+	PICK_STRIP = PICK_TOP + PICK_PAGE * PICK_ROW + 4,
+	PICK_COLUMNS = LCD_WIDTH / 8 - 2,
+	FONT_ROWS = 13,
+};
+
+static char picks[PICK_MAX][96];
+static int pick_count;
+
+static int has_game_suffix(const char *name, size_t length)
+{
+	return (length > 3 && strcasecmp(name + length - 3, ".gb") == 0)
+		|| (length > 4 && strcasecmp(name + length - 4, ".gbc") == 0);
+}
+
+static void scan_games(const char *directory)
+{
+	size_t prefix = strlen(directory);
+	char name[256];
+	int handle = directory_open(directory);
+
+	if (handle < 0)
+		return;
+	while (pick_count < PICK_MAX) {
+		ssize_t length = directory_read(handle, name, sizeof name - 1);
+
+		if (length <= 0)
+			break;
+		name[length] = '\0';
+		/* Dot files include the "._" twins macOS leaves beside
+		   what it copies. */
+		if (name[0] == '.' || !has_game_suffix(name, (size_t)length)
+		    || prefix + (size_t)length >= sizeof picks[0])
+			continue;
+		memcpy(picks[pick_count], directory, prefix);
+		memcpy(picks[pick_count] + prefix, name, (size_t)length + 1);
+		++pick_count;
+	}
+	directory_close(handle);
+}
+
+static const char *base_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash ? slash + 1 : path;
+}
+
+static int by_name(const void *a, const void *b)
+{
+	return strcasecmp(base_name(a), base_name(b));
+}
+
+/* Text at any pixel row: the kernel prints on 13-pixel rows, so it goes
+   in the bottom one and is moved.  Before any lines are drawn, as the
+   bottom row is cleared after. */
+static void text_at(int column, int y, const char *text, size_t length)
+{
+	uint8_t *fb = (uint8_t *)buffers[0];
+	int from = LCD_HEIGHT - FONT_ROWS;
+
+	lcd_at_xy(column, from / FONT_ROWS);
+	for (size_t i = 0; i < length; ++i)
+		lcd_print_char(text[i]);
+	if (y == from)
+		return;
+	for (int line = 0; line < FONT_ROWS; ++line) {
+		uint8_t *source = fb + (from + line) * LCD_BUFFER_WIDTH_BYTES
+			+ column;
+
+		memcpy(fb + (y + line) * LCD_BUFFER_WIDTH_BYTES + column,
+		       source, length);
+		memset(source, 0, length);
+	}
+}
+
+/* A game's name without its extension or the "(USA, Europe) (Rev B)"
+   tags of ROM sets, on one line or broken at a space onto two. */
+static void draw_name(const char *path, int y)
+{
+	const char *name = base_name(path);
+	size_t length = (size_t)(strrchr(name, '.') - name);
+	size_t first;
+
+	while (length && (name[length - 1] == ')' || name[length - 1] == ']')) {
+		char open = name[length - 1] == ')' ? '(' : '[';
+		size_t at = length - 1;
+
+		while (at && name[at] != open)
+			--at;
+		if (at < 2 || name[at] != open || name[at - 1] != ' ')
+			break;
+		length = at - 1;
+	}
+
+	if (length <= PICK_COLUMNS) {
+		text_at(1, y + (PICK_ROW - FONT_ROWS) / 2, name, length);
+		return;
+	}
+	first = PICK_COLUMNS;
+	while (first > PICK_COLUMNS / 2 && name[first] != ' ')
+		--first;
+	if (name[first] != ' ')
+		first = PICK_COLUMNS;
+	text_at(1, y + 1, name, first);
+	name += first;
+	length -= first;
+	if (*name == ' ') {
+		++name;
+		--length;
+	}
+	text_at(1, y + 1 + FONT_ROWS, name,
+		length > PICK_COLUMNS ? PICK_COLUMNS : length);
+}
+
+static void invert(int top, int bottom)
+{
+	uint8_t *fb = (uint8_t *)buffers[0];
+
+	for (int y = top; y <= bottom; ++y)
+		for (int x = 0; x < LCD_WIDTH / 8; ++x)
+			fb[y * LCD_BUFFER_WIDTH_BYTES + x] ^= 0xff;
+}
+
+static int pages(void)
+{
+	return (pick_count + PICK_PAGE - 1) / PICK_PAGE;
+}
+
+static void draw_picker(int page, int pressed)
+{
+	int first = page * PICK_PAGE;
+	char label[16];
+
+	lcd_clear(LCD_WHITE);
+	text_at(3, 9, "QUIT", 4);
+	text_at(12, 9, "Choose a game", 13);
+	for (int i = 0; i < PICK_PAGE && first + i < pick_count; ++i)
+		draw_name(picks[first + i], PICK_TOP + i * PICK_ROW);
+	if (pages() > 1) {
+		int length = snprintf(label, sizeof label, "%d/%d", page + 1,
+				      pages());
+
+		text_at(2, PICK_STRIP + 9, "PREV", 4);
+		text_at(24, PICK_STRIP + 9, "NEXT", 4);
+		text_at(15 - length / 2, PICK_STRIP + 9, label,
+			(size_t)length);
+		box(0, PICK_STRIP, 63, LCD_HEIGHT - 1);
+		box(LCD_WIDTH - 64, PICK_STRIP, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+	}
+	box(0, 0, GBW_LEFT_BYTE * 8 - 1, QUIT_BOTTOM - 1);
+	for (int i = 0; i <= PICK_PAGE && first + i <= pick_count; ++i) {
+		lcd_move_to(0, PICK_TOP + i * PICK_ROW - 1);
+		lcd_line_to(LCD_WIDTH - 1, PICK_TOP + i * PICK_ROW - 1);
+	}
+	if (pressed >= 0)
+		invert(PICK_TOP + pressed * PICK_ROW,
+		       PICK_TOP + (pressed + 1) * PICK_ROW - 2);
+}
+
+/* What a touch at (x, y) is on: an entry of the page, 0 up; or one of
+   these. */
+enum { PICK_NOTHING = -1, PICK_QUIT = -2, PICK_PREV = -3, PICK_NEXT = -4 };
+
+static int picked(int page, int x, int y)
+{
+	if (y < QUIT_BOTTOM)
+		return x < GBW_LEFT_BYTE * 8 ? PICK_QUIT : PICK_NOTHING;
+	if (y >= PICK_STRIP)
+		return pages() < 2 ? PICK_NOTHING : x < 64 ? PICK_PREV
+			: x >= LCD_WIDTH - 64 ? PICK_NEXT : PICK_NOTHING;
+	if (y >= PICK_TOP && y < PICK_TOP + PICK_PAGE * PICK_ROW) {
+		int i = (y - PICK_TOP) / PICK_ROW;
+
+		if (page * PICK_PAGE + i < pick_count)
+			return i;
+	}
+	return PICK_NOTHING;
+}
+
+/* The path of the game chosen; Quit, or no games, goes back to the
+   launcher.  An entry starts when the finger lifts on it. */
+static const char *choose_game(void)
+{
+	int page = 0, down = PICK_NOTHING;
+
+	scan_games("");
+	scan_games("gameboy/");
+	qsort(picks, (size_t)pick_count, sizeof picks[0], by_name);
+	front = 0;
+	(void)lcd_set_framebuffer(buffers[0]);
+	for (;;) {
+		event_t event;
+		int at;
+
+		if (!pick_count) {
+			lcd_clear(LCD_WHITE);
+			lcd_at_xy(0, 0);
+			lcd_print("No games found.\n\nPut .gb files in the\n"
+				  "card's top folder or in\ngameboy/.\n\n"
+				  "Touch to return.");
+		} else {
+			draw_picker(page, down >= 0 ? down : -1);
+		}
+		watchdog(WATCHDOG_KEY);
+		if (event_wait_timeout(&event, 1000000) == EVENT_NONE)
+			continue;
+		if (!pick_count) {
+			if (event.item_type == EVENT_TOUCH_DOWN)
+				return NULL;
+			continue;
+		}
+		if (event.item_type != EVENT_TOUCH_DOWN
+		    && event.item_type != EVENT_TOUCH_MOTION
+		    && event.item_type != EVENT_TOUCH_UP)
+			continue;
+		at = picked(page, event.touch.x, event.touch.y);
+		if (event.item_type == EVENT_TOUCH_DOWN) {
+			down = at;
+		} else if (event.item_type == EVENT_TOUCH_MOTION) {
+			if (at != down)
+				down = PICK_NOTHING;
+		} else {
+			if (at == down && at >= 0)
+				return picks[page * PICK_PAGE + at];
+			if (at == down && at == PICK_QUIT)
+				return NULL;
+			if (at == down && at == PICK_PREV)
+				page = (page + pages() - 1) % pages();
+			if (at == down && at == PICK_NEXT)
+				page = (page + 1) % pages();
+			down = PICK_NOTHING;
+		}
+	}
+}
+
 int grifo_main(int argc, char **argv)
 {
 	const char *path = NULL, *script = NULL, *state_path = NULL;
@@ -564,6 +809,7 @@ int grifo_main(int argc, char **argv)
 	uint8_t *rom;
 	long bytes;
 	const char *failure;
+	int chosen = 0;
 
 	/* Grifo's own argv describes the boot, so a game is recognised by
 	   its extension rather than its position. */
@@ -586,6 +832,12 @@ int grifo_main(int argc, char **argv)
 			 && (strcmp(argv[i] + length - 3, ".gb") == 0
 			     || strcmp(argv[i] + length - 4, ".gbc") == 0))
 			path = argv[i];
+	}
+	if (!path && !frames) {
+		path = choose_game();
+		if (!path)
+			chain("init.app");
+		chosen = 1;
 	}
 	if (!path)
 		path = "game.gb";
@@ -630,5 +882,5 @@ int grifo_main(int argc, char **argv)
 	play();
 	write_save();
 	lcd_set_default_framebuffer();
-	chain("init.app");
+	chain(chosen ? "gameboy.app" : "init.app");
 }

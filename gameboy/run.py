@@ -44,6 +44,10 @@ def main():
     parser.add_argument('--play', type=int, metavar='CYCLES',
                         help='boot the game to play instead, stop after CYCLES and keep '
                              'the panel as screen.png beside the log')
+    parser.add_argument('--choose', action='store_true',
+                        help='with --play: name no game, so the app shows its chooser')
+    parser.add_argument('--also', action='append', default=[], type=Path,
+                        metavar='ROM', help='another game on the card, for --choose')
     parser.add_argument('--tap', action='append', default=[], metavar='X,Y,CYCLE')
     parser.add_argument('--button', action='append', default=[], metavar='CODE,CYCLE',
                         help='0 random (Start), 1 search (B), 2 history (A)')
@@ -68,7 +72,7 @@ def main():
     if args.state:
         arguments += ' state=state.bin'
     if args.play:
-        arguments = name.lower()
+        arguments = '' if args.choose else name.lower()
         args.limit = args.play
     files = {
         'KERNEL.ELF': (ROOT / 'samo-lib/grifo/grifo.elf').read_bytes(),
@@ -78,6 +82,9 @@ def main():
         'INIT.INI': f'gameboy.ico : gameboy.app {arguments}\n'.encode(),
         name: args.rom.read_bytes(),
     }
+    for rom in args.also:
+        files[re.sub(r'[^A-Z0-9]', '', rom.stem.upper())[:8] + rom.suffix.upper()[:4]] \
+            = rom.read_bytes()
     if args.state:
         files['STATE.BIN'] = args.state.read_bytes()
     harness.make_card(out / 'card.img', files)

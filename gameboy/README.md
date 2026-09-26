@@ -19,19 +19,25 @@ The first build clones Peanut-GB into `work/`.
 
 ## Card layout
 
-Copy `gameboy.app`, `gameboy.ico` and the game to the card's root, with a
-launcher line naming the game:
+Copy `gameboy.app` and `gameboy.ico` to the card's root, with a launcher
+line:
 
 ```text
-gameboy.ico : gameboy.app tetris.gb
+gameboy.ico : gameboy.app
 ```
 
-Names are 8.3. A game with battery RAM keeps it in the same name with
-`.sav`, written whenever the game's saved data changes (checked every five
-seconds) and on Quit. `threshold` after the game's name draws the two grays
-as white and black instead of dithering them; `serial` copies what the game
-sends on the link port to the serial console, for test ROMs that report
-there.
+The app lists every `.gb` and `.gbc` file in the card's root and in a
+`gameboy` folder, by name, five to a page; a touch starts one, and Quit in
+the game comes back to the list. Long names are shown on up to two lines,
+without the extension or the `(USA, Europe) (Rev B)` tags of ROM sets. A
+game named after `gameboy.app` on the launcher line starts straight away,
+and Quit then goes back to the launcher.
+
+A game with battery RAM keeps it in the same name with `.sav`, written
+whenever the game's saved data changes (checked every five seconds) and on
+Quit. `threshold` after the game's name draws the two grays as white and
+black instead of dithering them; `serial` copies what the game sends on
+the link port to the serial console, for test ROMs that report there.
 
 ## Display and controls
 
@@ -130,7 +136,9 @@ no HALT bug.
 
 `run.py GAME [--script S] [--frames N] [--window W]` times the frames after
 W, flat out; `--profile` adds a PC profile for `hotspots.py`, and
-`--play CYCLES` boots the game normally and keeps the panel as a PNG.
+`--play CYCLES` boots the game normally and keeps the panel as a PNG
+(`--choose` boots to the list instead, `--also ROM` adds games to the card,
+and `--tap X,Y,CYCLE` touches the panel).
 Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Average | Slowest second |
