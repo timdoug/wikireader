@@ -3,6 +3,7 @@
 
 import argparse
 import struct
+import sys
 from pathlib import Path
 
 
@@ -182,6 +183,10 @@ def main():
     parser.add_argument("--shared-text", action="store_true",
                         help="fail unless the text needs no relocation, so "
                              "the kernel can share it between processes")
+    parser.add_argument("--stack", type=int, default=16 * 1024,
+                        help="stack size in bytes (default 16384)")
+    parser.add_argument("--quiet", action="store_true",
+                        help="print only a warning when the text is private")
     args = parser.parse_args()
 
     entry, sections = read_elf(args.elf)
@@ -209,7 +214,7 @@ def main():
         data_start,
         data_end,
         data_end + bss_size,
-        16 * 1024,      # stack
+        args.stack,
         data_end,
         len(relocations),
         flags,
@@ -220,6 +225,12 @@ def main():
                                   for value in relocations)
     args.output.write_bytes(struct.pack(">4s15I", b"bFLT", *fields) +
                             text + data + relocation_table)
+    if args.quiet:
+        if text_relocations:
+            print(f"warning: {args.output}: {len(text_relocations)} "
+                  f"relocations in text, so each process gets its own copy",
+                  file=sys.stderr)
+        return
     print(f"bFLT: {len(text)} text, {len(data)} data, {bss_size} bss, "
           f"{len(relocations)} relocations, "
           f"{'private' if text_relocations else 'shared'} text")

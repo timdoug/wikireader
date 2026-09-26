@@ -281,12 +281,26 @@ From the repository root:
 make -C emulator
 make -C linux vm
 make -C linux provision
+make -C linux fetch
 make -C linux toolchain
 ```
 
-`provision` installs the Debian build prerequisites. `toolchain` builds a
-Linux-hosted `c33-epson-elf-` GCC/binutils toolchain; it does not reuse the
-Mach-O executables under `host-tools/toolchain-c33/work`.
+`provision` installs the Debian build prerequisites. `toolchain` builds two
+Linux-hosted GCC/binutils toolchains into one prefix; it does not reuse the
+Mach-O executables under `host-tools/toolchain-c33/work`:
+
+- `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
+- `c33-linux-uclibc-` is the userspace compiler. It defaults to
+  `-mc33pe -msep-data -mlong-calls`, defines `__uClinux__`, and links
+  statically against uClibc-ng in its sysroot. Its `ld` follows uClinux's
+  elf2flt convention: `-Wl,-elf2flt` writes a bFLT and keeps the ELF beside
+  it as `.gdb`, `-Wl,-elf2flt=-s<bytes>` sets the stack size, and
+  `-Wl,-elf2flt=--shared-text` fails the link if the text needs relocation.
+  Links without `-elf2flt` stay ELF but keep their relocations, so
+  `initramfs/make-flat.py` can convert them later.
+
+The userspace compiler is built against the kernel's UAPI headers and
+uClibc-ng's headers, so `fetch` comes first.
 
 The boot fixture also links the existing MBR support libraries. Build them
 with the repository's normal firmware targets if they are not present.
@@ -294,7 +308,6 @@ with the repository's normal firmware targets if they are not present.
 ## Build and test
 
 ```sh
-make -C linux fetch
 make -C linux libc
 make -C linux busybox
 make -C linux console
@@ -312,8 +325,9 @@ icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
 requires Linux and BusyBox to start, then uses the standard reboot syscall and
 requires Grifo's watchdog reset to return to the menu.
 
-`libc` builds and installs a static, no-MMU C33 uClibc-ng with the native
-asm-generic syscall ABI and time64 interfaces. Its link regression compiles a
+`libc` builds a static, no-MMU C33 uClibc-ng with the native asm-generic
+syscall ABI and time64 interfaces, and installs it with the kernel headers
+into the `c33-linux-uclibc-` sysroot. Its link regression compiles a
 real `stdio.h` program, resolves it with the C33 PE `libgcc`, verifies that the
 ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 `linux/artifacts/uclibc-smoke`. The regular `build` target depends on this

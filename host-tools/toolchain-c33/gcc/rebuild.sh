@@ -12,19 +12,25 @@
 # fails in confusing ways.
 #
 #   ./rebuild.sh [workdir]
+#
+# C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, in
+# its own build directory and into the same prefix.  It needs that
+# triplet's binutils and a sysroot holding the kernel and uClibc-ng headers
+# (linux/toolchain.sh does all three).
 
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=${1:-${C33_TOOLCHAIN_WORK:-${HERE}/../work}}
 PREFIX="${WORK}/install"
+TARGET=${C33_TARGET:-c33-epson-elf}
 SRC="${WORK}/gcc-16.2.0"
 TARBALL=gcc-16.2.0.tar.xz
 
 # The target assembler and linker come from the same prefix.
 export PATH="${PREFIX}/bin:${PATH}"
-if [ ! -x "${PREFIX}/bin/c33-epson-elf-as" ]; then
-	echo "no c33-epson-elf-as in ${PREFIX}/bin -- run binutils/build.sh first" >&2
+if [ ! -x "${PREFIX}/bin/${TARGET}-as" ]; then
+	echo "no ${TARGET}-as in ${PREFIX}/bin -- run binutils/build.sh first" >&2
 	exit 1
 fi
 
@@ -81,13 +87,24 @@ for lib in gmp mpfr libmpc; do
 	esac
 done
 
-mkdir -p "${SRC}/build"
-cd "${SRC}/build"
+if [ "${TARGET}" = c33-epson-elf ]; then
+	BUILD="${SRC}/build"
+	# Bare metal: no C library headers, newlib's type conventions.
+	TARGET_CONFIG="--without-headers --with-newlib"
+else
+	BUILD="${SRC}/build-${TARGET}"
+	# The one multilib is chosen by c33/linux.h; libgcc is built against
+	# the sysroot's uClibc-ng headers.
+	TARGET_CONFIG="--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib"
+fi
+
+mkdir -p "${BUILD}"
+cd "${BUILD}"
 if [ ! -f Makefile ] \
 	|| ! grep -q -- '--enable-initfini-array' gcc/configargs.h 2>/dev/null; then
 	echo "==> configuring"
-	../configure --target=c33-epson-elf --prefix="${PREFIX}" \
-		--enable-languages=c --without-headers --with-newlib \
+	../configure --target="${TARGET}" --prefix="${PREFIX}" \
+		--enable-languages=c ${TARGET_CONFIG} \
 		--enable-initfini-array \
 		--disable-libssp --disable-libquadmath --disable-libatomic \
 		--disable-libgomp --disable-nls --disable-shared --disable-threads \
@@ -110,9 +127,9 @@ make install-gcc
 # copies the old archive with a fresh timestamp, so a stale libgcc.a looks
 # perfectly current.
 echo "==> rebuilding libgcc from scratch"
-rm -rf c33-epson-elf/libgcc c33-epson-elf/c33pe c33-epson-elf/c33adv
+rm -rf "${TARGET}/libgcc" "${TARGET}/c33pe" "${TARGET}/c33adv"
 rm -f configure-target-libgcc all-target-libgcc install-target-libgcc
 make -j"${N}" all-target-libgcc
 make install-target-libgcc
 
-echo "==> DONE: ${PREFIX}/bin/c33-epson-elf-gcc"
+echo "==> DONE: ${PREFIX}/bin/${TARGET}-gcc"

@@ -1,4 +1,11 @@
 #!/bin/sh
+# Build uClibc-ng with c33-linux-uclibc-gcc and install it, with the kernel's
+# UAPI headers, into that compiler's sysroot.
+#
+#   build.sh [headers]
+#
+# "headers" installs only the headers, using the bare-metal compiler: the
+# step linux/toolchain.sh needs before it can build c33-linux-uclibc-gcc.
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -12,12 +19,17 @@ linux_source=${WR_LINUX_SOURCE:-$guest_root/linux-src}
 uclibc_source=${WR_UCLIBC_SOURCE:-$guest_root/uclibc-ng}
 tool_dir=${C33_TOOLCHAIN_WORK:-$guest_root/toolchain}
 build_dir=${WR_UCLIBC_BUILD:-$guest_root/uclibc-build}
-headers_dir=${WR_LINUX_HEADERS:-$guest_root/linux-headers}
 headers_build=${WR_LINUX_HEADERS_BUILD:-$guest_root/linux-headers-build}
-install_dir=${WR_UCLIBC_INSTALL:-$guest_root/uclibc-install}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
-cross=$tool_dir/install/bin/c33-epson-elf-
+target=c33-linux-uclibc
+sysroot=$tool_dir/install/$target/sysroot
+mode=${1:-all}
 
+if [ "$mode" = headers ]; then
+	cross=$tool_dir/install/bin/c33-epson-elf-
+else
+	cross=$tool_dir/install/bin/$target-
+fi
 if [ ! -x "${cross}gcc" ]; then
 	echo "C33 compiler not found at ${cross}gcc" >&2
 	echo "Run make -C linux toolchain first." >&2
@@ -31,51 +43,51 @@ if [ ! -d "$uclibc_source/.git" ]; then
 fi
 
 cp -R "$root/linux/overlay/." "$linux_source/"
-rm -rf "$headers_dir" "$headers_build" "$build_dir" "$install_dir"
-mkdir -p "$headers_dir" "$headers_build" "$build_dir" "$install_dir"
+rm -rf "$sysroot" "$headers_build" "$build_dir"
+mkdir -p "$sysroot/usr" "$headers_build" "$build_dir"
 make -C "$linux_source" O="$headers_build" ARCH=c33 CROSS_COMPILE="$cross" \
-	INSTALL_HDR_PATH="$headers_dir" headers_install
+	INSTALL_HDR_PATH="$sysroot/usr" headers_install
+
+# uClibc installs straight into the sysroot, as Buildroot lays it out.
+uclibc_make() {
+	make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
+		CROSS_COMPILE="$cross" PREFIX="$sysroot" DEVEL_PREFIX=/usr/ \
+		RUNTIME_PREFIX=/ "$@"
+}
 
 cp -R "$root/linux/uclibc/overlay/." "$uclibc_source/"
-make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
-	CROSS_COMPILE="$cross" defconfig
+uclibc_make defconfig
 
 # The generated configuration is deliberately adjusted here rather than
 # committing build-machine paths into the architecture defconfig.
-sed -i "s|^KERNEL_HEADERS=.*|KERNEL_HEADERS=\"$headers_dir/include\"|" \
+sed -i "s|^KERNEL_HEADERS=.*|KERNEL_HEADERS=\"$sysroot/usr/include\"|" \
 	"$build_dir/.config"
-make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
-	CROSS_COMPILE="$cross" olddefconfig
-make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
-	CROSS_COMPILE="$cross" -j"$jobs"
-make -C "$uclibc_source" O="$build_dir" ARCH=c33 \
-	CROSS_COMPILE="$cross" PREFIX="$install_dir" install
+uclibc_make olddefconfig
 
-test -f "$build_dir/lib/libc.a"
-sysroot=$install_dir/usr/c33-linux-uclibc/usr
-gcc_lib=$("${cross}gcc" -mc33pe -msep-data -print-libgcc-file-name)
-"${cross}gcc" -mc33pe -msep-data -mlong-calls -Os \
-	-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ffunction-sections -fdata-sections -isystem "$sysroot/include" \
-	-c "$root/linux/uclibc/smoke.c" -o "$build_dir/smoke.o"
-"${cross}ld" --gc-sections --emit-relocs \
-	-T "$root/linux/uclibc/static-flat.ld" -o "$build_dir/smoke.elf" \
-	"$build_dir/lib/crt1.o" "$build_dir/lib/crti.o" \
-	"$build_dir/smoke.o" --start-group "$build_dir/lib/libc.a" \
-	"$gcc_lib" --end-group "$build_dir/lib/crtn.o"
-undefined=$("${cross}nm" -u "$build_dir/smoke.elf")
+if [ "$mode" = headers ]; then
+	uclibc_make install_headers
+	printf '%s\n' "C33 kernel and uClibc-ng headers installed in $sysroot"
+	exit 0
+fi
+
+uclibc_make -j"$jobs"
+uclibc_make install
+test -f "$sysroot/usr/lib/libc.a"
+
+"${cross}gcc" -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-ffunction-sections -fdata-sections -Wl,--gc-sections \
+	"$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke" \
+	-Wl,-elf2flt=--shared-text
+undefined=$("${cross}nm" -u "$build_dir/uclibc-smoke.gdb")
 if [ -n "$undefined" ]; then
 	echo "static uClibc smoke test has undefined symbols:" >&2
 	echo "$undefined" >&2
 	exit 1
 fi
-python3 "$root/linux/initramfs/make-flat.py" --shared-text \
-	"$build_dir/smoke.elf" "$build_dir/uclibc-smoke"
-chmod 755 "$build_dir/uclibc-smoke"
 mkdir -p "$root/linux/artifacts"
 cp "$build_dir/uclibc-smoke" "$root/linux/artifacts/uclibc-smoke"
 
-libc_bytes=$(wc -c <"$build_dir/lib/libc.a")
+libc_bytes=$(wc -c <"$sysroot/usr/lib/libc.a")
 printf '%s\n' "C33 libc.a: $libc_bytes bytes"
-"${cross}size" "$build_dir/smoke.elf"
-printf '%s\n' "C33 uClibc-ng installed at $install_dir"
+"${cross}size" "$build_dir/uclibc-smoke.gdb"
+printf '%s\n' "C33 uClibc-ng installed in $sysroot"

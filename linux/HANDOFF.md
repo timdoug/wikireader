@@ -99,8 +99,10 @@ was needed:
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace.
-5. **elf2flt** instead of the local `make-flat.py`, and **the overlay as a real
-   patch series** — both only bite when the pinned stable tag is bumped.
+5. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
+   options, but the conversion behind them is the local `make-flat.py`.
+   Separately, **the overlay as a real patch series**, which only bites when
+   the pinned stable tag is bumped.
 
 Done since the second round trip, emulator-tested and **not yet run on
 hardware**: the contrast PWM (`drivers/pwm/pwm-s1c33.c`, timer 1, with its

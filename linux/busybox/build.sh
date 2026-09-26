@@ -12,8 +12,7 @@ source_dir=${WR_BUSYBOX_SOURCE:-$guest_root/busybox}
 build_dir=${WR_BUSYBOX_BUILD:-$guest_root/busybox-build}
 tool_dir=${C33_TOOLCHAIN_WORK:-$guest_root/toolchain}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
-cross=$tool_dir/install/bin/c33-epson-elf-
-cc=$root/linux/busybox/c33-uclibc-gcc.sh
+cross=$tool_dir/install/bin/c33-linux-uclibc-
 
 if [ ! -d "$source_dir/.git" ]; then
 	echo "BusyBox source not found at $source_dir" >&2
@@ -55,8 +54,7 @@ while IFS= read -r setting; do
 	esac
 done < "$root/linux/busybox/minimal.config"
 yes '' | make -C "$source_dir" O="$build_dir" oldconfig >/dev/null
-make -C "$source_dir" O="$build_dir" CROSS_COMPILE="$cross" CC="$cc" \
-	-j"$jobs"
+make -C "$source_dir" O="$build_dir" CROSS_COMPILE="$cross" -j"$jobs"
 
 test -x "$build_dir/busybox_unstripped"
 undefined=$(${cross}nm -u "$build_dir/busybox_unstripped")
@@ -65,6 +63,8 @@ if [ -n "$undefined" ]; then
 	echo "$undefined" >&2
 	exit 1
 fi
+# BusyBox links and strips ELF itself, so the bFLT is made from the
+# unstripped image, whose relocations the linker keeps.
 python3 "$root/linux/initramfs/make-flat.py" --shared-text \
 	"$build_dir/busybox_unstripped" "$build_dir/busybox"
 chmod 755 "$build_dir/busybox"

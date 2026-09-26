@@ -95,7 +95,8 @@ Additional independent checks are:
 
 ## Supported target contract
 
-- target triplet: `c33-epson-elf`;
+- target triplets: `c33-epson-elf` for bare metal, and `c33-linux-uclibc`
+  for no-MMU Linux userspace (below);
 - cores: `-mc33`, `-mc33adv`, and `-mc33pe`;
 - PE is the WikiReader core and uses strict natural alignment;
 - `-mno-long-calls` selects direct short calls when range permits;
@@ -107,6 +108,15 @@ Additional independent checks are:
   not link;
 - PE software division comes from generic C libgcc helpers because the PE core
   removes the older divide-step instructions.
+
+`c33-linux-uclibc` is the same backend configured by `gcc/config/c33/linux.h`.
+It builds a single multilib, `-mcore=c33pe -msep-data -mlong-calls`, which
+the driver selects by default. It defines `__linux__`, `__unix__` and
+`__uClinux__`, and uses glibc's `<stdint.h>` type conventions. It links
+statically against uClibc-ng's `crt1.o`/`crti.o`/`crtn.o` from its sysroot, with
+no `crtbegin`/`crtend`. `binutils/build.sh` and `gcc/rebuild.sh` build it with
+`C33_TARGET=c33-linux-uclibc`; `linux/toolchain.sh` supplies the sysroot and
+the elf2flt-style `ld` wrapper.
 
 See [`gcc/ABI.md`](gcc/ABI.md) for registers, frames, arguments, returns,
 variadic forwarding, relocations, instruction extension, and exception rules.

@@ -5,11 +5,14 @@
 #   ./build.sh [workdir]
 #
 # Produces c33-epson-elf-{objdump,readelf,as,ld,...} in $workdir/install.
+# C33_TARGET selects another triplet, such as c33-linux-uclibc, built in its
+# own directory beside the default one; C33_BINUTILS_CONFIGURE adds
+# configure options for it.
 
 set -e
 
 BINUTILS_VERSION=2.47
-TARGET=c33-epson-elf
+TARGET=${C33_TARGET:-c33-epson-elf}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 TOOLS="${HERE}/../tools"
@@ -41,13 +44,15 @@ echo "==> registering the c33 target in the upstream build system"
 python3 "${TOOLS}/glue.py" "${SRC}"
 
 echo "==> configuring"
-mkdir -p "${SRC}/build"
-cd "${SRC}/build"
+BUILD="${SRC}/build"
+[ "${TARGET}" = c33-epson-elf ] || BUILD="${SRC}/build-${TARGET}"
+mkdir -p "${BUILD}"
+cd "${BUILD}"
 ../configure \
 	--target="${TARGET}" \
 	--prefix="${WORK}/install" \
 	--disable-nls --disable-werror --disable-gdb --disable-sim \
-	--disable-gprofng
+	--disable-gprofng ${C33_BINUTILS_CONFIGURE:-}
 
 echo "==> building"
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"

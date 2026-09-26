@@ -48,8 +48,27 @@ def target_block(s):
         '\t;;\n'
         'v850*-*-*)\n\tcase ${target} in\n', 1)
 
+def linux_block(s):
+    """No-MMU Linux with uClibc-ng: c33-linux-uclibc.
+
+    The generic *-*-linux* section has already added linux.o, glibc-c.o and
+    the t-linux/t-glibc fragments; this case has to come before c33-*-*,
+    which would otherwise match first.
+    """
+    if 'c33/linux.h' in s:
+        return None
+    return s.replace('c33-*-*)\n\ttm_file="elfos.h newlib-stdint.h c33/c33.h"\n',
+        'c33-*-linux*)\n'
+        '\ttm_file="elfos.h c33/c33.h gnu-user.h linux.h glibc-stdint.h c33/linux.h"\n'
+        '\ttmake_file="${tmake_file} c33/t-linux"\n'
+        '\tc_target_objs="${c_target_objs} c33-c.o"\n'
+        '\tcxx_target_objs="${cxx_target_objs} c33-c.o"\n'
+        '\t;;\n'
+        'c33-*-*)\n\ttm_file="elfos.h newlib-stdint.h c33/c33.h"\n', 1)
+
 edit('gcc/config.gcc', cpu_type)
 edit('gcc/config.gcc', target_block)
+edit('gcc/config.gcc', linux_block)
 
 # ------------------------------------------------------------- libgcc/config.host
 
@@ -77,7 +96,19 @@ def libgcc_target(s):
                      'c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n'
                      'v850*-*-*)\n\ttmake_file="${tmake_file} v850/t-v850 t-fdpbit"\n\t;;\n', 1)
 
+def libgcc_linux(s):
+    """The Linux target links uClibc's crt1/crti/crtn and no crtbegin or
+    crtend (see c33/linux.h), so the generic Linux extra_parts are dropped;
+    crtbeginS would also want -fPIC, which this target does not have."""
+    if 'c33-*-linux*)\n\ttmake_file' in s:
+        return None
+    return s.replace('c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n',
+                     'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+                     '\textra_parts=""\n\t;;\n'
+                     'c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n', 1)
+
 edit('libgcc/config.host', libgcc_cpu_type)
 edit('libgcc/config.host', libgcc_target)
+edit('libgcc/config.host', libgcc_linux)
 
 print('changed:', changed or '(already applied)')
