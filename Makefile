@@ -855,7 +855,7 @@ $(call STD_RULE, wiki, wiki, mini-libc grifo, INSTALL, PROGRESS_BAR="${PROGRESS_
 # decides there is nothing to do, and silently builds nothing.
 # All three are Grifo applications and include the generated grifo.h.
 
-.PHONY: zim doom minivmac
+.PHONY: zim doom minivmac gameboy
 zim: grifo
 	${MAKE} -C zim all
 doom: grifo
@@ -863,7 +863,10 @@ doom: grifo
 minivmac: grifo
 	${MAKE} -C minivmac all
 
-.PHONY: zim-clean doom-clean minivmac-clean
+gameboy: grifo
+	${MAKE} -C gameboy all
+
+.PHONY: zim-clean doom-clean minivmac-clean gameboy-clean
 zim-clean:
 	${MAKE} -C zim clean
 doom-clean:
@@ -871,7 +874,10 @@ doom-clean:
 minivmac-clean:
 	${MAKE} -C minivmac clean
 
-CLEAN_TARGETS += zim-clean doom-clean minivmac-clean
+gameboy-clean:
+	${MAKE} -C gameboy clean
+
+CLEAN_TARGETS += zim-clean doom-clean minivmac-clean gameboy-clean
 
 
 # nuttx.app is a third such application, and the odd one out: it does not use
