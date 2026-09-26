@@ -378,6 +378,12 @@ support links every program with `-Wl,-elf2flt`. The build starts from a
 clean output directory each time, which takes well under a minute, because
 Buildroot does not notice a rebuilt C library.
 
+The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
+provides what Buildroot's own uClibc configuration offers packages, such as
+the SUSv2 to SUSv4 legacy functions, `nftw`, GNU `glob`, `%m`, memory streams,
+`wordexp` and `libutil`. It leaves out the shared-library loader, networking,
+and `getcontext`, which has no C33 implementation.
+
 BusyBox 1.38.0 is a static C33 bFLT with an interactive `hush`, core file and
 text tools, checksums, archive/compression tools, filesystem inspection, and
 recovery utilities, and `hush` carries `busybox/patches/`. It is installed as
@@ -398,6 +404,18 @@ contains no S1C33 register access or private kernel ABI. It is installed as
 `/sbin/wr-console`, and BusyBox init supervises it beside the serial recovery
 shell. Its shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
 card's `bin` folder runs by name.
+
+Its terminal is 40 columns by 14 rows and implements the Linux console as
+`TERM=linux` describes it to curses: cursor addressing and movement,
+insertion and deletion of characters and lines, a scrolling region, reverse
+video, saving, hiding and reporting the cursor, and xterm's deferred wrap in
+the last column. Tab stops are every eight columns. Colours and other
+renditions are ignored, since the panel has one bit a pixel. The console's
+line-drawing characters are shown as `+`, `-` and `|`. The cursor is its cell
+drawn inverted. Full-screen programs such as BusyBox `vi`, `less` and `top`,
+and curses programs such as `sl`, therefore work. Escape is Ctrl+`[`.
+`console/terminal-test.c` checks the escape handling on the build machine,
+and the Buildroot package runs it before building the console.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

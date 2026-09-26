@@ -38,3 +38,4 @@ BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # alone would get 1 KB ones and four times the I/O requests.
 BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum"
 # BR2_TARGET_ROOTFS_TAR is not set
+BR2_PACKAGE_SL=y

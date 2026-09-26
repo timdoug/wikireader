@@ -8,7 +8,10 @@ WR_CONSOLE_VERSION = local
 WR_CONSOLE_SITE = $(BR2_EXTERNAL_WIKIREADER_PATH)/../../console
 WR_CONSOLE_SITE_METHOD = local
 
+# The terminal's escape handling is tested on the build machine first.
 define WR_CONSOLE_BUILD_CMDS
+	$(HOSTCC) $(HOST_CFLAGS) -o $(@D)/terminal-test $(@D)/terminal-test.c
+	$(@D)/terminal-test
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror \
 		-fno-unwind-tables -fno-asynchronous-unwind-tables \
 		-ffunction-sections -fdata-sections \

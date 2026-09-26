@@ -169,11 +169,44 @@ static const char symbol_third_row[2][10] = {
 };
 
 static uint8_t framebuffer[LCD_BYTES];
+/*
+ * The terminal is the Linux console as TERM=linux describes it to curses
+ * programs: cursor addressing and movement, insertion and deletion of
+ * characters and lines, a scrolling region, reverse video, saving and
+ * reporting the cursor.  Colours and the other renditions are accepted and
+ * ignored, since the panel has one bit a pixel.
+ */
+#define ATTR_REVERSE	1
+#define MAX_PARAMETERS	8
+
+enum {
+	ESCAPE_NONE,
+	ESCAPE_START,
+	ESCAPE_CSI,
+	ESCAPE_SKIP,
+	ESCAPE_OSC,
+};
+
 static unsigned char cells[TEXT_ROWS][TEXT_COLUMNS];
+static unsigned char attrs[TEXT_ROWS][TEXT_COLUMNS];
 static unsigned int cursor_x;
 static unsigned int cursor_y;
+static int wrap_pending;
+static unsigned char rendition;
+static unsigned int scroll_top;
+static unsigned int scroll_bottom = TEXT_ROWS - 1;
+static unsigned int saved_x;
+static unsigned int saved_y;
+static unsigned char saved_rendition;
+static int cursor_visible = 1;
+static int cursor_drawn;
+static unsigned int drawn_x;
+static unsigned int drawn_y;
 static unsigned int escape_state;
-static unsigned int escape_parameter;
+static unsigned int parameters[MAX_PARAMETERS];
+static unsigned int parameter_count;
+static int private_mode;
+static int terminal_fd = -1;	/* the PTY master, for replies */
 static unsigned int dirty_text_first = TEXT_ROWS;
 static unsigned int dirty_text_last;
 static int active_key = -1;
@@ -483,7 +516,10 @@ static void draw_text_rows(unsigned int first, unsigned int last)
 	for (row = first; row <= last; row++)
 		for (column = 0; column < TEXT_COLUMNS; column++)
 			draw_character(column * FONT_WIDTH, row * FONT_HEIGHT,
-				       cells[row][column], 0);
+				       cells[row][column],
+				       (attrs[row][column] & ATTR_REVERSE) ^
+				       (cursor_drawn && row == drawn_y &&
+					column == drawn_x));
 }
 
 static void flush_text(void)
@@ -543,121 +579,477 @@ static void flush_display(void)
 	dirty_text_last = 0;
 }
 
-static void scroll_terminal(void)
+static void draw_cell(unsigned int row, unsigned int column)
 {
-	memmove(cells[0], cells[1], (TEXT_ROWS - 1) * TEXT_COLUMNS);
-	memset(cells[TEXT_ROWS - 1], ' ', TEXT_COLUMNS);
-	memmove(framebuffer, framebuffer + FONT_HEIGHT * LCD_STRIDE,
-		(STATUS_Y - FONT_HEIGHT) * LCD_STRIDE);
-	clear_rows(STATUS_Y - FONT_HEIGHT, FONT_HEIGHT);
-	cursor_y = TEXT_ROWS - 1;
-	mark_all_text();
+	int inverse = attrs[row][column] & ATTR_REVERSE;
+
+	if (cursor_drawn && row == drawn_y && column == drawn_x)
+		inverse = !inverse;
+	draw_character(column * FONT_WIDTH, row * FONT_HEIGHT,
+		       cells[row][column], inverse);
+	mark_text_row(row);
+}
+
+static void redraw_row(unsigned int row)
+{
+	unsigned int column;
+
+	for (column = 0; column < TEXT_COLUMNS; column++)
+		draw_cell(row, column);
+}
+
+/* The cursor is its cell drawn inverted, taken down while output is
+   processed so that scrolling never moves it with the text. */
+static void hide_cursor(void)
+{
+	if (!cursor_drawn)
+		return;
+	cursor_drawn = 0;
+	draw_cell(drawn_y, drawn_x);
+}
+
+static void show_cursor(void)
+{
+	if (!cursor_visible)
+		return;
+	drawn_x = cursor_x;
+	drawn_y = cursor_y;
+	cursor_drawn = 1;
+	draw_cell(drawn_y, drawn_x);
+}
+
+static void blank_cells(unsigned int row, unsigned int first,
+			unsigned int count)
+{
+	memset(&cells[row][first], ' ', count);
+	memset(&attrs[row][first], 0, count);
+}
+
+static void scroll_region_up(unsigned int top, unsigned int bottom,
+			     unsigned int count)
+{
+	unsigned int rows = bottom - top + 1;
+	unsigned int row;
+
+	if (count > rows)
+		count = rows;
+	memmove(cells[top], cells[top + count], (rows - count) * TEXT_COLUMNS);
+	memmove(attrs[top], attrs[top + count], (rows - count) * TEXT_COLUMNS);
+	for (row = bottom + 1 - count; row <= bottom; row++)
+		blank_cells(row, 0, TEXT_COLUMNS);
+	memmove(framebuffer + top * FONT_HEIGHT * LCD_STRIDE,
+		framebuffer + (top + count) * FONT_HEIGHT * LCD_STRIDE,
+		(rows - count) * FONT_HEIGHT * LCD_STRIDE);
+	clear_rows((bottom + 1 - count) * FONT_HEIGHT, count * FONT_HEIGHT);
+	for (row = top; row <= bottom; row++)
+		mark_text_row(row);
 	scrolls_pending++;
 }
 
-static void terminal_newline(void)
+static void scroll_region_down(unsigned int top, unsigned int bottom,
+			       unsigned int count)
 {
-	cursor_x = 0;
-	if (++cursor_y == TEXT_ROWS)
-		scroll_terminal();
+	unsigned int rows = bottom - top + 1;
+	unsigned int row;
+
+	if (count > rows)
+		count = rows;
+	memmove(cells[top + count], cells[top], (rows - count) * TEXT_COLUMNS);
+	memmove(attrs[top + count], attrs[top], (rows - count) * TEXT_COLUMNS);
+	for (row = top; row < top + count; row++)
+		blank_cells(row, 0, TEXT_COLUMNS);
+	memmove(framebuffer + (top + count) * FONT_HEIGHT * LCD_STRIDE,
+		framebuffer + top * FONT_HEIGHT * LCD_STRIDE,
+		(rows - count) * FONT_HEIGHT * LCD_STRIDE);
+	clear_rows(top * FONT_HEIGHT, count * FONT_HEIGHT);
+	for (row = top; row <= bottom; row++)
+		mark_text_row(row);
+	scrolls_pending++;
 }
 
-static void terminal_erase_line(unsigned int first, unsigned int last)
+/* Line feed: down a line, scrolling at the bottom of the region. */
+static void terminal_index(void)
 {
-	if (first >= TEXT_COLUMNS)
-		return;
+	if (cursor_y == scroll_bottom)
+		scroll_region_up(scroll_top, scroll_bottom, 1);
+	else if (cursor_y < TEXT_ROWS - 1)
+		cursor_y++;
+}
+
+static void terminal_reverse_index(void)
+{
+	if (cursor_y == scroll_top)
+		scroll_region_down(scroll_top, scroll_bottom, 1);
+	else if (cursor_y)
+		cursor_y--;
+}
+
+static void erase_in_line(unsigned int row, unsigned int first,
+			  unsigned int last)
+{
 	if (last >= TEXT_COLUMNS)
 		last = TEXT_COLUMNS - 1;
-	if (last < first)
+	if (first > last)
 		return;
-	memset(&cells[cursor_y][first], ' ', last - first + 1);
-	draw_text_rows(cursor_y, cursor_y);
-	mark_text_row(cursor_y);
+	blank_cells(row, first, last - first + 1);
+	redraw_row(row);
 }
 
-static void terminal_erase_display(unsigned int mode)
+static void erase_in_display(unsigned int mode)
 {
 	unsigned int row;
 
 	if (mode == 0) {
-		terminal_erase_line(cursor_x, TEXT_COLUMNS - 1);
-		for (row = cursor_y + 1; row < TEXT_ROWS; row++) {
-			memset(cells[row], ' ', TEXT_COLUMNS);
-			mark_text_row(row);
-		}
+		erase_in_line(cursor_y, cursor_x, TEXT_COLUMNS - 1);
+		for (row = cursor_y + 1; row < TEXT_ROWS; row++)
+			erase_in_line(row, 0, TEXT_COLUMNS - 1);
 	} else if (mode == 1) {
-		for (row = 0; row < cursor_y; row++) {
-			memset(cells[row], ' ', TEXT_COLUMNS);
-			mark_text_row(row);
-		}
-		terminal_erase_line(0, cursor_x);
+		for (row = 0; row < cursor_y; row++)
+			erase_in_line(row, 0, TEXT_COLUMNS - 1);
+		erase_in_line(cursor_y, 0, cursor_x);
 	} else if (mode == 2 || mode == 3) {
-		memset(cells, ' ', sizeof(cells));
+		for (row = 0; row < TEXT_ROWS; row++)
+			blank_cells(row, 0, TEXT_COLUMNS);
 		clear_rows(0, STATUS_Y);
 		mark_all_text();
 	}
 }
 
+/* Characters shift within the cursor's line; the rest of the line is kept. */
+static void shift_line(int insert, unsigned int count)
+{
+	unsigned int x = cursor_x;
+	unsigned int keep;
+
+	if (count > TEXT_COLUMNS - x)
+		count = TEXT_COLUMNS - x;
+	keep = TEXT_COLUMNS - x - count;
+	if (insert) {
+		memmove(&cells[cursor_y][x + count], &cells[cursor_y][x], keep);
+		memmove(&attrs[cursor_y][x + count], &attrs[cursor_y][x], keep);
+		blank_cells(cursor_y, x, count);
+	} else {
+		memmove(&cells[cursor_y][x], &cells[cursor_y][x + count], keep);
+		memmove(&attrs[cursor_y][x], &attrs[cursor_y][x + count], keep);
+		blank_cells(cursor_y, TEXT_COLUMNS - count, count);
+	}
+	redraw_row(cursor_y);
+}
+
+static void terminal_reply(const char *text)
+{
+	if (terminal_fd >= 0)
+		write(terminal_fd, text, strlen(text));
+}
+
+static void move_cursor(int row, int column)
+{
+	if (row < 0)
+		row = 0;
+	if (row >= TEXT_ROWS)
+		row = TEXT_ROWS - 1;
+	if (column < 0)
+		column = 0;
+	if (column >= TEXT_COLUMNS)
+		column = TEXT_COLUMNS - 1;
+	cursor_y = row;
+	cursor_x = column;
+	wrap_pending = 0;
+}
+
+/* The parameter, or @fallback when it is absent or zero. */
+static unsigned int parameter(unsigned int index, unsigned int fallback)
+{
+	if (index >= parameter_count || !parameters[index])
+		return fallback;
+	return parameters[index];
+}
+
+static void control_sequence(unsigned char final)
+{
+	unsigned int n = parameter(0, 1);
+	unsigned int i;
+	char reply[24];
+
+	if (private_mode) {
+		/* DECTCEM; the other private modes do not apply here. */
+		if ((final == 'h' || final == 'l') && parameter_count &&
+		    parameters[0] == 25)
+			cursor_visible = final == 'h';
+		return;
+	}
+	switch (final) {
+	case 'A':
+		move_cursor(cursor_y - n, cursor_x);
+		break;
+	case 'B':
+	case 'e':
+		move_cursor(cursor_y + n, cursor_x);
+		break;
+	case 'C':
+	case 'a':
+		move_cursor(cursor_y, cursor_x + n);
+		break;
+	case 'D':
+		move_cursor(cursor_y, cursor_x - n);
+		break;
+	case 'E':
+		move_cursor(cursor_y + n, 0);
+		break;
+	case 'F':
+		move_cursor(cursor_y - n, 0);
+		break;
+	case 'G':
+	case '`':
+		move_cursor(cursor_y, n - 1);
+		break;
+	case 'd':
+		move_cursor(n - 1, cursor_x);
+		break;
+	case 'H':
+	case 'f':
+		move_cursor(parameter(0, 1) - 1, parameter(1, 1) - 1);
+		break;
+	case 'J':
+		erase_in_display(parameter(0, 0));
+		break;
+	case 'K':
+		if (parameter(0, 0) == 1)
+			erase_in_line(cursor_y, 0, cursor_x);
+		else if (parameter(0, 0) == 2)
+			erase_in_line(cursor_y, 0, TEXT_COLUMNS - 1);
+		else
+			erase_in_line(cursor_y, cursor_x, TEXT_COLUMNS - 1);
+		break;
+	case 'X':
+		erase_in_line(cursor_y, cursor_x, cursor_x + n - 1);
+		break;
+	case '@':
+		shift_line(1, n);
+		break;
+	case 'P':
+		shift_line(0, n);
+		break;
+	case 'L':
+		if (cursor_y >= scroll_top && cursor_y <= scroll_bottom)
+			scroll_region_down(cursor_y, scroll_bottom, n);
+		break;
+	case 'M':
+		if (cursor_y >= scroll_top && cursor_y <= scroll_bottom)
+			scroll_region_up(cursor_y, scroll_bottom, n);
+		break;
+	case 'S':
+		scroll_region_up(scroll_top, scroll_bottom, n);
+		break;
+	case 'T':
+		scroll_region_down(scroll_top, scroll_bottom, n);
+		break;
+	case 'r':
+		i = parameter(1, TEXT_ROWS);
+		if (i > TEXT_ROWS)
+			i = TEXT_ROWS;
+		if (parameter(0, 1) < i) {
+			scroll_top = parameter(0, 1) - 1;
+			scroll_bottom = i - 1;
+		}
+		move_cursor(0, 0);
+		break;
+	case 'm':
+		/* Reverse video is the rendition one bit a pixel can show. */
+		if (!parameter_count)
+			rendition = 0;
+		for (i = 0; i < parameter_count; i++) {
+			if (parameters[i] == 0)
+				rendition = 0;
+			else if (parameters[i] == 7)
+				rendition |= ATTR_REVERSE;
+			else if (parameters[i] == 27)
+				rendition &= ~ATTR_REVERSE;
+		}
+		break;
+	case 'n':
+		if (parameter(0, 0) == 5) {
+			terminal_reply("\033[0n");
+		} else if (parameter(0, 0) == 6) {
+			snprintf(reply, sizeof(reply), "\033[%u;%uR",
+				 cursor_y + 1, cursor_x + 1);
+			terminal_reply(reply);
+		}
+		break;
+	case 'c':
+		terminal_reply("\033[?6c");
+		break;
+	case 's':
+		saved_x = cursor_x;
+		saved_y = cursor_y;
+		saved_rendition = rendition;
+		break;
+	case 'u':
+		move_cursor(saved_y, saved_x);
+		rendition = saved_rendition;
+		break;
+	}
+}
+
+/*
+ * The Linux console's CP437 line-drawing characters, which curses sends for
+ * TERM=linux boxes, as the ASCII the font has.
+ */
+static unsigned char printable(unsigned char byte)
+{
+	if (byte < 0x80)
+		return byte;
+	switch (byte) {
+	case 0xb3: case 0xba:
+		return '|';
+	case 0xc4: case 0xcd:
+		return '-';
+	case 0xb0: case 0xb1: case 0xb2: case 0xdb:
+		return '#';
+	case 0xf8:
+		return 'o';
+	case 0xfe: case 0xf9: case 0xfa:
+		return '.';
+	default:
+		return (byte >= 0xb4 && byte <= 0xda) || byte == 0xc5 ?
+			'+' : '?';
+	}
+}
+
+static void terminal_put(unsigned char byte)
+{
+	/* A character in the last column wraps only when the next one comes,
+	   so a full-screen program can fill that column without scrolling. */
+	if (wrap_pending) {
+		cursor_x = 0;
+		terminal_index();
+		wrap_pending = 0;
+	}
+	cells[cursor_y][cursor_x] = printable(byte);
+	attrs[cursor_y][cursor_x] = rendition;
+	draw_cell(cursor_y, cursor_x);
+	if (cursor_x == TEXT_COLUMNS - 1)
+		wrap_pending = 1;
+	else
+		cursor_x++;
+}
+
+static void terminal_reset(void)
+{
+	rendition = 0;
+	scroll_top = 0;
+	scroll_bottom = TEXT_ROWS - 1;
+	cursor_visible = 1;
+	erase_in_display(2);
+	move_cursor(0, 0);
+}
+
 static void terminal_byte(unsigned char byte)
 {
-	if (escape_state == 1) {
-		escape_state = byte == '[' ? 2 : 0;
-		escape_parameter = 0;
-		return;
-	}
-	if (escape_state == 2) {
-		if (byte >= '0' && byte <= '9') {
-			escape_parameter = escape_parameter * 10 + byte - '0';
+	switch (escape_state) {
+	case ESCAPE_START:
+		escape_state = ESCAPE_NONE;
+		switch (byte) {
+		case '[':
+			escape_state = ESCAPE_CSI;
+			parameter_count = 0;
+			parameters[0] = 0;
+			private_mode = 0;
 			return;
-		}
-		if (byte == ';')
+		case ']':
+			escape_state = ESCAPE_OSC;
 			return;
-		if (byte == 'J') {
-			terminal_erase_display(escape_parameter);
-		} else if (byte == 'K') {
-			if (escape_parameter == 0)
-				terminal_erase_line(cursor_x, TEXT_COLUMNS - 1);
-			else if (escape_parameter == 1)
-				terminal_erase_line(0, cursor_x);
-			else if (escape_parameter == 2)
-				terminal_erase_line(0, TEXT_COLUMNS - 1);
-		} else if (byte == 'H' || byte == 'f') {
+		case '(': case ')': case '*': case '+': case '#': case '%':
+			escape_state = ESCAPE_SKIP;
+			return;
+		case '7':
+			saved_x = cursor_x;
+			saved_y = cursor_y;
+			saved_rendition = rendition;
+			return;
+		case '8':
+			move_cursor(saved_y, saved_x);
+			rendition = saved_rendition;
+			return;
+		case 'D':
+			terminal_index();
+			return;
+		case 'E':
 			cursor_x = 0;
-			cursor_y = 0;
+			terminal_index();
+			return;
+		case 'M':
+			wrap_pending = 0;
+			terminal_reverse_index();
+			return;
+		case 'c':
+			terminal_reset();
+			return;
 		}
-		escape_state = 0;
+		return;
+	case ESCAPE_CSI:
+		if (byte >= '0' && byte <= '9') {
+			if (!parameter_count)
+				parameter_count = 1;
+			parameters[parameter_count - 1] =
+				parameters[parameter_count - 1] * 10 + byte - '0';
+			return;
+		}
+		if (byte == ';') {
+			if (!parameter_count)
+				parameter_count = 1;
+			if (parameter_count < MAX_PARAMETERS)
+				parameters[parameter_count++] = 0;
+			return;
+		}
+		if (byte == '?' || byte == '>' || byte == '=') {
+			private_mode = 1;
+			return;
+		}
+		if (byte >= 0x20 && byte < 0x40)
+			return;		/* intermediates */
+		escape_state = ESCAPE_NONE;
+		control_sequence(byte);
+		return;
+	case ESCAPE_SKIP:
+		escape_state = ESCAPE_NONE;
+		return;
+	case ESCAPE_OSC:
+		/* A title or palette: ignored up to BEL or ESC \. */
+		if (byte == 0x07)
+			escape_state = ESCAPE_NONE;
+		else if (byte == 0x1b)
+			escape_state = ESCAPE_SKIP;
 		return;
 	}
-	if (byte == 0x1b) {
-		escape_state = 1;
+
+	switch (byte) {
+	case 0x1b:
+		escape_state = ESCAPE_START;
 		return;
-	}
-	if (byte == '\r') {
+	case '\r':
 		cursor_x = 0;
+		wrap_pending = 0;
 		return;
-	}
-	if (byte == '\n') {
-		terminal_newline();
+	case '\n':
+	case '\v':
+	case '\f':
+		wrap_pending = 0;
+		terminal_index();
 		return;
-	}
-	if (byte == '\b' || byte == 0x7f) {
-		if (cursor_x)
+	case '\b':
+		if (wrap_pending)
+			wrap_pending = 0;
+		else if (cursor_x)
 			cursor_x--;
 		return;
-	}
-	if (byte == '\t') {
-		do {
-			terminal_byte(' ');
-		} while (cursor_x & 3);
+	case '\t':
+		move_cursor(cursor_y, (cursor_x / 8 + 1) * 8);
 		return;
 	}
-	if (byte < 32)
+	if (byte < 0x20 || byte == 0x7f)
 		return;
-	mark_text_row(cursor_y);
-	cells[cursor_y][cursor_x] = byte;
-	draw_character(cursor_x * FONT_WIDTH, cursor_y * FONT_HEIGHT, byte, 0);
-	if (++cursor_x == TEXT_COLUMNS)
-		terminal_newline();
+	terminal_put(byte);
 }
 
 static void consume_terminal_output(int master_fd)
@@ -676,6 +1068,7 @@ static void consume_terminal_output(int master_fd)
 		if (count <= 0)
 			break;
 		write(log_fd, output, count);
+		hide_cursor();
 		for (i = 0; i < count; i++)
 			terminal_byte(output[i]);
 		total += count;
@@ -684,6 +1077,7 @@ static void consume_terminal_output(int master_fd)
 		    !(more.revents & POLLIN))
 			break;
 	}
+	show_cursor();
 	flush_text();
 }
 
@@ -1097,7 +1491,8 @@ static pid_t start_shell(int master, int slave)
 	/* Programs in the SD card's bin folder run by name, so a short command
 	   can be added without rebuilding the image. */
 	char *const envp[] = {
-		"HOME=/", "PATH=/bin:/sbin:/mnt/sd/bin", "TERM=linux", NULL,
+		"HOME=/", "PATH=/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sd/bin",
+		"TERM=linux", NULL,
 	};
 	pid_t child = vfork();
 
@@ -1333,7 +1728,7 @@ int main(void)
 	    sizeof(framebuffer))
 		memset(framebuffer, 0, sizeof(framebuffer));
 	memset(cells, ' ', sizeof(cells));
-	for (const char *banner = "C33 USERSPACE CONSOLE\n"; *banner; banner++)
+	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
 	clear_rows(STATUS_Y, KEYBOARD_Y - STATUS_Y);
 	for (unsigned int stage = 0; stage < 4; stage++)
@@ -1345,6 +1740,7 @@ int main(void)
 		log_text("C33 userspace console: PTY allocation FAILED\n");
 		return 1;
 	}
+	terminal_fd = master_fd;
 	draw_checkpoint(5);
 	shell = start_shell(master_fd, slave_fd);
 	close(slave_fd);
