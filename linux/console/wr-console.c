@@ -1094,8 +1094,10 @@ static int open_pty(int *slave_fd)
 static pid_t start_shell(int master, int slave)
 {
 	char *const argv[] = { "sh", "-i", NULL };
+	/* Programs in the SD card's bin folder run by name, so a short command
+	   can be added without rebuilding the image. */
 	char *const envp[] = {
-		"HOME=/", "PATH=/bin:/sbin", "TERM=linux", NULL,
+		"HOME=/", "PATH=/bin:/sbin:/mnt/sd/bin", "TERM=linux", NULL,
 	};
 	pid_t child = vfork();
 
