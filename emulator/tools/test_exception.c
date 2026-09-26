@@ -81,7 +81,7 @@ static void test_special_registers(void)
 
 	printf("\nspecial-register constraints\n");
 	c = run_sreg(0xa4f0, 0);             /* ld.w %r0,%pc */
-	check("PC transfer reads the following address", c.r[0], ENTRY + 2);
+	check("PC transfer faults: silicon does not read the PC", c.halted, 1);
 	c = run_sreg(0xa000, ~0u);           /* ld.w %psr,%r0 */
 	check("unused PSR bits remain zero", c.sr[SR_PSR],
 	      PSR_IL_MASK | PSR_IE | PSR_C | PSR_V | PSR_Z | PSR_N);
