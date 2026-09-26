@@ -505,28 +505,7 @@ def idle_skip(h):
     c(f'\txjrne\t{back}')
     c(f'\tcmp\t{CF},0')
     c(f'\txjrne\t{back}')
-    # After this jump's 12 cycles, L = LEFT - 12 are left; skip
-    # k = (L - 1) / 28 passes, by multiplying with 2^32 / 28 rounded up
-    # (exact for these sizes), so that 1 to 28 remain.
-    c(f'\tld.w\t{T0},{LEFT}')
-    c(f'\tsub\t{T0},13')
-    c(f'\tcmp\t{T0},28')
-    c(f'\txjrlt\t{back}')
-    c(f'\txld.w\t{T1},153391690')
-    c(f'\tmltu.w\t{T0},{T1}')
-    c(f'\tld.w\t{T0},%ahr')
-    if CHECK:                                  # three instructions a pass
-        c(f'\txld.w\t{T2},[{TB}+{OFF["STEPS"]}]')
-        c(f'\tadd\t{T2},{T0}')
-        c(f'\tadd\t{T2},{T0}')
-        c(f'\tadd\t{T2},{T0}')
-        c(f'\txld.w\t[{TB}+{OFF["STEPS"]}],{T2}')
-    c(f'\tld.w\t{T1},{T0}')
-    c(f'\tsll\t{T1},5')
-    c(f'\tsll\t{T0},2')
-    c(f'\tsub\t{T1},{T0}')                   # 28k
-    c(f'\tsub\t{LEFT},{T1}')
-    c(f'\txjp\t{back}')
+    c('\txjp\t.Lidle')                         # P: the jr's operand
 
 
 for code, cc in ((0x20, 'nz'), (0x28, 'z'), (0x30, 'nc'), (0x38, 'c')):
@@ -1115,6 +1094,72 @@ hc(f'\tjp\t{T0}')
 # register pushed, and says whether to go on -- the usual case -- or to
 # leave for an interrupt or the end of the frame.  Leaving and coming back
 # in cost far more than the event: three of them a scanline.
+# The idle loop, fast-forwarded (see idle_skip): the jr at P - 1, the ldh at
+# P - 4, the and at P - 2, 28 cycles a pass, the machine the same at every
+# instruction boundary.  Whole passes are charged at once and the last one
+# stepped, to find the instruction each event falls after; the event runs,
+# and the loop goes on from there until gb_hot_event reports an interrupt
+# or the end of the frame.  T1 is where the loop stands: 0 before the jr,
+# 1 before the ldh, 2 before the and.
+hc('.Lidle:')
+hc(f'\tld.w\t{T1},0')
+hc('.Lidle_passes:')
+hc(f'\tld.w\t{T0},{LEFT}')
+hc(f'\tsub\t{T0},1')
+hc(f'\tcmp\t{T0},28')
+hc('\tjrlt\t.Lidle_step')
+hc(f'\txld.w\t{T2},153391690')                 # k = (L - 1) / 28
+hc(f'\tmltu.w\t{T0},{T2}')
+hc(f'\tld.w\t{T0},%ahr')
+if CHECK:
+    hc(f'\txld.w\t{T2},[{TB}+{OFF["STEPS"]}]')
+    hc(f'\tadd\t{T2},{T0}')
+    hc(f'\tadd\t{T2},{T0}')
+    hc(f'\tadd\t{T2},{T0}')
+    hc(f'\txld.w\t[{TB}+{OFF["STEPS"]}],{T2}')
+hc(f'\tld.w\t{T2},{T0}')
+hc(f'\tsll\t{T2},5')
+hc(f'\tsll\t{T0},2')
+hc(f'\tsub\t{T2},{T0}')                        # 28k
+hc(f'\tsub\t{LEFT},{T2}')
+hc('.Lidle_step:')                               # one instruction: 12, 12, 4
+if CHECK:
+    hc(f'\txld.w\t{T2},[{TB}+{OFF["STEPS"]}]')
+    hc(f'\tadd\t{T2},1')
+    hc(f'\txld.w\t[{TB}+{OFF["STEPS"]}],{T2}')
+hc(f'\tcmp\t{T1},2')
+hc('\tjreq\t.Lidle_and')
+hc(f'\tsub\t{LEFT},12')
+hc(f'\tadd\t{T1},1')
+hc('\tjp\t.Lidle_charged')
+hc('.Lidle_and:')
+hc(f'\tsub\t{LEFT},4')
+hc(f'\tld.w\t{T1},0')
+hc('.Lidle_charged:')
+hc(f'\tcmp\t{LEFT},0')
+hc('\tjrgt\t.Lidle_step')
+hc(f'\txld.w\t[{TB}+{OFF["PARK"]}],{T1}')     # the call takes r12-r14
+hc(f'\txld.w\t[{TB}+{OFF["LEFT"]}],{LEFT}')
+hc('\tpushn\t%r11')
+hc(f'\txld.w\t{T0},gb_hot_event')
+hc(f'\tcall\t{T0}')
+hc('\tpopn\t%r11')
+hc(f'\txld.w\t{LEFT},[{TB}+{OFF["LEFT"]}]')
+hc(f'\txld.w\t{T1},[{TB}+{OFF["PARK"]}]')
+hc(f'\txld.w\t{T0},[{TB}+{OFF["GO"]}]')
+hc(f'\tcmp\t{T0},0')
+hc('\tjrne\t.Lidle_passes')
+# Leave at the instruction the loop stands before: the jr at P - 1, the
+# ldh at P - 4, the and at P - 2.
+hc(f'\tsub\t{P},1')
+hc(f'\tcmp\t{T1},0')
+hc('\txjreq\t.Lleave_after_event')
+hc(f'\tsub\t{P},1')
+hc(f'\tcmp\t{T1},2')
+hc('\txjreq\t.Lleave_after_event')
+hc(f'\tsub\t{P},2')
+hc('\txjp\t.Lleave_after_event')
+hc('')
 hc('.Lspent_r:')
 hc(f'\tsub\t{P},1')                             # the next opcode, unrun
 hc(f'\txld.w\t[{TB}+{OFF["LEFT"]}],{LEFT}')
@@ -1153,8 +1198,8 @@ def weights():
 WEIGHT = weights()
 # The window buffer also holds memory.h's ticks() and event_tick() and
 # gb.c's gb_hot_event().
-IVRAM_CODE = 0x1600 - STATE_END - 64 - 2100
-A0_CODE = int(next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--a0=')), '2240'), 0)
+IVRAM_CODE = 0x1600 - STATE_END - 64 - 2300
+A0_CODE = int(next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--a0=')), '2080'), 0)
 
 order = []
 for c in sorted(handlers, key=lambda c: -WEIGHT.get(f'{c:02x}', 0)):

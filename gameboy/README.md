@@ -66,9 +66,11 @@ touching.
   `opcode-weights.txt` go in A0 RAM, the LCD window buffer and the default
   framebuffer; the rest run from SDRAM.
 - **Idle loops**: `ldh a,(nn); and a; jr z` (or `jr nz`) on an HRAM flag,
-  the way games wait for their VBlank handler, is charged all but its last
-  pass at once when A and the flags show it can only go round again until
-  the next event.
+  the way games wait for their VBlank handler, is fast-forwarded once A and
+  the flags show it can only go round again: whole passes are charged at
+  once, the last one stepped to find the instruction each event falls
+  after, and events run in turn until one leaves an interrupt pending. It
+  leaves at the loop instruction a step-by-step run would have reached.
 - **`memory.h`**: a 16-page memory map for the C paths, and timing that is
   deferred until the next event. Only DIV and TIMA fall behind meanwhile;
   an access that meets them, or a write that could move the next event,
@@ -119,10 +121,10 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Speed |
 | --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 184% |
-| Pokemon Red, intro (frames 421-540) | 172% |
-| Tetris, first piece falling (frames 721-840) | 136% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 105% |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 185% |
+| Pokemon Red, intro (frames 421-540) | 176% |
+| Tetris, first piece falling (frames 721-840) | 171% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 118% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank

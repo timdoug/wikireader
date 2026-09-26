@@ -40,7 +40,13 @@ static uint32_t stream0[7] RENDER_DATA;
 static uint32_t stream1[7] RENDER_DATA;
 static uint32_t window0[7] RENDER_DATA;
 static uint32_t window1[7] RENDER_DATA;
-static uint32_t map_row[8] RENDER_DATA;
+/* The line's colour-index planes and which pixels background or window
+   cover, between render_line's passes. */
+static uint32_t line_lo[5] RENDER_DATA;
+static uint32_t line_hi[5] RENDER_DATA;
+static uint32_t line_cover[5] RENDER_DATA;
+/* A map row twice over, so 21 columns from any start read straight on. */
+static uint32_t map_row[16] RENDER_DATA;
 static uint8_t reversed[256] RENDER_DATA;
 
 static inline __attribute__((always_inline)) uint32_t broadcast(unsigned bit)
@@ -53,7 +59,10 @@ static inline __attribute__((always_inline)) uint32_t broadcast(unsigned bit)
 struct palette {
 	uint32_t c0_0, c0_1, d10_0, d10_1, c2_0, c2_1, d32_0, d32_1;
 };
-static struct palette bg_masks RENDER_DATA, sprite_masks RENDER_DATA;
+/* Built when a palette register changes, not each line and sprite: the
+   value each set was built for, or 0x100 for none yet. */
+static struct palette bg_masks RENDER_DATA, sprite_masks[2] RENDER_DATA;
+static unsigned bg_masks_for RENDER_DATA, sprite_masks_for[2] RENDER_DATA;
 
 static inline __attribute__((always_inline)) void
 palette_masks(unsigned pal, struct palette *p)
@@ -134,28 +143,32 @@ fetch_stream(const uint8_t *map, unsigned first, unsigned tile_row,
 	unsigned flip = lcdc & LCDC_TILE_SELECT ? 0 : 0x80;
 	const uint8_t *tiles = gb.vram + tile_row
 		+ (flip ? VRAM_TILES_2 : VRAM_TILES_1);
-	const uint8_t *row = (const uint8_t *)map_row;
+	const uint8_t *row = (const uint8_t *)map_row + first;
 	uint32_t a0 = 0, a1 = 0;
 
-#define TILE(k) do {							\
-		unsigned planes_ = *(const uint16_t *)(tiles			\
-			+ ((row[(first + (k)) & 31] ^ flip) << 4));		\
+	/* The planes as one halfword load: VRAM is word aligned and tile rows
+	   are at even offsets, which the compiler cannot see and otherwise
+	   splits into two byte loads from SDRAM. */
+#define TILE() do {							\
+		const uint16_t *at_ = __builtin_assume_aligned(		\
+			tiles + ((*row++ ^ flip) << 4), 2);		\
+		unsigned planes_ = *at_;				\
 									\
 		a0 = a0 << 8 | (planes_ & 0xff); /* little-endian: plane */ \
 		a1 = a1 << 8 | planes_ >> 8;	 /* 0 at the lower address */ \
 	} while (0)
 
 	for (int i = 0; i < 8; ++i)
-		map_row[i] = ((const uint32_t *)map)[i];
+		map_row[i] = map_row[i + 8] = ((const uint32_t *)map)[i];
 	for (unsigned w = 0; w < 5; ++w) {
-		TILE(4 * w);
-		TILE(4 * w + 1);
-		TILE(4 * w + 2);
-		TILE(4 * w + 3);
+		TILE();
+		TILE();
+		TILE();
+		TILE();
 		out0[w] = a0;
 		out1[w] = a1;
 	}
-	TILE(20);
+	TILE();
 	out0[5] = a0 << 24;
 	out1[5] = a1 << 24;
 #undef TILE
@@ -226,6 +239,7 @@ static RENDER_CODE void render_sprites(unsigned ly, unsigned lcdc)
 		unsigned tile = o[2] & (tall ? 0xfe : 0xff);
 		unsigned py = (ly - o[0] + 16) & 0xff;
 		unsigned lo, hi, pal, shift;
+		const struct palette *masks;
 		int k;
 
 		if (ox == 0 || ox >= 168)
@@ -238,7 +252,16 @@ static RENDER_CODE void render_sprites(unsigned ly, unsigned lcdc)
 			lo = reversed[lo];
 			hi = reversed[hi];
 		}
-		pal = gb.hram_io[flags & OBJ_PALETTE ? IO_OBP1 : IO_OBP0];
+		{
+			unsigned which = flags & OBJ_PALETTE ? 1 : 0;
+
+			pal = gb.hram_io[which ? IO_OBP1 : IO_OBP0];
+			if (sprite_masks_for[which] != pal) {
+				palette_masks(pal, &sprite_masks[which]);
+				sprite_masks_for[which] = pal;
+			}
+			masks = &sprite_masks[which];
+		}
 		/* The sprite's left edge is screen x ox - 8: line byte k,
 		   from -1 (off the left) to 20 (off the right). */
 		k = (int)(ox >> 3) - 1;
@@ -253,21 +276,12 @@ static RENDER_CODE void render_sprites(unsigned ly, unsigned lcdc)
 				continue;
 			if (flags & OBJ_PRIORITY)
 				visible &= ~((s0p[at] ^ zero0) | (s1p[at] ^ zero1));
-			palette_masks(pal, &sprite_masks);
-			SHADE(sprite_masks, l, h, s0, s1);
+			SHADE(*masks, l, h, s0, s1);
 			s0p[at] = (uint8_t)((s0p[at] & ~visible) | (s0 & visible));
 			s1p[at] = (uint8_t)((s1p[at] & ~visible) | (s1 & visible));
 		}
 	}
 }
-
-/* check_line reads the shade planes, which lines without sprites
-   otherwise skip. */
-#ifdef GBW_CHECK_RENDER
-#define CHECKING_RENDER 1
-#else
-#define CHECKING_RENDER 0
-#endif
 
 /* The dithered or thresholded pixels of a shade-plane word. */
 static inline __attribute__((always_inline)) uint32_t
@@ -345,11 +359,16 @@ static RENDER_CODE void render_line(struct gb_s *g)
 			rebucket(lcdc);
 		sprites = line_count[ly] != 0;
 	}
-	if (bgp != 0xe4)		/* the identity palette needs no masks */
+	if (bgp != 0xe4 && bgp != bg_masks_for) {
+		/* The identity palette needs no masks. */
 		palette_masks(bgp, &bg_masks);
+		bg_masks_for = bgp;
+	}
 
+	/* Three passes, each light enough to keep what it needs in the
+	   C33's fifteen registers: in one, the compiler spilled. */
 	for (unsigned w = 0; w < 5; ++w) {
-		uint32_t lo = 0, hi = 0, cover = 0, s0, s1;
+		uint32_t lo = 0, hi = 0, cover = 0;
 
 		if (bg) {
 			lo = funnel(stream0, w, bg_shift);
@@ -366,29 +385,33 @@ static RENDER_CODE void render_line(struct gb_s *g)
 			hi = (hi & ~mask) | (funnel(window1, at >> 5, at & 31) & mask);
 			cover |= mask;
 		}
-		if (bgp == 0xe4) {
-			s0 = lo;
-			s1 = hi;
-		} else {
-			SHADE(bg_masks, lo, hi, s0, s1);
+		line_lo[w] = lo;
+		line_hi[w] = hi;
+		line_cover[w] = cover;
+	}
+
+	if (bgp == 0xe4) {
+		for (unsigned w = 0; w < 5; ++w) {
+			shade0[w + 1] = line_lo[w] & line_cover[w];
+			shade1[w + 1] = line_hi[w] & line_cover[w];
 		}
-		s0 &= cover;
-		s1 &= cover;
-		if (sprites || CHECKING_RENDER) {
-			shade0[w + 1] = s0;
-			shade1[w + 1] = s1;
-		}
-		if (!sprites) {
-			put_word(out + 4 * w, panel_bits(s0, s1, half, quarter));
+	} else {
+		const struct palette p = bg_masks;
+
+		for (unsigned w = 0; w < 5; ++w) {
+			uint32_t lo = line_lo[w], hi = line_hi[w], s0, s1;
+
+			SHADE(p, lo, hi, s0, s1);
+			shade0[w + 1] = s0 & line_cover[w];
+			shade1[w + 1] = s1 & line_cover[w];
 		}
 	}
 
-	if (sprites) {
+	if (sprites)
 		render_sprites(ly, lcdc);
-		for (unsigned w = 0; w < 5; ++w)
-			put_word(out + 4 * w, panel_bits(shade0[w + 1],
-							shade1[w + 1], half, quarter));
-	}
+	for (unsigned w = 0; w < 5; ++w)
+		put_word(out + 4 * w, panel_bits(shade0[w + 1], shade1[w + 1],
+						 half, quarter));
 	++lines_drawn;
 
 #ifdef GBW_CHECK_RENDER
