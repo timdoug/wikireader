@@ -85,9 +85,11 @@ touching.
   scrolling is a funnel shift, and palettes, sprite priority and the dither
   are masks. Sprites are bucketed by line when OAM changes. On the C33,
   lines without the window go through `render_bg.s`: the map row copied to
-  A0 RAM in eight word loads, the tile fetch, the funnel, the palette a
-  shade plane at a time and the dither, in about 630 instructions a line,
-  half the compiler's; what is left is waiting on VRAM in SDRAM.
+  A0 RAM in eight word loads, the tile fetch, the funnel, the palette and
+  the dither, every pass unrolled, in about 630 instructions a line, half
+  the compiler's. VRAM stays in SDRAM: with it in IVRAM instead the routine
+  was 4% faster and everything else, its handlers pushed out to SDRAM,
+  much slower.
 - **On-chip RAM for state and code**: Peanut's `struct gb_s`, without its
   work RAM and VRAM, is about 540 bytes and lives at the start of the
   kernel's default framebuffer, 6.6 KB of zero-wait IVRAM the panel never
@@ -129,10 +131,10 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Speed |
 | --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 197% |
-| Pokemon Red, intro (frames 421-540) | 183% |
-| Tetris, first piece falling (frames 721-840) | 202% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 135% |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 210% |
+| Pokemon Red, intro (frames 421-540) | 193% |
+| Tetris, first piece falling (frames 721-840) | 213% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 140% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank

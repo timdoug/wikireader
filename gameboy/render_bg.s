@@ -10,6 +10,12 @@
 ; the common case, in passes small enough to keep their values in registers,
 ; which the compiler's single loop could not.
 ;
+; Every pass is unrolled.  In A0 RAM a taken branch still costs about five
+; cycles and a load two, where most instructions take one: the loops'
+; back edges and a per-word branch on the dither mode were a fifth of the
+; routine.  The two framebuffer stores of a word are split by the next
+; word's loads, since a store straight after a store waits for the first.
+;
 ; struct bg_args, all words:
 	.set	MAP, 0			; the map row, 32 bytes
 	.set	TILES, 4		; the tile block plus the tile row's offset
@@ -58,13 +64,11 @@ gbw_render_bg:
 ; start then read straight on --------------------------------------------
 	xld.w	%r0,[%r13+MAP]
 	xld.w	%r1,[%r13+ROW]
-	ld.w	%r12,8
-.Lrow:
+	.rept	8
 	ld.w	%r9,[%r0]+
 	xld.w	[%r1+32],%r9
 	ld.w	[%r1]+,%r9
-	sub	%r12,1
-	jrne	.Lrow
+	.endr
 
 ; ---- fetch: 21 tiles into the streams, four to a word ------------------
 	xld.w	%r0,[%r13+ROW]
@@ -76,16 +80,14 @@ gbw_render_bg:
 	xld.w	%r8,[%r13+STREAM1]
 	ld.w	%r4,0
 	ld.w	%r5,0
-	ld.w	%r12,5
-.Lfetch:
+	.rept	5
 	TILE
 	TILE
 	TILE
 	TILE
 	ld.w	[%r7]+,%r4
 	ld.w	[%r8]+,%r5
-	sub	%r12,1
-	jrne	.Lfetch
+	.endr
 	TILE				; the 21st, which a scroll of up to 7
 	sll	%r4,24			; pixels reaches into
 	sll	%r5,24
@@ -102,8 +104,7 @@ gbw_render_bg:
 	sub	%r3,%r2			; the second half shifts in two steps,
 	ld.w	%r4,[%r7]+		; so that a shift of 0 is not one of 32
 	ld.w	%r5,[%r8]+
-	ld.w	%r12,5
-.Lfunnel:
+	.rept	5
 	ld.w	%r9,[%r7]+
 	ld.w	%r10,[%r8]+
 	sll	%r4,%r2
@@ -120,24 +121,26 @@ gbw_render_bg:
 	ld.w	[%r1]+,%r5
 	ld.w	%r4,%r9
 	ld.w	%r5,%r10
-	sub	%r12,1
-	jrne	.Lfunnel
+	.endr
 
-; ---- palette: one shade plane at a time, its four masks in registers ----
+; ---- palette: both shade planes at once, all eight masks in registers --
 ; low = c0 ^ (d10 & lo), high = c2 ^ (d32 & lo), shade = low ^ ((high ^
-; low) & hi).  Plane 0 becomes shade bit 0 last, since both passes read it.
+; low) & hi).  The argument pointer waits in %alr, free of multiplies here.
 	xld.w	%r9,[%r13+IDENTITY]
 	cmp	%r9,0
-	jrne	.Lshaded
-	xld.w	%r7,[%r13+PLANE0]	; colour bit 0
+	xjrne	.Lshaded
+	xld.w	%r7,[%r13+PLANE0]	; colour bit 0, then shade bit 0
 	xld.w	%r8,[%r13+PLANE1]	; colour bit 1, then shade bit 1
 	xld.w	%r0,[%r13+MASKS+16]	; shade bit 1's masks
 	xld.w	%r1,[%r13+MASKS+20]
 	xld.w	%r2,[%r13+MASKS+24]
 	xld.w	%r3,[%r13+MASKS+28]
-	xld.w	%r14,[%r13+MASKS+0]	; shade bit 0's, kept aside
-	ld.w	%r12,5
-.Lshade:
+	xld.w	%r12,[%r13+MASKS+0]	; shade bit 0's
+	xld.w	%r14,[%r13+MASKS+4]
+	xld.w	%r6,[%r13+MASKS+8]
+	ld.w	%alr,%r13
+	xld.w	%r13,[%r13+MASKS+12]
+	.rept	5
 	ld.w	%r4,[%r7]		; lo
 	ld.w	%r5,[%r8]		; hi
 	ld.w	%r9,%r1			; shade bit 1
@@ -150,25 +153,24 @@ gbw_render_bg:
 	and	%r10,%r5
 	xor	%r10,%r9
 	ld.w	[%r8]+,%r10
-	xld.w	%r9,[%r13+MASKS+4]	; shade bit 0
+	ld.w	%r9,%r14		; shade bit 0
 	and	%r9,%r4
-	xor	%r9,%r14		; low
-	xld.w	%r10,[%r13+MASKS+12]
+	xor	%r9,%r12		; low
+	ld.w	%r10,%r13
 	and	%r10,%r4
-	xld.w	%r11,[%r13+MASKS+8]
-	xor	%r10,%r11		; high
+	xor	%r10,%r6		; high
 	xor	%r10,%r9
 	and	%r10,%r5
 	xor	%r10,%r9
 	ld.w	[%r7]+,%r10
-	sub	%r12,1
-	jrne	.Lshade
+	.endr
+	ld.w	%r13,%alr
 .Lshaded:
 
 ; ---- dither into the framebuffer, unless sprites go on first -----------
 	xld.w	%r9,[%r13+OUTPUT]
 	cmp	%r9,0
-	jreq	.Ldone
+	xjreq	.Ldone
 	jp	.Ldither_planes
 
 ; The dither alone, after C has put the sprites on the shade planes:
@@ -184,29 +186,39 @@ gbw_render_dither:
 	xld.w	%r1,[%r13+HALF]
 	xld.w	%r2,[%r13+QUARTER]
 	xld.w	%r3,[%r13+DITHERED]
-	ld.w	%r12,5
-.Ldither:
-	ld.w	%r4,[%r7]+		; shade bit 0
-	ld.w	%r5,[%r8]+		; shade bit 1
+	ld.w	%r4,[%r7]+		; shade bits 0 and 1 of the first word
+	ld.w	%r5,[%r8]+
 	cmp	%r3,0
-	jreq	.Lthreshold
-	ld.w	%r9,%r4			; black for 3, half the pixels for 2,
-	or	%r9,%r1			; a quarter for 1
+	xjreq	.Lthreshold
+
+; Black for shade 3, half the pixels for 2, a quarter for 1: the word in
+; %r9, its second halfword stored after the next word is loaded.
+	.rept	5
+	ld.w	%r9,%r4
+	or	%r9,%r1
 	and	%r9,%r5
 	not	%r10,%r5
 	and	%r10,%r4
 	and	%r10,%r2
 	or	%r9,%r10
-	jp	.Lput
-.Lthreshold:
-	ld.w	%r9,%r5			; black from shade 2
-.Lput:
 	swap	%r9,%r9			; the leftmost byte first in memory
 	ld.h	[%r0]+,%r9
+	ld.w	%r4,[%r7]+		; the next word (one past the planes'
+	ld.w	%r5,[%r8]+		; end, the last time: harmless reads)
 	srl	%r9,16
 	ld.h	[%r0]+,%r9
-	sub	%r12,1
-	jrne	.Ldither
+	.endr
+	popn	%r3
+	ret
+
+.Lthreshold:				; black from shade 2
+	.rept	5
+	swap	%r9,%r5
+	ld.h	[%r0]+,%r9
+	ld.w	%r5,[%r8]+
+	srl	%r9,16
+	ld.h	[%r0]+,%r9
+	.endr
 .Ldone:
 	popn	%r3
 	ret
