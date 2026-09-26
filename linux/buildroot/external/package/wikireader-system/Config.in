@@ -1,0 +1,9 @@
+config BR2_PACKAGE_WIKIREADER_SYSTEM
+	bool "wikireader-system"
+	depends on BR2_c33
+	depends on BR2_PACKAGE_BUSYBOX
+	help
+	  The WikiReader's init configuration (inittab, fstabs, rcS) and
+	  the self-tests rcS runs under wr.selftest: freestanding
+	  diagnostic programs, the uClibc program they run, and the
+	  BusyBox suite.

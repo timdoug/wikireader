@@ -85,7 +85,6 @@ if [ -n "$undefined" ]; then
 	exit 1
 fi
 mkdir -p "$root/linux/artifacts"
-cp "$build_dir/uclibc-smoke" "$root/linux/artifacts/uclibc-smoke"
 
 # LinuxThreads regression, run from the SD card by app-test.py.
 "${cross}gcc" -O2 -Wall -Werror -pthread "$root/linux/uclibc/pthread-test.c" \

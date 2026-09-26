@@ -309,16 +309,15 @@ with the repository's normal firmware targets if they are not present.
 
 ```sh
 make -C linux libc
-make -C linux busybox
-make -C linux console
+make -C linux rootfs
 make -C linux build
 make -C linux boot-test
 make -C linux app-test
 ```
 
-`fetch` reconstructs the pinned upstream kernel and uClibc-ng revisions from
-`revisions` on the VM disk, applies their patches, then installs their
-overlays. Each kernel build also refreshes `overlay/` in the VM source tree so
+`fetch` reconstructs the pinned upstream kernel, uClibc-ng and Buildroot
+revisions from `revisions` on the VM disk, applies their patches, then
+installs their overlays. Each kernel build also refreshes `overlay/` in the VM source tree so
 iterative port changes cannot be silently missed. It leaves the final kernel
 in `linux/artifacts/`, along with the stripped `linux.app` and its Tux launcher
 icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
@@ -329,9 +328,11 @@ requires Grifo's watchdog reset to return to the menu.
 syscall ABI and time64 interfaces, and installs it with the kernel headers
 into the `c33-linux-uclibc-` sysroot. Its link regression compiles a
 real `stdio.h` program, resolves it with the C33 PE `libgcc`, verifies that the
-ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
-`linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
-image and embeds it in the initramfs as `/uclibc-smoke`.
+ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image.
+Every program start sets a stack-protector guard from the clock
+(`SSP_QUICK_CANARY`). Without an MMU the guard only catches bugs, and the
+default of reading `/dev/urandom` would make the first program at boot wait
+3.4 s for the kernel's random pool.
 
 The library includes POSIX threads through LinuxThreads, the uClibc
 implementation that works without an MMU and without thread-local storage.
@@ -346,11 +347,24 @@ and 128) instead of 1024 each. `libc` also builds
 contended mutex, per-thread `errno`, condition variables, semaphores,
 `pthread_once` and thread-specific data.
 
-`busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT. Its 79
-enabled applets cover an interactive `hush`, core file and text tools,
-checksums, archive/compression tools, filesystem inspection, and recovery
-utilities. The regular `build` target installs it as `/init`, `/bin/busybox`,
-and conventional applet symlinks. Its `rcS` mounts the pseudo-filesystems,
+`rootfs` builds the root filesystem with Buildroot 2026.08 and leaves it as
+`linux/artifacts/rootfs.cpio`, which `build` embeds as the initramfs.
+`buildroot/patches/` adds the C33 as a Buildroot architecture, with an
+external toolchain only. The `buildroot/external/` tree holds the defconfig,
+the BusyBox configuration and two packages, `wr-console` and
+`wikireader-system`. The latter installs `initramfs/`'s init configuration
+and builds its freestanding diagnostics with the bare-metal compiler, along
+with `/uclibc-smoke`, the ordinary uClibc program they run as their libc
+check.
+Buildroot builds with `c33-linux-uclibc-` from `toolchain`, and its FLAT
+support links every program with `-Wl,-elf2flt`. The build starts from a
+clean output directory each time, which takes well under a minute, because
+Buildroot does not notice a rebuilt C library.
+
+BusyBox 1.38.0 is a static C33 bFLT with an interactive `hush`, core file and
+text tools, checksums, archive/compression tools, filesystem inspection, and
+recovery utilities, and `hush` carries `busybox/patches/`. It is installed as
+`/init`, `/bin/busybox`, and a symlink for every applet. Its `rcS` mounts the pseudo-filesystems,
 devpts and the SD card, and BusyBox init starts the consoles only once it
 ends. With `wr.selftest` on the command line it first runs the freestanding
 process, signal, and libc diagnostics, the display and input checks, and a
@@ -361,11 +375,12 @@ bring-up and recovery path. `init` finally respawns an interactive `hush` on
 `ttyC0`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
-`console` builds the static bFLT framebuffer frontend. It uses only standard
+`wr-console` is the static bFLT framebuffer frontend. It uses only standard
 fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application
-contains no S1C33 register access or private kernel ABI. The regular `build`
-target embeds it as `/sbin/wr-console`, and BusyBox init supervises it beside
-the serial recovery shell.
+contains no S1C33 register access or private kernel ABI. It is installed as
+`/sbin/wr-console`, and BusyBox init supervises it beside the serial recovery
+shell. Its shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
+card's `bin` folder runs by name.
 
 The native S1C33 SPI controller driver and Linux's generic `mmc_spi` stack
 power and pin-mux the WikiReader card slot, identify SDSC and SDHC cards, and

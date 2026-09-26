@@ -11,7 +11,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=${WR_LINUX_WORK:-${HOME}/wr-linux}
 src=${work}/linux-src
 uclibc_src=${work}/uclibc-ng
-busybox_src=${work}/busybox
+buildroot_src=${work}/buildroot
 
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "linux" { print $2, $3 }')
 url=$1
@@ -64,28 +64,25 @@ done
 
 printf '%s\n' "uClibc-ng source ready at ${uclibc_src}"
 
-set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "busybox" { print $2, $3 }')
-busybox_url=$1
-busybox_revision=$2
+set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "buildroot" { print $2, $3 }')
+buildroot_url=$1
+buildroot_revision=$2
 
-if [ ! -d "${busybox_src}/.git" ]; then
-	git clone --depth=1 --branch="${busybox_revision}" \
-		"${busybox_url}" "${busybox_src}"
+if [ ! -d "${buildroot_src}/.git" ]; then
+	git clone --depth=1 --branch="${buildroot_revision}" \
+		"${buildroot_url}" "${buildroot_src}"
 else
-	git -C "${busybox_src}" fetch --depth=1 origin "${busybox_revision}"
-	git -C "${busybox_src}" checkout --detach FETCH_HEAD
+	git -C "${buildroot_src}" fetch --depth=1 origin "${buildroot_revision}"
+	git -C "${buildroot_src}" checkout --detach FETCH_HEAD
 fi
 
-git -C "${busybox_src}" reset --hard HEAD
-git -C "${busybox_src}" clean -fdx
+# Downloaded source tarballs in dl/ are kept; everything else is reset.
+git -C "${buildroot_src}" reset --hard HEAD
+git -C "${buildroot_src}" clean -fdx -e dl
 
-if [ -d "${here}/busybox/overlay" ]; then
-	cp -R "${here}/busybox/overlay/." "${busybox_src}/"
-fi
-
-for patch in "${here}"/busybox/patches/*.patch; do
+for patch in "${here}"/buildroot/patches/*.patch; do
 	[ -e "${patch}" ] || break
-	git -C "${busybox_src}" apply "${patch}"
+	git -C "${buildroot_src}" apply "${patch}"
 done
 
-printf '%s\n' "BusyBox source ready at ${busybox_src}"
+printf '%s\n' "Buildroot source ready at ${buildroot_src}"

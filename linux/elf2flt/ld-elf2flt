@@ -4,9 +4,12 @@
 This follows the command-line contract of uClinux's elf2flt ld wrapper, which
 Buildroot and other no-MMU build systems rely on: "-elf2flt" or
 "-elf2flt=OPTIONS" links with the flat layout into OUTPUT.gdb, then converts
-that to a bFLT OUTPUT.  The options understood are elf2flt's "-s STACK" and
-"--shared-text", which fails the link if any relocation is left in the text,
-so that the kernel can share it between processes.  Other final links get
+that to a bFLT OUTPUT.  The options understood are elf2flt's "-s STACK";
+elf2flt's "-r", which Buildroot always passes, is accepted and ignored,
+because whether the text is loaded into private RAM follows from whether it
+still needs relocation; and "--shared-text", which fails the link if any
+relocation is left in the text, so that the kernel can share it between
+processes.  Other final links get
 the same layout, which -msep-data needs for __dp, and stay ELF; all of them
 keep their relocations (--emit-relocs), so any can be converted later.
 Without an MMU neither an executable stack nor a writable, executable
@@ -48,7 +51,10 @@ def main():
     while i < len(argv):
         arg = argv[i]
         if arg == "-elf2flt" or arg.startswith("-elf2flt="):
-            flat = arg[len("-elf2flt="):].split() if "=" in arg else []
+            # Several may come, as Buildroot passes -r and a stack size
+            # separately from its toolchain wrapper's bare -elf2flt.
+            flat = (flat or []) + (arg[len("-elf2flt="):].split()
+                                   if "=" in arg else [])
             i += 1
             continue
         if arg in ("-o", "--output") and i + 1 < len(argv):
@@ -70,12 +76,14 @@ def main():
         i += 1
 
     if partial:
-        os.execv(real, [real] + sys.argv[1:])
+        os.execv(real, [real] + args + ["-o", output])
     if not has_script:
         args = ["-T", script] + args
     args = ["--emit-relocs", "-z", "noexecstack", "--no-warn-rwx-segments"] + args
 
-    if flat is None:
+    # Build systems probe the linker with -o /dev/null, which has no
+    # directory to put a .gdb in and nothing to convert.
+    if flat is None or output == "/dev/null":
         os.execv(real, [real] + args + ["-o", output])
 
     options = []
@@ -90,6 +98,8 @@ def main():
             options += ["--stack", opt[2:]]
         elif opt == "--shared-text":
             options.append(opt)
+        elif opt == "-r":
+            pass
         else:
             sys.exit(f"{os.path.basename(self_path)}: unsupported -elf2flt "
                      f"option {opt}")

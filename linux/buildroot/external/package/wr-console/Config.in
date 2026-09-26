@@ -1,0 +1,7 @@
+config BR2_PACKAGE_WR_CONSOLE
+	bool "wr-console"
+	depends on BR2_c33
+	help
+	  The WikiReader's userspace terminal: draws a shell's PTY on
+	  the framebuffer and types into it from the touchscreen keyboard
+	  and the buttons.
