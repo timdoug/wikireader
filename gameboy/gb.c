@@ -139,6 +139,9 @@ const char *gbw_init(uint8_t *image, size_t file_bytes)
 		image[i] = 0xff;
 	rom = image;
 	build_reversed();
+#ifdef __c33__
+	render_bg_init();
+#endif
 	bg_masks_for = sprite_masks_for[0] = sprite_masks_for[1] = 0x100;
 
 	switch (gb_init(&gb, rom_read, cart_ram_read, cart_ram_write, error,

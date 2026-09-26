@@ -1266,15 +1266,15 @@ def weights():
 
 WEIGHT = weights()
 # The window buffer and A0 RAM also hold gb.c's code and data there; the
-# Makefile names the compiled gb.o (--c-object) and objdump (--objdump).
+# Makefile names the compiled objects (--c-object) and objdump (--objdump).
 # hot.s's own shared code (.Lsetpc, the event stub, the idle loop) takes
 # about SHARED of the window buffer, and each section keeps some slack for
 # alignment and the exit stubs' rounding.
 def c_sections():
-    obj = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--c-object=')), None)
+    objs = [a.split('=', 1)[1] for a in sys.argv if a.startswith('--c-object=')]
     tool = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--objdump=')), None)
     sizes = {}
-    if obj and tool:
+    for obj in objs if tool else []:
         import subprocess
         for line in subprocess.run([tool, '-h', obj], capture_output=True,
                                    text=True, check=True).stdout.splitlines():

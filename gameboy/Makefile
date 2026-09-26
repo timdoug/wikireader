@@ -11,7 +11,7 @@ include $(GRIFO_APPLICATION_PRE)
 
 PROGRAM = gameboy
 ICON = YES
-SOURCES = gameboy.c gb.c
+SOURCES = gameboy.c gb.c render_bg.s
 INCLUDES += -I$(HERE)/compat -I$(PEANUT)
 CFLAGS += -std=gnu11 -fwrapv -fno-strict-aliasing
 LDFLAGS += -T memory.lds
@@ -39,8 +39,9 @@ lib/libapplication.a: $(HOT_OBJECT)
 gameboy.app: memory.lds
 
 # hot.s fills what gb.o leaves of the window buffer and A0 RAM.
-build/hot.s: build/gb.o gen-hot.py opcode-weights.txt Makefile | build
-	python3 gen-hot.py $(HOT_FLAGS) --c-object=build/gb.o --objdump=$(OBJDUMP) > $@
+build/hot.s: build/gb.o build/render_bg.o gen-hot.py opcode-weights.txt Makefile | build
+	python3 gen-hot.py $(HOT_FLAGS) --c-object=build/gb.o \
+		--c-object=build/render_bg.o --objdump=$(OBJDUMP) > $@
 build/hot.o: build/hot.s
 	$(AS) -o $@ $(ASFLAGS) $<
 

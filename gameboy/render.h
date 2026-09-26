@@ -306,6 +306,68 @@ put_word(uint8_t *out, uint32_t black)
 _Static_assert(GBW_LEFT_BYTE % 2 == 0 && GBW_STRIDE % 2 == 0,
 	       "put_word stores halfwords");
 
+#ifdef __c33__
+/* render_bg.s's arguments; see its header. */
+struct bg_args {
+	const uint8_t *map, *tiles;
+	uint32_t first, flip, shift, identity;
+	uint32_t *stream0, *stream1, *plane0, *plane1;
+	uint8_t *out;
+	uint32_t half, quarter, dithered, output;
+	uint32_t masks[8];	/* c0 d10 c2 d32 for shade bit 0, then bit 1 */
+	uint32_t *row;		/* map_row: 64 bytes of A0 RAM */
+};
+void gbw_render_bg(struct bg_args *a);
+
+void gbw_render_dither(struct bg_args *a);
+
+/* The fields that stay put are set once (render_bg_init), the masks when
+   BGP changes (render_line), the rest each line. */
+static struct bg_args bg_args RENDER_DATA;
+
+static void render_bg_init(void)
+{
+	bg_args.row = map_row;
+	bg_args.stream0 = stream0;
+	bg_args.stream1 = stream1;
+	bg_args.plane0 = shade0 + 1;
+	bg_args.plane1 = shade1 + 1;
+}
+
+static inline __attribute__((always_inline)) void render_bg_masks(void)
+{
+	bg_args.masks[0] = bg_masks.c0_0;
+	bg_args.masks[1] = bg_masks.d10_0;
+	bg_args.masks[2] = bg_masks.c2_0;
+	bg_args.masks[3] = bg_masks.d32_0;
+	bg_args.masks[4] = bg_masks.c0_1;
+	bg_args.masks[5] = bg_masks.d10_1;
+	bg_args.masks[6] = bg_masks.c2_1;
+	bg_args.masks[7] = bg_masks.d32_1;
+}
+
+static inline __attribute__((always_inline)) void
+render_bg(struct gb_s *g, const uint8_t *map, unsigned scx, unsigned tile_row,
+	  unsigned lcdc, unsigned ly, uint8_t *out, int sprites)
+{
+	struct bg_args *a = &bg_args;
+	unsigned flip = lcdc & LCDC_TILE_SELECT ? 0 : 0x80;
+
+	a->map = map;
+	a->tiles = g->vram + tile_row + (flip ? VRAM_TILES_2 : VRAM_TILES_1);
+	a->first = scx >> 3;
+	a->flip = flip;
+	a->shift = scx & 7;
+	a->identity = g->hram_io[IO_BGP] == 0xe4;
+	a->out = out;
+	a->half = ly & 1 ? 0x55555555u : 0xaaaaaaaau;
+	a->quarter = ly & 1 ? 0 : 0xaaaaaaaau;
+	a->dithered = dithered;
+	a->output = !sprites;
+	gbw_render_bg(a);
+}
+#endif
+
 static RENDER_CODE void render_line(struct gb_s *g)
 {
 	unsigned ly = g->hram_io[IO_LY];
@@ -342,18 +404,6 @@ static RENDER_CODE void render_line(struct gb_s *g)
 		g->display.window_clear++;
 	}
 
-	if (lcdc & LCDC_BG_ENABLE && window_from > 0) {
-		unsigned y = (ly + g->hram_io[IO_SCY]) & 0xff;
-		unsigned scx = g->hram_io[IO_SCX];
-		const uint8_t *map = g->vram
-			+ (lcdc & LCDC_BG_MAP ? VRAM_BMAP_2 : VRAM_BMAP_1)
-			+ (y >> 3) * 32;
-
-		fetch_stream(map, scx >> 3, (y & 7) * 2, lcdc, stream0, stream1);
-		bg = 1;
-		bg_shift = scx & 7;
-	}
-
 	if (lcdc & LCDC_OBJ_ENABLE) {
 		if (sprites_dirty)
 			rebucket(lcdc);
@@ -363,7 +413,34 @@ static RENDER_CODE void render_line(struct gb_s *g)
 		/* The identity palette needs no masks. */
 		palette_masks(bgp, &bg_masks);
 		bg_masks_for = bgp;
+#ifdef __c33__
+		render_bg_masks();
+#endif
 	}
+
+	if (lcdc & LCDC_BG_ENABLE && window_from > 0) {
+		unsigned y = (ly + g->hram_io[IO_SCY]) & 0xff;
+		unsigned scx = g->hram_io[IO_SCX];
+		const uint8_t *map = g->vram
+			+ (lcdc & LCDC_BG_MAP ? VRAM_BMAP_2 : VRAM_BMAP_1)
+			+ (y >> 3) * 32;
+
+#ifdef __c33__
+		if (window_from == 160) {
+			/* The background alone: render_bg.s. */
+			render_bg(g, map, scx, (y & 7) * 2, lcdc, ly, out, sprites);
+			if (sprites) {
+				render_sprites(ly, lcdc);
+				gbw_render_dither(&bg_args);
+			}
+			goto drawn;
+		}
+#endif
+		fetch_stream(map, scx >> 3, (y & 7) * 2, lcdc, stream0, stream1);
+		bg = 1;
+		bg_shift = scx & 7;
+	}
+
 
 	/* Three passes, each light enough to keep what it needs in the
 	   C33's fifteen registers: in one, the compiler spilled. */
@@ -412,6 +489,9 @@ static RENDER_CODE void render_line(struct gb_s *g)
 	for (unsigned w = 0; w < 5; ++w)
 		put_word(out + 4 * w, panel_bits(shade0[w + 1], shade1[w + 1],
 						 half, quarter));
+#ifdef __c33__
+drawn:
+#endif
 	++lines_drawn;
 
 #ifdef GBW_CHECK_RENDER
