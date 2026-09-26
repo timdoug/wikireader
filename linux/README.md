@@ -333,6 +333,19 @@ ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image at
 `linux/artifacts/uclibc-smoke`. The regular `build` target depends on this
 image and embeds it in the initramfs as `/uclibc-smoke`.
 
+The library includes POSIX threads through LinuxThreads, the uClibc
+implementation that works without an MMU and without thread-local storage.
+The C33 port supplies `clone.S` and a `testandset` that masks interrupts for
+its load and store. That is atomic on a single core, and the C33 has no
+privilege level that would stop user code masking them. In a static uClibc
+the thread library is part of `libc.a` and every program carries it: about
+22 KB more shared text, and about 4 KB more private data per process once
+the port caps threads and thread-specific keys at their POSIX minimums (64
+and 128) instead of 1024 each. `libc` also builds
+`linux/artifacts/pthread-test`. `app-test` runs it from the SD card: a
+contended mutex, per-thread `errno`, condition variables, semaphores,
+`pthread_once` and thread-specific data.
+
 `busybox` builds the pinned BusyBox 1.38.0 release as a static C33 bFLT. Its 79
 enabled applets cover an interactive `hush`, core file and text tools,
 checksums, archive/compression tools, filesystem inspection, and recovery

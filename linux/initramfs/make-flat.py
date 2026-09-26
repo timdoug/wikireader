@@ -16,7 +16,10 @@ C33_DL = 13
 C33_PC_RELATIVE = {6, 7, 8, 24, 25, 26, 27, 28}
 C33_SPLIT_RELOC = 0x80000000
 FLAT_FLAG_RAM = 0x0001
+SHT_SYMTAB = 2
 SHT_RELA = 4
+SHN_UNDEF = 0
+SHN_ABS = 0xfff1
 
 
 class Section:
@@ -119,7 +122,26 @@ def check_data_offset(sections, address, data_address, data_end):
                          f"0x{target:x}, outside the data segment")
 
 
+def fixed_symbols(sections):
+    """Indices of symbols whose value does not move with the image.
+
+    An undefined weak symbol resolves to 0 and an absolute one to its own
+    value; relocating either would turn libc's "if (weak_fn != NULL)" tests
+    into jumps through a non-null garbage pointer.
+    """
+    fixed = set()
+    for section in sections:
+        if section.type != SHT_SYMTAB:
+            continue
+        for index in range(section.size // 16):
+            shndx = struct.unpack_from("<H", section.contents, index * 16 + 14)[0]
+            if shndx in (SHN_UNDEF, SHN_ABS) and index:
+                fixed.add(index)
+    return fixed
+
+
 def make_relocations(sections, image_size, data_address, data_end):
+    fixed = fixed_symbols(sections)
     records = []
     loadable = {section.index for section in sections
                 if section.name in (".text", ".data")}
@@ -147,7 +169,8 @@ def make_relocations(sections, image_size, data_address, data_end):
             ]
             if triple != expected:
                 raise ValueError(f"incomplete C33 H/M/L relocation at 0x{address:x}")
-            relocations.append(C33_SPLIT_RELOC | address)
+            if symbol not in fixed:
+                relocations.append(C33_SPLIT_RELOC | address)
             index += 3
             continue
         if kind in (C33_M, C33_L):
@@ -163,7 +186,8 @@ def make_relocations(sections, image_size, data_address, data_end):
         if kind == C33_DL:
             raise ValueError(f"orphaned doff_lo relocation at 0x{address:x}")
         if kind == C33_32:
-            relocations.append(address)
+            if symbol not in fixed:
+                relocations.append(address)
         elif kind != 0 and kind not in C33_PC_RELATIVE:
             raise ValueError(f"unsupported C33 relocation {kind} at 0x{address:x}")
         index += 1

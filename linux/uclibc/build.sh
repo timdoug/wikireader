@@ -87,6 +87,11 @@ fi
 mkdir -p "$root/linux/artifacts"
 cp "$build_dir/uclibc-smoke" "$root/linux/artifacts/uclibc-smoke"
 
+# LinuxThreads regression, run from the SD card by app-test.py.
+"${cross}gcc" -O2 -Wall -Werror -pthread "$root/linux/uclibc/pthread-test.c" \
+	-o "$build_dir/pthread-test" -Wl,-elf2flt=--shared-text
+cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
+
 libc_bytes=$(wc -c <"$sysroot/usr/lib/libc.a")
 printf '%s\n' "C33 libc.a: $libc_bytes bytes"
 "${cross}size" "$build_dir/uclibc-smoke.gdb"

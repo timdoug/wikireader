@@ -105,6 +105,7 @@ def main():
     grifo = require(root / "samo-lib/grifo/grifo.elf")
     launcher = require(root / "samo-lib/grifo/applications/init/init.app")
     app = require(root / "linux/artifacts/linux.app")
+    pthread_test = require(root / "linux/artifacts/pthread-test")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
     fat = load_fat_helper(root)
@@ -120,6 +121,8 @@ def main():
             "init.app": launcher.read_bytes(),
             "linux.app": app.read_bytes(),
             "linux.ico": icon.read_bytes(),
+            # LinuxThreads is not in the initramfs, so its test rides here.
+            "pthtest.bin": pthread_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the
             # only thing on this machine that can supply one, and it comes
@@ -134,7 +137,9 @@ def main():
                 raise SystemExit(f"Launcher fixture did not read back {name}")
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
-        uart_input.write_text("echo C33 LINUX APP PASS\nreboot -f\n")
+        # One line: hush discards type-ahead each time it prompts.
+        uart_input.write_text("/mnt/sd/pthtest.bin && "
+                              "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
             str(emulator), "-n", "2000000000",
@@ -162,6 +167,7 @@ def main():
             "C33 display: blanked while idle",
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
+            "PTHREAD PASS",
             "C33 LINUX APP PASS",
             "application returned: 2",
             "watchdog reset",
