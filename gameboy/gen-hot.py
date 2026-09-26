@@ -47,7 +47,7 @@ for name, size in (('READ', 64), ('WRITE', 64), ('REND', 64), ('RSIZE', 64),
                    ('A', 4), ('BC', 4), ('DE', 4), ('HL', 4), ('SP', 4),
                    ('PC', 4), ('ZV', 4), ('CF', 4), ('HX', 4), ('LEFT', 4),
                    ('HRAM', 4), ('BIAS', 4), ('SIZE', 4), ('STEPS', 4),
-                   ('PARK', 4), ('GO', 4),
+                   ('PARK', 4), ('GO', 4), ('HRAMB', 4),
                    ('CBGET', 32), ('CBSET', 32), ('CBOP', 128)):
     OFF[name] = _at
     _at += size
@@ -59,6 +59,11 @@ REG8 = {'b': (BC, 'hi'), 'c': (BC, 'lo'), 'd': (DE, 'hi'), 'e': (DE, 'lo'),
         'h': (HL, 'hi'), 'l': (HL, 'lo')}
 R8 = ['b', 'c', 'd', 'e', 'h', 'l', '(hl)', 'a']
 R16 = [BC, DE, HL, SP]
+
+# I/O registers a store to is a plain byte in Peanut (__gb_write stores
+# it and nothing else) and that nothing deferred depends on: the scroll
+# and window positions and LYC, which is only compared at line starts.
+PLAIN_IO_STORES = (0x42, 0x43, 0x45, 0x4a, 0x4b)
 
 
 class Handler:
@@ -126,15 +131,57 @@ class Handler:
 
     def page(self, table, addr, dst, rewind):
         """dst = host address of Game Boy address `addr` (a register), or
-        decline when the page has no direct mapping."""
+        decline when the page has no direct mapping.  Through HL, HRAM
+        (FF80-FFFE, plain bytes of Peanut's hram_io) is served too: games
+        keep tables there."""
         self.e(f'ld.w\t{dst},{addr}')
         self.e(f'srl\t{dst},12')
         self.e(f'sll\t{dst},2')
         self.e(f'add\t{dst},{TB}')
         self.e(f'xld.w\t{dst},[{dst}+{OFF[table]}]')
         self.e(f'cmp\t{dst},0')
-        self.decline(rewind)
+        if addr != HL:
+            self.decline(rewind)
+            self.e(f'add\t{dst},{addr}')
+            return
+        self.pages = getattr(self, 'pages', 0) + 1
+        hram = f'{self.name}_hr{self.pages}'
+        back = f'{self.name}_hb{self.pages}'
+        self.e(f'jreq\t{hram}')
         self.e(f'add\t{dst},{addr}')
+        self.label(back)
+        c = self.cold.append
+        no = f'{self.name}_hd{self.pages}'
+        yes = f'{self.name}_hy{self.pages}'
+        c(f'{hram}:')
+        c(f'\tld.w\t{dst},{addr}')
+        c(f'\txsub\t{dst},0xff00')
+        c(f'\txcmp\t{dst},0xff')                 # FF00-FFFE, not IE
+        c(f'\txjruge\t{no}')
+        c(f'\txcmp\t{dst},0x80')                 # HRAM
+        c(f'\txjruge\t{yes}')
+        if table == 'READ':                       # plain I/O, as plain_io
+            c(f'\tcmp\t{dst},4')
+            c(f'\txjreq\t{no}')
+            c(f'\tcmp\t{dst},5')
+            c(f'\txjreq\t{no}')
+            c(f'\tcmp\t{dst},0x10')
+            c(f'\txjrult\t{yes}')
+            c(f'\txcmp\t{dst},0x40')
+            c(f'\txjrult\t{no}')
+            c(f'\txjp\t{yes}')
+        else:
+            for reg in PLAIN_IO_STORES:
+                c(f'\txcmp\t{dst},{reg:#x}')
+                c(f'\txjreq\t{yes}')
+            c(f'\txjp\t{no}')
+        c(f'{yes}:')
+        c(f'\txld.w\t{dst},[{TB}+{OFF["HRAMB"]}]')  # hram_io - 0xff00
+        c(f'\tadd\t{dst},{addr}')
+        c(f'\txjp\t{back}')
+        c(f'{no}:')
+        c(f'\tld.w\t{T1},{rewind}')
+        c('\txjp\t.Ldecline')
 
     def imm16(self, dst, tmp):
         self.e(f'ld.ub\t{dst},[{P}]+')
@@ -766,11 +813,21 @@ h.next(8)
 
 
 def hram_only(h, n, rewind):
-    """Decline unless FF00+n is HRAM proper (not I/O, not IE)."""
+    """Decline unless a store to FF00+n is to HRAM proper (not IE) or one
+    of PLAIN_IO_STORES."""
+    ok, io = f'{h.name}_st', f'{h.name}_io'
     h.e(f'ld.w\t{T1},{n}')
     h.e(f'xsub\t{T1},0x80')
     h.e(f'xcmp\t{T1},0x7f')
-    h.decline(rewind, 'jruge')
+    h.e(f'jruge\t{io}')
+    h.label(ok)
+    c = h.cold.append
+    c(f'{io}:')
+    for reg in PLAIN_IO_STORES:
+        c(f'\txcmp\t{n},{reg:#x}')
+        c(f'\txjreq\t{ok}')
+    c(f'\tld.w\t{T1},{rewind}')
+    c('\txjp\t.Ldecline')
 
 
 h = op(0xe0)                                    # LDH (n),A
@@ -1094,9 +1151,10 @@ def weights():
 
 
 WEIGHT = weights()
-# The window buffer also holds memory.h's ticks() and gb.c's gb_hot_event().
-IVRAM_CODE = 0x1600 - STATE_END - 64 - 1200
-A0_CODE = int(next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--a0=')), '2480'), 0)
+# The window buffer also holds memory.h's ticks() and event_tick() and
+# gb.c's gb_hot_event().
+IVRAM_CODE = 0x1600 - STATE_END - 64 - 2100
+A0_CODE = int(next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--a0=')), '2240'), 0)
 
 order = []
 for c in sorted(handlers, key=lambda c: -WEIGHT.get(f'{c:02x}', 0)):
@@ -1105,11 +1163,14 @@ for c in sorted(handlers, key=lambda c: -WEIGHT.get(f'{c:02x}', 0)):
         for g in cb_handlers.values():
             order.append((WEIGHT.get('cb', 0), g))
 
-sections = {'.ivram_code': [], '.fastcode': [], '.text': []}
-room = {'.ivram_code': IVRAM_CODE, '.fastcode': A0_CODE, '.text': 1 << 30}
+# The default framebuffer after the machine's kilobyte (memory.lds).
+FB_CODE = 0x81a00 - 0x80400 - 64
+sections = {'.ivram_code': [], '.fastcode': [], '.fbcode': [], '.text': []}
+room = {'.ivram_code': IVRAM_CODE, '.fastcode': A0_CODE, '.fbcode': FB_CODE,
+        '.text': 1 << 30}
 for weight, g in order:
     need = g.size() + 12                        # a share of the stubs
-    for name in ('.ivram_code', '.fastcode', '.text'):
+    for name in ('.ivram_code', '.fastcode', '.fbcode', '.text'):
         if weight and room[name] >= need or name == '.text':
             sections[name].append(g)
             room[name] -= need

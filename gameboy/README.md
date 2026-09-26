@@ -60,8 +60,11 @@ touching.
   do -- most I/O, banking writes, HALT, EI, DI, RETI, DAA, the stack in HRAM
   -- it gives back to C, which runs that one instruction through Peanut.
   Code in HRAM, where games keep the loop that waits out OAM DMA, runs in it
-  as a region of its own. The heaviest handlers by `opcode-weights.txt` go
-  in A0 RAM and the LCD window buffer; the rest run from SDRAM.
+  as a region of its own; through HL it also reads HRAM and the I/O
+  registers that change only at events (LY, STAT, IF), and stores the
+  scroll and window positions and LYC. The heaviest handlers by
+  `opcode-weights.txt` go in A0 RAM, the LCD window buffer and the default
+  framebuffer; the rest run from SDRAM.
 - **Idle loops**: `ldh a,(nn); and a; jr z` (or `jr nz`) on an HRAM flag,
   the way games wait for their VBlank handler, is charged all but its last
   pass at once when A and the flags show it can only go round again until
@@ -69,18 +72,21 @@ touching.
 - **`memory.h`**: a 16-page memory map for the C paths, and timing that is
   deferred until the next event. Only DIV and TIMA fall behind meanwhile;
   an access that meets them, or a write that could move the next event,
-  runs the deferred cycles first. `ticks()` replaces Peanut's
-  per-instruction timer, serial and LCD step, and its HALT loop -- about six
-  passes a halted scanline -- with the counters and I/O registers held in
-  locals for the whole wait. It runs from the window buffer.
+  runs the deferred cycles first. `event_tick()` runs one event touching
+  only what changes and returns the next budget; `ticks()` does the rest,
+  and Peanut's HALT loop -- about six passes a halted scanline -- with the
+  counters and I/O registers held in locals for the whole wait. Both run
+  from the window buffer.
 - **`render.h`**: each scanline as big-endian 32-bit bit planes, so fine
   scrolling is a funnel shift, and palettes, sprite priority and the dither
   are masks, in one pass from tile fetch to framebuffer on lines without
   sprites. Sprites are bucketed by line when OAM changes.
-- **On-chip RAM for state**: Peanut's `struct gb_s`, without its work RAM
-  and VRAM, is about 540 bytes and lives in the kernel's default
-  framebuffer, 6.6 KB of zero-wait IVRAM nothing shows once the controls are
-  drawn and the panel moved to the emulator's own buffers. Frames run on a
+- **On-chip RAM for state and code**: Peanut's `struct gb_s`, without its
+  work RAM and VRAM, is about 540 bytes and lives at the start of the
+  kernel's default framebuffer, 6.6 KB of zero-wait IVRAM the panel never
+  shows while the emulator runs: the controls are drawn straight into the
+  emulator's own buffers. The kernel's loader clears that framebuffer and
+  then loads handlers over the rest of it (`.fbcode`, `memory.lds`). Frames run on a
   private stack in the 1 KB of DSTRAM the kernel's SD DMA descriptors leave
   free; the benchmark reports the depth reached, and a canary stops the
   emulator if a frame overflows it.
@@ -113,18 +119,15 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 
 | Workload | Speed |
 | --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 176% |
-| Pokemon Red, intro (frames 421-540) | 166% |
-| Tetris, first piece falling (frames 721-840) | 118% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 85% |
-| Blargg `cpu_instrs` (frames 121-240), all CPU | 76% |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 184% |
+| Pokemon Red, intro (frames 421-540) | 172% |
+| Tetris, first piece falling (frames 721-840) | 136% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 105% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank
 instead of halting and run about 5,300 Game Boy instructions a frame, three
-times what Pokemon and Libbet do; the idle-loop skip covers their wait,
-and what is left is their CPU work, the renderer and three LCD events a
-scanline.
+times what Pokemon and Libbet do; the idle-loop skip covers their wait.
 
 The benchmark report also counts, per frame, the calls into `hot.s`, the
 instructions it gave back and which opcodes they were.

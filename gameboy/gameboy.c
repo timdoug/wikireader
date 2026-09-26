@@ -294,7 +294,10 @@ static void draw_controls(void)
 		{ -3, -1 }, { -1, -1 }, { -1, -3 },
 	};
 
-	lcd_set_default_framebuffer();
+	/* Into the emulator's own buffer: the default framebuffer holds the
+	   machine and code (memory.lds). */
+	front = 0;
+	(void)lcd_set_framebuffer(buffers[front]);
 	lcd_clear(LCD_WHITE);
 	for (unsigned i = 0; i < sizeof cross / sizeof cross[0]; ++i) {
 		int x = PAD_X + arm(cross[i][0]), y = PAD_Y + arm(cross[i][1]);
@@ -310,10 +313,7 @@ static void draw_controls(void)
 	box(SELECT_LEFT, SELECT_TOP, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 	lcd_at_xy(SELECT_LEFT / 8 + 2, 13);
 	lcd_print("SELECT");
-	memcpy(buffers[0], lcd_get_framebuffer(), LCD_BUFFER_SIZE_BYTES);
 	memcpy(buffers[1], buffers[0], LCD_BUFFER_SIZE_BYTES);
-	front = 0;
-	(void)lcd_set_framebuffer(buffers[front]);
 	gbw_set_framebuffer((uint8_t *)buffers[!front]);
 }
 
@@ -570,8 +570,6 @@ int grifo_main(int argc, char **argv)
 
 	lcd_window_disable();
 	bytes = load_file(path, &rom, gbw_rom_bytes);
-	/* The controls first: the machine lives in the default framebuffer
-	   this draws on (memory.lds), and gbw_init clears it. */
 	if (bytes >= 0)
 		draw_controls();
 	failure = bytes < 0 ? "cannot read the game" : gbw_init(rom, (size_t)bytes);

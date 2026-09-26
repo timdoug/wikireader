@@ -21,3 +21,17 @@ ASSERT(SIZEOF(ovlhtml) + SIZEOF(ovlwrap) + SIZEOF(ovlhuf) + SIZEOF(ovlwebp) + SI
    and puts nothing on the default framebuffer again until the emulator is
    done with it. */
 gbw_machine = __START_FrameBuffer;
+
+/* The rest of that framebuffer holds code: hot.s's handlers that the window
+   buffer and A0 RAM have no room for.  The kernel's loader clears the
+   framebuffer (.lcd) and then loads this over it, in section order; after
+   that nothing may draw on the default framebuffer while the emulator
+   runs, so gameboy.c draws its controls into its own buffers. */
+SECTIONS {
+    .fbcode 0x80400 : {
+        *(.fbcode)
+    }
+}
+INSERT AFTER .lcd;
+ASSERT(ADDR(.fbcode) + SIZEOF(.fbcode) <= 0x81a00,
+       "hot.s's framebuffer code runs past the default framebuffer")

@@ -36,6 +36,7 @@ struct gb_hot {
 	int32_t left;
 	uintptr_t hram, bias;
 	uint32_t size, steps, park, go;
+	uintptr_t hram_biased;			/* hram_io - 0xff00 */
 	uint32_t cb_get[8], cb_set[8], cb_op[32];
 };
 
@@ -354,6 +355,129 @@ next:
 static uint32_t (*volatile fast_ticks)(struct gb_s *, uint32_t, int) = ticks;
 #define fast_tick(g, cycles) fast_ticks(g, cycles, 0)
 
+/* The common event, when nothing but DIV, TIMA and the LCD is moving: one
+   LCD mode change, the same state changes as ticks() in the same order,
+   but touching only what changes, and returning the next budget, which
+   next_event() would give.  Everything else goes to ticks(). */
+static TICK_CODE int32_t event_tick(struct gb_s *g, uint32_t cycles)
+{
+	uint8_t *io = g->hram_io;
+	int rtc_on = g->mbc == 3 && (g->rtc_real.reg.high & 0x40) == 0;
+	uint32_t count, lcd;
+	int32_t next = INT32_MAX, lcd_next;
+	unsigned stat, mode;
+
+	if ((io[IO_SC] & SERIAL_SC_TX_START) || !(io[IO_LCDC] & LCDC_ENABLE)
+	    || (rtc_on && g->counter.rtc_count + cycles >= RTC_CYCLES)) {
+		(void)ticks(g, cycles, 0);
+		return next_event(g);
+	}
+
+	count = g->counter.div_count + cycles;
+	io[IO_DIV] = (uint8_t)(io[IO_DIV] + (count >> 8));
+	g->counter.div_count = count & (DIV_CYCLES - 1);
+	if (rtc_on) {
+		g->counter.rtc_count += cycles;
+		next = (int32_t)(RTC_CYCLES - g->counter.rtc_count);
+	}
+	if (io[IO_TAC] & IO_TAC_ENABLE_MASK) {
+		uint32_t period = tac_period(io[IO_TAC]);
+		int32_t overflow;
+
+		for (count = g->counter.tima_count + cycles; count >= period;
+		     count -= period)
+			if (++io[IO_TIMA] == 0) {
+				io[IO_IF] |= TIMER_INTR;
+				io[IO_TIMA] = io[IO_TMA];
+			}
+		g->counter.tima_count = count;
+		overflow = (int32_t)((256 - io[IO_TIMA]) * period - count);
+		if (overflow < next)
+			next = overflow;
+	}
+
+	stat = io[IO_STAT];
+	lcd = g->counter.lcd_count + cycles;
+	if (lcd >= LCD_LINE_CYCLES) {
+		unsigned ly = io[IO_LY] + 1u;
+
+		lcd -= LCD_LINE_CYCLES;
+		if (ly == LCD_VERT_LINES)
+			ly = 0;
+		io[IO_LY] = (uint8_t)ly;
+		if (ly == io[IO_LYC]) {
+			stat |= STAT_LYC_COINC;
+			if (stat & STAT_LYC_INTR)
+				io[IO_IF] |= LCDC_INTR;
+		} else {
+			stat &= 0xfb;
+		}
+		if (ly == LCD_HEIGHT) {
+			stat = (stat & ~STAT_MODE) | IO_STAT_MODE_VBLANK;
+			g->gb_frame = true;
+			io[IO_IF] |= VBLANK_INTR;
+			g->lcd_blank = false;
+			if (stat & STAT_MODE_1_INTR)
+				io[IO_IF] |= LCDC_INTR;
+			if (g->direct.frame_skip)
+				g->display.frame_skip_count =
+					!g->display.frame_skip_count;
+			if (g->direct.interlace && (!g->direct.frame_skip
+						    || g->display.frame_skip_count))
+				g->display.interlace_count =
+					!g->display.interlace_count;
+		} else if (ly < LCD_HEIGHT) {
+			if (ly == 0) {
+				g->display.WY = io[IO_WY];
+				g->display.window_clear = 0;
+			}
+			stat = (stat & ~STAT_MODE) | IO_STAT_MODE_OAM_SCAN;
+			lcd = 0;
+			if (stat & STAT_MODE_2_INTR)
+				io[IO_IF] |= LCDC_INTR;
+		}
+	} else if ((stat & STAT_MODE) == IO_STAT_MODE_LCD_DRAW
+		   && lcd >= LCD_MODE3_LCD_DRAW_END) {
+		stat = (stat & ~STAT_MODE) | IO_STAT_MODE_HBLANK;
+		if (stat & STAT_MODE_0_INTR)
+			io[IO_IF] |= LCDC_INTR;
+	} else if ((stat & STAT_MODE) == IO_STAT_MODE_OAM_SCAN
+		   && lcd >= LCD_MODE2_OAM_SCAN_END) {
+		stat = (stat & ~STAT_MODE) | IO_STAT_MODE_LCD_DRAW;
+		io[IO_STAT] = (uint8_t)stat;
+		if (!g->lcd_blank)
+			PEANUT_GB_DRAW_LINE(g);
+	}
+	io[IO_STAT] = (uint8_t)stat;
+	g->counter.lcd_count = lcd;
+
+	mode = stat & STAT_MODE;
+	lcd_next = (int32_t)(mode == IO_STAT_MODE_OAM_SCAN ? LCD_MODE2_OAM_SCAN_END
+			     : mode == IO_STAT_MODE_LCD_DRAW ? LCD_MODE3_LCD_DRAW_END
+			     : LCD_LINE_CYCLES) - (int32_t)lcd;
+	if (lcd_next < next)
+		next = lcd_next;
+	return next < 1 ? 1 : next;
+}
+
+static int32_t (*volatile fast_event)(struct gb_s *, uint32_t) = event_tick;
+
+/* A step's timing, from Peanut's step (PEANUT_GB_TICKS): the HALT loop,
+   or one event. */
+static int32_t step_budget = -1;
+
+static void step_ticks(struct gb_s *g, uint32_t cycles)
+{
+	if (g->gb_halt) {
+		(void)fast_ticks(g, cycles, 1);
+		step_budget = -1;
+	} else {
+		step_budget = fast_event(g, cycles);
+	}
+}
+
+
+
 /* Run the deferred cycles now. */
 static void catch_up(struct gb_s *g)
 {
@@ -383,6 +507,17 @@ batch(struct gb_s *g, uint32_t cycles)
 
 static inline __attribute__((always_inline)) void ticked(struct gb_s *g)
 {
+	if (step_budget >= 0) {
+		/* event_tick() found it; the host builds check it. */
+#ifndef __c33__
+		if (step_budget != next_event(g))
+			gbw_error("event_tick's budget differs from next_event's",
+				  (unsigned)step_budget);
+#endif
+		budget = step_budget;
+		step_budget = -1;
+		return;
+	}
 	budget = next_event(g);
 }
 

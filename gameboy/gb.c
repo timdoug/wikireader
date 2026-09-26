@@ -29,8 +29,8 @@ static void catch_up(struct gb_s *g);
 #define PEANUT_GB_BATCH batch
 #define PEANUT_GB_TICKED ticked
 #define PEANUT_GB_HALT catch_up
-static uint32_t (*volatile fast_ticks)(struct gb_s *, uint32_t, int);
-#define PEANUT_GB_TICKS(gb, cycles) ((void)fast_ticks(gb, cycles, 1))
+static void step_ticks(struct gb_s *g, uint32_t cycles);
+#define PEANUT_GB_TICKS step_ticks
 #include "peanut_gb.h"
 
 /* The machine.  On the C33 it lives in the kernel's default framebuffer,
@@ -40,6 +40,8 @@ static uint32_t (*volatile fast_ticks)(struct gb_s *, uint32_t, int);
    data-queue fill.  Work RAM and VRAM are too big for it and stay out. */
 #ifdef __c33__
 extern struct gb_s gb __asm__("gbw_machine");
+/* memory.lds gives it the framebuffer's first kilobyte. */
+_Static_assert(sizeof(struct gb_s) <= 1024, "the machine outgrew its kilobyte");
 #else
 static struct gb_s gb;
 #endif
@@ -159,6 +161,7 @@ const char *gbw_init(uint8_t *image, size_t file_bytes)
 	map_regions();
 	map_pages(&gb);
 	hot.hram = (uintptr_t)gb.hram_io;
+	hot.hram_biased = (uintptr_t)gb.hram_io - 0xff00;
 	return 0;
 }
 
@@ -409,6 +412,8 @@ unsigned gbw_run_frame(void)
 /* How often each opcode runs, for choosing what the hot path covers. */
 static unsigned long long opcodes[512];
 static unsigned long long ldh[256];
+/* LDH (n),A by n, and LD (nn),A by the high byte of nn. */
+static unsigned long long ldh_write[256], far_write[256];
 
 static void print_histogram(void)
 {
@@ -419,6 +424,12 @@ static void print_histogram(void)
 	for (int i = 0; i < 256; ++i)
 		if (ldh[i])
 			fprintf(stderr, "ldh ff%02x %llu\n", i, ldh[i]);
+	for (int i = 0; i < 256; ++i)
+		if (ldh_write[i])
+			fprintf(stderr, "ldh-write ff%02x %llu\n", i, ldh_write[i]);
+	for (int i = 0; i < 256; ++i)
+		if (far_write[i])
+			fprintf(stderr, "ld-nn-a %02xxx %llu\n", i, far_write[i]);
 
 }
 
@@ -437,6 +448,11 @@ unsigned gbw_run_frame(void)
 			++opcodes[256 + __gb_read(&gb, gb.cpu_reg.pc.reg + 1)];
 		else if (op == 0xf0)
 			++ldh[__gb_read(&gb, gb.cpu_reg.pc.reg + 1)];
+		else if (op == 0xe0)
+			++ldh_write[__gb_read(&gb, gb.cpu_reg.pc.reg + 1)];
+		else if (op == 0xea)
+			++far_write[__gb_read(&gb, gb.cpu_reg.pc.reg + 2)];
+
 
 		else
 			++opcodes[op];
@@ -485,8 +501,7 @@ TICK_CODE void gb_hot_event(void)
 	uint32_t cycles = (uint32_t)(budget - hot.left);
 
 	pending = 0;
-	(void)ticks(&gb, cycles, 0);
-	budget = next_event(&gb);
+	budget = event_tick(&gb, cycles);
 	hot.left = budget;
 	hot.go = !gb.gb_frame && !(gb.gb_ime && gb.hram_io[IO_IF]
 				   & gb.hram_io[IO_IE] & ANY_INTR);
