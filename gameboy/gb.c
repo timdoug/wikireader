@@ -163,6 +163,21 @@ const char *gbw_init(uint8_t *image, size_t file_bytes)
 	map_pages(&gb);
 	hot.hram = (uintptr_t)gb.hram_io;
 	hot.hram_biased = (uintptr_t)gb.hram_io - 0xff00;
+	{
+		/* Where the compiler put the gb_ime bitfield, for hot.s's EI,
+		   DI and RETI. */
+		static struct gb_s probe;
+		const uint8_t *bytes = (const uint8_t *)&probe;
+
+		memset(&probe, 0, sizeof probe);
+		probe.gb_ime = 1;
+		for (size_t i = 0; i < sizeof probe; ++i)
+			if (bytes[i]) {
+				hot.ime = (uintptr_t)&gb + i;
+				hot.ime_bit = bytes[i];
+				break;
+			}
+	}
 	return 0;
 }
 

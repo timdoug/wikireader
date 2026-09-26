@@ -48,6 +48,7 @@ for name, size in (('READ', 64), ('WRITE', 64), ('REND', 64), ('RSIZE', 64),
                    ('PC', 4), ('ZV', 4), ('CF', 4), ('HX', 4), ('LEFT', 4),
                    ('HRAM', 4), ('BIAS', 4), ('SIZE', 4), ('STEPS', 4),
                    ('PARK', 4), ('GO', 4), ('HRAMB', 4), ('STAT0', 4),
+                   ('IME', 4), ('IMEBIT', 4),
                    ('CBGET', 32), ('CBSET', 32), ('CBOP', 128)):
     OFF[name] = _at
     _at += size
@@ -685,6 +686,49 @@ for i, (reg, af) in enumerate(((BC, False), (DE, False), (HL, False), (None, Tru
         push(h, push_value, 1)
     h.next(16)
 
+def pending_irq(h, rewind):
+    """Decline if an interrupt would be pending with IME set: C then takes
+    the instruction, and Peanut dispatches it in its order."""
+    h.e(f'xld.w\t{T0},[{TB}+{OFF["HRAM"]}]')
+    h.e(f'xld.ub\t{T1},[{T0}+0x0f]')           # IF
+    h.e(f'xld.ub\t{T2},[{T0}+0xff]')           # IE
+    h.e(f'and\t{T1},{T2}')
+    h.e(f'and\t{T1},0x1f')
+    h.e(f'cmp\t{T1},0')
+    h.decline(rewind, 'jrne')
+
+
+def set_ime(h, on):
+    """gb_ime is a bitfield of Peanut's struct: its byte and bit come in
+    the state block."""
+    h.e(f'xld.w\t{T0},[{TB}+{OFF["IME"]}]')
+    h.e(f'ld.ub\t{T1},[{T0}]')
+    h.e(f'xld.w\t{T2},[{TB}+{OFF["IMEBIT"]}]')
+    if on:
+        h.e(f'or\t{T1},{T2}')
+    else:
+        h.e(f'not\t{T2},{T2}')
+        h.e(f'and\t{T1},{T2}')
+    h.e(f'ld.b\t[{T0}],{T1}')
+
+
+# No interrupt can become pending between events, which gb_hot_event
+# checks; so EI and RETI only need to look once, when IME goes on.
+h = op(0xf3)                                    # DI
+set_ime(h, False)
+h.next(4)
+h = op(0xfb)                                    # EI
+pending_irq(h, 1)
+set_ime(h, True)
+h.next(4)
+h = op(0xd9)                                    # RETI
+pending_irq(h, 1)
+pop(h, T0, 1)
+h.e(f'xld.w\t[{TB}+{OFF["PARK"]}],{T0}')     # set_ime takes T0-T2
+set_ime(h, True)
+h.e(f'xld.w\t{T0},[{TB}+{OFF["PARK"]}]')
+h.jump(T0, 16)
+
 h = op(0xc9)                                    # RET
 pop(h, T0, 1)
 h.jump(T0, 16)
@@ -1115,10 +1159,6 @@ hc('\txjrle\t.Lspent_r')
 hc(f'\tcmp\t{P},{PEND}')
 hc('\txjrugt\t.Lbound_r')
 hc(f'\tjp\t{T0}')
-# The budget is spent at an event.  C runs it (gb_hot_event) with every
-# register pushed, and says whether to go on -- the usual case -- or to
-# leave for an interrupt or the end of the frame.  Leaving and coming back
-# in cost far more than the event: three of them a scanline.
 # The idle loop, fast-forwarded (see idle_skip): the jr at P - 1, the ldh at
 # P - 4, the and at P - 2, 28 cycles a pass, the machine the same at every
 # instruction boundary.  Whole passes are charged at once and the last one
@@ -1185,6 +1225,10 @@ hc('\txjreq\t.Lleave_after_event')
 hc(f'\tsub\t{P},2')
 hc('\txjp\t.Lleave_after_event')
 hc('')
+# The budget is spent at an event.  C runs it (gb_hot_event) with every
+# register pushed, and says whether to go on -- the usual case -- or to
+# leave for an interrupt or the end of the frame.  Leaving and coming back
+# in cost far more than the event: two or three of them a scanline.
 hc('.Lspent_r:')
 hc(f'\tsub\t{P},1')                             # the next opcode, unrun
 hc(f'\txld.w\t[{TB}+{OFF["LEFT"]}],{LEFT}')

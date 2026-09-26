@@ -38,6 +38,8 @@ struct gb_hot {
 	uint32_t size, steps, park, go;
 	uintptr_t hram_biased;			/* hram_io - 0xff00 */
 	int32_t stat0_left;	/* mode 3 has become 0 once left <= this */
+	uintptr_t ime;		/* the byte of struct gb_s holding gb_ime */
+	uint32_t ime_bit;	/* and its bit */
 	uint32_t cb_get[8], cb_set[8], cb_op[32];
 };
 

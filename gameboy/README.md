@@ -129,7 +129,7 @@ Emulator (wremu) figures, real time being 59.73 frames a second:
 | Libbet and the Magic Floor, gameplay demo (frames 421-480) | 188% |
 | Pokemon Red, intro (frames 421-540) | 176% |
 | Tetris, first piece falling (frames 721-840) | 194% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 127% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 131% |
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank
