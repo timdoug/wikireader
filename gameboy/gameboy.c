@@ -1,11 +1,12 @@
 /*
  * A Game Boy for the WikiReader: Grifo glue around gb.c.
  *
- *   gameboy.app GAME.gb [threshold] [serial] [frames=N] [script=...]
+ *   gameboy.app GAME.gb [threshold] [serial] [state=F] [frames=N] [script=...]
  *               [window=N]
  *
  * threshold draws the grays as white and black instead of dithering them;
- * serial copies what the game sends on the link port to the console.
+ * serial copies what the game sends on the link port to the console;
+ * state= starts from a save state written by the host build.
  * With frames= it is a benchmark: the script plays the buttons, the run
  * goes flat out with no pacing, and after N frames it reports the speed
  * of the frames after window= to the serial console and gbbench.txt, then
@@ -459,7 +460,12 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 {
 	unsigned long long ticks = 0;
 	unsigned long slowest = 0, fastest = ~0ul;
-	unsigned timed = 0, drawn = 0;
+	unsigned timed = 0, drawn = 0, late = 0;
+	/* The slowest second: the play loop's deadlines are fixed, so a late
+	   frame is made up by the next fast ones and it is a run of slow
+	   frames that the player sees. */
+	static unsigned long last[60];
+	unsigned long long second = 0, worst_second = 0;
 
 	for (unsigned frame = 1; frame <= frames; ++frame) {
 		unsigned long start;
@@ -475,11 +481,17 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 		watchdog(WATCHDOG_KEY);
 		if (frame > window) {
 			ticks += spent;
-			++timed;
 			if (spent > slowest)
 				slowest = spent;
 			if (spent < fastest)
 				fastest = spent;
+			if (spent > FRAME_TICKS)
+				++late;
+			second += spent;
+			second -= last[timed % 60];
+			last[timed++ % 60] = spent;
+			if (timed >= 60 && second > worst_second)
+				worst_second = second;
 		}
 		/* Hashing and printing are outside the timing. */
 		if (frame % 60 == 0 || frame == frames)
@@ -501,6 +513,14 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 		       percent_x10 / 10, percent_x10 % 10,
 		       (unsigned long)(TIMER_HZ * 10ull / per_frame) / 10,
 		       (unsigned long)(TIMER_HZ * 10ull / per_frame) % 10);
+		if (worst_second) {
+			unsigned long worst_x10 = (unsigned long)
+				(FRAME_TICKS * 60 * 1000ull / worst_second);
+
+			report("gb: %u frames over 1/60 s; slowest second "
+			       "%lu.%lu%% of real time\n", late,
+			       worst_x10 / 10, worst_x10 % 10);
+		}
 	}
 	{
 		unsigned long given = 0;
@@ -539,7 +559,7 @@ static void benchmark(const char *script, unsigned frames, unsigned window)
 
 int grifo_main(int argc, char **argv)
 {
-	const char *path = NULL, *script = NULL;
+	const char *path = NULL, *script = NULL, *state_path = NULL;
 	unsigned frames = 0, window = 0;
 	uint8_t *rom;
 	long bytes;
@@ -560,6 +580,8 @@ int grifo_main(int argc, char **argv)
 			gbw_set_dither(0);
 		else if (strcmp(argv[i], "serial") == 0)
 			serial_console = 1;
+		else if (strncmp(argv[i], "state=", 6) == 0)
+			state_path = argv[i] + 6;
 		else if (!path && length > 3
 			 && (strcmp(argv[i] + length - 3, ".gb") == 0
 			     || strcmp(argv[i] + length - 4, ".gbc") == 0))
@@ -588,6 +610,17 @@ int grifo_main(int argc, char **argv)
 	report("gb: %s, %s, %ld bytes, %lu bytes of cartridge RAM\n", path,
 	       gbw_title(), bytes, (unsigned long)gbw_save_bytes());
 	load_save(path);
+	if (state_path) {
+		/* A save state from the host build (tests/host.c -save). */
+		uint8_t *state = 0;
+		long bytes = load_file(state_path, &state, 0);
+		const char *why = bytes < 0 ? "cannot read it"
+			: gbw_load_state(state, (size_t)bytes);
+
+		if (why)
+			gbw_error(why, 0);
+		memory_free(state, "gameboy rom");
+	}
 
 	fill_fast_stack();
 	if (frames) {

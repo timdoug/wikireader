@@ -3,10 +3,11 @@
  * the same script and prints the hashes the device prints, so a C33 build
  * can be checked frame for frame.
  *
- *   host ROM FRAMES [SCRIPT] [-p FRAME,FRAME,...] [-k]
+ *   host ROM FRAMES [SCRIPT] [-p FRAME,FRAME,...] [-k] [-load F] [-save F]
  *
  * -p writes the panel as it would look at those frames to frame-N.pgm;
- * -k turns frame skipping on, as the device's default does.
+ * -k turns frame skipping on, as the device's default does; -load starts
+ * from a save state and -save writes one after the last frame.
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
@@ -45,7 +46,7 @@ static void write_pgm(unsigned frame)
 
 int main(int argc, char **argv)
 {
-	const char *script = NULL, *pictures = "";
+	const char *script = NULL, *pictures = "", *load = NULL, *save = NULL;
 	int skip = 0;
 	FILE *file;
 	long size;
@@ -77,6 +78,10 @@ int main(int argc, char **argv)
 			pictures = argv[++i];
 		else if (strcmp(argv[i], "-k") == 0)
 			skip = 1;
+		else if (strcmp(argv[i], "-load") == 0 && i + 1 < argc)
+			load = argv[++i];
+		else if (strcmp(argv[i], "-save") == 0 && i + 1 < argc)
+			save = argv[++i];
 		else
 			script = argv[i];
 	}
@@ -110,6 +115,19 @@ int main(int argc, char **argv)
 	gbw_set_cart_ram(ram, ram_bytes);
 	gbw_set_framebuffer(panel);
 	gbw_set_frame_skip(skip);
+	if (load) {
+		static uint8_t state[1 << 20];
+		FILE *in = fopen(load, "rb");
+		size_t got = in ? fread(state, 1, sizeof state, in) : 0;
+		const char *why = in ? gbw_load_state(state, got) : "cannot open";
+
+		if (in)
+			fclose(in);
+		if (why) {
+			fprintf(stderr, "%s: %s\n", load, why);
+			return 1;
+		}
+	}
 	printf("gb: %s, %ld bytes, %zu bytes of cartridge RAM\n", gbw_title(),
 	       size, ram_bytes);
 
@@ -124,6 +142,18 @@ int main(int argc, char **argv)
 			p = strchr(p, ',');
 			p = p ? p + 1 : "";
 		}
+	}
+	if (save) {
+		size_t size = gbw_state_bytes();
+		uint8_t *state = malloc(size);
+		FILE *out = fopen(save, "wb");
+
+		size = gbw_save_state(state, size);
+		if (!out || !size || fwrite(state, 1, size, out) != size) {
+			fprintf(stderr, "%s: cannot save\n", save);
+			return 1;
+		}
+		fclose(out);
 	}
 	return 0;
 }

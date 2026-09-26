@@ -541,6 +541,14 @@ TICK_CODE void gb_hot_event(void)
 				   & gb.hram_io[IO_IE] & ANY_INTR);
 }
 
+/* A write to the ROM bank register from hot.s, the address and value in
+   hot.park: no deferred state meets it (see meets_deferred). */
+void gb_hot_bank(void)
+{
+	__gb_write(&gb, hot.park & 0xffff, (uint8_t)(hot.park >> 16));
+	map_pages(&gb);
+}
+
 /* What the loop did, for the benchmark report: calls into hot.s, the
    instructions it gave back by opcode, and steps taken for interrupts. */
 struct gbw_counts gbw_counts;
@@ -586,3 +594,116 @@ unsigned gbw_run_frame(void)
 	return lines_drawn;
 }
 #endif
+
+/* Save states, for starting benchmarks deep in a game: the host plays there
+   and saves, and the C33 build and the host both load.  A portable
+   little-endian stream written field by field, since the host's struct
+   holds 8-byte pointers where the C33's holds 4-byte ones.  Taken between
+   frames, when no cycles are deferred. */
+#define STATE_MAGIC 0x31534247u		/* "GBS1" */
+
+struct state_stream {
+	uint8_t *at;
+	size_t left;
+	int bad;
+};
+
+static void put(struct state_stream *s, const void *data, size_t bytes)
+{
+	if (s->bad || bytes > s->left) {
+		s->bad = 1;
+		return;
+	}
+	memcpy(s->at, data, bytes);
+	s->at += bytes;
+	s->left -= bytes;
+}
+
+static void get(struct state_stream *s, void *data, size_t bytes)
+{
+	if (s->bad || bytes > s->left) {
+		s->bad = 1;
+		return;
+	}
+	memcpy(data, s->at, bytes);
+	s->at += bytes;
+	s->left -= bytes;
+}
+
+#define PUT(field) { uint32_t v_ = (uint32_t)(field); put(s, &v_, 4); }
+#define GET(field) { uint32_t v_ = 0; get(s, &v_, 4); (field) = v_; }
+
+/* Both directions in one list, so that they cannot disagree. */
+#define STATE_FIELDS(X)							\
+	X(gb.cpu_reg.a) X(gb.cpu_reg.f.reg) X(gb.cpu_reg.bc.reg)		\
+	X(gb.cpu_reg.de.reg) X(gb.cpu_reg.hl.reg) X(gb.cpu_reg.sp.reg)	\
+	X(gb.cpu_reg.pc.reg)						\
+	X(gb.gb_halt) X(gb.gb_ime) X(gb.gb_frame) X(gb.lcd_blank)	\
+	X(gb.cart_is_mbc3O) X(gb.mbc) X(gb.cart_ram) X(gb.num_rom_banks_mask) \
+	X(gb.num_ram_banks) X(gb.selected_rom_bank) X(gb.cart_ram_bank)	\
+	X(gb.enable_cart_ram) X(gb.cart_mode_select)			\
+	X(gb.counter.lcd_count) X(gb.counter.div_count)			\
+	X(gb.counter.tima_count) X(gb.counter.serial_count)		\
+	X(gb.counter.rtc_count) X(gb.counter.lcd_off_count)		\
+	X(gb.display.window_clear) X(gb.display.WY)			\
+	X(gb.display.frame_skip_count) X(gb.display.interlace_count)	\
+	X(gb.direct.interlace) X(gb.direct.frame_skip) X(gb.direct.joypad)
+
+size_t gbw_state_bytes(void)
+{
+	return 4 + 33 * 4 + 10 + 12 + OAM_SIZE + HRAM_IO_SIZE + WRAM_SIZE
+		+ VRAM_SIZE + 4 + cart_ram_bytes;
+}
+
+size_t gbw_save_state(uint8_t *buffer, size_t bytes)
+{
+	struct state_stream stream = { buffer, bytes, 0 }, *s = &stream;
+	uint32_t magic = STATE_MAGIC, ram = (uint32_t)cart_ram_bytes;
+
+	put(s, &magic, 4);
+	STATE_FIELDS(PUT)
+	put(s, gb.rtc_latched.bytes, 5);
+	put(s, gb.rtc_real.bytes, 5);
+	put(s, gb.display.bg_palette, 4);
+	put(s, gb.display.sp_palette, 8);
+	put(s, gb.oam, OAM_SIZE);
+	put(s, gb.hram_io, HRAM_IO_SIZE);
+	put(s, gb.wram, WRAM_SIZE);
+	put(s, gb.vram, VRAM_SIZE);
+	put(s, &ram, 4);
+	put(s, cart_ram, cart_ram_bytes);
+	return s->bad ? 0 : bytes - s->left;
+}
+
+/* After gbw_init and gbw_set_cart_ram, for the same game. */
+const char *gbw_load_state(uint8_t *buffer, size_t bytes)
+{
+	struct state_stream stream = { buffer, bytes, 0 }, *s = &stream;
+	uint32_t magic = 0, ram = 0;
+
+	get(s, &magic, 4);
+	if (magic != STATE_MAGIC)
+		return "not a save state";
+	STATE_FIELDS(GET)
+	get(s, gb.rtc_latched.bytes, 5);
+	get(s, gb.rtc_real.bytes, 5);
+	get(s, gb.display.bg_palette, 4);
+	get(s, gb.display.sp_palette, 8);
+	get(s, gb.oam, OAM_SIZE);
+	get(s, gb.hram_io, HRAM_IO_SIZE);
+	get(s, gb.wram, WRAM_SIZE);
+	get(s, gb.vram, VRAM_SIZE);
+	get(s, &ram, 4);
+	if (ram != cart_ram_bytes)
+		return "save state is for another cartridge";
+	get(s, cart_ram, cart_ram_bytes);
+	if (s->bad)
+		return "save state is short";
+	/* What the fast paths keep beside the machine. */
+	pending = 0;
+	budget = 0;
+	map_pages(&gb);
+	sprites_dirty = 1;
+	bg_masks_for = sprite_masks_for[0] = sprite_masks_for[1] = 0x100;
+	return 0;
+}

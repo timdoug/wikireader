@@ -63,6 +63,11 @@ struct gbw_counts {
 };
 extern struct gbw_counts gbw_counts;
 
+/* Save states between frames: gbw_state_bytes() is the size to allow. */
+size_t gbw_state_bytes(void);
+size_t gbw_save_state(uint8_t *buffer, size_t bytes);
+const char *gbw_load_state(uint8_t *buffer, size_t bytes);
+
 /* The buttons a scripted run holds at a frame; see gb.c. */
 uint8_t gbw_script_buttons(const char *script, unsigned frame);
 

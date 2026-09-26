@@ -37,6 +37,8 @@ def main():
     parser.add_argument('--profile', action='store_true',
                         help='write the PC profile to build/profile.txt; see hotspots.py')
     parser.add_argument('--gui', action='store_true')
+    parser.add_argument('--state', type=Path,
+                        help='start from a save state (build/host ... -save FILE)')
     parser.add_argument('--serial', action='store_true',
                         help="copy the game's link-port output to the console (test ROMs)")
     parser.add_argument('--play', type=int, metavar='CYCLES',
@@ -50,7 +52,8 @@ def main():
     host = HERE / 'build/host'
     if not host.exists():
         raise SystemExit('build the host reference first: make -C gameboy test')
-    reference = subprocess.run([str(host), str(args.rom), str(args.frames), args.script],
+    reference = subprocess.run([str(host), str(args.rom), str(args.frames), args.script]
+                               + (['-load', str(args.state)] if args.state else []),
                                check=True, capture_output=True, text=True).stdout
     expected = dict(re.findall(r'frame (\d+) hash (\w+)', reference))
 
@@ -62,6 +65,8 @@ def main():
         arguments += f' script={args.script}'
     if args.serial:
         arguments += ' serial'
+    if args.state:
+        arguments += ' state=state.bin'
     if args.play:
         arguments = name.lower()
         args.limit = args.play
@@ -73,6 +78,8 @@ def main():
         'INIT.INI': f'gameboy.ico : gameboy.app {arguments}\n'.encode(),
         name: args.rom.read_bytes(),
     }
+    if args.state:
+        files['STATE.BIN'] = args.state.read_bytes()
     harness.make_card(out / 'card.img', files)
     subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'),
                     str(out / 'flash.rom')], check=True, stdout=subprocess.DEVNULL)

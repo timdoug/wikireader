@@ -895,9 +895,44 @@ h.next(8)
 
 h = op(0xea)                                    # LD (nn),A
 h.imm16(T0, T1)
-h.page('WRITE', T0, T1, 3)
+h.e(f'ld.w\t{T1},{T0}')
+h.e(f'srl\t{T1},12')
+h.e(f'sll\t{T1},2')
+h.e(f'add\t{T1},{TB}')
+h.e(f'xld.w\t{T1},[{T1}+{OFF["WRITE"]}]')
+h.e(f'cmp\t{T1},0')
+h.e('jreq\t.Lopea_bank')
+h.e(f'add\t{T1},{T0}')
 h.e(f'ld.b\t[{T1}],{A}')
 h.next(16)
+# The ROM bank register, 2000-3FFF on every controller, which games write
+# this way dozens of times a frame (Link's Awakening, 44): C switches the
+# bank (gb_hot_bank) with the registers pushed, as for an event, and the
+# code goes on through .Lsetpc, which maps it anew should it be running in
+# the bank just switched.  Anything else unmapped goes to C.
+h.cold += [
+    '.Lopea_bank:',
+    f'\tld.w\t{T1},{T0}',
+    f'\tsrl\t{T1},13',
+    f'\tcmp\t{T1},1',
+    '\tjreq\t.Lopea_switch',
+    f'\tld.w\t{T1},3',
+    '\txjp\t.Ldecline',
+    '.Lopea_switch:',
+    f'\tld.w\t{T1},{A}',
+    f'\tsll\t{T1},16',
+    f'\tor\t{T1},{T0}',
+    f'\txld.w\t[{TB}+{OFF["PARK"]}],{T1}',
+    '\tpushn\t%r11',
+    f'\txld.w\t{T0},gb_hot_bank',
+    f'\tcall\t{T0}',
+    '\tpopn\t%r11',
+    f'\txld.w\t{T1},[{TB}+{OFF["BIAS"]}]',
+    f'\tld.w\t{T0},{P}',
+    f'\tsub\t{T0},{T1}',
+    f'\tld.w\t{T1},16',
+    '\txjp\t.Lsetpc',
+]
 h = op(0xfa)                                    # LD A,(nn)
 h.imm16(T0, T1)
 h.page('READ', T0, T1, 3)

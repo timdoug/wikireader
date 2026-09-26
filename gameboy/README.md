@@ -56,9 +56,11 @@ touching.
   dispatch is threaded through a 256-entry table, and a cycle budget in a
   register stops the loop exactly at the next timer, serial or LCD event.
   It runs the event itself through `gb_hot_event()`, registers pushed, and
-  only leaves for an interrupt or the end of the frame. Anything it does not
-  do -- most I/O, banking writes, HALT, EI, DI, RETI, DAA, the stack in HRAM
-  -- it gives back to C, which runs that one instruction through Peanut.
+  only leaves for an interrupt or the end of the frame. A store to the ROM
+  bank register (2000-3FFF), which Link's Awakening makes 44 times a frame,
+  is handed to C the same way. Anything else it does not do -- most I/O,
+  the other banking writes, HALT, EI, DI, RETI, DAA, the stack in HRAM --
+  it gives back to C, which runs that one instruction through Peanut.
   Code in HRAM, where games keep the loop that waits out OAM DMA, runs in it
   as a region of its own; through HL it also reads HRAM and the I/O
   registers that change only at events (LY, STAT, IF), and stores the
@@ -131,20 +133,36 @@ W, flat out; `--profile` adds a PC profile for `hotspots.py`, and
 `--play CYCLES` boots the game normally and keeps the panel as a PNG.
 Emulator (wremu) figures, real time being 59.73 frames a second:
 
-| Workload | Speed |
-| --- | ---: |
-| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 207% |
-| Pokemon Red, intro (frames 421-540) | 198% |
-| Tetris, first piece falling (frames 721-840) | 213% |
-| Link's Awakening, storm and beach intro (frames 421-540) | 147% |
+| Workload | Average | Slowest second |
+| --- | ---: | ---: |
+| Libbet and the Magic Floor, gameplay demo (frames 421-480) | 212% | 207% |
+| Pokemon Red, intro (frames 421-540) | 204% | 198% |
+| Pokemon Red, walking round Pallet Town (420 frames) | 188% | 179% |
+| Tetris, first piece falling (frames 721-840) | 212% | 212% |
+| Tetris, level 9 to the end of the game over (1,399 frames) | 224% | 206% |
+| Link's Awakening, storm and beach intro (frames 421-540) | 150% | 149% |
+| Link's Awakening, walking between screens round Mabe Village (520 frames) | 145% | 125% |
+
+No frame of any of them took longer than 1/60 s. The slowest second is the
+one that matters to a player: the play loop's deadlines are fixed, so a
+late frame is made up by the fast ones after it.
 
 Tetris's script presses Start at frames 350, 450, 550 and 650; Link's
 Awakening needs none. Tetris and Link's Awakening busy-wait for VBlank
 instead of halting and run about 5,300 Game Boy instructions a frame, three
 times what Pokemon and Libbet do; the idle-loop skip covers their wait.
 
+The gameplay rows start from save states: `build/host GAME N SCRIPT -save
+FILE` writes the machine after N frames, `-load FILE` starts from one, and
+`run.py --state FILE` puts it on the card and passes `state=` to the app,
+so both builds start from the same machine and the hashes still compare.
+The walks are `0:R,100:D,160:L,300:U,360:R,440:-` (Pokemon, outside the
+player's house) and `0:L,90:U,200:R,330:D,440:L,520:-` (Link's Awakening,
+south of the village with the shield).
+
 The benchmark report also counts, per frame, the calls into `hot.s`, the
-instructions it gave back and which opcodes they were.
+instructions it gave back and which opcodes they were, and the frames that
+took longer than 1/60 s.
 
 Figures move by a few percent when unrelated code changes size, because
 Peanut's step function still runs from SDRAM. Not yet measured on the
