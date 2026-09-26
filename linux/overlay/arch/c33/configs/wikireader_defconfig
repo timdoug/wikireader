@@ -40,6 +40,11 @@ CONFIG_FAT_FS=y
 CONFIG_VFAT_FS=y
 CONFIG_NLS_CODEPAGE_437=y
 CONFIG_NLS_ISO8859_1=y
+# The system is an ext4 image in the card's FAT partition, which the boot
+# initramfs attaches to a loop device.
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_BLK_DEV_LOOP_MIN_COUNT=1
+CONFIG_EXT4_FS=y
 CONFIG_GPIOLIB=y
 CONFIG_REGULATOR=y
 CONFIG_REGULATOR_FIXED_VOLTAGE=y

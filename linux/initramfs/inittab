@@ -1,3 +1,5 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
 ::respawn:/sbin/wr-console
+# The root is ext4 in an image on the card: leave it clean on a reboot.
+::shutdown:/bin/umount -a -r

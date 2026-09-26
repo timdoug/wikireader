@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kernel=$root/linux/artifacts/vmlinux
+system=$root/linux/artifacts/linux.img
 emulator=$root/emulator/wremu
 fixture_tool=$root/nuttx/overlay/nuttx/boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
 fat_helper=$root/emulator/tools/mem_dma_bench/run.py
@@ -12,6 +13,11 @@ touch_latency_limit=8000000
 if [ ! -f "$kernel" ]; then
 	echo "Kernel not found at $kernel" >&2
 	echo "Run make -C linux build first." >&2
+	exit 1
+fi
+if [ ! -f "$system" ]; then
+	echo "System image not found at $system" >&2
+	echo "Run make -C linux rootfs first." >&2
 	exit 1
 fi
 if [ ! -x "$emulator" ]; then
@@ -24,6 +30,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/wr-linux-boot.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 python3 "$fixture_tool" --wikireader "$root" --image "$kernel" \
+	--card-file "linux.img=$system" --cluster-sectors 64 \
 	--out "$work/fixture"
 printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 

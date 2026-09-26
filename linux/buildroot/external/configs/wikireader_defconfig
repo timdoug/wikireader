@@ -28,5 +28,12 @@ BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_DEVTMPFS=y
 BR2_PACKAGE_BUSYBOX_CONFIG="$(BR2_EXTERNAL_WIKIREADER_PATH)/board/wikireader/busybox.config"
 BR2_PACKAGE_WIKIREADER_SYSTEM=y
 BR2_PACKAGE_WR_CONSOLE=y
-BR2_TARGET_ROOTFS_CPIO=y
+BR2_TARGET_ROOTFS_EXT2=y
+BR2_TARGET_ROOTFS_EXT2_4=y
+BR2_TARGET_ROOTFS_EXT2_SIZE="64M"
+BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
+# No metadata checksums: a software CRC32C over every metadata block is
+# too dear on this CPU.  4 KB blocks, a page each, where the image's size
+# alone would get 1 KB ones and four times the I/O requests.
+BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum"
 # BR2_TARGET_ROOTFS_TAR is not set

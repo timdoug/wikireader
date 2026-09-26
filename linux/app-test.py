@@ -105,6 +105,7 @@ def main():
     grifo = require(root / "samo-lib/grifo/grifo.elf")
     launcher = require(root / "samo-lib/grifo/applications/init/init.app")
     app = require(root / "linux/artifacts/linux.app")
+    system = require(root / "linux/artifacts/linux.img")
     pthread_test = require(root / "linux/artifacts/pthread-test")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
@@ -120,6 +121,8 @@ def main():
             "kernel.elf": grifo.read_bytes(),
             "init.app": launcher.read_bytes(),
             "linux.app": app.read_bytes(),
+            # The system itself, which linux.app mounts from here.
+            "linux.img": system.read_bytes(),
             "linux.ico": icon.read_bytes(),
             # LinuxThreads is not in the initramfs, so its test rides here.
             "pthtest.bin": pthread_test.read_bytes(),
@@ -146,7 +149,8 @@ def main():
             "-T", f"{ICON0[0]},{ICON0[1]},100000000",
             "--uart-input", str(uart_input),
             "--uart-start", "850000000", "--uart-gap", "200000",
-            "-R", "-c", str(card), "-e", str(flash),
+            # Writable: the system's ext4 image is on this card.
+            "-c", str(card), "-e", str(flash),
         ]
         with log.open("w") as output:
             subprocess.run(command, cwd=out, stdout=output,

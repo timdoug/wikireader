@@ -76,6 +76,7 @@ struct s1c33_spi {
 	void __iomem *dma;
 	void __iomem *itc;
 	struct clk *clk;
+	unsigned long clock;	/* MCLK, read once at probe */
 	const struct s1c33_spi_platform_data *pdata;
 	u32 control;
 	u32 dummy;
@@ -96,19 +97,21 @@ static int s1c33_spi_wait(struct s1c33_spi *hw, u32 flag, bool wanted)
 	return -ETIMEDOUT;
 }
 
+/*
+ * This runs a few times for every transfer, and the SD card makes several
+ * transfers a block, so it stays cheap: the rate is the one read at probe,
+ * since nothing changes MCLK while Linux runs, and the divisors, 4 through
+ * 512, are powers of two, so there is no division to call out to.
+ */
 static unsigned int s1c33_spi_divisor(struct s1c33_spi *hw,
 				      unsigned int requested,
 				       unsigned long *effective)
 {
-	unsigned long clock = clk_get_rate(hw->clk);
 	unsigned int setting = 0;
-	unsigned int divisor = 4;
 
-	while (setting < 7 && clock / divisor > requested) {
+	while (setting < 7 && hw->clock >> (setting + 2) > requested)
 		setting++;
-		divisor <<= 1;
-	}
-	*effective = clock / divisor;
+	*effective = hw->clock >> (setting + 2);
 	return setting;
 }
 
@@ -450,6 +453,7 @@ static int s1c33_spi_probe(struct platform_device *pdev)
 	if (!clock)
 		return dev_err_probe(&pdev->dev, -EINVAL,
 				     "input clock has no rate\n");
+	hw->clock = clock;
 	controller->bus_num = 0;
 	controller->num_chipselect = 1;
 	controller->mode_bits = SPI_CPOL | SPI_CPHA;

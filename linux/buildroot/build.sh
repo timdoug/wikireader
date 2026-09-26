@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build the WikiReader root filesystem with Buildroot, using the
-# c33-linux-uclibc toolchain from linux/toolchain.sh, and leave it as
-# linux/artifacts/rootfs.cpio for linux/build.sh to embed as the initramfs.
+# c33-linux-uclibc toolchain from linux/toolchain.sh, and leave it as the
+# ext4 image linux/artifacts/linux.img, which goes on the SD card beside
+# linux.app.
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -36,5 +37,5 @@ make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
 make -C "$build_dir"
 
 mkdir -p "$root/linux/artifacts"
-cp "$build_dir/images/rootfs.cpio" "$root/linux/artifacts/rootfs.cpio"
-printf '%s\n' "WikiReader root filesystem installed at linux/artifacts/rootfs.cpio"
+cp "$build_dir/images/rootfs.ext4" "$root/linux/artifacts/linux.img"
+printf '%s\n' "WikiReader root filesystem installed at linux/artifacts/linux.img"

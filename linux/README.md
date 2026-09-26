@@ -254,8 +254,10 @@ Each process reaches its own data segment through `%r15`, which
 from a relocated word in that segment. With no text relocation, the converter
 leaves `FLAT_FLAG_RAM` clear. `binfmt_flat` then maps the text read-only from
 the file, and the kernel shares that mapping between every process running
-the program. From the initramfs, which is ramfs, the mapping is the file's
-own page cache, so an exec copies no text at all.
+the program. The system is on ext4, which cannot map files directly, so the
+first exec of a program copies its text into RAM once; every later process
+running it shares that copy, because no-MMU Linux lets read-only private
+mappings of one file overlay each other.
 `make-flat.py --shared-text` fails the build if a text relocation appears.
 The BusyBox suite checks that PID 1 and a child map the same `/bin/busybox`
 text. The freestanding diagnostics still carry text relocations and still
@@ -348,7 +350,22 @@ contended mutex, per-thread `errno`, condition variables, semaphores,
 `pthread_once` and thread-specific data.
 
 `rootfs` builds the root filesystem with Buildroot 2026.08 and leaves it as
-`linux/artifacts/rootfs.cpio`, which `build` embeds as the initramfs.
+`linux/artifacts/linux.img`, a 64 MB ext4 image with 4 KB blocks and no
+metadata checksums. It goes on the card's FAT partition beside `linux.app`.
+
+The kernel's own initramfs holds only `initramfs/rootstart`, a 2 KB
+freestanding program, and the device nodes it needs before devtmpfs. It
+waits for the card and mounts it with `usefree`, trusting the card's own
+free-cluster count; otherwise attaching the loop device has FAT read and
+scan its whole allocation table. It then attaches `linux.img` to `loop0`
+with direct I/O, so ext4's reads neither start the FAT file's readahead nor
+get cached twice. It mounts the image `noatime`, moves the card to `/mnt/sd`
+inside it, and becomes its `/sbin/init`. If any step fails, it writes the
+reason to the console and to `linuxboot.txt` on the card, then reboots to
+the launcher. `inittab` unmounts or remounts everything read-only on
+shutdown, and ext4's journal covers a power cut. ext4 is about 470 KB of
+kernel code, which took the kernel's code past the 2 MB reach of a short
+call, so the kernel is built with `-mlong-calls`.
 `buildroot/patches/` adds the C33 as a Buildroot architecture, with an
 external toolchain only. The `buildroot/external/` tree holds the defconfig,
 the BusyBox configuration and two packages, `wr-console` and

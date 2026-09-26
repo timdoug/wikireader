@@ -36,7 +36,6 @@ define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 	$(INSTALL) -m 0755 $(@D)/out/diag-init $(@D)/out/diag-test \
 		$(@D)/out/child $(@D)/out/uclibc-smoke $(TARGET_DIR)/
 	mkdir -p $(TARGET_DIR)/mnt/sd
-	ln -sf bin/busybox $(TARGET_DIR)/init
 endef
 
 $(eval $(generic-package))

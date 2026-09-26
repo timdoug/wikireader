@@ -22,6 +22,12 @@ def main():
     parser.add_argument("--image", type=Path, default=root / "nuttx")
     parser.add_argument("--out", type=Path,
                         default=root / "build/wikireader/boot-fixture")
+    parser.add_argument("--card-file", action="append", default=[],
+                        metavar="NAME=PATH",
+                        help="also put PATH on the card as NAME (8.3)")
+    parser.add_argument("--cluster-sectors", type=int, default=1,
+                        help="FAT cluster size in sectors; the volume's "
+                             "size scales with it")
     args = parser.parse_args()
     wr = args.wikireader.resolve()
     out = args.out.resolve()
@@ -89,7 +95,11 @@ def main():
     spec.loader.exec_module(fat)
     kernel = image.read_bytes()
     card = out / "nuttx-card.img"
-    fat.make_image(card, {"kernel.elf": kernel})
+    card_files = {"kernel.elf": kernel}
+    for extra in args.card_file:
+        name, path = extra.split("=", 1)
+        card_files[name] = Path(path).read_bytes()
+    fat.make_image(card, card_files, args.cluster_sectors)
     if fat.read_file(card, "kernel.elf") != kernel:
         raise SystemExit("FAT kernel readback mismatch")
     inputs = [image, mbr / "file-loader.c", mbr / "application.lds",

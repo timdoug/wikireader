@@ -1,4 +1,4 @@
 # mount -a -T /etc/fstab.late in rcS, once devtmpfs has made /dev/pts
-# possible.  The card is synchronous: nothing unmounts it before power-off.
+# possible.  The SD card is already at /mnt/sd: rootstart mounted it, to
+# reach this system's image on it.
 devpts		/dev/pts	devpts	defaults	0 0
-/dev/mmcblk0p1	/mnt/sd		vfat	sync		0 0
