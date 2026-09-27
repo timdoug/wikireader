@@ -44,6 +44,7 @@ dir /dev 0755 0 0
 nod /dev/console 0600 0 0 c 5 1
 nod /dev/mmcblk0p1 0600 0 0 b 179 1
 nod /dev/loop0 0600 0 0 b 7 0
+nod /dev/urandom 0600 0 0 c 1 9
 dir /mnt 0755 0 0
 dir /newroot 0755 0 0
 file /init $initramfs/rootstart 0755 0 0

@@ -26,6 +26,16 @@ define WIKIREADER_SYSTEM_BUILD_CMDS
 		-Wl,-elf2flt=--shared-text
 endef
 
+# A fresh image's first boot credits a seed made here, so no boot waits for
+# the kernel's random pool; rcS replaces it at once.  Whoever built the
+# image knows this one seed, which costs a device with neither an MMU nor
+# a network nothing.
+define WIKIREADER_SYSTEM_SEED
+	mkdir -p -m 0700 $(TARGET_DIR)/var/lib/seedrng
+	head -c 256 /dev/urandom >$(TARGET_DIR)/var/lib/seedrng/seed.credit
+	chmod 0600 $(TARGET_DIR)/var/lib/seedrng/seed.credit
+endef
+
 define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/inittab $(TARGET_DIR)/etc/inittab
 	$(INSTALL) -D -m 0644 $(@D)/fstab $(TARGET_DIR)/etc/fstab
@@ -36,6 +46,7 @@ define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 	$(INSTALL) -m 0755 $(@D)/out/diag-init $(@D)/out/diag-test \
 		$(@D)/out/child $(@D)/out/uclibc-smoke $(TARGET_DIR)/
 	mkdir -p $(TARGET_DIR)/mnt/sd
+	$(WIKIREADER_SYSTEM_SEED)
 endef
 
 $(eval $(generic-package))

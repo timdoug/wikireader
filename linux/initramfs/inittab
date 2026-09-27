@@ -1,5 +1,7 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
 ::respawn:/sbin/wr-console
-# The root is ext4 in an image on the card: leave it clean on a reboot.
+# Save a random seed for the next boot (see rootstart.c), then leave the
+# root, ext4 in an image on the card, clean.
+::shutdown:/bin/busybox seedrng
 ::shutdown:/bin/umount -a -r

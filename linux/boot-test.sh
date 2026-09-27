@@ -63,7 +63,8 @@ irq_userspace_expected="C33 IRQ: generic registrations"
 # The column after the chip is the hardware number, the trap vector.
 framebuffer_expected="C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
 blank_expected="C33 display: fbdev blank and unblank passed"
-seeded_clock_expected="C33 time: clock seeded from the installed image,"
+seeded_clock_expected="C33 time: clock set from the card, @"
+random_expected="C33 random: credited a 2048-bit seed from the last boot"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
 tux_expected="s1c33-fb s1c33-fb: registered /dev/fb0, 240x208 mono; Tux logo shown"
 input_expected="C33 input: /dev/input/event[0-9]+ absolute touchscreen registered"
@@ -106,6 +107,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$blank_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$seeded_clock_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$random_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$lcd_power_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$input_expected" "$work/boot.log" >/dev/null || \
@@ -204,6 +206,6 @@ python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
 	--edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

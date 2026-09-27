@@ -5,6 +5,11 @@ echo "C33 BusyBox init: PID 1 userspace started"
 # Every mount is an exec of BusyBox, so the fstabs take them two at a go.
 mount -a
 
+# rootstart credited the seed the last boot saved.  Mix it in again and save
+# a fresh one for the next boot once the console is up: on one CPU, even in
+# the background, seedrng's exec and card writes slowed the boot by 0.4 s.
+(sleep 20; seedrng) >/dev/null 2>&1 &
+
 # init starts the consoles only once this script ends, so a normal boot does
 # the setup and nothing else.  The checks below take several seconds; they
 # run when the command line carries wr.selftest, which the tests put on the
@@ -142,24 +147,8 @@ if [ "$late" = 0 ]; then
 	fi
 	# It sleeps to measure the tick, so it must not hold up init; the
 	# numbers are better taken against an otherwise idle system anyway.
+	# rootstart set the clock from the card before mounting the system.
 	report_to_card() {
-		# This board has one 48 MHz resonator and no backup cell, so there is no
-	# RTC to read and the clock starts at the epoch. Seed it from the newest
-	# thing on the card: everything the device writes is then stamped no
-	# earlier than the install it is running, instead of 1970.
-	stamp=
-	for image in /mnt/sd/linux.app /mnt/sd/LINUX.APP \
-		     /mnt/sd/kernel.elf /mnt/sd/KERNEL.ELF; do
-		stamp=$(date -r "$image" +%s 2>/dev/null) && break
-	done
-	# 1262304000 is 2010; below that the card is telling us the FAT floor
-	# rather than a date, and the epoch is the more honest answer.
-	if [ -n "$stamp" ] && [ "$stamp" -gt 1262304000 ] &&
-		date -s "@$stamp" >/dev/null 2>&1; then
-		echo "C33 time: clock seeded from the installed image, @$stamp"
-	else
-		echo "C33 time: no clock source, running from the epoch"
-	fi
 	[ -n "$selftest" ] || return 0
 	# Twenty quiet seconds first: the report is the only background work
 	# on the machine, and its execs and sync card writes would otherwise

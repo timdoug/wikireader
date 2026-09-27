@@ -357,12 +357,22 @@ The kernel's own initramfs holds only `initramfs/rootstart`, a 2 KB
 freestanding program, and the device nodes it needs before devtmpfs. It
 waits for the card and mounts it with `usefree`, trusting the card's own
 free-cluster count; otherwise attaching the loop device has FAT read and
-scan its whole allocation table. It then attaches `linux.img` to `loop0`
+scan its whole allocation table. There is no RTC with a backup cell, so it
+sets the clock from the newest of `linux.img`, `linux.app` and `kernel.elf`
+before anything is mounted read-write. `linux.img` changes whenever the
+system writes, so the clock carries on from the last session. It then attaches `linux.img` to `loop0`
 with direct I/O, so ext4's reads neither start the FAT file's readahead nor
-get cached twice. It mounts the image `noatime`, moves the card to `/mnt/sd`
+get cached twice. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
+last time, moves the card to `/mnt/sd`
 inside it, and becomes its `/sbin/init`. If any step fails, it writes the
 reason to the console and to `linuxboot.txt` on the card, then reboots to
-the launcher. `inittab` unmounts or remounts everything read-only on
+the launcher. Crediting the seed makes the kernel's random pool ready before
+the first program runs; otherwise the first read of `/dev/urandom` waits
+while the kernel gathers jitter entropy, 3.4 s on this CPU. The seed is
+renamed so that it is never credited twice. Twenty seconds after boot, `rcS`
+runs `seedrng`, which mixes it in again uncredited and saves a fresh one.
+Shutdown does the same. A freshly built image carries a seed made at build
+time. `inittab` unmounts or remounts everything read-only on
 shutdown, and ext4's journal covers a power cut. ext4 is about 470 KB of
 kernel code, which took the kernel's code past the 2 MB reach of a short
 call, so the kernel is built with `-mlong-calls`.
