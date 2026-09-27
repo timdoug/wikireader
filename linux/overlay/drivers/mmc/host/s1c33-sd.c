@@ -104,6 +104,8 @@ struct s1c33_sd {
 	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
 	u32 control;			/* CTL1 as programmed */
 	unsigned char power_mode;
+	/* crc_itu_t_table, copied into internal RAM when the board has some. */
+	const u16 *crc_table;
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
 	unsigned long dma_blocks;
@@ -432,13 +434,19 @@ static int sd_write_words(struct s1c33_sd *host, const u8 *tx,
  * Makefile).  The loop is 26 bytes, which the C33 runs from its fetch
  * buffer only when it starts a 16-byte line; otherwise every byte of every
  * block fetches it again from SDRAM, about 70 cycles a byte.
+ *
+ * Its table is the host's copy.  With the table in SDRAM, each byte's
+ * lookup and the next byte's load open two different SDRAM rows, about 36
+ * cycles a byte and a third of a block's time; from internal RAM only the
+ * block's own row is open, and stays open.
  */
-static u16 sd_crc(const u8 *buf, unsigned int len)
+static u16 sd_crc(struct s1c33_sd *host, const u8 *buf, unsigned int len)
 {
+	const u16 *table = host->crc_table;
 	u16 crc = 0;
 
 	while (len--)
-		crc = crc_itu_t_byte(crc, *buf++);
+		crc = (crc << 8) ^ table[((crc >> 8) ^ *buf++) & 0xff];
 	return crc;
 }
 
@@ -648,7 +656,7 @@ static int sd_read_block(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
 	}
 
 	if (host->mmc->use_spi_crc &&
-	    get_unaligned_be16(crc) != sd_crc(buf, len))
+	    get_unaligned_be16(crc) != sd_crc(host, buf, len))
 		return -EILSEQ;
 	return 0;
 }
@@ -670,7 +678,7 @@ static int sd_write_block(struct s1c33_sd *host, const u8 *buf,
 	int status;
 
 	if (host->mmc->use_spi_crc)
-		crc = sd_crc(buf, len);
+		crc = sd_crc(host, buf, len);
 
 	/*
 	 * The CRC goes out in a word of its own, padded with all-ones, and
@@ -1024,6 +1032,18 @@ static int sd_probe(struct platform_device *pdev)
 	host->idma = devm_platform_ioremap_resource_byname(pdev, "idma");
 	if (IS_ERR(host->idma))
 		return PTR_ERR(host->idma);
+	host->crc_table = crc_itu_t_table;
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram");
+	if (res) {
+		void __iomem *sram = devm_ioremap_resource(dev, res);
+
+		if (IS_ERR(sram))
+			return PTR_ERR(sram);
+		if (resource_size(res) < sizeof(crc_itu_t_table))
+			return dev_err_probe(dev, -EINVAL, "sram too small\n");
+		memcpy_toio(sram, crc_itu_t_table, sizeof(crc_itu_t_table));
+		host->crc_table = (__force const u16 *)sram;
+	}
 
 	host->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);
 	if (IS_ERR(host->cs))

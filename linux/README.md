@@ -536,14 +536,14 @@ would not change anything; the host waits for the port to go idle in a
 register loop before asking the channels, because each status poll's
 fetches compete with the transfer for SDRAM and slowed it by half. Even
 so a block costs about 0.15 ms more than the host driving HSDMA's registers
-itself did: through Grifo at 60 MHz, a raw 4 MB read takes 8.5 s in wremu
-against 7.5 s (8.3 s on the device), and the boot is 0.24 s longer. The
-larger cost of a block is its CRC check, about 0.33 ms of the 1.04 ms: the
-table lookup and the byte load each open an SDRAM row. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
-the original firmware run it. Block CRCs are checked unless
-`mmc_core.use_spi_crc=0`; the CRC loop is compiled with `-falign-loops=16`
-because at 26 bytes it runs from the C33's fetch buffer only from the start
-of a line, which made it three times faster. Disabling the serial block
+itself did, 1.0 s of a raw 4 MB read through Grifo at 60 MHz. The card runs
+at MCLK/4, 15 MHz under Grifo, as Grifo and the original firmware run it.
+Block CRCs are checked unless `mmc_core.use_spi_crc=0`. The CRC loop is
+compiled with `-falign-loops=16`, because at 26 bytes it runs from the C33's
+fetch buffer only from the start of a line, and its table is copied into the
+top of IVRAM, because from SDRAM each lookup and the next byte's load open
+two rows. That takes the check from 36 to 16 cycles a byte; a raw 4 MB read
+takes 7.0 s in wremu and a block 0.85 ms, of which the wire is 0.27 ms. Disabling the serial block
 while it drives SCLK creates a real stray edge, and the block has to be
 disabled to change its clock or character size. With one character size,
 only a new clock rate does that, a few times a boot, and SCLK sits in the
