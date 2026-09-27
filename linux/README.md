@@ -546,8 +546,8 @@ two rows; that takes the check from 36 to 16 cycles a byte. The all-ones the
 transmit channel sends sit beside it, for the same reason. Reads are
 pipelined: once block N+1's token is in and its transfer started, block N
 is put back in byte order and checked while N+1 crosses the wire. Through
-Grifo in wremu a raw 4 MB read takes 5.65 s and a block 0.69 ms, of which the
-wire is 0.27 ms; the transfer and the checking of the previous block
+Grifo a raw 4 MB read takes 5.59 s on the device and 5.65 s in wremu, a
+block 0.69 ms, of which the wire is 0.27 ms; the transfer and the checking of the previous block
 overlap in about 0.38 ms, the CPU's work and the DMA's bus cycles together
 outlasting the wire, and the rest is the next token, the DMA setup, and the
 page cache. Disabling the serial block
