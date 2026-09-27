@@ -124,6 +124,8 @@ static uint16_t adc_read_reg(struct periph *p, uint32_t reg)
 
 	switch (reg) {
 	case OFF_ADD:
+		/* "ADF ... is reset to 0 when the converted data is read out." */
+		p->add_adf = 0;
 		return p->add;
 	case OFF_EN_SMPL_STAT:
 		return (p->reg[idx] & CTRL_WRITABLE) |

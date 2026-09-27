@@ -1,0 +1,19 @@
+diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
+index 2bc76f01e..926eae45b 100644
+--- a/drivers/base/swnode.c
++++ b/drivers/base/swnode.c
+@@ -1110,7 +1110,13 @@ void software_node_notify(struct device *dev)
+ 	if (ret)
+ 		return;
+ 
+-	ret = sysfs_create_link(&swnode->kobj, &dev->kobj, dev_name(dev));
++	/*
++	 * A device may hand its node on to a child of the same name, as a
++	 * power supply does from the device that registers it; the node then
++	 * keeps its link to the first.
++	 */
++	ret = sysfs_create_link_nowarn(&swnode->kobj, &dev->kobj,
++				       dev_name(dev));
+ 	if (ret) {
+ 		sysfs_remove_link(&dev->kobj, "software_node");
+ 		return;

@@ -204,6 +204,25 @@ board `pwm_lookup` and exposes the firmware's number as
 probe so a boot changes nothing on the panel. Timer 1's CMU gate is a clock
 the PWM driver holds, which is what keeps the panel lit once the clock core
 turns off every gate nobody claimed.
+
+The battery and the board temperature come from the chip's 10-bit A/D
+converter, `drivers/iio/adc/s1c33-adc.c`, an IIO device that converts one
+channel per read against AVDD, a fixed 3.3 V regulator it takes as `vref`.
+Everything above it is a stock driver wired by software-node `io-channels`
+references. AIN0 sees the two AAA cells through a 150k/1M divider, which
+`iio-rescale` undoes as a `voltage-divider`, and `generic-adc-battery`
+publishes the result as `/sys/class/power_supply/generic-adc-battery`, with
+`voltage_now` in microvolts and `status` Discharging. AIN1 is a 100k NTC
+thermistor under a 120k pull-up to the same rail; `ntc_thermistor` reads it
+as `/sys/class/hwmon/hwmon*/temp1_input` in millidegrees. The part, a
+TCT6GJ104H410, is not in that driver's tables, so the board names the Murata
+NCP03WF104, another 100k thermistor with B = 4250 K. AIN2, the panel's V4
+bias, is a plain IIO channel. Four upstream fixes make this work without a
+device tree: `iio-rescale` and `ntc_thermistor` fall back to their
+platform-device ID when there is no match data, `generic-adc-battery` treats
+a battery nothing supplies as discharging rather than charging, and a
+software node shared by a device and its same-named power supply no longer
+warns about the duplicate sysfs link.
 The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same software-node graph as the SD slot's chip

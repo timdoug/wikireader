@@ -55,6 +55,23 @@ if [ -n "$selftest" ]; then
 		echo "C33 framebuffer: registration FAILED"
 	fi
 
+	# The battery through its divider and the board's thermistor, both read
+	# by the stock drivers over the converter.
+	battery=/sys/class/power_supply/generic-adc-battery
+	read -r battery_uv < $battery/voltage_now
+	read -r battery_status < $battery/status
+	board_mc=
+	for n in /sys/class/hwmon/hwmon*; do
+		[ "$(cat $n/name)" = ncp03wf104 ] && read -r board_mc < $n/temp1_input
+	done
+	if [ "$battery_uv" -gt 0 ] && [ "$battery_status" = Discharging ] &&
+		[ -n "$board_mc" ]; then
+		# Units to thousandths: this hush has no arithmetic.
+		echo "C33 sensors: battery ${battery_uv%???} mV, board ${board_mc%???} C"
+	else
+		echo "C33 sensors: battery or thermistor read FAILED"
+	fi
+
 	# Blanking is the only display power control the panel has; prove it works
 	# and leave the screen on.
 	blank=/sys/class/graphics/fb0/blank
@@ -107,7 +124,11 @@ timer_report() {
 		/sys/class/regulator/regulator.*/microvolts \
 		/sys/class/regulator/regulator.*/num_users \
 		/sys/class/lcd/*/contrast /sys/class/lcd/*/max_contrast \
-		/sys/class/input/event*/device/name 2>/dev/null
+		/sys/class/input/event*/device/name \
+		/sys/class/power_supply/*/voltage_now \
+		/sys/class/power_supply/*/status \
+		/sys/class/hwmon/hwmon*/temp1_input \
+		/sys/bus/iio/devices/iio:device0/in_voltage*_raw 2>/dev/null
 	for device in /sys/bus/spi/devices/*; do
 		echo "spi device: ${device##*/}"
 	done

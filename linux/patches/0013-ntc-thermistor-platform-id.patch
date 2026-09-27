@@ -1,0 +1,13 @@
+diff --git a/drivers/hwmon/ntc_thermistor.c b/drivers/hwmon/ntc_thermistor.c
+index 1ac0288fb..8c722595a 100644
+--- a/drivers/hwmon/ntc_thermistor.c
++++ b/drivers/hwmon/ntc_thermistor.c
+@@ -670,6 +670,8 @@ static int ntc_thermistor_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	pdev_id = device_get_match_data(dev);
++	if (!pdev_id)
++		pdev_id = platform_get_device_id(pdev);
+ 
+ 	if (pdev_id->driver_data >= ARRAY_SIZE(ntc_type)) {
+ 		dev_err(dev, "Unknown device type: %lu(%s)\n",

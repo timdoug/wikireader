@@ -7,6 +7,7 @@
 
 /* Gate bits in the clock-management unit's GATEDCLK1 register. */
 #define C33_CMU_DMA	BIT(1)
+#define C33_CMU_ADC	BIT(3)
 #define C33_CMU_SPI	BIT(6)
 #define C33_CMU_TM0	BIT(13)
 #define C33_CMU_TM1	BIT(14)

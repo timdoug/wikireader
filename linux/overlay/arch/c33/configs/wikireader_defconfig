@@ -75,7 +75,15 @@ CONFIG_SERIO=n
 CONFIG_HID=n
 CONFIG_MEDIA_SUPPORT=n
 CONFIG_I2C=n
-CONFIG_HWMON=n
+# Battery voltage and board temperature: the converter, the battery's
+# divider, and the stock battery and NTC thermistor drivers over them.
+CONFIG_IIO=y
+CONFIG_S1C33_ADC=y
+CONFIG_IIO_RESCALE=y
+CONFIG_POWER_SUPPLY=y
+CONFIG_GENERIC_ADC_BATTERY=y
+CONFIG_HWMON=y
+CONFIG_SENSORS_NTC_THERMISTOR=y
 CONFIG_PCI=n
 CONFIG_USB_SUPPORT=n
 CONFIG_SOUND=n

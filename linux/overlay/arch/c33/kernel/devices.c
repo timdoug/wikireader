@@ -36,6 +36,7 @@
 #define WR_P1_FUNC03      (WR_REG_BASE + 0x3a2)
 #define WR_P6_FUNC03      (WR_REG_BASE + 0x3ac)
 #define WR_P6_FUNC47      (WR_REG_BASE + 0x3ad)
+#define WR_P7_FUNC03      (WR_REG_BASE + 0x3ae)
 #define WR_T16_CHANNEL(n) (WR_REG_BASE + 0x780 + (n) * 8)
 #define WR_T16_CLKCTL(n)  (WR_REG_BASE + 0x7e0 + (n) * 2)
 #define WR_CONTRAST_TIMER 1
@@ -147,6 +148,30 @@ static struct gpiod_lookup_table wr_sd_buffer_gpios = {
 };
 
 /*
+ * AVDD is the converter's reference.  It is the 3.3 V rail itself, which
+ * also feeds the thermistor's pull-up, so temperatures are ratiometric.
+ */
+static struct regulator_consumer_supply wr_avdd_consumer =
+	REGULATOR_SUPPLY("vref", "s1c33-adc");
+
+static struct regulator_init_data wr_avdd_init = {
+	.constraints = {
+		.name = "avdd",
+		.min_uV = 3300000,
+		.max_uV = 3300000,
+		.always_on = 1,
+	},
+	.num_consumer_supplies = 1,
+	.consumer_supplies = &wr_avdd_consumer,
+};
+
+static struct fixed_voltage_config wr_avdd_config = {
+	.supply_name = "avdd",
+	.microvolts = 3300000,
+	.init_data = &wr_avdd_init,
+};
+
+/*
  * The card is the only device on the synchronous serial interface, and
  * s1c33-sd drives it directly as an MMC host in SPI mode.  It runs the card
  * at MCLK/4, as Grifo and the original firmware do.
@@ -170,6 +195,10 @@ static struct resource wr_sd_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
+};
+
+static const struct resource wr_adc_resources[] = {
+	DEFINE_RES_MEM(WR_REG_BASE + 0x520, 0x40),
 };
 
 static const struct resource wr_lcd_resources[] = {
@@ -287,6 +316,60 @@ WR_BUTTON(wr_button_search, "search", KEY_SEARCH, 6 * 8 + 1, GPIO_ACTIVE_HIGH);
 WR_BUTTON(wr_button_history, "history", KEY_BACK, 6 * 8 + 2, GPIO_ACTIVE_HIGH);
 WR_BUTTON(wr_button_power, "power", KEY_POWER, 0 * 8 + 3, GPIO_ACTIVE_HIGH);
 
+/*
+ * The converter's inputs: AIN0 is the battery through a 150k/1M divider,
+ * AIN1 a 100k NTC thermistor under a 120k pull-up to the 3.3 V rail, and
+ * AIN2 the panel's V4 bias.  The thermistor is a TCT6GJ104H410, which
+ * ntc_thermistor does not list; the Murata NCP03WF104 it does is the same
+ * 100k at 25 C with a B constant of 4250 K.
+ */
+static const struct property_entry wr_adc_properties[] = {
+	PROPERTY_ENTRY_U32("#io-channel-cells", 1),
+	{ }
+};
+
+static const struct software_node wr_adc_node = {
+	.name = "adc",
+	.properties = wr_adc_properties,
+};
+
+static const struct property_entry wr_battery_divider_properties[] = {
+	PROPERTY_ENTRY_REF("io-channels", &wr_adc_node, 0),
+	PROPERTY_ENTRY_U32("output-ohms", 1000000),
+	PROPERTY_ENTRY_U32("full-ohms", 1150000),
+	PROPERTY_ENTRY_U32("#io-channel-cells", 1),
+	{ }
+};
+
+static const struct software_node wr_battery_divider_node = {
+	.name = "battery-divider",
+	.properties = wr_battery_divider_properties,
+};
+
+static const struct property_entry wr_battery_properties[] = {
+	PROPERTY_ENTRY_REF("io-channels", &wr_battery_divider_node, 0),
+	PROPERTY_ENTRY_STRING("io-channel-names", "voltage"),
+	{ }
+};
+
+static const struct software_node wr_battery_node = {
+	.name = "battery",
+	.properties = wr_battery_properties,
+};
+
+static const struct property_entry wr_thermistor_properties[] = {
+	PROPERTY_ENTRY_REF("io-channels", &wr_adc_node, 1),
+	PROPERTY_ENTRY_U32("pullup-uv", 3300000),
+	PROPERTY_ENTRY_U32("pullup-ohm", 120000),
+	PROPERTY_ENTRY_U32("pulldown-ohm", 0),
+	{ }
+};
+
+static const struct software_node wr_thermistor_node = {
+	.name = "thermistor",
+	.properties = wr_thermistor_properties,
+};
+
 /* Timer 1 is the panel's contrast PWM; its output pin is P11. */
 static const struct resource wr_pwm_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_T16_CHANNEL(WR_CONTRAST_TIMER), 8, "timer"),
@@ -311,6 +394,10 @@ static const struct software_node *wr_nodes[] = {
 	&wr_button_search,
 	&wr_button_history,
 	&wr_button_power,
+	&wr_adc_node,
+	&wr_battery_divider_node,
+	&wr_battery_node,
+	&wr_thermistor_node,
 	NULL,
 };
 
@@ -330,6 +417,54 @@ static void __init wr_map_irqs(struct resource *resources, unsigned int count)
 			       (unsigned long long)resources[i].start, irq);
 		resources[i].start = resources[i].end = irq;
 	}
+}
+
+static int __init wr_register(const char *name, int id,
+			      const struct resource *res, unsigned int num_res,
+			      const struct software_node *node,
+			      const void *data, size_t size_data)
+{
+	struct platform_device_info info = {
+		.name = name,
+		.id = id,
+		.res = res,
+		.num_res = num_res,
+		.fwnode = node ? software_node_fwnode(node) : NULL,
+		.data = data,
+		.size_data = size_data,
+	};
+	struct platform_device *device = platform_device_register_full(&info);
+
+	if (IS_ERR(device)) {
+		pr_err("C33 devices: %s registration failed: %ld\n", name,
+		       PTR_ERR(device));
+		return PTR_ERR(device);
+	}
+	return 0;
+}
+
+/* The battery, thermistor and panel bias, and what reads them. */
+static int __init wr_analog_init(void)
+{
+	int ret;
+
+	wr_modify8(WR_P7_FUNC03, 0x3f, 0x15);
+	ret = wr_register("reg-fixed-voltage", 2, NULL, 0, NULL,
+			  &wr_avdd_config, sizeof(wr_avdd_config));
+	if (!ret)
+		ret = wr_register("s1c33-adc", -1, wr_adc_resources,
+				  ARRAY_SIZE(wr_adc_resources), &wr_adc_node,
+				  NULL, 0);
+	if (!ret)
+		ret = wr_register("voltage-divider", -1, NULL, 0,
+				  &wr_battery_divider_node, NULL, 0);
+	if (!ret)
+		ret = wr_register("generic-adc-battery", -1, NULL, 0,
+				  &wr_battery_node, NULL, 0);
+	if (!ret)
+		ret = wr_register("ncp03wf104", -1, NULL, 0,
+				  &wr_thermistor_node, NULL, 0);
+	return ret;
 }
 
 static void __init wr_touch_prepare(void)
@@ -499,7 +634,10 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	pr_info("C33 devices: registered SD, UART, framebuffer, touchscreen, contrast, and buttons\n");
+	ret = wr_analog_init();
+	if (ret)
+		return ret;
+	pr_info("C33 devices: registered SD, UART, framebuffer, touchscreen, contrast, buttons, and battery\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);
