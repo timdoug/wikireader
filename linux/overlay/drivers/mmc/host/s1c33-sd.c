@@ -29,6 +29,7 @@
 #include <linux/highmem.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
+#include <linux/math64.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/slot-gpio.h>
@@ -38,6 +39,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/scatterlist.h>
 #include <linux/swab.h>
+#include <linux/timex.h>
 #include <linux/unaligned.h>
 
 #include <linux/platform_data/s1c33-sd.h>
@@ -84,6 +86,27 @@
 #define SD_R1B_TIMEOUT_MS	3000
 #define SD_INIT_TIMEOUT_MS	3000
 
+/*
+ * Where a block read's cycles go, for comparing the device with wremu:
+ * read_timing in the device's sysfs directory.  Off unless asked for.
+ */
+enum sd_phase {
+	SD_T_TOKEN,	/* the gap and the start token, clocked by the CPU */
+	SD_T_SETUP,	/* preparing and starting the block's transfer */
+	SD_T_CHECK,	/* the block before: order and CRC, overlapped */
+	SD_T_POLL,	/* then waiting for the port to go idle */
+	SD_T_STATUS,	/* asking the receive channel */
+	SD_T_TAIL,	/* the CRC bytes from the last word */
+	SD_T_REQUEST,	/* the rest of each request: map, unmap, the last check */
+	SD_T_PHASES
+};
+
+struct sd_timing {
+	bool on;
+	u32 blocks, requests;
+	u64 cycles[SD_T_PHASES];
+};
+
 struct s1c33_sd {
 	struct mmc_host *mmc;
 	struct device *dev;
@@ -115,7 +138,26 @@ struct s1c33_sd {
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
 	unsigned long dma_blocks;
+	struct sd_timing timing;
 };
+
+/* Charge the cycles since *@t to @phase and restart the clock. */
+static inline void sd_charge(struct s1c33_sd *host, enum sd_phase phase,
+			     u32 *t)
+{
+	u32 now;
+
+	if (likely(!host->timing.on))
+		return;
+	now = get_cycles();
+	host->timing.cycles[phase] += now - *t;
+	*t = now;
+}
+
+static inline u32 sd_clock(struct s1c33_sd *host)
+{
+	return unlikely(host->timing.on) ? get_cycles() : 0;
+}
 
 /****************************************************************************/
 /* Transport */
@@ -375,14 +417,16 @@ static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
  * channel sent, so that channel is done too, and the provider retires it
  * when its descriptor is next submitted.
  */
-static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r)
+static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r, u32 *t)
 {
 	int ret;
 
 	sd_wait(host, SPI_BUSY, false);
+	sd_charge(host, SD_T_POLL, t);
 	ret = sd_dma_wait(host->rx_chan, r->rx_cookie);
 	if (!ret && sd_wait(host, SPI_BUSY, false))
 		ret = -ETIMEDOUT;
+	sd_charge(host, SD_T_STATUS, t);
 	if (ret) {
 		dmaengine_terminate_sync(host->rx_chan);
 		dmaengine_terminate_sync(host->tx_chan);
@@ -689,7 +733,8 @@ static int sd_command(struct s1c33_sd *host, struct mmc_command *cmd,
  * through the receive queue.
  */
 static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
-			 dma_addr_t dma, unsigned int len, unsigned long timeout)
+			 dma_addr_t dma, unsigned int len, unsigned long timeout,
+			 u32 *t)
 {
 	int status, ret;
 
@@ -709,6 +754,7 @@ static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
 		r->bitshift--;
 	}
 	r->leftover = status << 1;
+	sd_charge(host, SD_T_TOKEN, t);
 	r->buf = buf;
 	r->len = len;
 	r->dma = dma != DMA_MAPPING_ERROR && !(dma & 3);
@@ -725,7 +771,9 @@ static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
 	r->lead = host->rx_len - host->rx_pos;
 	memcpy(r->first, host->rx + host->rx_pos, r->lead);
 	sd_rx_drop(host);
-	return sd_dma_start(host, r, dma);
+	ret = sd_dma_start(host, r, dma);
+	sd_charge(host, SD_T_SETUP, t);
+	return ret;
 }
 
 /*
@@ -733,7 +781,7 @@ static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
  * bytes past the block, @lead of them, are the CRC and whatever follows,
  * and go back on the receive queue for it and the next token.
  */
-static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r)
+static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r, u32 *t)
 {
 	u8 tail[4];
 	u32 last;
@@ -742,7 +790,7 @@ static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r)
 
 	if (!r->dma)
 		return 0;
-	ret = sd_dma_finish(host, r);
+	ret = sd_dma_finish(host, r, t);
 	if (ret)
 		return ret;
 	if (r->lead) {
@@ -752,7 +800,9 @@ static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r)
 			tail[i] = last >> (8 * i);
 	}
 	sd_rx_queue(host, tail, r->lead);
-	return sd_rx_bytes(host, r->crc, 2);
+	ret = sd_rx_bytes(host, r->crc, 2);
+	sd_charge(host, SD_T_TAIL, t);
+	return ret;
 }
 
 /* Put a block in order and check it; the wire is free meanwhile. */
@@ -816,6 +866,7 @@ static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
 	struct scatterlist *sg;
 	unsigned int n_sg;
 	int status = 0, checked;
+	u32 t = sd_clock(host);
 
 	if (host->rx_chan) {
 		dma_dev = dmaengine_get_dma_device(host->rx_chan);
@@ -833,18 +884,21 @@ static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
 		while (length) {
 			unsigned int len = min(length, data->blksz);
 
+			sd_charge(host, SD_T_REQUEST, &t);
 			status = sd_read_start(host, cur, buf, dma, len,
-					       timeout);
+					       timeout, &t);
 			checked = 0;
 			if (prev) {
 				checked = sd_read_finish(host, prev);
 				if (!checked)
 					data->bytes_xfered += prev->len;
 				prev = NULL;
+				sd_charge(host, SD_T_CHECK, &t);
 			}
 			/* A transfer that started is drained either way. */
 			if (!status)
-				status = sd_read_wait(host, cur);
+				status = sd_read_wait(host, cur, &t);
+			host->timing.blocks++;
 			if (!status)
 				status = checked;
 			if (status)
@@ -871,6 +925,8 @@ out:
 		dma_unmap_sg(dma_dev, data->sg, data->sg_len, DMA_FROM_DEVICE);
 	for_each_sg(data->sg, sg, data->sg_len, n_sg)
 		flush_dcache_page(sg_page(sg));
+	sd_charge(host, SD_T_REQUEST, &t);
+	host->timing.requests++;
 }
 
 /*
@@ -1332,8 +1388,70 @@ static void sd_remove(struct platform_device *pdev)
 	sd_dma_release(host);
 }
 
+static const char *const sd_phase_names[SD_T_PHASES] = {
+	[SD_T_TOKEN] = "token", [SD_T_SETUP] = "setup",
+	[SD_T_CHECK] = "check", [SD_T_POLL] = "poll",
+	[SD_T_STATUS] = "status", [SD_T_TAIL] = "tail",
+	[SD_T_REQUEST] = "request",
+};
+
+/*
+ * Cycles a block by phase since timing was last turned on, "1" to turn it
+ * on (and clear it), "0" off.  Each figure includes one reading of the
+ * clock, the overhead line.
+ */
+static ssize_t read_timing_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct s1c33_sd *host = dev_get_drvdata(dev);
+	struct sd_timing *tm = &host->timing;
+	u32 blocks = tm->blocks ? tm->blocks : 1, t0, t1;
+	u64 total = 0;
+	int len, i;
+
+	t0 = get_cycles();
+	t1 = get_cycles();
+	len = sysfs_emit(buf, "%s, %u blocks in %u requests, clock read %u cycles\n",
+			 tm->on ? "on" : "off", tm->blocks, tm->requests,
+			 t1 - t0);
+	for (i = 0; i < SD_T_PHASES; i++) {
+		total += tm->cycles[i];
+		len += sysfs_emit_at(buf, len, "%-8s %7llu cycles a block\n",
+				     sd_phase_names[i],
+				     div_u64(tm->cycles[i], blocks));
+	}
+	len += sysfs_emit_at(buf, len, "%-8s %7llu cycles a block\n", "total",
+			     div_u64(total, blocks));
+	return len;
+}
+
+static ssize_t read_timing_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct s1c33_sd *host = dev_get_drvdata(dev);
+	bool on;
+	int ret = kstrtobool(buf, &on);
+
+	if (ret)
+		return ret;
+	/* A read in flight at the switch is counted in part: harmless. */
+	if (on)
+		memset(&host->timing, 0, sizeof(host->timing));
+	WRITE_ONCE(host->timing.on, on);
+	return count;
+}
+static DEVICE_ATTR_RW(read_timing);
+
+static struct attribute *sd_attrs[] = {
+	&dev_attr_read_timing.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(sd);
+
 static struct platform_driver s1c33_sd_driver = {
 	.driver.name	= "s1c33-sd",
+	.driver.dev_groups = sd_groups,
 	.probe		= sd_probe,
 	.remove		= sd_remove,
 };
