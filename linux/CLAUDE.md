@@ -12,5 +12,6 @@ the card at 12 MHz instead of 15, and skips Grifo's hardware setup, so its
 numbers and behaviour are not the product's.  A script that already does it
 is not a reason to use it; move the script onto Grifo.
 
-Launcher-path tools: `linux/app-test.py`; `linux/artifacts/perf/ask-app.sh`
+Launcher-path tools: `linux/boot-test.sh`, `linux/app-test.py`;
+`linux/artifacts/perf/ask-app.sh`
 (types commands on the serial shell and powers off).

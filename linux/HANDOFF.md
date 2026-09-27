@@ -5,8 +5,9 @@ whoever picks the work up next: what has been proven and where, what is left,
 and the things that cost a day to learn.
 
 **NEVER BYPASS GRIFO.** Every emulator run, whether a test, a timing or a quick
-check, boots MBR -> Grifo -> init.app -> linux.app. The direct fixture that
-`boot-test.sh` still uses runs at 48 MHz without Grifo and is never right.
+check, boots MBR -> Grifo -> init.app -> linux.app, as `boot-test.sh` and
+`app-test.py` do. A direct boot runs at 48 MHz without Grifo and is never
+right.
 
 ## State
 
@@ -49,7 +50,7 @@ Validated on the user's board:
 - SDRAM size probed from the controller; 32 MiB on that unit.
 - `s1c33-t16` is the live clocksource, so timer 0's output really does clock
   timer 5 on the board, and the tick stops when idle.
-- MCLK is 60 MHz under Grifo, against the direct-boot fixture's 48 MHz.
+- MCLK is 60 MHz under Grifo, against the 48 MHz reset clock.
 - Display blanking, suspend-to-idle, and tap-to-wake.
 - A touch wakes this core out of HALT by itself. Measured with the poll
   disabled (`s1c33_wake=0`): the timer-3 count stayed at zero across the sleep

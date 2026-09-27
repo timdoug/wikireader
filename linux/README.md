@@ -346,16 +346,16 @@ Mach-O executables under `host-tools/toolchain-c33/work`:
 The userspace compiler is built against the kernel's UAPI headers and
 uClibc-ng's headers, so `fetch` comes first.
 
-The boot fixture also links the existing MBR support libraries. Build them
+The tests boot Grifo, `init.app` and the MBR flash from `samo-lib`. Build them
 with the repository's normal firmware targets if they are not present.
 
 ## Build and test
 
 **NEVER BYPASS GRIFO.** Every emulator run, a test, a timing or a one-off
 check, boots the way the device does: MBR, Grifo, `init.app`, then
-`linux.app` from `init.ini`. `app-test` does; `boot-test` still boots
-`vmlinux` through the NuttX file-loader fixture at 48 MHz without Grifo, is
-not a source of numbers, and is to move onto the launcher path.
+`linux.app` from `init.ini`. Both tests below do; the direct paths run at the
+48 MHz reset clock without Grifo's hardware setup and test a machine that
+does not exist.
 
 ```sh
 make -C linux libc
@@ -566,17 +566,19 @@ partition at `/mnt/sd` with synchronous writes. Under `wr.selftest` early
 userspace leaves `linux.ok` there as a persistent, serial-port-free boot
 report.
 
-`boot-test` runs on macOS. It creates an isolated temporary FLASH/FAT32
-fixture, boots it through the full emulated hardware path, and requires the
+`boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
+holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
+`init.ini` that passes `loglevel=7 wr.selftest`, boots the device's own chain
+at Grifo's 60 MHz, and requires the
 BusyBox PID 1 startup and one-shot diagnostic suite to complete without a
 kernel panic. It then injects an `echo` command into the real `hush` over UART0
 and verifies its output. It separately generates panel taps for a command and
 Enter key, requires UART1 serial-core and serdev to deliver evdev records, and
 requires the userspace frontend to execute that command through its PTY-backed
 Hush. The test also checks the final display image for console text and the
-three keyboard rows. The fixture and emulator
+three keyboard rows. The card and emulator
 display output are kept outside the checkout and removed afterward. The card
-fixture is writable only for this isolated run; after the guest exits, the
+is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
 The same regression requires the SD host to announce HSDMA block reads, the

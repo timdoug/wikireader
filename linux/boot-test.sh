@@ -1,30 +1,31 @@
 #!/bin/sh
 set -eu
 
-# NEVER BYPASS GRIFO.  This script still boots vmlinux through the NuttX file
-# loader fixture, at 48 MHz and without Grifo, which is never how the device
-# runs.  Do not take numbers from it, and move it onto the launcher path
-# (MBR -> Grifo -> init.app -> linux.app, as app-test.py does).
+# The device's own boot: the MBR flash, Grifo as kernel.elf, init.app, and
+# linux.app from a single-entry init.ini, which the launcher starts without
+# drawing its menu.  Never bypass Grifo: the direct paths run at the 48 MHz
+# reset clock and skip Grifo's hardware setup, so they test a machine that
+# does not exist.
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-kernel=$root/linux/artifacts/vmlinux
+app=$root/linux/artifacts/linux.app
 system=$root/linux/artifacts/linux.img
+icon=$root/linux/artifacts/linux.ico
+grifo=$root/samo-lib/grifo/grifo.elf
+launcher=$root/samo-lib/grifo/applications/init/init.app
+make_flash=$root/samo-lib/mbr/make-flash.py
 emulator=$root/emulator/wremu
-fixture_tool=$root/nuttx/overlay/nuttx/boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
 fat_helper=$root/emulator/tools/mem_dma_bench/run.py
 touch_output="touch-keyboard pass"
 touch_latency_limit=8000000
 
-if [ ! -f "$kernel" ]; then
-	echo "Kernel not found at $kernel" >&2
-	echo "Run make -C linux build first." >&2
-	exit 1
-fi
-if [ ! -f "$system" ]; then
-	echo "System image not found at $system" >&2
-	echo "Run make -C linux rootfs first." >&2
-	exit 1
-fi
+for input in "$app" "$system" "$icon" "$grifo" "$launcher"; do
+	if [ ! -f "$input" ]; then
+		echo "Boot test input not found: $input" >&2
+		echo "Run make -C linux build, and build samo-lib's Grifo and init.app." >&2
+		exit 1
+	fi
+done
 if [ ! -x "$emulator" ]; then
 	echo "Emulator not found at $emulator" >&2
 	echo "Build emulator/wremu first." >&2
@@ -34,33 +35,55 @@ fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/wr-linux-boot.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-python3 "$fixture_tool" --wikireader "$root" --image "$kernel" \
-	--card-file "linux.img=$system" --cluster-sectors 64 \
-	--out "$work/fixture"
+# wr.selftest runs the userspace checks rcS skips on a normal boot, and
+# loglevel=7 puts the whole boot log on the serial port for them.
+python3 - "$fat_helper" "$work/card.img" "$grifo" "$launcher" "$app" \
+	"$system" "$icon" <<'PYEOF'
+import importlib.util, sys
+from pathlib import Path
+helper, card, grifo, launcher, app, system, icon = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("wr_fat_fixture", helper)
+fat = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fat)
+files = {
+    "kernel.elf": Path(grifo).read_bytes(),
+    "init.app": Path(launcher).read_bytes(),
+    "linux.app": Path(app).read_bytes(),
+    "linux.img": Path(system).read_bytes(),
+    "linux.ico": Path(icon).read_bytes(),
+    "init.ini": b"linux.ico : linux.app loglevel=7 wr.selftest\n",
+}
+fat.make_image(Path(card), files, 64)
+for name, data in files.items():
+    if fat.read_file(Path(card), name) != data:
+        sys.exit(f"Boot test card did not read back {name}")
+PYEOF
+python3 "$make_flash" "$work/flash.rom" >/dev/null
 printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 
 (
 	cd "$work"
-	# Keep input out of the vendor menu and loader. PID 1 is running before
-	# 500M retired instructions. UART proves the serial recovery path first;
-	# scripted panel taps then type into the userspace PTY console.
+	# Keep input out of Grifo and the launcher: the serial shell is up by
+	# UART_START.  UART proves the serial recovery path first; scripted
+	# panel taps then type into the userspace PTY console.
 	# The soft keyboard types into a PTY whose shell is still starting;
 	# anything typed before hush sets its terminal up is discarded, so
 	# leave the keys well clear of that.
 	# The buttons are polled every 50 ms; hold the scripted press longer.
 	WREMU_BUTTON_HOLD_MS=200 \
-	WREMU_UART_TRACE="$touch_output|/ # =" "$emulator" -n 900000000 \
-		-e "$work/fixture/flash-nuttx.rom" \
-		-c "$work/fixture/nuttx-card.img" \
-		--uart-input "$work/uart.in" --uart-start 500000000 \
-		-K "600000000,ecj<ho touch-keyboard pass#" \
-		-T 36,197,780000000 -T 108,175,790000000 \
-		-T 228,197,800000000 \
-		-N 1,820000000
+	WREMU_UART_TRACE="${UART_TRACE-$touch_output|/ # =}" "$emulator" \
+		-n "${LIMIT:-900000000}" \
+		-e "$work/flash.rom" -c "$work/card.img" \
+		--uart-input "$work/uart.in" --uart-start "${UART_START:-500000000}" \
+		-K "${KEYS_AT:-600000000},ecj<ho touch-keyboard pass#" \
+		-T 36,197,${TAPS_AT:-780000000} -T 108,175,$((${TAPS_AT:-780000000} + 10000000)) \
+		-T 228,197,$((${TAPS_AT:-780000000} + 20000000)) \
+		-N 1,$((${TAPS_AT:-780000000} + 40000000))
 ) >"$work/boot.log" 2>&1
+[ -z "${KEEP_LOG:-}" ] || cp "$work/boot.log" "$KEEP_LOG"
 
 syscall_marker="C33: entered userspace syscall path"
-boot_path_expected="C33 boot: standalone (incoming TTBR "
+boot_path_expected="C33 boot: Grifo application (incoming TTBR 00000400)"
 expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 irq_controller_expected="C33 IRQ: registered 24 interrupt sources"
 itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
@@ -79,8 +102,8 @@ button_expected="C33 input: front button search"
 contrast_expected="wikireader-lcd wikireader-lcd: contrast 2048 of 4095 adopted from the PWM"
 # wremu's converter reads 832 and 502: 3.08 V through the divider, 22 C.
 sensors_expected="C33 sensors: battery 3083 mV, board 22 C"
-# 2^30 counts of the direct boot's 48 MHz MCLK.
-watchdog_expected="s1c33-wdt s1c33-wdt: 48000000 Hz, up to 22369 ms a period"
+# 2^30 counts of Grifo's 60 MHz MCLK.
+watchdog_expected="s1c33-wdt s1c33-wdt: 60000000 Hz, up to 17895 ms a period"
 evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
@@ -92,8 +115,8 @@ userspace_console_expected="C33 userspace console: fbdev + evdev + PTY shell rea
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 # Without the trailing ", no poweroff" the slot found its regulators.
-# MCLK/4: 12 MHz on the direct 48 MHz boot, 15 MHz under Grifo.
-sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 12000000 Hz, HSDMA block reads"
+# MCLK/4 of Grifo's 60 MHz.
+sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 15000000 Hz, HSDMA block reads"
 hsdma_expected="s1c33-hsdma s1c33-hsdma: 4 channels, completion polled"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
@@ -104,7 +127,7 @@ signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-clock_expected="C33 clock: registered 48000000 Hz MCLK and 6 peripheral gates"
+clock_expected="C33 clock: registered 60000000 Hz MCLK and 6 peripheral gates"
 gpio_expected="s1c33-pinctrl s1c33-pinctrl: registered 74 pins, 111 functions and 56 GPIOs, P03 and P60..P62 interrupting"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
@@ -210,7 +233,7 @@ if grep -F "binfmt_flat: Loading file:" "$work/boot.log" >/dev/null; then
 fi
 
 if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
-	"$work/fixture/nuttx-card.img"; then
+	"$work/card.img"; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux did not persist its FAT status file." >&2
 	exit 1
