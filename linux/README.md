@@ -533,8 +533,11 @@ core, which fetches every instruction outside a short loop from SDRAM,
 generic per-transfer code is dear, so the provider keeps its own
 descriptor lists, recycles descriptors and skips register writes that
 would not change anything; the host waits for the port to go idle in a
-register loop before asking the channels, because each status poll's
-fetches compete with the transfer for SDRAM and slowed it by half. Even
+register loop before asking the receive channel, because each status poll's
+fetches compete with the transfer for SDRAM and slowed it by half. It does
+not ask the transmit channel at all: every word received was clocked in by
+one it sent, and the provider retires a finished transfer when the next is
+submitted. Even
 so a block costs about 0.15 ms more than the host driving HSDMA's registers
 itself did, 1.0 s of a raw 4 MB read through Grifo at 60 MHz. The card runs
 at MCLK/4, 15 MHz under Grifo, as Grifo and the original firmware run it.

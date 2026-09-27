@@ -91,6 +91,7 @@ struct s1c33_sd {
 	void __iomem *idma;		/* its IDMA request and enable */
 	struct dma_chan *rx_chan;	/* HSDMA 3 on SPI receive */
 	struct dma_chan *tx_chan;	/* HSDMA 2 on SPI transmit */
+	struct scatterlist rx_sg;	/* each block's, readied once */
 	u8 *ones;			/* the all-ones HSDMA 2 sends */
 	dma_addr_t ones_dma;
 	phys_addr_t ones_phys;		/* ...when they are in internal RAM */
@@ -331,8 +332,10 @@ static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
 {
 	struct dma_async_tx_descriptor *rxd, *txd = host->ones_txd;
 
-	rxd = dmaengine_prep_slave_single(host->rx_chan, address, r->len,
-					  DMA_DEV_TO_MEM, 0);
+	sg_dma_address(&host->rx_sg) = address;
+	sg_dma_len(&host->rx_sg) = r->len;
+	rxd = dmaengine_prep_slave_sg(host->rx_chan, &host->rx_sg, 1,
+				      DMA_DEV_TO_MEM, 0);
 	if (r->len != SD_BLOCKSIZE)
 		txd = dmaengine_prep_slave_single(host->tx_chan,
 						  host->ones_dma, r->len - 4,
@@ -344,6 +347,11 @@ static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
 	}
 	r->rx_cookie = dmaengine_submit(rxd);
 	r->tx_cookie = dmaengine_submit(txd);
+	if (r->rx_cookie < 0 || r->tx_cookie < 0) {
+		dmaengine_terminate_sync(host->rx_chan);
+		dmaengine_terminate_sync(host->tx_chan);
+		return -EBUSY;
+	}
 	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
 	dma_async_issue_pending(host->rx_chan);
 	dma_async_issue_pending(host->tx_chan);
@@ -361,7 +369,10 @@ static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
  * transmitter long before a word has shifted out.  Wait for that on a
  * register, in a loop that runs from the fetch buffer, and only then ask
  * the channels: each status poll runs hundreds of instructions from SDRAM,
- * and those fetches slowed the transfer itself by half.
+ * and those fetches slowed the transfer itself by half.  Only the receive
+ * channel is asked.  Every word it took was clocked in by one the transmit
+ * channel sent, so that channel is done too, and the provider retires it
+ * when its descriptor is next submitted.
  */
 static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r)
 {
@@ -369,8 +380,6 @@ static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r)
 
 	sd_wait(host, SPI_BUSY, false);
 	ret = sd_dma_wait(host->rx_chan, r->rx_cookie);
-	if (!ret)
-		ret = sd_dma_wait(host->tx_chan, r->tx_cookie);
 	if (!ret && sd_wait(host, SPI_BUSY, false))
 		ret = -ETIMEDOUT;
 	if (ret) {
@@ -1040,6 +1049,7 @@ static int sd_dma_init(struct s1c33_sd *host)
 		host->tx_chan = NULL;
 		goto err;
 	}
+	sg_init_table(&host->rx_sg, 1);
 	config.direction = DMA_DEV_TO_MEM;
 	ret = dmaengine_slave_config(host->rx_chan, &config);
 	config.direction = DMA_MEM_TO_DEV;
@@ -1091,6 +1101,8 @@ static void sd_dma_release(struct s1c33_sd *host)
 {
 	if (!host->rx_chan)
 		return;
+	/* The last transmit transfer is never asked after; retire it. */
+	dmaengine_terminate_sync(host->tx_chan);
 	dmaengine_desc_free(host->ones_txd);
 	sd_unmap_ones(host, dmaengine_get_dma_device(host->tx_chan));
 	dma_release_channel(host->tx_chan);

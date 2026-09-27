@@ -223,17 +223,30 @@ static void hsdma_issue_pending(struct dma_chan *chan)
 	spin_unlock_irqrestore(&c->lock, flags);
 }
 
+/*
+ * A transfer that has run out is retired here too, not only when its
+ * status is asked for: a client that knows from its device that the
+ * transfer is over, as the SD host does for its transmit side, need not
+ * ask, and can resubmit a reused descriptor straight away.
+ */
 static dma_cookie_t hsdma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
 	struct hsdma_chan *c = to_hsdma_chan(tx->chan);
 	struct hsdma_desc *d = to_hsdma_desc(tx);
+	struct dmaengine_desc_callback cb = { };
 	unsigned long flags;
 	dma_cookie_t cookie;
 
 	spin_lock_irqsave(&c->lock, flags);
-	cookie = dma_cookie_assign(tx);
-	list_move_tail(&d->node, &c->submitted);
+	hsdma_poll(c, &cb);
+	if (d == c->active) {
+		cookie = -EBUSY;
+	} else {
+		cookie = dma_cookie_assign(tx);
+		list_move_tail(&d->node, &c->submitted);
+	}
 	spin_unlock_irqrestore(&c->lock, flags);
+	dmaengine_desc_callback_invoke(&cb, NULL);
 	return cookie;
 }
 
@@ -296,11 +309,13 @@ hsdma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 
 	spin_lock_irqsave(&c->lock, irqflags);
 	d = c->spares ? c->spare[--c->spares] : NULL;
-	spin_unlock_irqrestore(&c->lock, irqflags);
-	if (!d)
+	if (!d) {
+		spin_unlock_irqrestore(&c->lock, irqflags);
 		d = kmalloc(sizeof(*d), GFP_NOWAIT);
-	if (!d)
-		return NULL;
+		if (!d)
+			return NULL;
+		spin_lock_irqsave(&c->lock, irqflags);
+	}
 	/* Callbacks and unmap data must not survive from the last use. */
 	memset(d, 0, sizeof(*d));
 	dma_async_tx_descriptor_init(&d->tx, chan);
@@ -320,8 +335,6 @@ hsdma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 		d->destination = device;
 		d->source_hi |= HSDMA_INCREMENT;
 	}
-
-	spin_lock_irqsave(&c->lock, irqflags);
 	list_add_tail(&d->node, &c->prepared);
 	spin_unlock_irqrestore(&c->lock, irqflags);
 	return &d->tx;
