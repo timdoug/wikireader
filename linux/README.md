@@ -596,7 +596,14 @@ wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17 in wremu, and
 instructions, and libgcc's `__udivsi3` and the generic `__div64_32` behind
 `do_div()`, which the scheduler's load tracking calls on every enqueue and
 tick, were 4.4% of the boot from SDRAM. The replacements shift and subtract
-once per quotient bit in registers, and take 2.3%.
+once per quotient bit in registers, and take 2.3%. `echo 1 >
+/sys/module/iram_bench/parameters/run` times the same loops from SDRAM and
+from A0 RAM and logs cycles per unit, to check wremu's model of both against
+the device; `check` runs it. On the device, arithmetic takes 3.59 cycles an
+instruction from SDRAM and 1.31 from A0 RAM, and wremu is within 10% on most
+cases, but it makes back-to-back stores from A0 RAM 16% too cheap, streamed
+loads from SDRAM 13% too cheap, and short branchy loops such as division up
+to 37% too dear.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
