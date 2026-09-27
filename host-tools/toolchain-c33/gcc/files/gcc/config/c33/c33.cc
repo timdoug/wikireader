@@ -701,7 +701,7 @@ c33_print_operand (FILE * file, rtx x, int code)
       switch (GET_CODE (x))
 	{
 	case REG:
-	  fprintf (file, reg_names[REGNO (x) + 1]);
+	  fputs (reg_names[REGNO (x) + 1], file);
 	  break;
 	case MEM:
 	  {
