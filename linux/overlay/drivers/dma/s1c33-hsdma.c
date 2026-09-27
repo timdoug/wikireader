@@ -211,16 +211,24 @@ static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 	return dma_cookie_status(chan, cookie, state);
 }
 
+/*
+ * A transfer that has run out is retired first: a client that submitted
+ * the next descriptor while the last still ran, and never asked after the
+ * last, must not find it holding the channel.
+ */
 static void hsdma_issue_pending(struct dma_chan *chan)
 {
 	struct hsdma_chan *c = to_hsdma_chan(chan);
+	struct dmaengine_desc_callback cb = { };
 	unsigned long flags;
 
 	spin_lock_irqsave(&c->lock, flags);
+	hsdma_poll(c, &cb);
 	list_splice_tail_init(&c->submitted, &c->issued);
 	if (!c->active)
 		hsdma_start(c);
 	spin_unlock_irqrestore(&c->lock, flags);
+	dmaengine_desc_callback_invoke(&cb, NULL);
 }
 
 /*

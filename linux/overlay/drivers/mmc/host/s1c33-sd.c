@@ -92,7 +92,8 @@
  */
 enum sd_phase {
 	SD_T_TOKEN,	/* the gap and the start token, clocked by the CPU */
-	SD_T_SETUP,	/* preparing and starting the block's transfer */
+	SD_T_SETUP,	/* starting the block's transfer */
+	SD_T_AHEAD,	/* preparing the next block's, overlapped */
 	SD_T_CHECK,	/* the block before: order and CRC, overlapped */
 	SD_T_POLL,	/* then waiting for the port to go idle */
 	SD_T_STATUS,	/* asking the receive channel */
@@ -120,8 +121,12 @@ struct s1c33_sd {
 	u8 *ones;			/* the all-ones HSDMA 2 sends */
 	dma_addr_t ones_dma;
 	phys_addr_t ones_phys;		/* ...when they are in internal RAM */
-	/* Sends them for a block, resubmitted for every one. */
-	struct dma_async_tx_descriptor *ones_txd;
+	/*
+	 * Send them for a block, resubmitted for every one, in turn: the next
+	 * block's is submitted while the last one's still runs.
+	 */
+	struct dma_async_tx_descriptor *ones_txd[2];
+	unsigned int ones_next;
 	const struct s1c33_sd_platform_data *pdata;
 	struct gpio_desc *cs;
 	struct pinctrl *pinctrl;
@@ -355,7 +360,9 @@ static int sd_dma_wait(struct dma_chan *chan, dma_cookie_t cookie)
 struct sd_read {
 	u8 *buf;
 	unsigned int len;
+	dma_addr_t addr;	/* the buffer for HSDMA, if it can reach it */
 	bool dma;		/* the words came by HSDMA, in wire order */
+	bool prepared;		/* its transfer is submitted, not yet issued */
 	unsigned int lead;	/* block bytes that came in the token's word */
 	u8 first[4];		/* ... and are here */
 	unsigned int bitshift;	/* how far the card shifted the block */
@@ -365,41 +372,60 @@ struct sd_read {
 };
 
 /*
- * Start reading @len bytes, a multiple of four, as words to @address, which
- * is word aligned: HSDMA 3 moves them to memory while HSDMA 2 feeds all-ones
- * to the transmitter, whose first word the CPU writes to start the exchange.
- * The words land in wire order, first byte on top.
+ * A block's transfer: @len bytes, a multiple of four, as words to its
+ * buffer, which is word aligned: HSDMA 3 moves them to memory while HSDMA
+ * 2 feeds all-ones to the transmitter, whose first word the CPU writes to
+ * start the exchange.  The words land in wire order, first byte on top.
+ *
+ * Preparing and submitting the descriptors is most of the cost, hundreds
+ * of instructions from SDRAM, and needs nothing from the card, so the next
+ * block's is done while this one crosses the wire: the device gives the CPU
+ * the bus, but instruction fetches do not hold up the DMA the way the
+ * check's data accesses do.  Only issuing waits for the token.  Returns
+ * with nothing submitted on failure, or with the caller to terminate.
  */
-static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
-			dma_addr_t address)
+static int sd_dma_prepare(struct s1c33_sd *host, struct sd_read *r)
 {
-	struct dma_async_tx_descriptor *rxd, *txd = host->ones_txd;
+	struct dma_async_tx_descriptor *rxd, *txd;
 
-	sg_dma_address(&host->rx_sg) = address;
+	sg_dma_address(&host->rx_sg) = r->addr;
 	sg_dma_len(&host->rx_sg) = r->len;
 	rxd = dmaengine_prep_slave_sg(host->rx_chan, &host->rx_sg, 1,
 				      DMA_DEV_TO_MEM, 0);
-	if (r->len != SD_BLOCKSIZE)
+	if (!rxd)
+		return -ENOMEM;
+	r->rx_cookie = dmaengine_submit(rxd);
+	if (r->rx_cookie < 0)
+		return -EBUSY;
+	if (r->len == SD_BLOCKSIZE) {
+		host->ones_next ^= 1;
+		txd = host->ones_txd[host->ones_next];
+	} else {
 		txd = dmaengine_prep_slave_single(host->tx_chan,
 						  host->ones_dma, r->len - 4,
 						  DMA_MEM_TO_DEV, 0);
-	if (!rxd || !txd) {
-		dmaengine_terminate_sync(host->rx_chan);
-		dmaengine_terminate_sync(host->tx_chan);
-		return -ENOMEM;
+		if (!txd)
+			return -ENOMEM;
 	}
-	r->rx_cookie = dmaengine_submit(rxd);
 	r->tx_cookie = dmaengine_submit(txd);
-	if (r->rx_cookie < 0 || r->tx_cookie < 0) {
-		dmaengine_terminate_sync(host->rx_chan);
-		dmaengine_terminate_sync(host->tx_chan);
+	if (r->tx_cookie < 0)
 		return -EBUSY;
-	}
+	r->prepared = true;
+	return 0;
+}
+
+static void sd_dma_go(struct s1c33_sd *host)
+{
 	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
 	dma_async_issue_pending(host->rx_chan);
 	dma_async_issue_pending(host->tx_chan);
 	writel(~0U, host->base + SPI_TXD);
-	return 0;
+}
+
+static void sd_dma_stop(struct s1c33_sd *host)
+{
+	dmaengine_terminate_sync(host->rx_chan);
+	dmaengine_terminate_sync(host->tx_chan);
 }
 
 /*
@@ -428,8 +454,7 @@ static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r, u32 *t)
 		ret = -ETIMEDOUT;
 	sd_charge(host, SD_T_STATUS, t);
 	if (ret) {
-		dmaengine_terminate_sync(host->rx_chan);
-		dmaengine_terminate_sync(host->tx_chan);
+		sd_dma_stop(host);
 		return ret;
 	}
 	host->dma_blocks++;
@@ -732,9 +757,8 @@ static int sd_command(struct s1c33_sd *host, struct mmc_command *cmd,
  * mmc_spi does.  Buffers HSDMA cannot reach are read here, a byte at a time
  * through the receive queue.
  */
-static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
-			 dma_addr_t dma, unsigned int len, unsigned long timeout,
-			 u32 *t)
+static int sd_read_start(struct s1c33_sd *host, struct sd_read *r,
+			 unsigned long timeout, u32 *t)
 {
 	int status, ret;
 
@@ -755,11 +779,8 @@ static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
 	}
 	r->leftover = status << 1;
 	sd_charge(host, SD_T_TOKEN, t);
-	r->buf = buf;
-	r->len = len;
-	r->dma = dma != DMA_MAPPING_ERROR && !(dma & 3);
 	if (!r->dma) {
-		ret = sd_rx_bytes(host, buf, len);
+		ret = sd_rx_bytes(host, r->buf, r->len);
 		return ret ? ret : sd_rx_bytes(host, r->crc, 2);
 	}
 
@@ -771,7 +792,13 @@ static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
 	r->lead = host->rx_len - host->rx_pos;
 	memcpy(r->first, host->rx + host->rx_pos, r->lead);
 	sd_rx_drop(host);
-	ret = sd_dma_start(host, r, dma);
+	ret = r->prepared ? 0 : sd_dma_prepare(host, r);
+	if (ret) {
+		sd_dma_stop(host);
+	} else {
+		sd_dma_go(host);
+		r->prepared = false;
+	}
 	sd_charge(host, SD_T_SETUP, t);
 	return ret;
 }
@@ -851,21 +878,50 @@ static int sd_read_finish(struct s1c33_sd *host, struct sd_read *r)
 	return 0;
 }
 
+/* Where the request's next block goes: its scatterlist entry and offset. */
+struct sd_cursor {
+	struct scatterlist *sg;
+	unsigned int offset;
+	bool mapped;
+};
+
+static bool sd_next_block(struct sd_cursor *at, struct mmc_data *data,
+			  struct sd_read *r)
+{
+	while (at->sg && at->offset >= at->sg->length) {
+		at->sg = sg_next(at->sg);
+		at->offset = 0;
+	}
+	if (!at->sg)
+		return false;
+	r->len = min(at->sg->length - at->offset, data->blksz);
+	r->buf = sg_virt(at->sg) + at->offset;
+	r->addr = at->mapped ? sg_dma_address(at->sg) + at->offset :
+		DMA_MAPPING_ERROR;
+	r->dma = r->addr != DMA_MAPPING_ERROR && !(r->addr & 3);
+	r->prepared = false;
+	at->offset += r->len;
+	return true;
+}
+
 /*
  * Read a request's blocks.  Each block is started, then the one before it
- * finished, then the new one waited for, so putting block N in order and
- * checking its CRC costs no wire time: it happens while block N+1 arrives.
- * The request is mapped once, for HSDMA to fill block by block.
+ * finished, then the next one's transfer prepared, then the new one waited
+ * for, so putting block N in order, checking its CRC and preparing block
+ * N+2's transfer happen while block N+1 arrives.  The request is mapped
+ * once, for HSDMA to fill block by block.
  */
 static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
 		    unsigned long timeout)
 {
-	bool multiple = data->blocks > 1;
-	struct sd_read reads[2], *cur = &reads[0], *prev = NULL;
+	struct sd_read reads[2], *cur = &reads[0], *prev = NULL, *next;
+	struct sd_cursor at = { .sg = data->sg };
+	unsigned int left = data->blocks;
 	struct device *dma_dev = NULL;
 	struct scatterlist *sg;
 	unsigned int n_sg;
 	int status = 0, checked;
+	bool ahead = false;
 	u32 t = sd_clock(host);
 
 	if (host->rx_chan) {
@@ -874,44 +930,43 @@ static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
 			       DMA_FROM_DEVICE) != data->sg_len)
 			dma_dev = NULL;
 	}
+	at.mapped = dma_dev;
 
-	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
-		u8 *buf = sg_virt(sg);
-		dma_addr_t dma = dma_dev ? sg_dma_address(sg) :
-			DMA_MAPPING_ERROR;
-		unsigned int length = sg->length;
-
-		while (length) {
-			unsigned int len = min(length, data->blksz);
-
-			sd_charge(host, SD_T_REQUEST, &t);
-			status = sd_read_start(host, cur, buf, dma, len,
-					       timeout, &t);
-			checked = 0;
-			if (prev) {
-				checked = sd_read_finish(host, prev);
-				if (!checked)
-					data->bytes_xfered += prev->len;
-				prev = NULL;
-				sd_charge(host, SD_T_CHECK, &t);
-			}
-			/* A transfer that started is drained either way. */
-			if (!status)
-				status = sd_read_wait(host, cur, &t);
-			host->timing.blocks++;
-			if (!status)
-				status = checked;
-			if (status)
-				goto out;
-			prev = cur;
-			cur = cur == &reads[0] ? &reads[1] : &reads[0];
-			buf += len;
-			if (dma != DMA_MAPPING_ERROR)
-				dma += len;
-			length -= len;
-			if (!multiple)
-				break;
+	if (!sd_next_block(&at, data, cur))
+		left = 0;
+	while (left--) {
+		sd_charge(host, SD_T_REQUEST, &t);
+		status = sd_read_start(host, cur, timeout, &t);
+		ahead = false;
+		checked = 0;
+		next = prev ? prev : &reads[1];
+		if (prev) {
+			checked = sd_read_finish(host, prev);
+			if (!checked)
+				data->bytes_xfered += prev->len;
+			prev = NULL;
+			sd_charge(host, SD_T_CHECK, &t);
 		}
+		/*
+		 * Only whole blocks: their transmit side is a descriptor
+		 * kept for reuse, so preparing ahead allocates nothing that
+		 * could be left over.
+		 */
+		if (!status && left && sd_next_block(&at, data, next) &&
+		    next->dma && next->len == SD_BLOCKSIZE) {
+			ahead = !sd_dma_prepare(host, next);
+			sd_charge(host, SD_T_AHEAD, &t);
+		}
+		/* A transfer that started is drained either way. */
+		if (!status)
+			status = sd_read_wait(host, cur, &t);
+		host->timing.blocks++;
+		if (!status)
+			status = checked;
+		if (status)
+			goto out;
+		prev = cur;
+		cur = next;
 	}
 	if (prev) {
 		status = sd_read_finish(host, prev);
@@ -919,8 +974,12 @@ static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
 			data->bytes_xfered += prev->len;
 	}
 out:
-	if (status)
+	if (status) {
 		data->error = status;
+		/* Drop a transfer submitted for a block never started. */
+		if (ahead || cur->prepared)
+			sd_dma_stop(host);
+	}
 	if (dma_dev)
 		dma_unmap_sg(dma_dev, data->sg, data->sg_len, DMA_FROM_DEVICE);
 	for_each_sg(data->sg, sg, data->sg_len, n_sg)
@@ -1180,6 +1239,7 @@ static int sd_dma_init(struct s1c33_sd *host)
 	};
 	struct device *dev = host->dev;
 	struct device *dma_dev;
+	unsigned int i;
 	int ret;
 
 	host->rx_chan = dma_request_chan(dev, "rx");
@@ -1221,17 +1281,22 @@ static int sd_dma_init(struct s1c33_sd *host)
 		ret = -ENOMEM;
 		goto err;
 	}
-	host->ones_txd = dmaengine_prep_slave_single(host->tx_chan,
-			host->ones_dma, SD_BLOCKSIZE - 4, DMA_MEM_TO_DEV, 0);
-	if (!host->ones_txd || dmaengine_desc_set_reuse(host->ones_txd)) {
-		ret = -ENOMEM;
-		goto err_unmap;
+	for (i = 0; i < ARRAY_SIZE(host->ones_txd); i++) {
+		host->ones_txd[i] = dmaengine_prep_slave_single(host->tx_chan,
+				host->ones_dma, SD_BLOCKSIZE - 4,
+				DMA_MEM_TO_DEV, 0);
+		if (!host->ones_txd[i] ||
+		    dmaengine_desc_set_reuse(host->ones_txd[i])) {
+			ret = -ENOMEM;
+			goto err_unmap;
+		}
 	}
 	return 0;
 
 err_unmap:
-	if (host->ones_txd)
-		dmaengine_desc_free(host->ones_txd);
+	for (i = 0; i < ARRAY_SIZE(host->ones_txd); i++)
+		if (host->ones_txd[i])
+			dmaengine_desc_free(host->ones_txd[i]);
 	sd_unmap_ones(host, dma_dev);
 
 err:
@@ -1248,7 +1313,8 @@ static void sd_dma_release(struct s1c33_sd *host)
 		return;
 	/* The last transmit transfer is never asked after; retire it. */
 	dmaengine_terminate_sync(host->tx_chan);
-	dmaengine_desc_free(host->ones_txd);
+	dmaengine_desc_free(host->ones_txd[0]);
+	dmaengine_desc_free(host->ones_txd[1]);
 	sd_unmap_ones(host, dmaengine_get_dma_device(host->tx_chan));
 	dma_release_channel(host->tx_chan);
 	dma_release_channel(host->rx_chan);
@@ -1389,7 +1455,7 @@ static void sd_remove(struct platform_device *pdev)
 }
 
 static const char *const sd_phase_names[SD_T_PHASES] = {
-	[SD_T_TOKEN] = "token", [SD_T_SETUP] = "setup",
+	[SD_T_TOKEN] = "token", [SD_T_SETUP] = "setup", [SD_T_AHEAD] = "ahead",
 	[SD_T_CHECK] = "check", [SD_T_POLL] = "poll",
 	[SD_T_STATUS] = "status", [SD_T_TAIL] = "tail",
 	[SD_T_REQUEST] = "request",

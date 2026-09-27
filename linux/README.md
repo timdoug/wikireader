@@ -543,7 +543,13 @@ itself did, 1.0 s of a raw 4 MB read through Grifo at 60 MHz. The card runs
 at MCLK/4, 15 MHz under Grifo, as Grifo and the original firmware run it.
 Block CRCs are checked unless `mmc_core.use_spi_crc=0`. Reads are
 pipelined: once block N+1's token is in and its transfer started, block N
-is put back in byte order and checked while N+1 crosses the wire. That
+is put back in byte order and checked, and block N+2's transfer prepared
+and submitted, while N+1 crosses the wire; only issuing it waits for its
+token. On the device the CPU wins the bus from the DMA, and the check's
+SDRAM data accesses hold the transfer up, but the preparation's
+instruction fetches do not: with it overlapped the transfer window stays
+about 20,000 cycles a block and the driver's total falls from 31,100 to
+29,000 (`read_timing`, below). That
 check has to fit in what the DMA leaves the CPU, since each word costs two
 transfers that hold the bus, about 10,600 of the wire's 16,400 cycles a
 block. So it is one pass, `sd_unpack_crc()`, which takes each word in wire
@@ -603,7 +609,14 @@ the device; `check` runs it. On the device, arithmetic takes 3.59 cycles an
 instruction from SDRAM and 1.31 from A0 RAM, and wremu is within 10% on most
 cases, but it makes back-to-back stores from A0 RAM 16% too cheap, streamed
 loads from SDRAM 13% too cheap, and short branchy loops such as division up
-to 37% too dear.
+to 37% too dear. Likewise `echo 1 > /sys/devices/platform/s1c33-sd/read_timing`
+starts per-phase counters for card reads, and reading it gives cycles a
+block for the token, the transfer's setup, the preparation of the next
+block's, the check of the one before, the wait, the status call, the CRC
+bytes and the rest of each request; `check` runs a timed read. They showed
+that wremu has the DMA and the CPU the wrong way round: it freezes the CPU
+while the DMA takes the bus, where the device lets the CPU win and the DMA
+fall behind. The driver's total per block agrees within 1% all the same.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
