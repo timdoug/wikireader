@@ -553,7 +553,8 @@ instructions a word, too long for the fetch queue, so it runs from A0 RAM
 kernel copies `__iramfunc` code there at boot, see `asm/iram.h`), with its
 2 KB of tables there too, in about 6,400 cycles a block against 11,700 for
 a byte-at-a-time CRC and a separate unpack. Through Grifo a raw 4 MB read
-takes 5.17 s in wremu, a block 0.63 ms of which the wire is 0.27 ms; the
+takes 5.36 s on the device and 5.17 s in wremu, a block 0.65 ms of which the
+wire is 0.27 ms; the
 rest is the next token, the DMA calls, and the page cache. Writes and shifted blocks use the byte-at-a-time CRC, a 26-byte loop
 compiled with `-falign-loops=16` so that it runs from the fetch queue, on the
 same tables. The all-ones the transmit channel sends are in IVRAM, above the
