@@ -23,15 +23,20 @@ HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
 
 Device round trips now go through one script: `card/bin/check` is copied to
 `bin/check` on the card, the user types `check` at the prompt, and it writes
-`check.txt` (build, battery, an md5 of `linux.app` read uncached, a raw 4 MB
-card read untimed and again timed by phase, and the kernel's warnings). Keep
-it short; it was trimmed once already.
+`check.txt` (build, boot arguments, battery, an md5 of `linux.app` read
+uncached, a raw 4 MB card read untimed and again timed by phase, and the
+kernel's warnings). Keep it short; it was trimmed once already.
 
 The card's `init.ini` line in use is:
 
 ```text
-linux.ico : linux.app wr.blank=30 wr.suspend=60
+linux.ico : linux.app wr.blank=300 wr.suspend=600 wr.pmlog
 ```
+
+The console counts only input and screen output as activity, and `check`
+writes to its file, so shorter timeouts blank the panel (which stops the LCD
+controller's IVRAM reads and changes the bus under a timed read) or suspend
+the machine mid-run.
 
 Boot arguments reach the kernel from that line. Other knobs: `wr.pmlog` appends
 `/proc/interrupts` either side of each suspend to `linuxpm.txt` on the card,
@@ -117,11 +122,23 @@ cannot divide MCLK by less than 4. Per 512-byte block on the device
 | request | 640 | map, unmap, the last block's check |
 | outside the driver | ~9,700 | copy to user, page cache, the tick |
 
-The transfer window (ahead, check, poll, status) is about 20,000 cycles
-against 16,400 on the wire. What stretches it is the check: its SDRAM
-loads and stores hold the DMA up, because on the device the CPU wins the
-bus. Instruction fetches do not (the status spins and the descriptor
-preparation cost the transfer nothing), and neither do register reads.
+The transfer window (ahead, check, poll, status) is about 20,400 cycles
+against 16,400 on the wire, and almost all of that is the DMA itself. With
+the check moved after the transfer (so the CPU only prepares the next
+descriptors and then spins), a block still took 19,600 cycles: about 25
+cycles a word on top of the wire's 128, apparently the receive request's
+round trip before the port clocks the next word. The check running beside
+the transfer adds only about 800. Measured on the device and ruled out as
+the cause:
+
+- where the DMA writes: into two 512-byte bounce buffers in IVRAM instead
+  of SDRAM, the window was 20,700 (the check fell from 9,100 to 8,300);
+- how the check touches SDRAM: eight loads then eight stores, in assembly,
+  gave 20,400 against 20,300 to 20,500 for the per-word C loop;
+- where the check runs: from its SDRAM copy it takes 19,300 cycles, more
+  than twice as long, and no longer fits in the transfer. A0 RAM code does
+  not crowd the DMA.
+
 The user keeps DMAengine and the block CRC; both were asked and settled.
 
 What was built on the way, in `README.md` in detail: the pipelined read
@@ -138,30 +155,33 @@ wremu was changed to match (`emulator/README.md`, `dma_async`): SPI DMA no
 longer freezes the CPU, and CPU data accesses to SDRAM hold its writes back.
 Its driver total is now within 1% of the device's. It still cannot say
 what the device's arbitration bound is (a larger penalty starves the write
-queue into receive overruns, which the device never has), and it does not
-model the likely reason A0 RAM code hurts the DMA: code fetched with no
-wait states keeps the internal bus busy on every cycle, and the DMA reaches
-the SPI port over that bus. Two A0 RAM changes gained about a third of what
-wremu predicted on the device.
+queue into receive overruns, which the device never has), and its per-word
+DMA cost is a fitted constant (`dma_extra`), so it cannot judge changes to
+what the DMA does per word; those need the device.
 
 ## What is left, in the order I would take it
 
-1. **The check's SDRAM accesses.** `sd_unpack_crc()` does one load and one
-   store per word, spread evenly through the transfer. Loading eight words,
-   working on them in registers and storing eight would change row once per
-   burst instead of per access and leave the bus to the DMA between bursts.
-   Also worth one device run each: the check from its SDRAM copy instead of
-   A0 RAM (`c33_iram_func()` is the only switch), to test the internal-bus
-   theory above, since a slower check that disturbs the DMA less could win.
-   Judge in wremu first, then with `check` on the device; watch `check`,
-   `poll` and `status`.
-2. **What happens once the token is in** (setup, 4,550): two
-   `dma_async_issue_pending()` calls and `hsdma_start()` twice, a few hundred
-   SDRAM instructions each. The transmit side's issue could move before the
-   token if its first word is written only after it.
-3. **The token and the CRC bytes** (3,800 together) are clocked a word at a
-   time by the CPU. A transfer one word longer would bring the CRC in by
-   DMA; about 1.35 words a block are clocked now. Small.
+1. **Stream the blocks.** With the window fixed by the DMA, what is left
+   in the driver is the time between transfers: token 1,900, setup 4,300,
+   tail 1,600 and request 600 a block, about 8,400 of 29,000. In a
+   multi-block read the card sends gap, token, 512 bytes and CRC, block
+   after block, and the CPU cannot overrun it (it clocks the card). One
+   long DMA transfer per request into an SDRAM stream buffer, with the CPU
+   finding each token and unpacking and checking each block behind the DMA
+   (the check fits: about 9,000 of a 20,000-cycle block), would remove
+   those phases: roughly 5.1 s to 3.9 s for 4 MB. Needed: a transmit side
+   that sends all-ones for the whole stream (HSDMA can hold its source
+   address fixed; the provider always increments memory now, or a cyclic
+   descriptor), gaps longer than the slack allowed for (finish those blocks
+   the current way), and the stream running past the last block (the stop
+   command ends it). Stays on DMAengine and keeps the CRC.
+2. **Smaller, if streaming is not done:** issuing the transmit side before
+   the token (setup), and a transfer one word longer to bring the CRC in by
+   DMA (tail).
+3. **PIO from A0 RAM** would probably beat the DMA's 25 cycles a word (a CPU polling
+   the receive flag answers in a few) and could check each word while the
+   next shifts, but it leaves DMAengine, which the user wants kept. Only if
+   that changes.
 4. **Outside the driver** (~9,700): the copy to user space is at the CPU's
    copy floor (about 4.0 cycles a byte on the device); the tick is 7% of the
    CPU when busy (HZ stays 100, the user's call) and most of the rest is

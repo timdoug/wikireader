@@ -959,9 +959,12 @@ CPU does during the transfer comes out at its measured no-DMA cost, where
 the old model inflated it by 60%. Above about 20 the penalty lets the CPU
 starve the queue of writes until received words overrun, which the device
 never does: the arbitration it stands for is bounded, and one number does
-not capture how. The device evidence also fits code running from zero-wait
-A0 RAM holding the internal bus the DMA's port accesses use, which this
-does not model. Memory-to-memory HSDMA keeps the synchronous model.
+not capture how. On the device the CPU's accesses cost the transfer
+little: with nothing but the next descriptors and a status spin beside it a
+block still took 19,600 cycles against 20,400 with the check, and writing
+the words to IVRAM instead of SDRAM, or running the check from SDRAM
+instead of A0 RAM, did not shorten it. The 25 or so cycles a word over the
+wire are the DMA's own, which `dma_extra` stands in for. Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by

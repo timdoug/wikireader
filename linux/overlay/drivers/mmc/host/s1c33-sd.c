@@ -379,9 +379,9 @@ struct sd_read {
  *
  * Preparing and submitting the descriptors is most of the cost, hundreds
  * of instructions from SDRAM, and needs nothing from the card, so the next
- * block's is done while this one crosses the wire: the device gives the CPU
- * the bus, but instruction fetches do not hold up the DMA the way the
- * check's data accesses do.  Only issuing waits for the token.  Returns
+ * block's is done while this one crosses the wire, which it does not slow:
+ * the transfer's time is the DMA's own, about 25 cycles a word over the
+ * wire's 128.  Only issuing waits for the token.  Returns
  * with nothing submitted on failure, or with the caller to terminate.
  */
 static int sd_dma_prepare(struct s1c33_sd *host, struct sd_read *r)

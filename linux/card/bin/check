@@ -20,6 +20,7 @@ done
 {
 section build
 uname -a
+cat /proc/cmdline
 cat /proc/uptime
 cat /sys/class/power_supply/*/voltage_now
 
