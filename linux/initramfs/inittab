@@ -1,9 +1,6 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
 ::respawn:/sbin/wr-console
-# Pings /dev/watchdog every 30 s: if userspace stops for 60 s, or the kernel
-# for 18, the chip resets.  A clean shutdown stops it with the magic close.
-::respawn:/sbin/watchdog -F /dev/watchdog
 # Save a random seed for the next boot (see rootstart.c), then leave the
 # root, ext4 in an image on the card, clean.
 ::shutdown:/bin/busybox seedrng

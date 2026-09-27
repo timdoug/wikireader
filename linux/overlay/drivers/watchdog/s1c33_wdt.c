@@ -9,9 +9,10 @@
  * own register.  Only the reset output is used: the NMI output, pin
  * #WDT_NMI, is P63, which the WikiReader wires to its power switch logic.
  *
- * The counter keeps running while the CPU halts, and suspend-to-idle is a
- * halt, so a running watchdog is stopped across a suspend and restarted on
- * resume.
+ * The watchdog runs from probe: until userspace opens it, the core pings
+ * it, so a kernel that hangs while booting is reset.  The counter keeps
+ * running while the CPU halts, and suspend-to-idle is a halt, so a running
+ * watchdog is stopped across a suspend and restarted on resume.
  */
 #include <linux/bits.h>
 #include <linux/clk.h>
@@ -49,6 +50,7 @@ struct s1c33_wdt {
 	unsigned long rate;
 	/* The gate is held exactly while the counter runs. */
 	bool counting;
+	bool suspended;
 };
 
 static inline struct s1c33_wdt *to_s1c33_wdt(struct watchdog_device *wdd)
@@ -74,9 +76,9 @@ static u32 s1c33_wdt_compare(struct s1c33_wdt *wdt, unsigned int seconds)
 	return clamp_t(u64, ticks, S1C33_COMP_MIN + 1, S1C33_COMP_MAX + 1) - 1;
 }
 
-static int s1c33_wdt_start(struct watchdog_device *wdd)
+static int s1c33_wdt_hw_start(struct s1c33_wdt *wdt)
 {
-	struct s1c33_wdt *wdt = to_s1c33_wdt(wdd);
+	struct watchdog_device *wdd = &wdt->wdd;
 	unsigned int hw_timeout = min(wdd->timeout,
 				      wdd->max_hw_heartbeat_ms / 1000);
 	int ret;
@@ -93,10 +95,8 @@ static int s1c33_wdt_start(struct watchdog_device *wdd)
 	return 0;
 }
 
-static int s1c33_wdt_stop(struct watchdog_device *wdd)
+static void s1c33_wdt_hw_stop(struct s1c33_wdt *wdt)
 {
-	struct s1c33_wdt *wdt = to_s1c33_wdt(wdd);
-
 	writew(S1C33_WP_UNLOCK, wdt->base + S1C33_WD_WP);
 	writew(0, wdt->base + S1C33_WD_EN);
 	writew(S1C33_WP_LOCK, wdt->base + S1C33_WD_WP);
@@ -104,6 +104,21 @@ static int s1c33_wdt_stop(struct watchdog_device *wdd)
 		clk_disable(wdt->clk);
 		wdt->counting = false;
 	}
+}
+
+static int s1c33_wdt_start(struct watchdog_device *wdd)
+{
+	int ret = s1c33_wdt_hw_start(to_s1c33_wdt(wdd));
+
+	if (!ret)
+		set_bit(WDOG_HW_RUNNING, &wdd->status);
+	return ret;
+}
+
+static int s1c33_wdt_stop(struct watchdog_device *wdd)
+{
+	s1c33_wdt_hw_stop(to_s1c33_wdt(wdd));
+	clear_bit(WDOG_HW_RUNNING, &wdd->status);
 	return 0;
 }
 
@@ -120,7 +135,7 @@ static int s1c33_wdt_set_timeout(struct watchdog_device *wdd,
 {
 	wdd->timeout = timeout;
 	if (to_s1c33_wdt(wdd)->counting)
-		return s1c33_wdt_start(wdd);
+		return s1c33_wdt_hw_start(to_s1c33_wdt(wdd));
 	return 0;
 }
 
@@ -186,7 +201,13 @@ static int s1c33_wdt_probe(struct platform_device *pdev)
 	watchdog_stop_on_unregister(&wdt->wdd);
 	platform_set_drvdata(pdev, wdt);
 
-	/* c33_start() stopped the launcher's watchdog: off until opened. */
+	/*
+	 * c33_start() stopped the launcher's watchdog to get this far; start
+	 * it again for the core to feed until userspace takes over.
+	 */
+	ret = s1c33_wdt_start(&wdt->wdd);
+	if (ret)
+		return ret;
 	ret = devm_watchdog_register_device(dev, &wdt->wdd);
 	if (ret)
 		return ret;
@@ -199,8 +220,8 @@ static int s1c33_wdt_suspend(struct device *dev)
 {
 	struct s1c33_wdt *wdt = dev_get_drvdata(dev);
 
-	if (watchdog_active(&wdt->wdd))
-		return s1c33_wdt_stop(&wdt->wdd);
+	wdt->suspended = wdt->counting;
+	s1c33_wdt_hw_stop(wdt);
 	return 0;
 }
 
@@ -208,8 +229,8 @@ static int s1c33_wdt_resume(struct device *dev)
 {
 	struct s1c33_wdt *wdt = dev_get_drvdata(dev);
 
-	if (watchdog_active(&wdt->wdd))
-		return s1c33_wdt_start(&wdt->wdd);
+	if (wdt->suspended)
+		return s1c33_wdt_hw_start(wdt);
 	return 0;
 }
 

@@ -181,16 +181,25 @@ character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
 
 The three front buttons on P60..P62 and the power switch on P03, all of
-them pressed high, are a `gpio-keys-polled` device described by software
-nodes, reporting `KEY_F1` (random), `KEY_SEARCH`, `KEY_BACK` (history) and
-`KEY_POWER`. The switch's polarity came from the board: described as
+them pressed high, are a `gpio-keys` device described by software nodes,
+reporting `KEY_F1` (random), `KEY_SEARCH`, `KEY_BACK` (history) and
+`KEY_POWER`. They interrupt through the port block: key input 0 compares
+P60..P62 with a stored pattern, and port input 3 watches P03 for the edge
+opposite its level. The switch's polarity came from the board: described as
 active-low, every resume reported a fresh press, because a suspend releases
-all keys and the next poll re-reports a pin that was never released, and
-the machine slept again four seconds after each wake. The port block
-can raise KINT0 for the buttons, but the GPIO driver has no interrupt half
-yet, so they are polled every 50 ms while something holds the device open;
-the frontend does, so the poll runs whenever the console is up and stops
-across a suspend.
+all keys and the next report re-reads a pin that was never released, and
+the machine slept again four seconds after each wake.
+
+Pins belong to `drivers/pinctrl/pinctrl-s1c33.c`, a pin controller for ports
+0 to 9 that is also the GPIO chip for ports 0 to 6. Every pin is a group of
+its own with the manual's functions for it, so the board's pin map, a
+`pinctrl_map` table, reads like the manual: P65 is `sdi`, P11 `tm1`, P70
+`ain0`. The driver core applies each device's default state before its
+probe, and requesting a line as a GPIO selects its port function, so the
+board file writes no port registers. The SPI flash's chip select, which
+shares the card's bus, is held high by a GPIO hog on the chip's software
+node. The generic `output-low` configuration parks a pin as a port output,
+which is how the SD host holds its clock still.
 
 The panel's contrast is a PWM: the firmware runs timer 1 at MCLK/4096 with
 comparison A as a 12-bit contrast number, 0 lightest and 4095 darkest, and
@@ -228,11 +237,13 @@ The chip's watchdog is `drivers/watchdog/s1c33_wdt.c` on the watchdog core:
 a 30-bit counter on MCLK that resets the chip at most 17.9 s after its last
 ping at 60 MHz, with the core pinging on the hardware's behalf for longer
 timeouts. Grifo arms the watchdog before it starts an application, so the
-kernel stops it at entry, and the driver leaves it stopped until something
-opens `/dev/watchdog`. BusyBox's `watchdog` daemon does, from `inittab`: it
-pings every 30 s with a 60 s timeout, so a stuck userspace resets the device
-after a minute and a stuck kernel after 18 s, and a clean shutdown stops it
-with the magic close. Suspend-to-idle is a halt, during which the counter
+kernel stops it at entry; the driver starts it again at probe and the core
+feeds it until userspace opens `/dev/watchdog`, so a kernel that hangs while
+booting is reset. BusyBox's `watchdog` daemon opens it 20 s after boot,
+beside the random-seed save, since an exec during boot costs the console
+time: it pings every 30 s with a 60 s timeout, so a stuck userspace resets
+the device after a minute and a stuck kernel after 18 s, and a clean
+shutdown stops it with the magic close. Suspend-to-idle is a halt, during which the counter
 keeps running, so the driver stops it across a suspend. Only the reset output
 is used; the NMI output, `#WDT_NMI`, is P63, which is wired to the power
 logic. The watchdog is also the restart handler, so `reboot` resets the chip
@@ -495,19 +506,27 @@ retries) follows `mmc_spi`; its transport is the controller's registers.
 Under `mmc_spi` each 512-byte block cost about four SPI messages, each
 validated, accounted, chip-selected and scheduled, plus a DMA interrupt that
 put the reader to sleep: about 1.9 ms a block on this CPU against 0.3 ms on
-the wire. Here commands and tokens are 8-bit programmed I/O, and each data
-block is one 32-bit HSDMA2/HSDMA3 transfer whose completion the CPU polls.
-A polling CPU also never executes `HALT`, which on physical E07 parts stops
-SPI-triggered HSDMA. Buffers HSDMA cannot reach fall back to 32-bit
-programmed I/O. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
+the wire. Here every character is 32 bits, commands and tokens included:
+outgoing bytes are packed into words behind all-ones padding, which the card
+ignores, and the bytes of each word received queue up for whoever reads
+next. Each data block is one HSDMA2/HSDMA3 transfer whose completion the CPU
+polls; a token lands anywhere in a word, so the words HSDMA writes are
+byte-swapped and moved up to the token's alignment in one pass over the
+block. A polling CPU also never executes `HALT`, which on physical E07 parts
+stops SPI-triggered HSDMA. Buffers HSDMA cannot reach are read through the
+byte queue. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
 the original firmware run it. Block CRCs are checked unless
 `mmc_core.use_spi_crc=0`; the CRC loop is compiled with `-falign-loops=16`
 because at 26 bytes it runs from the C33's fetch buffer only from the start
-of a line, which made it three times faster. The driver reprograms the
-controller's clock and character size with SCLK held at its idle level,
-because disabling the serial block while it drives SCLK creates a real stray
-edge. The kernel registers all 56 port lines through gpiolib, and the driver
-takes the slot's active-low chip select from the board's software node. The
+of a line, which made it three times faster. Disabling the serial block
+while it drives SCLK creates a real stray edge, and the block has to be
+disabled to change its clock or character size. With one character size,
+only a new clock rate does that, a few times a boot, and SCLK sits in the
+`hold` pin state, a port output at its idle level, across it. The switch
+through the pin-control core costs about 0.4 ms on this CPU, which is why it
+could not stay per block: two character-size changes a block made card
+reads two and a half times slower. The driver takes the slot's active-low
+chip select from the board's software node. The
 card's 3.3 V rail and the level buffer between it and the S1C33 are two
 GPIO-switched fixed regulators that the driver consumes as `vmmc` and
 `vqmmc`; the settling time before the buffer may drive and the off time
@@ -544,14 +563,10 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The SCLK hold is the last board callback in platform data; it wants a
-pin-control driver with a state that parks SCLK, which also means moving that
-hold out of the interrupt-disabled window it lives in today. The embedded HSDMA
-implementation could sit behind DMAengine, which would give the SD host the
-DMA mapping API instead of a board-supplied address window, though its polled
-completion is the point.
+The embedded HSDMA implementation could sit behind DMAengine, which would
+give the SD host the DMA mapping API instead of a board-supplied address
+window, though its polled completion is the point.
 Richer keyboard modes, console session management, and power management can
 then grow around the proven LCD, touch, PTY, storage, and recovery userspace
-paths. The buttons want to be interrupt-driven through the port block's KINT
-comparator once the GPIO driver has an irqchip half, and an fbcon on the
-framebuffer would inherit the keyboard devices the frontend now publishes.
+paths, and an fbcon on the framebuffer would inherit the keyboard devices the
+frontend now publishes.

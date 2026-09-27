@@ -8,7 +8,11 @@ mount -a
 # rootstart credited the seed the last boot saved.  Mix it in again and save
 # a fresh one for the next boot once the console is up: on one CPU, even in
 # the background, seedrng's exec and card writes slowed the boot by 0.4 s.
-(sleep 20; seedrng) >/dev/null 2>&1 &
+#
+# The watchdog daemon starts then too: the kernel feeds the watchdog until
+# it opens /dev/watchdog, then it pings every 30 s with a 60 s timeout, and
+# a clean shutdown stops it with the magic close.
+(sleep 20; seedrng; watchdog /dev/watchdog) >/dev/null 2>&1 &
 
 # init starts the consoles only once this script ends, so a normal boot does
 # the setup and nothing else.  The checks below take several seconds; they

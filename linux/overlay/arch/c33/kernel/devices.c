@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Legacy board description for devices not yet described by a device tree. */
 #include <linux/bitops.h>
-#include <linux/delay.h>
 #include <linux/gpio/machine.h>
 #include <linux/gpio/property.h>
 #include <linux/init.h>
@@ -9,6 +8,8 @@
 #include <linux/io.h>
 #include <linux/irqchip/s1c33-itc.h>
 #include <linux/mmc/host.h>
+#include <linux/pinctrl/machine.h>
+#include <linux/pinctrl/pinconf-generic.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/pwm.h>
@@ -22,30 +23,12 @@
 #include <asm/wikireader.h>
 
 #define WR_REG_BASE       0x00300000UL
-#define WR_P0_DATA        (WR_REG_BASE + 0x380)
-#define WR_P0_DIR         (WR_REG_BASE + 0x381)
-#define WR_P3_DATA        (WR_REG_BASE + 0x386)
-#define WR_P3_DIR         (WR_REG_BASE + 0x387)
-#define WR_P5_DATA        (WR_REG_BASE + 0x38a)
-#define WR_P5_DIR         (WR_REG_BASE + 0x38b)
-#define WR_P6_DATA        (WR_REG_BASE + 0x38c)
-#define WR_P6_DIR         (WR_REG_BASE + 0x38d)
-#define WR_P5_FUNC03      (WR_REG_BASE + 0x3aa)
-#define WR_P0_FUNC03      (WR_REG_BASE + 0x3a0)
-#define WR_P0_FUNC47      (WR_REG_BASE + 0x3a1)
-#define WR_P1_FUNC03      (WR_REG_BASE + 0x3a2)
-#define WR_P6_FUNC03      (WR_REG_BASE + 0x3ac)
-#define WR_P6_FUNC47      (WR_REG_BASE + 0x3ad)
-#define WR_P7_FUNC03      (WR_REG_BASE + 0x3ae)
 #define WR_T16_CHANNEL(n) (WR_REG_BASE + 0x780 + (n) * 8)
 #define WR_T16_CLKCTL(n)  (WR_REG_BASE + 0x7e0 + (n) * 2)
 #define WR_CONTRAST_TIMER 1
 #define WR_SERIAL_PRIORITY (WR_REG_BASE + 0x26a)
 #define WR_SERIAL_FLAGS    (WR_REG_BASE + 0x286)
 
-#define WR_SD_CS          BIT(0)
-#define WR_EEPROM_CS      BIT(2)
-#define WR_CS_OUTPUTS     (WR_SD_CS | BIT(1) | WR_EEPROM_CS)
 #define WR_TOUCH_IRQS     (BIT(3) | BIT(4) | BIT(5))
 #define WR_UART0_IRQS     (BIT(0) | BIT(1) | BIT(2))
 
@@ -56,27 +39,42 @@ static void wr_modify8(unsigned long address, u8 clear, u8 set)
 	writeb((value & ~clear) | set, (void __iomem *)address);
 }
 
-static void wr_spi_hold_clock(bool hold, bool high)
-{
-	static u8 saved_mux;
-	static u8 saved_dir;
-	static u8 saved_data;
+/*
+ * Pin functions, per device, as the firmware sets them up.  GPIOs need no
+ * entry: requesting a line selects its port function.
+ */
+static unsigned long wr_sclk_low[] = {
+	PIN_CONF_PACKED(PIN_CONFIG_LEVEL, 0),
+};
 
-	if (hold) {
-		saved_mux = readb((void __iomem *)WR_P6_FUNC47);
-		saved_dir = readb((void __iomem *)WR_P6_DIR);
-		saved_data = readb((void __iomem *)WR_P6_DATA);
-		writeb((saved_data & ~BIT(7)) | (high ? BIT(7) : 0),
-		       (void __iomem *)WR_P6_DATA);
-		writeb(saved_dir | BIT(7), (void __iomem *)WR_P6_DIR);
-		writeb(saved_mux & ~0xc0, (void __iomem *)WR_P6_FUNC47);
-		return;
-	}
+#define WR_PIN(device, pin, function) \
+	PIN_MAP_MUX_GROUP_DEFAULT(device, "s1c33-pinctrl", pin, function)
 
-	writeb(saved_mux, (void __iomem *)WR_P6_FUNC47);
-	writeb(saved_dir, (void __iomem *)WR_P6_DIR);
-	writeb(saved_data, (void __iomem *)WR_P6_DATA);
-}
+static const struct pinctrl_map wr_pin_map[] = {
+	WR_PIN("s1c33-uart.0", "P00", "sin0"),
+	WR_PIN("s1c33-uart.0", "P01", "sout0"),
+	/* The touch panel only talks. */
+	WR_PIN("s1c33-uart.1", "P04", "sin1"),
+	WR_PIN("s1c33-pwm", "P11", "tm1"),
+	WR_PIN("s1c33-sd", "P65", "sdi"),
+	WR_PIN("s1c33-sd", "P66", "sdo"),
+	WR_PIN("s1c33-sd", "P67", "spi_clk"),
+	/* SCLK as a port at its idle level while the controller restarts. */
+	PIN_MAP_MUX_GROUP("s1c33-sd", "hold", "s1c33-pinctrl", "P67", "gpio"),
+	PIN_MAP_CONFIGS_PIN("s1c33-sd", "hold", "s1c33-pinctrl", "P67",
+			    wr_sclk_low),
+	WR_PIN("s1c33-adc", "P70", "ain0"),
+	WR_PIN("s1c33-adc", "P71", "ain1"),
+	WR_PIN("s1c33-adc", "P72", "ain2"),
+	WR_PIN("s1c33-fb", "P80", "fpframe"),
+	WR_PIN("s1c33-fb", "P81", "fpline"),
+	WR_PIN("s1c33-fb", "P82", "fpshift"),
+	WR_PIN("s1c33-fb", "P83", "fpdrdy"),
+	WR_PIN("s1c33-fb", "P94", "fpdat4"),
+	WR_PIN("s1c33-fb", "P95", "fpdat5"),
+	WR_PIN("s1c33-fb", "P96", "fpdat6"),
+	WR_PIN("s1c33-fb", "P97", "fpdat7"),
+};
 
 /*
  * The card's 3.3 V rail is switched by P32 and the level buffer between the
@@ -177,7 +175,6 @@ static struct fixed_voltage_config wr_avdd_config = {
  * at MCLK/4, as Grifo and the original firmware do.
  */
 static struct s1c33_sd_platform_data wr_sd_pdata = {
-	.hold_clock = wr_spi_hold_clock,
 	.dma_memory_start = CONFIG_PHYSICAL_START,
 	.powerup_msecs = 10,
 };
@@ -186,6 +183,7 @@ static struct s1c33_sd_platform_data wr_sd_pdata = {
  * buttons and the power switch raise. */
 static struct resource wr_gpio_resources[] __initdata = {
 	DEFINE_RES_MEM(WR_REG_BASE + 0x380, 14),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x3a0, 0x14, "function"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x3c0, 0x16, "interrupt"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_KEY0, "key0"),
 	DEFINE_RES_IRQ_NAMED(C33_IRQ_PORT3, "port3"),
@@ -225,6 +223,23 @@ static const struct software_node wr_gpio_node = {
 	.name = "s1c33-gpio",
 };
 
+/* The SPI flash shares the card's bus; its chip select is held high. */
+static const u32 wr_flash_cs_gpios[] = { 5 * 8 + 2, 0 };
+
+static const struct property_entry wr_flash_cs_properties[] = {
+	PROPERTY_ENTRY_BOOL("gpio-hog"),
+	PROPERTY_ENTRY_U32_ARRAY("gpios", wr_flash_cs_gpios),
+	PROPERTY_ENTRY_STRING("line-name", "flash-cs"),
+	PROPERTY_ENTRY_BOOL("output-high"),
+	{ }
+};
+
+static const struct software_node wr_flash_cs_node = {
+	.name = "flash-cs",
+	.parent = &wr_gpio_node,
+	.properties = wr_flash_cs_properties,
+};
+
 static const struct property_entry wr_sd_properties[] = {
 	PROPERTY_ENTRY_GPIO("cs-gpios", &wr_gpio_node, 5 * 8,
 			    GPIO_ACTIVE_LOW),
@@ -250,6 +265,8 @@ static const struct property_entry wr_uart1_properties[] = {
 
 static const struct property_entry wr_touch_properties[] = {
 	PROPERTY_ENTRY_STRING("compatible", "openmoko,wikireader-touchscreen"),
+	PROPERTY_ENTRY_GPIO("reset-gpios", &wr_gpio_node, 0 * 8 + 7,
+			    GPIO_ACTIVE_HIGH),
 	PROPERTY_ENTRY_U32("current-speed", 9600),
 	PROPERTY_ENTRY_U32("touchscreen-size-x", 240),
 	PROPERTY_ENTRY_U32("touchscreen-size-y", 208),
@@ -388,6 +405,7 @@ static struct pwm_lookup wr_pwm_lookup[] = {
 
 static const struct software_node *wr_nodes[] = {
 	&wr_gpio_node,
+	&wr_flash_cs_node,
 	&wr_sd_node,
 	&wr_lcd_node,
 	&wr_uart0_node,
@@ -447,21 +465,31 @@ static int __init wr_register(const char *name, int id,
 	return 0;
 }
 
-/* The battery, thermistor and panel bias, and what reads them. */
+/* The converter that reads the battery, thermistor and panel bias. */
 static int __init wr_analog_init(void)
 {
 	int ret;
 
-	wr_modify8(WR_P7_FUNC03, 0x3f, 0x15);
 	ret = wr_register("reg-fixed-voltage", 2, NULL, 0, NULL,
 			  &wr_avdd_config, sizeof(wr_avdd_config));
 	if (!ret)
 		ret = wr_register("s1c33-adc", -1, wr_adc_resources,
 				  ARRAY_SIZE(wr_adc_resources), &wr_adc_node,
 				  NULL, 0);
-	if (!ret)
-		ret = wr_register("voltage-divider", -1, NULL, 0,
-				  &wr_battery_divider_node, NULL, 0);
+	return ret;
+}
+
+/*
+ * What reads the converter, once every driver is registered and the
+ * converter bound: registered any earlier, each consumer's probe would
+ * defer and be retried every time some other device bound.
+ */
+static int __init wr_analog_consumers_init(void)
+{
+	int ret;
+
+	ret = wr_register("voltage-divider", -1, NULL, 0,
+			  &wr_battery_divider_node, NULL, 0);
 	if (!ret)
 		ret = wr_register("generic-adc-battery", -1, NULL, 0,
 				  &wr_battery_node, NULL, 0);
@@ -470,15 +498,10 @@ static int __init wr_analog_init(void)
 				  &wr_thermistor_node, NULL, 0);
 	return ret;
 }
+late_initcall(wr_analog_consumers_init);
 
 static void __init wr_touch_prepare(void)
 {
-	/* UART1 pin mux plus the panel reset connected to P07. */
-	wr_modify8(WR_P0_FUNC47, 3, 1);
-	wr_modify8(WR_P0_DIR, 0, BIT(7));
-	wr_modify8(WR_P0_DATA, 0, BIT(7));
-	fsleep(20);
-	wr_modify8(WR_P0_DATA, BIT(7), 0);
 	writeb(WR_TOUCH_IRQS, (void __iomem *)WR_SERIAL_FLAGS);
 	wr_modify8(WR_SERIAL_PRIORITY, 7, 6);
 }
@@ -515,13 +538,13 @@ static int __init c33_devices_init(void)
 	wr_map_irqs(wr_uart0_resources, ARRAY_SIZE(wr_uart0_resources));
 	wr_map_irqs(wr_uart1_resources, ARRAY_SIZE(wr_uart1_resources));
 
-	/* WikiReader SPI pins, inactive chip selects, and SD power controls. */
-	wr_modify8(WR_P6_FUNC47, 0xfc, 0x54);
-	wr_modify8(WR_P5_FUNC03, 0x3f, 0x01);
-	wr_modify8(WR_P5_DATA, 0, WR_CS_OUTPUTS);
-	wr_modify8(WR_P5_DIR, 0, WR_CS_OUTPUTS);
+	ret = pinctrl_register_mappings(wr_pin_map, ARRAY_SIZE(wr_pin_map));
+	if (ret) {
+		pr_err("C33 devices: pin map failed: %d\n", ret);
+		return ret;
+	}
 
-	gpio_info.name = "s1c33-gpio";
+	gpio_info.name = "s1c33-pinctrl";
 	gpio_info.id = -1;
 	gpio_info.res = wr_gpio_resources;
 	gpio_info.num_res = ARRAY_SIZE(wr_gpio_resources);
@@ -606,7 +629,6 @@ static int __init c33_devices_init(void)
 		return PTR_ERR(device);
 	}
 	/* Contrast: timer 1 on P11, then the panel that consumes it. */
-	wr_modify8(WR_P1_FUNC03, 0x0c, 0x04);
 	pwm_info.name = "s1c33-pwm";
 	pwm_info.id = -1;
 	pwm_info.res = wr_pwm_resources;
@@ -626,9 +648,7 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
-	/* Buttons and the power switch as plain inputs. */
-	wr_modify8(WR_P6_FUNC03, 0x3f, 0);
-	wr_modify8(WR_P0_FUNC03, 0xc0, 0);
+	/* Buttons and the power switch, as GPIOs. */
 	buttons_info.name = "gpio-keys";
 	buttons_info.id = -1;
 	buttons_info.fwnode = software_node_fwnode(&wr_buttons_node);

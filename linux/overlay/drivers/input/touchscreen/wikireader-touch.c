@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* UART-attached touchscreen used by the Openmoko WikiReader. */
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/input.h>
 #include <linux/input/touchscreen.h>
 #include <linux/module.h>
@@ -84,10 +86,21 @@ static const struct serdev_device_ops wr_touch_serdev_ops = {
 
 static int wr_touch_serdev_probe(struct serdev_device *serdev)
 {
+	struct gpio_desc *reset;
 	struct wr_touch *touch;
 	struct input_dev *input;
 	u32 baud;
 	int ret;
+
+	/* A pulse on the controller's reset line, before listening to it. */
+	reset = devm_gpiod_get_optional(&serdev->dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(reset))
+		return dev_err_probe(&serdev->dev, PTR_ERR(reset),
+				     "cannot claim the reset line\n");
+	if (reset) {
+		fsleep(20);
+		gpiod_set_value_cansleep(reset, 0);
+	}
 
 	touch = devm_kzalloc(&serdev->dev, sizeof(*touch), GFP_KERNEL);
 	if (!touch)
