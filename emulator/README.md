@@ -260,6 +260,8 @@ with `WREMU_MODEL=name=value,...`.
 | `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
+| `dma_async` | 1 | SPI-triggered HSDMA runs beside the CPU, which keeps the bus; 0 freezes the CPU per transfer |
+| `dma_cpu_penalty` | 15 | cycles each CPU data access to SDRAM holds back an SPI DMA write in flight |
 | `sd_read_latency` | 12000 | cycles from a read command to the data token |
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
@@ -938,6 +940,28 @@ The fitted `dma_extra=30` cost applies to both engines. It is an empirical
 per-transfer allowance, not a measured arbitration waveform. Against the
 device on a full-archive startup it puts file DMA wait at 2.119 s versus
 2.183 measured, and total startup at 3.310 s versus 3.512.
+
+SPI-triggered HSDMA does not stop the CPU (`dma_async`). The Linux card
+driver's per-phase counters (`read_timing`) showed the device doing the
+opposite of what this model did before: the CPU's work ran at its no-DMA
+speed while the transfers fell behind it, so the wire idled between words
+until the transmit channel caught up. Such a transfer now starts when the
+engine is free, reads its source at once, which empties the SPI receiver
+before the next character can overrun it, and writes its destination and
+raises its completion flag `dma_extra` later; the transmit channel's write
+to TXD is what lets the port start the next word. Each CPU data access to
+SDRAM holds every write in flight back by `dma_cpu_penalty`; instruction
+fetches and register accesses do not, because on the device neither the
+driver's SDRAM-resident status polls nor its descriptor preparation slowed
+a transfer. On a 4 MB read the driver's phases agree with the device within
+about 1% in total (29,200 against 29,000 cycles a block), and the check the
+CPU does during the transfer comes out at its measured no-DMA cost, where
+the old model inflated it by 60%. Above about 20 the penalty lets the CPU
+starve the queue of writes until received words overrun, which the device
+never does: the arbitration it stands for is bounded, and one number does
+not capture how. The device evidence also fits code running from zero-wait
+A0 RAM holding the internal bus the DMA's port accesses use, which this
+does not model. Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by

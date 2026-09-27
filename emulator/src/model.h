@@ -42,6 +42,16 @@ struct model {
 	unsigned wr_ticks;
 	/* Fitted extra MCLK cycles per SPI-triggered HSDMA or IDMA unit. */
 	unsigned dma_extra;
+	/* SPI-triggered HSDMA runs on its own timeline and the CPU keeps the
+	   bus: the device's read_timing counters show the CPU never waiting
+	   for these transfers and the transfers falling behind instead
+	   (see dma.c).  0 keeps the old model, in which each transfer froze
+	   the CPU. */
+	unsigned dma_async;
+	/* MCLK cycles each CPU data access to SDRAM holds up the SPI DMA
+	   transfer in progress, with dma_async.  Instruction fetches and
+	   register accesses do not. */
+	unsigned dma_cpu_penalty;
 	/* Uncalibrated memory-DMA overhead per unit. Keep separate from the
 	   fitted SPI allowance; zero gives the documented bus-phase floor. */
 	unsigned dma_mem_extra;

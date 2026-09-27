@@ -67,6 +67,8 @@ struct model model = {
 	   internal RAM all cost about 0.9 cycles a code byte. */
 	.iram_word_fetch = 1,
 	.dma_extra = 30,
+	.dma_async = 1,
+	.dma_cpu_penalty = 15,
 	/* Both refitted 2026-09-13 against a cardb sweep whose filesystem has
 	   one sector per cluster, so the driver issues a command per 512
 	   bytes and a per-command cost is most of the time rather than a
@@ -178,6 +180,8 @@ static const struct {
 	{ "dq_extra", NULL, &model.dq_extra },
 	{ "wr_ticks", NULL, &model.wr_ticks },
 	{ "dma_extra", NULL, &model.dma_extra },
+	{ "dma_async", NULL, &model.dma_async },
+	{ "dma_cpu_penalty", NULL, &model.dma_cpu_penalty },
 	{ "dma_mem_extra", NULL, &model.dma_mem_extra },
 	{ "sd_read_latency", &model.sd_read_latency, NULL },
 	{ "sd_init_latency", &model.sd_init_latency, NULL },

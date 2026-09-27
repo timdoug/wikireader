@@ -164,6 +164,45 @@ static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 		dst = get16(d, HS_DLO(ch)) | (uint32_t)(dhi & 0x0fffu) << 16;
 	}
 
+	if (spi && model.dma_async && d->clock && mode == 0) {
+		uint64_t t = *d->clock;
+
+		d->reg[HS_TF(ch)] = 0;
+		if (!valid_dual_address(src, size) ||
+		    !valid_dual_address(dst, size) || ((src | dst) & (size - 1)))
+			return false;
+		t += mem_wait(d->mem, MEM_DMA_READ, src, size, t) + 1;
+		struct async_xfer *x = &d->q[d->qn++];
+		x->value = mem_read(d->mem, src, size);
+		t += mem_wait(d->mem, MEM_DMA_WRITE, dst, size, t) + 1;
+		d->engine_free = t;
+		x->due = t + model.dma_extra;
+		x->dst = dst;
+		x->size = size;
+		x->ch = ch;
+		d->bus_cycles += 2;
+		d->hsdma_transfers++;
+		d->hsdma_channel_transfers[ch]++;
+		src = advance(src, smode, size);
+		dst = advance(dst, dmode, size);
+		count = (hs_count(d, ch) - 1) & 0xffffffu;
+		if (advanced) {
+			put32(d, HS_ADV_SRC(ch), src);
+			put32(d, HS_ADV_DST(ch), dst);
+		} else {
+			put16(d, HS_SLO(ch), (uint16_t)src);
+			put16(d, HS_SHI(ch), (shi & 0xf000u) | ((src >> 16) & 0xfffu));
+			put16(d, HS_DLO(ch), (uint16_t)dst);
+			put16(d, HS_DHI(ch), (dhi & 0xf000u) | ((dst >> 16) & 0xfffu));
+		}
+		hs_set_count(d, ch, count);
+		/* The engine takes no more; the flag rises when the write lands. */
+		x->done = count == 0;
+		if (x->done)
+			put16(d, HS_EN(ch), 0);
+		return true;
+	}
+
 	initial_src = src;
 	initial_dst = dst;
 	count = hs_count(d, ch);
@@ -282,6 +321,102 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 	return true;
 }
 
+/*
+ * model.dma_async.  On the device the CPU keeps the bus while an SPI-
+ * triggered transfer waits: the per-phase counters of the card driver
+ * (read_timing) show the CPU's work running at its no-DMA speed and the
+ * transfers falling behind it, so that the wire idles between words until
+ * the transmit channel catches up.  So such a transfer does not stop the
+ * CPU.  It starts when the engine is free and reads its source then, which
+ * for the receive channel empties the port at once; its two bus phases
+ * occupy the engine; and it writes its destination, and raises the
+ * channel's completion flag, dma_extra later, which for the transmit
+ * channel is when the port can start the next word.  Each CPU data access
+ * to SDRAM in the meantime pushes every write in flight back by
+ * dma_cpu_penalty.  One transfer a trigger, channel 2 before channel 3,
+ * as the hardware's priority has it.  Memory-to-memory transfers stay as
+ * they were: the CPU waits for those anyway.
+ */
+static bool async_spi_channel(const struct dma *d, unsigned ch)
+{
+	unsigned select = (d->itc->reg[ITC_HSTRIG23] >> (4 * (ch & 1))) & 15;
+
+	return select == 9 && (d->reg[HS_TF(ch)] & 1) &&
+	       (get16(d, HS_EN(ch)) & 1) && cmu_dma_enabled(d->cmu);
+}
+
+/* Start what is requested while the engine is free, at *d->clock. */
+static void async_service(struct dma *d)
+{
+	while (*d->clock >= d->engine_free && d->qn < ASYNC_DEPTH) {
+		unsigned ch = async_spi_channel(d, 2) ? 2 :
+			      async_spi_channel(d, 3) ? 3 : 0;
+
+		if (!ch || !hs_transfer(d, ch, true))
+			return;
+	}
+}
+
+void dma_poll(struct dma *d)
+{
+	if (!model.dma_async || !d->clock)
+		return;
+	/* A write landing on the port starts a word, whose trigger lands here
+	   again: that one only starts what it can, and this loop sees to the
+	   rest. */
+	if (d->polling) {
+		async_service(d);
+		return;
+	}
+	d->polling = true;
+	for (;;) {
+		uint64_t now = *d->clock, at;
+		bool requested = d->qn < ASYNC_DEPTH &&
+			(async_spi_channel(d, 2) || async_spi_channel(d, 3));
+		bool can_land = d->qn && d->q[0].due <= now;
+		bool can_start = requested && d->engine_free <= now;
+		bool commit;
+
+		/* Whichever was due first. */
+		if (!can_land && !can_start)
+			break;
+		commit = can_land && (!can_start || d->q[0].due <= d->engine_free);
+		at = commit ? d->q[0].due : d->engine_free;
+
+		/* Effects at the time they were due, as sd_poll does. */
+		*d->clock = at;
+		if (commit) {
+			struct async_xfer x = d->q[0];
+
+			memmove(d->q, d->q + 1, --d->qn * sizeof(*d->q));
+			mem_write(d->mem, x.dst, x.size, x.value);
+			if (x.done)
+				d->itc->reg[ITC_FHDMA] |= (uint8_t)(1u << x.ch);
+		} else {
+			async_service(d);
+		}
+		if (*d->clock < now)
+			*d->clock = now;
+	}
+	d->polling = false;
+}
+
+static void dma_cpu_access(void *ctx, uint64_t now)
+{
+	struct dma *d = ctx;
+	bool held = false;
+
+	/* The writes wait; reading the port does not touch SDRAM, and the
+	   device never lets a received word be overrun. */
+	for (unsigned i = 0; i < d->qn; i++)
+		if (d->q[i].due > now) {
+			d->q[i].due += model.dma_cpu_penalty;
+			held = true;
+		}
+	if (held)
+		d->async_delay += model.dma_cpu_penalty;
+}
+
 static void service_spi_idma(struct dma *d)
 {
 	bool terminal;
@@ -329,9 +464,15 @@ static void service_spi(struct dma *d)
 			bool spi = (ch == 2 || ch == 3) && selector == 9;
 			if (!spi && selector != 0)
 				continue;
+			if (spi && model.dma_async)
+				continue;	/* async_kick() below */
 			if (d->reg[HS_TF(ch)] & 1)
 				hs_transfer(d, ch, spi);
 		}
+		/* Land what is due first: the port can complete several
+		   characters in one step, and each wants the engine. */
+		if (model.dma_async && d->clock)
+			dma_poll(d);
 
 		/* SPI receive DMA maps to hardware IDMA channel 0x24. */
 		service_spi_idma(d);
@@ -461,4 +602,6 @@ void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 	itc->hsdma_ctx = d;
 	mem_add_mmio(m, "dma", DMA_BASE, DMA_LEN, dma_mmio, d);
 	sd_set_dma_event(sd, spi_event, d);
+	m->cpu_data_hook = dma_cpu_access;
+	m->cpu_data_ctx = d;
 }

@@ -64,6 +64,10 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
 		return model.mmio_wait;
 
+	if ((access == MEM_CPU_READ || access == MEM_CPU_WRITE) &&
+	    m->cpu_data_hook && addr - SDRAM_BASE < SDRAM_SIZE)
+		m->cpu_data_hook(m->cpu_data_ctx, now);
+
 	return m->wait ? m->wait(m->wait_ctx, access, addr, size, now) : 0;
 }
 

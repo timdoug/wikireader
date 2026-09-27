@@ -862,6 +862,7 @@ int main(int argc, char **argv)
 
 		/* Complete an SPI character before the CPU observes its status. */
 		sd_poll(&sd);
+		dma_poll(&dma);
 
 		/* Repaint and pump SDL events periodically. The interpreter's
 		 * throughput varies sharply with the instruction mix and the SDRAM
@@ -1548,6 +1549,9 @@ done:
 	       dma.invalid_descriptors, dma.bus_cycles);
 	printf("--- dma channels: HSDMA2 TX %lu, HSDMA3 RX %lu ---\n",
 	       dma.hsdma_channel_transfers[2], dma.hsdma_channel_transfers[3]);
+	if (model.dma_async)
+		printf("--- dma async: SPI transfers held up %llu cycles by CPU data accesses ---\n",
+		       dma.async_delay);
 	if (dma.hsdma_channel_transfers[0] || dma.hsdma_channel_transfers[1])
 		printf("--- dma memory: HSDMA0 %lu, HSDMA1 %lu units ---\n",
 		       dma.hsdma_channel_transfers[0], dma.hsdma_channel_transfers[1]);

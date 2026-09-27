@@ -72,6 +72,9 @@ struct mem {
 	unsigned ndev;
 	mem_wait_fn wait;
 	void       *wait_ctx;
+	/* Told of every CPU data access to SDRAM: the DMA engine's arbiter. */
+	void      (*cpu_data_hook)(void *ctx, uint64_t now);
+	void       *cpu_data_ctx;
 
 	/* diagnostics */
 	unsigned long unmapped_reads, unmapped_writes;

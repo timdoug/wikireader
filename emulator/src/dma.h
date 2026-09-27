@@ -14,6 +14,8 @@ struct sdcard;
 #define DMA_BASE 0x1100u
 #define DMA_LEN  0x00a0u
 
+#define ASYNC_DEPTH 4
+
 struct dma {
 	struct mem    *mem;
 	struct itc    *itc;
@@ -24,6 +26,17 @@ struct dma {
 
 	bool servicing;
 	unsigned spi_event_pending;
+	/* model.dma_async: SPI transfers whose writes have yet to land. */
+	struct async_xfer {
+		uint64_t due;
+		uint32_t dst, value;
+		unsigned size, ch;
+		bool done;	/* the channel's last: raise its flag */
+	} q[ASYNC_DEPTH];
+	unsigned qn;
+	uint64_t engine_free;
+	bool polling;
+	unsigned long long async_delay;	/* cycles the CPU held them up */
 	uint64_t bus_available; /* wire events may precede the last DMA bus release */
 
 	unsigned long hsdma_transfers;
@@ -38,5 +51,6 @@ void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 void dma_reset(struct dma *d);
 void dma_set_clock(struct dma *d, uint64_t *clock);
 void dma_set_cpu_sleeping(struct dma *d, const bool *sleeping);
+void dma_poll(struct dma *d);
 
 #endif /* DMA_H */
