@@ -24,7 +24,7 @@
 #define TEXT_ROWS	14
 #define FONT_WIDTH	6
 #define FONT_HEIGHT	8
-#define STATUS_Y	112
+#define TEXT_HEIGHT	112
 #define KEYBOARD_Y	120
 #define KEY_WIDTH	24
 #define KEY_ROWS	4
@@ -395,17 +395,6 @@ static void mark_all_text(void)
 	dirty_text_last = TEXT_ROWS - 1;
 }
 
-static void draw_checkpoint(unsigned int stage)
-{
-	unsigned int x = stage * 16;
-	unsigned int y;
-
-	if (x + 8 > LCD_WIDTH)
-		return;
-	for (y = STATUS_Y; y < STATUS_Y + 6; y++)
-		framebuffer[y * LCD_STRIDE + (x >> 3)] = 0xff;
-}
-
 static int key_character(int key)
 {
 	int character;
@@ -710,7 +699,7 @@ static void erase_in_display(unsigned int mode)
 	} else if (mode == 2 || mode == 3) {
 		for (row = 0; row < TEXT_ROWS; row++)
 			blank_cells(row, 0, TEXT_COLUMNS);
-		clear_rows(0, STATUS_Y);
+		clear_rows(0, TEXT_HEIGHT);
 		mark_all_text();
 	}
 }
@@ -1456,7 +1445,7 @@ static int open_pty(int *slave_fd)
 		.ws_row = TEXT_ROWS,
 		.ws_col = TEXT_COLUMNS,
 		.ws_xpixel = LCD_WIDTH,
-		.ws_ypixel = STATUS_Y,
+		.ws_ypixel = TEXT_HEIGHT,
 	};
 	int master;
 	int unlock = 0;
@@ -1730,10 +1719,7 @@ int main(void)
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
-	clear_rows(STATUS_Y, KEYBOARD_Y - STATUS_Y);
-	for (unsigned int stage = 0; stage < 4; stage++)
-		draw_checkpoint(stage);
-	draw_checkpoint(4);
+	clear_rows(TEXT_HEIGHT, KEYBOARD_Y - TEXT_HEIGHT);
 
 	master_fd = open_pty(&slave_fd);
 	if (master_fd < 0) {
@@ -1741,14 +1727,12 @@ int main(void)
 		return 1;
 	}
 	terminal_fd = master_fd;
-	draw_checkpoint(5);
 	shell = start_shell(master_fd, slave_fd);
 	close(slave_fd);
 	if (shell < 0) {
 		log_text("C33 userspace console: shell start FAILED\n");
 		return 1;
 	}
-	draw_checkpoint(6);
 	flush_display();
 	log_text("C33 userspace console: fbdev + evdev + PTY shell ready\n");
 	if (uinput_fd >= 0)
@@ -1843,7 +1827,6 @@ int main(void)
 			event_count = count / sizeof(events[0]);
 			if (!touch_reported) {
 				log_text("C33 input: userspace console received evdev touch events\n");
-				draw_checkpoint(7);
 				touch_reported = 1;
 			}
 			for (i = 0; i < event_count; i++) {
@@ -1860,7 +1843,6 @@ int main(void)
 
 
 					active_key = key_at(touch_x, touch_y);
-					draw_checkpoint(8);
 					if (previous != active_key) {
 						flush_key(previous);
 						flush_key(active_key);
@@ -1872,17 +1854,14 @@ int main(void)
 					int previous = active_key;
 					int redraw_keyboard = 0;
 
-					draw_checkpoint(9);
-					if (released >= 0 && released == active_key &&
-					    send_key(master_fd, released,
-						     &redraw_keyboard))
-						draw_checkpoint(10);
+					if (released >= 0 && released == active_key)
+						send_key(master_fd, released,
+							 &redraw_keyboard);
 					active_key = -1;
 					if (redraw_keyboard)
 						flush_keyboard();
 					else
 						flush_key(previous);
-					write_rows(STATUS_Y, 6);
 				}
 			}
 		}

@@ -173,7 +173,6 @@ void __init setup_arch(char **cmdline_p)
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
 	c33_lcd_console_register();
-	c33_lcd_checkpoint(1);
 }
 
 void __init arch_cpu_finalize_init(void)

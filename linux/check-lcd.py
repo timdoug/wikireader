@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the native Linux text and checkpoint output in a wremu PGM."""
+"""Verify the native Linux console output in a wremu PGM."""
 
 import argparse
 from pathlib import Path
@@ -19,7 +19,6 @@ def read_pgm(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("image", type=Path)
-    parser.add_argument("--stages", type=int, default=7)
     parser.add_argument("--symbols", action="store_true")
     parser.add_argument("--edited", action="store_true")
     args = parser.parse_args()
@@ -28,12 +27,8 @@ def main():
     if (width, height) != (240, 208):
         raise SystemExit(f"unexpected LCD size {width}x{height}")
 
-    for stage in range(args.stages):
-        x = stage * 16 + 4
-        if pixels[115 * width + x] != 0:
-            raise SystemExit(f"LCD checkpoint {stage} is absent")
-        if pixels[115 * width + x + 8] != 255:
-            raise SystemExit(f"LCD checkpoint {stage} has no separator")
+    if any(pixel != 255 for pixel in pixels[112 * width:120 * width]):
+        raise SystemExit("LCD gap between text and keyboard is not blank")
 
     black_text_pixels = sum(pixel == 0 for pixel in pixels[:112 * width])
     if black_text_pixels < 100:
@@ -51,9 +46,8 @@ def main():
         )
         if banner_pixels < 20:
             raise SystemExit("LCD terminal lost its banner while editing")
-    print(f"LCD console passed: {args.stages} checkpoints, "
-          f"{black_text_pixels} text and {black_keyboard_pixels} keyboard "
-          "pixels")
+    print(f"LCD console passed: {black_text_pixels} text and "
+          f"{black_keyboard_pixels} keyboard pixels")
 
 
 if __name__ == "__main__":

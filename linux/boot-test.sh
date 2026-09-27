@@ -202,8 +202,7 @@ if ! python3 "$root/linux/check-sd.py" "$fat_helper" \
 	echo "Native Linux did not persist its FAT status file." >&2
 	exit 1
 fi
-python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --stages 11 --symbols \
-	--edited
+python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --symbols --edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
 grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \

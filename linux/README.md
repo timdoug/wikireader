@@ -87,10 +87,9 @@ takes over and the boot console hands off.
 The architecture's small early renderer writes `C33 LINUX` into the LCD
 memory left active by the card loader, then becomes a temporary printk console
 that scrolls 40 columns by 24 rows of the ordinary kernel log in Linux's
-standard 6x8 font until late init. Boot checkpoints remain visible below the
-text and an unhandled exception replaces their strip with a solid fault bar,
-so failures before userspace remain visible without attaching to the serial
-pads. The boot logo is placed on the physical right edge.
+standard 6x8 font until late init. An unhandled exception draws a solid
+fault bar below the text, so failures before userspace remain visible without
+attaching to the serial pads. The boot logo is placed on the physical right edge.
 Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
 It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
 `/dev/ptmx`, and makes the PTY slave Hush's controlling terminal. Its four-row
@@ -497,8 +496,8 @@ kernel panic. It then injects an `echo` command into the real `hush` over UART0
 and verifies its output. It separately generates panel taps for a command and
 Enter key, requires UART1 serial-core and serdev to deliver evdev records, and
 requires the userspace frontend to execute that command through its PTY-backed
-Hush. The test also checks the final display image for console text, all eleven
-boot checkpoints, and the three keyboard rows. The fixture and emulator
+Hush. The test also checks the final display image for console text, a blank
+gap above the keyboard, and the three keyboard rows. The fixture and emulator
 display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected

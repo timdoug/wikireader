@@ -51,7 +51,6 @@ void __init init_IRQ(void)
 	__asm__ volatile ("ld.w %%ttbr,%0" : : "r" (c33_vector_table)
 			  : "memory");
 	pr_info("C33 IRQ: registered %d interrupt sources\n", sources);
-	c33_lcd_checkpoint(2);
 }
 
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,

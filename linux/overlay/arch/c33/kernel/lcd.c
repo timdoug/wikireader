@@ -20,8 +20,6 @@
 #define C33_LCD_COLUMNS        (C33_LCD_WIDTH / C33_LCD_FONT_WIDTH)
 #define C33_LCD_TEXT_ROWS      24
 #define C33_LCD_STATUS_Y       (C33_LCD_TEXT_ROWS * C33_LCD_FONT_HEIGHT)
-#define C33_LCD_STATUS_SIZE    6
-#define C33_LCD_STATUS_PITCH   16
 
 static unsigned int c33_lcd_column;
 static unsigned int c33_lcd_row;
@@ -114,7 +112,6 @@ void c33_lcd_init(void)
 	c33_lcd_row = 0;
 	for (i = 0; i < sizeof(banner) - 1; i++)
 		c33_lcd_putc(banner[i]);
-	c33_lcd_checkpoint(0);
 }
 
 static void c33_lcd_console_write(struct console *console, const char *text,
@@ -148,21 +145,6 @@ static int __init c33_lcd_console_unregister(void)
 	return 0;
 }
 late_initcall(c33_lcd_console_unregister);
-
-void c33_lcd_checkpoint(unsigned int stage)
-{
-	volatile u8 *fb;
-	unsigned int x;
-	unsigned int y;
-
-	x = stage * C33_LCD_STATUS_PITCH;
-	if (x + C33_LCD_STATUS_SIZE > C33_LCD_WIDTH)
-		return;
-	for (y = 0; y < C33_LCD_STATUS_SIZE; y++) {
-		fb = C33_LCD_FB + (C33_LCD_STATUS_Y + y) * C33_LCD_STRIDE;
-		fb[x >> 3] = 0xff;
-	}
-}
 
 void c33_lcd_fault(unsigned int vector)
 {

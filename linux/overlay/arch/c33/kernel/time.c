@@ -16,7 +16,6 @@ void __init time_init(void)
 	 */
 	s1c33_timer_init(c33_mclk_hz(), s1c33_itc_irq(C33_IRQ_TIMER2),
 			 s1c33_itc_irq(C33_IRQ_TIMER3));
-	c33_lcd_checkpoint(3);
 }
 
 void read_persistent_clock64(struct timespec64 *ts)
