@@ -50,7 +50,7 @@ unchanged.
   takes the machine over from the kernel rather than calling it, and keeps it
   until `poweroff` or `reboot`. The port is carried as an overlay and patches
   against pinned upstream revisions, which the first build fetches.
-- `linux` - a no-MMU Linux 6.18 running natively on the C33, entered from the
+- `linux` - a no-MMU Linux 7.2 running natively on the C33, entered from the
   same FLASH and file-loader chain as the firmware. It brings up 32 MiB of
   SDRAM, generic IRQs, a 100 Hz tick, both UARTs on serial-core, and SPI with
   MMC/SD and HSDMA reads, mounting the card's FAT partition. The panel is

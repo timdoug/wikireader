@@ -22,7 +22,7 @@ if [ ! -d "${src}/.git" ]; then
 	git clone --depth=1 --branch="${revision}" "${url}" "${src}"
 else
 	git -C "${src}" fetch --depth=1 origin "${revision}"
-	git -C "${src}" checkout --detach FETCH_HEAD
+	git -C "${src}" checkout --force --detach FETCH_HEAD
 fi
 
 git -C "${src}" reset --hard HEAD
@@ -47,7 +47,7 @@ if [ ! -d "${uclibc_src}/.git" ]; then
 	git clone --depth=1 --branch="${uclibc_revision}" "${uclibc_url}" "${uclibc_src}"
 else
 	git -C "${uclibc_src}" fetch --depth=1 origin "${uclibc_revision}"
-	git -C "${uclibc_src}" checkout --detach FETCH_HEAD
+	git -C "${uclibc_src}" checkout --force --detach FETCH_HEAD
 fi
 
 git -C "${uclibc_src}" reset --hard HEAD
@@ -73,7 +73,7 @@ if [ ! -d "${buildroot_src}/.git" ]; then
 		"${buildroot_url}" "${buildroot_src}"
 else
 	git -C "${buildroot_src}" fetch --depth=1 origin "${buildroot_revision}"
-	git -C "${buildroot_src}" checkout --detach FETCH_HEAD
+	git -C "${buildroot_src}" checkout --force --detach FETCH_HEAD
 fi
 
 # Downloaded source tarballs in dl/ are kept; everything else is reset.

@@ -19,9 +19,6 @@
 
 #define swapper_pg_dir ((pgd_t *)0)
 
-extern void *empty_zero_page;
-#define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
-
 #define VMALLOC_START 0
 #define VMALLOC_END 0xffffffffUL
 #define KMAP_START 0

@@ -3,10 +3,8 @@
 #define _ASM_C33_PAGE_H
 
 #include <linux/const.h>
+#include <vdso/page.h>
 
-#define PAGE_SHIFT 12
-#define PAGE_SIZE (_AC(1, UL) << PAGE_SHIFT)
-#define PAGE_MASK (~(PAGE_SIZE - 1))
 #define PAGE_OFFSET CONFIG_PHYSICAL_START
 
 #ifndef __ASSEMBLER__
@@ -32,8 +30,8 @@ extern unsigned long memory_end;
 
 #define clear_page(page) memset((page), 0, PAGE_SIZE)
 #define copy_page(to, from) memcpy((to), (from), PAGE_SIZE)
-#define clear_user_page(page, vaddr, pg) clear_page(page)
-#define copy_user_page(to, from, vaddr, pg) copy_page(to, from)
+#define copy_user_page(to, from, vaddr, pg) \
+	do { (void)(vaddr); (void)(pg); copy_page(to, from); } while (0)
 
 #define __pa(vaddr) ((unsigned long)(vaddr))
 #define __va(paddr) ((void *)((unsigned long)(paddr)))
