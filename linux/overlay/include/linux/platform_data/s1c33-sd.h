@@ -5,9 +5,6 @@
 #include <linux/types.h>
 
 struct s1c33_sd_platform_data {
-	/* The only memory HSDMA can reach. */
-	unsigned long dma_memory_start;
-	unsigned long dma_memory_end;
 	/* Supply ramp after power-up, in milliseconds. */
 	unsigned int powerup_msecs;
 };

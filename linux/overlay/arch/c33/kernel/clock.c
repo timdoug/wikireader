@@ -193,7 +193,7 @@ static const struct {
 	{ &c33_efsio_gate, NULL,  "s1c33-uart.0" },
 	{ &c33_efsio_gate, NULL,  "s1c33-uart.1" },
 	{ &c33_spi_gate,   NULL,  "s1c33-sd" },
-	{ &c33_dma_gate,   "dma", "s1c33-sd" },
+	{ &c33_dma_gate,   NULL,  "s1c33-hsdma" },
 	{ &c33_tm1_gate,   NULL,  "s1c33-pwm" },
 	{ &c33_adc_gate,   NULL,  "s1c33-adc" },
 	{ &c33_wdt_gate,   NULL,  "s1c33-wdt" },

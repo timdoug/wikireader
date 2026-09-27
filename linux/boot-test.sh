@@ -88,7 +88,8 @@ sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 # Without the trailing ", no poweroff" the slot found its regulators.
 # MCLK/4: 12 MHz on the direct 48 MHz boot, 15 MHz under Grifo.
-sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 12000000 Hz, polled HSDMA block reads"
+sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 12000000 Hz, HSDMA block reads"
+hsdma_expected="s1c33-hsdma s1c33-hsdma: 4 channels, completion polled"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
 sd_dma_channels_expected='--- dma channels: HSDMA2 TX [1-9][0-9]*, HSDMA3 RX [1-9][0-9]* ---'
@@ -121,6 +122,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$contrast_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sensors_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$watchdog_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$hsdma_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$evdev_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "c33-timer" "$work/boot.log" >/dev/null || \
    ! grep -F "s1c33-uart0-rx" "$work/boot.log" >/dev/null || \
@@ -211,6 +213,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --symbols --edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|s1c33-hsdma|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

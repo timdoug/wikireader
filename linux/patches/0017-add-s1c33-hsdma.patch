@@ -1,0 +1,34 @@
+diff --git a/drivers/dma/Kconfig b/drivers/dma/Kconfig
+index ae6a682c9..f08c48692 100644
+--- a/drivers/dma/Kconfig
++++ b/drivers/dma/Kconfig
+@@ -548,6 +548,17 @@ config PLX_DMA
+ 	  These are exposed via extra functions on the switch's
+ 	  upstream port. Each function exposes one DMA channel.
+ 
++config S1C33_HSDMA
++	bool "Epson S1C33E07 high-speed DMA"
++	depends on C33 || COMPILE_TEST
++	depends on COMMON_CLK
++	select DMA_ENGINE
++	help
++	  The four high-speed DMA channels of the Epson S1C33E07, for
++	  peripheral transfers such as the WikiReader SD card reads.
++	  Completion is polled through the channel status rather than
++	  signalled by interrupt.
++
+ config SOPHGO_CV1800B_DMAMUX
+ 	tristate "Sophgo CV1800/SG2000 series SoC DMA multiplexer support"
+ 	depends on MFD_SYSCON
+diff --git a/drivers/dma/Makefile b/drivers/dma/Makefile
+index 14aa08662..4c983806c 100644
+--- a/drivers/dma/Makefile
++++ b/drivers/dma/Makefile
+@@ -68,6 +68,7 @@ obj-$(CONFIG_PLX_DMA) += plx_dma.o
+ obj-$(CONFIG_PPC_BESTCOMM) += bestcomm/
+ obj-$(CONFIG_PXA_DMA) += pxa_dma.o
+ obj-$(CONFIG_RENESAS_DMA) += sh/
++obj-$(CONFIG_S1C33_HSDMA) += s1c33-hsdma.o
+ obj-$(CONFIG_SF_PDMA) += sf-pdma/
+ obj-$(CONFIG_SOPHGO_CV1800B_DMAMUX) += cv1800b-dmamux.o
+ obj-$(CONFIG_STE_DMA40) += ste_dma40.o ste_dma40_ll.o

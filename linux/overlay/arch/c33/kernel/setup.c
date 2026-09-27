@@ -169,7 +169,8 @@ void __init setup_arch(char **cmdline_p)
 	*cmdline_p = boot_command_line;
 	parse_early_param();
 
-	min_low_pfn = PFN_UP(memory_start);
+	/* The lowest RAM page: freed init memory lies below memory_start. */
+	min_low_pfn = PFN_DOWN(CONFIG_PHYSICAL_START);
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
 	c33_lcd_console_register();

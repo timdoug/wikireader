@@ -16,6 +16,7 @@
 #include <linux/regulator/fixed.h>
 #include <linux/regulator/machine.h>
 
+#include <linux/platform_data/dma-s1c33-hsdma.h>
 #include <linux/platform_data/s1c33-sd.h>
 
 #include <asm/irq.h>
@@ -175,7 +176,6 @@ static struct fixed_voltage_config wr_avdd_config = {
  * at MCLK/4, as Grifo and the original firmware do.
  */
 static struct s1c33_sd_platform_data wr_sd_pdata = {
-	.dma_memory_start = CONFIG_PHYSICAL_START,
 	.powerup_msecs = 10,
 };
 
@@ -191,8 +191,30 @@ static struct resource wr_gpio_resources[] __initdata = {
 
 static struct resource wr_sd_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x289, 1, "spi-flags"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x29b, 2, "idma"),
+};
+
+/*
+ * The DMA controller, and the interrupt controller's HSDMA priority,
+ * transfer-count flags and trigger selects.  The card reads through
+ * channels 2 and 3 on the SPI requests, trigger 9 on both.
+ */
+static const struct resource wr_hsdma_resources[] = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1100, 0xa0, "dma"),
-	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x264, 1, "priority"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x281, 1, "flags"),
+	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x298, 2, "triggers"),
+};
+
+static const struct dma_slave_map wr_hsdma_map[] = {
+	{ "s1c33-sd", "tx", HSDMA_REQUEST(2, 9) },
+	{ "s1c33-sd", "rx", HSDMA_REQUEST(3, 9) },
+};
+
+static const struct s1c33_hsdma_platform_data wr_hsdma_pdata = {
+	.slave_map = wr_hsdma_map,
+	.slavecnt = ARRAY_SIZE(wr_hsdma_map),
 };
 
 static const struct resource wr_wdt_resources[] = {
@@ -525,9 +547,6 @@ static int __init c33_devices_init(void)
 	struct platform_device *device;
 	int ret;
 
-	/* SDRAM is the only memory HSDMA may reach; its size is probed. */
-	wr_sd_pdata.dma_memory_end = memory_end;
-
 	ret = software_node_register_node_group(wr_nodes);
 	if (ret) {
 		pr_err("C33 devices: firmware nodes failed: %d\n", ret);
@@ -581,6 +600,11 @@ static int __init c33_devices_init(void)
 		       PTR_ERR(device));
 		return PTR_ERR(device);
 	}
+	ret = wr_register("s1c33-hsdma", -1, wr_hsdma_resources,
+			  ARRAY_SIZE(wr_hsdma_resources), NULL,
+			  &wr_hsdma_pdata, sizeof(wr_hsdma_pdata));
+	if (ret)
+		return ret;
 	sd_info.name = "s1c33-sd";
 	sd_info.id = -1;
 	sd_info.res = wr_sd_resources;

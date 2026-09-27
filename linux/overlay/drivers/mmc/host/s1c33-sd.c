@@ -23,6 +23,8 @@
 #include <linux/crc-itu-t.h>
 #include <linux/crc7.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
+#include <linux/dmaengine.h>
 #include <linux/gpio/consumer.h>
 #include <linux/highmem.h>
 #include <linux/io.h>
@@ -60,37 +62,10 @@
 
 #define SPI_POLLS	1000000
 
-/* High-speed DMA: channel 3 receives, channel 2 transmits all-ones */
-#define DMA_HS2		0x40
-#define DMA_HS3		0x50
-#define DMA_COUNT	0x00
-#define DMA_CONTROL	0x02
-#define DMA_SOURCE_LO	0x04
-#define DMA_SOURCE_HI	0x06
-#define DMA_DEST_LO	0x08
-#define DMA_DEST_HI	0x0a
-#define DMA_ENABLE	0x0c
-#define DMA_TRIGGER	0x0e
-#define DMA_ADV_MODE	0x9c
-#define DMA_ADV_TIME	0x9e
-#define DMA_ADV_CTL2	0x82
-#define DMA_ADV_SRC2	0x84
-#define DMA_ADV_DST2	0x88
-#define DMA_ADV_CTL3	0x92
-#define DMA_ADV_SRC3	0x94
-#define DMA_ADV_DST3	0x98
-#define DMA_IDMA_RUN	0x05
-
-/* Interrupt controller registers this port and its DMA use */
-#define ITC_DMA_PRIORITY	0x01
-#define ITC_DMA_FLAG		0x1e
-#define ITC_SPI_FLAG		0x26
-#define ITC_HS_TRIGGER		0x36
-#define ITC_IDMA_REQ		0x38
-#define ITC_IDMA_ENABLE		0x39
+/* The interrupt controller's causes and IDMA requests for this port */
+#define ITC_IDMA_REQ		0x00
+#define ITC_IDMA_ENABLE		0x01
 #define ITC_IDMA_SPI_BIT	BIT(4)
-#define ITC_HSDMA2_FLAG		BIT(2)
-#define ITC_HSDMA3_FLAG		BIT(3)
 #define ITC_SPI_DMA_FLAGS	(BIT(4) | BIT(5))
 
 /* Data block tokens and responses (mmc_spi.c) */
@@ -111,8 +86,15 @@ struct s1c33_sd {
 	struct mmc_host *mmc;
 	struct device *dev;
 	void __iomem *base;
-	void __iomem *dma;
-	void __iomem *itc;
+	phys_addr_t base_phys;
+	void __iomem *spi_flags;	/* the port's ITC cause flags */
+	void __iomem *idma;		/* its IDMA request and enable */
+	struct dma_chan *rx_chan;	/* HSDMA 3 on SPI receive */
+	struct dma_chan *tx_chan;	/* HSDMA 2 on SPI transmit */
+	u8 *ones;			/* the all-ones HSDMA 2 sends */
+	dma_addr_t ones_dma;
+	/* Sends them for a block, resubmitted for every one. */
+	struct dma_async_tx_descriptor *ones_txd;
 	const struct s1c33_sd_platform_data *pdata;
 	struct gpio_desc *cs;
 	struct pinctrl *pinctrl;
@@ -122,7 +104,6 @@ struct s1c33_sd {
 	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
 	u32 control;			/* CTL1 as programmed */
 	unsigned char power_mode;
-	u32 dummy;			/* all-ones source for DMA reads */
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
 	unsigned long dma_blocks;
@@ -303,87 +284,73 @@ static int sd_wait_unbusy(struct s1c33_sd *host, unsigned long timeout)
 	return value < 0 ? value : 0;
 }
 
-static void sd_hsdma_channel(struct s1c33_sd *host, unsigned int channel,
-			     unsigned int count, u32 source, u32 destination,
-			     bool increment_source, bool increment_destination)
+/* Poll a transfer to its end: HSDMA completion is found by asking. */
+static int sd_dma_wait(struct dma_chan *chan, dma_cookie_t cookie)
 {
-	unsigned int base = channel == 2 ? DMA_HS2 : DMA_HS3;
+	unsigned long deadline = jiffies + msecs_to_jiffies(100);
+	enum dma_status status;
 
-	writew(0, host->dma + base + DMA_ENABLE);
-	writew(1, host->dma + (channel == 2 ? DMA_ADV_CTL2 : DMA_ADV_CTL3));
-	writew(count, host->dma + base + DMA_COUNT);
-	writew(0x8000, host->dma + base + DMA_CONTROL);
-	writew(0, host->dma + base + DMA_SOURCE_LO);
-	writew(increment_source ? 0x2000 : 0,
-	       host->dma + base + DMA_SOURCE_HI);
-	writew(0, host->dma + base + DMA_DEST_LO);
-	writew(increment_destination ? 0x2000 : 0,
-	       host->dma + base + DMA_DEST_HI);
-	writel(source,
-	       host->dma + (channel == 2 ? DMA_ADV_SRC2 : DMA_ADV_SRC3));
-	writel(destination,
-	       host->dma + (channel == 2 ? DMA_ADV_DST2 : DMA_ADV_DST3));
-	writew(1, host->dma + base + DMA_TRIGGER);
-}
-
-static void sd_dma_stop(struct s1c33_sd *host)
-{
-	writew(0, host->dma + DMA_HS2 + DMA_ENABLE);
-	writew(0, host->dma + DMA_HS3 + DMA_ENABLE);
-	writeb(0, host->itc + ITC_HS_TRIGGER);
-	writew(1, host->dma + DMA_HS2 + DMA_TRIGGER);
-	writew(1, host->dma + DMA_HS3 + DMA_TRIGGER);
-	writeb(ITC_HSDMA2_FLAG | ITC_HSDMA3_FLAG, host->itc + ITC_DMA_FLAG);
+	while ((status = dmaengine_tx_status(chan, cookie, NULL)) ==
+	       DMA_IN_PROGRESS)
+		if (time_after(jiffies, deadline))
+			return -ETIMEDOUT;
+	return status == DMA_COMPLETE ? 0 : -EIO;
 }
 
 /*
  * Read @len bytes, a multiple of four, as words into @rx, which is word
- * aligned: HSDMA channel 3 moves them to memory while channel 2 feeds
- * all-ones to the transmitter.  The CPU spins on channel 3's completion
- * flag rather than sleeping for its interrupt; the block takes a fraction
- * of a millisecond, less than the sleep and wakeup would, and a spinning
- * CPU does not halt, which on this part would stop the DMA's request
- * pipeline.  The words are left in wire order, first byte on top.
+ * aligned: HSDMA 3 moves them to memory while HSDMA 2 feeds all-ones to
+ * the transmitter, whose first word the CPU writes to start the exchange.
+ * The CPU polls the receive channel's completion rather than sleeping for
+ * an interrupt; the block takes a fraction of a millisecond, less than a
+ * sleep and wakeup would, and a polling CPU does not halt, which on this
+ * part would stop the DMA's request pipeline.  The words are left in wire
+ * order, first byte on top.  -EAGAIN: this buffer cannot be mapped.
  */
-static int sd_read_dma(struct s1c33_sd *host, u8 *rx, unsigned int len)
+static int sd_read_dma(struct s1c33_sd *host, dma_addr_t address,
+		       unsigned int len)
 {
-	u32 destination = (u32)(unsigned long)rx;
-	unsigned int words = len / 4;
-	unsigned long deadline;
-	unsigned int count = 0;
+	struct dma_async_tx_descriptor *rxd, *txd = host->ones_txd;
+	dma_cookie_t rx_cookie, tx_cookie;
 	int ret = 0;
 
-	sd_configure(host);
-	host->dummy = ~0U;
-	writeb(0, host->itc + ITC_HS_TRIGGER);
-	writew(1, host->dma + DMA_ADV_MODE);
-	sd_hsdma_channel(host, 3, words,
-			 (u32)(unsigned long)host->base + SPI_RXD,
-			 destination, false, true);
-	sd_hsdma_channel(host, 2, words - 1,
-			 (u32)(unsigned long)&host->dummy,
-			 (u32)(unsigned long)host->base + SPI_TXD,
-			 false, false);
-	writeb(0x99, host->itc + ITC_HS_TRIGGER);
-	writeb(ITC_SPI_DMA_FLAGS, host->itc + ITC_SPI_FLAG);
-	writeb(ITC_HSDMA2_FLAG | ITC_HSDMA3_FLAG, host->itc + ITC_DMA_FLAG);
-	writew(1, host->dma + DMA_HS3 + DMA_ENABLE);
-	writew(1, host->dma + DMA_HS2 + DMA_ENABLE);
+	rxd = dmaengine_prep_slave_single(host->rx_chan, address, len,
+					  DMA_DEV_TO_MEM, 0);
+	if (len != SD_BLOCKSIZE)
+		txd = dmaengine_prep_slave_single(host->tx_chan,
+						  host->ones_dma, len - 4,
+						  DMA_MEM_TO_DEV, 0);
+	if (!rxd || !txd) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	rx_cookie = dmaengine_submit(rxd);
+	tx_cookie = dmaengine_submit(txd);
+	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
+	dma_async_issue_pending(host->rx_chan);
+	dma_async_issue_pending(host->tx_chan);
 	writel(~0U, host->base + SPI_TXD);
 
-	/* At the slowest clock a block takes about 35 ms. */
-	deadline = jiffies + msecs_to_jiffies(100);
-	while (!(readb(host->itc + ITC_DMA_FLAG) & ITC_HSDMA3_FLAG)) {
-		if (++count % 1024 == 0 && time_after(jiffies, deadline)) {
-			ret = -ETIMEDOUT;
-			break;
-		}
-	}
-	sd_dma_stop(host);
+	/*
+	 * The port stays busy until the last word is in: HSDMA 2 refills the
+	 * transmitter long before a word has shifted out.  Wait for that on a
+	 * register, in a loop that runs from the fetch buffer, and only then
+	 * ask the channels: each status poll runs hundreds of instructions
+	 * from SDRAM, and those fetches slowed the transfer itself by half.
+	 */
+	sd_wait(host, SPI_BUSY, false);
+	ret = sd_dma_wait(host->rx_chan, rx_cookie);
+	if (!ret)
+		ret = sd_dma_wait(host->tx_chan, tx_cookie);
 	if (!ret && sd_wait(host, SPI_BUSY, false))
 		ret = -ETIMEDOUT;
 	if (!ret)
 		host->dma_blocks++;
+out:
+	if (ret) {
+		dmaengine_terminate_sync(host->rx_chan);
+		dmaengine_terminate_sync(host->tx_chan);
+	}
 	return ret;
 }
 
@@ -424,23 +391,20 @@ static void sd_unpack(u32 *words, unsigned int n, const u8 *first,
  * past the CRC stay queued for the next token.  Buffers HSDMA cannot reach
  * go through the queue a byte at a time.
  */
-static int sd_read_data(struct s1c33_sd *host, u8 *buf, unsigned int len,
-			u8 *crc)
+static int sd_read_data(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
+			unsigned int len, u8 *crc)
 {
 	unsigned int lead = host->rx_len - host->rx_pos;
-	unsigned long address = (unsigned long)buf;
 	u8 first[4], tail[4];
 	int ret;
 
-	if (address & 3 || address < host->pdata->dma_memory_start ||
-	    address + len > host->pdata->dma_memory_end) {
+	if (dma == DMA_MAPPING_ERROR || dma & 3) {
 		ret = sd_rx_bytes(host, buf, len);
 		return ret ? ret : sd_rx_bytes(host, crc, 2);
 	}
-
 	memcpy(first, host->rx + host->rx_pos, lead);
 	sd_rx_drop(host);
-	ret = sd_read_dma(host, buf, len);
+	ret = sd_read_dma(host, dma, len);
 	if (ret)
 		return ret;
 	sd_unpack((u32 *)buf, len / 4, first, lead, tail);
@@ -637,8 +601,8 @@ static int sd_command(struct s1c33_sd *host, struct mmc_command *cmd,
  * data and its CRC.  A card may shift the token, and so everything after
  * it, by a few bits; that is undone here, as mmc_spi does.
  */
-static int sd_read_block(struct s1c33_sd *host, u8 *buf, unsigned int len,
-			 unsigned long timeout)
+static int sd_read_block(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
+			 unsigned int len, unsigned long timeout)
 {
 	unsigned int bitshift;
 	u8 crc[2];
@@ -662,7 +626,7 @@ static int sd_read_block(struct s1c33_sd *host, u8 *buf, unsigned int len,
 	}
 	leftover = status << 1;
 
-	status = sd_read_data(host, buf, len, crc);
+	status = sd_read_data(host, buf, dma, len, crc);
 	if (status)
 		return status;
 
@@ -753,10 +717,19 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
 {
 	bool multiple = data->blocks > 1;
 	bool write = data->flags & MMC_DATA_WRITE;
+	struct device *dma_dev = NULL;
 	struct scatterlist *sg;
 	unsigned long timeout;
 	unsigned int n_sg;
 	int status = 0;
+
+	/* Reads map the request once, for HSDMA to fill block by block. */
+	if (!write && host->rx_chan) {
+		dma_dev = dmaengine_get_dma_device(host->rx_chan);
+		if (dma_map_sg(dma_dev, data->sg, data->sg_len,
+			       DMA_FROM_DEVICE) != data->sg_len)
+			dma_dev = NULL;
+	}
 
 	timeout = data->timeout_ns / 1000 + data->timeout_clks * 1000000 /
 		(host->clock >> (host->divider + 2));
@@ -764,6 +737,8 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
 
 	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
 		u8 *buf = kmap(sg_page(sg)) + sg->offset;
+		dma_addr_t dma = dma_dev ? sg_dma_address(sg) :
+			DMA_MAPPING_ERROR;
 		unsigned int length = sg->length;
 
 		while (length) {
@@ -773,12 +748,14 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
 				status = sd_write_block(host, buf, len,
 							multiple, timeout);
 			else
-				status = sd_read_block(host, buf, len,
+				status = sd_read_block(host, buf, dma, len,
 						       timeout);
 			if (status)
 				break;
 			data->bytes_xfered += len;
 			buf += len;
+			if (dma != DMA_MAPPING_ERROR)
+				dma += len;
 			length -= len;
 			if (!multiple)
 				break;
@@ -791,6 +768,9 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
 			break;
 		}
 	}
+
+	if (dma_dev)
+		dma_unmap_sg(dma_dev, data->sg, data->sg_len, DMA_FROM_DEVICE);
 
 	/* A multiple-block write ends with its own token, then busy. */
 	if (write && multiple) {
@@ -918,26 +898,87 @@ static const struct mmc_host_ops sd_ops = {
 /****************************************************************************/
 /* Probe */
 
-static void sd_reset_dma(struct s1c33_sd *host)
+/*
+ * HSDMA 2 and 3 on the port's transmit and receive requests, and a block
+ * of all-ones for the transmitter.  Without them, reads go through the
+ * byte queue.
+ */
+static int sd_dma_init(struct s1c33_sd *host)
 {
-	/*
-	 * There is no HSDMA software-reset bit.  Establish the documented
-	 * reset-equivalent state: remove every request source, stop both
-	 * channels, discard pending trigger latches, clear terminal-count and
-	 * SPI request causes, and return to STD mode.  The card loader that
-	 * ran before Linux may also have left the intelligent DMA controller
-	 * asking this port for service.
-	 */
-	writeb(0, host->itc + ITC_HS_TRIGGER);
-	writeb(readb(host->itc + ITC_IDMA_ENABLE) & ~ITC_IDMA_SPI_BIT,
-	       host->itc + ITC_IDMA_ENABLE);
-	writeb(readb(host->itc + ITC_IDMA_REQ) & ~ITC_IDMA_SPI_BIT,
-	       host->itc + ITC_IDMA_REQ);
-	writeb(0, host->dma + DMA_IDMA_RUN);
-	sd_dma_stop(host);
-	writeb(ITC_SPI_DMA_FLAGS, host->itc + ITC_SPI_FLAG);
-	writew(0, host->dma + DMA_ADV_MODE);
-	writew(0, host->dma + DMA_ADV_TIME);
+	struct dma_slave_config config = {
+		.src_addr = host->base_phys + SPI_RXD,
+		.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES,
+		.dst_addr = host->base_phys + SPI_TXD,
+		.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES,
+	};
+	struct device *dev = host->dev;
+	struct device *dma_dev;
+	int ret;
+
+	host->rx_chan = dma_request_chan(dev, "rx");
+	if (IS_ERR(host->rx_chan)) {
+		ret = PTR_ERR(host->rx_chan);
+		host->rx_chan = NULL;
+		return ret == -ENODEV ? 0 : ret;
+	}
+	host->tx_chan = dma_request_chan(dev, "tx");
+	if (IS_ERR(host->tx_chan)) {
+		ret = PTR_ERR(host->tx_chan);
+		host->tx_chan = NULL;
+		goto err;
+	}
+	config.direction = DMA_DEV_TO_MEM;
+	ret = dmaengine_slave_config(host->rx_chan, &config);
+	config.direction = DMA_MEM_TO_DEV;
+	if (!ret)
+		ret = dmaengine_slave_config(host->tx_chan, &config);
+	if (ret)
+		goto err;
+
+	host->ones = devm_kmalloc(dev, SD_BLOCKSIZE, GFP_KERNEL);
+	if (!host->ones) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	memset(host->ones, 0xff, SD_BLOCKSIZE);
+	dma_dev = dmaengine_get_dma_device(host->tx_chan);
+	host->ones_dma = dma_map_single(dma_dev, host->ones, SD_BLOCKSIZE,
+					DMA_TO_DEVICE);
+	if (dma_mapping_error(dma_dev, host->ones_dma)) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	host->ones_txd = dmaengine_prep_slave_single(host->tx_chan,
+			host->ones_dma, SD_BLOCKSIZE - 4, DMA_MEM_TO_DEV, 0);
+	if (!host->ones_txd || dmaengine_desc_set_reuse(host->ones_txd)) {
+		ret = -ENOMEM;
+		goto err_unmap;
+	}
+	return 0;
+
+err_unmap:
+	if (host->ones_txd)
+		dmaengine_desc_free(host->ones_txd);
+	dma_unmap_single(dma_dev, host->ones_dma, SD_BLOCKSIZE,
+			 DMA_TO_DEVICE);
+
+err:
+	if (host->tx_chan)
+		dma_release_channel(host->tx_chan);
+	dma_release_channel(host->rx_chan);
+	host->rx_chan = host->tx_chan = NULL;
+	return ret;
+}
+
+static void sd_dma_release(struct s1c33_sd *host)
+{
+	if (!host->rx_chan)
+		return;
+	dmaengine_desc_free(host->ones_txd);
+	dma_unmap_single(dmaengine_get_dma_device(host->tx_chan),
+			 host->ones_dma, SD_BLOCKSIZE, DMA_TO_DEVICE);
+	dma_release_channel(host->tx_chan);
+	dma_release_channel(host->rx_chan);
 }
 
 static int sd_probe(struct platform_device *pdev)
@@ -947,6 +988,7 @@ static int sd_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct s1c33_sd *host;
 	struct mmc_host *mmc;
+	struct resource *res;
 	struct clk *clk;
 	int ret;
 
@@ -970,20 +1012,18 @@ static int sd_probe(struct platform_device *pdev)
 	host->clock = clk_get_rate(clk);
 	if (!host->clock)
 		return dev_err_probe(dev, -EINVAL, "input clock has no rate\n");
-	clk = devm_clk_get_enabled(dev, "dma");
-	if (IS_ERR(clk))
-		return dev_err_probe(dev, PTR_ERR(clk),
-				     "cannot enable DMA clock\n");
 
-	host->base = devm_platform_ioremap_resource_byname(pdev, "spi");
+	host->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(host->base))
 		return PTR_ERR(host->base);
-	host->dma = devm_platform_ioremap_resource_byname(pdev, "dma");
-	if (IS_ERR(host->dma))
-		return PTR_ERR(host->dma);
-	host->itc = devm_platform_ioremap_resource_byname(pdev, "itc");
-	if (IS_ERR(host->itc))
-		return PTR_ERR(host->itc);
+	host->base_phys = res->start;
+	host->spi_flags = devm_platform_ioremap_resource_byname(pdev,
+								"spi-flags");
+	if (IS_ERR(host->spi_flags))
+		return PTR_ERR(host->spi_flags);
+	host->idma = devm_platform_ioremap_resource_byname(pdev, "idma");
+	if (IS_ERR(host->idma))
+		return PTR_ERR(host->idma);
 
 	host->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);
 	if (IS_ERR(host->cs))
@@ -1003,9 +1043,15 @@ static int sd_probe(struct platform_device *pdev)
 		host->pins_hold = NULL;
 	}
 
-	sd_reset_dma(host);
-	/* Completion is polled: neither DMA channel interrupts. */
-	writeb(0, host->itc + ITC_DMA_PRIORITY);
+	/*
+	 * The loader that ran before Linux may have left the intelligent DMA
+	 * controller asking this port for service, or its causes raised.
+	 */
+	writeb(readb(host->idma + ITC_IDMA_ENABLE) & ~ITC_IDMA_SPI_BIT,
+	       host->idma + ITC_IDMA_ENABLE);
+	writeb(readb(host->idma + ITC_IDMA_REQ) & ~ITC_IDMA_SPI_BIT,
+	       host->idma + ITC_IDMA_REQ);
+	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
 	writel(0, host->base + SPI_CTL2);
 	writel(0, host->base + SPI_WAIT);
 	writel(0, host->base + SPI_INT);
@@ -1024,13 +1070,19 @@ static int sd_probe(struct platform_device *pdev)
 	ret = mmc_regulator_get_supply(mmc);
 	if (ret)
 		return ret;
+	ret = sd_dma_init(host);
+	if (ret)
+		return dev_err_probe(dev, ret, "cannot get DMA channels\n");
 	platform_set_drvdata(pdev, host);
 
 	ret = mmc_add_host(mmc);
-	if (ret)
+	if (ret) {
+		sd_dma_release(host);
 		return ret;
-	dev_info(dev, "SD host %s at up to %u Hz, polled HSDMA block reads\n",
-		 mmc_hostname(mmc), mmc->f_max);
+	}
+	dev_info(dev, "SD host %s at up to %u Hz, %s block reads\n",
+		 mmc_hostname(mmc), mmc->f_max,
+		 host->rx_chan ? "HSDMA" : "programmed I/O");
 	return 0;
 }
 
@@ -1039,6 +1091,7 @@ static void sd_remove(struct platform_device *pdev)
 	struct s1c33_sd *host = platform_get_drvdata(pdev);
 
 	mmc_remove_host(host->mmc);
+	sd_dma_release(host);
 }
 
 static struct platform_driver s1c33_sd_driver = {

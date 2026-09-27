@@ -33,8 +33,7 @@ trusts them only when the incoming trap table says a launcher is resident.
 
 Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
-16 MiB production boards and the 32 MiB early ones; the same probed limit
-bounds the addresses the SD driver will hand to HSDMA. The S1C33 interrupt
+16 MiB production boards and the 32 MiB early ones. The S1C33 interrupt
 controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a linear
 irqdomain whose hardware interrupt numbers are the trap vectors; the arch
 calls its init from `init_IRQ()`, the board file maps the vectors it puts in
@@ -269,8 +268,8 @@ its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. Linux decodes the live CMU clock selection and
 publishes MCLK through the common clock framework, with the clock-management
 unit's peripheral gates as its children. Both serial ports and the SD host
-acquire and enable a standard gated clock, and the SD host takes a second one
-for HSDMA; their drivers no longer call a board-specific clock
+acquire and enable a standard gated clock, and so does the HSDMA controller;
+their drivers no longer call a board-specific clock
 callback or receive a copied clock rate. Only the timer block is gated by
 hand, because it starts before any provider exists. The
 clocksource and clock event take their rate from the same hardware decoder,
@@ -509,12 +508,30 @@ put the reader to sleep: about 1.9 ms a block on this CPU against 0.3 ms on
 the wire. Here every character is 32 bits, commands and tokens included:
 outgoing bytes are packed into words behind all-ones padding, which the card
 ignores, and the bytes of each word received queue up for whoever reads
-next. Each data block is one HSDMA2/HSDMA3 transfer whose completion the CPU
-polls; a token lands anywhere in a word, so the words HSDMA writes are
+next. Each data block is one HSDMA2/HSDMA3 transfer through DMAengine: the
+request's scatterlist is mapped once with the DMA API, HSDMA3 fills each
+block from the receiver while HSDMA2 feeds all-ones to the transmitter from
+a descriptor the host prepares once and resubmits, and the CPU polls for
+the end. A token lands anywhere in a word, so the words HSDMA writes are
 byte-swapped and moved up to the token's alignment in one pass over the
-block. A polling CPU also never executes `HALT`, which on physical E07 parts
-stops SPI-triggered HSDMA. Buffers HSDMA cannot reach are read through the
-byte queue. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
+block. Unaligned buffers are read through the byte queue.
+
+The controller is `drivers/dma/s1c33-hsdma.c`, a DMAengine provider for
+its four channels. Each channel has trigger sources of its own (only
+channel 3 answers the SPI receiver, only channel 2 its transmitter), so a
+request line is a channel and a trigger together, named in the board's
+`dma_slave_map`. Completion is polled through the channel status, which
+retires the descriptor: a CPU sleeping for the interrupt would execute
+`HALT`, which on physical E07 parts stops SPI-triggered HSDMA. On this
+core, which fetches every instruction outside a short loop from SDRAM,
+generic per-transfer code is dear, so the provider keeps its own
+descriptor lists, recycles descriptors and skips register writes that
+would not change anything; the host waits for the port to go idle in a
+register loop before asking the channels, because each status poll's
+fetches compete with the transfer for SDRAM and slowed it by half. Even
+so a block costs about 0.15 ms more than the host driving HSDMA's registers
+itself did: raw 4 MB reads take 10.7 s in wremu at 48 MHz against 9.3 s,
+and the launcher-path boot 0.24 s longer. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
 the original firmware run it. Block CRCs are checked unless
 `mmc_core.use_spi_crc=0`; the CRC loop is compiled with `-falign-loops=16`
 because at 26 bytes it runs from the C33's fetch buffer only from the start
@@ -533,9 +550,9 @@ GPIO-switched fixed regulators that the driver consumes as `vmmc` and
 before the rail may return are regulator constraints rather than sleeps in a
 board callback. The card is non-removable, since the system runs from it,
 so the MMC core does not poll it.
-Probe establishes a documented reset-equivalent HSDMA state: it disconnects
-request sources, stops both channels, clears their trigger and terminal-count
-latches, clears the SPI DMA causes, selects standard mode, and gives the DMA
+The DMA provider's probe establishes a documented reset-equivalent HSDMA
+state: it disconnects every trigger, stops all four channels, clears their
+trigger and terminal-count latches, turns IDMA off, and gives the DMA
 channels no interrupt priority. The kernel includes FAT/VFAT and mounts the first
 partition at `/mnt/sd` with synchronous writes. Under `wr.selftest` early
 userspace leaves `linux.ok` there as a persistent, serial-port-free boot
@@ -554,8 +571,8 @@ display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
-The same regression requires the SD host to announce polled HSDMA block
-reads and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
+The same regression requires the SD host to announce HSDMA block reads, the
+DMA provider its polled channels, and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
 activity. It also
 checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and
 requires the frontend to receive the scripted panel events from
@@ -563,10 +580,7 @@ requires the frontend to receive the scripted panel events from
 
 ## What comes next
 
-The embedded HSDMA implementation could sit behind DMAengine, which would
-give the SD host the DMA mapping API instead of a board-supplied address
-window, though its polled completion is the point.
 Richer keyboard modes, console session management, and power management can
-then grow around the proven LCD, touch, PTY, storage, and recovery userspace
+grow around the proven LCD, touch, PTY, storage, and recovery userspace
 paths, and an fbcon on the framebuffer would inherit the keyboard devices the
 frontend now publishes.
