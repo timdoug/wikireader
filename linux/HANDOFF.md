@@ -11,10 +11,21 @@ right.
 
 ## State
 
-The port boots the production path and the Grifo launcher path, mounts the
-card, runs BusyBox as PID 1, draws a userspace terminal on the panel, takes
-touch input, blanks the display when idle, suspends to idle, and wakes on a
-touch. `boot-test.sh` and `app-test.py` both pass.
+The port runs Linux 7.2.8 (`revisions`). It boots the production path and the
+Grifo launcher path, mounts the card, runs BusyBox as PID 1, draws a
+userspace terminal on the panel, takes touch input, blanks the display when
+idle, suspends to idle, and wakes on a touch. Battery and board temperature
+come through IIO, `generic-adc-battery` and `ntc_thermistor`; the watchdog
+through the watchdog core; the pins through a pinctrl driver
+(`drivers/pinctrl/pinctrl-s1c33.c`, which also owns the GPIOs); the SD card's
+HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
+`app-test.py` both pass, both through Grifo.
+
+Device round trips now go through one script: `card/bin/check` is copied to
+`bin/check` on the card, the user types `check` at the prompt, and it writes
+`check.txt` (build, battery, an md5 of `linux.app` read uncached, a raw 4 MB
+card read untimed and again timed by phase, and the kernel's warnings). Keep
+it short; it was trimmed once already.
 
 The card's `init.ini` line in use is:
 
@@ -80,32 +91,92 @@ was needed:
   exchanges made in that state. A driver that talks before `vqmmc` is up now
   fails here.
 
+Validated 2026-09-27 on the user's board: kernel 7.2.8; battery (2.66 V,
+the same reading Grifo's own formula gives) and temperature (about 24 C);
+the watchdog, with its daemon running; the pin registers matching what the
+old board code set, and the buttons and power switch interrupting; SD reads
+through DMAengine, byte for byte, at every step of the read work below.
+Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
+
+## SD card reads: where they stand
+
+A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes about
+5.25 s on the device (760 KB/s, 41% of the wire), and 4.9 to
+5.05 s in wremu. The wire limit at MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block
+cannot divide MCLK by less than 4. Per 512-byte block on the device
+(`read_timing`, cycles):
+
+| Phase | Cycles | What it is |
+|---|---|---|
+| token | 2,080 | the gap and start token, clocked by the CPU a word at a time |
+| setup | 4,550 | issuing both channels once the token is in |
+| ahead | 5,030 | preparing the next block's descriptors, during this transfer |
+| check | 8,710 | `sd_unpack_crc()` on the block before, from A0 RAM, during it |
+| poll + status | 6,200 | waiting for the transfer to end |
+| tail | 1,750 | the CRC bytes |
+| request | 640 | map, unmap, the last block's check |
+| outside the driver | ~9,700 | copy to user, page cache, the tick |
+
+The transfer window (ahead, check, poll, status) is about 20,000 cycles
+against 16,400 on the wire. What stretches it is the check: its SDRAM
+loads and stores hold the DMA up, because on the device the CPU wins the
+bus. Instruction fetches do not (the status spins and the descriptor
+preparation cost the transfer nothing), and neither do register reads.
+The user keeps DMAengine and the block CRC; both were asked and settled.
+
+What was built on the way, in `README.md` in detail: the pipelined read
+(start N+1, check N, prepare N+2, wait); `sd_unpack_crc()`, slice-by-4 on
+wire-order words plus the byte swap in one pass; A0 RAM code
+(`asm/iram.h`, `kernel/iram.c`), where it, `memcpy`/`memset`/`memmove`
+(`lib/string.S`, eight loads then eight stores) and division (`lib/div.S`)
+run; the all-ones transmit buffer in IVRAM; `/sys/module/iram_bench/
+parameters/run`, which times the same loops from SDRAM and from A0 RAM;
+and `read_timing`. Emulator and device results of both tools are in
+`artifacts/perf/` (gitignored).
+
+wremu was changed to match (`emulator/README.md`, `dma_async`): SPI DMA no
+longer freezes the CPU, and CPU data accesses to SDRAM hold its writes back.
+Its driver total is now within 1% of the device's. It still cannot say
+what the device's arbitration bound is (a larger penalty starves the write
+queue into receive overruns, which the device never has), and it does not
+model the likely reason A0 RAM code hurts the DMA: code fetched with no
+wait states keeps the internal bus busy on every cycle, and the DMA reaches
+the SPI port over that bus. Two A0 RAM changes gained about a third of what
+wremu predicted on the device.
+
 ## What is left, in the order I would take it
 
-1. **pinctrl.** `wr_spi_hold_clock()` in `arch/c33/kernel/devices.c` is the last
-   board callback in platform data. It is not just a matter of writing the
-   driver: the hold runs inside `local_irq_save()` in `sd_configure()`
-   (`drivers/mmc/host/s1c33-sd.c`),
-   and `pinctrl_select_state()` takes mutexes and can sleep, so that critical
-   section has to be restructured first — and it exists precisely because
-   disabling the serial block while it drives SCLK puts a stray edge on the
-   wire that can eat a card response bit. Doing it properly also means folding
-   `gpio-s1c33` into a combined pinctrl+gpio driver, since one driver has to own
-   the port registers.
-2. **DMAengine.** HSDMA2/3 live inside the SD host driver, `NO_DMA` is selected so
-   there is no DMA API at all, and the addressable window is passed as
-   `dma_memory_start`/`dma_memory_end` in platform data instead of coming from
-   `dma_map_single()`.
-3. **ITC priorities.** The controller's priority nibbles are still written
+1. **The check's SDRAM accesses.** `sd_unpack_crc()` does one load and one
+   store per word, spread evenly through the transfer. Loading eight words,
+   working on them in registers and storing eight would change row once per
+   burst instead of per access and leave the bus to the DMA between bursts.
+   Also worth one device run each: the check from its SDRAM copy instead of
+   A0 RAM (`c33_iram_func()` is the only switch), to test the internal-bus
+   theory above, since a slower check that disturbs the DMA less could win.
+   Judge in wremu first, then with `check` on the device; watch `check`,
+   `poll` and `status`.
+2. **What happens once the token is in** (setup, 4,550): two
+   `dma_async_issue_pending()` calls and `hsdma_start()` twice, a few hundred
+   SDRAM instructions each. The transmit side's issue could move before the
+   token if its first word is written only after it.
+3. **The token and the CRC bytes** (3,800 together) are clocked a word at a
+   time by the CPU. A transfer one word longer would bring the CRC in by
+   DMA; about 1.35 words a block are clocked now. Small.
+4. **Outside the driver** (~9,700): the copy to user space is at the CPU's
+   copy floor (about 4.0 cycles a byte on the device); the tick is 7% of the
+   CPU when busy (HZ stays 100, the user's call) and most of the rest is
+   generic page-cache code from SDRAM.
+5. **Each kthread creation costs about 10 ms**, unexplained.
+6. **ITC priorities.** The controller's priority nibbles are still written
    by the drivers that know their cause (the timer, the serial ports, and
-   the GPIO chip for the buttons); an
-   `irq_set_priority`-style extension on the irqchip would move them.
-4. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
-   keyboard is a `uinput` device now and it feeds every keyboard-shaped evdev
+   the pin controller for the buttons); an `irq_set_priority`-style
+   extension on the irqchip would move them.
+7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+   keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace.
-5. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
+8. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when
    the pinned stable tag is bumped.
@@ -128,8 +199,8 @@ and described active-low it re-pressed itself after every resume. The
 P6 port bytes read, which is how that was found without serial. Still
 unproven on silicon: the buttons on P60..P62 read high when pressed.
 
-Since then, emulator-tested only: the buttons and the switch interrupt
-instead of being polled. `gpio-s1c33` chains key input 0 (P60..P62, a
+Since then: the buttons and the switch interrupt instead of being polled,
+device-proven 2026-09-27. The pin controller chains key input 0 (P60..P62, a
 mismatch comparator it re-arms with each state it reads) and port input 3
 (P03, one edge at a time, turned round after each), and they are an ordinary
 `gpio-keys` device. Idle at the prompt fell from 4.4% of the CPU to 1.0%.
@@ -143,7 +214,8 @@ block has neither timebase nor standby power), and the `wr.*` console knobs are
 userspace policy.
 
 Test debt: `app-test.py` choreographs scripted typing against instruction
-counts and has drifted once already.
+counts and has drifted once already. `emulator` `make test-zim-copy` fails:
+it boots the file loader as a direct ELF, which wremu refuses.
 
 ## Traps
 
@@ -160,7 +232,7 @@ counts and has drifted once already.
   software node answers `-ENXIO`, which the driver treats as fatal. Use a
   `gpiod_lookup_table` for regulator enable lines.
 - **Non-DT regulator lookups return `-ENODEV`, not `-EPROBE_DEFER`.** Ordering
-  has no slack: `gpio-s1c33` registers at `postcore_initcall` so the chip exists
+  has no slack: the pin controller registers at `postcore_initcall` so the chip exists
   when the fixed regulators bind at subsys level, and the regulator devices are
   registered before the SD host.
 - **`GENERIC_ENTRY` expects things from the arch that have no defaults:**
@@ -184,4 +256,24 @@ counts and has drifted once already.
   addresses on paths GCC proved dead. Build it with `make -k` to see every
   failing file at once.
 - **Driving the guest's own shell over UART** answers questions about userspace
-  in well under a minute, against a two-minute rebuild.
+  in well under a minute, against a two-minute rebuild:
+  `artifacts/perf/ask-app.sh 'commands'` boots through Grifo, types them,
+  and powers off (gitignored; it wraps `/tmp/sepdata/timeline_app.py`).
+- **Grifo's ELF loader loads segments by virtual address.** A section
+  linked at 0x0c00 with its load address in the image came up there, and
+  the kernel's own copy from the (empty) load address then zeroed it. So
+  `__iramfunc` code is linked in `.text` and copied at boot, and must be
+  position-independent: no calls, no data by address.
+- **Keep checks of new assembly cheap.** Mirror the loop in Python and test
+  it on the host (millions of cases in seconds), then boot once with a small
+  table of precomputed answers. A C reference loop in the guest ran for
+  minutes.
+- **Untimed card reads on the device are noisy before the watchdog daemon
+  starts** (5.24 to 5.70 s for the same build): rcS starts it 20 s after
+  boot, with `seedrng`, from the card. `check` waits for it.
+- **`wremu` profile windows (`-y`) are in its clock's milliseconds**, which
+  run about 3.5 s ahead of the guest's uptime on the launcher path.
+- **A polling loop that calls `readl(host->base + ...)` reloads `host->base`
+  from SDRAM each pass**, because `readl` clobbers memory. In the SD
+  driver's wait loops a local copy made no measurable difference; in a
+  hotter loop, take the address into a local first.

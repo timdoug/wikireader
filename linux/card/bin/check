@@ -1,0 +1,49 @@
+#!/bin/sh
+# Check that card reads are right and time them, into /mnt/sd/check.txt.
+# Copy to bin/check on the card; run as `check` at the WikiReader's prompt.
+# About 20 seconds.
+out=/mnt/sd/check.txt
+echo "Writing $out, about 20 seconds..."
+
+section() {
+	echo
+	echo "=== $*"
+}
+
+# The boot's last job starts the watchdog daemon about 20 s in, reading the
+# card; wait for it, so that it does not land in a timed read.
+for i in $(seq 40); do
+	ps | grep -q "[w]atchdog /dev/watchdog" && break
+	sleep 1
+done
+
+{
+section build
+uname -a
+cat /proc/uptime
+cat /sys/class/power_supply/*/voltage_now
+
+section card integrity: md5 of linux.app, read uncached
+echo 3 > /proc/sys/vm/drop_caches
+md5sum /mnt/sd/linux.app
+
+section card read: 4 MB raw, uncached
+echo 3 > /proc/sys/vm/drop_caches
+cat /proc/uptime
+dd if=/dev/mmcblk0 of=/dev/null bs=65536 count=64 skip=64
+cat /proc/uptime
+
+section card read: 4 MB raw, uncached, timed by phase
+echo 3 > /proc/sys/vm/drop_caches
+echo 1 > /sys/devices/platform/s1c33-sd/read_timing
+cat /proc/uptime
+dd if=/dev/mmcblk0 of=/dev/null bs=65536 count=64 skip=64
+cat /proc/uptime
+cat /sys/devices/platform/s1c33-sd/read_timing
+echo 0 > /sys/devices/platform/s1c33-sd/read_timing
+
+section kernel warnings and errors
+dmesg | grep '^<[0-4]>'
+} > $out 2>&1
+sync
+echo "Done: $out"
