@@ -41,7 +41,23 @@ diff --git a/Rules.mak b/Rules.mak
 index d92c16c1e..89f5bce19 100644
 --- a/Rules.mak
 +++ b/Rules.mak
-@@ -432,5 +432,10 @@ ifeq ($(TARGET_ARCH),sh)
+@@ -299,6 +299,7 @@ ifneq ($(TARGET_ARCH),h8300)
+ ifneq ($(TARGET_ARCH),arc)
+ ifneq ($(TARGET_ARCH),aarch64)
+ ifneq ($(TARGET_ARCH),riscv32)
++ifneq ($(TARGET_ARCH),c33)
+ CPU_CFLAGS-y += -msoft-float
+ endif
+ endif
+@@ -311,6 +312,7 @@ endif
+ endif
+ endif
+ endif
++endif
+ 
+ $(eval $(call check-gcc-var,-std=gnu99))
+ CPU_CFLAGS-y += $(CFLAG_-std=gnu99)
+@@ -432,5 +434,10 @@ ifeq ($(TARGET_ARCH),sh)
  endif
  endif
  

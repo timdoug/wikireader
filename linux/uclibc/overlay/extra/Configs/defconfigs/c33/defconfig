@@ -1,4 +1,8 @@
 TARGET_c33=y
+# No FPU: floating point is libgcc's soft-float routines. C33 is left out
+# of -msoft-float in Rules.mak, as nios2 and bfin are; its compiler has only
+# the one float ABI and no such option.
+# UCLIBC_HAS_FPU is not set
 DO_C99_MATH=y
 UCLIBC_HAS_LINUXTHREADS=y
 PTHREADS_STACK_DEFAULT_SIZE=65536
