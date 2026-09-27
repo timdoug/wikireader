@@ -74,6 +74,8 @@ button_expected="C33 input: front button search"
 contrast_expected="wikireader-lcd wikireader-lcd: contrast 2048 of 4095 adopted from the PWM"
 # wremu's converter reads 832 and 502: 3.08 V through the divider, 22 C.
 sensors_expected="C33 sensors: battery 3083 mV, board 22 C"
+# 2^30 counts of the direct boot's 48 MHz MCLK.
+watchdog_expected="s1c33-wdt s1c33-wdt: 48000000 Hz, up to 22369 ms a period"
 evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: diagnostic child passed"
@@ -96,7 +98,7 @@ signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-clock_expected="C33 clock: registered 48000000 Hz MCLK and 5 peripheral gates"
+clock_expected="C33 clock: registered 48000000 Hz MCLK and 6 peripheral gates"
 gpio_expected="s1c33-gpio s1c33-gpio: registered 56 GPIOs through gpiolib"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
@@ -118,6 +120,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$button_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$contrast_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sensors_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$watchdog_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$evdev_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "c33-timer" "$work/boot.log" >/dev/null || \
    ! grep -F "s1c33-uart0-rx" "$work/boot.log" >/dev/null || \
@@ -208,6 +211,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --symbols --edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

@@ -1,0 +1,40 @@
+diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
+index 08cb8612d..e62e33692 100644
+--- a/drivers/watchdog/Kconfig
++++ b/drivers/watchdog/Kconfig
+@@ -1143,6 +1143,21 @@ config SUNPLUS_WATCHDOG
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called sunplus_wdt.
+ 
++# C33 Architecture
++
++config S1C33_WATCHDOG
++	tristate "Epson S1C33E07 watchdog"
++	depends on C33 || COMPILE_TEST
++	depends on COMMON_CLK
++	select WATCHDOG_CORE
++	help
++	  Say Y here to include support for the watchdog timer in the
++	  Epson S1C33E07, which resets the chip when it is not pinged.
++	  It can also restart the system.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called s1c33_wdt.
++
+ # X86 (i386 + ia64 + x86_64) Architecture
+ 
+ config ACQUIRE_WDT
+diff --git a/drivers/watchdog/Makefile b/drivers/watchdog/Makefile
+index bc1d52220..0e32767f0 100644
+--- a/drivers/watchdog/Makefile
++++ b/drivers/watchdog/Makefile
+@@ -105,6 +105,9 @@ obj-$(CONFIG_SUNPLUS_WATCHDOG) += sunplus_wdt.o
+ obj-$(CONFIG_MARVELL_GTI_WDT) += marvell_gti_wdt.o
+ obj-$(CONFIG_GUNYAH_WATCHDOG) += gunyah_wdt.o
+ 
++# C33 Architecture
++obj-$(CONFIG_S1C33_WATCHDOG) += s1c33_wdt.o
++
+ # X86 (i386 + ia64 + x86_64) Architecture
+ obj-$(CONFIG_ACQUIRE_WDT) += acquirewdt.o
+ obj-$(CONFIG_ADVANTECH_WDT) += advantechwdt.o

@@ -223,6 +223,20 @@ platform-device ID when there is no match data, `generic-adc-battery` treats
 a battery nothing supplies as discharging rather than charging, and a
 software node shared by a device and its same-named power supply no longer
 warns about the duplicate sysfs link.
+
+The chip's watchdog is `drivers/watchdog/s1c33_wdt.c` on the watchdog core:
+a 30-bit counter on MCLK that resets the chip at most 17.9 s after its last
+ping at 60 MHz, with the core pinging on the hardware's behalf for longer
+timeouts. Grifo arms the watchdog before it starts an application, so the
+kernel stops it at entry, and the driver leaves it stopped until something
+opens `/dev/watchdog`. BusyBox's `watchdog` daemon does, from `inittab`: it
+pings every 30 s with a 60 s timeout, so a stuck userspace resets the device
+after a minute and a stuck kernel after 18 s, and a clean shutdown stops it
+with the magic close. Suspend-to-idle is a halt, during which the counter
+keeps running, so the driver stops it across a suspend. Only the reset output
+is used; the NMI output, `#WDT_NMI`, is P63, which is wired to the power
+logic. The watchdog is also the restart handler, so `reboot` resets the chip
+when there is no launcher to return to.
 The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same software-node graph as the SD slot's chip

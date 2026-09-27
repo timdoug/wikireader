@@ -71,6 +71,8 @@ void machine_restart(char *command)
 {
 	if (c33_grifo_booted)
 		c33_grifo_exit(C33_GRIFO_EXIT_REBOOT);
+	/* Without the launcher to return to, the watchdog resets the chip. */
+	do_kernel_restart(command);
 	for (;;)
 		__asm__ volatile ("halt");
 }

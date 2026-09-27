@@ -197,6 +197,10 @@ static struct resource wr_sd_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x263, 0x3a, "itc"),
 };
 
+static const struct resource wr_wdt_resources[] = {
+	DEFINE_RES_MEM(WR_REG_BASE + 0x660, 0x10),
+};
+
 static const struct resource wr_adc_resources[] = {
 	DEFINE_RES_MEM(WR_REG_BASE + 0x520, 0x40),
 };
@@ -637,7 +641,11 @@ static int __init c33_devices_init(void)
 	ret = wr_analog_init();
 	if (ret)
 		return ret;
-	pr_info("C33 devices: registered SD, UART, framebuffer, touchscreen, contrast, buttons, and battery\n");
+	ret = wr_register("s1c33-wdt", -1, wr_wdt_resources,
+			  ARRAY_SIZE(wr_wdt_resources), NULL, NULL, 0);
+	if (ret)
+		return ret;
+	pr_info("C33 devices: registered SD, UART, framebuffer, touchscreen, contrast, buttons, battery, and watchdog\n");
 	return 0;
 }
 arch_initcall(c33_devices_init);

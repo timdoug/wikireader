@@ -168,6 +168,7 @@ C33_GATE(c33_dma_gate, "hsdma", C33_CMU_DMA);
 C33_GATE(c33_efsio_gate, "efsio", C33_CMU_EFSIO);
 C33_GATE(c33_tm1_gate, "tm1", C33_CMU_TM1);
 C33_GATE(c33_adc_gate, "adc", C33_CMU_ADC);
+C33_GATE(c33_wdt_gate, "wdt", C33_CMU_WDT);
 
 /*
  * The clocksource's timer gates are deliberately absent: the timer block
@@ -181,6 +182,7 @@ static struct c33_gate * const c33_gates[] = {
 	&c33_efsio_gate,
 	&c33_tm1_gate,
 	&c33_adc_gate,
+	&c33_wdt_gate,
 };
 
 static const struct {
@@ -194,6 +196,7 @@ static const struct {
 	{ &c33_dma_gate,   "dma", "s1c33-sd" },
 	{ &c33_tm1_gate,   NULL,  "s1c33-pwm" },
 	{ &c33_adc_gate,   NULL,  "s1c33-adc" },
+	{ &c33_wdt_gate,   NULL,  "s1c33-wdt" },
 };
 
 static int __init c33_clock_init(void)
