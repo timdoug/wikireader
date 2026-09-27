@@ -190,15 +190,15 @@ static struct resource wr_gpio_resources[] __initdata = {
 };
 
 /*
- * The top of IVRAM, above the framebuffer, holds the host's CRC table:
- * internal RAM, so looking it up does not close the SDRAM row the block
- * being checked is read from.
+ * The top of IVRAM, above the framebuffer, holds the host's CRC table and
+ * the all-ones its transmit DMA sends: internal RAM, so neither the lookups
+ * nor the transmit reads close the SDRAM rows the blocks are in.
  */
 static struct resource wr_sd_resources[] __initdata = {
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x1700, 0x20, "spi"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x289, 1, "spi-flags"),
 	DEFINE_RES_MEM_NAMED(WR_REG_BASE + 0x29b, 2, "idma"),
-	DEFINE_RES_MEM_NAMED(0x00082e00, 0x200, "sram"),
+	DEFINE_RES_MEM_NAMED(0x00082c00, 0x400, "sram"),
 };
 
 /*

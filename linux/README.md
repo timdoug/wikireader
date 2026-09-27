@@ -542,8 +542,15 @@ Block CRCs are checked unless `mmc_core.use_spi_crc=0`. The CRC loop is
 compiled with `-falign-loops=16`, because at 26 bytes it runs from the C33's
 fetch buffer only from the start of a line, and its table is copied into the
 top of IVRAM, because from SDRAM each lookup and the next byte's load open
-two rows. That takes the check from 36 to 16 cycles a byte; a raw 4 MB read
-takes 7.0 s in wremu and a block 0.85 ms, of which the wire is 0.27 ms. Disabling the serial block
+two rows; that takes the check from 36 to 16 cycles a byte. The all-ones the
+transmit channel sends sit beside it, for the same reason. Reads are
+pipelined: once block N+1's token is in and its transfer started, block N
+is put back in byte order and checked while N+1 crosses the wire. Through
+Grifo in wremu a raw 4 MB read takes 5.65 s and a block 0.69 ms, of which the
+wire is 0.27 ms; the transfer and the checking of the previous block
+overlap in about 0.38 ms, the CPU's work and the DMA's bus cycles together
+outlasting the wire, and the rest is the next token, the DMA setup, and the
+page cache. Disabling the serial block
 while it drives SCLK creates a real stray edge, and the block has to be
 disabled to change its clock or character size. With one character size,
 only a new clock rate does that, a few times a boot, and SCLK sits in the

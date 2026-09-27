@@ -93,6 +93,7 @@ struct s1c33_sd {
 	struct dma_chan *tx_chan;	/* HSDMA 2 on SPI transmit */
 	u8 *ones;			/* the all-ones HSDMA 2 sends */
 	dma_addr_t ones_dma;
+	phys_addr_t ones_phys;		/* ...when they are in internal RAM */
 	/* Sends them for a block, resubmitted for every one. */
 	struct dma_async_tx_descriptor *ones_txd;
 	const struct s1c33_sd_platform_data *pdata;
@@ -104,7 +105,10 @@ struct s1c33_sd {
 	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
 	u32 control;			/* CTL1 as programmed */
 	unsigned char power_mode;
-	/* crc_itu_t_table, copied into internal RAM when the board has some. */
+	/*
+	 * crc_itu_t_table, copied into internal RAM when the board has some,
+	 * with the all-ones after it.
+	 */
 	const u16 *crc_table;
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
@@ -300,70 +304,93 @@ static int sd_dma_wait(struct dma_chan *chan, dma_cookie_t cookie)
 }
 
 /*
- * Read @len bytes, a multiple of four, as words into @rx, which is word
- * aligned: HSDMA 3 moves them to memory while HSDMA 2 feeds all-ones to
- * the transmitter, whose first word the CPU writes to start the exchange.
- * The CPU polls the receive channel's completion rather than sleeping for
- * an interrupt; the block takes a fraction of a millisecond, less than a
- * sleep and wakeup would, and a polling CPU does not halt, which on this
- * part would stop the DMA's request pipeline.  The words are left in wire
- * order, first byte on top.  -EAGAIN: this buffer cannot be mapped.
+ * A block read in flight.  Reads are pipelined: once block N+1's token is
+ * in and its transfer started, block N is put in order and checked while
+ * N+1 crosses the wire, which would otherwise idle through all that work.
  */
-static int sd_read_dma(struct s1c33_sd *host, dma_addr_t address,
-		       unsigned int len)
+struct sd_read {
+	u8 *buf;
+	unsigned int len;
+	bool dma;		/* the words came by HSDMA, in wire order */
+	unsigned int lead;	/* block bytes that came in the token's word */
+	u8 first[4];		/* ... and are here */
+	unsigned int bitshift;	/* how far the card shifted the block */
+	u8 leftover;
+	u8 crc[2];
+	dma_cookie_t rx_cookie, tx_cookie;
+};
+
+/*
+ * Start reading @len bytes, a multiple of four, as words to @address, which
+ * is word aligned: HSDMA 3 moves them to memory while HSDMA 2 feeds all-ones
+ * to the transmitter, whose first word the CPU writes to start the exchange.
+ * The words land in wire order, first byte on top.
+ */
+static int sd_dma_start(struct s1c33_sd *host, struct sd_read *r,
+			dma_addr_t address)
 {
 	struct dma_async_tx_descriptor *rxd, *txd = host->ones_txd;
-	dma_cookie_t rx_cookie, tx_cookie;
-	int ret = 0;
 
-	rxd = dmaengine_prep_slave_single(host->rx_chan, address, len,
+	rxd = dmaengine_prep_slave_single(host->rx_chan, address, r->len,
 					  DMA_DEV_TO_MEM, 0);
-	if (len != SD_BLOCKSIZE)
+	if (r->len != SD_BLOCKSIZE)
 		txd = dmaengine_prep_slave_single(host->tx_chan,
-						  host->ones_dma, len - 4,
+						  host->ones_dma, r->len - 4,
 						  DMA_MEM_TO_DEV, 0);
 	if (!rxd || !txd) {
-		ret = -ENOMEM;
-		goto out;
+		dmaengine_terminate_sync(host->rx_chan);
+		dmaengine_terminate_sync(host->tx_chan);
+		return -ENOMEM;
 	}
-	rx_cookie = dmaengine_submit(rxd);
-	tx_cookie = dmaengine_submit(txd);
+	r->rx_cookie = dmaengine_submit(rxd);
+	r->tx_cookie = dmaengine_submit(txd);
 	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
 	dma_async_issue_pending(host->rx_chan);
 	dma_async_issue_pending(host->tx_chan);
 	writel(~0U, host->base + SPI_TXD);
+	return 0;
+}
 
-	/*
-	 * The port stays busy until the last word is in: HSDMA 2 refills the
-	 * transmitter long before a word has shifted out.  Wait for that on a
-	 * register, in a loop that runs from the fetch buffer, and only then
-	 * ask the channels: each status poll runs hundreds of instructions
-	 * from SDRAM, and those fetches slowed the transfer itself by half.
-	 */
+/*
+ * Wait for a transfer to end.  The CPU polls rather than sleeping for an
+ * interrupt: the block takes a fraction of a millisecond, less than a sleep
+ * and wakeup would, and a polling CPU does not halt, which on this part
+ * would stop the DMA's request pipeline.
+ *
+ * The port stays busy until the last word is in: HSDMA 2 refills the
+ * transmitter long before a word has shifted out.  Wait for that on a
+ * register, in a loop that runs from the fetch buffer, and only then ask
+ * the channels: each status poll runs hundreds of instructions from SDRAM,
+ * and those fetches slowed the transfer itself by half.
+ */
+static int sd_dma_finish(struct s1c33_sd *host, struct sd_read *r)
+{
+	int ret;
+
 	sd_wait(host, SPI_BUSY, false);
-	ret = sd_dma_wait(host->rx_chan, rx_cookie);
+	ret = sd_dma_wait(host->rx_chan, r->rx_cookie);
 	if (!ret)
-		ret = sd_dma_wait(host->tx_chan, tx_cookie);
+		ret = sd_dma_wait(host->tx_chan, r->tx_cookie);
 	if (!ret && sd_wait(host, SPI_BUSY, false))
 		ret = -ETIMEDOUT;
-	if (!ret)
-		host->dma_blocks++;
-out:
 	if (ret) {
 		dmaengine_terminate_sync(host->rx_chan);
 		dmaengine_terminate_sync(host->tx_chan);
+		return ret;
 	}
-	return ret;
+	host->dma_blocks++;
+	return 0;
 }
 
 /*
  * Put DMA'd words, wire order with the first byte on top, back into memory
  * order and @lead bytes further on, behind the @lead bytes that came before
- * them; the @lead bytes pushed off the end go to @tail.  One pass: each
- * word is swapped and shifted in registers, with no second copy.
+ * them.  One pass: each word is swapped and shifted in registers, with no
+ * second copy.  The @lead bytes pushed off the end were queued when the
+ * transfer ended.
  */
 static void sd_unpack(u32 *words, unsigned int n, const u8 *first,
-		      unsigned int lead, u8 *tail)
+		      unsigned int lead)
 {
 	unsigned int shift = lead * 8;
 	u32 carry = 0, word;
@@ -381,37 +408,6 @@ static void sd_unpack(u32 *words, unsigned int n, const u8 *first,
 		words[i] = carry | word << shift;
 		carry = word >> (32 - shift);
 	}
-	for (i = 0; i < lead; i++)
-		tail[i] = carry >> (8 * i);
-}
-
-/*
- * Read a data block and its CRC, which follow a token some bytes into a
- * word: @lead of the block's bytes already came with it and wait in the
- * receive queue.  HSDMA writes only whole aligned words, so it reads the
- * rest onto the block where it lies, and sd_unpack() moves it up.  Bytes
- * past the CRC stay queued for the next token.  Buffers HSDMA cannot reach
- * go through the queue a byte at a time.
- */
-static int sd_read_data(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
-			unsigned int len, u8 *crc)
-{
-	unsigned int lead = host->rx_len - host->rx_pos;
-	u8 first[4], tail[4];
-	int ret;
-
-	if (dma == DMA_MAPPING_ERROR || dma & 3) {
-		ret = sd_rx_bytes(host, buf, len);
-		return ret ? ret : sd_rx_bytes(host, crc, 2);
-	}
-	memcpy(first, host->rx + host->rx_pos, lead);
-	sd_rx_drop(host);
-	ret = sd_read_dma(host, dma, len);
-	if (ret)
-		return ret;
-	sd_unpack((u32 *)buf, len / 4, first, lead, tail);
-	sd_rx_queue(host, tail, lead);
-	return sd_rx_bytes(host, crc, 2);
 }
 
 static int sd_write_words(struct s1c33_sd *host, const u8 *tx,
@@ -605,17 +601,16 @@ static int sd_command(struct s1c33_sd *host, struct mmc_command *cmd,
 /* Data */
 
 /*
- * Read one block: skip the all-ones gap, find the start token, then the
- * data and its CRC.  A card may shift the token, and so everything after
- * it, by a few bits; that is undone here, as mmc_spi does.
+ * Begin reading one block: skip the all-ones gap and find the start token,
+ * then start its transfer.  A card may shift the token, and so everything
+ * after it, by a few bits; that is undone when the block is finished, as
+ * mmc_spi does.  Buffers HSDMA cannot reach are read here, a byte at a time
+ * through the receive queue.
  */
-static int sd_read_block(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
-			 unsigned int len, unsigned long timeout)
+static int sd_read_start(struct s1c33_sd *host, struct sd_read *r, u8 *buf,
+			 dma_addr_t dma, unsigned int len, unsigned long timeout)
 {
-	unsigned int bitshift;
-	u8 crc[2];
-	u8 leftover;
-	int status;
+	int status, ret;
 
 	/* At least one card sends a zero byte before the all-ones. */
 	status = sd_rx_byte(host);
@@ -627,38 +622,157 @@ static int sd_read_block(struct s1c33_sd *host, u8 *buf, dma_addr_t dma,
 	if (!(status & 0xf0))
 		return -EIO;
 
-	bitshift = 7;
+	r->bitshift = 7;
 	while (status & 0x80) {
 		status <<= 1;
-		bitshift--;
+		r->bitshift--;
 	}
-	leftover = status << 1;
+	r->leftover = status << 1;
+	r->buf = buf;
+	r->len = len;
+	r->dma = dma != DMA_MAPPING_ERROR && !(dma & 3);
+	if (!r->dma) {
+		ret = sd_rx_bytes(host, buf, len);
+		return ret ? ret : sd_rx_bytes(host, r->crc, 2);
+	}
 
-	status = sd_read_data(host, buf, dma, len, crc);
-	if (status)
-		return status;
+	/*
+	 * HSDMA writes only whole aligned words, so the block is read onto
+	 * itself where it lies and sd_unpack() moves it up behind the bytes
+	 * that came in the token's word.
+	 */
+	r->lead = host->rx_len - host->rx_pos;
+	memcpy(r->first, host->rx + host->rx_pos, r->lead);
+	sd_rx_drop(host);
+	return sd_dma_start(host, r, dma);
+}
 
-	if (bitshift) {
-		unsigned int bitright = 8 - bitshift;
+/*
+ * Wait for a block's transfer, then take its CRC.  The last word's
+ * bytes past the block, @lead of them, are the CRC and whatever follows,
+ * and go back on the receive queue for it and the next token.
+ */
+static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r)
+{
+	u8 tail[4];
+	u32 last;
+	unsigned int i;
+	int ret;
+
+	if (!r->dma)
+		return 0;
+	ret = sd_dma_finish(host, r);
+	if (ret)
+		return ret;
+	if (r->lead) {
+		last = swab32(((u32 *)r->buf)[r->len / 4 - 1]) >>
+			(32 - r->lead * 8);
+		for (i = 0; i < r->lead; i++)
+			tail[i] = last >> (8 * i);
+	}
+	sd_rx_queue(host, tail, r->lead);
+	return sd_rx_bytes(host, r->crc, 2);
+}
+
+/* Put a block in order and check it; the wire is free meanwhile. */
+static int sd_read_finish(struct s1c33_sd *host, struct sd_read *r)
+{
+	if (r->dma)
+		sd_unpack((u32 *)r->buf, r->len / 4, r->first, r->lead);
+
+	if (r->bitshift) {
+		unsigned int bitshift = r->bitshift, bitright = 8 - bitshift;
+		u8 leftover = r->leftover, temp;
 		unsigned int i;
-		u8 temp;
 
-		for (i = 0; i < len; i++) {
-			temp = buf[i];
-			buf[i] = leftover | (temp >> bitshift);
+		for (i = 0; i < r->len; i++) {
+			temp = r->buf[i];
+			r->buf[i] = leftover | (temp >> bitshift);
 			leftover = temp << bitright;
 		}
-		for (i = 0; i < sizeof(crc); i++) {
-			temp = crc[i];
-			crc[i] = leftover | (temp >> bitshift);
+		for (i = 0; i < sizeof(r->crc); i++) {
+			temp = r->crc[i];
+			r->crc[i] = leftover | (temp >> bitshift);
 			leftover = temp << bitright;
 		}
 	}
 
 	if (host->mmc->use_spi_crc &&
-	    get_unaligned_be16(crc) != sd_crc(host, buf, len))
+	    get_unaligned_be16(r->crc) != sd_crc(host, r->buf, r->len))
 		return -EILSEQ;
 	return 0;
+}
+
+/*
+ * Read a request's blocks.  Each block is started, then the one before it
+ * finished, then the new one waited for, so putting block N in order and
+ * checking its CRC costs no wire time: it happens while block N+1 arrives.
+ * The request is mapped once, for HSDMA to fill block by block.
+ */
+static void sd_read(struct s1c33_sd *host, struct mmc_data *data,
+		    unsigned long timeout)
+{
+	bool multiple = data->blocks > 1;
+	struct sd_read reads[2], *cur = &reads[0], *prev = NULL;
+	struct device *dma_dev = NULL;
+	struct scatterlist *sg;
+	unsigned int n_sg;
+	int status = 0, checked;
+
+	if (host->rx_chan) {
+		dma_dev = dmaengine_get_dma_device(host->rx_chan);
+		if (dma_map_sg(dma_dev, data->sg, data->sg_len,
+			       DMA_FROM_DEVICE) != data->sg_len)
+			dma_dev = NULL;
+	}
+
+	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
+		u8 *buf = sg_virt(sg);
+		dma_addr_t dma = dma_dev ? sg_dma_address(sg) :
+			DMA_MAPPING_ERROR;
+		unsigned int length = sg->length;
+
+		while (length) {
+			unsigned int len = min(length, data->blksz);
+
+			status = sd_read_start(host, cur, buf, dma, len,
+					       timeout);
+			checked = 0;
+			if (prev) {
+				checked = sd_read_finish(host, prev);
+				if (!checked)
+					data->bytes_xfered += prev->len;
+				prev = NULL;
+			}
+			/* A transfer that started is drained either way. */
+			if (!status)
+				status = sd_read_wait(host, cur);
+			if (!status)
+				status = checked;
+			if (status)
+				goto out;
+			prev = cur;
+			cur = cur == &reads[0] ? &reads[1] : &reads[0];
+			buf += len;
+			if (dma != DMA_MAPPING_ERROR)
+				dma += len;
+			length -= len;
+			if (!multiple)
+				break;
+		}
+	}
+	if (prev) {
+		status = sd_read_finish(host, prev);
+		if (!status)
+			data->bytes_xfered += prev->len;
+	}
+out:
+	if (status)
+		data->error = status;
+	if (dma_dev)
+		dma_unmap_sg(dma_dev, data->sg, data->sg_len, DMA_FROM_DEVICE);
+	for_each_sg(data->sg, sg, data->sg_len, n_sg)
+		flush_dcache_page(sg_page(sg));
 }
 
 /*
@@ -724,64 +838,45 @@ static int sd_write_block(struct s1c33_sd *host, const u8 *buf,
 static void sd_data(struct s1c33_sd *host, struct mmc_data *data)
 {
 	bool multiple = data->blocks > 1;
-	bool write = data->flags & MMC_DATA_WRITE;
-	struct device *dma_dev = NULL;
 	struct scatterlist *sg;
 	unsigned long timeout;
 	unsigned int n_sg;
 	int status = 0;
 
-	/* Reads map the request once, for HSDMA to fill block by block. */
-	if (!write && host->rx_chan) {
-		dma_dev = dmaengine_get_dma_device(host->rx_chan);
-		if (dma_map_sg(dma_dev, data->sg, data->sg_len,
-			       DMA_FROM_DEVICE) != data->sg_len)
-			dma_dev = NULL;
-	}
-
 	timeout = data->timeout_ns / 1000 + data->timeout_clks * 1000000 /
 		(host->clock >> (host->divider + 2));
 	timeout = usecs_to_jiffies(timeout) + 1;
 
+	if (!(data->flags & MMC_DATA_WRITE)) {
+		sd_read(host, data, timeout);
+		return;
+	}
+
 	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
-		u8 *buf = kmap(sg_page(sg)) + sg->offset;
-		dma_addr_t dma = dma_dev ? sg_dma_address(sg) :
-			DMA_MAPPING_ERROR;
+		const u8 *buf = sg_virt(sg);
 		unsigned int length = sg->length;
 
 		while (length) {
 			unsigned int len = min(length, data->blksz);
 
-			if (write)
-				status = sd_write_block(host, buf, len,
-							multiple, timeout);
-			else
-				status = sd_read_block(host, buf, dma, len,
-						       timeout);
+			status = sd_write_block(host, buf, len, multiple,
+						timeout);
 			if (status)
 				break;
 			data->bytes_xfered += len;
 			buf += len;
-			if (dma != DMA_MAPPING_ERROR)
-				dma += len;
 			length -= len;
 			if (!multiple)
 				break;
 		}
-		if (!write)
-			flush_dcache_page(sg_page(sg));
-		kunmap(sg_page(sg));
 		if (status) {
 			data->error = status;
 			break;
 		}
 	}
 
-	if (dma_dev)
-		dma_unmap_sg(dma_dev, data->sg, data->sg_len, DMA_FROM_DEVICE);
-
 	/* A multiple-block write ends with its own token, then busy. */
-	if (write && multiple) {
+	if (multiple) {
 		u8 stop[2] = { SPI_TOKEN_STOP_TRAN, 0xff };
 
 		status = sd_tx(host, stop, sizeof(stop));
@@ -911,6 +1006,16 @@ static const struct mmc_host_ops sd_ops = {
  * of all-ones for the transmitter.  Without them, reads go through the
  * byte queue.
  */
+static void sd_unmap_ones(struct s1c33_sd *host, struct device *dma_dev)
+{
+	if (host->ones_phys)
+		dma_unmap_resource(dma_dev, host->ones_dma, SD_BLOCKSIZE,
+				   DMA_TO_DEVICE, 0);
+	else
+		dma_unmap_single(dma_dev, host->ones_dma, SD_BLOCKSIZE,
+				 DMA_TO_DEVICE);
+}
+
 static int sd_dma_init(struct s1c33_sd *host)
 {
 	struct dma_slave_config config = {
@@ -943,15 +1048,20 @@ static int sd_dma_init(struct s1c33_sd *host)
 	if (ret)
 		goto err;
 
-	host->ones = devm_kmalloc(dev, SD_BLOCKSIZE, GFP_KERNEL);
-	if (!host->ones) {
-		ret = -ENOMEM;
-		goto err;
-	}
-	memset(host->ones, 0xff, SD_BLOCKSIZE);
 	dma_dev = dmaengine_get_dma_device(host->tx_chan);
-	host->ones_dma = dma_map_single(dma_dev, host->ones, SD_BLOCKSIZE,
-					DMA_TO_DEVICE);
+	if (host->ones_phys) {
+		host->ones_dma = dma_map_resource(dma_dev, host->ones_phys,
+						  SD_BLOCKSIZE, DMA_TO_DEVICE, 0);
+	} else {
+		host->ones = devm_kmalloc(dev, SD_BLOCKSIZE, GFP_KERNEL);
+		if (!host->ones) {
+			ret = -ENOMEM;
+			goto err;
+		}
+		memset(host->ones, 0xff, SD_BLOCKSIZE);
+		host->ones_dma = dma_map_single(dma_dev, host->ones,
+						SD_BLOCKSIZE, DMA_TO_DEVICE);
+	}
 	if (dma_mapping_error(dma_dev, host->ones_dma)) {
 		ret = -ENOMEM;
 		goto err;
@@ -967,8 +1077,7 @@ static int sd_dma_init(struct s1c33_sd *host)
 err_unmap:
 	if (host->ones_txd)
 		dmaengine_desc_free(host->ones_txd);
-	dma_unmap_single(dma_dev, host->ones_dma, SD_BLOCKSIZE,
-			 DMA_TO_DEVICE);
+	sd_unmap_ones(host, dma_dev);
 
 err:
 	if (host->tx_chan)
@@ -983,8 +1092,7 @@ static void sd_dma_release(struct s1c33_sd *host)
 	if (!host->rx_chan)
 		return;
 	dmaengine_desc_free(host->ones_txd);
-	dma_unmap_single(dmaengine_get_dma_device(host->tx_chan),
-			 host->ones_dma, SD_BLOCKSIZE, DMA_TO_DEVICE);
+	sd_unmap_ones(host, dmaengine_get_dma_device(host->tx_chan));
 	dma_release_channel(host->tx_chan);
 	dma_release_channel(host->rx_chan);
 }
@@ -1039,10 +1147,13 @@ static int sd_probe(struct platform_device *pdev)
 
 		if (IS_ERR(sram))
 			return PTR_ERR(sram);
-		if (resource_size(res) < sizeof(crc_itu_t_table))
+		if (resource_size(res) < sizeof(crc_itu_t_table) + SD_BLOCKSIZE)
 			return dev_err_probe(dev, -EINVAL, "sram too small\n");
 		memcpy_toio(sram, crc_itu_t_table, sizeof(crc_itu_t_table));
 		host->crc_table = (__force const u16 *)sram;
+		memset_io(sram + sizeof(crc_itu_t_table), 0xff, SD_BLOCKSIZE);
+		host->ones = (__force u8 *)sram + sizeof(crc_itu_t_table);
+		host->ones_phys = res->start + sizeof(crc_itu_t_table);
 	}
 
 	host->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);
