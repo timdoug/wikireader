@@ -105,44 +105,43 @@ Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
 
 ## SD card reads: where they stand
 
-A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes about
-5.25 s on the device (760 KB/s, 41% of the wire), and 4.9 to
-5.05 s in wremu. The wire limit at MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block
-cannot divide MCLK by less than 4. Per 512-byte block on the device
-(`read_timing`, cycles):
+A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 3.54 s
+on the device (1.18 MB/s, 63% of the wire), the same in wremu. The wire
+limit at MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block cannot divide MCLK by
+less than 4. Multiple-block reads are streamed (`sd_read_stream()`): the CPU
+finds the first token, then the rest of the request comes in by DMA as one
+or two long transfers into a 64 KB buffer while the CPU finds each token and
+unpacks and checks each block behind it, by the transfer's residue. Per
+512-byte block on the device (`read_timing`, cycles):
 
 | Phase | Cycles | What it is |
 |---|---|---|
-| token | 2,080 | the gap and start token, clocked by the CPU a word at a time |
-| setup | 4,550 | issuing both channels once the token is in |
-| ahead | 5,030 | preparing the next block's descriptors, during this transfer |
-| check | 8,710 | `sd_unpack_crc()` on the block before, from A0 RAM, during it |
-| poll + status | 6,200 | waiting for the transfer to end |
-| tail | 1,750 | the CRC bytes |
-| request | 640 | map, unmap, the last block's check |
-| outside the driver | ~9,700 | copy to user, page cache, the tick |
+| token | 1,440 | the first token of each request, clocked by the CPU, and the gaps |
+| setup | 170 | starting the stream's transfers (136 for 70 requests) |
+| check | 9,660 | `sd_unpack_crc()`, stream buffer to the request, from A0 RAM |
+| poll | 7,020 | waiting for the next block to come in |
+| outside the driver | ~7,600 | commands, copy to user, page cache, the tick |
 
-The transfer window (ahead, check, poll, status) is about 20,400 cycles
-against 16,400 on the wire, and almost all of that is the DMA itself. With
-the check moved after the transfer (so the CPU only prepares the next
-descriptors and then spins), a block still took 19,600 cycles: about 25
-cycles a word on top of the wire's 128, apparently the receive request's
-round trip before the port clocks the next word. The check running beside
-the transfer adds only about 800. Measured on the device and ruled out as
-the cause:
+The driver's 18,300 cycles a block is the stream's rate: 517 bytes a block
+(this card's gaps are 2 bytes) at about 141 cycles a word against the
+wire's 128. The CPU has time to spare in it.
 
-- where the DMA writes: into two 512-byte bounce buffers in IVRAM instead
-  of SDRAM, the window was 20,700 (the check fell from 9,100 to 8,300);
-- how the check touches SDRAM: eight loads then eight stores, in assembly,
-  gave 20,400 against 20,300 to 20,500 for the per-word C loop;
-- where the check runs: from its SDRAM copy it takes 19,300 cycles, more
-  than twice as long, and no longer fits in the transfer. A0 RAM code does
-  not crowd the DMA.
+Read a block at a time (single blocks, and cards that shift their tokens,
+which also stop streaming for good), a block's transfer takes about 19,600
+cycles against 16,400 on the wire whatever the CPU does beside it. Measured
+on the device and ruled out as the cause: writing to IVRAM bounce buffers
+instead of SDRAM (20,700), eight loads then eight stores in the check
+(20,400 against 20,300 to 20,500), the check from its SDRAM copy (19,300
+for the check alone; A0 RAM code does not crowd the DMA), and the check
+after the transfer instead of beside it (19,600). Since a stream's words
+cost 13 over the wire, most of the extra is each transfer getting going.
 
 The user keeps DMAengine and the block CRC; both were asked and settled.
 
-What was built on the way, in `README.md` in detail: the pipelined read
-(start N+1, check N, prepare N+2, wait); `sd_unpack_crc()`, slice-by-4 on
+What was built on the way, in `README.md` in detail: the streamed read,
+with residue and a fixed-address (interleaved) transmit descriptor in the
+DMA provider; the pipelined block-at-a-time read (start N+1, check N,
+prepare N+2, wait); `sd_unpack_crc()`, slice-by-4 on
 wire-order words plus the byte swap in one pass; A0 RAM code
 (`asm/iram.h`, `kernel/iram.c`), where it, `memcpy`/`memset`/`memmove`
 (`lib/string.S`, eight loads then eight stores) and division (`lib/div.S`)
@@ -161,42 +160,32 @@ what the DMA does per word; those need the device.
 
 ## What is left, in the order I would take it
 
-1. **Stream the blocks.** With the window fixed by the DMA, what is left
-   in the driver is the time between transfers: token 1,900, setup 4,300,
-   tail 1,600 and request 600 a block, about 8,400 of 29,000. In a
-   multi-block read the card sends gap, token, 512 bytes and CRC, block
-   after block, and the CPU cannot overrun it (it clocks the card). One
-   long DMA transfer per request into an SDRAM stream buffer, with the CPU
-   finding each token and unpacking and checking each block behind the DMA
-   (the check fits: about 9,000 of a 20,000-cycle block), would remove
-   those phases: roughly 5.1 s to 3.9 s for 4 MB. Needed: a transmit side
-   that sends all-ones for the whole stream (HSDMA can hold its source
-   address fixed; the provider always increments memory now, or a cyclic
-   descriptor), gaps longer than the slack allowed for (finish those blocks
-   the current way), and the stream running past the last block (the stop
-   command ends it). Stays on DMAengine and keeps the CRC.
-2. **Smaller, if streaming is not done:** issuing the transmit side before
-   the token (setup), and a transfer one word longer to bring the CRC in by
-   DMA (tail).
-3. **PIO from A0 RAM** would probably beat the DMA's 25 cycles a word (a CPU polling
-   the receive flag answers in a few) and could check each word while the
-   next shifts, but it leaves DMAengine, which the user wants kept. Only if
-   that changes.
-4. **Outside the driver** (~9,700): the copy to user space is at the CPU's
-   copy floor (about 4.0 cycles a byte on the device); the tick is 7% of the
-   CPU when busy (HZ stays 100, the user's call) and most of the rest is
-   generic page-cache code from SDRAM.
-5. **Each kthread creation costs about 10 ms**, unexplained.
-6. **ITC priorities.** The controller's priority nibbles are still written
+1. **Outside the driver** (~7,600 a block, 30% of a read now): not timed
+   by `read_timing`. Each 64 KB request also costs its CMD18 and CMD12, and
+   the first token's wait (most of the token phase, about 180,000 cycles a
+   request). Profile a timed read in wremu first (its total agrees). Larger
+   requests (`max_blk_count` 128 now) would spread the per-request part,
+   if readahead sends them; the stream buffer would then take more
+   transfers. The copy to user space is at the CPU's copy floor (about 4.0
+   cycles a byte); the tick is 7% of the CPU when busy (HZ stays 100, the
+   user's call).
+2. **The check** reads the stream buffer and writes the request, two rows,
+   alternately: 9,660 against 8,300 to 9,100 in place. It is off the
+   critical path while the stream sets the pace; only if the CPU work
+   around a read grows.
+3. **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it
+   leaves DMAengine, which the user wants kept. Only if that changes.
+4. **Each kthread creation costs about 10 ms**, unexplained.
+5. **ITC priorities.** The controller's priority nibbles are still written
    by the drivers that know their cause (the timer, the serial ports, and
    the pin controller for the buttons); an `irq_set_priority`-style
    extension on the irqchip would move them.
-7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+6. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace.
-8. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
+7. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when
    the pinned stable tag is bumped.

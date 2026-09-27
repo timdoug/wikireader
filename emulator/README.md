@@ -963,8 +963,9 @@ not capture how. On the device the CPU's accesses cost the transfer
 little: with nothing but the next descriptors and a status spin beside it a
 block still took 19,600 cycles against 20,400 with the check, and writing
 the words to IVRAM instead of SDRAM, or running the check from SDRAM
-instead of A0 RAM, did not shorten it. The 25 or so cycles a word over the
-wire are the DMA's own, which `dma_extra` stands in for. Memory-to-memory HSDMA keeps the synchronous model.
+instead of A0 RAM, did not shorten it: the DMA's own time, which
+`dma_extra` stands in for. A streamed read (one transfer for many blocks)
+comes to about 141 cycles a word on the device and in wremu alike. Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by

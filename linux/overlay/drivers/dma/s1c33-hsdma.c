@@ -12,7 +12,9 @@
  * Completion is found by polling: the transfer-count flag each channel
  * raises in the interrupt controller is read by tx_status, which retires
  * the descriptor, runs its callback and starts the next, so a client waits
- * with dmaengine_tx_status() or dma_sync_wait().  That is the point on this
+ * with dmaengine_tx_status() or dma_sync_wait().  tx_status also gives the
+ * residue of a transfer under way, from the channel's count, so a client
+ * can use what has come in so far.  That is the point on this
  * part, not a shortcut: the CPU would otherwise sleep in HALT, and on
  * physical E07 parts HALT stops the requests that SPI-triggered transfers
  * wait for.
@@ -70,6 +72,7 @@ struct hsdma_desc {
 	u16 source_hi;
 	u16 destination_hi;
 	u16 word;
+	u8 shift;		/* log2 of the unit */
 };
 
 struct hsdma_chan {
@@ -192,6 +195,36 @@ static void hsdma_poll(struct hsdma_chan *c, struct dmaengine_desc_callback *cb)
 	hsdma_start(c);
 }
 
+/*
+ * The bytes a transfer not yet complete has still to move.  The count
+ * falls as each unit is read from the source, so the last unit or two
+ * counted may not have reached the destination yet.  Under the channel
+ * lock.
+ */
+static u32 hsdma_residue(struct hsdma_chan *c, dma_cookie_t cookie)
+{
+	void __iomem *base = c->hsdma->base;
+	struct hsdma_desc *d = c->active;
+	unsigned int x = c->id;
+	u32 high, count;
+
+	if (d && d->tx.cookie == cookie) {
+		/* The count's top byte shares a register; read it either side. */
+		do {
+			high = readw(base + HSDMA_CONTROL(x)) & 0xff;
+			count = readw(base + HSDMA_COUNT(x));
+		} while ((readw(base + HSDMA_CONTROL(x)) & 0xff) != high);
+		return (high << 16 | count) << d->shift;
+	}
+	list_for_each_entry(d, &c->issued, node)
+		if (d->tx.cookie == cookie)
+			return d->count << d->shift;
+	list_for_each_entry(d, &c->submitted, node)
+		if (d->tx.cookie == cookie)
+			return d->count << d->shift;
+	return 0;
+}
+
 static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 				       dma_cookie_t cookie,
 				       struct dma_tx_state *state)
@@ -206,9 +239,12 @@ static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 		return status;
 	spin_lock_irqsave(&c->lock, flags);
 	hsdma_poll(c, &cb);
+	status = dma_cookie_status(chan, cookie, state);
+	if (status != DMA_COMPLETE && state)
+		dma_set_residue(state, hsdma_residue(c, cookie));
 	spin_unlock_irqrestore(&c->lock, flags);
 	dmaengine_desc_callback_invoke(&cb, NULL);
-	return dma_cookie_status(chan, cookie, state);
+	return status;
 }
 
 /*
@@ -278,40 +314,26 @@ static int hsdma_config(struct dma_chan *chan, struct dma_slave_config *config)
 	return 0;
 }
 
+/*
+ * A transfer of @length bytes in units of @width, each address incremented
+ * or fixed.  The unit is a power of two, and a division is a libgcc call
+ * here, so it is kept as a shift.
+ */
 static struct dma_async_tx_descriptor *
-hsdma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
-		    unsigned int sg_len, enum dma_transfer_direction direction,
-		    unsigned long flags, void *context)
+hsdma_prep(struct hsdma_chan *c, dma_addr_t source, bool source_inc,
+	   dma_addr_t destination, bool destination_inc, size_t length,
+	   enum dma_slave_buswidth width, unsigned long flags)
 {
-	struct hsdma_chan *c = to_hsdma_chan(chan);
-	enum dma_slave_buswidth width;
-	dma_addr_t device, memory;
 	unsigned long irqflags;
 	struct hsdma_desc *d;
 	unsigned int shift;
-	u32 length;
 
-	/* One trigger moves one unit: a list would need a trigger per entry. */
-	if (sg_len != 1)
-		return NULL;
-	if (direction == DMA_DEV_TO_MEM) {
-		width = c->config.src_addr_width;
-		device = c->config.src_addr;
-	} else if (direction == DMA_MEM_TO_DEV) {
-		width = c->config.dst_addr_width;
-		device = c->config.dst_addr;
-	} else {
-		return NULL;
-	}
 	if (width != DMA_SLAVE_BUSWIDTH_1_BYTE &&
 	    width != DMA_SLAVE_BUSWIDTH_2_BYTES &&
 	    width != DMA_SLAVE_BUSWIDTH_4_BYTES)
 		return NULL;
-	/* Widths are powers of two, and a division is a libgcc call here. */
 	shift = __ffs(width);
-	memory = sg_dma_address(sgl);
-	length = sg_dma_len(sgl);
-	if (!length || (length | memory | device) & (width - 1) ||
+	if (!length || (length | source | destination) & (width - 1) ||
 	    length >> shift > HSDMA_COUNT_MAX)
 		return NULL;
 
@@ -326,26 +348,69 @@ hsdma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	}
 	/* Callbacks and unmap data must not survive from the last use. */
 	memset(d, 0, sizeof(*d));
-	dma_async_tx_descriptor_init(&d->tx, chan);
+	dma_async_tx_descriptor_init(&d->tx, &c->chan);
 	d->tx.flags = flags;
 	d->tx.tx_submit = hsdma_tx_submit;
 	d->tx.desc_free = hsdma_desc_free;
+	d->shift = shift;
 	d->count = length >> shift;
 	d->control = HSDMA_DUAL | d->count >> 16;
 	d->word = width == DMA_SLAVE_BUSWIDTH_4_BYTES ? HSDMA_WORD : 0;
+	d->source = source;
 	d->source_hi = width == DMA_SLAVE_BUSWIDTH_2_BYTES ? HSDMA_HALFWORD : 0;
-	if (direction == DMA_DEV_TO_MEM) {
-		d->source = device;
-		d->destination = memory;
-		d->destination_hi = HSDMA_INCREMENT;
-	} else {
-		d->source = memory;
-		d->destination = device;
+	if (source_inc)
 		d->source_hi |= HSDMA_INCREMENT;
-	}
+	d->destination = destination;
+	d->destination_hi = destination_inc ? HSDMA_INCREMENT : 0;
 	list_add_tail(&d->node, &c->prepared);
 	spin_unlock_irqrestore(&c->lock, irqflags);
 	return &d->tx;
+}
+
+static struct dma_async_tx_descriptor *
+hsdma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
+		    unsigned int sg_len, enum dma_transfer_direction direction,
+		    unsigned long flags, void *context)
+{
+	struct hsdma_chan *c = to_hsdma_chan(chan);
+	dma_addr_t memory = sg_dma_address(sgl);
+	size_t length = sg_dma_len(sgl);
+
+	/* One trigger moves one unit: a list would need a trigger per entry. */
+	if (sg_len != 1)
+		return NULL;
+	if (direction == DMA_DEV_TO_MEM)
+		return hsdma_prep(c, c->config.src_addr, false, memory, true,
+				  length, c->config.src_addr_width, flags);
+	if (direction == DMA_MEM_TO_DEV)
+		return hsdma_prep(c, memory, true, c->config.dst_addr, false,
+				  length, c->config.dst_addr_width, flags);
+	return NULL;
+}
+
+/*
+ * One chunk of one frame, which is how a client asks for a memory address
+ * held fixed: src_inc or dst_inc false.  The SD host sends a stream of
+ * all-ones from one word this way.  The unit is the slave configuration's
+ * for the device side.
+ */
+static struct dma_async_tx_descriptor *
+hsdma_prep_interleaved(struct dma_chan *chan,
+		       struct dma_interleaved_template *xt, unsigned long flags)
+{
+	struct hsdma_chan *c = to_hsdma_chan(chan);
+	enum dma_slave_buswidth width;
+
+	if (xt->numf != 1 || xt->frame_size != 1)
+		return NULL;
+	if (xt->dir == DMA_DEV_TO_MEM)
+		width = c->config.src_addr_width;
+	else if (xt->dir == DMA_MEM_TO_DEV)
+		width = c->config.dst_addr_width;
+	else
+		return NULL;
+	return hsdma_prep(c, xt->src_start, xt->src_inc, xt->dst_start,
+			  xt->dst_inc, xt->sgl[0].size, width, flags);
 }
 
 /*
@@ -478,17 +543,19 @@ static int hsdma_probe(struct platform_device *pdev)
 
 	dma_cap_set(DMA_SLAVE, hsdma->dd.cap_mask);
 	dma_cap_set(DMA_PRIVATE, hsdma->dd.cap_mask);
+	dma_cap_set(DMA_INTERLEAVE, hsdma->dd.cap_mask);
 	hsdma->dd.dev = dev;
 	hsdma->dd.src_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE) |
 		BIT(DMA_SLAVE_BUSWIDTH_2_BYTES) |
 		BIT(DMA_SLAVE_BUSWIDTH_4_BYTES);
 	hsdma->dd.dst_addr_widths = hsdma->dd.src_addr_widths;
 	hsdma->dd.directions = BIT(DMA_DEV_TO_MEM) | BIT(DMA_MEM_TO_DEV);
-	hsdma->dd.residue_granularity = DMA_RESIDUE_GRANULARITY_DESCRIPTOR;
+	hsdma->dd.residue_granularity = DMA_RESIDUE_GRANULARITY_BURST;
 	hsdma->dd.descriptor_reuse = true;
 	hsdma->dd.device_alloc_chan_resources = hsdma_alloc_chan_resources;
 	hsdma->dd.device_free_chan_resources = hsdma_free_chan_resources;
 	hsdma->dd.device_prep_slave_sg = hsdma_prep_slave_sg;
+	hsdma->dd.device_prep_interleaved_dma = hsdma_prep_interleaved;
 	hsdma->dd.device_config = hsdma_config;
 	hsdma->dd.device_terminate_all = hsdma_terminate_all;
 	hsdma->dd.device_tx_status = hsdma_tx_status;

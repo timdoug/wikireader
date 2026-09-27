@@ -528,40 +528,48 @@ channel 3 answers the SPI receiver, only channel 2 its transmitter), so a
 request line is a channel and a trigger together, named in the board's
 `dma_slave_map`. Completion is polled through the channel status, which
 retires the descriptor: a CPU sleeping for the interrupt would execute
-`HALT`, which on physical E07 parts stops SPI-triggered HSDMA. On this
-core, which fetches every instruction outside a short loop from SDRAM,
-generic per-transfer code is dear, so the provider keeps its own
-descriptor lists, recycles descriptors and skips register writes that
-would not change anything; the host waits for the port to go idle in a
-register loop before asking the receive channel, because each status poll's
-fetches compete with the transfer for SDRAM and slowed it by half. It does
-not ask the transmit channel at all: every word received was clocked in by
-one it sent, and the provider retires a finished transfer when the next is
-submitted. Even
-so a block costs about 0.15 ms more than the host driving HSDMA's registers
-itself did, 1.0 s of a raw 4 MB read through Grifo at 60 MHz. The card runs
-at MCLK/4, 15 MHz under Grifo, as Grifo and the original firmware run it.
-Block CRCs are checked unless `mmc_core.use_spi_crc=0`. Reads are
-pipelined: once block N+1's token is in and its transfer started, block N
-is put back in byte order and checked, and block N+2's transfer prepared
-and submitted, while N+1 crosses the wire; only issuing it waits for its
-token. On the device the CPU wins the bus from the DMA, and the check's
-SDRAM data accesses hold the transfer up, but the preparation's
-instruction fetches do not: with it overlapped the transfer window stays
-about 20,000 cycles a block and the driver's total falls from 31,100 to
-29,000 (`read_timing`, below). That
-check has to fit in what the DMA leaves the CPU, since each word costs two
-transfers that hold the bus, about 10,600 of the wire's 16,400 cycles a
-block. So it is one pass, `sd_unpack_crc()`, which takes each word in wire
-order into the CRC four bytes at a time and swaps it into place: about 37
-instructions a word, too long for the fetch queue, so it runs from A0 RAM
-(the zero-wait on-chip RAM Grifo leaves applications from 0x0c00; the
-kernel copies `__iramfunc` code there at boot, see `asm/iram.h`), with its
-2 KB of tables there too, in about 6,400 cycles a block against 11,700 for
-a byte-at-a-time CRC and a separate unpack. Through Grifo a raw 4 MB read
-takes 5.36 s on the device and 5.17 s in wremu, a block 0.65 ms of which the
-wire is 0.27 ms; the
-rest is the next token, the DMA calls, and the page cache. Writes and shifted blocks use the byte-at-a-time CRC, a 26-byte loop
+`HALT`, which on physical E07 parts stops SPI-triggered HSDMA. The status
+also gives the residue of a transfer under way, from the channel's count,
+and a descriptor built with `dmaengine_prep_interleaved_dma()` can hold its
+memory address fixed. On this core, which fetches every instruction outside
+a short loop from SDRAM, generic per-transfer code is dear, so the provider
+keeps its own descriptor lists, recycles descriptors and skips register
+writes that would not change anything. The card runs at MCLK/4, 15 MHz
+under Grifo, as Grifo and the original firmware run it, and block CRCs are
+checked unless `mmc_core.use_spi_crc=0`.
+
+Multiple-block reads are streamed. The card sends each block's gap, token,
+data and CRC one after another and simply waits whenever the host stops
+clocking, so after the CPU has found the first token, the rest of the
+request comes in by DMA as one long transfer into a 64 KB buffer: the
+receive channel writes the wire's bytes there as words, and the transmit
+channel sends all-ones from a single word in IVRAM. The CPU follows behind
+it, finding each token and putting each block in order and checking it on
+the way to its place in the request, as far as the residue says has come
+in. A transfer is sized for the rest of the request with every gap as long
+as the last request's shortest, so it ends near the last CRC; longer gaps
+leave the end to one more transfer, and the buffer (smaller than a full
+request with its gaps) to a second. That leaves nothing between blocks:
+per block on the device the driver takes 18,300 cycles against 16,500 on
+the wire, and a raw 4 MB read through Grifo takes 3.54 s (1.18 MB/s, 63%
+of the wire), against 5.1 s a block at a time. The check is
+`sd_unpack_crc()`, which takes each word in wire order into the CRC four
+bytes at a time and swaps and shifts it into place: about 37 instructions a
+word, too long for the fetch queue, so it runs from A0 RAM (the zero-wait
+on-chip RAM Grifo leaves applications from 0x0c00; the kernel copies
+`__iramfunc` code there at boot, see `asm/iram.h`), with its 2 KB of tables
+there too, in about 9,700 cycles a block on the device.
+
+Single blocks, and cards that shift a token by a few bits, are read a block
+at a time, pipelined: once block N+1's token is in and its transfer
+started, block N is put in order and checked while N+1 crosses the wire.
+There a block's transfer takes about 19,600 cycles on the device against
+16,400 on the wire, and that is the DMA's own time, not the CPU's use of
+the bus: writing to IVRAM instead of SDRAM, grouping the check's SDRAM
+accesses, or checking only after the transfer did not shorten it. A
+stream's words cost about 13 cycles each over the wire, so most of the
+rest is a transfer getting going.
+Writes and shifted blocks use the byte-at-a-time CRC, a 26-byte loop
 compiled with `-falign-loops=16` so that it runs from the fetch queue, on the
 same tables. The all-ones the transmit channel sends are in IVRAM, above the
 framebuffer, where its reads close no SDRAM rows. Disabling the serial block
@@ -611,12 +619,11 @@ cases, but it makes back-to-back stores from A0 RAM 16% too cheap, streamed
 loads from SDRAM 13% too cheap, and short branchy loops such as division up
 to 37% too dear. Likewise `echo 1 > /sys/devices/platform/s1c33-sd/read_timing`
 starts per-phase counters for card reads, and reading it gives cycles a
-block for the token, the transfer's setup, the preparation of the next
-block's, the check of the one before, the wait, the status call, the CRC
-bytes and the rest of each request; `check` runs a timed read. They showed
-that wremu has the DMA and the CPU the wrong way round: it freezes the CPU
-while the DMA takes the bus, where the device lets the CPU win and the DMA
-fall behind. The driver's total per block agrees within 1% all the same.
+block for the tokens, the transfers' setup, the preparation of the next
+block's, the check, the wait, the status call, the CRC bytes and the rest
+of each request, and the streamed transfers and gap bytes; `check` runs a
+timed read. wremu's DMA model was changed after them (`dma_async`), and its
+driver total per block is within 1% of the device's.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
@@ -633,7 +640,7 @@ display output are kept outside the checkout and removed afterward. The card
 is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
-The same regression requires the SD host to announce HSDMA block reads, the
+The same regression requires the SD host to announce streamed HSDMA block reads, the
 DMA provider its polled channels, and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
 activity. It also
 checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and

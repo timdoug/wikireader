@@ -116,7 +116,7 @@ sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 # Without the trailing ", no poweroff" the slot found its regulators.
 # MCLK/4 of Grifo's 60 MHz.
-sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 15000000 Hz, HSDMA block reads"
+sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 15000000 Hz, streamed HSDMA block reads"
 hsdma_expected="s1c33-hsdma s1c33-hsdma: 4 channels, completion polled"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
