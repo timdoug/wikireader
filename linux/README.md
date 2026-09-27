@@ -590,7 +590,12 @@ a time instead, eight loads then eight stores, which the device measured at
 call gains from not fetching its code from SDRAM. The exported names are
 stubs that jump through a pointer, to the SDRAM copies until `setup_arch()`
 has moved them. A 512-byte copy to user space takes about 2,500 cycles in
-wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17.
+wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17. Division
+(`arch/c33/lib/div.S`) is there as well: the PE core has no divide
+instructions, and libgcc's `__udivsi3` and the generic `__div64_32` behind
+`do_div()`, which the scheduler's load tracking calls on every enqueue and
+tick, were 4.4% of the boot from SDRAM. The replacements shift and subtract
+once per quotient bit in registers, and take 2.3%.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
