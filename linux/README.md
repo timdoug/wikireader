@@ -590,7 +590,8 @@ a time instead, eight loads then eight stores, which the device measured at
 call gains from not fetching its code from SDRAM. The exported names are
 stubs that jump through a pointer, to the SDRAM copies until `setup_arch()`
 has moved them. A 512-byte copy to user space takes about 2,500 cycles in
-wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17. Division
+wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17 in wremu, and
+5.29 s against 5.36 on the device. Division
 (`arch/c33/lib/div.S`) is there as well: the PE core has no divide
 instructions, and libgcc's `__udivsi3` and the generic `__div64_32` behind
 `do_div()`, which the scheduler's load tracking calls on every enqueue and
