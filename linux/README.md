@@ -440,7 +440,7 @@ contains no S1C33 register access or private kernel ABI. It is installed as
 shell. Its shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
 card's `bin` folder runs by name.
 
-Its terminal is 40 columns by 14 rows and implements the Linux console as
+Its terminal is 40 columns by 15 rows and implements the Linux console as
 `TERM=linux` describes it to curses: cursor addressing and movement,
 insertion and deletion of characters and lines, a scrolling region, reverse
 video, saving, hiding and reporting the cursor, and xterm's deferred wrap in
@@ -496,8 +496,8 @@ kernel panic. It then injects an `echo` command into the real `hush` over UART0
 and verifies its output. It separately generates panel taps for a command and
 Enter key, requires UART1 serial-core and serdev to deliver evdev records, and
 requires the userspace frontend to execute that command through its PTY-backed
-Hush. The test also checks the final display image for console text, a blank
-gap above the keyboard, and the three keyboard rows. The fixture and emulator
+Hush. The test also checks the final display image for console text and the
+three keyboard rows. The fixture and emulator
 display output are kept outside the checkout and removed afterward. The card
 fixture is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected

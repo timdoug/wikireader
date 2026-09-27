@@ -59,6 +59,7 @@ int main(void)
 {
 	int pipe_fds[2];
 	char reply[32];
+	char sequence[16];
 	ssize_t length;
 	unsigned int i;
 
@@ -85,15 +86,18 @@ int main(void)
 
 	/* A full last column does not scroll until the next character. */
 	reset();
-	feed("\033[14;1H");
+	snprintf(sequence, sizeof(sequence), "\033[%d;1H", TEXT_ROWS);
+	feed(sequence);
 	for (i = 0; i < TEXT_COLUMNS; i++)
 		feed("x");
-	expect_cursor(13, 39, "pending wrap");
-	expect(cells[13][39] == 'x' && cells[12][0] == ' ', "no early scroll");
+	expect_cursor(TEXT_ROWS - 1, 39, "pending wrap");
+	expect(cells[TEXT_ROWS - 1][39] == 'x' &&
+	       cells[TEXT_ROWS - 2][0] == ' ', "no early scroll");
 	feed("\r");
-	expect_cursor(13, 0, "carriage return cancels the wrap");
-	feed("\033[14;40Hyz");
-	expect(cells[12][39] == 'y' && cells[13][0] == 'z',
+	expect_cursor(TEXT_ROWS - 1, 0, "carriage return cancels the wrap");
+	snprintf(sequence, sizeof(sequence), "\033[%d;40Hyz", TEXT_ROWS);
+	feed(sequence);
+	expect(cells[TEXT_ROWS - 2][39] == 'y' && cells[TEXT_ROWS - 1][0] == 'z',
 	       "wrap scrolls on the next character");
 
 	reset();

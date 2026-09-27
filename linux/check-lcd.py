@@ -27,10 +27,8 @@ def main():
     if (width, height) != (240, 208):
         raise SystemExit(f"unexpected LCD size {width}x{height}")
 
-    if any(pixel != 255 for pixel in pixels[112 * width:120 * width]):
-        raise SystemExit("LCD gap between text and keyboard is not blank")
 
-    black_text_pixels = sum(pixel == 0 for pixel in pixels[:112 * width])
+    black_text_pixels = sum(pixel == 0 for pixel in pixels[:120 * width])
     if black_text_pixels < 100:
         raise SystemExit("LCD text area is unexpectedly blank")
     black_keyboard_pixels = sum(pixel == 0 for pixel in pixels[120 * width:])

@@ -21,10 +21,10 @@
 #define LCD_STRIDE	32
 #define LCD_BYTES	(LCD_STRIDE * LCD_HEIGHT)
 #define TEXT_COLUMNS	40
-#define TEXT_ROWS	14
+#define TEXT_ROWS	15
 #define FONT_WIDTH	6
 #define FONT_HEIGHT	8
-#define TEXT_HEIGHT	112
+#define TEXT_HEIGHT	(TEXT_ROWS * FONT_HEIGHT)
 #define KEYBOARD_Y	120
 #define KEY_WIDTH	24
 #define KEY_ROWS	4
@@ -1719,7 +1719,6 @@ int main(void)
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
-	clear_rows(TEXT_HEIGHT, KEYBOARD_Y - TEXT_HEIGHT);
 
 	master_fd = open_pty(&slave_fd);
 	if (master_fd < 0) {
