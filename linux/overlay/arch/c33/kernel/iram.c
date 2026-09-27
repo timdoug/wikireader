@@ -10,6 +10,8 @@
 #include <asm/iram.h>
 
 extern char __iram_text_start[], __iram_text_end[];
+extern char __c33_memset[], __c33_memcpy[], __c33_memmove[];
+extern void *c33_memset_fn, *c33_memcpy_fn, *c33_memmove_fn;
 
 static unsigned long c33_iram_next = C33_IRAM_START;
 static DEFINE_SPINLOCK(c33_iram_lock);
@@ -24,6 +26,11 @@ void __init c33_iram_init(void)
 	}
 	memcpy((void *)C33_IRAM_START, __iram_text_start, size);
 	c33_iram_next = ALIGN(C33_IRAM_START + size, 4);
+
+	/* From here the string functions run from their copies (lib/string.S). */
+	c33_memset_fn = __c33_iram_func(__c33_memset);
+	c33_memcpy_fn = __c33_iram_func(__c33_memcpy);
+	c33_memmove_fn = __c33_iram_func(__c33_memmove);
 }
 
 void *__c33_iram_func(void *func)

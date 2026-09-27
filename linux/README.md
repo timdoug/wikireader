@@ -581,6 +581,17 @@ partition at `/mnt/sd` with synchronous writes. Under `wr.selftest` early
 userspace leaves `linux.ok` there as a persistent, serial-port-free boot
 report.
 
+The kernel's `memset`, `memcpy` and `memmove` (`arch/c33/lib/string.S`) run
+from A0 RAM too. Loads and stores share the SDRAM controller's one data row,
+so a copy that alternates them opens a row for every access, which the
+device measured at 6.6 cycles a byte. The aligned copy moves eight words at
+a time instead, eight loads then eight stores, which the device measured at
+4.0; the loop is longer than the fetch queue, hence A0 RAM, and every short
+call gains from not fetching its code from SDRAM. The exported names are
+stubs that jump through a pointer, to the SDRAM copies until `setup_arch()`
+has moved them. A 512-byte copy to user space takes about 2,500 cycles in
+wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17.
+
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry
 `init.ini` that passes `loglevel=7 wr.selftest`, boots the device's own chain

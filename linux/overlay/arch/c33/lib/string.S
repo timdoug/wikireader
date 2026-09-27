@@ -1,22 +1,61 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * memset, memcpy and memmove a word at a time.
+ * memset, memcpy and memmove, run from A0 RAM.
  *
  * lib/string.c moves one byte per pass: four or five instructions a byte and
  * a separate SDRAM access for each.  Page clearing, copy_{to,from}_user and
  * the initramfs unpack all come through here.
  *
- * C ABI: arguments in %r6-%r8, the result in %r4, and %r4-%r14 free.  A loop
- * runs from the two-slot fetch queue only while its offset in the 16-byte
- * line plus its length is at most 27 bytes, so the block loops are kept to
- * 12 bytes, which fit wherever they land, and the one longer loop is
- * aligned.
+ * Loads and stores share the SDRAM controller's one data row, so a copy that
+ * alternates them opens a row for every access, at about 6.6 cycles a byte
+ * on the device.  The aligned copy therefore moves eight words at a time:
+ * eight loads, then eight stores, two row changes for 32 bytes, 4.0 cycles
+ * a byte in the memory benchmark on the device.  That loop is 36 bytes,
+ * longer than the fetch queue holds, so all three functions run from A0
+ * RAM (asm/iram.h), where fetching costs nothing, and short calls gain as
+ * well.  The exported names are stubs that jump through a pointer to them:
+ * their SDRAM copies until setup_arch() has put them in A0 RAM, which it
+ * does with memcpy.  The functions are position-independent: every branch
+ * is PC-relative and they call nothing.
+ *
+ * C ABI: arguments in %r6-%r8, the result in %r4, %r4-%r14 free, and %r0-%r3
+ * the callee's to save.
  */
 #include <linux/export.h>
 #include <linux/linkage.h>
 
-/* void *memset(void *s, int c, size_t n) */
+	.data
+	.balign	4
+SYM_DATA(c33_memset_fn, .long __c33_memset)
+SYM_DATA(c33_memcpy_fn, .long __c33_memcpy)
+SYM_DATA(c33_memmove_fn, .long __c33_memmove)
+
+	.text
 SYM_FUNC_START(memset)
+	xld.w	%r9,c33_memset_fn
+	ld.w	%r9,[%r9]
+	jp	%r9
+SYM_FUNC_END(memset)
+EXPORT_SYMBOL(memset)
+
+SYM_FUNC_START(memcpy)
+	xld.w	%r9,c33_memcpy_fn
+	ld.w	%r9,[%r9]
+	jp	%r9
+SYM_FUNC_END(memcpy)
+EXPORT_SYMBOL(memcpy)
+
+SYM_FUNC_START(memmove)
+	xld.w	%r9,c33_memmove_fn
+	ld.w	%r9,[%r9]
+	jp	%r9
+SYM_FUNC_END(memmove)
+EXPORT_SYMBOL(memmove)
+
+	.section .iram.text,"ax"
+
+/* void *memset(void *s, int c, size_t n) */
+SYM_FUNC_START(__c33_memset)
 	ld.w	%r4,%r6
 	xand	%r7,0xff
 	cmp	%r8,8
@@ -61,11 +100,10 @@ SYM_FUNC_START(memset)
 	sub	%r8,1
 	jrne	4b
 3:	ret
-SYM_FUNC_END(memset)
-EXPORT_SYMBOL(memset)
+SYM_FUNC_END(__c33_memset)
 
 /* void *memcpy(void *dest, const void *src, size_t n) */
-SYM_FUNC_START(memcpy)
+SYM_FUNC_START(__c33_memcpy)
 	ld.w	%r4,%r6
 	ld.w	%r9,%r6
 	xor	%r9,%r7
@@ -82,6 +120,37 @@ SYM_FUNC_START(memcpy)
 	sub	%r8,1
 	jp	.Lcpy_align
 .Lcpy_aligned:				/* at least five bytes are left */
+	xcmp	%r8,64
+	jrult	.Lcpy_blocks		/* too short to pay for the setup */
+	pushn	%r1			/* %r0 and %r1 hold what the loop cannot */
+	ld.w	%r0,%r4			/* the result */
+	ld.w	%r1,%r8
+	and	%r1,31			/* what the batches leave */
+	sub	%r8,%r1
+	add	%r8,%r7			/* source end of the batches */
+	.balign	4
+8:	ld.w	%r4,[%r7]+
+	ld.w	%r5,[%r7]+
+	ld.w	%r9,[%r7]+
+	ld.w	%r10,[%r7]+
+	ld.w	%r11,[%r7]+
+	ld.w	%r12,[%r7]+
+	ld.w	%r13,[%r7]+
+	ld.w	%r14,[%r7]+
+	ld.w	[%r6]+,%r4
+	ld.w	[%r6]+,%r5
+	ld.w	[%r6]+,%r9
+	ld.w	[%r6]+,%r10
+	ld.w	[%r6]+,%r11
+	ld.w	[%r6]+,%r12
+	ld.w	[%r6]+,%r13
+	ld.w	[%r6]+,%r14
+	cmp	%r7,%r8
+	jrne	8b
+	ld.w	%r4,%r0
+	ld.w	%r8,%r1
+	popn	%r1
+.Lcpy_blocks:				/* both aligned, %r8 bytes left */
 	ld.w	%r5,%r8
 	and	%r5,7			/* what the 8-byte blocks leave */
 	sub	%r8,%r5
@@ -153,8 +222,7 @@ SYM_FUNC_START(memcpy)
 	add	%r7,%r13		/* and to its byte */
 	ld.w	%r8,%r14
 	jp	.Lcpy_bytes
-SYM_FUNC_END(memcpy)
-EXPORT_SYMBOL(memcpy)
+SYM_FUNC_END(__c33_memcpy)
 
 /*
  * void *memmove(void *dest, const void *src, size_t n)
@@ -164,14 +232,14 @@ EXPORT_SYMBOL(memcpy)
  * below the source or clear of it.  Only an overlap from above copies here,
  * backwards: words when the alignments agree, bytes otherwise.
  */
-SYM_FUNC_START(memmove)
+SYM_FUNC_START(__c33_memmove)
 	cmp	%r6,%r7
 	jrule	1f
 	ld.w	%r9,%r7
 	add	%r9,%r8
 	cmp	%r6,%r9
 	jrult	2f
-1:	xjp	memcpy
+1:	xjp	__c33_memcpy
 2:	ld.w	%r4,%r6
 	add	%r6,%r8			/* one past the end of each */
 	add	%r7,%r8
@@ -212,5 +280,4 @@ SYM_FUNC_START(memmove)
 	sub	%r8,1
 	jrne	6b
 7:	ret
-SYM_FUNC_END(memmove)
-EXPORT_SYMBOL(memmove)
+SYM_FUNC_END(__c33_memmove)
