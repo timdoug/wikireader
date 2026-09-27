@@ -541,19 +541,23 @@ submitted. Even
 so a block costs about 0.15 ms more than the host driving HSDMA's registers
 itself did, 1.0 s of a raw 4 MB read through Grifo at 60 MHz. The card runs
 at MCLK/4, 15 MHz under Grifo, as Grifo and the original firmware run it.
-Block CRCs are checked unless `mmc_core.use_spi_crc=0`. The CRC loop is
-compiled with `-falign-loops=16`, because at 26 bytes it runs from the C33's
-fetch buffer only from the start of a line, and its table is copied into the
-top of IVRAM, because from SDRAM each lookup and the next byte's load open
-two rows; that takes the check from 36 to 16 cycles a byte. The all-ones the
-transmit channel sends sit beside it, for the same reason. Reads are
+Block CRCs are checked unless `mmc_core.use_spi_crc=0`. Reads are
 pipelined: once block N+1's token is in and its transfer started, block N
-is put back in byte order and checked while N+1 crosses the wire. Through
-Grifo a raw 4 MB read takes 5.50 s on the device and 5.58 s in wremu, a
-block 0.68 ms, of which the wire is 0.27 ms; the transfer and the checking of the previous block
-overlap in about 0.38 ms, the CPU's work and the DMA's bus cycles together
-outlasting the wire, and the rest is the next token, the DMA setup, and the
-page cache. Disabling the serial block
+is put back in byte order and checked while N+1 crosses the wire. That
+check has to fit in what the DMA leaves the CPU, since each word costs two
+transfers that hold the bus, about 10,600 of the wire's 16,400 cycles a
+block. So it is one pass, `sd_unpack_crc()`, which takes each word in wire
+order into the CRC four bytes at a time and swaps it into place: about 37
+instructions a word, too long for the fetch queue, so it runs from A0 RAM
+(the zero-wait on-chip RAM Grifo leaves applications from 0x0c00; the
+kernel copies `__iramfunc` code there at boot, see `asm/iram.h`), with its
+2 KB of tables there too, in about 6,400 cycles a block against 11,700 for
+a byte-at-a-time CRC and a separate unpack. Through Grifo a raw 4 MB read
+takes 5.17 s in wremu, a block 0.63 ms of which the wire is 0.27 ms; the
+rest is the next token, the DMA calls, and the page cache. Writes and shifted blocks use the byte-at-a-time CRC, a 26-byte loop
+compiled with `-falign-loops=16` so that it runs from the fetch queue, on the
+same tables. The all-ones the transmit channel sends are in IVRAM, above the
+framebuffer, where its reads close no SDRAM rows. Disabling the serial block
 while it drives SCLK creates a real stray edge, and the block has to be
 disabled to change its clock or character size. With one character size,
 only a new clock rate does that, a few times a boot, and SCLK sits in the

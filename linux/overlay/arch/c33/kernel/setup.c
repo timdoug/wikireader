@@ -8,6 +8,7 @@
 #include <linux/start_kernel.h>
 #include <linux/string.h>
 
+#include <asm/iram.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
 #include <asm/wikireader.h>
@@ -131,6 +132,8 @@ static unsigned long __init c33_ram_size(void)
 void __init setup_arch(char **cmdline_p)
 {
 	unsigned long size = c33_ram_size();
+
+	c33_iram_init();
 
 	memory_start = PAGE_ALIGN((unsigned long)_end);
 	if (memory_start - CONFIG_PHYSICAL_START > size) {

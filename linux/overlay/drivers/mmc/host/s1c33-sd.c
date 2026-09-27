@@ -42,6 +42,8 @@
 
 #include <linux/platform_data/s1c33-sd.h>
 
+#include <asm/iram.h>
+
 /* Synchronous serial interface channel 0 */
 #define SPI_RXD		0x00
 #define SPI_TXD		0x04
@@ -106,11 +108,10 @@ struct s1c33_sd {
 	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
 	u32 control;			/* CTL1 as programmed */
 	unsigned char power_mode;
-	/*
-	 * crc_itu_t_table, copied into internal RAM when the board has some,
-	 * with the all-ones after it.
-	 */
-	const u16 *crc_table;
+	/* Put a block in order and check it: sd_unpack_crc(), in A0 RAM. */
+	u16 (*unpack_crc)(u32 *words, unsigned int n, u32 carry,
+			  unsigned int lead, const u16 *tables);
+	u16 *crc_tables;		/* its tables, in A0 RAM too */
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
 	unsigned long dma_blocks;
@@ -435,19 +436,90 @@ static int sd_write_words(struct s1c33_sd *host, const u8 *tx,
 }
 
 /*
+ * The CRC16 tables for four bytes at a time: the first 256 entries are
+ * crc_itu_t_table, and each next 256 the CRC of a byte followed by one more
+ * zero byte.
+ */
+#define SD_CRC_TABLES_SIZE	(4 * sizeof(crc_itu_t_table))
+
+static void sd_crc_tables_init(u16 *t)
+{
+	unsigned int v;
+	u16 c;
+
+	memcpy(t, crc_itu_t_table, sizeof(crc_itu_t_table));
+	for (v = 256; v < 4 * 256; v++) {
+		c = t[v - 256];
+		t[v] = c << 8 ^ t[c >> 8];
+	}
+}
+
+/*
+ * Put a DMA'd block in memory order and return its CRC, in one pass.
+ * @words holds @n words in wire order, first byte on top; the block's
+ * first @lead bytes came before them and are in @carry, first byte lowest,
+ * and the last @lead bytes of @words are past the block.  Each word goes
+ * into the CRC four bytes at a time, straight from wire order, then is
+ * swapped and shifted @lead bytes on.
+ *
+ * About 40 instructions a word: too long for the fetch queue, so it runs
+ * from A0 RAM (asm/iram.h), where it costs well under the byte-at-a-time
+ * CRC and a separate unpack from SDRAM.  It calls nothing and refers to no
+ * data by address, so it can run from there.
+ */
+static u16 __iramfunc sd_unpack_crc(u32 *words, unsigned int n, u32 carry,
+				    unsigned int lead, const u16 *tables)
+{
+	const u16 *t0 = tables, *t1 = tables + 256;
+	const u16 *t2 = tables + 512, *t3 = tables + 768;
+	unsigned int shift = lead * 8, i;
+	u32 raw, x, word;
+	u16 crc = 0;
+
+	for (i = 0; i < lead; i++)
+		crc = crc << 8 ^ t0[(crc >> 8 ^ carry >> (8 * i)) & 0xff];
+
+	if (!lead) {
+		for (i = 0; i < n; i++) {
+			raw = words[i];
+			x = raw ^ (u32)crc << 16;
+			crc = t3[x >> 24] ^ t2[(x >> 16) & 0xff] ^
+			      t1[(x >> 8) & 0xff] ^ t0[x & 0xff];
+			words[i] = swab32(raw);
+		}
+		return crc;
+	}
+
+	for (i = 0; i < n - 1; i++) {
+		raw = words[i];
+		x = raw ^ (u32)crc << 16;
+		crc = t3[x >> 24] ^ t2[(x >> 16) & 0xff] ^
+		      t1[(x >> 8) & 0xff] ^ t0[x & 0xff];
+		word = swab32(raw);
+		words[i] = carry | word << shift;
+		carry = word >> (32 - shift);
+	}
+	/* The last word: only its top 4 - @lead bytes are the block's. */
+	raw = words[i];
+	for (i = 0; i < 4 - lead; i++)
+		crc = crc << 8 ^ t0[(crc >> 8 ^ raw >> (24 - 8 * i)) & 0xff];
+	words[n - 1] = carry | swab32(raw) << shift;
+	return crc;
+}
+
+/*
  * crc_itu_t(), compiled here so that its loop is aligned (see the
  * Makefile).  The loop is 26 bytes, which the C33 runs from its fetch
  * buffer only when it starts a 16-byte line; otherwise every byte of every
  * block fetches it again from SDRAM, about 70 cycles a byte.
  *
- * Its table is the host's copy.  With the table in SDRAM, each byte's
+ * Its table is the copy in A0 RAM.  With the table in SDRAM, each byte's
  * lookup and the next byte's load open two different SDRAM rows, about 36
- * cycles a byte and a third of a block's time; from internal RAM only the
- * block's own row is open, and stays open.
+ * cycles a byte; from internal RAM only the block's own row is open, and
+ * stays open.  Block reads by HSDMA use sd_unpack_crc() instead.
  */
-static u16 sd_crc(struct s1c33_sd *host, const u8 *buf, unsigned int len)
+static u16 sd_crc(const u16 *table, const u8 *buf, unsigned int len)
 {
-	const u16 *table = host->crc_table;
 	u16 crc = 0;
 
 	while (len--)
@@ -686,6 +758,22 @@ static int sd_read_wait(struct s1c33_sd *host, struct sd_read *r)
 /* Put a block in order and check it; the wire is free meanwhile. */
 static int sd_read_finish(struct s1c33_sd *host, struct sd_read *r)
 {
+	u32 carry = 0;
+	unsigned int i;
+	u16 crc;
+
+	if (r->dma && !r->bitshift) {
+		for (i = 0; i < r->lead; i++)
+			carry |= (u32)r->first[i] << (8 * i);
+		crc = host->unpack_crc((u32 *)r->buf, r->len / 4, carry,
+				       r->lead, host->crc_tables);
+		if (host->mmc->use_spi_crc &&
+		    get_unaligned_be16(r->crc) != crc)
+			return -EILSEQ;
+		return 0;
+	}
+
+	/* A card that shifted the block: in order first, then check it. */
 	if (r->dma)
 		sd_unpack((u32 *)r->buf, r->len / 4, r->first, r->lead);
 
@@ -707,7 +795,8 @@ static int sd_read_finish(struct s1c33_sd *host, struct sd_read *r)
 	}
 
 	if (host->mmc->use_spi_crc &&
-	    get_unaligned_be16(r->crc) != sd_crc(host, r->buf, r->len))
+	    get_unaligned_be16(r->crc) !=
+	    sd_crc(host->crc_tables, r->buf, r->len))
 		return -EILSEQ;
 	return 0;
 }
@@ -801,7 +890,7 @@ static int sd_write_block(struct s1c33_sd *host, const u8 *buf,
 	int status;
 
 	if (host->mmc->use_spi_crc)
-		crc = sd_crc(host, buf, len);
+		crc = sd_crc(host->crc_tables, buf, len);
 
 	/*
 	 * The CRC goes out in a word of its own, padded with all-ones, and
@@ -1152,20 +1241,26 @@ static int sd_probe(struct platform_device *pdev)
 	host->idma = devm_platform_ioremap_resource_byname(pdev, "idma");
 	if (IS_ERR(host->idma))
 		return PTR_ERR(host->idma);
-	host->crc_table = crc_itu_t_table;
+	host->crc_tables = c33_iram_alloc(SD_CRC_TABLES_SIZE);
+	if (!host->crc_tables)
+		host->crc_tables = devm_kmalloc(dev, SD_CRC_TABLES_SIZE,
+						GFP_KERNEL);
+	if (!host->crc_tables)
+		return -ENOMEM;
+	sd_crc_tables_init(host->crc_tables);
+	host->unpack_crc = c33_iram_func(sd_unpack_crc);
+	/* The all-ones for the transmitter, in internal RAM if there is some. */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram");
 	if (res) {
 		void __iomem *sram = devm_ioremap_resource(dev, res);
 
 		if (IS_ERR(sram))
 			return PTR_ERR(sram);
-		if (resource_size(res) < sizeof(crc_itu_t_table) + SD_BLOCKSIZE)
+		if (resource_size(res) < SD_BLOCKSIZE)
 			return dev_err_probe(dev, -EINVAL, "sram too small\n");
-		memcpy_toio(sram, crc_itu_t_table, sizeof(crc_itu_t_table));
-		host->crc_table = (__force const u16 *)sram;
-		memset_io(sram + sizeof(crc_itu_t_table), 0xff, SD_BLOCKSIZE);
-		host->ones = (__force u8 *)sram + sizeof(crc_itu_t_table);
-		host->ones_phys = res->start + sizeof(crc_itu_t_table);
+		memset_io(sram, 0xff, SD_BLOCKSIZE);
+		host->ones = (__force u8 *)sram;
+		host->ones_phys = res->start;
 	}
 
 	host->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);

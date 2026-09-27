@@ -38,6 +38,11 @@ SECTIONS
 		LOCK_TEXT
 		IRQENTRY_TEXT
 		SOFTIRQENTRY_TEXT
+		/* Copied into A0 RAM at boot: asm/iram.h. */
+		. = ALIGN(16);
+		__iram_text_start = .;
+		*(.iram.text)
+		__iram_text_end = .;
 	} = 0
 	_etext = .;
 
