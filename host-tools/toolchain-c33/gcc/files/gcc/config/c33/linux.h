@@ -47,13 +47,28 @@
 #undef CPP_SPEC
 #define CPP_SPEC "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
 
-/* uClibc's startup code, with no crtbegin/crtend: constructors run from
-   .init_array, which the linker script collects.  */
+/* uClibc's startup code.  Constructors run from .init_array, which the
+   linker script collects; crtbegin and crtend bracket .eh_frame and
+   register it with the unwinder, as there are no program headers to find
+   it by at run time.  */
 #undef STARTFILE_SPEC
-#define STARTFILE_SPEC "crt1.o%s crti.o%s"
+#define STARTFILE_SPEC "crt1.o%s crti.o%s crtbegin.o%s"
 
 #undef ENDFILE_SPEC
-#define ENDFILE_SPEC "crtn.o%s"
+#define ENDFILE_SPEC "crtend.o%s crtn.o%s"
+
+/* Exceptions unwind with the DWARF tables, which cost nothing until
+   something throws.  The linker script keeps .eh_frame and
+   .gcc_except_table in the data segment, where the loader relocates their
+   absolute pointers.  */
+#undef DWARF2_UNWIND_INFO
+#define DWARF2_UNWIND_INFO 1
+
+/* Every program is static and uClibc-ng's libc.a holds the thread library,
+   so libgcc calls pthreads directly.  A weak reference would decide a
+   program was single-threaded whenever nothing else had pulled in the
+   object it names.  */
+#define GTHREAD_USE_WEAK 0
 
 #undef LIB_SPEC
 #define LIB_SPEC "%{pthread:-lpthread} -lc"

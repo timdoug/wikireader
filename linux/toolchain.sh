@@ -9,9 +9,10 @@
 #
 # The userspace compiler is configured against a sysroot holding the kernel's
 # UAPI headers and uClibc-ng's headers, so make -C linux fetch has to come
-# first; make -C linux libc then puts the library itself in the sysroot.
+# first; make -C linux libc then puts the library itself in the sysroot and
+# builds libstdc++ against it, with the libstdc++ step here.
 #
-#   toolchain.sh [all|elf|linux]
+#   toolchain.sh [all|elf|linux|libstdc++]
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -27,6 +28,17 @@ prefix=${toolwork}/install
 linux_target=c33-linux-uclibc
 sysroot=${prefix}/${linux_target}/sysroot
 which=${1:-all}
+
+if [ "${which}" = libstdc++ ]; then
+	C33_TARGET=${linux_target} \
+		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" libstdc++
+	# app-test.py runs this from the card.
+	mkdir -p "${root}/linux/artifacts"
+	"${prefix}/bin/${linux_target}-g++" -Os -Wall -Werror -pthread \
+		"${here}/uclibc/cxx-test.cc" -o "${root}/linux/artifacts/cxx-test" \
+		-Wl,-elf2flt=--shared-text
+	exit 0
+fi
 
 if [ "${which}" != linux ]; then
 	"${root}/host-tools/toolchain-c33/binutils/build.sh" "${toolwork}"

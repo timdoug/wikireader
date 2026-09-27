@@ -82,21 +82,35 @@ def section_by_name(sections, name, required=True):
     return matches[0]
 
 
+# The data segment, in order.  .eh_frame has an output section of its own,
+# as in any ELF link: placed inside .data, the linker's .eh_frame editing
+# under --gc-sections emits relocations at the wrong offsets.
+DATA_SECTIONS = (".data", ".eh_frame")
+
+
 def make_segments(sections):
     text = section_by_name(sections, ".text")
-    data = section_by_name(sections, ".data", required=False)
+    data = [section for section in
+            (section_by_name(sections, name, required=False)
+             for name in DATA_SECTIONS)
+            if section and section.size]
     bss = section_by_name(sections, ".bss", required=False)
     if text.address < 4:
         raise ValueError(".text must leave offset zero unavailable for symbols")
 
-    data_address = data.address if data else (bss.address if bss else
-                                               text.address + text.size)
+    data_address = data[0].address if data else (bss.address if bss else
+                                                 text.address + text.size)
     text_end = text.address + text.size
     if data_address < text_end:
         raise ValueError(".data overlaps .text")
     text_image = bytes(text.address) + text.contents + bytes(data_address - text_end)
 
-    data_image = data.contents if data else b""
+    data_image = b""
+    for section in data:
+        gap = section.address - (data_address + len(data_image))
+        if gap < 0:
+            raise ValueError(f"{section.name} is out of order in the data segment")
+        data_image += bytes(gap) + section.contents
     data_end = data_address + len(data_image)
     bss_end = bss.address + bss.size if bss else data_end
     if bss_end < data_end:
@@ -144,7 +158,7 @@ def make_relocations(sections, image_size, data_address, data_end):
     fixed = fixed_symbols(sections)
     records = []
     loadable = {section.index for section in sections
-                if section.name in (".text", ".data")}
+                if section.name in (".text",) + DATA_SECTIONS}
     for section in sections:
         if section.type != SHT_RELA or section.info not in loadable:
             continue
@@ -188,7 +202,13 @@ def make_relocations(sections, image_size, data_address, data_end):
         if kind == C33_32:
             if symbol not in fixed:
                 relocations.append(address)
-        elif kind != 0 and kind not in C33_PC_RELATIVE:
+        elif kind in C33_PC_RELATIVE:
+            # The loader moves text and data independently, so a
+            # PC-relative value is only right between two text addresses.
+            if address >= data_address:
+                raise ValueError(f"PC-relative relocation {kind} in the data "
+                                 f"segment at 0x{address:x}")
+        elif kind != 0:
             raise ValueError(f"unsupported C33 relocation {kind} at 0x{address:x}")
         index += 1
 

@@ -292,7 +292,7 @@ Linux-hosted GCC/binutils toolchains into one prefix; it does not reuse the
 Mach-O executables under `host-tools/toolchain-c33/work`:
 
 - `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
-- `c33-linux-uclibc-` is the userspace compiler. It defaults to
+- `c33-linux-uclibc-` is the userspace compiler, for C and C++. It defaults to
   `-mc33pe -msep-data -mlong-calls`, defines `__uClinux__`, and links
   statically against uClibc-ng in its sysroot. Its `ld` follows uClinux's
   elf2flt convention: `-Wl,-elf2flt` writes a bFLT and keeps the ELF beside
@@ -349,8 +349,34 @@ and 128) instead of 1024 each. `libc` also builds
 contended mutex, per-thread `errno`, condition variables, semaphores,
 `pthread_once` and thread-specific data.
 
+uClibc-ng has wide characters, which libstdc++ and many packages need; they
+put about 8 KB of shared text into BusyBox. `libc` then builds libstdc++
+against the installed C library, with `toolchain.sh libstdc++`.
+
+C++ exceptions unwind with the DWARF tables, which cost nothing until
+something throws. The tables hold absolute addresses, so they live in the
+data segment, where the loader relocates them, and `crtbegin.o` registers
+`.eh_frame` with libgcc's unwinder, as a bFLT has no program headers to find
+it by. `.eh_frame` is an output section of its own after `.data`; placed
+inside `.data`, ld's `--gc-sections` editing of it emits relocations at the
+wrong offsets. A C program carries about 500 bytes of unwind tables from
+libgcc. C++ costs far more: `cxx-test` has 765 KB of shared text and, per
+process, 73 KB of unwind tables and 60 KB of other data, mostly vtables,
+typeinfo and locale tables. Threads call pthreads directly: uClibc-ng claims
+to be glibc 2.2, so gthreads would otherwise judge a program threaded by a
+weak reference to `__pthread_key_create`, which LinuxThreads does not have
+(`host-tools/toolchain-c33/gcc/patches/0003`). Atomics of up to 4 bytes are
+inline and lock-free, masking interrupts as `testandset` does.
+
+`libc` also builds `linux/artifacts/cxx-test`, which `app-test` runs from the
+card after the thread test: exceptions through 40 frames with callee-saved
+registers restored, through a 3 KB frame, rethrown, carried in an
+`exception_ptr`, and thrown inside libstdc++; `bad_alloc`; RTTI and
+cross-casts; static construction; iostreams, containers and `shared_ptr`;
+and four threads throwing and catching concurrently under a mutex.
+
 `rootfs` builds the root filesystem with Buildroot 2026.08 and leaves it as
-`linux/artifacts/linux.img`, a 64 MB ext4 image with 4 KB blocks and no
+`linux/artifacts/linux.img`, a 16 MB ext4 image with 4 KB blocks and no
 metadata checksums. It goes on the card's FAT partition beside `linux.app`.
 
 The kernel's own initramfs holds only `initramfs/rootstart`, a 2 KB

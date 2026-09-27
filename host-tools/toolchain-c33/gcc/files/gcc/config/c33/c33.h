@@ -787,6 +787,16 @@ typedef enum
 #define C33_FIRST_SAVED_REG 0
 #define C33_LAST_SAVED_REG  3
 
+/* The unwinder hands a landing pad the exception pointer and selector in
+   %r4 and %r5, the return value registers, as i386 and m68k use theirs.
+   They sit just above the callee-saved block, so a function that calls
+   __builtin_eh_return saves %r0-%r5 with one pushn (see
+   compute_register_save_size).  The stack adjustment travels in %r13,
+   which the epilogue does not touch.  */
+#define C33_EH_LAST_DATA_REG 5
+#define EH_RETURN_DATA_REGNO(N) ((N) < 2 ? (N) + 4 : INVALID_REGNUM)
+#define EH_RETURN_STACKADJ_RTX  gen_rtx_REG (Pmode, 13)
+
 /* This is how to output an element of a case-vector that is absolute.  */
 
 /* Jump tables hold absolute 4-byte addresses.

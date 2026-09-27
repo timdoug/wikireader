@@ -1,0 +1,19 @@
+diff --git a/libstdc++-v3/config/os/uclibc/os_defines.h b/libstdc++-v3/config/os/uclibc/os_defines.h
+--- a/libstdc++-v3/config/os/uclibc/os_defines.h
++++ b/libstdc++-v3/config/os/uclibc/os_defines.h
+@@ -38,4 +38,15 @@
+ 
+ #include <features.h>
+ 
++// uClibc-ng builds pthreads into libc and leaves libpthread empty, and has
++// no __pthread_key_create, which gthr-posix.h would take as the sign of a
++// threaded program because uClibc claims to be glibc 2.2.  Call pthreads
++// directly, as for glibc 2.34 and later.  1.0.59 is the release this was
++// checked against.
++#if __UCLIBC_MAJOR__ > 1 \
++    || (__UCLIBC_MAJOR__ == 1 && (__UCLIBC_MINOR__ > 0 \
++				  || __UCLIBC_SUBLEVEL__ >= 59))
++# define _GLIBCXX_GTHREAD_USE_WEAK 0
++#endif
++
+ #endif

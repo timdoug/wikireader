@@ -45,6 +45,7 @@
 #include "output.h"
 #include "insn-attr.h"
 #include "explow.h"
+#include "expmed.h"
 #include "expr.h"
 #include "cfgrtl.h"
 #include "builtins.h"
@@ -782,10 +783,10 @@ c33_print_operand (FILE * file, rtx x, int code)
       switch (GET_CODE (x))
 	{
 	case MEM:
-	  if (GET_CODE (XEXP (x, 0)) == CONST_INT)
-	    output_address (GET_MODE (x),
-			    gen_rtx_PLUS (SImode, gen_rtx_REG (SImode, 0),
-					  XEXP (x, 0)));
+	  /* c33_legitimate_address_p turns these away; see there.  */
+	  if (CONST_INT_P (XEXP (x, 0)))
+	    output_operand_lossage ("no C33 addressing mode for the absolute "
+				    "address %wd", INTVAL (XEXP (x, 0)));
 	  else
 	    output_address (GET_MODE (x), XEXP (x, 0));
 	  break;
@@ -1836,6 +1837,13 @@ compute_register_save_size (long * p_reg_saved)
       /* A frame pointer lives in %r3 and must be preserved too.  */
       if (frame_pointer_needed && highest < HARD_FRAME_POINTER_REGNUM)
 	highest = HARD_FRAME_POINTER_REGNUM;
+
+      /* A function that calls __builtin_eh_return also saves the exception
+	 data registers, %r4 and %r5, just above the callee-saved block: the
+	 unwinder stores the landing pad's values into those slots and the
+	 eh_return epilogue loads them (see c33_expand_eh_return).  */
+      if (crtl->calls_eh_return)
+	highest = C33_EH_LAST_DATA_REG;
     }
 
   for (i = 0; i <= highest; i++)
@@ -1903,11 +1911,30 @@ expand_prologue (void)
       highest = i;
 
   /* Save the callee-saved block with a single pushn %rHIGHEST.  This both
-     stores the registers and moves %sp down by 4 * (highest + 1).  */
+     stores the registers and moves %sp down by 4 * (highest + 1).
+
+     The pattern is an unspec, which says nothing to the CFI machinery, so
+     the note spells out what it does: %r0 lands at the new %sp and %rN
+     just below the old one (core manual 2.4.2).  Addresses in a PARALLEL
+     note are relative to %sp before the insn.  */
   if (highest >= 0)
     {
       rtx insn = emit_insn (gen_pushn (GEN_INT (highest)));
+      rtx note = gen_rtx_PARALLEL (VOIDmode, rtvec_alloc (highest + 2));
+
+      XVECEXP (note, 0, 0)
+	= gen_rtx_SET (stack_pointer_rtx,
+		       plus_constant (Pmode, stack_pointer_rtx,
+				      -4 * (highest + 1)));
+      for (i = 0; i <= highest; i++)
+	XVECEXP (note, 0, i + 1)
+	  = gen_rtx_SET (gen_frame_mem (SImode,
+					plus_constant (Pmode, stack_pointer_rtx,
+						       4 * (i - highest - 1))),
+			 gen_rtx_REG (SImode, i));
       RTX_FRAME_RELATED_P (insn) = 1;
+      add_reg_note (insn, REG_FRAME_RELATED_EXPR,
+		    c33_all_frame_related (note));
     }
 
   /* Then carve out the local frame and any outgoing argument area.  */
@@ -1920,8 +1947,26 @@ expand_prologue (void)
     }
 }
 
-void
-expand_epilogue (bool sibcall_p)
+/* popn %rHIGHEST, which reloads %r0..%rHIGHEST and moves %sp up past
+   them.  */
+
+static rtx
+c33_gen_popn (int highest)
+{
+  rtvec v = rtvec_alloc (highest + 3);
+  int i;
+
+  RTVEC_ELT (v, 0) = gen_rtx_UNSPEC_VOLATILE (VOIDmode,
+					      gen_rtvec (1, GEN_INT (highest)),
+					      UNSPECV_POPN);
+  RTVEC_ELT (v, 1) = gen_rtx_CLOBBER (VOIDmode, stack_pointer_rtx);
+  for (i = 0; i <= highest; i++)
+    RTVEC_ELT (v, i + 2) = gen_rtx_CLOBBER (VOIDmode, gen_rtx_REG (SImode, i));
+  return gen_rtx_PARALLEL (VOIDmode, v);
+}
+
+static void
+c33_expand_epilogue_1 (bool sibcall_p, bool eh_return_p)
 {
   long reg_saved = 0;
   unsigned int size = get_frame_size ();
@@ -1952,8 +1997,30 @@ expand_epilogue (bool sibcall_p)
 
   c33_adjust_sp (actual_fsize - save_size, false);
 
-  if (highest >= 0)
-    emit_insn (gen_popn (GEN_INT (highest)));
+  /* The ordinary return from a function that calls __builtin_eh_return
+     leaves the exception data registers alone: %r4 holds its return value.
+     popn restores from %r0 upwards, so stop at %r3 and step over their
+     slots.  */
+  if (crtl->calls_eh_return && !eh_return_p)
+    {
+      gcc_assert (highest == C33_EH_LAST_DATA_REG);
+      emit_insn (c33_gen_popn (C33_LAST_SAVED_REG));
+      c33_adjust_sp (4 * (C33_EH_LAST_DATA_REG - C33_LAST_SAVED_REG), false);
+    }
+  else if (highest >= 0)
+    emit_insn (c33_gen_popn (highest));
+
+  /* The unwinder's path out: %sp moves on to the handler's frame, where
+     c33_expand_eh_return left the handler address for ret to pop.  %r14 is
+     free here, as in c33_adjust_sp.  */
+  if (eh_return_p)
+    {
+      rtx tmp = gen_rtx_REG (Pmode, 14);
+
+      emit_move_insn (tmp, stack_pointer_rtx);
+      emit_insn (gen_addsi3 (tmp, tmp, EH_RETURN_STACKADJ_RTX));
+      emit_move_insn (stack_pointer_rtx, tmp);
+    }
 
   /* ret pops the return address that call pushed (core manual 2.4.4);
      there is no link register to jump through.  An interrupt pushed PSR as
@@ -1964,6 +2031,63 @@ expand_epilogue (bool sibcall_p)
     emit_jump_insn (gen_return_interrupt ());
   else
     emit_jump_insn (gen_return_internal ());
+}
+
+void
+expand_epilogue (bool sibcall_p)
+{
+  c33_expand_epilogue_1 (sibcall_p, false);
+}
+
+/* The split of eh_return_internal, once the frame is known.  */
+
+void
+c33_expand_eh_return_epilogue (void)
+{
+  c33_expand_epilogue_1 (false, true);
+}
+
+/* Expand __builtin_eh_return, as i386 does.  The epilogue will add the
+   stack adjustment in EH_RETURN_STACKADJ_RTX to %sp before its ret, so the
+   ret pops the word just below the handler frame's stack address: the arg
+   pointer (this function's CFA) plus the adjustment, less a word.  Store
+   HANDLER there.  The store is volatile because nothing in this function
+   reads it back.  */
+
+void
+c33_expand_eh_return (rtx handler)
+{
+  rtx addr = expand_simple_binop (Pmode, PLUS, arg_pointer_rtx,
+				  EH_RETURN_STACKADJ_RTX, NULL_RTX, 0,
+				  OPTAB_DIRECT);
+  addr = force_reg (Pmode, plus_constant (Pmode, addr, -UNITS_PER_WORD));
+  rtx slot = gen_rtx_MEM (Pmode, addr);
+
+  MEM_VOLATILE_P (slot) = 1;
+  emit_move_insn (slot, force_reg (Pmode, handler));
+  emit_jump_insn (gen_eh_return_internal ());
+  emit_barrier ();
+}
+
+/* Expand atomic_compare_and_swap<mode>; see ATOMICS in c33.md.  The insn
+   compares zero-extended values, so the expected value is extended from
+   the operation's own mode: a QImode -1 has to match the 255 that ld.ub
+   loads.  */
+
+void
+c33_expand_compare_and_swap (rtx operands[])
+{
+  machine_mode mode = GET_MODE (operands[2]);
+  rtx addr = force_reg (Pmode, XEXP (operands[2], 0));
+  rtx expected = force_reg (SImode, convert_modes (SImode, mode,
+						   operands[3], 1));
+  rtx desired = force_reg (SImode, convert_modes (SImode, mode,
+						  operands[4], 1));
+  rtx old = gen_reg_rtx (SImode);
+
+  emit_insn (gen_c33_cas (mode, old, addr, expected, desired));
+  emit_move_insn (operands[1], gen_lowpart (mode, old));
+  emit_store_flag_force (operands[0], EQ, old, expected, SImode, 1, 1);
 }
 
 /* Typical stack layout should looks like this after the function's prologue:
@@ -2392,10 +2516,13 @@ c33_output_local (FILE * file,
 static void
 c33_insert_attributes (tree decl, tree * attr_ptr ATTRIBUTE_UNUSED )
 {
+  /* The V850 original also took CONST_DECLs here, but those are
+     enumerators, with no storage and so no data area or section; asking a
+     C++ enumerator with an attribute for its section crashes.  */
   if (data_area_stack
       && data_area_stack->data_area
       && current_function_decl == NULL_TREE
-      && (VAR_P (decl) || TREE_CODE (decl) == CONST_DECL)
+      && VAR_P (decl)
       && c33_get_data_area (decl) == DATA_AREA_NORMAL)
     c33_set_data_area (decl, data_area_stack->data_area);
 
@@ -2421,9 +2548,7 @@ c33_insert_attributes (tree decl, tree * attr_ptr ATTRIBUTE_UNUSED )
     }
 
   if (current_function_decl == NULL_TREE
-      && (VAR_P (decl)
-	  || TREE_CODE (decl) == CONST_DECL
-	  || TREE_CODE (decl) == FUNCTION_DECL)
+      && (VAR_P (decl) || TREE_CODE (decl) == FUNCTION_DECL)
       && (!DECL_EXTERNAL (decl) || DECL_INITIAL (decl))
       && !DECL_SECTION_NAME (decl))
     {
@@ -2946,8 +3071,11 @@ c33_legitimate_address_p (machine_mode mode, rtx x, bool strict_p,
     return true;
 
   /* An absolute address, materialised by the assembler as an xld.w of the
-     symbol (the R_C33_H/M/L triple).  */
-  if (CONSTANT_ADDRESS_P (x))
+     symbol (the R_C33_H/M/L triple).  Not a bare number: the C33 has no
+     absolute addressing mode, and the assembler reads "[1234]" as the
+     immediate 1234.  The V850 original printed one as [r0+1234], right
+     where r0 is always zero and here a read of callee-saved %r0.  */
+  if (CONSTANT_ADDRESS_P (x) && !CONST_INT_P (x))
     return true;
 
   return false;
@@ -3028,7 +3156,12 @@ c33_option_override (void)
       target_flags &= ~MASK_EXT_32;
     }
 
-  if (flag_exceptions || flag_non_call_exceptions)
+  /* The first backend kept a frame pointer whenever exceptions were on.
+     That stays for the setjmp/longjmp scheme the bare-metal compiler uses;
+     table-driven unwinding (c33/linux.h) finds every frame from its CFI and
+     needs no frame pointer, which would cost one of four callee-saved
+     registers.  */
+  if ((flag_exceptions || flag_non_call_exceptions) && !DWARF2_UNWIND_INFO)
     flag_omit_frame_pointer = 0;
 
   /* Compact 32-bit targets need enough budget to completely peel small

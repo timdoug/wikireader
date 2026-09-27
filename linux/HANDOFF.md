@@ -170,5 +170,13 @@ counts and has drifted once already.
   reference, and the clock core turns off every gate no driver has claimed.
 - **This BusyBox has no `stat -c` and no `tail -1`.** `date -s @epoch` and
   `date -r FILE +%s` do work.
+- **The C33 backend is a V850 fork, and V850's `r0` is always zero.** Here
+  `%r0` is a callee-saved register. The backend printed a numeric address as
+  `[%r0+N]`, and took C++ enumerators for data; both are fixed, but check for
+  that assumption when anything V850-derived misbehaves.
+- **libstdc++ finds backend bugs that C never reached**: C++ enumerators with
+  attributes, sibling calls through half of a 64-bit value, and numeric
+  addresses on paths GCC proved dead. Build it with `make -k` to see every
+  failing file at once.
 - **Driving the guest's own shell over UART** answers questions about userspace
   in well under a minute, against a two-minute rebuild.

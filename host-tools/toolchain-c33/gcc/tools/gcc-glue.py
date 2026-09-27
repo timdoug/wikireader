@@ -97,14 +97,20 @@ def libgcc_target(s):
                      'v850*-*-*)\n\ttmake_file="${tmake_file} v850/t-v850 t-fdpbit"\n\t;;\n', 1)
 
 def libgcc_linux(s):
-    """The Linux target links uClibc's crt1/crti/crtn and no crtbegin or
-    crtend (see c33/linux.h), so the generic Linux extra_parts are dropped;
-    crtbeginS would also want -fPIC, which this target does not have."""
-    if 'c33-*-linux*)\n\ttmake_file' in s:
+    """No-MMU Linux with uClibc-ng.  Of the generic Linux extra_parts only
+    crtbegin.o and crtend.o apply: they register .eh_frame with the
+    unwinder (see c33/linux.h), and crtbeginS/crtbeginT would be for shared
+    and PIE links, which this target does not have."""
+    block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+             '\textra_parts="crtbegin.o crtend.o"\n\t;;\n')
+    if block in s:
         return None
+    old = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+           '\textra_parts=""\n\t;;\n')
+    if old in s:
+        return s.replace(old, block, 1)
     return s.replace('c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n',
-                     'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
-                     '\textra_parts=""\n\t;;\n'
+                     block +
                      'c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n', 1)
 
 edit('libgcc/config.host', libgcc_cpu_type)

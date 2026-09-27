@@ -11,12 +11,14 @@
 # source tree out from under you, leaving empty directories and a build that
 # fails in confusing ways.
 #
-#   ./rebuild.sh [workdir]
+#   ./rebuild.sh [workdir [libstdc++]]
 #
 # C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, in
-# its own build directory and into the same prefix.  It needs that
-# triplet's binutils and a sysroot holding the kernel and uClibc-ng headers
-# (linux/toolchain.sh does all three).
+# its own build directory and into the same prefix, for C and C++.  It needs
+# that triplet's binutils and a sysroot holding the kernel and uClibc-ng
+# headers (linux/toolchain.sh does all three).  libstdc++ links against the
+# C library, so it is left out of that build and made afterwards, once
+# uClibc-ng is installed, by the libstdc++ step.
 
 set -e
 
@@ -24,6 +26,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=${1:-${C33_TOOLCHAIN_WORK:-${HERE}/../work}}
 PREFIX="${WORK}/install"
 TARGET=${C33_TARGET:-c33-epson-elf}
+STEP=${2:-compiler}
 SRC="${WORK}/gcc-16.2.0"
 TARBALL=gcc-16.2.0.tar.xz
 
@@ -89,29 +92,51 @@ done
 
 if [ "${TARGET}" = c33-epson-elf ]; then
 	BUILD="${SRC}/build"
-	# Bare metal: no C library headers, newlib's type conventions.
-	TARGET_CONFIG="--without-headers --with-newlib"
+	# Bare metal: C only, no C library headers, newlib's type conventions.
+	TARGET_CONFIG="--enable-languages=c --without-headers --with-newlib \
+		--disable-threads"
 else
 	BUILD="${SRC}/build-${TARGET}"
 	# The one multilib is chosen by c33/linux.h; libgcc is built against
-	# the sysroot's uClibc-ng headers.
-	TARGET_CONFIG="--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib"
+	# the sysroot's uClibc-ng headers, and threads are uClibc-ng's pthreads.
+	TARGET_CONFIG="--enable-languages=c,c++ \
+		--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib \
+		--enable-threads=posix --disable-libstdcxx-pch"
 fi
-
-mkdir -p "${BUILD}"
-cd "${BUILD}"
-if [ ! -f Makefile ] \
-	|| ! grep -q -- '--enable-initfini-array' gcc/configargs.h 2>/dev/null; then
-	echo "==> configuring"
-	../configure --target="${TARGET}" --prefix="${PREFIX}" \
-		--enable-languages=c ${TARGET_CONFIG} \
-		--enable-initfini-array \
-		--disable-libssp --disable-libquadmath --disable-libatomic \
-		--disable-libgomp --disable-nls --disable-shared --disable-threads \
-		${CONFIG_MATH}
-fi
+CONFIG_ARGS="--target=${TARGET} --prefix=${PREFIX} ${TARGET_CONFIG} \
+	--enable-initfini-array \
+	--disable-libssp --disable-libquadmath --disable-libatomic \
+	--disable-libgomp --disable-nls --disable-shared ${CONFIG_MATH}"
+CONFIG_ARGS=$(echo ${CONFIG_ARGS})
 
 N=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+
+if [ "${STEP}" = libstdc++ ]; then
+	cd "${BUILD}"
+	# Rebuilt from scratch every time, for the reason libgcc is below: it
+	# was configured against the C library, which may have changed.
+	echo "==> rebuilding libstdc++ from scratch"
+	rm -rf "${TARGET}/libstdc++-v3"
+	rm -f configure-target-libstdc++-v3 all-target-libstdc++-v3 \
+		install-target-libstdc++-v3
+	make -j"${N}" all-target-libstdc++-v3
+	make install-target-libstdc++-v3
+	echo "==> DONE: ${PREFIX}/${TARGET}/lib/libstdc++.a"
+	exit 0
+fi
+
+# A build directory configured with other arguments is started afresh.
+mkdir -p "${BUILD}"
+cd "${BUILD}"
+if [ ! -f Makefile ] || [ "$(cat .c33-configure-args 2>/dev/null)" != "${CONFIG_ARGS}" ]; then
+	echo "==> configuring"
+	cd "${SRC}"
+	rm -rf "${BUILD}"
+	mkdir -p "${BUILD}"
+	cd "${BUILD}"
+	../configure ${CONFIG_ARGS}
+	echo "${CONFIG_ARGS}" > .c33-configure-args
+fi
 
 # multilib.h is stamped against the Makefile, not the t-c33 fragment that
 # lists the multilibs, so a new multilib would otherwise go unnoticed.  It

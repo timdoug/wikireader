@@ -74,11 +74,20 @@ uclibc_make -j"$jobs"
 uclibc_make install
 test -f "$sysroot/usr/lib/libc.a"
 
+# The links below, and every one after, use the flat linker script and
+# converter from this tree, not whatever toolchain.sh last installed.
+install -m 644 "$root/linux/uclibc/static-flat.ld" \
+	"$tool_dir/install/$target/lib/elf2flt.ld"
+install -m 755 "$root/linux/initramfs/make-flat.py" \
+	"$tool_dir/install/$target/lib/make-flat.py"
+
 "${cross}gcc" -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ffunction-sections -fdata-sections -Wl,--gc-sections \
 	"$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke" \
 	-Wl,-elf2flt=--shared-text
-undefined=$("${cross}nm" -u "$build_dir/uclibc-smoke.gdb")
+# Weak references may stay undefined: crtbegin.o's to the unwinder and the
+# transactional-memory runtime resolve to zero in a C program.
+undefined=$("${cross}nm" -u "$build_dir/uclibc-smoke.gdb" | grep -v '^ *w ' || true)
 if [ -n "$undefined" ]; then
 	echo "static uClibc smoke test has undefined symbols:" >&2
 	echo "$undefined" >&2

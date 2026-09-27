@@ -15,6 +15,10 @@ kernel, `init.app`, and `wiki.app`. The resulting firmware boots through the
 current full-system emulator and renders the tested screens identically to the
 shipped GCC 3.3.2 firmware.
 
+The same backend builds `c33-linux-uclibc`, the C and C++ compiler for
+no-MMU Linux, with static uClibc-ng and libstdc++; see
+[`linux/README.md`](../../../linux/README.md).
+
 There is no known wrong-code failure in a supported C or ABI feature.
 
 Implemented target facilities include:
@@ -25,13 +29,18 @@ Implemented target facilities include:
 - short and long direct calls, indirect calls, sibling calls, and returns;
 - delayed branches and scheduling of the one non-annulling delay slot;
 - exact 0/13/26-bit `ext` prefix selection and branch lengths;
-- byte, halfword, word, stack-relative, absolute, `%r15`-relative, and
-  post-increment memory forms;
+- byte, halfword, word, stack-relative, symbolic absolute, `%r15`-relative,
+  and post-increment memory forms (a numeric address goes through a
+  register, as the C33 has no absolute addressing mode);
 - strict alignment and PE's mandatory address-error behavior;
 - arithmetic, logic, shifts, rotates, multiply, bit operations, comparisons,
   branches, jump tables, software interrupts, and interrupt returns;
 - generic libgcc integer division and soft-float helpers;
 - stack trampolines and GCC's `__builtin_apply` / `__builtin_return`;
+- CFI for every frame, `pushn` blocks included, and `__builtin_eh_return`
+  for DWARF exception unwinding (the Linux compiler's scheme);
+- lock-free 1-, 2- and 4-byte atomics on the PE core, which mask interrupts
+  around the access;
 - ELF init/fini arrays, mergeable constants and strings, weak symbols, LTO,
   precompiled headers, DWARF 2, and CTF; and
 - three installed libgcc multilibs, one for each C33 core variant.
@@ -141,8 +150,9 @@ See [`../tests/DEJAGNU-TODO.md`](../tests/DEJAGNU-TODO.md).
 
 - `__int128`: define the ABI, alignment, argument/return behavior, TImode
   moves and arithmetic, and libgcc helpers.
-- atomics: define interrupt, lock, and visibility semantics and enable
-  libatomic; the target has no native compare-and-swap or thread model.
+- 8-byte atomics, which are library calls with no library behind them; and
+  atomics on the Standard and Advanced cores, for which the patterns are
+  not enabled.
 - heap trampolines: provide allocation and executable-memory runtime hooks.
 
 These are new target features, not regressions in the supported ABI.

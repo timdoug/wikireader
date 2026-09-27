@@ -318,6 +318,34 @@ scratch:
   comparison.
 * Interrupts push both PC and PSR (`SP -= 8`); `reti` pops both.
 * Leaf functions that need no frame emit no prologue at all.
+* `pushn %rN` leaves `%r0` at the new `%sp` and `%rN` highest. The CFI says
+  so: the CFA is the caller's `%sp` (entry `%sp` + 4), the return address is
+  at CFA-4 in a DWARF column of its own (22, one past the hard registers), and
+  `%ri` is at CFA - 4 * (N + 2 - i): `pushn %r3` puts `%r0` at CFA-20.
+
+## Exceptions
+
+*Implemented in `c33.cc` (`c33_expand_eh_return`) and `c33/linux.h`.*
+
+* The Linux compiler unwinds with DWARF tables; the bare-metal compiler keeps
+  GCC's setjmp/longjmp scheme, and with it a frame pointer in any function
+  compiled with exceptions.
+* A landing pad receives the exception pointer and selector in **`%r4` and
+  `%r5`**, the return value registers, as on i386 and m68k.
+* `__builtin_eh_return` passes the stack adjustment in **`%r13`**. A function
+  that calls it saves `%r0`-`%r5` with one `pushn %r5`. Its ordinary return
+  reloads only `%r0`-`%r3` (`%r4` holds its return value) and steps over the
+  other two slots; its unwinder return reloads all six, adds `%r13` to `%sp`,
+  and `ret`s to the handler address stored where that `ret` pops.
+
+## Atomics
+
+* On the PE core, 1-, 2- and 4-byte atomics are inline and lock-free: the
+  sequence saves `%psr`, masks interrupts with `psrclr 4`, does its load and
+  store, and restores `%psr`. That is atomic on a single core, and the C33 has
+  no privilege level that would stop user code masking interrupts. GCC builds
+  every operation from the compare-and-swap and exchange patterns. 8-byte
+  atomics are library calls, and nothing provides them yet.
 
 ## Condition codes
 

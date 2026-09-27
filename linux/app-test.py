@@ -107,6 +107,7 @@ def main():
     app = require(root / "linux/artifacts/linux.app")
     system = require(root / "linux/artifacts/linux.img")
     pthread_test = require(root / "linux/artifacts/pthread-test")
+    cxx_test = require(root / "linux/artifacts/cxx-test")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
     fat = load_fat_helper(root)
@@ -124,8 +125,10 @@ def main():
             # The system itself, which linux.app mounts from here.
             "linux.img": system.read_bytes(),
             "linux.ico": icon.read_bytes(),
-            # LinuxThreads is not in the initramfs, so its test rides here.
+            # The thread and C++ tests are not in the system image, so
+            # they ride here.
             "pthtest.bin": pthread_test.read_bytes(),
+            "cxxtest.bin": cxx_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the
             # only thing on this machine that can supply one, and it comes
@@ -141,7 +144,7 @@ def main():
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
-        uart_input.write_text("/mnt/sd/pthtest.bin && "
+        uart_input.write_text("/mnt/sd/pthtest.bin && /mnt/sd/cxxtest.bin && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
@@ -172,6 +175,7 @@ def main():
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "PTHREAD PASS",
+            "CXX PASS",
             "C33 LINUX APP PASS",
             "application returned: 2",
             "watchdog reset",

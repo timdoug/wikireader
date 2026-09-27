@@ -7,6 +7,8 @@ DO_C99_MATH=y
 UCLIBC_HAS_LINUXTHREADS=y
 PTHREADS_STACK_DEFAULT_SIZE=65536
 UCLIBC_HAS_IPV6=y
+# libstdc++ and many packages need the wide-character functions.
+UCLIBC_HAS_WCHAR=y
 UCLIBC_HAS_SSP=y
 # Without an MMU the canary only catches bugs, and reading /dev/urandom in
 # every program would wait for the random pool at boot and cost each exec.

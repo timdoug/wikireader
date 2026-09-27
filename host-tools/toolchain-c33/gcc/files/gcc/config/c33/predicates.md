@@ -522,3 +522,30 @@
 {
   return (GET_CODE (op) == IOR);
 })
+
+;; The PARALLEL of a popn %rN (see c33_gen_popn): the unspec, the %sp
+;; clobber, then a clobber of each of %r0..%rN in order.
+(define_predicate "popn_operation"
+  (match_code "parallel")
+{
+  rtx first = XVECEXP (op, 0, 0);
+  HOST_WIDE_INT n;
+  int i;
+
+  if (GET_CODE (first) != UNSPEC_VOLATILE
+      || XINT (first, 1) != UNSPECV_POPN
+      || !CONST_INT_P (XVECEXP (first, 0, 0)))
+    return false;
+  n = INTVAL (XVECEXP (first, 0, 0));
+  if (n < 0 || n > 15 || XVECLEN (op, 0) != n + 3)
+    return false;
+  for (i = 0; i <= n; i++)
+    {
+      rtx x = XVECEXP (op, 0, i + 2);
+      if (GET_CODE (x) != CLOBBER
+	  || !REG_P (XEXP (x, 0))
+	  || REGNO (XEXP (x, 0)) != (unsigned) i)
+	return false;
+    }
+  return true;
+})

@@ -24,6 +24,7 @@
 
 extern void   expand_prologue               (void);
 extern void   expand_epilogue               (bool);
+extern void   c33_expand_eh_return_epilogue (void);
 extern int    c33_handle_pragma            (int (*)(void), void (*)(int), char *);
 extern int    compute_register_save_size    (long *);
 extern int    compute_frame_size            (poly_int64, long *);
@@ -31,6 +32,8 @@ extern void   c33_init_expanders           (void);
 
 #ifdef RTX_CODE
 extern rtx    c33_return_addr              (int);
+extern void   c33_expand_eh_return         (rtx);
+extern void   c33_expand_compare_and_swap  (rtx *);
 extern const char *output_move_single       (rtx *);
 extern const char *c33_output_extend    (rtx *, const char *);
 extern bool        c33_dp_relative_address_p (rtx);
