@@ -4,6 +4,10 @@
 whoever picks the work up next: what has been proven and where, what is left,
 and the things that cost a day to learn.
 
+**NEVER BYPASS GRIFO.** Every emulator run, whether a test, a timing or a quick
+check, boots MBR -> Grifo -> init.app -> linux.app. The direct fixture that
+`boot-test.sh` still uses runs at 48 MHz without Grifo and is never right.
+
 ## State
 
 The port boots the production path and the Grifo launcher path, mounts the

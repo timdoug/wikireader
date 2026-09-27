@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# NEVER BYPASS GRIFO.  This script still boots vmlinux through the NuttX file
+# loader fixture, at 48 MHz and without Grifo, which is never how the device
+# runs.  Do not take numbers from it, and move it onto the launcher path
+# (MBR -> Grifo -> init.app -> linux.app, as app-test.py does).
+
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kernel=$root/linux/artifacts/vmlinux
 system=$root/linux/artifacts/linux.img

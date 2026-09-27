@@ -13,6 +13,10 @@ emulator/wremu -e flash.rom -c card.img
 Mask ROM, MBR, file-loader, `kernel.elf`, `init.app` -- the whole chain,
 every time. `samo-lib/mbr/make-flash.py` builds a FLASH image for a run.
 
+`kernel.elf` is always Grifo. NEVER BYPASS GRIFO by putting another image
+(Linux, NuttX) in its place: the device runs every application from
+`init.app` under Grifo, which also sets the 60 MHz PLL the reset state lacks.
+
 There is no shortcut, and that is deliberate. A direct ELF boot skips the
 loader, so the SDRAM controller, the PLL and the serial line are left in a
 state the hardware is never in, and the emulator has to invent plausible

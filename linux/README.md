@@ -351,6 +351,12 @@ with the repository's normal firmware targets if they are not present.
 
 ## Build and test
 
+**NEVER BYPASS GRIFO.** Every emulator run, a test, a timing or a one-off
+check, boots the way the device does: MBR, Grifo, `init.app`, then
+`linux.app` from `init.ini`. `app-test` does; `boot-test` still boots
+`vmlinux` through the NuttX file-loader fixture at 48 MHz without Grifo, is
+not a source of numbers, and is to move onto the launcher path.
+
 ```sh
 make -C linux libc
 make -C linux rootfs
@@ -530,8 +536,10 @@ would not change anything; the host waits for the port to go idle in a
 register loop before asking the channels, because each status poll's
 fetches compete with the transfer for SDRAM and slowed it by half. Even
 so a block costs about 0.15 ms more than the host driving HSDMA's registers
-itself did: raw 4 MB reads take 10.7 s in wremu at 48 MHz against 9.3 s,
-and the launcher-path boot 0.24 s longer. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
+itself did: through Grifo at 60 MHz, a raw 4 MB read takes 8.5 s in wremu
+against 7.5 s (8.3 s on the device), and the boot is 0.24 s longer. The
+larger cost of a block is its CRC check, about 0.33 ms of the 1.04 ms: the
+table lookup and the byte load each open an SDRAM row. The card runs at MCLK/4, 15 MHz under Grifo, as Grifo and
 the original firmware run it. Block CRCs are checked unless
 `mmc_core.use_spi_crc=0`; the CRC loop is compiled with `-falign-loops=16`
 because at 26 bytes it runs from the C33's fetch buffer only from the start

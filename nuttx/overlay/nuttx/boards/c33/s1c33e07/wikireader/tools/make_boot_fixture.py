@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Build isolated FLASH/card fixtures; never write to the WikiReader checkout."""
 
+# NEVER BYPASS GRIFO.  The flash this builds boots its image through the file
+# loader at the 48 MHz reset clock, without Grifo.  The device always runs
+# MBR -> Grifo -> init.app -> the application; boot emulator runs that way
+# (samo-lib/mbr/make-flash.py plus a card with grifo.elf as kernel.elf).
+
 import argparse
 import hashlib
 import importlib.util
