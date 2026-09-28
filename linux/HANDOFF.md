@@ -221,17 +221,16 @@ Left, largest first:
    changes with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.
 3. **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it
    leaves DMAengine, which the user wants kept. Only if that changes.
-4. **Each kthread creation costs about 10 ms**, unexplained.
-5. **ITC priorities.** The controller's priority nibbles are still written
+4. **ITC priorities.** The controller's priority nibbles are still written
    by the drivers that know their cause (the timer, the serial ports, and
    the pin controller for the buttons); an `irq_set_priority`-style
    extension on the irqchip would move them.
-6. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+5. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace.
-7. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
+6. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when
    the pinned stable tag is bumped.
