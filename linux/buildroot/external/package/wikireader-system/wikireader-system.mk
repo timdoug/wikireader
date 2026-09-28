@@ -39,8 +39,9 @@ endef
 define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/inittab $(TARGET_DIR)/etc/inittab
 	$(INSTALL) -D -m 0644 $(@D)/fstab $(TARGET_DIR)/etc/fstab
-	$(INSTALL) -D -m 0644 $(@D)/fstab.late $(TARGET_DIR)/etc/fstab.late
 	$(INSTALL) -D -m 0755 $(@D)/rcS $(TARGET_DIR)/etc/init.d/rcS
+	$(INSTALL) -D -m 0755 $(@D)/selftest $(TARGET_DIR)/etc/init.d/selftest
+	$(INSTALL) -D -m 0755 $(@D)/late $(TARGET_DIR)/etc/init.d/late
 	$(INSTALL) -D -m 0755 $(@D)/busybox-test \
 		$(TARGET_DIR)/etc/init.d/busybox-test
 	$(INSTALL) -m 0755 $(@D)/out/diag-init $(@D)/out/diag-test \

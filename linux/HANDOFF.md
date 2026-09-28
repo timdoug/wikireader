@@ -164,6 +164,45 @@ queue into receive overruns, which the device never has), and its per-word
 DMA cost is a fitted constant (`dma_extra`), so it cannot judge changes to
 what the DMA does per word; those need the device.
 
+## Boot: where it stands
+
+Launcher path in wremu (`WREMU_MODEL=dma_cpu_penalty=0`, which matches the
+device's SD streams), power-on to the LCD console's prompt: 6.11 s, against
+7.09 s before this round and 7.40 to 7.46 s before the SD work.
+
+| Phase | Time |
+|---|---|
+| mask ROM, MBR, Grifo, `init.app` | 0.91 s |
+| Grifo loading `linux.app` (2.9 MB) | 2.25 s |
+| kernel to `kernel_init` | 0.21 s |
+| initcalls (the card's probe among them) | 1.32 s |
+| `rootstart`: FAT, clock, loop, ext4 mount, seed, mounts | 0.47 s |
+| BusyBox init, `rcS`, the shells, `wr-console` | 0.96 s |
+
+What this round did: no ext4 orphan file (0.34 s), `rootstart` mounts the
+kernel file systems instead of `rcS` (two BusyBox execs), the self-tests in
+a file of their own (hush parses a whole block before running it), the
+seed save and watchdog daemon from `inittab` after the consoles, and no
+KALLSYMS (180 KB less for Grifo to load, 0.13 s). The kernel log stays
+32 KB, the user's call (a boot writes 4.8 KB in 80 records).
+
+`initcall_debug` durations in exact multiples of 10 ms are the CPU being
+shared with other work until the next tick (PREEMPT_NONE), not idling: a
+kthread's creation measured 5 to 85 ms busy with no idle entry. Boot is
+CPU-bound; the idle column hardly moves before the console.
+
+Left, largest first:
+- **Grifo's load**, 2.25 s at about 1.3 MB/s. An LZ4 kernel with a small
+  decompressing stub would load 1.95 MB of 3.1 and decompress at about 10
+  cycles a byte, about 0.35 s saved (gzip, zstd and xz decompress too
+  slowly here to pay). Or Grifo's own reads could stream as Linux's now do,
+  about 0.5 s, but that changes the launcher every application uses.
+- **Initcalls**, 1.32 s of generic work: sysfs nodes, slab, message
+  formatting, about 0.17 s idle in power-up delays.
+- **`wr-console`'s start**, about 0.4 s to its first prompt, much of it the
+  execs of the four processes init starts at once; putting it first in
+  `inittab` might help.
+
 ## What is left, in the order I would take it
 
 1. **The CPU is the limit now**: token, check and the rest of the driver
@@ -285,8 +324,8 @@ it boots the file loader as a direct ELF, which wremu refuses.
   table of precomputed answers. A C reference loop in the guest ran for
   minutes.
 - **Untimed card reads on the device are noisy before the watchdog daemon
-  starts** (5.24 to 5.70 s for the same build): rcS starts it 20 s after
-  boot, with `seedrng`, from the card. `check` waits for it.
+  starts** (5.24 to 5.70 s for the same build): `/etc/init.d/late` starts
+  it 20 s after boot, after `seedrng`, from the card. `check` waits for it.
 - **`wremu` profile windows (`-y`) are in its clock's milliseconds**, which
   run about 3.5 s ahead of the guest's uptime on the launcher path.
 - **A polling loop that calls `readl(host->base + ...)` reloads `host->base`

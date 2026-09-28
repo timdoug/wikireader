@@ -1,4 +1,0 @@
-# mount -a -T /etc/fstab.late in rcS, once devtmpfs has made /dev/pts
-# possible.  The SD card is already at /mnt/sd: rootstart mounted it, to
-# reach this system's image on it.
-devpts		/dev/pts	devpts	defaults	0 0

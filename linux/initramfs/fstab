@@ -1,4 +1,5 @@
-# mount -a in rcS: one exec for all three.
-proc		/proc	proc		defaults	0 0
-sysfs		/sys	sysfs		defaults	0 0
-devtmpfs	/dev	devtmpfs	defaults	0 0
+# rootstart mounts these before init runs; they are here for mount's sake.
+proc		/proc		proc		defaults	0 0
+sysfs		/sys		sysfs		defaults	0 0
+devtmpfs	/dev		devtmpfs	defaults	0 0
+devpts		/dev/pts	devpts		defaults	0 0

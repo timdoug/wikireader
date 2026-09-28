@@ -239,8 +239,9 @@ timeouts. Grifo arms the watchdog before it starts an application, so the
 kernel stops it at entry; the driver starts it again at probe and the core
 feeds it until userspace opens `/dev/watchdog`, so a kernel that hangs while
 booting is reset. BusyBox's `watchdog` daemon opens it 20 s after boot,
-beside the random-seed save, since an exec during boot costs the console
-time: it pings every 30 s with a 60 s timeout, so a stuck userspace resets
+after the random-seed save, from `/etc/init.d/late`, which `init` starts
+after the consoles since an exec during boot costs the console time: it
+pings every 30 s with a 60 s timeout, so a stuck userspace resets
 the device after a minute and a stuck kernel after 18 s, and a clean
 shutdown stops it with the magic close. Suspend-to-idle is a halt, during which the counter
 keeps running, so the driver stops it across a suspend. Only the reset output
@@ -438,16 +439,22 @@ system writes, so the clock carries on from the last session. It then attaches `
 with direct I/O, so ext4's reads neither start the FAT file's readahead nor
 get cached twice. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
 last time, moves the card to `/mnt/sd`
-inside it, and becomes its `/sbin/init`. If any step fails, it writes the
+inside it, mounts `/proc`, `/sys`, `/dev` and `/dev/pts` there (each a
+BusyBox exec from `rcS`, about a tenth of a second), and becomes its
+`/sbin/init`. If any step fails, it writes the
 reason to the console and to `linuxboot.txt` on the card, then reboots to
 the launcher. Crediting the seed makes the kernel's random pool ready before
 the first program runs; otherwise the first read of `/dev/urandom` waits
 while the kernel gathers jitter entropy, 3.4 s on this CPU. The seed is
-renamed so that it is never credited twice. Twenty seconds after boot, `rcS`
-runs `seedrng`, which mixes it in again uncredited and saves a fresh one.
+renamed so that it is never credited twice. Twenty seconds after boot,
+`/etc/init.d/late` runs `seedrng`, which mixes it in again uncredited and
+saves a fresh one.
 Shutdown does the same. A freshly built image carries a seed made at build
 time. `inittab` unmounts or remounts everything read-only on
-shutdown, and ext4's journal covers a power cut. ext4 is about 470 KB of
+shutdown, and ext4's journal covers a power cut. The image has no orphan
+file (`-O ^orphan_file`): mounting read its 32 blocks one at a time, each a
+trip through ext4, the loop device, FAT and the SD host, 0.3 s of every
+boot; orphans go in the superblock's list instead. ext4 is about 470 KB of
 kernel code, which took the kernel's code past the 2 MB reach of a short
 call, so the kernel is built with `-mlong-calls`.
 `buildroot/patches/` adds the C33 as a Buildroot architecture, with an
@@ -471,12 +478,16 @@ and `getcontext`, which has no C33 implementation.
 BusyBox 1.38.0 is a static C33 bFLT with an interactive `hush`, core file and
 text tools, checksums, archive/compression tools, filesystem inspection, and
 recovery utilities, and `hush` carries `busybox/patches/`. It is installed as
-`/init`, `/bin/busybox`, and a symlink for every applet. Its `rcS` mounts the pseudo-filesystems,
-devpts and the SD card, and BusyBox init starts the consoles only once it
-ends. With `wr.selftest` on the command line it first runs the freestanding
-process, signal, and libc diagnostics, the display and input checks, and a
-Hush and file/text/archive tool suite, and later writes `linux.ok` and the
-`linuxhw.txt` device report to the card. The tests pass `wr.selftest` on the
+`/init`, `/bin/busybox`, and a symlink for every applet. BusyBox init
+starts the consoles only once `rcS` ends, so `rcS` does almost nothing: on
+this MMU-less machine every exec, and every background job (the shell
+re-executes itself for one), is about a tenth of a second, and `hush`
+parses a whole `if` block or function before running it. It checks for
+the PTYs. With `wr.selftest` on the command line it runs
+`/etc/init.d/selftest`: the freestanding process, signal, and libc
+diagnostics, the display and input checks, and a Hush and
+file/text/archive tool suite, then `linux.ok` and, later, the
+`linuxhw.txt` device report on the card. The tests pass `wr.selftest` on the
 launcher's `init.ini` line, and the kernel appends it on a direct boot, the
 bring-up and recovery path. `init` finally respawns an interactive `hush` on
 `ttyC0`. `/diag-init`

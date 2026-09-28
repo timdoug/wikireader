@@ -13,7 +13,7 @@ section() {
 # The boot's last job starts the watchdog daemon about 20 s in, reading the
 # card; wait for it, so that it does not land in a timed read.
 for i in $(seq 40); do
-	ps | grep -q "[w]atchdog /dev/watchdog" && break
+	ps | grep -q "[w]atchdog -F /dev/watchdog" && break
 	sleep 1
 done
 

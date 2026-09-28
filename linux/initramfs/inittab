@@ -1,6 +1,9 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
 ::respawn:/sbin/wr-console
+# seedrng, then the watchdog daemon: after the consoles, so that its exec
+# does not hold them up.
+::respawn:/etc/init.d/late
 # Save a random seed for the next boot (see rootstart.c), then leave the
 # root, ext4 in an image on the card, clean.
 ::shutdown:/bin/busybox seedrng

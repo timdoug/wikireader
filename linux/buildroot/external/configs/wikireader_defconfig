@@ -37,7 +37,9 @@ BR2_TARGET_ROOTFS_EXT2_SIZE="16M"
 BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # No metadata checksums: a software CRC32C over every metadata block is
 # too dear on this CPU.  4 KB blocks, a page each, where the image's size
-# alone would get 1 KB ones and four times the I/O requests.
-BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum"
+# alone would get 1 KB ones and four times the I/O requests.  No orphan
+# file: mounting reads its 32 blocks one at a time, 0.3 s of every boot;
+# orphans then go in the superblock's list, as before ext4 had the file.
+BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_file"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y

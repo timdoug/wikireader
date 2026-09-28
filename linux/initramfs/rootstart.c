@@ -4,7 +4,8 @@
  * linux.img, in the SD card's FAT partition beside linux.app: wait for the
  * card, mount it, set the clock, attach the image to a loop device, mount
  * that, credit the random seed the last boot saved, move the card to
- * /mnt/sd inside the image, and become its /sbin/init.
+ * /mnt/sd inside the image, mount the kernel's file systems there, and
+ * become its /sbin/init.
  *
  * With no C library, this is freestanding and its system calls go through
  * c33_syscall.  If anything fails there is no shell to fall back to, so it
@@ -16,6 +17,7 @@ typedef unsigned long size_t;
 long c33_syscall(long a1, long a2, long a3, long a4, long a5, long nr);
 
 #define NR_ioctl			29
+#define NR_mkdirat			34
 #define NR_renameat2			276
 #define NR_statx			291
 #define NR_clock_settime64		404
@@ -173,6 +175,37 @@ static void credit_seed(void)
 	    SEED_DIR "/seed.no-credit", 0);
 }
 
+/*
+ * /proc, /sys, /dev and /dev/pts, here rather than from rcS: each mount
+ * there is an exec of BusyBox, about a tenth of a second.  A failure is
+ * said and survived; rcS checks for the PTYs the console needs.
+ */
+static void mount_kernel_fs(void)
+{
+	static const char *const fs[][2] = {
+		{ "proc", "/newroot/proc" },
+		{ "sysfs", "/newroot/sys" },
+		{ "devtmpfs", "/newroot/dev" },
+		{ "devpts", "/newroot/dev/pts" },
+	};
+	unsigned int i;
+	long error;
+
+	for (i = 0; i < sizeof(fs) / sizeof(fs[0]); i++) {
+		/* devtmpfs has no pts directory of its own. */
+		if (i == 3)
+			sys(NR_mkdirat, AT_FDCWD, fs[i][1], 0755, 0, 0);
+		error = sys(NR_mount, fs[i][0], fs[i][1], fs[i][0], 0, 0);
+		if (error) {
+			put(1, "C33 root: could not mount ");
+			put(1, fs[i][1] + sizeof("/newroot") - 1);
+			put(1, " (error ");
+			put_number(1, error);
+			put(1, ")\n");
+		}
+	}
+}
+
 static void report(int fd, const char *why, long error)
 {
 	put(fd, "C33 root: ");
@@ -256,6 +289,7 @@ void root_main(void)
 	if (error)
 		fail(IMAGE " has no /mnt/sd", error);
 	card_dir = "/newroot/mnt/sd";
+	mount_kernel_fs();
 
 	sys(NR_chdir, "/newroot", 0, 0, 0, 0);
 	error = sys(NR_mount, ".", "/", 0, MS_MOVE, 0);
