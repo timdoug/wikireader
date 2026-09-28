@@ -965,7 +965,13 @@ block still took 19,600 cycles against 20,400 with the check, and writing
 the words to IVRAM instead of SDRAM, or running the check from SDRAM
 instead of A0 RAM, did not shorten it: the DMA's own time, which
 `dma_extra` stands in for. A streamed read (one transfer for many blocks)
-comes to about 141 cycles a word on the device and in wremu alike. Memory-to-memory HSDMA keeps the synchronous model.
+comes to about 141 cycles a word on the device and in wremu alike. The
+penalty is wrong for dense traffic, though: a stream left running while the
+kernel copies memory keeps going on the device, but here the copy's
+accesses hold its writes back until it almost stops (a raw 4 MB read 3.66
+s against the device's 3.14 to 3.20; `dma_cpu_penalty=0` gives 2.96).
+Whatever bounds the device's arbitration lets the DMA through far more
+often than one access in fifteen cycles. Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by

@@ -105,26 +105,30 @@ Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
 
 ## SD card reads: where they stand
 
-A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 3.54 s
-on the device (1.18 MB/s, 63% of the wire), the same in wremu. The wire
-limit at MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block cannot divide MCLK by
-less than 4. Multiple-block reads are streamed (`sd_read_stream()`): the CPU
-finds the first token, then the rest of the request comes in by DMA as one
-or two long transfers into a 64 KB buffer while the CPU finds each token and
-unpacks and checks each block behind it, by the transfer's residue. Per
+A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 3.14
+to 3.20 s on the device (1.3 MB/s, 70% of the wire). The wire limit at
+MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block cannot divide MCLK by less than
+4. Multiple-block reads are streamed (`sd_read_stream()`): the CPU finds the
+first token, then the read comes in by DMA as long transfers into a 64 KB
+buffer while the CPU finds each token and unpacks and checks each block
+behind it, by the transfer's residue. The stream outlives the request: the
+stop command is answered without being sent, the transfer is left the
+whole buffer (`sd_stream_prefetch()`), and a request that reads on finds
+its blocks coming in (41 KB in hand on average). Anything else closes it
+(`sd_stream_close()`). While a transfer runs the idle loop polls
+(`cpu_idle_poll_ctrl()`): HALT drops SPI DMA requests for good. Per
 512-byte block on the device (`read_timing`, cycles):
 
 | Phase | Cycles | What it is |
 |---|---|---|
-| token | 1,440 | the first token of each request, clocked by the CPU, and the gaps |
-| setup | 170 | starting the stream's transfers (136 for 70 requests) |
-| check | 9,660 | `sd_unpack_crc()`, stream buffer to the request, from A0 RAM |
-| poll | 7,020 | waiting for the next block to come in |
-| outside the driver | ~7,600 | commands, copy to user, page cache, the tick |
+| token | 1,110 | first tokens (CPU, 4 of 37 requests) and the gaps |
+| setup | 110 | starting the stream's transfers |
+| check | 9,290 | `sd_unpack_crc()`, stream buffer to the request, from A0 RAM |
+| poll | 4,810 | waiting for blocks to come in |
+| outside the driver | ~7,000 | copy to user, page cache, the tick |
 
-The driver's 18,300 cycles a block is the stream's rate: 517 bytes a block
-(this card's gaps are 2 bytes) at about 141 cycles a word against the
-wire's 128. The CPU has time to spare in it.
+This card's gaps are 2 bytes, so a block is 517 bytes of stream, about
+141 cycles a word against the wire's 128.
 
 Read a block at a time (single blocks, and cards that shift their tokens,
 which also stop streaming for good), a block's transfer takes about 19,600
@@ -139,8 +143,8 @@ cost 13 over the wire, most of the extra is each transfer getting going.
 The user keeps DMAengine and the block CRC; both were asked and settled.
 
 What was built on the way, in `README.md` in detail: the streamed read,
-with residue and a fixed-address (interleaved) transmit descriptor in the
-DMA provider; the pipelined block-at-a-time read (start N+1, check N,
+kept open across sequential requests, with residue and a fixed-address
+(interleaved) transmit descriptor in the DMA provider; the pipelined block-at-a-time read (start N+1, check N,
 prepare N+2, wait); `sd_unpack_crc()`, slice-by-4 on
 wire-order words plus the byte swap in one pass; A0 RAM code
 (`asm/iram.h`, `kernel/iram.c`), where it, `memcpy`/`memset`/`memmove`
@@ -160,19 +164,21 @@ what the DMA does per word; those need the device.
 
 ## What is left, in the order I would take it
 
-1. **Outside the driver** (~7,600 a block, 30% of a read now): not timed
-   by `read_timing`. Each 64 KB request also costs its CMD18 and CMD12, and
-   the first token's wait (most of the token phase, about 180,000 cycles a
-   request). Profile a timed read in wremu first (its total agrees). Larger
-   requests (`max_blk_count` 128 now) would spread the per-request part,
-   if readahead sends them; the stream buffer would then take more
-   transfers. The copy to user space is at the CPU's copy floor (about 4.0
-   cycles a byte); the tick is 7% of the CPU when busy (HZ stays 100, the
-   user's call).
-2. **The check** reads the stream buffer and writes the request, two rows,
-   alternately: 9,660 against 8,300 to 9,100 in place. It is off the
-   critical path while the stream sets the pace; only if the CPU work
-   around a read grows.
+1. **The overlap is partial.** A raw read takes about 23,200 cycles a
+   block against the stream's 18,200, and the CPU's own work (token, check,
+   and about 7,000 outside the driver) comes to about 17,400. Either could
+   set the pace if the other kept up. `read_timing` covers only the driver;
+   what the stream does between requests (how long it runs, whether the
+   copy slows it, whether 64 KB is ever full) is the next thing to count.
+   The check reads the stream buffer and writes the request, two rows,
+   alternately (9,300 against 8,300 to 9,100 in place); eight loads then
+   eight stores might pay here where they did not beside the per-block DMA.
+   The copy to user space is at the CPU's copy floor (about 4.0 cycles a
+   byte), and the tick is 7% of the CPU when busy (HZ stays 100, the user's
+   call).
+2. **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside
+   a copy, which the device does not (see `README.md`); judge streaming
+   changes with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.
 3. **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it
    leaves DMAengine, which the user wants kept. Only if that changes.
 4. **Each kthread creation costs about 10 ms**, unexplained.
