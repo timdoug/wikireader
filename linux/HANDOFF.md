@@ -168,10 +168,13 @@ what the DMA does per word; those need the device.
 
 1. **The CPU is the limit now**: token, check and the rest of the driver
    come to 13,000 a block and the work outside it to about 8,000, against
-   the stream's 18,200. The check is the largest part. It reads the ring
-   and writes the request, two SDRAM rows, alternately (9,760 against
-   8,300 to 9,100 in place); eight loads then eight stores might pay here
-   where they did not beside the per-block DMA. The copy to user space is
+   the stream's 18,200, so no CPU saving can take a raw 4 MB read below
+   about 2.5 s. The check is the largest part (9,760). Seven loads then
+   seven stores in assembly, so that it changes SDRAM row twice per seven
+   words instead of on every access, measured 9,700 on the device and no
+   faster overall; its cost is the lookups and arithmetic, not the rows.
+   The per-block bookkeeping (token 1,170, setup 940) is SDRAM-resident C
+   at several cycles an instruction. The copy to user space is
    at the CPU's copy floor (about 4.0 cycles a byte), and the tick is 7% of
    the CPU when busy (HZ stays 100, the user's call).
 2. **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside
