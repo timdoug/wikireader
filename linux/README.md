@@ -538,8 +538,10 @@ its own copy of the screen), drops touches and keys, stops its blank and
 suspend timers, and answers; when VT 1 comes back it repaints. Its VT's
 keyboard mode is `K_OFF`, since the console reads the keyboards itself.
 
-`startx [CLIENT]` runs an X client on the panel: it starts `Xfbdev` on the
-touchscreen and the buttons, with the classic grey weave (`-retro`), waits
+`startx [CLIENT] [-- SERVER-ARGS]` runs an X client on the panel: it starts
+`Xfbdev` on the touchscreen and the buttons, with the classic grey weave
+(`-retro`) and without the smart scheduler's 20 ms `SIGALRM` (`-dumbSched`),
+waits
 for its socket, runs the client, and stops the server when the client exits,
 which gives VT 1 back to the console. With no client it runs twm and xeyes.
 Dragging on the background moves the pointer; holding still there for 0.6 s
@@ -551,7 +553,15 @@ placing one by hand is awkward by touch. Menu commands start through
 `system()`, which uClibc does with `vfork`. xeyes asks for XInput 2.2 rather than 2.0
 (`buildroot/external/patches/xapp_xeyes`): a 2.0 client gets no raw motion
 while another client has the pointer grabbed, and twm has it grabbed for any
-drag that starts on the background or a frame. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
+drag that starts on the background or a frame. It also drops raw motion
+queued behind the event it is drawing, since drawing asks where the pointer
+is now.
+
+A drag under twm costs about 49 ms of CPU a frame in wremu, so the eyes
+follow at about 20 frames a second and a 33 Hz touch stream runs ahead of
+them. The software cursor is about a fifth of that (`startx -- -nocursor`
+leaves it out), xeyes about a sixth, mostly double arithmetic, and the
+kernel a third. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
 the last release that has it (`buildroot/external/package/xserver-kdrive`).
 Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
 compiled at build time instead of running `xkbcomp` (the image carries no
@@ -559,7 +569,10 @@ XKB rules or sources), draw through a shadow copied to the panel bit-reversed
 (X keeps the leftmost pixel in a byte's low bit, Linux framebuffers in the
 high one), and take a touchscreen as an absolute pointer, the touch as its
 first button. The client libraries are static (`buildroot/patches/0002`),
-with libX11's loadable modules turned off. `Xfbdev` is 2.0 MB of code and
+with libX11's loadable modules turned off. `fbFillSpans` finds each
+span's clip band by bisection (patch 0005) instead of walking every clip
+box: a shaped window such as xeyes' has a box or two a row, and the walk
+was most of the cost of filling its pupils. `Xfbdev` is 2.0 MB of code and
 xeyes 1.3 MB, 410 KB of it libX11's East Asian conversion tables; each uses
 about 4.5 MB and 1.4 MB of memory running.
 

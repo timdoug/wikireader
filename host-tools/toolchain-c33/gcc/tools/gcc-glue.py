@@ -100,15 +100,22 @@ def libgcc_linux(s):
     """No-MMU Linux with uClibc-ng.  Of the generic Linux extra_parts only
     crtbegin.o and crtend.o apply: they register .eh_frame with the
     unwinder (see c33/linux.h), and crtbeginS/crtbeginT would be for shared
-    and PIE links, which this target does not have."""
-    block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+    and PIE links, which this target does not have.
+
+    Floating point is soft-fp (c33/sfp-machine.h) rather than fp-bit:
+    fp-bit unpacks every operand into a structure and packs the result,
+    and a double add or multiply cost several times what soft-fp's word
+    arithmetic does.  The bare-metal target keeps fp-bit for now."""
+    block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp"\n'
              '\textra_parts="crtbegin.o crtend.o"\n\t;;\n')
     if block in s:
         return None
-    old = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
-           '\textra_parts=""\n\t;;\n')
-    if old in s:
-        return s.replace(old, block, 1)
+    for old in ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+                '\textra_parts="crtbegin.o crtend.o"\n\t;;\n',
+                'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+                '\textra_parts=""\n\t;;\n'):
+        if old in s:
+            return s.replace(old, block, 1)
     return s.replace('c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n',
                      block +
                      'c33-*-*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n\t;;\n', 1)

@@ -1,0 +1,41 @@
+From 4f47a1cf50183173795cd0f7509f66d89e63f8e4 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 10:52:08 -0400
+Subject: [PATCH] Draw only the latest pointer position
+
+Each raw motion event redrew the eyes where the pointer was then, so a
+machine that draws more slowly than the pointer reports fell further
+behind for as long as the drag went on.  Raw motion queued behind the
+event being handled is dropped; drawing asks for the position anyway.
+---
+ Eyes.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/Eyes.c b/Eyes.c
+index eb84cd0..ce42de5 100644
+--- a/Eyes.c
++++ b/Eyes.c
+@@ -297,9 +297,22 @@ static void UpdatePresent(EyesWidget w) {
+ static void draw_it_core(EyesWidget w);
+ 
+ static void EyesGeneric(Widget w, _X_UNUSED XtPointer closure,
+-                        _X_UNUSED XEvent *event,
++                        XEvent *event,
+                         _X_UNUSED Boolean *continue_to_dispatch)
+ {
++        Display *dpy = XtDisplay(w);
++        XEvent next;
++
++        /* Drawing asks where the pointer is now, so raw motion already
++           queued behind this event adds nothing: drop it, and a slow
++           machine draws the latest position instead of falling behind. */
++        while (XEventsQueued(dpy, QueuedAfterReading) > 0) {
++                XPeekEvent(dpy, &next);
++                if (next.type != GenericEvent ||
++                    next.xcookie.extension != event->xcookie.extension)
++                        break;
++                XNextEvent(dpy, &next);
++        }
+         draw_it_core((EyesWidget) w);
+ }
+ 

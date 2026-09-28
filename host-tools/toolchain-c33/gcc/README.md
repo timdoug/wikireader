@@ -35,7 +35,9 @@ Implemented target facilities include:
 - strict alignment and PE's mandatory address-error behavior;
 - arithmetic, logic, shifts, rotates, multiply, bit operations, comparisons,
   branches, jump tables, software interrupts, and interrupt returns;
-- generic libgcc integer division and soft-float helpers;
+- generic libgcc integer division and soft-float helpers: fp-bit for the
+  bare-metal compiler, soft-fp (`libgcc/config/c33/sfp-machine.h`) for the
+  Linux one, where it made xeyes' double arithmetic about a third cheaper;
 - stack trampolines and GCC's `__builtin_apply` / `__builtin_return`;
 - CFI for every frame, `pushn` blocks included, and `__builtin_eh_return`
   for DWARF exception unwinding (the Linux compiler's scheme);

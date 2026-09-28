@@ -1,9 +1,22 @@
 #!/bin/sh
-# startx [CLIENT [ARGS...]]: start the X server on the panel, the touchscreen
-# and the buttons, run CLIENT on it, and stop the server when CLIENT exits,
-# which gives the panel back to the console.  With no CLIENT the session is
-# twm with xeyes, and twm's Exit ends it.
+# startx [CLIENT [ARGS...]] [-- SERVER-ARGS...]: start the X server on the
+# panel, the touchscreen and the buttons, run CLIENT on it, and stop the
+# server when CLIENT exits, which gives the panel back to the console.  With
+# no CLIENT the session is twm with xeyes, and twm's Exit ends it.
 
+# Split at --: what follows goes to the server, what precedes is the client.
+server=
+found=
+for arg; do
+	shift
+	if [ -z "$found" ] && [ "$arg" = "--" ]; then
+		found=1
+	elif [ -n "$found" ]; then
+		server="$server $arg"
+	else
+		set -- "$@" "$arg"
+	fi
+done
 [ $# -gt 0 ] ||
 	set -- sh -c 'xeyes & exec twm -f /usr/share/X11/twm/wikireader.twmrc'
 # Builtins only: every exec, and every $(...), costs a tenth of a second.
@@ -19,8 +32,9 @@ done
 rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # -noreset: the server lives exactly as long as this script wants it.
 # -retro: the classic grey weave and X-shaped cursor.
-Xfbdev :0 -noreset -retro ${touch:+-mouse evdev,,device=$touch} \
-	${buttons:+-keybd evdev,,device=$buttons} 2>/tmp/Xfbdev.log &
+# -dumbSched: no 20 ms SIGALRM timer to share the server between clients.
+Xfbdev :0 -noreset -retro -dumbSched ${touch:+-mouse evdev,,device=$touch} \
+	${buttons:+-keybd evdev,,device=$buttons} $server 2>/tmp/Xfbdev.log &
 server=$!
 while [ ! -S /tmp/.X11-unix/X0 ]; do
 	if ! kill -0 $server 2>/dev/null; then

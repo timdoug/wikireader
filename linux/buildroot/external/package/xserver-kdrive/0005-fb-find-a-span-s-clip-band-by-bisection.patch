@@ -1,0 +1,67 @@
+From 9c93fc8580dd3b5bd0b3108b1a43b7fd875616c4 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 11:07:34 -0400
+Subject: [PATCH 5/5] fb: find a span's clip band by bisection
+
+fbFillSpans walked every box of the clip for every span.  A shaped
+window's clip is a box or two a row, so filling a small shape inside one
+cost spans times rows; the bands are sorted by y, and bisection finds the
+span's own.
+---
+ fb/fbfillsp.c | 42 ++++++++++++++++++++++++++++--------------
+ 1 file changed, 28 insertions(+), 14 deletions(-)
+
+diff --git a/fb/fbfillsp.c b/fb/fbfillsp.c
+index 4debe1e..0f68f0b 100644
+--- a/fb/fbfillsp.c
++++ b/fb/fbfillsp.c
+@@ -66,21 +66,35 @@ fbFillSpans(DrawablePtr pDrawable,
+             fbFill(pDrawable, pGC, fullX1, fullY1, fullX2 - fullX1, 1);
+         }
+         else {
+-            pbox = RegionRects(pClip);
+-            while (nbox--) {
+-                if (pbox->y1 <= fullY1 && fullY1 < pbox->y2) {
+-                    partX1 = pbox->x1;
+-                    if (partX1 < fullX1)
+-                        partX1 = fullX1;
+-                    partX2 = pbox->x2;
+-                    if (partX2 > fullX2)
+-                        partX2 = fullX2;
+-                    if (partX2 > partX1) {
+-                        fbFill(pDrawable, pGC,
+-                               partX1, fullY1, partX2 - partX1, 1);
+-                    }
++            BoxPtr lo = RegionRects(pClip), hi = lo + nbox;
++
++            /*
++             * The clip's boxes are in bands sorted by y, so find the
++             * span's band by bisection rather than walking every box: a
++             * shaped window's clip is a box or two a row, and the walk
++             * was most of the cost of filling a small shape inside one.
++             */
++            while (lo < hi) {
++                BoxPtr mid = lo + (hi - lo) / 2;
++
++                if (mid->y2 <= fullY1)
++                    lo = mid + 1;
++                else
++                    hi = mid;
++            }
++            pbox = lo;
++            hi = RegionRects(pClip) + nbox;
++            for (; pbox < hi && pbox->y1 <= fullY1; pbox++) {
++                partX1 = pbox->x1;
++                if (partX1 < fullX1)
++                    partX1 = fullX1;
++                partX2 = pbox->x2;
++                if (partX2 > fullX2)
++                    partX2 = fullX2;
++                if (partX2 > partX1) {
++                    fbFill(pDrawable, pGC,
++                           partX1, fullY1, partX2 - partX1, 1);
+                 }
+-                pbox++;
+             }
+         }
+     }
