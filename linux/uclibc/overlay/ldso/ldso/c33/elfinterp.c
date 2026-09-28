@@ -109,13 +109,20 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	}
 
 #if defined (__SUPPORT_LD_DEBUG__)
-	old_val = *reloc_addr;
+	old_val = ((struct { unsigned long v; } __attribute__((packed)) *)
+		   reloc_addr)->v;
 #endif
 	switch (reloc_type) {
 	case R_C33_NONE:
 		break;
 	case R_C33_32:
-		reloc_value = *reloc_addr = symbol_addr;
+		/* .eh_frame keeps pointers at any byte address.  */
+		reloc_value = symbol_addr;
+		if ((unsigned long) reloc_addr & 3)
+			((struct { unsigned long v; } __attribute__((packed)) *)
+			 reloc_addr)->v = reloc_value;
+		else
+			*reloc_addr = reloc_value;
 		break;
 	case R_C33_FUNCDESC_VALUE:
 		funcval.entry_point = (void *) symbol_addr;

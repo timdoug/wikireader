@@ -1,0 +1,32 @@
+diff --git a/libgcc/unwind-pe.h b/libgcc/unwind-pe.h
+--- a/libgcc/unwind-pe.h
++++ b/libgcc/unwind-pe.h
+@@ -264,9 +264,10 @@
+ 
+       if (result != 0)
+ 	{
+-#if __FDPIC__
++#if __FDPIC__ && defined (__arm__)
+ 	  /* FDPIC relative addresses imply taking the GOT address
+-	     into account.  */
++	     into account.  Only ARM FDPIC encodes pointers this way; C33
++	     FDPIC encodes them absolutely.  */
+ 	  if ((encoding & DW_EH_PE_pcrel) && (encoding & DW_EH_PE_indirect))
+ 	    {
+ 	      result += _Unwind_gnu_Find_got ((_Unwind_Ptr) u);
+diff --git a/libstdc++-v3/libsupc++/eh_personality.cc b/libstdc++-v3/libsupc++/eh_personality.cc
+--- a/libstdc++-v3/libsupc++/eh_personality.cc
++++ b/libstdc++-v3/libsupc++/eh_personality.cc
+@@ -94,9 +94,10 @@
+ 
+   i *= size_of_encoded_value (info->ttype_encoding);
+   read_encoded_value_with_base (
+-#if __FDPIC__
++#if __FDPIC__ && defined (__arm__)
+ 				/* Force these flags to make sure to
+-				   take the GOT into account.  */
++				   take the GOT into account.  C33 FDPIC
++				   encodes the type table absolutely.  */
+ 				(DW_EH_PE_pcrel | DW_EH_PE_indirect),
+ #else
+ 				info->ttype_encoding,

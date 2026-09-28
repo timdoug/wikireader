@@ -34,8 +34,7 @@ if [ "${which}" = libstdc++ ]; then
 	# app-test.py runs this from the card.
 	mkdir -p "${root}/linux/artifacts"
 	"${prefix}/bin/${linux_target}-g++" -Os -Wall -Werror -pthread \
-		"${here}/uclibc/cxx-test.cc" -o "${root}/linux/artifacts/cxx-test" \
-		-Wl,-elf2flt=--shared-text
+		"${here}/uclibc/cxx-test.cc" -o "${root}/linux/artifacts/cxx-test"
 	exit 0
 fi
 

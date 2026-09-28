@@ -1,8 +1,8 @@
 diff --git a/arch/Config.in b/arch/Config.in
-index 863a1eed..f941b6af 100644
+index 863a1eed..a31e63e6 100644
 --- a/arch/Config.in
 +++ b/arch/Config.in
-@@ -68,6 +68,16 @@ config BR2_aarch64_be
+@@ -68,6 +68,17 @@ config BR2_aarch64_be
  	  http://www.arm.com/products/processors/instruction-set-architectures/armv8-architecture.php
  	  http://en.wikipedia.org/wiki/ARM
  
@@ -10,6 +10,7 @@ index 863a1eed..f941b6af 100644
 +	bool "Epson S1C33"
 +	depends on !BR2_HIDE_SECONDARY_TARGET_OPTIONS
 +	select BR2_SOFT_FLOAT
++	select BR2_ARCH_HAS_FDPIC_SUPPORT
 +	# Only an external toolchain: GCC and binutils have no upstream port.
 +	select BR2_ARCH_HAS_NO_TOOLCHAIN_BUILDROOT
 +	help
@@ -19,7 +20,7 @@ index 863a1eed..f941b6af 100644
  config BR2_hppa
  	bool "HPPA"
  	depends on !BR2_HIDE_SECONDARY_TARGET_OPTIONS
-@@ -416,6 +426,10 @@ if BR2_arm || BR2_armeb || BR2_aarch64 || BR2_aarch64_be
+@@ -416,6 +427,10 @@ if BR2_arm || BR2_armeb || BR2_aarch64 || BR2_aarch64_be
  source "arch/Config.in.arm"
  endif
  

@@ -22,8 +22,7 @@ define WIKIREADER_SYSTEM_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -fno-unwind-tables \
 		-fno-asynchronous-unwind-tables -ffunction-sections \
 		-fdata-sections $(WIKIREADER_SYSTEM_SMOKE) \
-		-o $(@D)/out/uclibc-smoke $(TARGET_LDFLAGS) -Wl,--gc-sections \
-		-Wl,-elf2flt=--shared-text
+		-o $(@D)/out/uclibc-smoke $(TARGET_LDFLAGS) -Wl,--gc-sections
 endef
 
 # A fresh image's first boot credits a seed made here, so no boot waits for

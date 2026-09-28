@@ -12,15 +12,16 @@ XSERVER_KDRIVE_LICENSE_FILES = COPYING
 XSERVER_KDRIVE_DEPENDENCIES = \
 	host-xapp_xkbcomp libsha1 pixman xkeyboard-config xlib_libXau \
 	xlib_libXfont2 xlib_libxkbfile xlib_xtrans xorgproto
-# The server recurses deeply (region code, the font renderer, requests).
-XSERVER_KDRIVE_FLAT_STACKSIZE = 131072
 
 XSERVER_KDRIVE_KEYMAP = /usr/share/X11/xkb/wikireader.xkm
 # 1.19 predates GCC 14's pointer-type errors: CARD32 is unsigned long here
 # and libXfont2's callbacks take uint32_t, the same size.
+# The server recurses deeply (region code, the font renderer, requests),
+# and without an MMU its stack is the size the link asks for.
 XSERVER_KDRIVE_CONF_ENV = \
 	CFLAGS="$(TARGET_CFLAGS) -Wno-error=incompatible-pointer-types \
-		-DXKB_COMPILED_KEYMAP=\\\"$(XSERVER_KDRIVE_KEYMAP)\\\""
+		-DXKB_COMPILED_KEYMAP=\\\"$(XSERVER_KDRIVE_KEYMAP)\\\"" \
+	LDFLAGS="$(TARGET_LDFLAGS) -Wl,-z,stack-size=131072"
 
 XSERVER_KDRIVE_CONF_OPTS = \
 	--enable-kdrive --enable-xfbdev --enable-kdrive-evdev \

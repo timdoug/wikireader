@@ -16,7 +16,7 @@ define WR_CONSOLE_BUILD_CMDS
 		-fno-unwind-tables -fno-asynchronous-unwind-tables \
 		-ffunction-sections -fdata-sections \
 		$(@D)/wr-console.c -o $(@D)/wr-console \
-		$(TARGET_LDFLAGS) -Wl,-elf2flt=--shared-text
+		$(TARGET_LDFLAGS)
 endef
 
 define WR_CONSOLE_INSTALL_TARGET_CMDS

@@ -14,6 +14,10 @@
 #include <sys/types.h>
 #include <link.h>
 
+/* A word at any byte address: .eh_frame keeps pointers wherever its
+   encoding puts them, and the C33 faults on a misaligned word access.  */
+struct __c33_unaligned_word { void *v; } __attribute__ ((packed));
+
 /* Every word the list names holds a link-time address of this module; both
    the word and what it holds move with their segments.  The last entry is
    __dp's address, which is returned relocated: the caller's %r15.  */
@@ -30,7 +34,14 @@ __self_reloc (const struct elf32_fdpic_loadmap *map, void ***p_link,
     {
       void **ptr = __reloc_pointer (*p, map);
 
-      *ptr = __reloc_pointer (*ptr, map);
+      if ((unsigned long) ptr & 3)
+	{
+	  struct __c33_unaligned_word *u = (void *) ptr;
+
+	  u->v = __reloc_pointer (u->v, map);
+	}
+      else
+	*ptr = __reloc_pointer (*ptr, map);
     }
   if (p >= e)
     return (void *) -1;

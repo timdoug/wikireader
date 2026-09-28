@@ -31,6 +31,7 @@
 #include "memmodel.h"
 #include "tm_p.h"
 #include "stringpool.h"
+#include "cgraph.h"
 #include "attribs.h"
 #include "insn-config.h"
 #include "optabs.h"
@@ -2764,13 +2765,32 @@ c33_initfini_section_p (void)
 	  || startswith (name, ".dtors"));
 }
 
+/* Whether SYM names a function.  dwarf2asm writes the personality
+   routine into its DW.ref word through a SYMBOL_REF made from the name
+   alone, with no decl or flags to say so.  */
+
+static bool
+c33_function_symbol_p (rtx sym)
+{
+  symtab_node *node;
+
+  if (SYMBOL_REF_FUNCTION_P (sym))
+    return true;
+  if (SYMBOL_REF_DECL (sym) != NULL_TREE)
+    return false;
+  node = symtab_node::get_for_asmname (get_identifier (XSTR (sym, 0)));
+  if (node != NULL)
+    return is_a <cgraph_node *> (node);
+  return strstr (XSTR (sym, 0), "_personality") != NULL;
+}
+
 static bool
 c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
 {
   if (TARGET_FDPIC
       && size == UNITS_PER_WORD
       && GET_CODE (x) == SYMBOL_REF
-      && SYMBOL_REF_FUNCTION_P (x)
+      && c33_function_symbol_p (x)
       && !c33_initfini_section_p ())
     {
       fputs ("\t.long\tfuncdesc(", asm_out_file);
