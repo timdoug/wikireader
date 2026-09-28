@@ -548,7 +548,10 @@ only from buttons, and a touch is its only button), whose Exit ends the
 session. twm's configuration (`wikireader.twmrc`)
 uses the server's built-in `fixed` font and places windows itself, since
 placing one by hand is awkward by touch. Menu commands start through
-`system()`, which uClibc does with `vfork`. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
+`system()`, which uClibc does with `vfork`. xeyes asks for XInput 2.2 rather than 2.0
+(`buildroot/external/patches/xapp_xeyes`): a 2.0 client gets no raw motion
+while another client has the pointer grabbed, and twm has it grabbed for any
+drag that starts on the background or a frame. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
 the last release that has it (`buildroot/external/package/xserver-kdrive`).
 Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
 compiled at build time instead of running `xkbcomp` (the image carries no

@@ -1,0 +1,29 @@
+From 865e184c0d42f0bc8048c6b72e7260b65f4052b2 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 10:38:03 -0400
+Subject: [PATCH] Ask for XInput 2.2, so the eyes follow grabbed drags
+
+A 2.0 client receives raw motion only while no other client holds the
+pointer grabbed, so the eyes froze for the whole of a drag that began on
+the window manager's frame or root window.  From 2.1 raw events are
+delivered regardless of grabs.
+---
+ Eyes.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Eyes.c b/Eyes.c
+index 9291436..eb84cd0 100644
+--- a/Eyes.c
++++ b/Eyes.c
+@@ -380,8 +380,10 @@ static int has_xi2(Display *dpy)
+     int rc;
+ 
+     /* We need at least XI 2.0 */
++    /* From 2.1, raw events arrive whoever has the pointer grabbed, so the
++       eyes follow a drag that another client, such as twm, received. */
+     major = 2;
+-    minor = 0;
++    minor = 2;
+ 
+     rc = XIQueryVersion(dpy, &major, &minor);
+     if (rc == BadRequest) {
