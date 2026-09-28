@@ -17,6 +17,7 @@ typedef unsigned long size_t;
 long c33_syscall(long a1, long a2, long a3, long a4, long a5, long nr);
 
 #define NR_ioctl			29
+#define NR_mknodat			33
 #define NR_mkdirat			34
 #define NR_renameat2			276
 #define NR_statx			291
@@ -180,6 +181,28 @@ static void credit_seed(void)
  * there is an exec of BusyBox, about a tenth of a second.  A failure is
  * said and survived; rcS checks for the PTYs the console needs.
  */
+/*
+ * The kernel registers a VT's device only once the VT is allocated, so
+ * devtmpfs holds just the VTs in use.  Programs that name a VT, such as
+ * openvt -c 3, expect its node beforehand, as a static /dev has them.
+ */
+static void make_vt_nodes(void)
+{
+	static char path[] = "/newroot/dev/ttyNN";
+	unsigned int n;
+
+	for (n = 1; n <= 12; n++) {
+		char *p = path + sizeof("/newroot/dev/tty") - 1;
+
+		if (n >= 10)
+			*p++ = '1';
+		*p++ = '0' + n % 10;
+		*p = 0;
+		/* Character device 4:n, the kernel's encoding of the dev_t. */
+		sys(NR_mknodat, AT_FDCWD, path, 0020000 | 0600, (4 << 8) | n, 0);
+	}
+}
+
 static void mount_kernel_fs(void)
 {
 	static const char *const fs[][2] = {
@@ -204,6 +227,7 @@ static void mount_kernel_fs(void)
 			put(1, ")\n");
 		}
 	}
+	make_vt_nodes();
 }
 
 static void report(int fd, const char *why, long error)

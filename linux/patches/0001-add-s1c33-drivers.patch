@@ -146,11 +146,12 @@ diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
 diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
 --- a/drivers/video/fbdev/Kconfig
 +++ b/drivers/video/fbdev/Kconfig
-@@ -47,1 +47,11 @@
+@@ -47,1 +47,12 @@
 +config FB_S1C33
 +	bool "Epson S1C33 WikiReader framebuffer"
 +	depends on FB && C33
 +	select FB_IOMEM_HELPERS
++	select FB_PROVIDE_GET_FB_UNMAPPED_AREA
 +	help
 +	  Expose the monochrome LCD framebuffer configured by the WikiReader
 +	  loader through the standard Linux framebuffer interface.

@@ -32,7 +32,13 @@ CONFIG_CROSS_MEMORY_ATTACH=n
 CONFIG_COREDUMP=n
 CONFIG_AIO=n
 CONFIG_IO_URING=n
-CONFIG_NET=n
+# Networking only for local sockets: X clients reach the server over AF_UNIX.
+CONFIG_NET=y
+CONFIG_UNIX=y
+CONFIG_AF_UNIX_OOB=n
+CONFIG_WIRELESS=n
+CONFIG_ETHTOOL_NETLINK=n
+CONFIG_NET_RX_BUSY_POLL=n
 CONFIG_BLOCK=y
 CONFIG_MSDOS_PARTITION=y
 CONFIG_MMC=y
@@ -61,7 +67,12 @@ CONFIG_SERIAL_S1C33=y
 CONFIG_SERIAL_S1C33_CONSOLE=y
 CONFIG_SERIAL_DEV_BUS=y
 CONFIG_SERIAL_DEV_CTRL_TTYPORT=y
-CONFIG_VT=n
+# Virtual terminals only arbitrate the display between full-screen programs
+# (wr-console, X); kernel messages stay on the serial console.
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=n
+CONFIG_CONSOLE_TRANSLATIONS=n
+CONFIG_VT_HW_CONSOLE_BINDING=n
 CONFIG_UNIX98_PTYS=y
 # Unix98 only: the 256 legacy BSD pairs cost 5.5 s of device registration
 # at boot, and nothing opens them.

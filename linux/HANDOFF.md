@@ -188,6 +188,9 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 | ext4 mounted | 2.13 s | 1.73 s |
 | prompt | 4.12 s | 3.57 s |
 
+Local sockets and VTs (for X) came after these measurements: about 0.6 s
+more to the prompt in wremu, not yet timed on the device.
+
 What this round found and did, device-only mostly:
 - The device's 64 MB FAT32 boot volume has 512-byte clusters, so Grifo read
   every application one sector a command. FatFs `f_read` merges clusters
@@ -280,7 +283,11 @@ Left, largest first:
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
-   policy in it genuinely belong in userspace.
+   policy in it genuinely belong in userspace. The kernel has VTs (dummy
+   console only), but `wr-console` does not yet hold one: it should take a
+   VT in `VT_PROCESS` mode, stop drawing and reading the touchscreen when
+   asked to release it, and repaint when it comes back, so an X server on
+   another VT can share the panel.
 6. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when

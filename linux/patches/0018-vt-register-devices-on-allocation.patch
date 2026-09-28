@@ -1,0 +1,97 @@
+diff --git a/drivers/tty/vt/vt.c b/drivers/tty/vt/vt.c
+index 8f467b22b7..905eb2ea8d 100644
+--- a/drivers/tty/vt/vt.c
++++ b/drivers/tty/vt/vt.c
+@@ -1079,6 +1079,27 @@ static const struct tty_port_operations vc_port_ops = {
+ #define VC_MAXCOL (32767)
+ #define VC_MAXROW (32767)
+ 
++extern struct tty_driver *console_driver;
++
++/*
++ * The console driver creates a VT's device when the VT is allocated, not all
++ * MAX_NR_CONSOLES of them at boot: registering a device costs milliseconds
++ * on a slow machine.  VTs allocated before the driver are registered by
++ * vty_init().  One character device covers every VT (TTY_DRIVER_DYNAMIC_ALLOC),
++ * so a VT opens by its number before its device exists.
++ */
++static void vt_register_device(unsigned int currcons)
++{
++	if (console_driver && (console_driver->flags & TTY_DRIVER_INSTALLED))
++		tty_register_device(console_driver, currcons, NULL);
++}
++
++static void vt_unregister_device(unsigned int currcons)
++{
++	if (console_driver && (console_driver->flags & TTY_DRIVER_INSTALLED))
++		tty_unregister_device(console_driver, currcons);
++}
++
+ int vc_allocate(unsigned int currcons)	/* return 0 on success */
+ {
+ 	struct vt_notifier_param param;
+@@ -1129,6 +1150,7 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
+ 
+ 	vc_init(vc, 1);
+ 	vcs_make_sysfs(currcons);
++	vt_register_device(currcons);
+ 	atomic_notifier_call_chain(&vt_notifier_list, VT_ALLOCATE, &param);
+ 
+ 	return 0;
+@@ -1363,6 +1385,7 @@ struct vc_data *vc_deallocate(unsigned int currcons)
+ 		param.vc = vc = vc_cons[currcons].d;
+ 		atomic_notifier_call_chain(&vt_notifier_list, VT_DEALLOCATE, &param);
+ 		vcs_remove_sysfs(currcons);
++		vt_unregister_device(currcons);
+ 		visual_deinit(vc);
+ 		con_free_unimap(vc);
+ 		put_pid(vc->vt_pid);
+@@ -3949,6 +3972,8 @@ ATTRIBUTE_GROUPS(vt_dev);
+ 
+ int __init vty_init(const struct file_operations *console_fops)
+ {
++	unsigned int i;
++
+ 	cdev_init(&vc0_cdev, console_fops);
+ 	if (cdev_add(&vc0_cdev, MKDEV(TTY_MAJOR, 0), 1) ||
+ 	    register_chrdev_region(MKDEV(TTY_MAJOR, 0), 1, "/dev/vc/0") < 0)
+@@ -3962,7 +3987,8 @@ int __init vty_init(const struct file_operations *console_fops)
+ 	vcs_init();
+ 
+ 	console_driver = tty_alloc_driver(MAX_NR_CONSOLES, TTY_DRIVER_REAL_RAW |
+-			TTY_DRIVER_RESET_TERMIOS);
++			TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_DYNAMIC_DEV |
++			TTY_DRIVER_DYNAMIC_ALLOC);
+ 	if (IS_ERR(console_driver))
+ 		panic("Couldn't allocate console driver\n");
+ 
+@@ -3977,6 +4003,9 @@ int __init vty_init(const struct file_operations *console_fops)
+ 	tty_set_operations(console_driver, &con_ops);
+ 	if (tty_register_driver(console_driver))
+ 		panic("Couldn't register console driver\n");
++	for (i = 0; i < MAX_NR_CONSOLES; i++)
++		if (vc_cons_allocated(i))
++			tty_register_device(console_driver, i, NULL);
+ 	kbd_init();
+ 	console_map_init();
+ 	return 0;
+diff --git a/drivers/tty/vt/vt_ioctl.c b/drivers/tty/vt/vt_ioctl.c
+index deb3b3f934..cd753d0f98 100644
+--- a/drivers/tty/vt/vt_ioctl.c
++++ b/drivers/tty/vt/vt_ioctl.c
+@@ -814,10 +814,14 @@ int vt_ioctl(struct tty_struct *tty,
+ 	 * Returns the first available (non-opened) console.
+ 	 */
+ 	case VT_OPENQRY:
+-		scoped_guard(console_lock) /* required by vt_in_use() */
++		scoped_guard(console_lock) { /* required by vt_in_use() */
+ 			for (i = 0; i < MAX_NR_CONSOLES; ++i)
+ 				if (!vt_in_use(i))
+ 					break;
++			/* A VT's device exists only once it is allocated. */
++			if (i < MAX_NR_CONSOLES && vc_allocate(i))
++				i = MAX_NR_CONSOLES;
++		}
+ 		i = i < MAX_NR_CONSOLES ? (i+1) : -1;
+ 		return put_user(i, (int __user *)arg);
+ 

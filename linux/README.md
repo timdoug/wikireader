@@ -97,8 +97,8 @@ Control, Tab, Space, cursor keys, Backspace, and Enter. A released soft key is
 not written to the PTY directly: the frontend registers the soft keyboard as
 a `uinput` device and reports the key on it, with `KEY_LEFTSHIFT` and
 `KEY_LEFTCTRL` around it as a physical keyboard would, so the key is visible
-to any program that reads evdev. The frontend is also the machine's only
-keyboard driver, there being no VT: it opens every evdev node that has keys
+to any program that reads evdev. The frontend is also the terminal's
+keyboard driver, since no VT carries a terminal: it opens every evdev node that has keys
 and no absolute axes -- the soft keyboard, the front buttons, anything added
 later -- and turns their presses into bytes for the PTY with a US keymap,
 falling back to writing the PTY directly if `/dev/uinput` is missing. The
@@ -251,7 +251,7 @@ when there is no launcher to return to.
 The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same software-node graph as the SD slot's chip
-select. `FBIOBLANK` therefore works, and because there is no VT to blank the
+select. `FBIOBLANK` therefore works, and because no kernel console blanks the
 screen on a machine that runs from two AA cells, the userspace console does it:
 it powers the panel down after `wr.blank=<seconds>` of no touch, wakes on the
 next one without letting that touch type, and keeps the panel on for
@@ -282,6 +282,18 @@ no private platform data or board-supplied register encodings.
 The compact defconfig also enables the kernel's section garbage collection;
 unused code and data from generic subsystems are discarded while C33 retains
 its faster short-call model.
+
+The kernel's only networking is local (`AF_UNIX`) sockets, which X clients
+use to reach their server. `CONFIG_NET` brings about 360 KB of networking
+core with them, which no option removes: 0.4 s of every boot in wremu, 0.27 s
+of it Grifo loading the larger image. The kernel also has virtual terminals,
+with only the dummy console behind them: they draw nothing, and kernel
+messages stay on the serial port. They decide which full-screen program owns
+the display, as on a desktop. Registering all 63 VT devices at boot took
+0.45 s, about 7 ms a device in sysfs and devtmpfs, so `patches/0018`
+registers a VT's device when the VT is allocated, with one character device
+for all of them; `rootstart` makes `/dev/tty1` to `/dev/tty12`, so a VT opens
+by number before it exists. VTs cost about 0.2 s of boot.
 
 PID 1 is ordinary linked C apart from its entry point and syscall veneers.
 The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
@@ -476,7 +488,7 @@ Buildroot does not notice a rebuilt C library.
 The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
 provides what Buildroot's own uClibc configuration offers packages, such as
 the SUSv2 to SUSv4 legacy functions, `nftw`, GNU `glob`, `%m`, memory streams,
-`wordexp` and `libutil`. It leaves out the shared-library loader, networking,
+`wordexp` and `libutil`. It leaves out the shared-library loader, Sun RPC,
 and `getcontext`, which has no C33 implementation.
 
 BusyBox 1.38.0 is a static C33 bFLT with an interactive `hush`, core file and

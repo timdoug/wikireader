@@ -1,0 +1,56 @@
+diff --git a/package/x11r7/Config.in b/package/x11r7/Config.in
+index efa25988..e81e1be1 100644
+--- a/package/x11r7/Config.in
++++ b/package/x11r7/Config.in
+@@ -2,7 +2,6 @@ menuconfig BR2_PACKAGE_XORG7
+ 	bool "X.org X Window System"
+ 	depends on BR2_USE_WCHAR
+ 	depends on BR2_TOOLCHAIN_HAS_THREADS
+-	depends on !BR2_STATIC_LIBS # dlopen in xlib_libX11
+ 	help
+ 	  Support for X11R7 libraries, servers, drivers, and/or
+ 	  applications in the target.
+diff --git a/package/x11r7/libxcb/Config.in b/package/x11r7/libxcb/Config.in
+index e15dde3b..2c72ca5a 100644
+--- a/package/x11r7/libxcb/Config.in
++++ b/package/x11r7/libxcb/Config.in
+@@ -3,6 +3,9 @@ config BR2_PACKAGE_LIBXCB
+ 	select BR2_PACKAGE_XCB_PROTO
+ 	select BR2_PACKAGE_XLIB_LIBXDMCP
+ 	select BR2_PACKAGE_XLIB_LIBXAU
++	# configure wants pthread-stubs unless the host OS is linux*,
++	# and a no-MMU target is uclinux.
++	select BR2_PACKAGE_LIBPTHREAD_STUBS if !BR2_USE_MMU
+ 	help
+ 	  The X protocol C-language Binding (XCB) is a replacement for
+ 	  Xlib featuring a small footprint, latency hiding, direct
+diff --git a/package/x11r7/libxcb/libxcb.mk b/package/x11r7/libxcb/libxcb.mk
+index 7a3c28a0..4dd4a891 100644
+--- a/package/x11r7/libxcb/libxcb.mk
++++ b/package/x11r7/libxcb/libxcb.mk
+@@ -15,7 +15,8 @@ LIBXCB_INSTALL_STAGING = YES
+ 
+ LIBXCB_DEPENDENCIES = \
+ 	host-libxslt xcb-proto xlib_libXdmcp xlib_libXau \
+-	host-xcb-proto host-python3 host-pkgconf
++	host-xcb-proto host-python3 host-pkgconf \
++	$(if $(BR2_PACKAGE_LIBPTHREAD_STUBS),libpthread-stubs)
+ HOST_LIBXCB_DEPENDENCIES = \
+ 	host-libxslt host-xcb-proto host-xlib_libXdmcp \
+ 	host-xlib_libXau host-python3 host-pkgconf
+diff --git a/package/x11r7/xlib_libX11/xlib_libX11.mk b/package/x11r7/xlib_libX11/xlib_libX11.mk
+index 58f03427..cbb53702 100644
+--- a/package/x11r7/xlib_libX11/xlib_libX11.mk
++++ b/package/x11r7/xlib_libX11/xlib_libX11.mk
+@@ -34,6 +34,11 @@ XLIB_LIBX11_CONF_OPTS = \
+ 	--disable-specs \
+ 	--without-perl
+ 
++# A static libX11 cannot dlopen its input-method and cursor modules.
++ifeq ($(BR2_STATIC_LIBS),y)
++XLIB_LIBX11_CONF_OPTS += --disable-loadable-i18n --disable-loadable-xcursor
++endif
++
+ HOST_XLIB_LIBX11_CONF_OPTS = \
+ 	--disable-specs \
+ 	--without-perl
