@@ -1,0 +1,45 @@
+From 09de2f088a3cc8b40c96a918c7e0b3d7c8139276 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 00:10:18 -0400
+Subject: [PATCH 2/4] xkb: load a keymap compiled at build time
+
+With XKB_COMPILED_KEYMAP defined, a device's keymap is read from that
+.xkm file rather than compiled by running xkbcomp, which needs fork and
+the rules and component files on the target.
+---
+ xkb/ddxLoad.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/xkb/ddxLoad.c b/xkb/ddxLoad.c
+index bbe3952..7585a2f 100644
+--- a/xkb/ddxLoad.c
++++ b/xkb/ddxLoad.c
+@@ -473,6 +473,28 @@ XkbCompileKeymapForDevice(DeviceIntPtr dev, XkbRMLVOSet * rmlvo, int need)
+     XkbComponentNamesRec kccgst = { 0 };
+     char name[PATH_MAX];
+ 
++#ifdef XKB_COMPILED_KEYMAP
++    /* Every keyboard gets the keymap xkbcomp compiled when the server was
++       built, so that starting needs neither xkbcomp nor the rules. */
++    {
++        FILE *file = fopen(XKB_COMPILED_KEYMAP, "r");
++
++        if (file) {
++            unsigned missing = XkmReadFile(file, need, XkmAllIndicesMask,
++                                           &xkb);
++
++            fclose(file);
++            if (xkb && !(need & missing))
++                return xkb;
++            if (xkb) {
++                XkbFreeKeyboard(xkb, 0, TRUE);
++                xkb = NULL;
++            }
++        }
++        LogMessage(X_WARNING, "XKB: cannot load %s\n", XKB_COMPILED_KEYMAP);
++    }
++#endif
++
+     if (XkbRMLVOtoKcCGST(dev, rmlvo, &kccgst)) {
+         provided =
+             XkbDDXLoadKeymapByNames(dev, &kccgst, XkmAllIndicesMask, need, &xkb,

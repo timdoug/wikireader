@@ -482,8 +482,12 @@ with `/uclibc-smoke`, the ordinary uClibc program they run as their libc
 check.
 Buildroot builds with `c33-linux-uclibc-` from `toolchain`, and its FLAT
 support links every program with `-Wl,-elf2flt`. The build starts from a
-clean output directory each time, which takes well under a minute, because
-Buildroot does not notice a rebuilt C library.
+clean output directory each time, because Buildroot does not notice a rebuilt
+C library. That takes about 16 minutes, most of it the host tools X needs
+(Python for libxcb's protocol generator, CMake); a package's `-dirclean`
+target and then `make -C` the output directory redoes one package in a
+minute or two (`-rebuild` can leave a program unlinked against its rebuilt
+libraries).
 
 The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
 provides what Buildroot's own uClibc configuration offers packages, such as
@@ -527,6 +531,27 @@ drawn inverted. Full-screen programs such as BusyBox `vi`, `less` and `top`,
 and curses programs such as `sl`, therefore work. Escape is Ctrl+`[`.
 `console/terminal-test.c` checks the escape handling on the build machine,
 and the Buildroot package runs it before building the console.
+
+The console holds VT 1 in process mode. When another program switches VTs,
+the kernel asks the console first: it stops drawing (it keeps drawing into
+its own copy of the screen), drops touches and keys, stops its blank and
+suspend timers, and answers; when VT 1 comes back it repaints. Its VT's
+keyboard mode is `K_OFF`, since the console reads the keyboards itself.
+
+`xrun [CLIENT]` runs an X client, `xeyes` by default, on the panel: it starts
+`Xfbdev` on the touchscreen and the buttons, waits for its socket, runs the
+client, and stops the server when the client exits, which gives VT 1 back to
+the console. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
+the last release that has it (`buildroot/external/package/xserver-kdrive`).
+Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
+compiled at build time instead of running `xkbcomp` (the image carries no
+XKB rules or sources), draw through a shadow copied to the panel bit-reversed
+(X keeps the leftmost pixel in a byte's low bit, Linux framebuffers in the
+high one), and take a touchscreen as an absolute pointer, the touch as its
+first button. The client libraries are static (`buildroot/patches/0002`),
+with libX11's loadable modules turned off. `Xfbdev` is 2.0 MB of code and
+xeyes 1.3 MB, 410 KB of it libX11's East Asian conversion tables; each uses
+about 4.5 MB and 1.4 MB of memory running.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

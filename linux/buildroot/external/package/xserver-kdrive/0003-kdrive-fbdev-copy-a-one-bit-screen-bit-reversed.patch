@@ -1,0 +1,118 @@
+From 670578757883dc99d1a9669c08c86a618fe5ef04 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 00:10:18 -0400
+Subject: [PATCH 3/4] kdrive/fbdev: copy a one-bit screen bit-reversed
+
+Linux keeps the leftmost pixel in a byte's most significant bit in a
+framebuffer of fewer than eight bits a pixel; X on a little-endian
+machine keeps it in the least.  Such a screen is drawn in a shadow and
+copied a byte at a time through a reversal table.
+---
+ hw/kdrive/fbdev/fbdev.c | 73 +++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 71 insertions(+), 2 deletions(-)
+
+diff --git a/hw/kdrive/fbdev/fbdev.c b/hw/kdrive/fbdev/fbdev.c
+index 9b69edf..a3ae1e0 100644
+--- a/hw/kdrive/fbdev/fbdev.c
++++ b/hw/kdrive/fbdev/fbdev.c
+@@ -332,6 +332,59 @@ fbdevWindowAfb(ScreenPtr pScreen,
+     return (CARD8 *) priv->fb + row * priv->fix.line_length + offset;
+ }
+ 
++/*
++ * Linux keeps the leftmost pixel of a byte in its most significant bits in
++ * a framebuffer of fewer than eight bits a pixel, as fbcon draws; X on a
++ * little-endian machine keeps it in the least significant.  One bit a pixel
++ * is drawn in a shadow and copied a byte at a time, bit-reversed.
++ */
++static Bool
++fbdevReversedMono(FbdevPriv *priv)
++{
++    return BITMAP_BIT_ORDER == LSBFirst && priv->var.bits_per_pixel == 1 &&
++        priv->fix.type == FB_TYPE_PACKED_PIXELS;
++}
++
++static void
++fbdevUpdateReversedMono(ScreenPtr pScreen, shadowBufPtr pBuf)
++{
++    KdScreenPriv(pScreen);
++    FbdevPriv *priv = pScreenPriv->card->driver;
++    RegionPtr damage = shadowDamage(pBuf);
++    PixmapPtr pShadow = pBuf->pPixmap;
++    int nbox = RegionNumRects(damage);
++    BoxPtr pbox = RegionRects(damage);
++    FbBits *shaBase;
++    FbStride shaStride;
++    int shaBpp;
++    _X_UNUSED int shaXoff, shaYoff;
++    static CARD8 reverse[256];
++    int i, j;
++
++    if (!pScreenPriv->enabled)
++        return;
++    if (!reverse[1])
++        for (i = 0; i < 256; i++)
++            for (j = 0; j < 8; j++)
++                if (i & (1 << j))
++                    reverse[i] |= 0x80 >> j;
++    fbGetDrawable(&pShadow->drawable, shaBase, shaStride, shaBpp, shaXoff,
++                  shaYoff);
++    for (; nbox--; pbox++) {
++        int first = pbox->x1 >> 3, end = (pbox->x2 + 7) >> 3, y;
++
++        for (y = pbox->y1; y < pbox->y2; y++) {
++            const CARD8 *sha = (const CARD8 *) (shaBase + y * shaStride) +
++                first;
++            CARD8 *scr = (CARD8 *) priv->fb + y * priv->fix.line_length +
++                first;
++
++            for (i = first; i < end; i++)
++                *scr++ = reverse[*sha++];
++        }
++    }
++}
++
+ Bool
+ fbdevMapFramebuffer(KdScreenInfo * screen)
+ {
+@@ -340,7 +393,7 @@ fbdevMapFramebuffer(KdScreenInfo * screen)
+     FbdevPriv *priv = screen->card->driver;
+ 
+     if (scrpriv->randr != RR_Rotate_0 ||
+-        priv->fix.type != FB_TYPE_PACKED_PIXELS)
++        priv->fix.type != FB_TYPE_PACKED_PIXELS || fbdevReversedMono(priv))
+         scrpriv->shadow = TRUE;
+     else
+         scrpriv->shadow = FALSE;
+@@ -418,7 +471,9 @@ fbdevSetShadow(ScreenPtr pScreen)
+     update = 0;
+     switch (priv->fix.type) {
+     case FB_TYPE_PACKED_PIXELS:
+-        if (scrpriv->randr)
++        if (fbdevReversedMono(priv) && scrpriv->randr == RR_Rotate_0)
++            update = fbdevUpdateReversedMono;
++        else if (scrpriv->randr)
+             if (priv->var.bits_per_pixel == 16) {
+                 switch (scrpriv->randr) {
+                 case RR_Rotate_90:
+@@ -835,6 +890,20 @@ fbdevGetColors(ScreenPtr pScreen, int n, xColorItem * pdefs)
+     int k;
+     int min, max;
+ 
++    /* A monochrome panel has no colormap to read: its two pixel values
++       are black and white, in the order its visual says. */
++    if (priv->fix.visual == FB_VISUAL_MONO01 ||
++        priv->fix.visual == FB_VISUAL_MONO10) {
++        for (k = 0; k < n; k++) {
++            int white = (pdefs[k].pixel != 0) ==
++                (priv->fix.visual == FB_VISUAL_MONO10);
++
++            pdefs[k].red = pdefs[k].green = pdefs[k].blue =
++                white ? 0xffff : 0;
++        }
++        return;
++    }
++
+     min = 256;
+     max = 0;
+     for (k = 0; k < n; k++) {

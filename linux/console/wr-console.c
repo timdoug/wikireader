@@ -2,10 +2,13 @@
 /* WikiReader userspace framebuffer terminal and touchscreen keyboard. */
 #include <fcntl.h>
 #include <linux/fb.h>
+#include <linux/kd.h>
+#include <linux/vt.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <time.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -216,6 +219,16 @@ static int symbols_active;
 static int fb_fd;
 static int log_fd;
 /*
+ * The panel belongs to whichever program holds the foreground VT.  The
+ * console holds VT 1 in process mode, so the kernel asks it before
+ * switching away: while another VT has the panel (an X server, say) the
+ * console draws only into its own copy, drops touches and keys, and stops
+ * its blank and suspend timers; when the VT comes back it repaints.
+ */
+static int vt_fd = -1;
+static int vt_pipe[2] = { -1, -1 };
+static int vt_away;
+/*
  * Key delivery.  The soft keyboard is a keyboard as far as Linux is
  * concerned: it is a uinput device, and tapping a key here reports a press
  * and release on it.  Everything that arrives on any keyboard-shaped evdev
@@ -391,7 +404,7 @@ static void write_rows(unsigned int first, unsigned int count)
 	size_t length = count * LCD_STRIDE;
 	size_t done = 0;
 
-	if (!count || first >= LCD_HEIGHT)
+	if (!count || first >= LCD_HEIGHT || vt_away)
 		return;
 	if (count > LCD_HEIGHT - first)
 		length = (LCD_HEIGHT - first) * LCD_STRIDE;
@@ -1709,11 +1722,68 @@ static void set_display_blank(int blank)
 			: "C33 display: woken by touch\n");
 }
 
+static void vt_signalled(int sig)
+{
+	char byte = sig == SIGUSR1 ? 'r' : 'a';
+
+	write(vt_pipe[1], &byte, 1);
+}
+
+static void take_vt(void)
+{
+	struct vt_mode mode = {
+		.mode = VT_PROCESS, .relsig = SIGUSR1, .acqsig = SIGUSR2,
+	};
+	struct sigaction action = { .sa_handler = vt_signalled };
+
+	if (pipe(vt_pipe) < 0)
+		return;
+	fcntl(vt_pipe[0], F_SETFL, O_NONBLOCK);
+	fcntl(vt_pipe[1], F_SETFL, O_NONBLOCK);
+	vt_fd = open("/dev/tty1", O_RDWR | O_NOCTTY);
+	if (vt_fd < 0)
+		return;
+	sigaction(SIGUSR1, &action, NULL);
+	sigaction(SIGUSR2, &action, NULL);
+	/* The console reads the keyboards itself; the VT only owns the panel. */
+	ioctl(vt_fd, KDSETMODE, KD_GRAPHICS);
+	ioctl(vt_fd, KDSKBMODE, K_OFF);
+	if (ioctl(vt_fd, VT_SETMODE, &mode) < 0) {
+		close(vt_fd);
+		vt_fd = -1;
+		return;
+	}
+	log_text("C33 console: holding VT 1\n");
+}
+
+static void vt_request(void)
+{
+	char byte;
+
+	while (read(vt_pipe[0], &byte, 1) == 1) {
+		if (byte == 'r' && !vt_away) {
+			vt_away = 1;
+			active_key = -1;
+			ioctl(vt_fd, VT_RELDISP, 1);
+			log_text("C33 console: panel handed to another VT\n");
+		} else if (byte == 'a' && vt_away) {
+			ioctl(vt_fd, VT_RELDISP, VT_ACKACQ);
+			vt_away = 0;
+			/* Whoever had the panel may have left it blanked. */
+			ioctl(fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
+			display_blanked = 0;
+			idle_since = monotonic_seconds();
+			write_rows(0, LCD_HEIGHT);
+			log_text("C33 console: panel back\n");
+		}
+	}
+}
+
 int main(void)
 {
 	struct fb_var_screeninfo variable;
 	struct fb_fix_screeninfo fixed;
-	struct pollfd poll_fds[2 + MAX_KEYBOARDS];
+	struct pollfd poll_fds[3 + MAX_KEYBOARDS];
 	struct input_event events[8];
 	unsigned int touch_x = 0;
 	unsigned int touch_y = 0;
@@ -1777,12 +1847,20 @@ int main(void)
 		poll_fds[2 + k].events = POLLIN;
 	}
 	poll_count = 2 + keyboard_count;
+	take_vt();
+	if (vt_fd >= 0) {
+		poll_fds[poll_count].fd = vt_pipe[0];
+		poll_fds[poll_count].events = POLLIN;
+		poll_count++;
+	}
 	read_timeouts();
 	idle_since = monotonic_seconds();
 	for (;;) {
 		long idle = monotonic_seconds() - idle_since;
 		int wait = -1;
 
+		if (vt_away)
+			idle = 0;
 		if (blank_seconds && !display_blanked && idle >= blank_seconds)
 			set_display_blank(1);
 		if (suspend_seconds && idle >= suspend_seconds) {
@@ -1800,12 +1878,14 @@ int main(void)
 			if (wait < 0 || until < wait)
 				wait = until;
 		}
-		if (wait < 0)
+		if (wait < 0 || vt_away)
 			wait = -1;
 		else if (wait < 1)
 			wait = 1;
 		if (poll(poll_fds, poll_count, wait) < 0)
 			continue;
+		if (vt_fd >= 0 && (poll_fds[poll_count - 1].revents & POLLIN))
+			vt_request();
 		for (k = 0; k < keyboard_count; k++) {
 			ssize_t count;
 			unsigned int i;
@@ -1814,7 +1894,7 @@ int main(void)
 			if (!(poll_fds[2 + k].revents & POLLIN))
 				continue;
 			count = read(keyboard_fds[k], events, sizeof(events));
-			if (count <= 0)
+			if (count <= 0 || vt_away)
 				continue;
 			/*
 			 * Only a press counts as activity: the release of the
@@ -1836,8 +1916,10 @@ int main(void)
 		}
 		if (poll_fds[0].revents & POLLIN) {
 			consume_terminal_output(master_fd);
-			idle_since = monotonic_seconds();
-			set_display_blank(0);
+			if (!vt_away) {
+				idle_since = monotonic_seconds();
+				set_display_blank(0);
+			}
 		}
 		if (poll_fds[1].revents & POLLIN) {
 			ssize_t count = read(input_fd, events, sizeof(events));
@@ -1845,7 +1927,7 @@ int main(void)
 			unsigned int i;
 			int was_blanked = display_blanked;
 
-			if (count <= 0)
+			if (count <= 0 || vt_away)
 				continue;
 			idle_since = monotonic_seconds();
 			set_display_blank(0);

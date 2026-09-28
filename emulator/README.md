@@ -159,8 +159,9 @@ after the window opens, in panel pixels; an item of the form
 `-g -N 3,1000000` to switch the device on and `-n` to end the run and write
 `screen.pgm`. Scripted `-N` presses are timed in guest cycles, which advance
 at roughly a third of wall-clock rate while the window idles.
-`WREMU_TOUCH_TRACE=1` logs each packet the window hands to the touch panel
-and each scripted drag step, and `WREMU_WALLCLOCK=1` gives a headless run the
+`WREMU_TOUCH_TRACE=1` logs each packet the window hands to the touch panel,
+each scripted drag step and each byte the guest reads from the panel with its
+cycle count, and `WREMU_WALLCLOCK=1` gives a headless run the
 window's wall-clock tick. `WREMU_DRAG_MS=N` spaces the sixteen steps of a
 scripted `-G` drag N units apart instead of 5 (the unit is the `-G` cycle
 count, which is instructions retired, so the guest time depends on the

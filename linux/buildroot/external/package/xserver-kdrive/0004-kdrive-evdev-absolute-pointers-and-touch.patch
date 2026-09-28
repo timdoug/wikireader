@@ -1,0 +1,135 @@
+From 37ceb5935ded0ae1167315d0f04a077a1c80e4a8 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 00:25:47 -0400
+Subject: [PATCH 4/4] kdrive/evdev: absolute pointers and touch
+
+The evdev pointer driver printed absolute axes and ignored BTN_TOUCH.  A
+report's position is now scaled from the axes' range to the screen and
+applied at its sync, and a touch is the first button, pressed after the
+pointer has moved to it.
+---
+ hw/kdrive/linux/evdev.c | 65 +++++++++++++++++++++++++++++------------
+ 1 file changed, 46 insertions(+), 19 deletions(-)
+
+diff --git a/hw/kdrive/linux/evdev.c b/hw/kdrive/linux/evdev.c
+index 9590413..fa645ec 100644
+--- a/hw/kdrive/linux/evdev.c
++++ b/hw/kdrive/linux/evdev.c
+@@ -59,11 +59,49 @@ typedef struct _kevdev {
+     int fd;
+ } Kevdev;
+ 
++/*
++ * Absolute axes, a touchscreen's: the position scaled from the device's
++ * range to the screen's, applied once a report's axes have all arrived.
++ */
++static void
++EvdevPtrAbs(KdPointerInfo * pi)
++{
++    Kevdev *ke = pi->driverPrivate;
++    ScreenPtr screen = screenInfo.screens[0];
++    const struct input_absinfo *ax = &ke->absinfo[ABS_X];
++    const struct input_absinfo *ay = &ke->absinfo[ABS_Y];
++    int x, y;
++
++    if (ke->abs[ABS_X] == ke->prevabs[ABS_X] &&
++        ke->abs[ABS_Y] == ke->prevabs[ABS_Y])
++        return;
++    ke->prevabs[ABS_X] = ke->abs[ABS_X];
++    ke->prevabs[ABS_Y] = ke->abs[ABS_Y];
++    x = ke->abs[ABS_X] - ax->minimum;
++    y = ke->abs[ABS_Y] - ay->minimum;
++    if (ax->maximum > ax->minimum)
++        x = x * (screen->width - 1) / (ax->maximum - ax->minimum);
++    if (ay->maximum > ay->minimum)
++        y = y * (screen->height - 1) / (ay->maximum - ay->minimum);
++    KdEnqueuePointerEvent(pi, pi->buttonState, x, y, 0);
++}
++
+ static void
+ EvdevPtrBtn(KdPointerInfo * pi, struct input_event *ev)
+ {
+     int flags = KD_MOUSE_DELTA | pi->buttonState;
+ 
++    /* A touch is the first button, pressed where the finger is. */
++    if (ev->code == BTN_TOUCH) {
++        EvdevPtrAbs(pi);
++        if (ev->value)
++            flags |= KD_BUTTON_1;
++        else
++            flags &= ~KD_BUTTON_1;
++        KdEnqueuePointerEvent(pi, flags, 0, 0, 0);
++        return;
++    }
++
+     if (ev->code >= BTN_MOUSE && ev->code < BTN_JOYSTICK) {
+         switch (ev->code) {
+         case BTN_LEFT:
+@@ -115,20 +153,6 @@ EvdevPtrMotion(KdPointerInfo * pi, struct input_event *ev)
+             }
+             break;
+         }
+-    for (i = 0; i < ke->max_abs; i++)
+-        if (ke->abs[i] != ke->prevabs[i]) {
+-            int a;
+-
+-            ErrorF("abs");
+-            for (a = 0; a <= ke->max_abs; a++) {
+-                if (ISBITSET(ke->absbits, a))
+-                    ErrorF(" %d=%d", a, ke->abs[a]);
+-                ke->prevabs[a] = ke->abs[a];
+-            }
+-            ErrorF("\n");
+-            break;
+-        }
+-
+     if (ev->code == REL_WHEEL) {
+         for (i = 0; i < abs(ev->value); i++) {
+             if (ev->value > 0)
+@@ -169,6 +193,8 @@ EvdevPtrRead(int evdevPort, void *closure)
+     for (i = 0; i < n; i++) {
+         switch (events[i].type) {
+         case EV_SYN:
++            if (ke->max_abs >= ABS_Y)
++                EvdevPtrAbs(pi);
+             break;
+         case EV_KEY:
+             EvdevPtrBtn(pi, &events[i]);
+@@ -179,7 +205,6 @@ EvdevPtrRead(int evdevPort, void *closure)
+             break;
+         case EV_ABS:
+             ke->abs[events[i].code] = events[i].value;
+-            EvdevPtrMotion(pi, &events[i]);
+             break;
+         }
+     }
+@@ -318,11 +343,12 @@ EvdevPtrDisable(KdPointerInfo * pi)
+     if (!pi || !pi->driverPrivate)
+         return;
+ 
+-    KdUnregisterFd(pi, ke->fd, TRUE);
+-
++    /* Before the descriptor is closed with it. */
+     if (ioctl(ke->fd, EVIOCGRAB, 0) < 0)
+         perror("Ungrabbing evdev mouse device failed");
+ 
++    KdUnregisterFd(pi, ke->fd, TRUE);
++
+     free(ke);
+     pi->driverPrivate = 0;
+ }
+@@ -495,11 +521,12 @@ EvdevKbdDisable(KdKeyboardInfo * ki)
+     if (!ki || !ki->driverPrivate)
+         return;
+ 
+-    KdUnregisterFd(ki, ke->fd, TRUE);
+-
++    /* Before the descriptor is closed with it. */
+     if (ioctl(ke->fd, EVIOCGRAB, 0) < 0)
+         perror("Ungrabbing evdev keyboard device failed");
+ 
++    KdUnregisterFd(ki, ke->fd, TRUE);
++
+     free(ke);
+     ki->driverPrivate = 0;
+ }

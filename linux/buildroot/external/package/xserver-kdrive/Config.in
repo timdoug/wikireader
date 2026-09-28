@@ -1,0 +1,17 @@
+config BR2_PACKAGE_XSERVER_KDRIVE
+	bool "xserver-kdrive (Xfbdev)"
+	depends on BR2_PACKAGE_XORG7
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LIBSHA1
+	select BR2_PACKAGE_PIXMAN
+	select BR2_PACKAGE_XKEYBOARD_CONFIG
+	select BR2_PACKAGE_XLIB_LIBXAU
+	select BR2_PACKAGE_XLIB_LIBXFONT2
+	select BR2_PACKAGE_XLIB_LIBXKBFILE
+	select BR2_PACKAGE_XLIB_XTRANS
+	select BR2_PACKAGE_XORGPROTO
+	help
+	  Xfbdev, the kdrive X server that draws on a Linux framebuffer
+	  and reads evdev devices, from xorg-server 1.19, the last
+	  release that has it.  Its keymap is compiled when it is built,
+	  and it draws the WikiReader's one-bit panel through a shadow.

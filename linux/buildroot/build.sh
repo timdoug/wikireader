@@ -29,7 +29,8 @@ if [ ! -d "$source_dir/.git" ]; then
 fi
 
 # Buildroot does not notice a rebuilt C library or edited local package
-# sources, and a clean build takes well under a minute, so always start clean.
+# sources, so always start clean: about 16 minutes, most of it host tools for
+# X.
 # Downloads are kept in the source tree's dl/.
 rm -rf "$build_dir"
 make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \

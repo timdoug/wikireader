@@ -1,0 +1,29 @@
+From d2f8ece2348e033aac0f44c24b615563f6bf656e Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 00:10:18 -0400
+Subject: [PATCH 1/4] os: vfork where there is no fork
+
+A uClibc system without an MMU has no fork().  System(), Popen() and
+Fopen()'s children only drop privileges, redirect and exec, as a vfork()
+child may.
+---
+ os/utils.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/os/utils.c b/os/utils.c
+index 6dcf328..908d5c9 100644
+--- a/os/utils.c
++++ b/os/utils.c
+@@ -191,6 +191,12 @@ Bool noGEExtension = FALSE;
+ #include <X11/Xos_r.h>
+ 
+ #include <errno.h>
++#if defined(__UCLIBC__) && !defined(__ARCH_USE_MMU__)
++/* No fork() without an MMU.  Each child here only drops privileges,
++   redirects and execs, which a vfork() child may do. */
++#include <unistd.h>
++#define fork vfork
++#endif
+ 
+ Bool CoreDump;
+ 

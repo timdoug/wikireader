@@ -11,6 +11,8 @@
  * samo-lib/grifo/src/CTP.c:89, so each queued byte raises that vector.
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "touch.h"
@@ -83,6 +85,9 @@ static bool touch_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			*val = t->fifo[t->head];
 			t->head = (t->head + 1) % TOUCH_FIFO;
 			t->bytes_read++;
+			if (t->cpu && getenv("WREMU_TOUCH_TRACE"))
+				fprintf(stderr, "  [touch byte %02x read at %llu]\n",
+					*val, (unsigned long long)t->cpu->cycles);
 		} else {
 			*val = 0xff;
 		}
@@ -191,6 +196,7 @@ void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed)
 	if (x > LCD_WIDTH - 1)  x = LCD_WIDTH - 1;
 	if (y > LCD_HEIGHT - 1) y = LCD_HEIGHT - 1;
 
+	t->cpu = cpu;
 	unsigned tx = (unsigned)(x << CTP_SHIFT);
 	unsigned ty = (unsigned)(y << CTP_SHIFT);
 

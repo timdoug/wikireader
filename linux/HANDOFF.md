@@ -284,10 +284,8 @@ Left, largest first:
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
-   console only), but `wr-console` does not yet hold one: it should take a
-   VT in `VT_PROCESS` mode, stop drawing and reading the touchscreen when
-   asked to release it, and repaint when it comes back, so an X server on
-   another VT can share the panel.
+   console only), and `wr-console` holds VT 1 in process mode, so X and
+   other full-screen programs take the panel from it and give it back.
 6. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when

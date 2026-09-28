@@ -52,6 +52,7 @@ struct touch {
 	unsigned head, tail;
 	unsigned long events, bytes_read;
 	const struct itc *itc;   /* for the configured interrupt priority */
+	const struct c33 *cpu;   /* the last poster, for WREMU_TOUCH_TRACE times */
 
 	/* The receiver's side of the link, as the guest has configured it. */
 	uint8_t  irda;           /* DIVMD lives here */
