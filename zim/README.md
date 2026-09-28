@@ -55,7 +55,15 @@ calls must be serialized while this shared buffer is enabled.
 Aligned payloads transfer as 32-bit SPI characters with DMA
 (`SD_DMA_BITS=32`, the default; `SD_DMA_BITS=8` keeps the previous width for
 comparison), and the C33 `swap` instruction restores byte order in memory.
-Commands, tokens, CRCs and unaligned payloads stay byte-wide. Early
+Commands, tokens, CRCs and unaligned payloads stay byte-wide. A read of
+several blocks into an aligned SDRAM buffer is streamed: the SPI goes to
+32-bit characters once, the card's gaps, tokens, blocks and CRCs come in by
+DMA into an 8 KB ring, and each block is swapped into place from there, so
+the width changes once a read rather than twice a block. FatFs's `f_read`
+also takes clusters that follow each other on the card into the same read,
+up to 255 sectors: a 64 MB FAT32 boot volume has 512-byte clusters (FAT32
+needs 65,525 of them), so otherwise every application loaded one command
+per sector. On the device `zim.app` loads in 68 reads instead of 771. Early
 filesystem setup uses byte DMA, with word mode enabled after the boot
 checkpoint. Bounded waits and partial-transfer recovery retain the byte
 fallback; overflow or inconsistent counts reject the block. The driver holds

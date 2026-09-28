@@ -33,6 +33,14 @@ typedef int (*mmc_spi_receive_dma_fn)(BYTE *buff, UINT byte_count);
 
 void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma);
 
+/* Receive @blocks 512-byte blocks of a multiple-block read as one stream,
+ * the command already answered and the first token not yet read.  Returns
+ * the blocks received, 0 if it cannot stream this buffer (the caller reads
+ * the blocks itself), or -1 when the read is beyond recovery. */
+typedef int (*mmc_spi_receive_stream_fn)(BYTE *buff, UINT blocks);
+
+void mmc_set_spi_receive_stream(mmc_spi_receive_stream_fn receive_stream);
+
 #include "mmc_profile.h"
 
 DSTATUS mmc_disk_initialize(BYTE drv);

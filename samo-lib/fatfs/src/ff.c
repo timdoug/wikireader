@@ -4053,7 +4053,34 @@ FRESULT f_read (
 			cc = btr / SS(fs);					/* When remaining bytes >= sector size, */
 			if (cc > 0) {						/* Read maximum contiguous sectors directly */
 				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
+					UINT more = cc - (fs->csize - csect), take;
+					DWORD clst = fp->clust, next;
+
 					cc = fs->csize - csect;
+					/* WikiReader: clusters that follow on the card go
+					 * in the same read, up to what disk_read takes.  A
+					 * 64 MB FAT32 boot volume has 512-byte clusters,
+					 * and a read each made loading an application one
+					 * command per sector. */
+					while (more > 0 && cc < 255) {
+#if FF_USE_FASTSEEK
+						if (fp->cltbl)
+							next = clmt_clust(fp, fp->fptr + (FSIZE_t)cc * SS(fs));
+						else
+#endif
+							next = get_fat(&fp->obj, clst);
+						if (next != clst + 1)
+							break;
+						take = more < fs->csize ? more : fs->csize;
+						if (cc + take > 255)
+							take = 255 - cc;
+						clst = next;
+						cc += take;
+						more -= take;
+						if (take < fs->csize)
+							break;
+					}
+					fp->clust = clst;
 				}
 				if (disk_read(fs->pdrv, rbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
 #if !FF_FS_READONLY && FF_FS_MINIMIZE <= 2		/* Replace one of the read sectors with cached data if it contains a dirty sector */

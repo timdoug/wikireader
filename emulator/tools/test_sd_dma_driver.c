@@ -52,6 +52,16 @@ int snprintf(char *s, size_t n, const char *fmt, ...)
     return 0;
 }
 void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn fn) { (void)fn; }
+void mmc_set_spi_receive_stream(mmc_spi_receive_stream_fn fn) { (void)fn; }
+void *memcpy(void *dst, const void *src, size_t size)
+{
+    BYTE *d = dst;
+    const BYTE *s = src;
+
+    while (size--)
+        *d++ = *s++;
+    return dst;
+}
 void *memset(void *dst, int value, size_t size)
 {
     BYTE *p = dst;

@@ -167,24 +167,31 @@ what the DMA does per word; those need the device.
 ## Boot: where it stands
 
 Launcher path in wremu (`WREMU_MODEL=dma_cpu_penalty=0`, which matches the
-device's SD streams), power-on to the LCD console's prompt: 6.11 s, against
-7.09 s before this round and 7.40 to 7.46 s before the SD work.
+device's SD streams), power-on to the LCD console's prompt, on a card like
+the device's (512-byte clusters on the boot volume: `SPC=1` in
+`/tmp/sepdata/timeline_app.py`'s card; the Linux tools' fixture uses 64):
+6.67 s, against 8.64 s before this round. With 32 KB clusters it is 5.57 s.
 
-| Phase | Time |
-|---|---|
-| mask ROM, MBR, Grifo, `init.app` | 0.91 s |
-| Grifo loading `linux.app` (2.9 MB) | 2.25 s |
-| kernel to `kernel_init` | 0.21 s |
-| initcalls (the card's probe among them) | 1.32 s |
-| `rootstart`: FAT, clock, loop, ext4 mount, seed, mounts | 0.47 s |
-| BusyBox init, `rcS`, the shells, `wr-console` | 0.96 s |
+| Phase | 512-byte clusters | 32 KB clusters |
+|---|---|---|
+| mask ROM, MBR, Grifo, `init.app` | 0.95 s | 0.91 s |
+| Grifo loading `linux.app` (2.9 MB) | 1.98 s | 1.71 s |
+| kernel to `kernel_init` | 0.21 s | 0.21 s |
+| initcalls (the card's probe among them) | 1.32 s | 1.32 s |
+| `rootstart`: FAT, clock, loop, ext4 mount, seed, mounts | 0.47 s | 0.47 s |
+| BusyBox init, `rcS`, the shells, `wr-console` | 0.96 s | 0.96 s |
 
-What this round did: no ext4 orphan file (0.34 s), `rootstart` mounts the
-kernel file systems instead of `rcS` (two BusyBox execs), the self-tests in
-a file of their own (hush parses a whole block before running it), the
-seed save and watchdog daemon from `inittab` after the consoles, and no
-KALLSYMS (180 KB less for Grifo to load, 0.13 s). The kernel log stays
-32 KB, the user's call (a boot writes 4.8 KB in 80 records).
+What this round did, Linux side: no ext4 orphan file (0.34 s), `rootstart`
+mounts the kernel file systems instead of `rcS` (two BusyBox execs), the
+self-tests in a file of their own (hush parses a whole block before running
+it), the seed save and watchdog daemon from `inittab` after the consoles,
+and no KALLSYMS (180 KB less to load, 0.13 s). The kernel log stays 32 KB,
+the user's call (a boot writes 4.8 KB in 80 records). Grifo side
+(`samo-lib`): multiple-block reads stream through an 8 KB ring with one
+width change a read (`grifo/src/sd_dma.c`), and FatFs's `f_read` merges
+clusters that follow on the card into one read (`fatfs/src/ff.c`). On the
+device's 512-byte clusters every application used to load one command per
+sector: `zim.app` took 771 reads and 941 ms, now 68 and 702.
 
 `initcall_debug` durations in exact multiples of 10 ms are the CPU being
 shared with other work until the next tick (PREEMPT_NONE), not idling: a
@@ -192,16 +199,16 @@ kthread's creation measured 5 to 85 ms busy with no idle entry. Boot is
 CPU-bound; the idle column hardly moves before the console.
 
 Left, largest first:
-- **Grifo's load**, 2.25 s at about 1.3 MB/s. An LZ4 kernel with a small
-  decompressing stub would load 1.95 MB of 3.1 and decompress at about 10
-  cycles a byte, about 0.35 s saved (gzip, zstd and xz decompress too
-  slowly here to pay). Or Grifo's own reads could stream as Linux's now do,
-  about 0.5 s, but that changes the launcher every application uses.
+- **Grifo's load**, about 2 s. An LZ4 kernel was estimated and dropped:
+  with Grifo at 1.7 MB/s it would save about 0.1 s (decompression from A0
+  RAM at 8 to 10 cycles a byte against 35 a byte loaded).
 - **Initcalls**, 1.32 s of generic work: sysfs nodes, slab, message
   formatting, about 0.17 s idle in power-up delays.
+- **An application load's time besides reading, on the device only**:
+  `zim.app` 418 ms of 702 (wremu: 44 ms), before and after this round.
+  Unexplained; `kind=3` in `zimboot.log` (`zimlog.on` on the card).
 - **`wr-console`'s start**, about 0.4 s to its first prompt, much of it the
-  execs of the four processes init starts at once; putting it first in
-  `inittab` might help.
+  execs of the four processes init starts at once.
 
 ## What is left, in the order I would take it
 

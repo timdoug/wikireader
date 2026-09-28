@@ -65,6 +65,7 @@ BYTE CardType;			// b0:MMC, b1:SDv1, b2:SDv2, b3:Block addressing
 
 /* Grifo registers its DMA backend; small boot stages leave this unset. */
 static mmc_spi_receive_dma_fn spi_receive_dma;
+static mmc_spi_receive_stream_fn spi_receive_stream;
 static mmc_read_observer_fn read_observer;
 
 void mmc_set_read_observer(mmc_read_observer_fn observer)
@@ -286,6 +287,11 @@ void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn receive_dma)
 	spi_receive_dma = receive_dma;
 }
 
+void mmc_set_spi_receive_stream(mmc_spi_receive_stream_fn receive_stream)
+{
+	spi_receive_stream = receive_stream;
+}
+
 
 //--------------------------------------------------------------------------
 // Poll the card
@@ -449,14 +455,33 @@ DRESULT mmc_disk_read(BYTE drv, BYTE *buff, DWORD sector, BYTE count)
 		}
 	}
 	else {						// Multiple block read
+		int streamed = 0;
+
 		if (send_cmd(CMD18, sector) == 0) {	// READ_MULTIPLE_BLOCK
+			if ((REG_CMU_GATEDCLK1 & DMA_CKE) && spi_receive_stream)
+				streamed = spi_receive_stream(buff, count);
+			if (streamed > 0) {
+				count -= streamed;
+			} else if (streamed == 0) {
+				do {
+					if (!rcvr_datablock(buff, 512)) {
+						break;
+					}
+					buff += 512;
+				} while (--count);
+			}
+			send_cmd(CMD12, 0);		// STOP_TRANSMISSION
+		}
+		/* A stream that failed has turned itself off: read it all again
+		 * a block at a time. */
+		if (streamed < 0 && send_cmd(CMD18, sector) == 0) {
 			do {
 				if (!rcvr_datablock(buff, 512)) {
 					break;
 				}
 				buff += 512;
 			} while (--count);
-			send_cmd(CMD12, 0);		// STOP_TRANSMISSION
+			send_cmd(CMD12, 0);
 		}
 	}
 	release_spi();

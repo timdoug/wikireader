@@ -365,6 +365,255 @@ spi_stuck:
 	return -1;
 }
 
+/*
+ * Streamed multiple-block reads.  The card sends each block's gap, token,
+ * data and CRC one after another, and simply waits whenever the host stops
+ * clocking, so the SPI goes to 32-bit characters once and the read comes in
+ * by DMA into a ring, from which the CPU takes each block, finding its
+ * token and swapping it into place in the caller's buffer.  Block at a time
+ * each block cost its own switch of character size, its own engine setup
+ * and a CPU-clocked token and CRC, about a sixth more than the wire.
+ *
+ * A transfer runs to the ring's end or to the first byte not yet used, and
+ * never further than the rest of the read could take with no gaps at all,
+ * so it stops at most a word past the last CRC; the gaps the card does send
+ * leave room for another, which starts as soon as the last ends.  The
+ * channel's count says how far a transfer has come, less two words whose
+ * writes may still be on their way.  CRCs are not checked, as they are not
+ * block at a time.  The Linux kernel's SD host does the same.
+ */
+#define STREAM_BYTES	8192		/* the ring, a power of two */
+#define STREAM_UNIT	(1 + 512 + 2)	/* a token, a block and its CRC */
+#define STREAM_SLACK	8
+#define STREAM_GUARD	(4 * 130)	/* a block that wraps, put together */
+
+static DWORD stream_ring[(STREAM_BYTES + STREAM_GUARD) / 4];
+static unsigned int stream_pos;		/* the next byte to look at */
+static unsigned int stream_avail;	/* the bytes known to be in */
+static unsigned int stream_start;	/* where the transfer under way began */
+static unsigned int stream_end;		/* ...and where it ends */
+static bool stream_running;
+
+static inline DWORD swap_word(DWORD value)
+{
+	asm ("swap\t%0,%1" : "=r" (value) : "r" (value));
+	return value;
+}
+
+static inline BYTE stream_byte(unsigned int i)
+{
+	return stream_ring[(i % STREAM_BYTES) / 4] >> (24 - 8 * (i % 4));
+}
+
+/* Stream on into the free part of the ring: at most @most bytes. */
+static bool stream_transfer(unsigned int most)
+{
+	unsigned int at = stream_end % STREAM_BYTES;
+	unsigned int len = STREAM_BYTES - (stream_end - (stream_pos & ~3u));
+	DWORD destination = (DWORD)&stream_ring[at / 4];
+	DWORD dummy = (DWORD)&dma_ram.dummy;
+	UINT words;
+
+	if (len > STREAM_BYTES - at)
+		len = STREAM_BYTES - at;
+	most = (most + 3) & ~3u;
+	if (most < 8)
+		most = 8;
+	if (len > most)
+		len = most;
+	if (len < 8)
+		return false;
+	words = len / 4;
+
+	REG_HS3_EN = DMA_DISABLED;
+	REG_HS3_CNT = words;
+	REG_HS3_ADV_DADR_L = destination & 0xffff;
+	REG_HS3_ADV_DADR_H = destination >> 16;
+	REG_HS2_EN = DMA_DISABLED;
+	REG_HS2_CNT = words - 1;
+	REG_HS2_ADV_SADR_L = dummy & 0xffff;
+	REG_HS2_ADV_SADR_H = dummy >> 16;
+	REG_HS2_TF = 1;
+	REG_HS3_TF = 1;
+	REG_INT_FSIF2_FSPI = 0x30;
+	REG_INT_FDMA = HSDMA3_INTERRUPT | (1 << 2);
+	REG_HS3_EN = DMA_ENABLED;
+	REG_HS2_EN = DMA_ENABLED;
+	stream_start = stream_end;
+	stream_end += len;
+	stream_running = true;
+	REG_SPI_TXD = 0xffffffffUL;
+	return true;
+}
+
+/* How far the transfer under way has come, and whether it has ended. */
+static void stream_poll(void)
+{
+	unsigned int in;
+
+	if (!stream_running)
+		return;
+	if (REG_INT_FDMA & HSDMA3_INTERRUPT) {
+		REG_INT_FDMA = HSDMA3_INTERRUPT;
+		stop_engines();
+		stream_running = false;
+		stream_avail = stream_end;
+		return;
+	}
+	in = stream_end - (REG_HS3_CNT & 0xffff) * 4;
+	if (in >= stream_start + STREAM_SLACK && in - STREAM_SLACK > stream_avail)
+		stream_avail = in - STREAM_SLACK;
+}
+
+/*
+ * Until @need bytes from stream_pos are in.  @least is what the rest of the
+ * read takes from stream_pos at the least, which bounds the next transfer.
+ */
+static bool stream_wait(unsigned int need, unsigned int least)
+{
+	unsigned long start = Timer_get();
+	unsigned int seen = stream_avail;
+
+	while (stream_avail - stream_pos < need) {
+		if (!stream_running &&
+		    !stream_transfer(least - (stream_end - stream_pos)))
+			return false;
+		stream_poll();
+		if (stream_avail != seen) {
+			seen = stream_avail;
+			start = Timer_get();
+		} else if (Timer_get() - start > DMA_TIMEOUT_TICKS) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/* Put the block at stream_pos in memory order at @out, word aligned. */
+static void stream_block(DWORD *out)
+{
+	unsigned int word = (stream_pos % STREAM_BYTES) / 4;
+	unsigned int lead = -stream_pos & 3, shift = lead * 8, i;
+	const DWORD *in = &stream_ring[word];
+	DWORD carry, value;
+
+	/* A block that wraps: its start's words after the ring's end. */
+	if (word + STREAM_GUARD / 4 > STREAM_BYTES / 4)
+		memcpy(&stream_ring[STREAM_BYTES / 4], stream_ring,
+		       (word + STREAM_GUARD / 4 - STREAM_BYTES / 4) * 4);
+	if (!lead) {
+		for (i = 0; i < 128; i++)
+			out[i] = swap_word(in[i]);
+		return;
+	}
+	carry = swap_word(in[0]) >> (32 - shift);
+	for (i = 0; i < 128; i++) {
+		value = swap_word(in[i + 1]);
+		out[i] = carry | value << shift;
+		carry = value >> (32 - shift);
+	}
+}
+
+static int receive_stream(BYTE *buff, UINT blocks)
+{
+	DWORD spi_control;
+	UINT done = 0;
+	BYTE token;
+
+	if (dma_given_up || !dma_word_enabled || ((uintptr_t)buff & 3) ||
+	    (uintptr_t)buff < 0x10000000u)
+		return 0;
+	if (!wait_spi_idle())
+		goto spi_stuck;
+	spi_control = REG_SPI_CTL1;
+	set_spi_control((spi_control & ~BPT_32_BITS) | BPT_32_BITS);
+
+	/* Receive: SPI RXD to the ring; transmit: all-ones from one word. */
+	REG_HS_CNTLMODE = HSDMAADV;
+	stop_engines();
+	REG_HS3_ADVMODE = 1;
+	REG_HS3_CTRL = 0x8000;
+	REG_HS3_SADR_L = 0;
+	REG_HS3_SADR_H = 0;
+	REG_HS3_DADR_L = 0;
+	REG_HS3_DADR_H = 0x2000;
+	REG_HS3_ADV_SADR_L = SPI_RXD_ADDRESS & 0xffff;
+	REG_HS3_ADV_SADR_H = SPI_RXD_ADDRESS >> 16;
+	REG_HSDMA_HTGR2 = 0x99;
+	REG_HS2_ADVMODE = 1;
+	REG_HS2_CTRL = 0x8000;
+	REG_HS2_SADR_L = 0;
+	REG_HS2_SADR_H = 0;
+	REG_HS2_DADR_L = 0;
+	REG_HS2_DADR_H = 0;
+	REG_HS2_ADV_DADR_L = SPI_TXD_ADDRESS & 0xffff;
+	REG_HS2_ADV_DADR_H = SPI_TXD_ADDRESS >> 16;
+	stream_pos = stream_avail = stream_start = stream_end = 0;
+	stream_running = false;
+
+	while (done < blocks) {
+		/* The gap, then the token. */
+		for (;;) {
+			if (!stream_wait(1, (blocks - done) * STREAM_UNIT))
+				goto failed;
+			while (stream_pos != stream_avail &&
+			       stream_byte(stream_pos) == 0xff)
+				stream_pos++;
+			if (stream_pos != stream_avail)
+				break;
+		}
+		token = stream_byte(stream_pos++);
+		if (token != 0xfe)
+			goto failed;
+		if (!stream_wait(512 + 2,
+				 512 + 2 + (blocks - done - 1) * STREAM_UNIT))
+			goto failed;
+		stream_block((DWORD *)buff);
+		stream_pos += 512 + 2;
+		buff += 512;
+		done++;
+		dma_blocks++;
+		if (profile_enabled)
+			profile.dma32_bytes += 512;
+	}
+	/* Sized as it was, the last transfer ends within a word or two. */
+	while (stream_running) {
+		if (!stream_wait(stream_end - stream_pos, 0))
+			goto failed;
+	}
+	if (!wait_spi_idle())
+		goto spi_stuck;
+	set_spi_control(spi_control);
+	return (int)done;
+
+failed:
+	/* The rest of the read goes back to the byte path, from a new command. */
+	stop_transmit();
+	wait_spi_idle();
+	stop_engines();
+	while (REG_SPI_STAT & RDFF)
+		(void)REG_SPI_RXD;
+	set_spi_control(spi_control);
+	dma_given_up = 1;
+	if (profile_enabled) {
+		profile.dma_timeouts++;
+		profile.dma_errors++;
+	}
+	snprintf(dma_status, sizeof(dma_status),
+		 "dma: stream failed after %lu blocks, %u of %u in this read",
+		 dma_blocks, done, blocks);
+	Serial_printf("SD DMA: %s\n", dma_status);
+	return -1;
+
+spi_stuck:
+	stop_engines();
+	dma_given_up = 1;
+	snprintf(dma_status, sizeof(dma_status),
+		 "dma: FAILED, SPI stayed busy; control registers left untouched");
+	Serial_printf("%s\n", dma_status);
+	return -1;
+}
+
 const char *SD_DMA_status(void)
 {
 	if (!dma_given_up)
@@ -411,6 +660,7 @@ void SD_DMA_initialise(void)
 	dma_word_enabled = false;
 	dma_ram.dummy = 0xffffffffUL;
 	mmc_set_spi_receive_dma(receive_dma);
+	mmc_set_spi_receive_stream(receive_stream);
 }
 
 /* Mount and save the early diagnostic using the proven byte path first. */
