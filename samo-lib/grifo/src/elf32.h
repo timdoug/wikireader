@@ -38,6 +38,13 @@ typedef enum {
 //   ELF32_OK   => file is loaded and execution_address is set
 //   ELF32_xxx  => error code
 
+/* How the last load's time went, in timer counts, for the boot log. */
+typedef struct {
+	unsigned long open, map, sections, zero;
+	unsigned long map_result, map_entries;	/* File_fastseek's */
+} ELF32_Timing;
+extern ELF32_Timing ELF32_timing;
+
 ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 			   uint32_t *highest_free_address,
 			   const char *filename);

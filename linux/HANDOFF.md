@@ -23,15 +23,24 @@ HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
 
 Device round trips now go through one script: `card/bin/check` is copied to
 `bin/check` on the card, the user types `check` at the prompt, and it writes
-`check.txt` (build, boot arguments, battery, an md5 of `linux.app` read
-uncached, a raw 4 MB card read untimed and again timed by phase, and the
-kernel's warnings). Keep it short; it was trimmed once already.
+`check.txt` (build, boot arguments, battery, the boot's card traffic, an
+md5 of `linux.app` read uncached, a raw 4 MB card read untimed and again
+timed by phase, Grifo's `bootlog.txt`, the kernel's warnings and the whole
+timed kernel log). Keep it short; it was trimmed once already.
 
 The card's `init.ini` line in use is:
 
 ```text
-linux.ico : linux.app wr.blank=300 wr.suspend=600 wr.pmlog
+linux.ico : linux.app wr.blank=300 wr.suspend=600 wr.pmlog printk.time=1 s1c33_sd.timing=1
 ```
+
+`printk.time=1` makes `check`'s kernel log a boot timeline (`wr-console`
+ends it with "prompt up N s"), and `s1c33_sd.timing=1` counts card traffic
+from boot. The card also holds `bootlog.on` (Grifo appends every
+application load, with its phases, to `bootlog.txt`) and `zimlog.on` (ZIM
+appends its startup to `zimboot.log`). All four are measurement switches:
+take them off once the measuring is done, since each writes to the card or
+the log.
 
 The console counts only input and screen output as activity, and `check`
 writes to its file, so shorter timeouts blank the panel (which stops the LCD
@@ -202,16 +211,40 @@ phase (about 20,000 cycles a block read, overall). wremu's card answers a
 command in 0.2 ms where the device's takes about 3, so wremu is optimistic
 wherever a boot does small requests.
 
+## Power states
+
+No current has ever been measured in any of these; `zim/BATTERY.md` says so.
+
+Grifo: running; ZIM's 20 ms HALT waits (clocks and SDRAM on, card on); deep
+suspend whenever an application waits for input with nothing to do (CPU
+clock to OSC3/32, SDRAM in self-refresh, peripheral clocks gated, `slp`;
+the LCD controller keeps the image; the card's supply off with
+`CARD_POWER=OFF`); and power off after 120 s in deep suspend, the rail cut.
+
+Linux: idle HALT at full clock with SDRAM active (the tick stops when idle);
+`wr.blank` powers down only the panel and its controller; `wr.suspend` (and
+the power switch) is suspend-to-idle, processes frozen and the tick stopped,
+still full clock and SDRAM active. There is no deeper state: no
+`suspend_ops`, since parking SDRAM in self-refresh needs code in internal
+RAM, as Grifo's `SuspendCode` does, and Linux cannot cut power. Grifo's
+everyday idle is deeper than Linux's deepest state; that is likely the
+largest battery gap in the system, more than any card policy.
+
 `initcall_debug` durations in exact multiples of 10 ms are the CPU being
 shared with other work until the next tick (PREEMPT_NONE), not idling: a
 kthread's creation measured 5 to 85 ms busy with no idle entry. Boot is
 CPU-bound; the idle column hardly moves before the console.
 
 Left, largest first:
-- **An application load's time besides reading, on the device only**:
-  `linux.app` 700 ms of 2.5 s, `zim.app` 418 of 702 (wremu: tens of ms),
-  unchanged by this round. Unexplained; `bootlog.txt` and `zimboot.log`
-  time it.
+- **Restarting the card on every application start**: Grifo's phase log
+  (`bootlog.txt`) puts 442 ms of `linux.app`'s 2.5 s in `File_open`, where
+  wremu takes none. Grifo is built `CARD_POWER=OFF`, so a deep suspend (the
+  launcher waiting for a tap) removes the card's supply and the next file
+  operation initialises it again; this 128 GB card takes about 440 ms,
+  `zim/BATTERY.md`'s 174. `CARD_POWER=KEEP` (a build switch in Grifo's
+  Makefile) would keep it, at the card's standby current for at most the
+  120 s before Grifo powers off; keeping it only while the launcher waits
+  would need a syscall. The user is deciding; nothing measures current.
 - **Initcalls**, about 0.9 s on the device: sysfs nodes, slab, message
   formatting, and power-up delays.
 - **The boot's writes**: 356 blocks, the dearest card phase.

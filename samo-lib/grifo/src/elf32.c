@@ -25,6 +25,7 @@
 #include "serial.h"
 #include "file.h"
 #include "elf32.h"
+#include "timer.h"
 #include "LCD.h"
 #include "watchdog.h"
 
@@ -114,10 +115,14 @@ typedef struct {
 #define SHF_EXCLUDE          (1 << 31)  // Section is excluded unless
 					// referenced or allocated (Solaris)
 
+ELF32_Timing ELF32_timing;
+
 ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 			   uint32_t *highest_free_address,
 			   const char *filename)
 {
+	ELF32_Timing *timing = &ELF32_timing;
+	unsigned long mark;
 	Watchdog_KeepAlive(WATCHDOG_KEY);
 	int rc = ELF32_OK;
 	*highest_free_address = 0; // lowest possible address
@@ -128,7 +133,10 @@ ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 	}
 
 	int boot_slot = File_boot_begin(3);
+	memset(timing, 0, sizeof(*timing));
+	mark = Timer_get();
 	int handle = File_open(filename, FILE_OPEN_READ);
+	timing->open = Timer_get() - mark;
 	if (handle < 0) {
 		DEBUG_ELF(1, "ELF: open file '%s' error = %d\n", filename, handle);
 		File_boot_end(boot_slot);
@@ -141,7 +149,12 @@ ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 	 * FAT chain when seeking between them and the sections they describe.
 	 * A heavily fragmented image simply falls back to ordinary seeks. */
 	unsigned long seek_table[128];
-	(void)File_fastseek(handle, seek_table, SizeOfArray(seek_table));
+	mark = Timer_get();
+	timing->map_result = File_fastseek(handle, seek_table,
+					   SizeOfArray(seek_table));
+	timing->map_entries = seek_table[0];
+	timing->map = Timer_get() - mark;
+	mark = Timer_get();
 	n = File_read(handle, &hdr, sizeof(hdr));
 	if (n < 0) {
 		DEBUG_ELF(3,"ELF: read header error = %ld\n", n);
@@ -226,7 +239,9 @@ ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 				*highest_free_address = end;
 			}
 
+			unsigned long zero_mark = Timer_get();
 			memset((uint8_t *) sec.sh_addr, 0, sec.sh_size);
+			timing->zero += Timer_get() - zero_mark;
 			/* Applications reserve the shared LCD buffer as NOBITS. Keep
 			 * progress visible after clearing it, while loading their code. */
 			extern char __START_FrameBuffer;
@@ -248,6 +263,7 @@ ELF32_ErrorType ELF32_load(uint32_t *execution_address,
 
 // make sure every thing is cleaned up if the load fails fail
 abort_close:
+	timing->sections = Timer_get() - mark - timing->zero;
 	File_close(handle);
 	File_boot_end(boot_slot);
 	Watchdog_KeepAlive(WATCHDOG_KEY);

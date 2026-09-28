@@ -21,6 +21,7 @@
 
 #include "standard.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -37,6 +38,7 @@
 #include "power_log.h"
 #include "serial.h"
 #include "suspend.h"
+#include "timer.h"
 #include "watchdog.h"
 #include "system.h"
 
@@ -211,7 +213,18 @@ void System_chain(const char *command)
 
 
 	if (ELF32_OK == r) {
-		File_boot_log(ArgumentStrings[0]);
+		{
+			static char detail[120];
+			const ELF32_Timing *t = &ELF32_timing;
+			unsigned long ms = TIMER_CountsPerMicroSecond * 1000UL;
+
+			snprintf(detail, sizeof(detail),
+				 "open %lu ms, cluster map %lu ms (result %lu, %lu entries), "
+				 "sections %lu ms, zeroing %lu ms",
+				 t->open / ms, t->map / ms, t->map_result,
+				 t->map_entries, t->sections / ms, t->zero / ms);
+			File_boot_log(ArgumentStrings[0], detail);
+		}
 		// need to reset everything here
 		File_CloseAll();
 		extern char __MAIN_STACK_LIMIT;  // the address of this give lowest sp value

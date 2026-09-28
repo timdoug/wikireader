@@ -101,9 +101,9 @@ void File_boot_end(int slot)
  * line is written after the load's window closes, so it does not count
  * itself.
  */
-void File_boot_log(const char *name)
+void File_boot_log(const char *name, const char *detail)
 {
-	static char line[200];
+	static char line[320];
 	unsigned long size, us = TIMER_CountsPerMicroSecond * 1000UL;
 	const File_IOStats *io;
 	int handle, length;
@@ -115,13 +115,14 @@ void File_boot_log(const char *name)
 	io = &boot_windows[boot_count - 1].io;
 	length = snprintf(line, sizeof(line),
 		"%s: %lu sectors in %lu reads, %lu ms (reading %lu, DMA wait %lu), "
-		"ready %lu ms after Grifo started; %s\n", name,
+		"ready %lu ms after Grifo started; %s; %s\n", name,
 		(unsigned long)io->read_sectors, (unsigned long)io->read_calls,
 		(boot_windows[boot_count - 1].end -
 		 boot_windows[boot_count - 1].begin) / us,
 		(unsigned long)io->read_ticks / us,
 		(unsigned long)io->dma_wait_ticks / us,
-		boot_windows[boot_count - 1].end / us, SD_DMA_status());
+		boot_windows[boot_count - 1].end / us, SD_DMA_status(),
+		detail ? detail : "");
 	if (length <= 0 || length >= (int)sizeof(line))
 		return;
 	if (File_size("0:/bootlog.txt", &size) == FILE_ERROR_OK) {

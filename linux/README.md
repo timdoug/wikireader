@@ -658,7 +658,8 @@ and `check` prints them, then runs a timed read. With `printk.time=1` on
 the `init.ini` line `check`'s kernel log is a boot timeline, which
 `wr-console` ends with the uptime at which its prompt came up; with
 `bootlog.on` on the card Grifo appends each application's load to
-`bootlog.txt`. wremu's DMA model was changed after them (`dma_async`), and its
+`bootlog.txt`, with its reads and how long opening the file, building the
+cluster map, reading the sections and zeroing took. wremu's DMA model was changed after them (`dma_async`), and its
 driver total per block for a stream was within 1% of the device's. It is
 too harsh on a stream left running while the kernel copies: its default
 `dma_cpu_penalty=15` holds the DMA back behind the copy's SDRAM accesses
