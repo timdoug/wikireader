@@ -6,7 +6,8 @@
 [ $# -gt 0 ] || set -- xeyes
 # Builtins only: every exec, and every $(...), costs a tenth of a second.
 for n in 0 1 2 3 4 5 6 7; do
-	read -r name < /sys/class/input/event$n/device/name 2>/dev/null || continue
+	# The error redirection goes first: hush applies them in order.
+	read -r name 2>/dev/null < /sys/class/input/event$n/device/name || continue
 	case $name in
 	"WikiReader touchscreen") touch=/dev/input/event$n ;;
 	"WikiReader buttons") buttons=/dev/input/event$n ;;
