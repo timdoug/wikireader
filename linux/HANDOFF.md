@@ -19,7 +19,8 @@ come through IIO, `generic-adc-battery` and `ntc_thermistor`; the watchdog
 through the watchdog core; the pins through a pinctrl driver
 (`drivers/pinctrl/pinctrl-s1c33.c`, which also owns the GPIOs); the SD card's
 HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
-`app-test.py` both pass, both through Grifo.
+`app-test.py` both pass, both through Grifo. It also runs X11 (Xfbdev, twm and
+xeyes, by touch), so far only in wremu: see "X11: where it stands".
 
 Device round trips now go through one script: `card/bin/check` is copied to
 `bin/check` on the card, the user types `check` at the prompt, and it writes
@@ -257,7 +258,82 @@ Left, largest first:
 - **`wr-console`'s start**, about 0.4 s to its first prompt, much of it the
   execs of the four processes init starts at once.
 
+## X11: where it stands
+
+Emulator only: **none of it has run on the device yet.** `startx` at the
+console prompt brings up Xfbdev on the classic grey weave with twm and
+xeyes; dragging on the background moves the pointer and the eyes follow,
+holding still for 0.6 s opens twm's menu, and its Exit gives the panel back
+to the console. `startx CLIENT -- SERVER-ARGS` works as usual.
+`README.md` has the design; this is what exists and what it measured.
+
+The pieces:
+- Kernel: `CONFIG_NET` with only `AF_UNIX`; VTs behind the dummy console,
+  registered on allocation (`patches/0018`); `FB_PROVIDE_GET_FB_UNMAPPED_AREA`
+  for a no-MMU `mmap` of the panel; `INIT_STACK_NONE`; `__iramfunc` is
+  `flatten`; the SD stream wait yields (`cond_resched()`).
+- `initramfs/rootstart.c` makes `/dev/tty1..12`; `console/wr-console.c` holds
+  VT 1 in `VT_PROCESS` mode and repaints on acquire.
+- Buildroot: `buildroot/patches/0002` (X client libraries static) and `0003`
+  (libXfont2 built-in fonts only); the defconfig adds X and
+  `-ffunction-sections -fdata-sections`/`--gc-sections` for everything.
+- `buildroot/external/package/xserver-kdrive`: xorg-server 1.19.7 Xfbdev with
+  five patches (vfork, precompiled keymap, bit-reversed one-bit shadow,
+  evdev absolute pointer and touch, clip-band bisection in `fbFillSpans`),
+  `startx` and `wikireader.twmrc`.
+- `buildroot/external/patches`: twm opens the root menu only after a still
+  hold; xeyes asks for XInput 2.2, drops stale raw motion and moves its
+  pupils without trigonometry; libX11 drops the East Asian charsets.
+- The Linux toolchain's libgcc is soft-fp (`host-tools/toolchain-c33/gcc`,
+  `c33/sfp-machine.h`); 2,000 IEEE vectors matched bit for bit
+  (`artifacts/fptest`, gitignored).
+
+Measured in wremu, launcher path:
+
+| | |
+|---|---|
+| A drag frame (under twm) | 45 ms of CPU: X server 42%, kernel 38%, xeyes 15% |
+| A frame's kernel work | about 57 syscalls (xeyes 37, mostly reads that find nothing), 14 context switches, 10 ticks; the scheduler's load tracking is a third of the kernel's share |
+| `startx` to the first pupils | 6.3 s, most of it reading 3.3 MB of programs from the card; a second `startx` in the same boot loads the server in 0.6 s instead of 1.8 |
+| RAM | 24.8 MB free at the console, 14.9 MB free (17.0 available) with X up; Xfbdev 4.0 MB, twm 1.6, xeyes 0.9 |
+| Boot cost of sockets and VTs | about 0.6 s to the prompt |
+
+Measured and rejected, so nobody repeats them: a `-Os` kernel (488 KB
+smaller, 40% slower in the kernel), low-resolution timers (no gain), full
+preemption (`ARCH_NO_PREEMPT` dropped: 215 KB more kernel, 0.9 s slower boot,
+slower frames and a slower `startx`), `-extension RENDER` (the server starts
+sooner but the clients are the critical path), starting twm before xeyes (no
+difference), and dynamic linking (it would need FDPIC in the toolchain and
+saves about 0.4 s; a BusyBox-style X binary would share as much).
+
+The measuring tools are in `artifacts/perf/x11/` (gitignored), all through
+Grifo: `xbench.sh LABEL` (eight scripted drags, frames and CPU per frame by
+program), `xstart.sh LABEL` (the `startx` timeline from server-side probes),
+`kcount.sh`/`ucount.sh` (kernel events and per-program syscalls per frame),
+`uprof.py` (a `-F` profile attributed to the kernel and each X program),
+`kvariant.sh NAME OPTIONS` (a kernel config variant in its own build
+directory) and a copy of `timeline_app.py`. `APP=`, `IMG=`, `VMLINUX=`,
+`XQ=` and `XEYES_BASE`/`TWM_BASE` choose what they run and how they read
+it; the programs' load addresses move when their sizes do, so read them
+from `/proc/PID/maps` after a size change. `ARGS='-- -nocursor'` measures
+without the cursor (about a fifth of a frame).
+
 ## What is left, in the order I would take it
+
+For X, before anything else: **run it on the device** (the card needs the
+current `linux.app` and `linux.img`). One emulator run reset right after X
+took the panel, with no watchdog timeout (a restart request); it did not
+come back on rerun, but watch for it. Then, largest first:
+- Stub the scheduler's load tracking on this single CPU: about 2.5 ms a
+  frame and cheaper switches for every program, but it is a core scheduler
+  patch; audit the 50-odd readers of the averages first.
+- Read the X programs into the page cache in the background after boot:
+  2-3 s off the first `startx`, for 3 s of card reading every boot.
+- xeyes' Xt/xcb loop makes a `select`, a `poll` and several empty `recvmsg`
+  a frame; one BusyBox-style binary for the X clients (0.6 MB less to read
+  and hold); a smaller keymap; whether `-nocursor` should be the default.
+
+The rest of the port:
 
 1. **The CPU is the limit now**: token, check and the rest of the driver
    come to 13,000 a block and the work outside it to about 8,000, against
@@ -383,6 +459,29 @@ it boots the file loader as a direct ELF, which wremu refuses.
   it 20 s after boot, after `seedrng`, from the card. `check` waits for it.
 - **`wremu` profile windows (`-y`) are in its clock's milliseconds**, which
   run about 3.5 s ahead of the guest's uptime on the launcher path.
+- **wremu's `-T`/`-G`/`-N` times are instructions retired**, and the guest's
+  clock runs about 1.3 times ahead of them, so a tap meant for 30 s lands
+  near 39 s, possibly after the script has powered off. Keep the guest's
+  shell busy well past every scripted input. `WREMU_DRAG_MS` is in
+  milliseconds (60,000 cycles), not cycles.
+- **Buildroot's `PKG-rebuild` recompiles but may not relink.** Xfbdev does
+  not depend on `libkdrive.a` in automake, so an edited kdrive source came
+  out in an old binary; use `PKG-dirclean`, and grep the target binary for a
+  debug string before trusting a run with it.
+- **X's scheduling slice is sized for fast machines.** With the default 5-15
+  ms, one arc fill used up a client's slice and the idle handler put
+  half-drawn frames on the panel: `startx` passes `-schedInterval 100
+  -schedMax 100`.
+- **An XInput 2.0 client gets no raw motion while another client holds the
+  pointer grab** (twm, for any drag it received); 2.1 and later get it.
+- **twm opens menus only from buttons**: `f.menu` bound to a key does
+  nothing, silently. And `RR_Rotate_0` is 1, not 0.
+- **wremu's `c33_handle_irq` probe counts syscalls too**: they enter the
+  kernel the same way.
+- **In hush, a redirection that fails comes before the ones after it**: put
+  `2>/dev/null` before `< file`. And a shell function run inside `$(...)`
+  (a re-exec on no-MMU) returned empty pattern expansions; `startx` uses
+  builtins only.
 - **A polling loop that calls `readl(host->base + ...)` reloads `host->base`
   from SDRAM each pass**, because `readl` clobbers memory. In the SD
   driver's wait loops a local copy made no measurable difference; in a
