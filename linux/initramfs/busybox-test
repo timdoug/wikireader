@@ -50,8 +50,10 @@ echo "C33 BusyBox recovery suite passed: hush + file/text/archive tools"
 # the kernel and ld.so map each read-only once and every process running
 # them uses that copy.  PID 1 and this grep must name the same text
 # mappings.
-text=' r-x.* /(bin/busybox|lib/libuClibc-[0-9.]*\.so)$'
-init_text=$(grep -E "$text" /proc/1/maps) || fail "no text mapping in PID 1"
-own_text=$(grep -E "$text" /proc/self/maps) || fail "no text mapping in grep"
+text=' r-x.* /(bin/busybox|lib/libc\.so\.[0-9]+)$'
+init_text=$(grep -E "$text" /proc/1/maps | cut -d' ' -f1) || fail "no text mappings in PID 1"
+own_text=$(grep -E "$text" /proc/self/maps | cut -d' ' -f1) || fail "no text mappings in grep"
 [ "$init_text" = "$own_text" ] || fail "private text: $init_text / $own_text"
-echo "C33 BusyBox shared text:" $init_text
+set -- $init_text
+[ $# = 2 ] || fail "expected BusyBox and libc text: $init_text"
+echo "C33 BusyBox shared text: $1 and libc $2 mapped once for every process"

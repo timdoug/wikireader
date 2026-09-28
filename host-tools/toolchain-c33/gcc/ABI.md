@@ -439,6 +439,65 @@ remains, and it checks that every `doff` lands inside the data segment.
 `-msep-data` excludes `-medda32`, and libgcc has a `c33pe/sep-data`
 multilib.
 
+### `-mfdpic`: shared libraries
+
+Linux userland is FDPIC ELF: an executable and each shared library it uses
+is a module with a text segment, shared by every process, and a data
+segment of its own per process, placed independently of the text. `-mfdpic`
+is `-msep-data` plus the rules that let code in one module call another.
+It is the default for `c33-linux-uclibc`; `-mno-fdpic` still builds the
+older static code. The object's ELF header carries `EF_C33_FDPIC` (1), and
+the FDPIC linker refuses objects without it.
+
+- **`%r15` is the module's.** It holds the address of the module's `__dp`,
+  the first byte of its data segment, where `.got` begins. Data the module
+  defines is reached as under `-msep-data`. Data another module may define,
+  or preempt (`!SYMBOL_REF_LOCAL_P`), is reached through a pool word holding
+  its address, which the dynamic linker fills in. There are no copy
+  relocations.
+- **A function pointer is the address of a descriptor**, eight bytes of
+  `{entry point, %r15 of the defining module}`. Words holding a function's
+  address in the pool, in initialised data and in `DW.ref` words are
+  written `.long funcdesc(f)` (`R_C33_FUNCDESC`), and a function has one
+  canonical descriptor per program. The constructor tables
+  (`.init_array`, `.fini_array`, `.preinit_array`) are the exception: they
+  hold entry points, which uClibc's startup code and `ld.so` call with the
+  module's own `%r15`.
+- **An indirect call** loads the callee's `%r15` from the descriptor, then
+  its entry point into `%r14`, and calls it:
+  `xld.w %r15,[%rP+4]; ld.w %r14,[%rP]; call %r14`.
+- **A direct call to a function the module may not define** is an ordinary
+  `xcall`. If the linker finds the callee in another module, it points the
+  call at a 16-byte `.plt` entry, which loads a descriptor from `.got`
+  through the caller's `%r15`, sets `%r15` and jumps. `%r14` is its scratch
+  register: it is call-clobbered and never carries an argument. A call to a
+  function the module defines, and nothing preempts, needs no `.plt`.
+- **The caller restores `%r15`** after any call that may have entered
+  another module: every indirect call, and every direct call to a symbol
+  that is not `SYMBOL_REF_LOCAL_P`. The restore is part of the call pattern
+  (`call_fdpic` and friends), from a copy of the entry `%r15` that the call
+  cannot clobber, in `%r0`-`%r3` or a stack slot (constraints `c` and `A`).
+  A separate restore would not do: `-msep-data` code reads `%r15` through
+  every pool load without the RTL saying so, and the scheduler could put
+  one of those between the call and the restore. For the same reason these
+  calls have no delay slot. Landing pads, nonlocal-goto receivers and
+  `__builtin_setjmp` receivers restore `%r15` too.
+- **No sibling call to another module**, since the callee would return to
+  our caller with its own `%r15`.
+- **Exception tables** encode every pointer absolutely; they live in the
+  data segment, where they are relocated. The personality routine is
+  reached through a `DW.ref` word (`DW_EH_PE_indirect`), which holds its
+  descriptor, because the unwinder calls it through a pointer.
+
+The kernel starts a program with its load map in `%r6`, the interpreter's
+in `%r7` (zero for a static program) and the interpreter's dynamic section
+in `%r8`, and a signal handler with its descriptor's entry point and
+`%r15`. `ld.so` enters the program with the same `%r6` and `%r7`, and with
+`_dl_fini`'s descriptor in `%r9`. Startup code has no `%r15` and no
+PC-relative data addressing: it hands `__self_reloc` the link-time bounds
+of its `.rofixup` list, which is translated through the load map, and the
+relocated `__dp` that returns is its `%r15`.
+
 ## The `ext` prefix mechanism
 
 *Authoritative source: core manual section 5.6, pp. 25-30.*

@@ -8,6 +8,7 @@
 #include <linux/irqchip/s1c33-itc.h>
 #include <linux/irqdesc.h>
 #include <linux/io.h>
+#include <linux/sched/signal.h>
 #include <linux/syscalls.h>
 
 #include <asm/irq.h>
@@ -62,6 +63,33 @@ void __init init_IRQ(void)
 	pr_info("C33 IRQ: registered %d interrupt sources\n", sources);
 }
 
+/*
+ * The core's exceptions (S1C33E07 manual 6.3): a third ext prefix (2), an
+ * undefined instruction (3) and a misaligned halfword or word access (6).
+ * In a program they are its own bug, and it gets the signal a larger machine
+ * would send.
+ */
+static void c33_user_fault(unsigned int vector, struct pt_regs *regs)
+{
+	void __user *pc = (void __user *)regs->pc;
+
+	pr_info_ratelimited("%s[%d]: C33 exception %u at pc %08lx\n",
+			    current->comm, task_pid_nr(current), vector,
+			    regs->pc);
+	switch (vector) {
+	case 2:
+	case 3:
+		force_sig_fault(SIGILL, ILL_ILLOPC, pc);
+		break;
+	case 6:
+		force_sig_fault(SIGBUS, BUS_ADRALN, pc);
+		break;
+	default:
+		force_sig_fault(SIGSEGV, SEGV_MAPERR, pc);
+		break;
+	}
+}
+
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs)
 {
@@ -103,6 +131,15 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 	/* Only a syscall frame carries a number; see arch_do_signal_or_restart(). */
 	regs->orig_r4 = -1L;
+
+	if (!s1c33_itc_is_source(vector) && user_mode(regs)) {
+		/* A program's fault is the program's: it gets a signal. */
+		state = irqentry_enter(regs);
+		c33_user_fault(vector, regs);
+		irqentry_exit(regs, state);
+		set_irq_regs(old_regs);
+		return regs;
+	}
 
 	if (!s1c33_itc_is_source(vector)) {
 		int reg;

@@ -1,0 +1,82 @@
+diff --git a/ldso/include/inline-hashtab.h b/ldso/include/inline-hashtab.h
+index c6c584b..80a0da7 100644
+--- a/ldso/include/inline-hashtab.h
++++ b/ldso/include/inline-hashtab.h
+@@ -217,9 +217,16 @@ htab_expand(struct funcdesc_ht *htab, int (*hash_fn) (void *))
+  * When inserting an entry, NULL may be returned if memory allocation
+  * fails.
+  */
++/*
++ * PTR is a key, which HASH_FN hashes; the table holds entries, which
++ * ENTRY_HASH_FN hashes, and which a resize has to put where their keys
++ * lead.  The two differ in the FDPIC descriptor table, whose entries are
++ * descriptors and whose keys are entry points.
++ */
+ static __always_inline void **
+ htab_find_slot(struct funcdesc_ht *htab, void *ptr, int insert,
+-	       int (*hash_fn)(void *), int (*eq_fn)(void *, void *))
++	       int (*hash_fn)(void *), int (*entry_hash_fn)(void *),
++	       int (*eq_fn)(void *, void *))
+ {
+ 	unsigned int index;
+ 	int hash, hash2;
+@@ -227,7 +234,7 @@ htab_find_slot(struct funcdesc_ht *htab, void *ptr, int insert,
+ 	void **entry;
+ 
+ 	if (htab->size * 3 <= htab->n_elements * 4 &&
+-	    htab_expand(htab, hash_fn) == 0)
++	    htab_expand(htab, entry_hash_fn) == 0)
+ 		return NULL;
+ 
+ 	hash = hash_fn(ptr);
+diff --git a/ldso/include/tlsdeschtab.h b/ldso/include/tlsdeschtab.h
+index 056f859..e918be5 100644
+--- a/ldso/include/tlsdeschtab.h
++++ b/ldso/include/tlsdeschtab.h
+@@ -97,7 +97,7 @@ _dl_make_tlsdesc_dynamic (struct link_map *map, size_t ti_offset)
+ 
+   test.tlsinfo.ti_module = map->l_tls_modid;
+   test.tlsinfo.ti_offset = ti_offset;
+-  entry = htab_find_slot (ht, &test, 1, hash_tlsdesc, eq_tlsdesc);
++  entry = htab_find_slot (ht, &test, 1, hash_tlsdesc, hash_tlsdesc, eq_tlsdesc);
+   if (entry == NULL)
+     _dl_exit(1);
+   if (*entry)
+diff --git a/ldso/ldso/fdpic/dl-inlines.h b/ldso/ldso/fdpic/dl-inlines.h
+index 6a31ef3..aa3e1e2 100644
+--- a/ldso/ldso/fdpic/dl-inlines.h
++++ b/ldso/ldso/fdpic/dl-inlines.h
+@@ -153,6 +153,14 @@ hash_pointer(void *p)
+ 	return (int) ((long)p >> 3);
+ }
+ 
++/* The table holds descriptors; a descriptor goes where its entry point
++   hashes.  */
++static int
++hash_funcdesc(void *p)
++{
++	return hash_pointer(((struct funcdesc_value *)p)->entry_point);
++}
++
+ static int
+ eq_pointer(void *p, void *q)
+ {
+@@ -177,7 +185,8 @@ _dl_funcdesc_for (void *entry_point, void *got_value)
+ 		tpnt->funcdesc_ht = ht;
+ 	}
+ 
+-	entry = (struct funcdesc_value **)htab_find_slot(ht, entry_point, 1, hash_pointer, eq_pointer);
++	entry = (struct funcdesc_value **)htab_find_slot(ht, entry_point, 1, hash_pointer,
++		       hash_funcdesc, eq_pointer);
+ 
+ 	if (entry == NULL)
+ 		_dl_exit(1);
+@@ -217,7 +226,7 @@ _dl_lookup_address(void const *address)
+ 			continue;
+ 
+ 		address = htab_find_slot(rpnt->funcdesc_ht, (void *)fd->entry_point, 0,
+-				hash_pointer, eq_pointer);
++				hash_pointer, hash_funcdesc, eq_pointer);
+ 
+ 		if (address && *(struct funcdesc_value *const*)address == fd) {
+ 			address = (*(struct funcdesc_value *const*)address)->entry_point;

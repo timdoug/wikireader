@@ -16,7 +16,7 @@ current full-system emulator and renders the tested screens identically to the
 shipped GCC 3.3.2 firmware.
 
 The same backend builds `c33-linux-uclibc`, the C and C++ compiler for
-no-MMU Linux, with static uClibc-ng and libstdc++; see
+no-MMU Linux: FDPIC ELF with shared uClibc-ng, and static libstdc++; see
 [`linux/README.md`](../../../linux/README.md).
 
 There is no known wrong-code failure in a supported C or ABI feature.
@@ -90,6 +90,7 @@ optimization level, ABI hooks, or target flags.
 | `-mlong-calls` | Use long direct call/jump forms. |
 | `-medda32` | Use absolute data addressing. |
 | `-msep-data` | Keep text free of absolute addresses so processes can share it; see `ABI.md`. |
+| `-mfdpic` | `-msep-data` for FDPIC modules that call each other through function descriptors; the Linux default; see `ABI.md`. |
 | `-memcpy` | Retained C33 target option. |
 
 The firmware currently uses `-mc33pe -mno-long-calls -medda32 -O2`.

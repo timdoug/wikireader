@@ -16,7 +16,7 @@ WikiReader firmware.
 | --- | --- |
 | BFD and ELF | C33 objects, relocations, common sections, local-symbol merging, CTF, plugins, and all three core flags work. |
 | gas | C33 Standard, Advanced, and PE assembly, `ext` prefixes, constants, relocations, and DWARF location views work. |
-| ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. |
+| ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. Links FDPIC executables and shared libraries for Linux. |
 | objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core and words that violate fixed opcode bits. |
 | GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
 
@@ -96,7 +96,7 @@ Additional independent checks are:
 ## Supported target contract
 
 - target triplets: `c33-epson-elf` for bare metal, and `c33-linux-uclibc`
-  for no-MMU Linux userspace (below);
+  for no-MMU Linux userspace, FDPIC (below);
 - cores: `-mc33`, `-mc33adv`, and `-mc33pe`;
 - PE is the WikiReader core and uses strict natural alignment;
 - `-mno-long-calls` selects direct short calls when range permits;
@@ -109,14 +109,17 @@ Additional independent checks are:
 - PE software division comes from generic C libgcc helpers because the PE core
   removes the older divide-step instructions.
 
-`c33-linux-uclibc` is the same backend configured by `gcc/config/c33/linux.h`.
-It builds a single multilib, `-mcore=c33pe -msep-data -mlong-calls`, which
-the driver selects by default. It defines `__linux__`, `__unix__` and
-`__uClinux__`, and uses glibc's `<stdint.h>` type conventions. It links
-statically against uClibc-ng's `crt1.o`/`crti.o`/`crtn.o` from its sysroot, with
-no `crtbegin`/`crtend`. `binutils/build.sh` and `gcc/rebuild.sh` build it with
-`C33_TARGET=c33-linux-uclibc`; `linux/toolchain.sh` supplies the sysroot and
-the elf2flt-style `ld` wrapper.
+`c33-linux-uclibc` is the same backend configured by `gcc/config/c33/linux.h`,
+building FDPIC ELF for no-MMU Linux with shared libraries: `-mcore=c33pe
+-mfdpic -mlong-calls` by default, with the FDPIC rules in
+[`gcc/ABI.md`](gcc/ABI.md). It defines `__linux__`, `__unix__`, `__uClinux__`
+and `__FDPIC__`, and uses glibc's `<stdint.h>` type conventions. Its `ld`
+defaults to the `c33fdpic` emulation (`elf32-c33fdpic` output), which writes
+`.plt` entries, function descriptors, dynamic relocations and the `.rofixup`
+list executables relocate themselves with; a program links against
+uClibc-ng's `libc.so` and runs under its `ld-uClibc.so`. `binutils/build.sh`
+and `gcc/rebuild.sh` build it with `C33_TARGET=c33-linux-uclibc`;
+`linux/toolchain.sh` supplies the sysroot.
 
 See [`gcc/ABI.md`](gcc/ABI.md) for registers, frames, arguments, returns,
 variadic forwarding, relocations, instruction extension, and exception rules.
