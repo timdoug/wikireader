@@ -24,6 +24,9 @@ cat /proc/cmdline
 cat /proc/uptime
 cat /sys/class/power_supply/*/voltage_now
 
+section "the boot's card traffic, with s1c33_sd.timing=1 on the init.ini line"
+cat /sys/devices/platform/s1c33-sd/read_timing
+
 section card integrity: md5 of linux.app, read uncached
 echo 3 > /proc/sys/vm/drop_caches
 md5sum /mnt/sd/linux.app
@@ -43,8 +46,15 @@ cat /proc/uptime
 cat /sys/devices/platform/s1c33-sd/read_timing
 echo 0 > /sys/devices/platform/s1c33-sd/read_timing
 
+section "boot: Grifo loading applications, from bootlog.txt with bootlog.on; then the kernel"
+tail -n 4 /mnt/sd/bootlog.txt 2>/dev/null
+dmesg | grep "C33 console: prompt up"
+
 section kernel warnings and errors
 dmesg | grep '^<[0-4]>'
+
+section "kernel log, timed with printk.time=1 on the init.ini line"
+dmesg
 } > $out 2>&1
 sync
 echo "Done: $out"

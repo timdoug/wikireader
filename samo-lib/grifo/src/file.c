@@ -21,6 +21,7 @@
 
 #include "standard.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include <ff.h>
@@ -91,6 +92,51 @@ void File_boot_end(int slot)
 		return;
 	boot_windows[slot].end = Timer_get();
 	File_profile(&boot_windows[slot].io, false);
+}
+
+/*
+ * With bootlog.on on the boot volume, append a line to bootlog.txt about
+ * the load just finished: for a device with no serial, where the time from
+ * tapping an icon to the application starting can only be counted.  The
+ * line is written after the load's window closes, so it does not count
+ * itself.
+ */
+void File_boot_log(const char *name)
+{
+	static char line[200];
+	unsigned long size, us = TIMER_CountsPerMicroSecond * 1000UL;
+	const File_IOStats *io;
+	int handle, length;
+
+	/* The load is the last window, unless the windows ran out. */
+	if (!boot_count || boot_windows[boot_count - 1].kind != 3 ||
+	    File_size("0:/bootlog.on", &size) != FILE_ERROR_OK)
+		return;
+	io = &boot_windows[boot_count - 1].io;
+	length = snprintf(line, sizeof(line),
+		"%s: %lu sectors in %lu reads, %lu ms (reading %lu, DMA wait %lu), "
+		"ready %lu ms after Grifo started; %s\n", name,
+		(unsigned long)io->read_sectors, (unsigned long)io->read_calls,
+		(boot_windows[boot_count - 1].end -
+		 boot_windows[boot_count - 1].begin) / us,
+		(unsigned long)io->read_ticks / us,
+		(unsigned long)io->dma_wait_ticks / us,
+		boot_windows[boot_count - 1].end / us, SD_DMA_status());
+	if (length <= 0 || length >= (int)sizeof(line))
+		return;
+	if (File_size("0:/bootlog.txt", &size) == FILE_ERROR_OK) {
+		handle = File_open("0:/bootlog.txt", FILE_OPEN_READ | FILE_OPEN_WRITE);
+		if (handle >= 0 && File_lseek(handle, size) != FILE_ERROR_OK) {
+			File_close(handle);
+			return;
+		}
+	} else {
+		handle = File_create("0:/bootlog.txt", FILE_OPEN_WRITE);
+	}
+	if (handle < 0)
+		return;
+	File_write(handle, line, length);
+	File_close(handle);
 }
 
 int File_boot_profile(unsigned index, File_IOStats *out,

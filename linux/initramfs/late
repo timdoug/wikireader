@@ -3,10 +3,19 @@
 # credited the seed the last boot saved: twenty seconds on, once the boot's
 # work is done (on one CPU, even in the background, seedrng's exec and card
 # writes slowed the boot by 0.4 s), mix it in again and save a fresh one for
-# the next boot.  Then become the watchdog daemon: the kernel feeds the
-# watchdog until it opens /dev/watchdog, then it pings every 30 s with a
-# 60 s timeout, and a clean shutdown stops it with the magic close.
+# the next boot.
+#
+# The device is switched off without unmounting, so what the boot and the
+# seed save wrote would be replayed from ext4's journal at the next boot,
+# 1.5 s of it on the device.  Freezing the root checkpoints the journal and
+# leaves it empty; thawing lets writes go on.
+#
+# Then become the watchdog daemon: the kernel feeds the watchdog until it
+# opens /dev/watchdog, then it pings every 30 s with a 60 s timeout, and a
+# clean shutdown stops it with the magic close.
 exec >/dev/null 2>&1
 sleep 20
 seedrng
+fsfreeze --freeze /
+fsfreeze --unfreeze /
 exec watchdog -F /dev/watchdog

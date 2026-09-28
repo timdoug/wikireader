@@ -84,6 +84,8 @@ void File_profile(File_IOStats *out, bool enabled);
  * Windows do not nest. Retrieving any record seals the boot capture. */
 int File_boot_begin(unsigned kind);
 void File_boot_end(int slot);
+/* With bootlog.on on the card, append how the last load went to bootlog.txt. */
+void File_boot_log(const char *name);
 int File_boot_profile(unsigned index, File_IOStats *out,
 		      unsigned long *begin, unsigned long *end);
 

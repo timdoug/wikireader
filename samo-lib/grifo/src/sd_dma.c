@@ -71,6 +71,7 @@ static struct sd_dma_ram dma_ram __attribute__((section(".dstram"), aligned(16))
 
 static unsigned long dma_blocks;
 static int dma_given_up;
+static int stream_given_up;	/* block at a time from then on */
 static bool dma_word_enabled;
 static char dma_status[120] = "dma: not used";
 static bool profile_enabled;
@@ -393,6 +394,7 @@ static unsigned int stream_avail;	/* the bytes known to be in */
 static unsigned int stream_start;	/* where the transfer under way began */
 static unsigned int stream_end;		/* ...and where it ends */
 static bool stream_running;
+static char stream_why[24];	/* why the last stream failed */
 
 static inline DWORD swap_word(DWORD value)
 {
@@ -421,7 +423,7 @@ static bool stream_transfer(unsigned int most)
 		most = 8;
 	if (len > most)
 		len = most;
-	if (len < 8)
+	if (len < 4)
 		return false;
 	words = len / 4;
 
@@ -438,7 +440,9 @@ static bool stream_transfer(unsigned int most)
 	REG_INT_FSIF2_FSPI = 0x30;
 	REG_INT_FDMA = HSDMA3_INTERRUPT | (1 << 2);
 	REG_HS3_EN = DMA_ENABLED;
-	REG_HS2_EN = DMA_ENABLED;
+	/* One word, just short of the ring's end: the CPU sends it alone. */
+	if (words > 1)
+		REG_HS2_EN = DMA_ENABLED;
 	stream_start = stream_end;
 	stream_end += len;
 	stream_running = true;
@@ -476,13 +480,17 @@ static bool stream_wait(unsigned int need, unsigned int least)
 
 	while (stream_avail - stream_pos < need) {
 		if (!stream_running &&
-		    !stream_transfer(least - (stream_end - stream_pos)))
+		    !stream_transfer(least - (stream_end - stream_pos))) {
+			snprintf(stream_why, sizeof(stream_why), "no room at %u",
+				 stream_end % STREAM_BYTES);
 			return false;
+		}
 		stream_poll();
 		if (stream_avail != seen) {
 			seen = stream_avail;
 			start = Timer_get();
 		} else if (Timer_get() - start > DMA_TIMEOUT_TICKS) {
+			snprintf(stream_why, sizeof(stream_why), "timeout");
 			return false;
 		}
 	}
@@ -520,8 +528,8 @@ static int receive_stream(BYTE *buff, UINT blocks)
 	UINT done = 0;
 	BYTE token;
 
-	if (dma_given_up || !dma_word_enabled || ((uintptr_t)buff & 3) ||
-	    (uintptr_t)buff < 0x10000000u)
+	if (dma_given_up || stream_given_up || !dma_word_enabled ||
+	    ((uintptr_t)buff & 3) || (uintptr_t)buff < 0x10000000u)
 		return 0;
 	if (!wait_spi_idle())
 		goto spi_stuck;
@@ -563,8 +571,11 @@ static int receive_stream(BYTE *buff, UINT blocks)
 				break;
 		}
 		token = stream_byte(stream_pos++);
-		if (token != 0xfe)
+		if (token != 0xfe) {
+			snprintf(stream_why, sizeof(stream_why), "token %02x",
+				 token);
 			goto failed;
+		}
 		if (!stream_wait(512 + 2,
 				 512 + 2 + (blocks - done - 1) * STREAM_UNIT))
 			goto failed;
@@ -587,21 +598,22 @@ static int receive_stream(BYTE *buff, UINT blocks)
 	return (int)done;
 
 failed:
-	/* The rest of the read goes back to the byte path, from a new command. */
+	/* The read is done again a block at a time, from a new command, and
+	 * so is every read after it. */
 	stop_transmit();
 	wait_spi_idle();
 	stop_engines();
 	while (REG_SPI_STAT & RDFF)
 		(void)REG_SPI_RXD;
 	set_spi_control(spi_control);
-	dma_given_up = 1;
+	stream_given_up = 1;
 	if (profile_enabled) {
 		profile.dma_timeouts++;
 		profile.dma_errors++;
 	}
 	snprintf(dma_status, sizeof(dma_status),
-		 "dma: stream failed after %lu blocks, %u of %u in this read",
-		 dma_blocks, done, blocks);
+		 "dma: stream failed after %lu blocks, %u of %u in this read: %s",
+		 dma_blocks, done, blocks, stream_why);
 	Serial_printf("SD DMA: %s\n", dma_status);
 	return -1;
 
@@ -616,7 +628,7 @@ spi_stuck:
 
 const char *SD_DMA_status(void)
 {
-	if (!dma_given_up)
+	if (!dma_given_up && !stream_given_up)
 		snprintf(dma_status, sizeof(dma_status), "dma: ok, %lu blocks",
 			 dma_blocks);
 	return dma_status;

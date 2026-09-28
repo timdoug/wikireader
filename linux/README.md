@@ -451,7 +451,11 @@ renamed so that it is never credited twice. Twenty seconds after boot,
 saves a fresh one.
 Shutdown does the same. A freshly built image carries a seed made at build
 time. `inittab` unmounts or remounts everything read-only on
-shutdown, and ext4's journal covers a power cut. The image has no orphan
+shutdown, and ext4's journal covers a power cut. Since the device is
+switched off without unmounting, `/etc/init.d/late` freezes and thaws the
+root after its seed save, which checkpoints the journal: a boot would
+otherwise replay the last session's writes, 1.5 s of mounting on the
+device, against 0.35 s now. The image has no orphan
 file (`-O ^orphan_file`): mounting read its 32 blocks one at a time, each a
 trip through ext4, the loop device, FAT and the SD host, 0.3 s of every
 boot; orphans go in the superblock's list instead. ext4 is about 470 KB of
@@ -606,7 +610,12 @@ card's 3.3 V rail and the level buffer between it and the S1C33 are two
 GPIO-switched fixed regulators that the driver consumes as `vmmc` and
 `vqmmc`; the settling time before the buffer may drive and the off time
 before the rail may return are regulator constraints rather than sleeps in a
-board callback. The card is non-removable, since the system runs from it,
+board callback. After power-up the host resets the card until it answers
+that it is idle, then hands it to the MMC core: `mmc_spi` instead waits
+for the card to stop signalling busy, but a card not yet in SPI mode
+drives nothing and its data line reads zeros on this board, so that wait
+ran out its timeout, and the core's single reset does not always take on
+the device's card. The card is non-removable, since the system runs from it,
 so the MMC core does not poll it.
 The DMA provider's probe establishes a documented reset-equivalent HSDMA
 state: it disconnects every trigger, stops all four channels, clears their
@@ -643,8 +652,13 @@ starts per-phase counters for card reads, and reading it gives cycles a
 block for the tokens, the transfers' setup, the preparation of the next
 block's, the check, the wait, the status call, the CRC bytes and the rest
 of each request, and for streamed reads the transfers, gap bytes, errors,
-the requests that carried on and what they found in hand; `check` runs a
-timed read. wremu's DMA model was changed after them (`dma_async`), and its
+the requests that carried on and what they found in hand, with commands
+and writes; `s1c33_sd.timing=1` on the command line starts them at boot,
+and `check` prints them, then runs a timed read. With `printk.time=1` on
+the `init.ini` line `check`'s kernel log is a boot timeline, which
+`wr-console` ends with the uptime at which its prompt came up; with
+`bootlog.on` on the card Grifo appends each application's load to
+`bootlog.txt`. wremu's DMA model was changed after them (`dma_async`), and its
 driver total per block for a stream was within 1% of the device's. It is
 too harsh on a stream left running while the kernel copies: its default
 `dma_cpu_penalty=15` holds the DMA back behind the copy's SDRAM accesses

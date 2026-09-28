@@ -88,7 +88,7 @@
 #define SD_BLOCKSIZE		512
 #define SD_BLOCKSATONCE		256
 #define SD_R1B_TIMEOUT_MS	3000
-#define SD_INIT_TIMEOUT_MS	3000
+#define SD_READY_MS		3000	/* for a card to answer after power-up */
 
 /*
  * Where a block read's cycles go, for comparing the device with wremu:
@@ -103,6 +103,8 @@ enum sd_phase {
 	SD_T_STATUS,	/* asking the receive channel */
 	SD_T_TAIL,	/* the CRC bytes from the last word */
 	SD_T_REQUEST,	/* the rest of each request: map, unmap, the last check */
+	SD_T_COMMAND,	/* commands and their responses, stop commands too */
+	SD_T_WRITE,	/* writes, whole */
 	SD_T_PHASES
 };
 
@@ -112,6 +114,7 @@ struct sd_timing {
 	/* Streamed reads: transfers, gap bytes, requests that carried on
 	 * and the bytes already in when they did, and blocks that failed. */
 	u32 transfers, gap_bytes, carried, in_hand, errors;
+	u32 commands, written;
 	u64 cycles[SD_T_PHASES];
 };
 
@@ -1101,21 +1104,26 @@ static int sd_stream_start(struct s1c33_sd *host, struct sd_stream *s)
 	s->running = true;	/* for sd_stream_close() to stop, from here */
 	sd_idle_polls(host, true);
 	host->timing.transfers++;
-	/* All-ones from one word: the CPU writes the first to start. */
-	xt->src_start = host->ones_dma;
-	xt->src_inc = false;
-	xt->dst_start = host->base_phys + SPI_TXD;
-	xt->dst_inc = false;
-	xt->dir = DMA_MEM_TO_DEV;
-	xt->numf = 1;
-	xt->frame_size = 1;
-	xt->sgl[0].size = len - 4;
-	txd = dmaengine_prep_interleaved_dma(host->tx_chan, xt, 0);
-	if (!txd)
-		return -ENOMEM;
-	cookie = dmaengine_submit(txd);
-	if (cookie < 0)
-		return -EBUSY;
+	/*
+	 * All-ones from one word: the CPU writes the first to start.  A
+	 * transfer of one word, just short of the ring's end, is that alone.
+	 */
+	if (len > 4) {
+		xt->src_start = host->ones_dma;
+		xt->src_inc = false;
+		xt->dst_start = host->base_phys + SPI_TXD;
+		xt->dst_inc = false;
+		xt->dir = DMA_MEM_TO_DEV;
+		xt->numf = 1;
+		xt->frame_size = 1;
+		xt->sgl[0].size = len - 4;
+		txd = dmaengine_prep_interleaved_dma(host->tx_chan, xt, 0);
+		if (!txd)
+			return -ENOMEM;
+		cookie = dmaengine_submit(txd);
+		if (cookie < 0)
+			return -EBUSY;
+	}
 	s->start = s->end;
 	s->end += len;
 	/* 32 bits at MCLK/(4 << divider) a word, and the DMA's own few. */
@@ -1497,6 +1505,7 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data, bool more)
 	unsigned long timeout;
 	unsigned int n_sg;
 	int status = 0;
+	u32 t;
 
 	timeout = data->timeout_ns / 1000 + data->timeout_clks * 1000000 /
 		(host->clock >> (host->divider + 2));
@@ -1518,6 +1527,7 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data, bool more)
 		sd_read(host, data, timeout);
 		return;
 	}
+	t = sd_clock(host);
 
 	for_each_sg(data->sg, sg, data->sg_len, n_sg) {
 		const u8 *buf = sg_virt(sg);
@@ -1531,6 +1541,7 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data, bool more)
 			if (status)
 				break;
 			data->bytes_xfered += len;
+			host->timing.written++;
 			buf += len;
 			length -= len;
 			if (!multiple)
@@ -1552,6 +1563,7 @@ static void sd_data(struct s1c33_sd *host, struct mmc_data *data, bool more)
 		if (status && !data->error)
 			data->error = status;
 	}
+	sd_charge(host, SD_T_WRITE, &t);
 }
 
 /* The read command, if any, that would carry on where @mrq leaves off. */
@@ -1570,6 +1582,7 @@ static void sd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct s1c33_sd *host = mmc_priv(mmc);
 	struct sd_stream *s = &host->stream;
 	int crc_retry = 5;
+	u32 t = sd_clock(host);
 	bool more;
 	int status;
 
@@ -1587,9 +1600,12 @@ retry:
 	} else {
 		sd_stream_close(host);
 		status = sd_command(host, mrq->cmd, mrq->data != NULL);
+		host->timing.commands++;
 	}
+	sd_charge(host, SD_T_COMMAND, &t);
 	if (status == 0 && mrq->data) {
 		sd_data(host, mrq->data, more);
+		t = sd_clock(host);
 
 		/*
 		 * The odd CRC error is recovered from by stopping and
@@ -1620,21 +1636,35 @@ retry:
 		}
 	}
 	sd_stream_leave(host);
+	sd_charge(host, SD_T_COMMAND, &t);
 	mmc_request_done(mmc, mrq);
 }
 
 /****************************************************************************/
 /* Power and clock */
 
-/* See 6.4.1 in the simplified SD physical layer specification 2.0. */
+/*
+ * See 6.4.1 in the simplified SD physical layer specification 2.0.  mmc_spi
+ * first waits for the card to stop signalling busy; this runs only just
+ * after power is applied, when the card drives nothing and its data line
+ * reads zeros on this board, so that wait always ran out: 3 s of every
+ * boot.  Instead, once it has had its clocks, the card is reset until it
+ * answers that it is idle.  A card fresh from power-up takes its time
+ * (longer than the 10 ms the platform gives it), and the core sends its own
+ * reset only once, then gives up on a card it cannot rescan.
+ */
 static void sd_initsequence(struct s1c33_sd *host)
 {
+	struct mmc_command cmd = {
+		.opcode = MMC_GO_IDLE_STATE,
+		.flags = MMC_RSP_SPI_R1 | MMC_RSP_NONE | MMC_CMD_BC,
+	};
+	unsigned long start = jiffies;
 	unsigned int i;
 	u32 in;
 
-	/* Let any earlier command finish, and skip what it left behind. */
+	/* Skip what any earlier command left behind. */
 	sd_select(host);
-	sd_wait_unbusy(host, msecs_to_jiffies(SD_INIT_TIMEOUT_MS));
 	for (i = 0; i < 3; i++)
 		sd_word(host, ~0U, &in);
 	/* At least 74 clocks with the card deselected, before CMD0. */
@@ -1642,6 +1672,22 @@ static void sd_initsequence(struct s1c33_sd *host)
 	for (i = 0; i < 5; i++)
 		sd_word(host, ~0U, &in);
 	sd_rx_drop(host);
+
+	for (;;) {
+		cmd.error = 0;
+		cmd.resp[0] = 0;
+		if (!sd_command(host, &cmd, false) &&
+		    (cmd.resp[0] & 0xff) == R1_SPI_IDLE)
+			break;
+		if (time_after(jiffies, start + msecs_to_jiffies(SD_READY_MS))) {
+			dev_warn(host->dev, "card not answering after %u ms\n",
+				 SD_READY_MS);
+			return;
+		}
+		msleep(10);
+	}
+	dev_info(host->dev, "card answered after %u ms\n",
+		 jiffies_to_msecs(jiffies - start));
 }
 
 static void sd_setpower(struct s1c33_sd *host, unsigned short vdd)
@@ -1824,6 +1870,10 @@ static void sd_dma_release(struct s1c33_sd *host)
 	dma_release_channel(host->rx_chan);
 }
 
+/* s1c33_sd.timing=1 on the command line counts from boot, as read_timing's 1. */
+static bool timing_from_boot;
+module_param_named(timing, timing_from_boot, bool, 0444);
+
 static int sd_probe(struct platform_device *pdev)
 {
 	const struct s1c33_sd_platform_data *pdata =
@@ -1846,6 +1896,7 @@ static int sd_probe(struct platform_device *pdev)
 	host->pdata = pdata;
 	host->control = ~0U;
 	host->power_mode = MMC_POWER_OFF;
+	host->timing.on = timing_from_boot;
 	hrtimer_setup(&host->stream_timer, sd_stream_timer, CLOCK_MONOTONIC,
 		      HRTIMER_MODE_REL_SOFT);
 
@@ -1965,7 +2016,8 @@ static const char *const sd_phase_names[SD_T_PHASES] = {
 	[SD_T_TOKEN] = "token", [SD_T_SETUP] = "setup", [SD_T_AHEAD] = "ahead",
 	[SD_T_CHECK] = "check", [SD_T_POLL] = "poll",
 	[SD_T_STATUS] = "status", [SD_T_TAIL] = "tail",
-	[SD_T_REQUEST] = "request",
+	[SD_T_REQUEST] = "request", [SD_T_COMMAND] = "command",
+	[SD_T_WRITE] = "write",
 };
 
 /*
@@ -1985,9 +2037,11 @@ static ssize_t read_timing_show(struct device *dev,
 	t0 = get_cycles();
 	t1 = get_cycles();
 	len = sysfs_emit(buf, "%s, %u blocks in %u requests, clock read %u cycles\n"
+			 "%u commands, %u blocks written\n"
 			 "streamed: %u transfers, %u gap bytes, %u errors; %u requests carried on, %u KB in hand\n",
 			 tm->on ? "on" : "off", tm->blocks, tm->requests,
-			 t1 - t0, tm->transfers, tm->gap_bytes, tm->errors,
+			 t1 - t0, tm->commands, tm->written,
+			 tm->transfers, tm->gap_bytes, tm->errors,
 			 tm->carried, tm->in_hand >> 10);
 	for (i = 0; i < SD_T_PHASES; i++) {
 		total += tm->cycles[i];

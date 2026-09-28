@@ -272,6 +272,34 @@ static void log_text(const char *text)
 	}
 }
 
+/*
+ * The kernel's uptime once the prompt is up, into the kernel log: the
+ * launcher's bootlog.txt (with bootlog.on on the card) has Grifo's part of
+ * a boot, from the tap to the kernel starting, and this the rest.
+ */
+static void note_ready(void)
+{
+	char uptime[32], line[96];
+	ssize_t length = -1;
+	int fd = open("/proc/uptime", O_RDONLY);
+
+	if (fd >= 0) {
+		length = read(fd, uptime, sizeof(uptime) - 1);
+		close(fd);
+	}
+	if (length <= 0)
+		return;
+	uptime[length] = '\0';
+	uptime[strcspn(uptime, " ")] = '\0';
+	snprintf(line, sizeof(line),
+		 "C33 console: prompt up %s s after the kernel started\n", uptime);
+	fd = open("/dev/kmsg", O_WRONLY);
+	if (fd >= 0) {
+		length = write(fd, line, strlen(line));
+		close(fd);
+	}
+}
+
 /* Indexed by character, filled from glyphs[] at startup: searching the list
    for every cell drawn was most of what a redraw cost. */
 static const uint8_t *glyph_index[128];
@@ -1734,6 +1762,7 @@ int main(void)
 	}
 	flush_display();
 	log_text("C33 userspace console: fbdev + evdev + PTY shell ready\n");
+	note_ready();
 	if (uinput_fd >= 0)
 		log_text("C33 input: soft keyboard registered as a uinput device\n");
 	else

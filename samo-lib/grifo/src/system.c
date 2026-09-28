@@ -211,6 +211,7 @@ void System_chain(const char *command)
 
 
 	if (ELF32_OK == r) {
+		File_boot_log(ArgumentStrings[0]);
 		// need to reset everything here
 		File_CloseAll();
 		extern char __MAIN_STACK_LIMIT;  // the address of this give lowest sp value

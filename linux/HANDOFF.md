@@ -166,32 +166,41 @@ what the DMA does per word; those need the device.
 
 ## Boot: where it stands
 
-Launcher path in wremu (`WREMU_MODEL=dma_cpu_penalty=0`, which matches the
-device's SD streams), power-on to the LCD console's prompt, on a card like
-the device's (512-byte clusters on the boot volume: `SPC=1` in
-`/tmp/sepdata/timeline_app.py`'s card; the Linux tools' fixture uses 64):
-6.67 s, against 8.64 s before this round. With 32 KB clusters it is 5.57 s.
+On the device (launcher `init.ini` line with `printk.time=1
+s1c33_sd.timing=1` and `bootlog.on` on the card, then `check`): Grifo loads
+`linux.app` in 2.5 s (113 reads, 1.8 s of them reading), and the prompt is
+up 4.12 s after the kernel starts. From the tap: the icon stays inverted
+about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 
-| Phase | 512-byte clusters | 32 KB clusters |
+| Kernel uptime | Device | wremu (`SPC=1`, penalty 0) |
 |---|---|---|
-| mask ROM, MBR, Grifo, `init.app` | 0.95 s | 0.91 s |
-| Grifo loading `linux.app` (2.9 MB) | 1.98 s | 1.71 s |
-| kernel to `kernel_init` | 0.21 s | 0.21 s |
-| initcalls (the card's probe among them) | 1.32 s | 1.32 s |
-| `rootstart`: FAT, clock, loop, ext4 mount, seed, mounts | 0.47 s | 0.47 s |
-| BusyBox init, `rcS`, the shells, `wr-console` | 0.96 s | 0.96 s |
+| SD host registered | 0.94 s | 0.94 s |
+| `/init` (`rootstart`) | 1.18 s | 1.27 s |
+| ext4 mounted | 2.13 s | 1.73 s |
+| prompt | 4.12 s | 3.57 s |
 
-What this round did, Linux side: no ext4 orphan file (0.34 s), `rootstart`
-mounts the kernel file systems instead of `rcS` (two BusyBox execs), the
-self-tests in a file of their own (hush parses a whole block before running
-it), the seed save and watchdog daemon from `inittab` after the consoles,
-and no KALLSYMS (180 KB less to load, 0.13 s). The kernel log stays 32 KB,
-the user's call (a boot writes 4.8 KB in 80 records). Grifo side
-(`samo-lib`): multiple-block reads stream through an 8 KB ring with one
-width change a read (`grifo/src/sd_dma.c`), and FatFs's `f_read` merges
-clusters that follow on the card into one read (`fatfs/src/ff.c`). On the
-device's 512-byte clusters every application used to load one command per
-sector: `zim.app` took 771 reads and 941 ms, now 68 and 702.
+What this round found and did, device-only mostly:
+- The device's 64 MB FAT32 boot volume has 512-byte clusters, so Grifo read
+  every application one sector a command. FatFs `f_read` merges clusters
+  that follow on the card; Grifo streams multiple-block reads
+  (`grifo/src/sd_dma.c`). A transfer that ended 4 bytes short of the ring's
+  end failed the stream on the device and left the rest to byte PIO (10 s);
+  a one-word transfer now goes without the transmit DMA, in Grifo and in
+  the Linux host, and a failed stream falls back to block-at-a-time DMA.
+- The SD host's power-up waited for busy to end on a line that reads zeros
+  until the card is in SPI mode: 3 s every boot. It now resets the card
+  until it answers idle (at once, on this card).
+- The root image's journal was replayed every boot (1.5 s): `late` freezes
+  and thaws the root after the seed save.
+- Linux side before that: no ext4 orphan file (0.34 s), `rootstart` mounts
+  the kernel file systems, the self-tests in their own file, `seedrng` and
+  the watchdog daemon from `inittab`, no KALLSYMS.
+
+The device's boot traffic (read, then waiting for `late`): 1,871 blocks in
+448 requests, 586 commands, 356 blocks written; writes are the dearest
+phase (about 20,000 cycles a block read, overall). wremu's card answers a
+command in 0.2 ms where the device's takes about 3, so wremu is optimistic
+wherever a boot does small requests.
 
 `initcall_debug` durations in exact multiples of 10 ms are the CPU being
 shared with other work until the next tick (PREEMPT_NONE), not idling: a
@@ -199,14 +208,16 @@ kthread's creation measured 5 to 85 ms busy with no idle entry. Boot is
 CPU-bound; the idle column hardly moves before the console.
 
 Left, largest first:
-- **Grifo's load**, about 2 s. An LZ4 kernel was estimated and dropped:
-  with Grifo at 1.7 MB/s it would save about 0.1 s (decompression from A0
-  RAM at 8 to 10 cycles a byte against 35 a byte loaded).
-- **Initcalls**, 1.32 s of generic work: sysfs nodes, slab, message
-  formatting, about 0.17 s idle in power-up delays.
 - **An application load's time besides reading, on the device only**:
-  `zim.app` 418 ms of 702 (wremu: 44 ms), before and after this round.
-  Unexplained; `kind=3` in `zimboot.log` (`zimlog.on` on the card).
+  `linux.app` 700 ms of 2.5 s, `zim.app` 418 of 702 (wremu: tens of ms),
+  unchanged by this round. Unexplained; `bootlog.txt` and `zimboot.log`
+  time it.
+- **Initcalls**, about 0.9 s on the device: sysfs nodes, slab, message
+  formatting, and power-up delays.
+- **The boot's writes**: 356 blocks, the dearest card phase.
+- **Grifo's reading**, 1.8 s for 2.9 MB. An LZ4 kernel was estimated and
+  dropped: at 1.7 MB/s it saves about 0.1 s (decompression from A0 RAM at 8
+  to 10 cycles a byte, against 35 a byte loaded).
 - **`wr-console`'s start**, about 0.4 s to its first prompt, much of it the
   execs of the four processes init starts at once.
 
