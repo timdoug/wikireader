@@ -1,5 +1,5 @@
 #!/bin/sh
-# xrun [CLIENT [ARGS...]]: start the X server on the panel, the touchscreen
+# startx [CLIENT [ARGS...]]: start the X server on the panel, the touchscreen
 # and the buttons, run CLIENT on it, and stop the server when CLIENT exits,
 # which gives the panel back to the console.  With no CLIENT the session is
 # twm with xeyes, and twm's Exit ends it.
@@ -24,7 +24,7 @@ Xfbdev :0 -noreset -retro ${touch:+-mouse evdev,,device=$touch} \
 server=$!
 while [ ! -S /tmp/.X11-unix/X0 ]; do
 	if ! kill -0 $server 2>/dev/null; then
-		echo "xrun: the X server stopped; see /tmp/Xfbdev.log" >&2
+		echo "startx: the X server stopped; see /tmp/Xfbdev.log" >&2
 		exit 1
 	fi
 	sleep 1

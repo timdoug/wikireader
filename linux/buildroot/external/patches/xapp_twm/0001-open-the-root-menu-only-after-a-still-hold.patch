@@ -1,0 +1,84 @@
+From 0125dbe9f04634b36e7ed0d03627d045ef2eec9b Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 10:30:08 -0400
+Subject: [PATCH] Open the root menu only after the button is held still
+
+On a touch screen the first button is also how the pointer moves.  A root
+menu binding now waits 600 ms, polling the pointer, and opens only if the
+button is still down within 8 pixels of where it went down; otherwise the
+press just moved the pointer.
+---
+ src/events.c | 39 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/src/events.c b/src/events.c
+index 12ba7ae..246a293 100644
+--- a/src/events.c
++++ b/src/events.c
+@@ -58,6 +58,8 @@ in this Software without prior written authorization from The Open Group.
+  ***********************************************************************/
+ 
+ #include <stdio.h>
++#include <stdlib.h>
++#include <sys/select.h>
+ #include "twm.h"
+ #include <X11/Xatom.h>
+ #include "iconmgr.h"
+@@ -106,6 +108,7 @@ static void free_window_names(TwmWindow *tmp, Bool nukefull, Bool nukename,
+                               Bool nukeicon);
+ static void remove_window_from_ring(TwmWindow *tmp);
+ static void do_menu(MenuRoot *menu, Window w);
++static Bool HeldStill(void);
+ static Bool HENQueueScanner(Display *dpy, XEvent *ev, char *args);
+ static Bool HLNQueueScanner(Display *dpy, XEvent *ev, char *args);
+ static void flush_expose(Window w);
+@@ -1915,6 +1918,8 @@ HandleButtonPress(void)
+ 
+     RootFunction = 0;
+     if (Scr->Mouse[Event.xbutton.button][Context][modifier].func == F_MENU) {
++        if (Context == C_ROOT && !HeldStill())
++            return;
+         do_menu(Scr->Mouse[Event.xbutton.button][Context][modifier].menu,
+                 (Window) None);
+     }
+@@ -1940,6 +1945,40 @@ HandleButtonPress(void)
+     }
+ }
+ 
++/*
++ * On a touch screen the first button is also how the pointer moves, so the
++ * root menu opens only once the button has been held still for a moment;
++ * a press that is released or dragged first just moves the pointer.  The
++ * pointer is polled, since the root window does not report motion.
++ */
++#define HOLD_MS         600
++#define HOLD_POLL_MS    50
++#define HOLD_SLOP       8
++
++static Bool
++HeldStill(void)
++{
++    unsigned int button = Button1Mask << (Event.xbutton.button - Button1);
++    int x0 = Event.xbutton.x_root;
++    int y0 = Event.xbutton.y_root;
++    int waited;
++
++    XFlush(dpy);
++    for (waited = 0; waited < HOLD_MS; waited += HOLD_POLL_MS) {
++        struct timeval poll = { 0, HOLD_POLL_MS * 1000 };
++        Window root, child;
++        int x, y, wx, wy;
++        unsigned int mask;
++
++        select(0, NULL, NULL, NULL, &poll);
++        if (!XQueryPointer(dpy, Scr->Root, &root, &child, &x, &y, &wx, &wy,
++                           &mask) || !(mask & button) ||
++            abs(x - x0) > HOLD_SLOP || abs(y - y0) > HOLD_SLOP)
++            return FALSE;
++    }
++    return TRUE;
++}
++
+ /** \fn HENQueueScanner
+  * EnterNotify event q scanner.
+  *
