@@ -30,7 +30,12 @@
 #ifdef MODULE
 #define __iramfunc
 #else
-#define __iramfunc	__section(".iram.text") noinline
+/*
+ * flatten: everything the function calls is inlined into it, since a call
+ * out of the copy would land wherever the linked address is relative to A0
+ * RAM.  At -Os GCC otherwise keeps small inlines out of line (__fswab32).
+ */
+#define __iramfunc	__section(".iram.text") noinline __attribute__((flatten))
 #endif
 
 void c33_iram_init(void);

@@ -139,3 +139,7 @@ CONFIG_LOG_BUF_SHIFT=15
 # console, the boot log cost 0.4 s.  Warnings still show; loglevel=7 on the
 # init.ini line brings the rest back, and a direct boot asks for it.
 CONFIG_CONSOLE_LOGLEVEL_DEFAULT=4
+# Kernel stack variables are not zeroed on entry: a hardening measure against
+# leaking them, bought with a memset in every syscall's frame (select's is
+# about a kilobyte); about 2% of an X drag frame here.
+CONFIG_INIT_STACK_NONE=y
