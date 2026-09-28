@@ -1,0 +1,64 @@
+From 0182ae35d908580db6782a1291bb4e93dfb8a17d Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 11:14:14 -0400
+Subject: [PATCH] Move the pupils without trigonometry
+
+computePupil took the pointer's angle with atan2 and turned it back into
+a direction with cos and sin; the direction is (dx, dy) over their
+length.  Where floating point is software, the three calls were most of
+a frame's arithmetic.  Only the -distance mapping still needs the angle.
+---
+ Eyes.c | 21 ++++++++++++++-------
+ 1 file changed, 14 insertions(+), 7 deletions(-)
+
+diff --git a/Eyes.c b/Eyes.c
+index ce42de5..39d8df9 100644
+--- a/Eyes.c
++++ b/Eyes.c
+@@ -619,19 +619,24 @@ static TPoint computePupil (
+ 	double	dist;
+ 	double	angle;
+ 	double	dx, dy;
+-	double	cosa, sina;
++	double	h;
+ 	TPoint	ret;
+ 
+ 	cx = layout->x; dx = mouse.x - cx;
+ 	cy = layout->y; dy = mouse.y - cy;
+ 	if (dx == 0 && dy == 0);
+ 	else {
+-		angle = atan2 (dy, dx);
+-		cosa = cos (angle);
+-		sina = sin (angle);
++		/*
++		 * The pupil moves BALL_DIST towards the pointer: along
++		 * (dx, dy) / h, which is (cos, sin) of the pointer's angle
++		 * without the trigonometry.  Where floating point is software,
++		 * atan2, cos and sin were most of a frame's arithmetic.
++		 */
++		h = sqrt (dx * dx + dy * dy);
+ 		dist = BALL_DIST;
+ 		if (screen)
+ 		{
++		    angle = atan2 (dy, dx);
+ 		    /* use distance mapping */
+ 		    double x0, y0, x1, y1;
+ 		    double a[4];
+@@ -666,12 +671,14 @@ static TPoint computePupil (
+ 		    if (dist > BALL_DIST)
+ 			dist = BALL_DIST;
+ 		}
+-		if (dist > hypot (dx, dy)) {
++		if (dist > h) {
+ 			cx += dx;
+ 			cy += dy;
+ 		} else {
+-			cx += dist * cosa;
+-			cy += dist * sina;
++			double scale = dist / h;
++
++			cx += scale * dx;
++			cy += scale * dy;
+ 		}
+ 	}
+ 	ret.x = cx;

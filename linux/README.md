@@ -555,13 +555,17 @@ placing one by hand is awkward by touch. Menu commands start through
 while another client has the pointer grabbed, and twm has it grabbed for any
 drag that starts on the background or a frame. It also drops raw motion
 queued behind the event it is drawing, since drawing asks where the pointer
-is now.
+is now. It moves the pupils along (dx, dy) over its length instead of
+through `atan2`, `cos` and `sin`, which were most of its arithmetic.
 
-A drag under twm costs about 49 ms of CPU a frame in wremu, so the eyes
+A drag under twm costs about 46 ms of CPU a frame in wremu, so the eyes
 follow at about 20 frames a second and a 33 Hz touch stream runs ahead of
 them. The software cursor is about a fifth of that (`startx -- -nocursor`
-leaves it out), xeyes about a sixth, mostly double arithmetic, and the
-kernel a third. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
+leaves it out), xeyes about a seventh, and the kernel over a third: each
+frame is about 57 system calls (xeyes' Xt and xcb make 37, most of them
+reads that find nothing), 14 context switches and 10 timer ticks, and the
+scheduler's load tracking, 64-bit arithmetic run 39 times a frame, is a
+third of the kernel's share. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
 the last release that has it (`buildroot/external/package/xserver-kdrive`).
 Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
 compiled at build time instead of running `xkbcomp` (the image carries no
