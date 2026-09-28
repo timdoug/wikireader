@@ -7,8 +7,8 @@
  * the stack above the return address.  The kernel takes flags, newsp,
  * ptid, ctid and tls in %r6-%r10 (the asm-generic order, without
  * CLONE_BACKWARDS) and gives the child a copy of every register, so fn and
- * arg ride across in callee-saved %r0 and %r1, and the child finds its data
- * segment in the %r15 it inherits.
+ * arg ride across in callee-saved %r0 and %r1.  fn is an FDPIC function
+ * descriptor, {entry, %r15}.
  */
 #include <features.h>
 #define _ERRNO_H
@@ -61,6 +61,8 @@ __clone:
 .Lchild:
 	/* On the new stack, with the parent's registers. */
 	ld.w %r6,%r1
+	xld.w %r15,[%r0+4]
+	ld.w %r0,[%r0]
 	call %r0
 	ld.w %r6,%r4
 	xld.w %r4,__NR_exit

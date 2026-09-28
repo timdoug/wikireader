@@ -1,4 +1,10 @@
 TARGET_c33=y
+# FDPIC ELF: executables and shared libraries whose text is shared between
+# processes, loaded by ld-uClibc.so (see ldso/ldso/c33).
+UCLIBC_FORMAT_FDPIC_ELF=y
+HAVE_SHARED=y
+# Libraries are in /lib and /usr/lib; there is no ld.so.cache to read.
+# LDSO_CACHE_SUPPORT is not set
 # No FPU: floating point is libgcc's soft-float routines. C33 is left out
 # of -msoft-float in Rules.mak, as nios2 and bfin are; its compiler has only
 # the one float ABI and no such option.
@@ -13,9 +19,8 @@ UCLIBC_HAS_SSP=y
 # Without an MMU the canary only catches bugs, and reading /dev/urandom in
 # every program would wait for the random pool at boot and cost each exec.
 SSP_QUICK_CANARY=y
-# What Buildroot's own uClibc-ng configuration offers packages, less the
-# shared-library loader, networking, and the context functions, which have
-# no C33 implementation.
+# What Buildroot's own uClibc-ng configuration offers packages, less
+# networking and the context functions, which have no C33 implementation.
 UCLIBC_SUSV2_LEGACY=y
 UCLIBC_SUSV3_LEGACY=y
 UCLIBC_SUSV4_LEGACY=y

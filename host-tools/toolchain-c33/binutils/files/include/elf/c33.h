@@ -44,6 +44,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #endif	/* c33 */
 
 
+/* The object follows the FDPIC ABI: -mfdpic code, whose calls to other
+   modules restore %r15 and whose function pointers point at descriptors.
+   The core variant is in the top byte.  */
+#define EF_C33_FDPIC		0x00000001
+
 /* Flags for the st_other field */
 #define C33_OTHER_SDA		0x01	/* symbol had SDA relocations */
 #define C33_OTHER_ZDA		0x02	/* symbol had ZDA relocations */
@@ -88,6 +93,12 @@ START_RELOC_NUMBERS (c33_reloc_type)
      RELOC_NUMBER (R_C33_PUSHN_R1,30)	/* add tazaki 2004/08/19 */
      RELOC_NUMBER (R_C33_PUSH_R1,31)	/* add tazaki 2004/08/19 */
 
+     /* FDPIC (no-MMU Linux with independently placed segments).  A
+	FUNCDESC word holds the address of the canonical function descriptor
+	of its symbol; a FUNCDESC_VALUE is the 8-byte descriptor itself,
+	{entry point, the defining module's %r15}.  */
+     RELOC_NUMBER (R_C33_FUNCDESC, 32)
+     RELOC_NUMBER (R_C33_FUNCDESC_VALUE, 33)
 END_RELOC_NUMBERS (R_C33_max)
 
 

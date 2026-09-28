@@ -10,8 +10,24 @@
 #define ELF_ET_DYN_BASE 0
 #define ELF_HWCAP 0
 #define ELF_PLATFORM NULL
-#define elf_check_arch(x) (1)
-#define elf_check_fdpic(x) (0)
+#define elf_check_arch(x) ((x)->e_machine == ELF_ARCH)
+
+/*
+ * FDPIC programs, whose segments go anywhere, say so in e_flags.  The kernel
+ * hands one the load maps of itself and of its interpreter, and the dynamic
+ * section, in the first three argument registers; the program works out its
+ * own %r15 from them.
+ */
+#define EF_C33_FDPIC 0x00000001
+#define elf_check_fdpic(x) ((x)->e_flags & EF_C33_FDPIC)
+#define ELF_FDPIC_CORE_EFLAGS EF_C33_FDPIC
+#define ELF_FDPIC_PLAT_INIT(_regs, _exec_map_addr, _interp_map_addr,	\
+			    _dynamic_addr)				\
+	do {								\
+		(_regs)->r[6] = (_exec_map_addr);			\
+		(_regs)->r[7] = (_interp_map_addr);			\
+		(_regs)->r[8] = (_dynamic_addr);			\
+	} while (0)
 #define ELF_CORE_COPY_REGS(dest, regs) \
 	do { memcpy((dest), (regs), sizeof(*(regs))); } while (0);
 #define SET_PERSONALITY(ex) set_personality(PER_LINUX)

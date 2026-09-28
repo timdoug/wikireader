@@ -37,6 +37,10 @@
 #define md_operand(x)
 
 #define obj_fix_adjustable(fixP) c33_fix_adjustable(fixP)
+/* Modern gas asks tc_fix_adjustable, not the above.  Only an FDPIC function
+   descriptor must keep its symbol: descriptors belong to functions, and a
+   section offset would name none.  */
+#define tc_fix_adjustable(fixP) ((fixP)->fx_r_type != BFD_RELOC_C33_FUNCDESC)
 #define TC_FORCE_RELOCATION(fixp) c33_force_relocation(fixp)
 extern int c33_force_relocation (struct fix *);
 

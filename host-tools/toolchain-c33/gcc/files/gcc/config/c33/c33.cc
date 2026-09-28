@@ -2736,7 +2736,113 @@ c33_function_value (const_tree valtype,
 static bool
 c33_function_ok_for_sibcall (tree decl, tree)
 {
+  /* -mfdpic: a callee in another module returns with its own %r15, and
+     our caller, which may be in this module, would not restore it.  */
+  if (TARGET_FDPIC && (decl == NULL_TREE || !targetm.binds_local_p (decl)))
+    return false;
   return !c33_interrupt_function_p (current_function_decl);
+}
+
+/* -mfdpic: the constant pool, initialised data and the unwind tables hold
+   the address of a function's canonical descriptor wherever C asks for a
+   function's address.  The constructor and destructor tables are the
+   exception: uClibc's startup code and ld.so call their entries with the
+   module's own %r15, as other FDPIC ports do, so they hold entry points.  */
+
+static bool
+c33_initfini_section_p (void)
+{
+  const char *name;
+
+  if (in_section == NULL || (in_section->common.flags & SECTION_NAMED) == 0)
+    return false;
+  name = in_section->named.name;
+  return (startswith (name, ".init_array")
+	  || startswith (name, ".fini_array")
+	  || startswith (name, ".preinit_array")
+	  || startswith (name, ".ctors")
+	  || startswith (name, ".dtors"));
+}
+
+static bool
+c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
+{
+  if (TARGET_FDPIC
+      && size == UNITS_PER_WORD
+      && GET_CODE (x) == SYMBOL_REF
+      && SYMBOL_REF_FUNCTION_P (x)
+      && !c33_initfini_section_p ())
+    {
+      fputs ("\t.long\tfuncdesc(", asm_out_file);
+      output_addr_const (asm_out_file, x);
+      fputs (")\n", asm_out_file);
+      return true;
+    }
+  return default_assemble_integer (x, size, aligned_p);
+}
+
+/* -mfdpic: memory a call cannot clobber, for the copy of %r15 it restores:
+   a stack slot of this frame.  */
+
+bool
+c33_frame_mem_p (rtx op)
+{
+  rtx addr;
+
+  if (!MEM_P (op))
+    return false;
+  addr = XEXP (op, 0);
+  if (GET_CODE (addr) == PLUS && CONST_INT_P (XEXP (addr, 1)))
+    addr = XEXP (addr, 0);
+  return (REG_P (addr)
+	  && (REGNO (addr) == STACK_POINTER_REGNUM
+	      || REGNO (addr) == FRAME_POINTER_REGNUM
+	      || REGNO (addr) == ARG_POINTER_REGNUM
+	      || (REGNO (addr) == HARD_FRAME_POINTER_REGNUM
+		  && frame_pointer_needed)));
+}
+
+/* -mfdpic: expand a call that may reach another module, and return true;
+   return false for a call the ordinary patterns can make, to a function
+   this module defines and nothing preempts.  RETVAL is the value's
+   register, or null.  */
+
+bool
+c33_fdpic_expand_call (rtx retval, rtx mem, rtx nargs)
+{
+  rtx addr = XEXP (mem, 0);
+  rtx saved;
+
+  if (GET_CODE (addr) == SYMBOL_REF && SYMBOL_REF_LOCAL_P (addr))
+    return false;
+
+  saved = get_hard_reg_initial_val (SImode, 15);
+  if (GET_CODE (addr) == SYMBOL_REF)
+    emit_call_insn (retval
+		    ? gen_call_value_fdpic (retval, addr, nargs, saved)
+		    : gen_call_fdpic (addr, nargs, saved));
+  else
+    {
+      addr = force_reg (SImode, addr);
+      emit_call_insn (retval
+		      ? gen_call_value_fdpic_indirect (retval, addr, nargs,
+						       saved)
+		      : gen_call_fdpic_indirect (addr, nargs, saved));
+    }
+  return true;
+}
+
+/* -mfdpic: set %r15 back to this function's, at a place control reaches
+   from other code: a landing pad or a nonlocal goto's receiver.  */
+
+void
+c33_fdpic_restore_r15 (void)
+{
+  rtx r15 = gen_rtx_REG (SImode, 15);
+
+  emit_move_insn (r15, get_hard_reg_initial_val (SImode, 15));
+  emit_use (r15);
+  emit_insn (gen_blockage ());
 }
 
 /* Implement TARGET_LIBCALL_VALUE.  */
@@ -2816,6 +2922,9 @@ static void
 c33_trampoline_init (rtx m_tramp, tree fndecl, rtx chain_value)
 {
   rtx mem, fnaddr = XEXP (DECL_RTL (fndecl), 0);
+
+  if (TARGET_FDPIC)
+    sorry ("taking the address of a nested function with %<-mfdpic%>");
 
   emit_block_move (m_tramp, assemble_trampoline_template (),
 		   GEN_INT (TRAMPOLINE_SIZE), BLOCK_OP_NORMAL);
@@ -2908,6 +3017,12 @@ c33_sep_data_symbol_p (rtx sym)
     return false;
   if (CONSTANT_POOL_ADDRESS_P (sym))
     return true;
+
+  /* -mfdpic: %r15 is this module's.  A variable another module may define,
+     or preempt, is reached through a word in the pool holding its address,
+     which the dynamic linker fills in.  */
+  if (TARGET_FDPIC && !SYMBOL_REF_LOCAL_P (sym))
+    return false;
 
   tree decl = SYMBOL_REF_DECL (sym);
   if (decl == NULL_TREE
@@ -3149,6 +3264,9 @@ c33_option_override (void)
 {
   /* -medda32 is the default (see c33-common.cc); -msep-data needs the
      data area, so it turns that off unless it was asked for by name.  */
+  /* FDPIC code is -msep-data code, with more rules for calls.  */
+  if (TARGET_FDPIC)
+    target_flags |= MASK_SEP_DATA;
   if (TARGET_SEP_DATA)
     {
       if (TARGET_EXT_32 && (global_options_set.x_target_flags & MASK_EXT_32))
@@ -3312,6 +3430,9 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_ASM_RELOC_RW_MASK
 #define TARGET_ASM_RELOC_RW_MASK  c33_reloc_rw_mask
+
+#undef  TARGET_ASM_INTEGER
+#define TARGET_ASM_INTEGER c33_assemble_integer
 
 /* The assembler supports switchable .bss sections, but
    c33_select_section doesn't yet make use of them.  */

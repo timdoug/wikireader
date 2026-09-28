@@ -1,0 +1,39 @@
+diff --git a/ldso/include/dl-syscall.h b/ldso/include/dl-syscall.h
+index c143b8d..3ef0674 100644
+--- a/ldso/include/dl-syscall.h
++++ b/ldso/include/dl-syscall.h
+@@ -262,6 +262,7 @@ _dl_pread(int fd, void *buf, size_t count, off_t offset)
+ 
+ #ifdef __UCLIBC_HAS_SSP__
+ # include <sys/time.h>
++# ifdef __NR_gettimeofday
+ # define __NR__dl_gettimeofday __NR_gettimeofday
+ static __always_inline _syscall2(int, _dl_gettimeofday, struct timeval *, tv,
+ # ifdef __USE_BSD
+@@ -270,6 +271,26 @@ static __always_inline _syscall2(int, _dl_gettimeofday, struct timeval *, tv,
+                         void *
+ # endif
+ 						, tz)
++# else
++/* A 32-bit ABI with only time64 system calls.  The time seeds the stack
++   protector's canary, so microseconds need not be exact.  */
++struct _dl_timespec64 { long long tv_sec; long long tv_nsec; };
++# define __NR__dl_clock_gettime64 __NR_clock_gettime64
++static __always_inline _syscall2(int, _dl_clock_gettime64, int, clk,
++				 struct _dl_timespec64 *, ts)
++static __always_inline int
++_dl_gettimeofday(struct timeval *tv, void *tz)
++{
++	struct _dl_timespec64 ts;
++	int ret = _dl_clock_gettime64(0 /* CLOCK_REALTIME */, &ts);
++
++	if (ret != -1) {
++		tv->tv_sec = ts.tv_sec;
++		tv->tv_usec = ts.tv_nsec >> 10;
++	}
++	return ret;
++}
++# endif
+ #endif
+ 
+ /* Some architectures always use 12 as page shift for mmap2() eventhough the

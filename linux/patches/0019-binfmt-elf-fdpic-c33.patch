@@ -1,0 +1,13 @@
+diff --git a/fs/Kconfig.binfmt b/fs/Kconfig.binfmt
+index 1949e25c77..af5428a824 100644
+--- a/fs/Kconfig.binfmt
++++ b/fs/Kconfig.binfmt
+@@ -58,7 +58,7 @@ config ARCH_USE_GNU_PROPERTY
+ config BINFMT_ELF_FDPIC
+ 	bool "Kernel support for FDPIC ELF binaries"
+ 	default y if !BINFMT_ELF
+-	depends on ARM || ((M68K || RISCV || SUPERH || XTENSA) && !MMU)
++	depends on ARM || ((C33 || M68K || RISCV || SUPERH || XTENSA) && !MMU)
+ 	select ELFCORE
+ 	help
+ 	  ELF FDPIC binaries are based on ELF, but allow the individual load

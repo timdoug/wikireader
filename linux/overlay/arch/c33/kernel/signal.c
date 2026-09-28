@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/errno.h>
 #include <linux/irq-entry-common.h>
+#include <linux/personality.h>
 #include <linux/resume_user_mode.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
@@ -107,11 +108,27 @@ static int c33_setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	if (error)
 		return -EFAULT;
 
+	if (current->personality & FDPIC_FUNCPTRS) {
+		/*
+		 * An FDPIC handler is a function descriptor: its entry point
+		 * and its module's %r15.  sigreturn puts the interrupted
+		 * %r15 back with everything else.
+		 */
+		unsigned long __user *fd =
+			(unsigned long __user *)ksig->ka.sa.sa_handler;
+		unsigned long entry, got;
+
+		if (get_user(entry, &fd[0]) || get_user(got, &fd[1]))
+			return -EFAULT;
+		regs->pc = entry;
+		regs->r[15] = got;
+	} else {
+		regs->pc = (unsigned long)ksig->ka.sa.sa_handler;
+	}
 	regs->sp = (unsigned long)frame;
 	regs->r[6] = ksig->sig;
 	regs->r[7] = (unsigned long)&frame->info;
 	regs->r[8] = (unsigned long)&frame->uc;
-	regs->pc = (unsigned long)ksig->ka.sa.sa_handler;
 	return 0;
 }
 

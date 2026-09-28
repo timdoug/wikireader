@@ -601,6 +601,38 @@ static reloc_howto_type c33_elf_howto_table[] =
 	 false,				/* partial_inplace */
 	 0xffff,			/* src_mask */
 	 0xffff,			/* dst_mask */
+	 false),			/* pcrel_offset */
+
+  /* FDPIC: a word holding the address of SYM's canonical function
+     descriptor.  */
+  HOWTO (R_C33_FUNCDESC,	/* type */
+	 0,				/* rightshift */
+	 4,				/* size (in bytes) */
+	 32,				/* bitsize */
+	 false,				/* pc_relative */
+	 0,				/* bitpos */
+	 complain_overflow_dont,	/* complain_on_overflow */
+	 bfd_elf_generic_reloc,		/* special_function */
+	 "R_C33_FUNCDESC",		/* name */
+	 false,				/* partial_inplace */
+	 0,				/* src_mask */
+	 0xffffffff,			/* dst_mask */
+	 false),			/* pcrel_offset */
+
+  /* FDPIC: an 8-byte function descriptor for SYM, {entry, %r15}.  Only
+     ever a dynamic relocation.  */
+  HOWTO (R_C33_FUNCDESC_VALUE,	/* type */
+	 0,				/* rightshift */
+	 4,				/* size (in bytes) */
+	 32,				/* bitsize */
+	 false,				/* pc_relative */
+	 0,				/* bitpos */
+	 complain_overflow_dont,	/* complain_on_overflow */
+	 bfd_elf_generic_reloc,		/* special_function */
+	 "R_C33_FUNCDESC_VALUE",	/* name */
+	 false,				/* partial_inplace */
+	 0,				/* src_mask */
+	 0xffffffff,			/* dst_mask */
 	 false)				/* pcrel_offset */
 
 };
@@ -648,7 +680,9 @@ static const struct c33_elf_reloc_map c33_elf_reloc_map[] =
   { BFD_RELOC_C33_LOOP,	R_C33_LOOP }, /* add tazaki 2002.03.05 */
   { BFD_RELOC_C33_PUSHN_R0,	R_C33_PUSHN_R0 }, /* add tazaki 2004/08/19 */
   { BFD_RELOC_C33_PUSHN_R1,	R_C33_PUSHN_R1 }, /* add tazaki 2004/08/19 */
-  { BFD_RELOC_C33_PUSH_R1,	R_C33_PUSH_R1 }   /* add tazaki 2004/08/19 */
+  { BFD_RELOC_C33_PUSH_R1,	R_C33_PUSH_R1 },  /* add tazaki 2004/08/19 */
+  { BFD_RELOC_C33_FUNCDESC,	R_C33_FUNCDESC },
+  { BFD_RELOC_C33_FUNCDESC_VALUE, R_C33_FUNCDESC_VALUE }
 };
 
 
@@ -1641,6 +1675,1049 @@ c33_elf_reloc_name_lookup (bfd * abfd ATTRIBUTE_UNUSED,
   return NULL;
 }
 
+/* ------------------------------------------------------------------------
+   FDPIC: no-MMU Linux executables and shared libraries whose text and data
+   segments the kernel and the dynamic linker place independently.
+
+   -mfdpic code is -msep-data code: its text holds no address, %r15 points
+   at its module's data segment (__dp, where .got starts), and every address
+   it needs is a word in that segment.  What FDPIC adds:
+
+   - A call to a function another module may define goes through a .plt
+     entry, which loads the callee's descriptor from .got, {entry, the
+     callee module's %r15}, sets %r15 and jumps.  The caller restores its
+     own %r15 after the call.  The ABI notes are in gcc/ABI.md.
+
+   - A function pointer is the address of a canonical descriptor.  An
+     R_C33_FUNCDESC word asks for one: a descriptor in this module's .got
+     when the function is its own and not exported, otherwise a dynamic
+     relocation, and ld.so makes one.
+
+   - Every word holding an address of this module is corrected at load
+     time by its segment's displacement.  An executable lists them in
+     .rofixup and relocates itself at startup (crt1's __self_reloc); a
+     shared library gets an R_C33_32 dynamic relocation without a symbol,
+     whose addend is the link-time address.  Either way the last .rofixup
+     entry is the link-time address of __dp, which __self_reloc returns
+     relocated: that is how the startup code finds its %r15.
+
+   Words naming symbols of other modules are dynamic relocations: R_C33_32
+   against the symbol, R_C33_FUNCDESC for a function pointer and
+   R_C33_FUNCDESC_VALUE for a .plt entry's descriptor.  Lazy binding needs
+   the two words of a descriptor read atomically, which nothing guarantees
+   here, so ld.so resolves every descriptor at load.  */
+
+extern const bfd_target c33_elf32_fdpic_vec;
+#define IS_FDPIC(bfd) ((bfd)->xvec == &c33_elf32_fdpic_vec)
+
+#define ELF_DYNAMIC_INTERPRETER	"/lib/ld-uClibc.so.0"
+/* A dynamic module's .got starts with words for ld.so: the third holds
+   the module's struct elf_resolve, which it finds from a descriptor's %r15.
+   Sixteen bytes keep the descriptors after it 8-byte aligned.  */
+#define C33FDPIC_GOT_HEADER_SIZE 16
+#define C33FDPIC_PLT_ENTRY_SIZE	16
+#define C33FDPIC_FD_SIZE	8
+#define C33FDPIC_NONE		((bfd_vma) -1)
+#define C33FDPIC_WANTED		((bfd_vma) -2)
+
+struct c33fdpic_link_hash_entry
+{
+  struct elf_link_hash_entry elf;
+  /* A PC-relative call or jump names the symbol.  */
+  unsigned int call : 1;
+  /* An R_C33_FUNCDESC names the symbol.  */
+  unsigned int fd : 1;
+  /* Its .plt entry and the descriptor in .got the entry loads.  */
+  bfd_vma plt_offset;
+  bfd_vma plt_got;
+  /* Its canonical descriptor in .got, when this module owns it.  */
+  bfd_vma fd_got;
+};
+
+#define c33fdpic_entry(h) ((struct c33fdpic_link_hash_entry *) (h))
+
+struct c33fdpic_link_hash_table
+{
+  struct elf_link_hash_table elf;
+  asection *srofixup;
+  /* Entries written so far; they must fill the sections exactly.  */
+  bfd_vma rofixup_count;
+  bfd_vma rela_count;
+  /* The fixups were counted again after .eh_frame was edited.  */
+  bool recounted;
+};
+
+#define c33fdpic_hash_table(info) \
+  ((struct c33fdpic_link_hash_table *) ((info)->hash))
+
+enum c33fdpic_word
+{
+  C33FDPIC_WORD_PLAIN,		/* Nothing to do at load time.  */
+  C33FDPIC_WORD_ROFIXUP,	/* An executable's own address.  */
+  C33FDPIC_WORD_RELATIVE,	/* A shared library's own address.  */
+  C33FDPIC_WORD_SYMBOLIC	/* Resolved by ld.so against a symbol.  */
+};
+
+static struct bfd_hash_entry *
+c33fdpic_link_hash_newfunc (struct bfd_hash_entry *entry,
+			    struct bfd_hash_table *table, const char *string)
+{
+  if (entry == NULL)
+    {
+      entry = bfd_hash_allocate (table,
+				 sizeof (struct c33fdpic_link_hash_entry));
+      if (entry == NULL)
+	return NULL;
+    }
+  entry = _bfd_elf_link_hash_newfunc (entry, table, string);
+  if (entry != NULL)
+    {
+      struct c33fdpic_link_hash_entry *e
+	= (struct c33fdpic_link_hash_entry *) entry;
+
+      e->call = 0;
+      e->fd = 0;
+      e->plt_offset = C33FDPIC_NONE;
+      e->plt_got = C33FDPIC_NONE;
+      e->fd_got = C33FDPIC_NONE;
+    }
+  return entry;
+}
+
+static struct bfd_link_hash_table *
+c33fdpic_link_hash_table_create (bfd *abfd)
+{
+  struct c33fdpic_link_hash_table *ret;
+
+  ret = bfd_zmalloc (sizeof (*ret));
+  if (ret == NULL)
+    return NULL;
+  if (!_bfd_elf_link_hash_table_init (&ret->elf, abfd,
+				      c33fdpic_link_hash_newfunc,
+				      sizeof (struct c33fdpic_link_hash_entry)))
+    {
+      free (ret);
+      return NULL;
+    }
+  return &ret->elf.root;
+}
+
+static void
+c33fdpic_copy_indirect_symbol (struct bfd_link_info *info,
+			       struct elf_link_hash_entry *dir,
+			       struct elf_link_hash_entry *ind)
+{
+  c33fdpic_entry (dir)->call |= c33fdpic_entry (ind)->call;
+  c33fdpic_entry (dir)->fd |= c33fdpic_entry (ind)->fd;
+  _bfd_elf_link_hash_copy_indirect (info, dir, ind);
+}
+
+/* .got, .plt, .rela.dyn and .rofixup, which every FDPIC link has, dynamic
+   or not.  */
+
+static bool
+c33fdpic_create_sections (bfd *abfd, struct bfd_link_info *info)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  flagword flags = (SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS | SEC_IN_MEMORY
+		    | SEC_LINKER_CREATED);
+  bfd *dynobj;
+  asection *s;
+
+  if (htab->srofixup != NULL)
+    return true;
+  if (htab->elf.dynobj == NULL)
+    htab->elf.dynobj = abfd;
+  dynobj = htab->elf.dynobj;
+
+  s = bfd_make_section_anyway_with_flags (dynobj, ".got", flags);
+  if (s == NULL || !bfd_set_section_alignment (s, 3))
+    return false;
+  htab->elf.sgot = s;
+
+  s = bfd_make_section_anyway_with_flags (dynobj, ".plt",
+					  flags | SEC_CODE | SEC_READONLY);
+  if (s == NULL || !bfd_set_section_alignment (s, 2))
+    return false;
+  htab->elf.splt = s;
+
+  s = bfd_make_section_anyway_with_flags (dynobj, ".rela.dyn",
+					  flags | SEC_READONLY);
+  if (s == NULL || !bfd_set_section_alignment (s, 2))
+    return false;
+  htab->elf.srelgot = s;
+
+  s = bfd_make_section_anyway_with_flags (dynobj, ".rofixup",
+					  flags | SEC_READONLY);
+  if (s == NULL || !bfd_set_section_alignment (s, 2))
+    return false;
+  htab->srofixup = s;
+  return true;
+}
+
+static bool
+c33fdpic_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
+{
+  return c33fdpic_create_sections (abfd, info);
+}
+
+/* Per-object state for local symbols: the offset in .got of each one's
+   canonical descriptor, C33FDPIC_WANTED before sizing, or C33FDPIC_NONE.  */
+
+static bfd_vma *
+c33fdpic_local_fds (bfd *abfd, bool create)
+{
+  bfd_vma *fds = elf_local_got_offsets (abfd);
+
+  if (fds == NULL && create)
+    {
+      Elf_Internal_Shdr *symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
+      bfd_size_type i, n = symtab_hdr->sh_info;
+
+      fds = bfd_alloc (abfd, (n ? n : 1) * sizeof (bfd_vma));
+      if (fds == NULL)
+	return NULL;
+      for (i = 0; i < n; i++)
+	fds[i] = C33FDPIC_NONE;
+      elf_local_got_offsets (abfd) = fds;
+    }
+  return fds;
+}
+
+static bool
+c33fdpic_call_reloc_p (int r_type)
+{
+  switch (r_type)
+    {
+    case R_C33_RH:
+    case R_C33_RM:
+    case R_C33_RL:
+    case R_C33_S_RH:
+    case R_C33_S_RM:
+    case R_C33_S_RL:
+    case R_C33_JP:
+      return true;
+    default:
+      return false;
+    }
+}
+
+static bool
+c33fdpic_check_relocs (bfd *abfd, struct bfd_link_info *info,
+		       asection *sec, const Elf_Internal_Rela *relocs)
+{
+  Elf_Internal_Shdr *symtab_hdr;
+  struct elf_link_hash_entry **sym_hashes;
+  const Elf_Internal_Rela *rel, *rel_end;
+
+  if (bfd_link_relocatable (info))
+    return true;
+  if (!c33fdpic_create_sections (abfd, info))
+    return false;
+
+  symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
+  sym_hashes = elf_sym_hashes (abfd);
+  rel_end = relocs + sec->reloc_count;
+  for (rel = relocs; rel < rel_end; rel++)
+    {
+      unsigned long r_symndx = ELF32_R_SYM (rel->r_info);
+      int r_type = ELF32_R_TYPE (rel->r_info);
+      struct elf_link_hash_entry *h = NULL;
+
+      if (r_symndx >= symtab_hdr->sh_info)
+	{
+	  h = sym_hashes[r_symndx - symtab_hdr->sh_info];
+	  while (h->root.type == bfd_link_hash_indirect
+		 || h->root.type == bfd_link_hash_warning)
+	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
+	}
+
+      if (c33fdpic_call_reloc_p (r_type))
+	{
+	  if (h != NULL)
+	    c33fdpic_entry (h)->call = 1;
+	}
+      else if (r_type == R_C33_FUNCDESC)
+	{
+	  if (h != NULL)
+	    c33fdpic_entry (h)->fd = 1;
+	  else
+	    {
+	      bfd_vma *fds = c33fdpic_local_fds (abfd, true);
+
+	      if (fds == NULL)
+		return false;
+	      fds[r_symndx] = C33FDPIC_WANTED;
+	    }
+	}
+    }
+  return true;
+}
+
+/* Symbols defined in a shared library have no output section here.  */
+
+static bool
+c33fdpic_defined_p (struct elf_link_hash_entry *h)
+{
+  return ((h->root.type == bfd_link_hash_defined
+	   || h->root.type == bfd_link_hash_defweak)
+	  && h->root.u.def.section->output_section != NULL);
+}
+
+/* Whether this module owns H's canonical descriptor.  An exported function
+   may have its address taken in other modules too, and all of them must
+   agree, so ld.so makes those -- unless -Bsymbolic says the module keeps
+   its own, as ld.so itself must: it relocates itself before it can make
+   descriptors.  */
+
+static bool
+c33fdpic_fd_local (struct bfd_link_info *info, struct elf_link_hash_entry *h)
+{
+  return (h->dynindx == -1
+	  || !elf_hash_table (info)->dynamic_sections_created
+	  || (info->symbolic && SYMBOL_REFERENCES_LOCAL (info, h)));
+}
+
+/* What the loader has to do for a data word relocated by R_TYPE against H,
+   or against a local symbol in SYM_SEC.  relocate_section and the sizing
+   below must agree exactly.  */
+
+static enum c33fdpic_word
+c33fdpic_word_kind (struct bfd_link_info *info, int r_type,
+		    struct elf_link_hash_entry *h, asection *sym_sec)
+{
+  enum c33fdpic_word own = (bfd_link_executable (info)
+			    ? C33FDPIC_WORD_ROFIXUP : C33FDPIC_WORD_RELATIVE);
+
+  if (h == NULL)
+    {
+      if (r_type == R_C33_32 && sym_sec != NULL && bfd_is_abs_section (sym_sec))
+	return C33FDPIC_WORD_PLAIN;
+      return own;
+    }
+
+  if (h->root.type == bfd_link_hash_undefweak
+      && (h->dynindx == -1 || !elf_hash_table (info)->dynamic_sections_created))
+    return C33FDPIC_WORD_PLAIN;
+
+  if (r_type == R_C33_FUNCDESC)
+    {
+      if (!c33fdpic_fd_local (info, h))
+	return C33FDPIC_WORD_SYMBOLIC;
+      return c33fdpic_defined_p (h) ? own : C33FDPIC_WORD_PLAIN;
+    }
+
+  if (!SYMBOL_REFERENCES_LOCAL (info, h))
+    return C33FDPIC_WORD_SYMBOLIC;
+  if (c33fdpic_defined_p (h) && bfd_is_abs_section (h->root.u.def.section))
+    return C33FDPIC_WORD_PLAIN;
+  return own;
+}
+
+/* Give each symbol its .plt entry and descriptors.  */
+
+static bool
+c33fdpic_allocate_global (struct elf_link_hash_entry *h, void *inf)
+{
+  struct bfd_link_info *info = (struct bfd_link_info *) inf;
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  struct c33fdpic_link_hash_entry *e = c33fdpic_entry (h);
+
+  if (h->root.type == bfd_link_hash_indirect)
+    return true;
+
+  e->plt_offset = e->plt_got = e->fd_got = C33FDPIC_NONE;
+  if (e->call
+      && htab->elf.dynamic_sections_created
+      && h->dynindx != -1
+      && !SYMBOL_CALLS_LOCAL (info, h))
+    {
+      e->plt_offset = htab->elf.splt->size;
+      htab->elf.splt->size += C33FDPIC_PLT_ENTRY_SIZE;
+      e->plt_got = htab->elf.sgot->size;
+      htab->elf.sgot->size += C33FDPIC_FD_SIZE;
+    }
+  if (e->fd && c33fdpic_fd_local (info, h) && c33fdpic_defined_p (h))
+    {
+      e->fd_got = htab->elf.sgot->size;
+      htab->elf.sgot->size += C33FDPIC_FD_SIZE;
+    }
+  return true;
+}
+
+static bool
+c33fdpic_c33_input_p (bfd *ibfd)
+{
+  return (bfd_get_flavour (ibfd) == bfd_target_elf_flavour
+	  && elf_elfheader (ibfd)->e_machine == EM_SE_C33
+	  && (ibfd->flags & DYNAMIC) == 0);
+}
+
+struct c33fdpic_counts
+{
+  bfd_vma rofixups;
+  bfd_vma relas;
+};
+
+static bool
+c33fdpic_count_global (struct elf_link_hash_entry *h, void *inf)
+{
+  struct bfd_link_info *info = ((void **) inf)[0];
+  struct c33fdpic_counts *n = ((void **) inf)[1];
+  struct c33fdpic_link_hash_entry *e = c33fdpic_entry (h);
+
+  if (h->root.type == bfd_link_hash_indirect)
+    return true;
+  if (e->plt_offset != C33FDPIC_NONE)
+    n->relas++;
+  if (e->fd_got != C33FDPIC_NONE)
+    {
+      if (bfd_link_executable (info))
+	n->rofixups += 2;
+      else
+	n->relas++;
+    }
+  return true;
+}
+
+/* Count the load-time work: the descriptors in .got, and every data word
+   that holds an address.  Set the sizes of .rofixup and .rela.dyn from it,
+   and say whether they changed.  */
+
+static bool
+c33fdpic_size_fixups (struct bfd_link_info *info, bool *changed)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  struct c33fdpic_counts n = { 1, 0 };	/* __dp is the last fixup.  */
+  void *args[2] = { info, &n };
+  bfd *ibfd;
+  bfd_size_type size;
+
+  elf_link_hash_traverse (&htab->elf, c33fdpic_count_global, args);
+
+  for (ibfd = info->input_bfds; ibfd != NULL; ibfd = ibfd->link.next)
+    {
+      Elf_Internal_Shdr *symtab_hdr;
+      Elf_Internal_Sym *local_syms = NULL;
+      struct elf_link_hash_entry **sym_hashes;
+      bfd_vma *fds;
+      asection *s;
+
+      if (!c33fdpic_c33_input_p (ibfd))
+	continue;
+      symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+      sym_hashes = elf_sym_hashes (ibfd);
+
+      fds = c33fdpic_local_fds (ibfd, false);
+      if (fds != NULL)
+	{
+	  bfd_size_type i;
+
+	  for (i = 0; i < symtab_hdr->sh_info; i++)
+	    if (fds[i] != C33FDPIC_NONE)
+	      {
+		if (bfd_link_executable (info))
+		  n.rofixups += 2;
+		else
+		  n.relas++;
+	      }
+	}
+
+      for (s = ibfd->sections; s != NULL; s = s->next)
+	{
+	  Elf_Internal_Rela *relocs, *rel, *rel_end;
+
+	  if ((s->flags & (SEC_ALLOC | SEC_RELOC)) != (SEC_ALLOC | SEC_RELOC)
+	      || s->reloc_count == 0
+	      || (s->flags & SEC_EXCLUDE) != 0
+	      || s->output_section == NULL
+	      || bfd_is_abs_section (s->output_section)
+	      || discarded_section (s))
+	    continue;
+
+	  relocs = _bfd_elf_link_read_relocs (ibfd, s, NULL, NULL,
+					      info->keep_memory);
+	  if (relocs == NULL)
+	    return false;
+
+	  rel_end = relocs + s->reloc_count;
+	  for (rel = relocs; rel < rel_end; rel++)
+	    {
+	      int r_type = ELF32_R_TYPE (rel->r_info);
+	      unsigned long r_symndx = ELF32_R_SYM (rel->r_info);
+	      struct elf_link_hash_entry *h = NULL;
+	      asection *sym_sec = NULL;
+	      bfd_vma off;
+
+	      if (r_type != R_C33_32 && r_type != R_C33_FUNCDESC)
+		continue;
+	      off = _bfd_elf_section_offset (info->output_bfd, info, s,
+					     rel->r_offset);
+	      if (off == (bfd_vma) -1 || off == (bfd_vma) -2)
+		continue;
+
+	      if (r_symndx >= symtab_hdr->sh_info)
+		{
+		  h = sym_hashes[r_symndx - symtab_hdr->sh_info];
+		  while (h->root.type == bfd_link_hash_indirect
+			 || h->root.type == bfd_link_hash_warning)
+		    h = (struct elf_link_hash_entry *) h->root.u.i.link;
+		  if ((h->root.type == bfd_link_hash_defined
+		       || h->root.type == bfd_link_hash_defweak)
+		      && discarded_section (h->root.u.def.section))
+		    continue;
+		}
+	      else
+		{
+		  if (local_syms == NULL)
+		    {
+		      local_syms = bfd_elf_get_elf_syms (ibfd, symtab_hdr,
+							 symtab_hdr->sh_info,
+							 0, NULL, NULL, NULL);
+		      if (local_syms == NULL)
+			return false;
+		    }
+		  sym_sec = bfd_section_from_elf_index
+		    (ibfd, local_syms[r_symndx].st_shndx);
+		  if (sym_sec != NULL && discarded_section (sym_sec))
+		    continue;
+		}
+
+	      switch (c33fdpic_word_kind (info, r_type, h, sym_sec))
+		{
+		case C33FDPIC_WORD_PLAIN:
+		  break;
+		case C33FDPIC_WORD_ROFIXUP:
+		  n.rofixups++;
+		  break;
+		case C33FDPIC_WORD_RELATIVE:
+		case C33FDPIC_WORD_SYMBOLIC:
+		  n.relas++;
+		  break;
+		}
+	    }
+
+	  if (elf_section_data (s)->relocs != relocs)
+	    free (relocs);
+	}
+      free (local_syms);
+    }
+
+  *changed = false;
+  size = n.rofixups * 4;
+  if (htab->srofixup->size != size)
+    {
+      htab->srofixup->size = size;
+      htab->srofixup->contents = bfd_zalloc (htab->elf.dynobj, size);
+      if (htab->srofixup->contents == NULL)
+	return false;
+      htab->srofixup->alloced = 1;
+      *changed = true;
+    }
+  size = n.relas * sizeof (Elf32_External_Rela);
+  if (htab->elf.srelgot->size != size)
+    {
+      htab->elf.srelgot->size = size;
+      htab->elf.srelgot->contents = (size == 0 ? NULL
+				     : bfd_zalloc (htab->elf.dynobj, size));
+      if (size != 0 && htab->elf.srelgot->contents == NULL)
+	return false;
+      htab->elf.srelgot->alloced = 1;
+      *changed = true;
+    }
+  return true;
+}
+
+static bool
+c33fdpic_late_size_sections (struct bfd_link_info *info)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  bfd *dynobj = htab->elf.dynobj;
+  bfd *ibfd;
+  bool changed;
+  asection *s;
+
+  if (dynobj == NULL || htab->srofixup == NULL)
+    return true;
+
+  /* The descriptors' relocations are written after the final link sorts
+     .rela.dyn, so it must not be sorted.  Nothing needs it sorted: there
+     is no lazy binding, and ld.so reads no DT_RELACOUNT.  */
+  info->combreloc = false;
+
+  if (htab->elf.dynamic_sections_created
+      && bfd_link_executable (info)
+      && !info->nointerp)
+    {
+      s = bfd_get_linker_section (dynobj, ".interp");
+      BFD_ASSERT (s != NULL);
+      s->size = sizeof ELF_DYNAMIC_INTERPRETER;
+      s->contents = (unsigned char *) ELF_DYNAMIC_INTERPRETER;
+      s->alloced = 1;
+    }
+
+  htab->elf.sgot->size = (htab->elf.dynamic_sections_created
+			  ? C33FDPIC_GOT_HEADER_SIZE : 0);
+  htab->elf.splt->size = 0;
+  elf_link_hash_traverse (&htab->elf, c33fdpic_allocate_global, info);
+  for (ibfd = info->input_bfds; ibfd != NULL; ibfd = ibfd->link.next)
+    {
+      bfd_vma *fds;
+      bfd_size_type i;
+
+      if (!c33fdpic_c33_input_p (ibfd)
+	  || (fds = c33fdpic_local_fds (ibfd, false)) == NULL)
+	continue;
+      for (i = 0; i < elf_tdata (ibfd)->symtab_hdr.sh_info; i++)
+	if (fds[i] != C33FDPIC_NONE)
+	  {
+	    fds[i] = htab->elf.sgot->size;
+	    htab->elf.sgot->size += C33FDPIC_FD_SIZE;
+	  }
+    }
+
+  for (s = htab->elf.sgot; s != NULL; s = (s == htab->elf.sgot
+					  ? htab->elf.splt : NULL))
+    if (s->size != 0)
+      {
+	s->contents = bfd_zalloc (dynobj, s->size);
+	if (s->contents == NULL)
+	  return false;
+	s->alloced = 1;
+      }
+    else
+      s->flags |= SEC_EXCLUDE;
+
+  if (!c33fdpic_size_fixups (info, &changed))
+    return false;
+
+  if (htab->elf.dynamic_sections_created)
+    {
+      if (bfd_link_executable (info)
+	  && !_bfd_elf_add_dynamic_entry (info, DT_DEBUG, 0))
+	return false;
+      if (!_bfd_elf_add_dynamic_entry (info, DT_PLTGOT, 0)
+	  || !_bfd_elf_add_dynamic_entry (info, DT_RELA, 0)
+	  || !_bfd_elf_add_dynamic_entry (info, DT_RELASZ, 0)
+	  || !_bfd_elf_add_dynamic_entry (info, DT_RELAENT,
+					  sizeof (Elf32_External_Rela)))
+	return false;
+    }
+  return true;
+}
+
+/* .eh_frame has been edited, and a dropped entry drops its fixup.  */
+
+static bool
+c33fdpic_discard_info (bfd *ibfd ATTRIBUTE_UNUSED,
+		       struct elf_reloc_cookie *cookie ATTRIBUTE_UNUSED,
+		       struct bfd_link_info *info)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  bool changed = false;
+
+  if (!IS_FDPIC (info->output_bfd)
+      || htab->elf.dynobj == NULL
+      || htab->srofixup == NULL
+      || htab->recounted)
+    return false;
+  htab->recounted = true;
+  if (!c33fdpic_size_fixups (info, &changed))
+    info->callbacks->einfo (_("%F%P: cannot size .rofixup: %E\n"));
+  return changed;
+}
+
+static void
+c33fdpic_add_rofixup (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
+		      bfd_vma address)
+{
+  asection *s = htab->srofixup;
+
+  if ((htab->rofixup_count + 1) * 4 <= s->size)
+    bfd_put_32 (output_bfd, address, s->contents + htab->rofixup_count * 4);
+  htab->rofixup_count++;
+}
+
+static void
+c33fdpic_add_rela (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
+		   bfd_vma offset, int r_type, long dynindx, bfd_vma addend)
+{
+  asection *s = htab->elf.srelgot;
+  Elf_Internal_Rela rela;
+
+  rela.r_offset = offset;
+  rela.r_info = ELF32_R_INFO (dynindx, r_type);
+  rela.r_addend = addend;
+  if ((htab->rela_count + 1) * sizeof (Elf32_External_Rela) <= s->size)
+    bfd_elf32_swap_reloca_out (output_bfd, &rela,
+			       s->contents
+			       + htab->rela_count
+				 * sizeof (Elf32_External_Rela));
+  htab->rela_count++;
+}
+
+static bool
+c33fdpic_osec_readonly_p (bfd *output_bfd, asection *osec)
+{
+  Elf_Internal_Phdr *p
+    = _bfd_elf_find_segment_containing_section (output_bfd, osec);
+
+  return p != NULL && (p->p_flags & PF_W) == 0;
+}
+
+static bfd_vma
+c33fdpic_dp (struct bfd_link_info *info)
+{
+  struct elf_link_hash_entry *h
+    = elf_link_hash_lookup (elf_hash_table (info), "__dp", false, false, true);
+
+  if (h == NULL || !c33fdpic_defined_p (h))
+    return 0;
+  return (h->root.u.def.value
+	  + h->root.u.def.section->output_section->vma
+	  + h->root.u.def.section->output_offset);
+}
+
+static bfd_vma
+c33fdpic_got_vma (struct c33fdpic_link_hash_table *htab)
+{
+  return htab->elf.sgot->output_section->vma + htab->elf.sgot->output_offset;
+}
+
+/* Write a descriptor for ENTRY at OFFSET in .got, and what loads it.  */
+
+static void
+c33fdpic_write_fd (struct bfd_link_info *info, bfd_vma offset, bfd_vma entry)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  bfd *output_bfd = info->output_bfd;
+  bfd_vma where = c33fdpic_got_vma (htab) + offset;
+
+  bfd_put_32 (output_bfd, entry, htab->elf.sgot->contents + offset);
+  bfd_put_32 (output_bfd, c33fdpic_dp (info),
+	      htab->elf.sgot->contents + offset + 4);
+  if (bfd_link_executable (info))
+    {
+      c33fdpic_add_rofixup (output_bfd, htab, where);
+      c33fdpic_add_rofixup (output_bfd, htab, where + 4);
+    }
+  else
+    c33fdpic_add_rela (output_bfd, htab, where, R_C33_FUNCDESC_VALUE, 0, entry);
+}
+
+/* A .plt entry: the descriptor at DOFF from %r15, which is still the
+   caller's, then its %r15 and a jump to its entry point.  %r14 is not an
+   argument register and calls clobber it.
+
+	ext	doff_hi(slot)
+	ext	doff_lo(slot)
+	ld.w	%r14,[%r15]
+	ext	doff_hi(slot+4)
+	ext	doff_lo(slot+4)
+	ld.w	%r15,[%r15]
+	jp	%r14
+	nop  */
+
+static void
+c33fdpic_write_plt (bfd *output_bfd, bfd_byte *p, bfd_vma doff)
+{
+  bfd_put_16 (output_bfd, 0xc000 | ((doff >> 13) & 0x1fff), p);
+  bfd_put_16 (output_bfd, 0xc000 | (doff & 0x1fff), p + 2);
+  bfd_put_16 (output_bfd, 0x30fe, p + 4);
+  doff += 4;
+  bfd_put_16 (output_bfd, 0xc000 | ((doff >> 13) & 0x1fff), p + 6);
+  bfd_put_16 (output_bfd, 0xc000 | (doff & 0x1fff), p + 8);
+  bfd_put_16 (output_bfd, 0x30ff, p + 10);
+  bfd_put_16 (output_bfd, 0x068e, p + 12);
+  bfd_put_16 (output_bfd, 0x0000, p + 14);
+}
+
+static bool
+c33fdpic_finish_global (struct elf_link_hash_entry *h, void *inf)
+{
+  struct bfd_link_info *info = (struct bfd_link_info *) inf;
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  struct c33fdpic_link_hash_entry *e = c33fdpic_entry (h);
+  bfd *output_bfd = info->output_bfd;
+
+  if (h->root.type == bfd_link_hash_indirect)
+    return true;
+
+  if (e->plt_offset != C33FDPIC_NONE)
+    {
+      bfd_vma slot = c33fdpic_got_vma (htab) + e->plt_got;
+
+      c33fdpic_write_plt (output_bfd, htab->elf.splt->contents + e->plt_offset,
+			  slot - c33fdpic_dp (info));
+      c33fdpic_add_rela (output_bfd, htab, slot, R_C33_FUNCDESC_VALUE,
+			 h->dynindx, 0);
+    }
+  if (e->fd_got != C33FDPIC_NONE)
+    c33fdpic_write_fd (info, e->fd_got,
+		       h->root.u.def.value
+		       + h->root.u.def.section->output_section->vma
+		       + h->root.u.def.section->output_offset);
+  return true;
+}
+
+static bool
+c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
+				  bfd_byte *buf ATTRIBUTE_UNUSED)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  bfd *output_bfd = info->output_bfd;
+  bfd *ibfd;
+
+  if (htab->srofixup == NULL)
+    return true;
+
+  elf_link_hash_traverse (&htab->elf, c33fdpic_finish_global, info);
+
+  for (ibfd = info->input_bfds; ibfd != NULL; ibfd = ibfd->link.next)
+    {
+      Elf_Internal_Shdr *symtab_hdr;
+      Elf_Internal_Sym *local_syms;
+      bfd_vma *fds;
+      bfd_size_type i;
+
+      if (!c33fdpic_c33_input_p (ibfd)
+	  || (fds = c33fdpic_local_fds (ibfd, false)) == NULL)
+	continue;
+      symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+      local_syms = bfd_elf_get_elf_syms (ibfd, symtab_hdr, symtab_hdr->sh_info,
+					 0, NULL, NULL, NULL);
+      if (local_syms == NULL)
+	return false;
+      for (i = 0; i < symtab_hdr->sh_info; i++)
+	if (fds[i] != C33FDPIC_NONE)
+	  {
+	    asection *sec = bfd_section_from_elf_index (ibfd,
+							local_syms[i].st_shndx);
+	    bfd_vma entry = local_syms[i].st_value;
+
+	    if (sec != NULL && sec->output_section != NULL)
+	      entry += sec->output_section->vma + sec->output_offset;
+	    c33fdpic_write_fd (info, fds[i], entry);
+	  }
+      free (local_syms);
+    }
+
+  /* The last fixup: __self_reloc returns it, relocated, as %r15.  */
+  c33fdpic_add_rofixup (output_bfd, htab, c33fdpic_dp (info));
+
+  if (htab->rofixup_count * 4 != htab->srofixup->size
+      || htab->rela_count * sizeof (Elf32_External_Rela)
+	 != htab->elf.srelgot->size)
+    {
+      _bfd_error_handler
+	(_("%pB: internal error: %" PRIu64 " of %" PRIu64 " .rofixup entries"
+	   " and %" PRIu64 " of %" PRIu64 " dynamic relocations written"),
+	 output_bfd, (uint64_t) htab->rofixup_count,
+	 (uint64_t) (htab->srofixup->size / 4),
+	 (uint64_t) htab->rela_count,
+	 (uint64_t) (htab->elf.srelgot->size / sizeof (Elf32_External_Rela)));
+      return false;
+    }
+
+  if (htab->elf.dynamic_sections_created)
+    {
+      asection *sdyn = bfd_get_linker_section (htab->elf.dynobj, ".dynamic");
+      Elf32_External_Dyn *dyncon, *dynconend;
+
+      BFD_ASSERT (sdyn != NULL);
+      dyncon = (Elf32_External_Dyn *) sdyn->contents;
+      dynconend = (Elf32_External_Dyn *) (sdyn->contents + sdyn->size);
+      for (; dyncon < dynconend; dyncon++)
+	{
+	  Elf_Internal_Dyn dyn;
+
+	  bfd_elf32_swap_dyn_in (htab->elf.dynobj, dyncon, &dyn);
+	  if (dyn.d_tag == DT_PLTGOT)
+	    {
+	      dyn.d_un.d_ptr = c33fdpic_dp (info);
+	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	    }
+	}
+    }
+  return true;
+}
+
+static bool
+c33fdpic_adjust_dynamic_symbol (struct bfd_link_info *info ATTRIBUTE_UNUSED,
+				struct elf_link_hash_entry *h ATTRIBUTE_UNUSED)
+{
+  /* No copy relocations: a module reaches another's data through a word
+     holding its address.  */
+  return true;
+}
+
+static bool
+c33fdpic_finish_dynamic_symbol (struct bfd_link_info *info ATTRIBUTE_UNUSED,
+				struct elf_link_hash_entry *h ATTRIBUTE_UNUSED,
+				Elf_Internal_Sym *sym ATTRIBUTE_UNUSED)
+{
+  return true;
+}
+
+/* The FDPIC part of relocating one relocation.  Returns 1 when it has
+   finished with the relocation, 0 to carry on with RELOCATION, possibly
+   changed, and -1 on an error.  */
+
+static int
+c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
+		   asection *input_section, bfd_byte *contents,
+		   Elf_Internal_Rela *rel, int r_type,
+		   struct elf_link_hash_entry *h, asection *sec,
+		   bfd_vma *relocation, bool *unresolved_reloc)
+{
+  struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
+  bfd *output_bfd = info->output_bfd;
+  unsigned long r_symndx = ELF32_R_SYM (rel->r_info);
+  const char *name = h != NULL ? h->root.root.string : NULL;
+  enum c33fdpic_word kind;
+  bfd_vma offset, where, value;
+
+  if (c33fdpic_call_reloc_p (r_type))
+    {
+      if (h != NULL && c33fdpic_entry (h)->plt_offset != C33FDPIC_NONE)
+	{
+	  *relocation = (htab->elf.splt->output_section->vma
+			 + htab->elf.splt->output_offset
+			 + c33fdpic_entry (h)->plt_offset);
+	  *unresolved_reloc = false;
+	}
+      else if (h != NULL
+	       && (h->root.type == bfd_link_hash_defined
+		   || h->root.type == bfd_link_hash_defweak)
+	       && !c33fdpic_defined_p (h))
+	{
+	  _bfd_error_handler
+	    (_("%pB(%pA+%#" PRIx64 "): call to %s in another module has no"
+	       " .plt entry"), input_bfd, input_section,
+	     (uint64_t) rel->r_offset, name);
+	  return -1;
+	}
+      return 0;
+    }
+
+  switch (r_type)
+    {
+    case R_C33_DH:
+    case R_C33_DL:
+    case R_C33_DPH:
+    case R_C33_DPM:
+    case R_C33_DPL:
+      if (h != NULL
+	  && (h->root.type == bfd_link_hash_defined
+	      || h->root.type == bfd_link_hash_defweak)
+	  && !c33fdpic_defined_p (h))
+	{
+	  _bfd_error_handler
+	    (_("%pB(%pA+%#" PRIx64 "): %s is in another module, so %%r15"
+	       " cannot reach it; compile with -mfdpic"), input_bfd,
+	     input_section, (uint64_t) rel->r_offset, name);
+	  return -1;
+	}
+      return 0;
+
+    case R_C33_32:
+    case R_C33_FUNCDESC:
+      break;
+
+    default:
+      return 0;
+    }
+
+  /* Debugging sections just record the link-time value.  */
+  if ((input_section->flags & SEC_ALLOC) == 0)
+    {
+      if (r_type == R_C33_32)
+	return 0;
+      bfd_put_32 (input_bfd, *relocation + rel->r_addend,
+		  contents + rel->r_offset);
+      return 1;
+    }
+
+  kind = c33fdpic_word_kind (info, r_type, h,
+			     h == NULL ? sec : NULL);
+  offset = _bfd_elf_section_offset (output_bfd, info, input_section,
+				    rel->r_offset);
+  if (offset == (bfd_vma) -1 || offset == (bfd_vma) -2)
+    return 1;
+  where = (input_section->output_section->vma + input_section->output_offset
+	   + offset);
+
+  if (r_type == R_C33_32)
+    value = *relocation + rel->r_addend;
+  else if (kind == C33FDPIC_WORD_SYMBOLIC || kind == C33FDPIC_WORD_PLAIN)
+    value = 0;
+  else
+    {
+      bfd_vma fd;
+
+      if (h != NULL)
+	fd = c33fdpic_entry (h)->fd_got;
+      else
+	{
+	  bfd_vma *fds = c33fdpic_local_fds (input_bfd, false);
+	  fd = fds != NULL ? fds[r_symndx] : C33FDPIC_NONE;
+	}
+      if (fd == C33FDPIC_NONE || fd == C33FDPIC_WANTED || rel->r_addend != 0)
+	{
+	  _bfd_error_handler
+	    (_("%pB(%pA+%#" PRIx64 "): internal error: no descriptor"),
+	     input_bfd, input_section, (uint64_t) rel->r_offset);
+	  return -1;
+	}
+      value = c33fdpic_got_vma (htab) + fd;
+    }
+
+  if (kind != C33FDPIC_WORD_PLAIN
+      && c33fdpic_osec_readonly_p (output_bfd, input_section->output_section))
+    {
+      _bfd_error_handler
+	(_("%pB(%pA+%#" PRIx64 "): an address in a read-only segment;"
+	   " the loader cannot relocate it"), input_bfd, input_section,
+	 (uint64_t) rel->r_offset);
+      return -1;
+    }
+
+  switch (kind)
+    {
+    case C33FDPIC_WORD_PLAIN:
+      break;
+    case C33FDPIC_WORD_ROFIXUP:
+      c33fdpic_add_rofixup (output_bfd, htab, where);
+      break;
+    case C33FDPIC_WORD_RELATIVE:
+      c33fdpic_add_rela (output_bfd, htab, where, R_C33_32, 0, value);
+      break;
+    case C33FDPIC_WORD_SYMBOLIC:
+      value = r_type == R_C33_32 ? rel->r_addend : 0;
+      c33fdpic_add_rela (output_bfd, htab, where, r_type, h->dynindx, value);
+      break;
+    }
+  bfd_put_32 (input_bfd, value, contents + rel->r_offset);
+  return 1;
+}
+
+/* Objects built for FDPIC carry EF_C33_FDPIC, and only the FDPIC vector
+   takes them, so the two cannot be mixed by accident.  */
+
+static bool
+c33_elf_object_p (bfd *abfd)
+{
+  return (((elf_elfheader (abfd)->e_flags & EF_C33_FDPIC) != 0)
+	  == IS_FDPIC (abfd));
+}
+
+static bool
+c33fdpic_final_write_processing (bfd *abfd)
+{
+  elf_elfheader (abfd)->e_flags |= EF_C33_FDPIC;
+  return _bfd_elf_final_write_processing (abfd);
+}
+
 /* Relocate an C33 ELF section.  */
 static int
 c33_elf_relocate_section (struct bfd_link_info * info,
@@ -1775,7 +2852,16 @@ fprintf (stderr, "local: sec: %s, sym: %s (%d), value: %x + %x + %x addend %x\n"
 		 || h->root.type == bfd_link_hash_warning)
 	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
 	  
-	  if (h->root.type == bfd_link_hash_defined
+	  if ((h->root.type == bfd_link_hash_defined
+	       || h->root.type == bfd_link_hash_defweak)
+	      && h->root.u.def.section->output_section == NULL)
+	    {
+	      /* Defined in a shared library: FDPIC resolves it at load
+		 time, through a .plt entry or a dynamic relocation.  */
+	      sec = NULL;
+	      relocation = 0;
+	    }
+	  else if (h->root.type == bfd_link_hash_defined
 	      || h->root.type == bfd_link_hash_defweak)
 	    {
 	      sec = h->root.u.def.section;
@@ -1804,6 +2890,11 @@ fprintf (stderr, "undefined: sec: %s, name: %s\n",
 	      if (howto->pc_relative)
 		unresolved_reloc = true;
 	    }
+	  else if (IS_FDPIC (output_bfd)
+		   && info->unresolved_syms_in_objects == RM_IGNORE
+		   && ELF_ST_VISIBILITY (h->other) == STV_DEFAULT)
+	    /* A shared library may leave it to the dynamic linker.  */
+	    relocation = 0;
 	  else
 	    {
 	      (*info->callbacks->undefined_symbol)
@@ -1828,6 +2919,18 @@ fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, 1, relend, R_C33_NONE,
 					 howto, 0, contents);
+
+      if (IS_FDPIC (output_bfd))
+	{
+	  int done = c33fdpic_relocate (info, input_bfd, input_section,
+					contents, rel, r_type, h, sec,
+					&relocation, &unresolved_reloc);
+
+	  if (done < 0)
+	    return false;
+	  if (done > 0)
+	    continue;
+	}
 
       if (unresolved_reloc)
 	continue;
@@ -2081,6 +3184,17 @@ c33_elf_merge_private_bfd_data (bfd * ibfd, struct bfd_link_info * info)
 		xexit(1);
 
 	}
+
+	if (IS_FDPIC (obfd)
+	    && (ibfd->flags & DYNAMIC) == 0
+	    && (in_flags & EF_C33_FDPIC) == 0)
+	  {
+	    _bfd_error_handler
+	      (_("%pB: not built for FDPIC (-mfdpic); it cannot be linked"
+		 " into %pB"), ibfd, obfd);
+	    bfd_set_error (bfd_error_wrong_format);
+	    return false;
+	  }
 
 	// set ELF e_flags bit31-28 (e_machine is set in elf.c)
 	elf_elfheader(obfd)->e_flags = initial_mode_flag << 24;
@@ -2649,10 +3763,7 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 #define elf_backend_check_relocs		c33_elf_check_relocs
 #define elf_backend_relocate_section    	c33_elf_relocate_section
 
-#if 0
 #define elf_backend_object_p			c33_elf_object_p
-#define elf_backend_final_write_processing 	c33_elf_final_write_processing
-#endif
 
 #define elf_backend_section_from_bfd_section 	c33_elf_section_from_bfd_section
 #define elf_backend_symbol_processing		c33_elf_symbol_processing
@@ -2678,5 +3789,52 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
    nonzero value as a real ABI prefix.  That prevented generation of normal
    __start_/__stop_ symbols (and disagreed with USER_LABEL_PREFIX in GCC).  */
 #define elf_symbol_leading_char			0
+
+#include "elf32-target.h"
+
+/* FDPIC: the same relocations, plus executables and shared libraries for
+   ld.so and the kernel's ELF FDPIC loader.  */
+
+#undef TARGET_LITTLE_SYM
+#define TARGET_LITTLE_SYM			c33_elf32_fdpic_vec
+#undef TARGET_LITTLE_NAME
+#define TARGET_LITTLE_NAME			"elf32-c33fdpic"
+#undef elf32_bed
+#define elf32_bed				elf32_c33fdpic_bed
+
+#undef elf_backend_check_relocs
+#define elf_backend_check_relocs		c33fdpic_check_relocs
+#undef bfd_elf32_bfd_link_hash_table_create
+#define bfd_elf32_bfd_link_hash_table_create	c33fdpic_link_hash_table_create
+#undef elf_backend_copy_indirect_symbol
+#define elf_backend_copy_indirect_symbol	c33fdpic_copy_indirect_symbol
+#undef elf_backend_create_dynamic_sections
+#define elf_backend_create_dynamic_sections	c33fdpic_create_dynamic_sections
+#undef elf_backend_adjust_dynamic_symbol
+#define elf_backend_adjust_dynamic_symbol	c33fdpic_adjust_dynamic_symbol
+#undef elf_backend_late_size_sections
+#define elf_backend_late_size_sections		c33fdpic_late_size_sections
+#undef elf_backend_finish_dynamic_symbol
+#define elf_backend_finish_dynamic_symbol	c33fdpic_finish_dynamic_symbol
+#undef elf_backend_finish_dynamic_sections
+#define elf_backend_finish_dynamic_sections	c33fdpic_finish_dynamic_sections
+#undef elf_backend_discard_info
+#define elf_backend_discard_info		c33fdpic_discard_info
+#undef elf_backend_final_write_processing
+#define elf_backend_final_write_processing	c33fdpic_final_write_processing
+#undef elf_backend_may_use_rel_p
+#define elf_backend_may_use_rel_p		0
+#undef elf_backend_may_use_rela_p
+#define elf_backend_may_use_rela_p		1
+#undef elf_backend_default_use_rela_p
+#define elf_backend_default_use_rela_p		1
+#undef elf_backend_want_got_plt
+#define elf_backend_want_got_plt		0
+#undef elf_backend_plt_readonly
+#define elf_backend_plt_readonly		1
+#undef elf_backend_want_plt_sym
+#define elf_backend_want_plt_sym		0
+#undef elf_backend_got_header_size
+#define elf_backend_got_header_size		0
 
 #include "elf32-target.h"

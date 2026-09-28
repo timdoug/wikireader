@@ -89,7 +89,8 @@
 
    Both spellings are matched because -mc33pe is an Alias of -mcore=.  */
 #define ASM_SPEC \
-  "%{mc33adv|mcore=c33adv:-mc33adv} %{mc33pe|mcore=c33pe:-mc33pe}"
+  "%{mc33adv|mcore=c33adv:-mc33adv} %{mc33pe|mcore=c33pe:-mc33pe} \
+   %{mfdpic:-mfdpic}"
 
 #define LINK_SPEC ""
 #define CPP_SPEC ""
@@ -109,6 +110,11 @@
 	builtin_define ("__C33_EDDA32__");	\
       if (TARGET_SEP_DATA)			\
 	builtin_define ("__C33_SEP_DATA__");	\
+      if (TARGET_FDPIC)				\
+	{					\
+	  builtin_define ("__FDPIC__");		\
+	  builtin_define ("__C33_FDPIC__");	\
+	}					\
       /* No FPU on any C33: floating point is soft, through libgcc.  */ \
       builtin_define ("__NO_FPU__");		\
     }						\
@@ -305,8 +311,8 @@
 
 enum reg_class
 {
-  NO_REGS, SIBCALL_REGS, EVEN_REGS, GENERAL_REGS, SP_REGS, BASE_REGS, ALL_REGS,
-  LIM_REG_CLASSES
+  NO_REGS, SIBCALL_REGS, SAVED_REGS, EVEN_REGS, GENERAL_REGS, SP_REGS,
+  BASE_REGS, ALL_REGS, LIM_REG_CLASSES
 };
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
@@ -314,8 +320,8 @@ enum reg_class
 /* Give names of register classes as strings for dump file.  */
 
 #define REG_CLASS_NAMES							\
-{ "NO_REGS", "SIBCALL_REGS", "EVEN_REGS", "GENERAL_REGS", "SP_REGS", "BASE_REGS",	\
-  "ALL_REGS", "LIM_REGS" }
+{ "NO_REGS", "SIBCALL_REGS", "SAVED_REGS", "EVEN_REGS", "GENERAL_REGS",	\
+  "SP_REGS", "BASE_REGS", "ALL_REGS", "LIM_REGS" }
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
@@ -344,6 +350,7 @@ enum reg_class
 {                                              \
   { 0x00000000 }, /* NO_REGS       */          \
   { 0x00004000 }, /* SIBCALL_REGS: %r14 */     \
+  { 0x0000000f }, /* SAVED_REGS: %r0-%r3, callee-saved */ \
   { 0x0030ffff }, /* EVEN_REGS   = GENERAL_REGS */ \
   { 0x0030ffff }, /* GENERAL_REGS: %r0-%r15 + .fp/.ap */ \
   { 0x00010000 }, /* SP_REGS:      %sp */      \
@@ -796,6 +803,13 @@ typedef enum
 #define C33_EH_LAST_DATA_REG 5
 #define EH_RETURN_DATA_REGNO(N) ((N) < 2 ? (N) + 4 : INVALID_REGNUM)
 #define EH_RETURN_STACKADJ_RTX  gen_rtx_REG (Pmode, 13)
+
+/* -mfdpic: the unwinder calls the personality routine through a function
+   pointer, so the CIE holds the address of a word in data holding its
+   descriptor's address (DW.ref.<personality>, which c33_assemble_integer
+   writes as a funcdesc), rather than the routine's own address.  */
+#define ASM_PREFERRED_EH_DATA_FORMAT(CODE, GLOBAL) \
+  ((TARGET_FDPIC && (GLOBAL) ? DW_EH_PE_indirect : 0) | DW_EH_PE_absptr)
 
 /* This is how to output an element of a case-vector that is absolute.  */
 

@@ -70,37 +70,38 @@ if [ "$mode" = headers ]; then
 	exit 0
 fi
 
+# libpthread_nonshared.a's rule writes its object list into lib/ with no
+# order-only dependency on the directory, which a parallel build can reach
+# first.
+mkdir -p "$build_dir/lib"
 uclibc_make -j"$jobs"
 uclibc_make install
 test -f "$sysroot/usr/lib/libc.a"
+test -f "$sysroot/lib/ld-uClibc.so.1"
 
-# The links below, and every one after, use the flat linker script and
-# converter from this tree, not whatever toolchain.sh last installed.
-install -m 644 "$root/linux/uclibc/static-flat.ld" \
-	"$tool_dir/install/$target/lib/elf2flt.ld"
-install -m 755 "$root/linux/initramfs/make-flat.py" \
-	"$tool_dir/install/$target/lib/make-flat.py"
-
-"${cross}gcc" -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
+# The smoke test links statically, so that its undefined symbols show what
+# the static library fails to supply; the other tests are dynamic, as every
+# program on the device is.
+"${cross}gcc" -Os -static -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ffunction-sections -fdata-sections -Wl,--gc-sections \
-	"$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke" \
-	-Wl,-elf2flt=--shared-text
+	"$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke-static"
 # Weak references may stay undefined: crtbegin.o's to the unwinder and the
 # transactional-memory runtime resolve to zero in a C program.
-undefined=$("${cross}nm" -u "$build_dir/uclibc-smoke.gdb" | grep -v '^ *w ' || true)
+undefined=$("${cross}nm" -u "$build_dir/uclibc-smoke-static" | grep -v '^ *w ' || true)
 if [ -n "$undefined" ]; then
 	echo "static uClibc smoke test has undefined symbols:" >&2
 	echo "$undefined" >&2
 	exit 1
 fi
+"${cross}gcc" -Os "$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke"
 mkdir -p "$root/linux/artifacts"
 
 # LinuxThreads regression, run from the SD card by app-test.py.
 "${cross}gcc" -O2 -Wall -Werror -pthread "$root/linux/uclibc/pthread-test.c" \
-	-o "$build_dir/pthread-test" -Wl,-elf2flt=--shared-text
+	-o "$build_dir/pthread-test"
 cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 
-libc_bytes=$(wc -c <"$sysroot/usr/lib/libc.a")
-printf '%s\n' "C33 libc.a: $libc_bytes bytes"
-"${cross}size" "$build_dir/uclibc-smoke.gdb"
+libc_bytes=$(cat "$sysroot"/lib/libuClibc-*.so | wc -c)
+printf '%s\n' "C33 libc.so: $libc_bytes bytes"
+"${cross}size" "$build_dir/uclibc-smoke" "$build_dir/uclibc-smoke-static"
 printf '%s\n' "C33 uClibc-ng installed in $sysroot"

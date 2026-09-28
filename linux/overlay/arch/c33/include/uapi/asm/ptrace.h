@@ -14,4 +14,11 @@ struct pt_regs {
 	unsigned long pc;
 };
 
+/* FDPIC: PTRACE_GETFDPIC reads the address of a process's load map, its own
+   (PTRACE_GETFDPIC_EXEC) or its interpreter's (PTRACE_GETFDPIC_INTERP).
+   31 and 32 are PTRACE_SYSEMU and PTRACE_SYSEMU_SINGLESTEP.  */
+#define PTRACE_GETFDPIC		33
+#define PTRACE_GETFDPIC_EXEC	0
+#define PTRACE_GETFDPIC_INTERP	1
+
 #endif

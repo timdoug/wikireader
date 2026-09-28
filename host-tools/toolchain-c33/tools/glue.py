@@ -71,6 +71,16 @@ edit('bfd/targets.c', lambda s: after(
     '\n\t&c33_elf32_vec,\n',
     '&c33_elf32_vec,'))
 
+edit('bfd/targets.c', lambda s: after(
+    s, 'extern const bfd_target c33_elf32_vec;',
+    'extern const bfd_target c33_elf32_fdpic_vec;\n',
+    'extern const bfd_target c33_elf32_fdpic_vec;'))
+
+edit('bfd/targets.c', lambda s: after(
+    s, '\t&c33_elf32_vec,',
+    '\t&c33_elf32_fdpic_vec,\n',
+    '&c33_elf32_fdpic_vec,'))
+
 # --------------------------------------------------------------- bfd/config.bfd
 def config_bfd(s):
     if 'c33_elf32_vec' in s:
@@ -79,6 +89,7 @@ def config_bfd(s):
         '  v850*-*-*)\n',
         '  c33-*-*)\n'
         '    targ_defvec=c33_elf32_vec\n'
+        '    targ_selvecs=c33_elf32_fdpic_vec\n'
         '    ;;\n'
         '\n'
         '  v850*-*-*)\n', 1)
@@ -86,6 +97,17 @@ def config_bfd(s):
 
 
 edit('bfd/config.bfd', config_bfd)
+
+
+def config_bfd_fdpic(s):
+    if 'c33_elf32_fdpic_vec' in s:
+        return None
+    return s.replace('    targ_defvec=c33_elf32_vec\n',
+                     '    targ_defvec=c33_elf32_vec\n'
+                     '    targ_selvecs=c33_elf32_fdpic_vec\n', 1)
+
+
+edit('bfd/config.bfd', config_bfd_fdpic)
 
 
 # ------------------------------------------------------------- bfd/Makefile.{am,in}
@@ -189,8 +211,35 @@ def ld_make(s):
     return s.replace('\tev850.c \\', '\tec33.c \\\n\tev850.c \\', 1)
 
 
+def ld_make_fdpic(s):
+    if 'ec33fdpic.c' in s:
+        return None
+    return s.replace('\tec33.c \\', '\tec33.c \\\n\tec33fdpic.c \\', 1)
+
+
+# No-MMU Linux links FDPIC by default; plain c33 stays for anything else.
+LD_LINUX_BLOCK = ('c33-*-linux*)\t\ttarg_emul=c33fdpic\n'
+                  '\t\t\ttarg_extra_emuls=c33\n'
+                  '\t\t\t;;\n')
+
+
+def ld_tgt_fdpic(s):
+    if LD_LINUX_BLOCK in s:
+        return None
+    old = ('c33-*-linux*)\t\ttarg_emul=c33\n'
+           '\t\t\ttarg_extra_emuls=c33fdpic\n'
+           '\t\t\t;;\n')
+    if old in s:
+        return s.replace(old, LD_LINUX_BLOCK, 1)
+    return s.replace('c33-*-*)\t\ttarg_emul=c33',
+                     LD_LINUX_BLOCK + 'c33-*-*)\t\ttarg_emul=c33', 1)
+
+
 for f in ('ld/Makefile.am', 'ld/Makefile.in'):
     edit(f, ld_make)
+for f in ('ld/Makefile.am', 'ld/Makefile.in'):
+    edit(f, ld_make_fdpic)
+edit('ld/configure.tgt', ld_tgt_fdpic)
 
 
 # elf.em's SEPARATE_CODE setting means a target must never combine code and
@@ -228,6 +277,19 @@ def bfd_vecmap(s):
 for f in ('bfd/configure.ac', 'bfd/configure'):
     edit(f, bfd_vecmap)
 
+
+def bfd_vecmap_fdpic(s):
+    if 'c33_elf32_fdpic_vec)' in s:
+        return None
+    return s.replace(
+        '    c33_elf32_vec)\t\t tb="$tb elf32-c33.lo elf32.lo $elf" ;;',
+        '    c33_elf32_vec)\t\t tb="$tb elf32-c33.lo elf32.lo $elf" ;;\n'
+        '    c33_elf32_fdpic_vec)\t tb="$tb elf32-c33.lo elf32.lo $elf" ;;', 1)
+
+
+for f in ('bfd/configure.ac', 'bfd/configure'):
+    edit(f, bfd_vecmap_fdpic)
+
 print('vecmap pass:', changed[-2:])
 
 # ---------------- BFD relocation codes for C33 --------------------------------
@@ -238,6 +300,7 @@ C33_RELOCS = [
     'SH', 'SL', 'TH', 'TL', 'ZH', 'ZL', 'DPH', 'DPM', 'DPL',
     'LOOP', 'JP', 'S_RH', 'S_RM', 'S_RL',
     'PUSHN_R0', 'PUSHN_R1', 'PUSH_R1', 'CALLT_16_16_OFFSET',
+    'FUNCDESC', 'FUNCDESC_VALUE',
 ]
 C33_RELOC_NAMES = [f'BFD_RELOC_C33_{r}' for r in C33_RELOCS]
 
@@ -277,6 +340,27 @@ def libbfd_h(s):
 
 
 edit('bfd/libbfd.h', libbfd_h)
+
+
+# A tree glued before a reloc was added gets the missing ones after the last
+# one it has, in all three files, so the enum and the name table agree.
+def add_missing_relocs(fmt_last, fmt_new):
+    def fn(s):
+        have = [n for n in C33_RELOC_NAMES if fmt_last(n) in s]
+        missing = [n for n in C33_RELOC_NAMES if n not in have]
+        if not missing:
+            return None
+        anchor = fmt_last(have[-1])
+        return s.replace(anchor, anchor + ''.join(fmt_new(n) for n in missing), 1)
+    return fn
+
+
+edit('bfd/bfd-in2.h', add_missing_relocs(lambda n: f'  {n},\n',
+                                         lambda n: f'  {n},\n'))
+edit('bfd/libbfd.h', add_missing_relocs(lambda n: f'  "{n}",\n',
+                                        lambda n: f'  "{n}",\n'))
+edit('bfd/reloc.c', add_missing_relocs(lambda n: f'  {n}\n',
+                                       lambda n: f'ENUMX\n  {n}\n'))
 
 print('reloc pass done')
 

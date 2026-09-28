@@ -22,15 +22,17 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* Every program is a static bFLT for the WikiReader's PE core, with its
-   text shared between processes: text holds no absolute address, %r15
-   points at the data segment, and calls may span the whole image.  The
-   linker converts the result to bFLT when given -elf2flt, as on every
-   other no-MMU Linux port.  */
+/* Every program is FDPIC ELF for the WikiReader's PE core: each module --
+   the executable and every shared library -- has its text shared between
+   processes and its own data segment, which its code reaches through %r15.
+   Calls to other modules go through function descriptors (see c33.md).
+   -mno-fdpic still builds the older static, -msep-data code, but nothing
+   here links it.  */
 
 #undef DRIVER_SELF_SPECS
 #define DRIVER_SELF_SPECS				\
   "%{!mcore=*:-mcore=c33pe}",				\
+  "%{!mno-fdpic:%{!medda32:-mfdpic}}",			\
   "%{!mno-sep-data:%{!medda32:-msep-data}}",		\
   "%{!mno-long-calls:-mlong-calls}"
 
@@ -47,15 +49,17 @@
 #undef CPP_SPEC
 #define CPP_SPEC "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
 
-/* uClibc's startup code.  Constructors run from .init_array, which the
-   linker script collects; crtbegin and crtend bracket .eh_frame and
-   register it with the unwinder, as there are no program headers to find
-   it by at run time.  */
+/* uClibc's startup code, and crtreloc.o, with which an executable
+   relocates itself before anything else.  Constructors run from
+   .init_array, which the linker script collects; crtbegin and crtend
+   bracket .eh_frame and register it with the unwinder.  */
 #undef STARTFILE_SPEC
-#define STARTFILE_SPEC "crt1.o%s crti.o%s crtbegin.o%s"
+#define STARTFILE_SPEC \
+  "%{!shared:crt1.o%s %{!mno-fdpic:crtreloc.o%s}} crti.o%s \
+   %{shared:crtbeginS.o%s;:crtbegin.o%s}"
 
 #undef ENDFILE_SPEC
-#define ENDFILE_SPEC "crtend.o%s crtn.o%s"
+#define ENDFILE_SPEC "%{shared:crtendS.o%s;:crtend.o%s} crtn.o%s"
 
 /* Exceptions unwind with the DWARF tables, which cost nothing until
    something throws.  The linker script keeps .eh_frame and
@@ -64,20 +68,24 @@
 #undef DWARF2_UNWIND_INFO
 #define DWARF2_UNWIND_INFO 1
 
-/* Every program is static and uClibc-ng's libc.a holds the thread library,
-   so libgcc calls pthreads directly.  A weak reference would decide a
-   program was single-threaded whenever nothing else had pulled in the
-   object it names.  */
+/* uClibc-ng's libc holds the thread library, so libgcc calls pthreads
+   directly.  A weak reference would decide a program was single-threaded
+   whenever nothing else had pulled in the object it names.  */
 #define GTHREAD_USE_WEAK 0
 
 #undef LIB_SPEC
 #define LIB_SPEC "%{pthread:-lpthread} -lc"
 
-/* There are no shared libraries, so every link is static and libc and
-   libgcc resolve each other's references.  */
+/* The FDPIC emulation, and ld.so unless the link is static.  Without an
+   MMU a program's stack cannot grow, and the kernel gives it the size in
+   PT_GNU_STACK, or 128 KB if that is zero: 16 KB here, as bFLT programs
+   had, and a later -Wl,-z,stack-size= overrides it.  */
 #undef LINK_SPEC
-#define LINK_SPEC "%{shared:%e-shared is not supported on no-MMU C33 Linux} \
-  %{!r:-static}"
+#define LINK_SPEC "%{mno-fdpic:-m c33 %{shared:%e-shared needs -mfdpic} %{!r:-static}} \
+  %{!mno-fdpic:-m c33fdpic %{shared} %{static} \
+    %{!shared:%{!static:%{rdynamic:-export-dynamic} \
+      -dynamic-linker /lib/ld-uClibc.so.0}} \
+    %{!r:%{!shared:-z noexecstack -z stack-size=16384}}}"
 
 #undef LINK_GCC_C_SEQUENCE_SPEC
 #define LINK_GCC_C_SEQUENCE_SPEC "--start-group %G %{!nolibc:%L} --end-group"

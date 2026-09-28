@@ -68,6 +68,10 @@ msep-data
 Target Mask(SEP_DATA)
 Keep .text free of absolute addresses so it can be shared: reach data through %r15 and every other address through a word in the data segment.
 
+mfdpic
+Target Mask(FDPIC)
+Generate FDPIC code for no-MMU Linux with shared libraries: -msep-data, with each module's own %r15, calls to other modules through function descriptors, and function pointers that point at descriptors.
+
 memcpy
 Target Mask(MEMCPY)
 Call memcpy for block moves rather than expanding them inline.

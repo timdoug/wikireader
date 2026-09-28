@@ -2,6 +2,7 @@
 #include <linux/elfcore.h>
 #include <linux/kernel.h>
 #include <linux/mm_types.h>
+#include <linux/personality.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
@@ -123,15 +124,24 @@ void flush_thread(void)
 
 void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 {
+	unsigned long r6 = regs->r[6], r7 = regs->r[7], r8 = regs->r[8];
+
 	memset(regs, 0, sizeof(*regs));
 	regs->pc = pc;
 	regs->sp = sp;
-	/*
-	 * -msep-data programs share their text between processes and reach
-	 * their own data through %r15, the default-data-area base (__dp, the
-	 * start of .data).  binfmt_flat has just placed that segment.
-	 */
-	regs->r[15] = current->mm->start_data;
+	if (current->personality & FDPIC_FUNCPTRS) {
+		/* The load maps from ELF_FDPIC_PLAT_INIT. */
+		regs->r[6] = r6;
+		regs->r[7] = r7;
+		regs->r[8] = r8;
+	} else {
+		/*
+		 * -msep-data bFLT programs reach their own data through
+		 * %r15, the default-data-area base (__dp, the start of
+		 * .data).  binfmt_flat has just placed that segment.
+		 */
+		regs->r[15] = current->mm->start_data;
+	}
 	regs->psr = 1 << 4;
 	regs->orig_r4 = -1;
 	regs->reserved = 1;

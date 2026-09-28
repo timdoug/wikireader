@@ -28,8 +28,17 @@ int c33_grifo_booted;
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs);
 
+/*
+ * A system call's six argument words arrive in %r6-%r11.  The C33 ABI
+ * passes a function's first four words in %r6-%r9 and the rest on the
+ * stack, except that a 64-bit argument starting at the fourth word runs on
+ * into %r10: pread64's and pwrite64's offset.  So the table's functions are
+ * called with words four and five as one 64-bit argument, which puts %r10
+ * in %r10, and then with words five and six again, as the stack arguments
+ * every other call reads them from.
+ */
 typedef long (*c33_syscall_fn_t)(unsigned long, unsigned long,
-				 unsigned long, unsigned long,
+				 unsigned long, unsigned long long,
 				 unsigned long, unsigned long);
 
 void __init init_IRQ(void)
@@ -79,7 +88,9 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 			pr_info_once("C33: entered userspace syscall path\n");
 			regs->r[4] = fn(regs->r[6], regs->r[7], regs->r[8],
-					regs->r[9], regs->r[10], regs->r[11]);
+					((unsigned long long)regs->r[10] << 32)
+					| regs->r[9],
+					regs->r[10], regs->r[11]);
 		} else if (nr != -1L) {
 			regs->r[4] = -ENOSYS;
 		}

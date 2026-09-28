@@ -97,20 +97,21 @@ def libgcc_target(s):
                      'v850*-*-*)\n\ttmake_file="${tmake_file} v850/t-v850 t-fdpbit"\n\t;;\n', 1)
 
 def libgcc_linux(s):
-    """No-MMU Linux with uClibc-ng.  Of the generic Linux extra_parts only
-    crtbegin.o and crtend.o apply: they register .eh_frame with the
-    unwinder (see c33/linux.h), and crtbeginS/crtbeginT would be for shared
-    and PIE links, which this target does not have.
+    """No-MMU Linux with uClibc-ng, FDPIC.  crtbegin.o and crtend.o
+    register .eh_frame with the unwinder (see c33/linux.h); crtbeginS.o and
+    crtendS.o do the same for a shared library, with its own __dso_handle.
 
     Floating point is soft-fp (c33/sfp-machine.h) rather than fp-bit:
     fp-bit unpacks every operand into a structure and packs the result,
     and a double add or multiply cost several times what soft-fp's word
     arithmetic does.  The bare-metal target keeps fp-bit for now."""
-    block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp"\n'
-             '\textra_parts="crtbegin.o crtend.o"\n\t;;\n')
+    block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"\n'
+             '\textra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"\n\t;;\n')
     if block in s:
         return None
-    for old in ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
+    for old in ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp"\n'
+                '\textra_parts="crtbegin.o crtend.o"\n\t;;\n',
+                'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
                 '\textra_parts="crtbegin.o crtend.o"\n\t;;\n',
                 'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
                 '\textra_parts=""\n\t;;\n'):

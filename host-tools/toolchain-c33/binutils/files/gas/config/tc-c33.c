@@ -1202,6 +1202,7 @@ system_register_name (expressionS * expressionP,
 int g_iAdvance = 0;		/* 1 = C33 ADV (advanced) architecture.  */
 int g_iPE      = 0;		/* 1 = C33 PE architecture.  */
 int g_iMedda32 = 0;		/* 1 = do not use the default data area.  */
+int g_iFdpic   = 0;		/* 1 = FDPIC code, see bfd/elf32-c33.c.  */
 
 const char md_shortopts[] = "m:";
 
@@ -1210,7 +1211,8 @@ enum c33_options
   OPTION_C33ADV = OPTION_MD_BASE,
   OPTION_C33PE,
   OPTION_MEDDA32,
-  OPTION_C33_EXT
+  OPTION_C33_EXT,
+  OPTION_FDPIC
 };
 
 const struct option md_longopts[] =
@@ -1219,6 +1221,7 @@ const struct option md_longopts[] =
   {"mc33pe",   no_argument,       NULL, OPTION_C33PE},
   {"medda32",  no_argument,       NULL, OPTION_MEDDA32},
   {"mc33_ext", required_argument, NULL, OPTION_C33_EXT},
+  {"mfdpic",   no_argument,       NULL, OPTION_FDPIC},
   {NULL, no_argument, NULL, 0}
 };
 const size_t md_longopts_size = sizeof (md_longopts);
@@ -1399,6 +1402,10 @@ md_parse_option (int c, const char * arg)
       g_iMedda32 = 1;
       return 1;
 
+    case OPTION_FDPIC:
+      g_iFdpic = 1;
+      return 1;
+
     case OPTION_C33_EXT:
       {
 	size_t len = arg == NULL ? 0 : strlen (arg);
@@ -1443,6 +1450,8 @@ c33_elf_final_processing (void)
     mode = 'P';
 
   elf_elfheader (stdoutput)->e_flags |= (flagword) mode << 24;
+  if (g_iFdpic)
+    elf_elfheader (stdoutput)->e_flags |= EF_C33_FDPIC;
 }
 
 symbolS *
@@ -5158,6 +5167,15 @@ parse_cons_expression_c33 (expressionS * exp)
 {
   bfd_reloc_code_real_type reloc;
 
+  /* FDPIC: "funcdesc(sym)" is the address of sym's canonical function
+     descriptor.  */
+  if (strncmp (input_line_pointer, "funcdesc(", 9) == 0)
+    {
+      input_line_pointer += 8;
+      expression (exp);
+      return BFD_RELOC_C33_FUNCDESC;
+    }
+
   /* See if there's a reloc prefix like hi() we have to handle.  */
   reloc = c33_reloc_prefix ();
 
@@ -5208,6 +5226,10 @@ c33_fix_adjustable (fixS * fixP)
 {
   if (fixP->fx_addsy == NULL)
     return 1;
+
+  /* A descriptor belongs to a function, not to a section offset.  */
+  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC)
+    return 0;
  
   /* Prevent all adjustments to global symbols. */
   if (S_IS_EXTERNAL (fixP->fx_addsy))
@@ -5226,6 +5248,8 @@ c33_fix_adjustable (fixS * fixP)
 int
 c33_force_relocation (struct fix * fixP)
 {
+  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC)
+    return 1;
   if (fixP->fx_addsy && S_IS_WEAK (fixP->fx_addsy))
     return 1;
   

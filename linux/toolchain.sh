@@ -3,9 +3,8 @@
 # build, both into one prefix:
 #
 #   c33-epson-elf-     bare metal, for the kernel;
-#   c33-linux-uclibc-  no-MMU Linux userspace: PE core, -msep-data and
-#                      -mlong-calls by default, static uClibc-ng, and an ld
-#                      that writes bFLT when given -elf2flt.
+#   c33-linux-uclibc-  no-MMU Linux userspace: PE core, FDPIC ELF with
+#                      shared libraries, and uClibc-ng.
 #
 # The userspace compiler is configured against a sysroot holding the kernel's
 # UAPI headers and uClibc-ng's headers, so make -C linux fetch has to come
@@ -50,21 +49,14 @@ fi
 C33_TARGET=${linux_target} C33_BINUTILS_CONFIGURE="--with-sysroot=${sysroot}" \
 	"${root}/host-tools/toolchain-c33/binutils/build.sh" "${toolwork}"
 
-# The elf2flt convention: the real linkers move aside to *.real and the
-# wrapper takes their names, in bin/ and in the target's tooldir.
+# Earlier toolchains put a bFLT-writing wrapper in the linker's place and
+# the linker beside it as *.real.  Userspace is FDPIC ELF now, which the
+# linker writes itself.
 for ld in "${prefix}/bin/${linux_target}-ld" "${prefix}/bin/${linux_target}-ld.bfd" \
 	"${prefix}/${linux_target}/bin/ld" "${prefix}/${linux_target}/bin/ld.bfd"
 do
-	if [ -f "${ld}" ] && head -c 4 "${ld}" | grep -q ELF; then
-		mv -f "${ld}" "${ld}.real"
-	fi
-	install -m 755 "${here}/elf2flt/ld-elf2flt" "${ld}"
+	rm -f "${ld}.real"
 done
-mkdir -p "${prefix}/${linux_target}/lib"
-install -m 644 "${here}/uclibc/static-flat.ld" \
-	"${prefix}/${linux_target}/lib/elf2flt.ld"
-install -m 755 "${here}/initramfs/make-flat.py" \
-	"${prefix}/${linux_target}/lib/make-flat.py"
 
 # GCC's libgcc is built against the C library's headers.
 "${here}/uclibc/build.sh" headers
