@@ -105,30 +105,32 @@ Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
 
 ## SD card reads: where they stand
 
-A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 3.14
-to 3.20 s on the device (1.3 MB/s, 70% of the wire). The wire limit at
+A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 2.87
+to 2.89 s on the device (1.46 MB/s, 78% of the wire). The wire limit at
 MCLK/4 is 1.875 MB/s, 2.2 s; the SPI block cannot divide MCLK by less than
 4. Multiple-block reads are streamed (`sd_read_stream()`): the CPU finds the
-first token, then the read comes in by DMA as long transfers into a 64 KB
-buffer while the CPU finds each token and unpacks and checks each block
-behind it, by the transfer's residue. The stream outlives the request: the
-stop command is answered without being sent, the transfer is left the
-whole buffer (`sd_stream_prefetch()`), and a request that reads on finds
-its blocks coming in (41 KB in hand on average). Anything else closes it
-(`sd_stream_close()`). While a transfer runs the idle loop polls
-(`cpu_idle_poll_ctrl()`): HALT drops SPI DMA requests for good. Per
-512-byte block on the device (`read_timing`, cycles):
+first token, then the read comes in by DMA into a 64 KB ring while the CPU
+finds each token and unpacks and checks each block behind it, by the
+transfer's residue. Transfers restart as soon as they end and there is
+room (`sd_stream_kick()` after each block, an hrtimer between requests).
+The stream outlives the request: the stop command is answered without being
+sent, and a request that reads on finds its blocks in hand (42 KB on
+average). Anything else closes it (`sd_stream_close()`). While a transfer
+runs the idle loop polls (`cpu_idle_poll_ctrl()`): HALT drops SPI DMA
+requests for good. Per 512-byte block on the device (`read_timing`,
+cycles):
 
 | Phase | Cycles | What it is |
 |---|---|---|
-| token | 1,110 | first tokens (CPU, 4 of 37 requests) and the gaps |
-| setup | 110 | starting the stream's transfers |
-| check | 9,290 | `sd_unpack_crc()`, stream buffer to the request, from A0 RAM |
-| poll | 4,810 | waiting for blocks to come in |
-| outside the driver | ~7,000 | copy to user, page cache, the tick |
+| token | 1,210 | first tokens (CPU, 4 of 37 requests) and the gaps |
+| setup | 940 | looking at and restarting the ring's transfers |
+| check | 9,760 | `sd_unpack_crc()`, ring to the request, from A0 RAM |
+| poll | 1,090 | waiting for blocks to come in |
+| outside the driver | ~8,000 | copy to user, page cache, the tick |
 
 This card's gaps are 2 bytes, so a block is 517 bytes of stream, about
-141 cycles a word against the wire's 128.
+141 cycles a word against the wire's 128: 18,200 a block. A read takes
+about 21,100.
 
 Read a block at a time (single blocks, and cards that shift their tokens,
 which also stop streaming for good), a block's transfer takes about 19,600
@@ -164,18 +166,14 @@ what the DMA does per word; those need the device.
 
 ## What is left, in the order I would take it
 
-1. **The overlap is partial.** A raw read takes about 23,200 cycles a
-   block against the stream's 18,200, and the CPU's own work (token, check,
-   and about 7,000 outside the driver) comes to about 17,400. Either could
-   set the pace if the other kept up. `read_timing` covers only the driver;
-   what the stream does between requests (how long it runs, whether the
-   copy slows it, whether 64 KB is ever full) is the next thing to count.
-   The check reads the stream buffer and writes the request, two rows,
-   alternately (9,300 against 8,300 to 9,100 in place); eight loads then
-   eight stores might pay here where they did not beside the per-block DMA.
-   The copy to user space is at the CPU's copy floor (about 4.0 cycles a
-   byte), and the tick is 7% of the CPU when busy (HZ stays 100, the user's
-   call).
+1. **The CPU is the limit now**: token, check and the rest of the driver
+   come to 13,000 a block and the work outside it to about 8,000, against
+   the stream's 18,200. The check is the largest part. It reads the ring
+   and writes the request, two SDRAM rows, alternately (9,760 against
+   8,300 to 9,100 in place); eight loads then eight stores might pay here
+   where they did not beside the per-block DMA. The copy to user space is
+   at the CPU's copy floor (about 4.0 cycles a byte), and the tick is 7% of
+   the CPU when busy (HZ stays 100, the user's call).
 2. **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside
    a copy, which the device does not (see `README.md`); judge streaming
    changes with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.

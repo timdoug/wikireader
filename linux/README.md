@@ -541,25 +541,28 @@ checked unless `mmc_core.use_spi_crc=0`.
 Multiple-block reads are streamed. The card sends each block's gap, token,
 data and CRC one after another and simply waits whenever the host stops
 clocking, so after the CPU has found the first token, the read comes in by
-DMA as long transfers into a 64 KB buffer: the receive channel writes the
-wire's bytes there as words, and the transmit channel sends all-ones from a
-single word in IVRAM. The CPU follows behind, finding each token and
+DMA into a 64 KB ring: the receive channel writes the wire's bytes there as
+words, and the transmit channel sends all-ones from a single word in IVRAM.
+Each transfer runs to the ring's end or to the first byte not yet used, and
+the next starts as soon as it ends and there is room: the CPU looks when it
+should have ended, after each block, and between requests a high-resolution
+timer does. The CPU follows behind, finding each token and
 putting each block in order and checking it on the way to its place in the
-request, as far as the residue says has come in. Nor does the stream end
-with the request: the card is left reading on, the stop command is answered
-without being sent, and before the driver returns it leaves the transfer
-the whole buffer to run into. So while the kernel copies one request's
+request, as far as the residue says has come in (a block that wraps is put
+together first). Nor does the stream end with the request: the card is left
+reading on and the stop command is answered without being sent. So while
+the kernel copies one request's
 blocks out, the next request's cross the wire, and a request that reads on
 from there, as sequential reads do, finds them waiting (41 KB of them on
 average in a raw read on the device). Any other request, a new clock or
 power state, or an error stops the stream and sends the stop command. While
 a transfer runs the idle loop polls instead of halting
 (`cpu_idle_poll_ctrl()`), since HALT would drop the port's DMA requests for
-good; a timer notes the end of one left running between requests. Requests
-are up to 128 KB. A raw 4 MB read through Grifo takes 3.14 to 3.20 s on the
-device (1.3 MB/s, 70% of the wire), against 3.54 s with the stream ending
-at each request and 5.1 s a block at a time; the driver's share of a block
-is 15,300 cycles against 16,500 on the wire. The check is
+good. Requests are up to 128 KB. A raw 4 MB read through Grifo takes 2.87
+to 2.89 s on the device (1.46 MB/s, 78% of the wire), against 3.14 to 3.20
+s with a buffer that stopped at its end, 3.54 s with the stream ending at
+each request and 5.1 s a block at a time; the driver's share of a block is
+13,000 cycles against 16,500 on the wire. The check is
 `sd_unpack_crc()`, which takes each word in wire order into the CRC four
 bytes at a time and swaps and shifts it into place: about 37 instructions a
 word, too long for the fetch queue, so it runs from A0 RAM (the zero-wait
@@ -634,9 +637,9 @@ timed read. wremu's DMA model was changed after them (`dma_async`), and its
 driver total per block for a stream was within 1% of the device's. It is
 too harsh on a stream left running while the kernel copies: its default
 `dma_cpu_penalty=15` holds the DMA back behind the copy's SDRAM accesses
-until almost nothing comes in (4 KB in hand, 3.66 s), where the device
-keeps it going; with `WREMU_MODEL=dma_cpu_penalty=0` it gives 39 KB and
-2.96 s against the device's 41 KB and 3.14 to 3.20 s.
+until little comes in (3.73 s), where the device keeps it going; with
+`WREMU_MODEL=dma_cpu_penalty=0` it gives 2.74 s against the device's 2.87
+to 2.89 s.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry

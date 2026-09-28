@@ -42,7 +42,7 @@
 #include <linux/scatterlist.h>
 #include <linux/sizes.h>
 #include <linux/swab.h>
-#include <linux/timer.h>
+#include <linux/hrtimer.h>
 #include <linux/timex.h>
 #include <linux/unaligned.h>
 
@@ -115,15 +115,21 @@ struct sd_timing {
 	u64 cycles[SD_T_PHASES];
 };
 
+#define SD_STREAM_SIZE		SZ_64K
+#define SD_STREAM_BLOCK		(SD_BLOCKSIZE + 8)	/* a block's words */
+
 /* A multiple-block read coming in: see sd_read_stream(). */
 struct sd_stream {
-	u32 *words;		/* the buffer */
+	u32 *words;		/* the ring */
+	u32 wrap[SD_STREAM_BLOCK / 4];	/* a block that wraps, put together */
 	unsigned int pos;	/* the next byte to look at */
 	unsigned int avail;	/* the bytes known to be in */
 	unsigned int start;	/* where the transfer under way began */
 	unsigned int end;	/* ...and where it ends */
 	bool running;		/* a transfer is under way */
 	bool open;		/* the card is reading on, unstopped */
+	bool broken;		/* ...but a transfer failed between requests */
+	u32 due;		/* get_cycles() when the transfer should end */
 	u32 next_arg;		/* the read command that would carry on */
 	dma_cookie_t rx_cookie;
 };
@@ -149,8 +155,8 @@ struct s1c33_sd {
 	unsigned int ones_next;
 	struct sd_stream stream;	/* multiple-block reads come in here */
 	dma_addr_t stream_dma;
-	/* Notes the end of a transfer left running between requests. */
-	struct timer_list stream_timer;
+	/* Tends a transfer left running between requests. */
+	struct hrtimer stream_timer;
 	bool idle_polls;		/* the idle loop spins rather than halts */
 	bool no_stream;			/* the card shifts its tokens */
 	const struct s1c33_sd_platform_data *pdata;
@@ -1021,36 +1027,42 @@ out:
  * Streamed reads.  In a multiple-block read the card sends each block's
  * gap, token, data and CRC one after another, and simply waits whenever the
  * host stops clocking.  So once the CPU has found the first token, the read
- * comes in by DMA as long transfers into a buffer, and the CPU finds each
- * token, puts each block in order and checks it behind the DMA, as far as
- * the transfer's residue says has come in.  That does away with all that
+ * comes in by DMA into a ring buffer, and the CPU finds each token, puts
+ * each block in order and checks it behind the DMA, as far as the
+ * transfer's residue says has come in.  That does away with all that
  * sd_read() does between transfers: clocking in each token and CRC a word
  * at a time, and issuing both channels for every block.
  *
- * Nor does the stream end with the request.  Each transfer fills the
- * buffer, and when a request's blocks are in, the card is left reading on
- * and the stop command is answered without being sent; if the next request
- * reads on from there, as sequential reads do, its blocks are already
- * coming in, having crossed the wire while the kernel copied the last ones
- * out.  Any other request, a new clock or power state, or an error stops
- * the stream first (sd_stream_close()).
+ * Nor does the stream end with the request.  When a request's blocks are
+ * in, the card is left reading on and the stop command is answered without
+ * being sent; if the next request reads on from there, as sequential reads
+ * do, its blocks are already coming in, having crossed the wire while the
+ * kernel copied the last ones out.  Any other request, a new clock or power
+ * state, or an error stops the stream first (sd_stream_close()).
  *
- * The buffer holds the wire's bytes four to a word, first on top, as HSDMA
- * stores them.  A transfer runs to the end of the buffer; before the next,
- * what has not been used yet moves down to its start.  The residue is of
- * words read from the port, so the last two may still be on their way.
+ * The ring holds the wire's bytes four to a word, first on top, as HSDMA
+ * stores them; positions in it count bytes since the stream began.  A
+ * transfer runs to the ring's end or to the first byte not yet used,
+ * whichever comes first, and the next starts as soon as it ends and there
+ * is room: the CPU looks when the transfer should be done, after each
+ * block, and between requests a timer does.  A block that wraps is put
+ * together in one place first.  The residue is of words read from the
+ * port, so the last two may still be on their way.
  *
  * While a transfer runs, the idle loop must not halt the CPU: HALT drops
  * the port's DMA requests, for good, and the transfer would stop dead.
- * Between requests nothing polls it, so a timer notes its end and lets the
- * idle loop halt again.
  */
-#define SD_STREAM_SIZE		SZ_64K
+#define SD_STREAM_MIN		SD_BLOCKSIZE	/* the least worth a transfer */
 #define SD_STREAM_SLACK		8
+
+static inline u32 *sd_stream_at(const struct sd_stream *s, unsigned int i)
+{
+	return s->words + (i & (SD_STREAM_SIZE - 1)) / 4;
+}
 
 static inline u8 sd_stream_byte(const struct sd_stream *s, unsigned int i)
 {
-	return s->words[i / 4] >> (24 - 8 * (i % 4));
+	return *sd_stream_at(s, i) >> (24 - 8 * (i % 4));
 }
 
 static void sd_idle_polls(struct s1c33_sd *host, bool polls)
@@ -1060,51 +1072,27 @@ static void sd_idle_polls(struct s1c33_sd *host, bool polls)
 	host->idle_polls = polls;
 }
 
-/* The transfer under way has ended; @host->stream.running is cleared. */
-static void sd_stream_ended(struct s1c33_sd *host)
+/* The ring's bytes not in use: neither read yet nor still to come. */
+static unsigned int sd_stream_free(const struct sd_stream *s)
 {
-	struct sd_stream *s = &host->stream;
-
-	s->avail = s->end;
-	s->running = false;
-	host->dma_blocks++;
-	sd_idle_polls(host, false);
+	return SD_STREAM_SIZE - (s->end - (s->pos & ~3U));
 }
 
-/* Between requests: has the transfer left running ended yet? */
-static void sd_stream_timer(struct timer_list *timer)
-{
-	struct s1c33_sd *host = timer_container_of(host, timer, stream_timer);
-	struct sd_stream *s = &host->stream;
-
-	if (!s->running)
-		return;
-	if (dmaengine_tx_status(host->rx_chan, s->rx_cookie, NULL) ==
-	    DMA_IN_PROGRESS)
-		mod_timer(&host->stream_timer, jiffies + 1);
-	else
-		sd_stream_ended(host);
-}
-
-/* Stream on to the end of the buffer, the port being idle. */
+/*
+ * Stream on into the free part of the ring, as far as its end, the port
+ * being idle.
+ */
 static int sd_stream_start(struct s1c33_sd *host, struct sd_stream *s)
 {
 	DEFINE_RAW_FLEX(struct dma_interleaved_template, xt, sgl, 1);
 	struct dma_async_tx_descriptor *rxd, *txd;
-	unsigned int from = s->pos & ~3U, len;
+	unsigned int len = min(sd_stream_free(s),
+			       SD_STREAM_SIZE - (s->end & (SD_STREAM_SIZE - 1)));
 	dma_cookie_t cookie;
 
-	if (from) {
-		memmove(s->words, s->words + from / 4, s->end - from);
-		s->pos -= from;
-		s->end -= from;
-	}
-	s->avail = s->start = s->end;
-	len = SD_STREAM_SIZE - s->end;
-
-	rxd = dmaengine_prep_slave_single(host->rx_chan,
-					  host->stream_dma + s->end, len,
-					  DMA_DEV_TO_MEM, 0);
+	rxd = dmaengine_prep_slave_single(host->rx_chan, host->stream_dma +
+					  (s->end & (SD_STREAM_SIZE - 1)),
+					  len, DMA_DEV_TO_MEM, 0);
 	if (!rxd)
 		return -ENOMEM;
 	s->rx_cookie = dmaengine_submit(rxd);
@@ -1128,11 +1116,54 @@ static int sd_stream_start(struct s1c33_sd *host, struct sd_stream *s)
 	cookie = dmaengine_submit(txd);
 	if (cookie < 0)
 		return -EBUSY;
+	s->start = s->end;
 	s->end += len;
+	/* 32 bits at MCLK/(4 << divider) a word, and the DMA's own few. */
+	s->due = get_cycles() + len / 4 * (32 * (4 << host->divider) + 16);
 	if (sd_wait(host, SPI_BUSY, false))
 		return -ETIMEDOUT;
 	sd_dma_go(host);
 	return 0;
+}
+
+/*
+ * Bring the stream up to date: how far the transfer under way has come,
+ * and if it has ended, the next one started if there is room.
+ */
+static int sd_stream_service(struct s1c33_sd *host, struct sd_stream *s)
+{
+	struct dma_tx_state state;
+	enum dma_status status;
+	unsigned int in;
+
+	if (s->running) {
+		status = dmaengine_tx_status(host->rx_chan, s->rx_cookie,
+					     &state);
+		if (status == DMA_IN_PROGRESS) {
+			in = s->end - state.residue;
+			if (in >= s->start + SD_STREAM_SLACK)
+				s->avail = max(s->avail, in - SD_STREAM_SLACK);
+			return 0;
+		}
+		if (status != DMA_COMPLETE)
+			return -EIO;
+		s->avail = s->end;
+		s->running = false;
+		host->dma_blocks++;
+		sd_idle_polls(host, false);
+	}
+	/* A ring nearly full waits for the CPU to use some. */
+	if (sd_stream_free(s) < SD_STREAM_MIN)
+		return 0;
+	return sd_stream_start(host, s);
+}
+
+/* The same, but only once the transfer under way should have ended. */
+static int sd_stream_kick(struct s1c33_sd *host, struct sd_stream *s)
+{
+	if (s->running && (s32)(get_cycles() - s->due) < 0)
+		return 0;
+	return sd_stream_service(host, s);
 }
 
 /* Until @need bytes from s->pos are in. */
@@ -1140,35 +1171,41 @@ static int sd_stream_wait(struct s1c33_sd *host, struct sd_stream *s,
 			  unsigned int need, u32 *t)
 {
 	unsigned long deadline = jiffies + msecs_to_jiffies(100);
-	struct dma_tx_state state;
-	enum dma_status status;
-	unsigned int in;
 	int ret;
 
-	while (s->avail < s->pos + need) {
-		if (!s->running) {
-			ret = sd_stream_start(host, s);
-			sd_charge(host, SD_T_SETUP, t);
-			if (ret)
-				return ret;
-			continue;
-		}
-		status = dmaengine_tx_status(host->rx_chan, s->rx_cookie,
-					     &state);
-		if (status == DMA_COMPLETE) {
-			sd_stream_ended(host);
-			continue;
-		}
-		if (status != DMA_IN_PROGRESS)
-			return -EIO;
-		in = s->end - state.residue;
-		if (in >= s->start + SD_STREAM_SLACK)
-			s->avail = max(s->avail, in - SD_STREAM_SLACK);
+	while (s->avail - s->pos < need) {
+		ret = sd_stream_service(host, s);
+		if (ret)
+			return ret;
 		if (time_after(jiffies, deadline))
 			return -ETIMEDOUT;
 	}
 	sd_charge(host, SD_T_POLL, t);
 	return 0;
+}
+
+/*
+ * Between requests: keep the stream going until the ring is full, looking
+ * when each transfer should have ended.  An error leaves the stream for the
+ * next request to close, since stopping it here could sleep.
+ */
+static enum hrtimer_restart sd_stream_timer(struct hrtimer *timer)
+{
+	struct s1c33_sd *host = container_of(timer, struct s1c33_sd,
+					     stream_timer);
+	struct sd_stream *s = &host->stream;
+	s32 left;
+
+	if (sd_stream_service(host, s)) {
+		s->broken = true;
+		return HRTIMER_NORESTART;
+	}
+	if (!s->running)
+		return HRTIMER_NORESTART;
+	left = max_t(s32, s->due - get_cycles(), 1000);
+	hrtimer_forward_now(timer, ns_to_ktime(div_u64((u64)left * NSEC_PER_SEC,
+						       host->clock)));
+	return HRTIMER_RESTART;
 }
 
 /* Stop the stream's transfer, if any, and empty the port. */
@@ -1205,45 +1242,19 @@ static void sd_stream_close(struct s1c33_sd *host)
 	sd_command(host, &stop, false);
 }
 
-/*
- * Leave the stream the whole buffer to run into until the next request.
- * A transfer under way with little room left is stopped where it is: the
- * transmit side first, so that the port stops at a word, then the receive
- * side once it has taken the last, its residue saying how far it came.
- */
-static void sd_stream_prefetch(struct s1c33_sd *host)
+/* Leave the stream running between requests, with the timer to tend it. */
+static void sd_stream_leave(struct s1c33_sd *host)
 {
 	struct sd_stream *s = &host->stream;
-	struct dma_tx_state state;
-	unsigned int in;
 
 	if (!s->open)
 		return;
-	if (s->running) {
-		if (s->end - s->pos >= SD_STREAM_SIZE / 2)
-			return;
-		dmaengine_terminate_sync(host->tx_chan);
-		if (sd_wait(host, SPI_BUSY, false) ||
-		    sd_wait(host, SPI_RX_FULL, false))
-			goto fail;
-		/* The receive channel's last write lands after its read. */
-		ndelay(200);
-		if (dmaengine_tx_status(host->rx_chan, s->rx_cookie, &state) ==
-		    DMA_COMPLETE) {
-			sd_stream_ended(host);
-		} else {
-			in = s->end - state.residue;
-			dmaengine_terminate_sync(host->rx_chan);
-			s->end = s->avail = in;
-			s->running = false;
-			sd_idle_polls(host, false);
-		}
-	}
-	if (!sd_stream_start(host, s))
+	if (sd_stream_service(host, s)) {
+		sd_stream_close(host);
 		return;
-fail:
-	/* The next request finds it closed, and starts afresh. */
-	sd_stream_close(host);
+	}
+	if (s->running)
+		hrtimer_start(&host->stream_timer, 0, HRTIMER_MODE_REL_SOFT);
 }
 
 /* Whether a read can be streamed: several whole blocks, each in one piece. */
@@ -1287,6 +1298,7 @@ static int sd_stream_first(struct s1c33_sd *host, unsigned long timeout)
 		return -EILSEQ;
 	}
 	s->open = true;
+	s->broken = false;
 	s->pos = s->avail = s->start = s->end = 0;
 	lead = host->rx_len - host->rx_pos;
 	if (lead) {
@@ -1307,17 +1319,16 @@ static int sd_stream_token(struct s1c33_sd *host, unsigned long timeout,
 {
 	unsigned long deadline = jiffies + timeout;
 	struct sd_stream *s = &host->stream;
-	unsigned int gap = 0, from;
+	unsigned int gap = 0;
 	int ret;
 	u8 token;
 
 	for (;;) {
-		/* Counted as it goes: a new transfer moves s->pos. */
-		from = s->pos;
-		while (s->pos < s->avail && sd_stream_byte(s, s->pos) == 0xff)
+		while (s->pos != s->avail && sd_stream_byte(s, s->pos) == 0xff) {
 			s->pos++;
-		gap += s->pos - from;
-		if (s->pos < s->avail)
+			gap++;
+		}
+		if (s->pos != s->avail)
 			break;
 		if (time_after(jiffies, deadline))
 			return -ETIMEDOUT;
@@ -1344,20 +1355,17 @@ static int sd_read_stream(struct s1c33_sd *host, struct mmc_data *data,
 	struct sd_stream *s = &host->stream;
 	struct scatterlist *sg = data->sg;
 	unsigned int offset = 0, left = data->blocks;
-	struct dma_tx_state state;
 	unsigned int word, lead;
 	int ret;
-	u32 carry;
+	u32 carry, *words;
 	u16 crc;
 
 	if (more) {
+		ret = sd_stream_service(host, s);
+		if (ret)
+			goto out;
 		host->timing.carried++;
-		if (s->running &&
-		    dmaengine_tx_status(host->rx_chan, s->rx_cookie, &state) ==
-		    DMA_IN_PROGRESS)
-			host->timing.in_hand += s->end - state.residue - s->pos;
-		else
-			host->timing.in_hand += s->end - s->pos;
+		host->timing.in_hand += s->avail - s->pos;
 	} else {
 		ret = sd_stream_first(host, timeout);
 		if (ret)
@@ -1382,12 +1390,19 @@ static int sd_read_stream(struct s1c33_sd *host, struct mmc_data *data,
 			sg = sg_next(sg);
 			offset = 0;
 		}
-		word = s->pos / 4;
+		words = sd_stream_at(s, s->pos);
+		word = SD_STREAM_SIZE / 4 - (words - s->words);
+		if (word < SD_STREAM_BLOCK / 4) {
+			memcpy(s->wrap, words, word * 4);
+			memcpy(s->wrap + word, s->words,
+			       SD_STREAM_BLOCK - word * 4);
+			words = s->wrap;
+		}
 		lead = -s->pos & 3;
-		carry = lead ? swab32(s->words[word]) >> (8 * (4 - lead)) : 0;
-		crc = host->unpack_crc(s->words + word + !!lead,
-				       sg_virt(sg) + offset, SD_BLOCKSIZE / 4,
-				       carry, lead, host->crc_tables);
+		carry = lead ? swab32(*words) >> (8 * (4 - lead)) : 0;
+		crc = host->unpack_crc(words + !!lead, sg_virt(sg) + offset,
+				       SD_BLOCKSIZE / 4, carry, lead,
+				       host->crc_tables);
 		if (host->mmc->use_spi_crc &&
 		    crc != (sd_stream_byte(s, s->pos + SD_BLOCKSIZE) << 8 |
 			    sd_stream_byte(s, s->pos + SD_BLOCKSIZE + 1))) {
@@ -1402,6 +1417,10 @@ static int sd_read_stream(struct s1c33_sd *host, struct mmc_data *data,
 		sd_charge(host, SD_T_CHECK, t);
 		if (!--left)
 			return 0;
+		ret = sd_stream_kick(host, s);
+		sd_charge(host, SD_T_SETUP, t);
+		if (ret)
+			goto out;
 	}
 
 out:
@@ -1554,9 +1573,10 @@ static void sd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	bool more;
 	int status;
 
-	timer_delete_sync(&host->stream_timer);
+	hrtimer_cancel(&host->stream_timer);
 retry:
-	more = s->open && mrq->cmd->opcode == MMC_READ_MULTIPLE_BLOCK &&
+	more = s->open && !s->broken &&
+		mrq->cmd->opcode == MMC_READ_MULTIPLE_BLOCK &&
 		mrq->cmd->arg == s->next_arg && mrq->data &&
 		sd_can_stream(host, mrq->data);
 	if (more) {
@@ -1599,9 +1619,7 @@ retry:
 			sd_deselect(host);
 		}
 	}
-	sd_stream_prefetch(host);
-	if (s->running)
-		mod_timer(&host->stream_timer, jiffies + 1);
+	sd_stream_leave(host);
 	mmc_request_done(mmc, mrq);
 }
 
@@ -1644,7 +1662,7 @@ static void sd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	struct s1c33_sd *host = mmc_priv(mmc);
 	u32 in;
 
-	timer_delete_sync(&host->stream_timer);
+	hrtimer_cancel(&host->stream_timer);
 	sd_stream_close(host);
 	if (ios->clock) {
 		unsigned int divider = 0;
@@ -1794,7 +1812,7 @@ static void sd_dma_release(struct s1c33_sd *host)
 {
 	if (!host->rx_chan)
 		return;
-	timer_delete_sync(&host->stream_timer);
+	hrtimer_cancel(&host->stream_timer);
 	sd_stream_halt(host);
 	/* The last transmit transfer is never asked after; retire it. */
 	dmaengine_terminate_sync(host->tx_chan);
@@ -1828,7 +1846,8 @@ static int sd_probe(struct platform_device *pdev)
 	host->pdata = pdata;
 	host->control = ~0U;
 	host->power_mode = MMC_POWER_OFF;
-	timer_setup(&host->stream_timer, sd_stream_timer, 0);
+	hrtimer_setup(&host->stream_timer, sd_stream_timer, CLOCK_MONOTONIC,
+		      HRTIMER_MODE_REL_SOFT);
 
 	clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(clk))
