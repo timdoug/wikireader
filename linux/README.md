@@ -540,8 +540,12 @@ keyboard mode is `K_OFF`, since the console reads the keyboards itself.
 
 `startx [CLIENT] [-- SERVER-ARGS]` runs an X client on the panel: it starts
 `Xfbdev` on the touchscreen and the buttons, with the classic grey weave
-(`-retro`) and without the smart scheduler's 20 ms `SIGALRM` (`-dumbSched`),
-waits
+(`-retro`), without the smart scheduler's 20 ms `SIGALRM` (`-dumbSched`),
+and with 100 ms scheduling slices instead of 5 to 15: a client's requests
+are served until they run out or the slice does, and on this CPU one arc
+fill takes milliseconds, so the short slice ended partway through xeyes'
+redraw and the idle handler put the half-drawn eyes (the old pupil cleared,
+the new one not yet drawn) on the panel, waits
 for its socket, runs the client, and stops the server when the client exits,
 which gives VT 1 back to the console. With no client it runs twm and xeyes.
 Dragging on the background moves the pointer; holding still there for 0.6 s

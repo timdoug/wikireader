@@ -33,7 +33,11 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # -noreset: the server lives exactly as long as this script wants it.
 # -retro: the classic grey weave and X-shaped cursor.
 # -dumbSched: no 20 ms SIGALRM timer to share the server between clients.
-Xfbdev :0 -noreset -retro -dumbSched ${touch:+-mouse evdev,,device=$touch} \
+# -schedInterval/-schedMax: a client's requests run for up to 100 ms before
+# the server turns to others.  The 5-15 ms default suits a fast machine;
+# here one arc takes milliseconds, the slice ran out partway through a
+# redraw, and the idle handler showed the half-drawn frame on the panel.
+Xfbdev :0 -noreset -retro -dumbSched -schedInterval 100 -schedMax 100 ${touch:+-mouse evdev,,device=$touch} \
 	${buttons:+-keybd evdev,,device=$buttons} $server 2>/tmp/Xfbdev.log &
 server=$!
 while [ ! -S /tmp/.X11-unix/X0 ]; do
