@@ -1187,6 +1187,13 @@ static int sd_stream_wait(struct s1c33_sd *host, struct sd_stream *s,
 			return ret;
 		if (time_after(jiffies, deadline))
 			return -ETIMEDOUT;
+		/*
+		 * The DMA fills the ring by itself: let whatever else wants
+		 * the CPU have it, rather than spinning until the data is in.
+		 * Without preemption the spin kept everything else off the CPU
+		 * for the whole of a program's load from the card.
+		 */
+		cond_resched();
 	}
 	sd_charge(host, SD_T_POLL, t);
 	return 0;

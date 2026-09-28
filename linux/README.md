@@ -481,7 +481,11 @@ and builds its freestanding diagnostics with the bare-metal compiler, along
 with `/uclibc-smoke`, the ordinary uClibc program they run as their libc
 check.
 Buildroot builds with `c33-linux-uclibc-` from `toolchain`, and its FLAT
-support links every program with `-Wl,-elf2flt`. The build starts from a
+support links every program with `-Wl,-elf2flt`. Everything is compiled
+with `-ffunction-sections -fdata-sections` and linked with `--gc-sections`,
+so a static program keeps only the functions it reaches rather than whole
+objects of every library it touches (350 KB of the three X programs). The
+build starts from a
 clean output directory each time, because Buildroot does not notice a rebuilt
 C library. That takes about 16 minutes, most of it the host tools X needs
 (Python for libxcb's protocol generator, CMake); a package's `-dirclean`
@@ -644,7 +648,11 @@ average in a raw read on the device). Any other request, a new clock or
 power state, or an error stops the stream and sends the stop command. While
 a transfer runs the idle loop polls instead of halting
 (`cpu_idle_poll_ctrl()`), since HALT would drop the port's DMA requests for
-good. Requests are up to 128 KB. A raw 4 MB read through Grifo takes 2.87
+good. A reader waiting for its data yields the CPU to anything else
+that is ready (`cond_resched()`) instead of spinning, since the DMA fills
+the ring by itself: without preemption the spin kept every other task off
+the CPU for the whole of a program's load, and the X server's own start-up
+waited behind its clients'. Requests are up to 128 KB. A raw 4 MB read through Grifo takes 2.87
 to 2.89 s on the device (1.46 MB/s, 78% of the wire), against 3.14 to 3.20
 s with a buffer that stopped at its end, 3.54 s with the stream ending at
 each request and 5.1 s a block at a time; the driver's share of a block is

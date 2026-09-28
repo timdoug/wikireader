@@ -1,5 +1,10 @@
 BR2_c33=y
 BR2_OPTIMIZE_S=y
+# Every static program keeps only the functions and data it reaches: static
+# libraries otherwise bring whole objects, and the X programs load from the
+# card at about 1.4 MB/s.
+BR2_TARGET_OPTIMIZATION="-ffunction-sections -fdata-sections"
+BR2_TARGET_LDFLAGS="-Wl,--gc-sections"
 BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_WIKIREADER_PATH)/patches"
 BR2_TOOLCHAIN_EXTERNAL=y
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM=y
