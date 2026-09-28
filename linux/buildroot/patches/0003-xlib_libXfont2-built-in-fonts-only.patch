@@ -1,0 +1,53 @@
+diff --git a/package/x11r7/xlib_libXfont2/Config.in b/package/x11r7/xlib_libXfont2/Config.in
+index fc2ebfe2..6647f122 100644
+--- a/package/x11r7/xlib_libXfont2/Config.in
++++ b/package/x11r7/xlib_libXfont2/Config.in
+@@ -1,9 +1,20 @@
+ config BR2_PACKAGE_XLIB_LIBXFONT2
+ 	bool "libXfont2"
+-	select BR2_PACKAGE_FREETYPE
++	select BR2_PACKAGE_FREETYPE if !BR2_PACKAGE_XLIB_LIBXFONT2_BUILTIN_FONTS_ONLY
+ 	select BR2_PACKAGE_XLIB_LIBFONTENC
+ 	select BR2_PACKAGE_XLIB_XTRANS
+ 	select BR2_PACKAGE_XFONT_ENCODINGS
+ 	select BR2_PACKAGE_XORGPROTO
+ 	help
+ 	  X.Org Xfont library
++
++if BR2_PACKAGE_XLIB_LIBXFONT2
++
++config BR2_PACKAGE_XLIB_LIBXFONT2_BUILTIN_FONTS_ONLY
++	bool "built-in fonts only"
++	help
++	  Only the fonts compiled into the library (fixed and cursor):
++	  no FreeType, no font files, no font server, for a server that
++	  has nothing else to show.
++
++endif
+diff --git a/package/x11r7/xlib_libXfont2/xlib_libXfont2.mk b/package/x11r7/xlib_libXfont2/xlib_libXfont2.mk
+index a881a4c5..f40f704d 100644
+--- a/package/x11r7/xlib_libXfont2/xlib_libXfont2.mk
++++ b/package/x11r7/xlib_libXfont2/xlib_libXfont2.mk
+@@ -13,7 +13,6 @@ XLIB_LIBXFONT2_CPE_ID_VENDOR = x
+ XLIB_LIBXFONT2_CPE_ID_PRODUCT = libxfont
+ XLIB_LIBXFONT2_INSTALL_STAGING = YES
+ XLIB_LIBXFONT2_DEPENDENCIES = \
+-	freetype \
+ 	xlib_libfontenc \
+ 	xlib_xtrans \
+ 	xorgproto \
+@@ -31,6 +30,14 @@ HOST_XLIB_LIBXFONT2_DEPENDENCIES = \
+ 	host-xfont_encodings
+ 
+ XLIB_LIBXFONT2_CONF_OPTS = --disable-devel-docs
++
++ifeq ($(BR2_PACKAGE_XLIB_LIBXFONT2_BUILTIN_FONTS_ONLY),y)
++XLIB_LIBXFONT2_CONF_OPTS += --disable-freetype --disable-pcfformat \
++	--disable-bdfformat --disable-snfformat --disable-fc
++else
++XLIB_LIBXFONT2_DEPENDENCIES += freetype
++endif
++
+ HOST_XLIB_LIBXFONT2_CONF_OPTS = --disable-devel-docs
+ 
+ XLIB_LIBXFONT2_CFLAGS = $(TARGET_CFLAGS)

@@ -580,9 +580,12 @@ first button. The client libraries are static (`buildroot/patches/0002`),
 with libX11's loadable modules turned off. `fbFillSpans` finds each
 span's clip band by bisection (patch 0005) instead of walking every clip
 box: a shaped window such as xeyes' has a box or two a row, and the walk
-was most of the cost of filling its pupils. `Xfbdev` is 2.0 MB of code and
-xeyes 1.3 MB, 410 KB of it libX11's East Asian conversion tables; each uses
-about 4.5 MB and 1.4 MB of memory running.
+was most of the cost of filling its pupils. libX11 is built without its East Asian
+multi-byte charsets (`buildroot/external/patches/xlib_libX11`), whose tables
+were 410 KB of every X program, and libXfont2 with only its built-in fonts
+(`buildroot/patches/0003`: no FreeType or font-file readers, 575 KB of the
+server). `Xfbdev` is 1.6 MB, twm 1.1 MB and xeyes 1.0 MB; startup is mostly
+reading them from the card.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

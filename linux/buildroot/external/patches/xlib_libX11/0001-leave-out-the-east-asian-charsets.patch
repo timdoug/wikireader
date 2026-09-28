@@ -1,0 +1,80 @@
+From 675ee87674f5b71d164515f40640259cbec51052 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Mon, 28 Sep 2026 11:59:07 -0400
+Subject: [PATCH] Leave out the East Asian charsets
+
+Their conversion tables were 410 KB of every statically linked X
+program, on a server with no fonts that could show them.
+---
+ src/xlibi18n/lcUTF8.c | 43 +++++--------------------------------------
+ 1 file changed, 5 insertions(+), 38 deletions(-)
+
+diff --git a/src/xlibi18n/lcUTF8.c b/src/xlibi18n/lcUTF8.c
+index 8169608..4212e12 100644
+--- a/src/xlibi18n/lcUTF8.c
++++ b/src/xlibi18n/lcUTF8.c
+@@ -204,15 +204,12 @@ typedef struct {
+     unsigned short used; /* bitmask of used entries */
+ } Summary16;
+ 
+-#include "lcUniConv/gb2312.h"
+-#include "lcUniConv/jisx0208.h"
+-#include "lcUniConv/jisx0212.h"
+-#include "lcUniConv/ksc5601.h"
+-#include "lcUniConv/big5.h"
+-#include "lcUniConv/big5_emacs.h"
+-#include "lcUniConv/big5hkscs.h"
+-#include "lcUniConv/gbk.h"
+ 
++/*
++ * No East Asian multi-byte charsets (GB2312, JIS X 0208/0212, KS C 5601,
++ * Big5, GBK, Big5-HKSCS): their tables were 410 KB of every static X
++ * program on the WikiReader, whose server has only its built-in fonts.
++ */
+ static Utf8ConvRec all_charsets[] = {
+     /* The ISO10646-1/UTF-8 entry occurs twice, once at the beginning
+        (for lookup speed), once at the end (as a fallback).  */
+@@ -271,21 +268,6 @@ static Utf8ConvRec all_charsets[] = {
+     { "TIS620-0", NULLQUARK,
+ 	tis620_mbtowc, tis620_wctomb
+     },
+-    { "GB2312.1980-0", NULLQUARK,
+-	gb2312_mbtowc, gb2312_wctomb
+-    },
+-    { "JISX0208.1983-0", NULLQUARK,
+-	jisx0208_mbtowc, jisx0208_wctomb
+-    },
+-    { "JISX0208.1990-0", NULLQUARK,
+-	jisx0208_mbtowc, jisx0208_wctomb
+-    },
+-    { "JISX0212.1990-0", NULLQUARK,
+-	jisx0212_mbtowc, jisx0212_wctomb
+-    },
+-    { "KSC5601.1987-0", NULLQUARK,
+-	ksc5601_mbtowc, ksc5601_wctomb
+-    },
+     { "KOI8-R", NULLQUARK,
+ 	koi8_r_mbtowc, koi8_r_wctomb
+     },
+@@ -331,21 +313,6 @@ static Utf8ConvRec all_charsets[] = {
+     { "MICROSOFT-CP1256", NULLQUARK,
+ 	cp1256_mbtowc, cp1256_wctomb
+     },
+-    { "BIG5-0", NULLQUARK,
+-	big5_mbtowc, big5_wctomb
+-    },
+-    { "BIG5-E0", NULLQUARK,
+-	big5_0_mbtowc, big5_0_wctomb
+-    },
+-    { "BIG5-E1", NULLQUARK,
+-	big5_1_mbtowc, big5_1_wctomb
+-    },
+-    { "GBK-0", NULLQUARK,
+-	gbk_mbtowc, gbk_wctomb
+-    },
+-    { "BIG5HKSCS-0", NULLQUARK,
+-	big5hkscs_mbtowc, big5hkscs_wctomb
+-    },
+ 
+     /* The ISO10646-1/UTF-8 entry occurs twice, once at the beginning
+        (for lookup speed), once at the end (as a fallback).  */
