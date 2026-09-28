@@ -538,10 +538,15 @@ its own copy of the screen), drops touches and keys, stops its blank and
 suspend timers, and answers; when VT 1 comes back it repaints. Its VT's
 keyboard mode is `K_OFF`, since the console reads the keyboards itself.
 
-`xrun [CLIENT]` runs an X client, `xeyes` by default, on the panel: it starts
-`Xfbdev` on the touchscreen and the buttons, waits for its socket, runs the
-client, and stops the server when the client exits, which gives VT 1 back to
-the console. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
+`xrun [CLIENT]` runs an X client on the panel: it starts `Xfbdev` on the
+touchscreen and the buttons, with the classic grey weave (`-retro`), waits
+for its socket, runs the client, and stops the server when the client exits,
+which gives VT 1 back to the console. With no client it runs twm and xeyes;
+holding on the background opens twm's menu, whose Exit ends the session.
+twm's configuration (`wikireader.twmrc`) uses the server's built-in `fixed`
+font and places windows itself, since placing one by hand is awkward by
+touch. Menu commands start through `system()`, which uClibc does with
+`vfork`. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
 the last release that has it (`buildroot/external/package/xserver-kdrive`).
 Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
 compiled at build time instead of running `xkbcomp` (the image carries no

@@ -1,0 +1,39 @@
+#
+# twm on the WikiReader's 240x208 one-bit panel, driven by touch: a touch is
+# the first button, so holding on the background opens the menu, and holding
+# on a title bar moves the window.  The server has only its built-in fonts.
+#
+
+NoGrabServer
+DecorateTransients
+RandomPlacement
+TitleFont "fixed"
+ResizeFont "fixed"
+MenuFont "fixed"
+IconFont "fixed"
+IconManagerFont "fixed"
+BorderWidth 1
+
+MoveDelta 3
+Function "move-or-raise" { f.move f.deltastop f.raise }
+
+Button1 = : root : f.menu "session"
+Button1 = : title : f.function "move-or-raise"
+Button1 = : icon : f.iconify
+
+menu "session"
+{
+"Twm"		f.title
+"Xeyes"		f.exec "exec xeyes &"
+""		f.nop
+"Move"		f.move
+"Resize"	f.resize
+"Raise"		f.raise
+"Lower"		f.lower
+"Iconify"	f.iconify
+""		f.nop
+"Kill"		f.destroy
+"Delete"	f.delete
+""		f.nop
+"Exit"		f.quit
+}

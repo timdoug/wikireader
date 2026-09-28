@@ -1,9 +1,11 @@
 #!/bin/sh
 # xrun [CLIENT [ARGS...]]: start the X server on the panel, the touchscreen
-# and the buttons, run CLIENT (xeyes by default) on it, and stop the server
-# when CLIENT exits, which gives the panel back to the console.
+# and the buttons, run CLIENT on it, and stop the server when CLIENT exits,
+# which gives the panel back to the console.  With no CLIENT the session is
+# twm with xeyes, and twm's Exit ends it.
 
-[ $# -gt 0 ] || set -- xeyes
+[ $# -gt 0 ] ||
+	set -- sh -c 'xeyes & exec twm -f /usr/share/X11/twm/wikireader.twmrc'
 # Builtins only: every exec, and every $(...), costs a tenth of a second.
 for n in 0 1 2 3 4 5 6 7; do
 	# The error redirection goes first: hush applies them in order.
@@ -16,7 +18,8 @@ done
 # /tmp is on the card, so a session the power switch ended leaves these.
 rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # -noreset: the server lives exactly as long as this script wants it.
-Xfbdev :0 -noreset ${touch:+-mouse evdev,,device=$touch} \
+# -retro: the classic grey weave and X-shaped cursor.
+Xfbdev :0 -noreset -retro ${touch:+-mouse evdev,,device=$touch} \
 	${buttons:+-keybd evdev,,device=$buttons} 2>/tmp/Xfbdev.log &
 server=$!
 while [ ! -S /tmp/.X11-unix/X0 ]; do
