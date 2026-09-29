@@ -388,7 +388,8 @@ The kernel follows them least:
   battery's power supply); those drivers match device-tree nodes already.
   Patch 0014, the battery's status when nothing supplies it, is a real fix.
 - The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
-  program with no C library. The Linux compiler keeps `-mno-fdpic`, as ARM's
+  program with no C library. On the device 2026-09-29: prompt 4.82 s,
+  `check` clean, the thread and C++ tests pass. The Linux compiler keeps `-mno-fdpic`, as ARM's
   FDPIC target keeps its non-FDPIC mode.
 - The port is `overlay/` copied over a pinned tag, not a patch series.
 - The early LCD console is the architecture's own, not `earlycon` or fbcon;
