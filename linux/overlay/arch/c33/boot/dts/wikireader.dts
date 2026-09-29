@@ -1,0 +1,291 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * The Openmoko WikiReader: an Epson S1C33E07, SDRAM the controller sizes
+ * (so no /memory node), a 240x208 monochrome panel, a serial touchscreen,
+ * three buttons and a power switch, and the SD card the system runs from.
+ * A GPIO is numbered port * 8 + bit: P32 is 26.
+ */
+/dts-v1/;
+
+#include <dt-bindings/input/input.h>
+#include "s1c33e07.dtsi"
+
+/ {
+	model = "Openmoko WikiReader";
+	compatible = "openmoko,wikireader", "epson,s1c33e07";
+
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart1;
+	};
+
+	/*
+	 * The card's 3.3 V rail is switched by P32 and the level buffer
+	 * between it and the S1C33 by P33.  The rail needs a millisecond to
+	 * settle before the buffer may drive, and ten microseconds off before
+	 * it may come back on.
+	 */
+	sd_vcc: regulator-sd-vcc {
+		compatible = "regulator-fixed";
+		regulator-name = "sd-vcc";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pinctrl 26 GPIO_ACTIVE_LOW>;
+		startup-delay-us = <1000>;
+		off-on-delay-us = <10>;
+	};
+
+	sd_buffer: regulator-sd-buffer {
+		compatible = "regulator-fixed";
+		regulator-name = "sd-buffer";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pinctrl 27 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	/*
+	 * The converter's reference is the 3.3 V rail itself, which also
+	 * feeds the thermistor's pull-up, so temperatures are ratiometric.
+	 */
+	avdd: regulator-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "avdd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	/* Contrast: 4096 ticks of MCLK, used only if the loader left it off. */
+	panel {
+		compatible = "openmoko,wikireader-lcd";
+		pwms = <&pwm 0 68267 0>;
+	};
+
+	/*
+	 * The front buttons are P60..P62 and the power switch P03, all
+	 * pressed high: P03 reads low with nobody near the switch, and an
+	 * active-low description made every resume report a fresh press.
+	 */
+	gpio-keys {
+		compatible = "gpio-keys";
+		label = "WikiReader buttons";
+
+		key-random {
+			label = "random";
+			linux,code = <KEY_F1>;
+			gpios = <&pinctrl 48 GPIO_ACTIVE_HIGH>;
+		};
+
+		key-search {
+			label = "search";
+			linux,code = <KEY_SEARCH>;
+			gpios = <&pinctrl 49 GPIO_ACTIVE_HIGH>;
+		};
+
+		key-history {
+			label = "history";
+			linux,code = <KEY_BACK>;
+			gpios = <&pinctrl 50 GPIO_ACTIVE_HIGH>;
+		};
+
+		key-power {
+			label = "power";
+			linux,code = <KEY_POWER>;
+			gpios = <&pinctrl 3 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	/*
+	 * The converter's inputs: AIN0 is the battery through a 150k/1M
+	 * divider, AIN1 a 100k NTC thermistor under a 120k pull-up to the
+	 * 3.3 V rail, and AIN2 the panel's V4 bias.  The thermistor is a
+	 * TCT6GJ104H410, which ntc_thermistor does not list; the Murata
+	 * NCP03WF104 it does is the same 100k at 25 C with a B of 4250 K.
+	 */
+	battery_divider: voltage-divider {
+		compatible = "voltage-divider";
+		io-channels = <&adc 0>;
+		output-ohms = <1000000>;
+		full-ohms = <1150000>;
+		#io-channel-cells = <1>;
+	};
+
+	battery {
+		compatible = "adc-battery";
+		io-channels = <&battery_divider 0>;
+		io-channel-names = "voltage";
+	};
+
+	thermistor {
+		compatible = "murata,ncp03wf104";
+		io-channels = <&adc 1>;
+		pullup-uv = <3300000>;
+		pullup-ohm = <120000>;
+		pulldown-ohm = <0>;
+	};
+};
+
+&adc {
+	vref-supply = <&avdd>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&adc_pins>;
+	status = "okay";
+};
+
+&lcdc {
+	/* The panel's display-enable line; the controller is on its own. */
+	enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&lcd_pins>;
+	status = "okay";
+};
+
+&pinctrl {
+	/* The SPI flash shares the card's bus; its chip select is held high. */
+	flash-cs-hog {
+		gpio-hog;
+		gpios = <42 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "flash-cs";
+	};
+
+	adc_pins: adc-pins {
+		ain0 {
+			pins = "P70";
+			function = "ain0";
+		};
+		ain1 {
+			pins = "P71";
+			function = "ain1";
+		};
+		ain2 {
+			pins = "P72";
+			function = "ain2";
+		};
+	};
+
+	lcd_pins: lcd-pins {
+		fpframe {
+			pins = "P80";
+			function = "fpframe";
+		};
+		fpline {
+			pins = "P81";
+			function = "fpline";
+		};
+		fpshift {
+			pins = "P82";
+			function = "fpshift";
+		};
+		fpdrdy {
+			pins = "P83";
+			function = "fpdrdy";
+		};
+		fpdat4 {
+			pins = "P94";
+			function = "fpdat4";
+		};
+		fpdat5 {
+			pins = "P95";
+			function = "fpdat5";
+		};
+		fpdat6 {
+			pins = "P96";
+			function = "fpdat6";
+		};
+		fpdat7 {
+			pins = "P97";
+			function = "fpdat7";
+		};
+	};
+
+	pwm_pins: pwm-pins {
+		pins = "P11";
+		function = "tm1";
+	};
+
+	sd_pins: sd-pins {
+		sdi {
+			pins = "P65";
+			function = "sdi";
+		};
+		sdo {
+			pins = "P66";
+			function = "sdo";
+		};
+		clk {
+			pins = "P67";
+			function = "spi_clk";
+		};
+	};
+
+	/* SCLK as a port at its idle level while the controller restarts. */
+	sd_hold_pins: sd-hold-pins {
+		pins = "P67";
+		function = "gpio";
+		output-low;
+	};
+
+	uart0_pins: uart0-pins {
+		sin0 {
+			pins = "P00";
+			function = "sin0";
+		};
+		sout0 {
+			pins = "P01";
+			function = "sout0";
+		};
+	};
+
+	/* The touch panel only talks. */
+	uart1_pins: uart1-pins {
+		pins = "P04";
+		function = "sin1";
+	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_pins>;
+	status = "okay";
+};
+
+/*
+ * The card is the only device on the synchronous serial interface, run at
+ * MCLK/4 as Grifo and the original firmware do; the flash's chip select is
+ * the hog above.  The card is soldered in: the system runs from it.
+ */
+&sd {
+	cs-gpios = <&pinctrl 40 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&sd_vcc>;
+	vqmmc-supply = <&sd_buffer>;
+	pinctrl-names = "default", "hold";
+	pinctrl-0 = <&sd_pins>;
+	pinctrl-1 = <&sd_hold_pins>;
+	status = "okay";
+};
+
+&uart0 {
+	current-speed = <115200>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+&uart1 {
+	current-speed = <9600>;
+	epson,rx-only;
+	wakeup-source;
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins>;
+	status = "okay";
+
+	touchscreen {
+		compatible = "openmoko,wikireader-touchscreen";
+		reset-gpios = <&pinctrl 7 GPIO_ACTIVE_HIGH>;
+		current-speed = <9600>;
+		touchscreen-size-x = <240>;
+		touchscreen-size-y = <208>;
+	};
+};

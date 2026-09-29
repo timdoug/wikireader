@@ -40,7 +40,7 @@ fi
 
 # The battery through its divider and the board's thermistor, both read
 # by the stock drivers over the converter.
-battery=/sys/class/power_supply/generic-adc-battery
+battery=/sys/class/power_supply/battery
 read -r battery_uv < $battery/voltage_now
 read -r battery_status < $battery/status
 board_mc=
@@ -113,9 +113,9 @@ timer_report() {
 	show_value current_clocksource \
 		/sys/devices/system/clocksource/clocksource0/current_clocksource
 	show_value "fb0 blank state" /sys/class/graphics/fb0/blank
-	show_value "uart1 wakeup" /sys/devices/platform/s1c33-uart.1/power/wakeup
-	show_value "uart1 wakeup_count" \
-		/sys/devices/platform/s1c33-uart.1/power/wakeup_count
+	uart1=/sys/bus/platform/devices/300b10.serial
+	show_value "uart1 wakeup" $uart1/power/wakeup
+	show_value "uart1 wakeup_count" $uart1/power/wakeup_count
 	echo "--- interrupts, then again after sleeping 5 ---"
 	show_file /proc/interrupts
 	read before rest < /proc/uptime

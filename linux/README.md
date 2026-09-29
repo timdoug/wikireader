@@ -33,12 +33,22 @@ trusts them only when the incoming trap table says a launcher is resident.
 
 Linux takes its memory size from the SDRAM controller's address
 configuration rather than a build-time constant, so one image serves both the
-16 MiB production boards and the 32 MiB early ones. The S1C33 interrupt
-controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a linear
-irqdomain whose hardware interrupt numbers are the trap vectors; the arch
-calls its init from `init_IRQ()`, the board file maps the vectors it puts in
-platform resources through the domain, and the trap entry routes each vector
-to the domain rather than treating it as a Linux IRQ number. The domain's
+16 MiB production boards and the 32 MiB early ones.
+
+The board is a device tree, `arch/c33/boot/dts/wikireader.dts` over the
+chip's `s1c33e07.dtsi`, built into the kernel (`GENERIC_BUILTIN_DTB`), since
+Grifo loads the kernel alone; it has no `/memory` node and no bootargs,
+which the SDRAM controller and the launcher supply. Every driver matches by
+`compatible`, and each device finds its clocks, pins, GPIOs, supplies, DMA
+channels and PWM through the tree's references, which also order the
+probes. The device-tree core costs the kernel about 100 KB. The S1C33
+interrupt controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a
+linear irqdomain whose hardware interrupt numbers are the trap vectors. The
+tree names an interrupt `<vector priority>`, and the controller sets the
+priority nibble of the vector's group, so no driver writes the controller's
+registers; a source starts with its pending flag cleared. The trap entry
+routes each vector to the domain rather than treating it as a Linux IRQ
+number. The domain's
 allocator prefers the hardware number when it is free, so `/proc/interrupts`
 still reads in vectors. The timer and both UARTs use normal `request_irq()`
 registrations visible there. Linux runs the scheduler, registers the
@@ -173,7 +183,7 @@ character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
 
 The three front buttons on P60..P62 and the power switch on P03, all of
-them pressed high, are a `gpio-keys` device described by software nodes,
+them pressed high, are a `gpio-keys` device in the device tree,
 reporting `KEY_F1` (random), `KEY_SEARCH`, `KEY_BACK` (history) and
 `KEY_POWER`. They interrupt through the port block: key input 0 compares
 P60..P62 with a stored pattern, and port input 3 watches P03 for the edge
@@ -184,13 +194,12 @@ the machine slept again four seconds after each wake.
 
 Pins belong to `drivers/pinctrl/pinctrl-s1c33.c`, a pin controller for ports
 0 to 9 that is also the GPIO chip for ports 0 to 6. Every pin is a group of
-its own with the manual's functions for it, so the board's pin map, a
-`pinctrl_map` table, reads like the manual: P65 is `sdi`, P11 `tm1`, P70
-`ain0`. The driver core applies each device's default state before its
-probe, and requesting a line as a GPIO selects its port function, so the
-board file writes no port registers. The SPI flash's chip select, which
-shares the card's bus, is held high by a GPIO hog on the chip's software
-node. The generic `output-low` configuration parks a pin as a port output,
+its own with the manual's functions for it, so the device tree's pin states
+read like the manual (`pins = "P65"; function = "sdi";`). The driver core
+applies each device's default state before its probe, and requesting a
+line as a GPIO selects its port function, so nothing else writes port
+registers. The SPI flash's chip select, which shares the card's bus, is
+held high by a GPIO hog. The generic `output-low` configuration parks a pin as a port output,
 which is how the SD host holds its clock still.
 
 The panel's contrast is a PWM: the firmware runs timer 1 at MCLK/4096 with
@@ -199,8 +208,8 @@ leaves it running. `drivers/pwm/pwm-s1c33.c` drives one timer channel as a
 PWM chip, adopting the running configuration rather than restarting it and
 moving only comparison A when the period is unchanged so the output keeps its
 phase; it never touches the ADVMODE and PAUSE registers it shares with the
-clocksource. `drivers/video/backlight/wikireader_lcd.c` consumes it through a
-board `pwm_lookup` and exposes the firmware's number as
+clocksource. `drivers/video/backlight/wikireader_lcd.c` consumes it through
+the tree's `pwms` and exposes the firmware's number as
 `/sys/class/lcd/wikireader/contrast`, reading the value back from the PWM at
 probe so a boot changes nothing on the panel. Timer 1's CMU gate is a clock
 the PWM driver holds, which is what keeps the panel lit once the clock core
@@ -209,21 +218,17 @@ turns off every gate nobody claimed.
 The battery and the board temperature come from the chip's 10-bit A/D
 converter, `drivers/iio/adc/s1c33-adc.c`, an IIO device that converts one
 channel per read against AVDD, a fixed 3.3 V regulator it takes as `vref`.
-Everything above it is a stock driver wired by software-node `io-channels`
+Everything above it is a stock driver wired by the tree's `io-channels`
 references. AIN0 sees the two AAA cells through a 150k/1M divider, which
 `iio-rescale` undoes as a `voltage-divider`, and `generic-adc-battery`
-publishes the result as `/sys/class/power_supply/generic-adc-battery`, with
+publishes the result as `/sys/class/power_supply/battery`, with
 `voltage_now` in microvolts and `status` Discharging. AIN1 is a 100k NTC
 thermistor under a 120k pull-up to the same rail; `ntc_thermistor` reads it
 as `/sys/class/hwmon/hwmon*/temp1_input` in millidegrees. The part, a
 TCT6GJ104H410, is not in that driver's tables, so the board names the Murata
 NCP03WF104, another 100k thermistor with B = 4250 K. AIN2, the panel's V4
-bias, is a plain IIO channel. Four upstream fixes make this work without a
-device tree: `iio-rescale` and `ntc_thermistor` fall back to their
-platform-device ID when there is no match data, `generic-adc-battery` treats
-a battery nothing supplies as discharging rather than charging, and a
-software node shared by a device and its same-named power supply no longer
-warns about the duplicate sysfs link.
+bias, is a plain IIO channel. `patches/0014` makes `generic-adc-battery`
+treat a battery nothing supplies as discharging rather than charging.
 
 The chip's watchdog is `drivers/watchdog/s1c33_wdt.c` on the watchdog core:
 a 30-bit counter on MCLK that resets the chip at most 17.9 s after its last
@@ -715,8 +720,8 @@ only a new clock rate does that, a few times a boot, and SCLK sits in the
 `hold` pin state, a port output at its idle level, across it. The switch
 through the pin-control core costs about 0.4 ms on this CPU, which is why it
 could not stay per block: two character-size changes a block made card
-reads two and a half times slower. The driver takes the slot's active-low
-chip select from the board's software node. The
+reads two and a half times slower. The slot's active-low chip select is
+the tree's `cs-gpios`. The
 card's 3.3 V rail and the level buffer between it and the S1C33 are two
 GPIO-switched fixed regulators that the driver consumes as `vmmc` and
 `vqmmc`; the settling time before the buffer may drive and the off time

@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Clock-rate discovery and common-clock registration for the S1C33E07. */
 #include <linux/clk-provider.h>
-#include <linux/clkdev.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/of.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
 #include <asm/clock.h>
+
+#include <dt-bindings/clock/s1c33-cmu.h>
 
 #define C33_CMU_GATE1   0x00301b04UL
 #define C33_CMU_CLKCNTL 0x00301b08UL
@@ -185,56 +187,47 @@ static struct c33_gate * const c33_gates[] = {
 	&c33_wdt_gate,
 };
 
-static const struct {
-	struct c33_gate *gate;
-	const char *con_id;
-	const char *dev_id;
-} c33_clock_consumers[] = {
-	{ &c33_efsio_gate, NULL,  "s1c33-uart.0" },
-	{ &c33_efsio_gate, NULL,  "s1c33-uart.1" },
-	{ &c33_spi_gate,   NULL,  "s1c33-sd" },
-	{ &c33_dma_gate,   NULL,  "s1c33-hsdma" },
-	{ &c33_tm1_gate,   NULL,  "s1c33-pwm" },
-	{ &c33_adc_gate,   NULL,  "s1c33-adc" },
-	{ &c33_wdt_gate,   NULL,  "s1c33-wdt" },
+/* Indexed as the device tree names them (dt-bindings/clock/s1c33-cmu.h). */
+static struct clk_hw_onecell_data c33_cmu_clocks = {
+	.num = S1C33_CLK_WDT + 1,
+	.hws = {
+		[S1C33_CLK_MCLK] = &c33_mclk_hw,
+		[S1C33_CLK_SPI] = &c33_spi_gate.hw,
+		[S1C33_CLK_HSDMA] = &c33_dma_gate.hw,
+		[S1C33_CLK_EFSIO] = &c33_efsio_gate.hw,
+		[S1C33_CLK_TM1] = &c33_tm1_gate.hw,
+		[S1C33_CLK_ADC] = &c33_adc_gate.hw,
+		[S1C33_CLK_WDT] = &c33_wdt_gate.hw,
+	},
 };
 
-static int __init c33_clock_init(void)
+/* From time_init(), before the timer asks it for MCLK's rate. */
+static void __init c33_cmu_init(struct device_node *node)
 {
-	struct clk_lookup *lookups[ARRAY_SIZE(c33_clock_consumers)];
 	unsigned int registered;
-	unsigned int i;
 	int ret;
 
 	ret = clk_hw_register(NULL, &c33_mclk_hw);
 	if (ret)
-		return ret;
+		goto err;
 	for (registered = 0; registered < ARRAY_SIZE(c33_gates); registered++) {
 		ret = clk_hw_register(NULL, &c33_gates[registered]->hw);
 		if (ret)
 			goto err_drop_gates;
 	}
-	for (i = 0; i < ARRAY_SIZE(c33_clock_consumers); i++) {
-		lookups[i] = clkdev_hw_create(&c33_clock_consumers[i].gate->hw,
-					      c33_clock_consumers[i].con_id,
-					      "%s",
-					      c33_clock_consumers[i].dev_id);
-		if (!lookups[i]) {
-			ret = -ENOMEM;
-			goto err_drop_lookups;
-		}
-	}
+	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get,
+				     &c33_cmu_clocks);
+	if (ret)
+		goto err_drop_gates;
 	pr_info("C33 clock: registered %lu Hz MCLK and %zu peripheral gates\n",
 		c33_mclk_hz(), ARRAY_SIZE(c33_gates));
-	return 0;
+	return;
 
-err_drop_lookups:
-	while (i)
-		clkdev_drop(lookups[--i]);
 err_drop_gates:
 	while (registered)
 		clk_hw_unregister(&c33_gates[--registered]->hw);
 	clk_hw_unregister(&c33_mclk_hw);
-	return ret;
+err:
+	pr_err("C33 clock: registration failed: %d\n", ret);
 }
-postcore_initcall(c33_clock_init);
+CLK_OF_DECLARE(c33_cmu, "epson,s1c33-cmu", c33_cmu_init);

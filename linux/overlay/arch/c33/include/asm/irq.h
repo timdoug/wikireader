@@ -2,27 +2,8 @@
 #ifndef _ASM_C33_IRQ_H
 #define _ASM_C33_IRQ_H
 
+/* Linux numbers, handed out by the ITC's domain for the device tree's vectors. */
 #define NR_IRQS 64
-
-/*
- * Trap vectors of the causes the board uses.  These are hardware interrupt
- * numbers: the ITC's irqdomain (drivers/irqchip/irq-s1c33.c) maps them to
- * Linux ones, through s1c33_itc_irq().
- */
-#define C33_IRQ_PORT3        19
-#define C33_IRQ_KEY0         20
-#define C33_IRQ_HSDMA0       22
-#define C33_IRQ_HSDMA1       23
-#define C33_IRQ_HSDMA2       24
-#define C33_IRQ_HSDMA3       25
-#define C33_IRQ_TIMER2       38
-#define C33_IRQ_TIMER3       42
-#define C33_IRQ_UART0_ERROR  56
-#define C33_IRQ_UART0_RX     57
-#define C33_IRQ_UART0_TX     58
-#define C33_IRQ_UART1_ERROR  60
-#define C33_IRQ_UART1_RX     61
-#define C33_IRQ_UART1_TX     62
 
 static inline int irq_canonicalize(int irq)
 {

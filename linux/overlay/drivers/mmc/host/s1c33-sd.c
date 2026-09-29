@@ -46,7 +46,6 @@
 #include <linux/timex.h>
 #include <linux/unaligned.h>
 
-#include <linux/platform_data/s1c33-sd.h>
 
 #include <asm/iram.h>
 
@@ -163,7 +162,6 @@ struct s1c33_sd {
 	struct hrtimer stream_timer;
 	bool idle_polls;		/* the idle loop spins rather than halts */
 	bool no_stream;			/* the card shifts its tokens */
-	const struct s1c33_sd_platform_data *pdata;
 	struct gpio_desc *cs;
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_default;
@@ -1750,7 +1748,8 @@ static void sd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		break;
 	case MMC_POWER_UP:
 		sd_setpower(host, ios->vdd);
-		msleep(host->pdata->powerup_msecs);
+		/* The supply's ramp: post-power-on-delay-ms, 10 by default. */
+		msleep(ios->power_delay_ms);
 		break;
 	case MMC_POWER_ON:
 		sd_initsequence(host);
@@ -1896,8 +1895,6 @@ module_param_named(timing, timing_from_boot, bool, 0444);
 
 static int sd_probe(struct platform_device *pdev)
 {
-	const struct s1c33_sd_platform_data *pdata =
-		dev_get_platdata(&pdev->dev);
 	struct device *dev = &pdev->dev;
 	struct s1c33_sd *host;
 	struct mmc_host *mmc;
@@ -1905,15 +1902,12 @@ static int sd_probe(struct platform_device *pdev)
 	struct clk *clk;
 	int ret;
 
-	if (!pdata)
-		return -EINVAL;
 	mmc = devm_mmc_alloc_host(dev, sizeof(*host));
 	if (!mmc)
 		return -ENOMEM;
 	host = mmc_priv(mmc);
 	host->mmc = mmc;
 	host->dev = dev;
-	host->pdata = pdata;
 	host->control = ~0U;
 	host->power_mode = MMC_POWER_OFF;
 	host->timing.on = timing_from_boot;
@@ -2004,6 +1998,9 @@ static int sd_probe(struct platform_device *pdev)
 	mmc->max_blk_count = SD_BLOCKSATONCE;
 	mmc->max_req_size = SD_BLOCKSATONCE * SD_BLOCKSIZE;
 	mmc->max_seg_size = mmc->max_req_size;
+	ret = mmc_of_parse(mmc);
+	if (ret)
+		return ret;
 	ret = mmc_regulator_get_supply(mmc);
 	if (ret)
 		return ret;
@@ -2098,8 +2095,15 @@ static struct attribute *sd_attrs[] = {
 };
 ATTRIBUTE_GROUPS(sd);
 
+static const struct of_device_id sd_of_match[] = {
+	{ .compatible = "epson,s1c33-sd" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, sd_of_match);
+
 static struct platform_driver s1c33_sd_driver = {
 	.driver.name	= "s1c33-sd",
+	.driver.of_match_table = sd_of_match,
 	.driver.dev_groups = sd_groups,
 	.probe		= sd_probe,
 	.remove		= sd_remove,

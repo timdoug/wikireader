@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * Epson S1C33E07: the peripherals of the WikiReader's processor that Linux
+ * drives.  Interrupts are <vector priority>: the trap vector is the source,
+ * and the priority, 1 to 7, is its group's level in the controller.
+ */
+#include <dt-bindings/clock/s1c33-cmu.h>
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&itc>;
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		itc: interrupt-controller@300260 {
+			compatible = "epson,s1c33-itc";
+			reg = <0x300260 0x40>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+
+		pinctrl: pinctrl@300380 {
+			compatible = "epson,s1c33-pinctrl";
+			reg = <0x300380 0x0e>, <0x3003a0 0x14>, <0x3003c0 0x16>;
+			reg-names = "port", "function", "interrupt";
+			/* Key input 0 and port input 3, below the timer. */
+			interrupts = <20 3>, <19 3>;
+			interrupt-names = "key0", "port3";
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		adc: adc@300520 {
+			compatible = "epson,s1c33-adc";
+			reg = <0x300520 0x40>;
+			clocks = <&cmu S1C33_CLK_ADC>;
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
+		wdt: watchdog@300660 {
+			compatible = "epson,s1c33-wdt";
+			reg = <0x300660 0x10>;
+			clocks = <&cmu S1C33_CLK_WDT>;
+		};
+
+		/*
+		 * The 16-bit timers: timer 0 clocks timer 5 for the
+		 * clocksource, timer 2 is the clock event and timer 3 the
+		 * suspend wake.
+		 */
+		timer: timer@300780 {
+			compatible = "epson,s1c33-t16";
+			reg = <0x300780 0x80>;
+			interrupts = <38 4>, <42 4>;
+			clocks = <&cmu S1C33_CLK_MCLK>;
+		};
+
+		/* Timer 1 as a PWM, on P11. */
+		pwm: pwm@300788 {
+			compatible = "epson,s1c33-pwm";
+			reg = <0x300788 0x8>, <0x3007e2 0x2>;
+			reg-names = "timer", "clock";
+			clocks = <&cmu S1C33_CLK_TM1>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
+		uart0: serial@300b00 {
+			compatible = "epson,s1c33-uart";
+			reg = <0x300b00 0x8>;
+			reg-names = "uart";
+			interrupts = <57 5>;
+			interrupt-names = "rx";
+			clocks = <&cmu S1C33_CLK_EFSIO>;
+			status = "disabled";
+		};
+
+		uart1: serial@300b10 {
+			compatible = "epson,s1c33-uart";
+			reg = <0x300b10 0x8>;
+			reg-names = "uart";
+			interrupts = <60 6>, <61 6>;
+			interrupt-names = "error", "rx";
+			clocks = <&cmu S1C33_CLK_EFSIO>;
+			status = "disabled";
+		};
+
+		/*
+		 * Its priority, transfer-count flags and trigger selects are
+		 * in the interrupt controller's block.
+		 */
+		hsdma: dma-controller@301100 {
+			compatible = "epson,s1c33-hsdma";
+			reg = <0x301100 0xa0>, <0x300264 0x1>, <0x300281 0x1>,
+			      <0x300298 0x2>;
+			reg-names = "dma", "priority", "flags", "triggers";
+			clocks = <&cmu S1C33_CLK_HSDMA>;
+			#dma-cells = <2>;
+		};
+
+		/*
+		 * The synchronous serial interface as an SD host in SPI mode,
+		 * its DMA flags and IDMA request in the interrupt
+		 * controller's block, and 512 bytes of IVRAM for the all-ones
+		 * the transmit DMA sends.
+		 */
+		sd: mmc@301700 {
+			compatible = "epson,s1c33-sd";
+			reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
+			      <0x082e00 0x200>;
+			reg-names = "spi", "spi-flags", "idma", "sram";
+			clocks = <&cmu S1C33_CLK_SPI>;
+			/* Channel 2 on SPI transmit, 3 on receive: trigger 9. */
+			dmas = <&hsdma 2 9>, <&hsdma 3 9>;
+			dma-names = "tx", "rx";
+			status = "disabled";
+		};
+
+		/* The LCD controller and the framebuffer in IVRAM. */
+		lcdc: display-controller@80000 {
+			compatible = "epson,s1c33-lcdc";
+			reg = <0x080000 0x1a00>, <0x301a00 0x100>;
+			reg-names = "vram", "lcdc";
+			status = "disabled";
+		};
+
+		cmu: clock-controller@301b00 {
+			compatible = "epson,s1c33-cmu";
+			reg = <0x301b00 0x30>;
+			#clock-cells = <1>;
+		};
+	};
+};

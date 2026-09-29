@@ -10,11 +10,14 @@
  * clock event through the interrupt controller.
  */
 #include <linux/bitops.h>
+#include <linux/clk.h>
 #include <linux/clockchips.h>
 #include <linux/clocksource.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/of.h>
+#include <linux/of_irq.h>
 #include <linux/sched_clock.h>
 #include <linux/suspend.h>
 
@@ -50,10 +53,6 @@
 #define S1C33_P7_EXCL5		0x02
 #define S1C33_CFP_MASK		0x03
 
-#define S1C33_ITC_PRIORITY	0x00300267UL
-#define S1C33_ITC_FLAGS		0x00300283UL
-#define S1C33_ITC_T2_FLAGS	0x0c
-#define S1C33_ITC_T2_PRIORITY	4
 
 #define S1C33_COUNT_LOW		0
 #define S1C33_COUNT_HIGH	5
@@ -69,8 +68,6 @@
  * core ignores, the way it ignores an HSDMA completion.
  */
 #define S1C33_WAKE_SECONDS	4
-#define S1C33_ITC_WAKE_FLAGS	0xc0
-#define S1C33_ITC_WAKE_PRIORITY	0x40
 
 /* The counter reaches CRB inclusive, so a period of n counts programs n - 1. */
 #define S1C33_MIN_DELTA		2
@@ -257,9 +254,6 @@ static void __init s1c33_clockevent_init(unsigned long rate, int irq)
 		  S1C33_T16_CLKCTL(S1C33_EVENT));
 	t16_write(0xffff, S1C33_T16_CRA(S1C33_EVENT));
 
-	writeb((readb((void __iomem *)S1C33_ITC_PRIORITY) & 0xf8) |
-	       S1C33_ITC_T2_PRIORITY, (void __iomem *)S1C33_ITC_PRIORITY);
-	writeb(S1C33_ITC_T2_FLAGS, (void __iomem *)S1C33_ITC_FLAGS);
 
 	s1c33_clockevent.cpumask = cpumask_of(0);
 	s1c33_clockevent.irq = irq;
@@ -340,9 +334,6 @@ static void __init s1c33_wake_init(unsigned long rate, int irq)
 	t16_write(S1C33_CLKCTL_ON | S1C33_CLKCTL_DIV4096,
 		  S1C33_T16_CLKCTL(S1C33_WAKE));
 	t16_write(0xffff, S1C33_T16_CRA(S1C33_WAKE));
-	writeb((readb((void __iomem *)S1C33_ITC_PRIORITY) & 0x8f) |
-	       S1C33_ITC_WAKE_PRIORITY, (void __iomem *)S1C33_ITC_PRIORITY);
-	writeb(S1C33_ITC_WAKE_FLAGS, (void __iomem *)S1C33_ITC_FLAGS);
 	if (request_irq(irq, s1c33_wake_interrupt, IRQF_TIMER | IRQF_NO_SUSPEND,
 			"s1c33-wake", NULL)) {
 		pr_warn("s1c33-timer: no suspend wake timer on IRQ %d\n", irq);
@@ -352,8 +343,25 @@ static void __init s1c33_wake_init(unsigned long rate, int irq)
 	s2idle_set_ops(&s1c33_s2idle_ops);
 }
 
-void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq, int wake_irq)
+/*
+ * "epson,s1c33-t16": the clock is MCLK, the first interrupt the clock
+ * event's (timer 2 A) and the second the suspend wake's (timer 3 A).
+ */
+static int __init s1c33_timer_of_init(struct device_node *node)
 {
+	unsigned long mclk_hz;
+	int event_irq, wake_irq;
+	struct clk *clk;
+
+	clk = of_clk_get(node, 0);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+	mclk_hz = clk_get_rate(clk);
+	event_irq = irq_of_parse_and_map(node, 0);
+	wake_irq = irq_of_parse_and_map(node, 1);
+	if (!mclk_hz || !event_irq || !wake_irq)
+		return -EINVAL;
+
 	s1c33_timer_clocks_on();
 	s1c33_counter_init(mclk_hz);
 	s1c33_clockevent_init(mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
@@ -365,4 +373,6 @@ void __init s1c33_timer_init(unsigned long mclk_hz, int event_irq, int wake_irq)
 	else
 		pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, no suspend wake poll\n",
 			mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
+	return 0;
 }
+TIMER_OF_DECLARE(s1c33_t16, "epson,s1c33-t16", s1c33_timer_of_init);

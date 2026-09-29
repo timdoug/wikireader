@@ -5,13 +5,11 @@
 #include <linux/types.h>
 
 /*
- * The Epson S1C33 interrupt controller, for an arch without a device tree:
- * the arch calls the init from init_IRQ(), maps the trap vectors it hands to
- * platform devices, and routes each trap to the domain from its entry path.
+ * The Epson S1C33 interrupt controller, "epson,s1c33-itc" in the device
+ * tree: the arch's entry path asks it whether a trap vector is one of its
+ * sources and routes the trap to its domain.
  */
-int s1c33_itc_init(void);
 bool s1c33_itc_is_source(unsigned int vector);
-int s1c33_itc_irq(unsigned int vector);
 int s1c33_itc_handle(unsigned int vector);
 
 #endif

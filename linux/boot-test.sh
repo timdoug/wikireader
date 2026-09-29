@@ -85,7 +85,6 @@ printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
 syscall_marker="C33: entered userspace syscall path"
 boot_path_expected="C33 boot: Grifo application (incoming TTBR 00000400)"
 expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
-irq_controller_expected="C33 IRQ: registered 24 interrupt sources"
 itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
 irq_userspace_expected="C33 IRQ: generic registrations"
 # The column after the chip is the hardware number, the trap vector.
@@ -94,16 +93,16 @@ blank_expected="C33 display: fbdev blank and unblank passed"
 seeded_clock_expected="C33 time: clock set from the card, @"
 random_expected="C33 random: credited a 2048-bit seed from the last boot"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
-tux_expected="s1c33-fb s1c33-fb: registered /dev/fb0, 240x208 mono; Tux logo shown"
+tux_expected="s1c33-fb 80000.display-controller: registered /dev/fb0, 240x208 mono; Tux logo shown"
 input_expected="C33 input: /dev/input/event[0-9]+ absolute touchscreen registered"
 uinput_expected="C33 input: soft keyboard registered as a uinput device"
 keyboard_expected="C33 input: keyboards feed the PTY through evdev"
 button_expected="C33 input: front button search"
-contrast_expected="wikireader-lcd wikireader-lcd: contrast 2048 of 4095 adopted from the PWM"
+contrast_expected="wikireader-lcd panel: contrast 2048 of 4095 adopted from the PWM"
 # wremu's converter reads 832 and 502: 3.08 V through the divider, 22 C.
 sensors_expected="C33 sensors: battery 3083 mV, board 22 C"
 # 2^30 counts of Grifo's 60 MHz MCLK.
-watchdog_expected="s1c33-wdt s1c33-wdt: 60000000 Hz, up to 17895 ms a period"
+watchdog_expected="s1c33-wdt 300660.watchdog: 60000000 Hz, up to 17895 ms a period"
 evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: kernel self-test passed"
@@ -116,8 +115,8 @@ sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 # Without the trailing ", no poweroff" the slot found its regulators.
 # MCLK/4 of Grifo's 60 MHz.
-sd_power_expected="s1c33-sd s1c33-sd: SD host mmc0 at up to 15000000 Hz, streamed HSDMA block reads"
-hsdma_expected="s1c33-hsdma s1c33-hsdma: 4 channels, completion polled"
+sd_power_expected="s1c33-sd 301700.mmc: SD host mmc0 at up to 15000000 Hz, streamed HSDMA block reads"
+hsdma_expected="s1c33-hsdma 301100.dma-controller: 4 channels, completion polled"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
 sd_dma_channels_expected='--- dma channels: HSDMA2 TX [1-9][0-9]*, HSDMA3 RX [1-9][0-9]* ---'
@@ -128,11 +127,10 @@ trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
 clock_expected="C33 clock: registered 60000000 Hz MCLK and 6 peripheral gates"
-gpio_expected="s1c33-pinctrl s1c33-pinctrl: registered 74 pins, 111 functions and 56 GPIOs, P03 and P60..P62 interrupting"
+gpio_expected="s1c33-pinctrl 300380.pinctrl: registered 74 pins, 111 functions and 56 GPIOs, P03 and P60..P62 interrupting"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$irq_controller_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_userspace_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$gpio_expected" "$work/boot.log" >/dev/null || \

@@ -8,6 +8,7 @@ config C33
 	select COMMON_CLK
 	select CPU_NO_EFFICIENT_FFS
 	select GENERIC_ATOMIC64
+	select GENERIC_BUILTIN_DTB
 	select GENERIC_CPU_DEVICES
 	select GENERIC_ENTRY
 	select GENERIC_IRQ_SHOW
@@ -21,11 +22,22 @@ config C33
 	select HAVE_PAGE_SIZE_4KB
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_UID16
+	select IRQCHIP
+	select OF
+	select OF_EARLY_FLATTREE
 	select S1C33_ITC
 	select THREAD_INFO_IN_TASK
+	select TIMER_OF
 
 config CPU_LITTLE_ENDIAN
 	def_bool y
+
+config BUILTIN_DTB_NAME
+	string "Built-in device tree"
+	default "wikireader"
+	help
+	  The board's device tree, from arch/c33/boot/dts, built into the
+	  kernel: Grifo loads the kernel alone.
 
 config GENERIC_CSUM
 	def_bool y

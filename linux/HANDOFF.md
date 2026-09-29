@@ -381,20 +381,22 @@ departs:
   project of its own.
 
 The kernel follows them least:
-- No device tree (`CONFIG_OF` is off). The board is C in
-  `arch/c33/kernel/devices.c`: platform devices, software nodes and GPIO
-  lookup tables, 47 of them. Patches 0011-0013 exist only for that (platform
-  IDs for `iio-rescale` and `ntc_thermistor`, a software-node link for the
-  battery's power supply); those drivers match device-tree nodes already.
-  Patch 0014, the battery's status when nothing supplies it, is a real fix.
+- The board is a device tree (`arch/c33/boot/dts/`), built into the kernel;
+  every driver matches by `compatible`, and interrupts carry their priority
+  (`<vector priority>`), which the interrupt controller sets. It costs about
+  100 KB of kernel and, in wremu on a contiguous card, 0.74 s of boot
+  (4.64 -> 5.38 s to the prompt): device links 0.22 s (`fw_devlink=off`
+  gives it back), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
+  checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
+  0.11 s, the rest in creating devices from 52 nodes and about 260
+  properties. Not yet run on the device.
 - The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
   program with no C library. On the device 2026-09-29: prompt 4.82 s,
   `check` clean, the thread and C++ tests pass. The Linux compiler keeps `-mno-fdpic`, as ARM's
   FDPIC target keeps its non-FDPIC mode.
 - The port is `overlay/` copied over a pinned tag, not a patch series.
 - The early LCD console is the architecture's own, not `earlycon` or fbcon;
-  patch 0018 changes the VT core for boot time; the interrupt controller's
-  priorities are written by the drivers that know their cause.
+  patch 0018 changes the VT core for boot time.
 
 ## What is left, in the order I would take it
 
@@ -413,9 +415,10 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **Device tree.** A `.dts` for the WikiReader, `CONFIG_OF`, drivers matched
-   by `compatible`; `devices.c` and patches 0011-0013 go. Measure what the OF
-   core costs a no-module kernel on 32 MB, in size and in boot time.
+2. **The device tree's boot cost** (see "Standards"): run it on the device
+   first, then decide. Named pin groups (`"uart0"` for P00 and P01) instead
+   of a node per pin would take 17 of the 52 nodes; `fw_devlink=off` is a
+   standard switch worth 0.22 s.
 3. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
    link tests for `c33-linux-uclibc`, in the VM; execution tests need a
    harness through wremu.
@@ -438,11 +441,7 @@ The rest of the port, standards first (see "Standards" above):
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-9. **ITC priorities.** The controller's priority nibbles are still written
-    by the drivers that know their cause (the timer, the serial ports, and
-    the pin controller for the buttons); an `irq_set_priority`-style
-    extension on the irqchip would move them.
-10. **The overlay as a real patch series**, which only bites when the pinned
+9. **The overlay as a real patch series**, which only bites when the pinned
     stable tag is bumped.
 
 Performance, after those:

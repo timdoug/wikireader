@@ -18,6 +18,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/math64.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
@@ -175,8 +176,15 @@ static int s1c33_pwm_probe(struct platform_device *pdev)
 	return devm_pwmchip_add(&pdev->dev, chip);
 }
 
+static const struct of_device_id s1c33_pwm_of_match[] = {
+	{ .compatible = "epson,s1c33-pwm" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, s1c33_pwm_of_match);
+
 static struct platform_driver s1c33_pwm_driver = {
 	.driver.name = "s1c33-pwm",
+	.driver.of_match_table = s1c33_pwm_of_match,
 	.probe = s1c33_pwm_probe,
 };
 module_platform_driver(s1c33_pwm_driver);

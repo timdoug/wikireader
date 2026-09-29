@@ -4,6 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
+#include <linux/of_fdt.h>
 #include <linux/sizes.h>
 #include <linux/start_kernel.h>
 #include <linux/string.h>
@@ -135,6 +136,15 @@ void __init setup_arch(char **cmdline_p)
 
 	c33_iram_init();
 
+	/*
+	 * The board is described by the device tree built into the kernel;
+	 * nothing loads one alongside it.  It has no /memory node, since the
+	 * SDRAM controller says how much there is, and no bootargs: the
+	 * command line is made below, after the scan would have set it.
+	 */
+	if (!early_init_dt_scan(__dtb_start, __pa(__dtb_start)))
+		early_uart_puts("\r\nC33 Linux: no device tree\r\n");
+
 	memory_start = PAGE_ALIGN((unsigned long)_end);
 	if (memory_start - CONFIG_PHYSICAL_START > size) {
 		/* The kernel itself does not fit: say so before faulting. */
@@ -171,6 +181,9 @@ void __init setup_arch(char **cmdline_p)
 			COMMAND_LINE_SIZE);
 	*cmdline_p = boot_command_line;
 	parse_early_param();
+
+	/* The built-in blob is init data, so the tree is copied out of it. */
+	unflatten_and_copy_device_tree();
 
 	/* The lowest RAM page: freed init memory lies below memory_start. */
 	min_low_pfn = PFN_DOWN(CONFIG_PHYSICAL_START);

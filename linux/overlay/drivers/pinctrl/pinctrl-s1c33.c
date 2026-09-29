@@ -25,6 +25,7 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip/chained_irq.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/pinctrl/pinconf-generic.h>
 #include <linux/pinctrl/pinconf.h>
@@ -32,6 +33,8 @@
 #include <linux/pinctrl/pinmux.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
+
+#include "pinctrl-utils.h"
 
 #define S1C33_GPIO_PORTS	7
 #define S1C33_GPIO_PER_PORT	8
@@ -54,14 +57,6 @@
 #define S1C33_SPPK0_P60		0x04
 #define S1C33_SCPK0		0x12	/* key input 0: comparison pattern */
 #define S1C33_SMPK0		0x14	/* key input 0: bits compared */
-
-/*
- * The ITC's priority nibbles for the two causes: high half of 0x261 for
- * port input 3, low half of 0x262 for key input 0.  Below the timer.
- */
-#define S1C33_ITC_PRIORITY_PORT23	0x00300261UL
-#define S1C33_ITC_PRIORITY_KEY01	0x00300262UL
-#define S1C33_GPIO_IRQ_PRIORITY		3
 
 /*
  * The pin table, straight from the manual's list of pin function select
@@ -454,10 +449,16 @@ static int s1c33_get_group_pins(struct pinctrl_dev *pctl, unsigned int group,
 	return 0;
 }
 
+/*
+ * A device-tree state names pins and a function ("pins", "function") and
+ * any generic configuration; each pin is a group of its own.
+ */
 static const struct pinctrl_ops s1c33_pinctrl_ops = {
 	.get_groups_count = s1c33_get_groups_count,
 	.get_group_name = s1c33_get_group_name,
 	.get_group_pins = s1c33_get_group_pins,
+	.dt_node_to_map = pinconf_generic_dt_node_to_map_all,
+	.dt_free_map = pinctrl_utils_free_map,
 };
 
 static int s1c33_get_functions_count(struct pinctrl_dev *pctl)
@@ -826,10 +827,9 @@ static void s1c33_gpio_irq_valid_mask(struct gpio_chip *chip,
 }
 
 /*
- * Key input 0 on P60..P62 comparing nothing yet, port input 3 on P03 by
- * edge, and both causes at a priority the core will take.  The board
- * supplies the registers and the two vectors; without them the chip is
- * plain GPIO.
+ * Key input 0 on P60..P62 comparing nothing yet, and port input 3 on P03
+ * by edge.  The device tree supplies the registers and the two interrupts,
+ * with their priorities; without them the chip is plain GPIO.
  */
 static int s1c33_gpio_init_irq(struct platform_device *pdev,
 			       struct s1c33_gpio *gpio)
@@ -852,10 +852,6 @@ static int s1c33_gpio_init_irq(struct platform_device *pdev,
 	s1c33_gpio_update8(gpio->irq_base + S1C33_SEPT07, 0, S1C33_PORT3);
 	gpio->port3_edges = S1C33_EDGE_RISING | S1C33_EDGE_FALLING;
 	s1c33_gpio_arm_port3(gpio);
-	s1c33_gpio_update8((void __iomem *)S1C33_ITC_PRIORITY_PORT23, 0x70,
-			   S1C33_GPIO_IRQ_PRIORITY << 4);
-	s1c33_gpio_update8((void __iomem *)S1C33_ITC_PRIORITY_KEY01, 0x07,
-			   S1C33_GPIO_IRQ_PRIORITY);
 
 	gpio_irq_chip_set_chip(girq, &s1c33_gpio_irq_chip);
 	girq->parent_handler = s1c33_gpio_irq_handler;
@@ -928,13 +924,21 @@ static int s1c33_gpio_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id s1c33_gpio_of_match[] = {
+	{ .compatible = "epson,s1c33-pinctrl" },
+	{ }
+};
+
 static struct platform_driver s1c33_gpio_driver = {
 	.probe = s1c33_gpio_probe,
-	.driver.name = "s1c33-pinctrl",
+	.driver = {
+		.name = "s1c33-pinctrl",
+		.of_match_table = s1c33_gpio_of_match,
+	},
 };
 /*
- * Register early: the board's fixed-voltage regulators take their enable
- * lines from this chip, and the regulator core binds them at subsys level.
+ * Register early: nearly every device on the board takes pins or GPIOs from
+ * this chip, so binding it first saves them a round of deferred probes.
  */
 static int __init s1c33_gpio_init(void)
 {

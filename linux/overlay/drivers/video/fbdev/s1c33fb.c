@@ -4,6 +4,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/io.h>
 #include <linux/linux_logo.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
@@ -170,8 +171,15 @@ static void s1c33fb_remove(struct platform_device *pdev)
 	framebuffer_release(info);
 }
 
+static const struct of_device_id s1c33fb_of_match[] = {
+	{ .compatible = "epson,s1c33-lcdc" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, s1c33fb_of_match);
+
 static struct platform_driver s1c33fb_driver = {
 	.driver.name = "s1c33-fb",
+	.driver.of_match_table = s1c33fb_of_match,
 	.probe = s1c33fb_probe,
 	.remove = s1c33fb_remove,
 };

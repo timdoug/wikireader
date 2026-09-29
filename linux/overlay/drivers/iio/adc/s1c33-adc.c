@@ -19,6 +19,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
@@ -179,8 +180,15 @@ static int s1c33_adc_probe(struct platform_device *pdev)
 	return devm_iio_device_register(dev, indio_dev);
 }
 
+static const struct of_device_id s1c33_adc_of_match[] = {
+	{ .compatible = "epson,s1c33-adc" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, s1c33_adc_of_match);
+
 static struct platform_driver s1c33_adc_driver = {
 	.driver.name = "s1c33-adc",
+	.driver.of_match_table = s1c33_adc_of_match,
 	.probe = s1c33_adc_probe,
 };
 module_platform_driver(s1c33_adc_driver);

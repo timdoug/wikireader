@@ -7,7 +7,7 @@
  * channel's trigger is chosen by a nibble in the interrupt controller, and
  * each channel has triggers of its own: the SPI receiver can only trigger
  * channel 3 and its transmitter channel 2.  So a request line is a channel
- * and a trigger together, and the board's slave map names them.
+ * and a trigger together, and the device tree names them.
  *
  * Completion is found by polling: the transfer-count flag each channel
  * raises in the interrupt controller is read by tx_status, which retires
@@ -32,7 +32,7 @@
 #include <linux/io.h>
 #include <linux/list.h>
 #include <linux/module.h>
-#include <linux/platform_data/dma-s1c33-hsdma.h>
+#include <linux/of_dma.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -467,16 +467,24 @@ static void hsdma_free_chan_resources(struct dma_chan *chan)
 		kfree(c->spare[--c->spares]);
 }
 
-/* A slave map's parameter is HSDMA_REQUEST(channel, trigger). */
-static bool hsdma_filter(struct dma_chan *chan, void *param)
+/*
+ * A request line in the device tree is <channel trigger>: the channel and
+ * the trigger-source value that channel takes for it (the manual's table
+ * II.1.5.1).  The SPI transmit request is channel 2's trigger 9 and the SPI
+ * receive request channel 3's.
+ */
+static struct dma_chan *hsdma_of_xlate(struct of_phandle_args *args,
+				       struct of_dma *ofdma)
 {
-	struct hsdma_chan *c = to_hsdma_chan(chan);
-	unsigned long request = (unsigned long)param;
+	struct hsdma *hsdma = ofdma->of_dma_data;
+	struct hsdma_chan *c;
 
-	if (HSDMA_REQUEST_CHANNEL(request) != c->id)
-		return false;
-	c->trigger = HSDMA_REQUEST_TRIGGER(request);
-	return true;
+	if (args->args_count != 2 || args->args[0] >= HSDMA_CHANNELS ||
+	    args->args[1] > 15)
+		return NULL;
+	c = &hsdma->chans[args->args[0]];
+	c->trigger = args->args[1];
+	return dma_get_slave_channel(&c->chan);
 }
 
 /*
@@ -510,8 +518,6 @@ static void hsdma_reset(struct hsdma *hsdma)
 
 static int hsdma_probe(struct platform_device *pdev)
 {
-	const struct s1c33_hsdma_platform_data *pdata =
-		dev_get_platdata(&pdev->dev);
 	struct device *dev = &pdev->dev;
 	struct hsdma *hsdma;
 	struct clk *clk;
@@ -560,11 +566,6 @@ static int hsdma_probe(struct platform_device *pdev)
 	hsdma->dd.device_terminate_all = hsdma_terminate_all;
 	hsdma->dd.device_tx_status = hsdma_tx_status;
 	hsdma->dd.device_issue_pending = hsdma_issue_pending;
-	if (pdata) {
-		hsdma->dd.filter.map = pdata->slave_map;
-		hsdma->dd.filter.mapcnt = pdata->slavecnt;
-		hsdma->dd.filter.fn = hsdma_filter;
-	}
 	INIT_LIST_HEAD(&hsdma->dd.channels);
 	for (x = 0; x < HSDMA_CHANNELS; x++) {
 		struct hsdma_chan *c = &hsdma->chans[x];
@@ -584,12 +585,21 @@ static int hsdma_probe(struct platform_device *pdev)
 	ret = dmaenginem_async_device_register(&hsdma->dd);
 	if (ret)
 		return ret;
+	ret = of_dma_controller_register(dev->of_node, hsdma_of_xlate, hsdma);
+	if (ret)
+		return ret;
 	dev_info(dev, "%d channels, completion polled\n", HSDMA_CHANNELS);
 	return 0;
 }
 
+static const struct of_device_id hsdma_of_match[] = {
+	{ .compatible = "epson,s1c33-hsdma" },
+	{ }
+};
+
 static struct platform_driver hsdma_driver = {
 	.driver.name = "s1c33-hsdma",
+	.driver.of_match_table = hsdma_of_match,
 	.probe = hsdma_probe,
 };
 

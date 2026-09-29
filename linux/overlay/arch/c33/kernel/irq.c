@@ -45,8 +45,6 @@ typedef long (*c33_syscall_fn_t)(unsigned long, unsigned long,
 
 void __init init_IRQ(void)
 {
-	int sources;
-
 	/* Keep a resident Grifo's trap table for poweroff and reboot. */
 	__asm__ volatile ("ld.w %0, %%ttbr" : "=r" (c33_boot_ttbr));
 	c33_grifo_booted = c33_boot_ttbr == C33_GRIFO_TTBR;
@@ -55,13 +53,10 @@ void __init init_IRQ(void)
 		c33_boot_ttbr);
 
 	/* The controller quiets every cause before the vector table goes live. */
-	sources = s1c33_itc_init();
-	if (sources < 0)
-		panic("C33 IRQ: interrupt controller failed: %d", sources);
+	irqchip_init();
 
 	__asm__ volatile ("ld.w %%ttbr,%0" : : "r" (c33_vector_table)
 			  : "memory");
-	pr_info("C33 IRQ: registered %d interrupt sources\n", sources);
 }
 
 /*

@@ -1,21 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/clocksource/timer-s1c33.h>
+#include <linux/clk-provider.h>
+#include <linux/clocksource.h>
 #include <linux/init.h>
-#include <linux/irqchip/s1c33-itc.h>
 #include <linux/timekeeping.h>
-
-#include <asm/clock.h>
-#include <asm/irq.h>
-#include <asm/wikireader.h>
 
 void __init time_init(void)
 {
-	/*
-	 * Clock providers are not up yet, so the timer takes the rate from
-	 * the same hardware decoder the clock driver publishes later.
-	 */
-	s1c33_timer_init(c33_mclk_hz(), s1c33_itc_irq(C33_IRQ_TIMER2),
-			 s1c33_itc_irq(C33_IRQ_TIMER3));
+	/* The clock-management unit first: the timer takes its rate from MCLK. */
+	of_clk_init(NULL);
+	timer_probe();
 }
 
 void read_persistent_clock64(struct timespec64 *ts)

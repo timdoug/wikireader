@@ -19,6 +19,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/math64.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/watchdog.h>
@@ -237,9 +238,16 @@ static int s1c33_wdt_resume(struct device *dev)
 static DEFINE_SIMPLE_DEV_PM_OPS(s1c33_wdt_pm, s1c33_wdt_suspend,
 				s1c33_wdt_resume);
 
+static const struct of_device_id s1c33_wdt_of_match[] = {
+	{ .compatible = "epson,s1c33-wdt" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, s1c33_wdt_of_match);
+
 static struct platform_driver s1c33_wdt_driver = {
 	.driver = {
 		.name = "s1c33-wdt",
+		.of_match_table = s1c33_wdt_of_match,
 		.pm = pm_sleep_ptr(&s1c33_wdt_pm),
 	},
 	.probe = s1c33_wdt_probe,

@@ -11,6 +11,7 @@
  */
 #include <linux/lcd.h>
 #include <linux/math64.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
@@ -110,8 +111,15 @@ static int wr_lcd_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id wr_lcd_of_match[] = {
+	{ .compatible = "openmoko,wikireader-lcd" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, wr_lcd_of_match);
+
 static struct platform_driver wr_lcd_driver = {
 	.driver.name = "wikireader-lcd",
+	.driver.of_match_table = wr_lcd_of_match,
 	.probe = wr_lcd_probe,
 };
 module_platform_driver(wr_lcd_driver);
