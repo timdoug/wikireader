@@ -58,8 +58,10 @@ def make_image(path, files, sectors_per_cluster=1):
         root[off+11] = 0x20
         # Real cards carry real dates, and a guest with no RTC has nothing
         # else to set its clock from; a fixture stuck at the FAT floor would
-        # never exercise that.
-        now = time.localtime()
+        # never exercise that.  WR_FAT_TIME (seconds since the epoch) pins
+        # it, so that a run replays exactly.
+        now = time.localtime(float(os.environ['WR_FAT_TIME'])
+                             if os.environ.get('WR_FAT_TIME') else None)
         fat_date = ((now.tm_year - 1980) << 9) | (now.tm_mon << 5) | now.tm_mday
         fat_time = (now.tm_hour << 11) | (now.tm_min << 5) | (now.tm_sec // 2)
         struct.pack_into('<HH', root, off+22, fat_time, fat_date)

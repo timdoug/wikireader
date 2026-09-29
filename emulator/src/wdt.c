@@ -20,6 +20,8 @@
  * A watchdog that kept counting through a two-minute suspend would fire long
  * before the device was due to wake, so the gate is not a detail.
  */
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "wdt.h"
@@ -120,7 +122,18 @@ static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			 * a second, without unlocking anything first.
 			 */
 			if (*val & WDRESEN) {
+				static int trace = -1;
+
+				if (trace < 0)
+					trace = getenv("WREMU_WDT_TRACE") != NULL;
 				accrue(w);
+				if (trace)
+					fprintf(stderr, "  [wdt kick at cycle %llu,"
+						" %llu ticks since the last,"
+						" period %u]\n",
+						(unsigned long long)*w->clk,
+						(unsigned long long)w->count,
+						w->comp + 1);
 				w->count = 0;
 				w->kicks++;
 			}
