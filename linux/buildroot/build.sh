@@ -29,10 +29,25 @@ if [ ! -d "$source_dir/.git" ]; then
 fi
 
 # Buildroot does not notice a rebuilt C library or edited local package
-# sources, so always start clean: about 16 minutes, most of it host tools for
-# X.
-# Downloads are kept in the source tree's dl/.
-rm -rf "$build_dir"
+# sources, so every target package is built afresh each time.  The host
+# tools (Meson, Ninja, Python, bison and the rest, built with the VM's own
+# compiler) depend on nothing of the C33's, so they are kept: host/ and the
+# host-* build directories stay, and everything built for the target goes,
+# the staging sysroot included.  --full starts from nothing, as a change to
+# a host package's options needs.  Downloads are kept in the source tree's
+# dl/.
+if [ "${1:-}" = --full ] || [ ! -d "$build_dir/host" ]; then
+	rm -rf "$build_dir"
+else
+	for d in "$build_dir"/build/*; do
+		case ${d##*/} in
+		host-*|packages-file-list-host.txt) ;;
+		*) rm -rf "$d" ;;
+		esac
+	done
+	rm -rf "$build_dir/target" "$build_dir/images" \
+		"$build_dir/host/c33-buildroot-linux-uclibc/sysroot"
+fi
 make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
 	wikireader_defconfig
 make -C "$build_dir"
