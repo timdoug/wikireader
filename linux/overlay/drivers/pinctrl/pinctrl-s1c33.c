@@ -393,6 +393,60 @@ static int s1c33_gpio_direction_output(struct gpio_chip *chip,
 /****************************************************************************/
 /* Pin control */
 
+/*
+ * A peripheral's pins at once: a device tree names the group and a function
+ * of the same name ("groups", "function"), and each pin takes its signal.
+ * Every pin is also a group of its own, named for the pin, with the
+ * manual's signals as its functions.
+ */
+struct s1c33_group {
+	const char *name;
+	const unsigned int *pins;
+	const u8 *signals;
+	unsigned int npins;
+};
+
+#define S1C33_P(port, bit)	((port) * 8 + (bit))
+#define S1C33_GROUP(group)						\
+	{ #group, s1c33_##group##_pins, s1c33_##group##_signals,	\
+	  ARRAY_SIZE(s1c33_##group##_pins) }
+
+static const unsigned int s1c33_uart0_pins[] = { S1C33_P(0, 0), S1C33_P(0, 1) };
+static const u8 s1c33_uart0_signals[] = { S1C33_FN_sin0, S1C33_FN_sout0 };
+static const unsigned int s1c33_spi_pins[] = {
+	S1C33_P(6, 5), S1C33_P(6, 6), S1C33_P(6, 7),
+};
+static const u8 s1c33_spi_signals[] = {
+	S1C33_FN_sdi, S1C33_FN_sdo, S1C33_FN_spi_clk,
+};
+static const unsigned int s1c33_adc_pins[] = {
+	S1C33_P(7, 0), S1C33_P(7, 1), S1C33_P(7, 2),
+};
+static const u8 s1c33_adc_signals[] = {
+	S1C33_FN_ain0, S1C33_FN_ain1, S1C33_FN_ain2,
+};
+/* The panel's 4-bit interface: frame, line, shift, ready, data 4..7. */
+static const unsigned int s1c33_lcd_pins[] = {
+	S1C33_P(8, 0), S1C33_P(8, 1), S1C33_P(8, 2), S1C33_P(8, 3),
+	S1C33_P(9, 4), S1C33_P(9, 5), S1C33_P(9, 6), S1C33_P(9, 7),
+};
+static const u8 s1c33_lcd_signals[] = {
+	S1C33_FN_fpframe, S1C33_FN_fpline, S1C33_FN_fpshift, S1C33_FN_fpdrdy,
+	S1C33_FN_fpdat4, S1C33_FN_fpdat5, S1C33_FN_fpdat6, S1C33_FN_fpdat7,
+};
+
+static const struct s1c33_group s1c33_groups[] = {
+	S1C33_GROUP(uart0),
+	S1C33_GROUP(spi),
+	S1C33_GROUP(adc),
+	S1C33_GROUP(lcd),
+};
+
+/* Group numbers: the pins' own first, then the named groups; a named
+ * group's function is numbered after the signals. */
+#define S1C33_NPINS		ARRAY_SIZE(s1c33_pins)
+#define S1C33_FN_GROUP(i)	(S1C33_FN_PORT + 1 + (i))
+
 /* The select value for a function on a pin; "gpio" is its port. */
 static int s1c33_select_value(const struct s1c33_pin *pin, unsigned int id)
 {
@@ -431,12 +485,14 @@ static void s1c33_select(struct s1c33_gpio *gpio, const struct s1c33_pin *pin,
 
 static int s1c33_get_groups_count(struct pinctrl_dev *pctl)
 {
-	return ARRAY_SIZE(s1c33_pins);
+	return S1C33_NPINS + ARRAY_SIZE(s1c33_groups);
 }
 
 static const char *s1c33_get_group_name(struct pinctrl_dev *pctl,
 					unsigned int group)
 {
+	if (group >= S1C33_NPINS)
+		return s1c33_groups[group - S1C33_NPINS].name;
 	return s1c33_pins[group].name;
 }
 
@@ -444,14 +500,19 @@ static int s1c33_get_group_pins(struct pinctrl_dev *pctl, unsigned int group,
 				const unsigned int **pins,
 				unsigned int *npins)
 {
+	if (group >= S1C33_NPINS) {
+		*pins = s1c33_groups[group - S1C33_NPINS].pins;
+		*npins = s1c33_groups[group - S1C33_NPINS].npins;
+		return 0;
+	}
 	*pins = &s1c33_pins[group].number;
 	*npins = 1;
 	return 0;
 }
 
 /*
- * A device-tree state names pins and a function ("pins", "function") and
- * any generic configuration; each pin is a group of its own.
+ * A device-tree state names a group or pins, a function, and any generic
+ * configuration ("groups" or "pins", "function", "output-low").
  */
 static const struct pinctrl_ops s1c33_pinctrl_ops = {
 	.get_groups_count = s1c33_get_groups_count,
@@ -461,14 +522,26 @@ static const struct pinctrl_ops s1c33_pinctrl_ops = {
 	.dt_free_map = pinctrl_utils_free_map,
 };
 
+/*
+ * The core numbers functions from zero: the signals, then one for each
+ * named group, which S1C33_FN_GROUP() places past the pin table's markers.
+ */
+static unsigned int s1c33_function_id(unsigned int function)
+{
+	return function < S1C33_FN_COUNT ? function :
+		S1C33_FN_GROUP(function - S1C33_FN_COUNT);
+}
+
 static int s1c33_get_functions_count(struct pinctrl_dev *pctl)
 {
-	return S1C33_FN_COUNT;
+	return S1C33_FN_COUNT + ARRAY_SIZE(s1c33_groups);
 }
 
 static const char *s1c33_get_function_name(struct pinctrl_dev *pctl,
 					   unsigned int function)
 {
+	if (function >= S1C33_FN_COUNT)
+		return s1c33_groups[function - S1C33_FN_COUNT].name;
 	return s1c33_function_names[function];
 }
 
@@ -479,6 +552,11 @@ static int s1c33_get_function_groups(struct pinctrl_dev *pctl,
 {
 	struct s1c33_gpio *gpio = pinctrl_dev_get_drvdata(pctl);
 
+	if (function >= S1C33_FN_COUNT) {
+		*groups = &s1c33_groups[function - S1C33_FN_COUNT].name;
+		*ngroups = 1;
+		return 0;
+	}
 	*groups = gpio->functions[function].groups;
 	*ngroups = gpio->functions[function].ngroups;
 	return 0;
@@ -494,12 +572,32 @@ static int s1c33_set_mux(struct pinctrl_dev *pctl, unsigned int function,
 			 unsigned int group)
 {
 	struct s1c33_gpio *gpio = pinctrl_dev_get_drvdata(pctl);
-	const struct s1c33_pin *pin = &s1c33_pins[group];
-	int value = s1c33_select_value(pin, function);
+	const struct s1c33_group *named;
+	const struct s1c33_pin *pin;
+	unsigned int i;
+	int value;
 
-	if (value < 0)
-		return value;
-	s1c33_select(gpio, pin, value);
+	if (group < S1C33_NPINS) {
+		pin = &s1c33_pins[group];
+		value = s1c33_select_value(pin, s1c33_function_id(function));
+		if (value < 0)
+			return value;
+		s1c33_select(gpio, pin, value);
+		return 0;
+	}
+	named = &s1c33_groups[group - S1C33_NPINS];
+	for (i = 0; i < named->npins; i++) {
+		pin = s1c33_find_pin(named->pins[i]);
+		value = pin ? s1c33_select_value(pin, named->signals[i]) :
+			-EINVAL;
+		if (value < 0)
+			return value;
+	}
+	for (i = 0; i < named->npins; i++) {
+		pin = s1c33_find_pin(named->pins[i]);
+		s1c33_select(gpio, pin, s1c33_select_value(pin,
+							  named->signals[i]));
+	}
 	return 0;
 }
 

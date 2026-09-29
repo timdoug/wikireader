@@ -194,8 +194,10 @@ the machine slept again four seconds after each wake.
 
 Pins belong to `drivers/pinctrl/pinctrl-s1c33.c`, a pin controller for ports
 0 to 9 that is also the GPIO chip for ports 0 to 6. Every pin is a group of
-its own with the manual's functions for it, so the device tree's pin states
-read like the manual (`pins = "P65"; function = "sdi";`). The driver core
+its own with the manual's functions for it (`pins = "P11"; function =
+"tm1";`), and a peripheral's pins are also a named group whose function
+gives each pin its signal (`groups = "spi"; function = "spi";` for P65 to
+P67), one node for the state instead of one a pin. The driver core
 applies each device's default state before its probe, and requesting a
 line as a GPIO selects its port function, so nothing else writes port
 registers. The SPI flash's chip select, which shares the card's bus, is

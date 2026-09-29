@@ -151,53 +151,13 @@
 	};
 
 	adc_pins: adc-pins {
-		ain0 {
-			pins = "P70";
-			function = "ain0";
-		};
-		ain1 {
-			pins = "P71";
-			function = "ain1";
-		};
-		ain2 {
-			pins = "P72";
-			function = "ain2";
-		};
+		groups = "adc";
+		function = "adc";
 	};
 
 	lcd_pins: lcd-pins {
-		fpframe {
-			pins = "P80";
-			function = "fpframe";
-		};
-		fpline {
-			pins = "P81";
-			function = "fpline";
-		};
-		fpshift {
-			pins = "P82";
-			function = "fpshift";
-		};
-		fpdrdy {
-			pins = "P83";
-			function = "fpdrdy";
-		};
-		fpdat4 {
-			pins = "P94";
-			function = "fpdat4";
-		};
-		fpdat5 {
-			pins = "P95";
-			function = "fpdat5";
-		};
-		fpdat6 {
-			pins = "P96";
-			function = "fpdat6";
-		};
-		fpdat7 {
-			pins = "P97";
-			function = "fpdat7";
-		};
+		groups = "lcd";
+		function = "lcd";
 	};
 
 	pwm_pins: pwm-pins {
@@ -206,18 +166,8 @@
 	};
 
 	sd_pins: sd-pins {
-		sdi {
-			pins = "P65";
-			function = "sdi";
-		};
-		sdo {
-			pins = "P66";
-			function = "sdo";
-		};
-		clk {
-			pins = "P67";
-			function = "spi_clk";
-		};
+		groups = "spi";
+		function = "spi";
 	};
 
 	/* SCLK as a port at its idle level while the controller restarts. */
@@ -228,14 +178,8 @@
 	};
 
 	uart0_pins: uart0-pins {
-		sin0 {
-			pins = "P00";
-			function = "sin0";
-		};
-		sout0 {
-			pins = "P01";
-			function = "sout0";
-		};
+		groups = "uart0";
+		function = "uart0";
 	};
 
 	/* The touch panel only talks. */

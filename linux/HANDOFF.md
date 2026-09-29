@@ -388,8 +388,9 @@ The kernel follows them least:
   (4.64 -> 5.38 s to the prompt): device links 0.22 s (`fw_devlink=off`
   gives it back), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
   checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
-  0.11 s, the rest in creating devices from 52 nodes and about 260
-  properties. On the device 2026-09-29 everything works (buttons, touch,
+  0.11 s, the rest in creating devices from the tree's nodes. Named pin
+  groups took the tree from 52 nodes to 36 and 0.10 s of that back (5.28
+  s). On the device 2026-09-29 everything works (buttons, touch,
   X) and the cost is smaller: prompt 5.30 s against 4.82, `/init` at 1.93
   s against 1.36.
 - The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
@@ -417,9 +418,9 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **The device tree's boot cost** (see "Standards"), 0.5 s on the device. Named pin groups (`"uart0"` for P00 and P01) instead
-   of a node per pin would take 17 of the 52 nodes; `fw_devlink=off` is a
-   standard switch worth 0.22 s.
+2. **The device tree's boot cost** (see "Standards"), 0.5 s on the device
+   before the named pin groups: `fw_devlink=off` is a standard switch worth
+   0.22 s more in wremu.
 3. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
    link tests for `c33-linux-uclibc`, in the VM; execution tests need a
    harness through wremu.
