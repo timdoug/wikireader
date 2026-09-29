@@ -1,7 +1,7 @@
 diff --git a/libgcc/unwind-pe.h b/libgcc/unwind-pe.h
 --- a/libgcc/unwind-pe.h
 +++ b/libgcc/unwind-pe.h
-@@ -264,9 +264,10 @@
+@@ -264,9 +264,11 @@
  
        if (result != 0)
  	{
@@ -9,15 +9,16 @@ diff --git a/libgcc/unwind-pe.h b/libgcc/unwind-pe.h
 +#if __FDPIC__ && defined (__arm__)
  	  /* FDPIC relative addresses imply taking the GOT address
 -	     into account.  */
-+	     into account.  Only ARM FDPIC encodes pointers this way; C33
-+	     FDPIC encodes them absolutely.  */
++	     into account.  This is ARM's encoding, and only ARM defines
++	     _Unwind_gnu_Find_got (config/arm/unwind-arm.h); the other FDPIC
++	     targets use the encodings their tables give.  */
  	  if ((encoding & DW_EH_PE_pcrel) && (encoding & DW_EH_PE_indirect))
  	    {
  	      result += _Unwind_gnu_Find_got ((_Unwind_Ptr) u);
 diff --git a/libstdc++-v3/libsupc++/eh_personality.cc b/libstdc++-v3/libsupc++/eh_personality.cc
 --- a/libstdc++-v3/libsupc++/eh_personality.cc
 +++ b/libstdc++-v3/libsupc++/eh_personality.cc
-@@ -94,9 +94,10 @@
+@@ -94,9 +94,11 @@
  
    i *= size_of_encoded_value (info->ttype_encoding);
    read_encoded_value_with_base (
@@ -25,8 +26,9 @@ diff --git a/libstdc++-v3/libsupc++/eh_personality.cc b/libstdc++-v3/libsupc++/e
 +#if __FDPIC__ && defined (__arm__)
  				/* Force these flags to make sure to
 -				   take the GOT into account.  */
-+				   take the GOT into account.  C33 FDPIC
-+				   encodes the type table absolutely.  */
++				   take the GOT into account.  ARM's
++				   encoding; other FDPIC targets use the
++				   table's own.  */
  				(DW_EH_PE_pcrel | DW_EH_PE_indirect),
  #else
  				info->ttype_encoding,

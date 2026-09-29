@@ -192,10 +192,11 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 Local sockets and VTs (for X) came after these measurements: about 0.6 s
 more to the prompt in wremu, not yet timed on the device. FDPIC shared
 libraries came after that, also untimed on the device: in wremu, with the
-same harness, the prompt is up 4.61 s after the kernel starts against 3.91 s
+same harness, the prompt is up 4.73 s after the kernel starts against 3.91 s
 for the static bFLT system. The first exec reads libc's whole 489 KB of text
 (the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
-about 0.2 s of the boot's CPU.
+about 0.2 s of the boot's CPU. Linking the libraries `-Bsymbolic`, as
+FRV's uClibc does, saved 0.12 s; they bind as ELF has them instead.
 
 What this round found and did, device-only mostly:
 - The device's 64 MB FAT32 boot volume has 512-byte clusters, so Grifo read
@@ -301,7 +302,7 @@ Measured in wremu, launcher path:
 | A drag frame (under twm) | 45 ms of CPU: X server 42%, kernel 38%, xeyes 15% |
 | A frame's kernel work | about 57 syscalls (xeyes 37, mostly reads that find nothing), 14 context switches, 10 ticks; the scheduler's load tracking is a third of the kernel's share |
 | `startx` to the first pupils | 6.3 s, most of it reading 3.3 MB of programs from the card; a second `startx` in the same boot loads the server in 0.6 s instead of 1.8 |
-| RAM | 10.3 MB free (15.2 available) with X up; static bFLT X had 14.9 free (17.0 available). 3.97 MB of text mapped, the libraries whole |
+| RAM | 15.6 MB available with X up; static bFLT X had 14.9 free (17.0 available). 3.97 MB of text mapped, the libraries whole |
 | Boot cost of sockets and VTs | about 0.6 s to the prompt |
 
 Measured and rejected, so nobody repeats them: a `-Os` kernel (488 KB
@@ -365,7 +366,14 @@ The rest of the port:
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-6. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
+6. **Two fixes belong upstream.** `uclibc/patches/0003`: uClibc-ng's
+   FDPIC descriptor table rehashes by descriptor address but is searched by
+   entry point, so after the first resize a lookup misses and a second
+   "canonical" descriptor appears (every FDPIC port). GCC
+   `host-tools/toolchain-c33/gcc/patches/0004`: libgcc's and libstdc++'s
+   `#if __FDPIC__` exception paths are ARM's and call
+   `_Unwind_gnu_Find_got`, which only ARM defines.
+7. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
    options, but the conversion behind them is the local `make-flat.py`.
    Separately, **the overlay as a real patch series**, which only bites when
    the pinned stable tag is bumped.
@@ -413,6 +421,11 @@ it boots the file loader as a direct ELF, which wremu refuses.
   `WR_FAT_TIME=<epoch>` pins them for the FAT helper. Then `-W ADDR` reports
   every store to an address with its pc, and `WREMU_WDT_TRACE=1` every
   watchdog kick. wremu's instruction count restarts at a reset.
+- **The VM must keep one clock.** Lima's guest agent sets the Mac's time
+  every ten seconds; `systemd-timesyncd` set NTP's, 0.8 s away, in between.
+  Each step back could leave a later build stamp older than an earlier one,
+  and make then redid finished Buildroot packages, failing to re-patch them.
+  `provision.sh` turns timesyncd off.
 - **A task switch must carry the PSR.** `__c33_switch_to` saved only
   registers, so a task scheduled from an interrupt's return to userspace ran
   at that interrupt's level, with the timer masked: `jiffies` stopped, the SD

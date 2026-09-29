@@ -66,16 +66,13 @@ __asm__(
 "	ld.w	%r8,%r2\n"
 "	jp	%r4\n"
 "	.size	_start,.-_start\n"
-	/* A descriptor for _dl_fini made by hand: ld.so relocates itself
-	   before it can make canonical ones, and this one is only ever
-	   called.  */
+	/* _dl_fini's descriptor, as C would take its address: _dl_fini is
+	   hidden, so it is a descriptor in our own .got, which _dl_start's
+	   relocations have filled in.  */
 "	.section .data.rel.ro,\"aw\"\n"
-"	.align	3\n"
-".L_dl_fini_fd:\n"
-"	.long	_dl_fini\n"
-"	.long	__dp\n"
+"	.align	2\n"
 ".L_dl_fini:\n"
-"	.long	.L_dl_fini_fd\n"
+"	.long	funcdesc(_dl_fini)\n"
 "	.previous\n"
 );
 
@@ -92,13 +89,13 @@ _dl_start (Elf32_Addr dl_boot_got_pointer, \
 /* ARGS is the address of argc.  */
 #define GET_ARGV(ARGVP, ARGS) ARGVP = (((unsigned long *)ARGS) + 1)
 
-/* ld.so is linked -Bsymbolic, so its relocations are against itself: an
-   address (R_C33_32 without a symbol, the link-time address in the addend)
-   or a descriptor for one of its functions.  SYM is null for those; one
-   naming a symbol can only be an undefined weak one, which is zero.  */
+/* ld.so is linked -Bsymbolic, as every libc's is, so its relocations are
+   against itself: its own addresses (R_C33_RELATIVE, most of them handled
+   by elf_machine_relative) and descriptors for its own functions
+   (R_C33_FUNCDESC_VALUE without a symbol).  One naming a symbol can only
+   be an undefined weak one, which is zero.  */
 #define C33_BOOT_VALUE(RELP, SYMBOL, LOAD, SYM)				\
-	((SYM) == NULL							\
-	 ? (unsigned long) DL_RELOC_ADDR((LOAD), (RELP)->r_addend)	\
+	((SYM) == NULL ? (unsigned long) (RELP)->r_addend		\
 	 : (SYM)->st_shndx == SHN_UNDEF ? 0				\
 	 : (SYMBOL) + (RELP)->r_addend)
 
@@ -106,13 +103,18 @@ _dl_start (Elf32_Addr dl_boot_got_pointer, \
 	switch (ELF_R_TYPE((RELP)->r_info)) {				\
 	case R_C33_NONE:						\
 		break;							\
+	case R_C33_RELATIVE:						\
+		*(REL) = DL_RELOC_ADDR((LOAD), (RELP)->r_addend);	\
+		break;							\
 	case R_C33_32:							\
 		*(REL) = C33_BOOT_VALUE(RELP, SYMBOL, LOAD, SYM);	\
 		break;							\
 	case R_C33_FUNCDESC_VALUE:					\
 	  {								\
 		struct funcdesc_value fv = {				\
-			(void *) C33_BOOT_VALUE(RELP, SYMBOL, LOAD, SYM), \
+			(void *) ((SYM) == NULL				\
+				  ? DL_RELOC_ADDR((LOAD), (RELP)->r_addend) \
+				  : C33_BOOT_VALUE(RELP, SYMBOL, LOAD, SYM)), \
 			(LOAD).got_value				\
 		};							\
 		*(struct funcdesc_value volatile *)(REL) = fv;		\

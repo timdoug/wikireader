@@ -633,6 +633,23 @@ static reloc_howto_type c33_elf_howto_table[] =
 	 false,				/* partial_inplace */
 	 0,				/* src_mask */
 	 0xffffffff,			/* dst_mask */
+	 false),			/* pcrel_offset */
+
+  /* FDPIC: a word holding the module's own address in the addend,
+     relocated through the module's load map.  Only ever a dynamic
+     relocation.  */
+  HOWTO (R_C33_RELATIVE,	/* type */
+	 0,				/* rightshift */
+	 4,				/* size (in bytes) */
+	 32,				/* bitsize */
+	 false,				/* pc_relative */
+	 0,				/* bitpos */
+	 complain_overflow_dont,	/* complain_on_overflow */
+	 bfd_elf_generic_reloc,		/* special_function */
+	 "R_C33_RELATIVE",		/* name */
+	 false,				/* partial_inplace */
+	 0,				/* src_mask */
+	 0xffffffff,			/* dst_mask */
 	 false)				/* pcrel_offset */
 
 };
@@ -2386,7 +2403,7 @@ c33fdpic_add_rela (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
 			offset, r_type, dynindx, addend);
 }
 
-/* Move the module-relative relocations, R_C33_32 against no symbol, to
+/* Move the module-relative relocations, R_C33_RELATIVE, to
    the front of .rela.dyn, keeping the order within each kind, and return
    how many there are: DT_RELACOUNT.  ld.so runs them through a loop of
    their own, and they are most of a shared library's.  */
@@ -2411,7 +2428,7 @@ c33fdpic_sort_relas (bfd *output_bfd, asection *s)
       bfd_elf32_swap_reloca_in (output_bfd,
 				copy + i * sizeof (Elf32_External_Rela),
 				&rela);
-      if (rela.r_info == ELF32_R_INFO (0, R_C33_32))
+      if (ELF32_R_TYPE (rela.r_info) == R_C33_RELATIVE)
 	relative++;
     }
   other = relative;
@@ -2423,7 +2440,7 @@ c33fdpic_sort_relas (bfd *output_bfd, asection *s)
       bfd_vma *to;
 
       bfd_elf32_swap_reloca_in (output_bfd, from, &rela);
-      to = rela.r_info == ELF32_R_INFO (0, R_C33_32) ? &relative : &other;
+      to = ELF32_R_TYPE (rela.r_info) == R_C33_RELATIVE ? &relative : &other;
       memcpy (s->contents + *to * sizeof (Elf32_External_Rela), from,
 	      sizeof (Elf32_External_Rela));
       ++*to;
@@ -2854,7 +2871,7 @@ c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
       c33fdpic_add_rofixup (output_bfd, htab, where);
       break;
     case C33FDPIC_WORD_RELATIVE:
-      c33fdpic_add_rela (output_bfd, htab, where, R_C33_32, 0, value);
+      c33fdpic_add_rela (output_bfd, htab, where, R_C33_RELATIVE, 0, value);
       break;
     case C33FDPIC_WORD_SYMBOLIC:
       value = r_type == R_C33_32 ? rel->r_addend : 0;

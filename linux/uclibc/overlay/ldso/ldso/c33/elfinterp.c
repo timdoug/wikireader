@@ -5,9 +5,10 @@
  * Modelled on the FR-V loader.  Relocations are RELA; .plt descriptors
  * are bound at their first call, the rest when the module is loaded:
  *
- *   R_C33_32		a word: SYM + addend, or with no symbol, the module's
- *			own link-time address in the addend, relocated
- *			through its load map;
+ *   R_C33_RELATIVE	a word: the module's own link-time address in the
+ *			addend, relocated through its load map (most come
+ *			first, counted by DT_RELACOUNT: elf_machine_relative);
+ *   R_C33_32		a word: SYM + addend;
  *   R_C33_FUNCDESC	a word: the address of SYM's canonical descriptor;
  *   R_C33_FUNCDESC_VALUE
  *			a .got descriptor, {SYM, SYM's module's %r15}, or with
@@ -118,8 +119,11 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	symname = strtab + symtab[symtab_index].st_name;
 
 	if (symtab_index == 0) {
-		/* The module's own address, in the addend.  */
-		symbol_addr = (unsigned long) DL_RELOC_ADDR(tpnt->loadaddr, rpnt->r_addend);
+		/* R_C33_32 without a symbol is its addend; the others hold
+		   the module's own address there.  */
+		symbol_addr = reloc_type == R_C33_32 ? rpnt->r_addend
+			: (unsigned long) DL_RELOC_ADDR(tpnt->loadaddr,
+							rpnt->r_addend);
 	} else if (ELF_ST_BIND(symtab[symtab_index].st_info) == STB_LOCAL) {
 		symbol_addr = (unsigned long) DL_RELOC_ADDR(tpnt->loadaddr,
 			symtab[symtab_index].st_value) + rpnt->r_addend;
@@ -154,6 +158,7 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	case R_C33_NONE:
 		break;
 	case R_C33_32:
+	case R_C33_RELATIVE:
 		/* .eh_frame keeps pointers at any byte address.  */
 		reloc_value = symbol_addr;
 		if ((unsigned long) reloc_addr & 3)

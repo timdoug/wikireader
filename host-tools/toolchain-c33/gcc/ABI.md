@@ -454,15 +454,18 @@ the FDPIC linker refuses objects without it.
   defines is reached as under `-msep-data`. Data another module may define,
   or preempt (`!SYMBOL_REF_LOCAL_P`), is reached through a pool word holding
   its address, which the dynamic linker fills in. There are no copy
-  relocations.
+  relocations. A shared library's words holding its own addresses are
+  `R_C33_RELATIVE` (34), first in `.rela.dyn` and counted by
+  `DT_RELACOUNT`; an executable relocates its own from its `.rofixup` list.
 - **A function pointer is the address of a descriptor**, eight bytes of
   `{entry point, %r15 of the defining module}`. Words holding a function's
-  address in the pool, in initialised data and in `DW.ref` words are
-  written `.long funcdesc(f)` (`R_C33_FUNCDESC`), and a function has one
-  canonical descriptor per program. The constructor tables
-  (`.init_array`, `.fini_array`, `.preinit_array`) are the exception: they
-  hold entry points, which uClibc's startup code and `ld.so` call with the
-  module's own `%r15`.
+  address in the pool, in initialised data and in the unwind tables are
+  written `.long funcdesc(f)` (`R_C33_FUNCDESC`), as SH writes
+  `f@FUNCDESC`, and a function has one canonical descriptor per program.
+  The constructor tables (`.init_array`, `.fini_array`) are the exception,
+  as on ARM FDPIC: the compiler's constructor hook writes entry points,
+  which uClibc's startup code and `ld.so` call with the module's own
+  `%r15`.
 - **An indirect call** loads the callee's `%r15` from the descriptor, then
   its entry point into `%r14`, and calls it:
   `xld.w %r15,[%rP+4]; ld.w %r14,[%rP]; call %r14`.
@@ -485,9 +488,10 @@ the FDPIC linker refuses objects without it.
 - **No sibling call to another module**, since the callee would return to
   our caller with its own `%r15`.
 - **Exception tables** encode every pointer absolutely; they live in the
-  data segment, where they are relocated. The personality routine is
-  reached through a `DW.ref` word (`DW_EH_PE_indirect`), which holds its
-  descriptor, because the unwinder calls it through a pointer.
+  data segment, where they are relocated. A global datum, a `type_info`,
+  is reached through a `DW.ref` word (`DW_EH_PE_indirect`). The CIE holds
+  the personality routine's descriptor directly (`ASM_PREFERRED_EH_DATA_FORMAT`
+  code 2), since the unwinder calls it through a C function pointer.
 
 The kernel starts a program with its load map in `%r6`, the interpreter's
 in `%r7` (zero for a static program) and the interpreter's dynamic section

@@ -31,7 +31,6 @@
 #include "memmodel.h"
 #include "tm_p.h"
 #include "stringpool.h"
-#include "cgraph.h"
 #include "attribs.h"
 #include "insn-config.h"
 #include "optabs.h"
@@ -2746,43 +2745,7 @@ c33_function_ok_for_sibcall (tree decl, tree)
 
 /* -mfdpic: the constant pool, initialised data and the unwind tables hold
    the address of a function's canonical descriptor wherever C asks for a
-   function's address.  The constructor and destructor tables are the
-   exception: uClibc's startup code and ld.so call their entries with the
-   module's own %r15, as other FDPIC ports do, so they hold entry points.  */
-
-static bool
-c33_initfini_section_p (void)
-{
-  const char *name;
-
-  if (in_section == NULL || (in_section->common.flags & SECTION_NAMED) == 0)
-    return false;
-  name = in_section->named.name;
-  return (startswith (name, ".init_array")
-	  || startswith (name, ".fini_array")
-	  || startswith (name, ".preinit_array")
-	  || startswith (name, ".ctors")
-	  || startswith (name, ".dtors"));
-}
-
-/* Whether SYM names a function.  dwarf2asm writes the personality
-   routine into its DW.ref word through a SYMBOL_REF made from the name
-   alone, with no decl or flags to say so.  */
-
-static bool
-c33_function_symbol_p (rtx sym)
-{
-  symtab_node *node;
-
-  if (SYMBOL_REF_FUNCTION_P (sym))
-    return true;
-  if (SYMBOL_REF_DECL (sym) != NULL_TREE)
-    return false;
-  node = symtab_node::get_for_asmname (get_identifier (XSTR (sym, 0)));
-  if (node != NULL)
-    return is_a <cgraph_node *> (node);
-  return strstr (XSTR (sym, 0), "_personality") != NULL;
-}
+   function's address, as on SH.  */
 
 static bool
 c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
@@ -2790,8 +2753,7 @@ c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
   if (TARGET_FDPIC
       && size == UNITS_PER_WORD
       && GET_CODE (x) == SYMBOL_REF
-      && c33_function_symbol_p (x)
-      && !c33_initfini_section_p ())
+      && SYMBOL_REF_FUNCTION_P (x))
     {
       fputs ("\t.long\tfuncdesc(", asm_out_file);
       output_addr_const (asm_out_file, x);
@@ -2799,6 +2761,62 @@ c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
       return true;
     }
   return default_assemble_integer (x, size, aligned_p);
+}
+
+/* -mfdpic: the constructor and destructor tables hold entry points, not
+   descriptors: uClibc's startup code and ld.so call each with the module's
+   own %r15, as ARM FDPIC's tables and crtstuff.c's entries have it.  */
+
+static void
+c33_fdpic_cdtor (rtx symbol, int priority, bool is_ctor)
+{
+  char buf[18];
+  section *s;
+
+  if (priority != DEFAULT_INIT_PRIORITY)
+    {
+      sprintf (buf, "%s.%.5u", is_ctor ? ".init_array" : ".fini_array",
+	       priority);
+      s = get_section (buf, SECTION_WRITE | SECTION_NOTYPE, NULL_TREE);
+    }
+  else
+    s = get_section (is_ctor ? ".init_array" : ".fini_array",
+		     SECTION_WRITE | SECTION_NOTYPE, NULL_TREE);
+  switch_to_section (s);
+  assemble_align (POINTER_SIZE);
+  fputs ("\t.long\t", asm_out_file);
+  output_addr_const (asm_out_file, symbol);
+  fputc ('\n', asm_out_file);
+}
+
+/* Without -mfdpic, what target-def.h would have chosen.  */
+#if defined (USE_INITFINI_ARRAY)
+# define C33_DEFAULT_CTOR default_elf_init_array_asm_out_constructor
+# define C33_DEFAULT_DTOR default_elf_fini_array_asm_out_destructor
+#elif defined (CTORS_SECTION_ASM_OP)
+# define C33_DEFAULT_CTOR default_ctor_section_asm_out_constructor
+# define C33_DEFAULT_DTOR default_dtor_section_asm_out_destructor
+#else
+# define C33_DEFAULT_CTOR default_named_section_asm_out_constructor
+# define C33_DEFAULT_DTOR default_named_section_asm_out_destructor
+#endif
+
+static void
+c33_asm_constructor (rtx symbol, int priority)
+{
+  if (TARGET_FDPIC)
+    c33_fdpic_cdtor (symbol, priority, true);
+  else
+    C33_DEFAULT_CTOR (symbol, priority);
+}
+
+static void
+c33_asm_destructor (rtx symbol, int priority)
+{
+  if (TARGET_FDPIC)
+    c33_fdpic_cdtor (symbol, priority, false);
+  else
+    C33_DEFAULT_DTOR (symbol, priority);
 }
 
 /* -mfdpic: memory a call cannot clobber, for the copy of %r15 it restores:
@@ -3453,6 +3471,10 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_ASM_INTEGER
 #define TARGET_ASM_INTEGER c33_assemble_integer
+#undef  TARGET_ASM_CONSTRUCTOR
+#define TARGET_ASM_CONSTRUCTOR c33_asm_constructor
+#undef  TARGET_ASM_DESTRUCTOR
+#define TARGET_ASM_DESTRUCTOR c33_asm_destructor
 
 /* The assembler supports switchable .bss sections, but
    c33_select_section doesn't yet make use of them.  */

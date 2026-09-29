@@ -32,6 +32,7 @@
 #define R_C33_32		1
 #define R_C33_FUNCDESC		32
 #define R_C33_FUNCDESC_VALUE	33
+#define R_C33_RELATIVE		34
 
 /* ld.so relocates itself with its own dynamic relocations.  */
 #define ARCH_NEEDS_BOOTSTRAP_RELOCS
@@ -68,8 +69,8 @@ elf_machine_load_address (void)
 	return 0;
 }
 
-/* The linker puts a module's own addresses first in .rela.dyn, as R_C33_32
-   against no symbol with the link-time address in the addend, and counts
+/* The linker puts a module's own addresses first in .rela.dyn, as
+   R_C33_RELATIVE with the link-time address in the addend, and counts
    them in DT_RELACOUNT: most of a library's relocations, redone in every
    process.  Relocating an address through the load map searches it; a
    module in two segments, text below data, needs one comparison.  A

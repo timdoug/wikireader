@@ -316,15 +316,15 @@ directly, so the first use of a module reads its whole text into RAM: libc's
 only the parts it used. The BusyBox suite checks that PID 1 and a child map
 the same `/bin/busybox` and `libc` text.
 
-`ld.so` is about 0.2 s of a boot's CPU. A library's own addresses are most
-of its relocations -- libc has 1,212 of them, redone in every process -- so
-the linker puts them first in `.rela.dyn` and counts them in `DT_RELACOUNT`,
-and `ld.so` runs them through a loop of their own that relocates an address
-with one comparison instead of a search of the load map. Libraries are linked
-`-Bsymbolic`, so a library's calls to itself are bound at link time rather
-than looked up at every exec, and a symbol named by many relocations, such as
-`__stack_chk_guard` in 218 of BusyBox's, is looked up once a module. Calls
-through the `.plt` are bound at their first call. Without an MMU there is
+A library's own addresses are most of its relocations -- libc has 1,212 of
+them, redone in every process -- so they are `R_C33_RELATIVE`, which the
+linker puts first in `.rela.dyn` and counts in `DT_RELACOUNT`, and `ld.so`
+runs them through a loop of their own that relocates an address with one
+comparison instead of a search of the load map. A symbol named by many
+relocations, such as `__stack_chk_guard` in 218 of BusyBox's, is looked up
+once a module. Calls through the `.plt` are bound at their first call.
+Libraries bind as ELF has them, without `-Bsymbolic`: a program may define a
+function a library also defines, and the library then calls the program's. Without an MMU there is
 nothing for RELRO to protect, so the image is built without it, which would
 otherwise bind every call at exec.
 
@@ -502,15 +502,17 @@ check.
 Buildroot builds with `c33-linux-uclibc-` from `toolchain`, as FDPIC with
 shared libraries. Everything is compiled with `-ffunction-sections
 -fdata-sections` and linked with `--gc-sections`, so a program keeps only
-the functions it reaches, and a library only what it exports and they reach;
-libraries are linked `-Bsymbolic`, and nothing here interposes on one. The
-build starts from a
-clean output directory each time, because Buildroot does not notice a rebuilt
-C library. That takes about 16 minutes, most of it the host tools X needs
-(Python for libxcb's protocol generator, CMake); a package's `-dirclean`
-target and then `make -C` the output directory redoes one package in a
-minute or two (`-rebuild` can leave a program unlinked against its rebuilt
-libraries).
+the functions it reaches, and a library only what it exports and they
+reach. Buildroot does not notice a rebuilt C library, so every build
+redoes every target package, about two minutes. The host tools (Meson,
+Ninja, Python, bison and the rest) are built with the VM's own compiler and
+depend on nothing of the C33's, so they are kept between builds;
+`buildroot/build.sh --full` starts from nothing, about ten minutes, as a
+change to a host package's options needs. The VM's CMake stands in for
+Buildroot's, which took four and a half minutes to build for Ninja. A
+package's `-dirclean` target and then `make -C` the output directory redoes
+one package in a minute or two (`-rebuild` can leave a program unlinked
+against its rebuilt libraries).
 
 The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
 provides what Buildroot's own uClibc configuration offers packages, such as

@@ -804,12 +804,32 @@ typedef enum
 #define EH_RETURN_DATA_REGNO(N) ((N) < 2 ? (N) + 4 : INVALID_REGNUM)
 #define EH_RETURN_STACKADJ_RTX  gen_rtx_REG (Pmode, 13)
 
-/* -mfdpic: the unwinder calls the personality routine through a function
-   pointer, so the CIE holds the address of a word in data holding its
-   descriptor's address (DW.ref.<personality>, which c33_assemble_integer
-   writes as a funcdesc), rather than the routine's own address.  */
+/* -mfdpic: the unwind tables are data, which the loader relocates, so
+   they hold absolute addresses.  A global datum -- a type_info -- is
+   reached through a word of its own (DW.ref.<name>).  The personality
+   routine (CODE 2) is a function, and the unwinder calls it through a C
+   function pointer, so the CIE holds its descriptor's address directly:
+   c33_assemble_integer writes a funcdesc for it as for any function.  */
 #define ASM_PREFERRED_EH_DATA_FORMAT(CODE, GLOBAL) \
-  ((TARGET_FDPIC && (GLOBAL) ? DW_EH_PE_indirect : 0) | DW_EH_PE_absptr)
+  ((TARGET_FDPIC && (GLOBAL) && (CODE) != 2 ? DW_EH_PE_indirect : 0) \
+   | DW_EH_PE_absptr)
+
+/* dwarf2asm writes an absolute pointer with .4byte itself, past
+   TARGET_ASM_INTEGER, so a function's descriptor is asked for here, as SH
+   asks for its @GOTFUNCDESC.  */
+#define ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX(FILE, ENCODING, SIZE, ADDR, DONE) \
+  do									\
+    {									\
+      if (TARGET_FDPIC && (ENCODING) == DW_EH_PE_absptr && (SIZE) == 4	\
+	  && GET_CODE (ADDR) == SYMBOL_REF && SYMBOL_REF_FUNCTION_P (ADDR)) \
+	{								\
+	  fputs ("\t.4byte\tfuncdesc(", (FILE));				\
+	  output_addr_const ((FILE), (ADDR));				\
+	  fputs (")\n", (FILE));					\
+	  goto DONE;							\
+	}								\
+    }									\
+  while (0)
 
 /* This is how to output an element of a case-vector that is absolute.  */
 

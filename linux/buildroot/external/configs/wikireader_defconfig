@@ -1,12 +1,9 @@
 BR2_c33=y
 BR2_OPTIMIZE_S=y
 # Every program and library keeps only the functions and data it reaches,
-# and loads from the card at about 1.4 MB/s.  A shared library's references
-# to itself bind at link time (-Bsymbolic): ld.so would otherwise look up,
-# at every exec, each of its own exported functions it calls, at about
-# 5,000 cycles a lookup.  Nothing here interposes on a library.
+# and loads from the card at about 1.4 MB/s.
 BR2_TARGET_OPTIMIZATION="-ffunction-sections -fdata-sections"
-BR2_TARGET_LDFLAGS="-Wl,--gc-sections -Wl,-Bsymbolic"
+BR2_TARGET_LDFLAGS="-Wl,--gc-sections"
 # RELRO would link everything -z now: without an MMU there is nothing to
 # protect, and ld.so would bind each .plt descriptor at every exec rather
 # than at its first call.

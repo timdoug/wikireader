@@ -96,9 +96,12 @@ START_RELOC_NUMBERS (c33_reloc_type)
      /* FDPIC (no-MMU Linux with independently placed segments).  A
 	FUNCDESC word holds the address of the canonical function descriptor
 	of its symbol; a FUNCDESC_VALUE is the 8-byte descriptor itself,
-	{entry point, the defining module's %r15}.  */
+	{entry point, the defining module's %r15}.  A RELATIVE word is the
+	module's own address in the addend, relocated through its load map;
+	only ever dynamic.  */
      RELOC_NUMBER (R_C33_FUNCDESC, 32)
      RELOC_NUMBER (R_C33_FUNCDESC_VALUE, 33)
+     RELOC_NUMBER (R_C33_RELATIVE, 34)
 END_RELOC_NUMBERS (R_C33_max)
 
 
