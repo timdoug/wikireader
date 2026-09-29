@@ -47,12 +47,18 @@ def make_image(path, files, sectors_per_cluster=1):
         struct.pack_into('<I', fat, c * 4,
                          c + 1 if c < last_root else 0x0fffffff)
     cluster = last_root + 1
+    used = root_clusters
+    # A card written file by file over deleted ones scatters each file over
+    # the holes.  WR_FAT_FRAGMENT=N writes every file in runs of N clusters
+    # with a free cluster after each run, for walks down fragmented chains.
+    run = int(os.environ.get('WR_FAT_FRAGMENT') or 0)
     for i, (name, content) in enumerate(files.items()):
         stem, ext = name.upper().split('.')
         assert len(stem) <= 8 and len(ext) <= 3
         count = max(1, (len(content) + 512 * spc - 1) // (512 * spc))
-        for c in range(cluster, cluster + count):
-            struct.pack_into('<I', fat, c*4, c+1 if c+1 < cluster+count else 0x0fffffff)
+        chain = [cluster + k + (k // run if run else 0) for k in range(count)]
+        for c, n in zip(chain, chain[1:] + [0x0fffffff]):
+            struct.pack_into('<I', fat, c*4, n)
         off = i * 32
         root[off:off+11] = (stem.ljust(8) + ext.ljust(3)).encode()
         root[off+11] = 0x20
@@ -68,8 +74,13 @@ def make_image(path, files, sectors_per_cluster=1):
         struct.pack_into('<H', root, off+18, fat_date)
         struct.pack_into('<H', root, off+20, cluster >> 16)
         struct.pack_into('<HI', root, off+26, cluster & 65535, len(content))
-        objects.append((cluster, content))
-        cluster += count
+        if run:
+            size = 512 * spc
+            objects += [(c, content[k*size:(k+1)*size]) for k, c in enumerate(chain)]
+        else:
+            objects.append((cluster, content))
+        cluster = chain[-1] + 1
+        used += count
     assert len(files) < 128 and cluster < clusters + 2
     mbr = bytearray(512)
     mbr[450] = 0x0c
@@ -87,7 +98,7 @@ def make_image(path, files, sectors_per_cluster=1):
     # The builder knows this allocation state. Unknown hints make the
     # first boot scan the FAT before writing a diagnostic, skewing timing.
     struct.pack_into('<III', fsinfo, 484, 0x61417272,
-                     clusters - (cluster - 2), cluster - 1)
+                     clusters - used, cluster - 1)
     struct.pack_into('<I', fsinfo, 508, 0xaa550000)
     with path.open('wb') as out:
         out.truncate((part+sectors)*512)

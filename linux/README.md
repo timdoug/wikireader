@@ -468,7 +468,13 @@ sets the clock from the newest of `linux.img`, `linux.app` and `kernel.elf`
 before anything is mounted read-write. `linux.img` changes whenever the
 system writes, so the clock carries on from the last session. It then attaches `linux.img` to `loop0`
 with direct I/O, so ext4's reads neither start the FAT file's readahead nor
-get cached twice. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
+get cached twice. Every read into the image first finds its cluster by
+walking the file's FAT chain, cached per file as at most eight runs of
+consecutive clusters; the device's boot volume has 512-byte clusters, so
+`linux.img` is a chain of 32,768. `patches/0020` follows runs of
+consecutive clusters within a FAT block with a load and a compare a step;
+through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
+whole image 0.7 s. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
 last time, moves the card to `/mnt/sd`
 inside it, mounts `/proc`, `/sys`, `/dev` and `/dev/pts` there (each a
 BusyBox exec from `rcS`, about a tenth of a second), and becomes its

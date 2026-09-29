@@ -1,0 +1,87 @@
+diff --git a/fs/fat/cache.c b/fs/fat/cache.c
+index 1b87354e24..94910a1e82 100644
+--- a/fs/fat/cache.c
++++ b/fs/fat/cache.c
+@@ -275,6 +275,10 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
+ 		*dclus = nr;
+ 		if (!cache_contiguous(&cid, *dclus))
+ 			cache_init(&cid, *fclus, *dclus);
++		nr = fat_ent_follow_contig(sb, &fatent, cluster - *fclus);
++		*fclus += nr;
++		*dclus += nr;
++		cid.nr_contig += nr;
+ 	}
+ 	nr = 0;
+ 	fat_cache_add(inode, &cid);
+diff --git a/fs/fat/fat.h b/fs/fat/fat.h
+index 2772675bd3..dc1c0628ef 100644
+--- a/fs/fat/fat.h
++++ b/fs/fat/fat.h
+@@ -391,6 +391,8 @@ static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
+ extern void fat_ent_access_init(struct super_block *sb);
+ extern int fat_ent_read(struct inode *inode, struct fat_entry *fatent,
+ 			int entry);
++extern int fat_ent_follow_contig(struct super_block *sb,
++				 struct fat_entry *fatent, int max);
+ extern int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
+ 			 int new, int wait);
+ extern int fat_alloc_clusters(struct inode *inode, int *cluster,
+diff --git a/fs/fat/fatent.c b/fs/fat/fatent.c
+index f0801d99dd..922b6135ed 100644
+--- a/fs/fat/fatent.c
++++ b/fs/fat/fatent.c
+@@ -412,6 +412,54 @@ static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
+ 	return err;
+ }
+ 
++/*
++ * Follow a chain on through consecutive clusters within the FAT block
++ * @fatent holds.  If the entry @fatent points at holds the number of the
++ * cluster after it, step on to that cluster's entry while it does the same,
++ * at most @max times; return the number of steps, with @fatent pointing at
++ * the last entry stepped to.  A file written in one piece is mostly such
++ * runs, and a step here is a load and a compare where fat_ent_read() works
++ * out the block and calls through the operations: on a slow CPU, walking
++ * a large file's chain is most of the cost of reading far into it.
++ */
++int fat_ent_follow_contig(struct super_block *sb, struct fat_entry *fatent,
++			  int max)
++{
++	struct msdos_sb_info *sbi = MSDOS_SB(sb);
++	const struct buffer_head *bh = fatent->bhs[0];
++	int next = fatent->entry + 1, n = 0;
++
++	if (fatent->nr_bhs != 1 || !fatent->u.ent32_p)
++		return 0;
++	if (is_fat32(sbi)) {
++		const __le32 *p = fatent->u.ent32_p;
++		const __le32 *end = (__le32 *)(bh->b_data + bh->b_size);
++
++		if ((le32_to_cpu(*p) & 0x0fffffff) != next)
++			return 0;
++		while (n < max && p + 1 < end &&
++		       (le32_to_cpu(p[1]) & 0x0fffffff) == next + n + 1) {
++			p++;
++			n++;
++		}
++		fatent->u.ent32_p = (__le32 *)p;
++	} else if (is_fat16(sbi)) {
++		const __le16 *p = fatent->u.ent16_p;
++		const __le16 *end = (__le16 *)(bh->b_data + bh->b_size);
++
++		if (le16_to_cpu(*p) != next)
++			return 0;
++		while (n < max && p + 1 < end &&
++		       le16_to_cpu(p[1]) == next + n + 1) {
++			p++;
++			n++;
++		}
++		fatent->u.ent16_p = (__le16 *)p;
++	}
++	fatent->entry += n;
++	return n;
++}
++
+ int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
+ 		  int new, int wait)
+ {

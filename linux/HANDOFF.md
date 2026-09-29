@@ -191,14 +191,17 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 
 Local sockets and VTs (for X) came after these measurements: about 0.6 s
 more to the prompt in wremu, not yet timed on the device. FDPIC shared
-libraries came after that. On the device the prompt is up 7.58 s after the
-kernel starts, against 4.12 s for the static bFLT system (3,465 blocks read
-at boot against 1,871, but only 0.4 s more card time). wremu with the
-device's 512-byte clusters (`SPC=1` in `artifacts/perf/x11/timeline_app.py`)
-reproduces about half of it, 6.1 s against 4.3; with boot-test's 32 KB
-clusters it shows 4.73 against 3.91. The extra goes to rootstart's ext4
-mount and seed read (+0.6 s) and the first dynamic exec (+0.8 s), both
-reads scattered through a 16 MB FAT file of 32,768 clusters. The first exec reads libc's whole 489 KB of text
+libraries came after that. On the device the prompt came up 7.58 s after
+the kernel started, against 4.12 s for the static bFLT system, though the
+card time only grew 0.4 s (3,465 blocks read at boot against 1,871). The
+rest was FAT walking `linux.img`'s cluster chain: 32,768 clusters at the
+device's 512-byte cluster size, about 1,300 cycles a step, and FDPIC's
+first reads reach the end of the image. wremu reproduces the device with its
+cluster size and a fragmented image (`SPC=1 WR_FAT_FRAGMENT=128` with
+`artifacts/perf/x11/timeline_app.py`: 7.42 s); `patches/0020`, which follows
+consecutive clusters with a load and a compare, brings that to 5.92 s, and
+to 5.40 s with the image in one piece (bFLT 4.3). Not yet timed on the
+device. The first exec reads libc's whole 489 KB of text
 (the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
 about 0.2 s of the boot's CPU. Linking the libraries `-Bsymbolic`, as
 FRV's uClibc does, saved 0.12 s; they bind as ELF has them instead.
@@ -403,10 +406,11 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **The FDPIC boot on the device**, 7.58 s to the prompt against bFLT's
-   4.12 ("Boot: where it stands"). Profile the `SPC=1` wremu boot first;
-   where the reads into the image go through FAT's cluster chains is the
-   suspect.
+1. **Time `patches/0020` on the device** ("Boot: where it stands"); wremu
+   predicts about 6 s to the prompt on the fragmented card, against 7.58.
+   What is left of the gap to bFLT is userland starting (`ld.so` and
+   libc, 66M cycles of the boot against 31M) and the fragmented image's
+   extra card commands (0.5 s).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map
