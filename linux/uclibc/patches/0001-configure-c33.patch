@@ -1,5 +1,5 @@
 diff --git a/Rules.mak b/Rules.mak
-index 53ab39d..803067e 100644
+index 53ab39d..b41e11b 100644
 --- a/Rules.mak
 +++ b/Rules.mak
 @@ -299,6 +299,7 @@ ifneq ($(TARGET_ARCH),h8300)
@@ -18,13 +18,17 @@ index 53ab39d..803067e 100644
  
  $(eval $(call check-gcc-var,-std=gnu99))
  CPU_CFLAGS-y += $(CFLAG_-std=gnu99)
-@@ -433,6 +435,11 @@ else
+@@ -433,6 +435,15 @@ else
  endif
  endif
  
 +ifeq ($(TARGET_ARCH),c33)
 +	CPU_CFLAGS-y += -mc33pe -mfdpic -mlong-calls
 +	CPU_LDFLAGS-y += -mc33pe -mfdpic -mlong-calls
++	# libc's references to itself bind at link time: no symbol lookup and
++	# no .plt entry in every process for the calls libc makes to its own
++	# exported functions.  Nothing here interposes on libc.
++	LDFLAGS-y-libc.so := -Wl,-Bsymbolic
 +endif
 +
  ifeq ($(TARGET_ARCH),h8300)

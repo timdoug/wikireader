@@ -38,6 +38,7 @@ SECTIONS
   .gnu.version_d  : { *(.gnu.version_d) }
   .gnu.version_r  : { *(.gnu.version_r) }
   .rela.dyn       : { *(.rela.dyn) }
+  .rela.plt       : { *(.rela.plt) }
   .plt            : { *(.plt) }
   .text           :
   {

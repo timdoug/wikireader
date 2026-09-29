@@ -8,9 +8,7 @@ WR_CONSOLE_VERSION = local
 WR_CONSOLE_SITE = $(BR2_EXTERNAL_WIKIREADER_PATH)/../../console
 WR_CONSOLE_SITE_METHOD = local
 
-# The terminal's escape handling is tested on the build machine first.  The
-# console is linked statically, as BusyBox is, so that boot reads and
-# relocates no shared library: libc.so is 500 KB on the card.
+# The terminal's escape handling is tested on the build machine first.
 define WR_CONSOLE_BUILD_CMDS
 	$(HOSTCC) $(HOST_CFLAGS) -o $(@D)/terminal-test $(@D)/terminal-test.c
 	$(@D)/terminal-test
@@ -18,7 +16,7 @@ define WR_CONSOLE_BUILD_CMDS
 		-fno-unwind-tables -fno-asynchronous-unwind-tables \
 		-ffunction-sections -fdata-sections \
 		$(@D)/wr-console.c -o $(@D)/wr-console \
-		$(TARGET_LDFLAGS) -static
+		$(TARGET_LDFLAGS)
 endef
 
 define WR_CONSOLE_INSTALL_TARGET_CMDS

@@ -66,10 +66,16 @@ __asm__(
 "	ld.w	%r8,%r2\n"
 "	jp	%r4\n"
 "	.size	_start,.-_start\n"
+	/* A descriptor for _dl_fini made by hand: ld.so relocates itself
+	   before it can make canonical ones, and this one is only ever
+	   called.  */
 "	.section .data.rel.ro,\"aw\"\n"
-"	.align	2\n"
+"	.align	3\n"
+".L_dl_fini_fd:\n"
+"	.long	_dl_fini\n"
+"	.long	__dp\n"
 ".L_dl_fini:\n"
-"	.long	funcdesc(_dl_fini)\n"
+"	.long	.L_dl_fini_fd\n"
 "	.previous\n"
 );
 

@@ -77,15 +77,18 @@
 #define LIB_SPEC "%{pthread:-lpthread} -lc"
 
 /* The FDPIC emulation, and ld.so unless the link is static.  Without an
-   MMU a program's stack cannot grow, and the kernel gives it the size in
-   PT_GNU_STACK, or 128 KB if that is zero: 16 KB here, as bFLT programs
-   had, and a later -Wl,-z,stack-size= overrides it.  */
+   MMU a program's stack cannot grow: the kernel allocates the size in
+   PT_GNU_STACK whole at exec, or 128 KB if that is zero.  32 KB here, and
+   a later -Wl,-z,stack-size= overrides it.  16 KB, what bFLT programs had,
+   is too little for FDPIC Xlib clients -- a lazily bound first call adds
+   ld.so's resolver at whatever depth it happens -- and an overflow writes
+   silently into whatever lies below the stack.  */
 #undef LINK_SPEC
 #define LINK_SPEC "%{mno-fdpic:-m c33 %{shared:%e-shared needs -mfdpic} %{!r:-static}} \
   %{!mno-fdpic:-m c33fdpic %{shared} %{static} \
     %{!shared:%{!static:%{rdynamic:-export-dynamic} \
       -dynamic-linker /lib/ld-uClibc.so.0}} \
-    %{!r:%{!shared:-z noexecstack -z stack-size=16384}}}"
+    %{!r:%{!shared:-z noexecstack -z stack-size=32768}}}"
 
 #undef LINK_GCC_C_SEQUENCE_SPEC
 #define LINK_GCC_C_SEQUENCE_SPEC "--start-group %G %{!nolibc:%L} --end-group"

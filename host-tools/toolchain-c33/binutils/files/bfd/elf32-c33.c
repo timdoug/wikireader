@@ -1715,7 +1715,12 @@ extern const bfd_target c33_elf32_fdpic_vec;
    the module's struct elf_resolve, which it finds from a descriptor's %r15.
    Sixteen bytes keep the descriptors after it 8-byte aligned.  */
 #define C33FDPIC_GOT_HEADER_SIZE 16
-#define C33FDPIC_PLT_ENTRY_SIZE	16
+/* .plt starts with a trampoline to ld.so's lazy resolver, and each entry is
+   the 16-byte call through a descriptor followed by the 12-byte stub its
+   descriptor points at until the resolver has filled it in.  */
+#define C33FDPIC_PLT_HEADER_SIZE 8
+#define C33FDPIC_PLT_ENTRY_SIZE	28
+#define C33FDPIC_PLT_LAZY_OFFSET 16
 #define C33FDPIC_FD_SIZE	8
 #define C33FDPIC_NONE		((bfd_vma) -1)
 #define C33FDPIC_WANTED		((bfd_vma) -2)
@@ -1743,6 +1748,7 @@ struct c33fdpic_link_hash_table
   /* Entries written so far; they must fill the sections exactly.  */
   bfd_vma rofixup_count;
   bfd_vma rela_count;
+  bfd_vma relplt_count;
   /* The fixups were counted again after .eh_frame was edited.  */
   bool recounted;
 };
@@ -1846,6 +1852,12 @@ c33fdpic_create_sections (bfd *abfd, struct bfd_link_info *info)
   if (s == NULL || !bfd_set_section_alignment (s, 2))
     return false;
   htab->elf.srelgot = s;
+
+  s = bfd_make_section_anyway_with_flags (dynobj, ".rela.plt",
+					  flags | SEC_READONLY);
+  if (s == NULL || !bfd_set_section_alignment (s, 2))
+    return false;
+  htab->elf.srelplt = s;
 
   s = bfd_make_section_anyway_with_flags (dynobj, ".rofixup",
 					  flags | SEC_READONLY);
@@ -1966,16 +1978,14 @@ c33fdpic_defined_p (struct elf_link_hash_entry *h)
 
 /* Whether this module owns H's canonical descriptor.  An exported function
    may have its address taken in other modules too, and all of them must
-   agree, so ld.so makes those -- unless -Bsymbolic says the module keeps
-   its own, as ld.so itself must: it relocates itself before it can make
-   descriptors.  */
+   agree, so ld.so makes those, even under -Bsymbolic: Xt, for one,
+   compares a class's procedures with its own _XtInherit's descriptor.  */
 
 static bool
 c33fdpic_fd_local (struct bfd_link_info *info, struct elf_link_hash_entry *h)
 {
   return (h->dynindx == -1
-	  || !elf_hash_table (info)->dynamic_sections_created
-	  || (info->symbolic && SYMBOL_REFERENCES_LOCAL (info, h)));
+	  || !elf_hash_table (info)->dynamic_sections_created);
 }
 
 /* What the loader has to do for a data word relocated by R_TYPE against H,
@@ -2032,6 +2042,8 @@ c33fdpic_allocate_global (struct elf_link_hash_entry *h, void *inf)
       && h->dynindx != -1
       && !SYMBOL_CALLS_LOCAL (info, h))
     {
+      if (htab->elf.splt->size == 0)
+	htab->elf.splt->size = C33FDPIC_PLT_HEADER_SIZE;
       e->plt_offset = htab->elf.splt->size;
       htab->elf.splt->size += C33FDPIC_PLT_ENTRY_SIZE;
       e->plt_got = htab->elf.sgot->size;
@@ -2068,8 +2080,6 @@ c33fdpic_count_global (struct elf_link_hash_entry *h, void *inf)
 
   if (h->root.type == bfd_link_hash_indirect)
     return true;
-  if (e->plt_offset != C33FDPIC_NONE)
-    n->relas++;
   if (e->fd_got != C33FDPIC_NONE)
     {
       if (bfd_link_executable (info))
@@ -2241,8 +2251,9 @@ c33fdpic_late_size_sections (struct bfd_link_info *info)
     return true;
 
   /* The descriptors' relocations are written after the final link sorts
-     .rela.dyn, so it must not be sorted.  Nothing needs it sorted: there
-     is no lazy binding, and ld.so reads no DT_RELACOUNT.  */
+     .rela.dyn, so it must not be sorted then:
+     c33fdpic_finish_dynamic_sections puts the module-relative ones first
+     itself.  */
   info->combreloc = false;
 
   if (htab->elf.dynamic_sections_created
@@ -2276,8 +2287,15 @@ c33fdpic_late_size_sections (struct bfd_link_info *info)
 	  }
     }
 
-  for (s = htab->elf.sgot; s != NULL; s = (s == htab->elf.sgot
-					  ? htab->elf.splt : NULL))
+  htab->elf.srelplt->size = 0;
+  if (htab->elf.splt->size != 0)
+    htab->elf.srelplt->size
+      = ((htab->elf.splt->size - C33FDPIC_PLT_HEADER_SIZE)
+	 / C33FDPIC_PLT_ENTRY_SIZE * sizeof (Elf32_External_Rela));
+
+  for (s = htab->elf.sgot; s != NULL;
+       s = (s == htab->elf.sgot ? htab->elf.splt
+	    : s == htab->elf.splt ? htab->elf.srelplt : NULL))
     if (s->size != 0)
       {
 	s->contents = bfd_zalloc (dynobj, s->size);
@@ -2300,7 +2318,13 @@ c33fdpic_late_size_sections (struct bfd_link_info *info)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_RELA, 0)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_RELASZ, 0)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_RELAENT,
-					  sizeof (Elf32_External_Rela)))
+					  sizeof (Elf32_External_Rela))
+	  || !_bfd_elf_add_dynamic_entry (info, DT_RELACOUNT, 0))
+	return false;
+      if (htab->elf.srelplt->size != 0
+	  && (!_bfd_elf_add_dynamic_entry (info, DT_JMPREL, 0)
+	      || !_bfd_elf_add_dynamic_entry (info, DT_PLTRELSZ, 0)
+	      || !_bfd_elf_add_dynamic_entry (info, DT_PLTREL, DT_RELA)))
 	return false;
     }
   return true;
@@ -2339,21 +2363,73 @@ c33fdpic_add_rofixup (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
 }
 
 static void
-c33fdpic_add_rela (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
-		   bfd_vma offset, int r_type, long dynindx, bfd_vma addend)
+c33fdpic_add_rela_to (bfd *output_bfd, asection *s, bfd_vma *count,
+		      bfd_vma offset, int r_type, long dynindx, bfd_vma addend)
 {
-  asection *s = htab->elf.srelgot;
   Elf_Internal_Rela rela;
 
   rela.r_offset = offset;
   rela.r_info = ELF32_R_INFO (dynindx, r_type);
   rela.r_addend = addend;
-  if ((htab->rela_count + 1) * sizeof (Elf32_External_Rela) <= s->size)
+  if ((*count + 1) * sizeof (Elf32_External_Rela) <= s->size)
     bfd_elf32_swap_reloca_out (output_bfd, &rela,
 			       s->contents
-			       + htab->rela_count
-				 * sizeof (Elf32_External_Rela));
-  htab->rela_count++;
+			       + *count * sizeof (Elf32_External_Rela));
+  ++*count;
+}
+
+static void
+c33fdpic_add_rela (bfd *output_bfd, struct c33fdpic_link_hash_table *htab,
+		   bfd_vma offset, int r_type, long dynindx, bfd_vma addend)
+{
+  c33fdpic_add_rela_to (output_bfd, htab->elf.srelgot, &htab->rela_count,
+			offset, r_type, dynindx, addend);
+}
+
+/* Move the module-relative relocations, R_C33_32 against no symbol, to
+   the front of .rela.dyn, keeping the order within each kind, and return
+   how many there are: DT_RELACOUNT.  ld.so runs them through a loop of
+   their own, and they are most of a shared library's.  */
+
+static bfd_vma
+c33fdpic_sort_relas (bfd *output_bfd, asection *s)
+{
+  bfd_size_type n = s->size / sizeof (Elf32_External_Rela), i;
+  bfd_vma relative = 0, other;
+  bfd_byte *copy;
+
+  if (n == 0)
+    return 0;
+  copy = bfd_malloc (s->size);
+  if (copy == NULL)
+    return (bfd_vma) -1;
+  memcpy (copy, s->contents, s->size);
+  for (i = 0; i < n; i++)
+    {
+      Elf_Internal_Rela rela;
+
+      bfd_elf32_swap_reloca_in (output_bfd,
+				copy + i * sizeof (Elf32_External_Rela),
+				&rela);
+      if (rela.r_info == ELF32_R_INFO (0, R_C33_32))
+	relative++;
+    }
+  other = relative;
+  relative = 0;
+  for (i = 0; i < n; i++)
+    {
+      bfd_byte *from = copy + i * sizeof (Elf32_External_Rela);
+      Elf_Internal_Rela rela;
+      bfd_vma *to;
+
+      bfd_elf32_swap_reloca_in (output_bfd, from, &rela);
+      to = rela.r_info == ELF32_R_INFO (0, R_C33_32) ? &relative : &other;
+      memcpy (s->contents + *to * sizeof (Elf32_External_Rela), from,
+	      sizeof (Elf32_External_Rela));
+      ++*to;
+    }
+  free (copy);
+  return relative;
 }
 
 static bool
@@ -2432,6 +2508,46 @@ c33fdpic_write_plt (bfd *output_bfd, bfd_byte *p, bfd_vma doff)
   bfd_put_16 (output_bfd, 0x0000, p + 14);
 }
 
+/* The stub an unresolved descriptor points at: the entry's offset in
+   .rela.plt in %r13, then a call to the trampoline at the head of .plt.
+   The call is not for returning: its return address tells the resolver
+   which module's .plt this is, so that it needs nothing from %r15, which a
+   caller reading the descriptor while another thread or a signal handler
+   resolves it may have taken from the new one.  %r13 carries no argument.
+
+	xld.w	%r13,RELOC_OFFSET
+	xcall	.plt  */
+
+static void
+c33fdpic_write_plt_lazy (bfd *output_bfd, bfd_byte *p, bfd_vma reloc_offset,
+			 bfd_signed_vma disp)
+{
+  bfd_put_16 (output_bfd, 0xc000 | ((reloc_offset >> 19) & 0x1fff), p);
+  bfd_put_16 (output_bfd, 0xc000 | ((reloc_offset >> 6) & 0x1fff), p + 2);
+  bfd_put_16 (output_bfd, 0x6c0d | ((reloc_offset & 0x3f) << 4), p + 4);
+  /* DISP is from the call instruction itself.  */
+  bfd_put_16 (output_bfd, 0xc000 | ((disp >> 19) & 0x1ff8), p + 6);
+  bfd_put_16 (output_bfd, 0xc000 | ((disp >> 9) & 0x1fff), p + 8);
+  bfd_put_16 (output_bfd, 0x1c00 | ((disp >> 1) & 0xff), p + 10);
+}
+
+/* The head of .plt: into ld.so's resolver, whose descriptor every module's
+   .got header holds (ld.so's INIT_GOT), through whichever module's %r15
+   the caller has.
+
+	ld.w	%r14,[%r15]
+	xld.w	%r15,[%r15+4]
+	jp	%r14  */
+
+static void
+c33fdpic_write_plt_header (bfd *output_bfd, bfd_byte *p)
+{
+  bfd_put_16 (output_bfd, 0x30fe, p);
+  bfd_put_16 (output_bfd, 0xc004, p + 2);
+  bfd_put_16 (output_bfd, 0x30ff, p + 4);
+  bfd_put_16 (output_bfd, 0x068e, p + 6);
+}
+
 static bool
 c33fdpic_finish_global (struct elf_link_hash_entry *h, void *inf)
 {
@@ -2446,11 +2562,27 @@ c33fdpic_finish_global (struct elf_link_hash_entry *h, void *inf)
   if (e->plt_offset != C33FDPIC_NONE)
     {
       bfd_vma slot = c33fdpic_got_vma (htab) + e->plt_got;
+      bfd_vma plt = (htab->elf.splt->output_section->vma
+		     + htab->elf.splt->output_offset);
+      bfd_vma lazy = plt + e->plt_offset + C33FDPIC_PLT_LAZY_OFFSET;
+      bfd_vma index = ((e->plt_offset - C33FDPIC_PLT_HEADER_SIZE)
+		       / C33FDPIC_PLT_ENTRY_SIZE);
+      bfd_vma relplt_index = index;
 
       c33fdpic_write_plt (output_bfd, htab->elf.splt->contents + e->plt_offset,
 			  slot - c33fdpic_dp (info));
-      c33fdpic_add_rela (output_bfd, htab, slot, R_C33_FUNCDESC_VALUE,
-			 h->dynindx, 0);
+      c33fdpic_write_plt_lazy (output_bfd,
+			       htab->elf.splt->contents + e->plt_offset
+			       + C33FDPIC_PLT_LAZY_OFFSET,
+			       index * sizeof (Elf32_External_Rela),
+			       (bfd_signed_vma) plt - (bfd_signed_vma) (lazy + 10));
+      /* Until ld.so resolves it, the descriptor sends a call to the stub;
+	 ld.so relocates the link-time address here and adds %r15.  */
+      bfd_put_32 (output_bfd, lazy, htab->elf.sgot->contents + e->plt_got);
+      bfd_put_32 (output_bfd, 0, htab->elf.sgot->contents + e->plt_got + 4);
+      c33fdpic_add_rela_to (output_bfd, htab->elf.srelplt, &relplt_index,
+			    slot, R_C33_FUNCDESC_VALUE, h->dynindx, 0);
+      htab->relplt_count++;
     }
   if (e->fd_got != C33FDPIC_NONE)
     c33fdpic_write_fd (info, e->fd_got,
@@ -2467,6 +2599,7 @@ c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
   struct c33fdpic_link_hash_table *htab = c33fdpic_hash_table (info);
   bfd *output_bfd = info->output_bfd;
   bfd *ibfd;
+  bfd_vma relative;
 
   if (htab->srofixup == NULL)
     return true;
@@ -2505,9 +2638,14 @@ c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
   /* The last fixup: __self_reloc returns it, relocated, as %r15.  */
   c33fdpic_add_rofixup (output_bfd, htab, c33fdpic_dp (info));
 
+  if (htab->elf.splt->size != 0)
+    c33fdpic_write_plt_header (output_bfd, htab->elf.splt->contents);
+
   if (htab->rofixup_count * 4 != htab->srofixup->size
       || htab->rela_count * sizeof (Elf32_External_Rela)
-	 != htab->elf.srelgot->size)
+	 != htab->elf.srelgot->size
+      || htab->relplt_count * sizeof (Elf32_External_Rela)
+	 != htab->elf.srelplt->size)
     {
       _bfd_error_handler
 	(_("%pB: internal error: %" PRIu64 " of %" PRIu64 " .rofixup entries"
@@ -2518,6 +2656,10 @@ c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
 	 (uint64_t) (htab->elf.srelgot->size / sizeof (Elf32_External_Rela)));
       return false;
     }
+
+  relative = c33fdpic_sort_relas (output_bfd, htab->elf.srelgot);
+  if (relative == (bfd_vma) -1)
+    return false;
 
   if (htab->elf.dynamic_sections_created)
     {
@@ -2531,12 +2673,34 @@ c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
 	{
 	  Elf_Internal_Dyn dyn;
 
+	  asection *o;
+
 	  bfd_elf32_swap_dyn_in (htab->elf.dynobj, dyncon, &dyn);
-	  if (dyn.d_tag == DT_PLTGOT)
+	  switch (dyn.d_tag)
 	    {
+	    case DT_PLTGOT:
 	      dyn.d_un.d_ptr = c33fdpic_dp (info);
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      break;
+	    case DT_RELACOUNT:
+	      dyn.d_un.d_val = relative;
+	      break;
+	    /* The generic code counts every RELA section into DT_RELA; the
+	       .plt's are a table of their own.  */
+	    case DT_RELA:
+	    case DT_RELASZ:
+	    case DT_JMPREL:
+	    case DT_PLTRELSZ:
+	      o = (dyn.d_tag == DT_RELA || dyn.d_tag == DT_RELASZ
+		   ? htab->elf.srelgot : htab->elf.srelplt);
+	      if (dyn.d_tag == DT_RELASZ || dyn.d_tag == DT_PLTRELSZ)
+		dyn.d_un.d_val = o->size;
+	      else
+		dyn.d_un.d_ptr = (o->output_section->vma + o->output_offset);
+	      break;
+	    default:
+	      continue;
 	    }
+	  bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
 	}
     }
   return true;

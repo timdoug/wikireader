@@ -42,7 +42,7 @@ to the domain rather than treating it as a Linux IRQ number. The domain's
 allocator prefers the hardware number when it is free, so `/proc/interrupts`
 still reads in vectors. The timer and both UARTs use normal `request_irq()`
 registrations visible there. Linux runs the scheduler, registers the
-interrupt-driven `ttyC0` UART console, and runs static BusyBox 1.38 as PID 1.
+interrupt-driven `ttyC0` UART console, and runs BusyBox 1.38 as PID 1.
 BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
 separate framebuffer console on a Unix98 PTY.
 
@@ -302,21 +302,43 @@ table. The kernel loader reconstructs and rewrites those three-instruction
 addresses when it maps the process. The regression image deliberately contains
 string pointers in text, initialized data, and BSS state.
 
-uClibc, BusyBox and the console are built `-msep-data` (see
-`host-tools/toolchain-c33/gcc/ABI.md`). Their text holds no absolute address.
-Each process reaches its own data segment through `%r15`, which
-`start_thread` loads from `mm->start_data`, and every other address comes
-from a relocated word in that segment. With no text relocation, the converter
-leaves `FLAT_FLAG_RAM` clear. `binfmt_flat` then maps the text read-only from
-the file, and the kernel shares that mapping between every process running
-the program. The system is on ext4, which cannot map files directly, so the
-first exec of a program copies its text into RAM once; every later process
-running it shares that copy, because no-MMU Linux lets read-only private
-mappings of one file overlay each other.
-`make-flat.py --shared-text` fails the build if a text relocation appears.
-The BusyBox suite checks that PID 1 and a child map the same `/bin/busybox`
-text. The freestanding diagnostics still carry text relocations and still
-load as private copies.
+Everything on the root filesystem is FDPIC ELF with shared libraries (see
+`host-tools/toolchain-c33/gcc/ABI.md`), loaded by `binfmt_elf_fdpic` and
+uClibc-ng's `ld.so`. Each module, the program and every library, has a text
+segment with no absolute address in it and a data segment of its own, which
+its code reaches through `%r15`. A call into another module goes through a
+function descriptor, its entry point and its `%r15`. The kernel maps each
+module's text read-only, and no-MMU Linux lets read-only private mappings of
+one file overlay each other, so every process running BusyBox, or linking
+libc, shares one copy. The system is on ext4, which cannot map files
+directly, so the first use of a module reads its whole text into RAM: libc's
+480 KB is read at the first exec of the boot, where a static program read
+only the parts it used. The BusyBox suite checks that PID 1 and a child map
+the same `/bin/busybox` and `libc` text.
+
+`ld.so` is about 0.2 s of a boot's CPU. A library's own addresses are most
+of its relocations -- libc has 1,212 of them, redone in every process -- so
+the linker puts them first in `.rela.dyn` and counts them in `DT_RELACOUNT`,
+and `ld.so` runs them through a loop of their own that relocates an address
+with one comparison instead of a search of the load map. Libraries are linked
+`-Bsymbolic`, so a library's calls to itself are bound at link time rather
+than looked up at every exec, and a symbol named by many relocations, such as
+`__stack_chk_guard` in 218 of BusyBox's, is looked up once a module. Calls
+through the `.plt` are bound at their first call. Without an MMU there is
+nothing for RELRO to protect, so the image is built without it, which would
+otherwise bind every call at exec.
+
+A program's stack cannot grow without an MMU: the kernel allocates the size
+the link asks for, in `PT_GNU_STACK`, whole at exec. The compiler asks for
+32 KB. 16 KB, what the bFLT programs had, was too little for the X clients,
+since a lazily bound first call adds `ld.so`'s resolver at whatever depth it
+happens. An overflow writes silently into whatever lies below the stack --
+twm's overwrote the X server's function descriptors -- so the kernel checks
+the stack pointer at each exception from an FDPIC program, names the program
+and kills it if the exception frame would land below its stack.
+
+The initramfs programs, `rootstart` and the freestanding diagnostics, are
+still bFLT, and the kernel keeps `binfmt_flat` for them.
 
 ## macOS and Linux responsibilities
 
@@ -348,13 +370,12 @@ Mach-O executables under `host-tools/toolchain-c33/work`:
 
 - `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
 - `c33-linux-uclibc-` is the userspace compiler, for C and C++. It defaults to
-  `-mc33pe -msep-data -mlong-calls`, defines `__uClinux__`, and links
-  statically against uClibc-ng in its sysroot. Its `ld` follows uClinux's
-  elf2flt convention: `-Wl,-elf2flt` writes a bFLT and keeps the ELF beside
-  it as `.gdb`, `-Wl,-elf2flt=-s<bytes>` sets the stack size, and
-  `-Wl,-elf2flt=--shared-text` fails the link if the text needs relocation.
-  Links without `-elf2flt` stay ELF but keep their relocations, so
-  `initramfs/make-flat.py` can convert them later.
+  `-mc33pe -mfdpic -mlong-calls`, defines `__uClinux__`, and links FDPIC
+  executables against uClibc-ng's shared libraries in its sysroot, with
+  `/lib/ld-uClibc.so.0` as the interpreter; `-static` links a static FDPIC
+  program and `-shared` a library. `-Wl,-z,stack-size=<bytes>` sets a
+  program's stack. `-mno-fdpic` builds the older `-msep-data` code, which
+  `initramfs/make-flat.py` converts to bFLT.
 
 The userspace compiler is built against the kernel's UAPI headers and
 uClibc-ng's headers, so `fetch` comes first.
@@ -387,11 +408,10 @@ icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
 requires Linux and BusyBox to start, then uses the standard reboot syscall and
 requires Grifo's watchdog reset to return to the menu.
 
-`libc` builds a static, no-MMU C33 uClibc-ng with the native asm-generic
-syscall ABI and time64 interfaces, and installs it with the kernel headers
-into the `c33-linux-uclibc-` sysroot. Its link regression compiles a
-real `stdio.h` program, resolves it with the C33 PE `libgcc`, verifies that the
-ELF has no undefined symbols, and converts it to a Linux-loadable bFLT image.
+`libc` builds a no-MMU C33 uClibc-ng, shared and static, with `ld.so`, the
+native asm-generic syscall ABI and time64 interfaces, and installs it with
+the kernel headers into the `c33-linux-uclibc-` sysroot. Its link regression
+compiles a real `stdio.h` program both dynamically and statically.
 Every program start sets a stack-protector guard from the clock
 (`SSP_QUICK_CANARY`). Without an MMU the guard only catches bugs, and the
 default of reading `/dev/urandom` would make the first program at boot wait
@@ -401,24 +421,23 @@ The library includes POSIX threads through LinuxThreads, the uClibc
 implementation that works without an MMU and without thread-local storage.
 The C33 port supplies `clone.S` and a `testandset` that masks interrupts for
 its load and store. That is atomic on a single core, and the C33 has no
-privilege level that would stop user code masking them. In a static uClibc
-the thread library is part of `libc.a` and every program carries it: about
-22 KB more shared text, and about 4 KB more private data per process once
-the port caps threads and thread-specific keys at their POSIX minimums (64
-and 128) instead of 1024 each. `libc` also builds
+privilege level that would stop user code masking them. The thread library
+is part of libc, about 22 KB of its shared text, and about 4 KB of every
+process's data once the port caps threads and thread-specific keys at their
+POSIX minimums (64 and 128) instead of 1024 each. `libc` also builds
 `linux/artifacts/pthread-test`. `app-test` runs it from the SD card: a
 contended mutex, per-thread `errno`, condition variables, semaphores,
 `pthread_once` and thread-specific data.
 
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
-put about 8 KB of shared text into BusyBox. `libc` then builds libstdc++
+are about 8 KB of libc's text. `libc` then builds libstdc++
 against the installed C library, with `toolchain.sh libstdc++`.
 
 C++ exceptions unwind with the DWARF tables, which cost nothing until
 something throws. The tables hold absolute addresses, so they live in the
 data segment, where the loader relocates them, and `crtbegin.o` registers
-`.eh_frame` with libgcc's unwinder, as a bFLT has no program headers to find
-it by. `.eh_frame` is an output section of its own after `.data`; placed
+each module's `.eh_frame` with libgcc's unwinder. A personality routine is
+reached through a word holding its function descriptor. `.eh_frame` is an output section of its own after `.data`; placed
 inside `.data`, ld's `--gc-sections` editing of it emits relocations at the
 wrong offsets. A C program carries about 500 bytes of unwind tables from
 libgcc. C++ costs far more: `cxx-test` has 765 KB of shared text and, per
@@ -480,11 +499,11 @@ the BusyBox configuration and two packages, `wr-console` and
 and builds its freestanding diagnostics with the bare-metal compiler, along
 with `/uclibc-smoke`, the ordinary uClibc program they run as their libc
 check.
-Buildroot builds with `c33-linux-uclibc-` from `toolchain`, and its FLAT
-support links every program with `-Wl,-elf2flt`. Everything is compiled
-with `-ffunction-sections -fdata-sections` and linked with `--gc-sections`,
-so a static program keeps only the functions it reaches rather than whole
-objects of every library it touches (350 KB of the three X programs). The
+Buildroot builds with `c33-linux-uclibc-` from `toolchain`, as FDPIC with
+shared libraries. Everything is compiled with `-ffunction-sections
+-fdata-sections` and linked with `--gc-sections`, so a program keeps only
+the functions it reaches, and a library only what it exports and they reach;
+libraries are linked `-Bsymbolic`, and nothing here interposes on one. The
 build starts from a
 clean output directory each time, because Buildroot does not notice a rebuilt
 C library. That takes about 16 minutes, most of it the host tools X needs
@@ -496,10 +515,10 @@ libraries).
 The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
 provides what Buildroot's own uClibc configuration offers packages, such as
 the SUSv2 to SUSv4 legacy functions, `nftw`, GNU `glob`, `%m`, memory streams,
-`wordexp` and `libutil`. It leaves out the shared-library loader, Sun RPC,
-and `getcontext`, which has no C33 implementation.
+`wordexp` and `libutil`. It leaves out Sun RPC and `getcontext`, which has
+no C33 implementation.
 
-BusyBox 1.38.0 is a static C33 bFLT with an interactive `hush`, core file and
+BusyBox 1.38.0 is an FDPIC program with an interactive `hush`, core file and
 text tools, checksums, archive/compression tools, filesystem inspection, and
 recovery utilities, and `hush` carries `busybox/patches/`. It is installed as
 `/init`, `/bin/busybox`, and a symlink for every applet. BusyBox init
@@ -517,7 +536,7 @@ bring-up and recovery path. `init` finally respawns an interactive `hush` on
 `ttyC0`. `/diag-init`
 remains available as the old freestanding rescue shell.
 
-`wr-console` is the static bFLT framebuffer frontend. It uses only standard
+`wr-console` is the framebuffer frontend. It uses only standard
 fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application
 contains no S1C33 register access or private kernel ABI. It is installed as
 `/sbin/wr-console`, and BusyBox init supervises it beside the serial recovery
@@ -580,16 +599,19 @@ compiled at build time instead of running `xkbcomp` (the image carries no
 XKB rules or sources), draw through a shadow copied to the panel bit-reversed
 (X keeps the leftmost pixel in a byte's low bit, Linux framebuffers in the
 high one), and take a touchscreen as an absolute pointer, the touch as its
-first button. The client libraries are static (`buildroot/patches/0002`),
-with libX11's loadable modules turned off. `fbFillSpans` finds each
+first button. `fbFillSpans` finds each
 span's clip band by bisection (patch 0005) instead of walking every clip
 box: a shaped window such as xeyes' has a box or two a row, and the walk
 was most of the cost of filling its pupils. libX11 is built without its East Asian
 multi-byte charsets (`buildroot/external/patches/xlib_libX11`), whose tables
 were 410 KB of every X program, and libXfont2 with only its built-in fonts
 (`buildroot/patches/0003`: no FreeType or font-file readers, 575 KB of the
-server). `Xfbdev` is 1.6 MB, twm 1.1 MB and xeyes 1.0 MB; startup is mostly
-reading them from the card.
+server). With X up, 3.97 MB of text is mapped: Xfbdev 1.27 MB, twm 143 KB,
+xeyes 30 KB, and 21 shared libraries, each loaded whole (libX11 696 KB, libc
+489 KB, pixman 384 KB, libXt 305 KB). The static programs these replaced
+kept only the functions they reached, about 3.3 MB in all: with only twm and
+xeyes sharing libX11, sharing does not yet pay for the whole libraries.
+Startup is mostly reading them from the card.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

@@ -190,7 +190,12 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 | prompt | 4.12 s | 3.57 s |
 
 Local sockets and VTs (for X) came after these measurements: about 0.6 s
-more to the prompt in wremu, not yet timed on the device.
+more to the prompt in wremu, not yet timed on the device. FDPIC shared
+libraries came after that, also untimed on the device: in wremu, with the
+same harness, the prompt is up 4.61 s after the kernel starts against 3.91 s
+for the static bFLT system. The first exec reads libc's whole 489 KB of text
+(the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
+about 0.2 s of the boot's CPU.
 
 What this round found and did, device-only mostly:
 - The device's 64 MB FAT32 boot volume has 512-byte clusters, so Grifo read
@@ -274,9 +279,10 @@ The pieces:
   `flatten`; the SD stream wait yields (`cond_resched()`).
 - `initramfs/rootstart.c` makes `/dev/tty1..12`; `console/wr-console.c` holds
   VT 1 in `VT_PROCESS` mode and repaints on acquire.
-- Buildroot: `buildroot/patches/0002` (X client libraries static) and `0003`
-  (libXfont2 built-in fonts only); the defconfig adds X and
-  `-ffunction-sections -fdata-sections`/`--gc-sections` for everything.
+- Buildroot: FDPIC with shared libraries (`buildroot/patches/0002` still
+  lets X build without an MMU) and `0003` (libXfont2 built-in fonts only);
+  the defconfig adds X and `-ffunction-sections -fdata-sections`/
+  `--gc-sections` for everything.
 - `buildroot/external/package/xserver-kdrive`: xorg-server 1.19.7 Xfbdev with
   five patches (vfork, precompiled keymap, bit-reversed one-bit shadow,
   evdev absolute pointer and touch, clip-band bisection in `fbFillSpans`),
@@ -295,16 +301,15 @@ Measured in wremu, launcher path:
 | A drag frame (under twm) | 45 ms of CPU: X server 42%, kernel 38%, xeyes 15% |
 | A frame's kernel work | about 57 syscalls (xeyes 37, mostly reads that find nothing), 14 context switches, 10 ticks; the scheduler's load tracking is a third of the kernel's share |
 | `startx` to the first pupils | 6.3 s, most of it reading 3.3 MB of programs from the card; a second `startx` in the same boot loads the server in 0.6 s instead of 1.8 |
-| RAM | 24.8 MB free at the console, 14.9 MB free (17.0 available) with X up; Xfbdev 4.0 MB, twm 1.6, xeyes 0.9 |
+| RAM | 10.3 MB free (15.2 available) with X up; static bFLT X had 14.9 free (17.0 available). 3.97 MB of text mapped, the libraries whole |
 | Boot cost of sockets and VTs | about 0.6 s to the prompt |
 
 Measured and rejected, so nobody repeats them: a `-Os` kernel (488 KB
 smaller, 40% slower in the kernel), low-resolution timers (no gain), full
 preemption (`ARCH_NO_PREEMPT` dropped: 215 KB more kernel, 0.9 s slower boot,
 slower frames and a slower `startx`), `-extension RENDER` (the server starts
-sooner but the clients are the critical path), starting twm before xeyes (no
-difference), and dynamic linking (it would need FDPIC in the toolchain and
-saves about 0.4 s; a BusyBox-style X binary would share as much).
+sooner but the clients are the critical path), and starting twm before xeyes
+(no difference).
 
 The measuring tools are in `artifacts/perf/x11/` (gitignored), all through
 Grifo: `xbench.sh LABEL` (eight scripted drags, frames and CPU per frame by
@@ -321,9 +326,7 @@ without the cursor (about a fifth of a frame).
 ## What is left, in the order I would take it
 
 For X, before anything else: **run it on the device** (the card needs the
-current `linux.app` and `linux.img`). One emulator run reset right after X
-took the panel, with no watchdog timeout (a restart request); it did not
-come back on rerun, but watch for it. Then, largest first:
+current `linux.app` and `linux.img`). Then, largest first:
 - Stub the scheduler's load tracking on this single CPU: about 2.5 ms a
   frame and cheaper switches for every program, but it is a core scheduler
   patch; audit the 50-odd readers of the averages first.
@@ -405,6 +408,23 @@ it boots the file loader as a direct ELF, which wremu refuses.
 
 ## Traps
 
+- **A headless wremu run replays exactly only with the card's timestamps
+  pinned**: they set the guest's clock, which changes X's timing.
+  `WR_FAT_TIME=<epoch>` pins them for the FAT helper. Then `-W ADDR` reports
+  every store to an address with its pc, and `WREMU_WDT_TRACE=1` every
+  watchdog kick. wremu's instruction count restarts at a reset.
+- **A task switch must carry the PSR.** `__c33_switch_to` saved only
+  registers, so a task scheduled from an interrupt's return to userspace ran
+  at that interrupt's level, with the timer masked: `jiffies` stopped, the SD
+  driver's timeout loop never ended and the watchdog reset the machine. It
+  looked like an SD hang.
+- **A stack overflow without an MMU lands in a neighbour.** twm's wrote over
+  Xfbdev's function descriptors, which surfaced as Xfbdev jumping into data.
+  The kernel now names the program at the next exception
+  (`stack overflow: sp ..., stack from ...`) and kills it; a user fault
+  prints the mapping holding `pc`, `r4`, `r15` and the word at `sp`.
+- **`/proc/PID/maps` names a library by its file**, `libuClibc-1.0.59.so`,
+  not by the `libc.so.1` link a program asked for.
 - **`boot-test.sh` prints a filtered view of `boot.log`, not the log.** A new
   assertion has to be added in two places: the check list and the final display
   `grep -E`. It also once had two variables named `clock_expected`, which

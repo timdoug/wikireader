@@ -5,6 +5,11 @@ UCLIBC_FORMAT_FDPIC_ELF=y
 HAVE_SHARED=y
 # Libraries are in /lib and /usr/lib; there is no ld.so.cache to read.
 # LDSO_CACHE_SUPPORT is not set
+# The GNU hash's Bloom filter rejects most modules without comparing a
+# name: ld.so looks up hundreds of symbols at every exec.
+LDSO_GNU_HASH_SUPPORT=y
+# Buildroot strips what goes on the card; the sysroot keeps symbols.
+# DOSTRIP is not set
 # No FPU: floating point is libgcc's soft-float routines. C33 is left out
 # of -msoft-float in Rules.mak, as nios2 and bfin are; its compiler has only
 # the one float ABI and no such option.
