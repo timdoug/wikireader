@@ -191,21 +191,19 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 
 Local sockets and VTs (for X) came after these measurements: about 0.6 s
 more to the prompt in wremu, not yet timed on the device. FDPIC shared
-libraries came after that. On the device the prompt came up 7.58 s after
-the kernel started, against 4.12 s for the static bFLT system, though the
-card time only grew 0.4 s (3,465 blocks read at boot against 1,871). The
-rest was FAT walking `linux.img`'s cluster chain: 32,768 clusters at the
-device's 512-byte cluster size, about 1,300 cycles a step, and FDPIC's
-first reads reach the end of the image. wremu reproduces the device with its
-cluster size and a fragmented image (`SPC=1 WR_FAT_FRAGMENT=128` with
-`artifacts/perf/x11/timeline_app.py`: 7.42 s); `patches/0020`, which follows
-consecutive clusters with a load and a compare, brings that to 5.92 s, and
-to 5.40 s with the image in one piece (bFLT 4.3). On the device with the
-patch the root is mounted and the seed credited 0.06 s later, not 1.9, and
-the prompt is up 6.54 s after the kernel starts, of which 1.64 s was ext4
-replaying its journal: the session before had run X, whose files in `/tmp`
-(its log, lock and socket) were written after `late` had checkpointed the
-journal, and the power was then cut. Without the replay that is about 4.9 s. The first exec reads libc's whole 489 KB of text
+libraries came after that. On the device the prompt is up 4.76 s after the
+kernel starts, against 4.12 for the static bFLT system before the X sockets
+and VTs. It took 7.58 at first: every read into `linux.img` walks its FAT
+chain, 32,768 clusters at the boot volume's 512-byte cluster size, and the
+card had it in 57 pieces all over the FAT. `patches/0020` follows runs of
+consecutive clusters with a load and a compare and reads the FAT ahead of a
+walk; `/tmp` and `/run` became tmpfs (X's files there were replayed from
+the journal, 1.6 s); and the partition was re-laid out with `linux.img`
+first and in one piece (6.05 -> 4.76 s). `card-boot.py` boots wremu on a
+`dd` copy of the card's partition and matched the device within 0.1 s both
+before and after; a fixture card (`SPC=1 WR_FAT_FRAGMENT=128` with
+`artifacts/perf/x11/timeline_app.py`) does not, since its fragments run
+forwards. The first exec reads libc's whole 489 KB of text
 (the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
 about 0.2 s of the boot's CPU. Linking the libraries `-Bsymbolic`, as
 FRV's uClibc does, saved 0.12 s; they bind as ELF has them instead.
@@ -415,13 +413,9 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Time the readahead on a clean device boot** (`check` with no X
-   session before it): FAT now reads ahead the blocks of a chain walk,
-   the boot's card requests 324 -> 76 in wremu and the prompt 5.93 ->
-   5.15 s (`SPC=1 WR_FAT_FRAGMENT=128`, `dma_cpu_penalty=0`), where the
-   device took 6.23 without it. The one device boot with it so far came
-   after an X session and took 6.07. What is left of the gap to bFLT is
-   userland starting (`ld.so` and libc, 66M cycles against 31M in wremu).
+1. **What is left of the boot's gap to bFLT** is userland starting
+   (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
+   the X sockets and VTs (about 0.6 s in wremu).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map

@@ -457,7 +457,13 @@ and four threads throwing and catching concurrently under a mutex.
 
 `rootfs` builds the root filesystem with Buildroot 2026.08 and leaves it as
 `linux/artifacts/linux.img`, a 16 MB ext4 image with 4 KB blocks and no
-metadata checksums. It goes on the card's FAT partition beside `linux.app`.
+metadata checksums. It goes on the card's FAT partition beside `linux.app`,
+in one piece: every read into it walks its FAT chain, and on a card whose
+free space is scattered the chain jumps about the FAT, which the device
+measured at 1.3 s of every boot (6.05 s to the prompt against 4.76). A
+partition freshly formatted with `newfs_msdos` and given `linux.img` first
+keeps it contiguous; `card-boot.py` boots wremu, through Grifo, on a `dd`
+copy of a card's partition to see what it does.
 
 The kernel's own initramfs holds only `initramfs/rootstart`, a 2 KB
 freestanding program, and the device nodes it needs before devtmpfs. It
