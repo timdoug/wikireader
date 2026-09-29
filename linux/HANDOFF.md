@@ -386,7 +386,7 @@ The kernel follows them least:
   (`<vector priority>`), which the interrupt controller sets. It costs about
   100 KB of kernel and, in wremu on a contiguous card, 0.74 s of boot
   (4.64 -> 5.38 s to the prompt): device links 0.22 s (`fw_devlink=off`
-  gives it back), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
+  would give it back; the user keeps the default), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
   checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
   0.11 s, the rest in creating devices from the tree's nodes. Named pin
   groups took the tree from 52 nodes to 36 and 0.10 s of that back (5.28
@@ -419,16 +419,13 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **The device tree's boot cost** (see "Standards"), 0.5 s on the device
-   before the named pin groups: `fw_devlink=off` is a standard switch worth
-   0.22 s more in wremu.
-3. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
+2. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
    link tests for `c33-linux-uclibc`, in the VM; execution tests need a
    harness through wremu.
-4. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
+3. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
    linker, `ASM_PREFERRED_EH_DATA_FORMAT` pc-relative and GOT-relative.
-5. **TLS and NPTL.**
-6. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
+4. **TLS and NPTL.**
+5. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
    table rehashes by descriptor address but is searched by entry point, so
    after the first resize a lookup misses and a second "canonical"
    descriptor appears (every FDPIC port); and GCC
@@ -436,15 +433,15 @@ The rest of the port, standards first (see "Standards" above):
    `#if __FDPIC__` exception paths are ARM's and call
    `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/0002`
    (the stack guard's time from `clock_gettime64`) too.
-7. **Buildroot patch 0002**: drop its static-library half.
-8. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+6. **Buildroot patch 0002**: drop its static-library half.
+7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-9. **The overlay as a real patch series**, which only bites when the pinned
+8. **The overlay as a real patch series**, which only bites when the pinned
     stable tag is bumped.
 
 Performance, after those:
