@@ -390,7 +390,8 @@ The kernel follows them least:
   checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
   0.11 s, the rest in creating devices from the tree's nodes. Named pin
   groups took the tree from 52 nodes to 36 and 0.10 s of that back (5.28
-  s). On the device 2026-09-29 everything works (buttons, touch,
+  s); on the device the prompt is then up at 5.21 s, with the battery,
+  thermistor and panel as before. On the device 2026-09-29 everything works (buttons, touch,
   X) and the cost is smaller: prompt 5.30 s against 4.82, `/init` at 1.93
   s against 1.36.
 - The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
