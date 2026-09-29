@@ -389,7 +389,9 @@ The kernel follows them least:
   gives it back), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
   checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
   0.11 s, the rest in creating devices from 52 nodes and about 260
-  properties. Not yet run on the device.
+  properties. On the device 2026-09-29 everything works (buttons, touch,
+  X) and the cost is smaller: prompt 5.30 s against 4.82, `/init` at 1.93
+  s against 1.36.
 - The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
   program with no C library. On the device 2026-09-29: prompt 4.82 s,
   `check` clean, the thread and C++ tests pass. The Linux compiler keeps `-mno-fdpic`, as ARM's
@@ -415,8 +417,7 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **The device tree's boot cost** (see "Standards"): run it on the device
-   first, then decide. Named pin groups (`"uart0"` for P00 and P01) instead
+2. **The device tree's boot cost** (see "Standards"), 0.5 s on the device. Named pin groups (`"uart0"` for P00 and P01) instead
    of a node per pin would take 17 of the 52 nodes; `fw_devlink=off` is a
    standard switch worth 0.22 s.
 3. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
