@@ -229,9 +229,14 @@ What this round found and did, device-only mostly:
 
 The device's boot traffic (read, then waiting for `late`): 1,871 blocks in
 448 requests, 586 commands, 356 blocks written; writes are the dearest
-phase (about 20,000 cycles a block read, overall). wremu's card answers a
-command in 0.2 ms where the device's takes about 3, so wremu is optimistic
-wherever a boot does small requests.
+phase (about 20,000 cycles a block read, overall). With the device's
+512-byte clusters and a fragmented image (`SPC=1 WR_FAT_FRAGMENT=128`),
+wremu's card time for the FDPIC boot matches the device's: 121.8M cycles
+against 124.3M, for 3,406 blocks in 324 requests against 3,483 in 373. By
+phase, the device waits about twice as long for a data token (35,000
+cycles a request against 17,500) and writes a quarter faster; the model's
+`sd_read_latency` and `sd_write_latency` are fitted to Grifo and ZIM too,
+so they stay.
 
 ## Power states
 
@@ -410,13 +415,13 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Time the boot on the device again**: FAT now reads ahead the blocks
-   of a chain walk (the boot's card requests 355 -> 107 in wremu), and
-   wremu with the device's 3 ms commands (`WREMU_MODEL=...,sd_read_latency=180000`
-   with `SPC=1 WR_FAT_FRAGMENT=128`) predicts 5.33 s to the prompt, against
-   6.78 without the readahead; the device took 6.23 on a less fragmented
-   card. What is left of the gap to bFLT is userland starting (`ld.so` and
-   libc, 66M cycles against 31M in wremu).
+1. **Time the readahead on a clean device boot** (`check` with no X
+   session before it): FAT now reads ahead the blocks of a chain walk,
+   the boot's card requests 324 -> 76 in wremu and the prompt 5.93 ->
+   5.15 s (`SPC=1 WR_FAT_FRAGMENT=128`, `dma_cpu_penalty=0`), where the
+   device took 6.23 without it. The one device boot with it so far came
+   after an X session and took 6.07. What is left of the gap to bFLT is
+   userland starting (`ld.so` and libc, 66M cycles against 31M in wremu).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map

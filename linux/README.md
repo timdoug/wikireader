@@ -476,8 +476,8 @@ consecutive clusters within a FAT block with a load and a compare a step
 (through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
 whole image 0.7 s), and reads ahead the FAT blocks a walk has still to
 cross, up to the readahead window, in one request: a walk down the image
-crosses 256 FAT blocks, and a 512-byte command is about 3 ms on the
-device's card. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
+crosses 256 FAT blocks, each otherwise a request of its own, with the
+card taking about 0.6 ms to its data token. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
 last time, moves the card to `/mnt/sd`
 inside it, mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, and tmpfs on `/tmp` and
 `/run` there (each a
