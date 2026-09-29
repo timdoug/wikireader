@@ -410,12 +410,11 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Journal replay after X**: `/tmp` is on the ext4 root, so a session
-   that ran X leaves writes in the journal and the next boot replays them
-   (1.64 s on the device). Buildroot's own default is a tmpfs `/tmp`
-   (`CONFIG_TMPFS` is on). What is left of the boot's gap to bFLT is
-   userland starting (`ld.so` and libc, 66M cycles against 31M in wremu)
-   and the fragmented image's extra card commands (0.5 s).
+1. **Time the boot on the device again**: `/tmp` and `/run` are tmpfs now,
+   so an X session no longer leaves journal to replay, and wremu predicts
+   about 4.9 s to the prompt. What is left of the gap to bFLT is userland
+   starting (`ld.so` and libc, 66M cycles against 31M in wremu) and the
+   fragmented image's extra card commands (0.5 s).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map

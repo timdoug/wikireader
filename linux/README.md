@@ -476,8 +476,11 @@ consecutive clusters within a FAT block with a load and a compare a step;
 through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
 whole image 0.7 s. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
 last time, moves the card to `/mnt/sd`
-inside it, mounts `/proc`, `/sys`, `/dev` and `/dev/pts` there (each a
-BusyBox exec from `rcS`, about a tenth of a second), and becomes its
+inside it, mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, and tmpfs on `/tmp` and
+`/run` there (each a
+BusyBox exec from `rcS`, about a tenth of a second; the tmpfs mounts keep
+X's log, lock and socket out of the journal that `late` checkpoints, since
+the next boot would replay them, 1.6 s on the device), and becomes its
 `/sbin/init`. If any step fails, it writes the
 reason to the console and to `linuxboot.txt` on the card, then reboots to
 the launcher. Crediting the seed makes the kernel's random pool ready before
@@ -666,7 +669,10 @@ words, and the transmit channel sends all-ones from a single word in IVRAM.
 Each transfer runs to the ring's end or to the first byte not yet used, and
 the next starts as soon as it ends and there is room: the CPU looks when it
 should have ended, after each block, and between requests a high-resolution
-timer does. The CPU follows behind, finding each token and
+timer does. A transfer running late is looked at again after a block's
+time, then twice that, up to a tick: a timer firing faster than it can be
+handled starved every thread, the watchdog's worker included, and the
+watchdog reset the machine while X loaded. The CPU follows behind, finding each token and
 putting each block in order and checking it on the way to its place in the
 request, as far as the residue says has come in (a block that wraps is put
 together first). Nor does the stream end with the request: the card is left

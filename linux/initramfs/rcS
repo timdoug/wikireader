@@ -6,7 +6,7 @@ echo "C33 BusyBox init: PID 1 userspace started"
 # the setup and nothing else, and every exec counts: each is close to a
 # tenth of a second on this machine, and a background job is one too, the
 # shell having to re-execute itself without an MMU.  rootstart mounted
-# /proc, /sys, /dev and /dev/pts; init starts seedrng and the watchdog
+# /proc, /sys, /dev, /dev/pts, /tmp and /run; init starts seedrng and the watchdog
 # daemon after the consoles (/etc/init.d/late).  The self-tests take several
 # seconds and run only under wr.selftest.
 read -r cmdline < /proc/cmdline

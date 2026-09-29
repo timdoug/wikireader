@@ -133,6 +133,7 @@ struct sd_stream {
 	bool open;		/* the card is reading on, unstopped */
 	bool broken;		/* ...but a transfer failed between requests */
 	u32 due;		/* get_cycles() when the transfer should end */
+	u32 late;		/* cycles to the next look, once past due */
 	u32 next_arg;		/* the read command that would carry on */
 	dma_cookie_t rx_cookie;
 };
@@ -1128,6 +1129,7 @@ static int sd_stream_start(struct s1c33_sd *host, struct sd_stream *s)
 	s->end += len;
 	/* 32 bits at MCLK/(4 << divider) a word, and the DMA's own few. */
 	s->due = get_cycles() + len / 4 * (32 * (4 << host->divider) + 16);
+	s->late = SD_BLOCKSIZE / 4 * (32 * (4 << host->divider) + 16);
 	if (sd_wait(host, SPI_BUSY, false))
 		return -ETIMEDOUT;
 	sd_dma_go(host);
@@ -1217,7 +1219,18 @@ static enum hrtimer_restart sd_stream_timer(struct hrtimer *timer)
 	}
 	if (!s->running)
 		return HRTIMER_NORESTART;
-	left = max_t(s32, s->due - get_cycles(), 1000);
+	left = s->due - get_cycles();
+	if (left <= 0) {
+		/*
+		 * Late: the card is slower than its clock says, or the DMA has
+		 * lost the bus.  Look again after a block's time, then twice
+		 * that and so on up to a tick's: a timer that fires sooner
+		 * than it can be handled takes the CPU from everything else,
+		 * the watchdog's worker included.
+		 */
+		left = s->late;
+		s->late = min(s->late * 2, host->clock / HZ);
+	}
 	hrtimer_forward_now(timer, ns_to_ktime(div_u64((u64)left * NSEC_PER_SEC,
 						       host->clock)));
 	return HRTIMER_RESTART;

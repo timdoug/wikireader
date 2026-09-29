@@ -40,6 +40,8 @@ long c33_syscall(long a1, long a2, long a3, long a4, long a5, long nr);
 #define O_RDWR		02
 #define O_CREAT		0100
 #define O_TRUNC		01000
+#define MS_NOSUID	2
+#define MS_NODEV	4
 #define MS_SYNCHRONOUS	16
 #define MS_NOATIME	1024
 #define MS_MOVE		8192
@@ -205,11 +207,16 @@ static void make_vt_nodes(void)
 
 static void mount_kernel_fs(void)
 {
-	static const char *const fs[][2] = {
-		{ "proc", "/newroot/proc" },
-		{ "sysfs", "/newroot/sys" },
-		{ "devtmpfs", "/newroot/dev" },
-		{ "devpts", "/newroot/dev/pts" },
+	/* /tmp and /run in RAM, as Buildroot's own fstab has them: X's log,
+	 * lock and socket written to the card after late has checkpointed the
+	 * journal were replayed at the next boot, 1.6 s of mounting. */
+	static const char *const fs[][3] = {
+		{ "proc", "/newroot/proc", 0 },
+		{ "sysfs", "/newroot/sys", 0 },
+		{ "devtmpfs", "/newroot/dev", 0 },
+		{ "devpts", "/newroot/dev/pts", 0 },
+		{ "tmpfs", "/newroot/tmp", "mode=1777" },
+		{ "tmpfs", "/newroot/run", "mode=0755" },
 	};
 	unsigned int i;
 	long error;
@@ -218,7 +225,8 @@ static void mount_kernel_fs(void)
 		/* devtmpfs has no pts directory of its own. */
 		if (i == 3)
 			sys(NR_mkdirat, AT_FDCWD, fs[i][1], 0755, 0, 0);
-		error = sys(NR_mount, fs[i][0], fs[i][1], fs[i][0], 0, 0);
+		error = sys(NR_mount, fs[i][0], fs[i][1], fs[i][0],
+			    i > 3 ? MS_NOSUID | MS_NODEV : 0, (long)fs[i][2]);
 		if (error) {
 			put(1, "C33 root: could not mount ");
 			put(1, fs[i][1] + sizeof("/newroot") - 1);
