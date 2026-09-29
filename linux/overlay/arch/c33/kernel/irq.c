@@ -8,6 +8,7 @@
 #include <linux/irqchip/s1c33-itc.h>
 #include <linux/irqdesc.h>
 #include <linux/io.h>
+#include <linux/mm.h>
 #include <linux/sched/signal.h>
 #include <linux/syscalls.h>
 
@@ -69,13 +70,40 @@ void __init init_IRQ(void)
  * In a program they are its own bug, and it gets the signal a larger machine
  * would send.
  */
+/* Which of the process's mappings holds ADDR, as file+offset.  */
+static void c33_fault_where(const char *what, unsigned long addr)
+{
+	struct mm_struct *mm = current->mm;
+	struct vm_area_struct *vma;
+
+	if (!mm || !mmap_read_trylock(mm))
+		return;
+	vma = find_vma(mm, addr);
+	if (vma && vma->vm_start <= addr && vma->vm_file)
+		pr_info("  %s %08lx: %pD+%lx\n", what, addr, vma->vm_file,
+			addr - vma->vm_start + (vma->vm_pgoff << PAGE_SHIFT));
+	else if (vma && vma->vm_start <= addr)
+		pr_info("  %s %08lx: anonymous %08lx-%08lx\n", what, addr,
+			vma->vm_start, vma->vm_end);
+	mmap_read_unlock(mm);
+}
+
 static void c33_user_fault(unsigned int vector, struct pt_regs *regs)
 {
 	void __user *pc = (void __user *)regs->pc;
+	unsigned long ret;
 
-	pr_info_ratelimited("%s[%d]: C33 exception %u at pc %08lx\n",
+	pr_info_ratelimited("%s[%d]: C33 exception %u at pc %08lx sp %08lx r15 %08lx\n",
 			    current->comm, task_pid_nr(current), vector,
-			    regs->pc);
+			    regs->pc, regs->sp, regs->r[15]);
+	pr_info("  r0-r3 %08lx %08lx %08lx %08lx r4 %08lx r12-r14 %08lx %08lx %08lx\n",
+		regs->r[0], regs->r[1], regs->r[2], regs->r[3], regs->r[4],
+		regs->r[12], regs->r[13], regs->r[14]);
+	c33_fault_where("pc", regs->pc);
+	c33_fault_where("r4", regs->r[4]);
+	c33_fault_where("r15", regs->r[15]);
+	if (!get_user(ret, (unsigned long __user *)regs->sp))
+		c33_fault_where("[sp]", ret);
 	switch (vector) {
 	case 2:
 	case 3:

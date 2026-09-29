@@ -6,6 +6,7 @@
 #include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
+#include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/sched/task_stack.h>
 #include <linux/string.h>
@@ -31,6 +32,22 @@ asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 	if (current->thread.in_kernel) {
 		regs->reserved = 0;
 		return regs;
+	}
+
+	/*
+	 * The core pushes an exception's frame on the user stack, and this
+	 * entry builds pt_regs there before moving to the kernel stack: 108
+	 * bytes below the interrupted SP.  Without an MMU nothing stops that
+	 * below the stack's allocation, where it lands in whatever the
+	 * process or another one keeps next to it.  Say so, rather than let
+	 * the damage surface later as someone else's crash.
+	 */
+	if (unlikely(regs->sp - 108 < current->thread.stack_lo)) {
+		pr_err("%s[%d]: stack overflow: sp %08lx, stack from %08lx, pc %08lx\n",
+		       current->comm, task_pid_nr(current), regs->sp,
+		       current->thread.stack_lo, regs->pc);
+		current->thread.stack_lo = 0;
+		force_sig(SIGKILL);
 	}
 
 	kernel_regs = task_pt_regs(current);
@@ -129,7 +146,13 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	memset(regs, 0, sizeof(*regs));
 	regs->pc = pc;
 	regs->sp = sp;
+	current->thread.stack_lo = 0;
 	if (current->personality & FDPIC_FUNCPTRS) {
+		/*
+		 * binfmt_elf_fdpic allocates the stack with an empty brk
+		 * area at its bottom, at start_brk.
+		 */
+		current->thread.stack_lo = current->mm->start_brk;
 		/* The load maps from ELF_FDPIC_PLAT_INIT. */
 		regs->r[6] = r6;
 		regs->r[7] = r7;
@@ -164,6 +187,10 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	p->thread.regs = childregs;
 	p->thread.ksp = (unsigned long)switch_sp;
 	p->thread.in_kernel = 1;
+	p->thread.psr = 0;
+	/* A thread's stack is wherever its creator put it. */
+	if (args->stack && (args->flags & CLONE_VM) && !(args->flags & CLONE_VFORK))
+		p->thread.stack_lo = 0;
 
 	if (unlikely(args->fn)) {
 		/* POPN restores r0-r3, then RET leaves SP on these two words. */

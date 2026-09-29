@@ -6,11 +6,16 @@ SYM_FUNC_START(__c33_switch_to)
 	pushn %r3
 	ld.w %r10,%sp
 	xld.w [%r6+TASK_THREAD+THREAD_KSP],%r10
+	ld.w %r10,%psr
+	xld.w [%r6+TASK_THREAD+THREAD_PSR],%r10
 	ld.w %r4,%r6
 	xld.w %r10,c33_current_task
 	xld.w [%r10],%r7
 	xld.w %r10,[%r7+TASK_THREAD+THREAD_KSP]
 	ld.w %sp,%r10
+	/* Its own interrupt level, and interrupts still off. */
+	xld.w %r10,[%r7+TASK_THREAD+THREAD_PSR]
+	ld.w %psr,%r10
 	popn %r3
 	ret
 SYM_FUNC_END(__c33_switch_to)

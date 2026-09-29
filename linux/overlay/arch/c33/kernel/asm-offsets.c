@@ -8,5 +8,6 @@ int main(void)
 	DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
 	DEFINE(TASK_THREAD, offsetof(struct task_struct, thread));
 	DEFINE(THREAD_KSP, offsetof(struct thread_struct, ksp));
+	DEFINE(THREAD_PSR, offsetof(struct thread_struct, psr));
 	return 0;
 }

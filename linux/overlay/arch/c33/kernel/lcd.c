@@ -24,24 +24,29 @@
 static unsigned int c33_lcd_column;
 static unsigned int c33_lcd_row;
 static bool c33_lcd_console_registered;
+/*
+ * Rows move and clear a word at a time: every row starts on a 32-byte
+ * boundary.  The kernel's messages scroll the whole screen once a line
+ * during boot, and a byte loop there cost half a second.
+ */
 static void c33_lcd_clear_rows(unsigned int first, unsigned int count)
 {
-	volatile u8 *fb = C33_LCD_FB + first * C33_LCD_STRIDE;
-	unsigned int bytes = count * C33_LCD_STRIDE;
+	volatile u32 *fb = (volatile u32 *)(C33_LCD_FB + first * C33_LCD_STRIDE);
+	unsigned int words = count * C33_LCD_STRIDE / 4;
 
-	while (bytes--)
+	while (words--)
 		*fb++ = 0;
 }
 
 static void c33_lcd_scroll(void)
 {
-	volatile u8 *fb = C33_LCD_FB;
-	unsigned int source = C33_LCD_FONT_HEIGHT * C33_LCD_STRIDE;
-	unsigned int bytes = (C33_LCD_STATUS_Y - C33_LCD_FONT_HEIGHT) *
-		C33_LCD_STRIDE;
+	volatile u32 *fb = (volatile u32 *)C33_LCD_FB;
+	unsigned int source = C33_LCD_FONT_HEIGHT * C33_LCD_STRIDE / 4;
+	unsigned int words = (C33_LCD_STATUS_Y - C33_LCD_FONT_HEIGHT) *
+		C33_LCD_STRIDE / 4;
 	unsigned int i;
 
-	for (i = 0; i < bytes; i++)
+	for (i = 0; i < words; i++)
 		fb[i] = fb[source + i];
 	c33_lcd_clear_rows(C33_LCD_STATUS_Y - C33_LCD_FONT_HEIGHT,
 			   C33_LCD_FONT_HEIGHT);

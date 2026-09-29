@@ -95,6 +95,15 @@ static int c33_setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	frame = c33_get_sigframe(ksig, regs, sizeof(*frame));
 	if (!access_ok(frame, sizeof(*frame)))
 		return -EFAULT;
+	/*
+	 * Nothing stops a wild stack pointer without an MMU, and access_ok()
+	 * passes any address: a frame written there lands on whatever the
+	 * kernel keeps at it, its own internal-RAM code included.  A user
+	 * stack is in SDRAM; otherwise the process dies without a frame.
+	 */
+	if ((unsigned long)frame < memory_start ||
+	    (unsigned long)frame + sizeof(*frame) > memory_end)
+		return -EFAULT;
 
 	error |= __put_user((unsigned long)c33_rt_sigreturn_trampoline,
 			    &frame->return_address);

@@ -15,9 +15,17 @@ struct thread_struct {
 	unsigned long usp;
 	struct pt_regs *regs;
 	unsigned long in_kernel;
+	/*
+	 * The PSR at the switch, for its interrupt level: an interrupt that
+	 * returns to userspace through schedule() runs the next task at its
+	 * own level otherwise, masking the timer and everything below it.
+	 */
+	unsigned long psr;
+	/* The bottom of an FDPIC program's stack, or 0: see c33_exception_enter. */
+	unsigned long stack_lo;
 };
 
-#define INIT_THREAD { .ksp = 0, .usp = 0, .regs = NULL, .in_kernel = 1 }
+#define INIT_THREAD { .ksp = 0, .usp = 0, .regs = NULL, .in_kernel = 1, .psr = 0, .stack_lo = 0 }
 
 struct task_struct;
 extern void start_thread(struct pt_regs *regs, unsigned long pc,
