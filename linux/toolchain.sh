@@ -48,15 +48,6 @@ fi
 C33_TARGET=${linux_target} C33_BINUTILS_CONFIGURE="--with-sysroot=${sysroot}" \
 	"${root}/host-tools/toolchain-c33/binutils/build.sh" "${toolwork}"
 
-# Earlier toolchains put a bFLT-writing wrapper in the linker's place and
-# the linker beside it as *.real.  Userspace is FDPIC ELF now, which the
-# linker writes itself.
-for ld in "${prefix}/bin/${linux_target}-ld" "${prefix}/bin/${linux_target}-ld.bfd" \
-	"${prefix}/${linux_target}/bin/ld" "${prefix}/${linux_target}/bin/ld.bfd"
-do
-	rm -f "${ld}.real"
-done
-
 # GCC's libgcc is built against the C library's headers.
 "${here}/uclibc/build.sh" headers
 C33_TARGET=${linux_target} "${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}"

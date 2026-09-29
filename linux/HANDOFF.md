@@ -387,11 +387,9 @@ The kernel follows them least:
   IDs for `iio-rescale` and `ntc_thermistor`, a software-node link for the
   battery's power supply); those drivers match device-tree nodes already.
   Patch 0014, the battery's status when nothing supplies it, is a real fix.
-- The toolchain still carries what only bFLT used, until its next rebuild:
-  `-mno-fdpic` in the Linux compiler driver (`linux.h`'s link spec) and
-  the bare-metal compiler's `c33pe/sep-data` libgcc (`t-c33`). The kernel
-  has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC program with no
-  C library.
+- The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
+  program with no C library. The Linux compiler keeps `-mno-fdpic`, as ARM's
+  FDPIC target keeps its non-FDPIC mode.
 - The port is `overlay/` copied over a pinned tag, not a patch series.
 - The early LCD console is the architecture's own, not `earlycon` or fbcon;
   patch 0018 changes the VT core for boot time; the interrupt controller's
@@ -414,20 +412,16 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **Drop the toolchain's bFLT leftovers** at its next rebuild: the
-   `-mno-fdpic` branch of `linux.h`'s link and CC1 specs, and `msep-data`
-   from `t-c33`'s multilibs (and `ABI.md`'s `-msep-data` section becomes
-   part of the FDPIC one).
-3. **Device tree.** A `.dts` for the WikiReader, `CONFIG_OF`, drivers matched
+2. **Device tree.** A `.dts` for the WikiReader, `CONFIG_OF`, drivers matched
    by `compatible`; `devices.c` and patches 0011-0013 go. Measure what the OF
    core costs a no-module kernel on 32 MB, in size and in boot time.
-4. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
+3. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
    link tests for `c33-linux-uclibc`, in the VM; execution tests need a
    harness through wremu.
-5. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
+4. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
    linker, `ASM_PREFERRED_EH_DATA_FORMAT` pc-relative and GOT-relative.
-6. **TLS and NPTL.**
-7. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
+5. **TLS and NPTL.**
+6. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
    table rehashes by descriptor address but is searched by entry point, so
    after the first resize a lookup misses and a second "canonical"
    descriptor appears (every FDPIC port); and GCC
@@ -435,19 +429,19 @@ The rest of the port, standards first (see "Standards" above):
    `#if __FDPIC__` exception paths are ARM's and call
    `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/0002`
    (the stack guard's time from `clock_gettime64`) too.
-8. **Buildroot patch 0002**: drop its static-library half.
-9. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+7. **Buildroot patch 0002**: drop its static-library half.
+8. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-10. **ITC priorities.** The controller's priority nibbles are still written
+9. **ITC priorities.** The controller's priority nibbles are still written
     by the drivers that know their cause (the timer, the serial ports, and
     the pin controller for the buttons); an `irq_set_priority`-style
     extension on the irqchip would move them.
-11. **The overlay as a real patch series**, which only bites when the pinned
+10. **The overlay as a real patch series**, which only bites when the pinned
     stable tag is bumped.
 
 Performance, after those:

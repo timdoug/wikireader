@@ -434,8 +434,7 @@ linker script defines `__dp` as the start of the data segment.
 generic code sends them to the pool. `c33_sep_data_symbol_p` decides what
 `%r15` may reach. The move output routines stop with an internal error if an
 absolute symbol reaches them anyway. The linker refuses a `doff` below `__dp`.
-`-msep-data` excludes `-medda32`. The bare-metal compiler's libgcc has a
-`c33pe/sep-data` multilib, which nothing links.
+`-msep-data` excludes `-medda32`.
 
 ### `-mfdpic`: shared libraries
 

@@ -26,8 +26,8 @@
    the executable and every shared library -- has its text shared between
    processes and its own data segment, which its code reaches through %r15.
    Calls to other modules go through function descriptors (see c33.md).
-   -mno-fdpic still builds the older static, -msep-data code, but nothing
-   here links it.  */
+   -mno-fdpic builds static -msep-data code, as ARM's FDPIC target keeps
+   its non-FDPIC mode.  */
 
 #undef DRIVER_SELF_SPECS
 #define DRIVER_SELF_SPECS				\
@@ -79,8 +79,8 @@
 /* The FDPIC emulation, and ld.so unless the link is static.  Without an
    MMU a program's stack cannot grow: the kernel allocates the size in
    PT_GNU_STACK whole at exec, or 128 KB if that is zero.  32 KB here, and
-   a later -Wl,-z,stack-size= overrides it.  16 KB, what bFLT programs had,
-   is too little for FDPIC Xlib clients -- a lazily bound first call adds
+   a later -Wl,-z,stack-size= overrides it.  16 KB is too little for
+   Xlib clients -- a lazily bound first call adds
    ld.so's resolver at whatever depth it happens -- and an overflow writes
    silently into whatever lies below the stack.  */
 #undef LINK_SPEC
