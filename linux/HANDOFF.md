@@ -191,9 +191,14 @@ about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
 
 Local sockets and VTs (for X) came after these measurements: about 0.6 s
 more to the prompt in wremu, not yet timed on the device. FDPIC shared
-libraries came after that, also untimed on the device: in wremu, with the
-same harness, the prompt is up 4.73 s after the kernel starts against 3.91 s
-for the static bFLT system. The first exec reads libc's whole 489 KB of text
+libraries came after that. On the device the prompt is up 7.58 s after the
+kernel starts, against 4.12 s for the static bFLT system (3,465 blocks read
+at boot against 1,871, but only 0.4 s more card time). wremu with the
+device's 512-byte clusters (`SPC=1` in `artifacts/perf/x11/timeline_app.py`)
+reproduces about half of it, 6.1 s against 4.3; with boot-test's 32 KB
+clusters it shows 4.73 against 3.91. The extra goes to rootstart's ext4
+mount and seed read (+0.6 s) and the first dynamic exec (+0.8 s), both
+reads scattered through a 16 MB FAT file of 32,768 clusters. The first exec reads libc's whole 489 KB of text
 (the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
 about 0.2 s of the boot's CPU. Linking the libraries `-Bsymbolic`, as
 FRV's uClibc does, saved 0.12 s; they bind as ELF has them instead.
@@ -266,7 +271,7 @@ Left, largest first:
 
 ## X11: where it stands
 
-Emulator only: **none of it has run on the device yet.** `startx` at the
+Proven on the device 2026-09-28 (FDPIC build): `startx` at the
 console prompt brings up Xfbdev on the classic grey weave with twm and
 xeyes; dragging on the background moves the pointer and the eyes follow,
 holding still for 0.6 s opens twm's menu, and its Exit gives the panel back
@@ -328,8 +333,8 @@ without the cursor (about a fifth of a frame).
 
 Nothing for the C33 is upstream anywhere, so "standard" here means following
 the conventions of the upstream no-MMU and FDPIC ports: FRV, Blackfin, SH and
-ARM (x86 has an MMU and no FDPIC). None of this has run on the device yet: the
-FDPIC userland, the PSR fix and the stack check are emulator-only.
+ARM (x86 has an MMU and no FDPIC). The FDPIC userland, the PSR fix and the
+stack check ran on the device 2026-09-28: `check` clean, X and xeyes by touch.
 
 Userland follows them. Buildroot, uClibc-ng and BusyBox build and run as
 FDPIC ELF with shared libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC
@@ -386,8 +391,7 @@ The kernel follows them least:
 
 ## What is left, in the order I would take it
 
-For X, before anything else: **run it on the device** (the card needs the
-current `linux.app` and `linux.img`). Then, largest first:
+For X, largest first:
 - Stub the scheduler's load tracking on this single CPU: about 2.5 ms a
   frame and cheaper switches for every program, but it is a core scheduler
   patch; audit the 50-odd readers of the averages first.
@@ -399,8 +403,10 @@ current `linux.app` and `linux.img`). Then, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Run the FDPIC system on the device**: `linux.app` and `linux.img` from
-   this tree, `check`, then `startx`.
+1. **The FDPIC boot on the device**, 7.58 s to the prompt against bFLT's
+   4.12 ("Boot: where it stands"). Profile the `SPC=1` wremu boot first;
+   where the reads into the image go through FAT's cluster chains is the
+   suspect.
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map
