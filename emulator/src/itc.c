@@ -24,7 +24,8 @@
 #define P16T01     (0x266u - ITC_BASE)   /* timer 0 low, timer 1 high */
 #define P16T23     (0x267u - ITC_BASE)   /* timer 2 low, timer 3 high */
 #define P16T45     (0x268u - ITC_BASE)   /* timer 4 low, timer 5 high */
-#define PSI01_PAD  (0x26au - ITC_BASE)   /* serial ch0 bits 6:4, ch1 bits 2:0 */
+#define PLCDC_PSI00 (0x269u - ITC_BASE)  /* LCDC low, serial ch0 bits 6:4 */
+#define PSI01_PAD  (0x26au - ITC_BASE)   /* serial ch1 low, A/D high */
 
 /*
  * Cause-of-interrupt flag registers, 0x280..0x28f.
@@ -120,7 +121,8 @@ unsigned itc_priority(const struct itc *t, unsigned vector)
 	case VEC_SERIAL0_ERR:
 	case VEC_SERIAL0_RX:
 	case VEC_SERIAL0_TX:
-		return (t->reg[PSI01_PAD] >> 4) & 0x7;
+		/* Grifo's serial.c: REG_INT_PLCDC_PSI00 |= SERIAL_CH0_INT_PRI_7. */
+		return (t->reg[PLCDC_PSI00] >> 4) & 0x7;
 	case VEC_SERIAL1_ERR:
 	case VEC_SERIAL1_RX:
 	case VEC_SERIAL1_TX:
