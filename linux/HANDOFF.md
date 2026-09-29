@@ -61,7 +61,7 @@ messages to show.
 
 A stock unit has no serial, so device results come back as files early
 userspace writes to the card: `linuxhw.txt` (memory, clocksource, regulators,
-input devices, contrast, the freestanding tests, interrupt counts, date) and
+input devices, contrast, `wr-selftest`'s results, interrupt counts, date) and
 `linuxpm.txt` under `wr.pmlog`. `linuxhw.txt`, `linux.ok` and the userspace
 checks behind them only run with `wr.selftest` on the card's `init.ini` line,
 for example `linux.ico : linux.app wr.selftest`; a plain launcher boot skips
@@ -387,13 +387,11 @@ The kernel follows them least:
   IDs for `iio-rescale` and `ntc_thermistor`, a software-node link for the
   battery's power supply); those drivers match device-tree nodes already.
   Patch 0014, the battery's status when nothing supplies it, is a real fix.
-- bFLT survives for `rootstart` (built by `build.sh`) and the three
-  freestanding diagnostics (`/diag-init`, `/diag-test`, `/child`, built with
-  the bare-metal compiler by `initramfs/build-diag.sh`), both converted by
-  `initramfs/make-flat.py`. That keeps `binfmt_flat` and its patch 0008,
-  and `-mno-fdpic` in the Linux compiler driver; `elf2flt/ld-elf2flt` is
-  no longer installed. The toolchain links static FDPIC programs
-  (`-static`), so they can be ordinary ELF.
+- The toolchain still carries what only bFLT used, until its next rebuild:
+  `-mno-fdpic` in the Linux compiler driver (`linux.h`'s link spec) and
+  the bare-metal compiler's `c33pe/sep-data` libgcc (`t-c33`). The kernel
+  has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC program with no
+  C library.
 - The port is `overlay/` copied over a pinned tag, not a patch series.
 - The early LCD console is the architecture's own, not `earlycon` or fbcon;
   patch 0018 changes the VT core for boot time; the interrupt controller's
@@ -416,12 +414,10 @@ The rest of the port, standards first (see "Standards" above):
 1. **What is left of the boot's gap to bFLT** is userland starting
    (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
    the X sockets and VTs (about 0.6 s in wremu).
-2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
-   with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
-   points and syscall veneers, which then follow the FDPIC entry: load map
-   in `%r6`, no `%r15` until `.rofixup` is applied); then drop
-   `BINFMT_FLAT`, patch 0008, `make-flat.py`, `elf2flt/` and the
-   `-mno-fdpic` link path.
+2. **Drop the toolchain's bFLT leftovers** at its next rebuild: the
+   `-mno-fdpic` branch of `linux.h`'s link and CC1 specs, and `msep-data`
+   from `t-c33`'s multilibs (and `ABI.md`'s `-msep-data` section becomes
+   part of the FDPIC one).
 3. **Device tree.** A `.dts` for the WikiReader, `CONFIG_OF`, drivers matched
    by `compatible`; `devices.c` and patches 0011-0013 go. Measure what the OF
    core costs a no-module kernel on 32 MB, in size and in boot time.

@@ -10,19 +10,11 @@ WIKIREADER_SYSTEM_SITE_METHOD = local
 # Installed after BusyBox, whose own inittab this replaces.
 WIKIREADER_SYSTEM_DEPENDENCIES = busybox
 
-# The diagnostics are freestanding and linked by the bare-metal compiler,
-# which linux/toolchain.sh installs in the same prefix as this toolchain.
-WIKIREADER_SYSTEM_ELF_CROSS = \
-	$(call qstrip,$(BR2_TOOLCHAIN_EXTERNAL_PATH))/bin/c33-epson-elf-
-# The diagnostics' libc check runs this ordinary uClibc program.
-WIKIREADER_SYSTEM_SMOKE = $(BR2_EXTERNAL_WIKIREADER_PATH)/../../uclibc/smoke.c
-
 define WIKIREADER_SYSTEM_BUILD_CMDS
-	$(@D)/build-diag.sh $(WIKIREADER_SYSTEM_ELF_CROSS) $(@D)/out
-	$(TARGET_CC) $(TARGET_CFLAGS) -fno-unwind-tables \
+	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Werror -fno-unwind-tables \
 		-fno-asynchronous-unwind-tables -ffunction-sections \
-		-fdata-sections $(WIKIREADER_SYSTEM_SMOKE) \
-		-o $(@D)/out/uclibc-smoke $(TARGET_LDFLAGS) -Wl,--gc-sections
+		-fdata-sections $(@D)/wr-selftest.c \
+		-o $(@D)/wr-selftest $(TARGET_LDFLAGS) -Wl,--gc-sections
 endef
 
 # A fresh image's first boot credits a seed made here, so no boot waits for
@@ -43,8 +35,8 @@ define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/late $(TARGET_DIR)/etc/init.d/late
 	$(INSTALL) -D -m 0755 $(@D)/busybox-test \
 		$(TARGET_DIR)/etc/init.d/busybox-test
-	$(INSTALL) -m 0755 $(@D)/out/diag-init $(@D)/out/diag-test \
-		$(@D)/out/child $(@D)/out/uclibc-smoke $(TARGET_DIR)/
+	$(INSTALL) -D -m 0755 $(@D)/wr-selftest \
+		$(TARGET_DIR)/usr/libexec/wr-selftest
 	mkdir -p $(TARGET_DIR)/mnt/sd
 	$(WIKIREADER_SYSTEM_SEED)
 endef

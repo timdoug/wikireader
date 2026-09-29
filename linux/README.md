@@ -57,27 +57,20 @@ timers and an idle tick that stops. `loops_per_jiffy` is set from MCLK instead
 of being measured, and a sleeping process now wakes when it asked to rather
 than at the next tick.
 
-Early userspace also runs a process-lifecycle regression. It
-uses the asm-generic `clone(CLONE_VM | CLONE_VFORK)` ABI, executes a second
-bFLT image as `/child`, and reaps its exit status with `wait4`. This
-exercises the live syscall register frame, task creation, scheduling, exec,
-exit, and parent wakeup without relying on a C library.
-
-The same regression installs a `SIGUSR1` handler with `rt_sigaction`, delivers
-the signal to PID 1, and returns through the C33 `rt_sigreturn` trampoline. The
-kernel saves and restores the complete integer context, signal mask, and
-alternate-stack state in an aligned `ucontext` frame on the userspace stack.
-
-Traps reach the kernel through `CONFIG_GENERIC_ENTRY`, so tracing, seccomp,
-and audit see every system call and the exit path is the generic one. The same
-regression proves it: a child that calls `PTRACE_TRACEME` before `execve()`
-must be stepped through several `PTRACE_SYSCALL` stops before it reaches its
-exit status, instead of running straight there.
-
-PID 1 then executes a static uClibc-ng bFLT program. The program enters through
-the C33 CRT, calls `printf()` and `getpid()`, verifies `setjmp()`/`longjmp()`,
-exits through libc, and is reaped by PID 1. This is the first regression using
-the conventional C userspace ABI rather than the initramfs syscall veneers.
+Under `wr.selftest`, `/usr/libexec/wr-selftest` checks the kernel's process
+paths from userspace. It `vfork()`s (the asm-generic
+`clone(CLONE_VM | CLONE_VFORK)` ABI), executes itself as a child, and reaps
+its exit status with `wait4`: the live syscall register frame, task
+creation, scheduling, exec, exit, and parent wakeup. It installs a `SIGUSR1`
+handler, signals itself, and returns through the C33 `rt_sigreturn`
+trampoline; the kernel saves and restores the complete integer context,
+signal mask, and alternate-stack state in an aligned `ucontext` frame on the
+userspace stack. Traps reach the kernel through `CONFIG_GENERIC_ENTRY`, so
+tracing, seccomp, and audit see every system call and the exit path is the
+generic one: a child that calls `PTRACE_TRACEME` before `execve()` must be
+stepped through several `PTRACE_SYSCALL` stops before it reaches its exit
+status, instead of running straight there. Last, it checks the C library's
+start, `printf()`, `getpid()` and `setjmp()`/`longjmp()`.
 
 With a serial adapter attached, `earlycon=s1c33,mmio,0x300b00` reports through
 the standard early console from the first parsed parameter until `ttyC0`
@@ -295,13 +288,6 @@ registers a VT's device when the VT is allocated, with one character device
 for all of them; `rootstart` makes `/dev/tty1` to `/dev/tty12`, so a VT opens
 by number before it exists. VTs cost about 0.2 s of boot.
 
-PID 1 is ordinary linked C apart from its entry point and syscall veneers.
-The local ELF-to-bFLT converter carries plain `R_C33_32` pointers and C33's
-split `R_C33_H`/`R_C33_M`/`R_C33_L` absolute addresses into the bFLT relocation
-table. The kernel loader reconstructs and rewrites those three-instruction
-addresses when it maps the process. The regression image deliberately contains
-string pointers in text, initialized data, and BSS state.
-
 Everything on the root filesystem is FDPIC ELF with shared libraries (see
 `host-tools/toolchain-c33/gcc/ABI.md`), loaded by `binfmt_elf_fdpic` and
 uClibc-ng's `ld.so`. Each module, the program and every library, has a text
@@ -330,15 +316,18 @@ otherwise bind every call at exec.
 
 A program's stack cannot grow without an MMU: the kernel allocates the size
 the link asks for, in `PT_GNU_STACK`, whole at exec. The compiler asks for
-32 KB. 16 KB, what the bFLT programs had, was too little for the X clients,
+32 KB. 16 KB was too little for the X clients,
 since a lazily bound first call adds `ld.so`'s resolver at whatever depth it
 happens. An overflow writes silently into whatever lies below the stack --
 twm's overwrote the X server's function descriptors -- so the kernel checks
 the stack pointer at each exception from an FDPIC program, names the program
 and kills it if the exception frame would land below its stack.
 
-The initramfs programs, `rootstart` and the freestanding diagnostics, are
-still bFLT, and the kernel keeps `binfmt_flat` for them.
+The kernel's own `/init`, `rootstart`, has no C library but is a static
+FDPIC program all the same (`initramfs/build-freestanding.sh`): its entry
+point relocates it with uClibc-ng's `crtreloc.o`, as the C library's does,
+and its system calls are veneers of its own. The kernel has no other binary
+format.
 
 ## macOS and Linux responsibilities
 
@@ -374,8 +363,7 @@ Mach-O executables under `host-tools/toolchain-c33/work`:
   executables against uClibc-ng's shared libraries in its sysroot, with
   `/lib/ld-uClibc.so.0` as the interpreter; `-static` links a static FDPIC
   program and `-shared` a library. `-Wl,-z,stack-size=<bytes>` sets a
-  program's stack. `-mno-fdpic` builds the older `-msep-data` code, which
-  `initramfs/make-flat.py` converts to bFLT.
+  program's stack.
 
 The userspace compiler is built against the kernel's UAPI headers and
 uClibc-ng's headers, so `fetch` comes first.
@@ -514,9 +502,7 @@ call, so the kernel is built with `-mlong-calls`.
 external toolchain only. The `buildroot/external/` tree holds the defconfig,
 the BusyBox configuration and two packages, `wr-console` and
 `wikireader-system`. The latter installs `initramfs/`'s init configuration
-and builds its freestanding diagnostics with the bare-metal compiler, along
-with `/uclibc-smoke`, the ordinary uClibc program they run as their libc
-check.
+and builds `wr-selftest`.
 Buildroot builds with `c33-linux-uclibc-` from `toolchain`, as FDPIC with
 shared libraries. Everything is compiled with `-ffunction-sections
 -fdata-sections` and linked with `--gc-sections`, so a program keeps only
@@ -547,14 +533,13 @@ this MMU-less machine every exec, and every background job (the shell
 re-executes itself for one), is about a tenth of a second, and `hush`
 parses a whole `if` block or function before running it. It checks for
 the PTYs. With `wr.selftest` on the command line it runs
-`/etc/init.d/selftest`: the freestanding process, signal, and libc
-diagnostics, the display and input checks, and a Hush and
+`/etc/init.d/selftest`: `wr-selftest`'s process, signal, trace and libc
+checks, the display and input checks, and a Hush and
 file/text/archive tool suite, then `linux.ok` and, later, the
 `linuxhw.txt` device report on the card. The tests pass `wr.selftest` on the
 launcher's `init.ini` line, and the kernel appends it on a direct boot, the
 bring-up and recovery path. `init` finally respawns an interactive `hush` on
-`ttyC0`. `/diag-init`
-remains available as the old freestanding rescue shell.
+`ttyC0`.
 
 `wr-console` is the framebuffer frontend. It uses only standard
 fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application

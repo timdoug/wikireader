@@ -3,10 +3,8 @@ config C33
 	bool
 	default y
 	select ARCH_32BIT_OFF_T
-	select ARCH_HAS_BINFMT_FLAT
 	select ARCH_NO_PREEMPT
 	select ARCH_NO_SWAP
-	select BINFMT_FLAT_ARGVP_ENVP_ON_STACK
 	select COMMON_CLK
 	select CPU_NO_EFFICIENT_FFS
 	select GENERIC_ATOMIC64

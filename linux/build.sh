@@ -28,17 +28,8 @@ make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" wikireader_
 initramfs=$build_dir/c33-initramfs
 here=$root/linux/initramfs
 mkdir -p "$initramfs"
-"${cross}as" -mc33pe "$here/rootstart.S" -o "$initramfs/rootstart-start.o"
-"${cross}gcc" -mc33pe -Os -ffreestanding -fno-builtin -medda32 \
-	-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ffunction-sections -fdata-sections -Wall -Werror \
-	-c "$here/rootstart.c" -o "$initramfs/rootstart-c.o"
-"${cross}objcopy" --remove-section=.debug_frame "$initramfs/rootstart-c.o" \
-	"$initramfs/rootstart-code.o"
-"${cross}ld" --gc-sections --emit-relocs -T "$here/init.ld" \
-	-o "$initramfs/rootstart.elf" "$initramfs/rootstart-start.o" \
-	"$initramfs/rootstart-code.o" "$("${cross}gcc" -mc33pe -print-libgcc-file-name)"
-python3 "$here/make-flat.py" "$initramfs/rootstart.elf" "$initramfs/rootstart"
+"$here/build-freestanding.sh" "$tool_dir/install/bin/c33-linux-uclibc-" \
+	"$initramfs/rootstart" "$here/rootstart.S" "$here/rootstart.c" -Wall -Werror
 cat >"$initramfs.list" <<EOF
 dir /dev 0755 0 0
 nod /dev/console 0600 0 0 c 5 1

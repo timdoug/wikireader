@@ -6,7 +6,6 @@ CONFIG_BUG=y
 # every boot.  Oopses print bare addresses; look them up in vmlinux.
 # CONFIG_KALLSYMS is not set
 CONFIG_INITRAMFS_SOURCE=""
-CONFIG_BINFMT_FLAT=y
 CONFIG_BINFMT_ELF_FDPIC=y
 CONFIG_FLATMEM_MANUAL=y
 CONFIG_FLATMEM=y

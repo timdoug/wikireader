@@ -409,12 +409,12 @@ they are lower priority than the default area.
 
 ### `-msep-data`: shareable text
 
-Linux userland runs from bFLT files on a machine with no MMU. A program whose
-text contains absolute addresses has to be copied and relocated for every
-process. `-msep-data` removes those addresses, so the kernel can map one copy
-of the text read-only and share it between processes. Each process still
-gets its own data segment, and the kernel points `%r15` at its start. The
-linker script defines `__dp` as the start of `.data`.
+On a machine with no MMU, a program whose text contains absolute addresses
+has to be copied and relocated for every process. `-msep-data` removes those
+addresses, so one copy of the text can be mapped read-only and shared
+between processes, each with a data segment of its own that `%r15` points
+at. It is the base of `-mfdpic` (below), which is how Linux uses it; the
+linker script defines `__dp` as the start of the data segment.
 
 - Loads and stores of writable variables in `.data`/`.bss` use the default
   data area (`[%r15]` plus `doff_hi`/`doff_lo`). The linker has already
@@ -434,10 +434,8 @@ linker script defines `__dp` as the start of `.data`.
 generic code sends them to the pool. `c33_sep_data_symbol_p` decides what
 `%r15` may reach. The move output routines stop with an internal error if an
 absolute symbol reaches them anyway. The linker refuses a `doff` below `__dp`.
-`linux/initramfs/make-flat.py --shared-text` fails if any text relocation
-remains, and it checks that every `doff` lands inside the data segment.
-`-msep-data` excludes `-medda32`, and libgcc has a `c33pe/sep-data`
-multilib.
+`-msep-data` excludes `-medda32`. The bare-metal compiler's libgcc has a
+`c33pe/sep-data` multilib, which nothing links.
 
 ### `-mfdpic`: shared libraries
 

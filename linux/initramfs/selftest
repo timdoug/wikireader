@@ -4,14 +4,14 @@
 # kernel adds it itself on a direct boot.  A file of its own, so that a
 # normal boot does not even parse it.
 
-# Keep the freestanding test lines: they go into the card report below,
-# where a device without serial can show them.
-if /diag-test > /tmp/diag.txt; then
+# Keep the kernel test lines: they go into the card report below, where a
+# device without serial can show them.
+if /usr/libexec/wr-selftest > /tmp/diag.txt; then
 	cat /tmp/diag.txt
-	echo "C33 BusyBox init: diagnostic child passed"
+	echo "C33 BusyBox init: kernel self-test passed"
 else
 	cat /tmp/diag.txt
-	echo "C33 BusyBox init: diagnostic child FAILED"
+	echo "C33 BusyBox init: kernel self-test FAILED"
 fi
 
 echo "C33 IRQ: generic registrations"

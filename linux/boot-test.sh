@@ -106,7 +106,7 @@ sensors_expected="C33 sensors: battery 3083 mV, board 22 C"
 watchdog_expected="s1c33-wdt s1c33-wdt: 60000000 Hz, up to 17895 ms a period"
 evdev_expected="C33 input: userspace console received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
-diagnostic_expected="C33 BusyBox init: diagnostic child passed"
+diagnostic_expected="C33 BusyBox init: kernel self-test passed"
 busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive tools"
 shared_text_expected="C33 BusyBox shared text: [0-9a-f]+-[0-9a-f]+ and libc [0-9a-f]+-[0-9a-f]+ mapped once for every process"
 shell_ready="C33 BusyBox shell ready on ttyC0"
@@ -121,8 +121,8 @@ hsdma_expected="s1c33-hsdma s1c33-hsdma: 4 channels, completion polled"
 sd_clock_expected="--- spi clock: 0 unclamped disables with SD selected ---"
 sd_width_expected='--- spi width: [0-9]+ 8-bit, [0-9]+ 16-bit, [1-9][0-9]* 32-bit characters ---'
 sd_dma_channels_expected='--- dma channels: HSDMA2 TX [1-9][0-9]*, HSDMA3 RX [1-9][0-9]* ---'
-process_expected="C33 process test: clone -> execve -> wait4 passed"
-child_expected="C33 child: execve reached /child"
+process_expected="C33 process test: vfork -> execve -> wait4 passed"
+child_expected="C33 child: execve reached the child"
 signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
@@ -224,11 +224,6 @@ fi
 if grep -F "Kernel panic" "$work/boot.log" >/dev/null; then
 	cat "$work/boot.log" >&2
 	echo "Native Linux panicked after starting PID 1." >&2
-	exit 1
-fi
-if grep -F "binfmt_flat: Loading file:" "$work/boot.log" >/dev/null; then
-	cat "$work/boot.log" >&2
-	echo "A bFLT image unexpectedly enabled kernel load tracing." >&2
 	exit 1
 fi
 

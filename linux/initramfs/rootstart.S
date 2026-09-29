@@ -1,8 +1,17 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-	.section .text.start,"ax"
+/*
+ * A static FDPIC program with no C library.  The kernel enters with the
+ * load map in %r6 and nothing relocated; as crt1 does, relocate the words
+ * .rofixup lists (crtreloc.o) and take __dp, relocated, for %r15.
+ */
+	.text
 	.global _start
 	.type _start,@function
 _start:
+	xld.w %r7,__ROFIXUP_LIST__
+	xld.w %r8,__ROFIXUP_END__
+	xcall __self_reloc
+	ld.w %r15,%r4
 	xcall root_main
 .Lhang:
 	jp .Lhang
