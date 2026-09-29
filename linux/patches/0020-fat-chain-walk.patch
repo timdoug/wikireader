@@ -1,8 +1,16 @@
 diff --git a/fs/fat/cache.c b/fs/fat/cache.c
-index 1b87354e24..94910a1e82 100644
+index 1b87354e24..3cb4ab804f 100644
 --- a/fs/fat/cache.c
 +++ b/fs/fat/cache.c
-@@ -275,6 +275,10 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
+@@ -247,6 +247,7 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
+ 		cache_init(&cid, -1, -1);
+ 	}
+ 
++	fat_ent_readahead(sb, *dclus, cluster - *fclus);
+ 	fatent_init(&fatent);
+ 	while (*fclus < cluster) {
+ 		/* prevent the infinite loop of cluster chain */
+@@ -275,6 +276,10 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
  		*dclus = nr;
  		if (!cache_contiguous(&cid, *dclus))
  			cache_init(&cid, *fclus, *dclus);
@@ -14,23 +22,24 @@ index 1b87354e24..94910a1e82 100644
  	nr = 0;
  	fat_cache_add(inode, &cid);
 diff --git a/fs/fat/fat.h b/fs/fat/fat.h
-index 2772675bd3..dc1c0628ef 100644
+index 2772675bd3..b04e63fbc1 100644
 --- a/fs/fat/fat.h
 +++ b/fs/fat/fat.h
-@@ -391,6 +391,8 @@ static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
+@@ -391,6 +391,9 @@ static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
  extern void fat_ent_access_init(struct super_block *sb);
  extern int fat_ent_read(struct inode *inode, struct fat_entry *fatent,
  			int entry);
++extern void fat_ent_readahead(struct super_block *sb, int entry, int count);
 +extern int fat_ent_follow_contig(struct super_block *sb,
 +				 struct fat_entry *fatent, int max);
  extern int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
  			 int new, int wait);
  extern int fat_alloc_clusters(struct inode *inode, int *cluster,
 diff --git a/fs/fat/fatent.c b/fs/fat/fatent.c
-index f0801d99dd..922b6135ed 100644
+index f0801d99dd..1e72cd2fca 100644
 --- a/fs/fat/fatent.c
 +++ b/fs/fat/fatent.c
-@@ -412,6 +412,54 @@ static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
+@@ -412,6 +412,94 @@ static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
  	return err;
  }
  
@@ -80,6 +89,46 @@ index f0801d99dd..922b6135ed 100644
 +	}
 +	fatent->entry += n;
 +	return n;
++}
++
++/*
++ * Read ahead the FAT blocks holding the @count entries from @entry, up to
++ * the device's readahead window, unless the last of them is in memory
++ * already.  A walk with that far to go down a file written in one piece
++ * reads them all, and one request for them costs far less than a request
++ * for each block as the walk reaches it.
++ */
++void fat_ent_readahead(struct super_block *sb, int entry, int count)
++{
++	struct msdos_sb_info *sbi = MSDOS_SB(sb);
++	const struct fatent_operations *ops = sbi->fatent_ops;
++	sector_t first, last, window;
++	struct buffer_head *bh;
++	struct blk_plug plug;
++	int offset;
++
++	count = min(count, (int)sbi->max_cluster - entry);
++	if (count <= 1)
++		return;
++	ops->ent_blocknr(sb, entry, &offset, &first);
++	ops->ent_blocknr(sb, entry + count - 1, &offset, &last);
++	window = (sector_t)sb->s_bdi->ra_pages <<
++		 (PAGE_SHIFT - sb->s_blocksize_bits);
++	if (last == first || !window)
++		return;
++	last = min(last, first + window - 1);
++	bh = sb_find_get_block(sb, last);
++	if (bh) {
++		bool cached = buffer_uptodate(bh);
++
++		brelse(bh);
++		if (cached)
++			return;
++	}
++	blk_start_plug(&plug);
++	for (; first <= last; first++)
++		sb_breadahead(sb, first);
++	blk_finish_plug(&plug);
 +}
 +
  int fat_ent_write(struct inode *inode, struct fat_entry *fatent,

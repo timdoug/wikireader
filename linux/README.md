@@ -472,9 +472,12 @@ get cached twice. Every read into the image first finds its cluster by
 walking the file's FAT chain, cached per file as at most eight runs of
 consecutive clusters; the device's boot volume has 512-byte clusters, so
 `linux.img` is a chain of 32,768. `patches/0020` follows runs of
-consecutive clusters within a FAT block with a load and a compare a step;
-through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
-whole image 0.7 s. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
+consecutive clusters within a FAT block with a load and a compare a step
+(through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
+whole image 0.7 s), and reads ahead the FAT blocks a walk has still to
+cross, up to the readahead window, in one request: a walk down the image
+crosses 256 FAT blocks, and a 512-byte command is about 3 ms on the
+device's card. It mounts the image `noatime`, credits the random seed BusyBox `seedrng` saved
 last time, moves the card to `/mnt/sd`
 inside it, mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, and tmpfs on `/tmp` and
 `/run` there (each a

@@ -410,11 +410,13 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Time the boot on the device again**: `/tmp` and `/run` are tmpfs now,
-   so an X session no longer leaves journal to replay, and wremu predicts
-   about 4.9 s to the prompt. What is left of the gap to bFLT is userland
-   starting (`ld.so` and libc, 66M cycles against 31M in wremu) and the
-   fragmented image's extra card commands (0.5 s).
+1. **Time the boot on the device again**: FAT now reads ahead the blocks
+   of a chain walk (the boot's card requests 355 -> 107 in wremu), and
+   wremu with the device's 3 ms commands (`WREMU_MODEL=...,sd_read_latency=180000`
+   with `SPC=1 WR_FAT_FRAGMENT=128`) predicts 5.33 s to the prompt, against
+   6.78 without the readahead; the device took 6.23 on a less fragmented
+   card. What is left of the gap to bFLT is userland starting (`ld.so` and
+   libc, 66M cycles against 31M in wremu).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map
