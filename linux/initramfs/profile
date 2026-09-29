@@ -1,0 +1,21 @@
+# Login shell defaults for both the serial and touchscreen consoles.
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sd/bin
+export HOME=/root
+export EDITOR=vi
+export PAGER=less
+# Save a short history on exit, rather than write to the card after every line.
+export HISTFILE="$HOME/.hush_history"
+export HISTSIZE=64
+export HISTFILESIZE=64
+
+# Hush reads login profiles before it finalizes interactive mode, so neither
+# PS1 nor $- can identify an interactive shell here. These defaults are also
+# harmless for a noninteractive login shell.
+PS1='\w \$ '
+alias ll='ls -l'
+alias la='ls -la'
+
+for profile in /etc/profile.d/*.sh; do
+	[ ! -r "$profile" ] || . "$profile"
+done
+unset profile

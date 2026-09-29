@@ -550,6 +550,26 @@ launcher's `init.ini` line, and the kernel appends it on a direct boot, the
 bring-up and recovery path. `init` finally respawns an interactive `hush` on
 `ttyC0`.
 
+Both consoles start login shells with `HOME=/root` and read `/etc/profile`.
+Hush supports job control (`jobs`, `fg`, `bg`, Ctrl-Z), aliases, 64-bit
+arithmetic, Ctrl-R history search, and a directory-aware prompt. History is
+limited to 64 commands and saved to `/root/.hush_history` when the shell
+exits normally; a forced reboot or power cut does not save that session.
+`ll` and `la` abbreviate `ls -l` and `ls -la`. `EDITOR=vi`, `PAGER=less`, and
+both consoles include `/mnt/sd/bin` in `PATH`. The home directory lives in
+`linux.img`, so replacing that image replaces its history and personal files.
+
+`vi` includes search, undo, yank/marks, repeat, colon commands, and settings.
+`less` includes search, marks, line numbers, and horizontal scrolling, with
+its input buffer limited to 4096 lines. File tools support recursive and
+sorted listings, timestamps, human-readable sizes, NUL-delimited
+`find`/`xargs`, symbolic-link inspection, temporary files, checksum checking,
+gzip tarballs, unified diffs and `patch`. Process and memory inspection
+includes `free`, `top`, `pstree`, `pgrep`, `pkill`, `pidof`, `pmap`, `lsof`,
+`uptime`, `vmstat`, `iostat`, `watch`, and `sysctl`; `stty` inspects and changes
+terminal settings. These are available commands, with no extra daemons
+started at boot.
+
 `wr-console` is the framebuffer frontend. It uses only standard
 fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application
 contains no S1C33 register access or private kernel ABI. It is installed as

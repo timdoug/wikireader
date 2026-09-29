@@ -25,6 +25,7 @@ rm -rf "$work" || fail rm
 mkdir "$work" || fail mkdir
 
 exercise_hush || fail hush
+[ "$((2147483647 + 1))" = 2147483648 ] || fail shell-arithmetic
 printf 'alpha\nbeta\ngamma\n' >"$work/input" || fail printf
 cp "$work/input" "$work/copy" || fail cp
 cmp "$work/input" "$work/copy" || fail cmp
@@ -43,8 +44,39 @@ test -s "$work/input.sha256" || fail test
 find "$work" -type f | sort >"$work/files" || fail find-sort
 grep -q '/archive.tar$' "$work/files" || fail find-result
 
+# Exercise the options used by ordinary scripts, including filenames with
+# spaces, compressed tarballs, and a checksum check rather than just creation.
+mkdir "$work/names" || fail mkdir-names
+touch "$work/names/two words" || fail touch-spaces
+find "$work/names" -maxdepth 1 -type f -print0 | xargs -0 -r \
+	stat -c '%n' >"$work/names.out" || fail find-xargs-zero
+grep -qx "$work/names/two words" "$work/names.out" || fail filename-spaces
+ln -s input "$work/link" || fail symlink
+[ "$(readlink "$work/link")" = input ] || fail readlink
+temporary=$(mktemp "$work/temp.XXXXXX") || fail mktemp
+test -f "$temporary" || fail mktemp-file
+sha256sum -c "$work/input.sha256" >/dev/null || fail checksum-check
+tar -czf "$work/archive.tar.gz" -C "$work" input || fail tar-gzip-create
+mkdir "$work/unpacked" || fail mkdir-unpacked
+tar -xf "$work/archive.tar.gz" -C "$work/unpacked" || fail tar-gzip-detect
+cmp "$work/input" "$work/unpacked/input" || fail tar-gzip-roundtrip
+printf 'alpha\nBETA\ngamma\n' >"$work/changed" || fail printf-changed
+diff -u "$work/input" "$work/changed" >"$work/change.patch"
+[ "$?" = 1 ] || fail diff-unified
+patch "$work/copy" <"$work/change.patch" >/dev/null || fail patch
+cmp "$work/copy" "$work/changed" || fail patch-result
+printf 'hello' | base64 | base64 -d >"$work/base64" || fail base64
+[ "$(cat "$work/base64")" = hello ] || fail base64-roundtrip
+free >"$work/free" || fail free
+grep -q '^Mem:' "$work/free" || fail free-memory
+ps -l >"$work/ps" || fail ps-long
+pidof init >/dev/null || fail pidof-init
+sysctl kernel.hostname >"$work/hostname" || fail sysctl
+grep -q wikireader "$work/hostname" || fail sysctl-hostname
+
 rm -rf "$work" || fail cleanup
 echo "C33 BusyBox recovery suite passed: hush + file/text/archive tools"
+echo "C33 BusyBox conveniences passed: arithmetic + filenames + archives + patch + diagnostics"
 
 # BusyBox and libc are FDPIC code, whose text holds no absolute address, so
 # the kernel and ld.so map each read-only once and every process running

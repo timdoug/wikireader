@@ -59,7 +59,9 @@ for name, data in files.items():
         sys.exit(f"Boot test card did not read back {name}")
 PYEOF
 python3 "$make_flash" "$work/flash.rom" >/dev/null
-printf 'echo C33 INTERACTIVE HUSH PASS\n' >"$work/uart.in"
+cat >"$work/uart.in" <<'EOF'
+[ "$HOME" = /root ] && ll /root >/dev/null && [ "$PAGER" = less ] && echo C33 INTERACTIVE HUSH PASS
+EOF
 
 (
 	cd "$work"
@@ -163,7 +165,7 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$busybox_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$shared_text_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$shell_ready" "$work/boot.log" >/dev/null || \
-   ! grep -F "$shell_expected" "$work/boot.log" >/dev/null || \
+   ! LC_ALL=C tr -d '\015' <"$work/boot.log" | grep -Fx "$shell_expected" >/dev/null || \
    ! grep -F "$userspace_console_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$sd_probe_expected" "$work/boot.log" >/dev/null || \

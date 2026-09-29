@@ -275,7 +275,7 @@ static void __attribute__((noreturn)) fail(const char *why, long error)
 void root_main(void)
 {
 	static char *const argv[] = { "/sbin/init", 0 };
-	static char *const envp[] = { "HOME=/", "TERM=linux", 0 };
+	static char *const envp[] = { "HOME=/root", "TERM=linux", 0 };
 	long error = 0, image, loop;
 	int i;
 
