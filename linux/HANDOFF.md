@@ -200,8 +200,12 @@ first reads reach the end of the image. wremu reproduces the device with its
 cluster size and a fragmented image (`SPC=1 WR_FAT_FRAGMENT=128` with
 `artifacts/perf/x11/timeline_app.py`: 7.42 s); `patches/0020`, which follows
 consecutive clusters with a load and a compare, brings that to 5.92 s, and
-to 5.40 s with the image in one piece (bFLT 4.3). Not yet timed on the
-device. The first exec reads libc's whole 489 KB of text
+to 5.40 s with the image in one piece (bFLT 4.3). On the device with the
+patch the root is mounted and the seed credited 0.06 s later, not 1.9, and
+the prompt is up 6.54 s after the kernel starts, of which 1.64 s was ext4
+replaying its journal: the session before had run X, whose files in `/tmp`
+(its log, lock and socket) were written after `late` had checkpointed the
+journal, and the power was then cut. Without the replay that is about 4.9 s. The first exec reads libc's whole 489 KB of text
 (the boot reads 1,249 KB from the image against 717 KB), and `ld.so` is
 about 0.2 s of the boot's CPU. Linking the libraries `-Bsymbolic`, as
 FRV's uClibc does, saved 0.12 s; they bind as ELF has them instead.
@@ -406,11 +410,12 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **Time `patches/0020` on the device** ("Boot: where it stands"); wremu
-   predicts about 6 s to the prompt on the fragmented card, against 7.58.
-   What is left of the gap to bFLT is userland starting (`ld.so` and
-   libc, 66M cycles of the boot against 31M) and the fragmented image's
-   extra card commands (0.5 s).
+1. **Journal replay after X**: `/tmp` is on the ext4 root, so a session
+   that ran X leaves writes in the journal and the next boot replays them
+   (1.64 s on the device). Buildroot's own default is a tmpfs `/tmp`
+   (`CONFIG_TMPFS` is on). What is left of the boot's gap to bFLT is
+   userland starting (`ld.so` and libc, 66M cycles against 31M in wremu)
+   and the fragmented image's extra card commands (0.5 s).
 2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
    with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
    points and syscall veneers, which then follow the FDPIC entry: load map
