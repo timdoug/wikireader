@@ -450,7 +450,9 @@ in one piece: every read into it walks its FAT chain, and on a card whose
 free space is scattered the chain jumps about the FAT, which the device
 measured at 1.3 s of every boot (6.05 s to the prompt against 4.76). A
 partition freshly formatted with `newfs_msdos` and given `linux.img` first
-keeps it contiguous; `card-boot.py` boots wremu, through Grifo, on a `dd`
+keeps it contiguous, and a new image written over it in place keeps its
+clusters (`dd if=linux.img of=/Volumes/WRBOOT/linux.img bs=1m
+conv=notrunc`, where `cp` may reallocate it); `card-boot.py` boots wremu, through Grifo, on a `dd`
 copy of a card's partition to see what it does.
 
 The kernel's own initramfs holds only `initramfs/rootstart`, a 2 KB
