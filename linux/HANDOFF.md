@@ -324,6 +324,66 @@ it; the programs' load addresses move when their sizes do, so read them
 from `/proc/PID/maps` after a size change. `ARGS='-- -nocursor'` measures
 without the cursor (about a fifth of a frame).
 
+## Standards: how far the port follows upstream
+
+Nothing for the C33 is upstream anywhere, so "standard" here means following
+the conventions of the upstream no-MMU and FDPIC ports: FRV, Blackfin, SH and
+ARM (x86 has an MMU and no FDPIC). None of this has run on the device yet: the
+FDPIC userland, the PSR fix and the stack check are emulator-only.
+
+Userland follows them. Buildroot, uClibc-ng and BusyBox build and run as
+FDPIC ELF with shared libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC
+`ld.so` with lazy binding, `DT_RELACOUNT` and `R_C33_RELATIVE`, libraries
+binding as ELF has them, programs with 32 KB stacks. Local changes that
+remain: Buildroot's C33 architecture patch (needed); Buildroot patch 0002,
+whose static-library half no longer applies now that the libraries are
+shared, only its no-MMU `libpthread-stubs` half; small behavioural patches to
+twm, xeyes and libX11 (`buildroot/external/patches`); `xserver-kdrive`, since
+X.org dropped kdrive after 1.19; and `wr-console`, a userspace terminal where
+the kernel's would be VT and fbcon.
+
+The toolchain follows them in design, as `host-tools/toolchain-c33/gcc/ABI.md`
+describes: descriptors decided by `SYMBOL_REF_FUNCTION_P` as on SH,
+constructor tables of entry points through the constructor hooks as on ARM,
+the personality routine through `ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX`. Where it
+departs:
+- The GCC and binutils test suites have never been run for
+  `c33-linux-uclibc`; only our own tests (the uClibc smoke tests, `cxx-test`,
+  the BusyBox suite, X) exercise it. `dejagnu` is in the VM.
+- The unwind tables are data, with absolute pointers, so every process has
+  its own copy: 73 KB a process for `cxx-test`. SH keeps them read-only in
+  text, pc-relative for code and GOT-relative (`@GOT`, `@GOTFUNCDESC`) for
+  data and the personality routine, which needs GOT-entry relocations the
+  C33 linker does not have.
+- No thread-local storage, so threads are LinuxThreads, not NPTL. TLS needs
+  a thread-pointer convention, TLS relocations in binutils and GCC, kernel
+  support, and uClibc-ng's NPTL port.
+- No gdb, gdbserver or strace.
+- libstdc++ is static only; a shared one would be loaded whole by the first
+  C++ program, which pays only once two run at once, and none are on the
+  image.
+- The GCC backend is an Epson-era fork of V850's; upstreaming it would be a
+  project of its own.
+
+The kernel follows them least:
+- No device tree (`CONFIG_OF` is off). The board is C in
+  `arch/c33/kernel/devices.c`: platform devices, software nodes and GPIO
+  lookup tables, 47 of them. Patches 0011-0013 exist only for that (platform
+  IDs for `iio-rescale` and `ntc_thermistor`, a software-node link for the
+  battery's power supply); those drivers match device-tree nodes already.
+  Patch 0014, the battery's status when nothing supplies it, is a real fix.
+- bFLT survives for `rootstart` (built by `build.sh`) and the three
+  freestanding diagnostics (`/diag-init`, `/diag-test`, `/child`, built with
+  the bare-metal compiler by `initramfs/build-diag.sh`), both converted by
+  `initramfs/make-flat.py`. That keeps `binfmt_flat` and its patch 0008,
+  and `-mno-fdpic` in the Linux compiler driver; `elf2flt/ld-elf2flt` is
+  no longer installed. The toolchain links static FDPIC programs
+  (`-static`), so they can be ordinary ELF.
+- The port is `overlay/` copied over a pinned tag, not a patch series.
+- The early LCD console is the architecture's own, not `earlycon` or fbcon;
+  patch 0018 changes the VT core for boot time; the interrupt controller's
+  priorities are written by the drivers that know their cause.
+
 ## What is left, in the order I would take it
 
 For X, before anything else: **run it on the device** (the card needs the
@@ -337,46 +397,68 @@ current `linux.app` and `linux.img`). Then, largest first:
   a frame; one BusyBox-style binary for the X clients (0.6 MB less to read
   and hold); a smaller keymap; whether `-nocursor` should be the default.
 
-The rest of the port:
+The rest of the port, standards first (see "Standards" above):
 
-1. **The CPU is the limit now**: token, check and the rest of the driver
-   come to 13,000 a block and the work outside it to about 8,000, against
-   the stream's 18,200, so no CPU saving can take a raw 4 MB read below
-   about 2.5 s. The check is the largest part (9,760). Seven loads then
-   seven stores in assembly, so that it changes SDRAM row twice per seven
-   words instead of on every access, measured 9,700 on the device and no
-   faster overall; its cost is the lookups and arithmetic, not the rows.
-   The per-block bookkeeping (token 1,170, setup 940) is SDRAM-resident C
-   at several cycles an instruction. The copy to user space is
-   at the CPU's copy floor (about 4.0 cycles a byte), and the tick is 7% of
-   the CPU when busy (HZ stays 100, the user's call).
-2. **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside
-   a copy, which the device does not (see `README.md`); judge streaming
-   changes with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.
-3. **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it
-   leaves DMAengine, which the user wants kept. Only if that changes.
-4. **ITC priorities.** The controller's priority nibbles are still written
-   by the drivers that know their cause (the timer, the serial ports, and
-   the pin controller for the buttons); an `irq_set_priority`-style
-   extension on the irqchip would move them.
-5. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
+1. **Run the FDPIC system on the device**: `linux.app` and `linux.img` from
+   this tree, `check`, then `startx`.
+2. **Retire bFLT.** Build `rootstart` and the diagnostics as static FDPIC ELF
+   with `c33-linux-uclibc-gcc -static -nostdlib` (they have their own entry
+   points and syscall veneers, which then follow the FDPIC entry: load map
+   in `%r6`, no `%r15` until `.rofixup` is applied); then drop
+   `BINFMT_FLAT`, patch 0008, `make-flat.py`, `elf2flt/` and the
+   `-mno-fdpic` link path.
+3. **Device tree.** A `.dts` for the WikiReader, `CONFIG_OF`, drivers matched
+   by `compatible`; `devices.c` and patches 0011-0013 go. Measure what the OF
+   core costs a no-module kernel on 32 MB, in size and in boot time.
+4. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
+   link tests for `c33-linux-uclibc`, in the VM; execution tests need a
+   harness through wremu.
+5. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
+   linker, `ASM_PREFERRED_EH_DATA_FORMAT` pc-relative and GOT-relative.
+6. **TLS and NPTL.**
+7. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
+   table rehashes by descriptor address but is searched by entry point, so
+   after the first resize a lookup misses and a second "canonical"
+   descriptor appears (every FDPIC port); and GCC
+   `host-tools/toolchain-c33/gcc/patches/0004`: libgcc's and libstdc++'s
+   `#if __FDPIC__` exception paths are ARM's and call
+   `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/0002`
+   (the stack guard's time from `clock_gettime64`) too.
+8. **Buildroot patch 0002**: drop its static-library half.
+9. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
    keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
    node into the PTY, so keys reach any program; what remains is that the
    terminal itself is not the kernel's. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-6. **Two fixes belong upstream.** `uclibc/patches/0003`: uClibc-ng's
-   FDPIC descriptor table rehashes by descriptor address but is searched by
-   entry point, so after the first resize a lookup misses and a second
-   "canonical" descriptor appears (every FDPIC port). GCC
-   `host-tools/toolchain-c33/gcc/patches/0004`: libgcc's and libstdc++'s
-   `#if __FDPIC__` exception paths are ARM's and call
-   `_Unwind_gnu_Find_got`, which only ARM defines.
-7. **elf2flt** itself. `c33-linux-uclibc-ld` takes elf2flt's `-elf2flt`
-   options, but the conversion behind them is the local `make-flat.py`.
-   Separately, **the overlay as a real patch series**, which only bites when
-   the pinned stable tag is bumped.
+10. **ITC priorities.** The controller's priority nibbles are still written
+    by the drivers that know their cause (the timer, the serial ports, and
+    the pin controller for the buttons); an `irq_set_priority`-style
+    extension on the irqchip would move them.
+11. **The overlay as a real patch series**, which only bites when the pinned
+    stable tag is bumped.
+
+Performance, after those:
+- **The CPU is the limit on card reads**: token, check and the rest of the
+  driver come to 13,000 a block and the work outside it to about 8,000,
+  against the stream's 18,200, so no CPU saving can take a raw 4 MB read
+  below about 2.5 s. The check is the largest part (9,760). Seven loads then
+  seven stores in assembly, so that it changes SDRAM row twice per seven
+  words instead of on every access, measured 9,700 on the device and no
+  faster overall; its cost is the lookups and arithmetic, not the rows. The
+  per-block bookkeeping (token 1,170, setup 940) is SDRAM-resident C at
+  several cycles an instruction. The copy to user space is at the CPU's copy
+  floor (about 4.0 cycles a byte), and the tick is 7% of the CPU when busy
+  (HZ stays 100, the user's call).
+- **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside a
+  copy, which the device does not (see `README.md`); judge streaming changes
+  with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.
+- **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it leaves
+  DMAengine, which the user wants kept. Only if that changes.
+- **Boot and X memory under FDPIC**: libraries load whole, so libraries only
+  Xfbdev uses (pixman, libXfont2, zlib, libfontenc, libsha1) could link into
+  it statically; the first exec reads libc's 489 KB of text.
 
 Done since the second round trip, emulator-tested and **not yet run on
 hardware**: the contrast PWM (`drivers/pwm/pwm-s1c33.c`, timer 1, with its
