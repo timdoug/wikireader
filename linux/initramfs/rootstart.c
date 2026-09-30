@@ -32,6 +32,7 @@ long c33_syscall(long a1, long a2, long a3, long a4, long a5, long nr);
 #define NR_sync				81
 #define NR_reboot			142
 #define NR_execve			221
+#define NR_prlimit64			261
 #define NR_clock_nanosleep_time64	407
 
 #define AT_FDCWD	-100
@@ -276,6 +277,7 @@ static void __attribute__((noreturn)) fail(const char *why, long error)
 
 void root_main(void)
 {
+	static const unsigned long long core_limit[2] = { 4 * 1024 * 1024, ~0ULL };
 	static char *const argv[] = { "/sbin/init", 0 };
 	static char *const envp[] = { "HOME=/root", "TERM=linux", 0 };
 	long error = 0, image, loop;
@@ -335,6 +337,12 @@ void root_main(void)
 	sys(NR_chdir, "/", 0, 0, 0, 0);
 
 	put(1, "C33 root: running " IMAGE " from the SD card\n");
+	/* Inherited by init and every service; shells can lower it to zero.
+	 * The pipe collector also enforces this limit, since Linux itself
+	 * does not enforce RLIMIT_CORE for piped dumps. */
+	error = sys(NR_prlimit64, 0, 4 /* RLIMIT_CORE */, core_limit, 0, 0);
+	if (error)
+		fail("could not set the core size limit", error);
 	error = sys(NR_execve, argv[0], argv, envp, 0, 0);
 	fail(IMAGE " has no /sbin/init", error);
 }

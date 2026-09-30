@@ -15,6 +15,8 @@ define WIKIREADER_SYSTEM_BUILD_CMDS
 		-fno-asynchronous-unwind-tables -ffunction-sections \
 		-fdata-sections $(@D)/wr-selftest.c \
 		-o $(@D)/wr-selftest $(TARGET_LDFLAGS) -Wl,--gc-sections
+	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Werror $(@D)/wr-core.c \
+		-o $(@D)/wr-core $(TARGET_LDFLAGS)
 endef
 
 # A fresh image's first boot credits a seed made here, so no boot waits for
@@ -38,9 +40,19 @@ define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/etc/init.d/busybox-test
 	$(INSTALL) -D -m 0755 $(@D)/wr-selftest \
 		$(TARGET_DIR)/usr/libexec/wr-selftest
+	$(INSTALL) -D -m 0755 $(@D)/wr-core \
+		$(TARGET_DIR)/usr/libexec/wr-core
 	mkdir -p $(TARGET_DIR)/mnt/sd
 	mkdir -p -m 0700 $(TARGET_DIR)/root
 	$(WIKIREADER_SYSTEM_SEED)
 endef
+
+# Runs after every target package is installed and before stripping. FDPIC
+# is excluded from Buildroot's BR2_STRIP_strip option; strip only DWARF here.
+define WIKIREADER_SYSTEM_SAVE_SYMBOLS
+	python3 $(BR2_EXTERNAL_WIKIREADER_PATH)/../../debug/export.py \
+		$(TARGET_DIR) $(BINARIES_DIR)/symbols $(TARGET_CROSS)strip
+endef
+TARGET_FINALIZE_HOOKS += WIKIREADER_SYSTEM_SAVE_SYMBOLS
 
 $(eval $(generic-package))

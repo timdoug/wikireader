@@ -2,6 +2,11 @@
 
 echo "C33 BusyBox init: PID 1 userspace started"
 
+# One collector at a time, with /proc/PID kept alive until it exits.
+# %c is the crashing process's RLIMIT_CORE, which the collector enforces.
+printf '1\n' > /proc/sys/kernel/core_pipe_limit
+printf '|/usr/libexec/wr-core %%P %%s %%t %%c\n' > /proc/sys/kernel/core_pattern
+
 # init starts the consoles only once this script ends, so a normal boot does
 # the setup and nothing else, and every exec counts: each is close to a
 # tenth of a second on this machine, and a background job is one too, the

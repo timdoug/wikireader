@@ -1,0 +1,26 @@
+From: WikiReader Linux port
+Subject: [PATCH] binfmt_elf_fdpic: check the logical core stream position
+
+Pipes do not advance file->f_pos, so a successful piped FDPIC core dump
+always triggers the final size warning. The coredump helpers already
+track the stream position independently of the output file. Include
+any pending skip, which is also part of the logical position.
+
+diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
+--- a/fs/binfmt_elf_fdpic.c
++++ b/fs/binfmt_elf_fdpic.c
+@@ -1648,11 +1648,11 @@ static int elf_fdpic_core_dump(struct coredump_params *cprm)
+ 			goto end_coredump;
+ 	}
+ 
+-	if (cprm->file->f_pos != offset) {
++	if (cprm->pos + cprm->to_skip != offset) {
+ 		/* Sanity check */
+ 		printk(KERN_WARNING
+-		       "elf_core_dump: file->f_pos (%lld) != offset (%lld)\n",
+-		       cprm->file->f_pos, offset);
++		       "elf_core_dump: position (%lld) != offset (%lld)\n",
++		       cprm->pos + cprm->to_skip, offset);
+ 	}
+ 
+ end_coredump:

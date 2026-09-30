@@ -117,6 +117,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
+	struct pt_regs *saved_task_regs = current->thread.regs;
 	irqentry_state_t state;
 	long nr;
 	int i;
@@ -154,12 +155,17 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 	/* Only a syscall frame carries a number; see arch_do_signal_or_restart(). */
 	regs->orig_r4 = -1L;
+	/* Signals and core notes must see the interrupted user frame, rather
+	 * than the frame left by its most recent syscall. */
+	if (user_mode(regs))
+		current->thread.regs = regs;
 
 	if (!s1c33_itc_is_source(vector) && user_mode(regs)) {
 		/* A program's fault is the program's: it gets a signal. */
 		state = irqentry_enter(regs);
 		c33_user_fault(vector, regs);
 		irqentry_exit(regs, state);
+		current->thread.regs = saved_task_regs;
 		set_irq_regs(old_regs);
 		return regs;
 	}
@@ -190,6 +196,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	s1c33_itc_handle(vector);
 	irq_exit_rcu();
 	irqentry_exit(regs, state);
+	current->thread.regs = saved_task_regs;
 
 	set_irq_regs(old_regs);
 	return regs;

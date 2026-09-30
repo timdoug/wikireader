@@ -54,4 +54,6 @@ make -C "$build_dir"
 
 mkdir -p "$root/linux/artifacts"
 cp "$build_dir/images/rootfs.ext4" "$root/linux/artifacts/linux.img"
+rm -rf "$root/linux/artifacts/symbols"
+cp -R "$build_dir/images/symbols" "$root/linux/artifacts/symbols"
 printf '%s\n' "WikiReader root filesystem installed at linux/artifacts/linux.img"

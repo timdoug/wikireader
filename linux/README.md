@@ -378,6 +378,66 @@ uClibc-ng's headers, so `fetch` comes first.
 The tests boot Grifo, `init.app` and the MBR flash from `samo-lib`. Build them
 with the repository's normal firmware targets if they are not present.
 
+## Core dumps and host symbolization
+
+Fatal signals now produce standard ELF32 C33 FDPIC cores. PID 1 starts with
+a 4 MiB soft `RLIMIT_CORE`, inherited by services and shells. `rcS` sets
+`core_pattern` to the small `/usr/libexec/wr-core` pipe helper and
+`core_pipe_limit=1`, so the kernel preserves `/proc/PID` until it finishes.
+The helper streams through a 16 KiB buffer directly to the SD card and saves
+only the latest crash:
+
+* `/mnt/sd/crash.elf`: registers and process memory in the kernel's ELF core format.
+* `/mnt/sd/crash.map`: the crashing process's `/proc/PID/maps`.
+* `/mnt/sd/crash.txt`: executable path, PID, signal, time, rootfs build ID,
+  requested limit, saved bytes, and `complete`, `truncated` or `error` status.
+
+The helper caps each capture at 4 MiB, honors smaller limits, and leaves the
+previous capture alone when the soft limit is zero. Piped dumps bypass the
+kernel's own size enforcement, so this cap is enforced while copying. It
+drains the rest of an oversized stream without storing it. A truncated core
+can still supply registers and resolve its PC, though memory near the end
+of the dump may be missing. A second concurrent crash is skipped while the
+collector is active. These files contain process memory; copy all three off
+the card before another crash overwrites them. Disable captures in a shell
+with `ulimit -S -c 0`, and restore the default with `ulimit -S -c 8192`
+(BusyBox expresses core limits in 512-byte blocks).
+
+Rootfs builds enable optimized DWARF builds, save the matching unstripped
+ELFs under `linux/artifacts/symbols/` with the target's directory layout, and
+remove debug sections from on-card files. Libc uses `-g` without uClibc's
+`DODEBUG`, which would also disable optimization and change runtime behavior.
+Keep the symbol directory with its corresponding `linux.img`: the host tool
+rejects a rootfs build-ID mismatch. For your own SD-card programs, retain
+their unstripped ELFs at the corresponding path under the symbol directory,
+for example `symbols/mnt/sd/myprog`. Custom programs must match their cores
+too; the rootfs ID does not identify separately copied executables.
+
+After copying the capture off the card, run this on the Mac:
+
+```sh
+./linux/debug/core.py /path/to/crash.elf
+./linux/debug/core.py /path/to/crash.elf --stack 64 --address 0x08123456
+```
+
+The tool reads the C33 register notes and executable/interpreter FDPIC load
+maps, and translates shared-library addresses through the saved memory map
+and each ELF's `PT_LOAD` file offsets. Segments can relocate independently;
+subtracting one base address from every PC would be wrong. The host's
+`c33-epson-elf-addr2line` prints function names, demangles C++, and resolves
+source lines and inline calls. Use `--symbols DIR` for an archived bundle
+and `--addr2line PATH` for a different host binutils installation.
+`--stack` reports stack words pointing into executable mappings as possible
+call sites; it is not a stack unwinder or a replacement for GDB.
+
+`make -C linux core-test` builds crash fixtures and boots through the real
+Grifo menu. It checks actual misaligned-load SIGBUS faults in an executable
+and a separate shared library, resolves both fault PCs to source lines on
+the host, tests zero and small limits, and requires the shell to survive
+and reboot back through Grifo. Captures and reports remain in
+`linux/artifacts/crashes/` for inspection. A NULL load is not a reliable
+crash fixture on a machine without memory protection.
+
 ## Build and test
 
 **NEVER BYPASS GRIFO.** Every emulator run, a test, a timing or a one-off

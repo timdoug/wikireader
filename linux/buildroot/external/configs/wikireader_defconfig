@@ -1,5 +1,7 @@
 BR2_c33=y
 BR2_OPTIMIZE_S=y
+BR2_ENABLE_DEBUG=y
+BR2_DEBUG_2=y
 # Every program and library keeps only the functions and data it reaches,
 # and loads from the card at about 1.4 MB/s.
 BR2_TARGET_OPTIMIZATION="-ffunction-sections -fdata-sections"
