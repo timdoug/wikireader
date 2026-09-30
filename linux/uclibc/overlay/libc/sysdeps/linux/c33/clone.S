@@ -3,8 +3,10 @@
  * int clone(int (*fn)(void *arg), void *child_stack, int flags, void *arg,
  *           pid_t *ptid, void *tls, pid_t *ctid);
  *
- * fn, child_stack, flags and arg arrive in %r6-%r9; ptid, tls and ctid on
- * the stack above the return address.  The kernel takes flags, newsp,
+ * fn, child_stack and flags arrive in %r6-%r8.  As the last named argument
+ * of a variadic function, arg is on the stack, followed by ptid, tls and
+ * ctid.  A modern caller also shadows arg in %r9, but the stack is the ABI.
+ * The kernel takes flags, newsp,
  * ptid, ctid and tls in %r6-%r10 (the asm-generic order, without
  * CLONE_BACKWARDS) and gives the child a copy of every register, so fn and
  * arg ride across in callee-saved %r0 and %r1.  fn is an FDPIC function
@@ -29,12 +31,11 @@ __clone:
 
 	pushn %r1
 	ld.w %r0,%r6
-	ld.w %r1,%r9
+	xld.w %r1,[%sp+12]	/* arg */
 	ld.w %r6,%r8
-	/* After pushn the caller's stack arguments start at [%sp+12]. */
-	xld.w %r8,[%sp+12]	/* ptid */
-	xld.w %r10,[%sp+16]	/* tls */
-	xld.w %r9,[%sp+20]	/* ctid */
+	xld.w %r8,[%sp+16]	/* ptid */
+	xld.w %r10,[%sp+20]	/* tls */
+	xld.w %r9,[%sp+24]	/* ctid */
 	xld.w %r4,__NR_clone
 	int 0
 	cmp %r4,0

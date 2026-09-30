@@ -1,0 +1,10 @@
+--- a/Rules.mak
++++ b/Rules.mak
+@@ -436,6 +436,7 @@
+ endif
+ 
+ ifeq ($(TARGET_ARCH),c33)
++	PICFLAG := -mfdpic -fPIC -ftls-model=initial-exec
+ 	CPU_CFLAGS-y += -mc33pe -mfdpic -mlong-calls
+ 	CPU_LDFLAGS-y += -mc33pe -mfdpic -mlong-calls
+ endif

@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <mqueue.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stddef.h>
@@ -212,6 +214,96 @@ static void exchange(const char *program, int sysv)
 	printf("IPC %s: %d page round trips between separate processes\n", sysv ? "System V" : "POSIX", ROUNDS);
 }
 
+struct shared_sync {
+	pthread_mutex_t lock;
+	pthread_cond_t condition;
+	sem_t ready;
+	unsigned sequence;
+	pid_t writer;
+};
+
+static void pthread_require(int result, const char *what)
+{
+	if (result) errno = result;
+	require(result == 0, what);
+}
+
+static struct shared_sync *sync_mapping(const char *name, int create)
+{
+	int fd = shm_open(name, O_RDWR | (create ? O_CREAT | O_EXCL : 0), 0600);
+	require(fd >= 0, "process-shared shm_open");
+	if (create)
+		require(ftruncate(fd, sizeof(struct shared_sync)) == 0, "sync size");
+	struct shared_sync *p = mmap(NULL, sizeof(*p), PROT_READ | PROT_WRITE,
+				     MAP_SHARED, fd, 0);
+	close(fd);
+	require(p != MAP_FAILED, "sync mmap");
+	return p;
+}
+
+static void sync_wait(struct shared_sync *p, unsigned sequence)
+{
+	struct timespec until = deadline();
+	while (p->sequence != sequence)
+		pthread_require(pthread_cond_timedwait(&p->condition, &p->lock, &until),
+				"process-shared cond wait");
+}
+
+static int sync_child(const char *name)
+{
+	struct shared_sync *p = sync_mapping(name, 0);
+	require(sem_post(&p->ready) == 0, "process-shared semaphore post");
+	for (unsigned n = 0; n < ROUNDS; n++) {
+		pthread_require(pthread_mutex_lock(&p->lock), "shared child lock");
+		sync_wait(p, n * 2 + 1);
+		require(p->writer != getpid(), "shared mutex parent identity");
+		p->sequence++;
+		p->writer = getpid();
+		pthread_require(pthread_cond_signal(&p->condition), "shared child signal");
+		pthread_require(pthread_mutex_unlock(&p->lock), "shared child unlock");
+	}
+	require(munmap(p, sizeof(*p)) == 0, "sync child munmap");
+	return 0;
+}
+
+static void shared_synchronization(const char *program)
+{
+	struct shared_sync *p = sync_mapping(shm_name, 1);
+	pthread_mutexattr_t ma;
+	pthread_condattr_t ca;
+	pthread_require(pthread_mutexattr_init(&ma), "shared mutex attr init");
+	pthread_require(pthread_mutexattr_setpshared(&ma, PTHREAD_PROCESS_SHARED), "shared mutex attr");
+	pthread_require(pthread_condattr_init(&ca), "shared cond attr init");
+	pthread_require(pthread_condattr_setpshared(&ca, PTHREAD_PROCESS_SHARED), "shared cond attr");
+	pthread_require(pthread_mutex_init(&p->lock, &ma), "shared mutex init");
+	pthread_require(pthread_cond_init(&p->condition, &ca), "shared cond init");
+	pthread_mutexattr_destroy(&ma);
+	pthread_condattr_destroy(&ca);
+	require(sem_init(&p->ready, 1, 0) == 0, "shared semaphore init");
+	char *args[] = { (char *)program, "pshared-child", shm_name, NULL };
+	pthread_require(posix_spawn(&child_pid, program, NULL, NULL, args, environ), "sync spawn");
+	struct timespec until = deadline();
+	require(sem_timedwait(&p->ready, &until) == 0, "shared semaphore wait");
+	for (unsigned n = 0; n < ROUNDS; n++) {
+		pthread_require(pthread_mutex_lock(&p->lock), "shared parent lock");
+		p->sequence = n * 2 + 1;
+		p->writer = getpid();
+		pthread_require(pthread_cond_signal(&p->condition), "shared parent signal");
+		sync_wait(p, n * 2 + 2);
+		require(p->writer == child_pid, "shared mutex child identity");
+		pthread_require(pthread_mutex_unlock(&p->lock), "shared parent unlock");
+	}
+	int status;
+	require(waitpid(child_pid, &status, 0) == child_pid &&
+		WIFEXITED(status) && WEXITSTATUS(status) == 0, "sync child exit");
+	child_pid = -1;
+	pthread_require(pthread_mutex_destroy(&p->lock), "shared mutex destroy");
+	pthread_require(pthread_cond_destroy(&p->condition), "shared cond destroy");
+	require(sem_destroy(&p->ready) == 0, "shared semaphore destroy");
+	require(munmap(p, sizeof(*p)) == 0 && shm_unlink(shm_name) == 0, "sync cleanup");
+	puts("IPC NPTL: process-shared mutex, condition variable and semaphore passed");
+}
+
 static void untouched_tail(const void *buffer, size_t used, size_t total)
 {
 	const unsigned char *bytes = buffer;
@@ -279,6 +371,8 @@ static void queue_semantics(void)
 
 int main(int argc, char **argv)
 {
+	if (argc == 3 && strcmp(argv[1], "pshared-child") == 0)
+		return sync_child(argv[2]);
 	if (argc > 1) return child(argc, argv);
 	atexit(cleanup);
 	snprintf(shm_name, sizeof(shm_name), "/wr-ipc-%ld", (long)getpid());
@@ -289,6 +383,7 @@ int main(int argc, char **argv)
 	require(stat("/dev/mqueue", &st) == 0 && (st.st_mode & 07777) == 01777, "message-queue directory mode");
 	exchange(argv[0], 0);
 	exchange(argv[0], 1);
+	shared_synchronization(argv[0]);
 	queue_semantics();
 	info_buffers();
 	puts("IPC PASS: shared memory, semaphores, message queues and time64");

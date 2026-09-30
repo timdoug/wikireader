@@ -1,0 +1,24 @@
+#!/bin/sh
+# Native TLS/threading checks and startup timings; keep the output on the card.
+out=/mnt/sd/thread.txt
+echo "Testing threads and startup..."
+export LD_LIBRARY_PATH=/mnt/sd
+{
+	/mnt/sd/nptl.bin &&
+	/mnt/sd/pthtest.bin &&
+	/mnt/sd/pthstat.bin &&
+	echo "STATIC PTHREAD PASS" &&
+	/mnt/sd/atomtest.bin &&
+	/mnt/sd/ipctest.bin &&
+	/mnt/sd/cxxtest.bin &&
+	/mnt/sd/bench.bin --single &&
+	/mnt/sd/cxxtest.bin --bench
+} > "$out" 2>&1
+status=$?
+sync
+if [ "$status" -eq 0 ]; then
+	echo "PASS (thread.txt)"
+else
+	echo "FAIL (thread.txt)"
+fi
+exit "$status"

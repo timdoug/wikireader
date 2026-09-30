@@ -1,5 +1,5 @@
-/* LinuxThreads on C33: contended mutexes (the interrupt-masking
- * testandset), per-thread errno, condition variables, semaphores,
+/* Pthreads on C33: contended mutexes, per-thread errno,
+ * condition variables, semaphores,
  * pthread_once, thread-specific data and join values. */
 #include <errno.h>
 #include <pthread.h>
@@ -14,6 +14,8 @@
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static volatile long counter;
 static int fails;
+static __thread int tls_initialized = 37;
+static __thread int tls_zero;
 
 static void check(int ok, const char *what)
 {
@@ -26,6 +28,9 @@ static void check(int ok, const char *what)
 static void *adder(void *arg)
 {
 	long id = (long)arg;
+	int tls_ok = tls_initialized == 37 && tls_zero == 0;
+	tls_initialized = 100 + id;
+	tls_zero = 200 + id;
 
 	for (int i = 0; i < ROUNDS; i++) {
 		pthread_mutex_lock(&lock);
@@ -38,7 +43,8 @@ static void *adder(void *arg)
 	}
 	errno = 100 + (int)id;
 	sched_yield();
-	return (void *)(errno == 100 + id ? id * 10 : -1);
+	return (void *)(tls_ok && tls_initialized == 100 + id &&
+		       tls_zero == 200 + id && errno == 100 + id ? id * 10 : -1);
 }
 
 static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
@@ -91,11 +97,12 @@ int main(void)
 	for (long i = 0; i < THREADS; i++) {
 		void *ret;
 		check(pthread_join(t[i], &ret) == 0, "join");
-		check(ret == (void *)(i * 10), "per-thread errno or join value");
+		check(ret == (void *)(i * 10), "per-thread TLS, errno or join value");
 	}
 	/* pthread_join may itself leave EINTR; what must not show up here is
 	 * any of the values the threads stored in their own errno. */
 	check(errno < 100 || errno >= 100 + THREADS, "main thread errno");
+	check(tls_initialized == 37 && tls_zero == 0, "main thread TLS");
 	check(counter == THREADS * ROUNDS, "mutex-protected counter");
 
 	pthread_t c;

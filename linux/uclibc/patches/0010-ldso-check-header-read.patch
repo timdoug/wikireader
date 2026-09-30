@@ -1,0 +1,20 @@
+diff --git a/ldso/ldso/dl-elf.c b/ldso/ldso/dl-elf.c
+--- a/ldso/ldso/dl-elf.c
++++ b/ldso/ldso/dl-elf.c
+@@ -586,10 +586,14 @@
+ 		return NULL;
+ 	}
+ 
+-	_dl_read(infile, header, _dl_pagesize);
++	/* A signal must not make a valid library look like uninitialized data. */
++	ssize_t header_bytes;
++	do {
++		header_bytes = _dl_read(infile, header, _dl_pagesize);
++	} while (header_bytes < 0 && _dl_errno == EINTR);
+ 	epnt = (ElfW(Ehdr) *) (intptr_t) header;
+ 	p32 = (uint32_t*)&epnt->e_ident;
+-	if (*p32 != ELFMAG_U32) {
++	if (header_bytes < (ssize_t)sizeof(*epnt) || *p32 != ELFMAG_U32) {
+ 		_dl_dprintf(2, "%s: '%s' is not an ELF file\n", _dl_progname,
+ 				libname);
+ 		_dl_internal_error_number = LD_ERROR_NOTELF;

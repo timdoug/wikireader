@@ -1,0 +1,18 @@
+diff --git a/libc/sysdeps/linux/common/sys/ptrace.h b/libc/sysdeps/linux/common/sys/ptrace.h
+--- a/libc/sysdeps/linux/common/sys/ptrace.h
++++ b/libc/sysdeps/linux/common/sys/ptrace.h
+@@ -103,6 +103,14 @@
+   PTRACE_SYSCALL = 24,
+ #define PT_SYSCALL PTRACE_SYSCALL
+ 
++#ifdef __c33__
++  /* Read/write the stopped task's TLS base at index zero. */
++  PTRACE_GET_THREAD_AREA = 25,
++#define PT_GET_THREAD_AREA PTRACE_GET_THREAD_AREA
++  PTRACE_SET_THREAD_AREA = 26,
++#define PT_SET_THREAD_AREA PTRACE_SET_THREAD_AREA
++#endif
++
+   /* Set ptrace filter options.  */
+   PTRACE_SETOPTIONS = 0x4200,
+ #define PT_SETOPTIONS PTRACE_SETOPTIONS

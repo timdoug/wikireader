@@ -1,0 +1,9 @@
+diff --git a/librt/dso_handle.c b/librt/dso_handle.c
+--- a/librt/dso_handle.c
++++ b/librt/dso_handle.c
+@@ -2,4 +2,4 @@
+  * Licensed under the LGPL v2.1 or later, see the file COPYING.LIB in this tarball.
+  */
+ 
+-const void *const __dso_handle attribute_hidden = &__dso_handle;
++const void *const __dso_handle attribute_hidden __attribute__((weak)) = &__dso_handle;

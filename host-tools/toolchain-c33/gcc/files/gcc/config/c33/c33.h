@@ -628,6 +628,9 @@ struct cum_arg
 
 #define CONSTANT_ADDRESS_P(X) constraint_satisfied_p (X, CONSTRAINT_K)
 
+/* Bare-metal programs keep emulated TLS.  Linux supplies native ELF TLS. */
+#define C33_NATIVE_TLS 0
+
 /* Maximum number of registers that can appear in a valid memory address.  */
 
 #define MAX_REGS_PER_ADDRESS 1

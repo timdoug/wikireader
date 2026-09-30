@@ -79,6 +79,17 @@ uclibc_make install
 test -f "$sysroot/usr/lib/libc.a"
 test -f "$sysroot/lib/ld-uClibc.so.1"
 
+# Build the optional unwinder after libc. PT_GNU_EH_FRAME discovery lets
+# NPTL load it on the first cancellation; ordinary C programs need no copy.
+C33_TARGET=$target "$root/host-tools/toolchain-c33/gcc/rebuild.sh" \
+	"$tool_dir" libgcc-shared
+# Buildroot copies runtime libraries from the external compiler's sysroot.
+cp "$tool_dir/install/$target/lib/libgcc_s.so.1" "$sysroot/lib/"
+if "${cross}readelf" -d "$sysroot/lib/libuClibc-"*.so | grep -q '\[libgcc_s.so.1\]'; then
+	echo "libc unexpectedly depends on libgcc_s" >&2
+	exit 1
+fi
+
 # The smoke test links statically, so that its undefined symbols show what
 # the static library fails to supply; the other tests are dynamic, as every
 # program on the device is.
@@ -96,10 +107,31 @@ fi
 "${cross}gcc" -Os "$root/linux/uclibc/smoke.c" -o "$build_dir/uclibc-smoke"
 mkdir -p "$root/linux/artifacts"
 
-# LinuxThreads regression, run from the SD card by app-test.py.
+# Pthread and native TLS regressions, run from the SD card by app-test.py.
 "${cross}gcc" -O2 -Wall -Werror -pthread "$root/linux/uclibc/pthread-test.c" \
 	-o "$build_dir/pthread-test"
 cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
+"${cross}gcc" -O2 -Wall -Werror -pthread -static \
+	"$root/linux/uclibc/pthread-test.c" -o "$root/linux/artifacts/pthread-test-static"
+"${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/runtime-bench.c" \
+	-o "$root/linux/artifacts/runtime-bench"
+"${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/tls-suspend-test.c" \
+	-o "$root/linux/artifacts/tls-suspend-test"
+"${cross}gcc" -Os -Wall -Werror -fPIC -shared -funwind-tables \
+	"$root/linux/uclibc/unwind-library.c" -o "$root/linux/artifacts/unwind-library.so"
+"${cross}gcc" -nostdlib -static "$root/linux/uclibc/tls-exec-test.S" \
+	-o "$root/linux/artifacts/tls-exec-test"
+
+"${cross}gcc" -Os -Wall -Werror -fPIC -shared \
+	-Wl,-soname,tlslib.so "$root/linux/uclibc/tls-library.c" \
+	-o "$build_dir/tlslib.so"
+"${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/nptl-test.c" \
+	"$build_dir/tlslib.so" -o "$build_dir/nptl-test"
+cp "$build_dir/tlslib.so" "$root/linux/artifacts/tls-library.so"
+cp "$build_dir/nptl-test" "$root/linux/artifacts/nptl-test"
+"${cross}gcc" -Os -Wall -Werror -fPIC -shared \
+	-Wl,-soname,tlslate.so "$root/linux/uclibc/tls-late-library.c" \
+	-o "$root/linux/artifacts/tls-late-library.so"
 
 # Independently executed processes share buffers and kernel IPC objects.
 "${cross}gcc" -std=gnu11 -Os -Wall -Werror -pthread \

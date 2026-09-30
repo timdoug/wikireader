@@ -18,7 +18,7 @@ UCLIBC_EXTRA_CFLAGS="-g"
 # the one float ABI and no such option.
 # UCLIBC_HAS_FPU is not set
 DO_C99_MATH=y
-UCLIBC_HAS_LINUXTHREADS=y
+UCLIBC_HAS_THREADS_NATIVE=y
 PTHREADS_STACK_DEFAULT_SIZE=65536
 UCLIBC_HAS_IPV6=y
 # libstdc++ and many packages need the wide-character functions.

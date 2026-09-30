@@ -650,8 +650,20 @@ static reloc_howto_type c33_elf_howto_table[] =
 	 false,				/* partial_inplace */
 	 0,				/* src_mask */
 	 0xffffffff,			/* dst_mask */
-	 false)				/* pcrel_offset */
+	 false),				/* pcrel_offset */
 
+  HOWTO (R_C33_TLS_DTPMOD32, 0, 4, 32, false, 0,
+         complain_overflow_dont, bfd_elf_generic_reloc,
+         "R_C33_TLS_DTPMOD32", false, 0, 0xffffffff, false),
+  HOWTO (R_C33_TLS_DTPREL32, 0, 4, 32, false, 0,
+         complain_overflow_dont, bfd_elf_generic_reloc,
+         "R_C33_TLS_DTPREL32", false, 0, 0xffffffff, false),
+  HOWTO (R_C33_TLS_TPREL32, 0, 4, 32, false, 0,
+         complain_overflow_dont, bfd_elf_generic_reloc,
+         "R_C33_TLS_TPREL32", false, 0, 0xffffffff, false),
+  HOWTO (R_C33_TLS_LE32, 0, 4, 32, false, 0,
+         complain_overflow_dont, bfd_elf_generic_reloc,
+         "R_C33_TLS_LE32", false, 0, 0xffffffff, false)
 };
 
 /* Map BFD reloc types to c33 ELF reloc types.  */
@@ -699,7 +711,11 @@ static const struct c33_elf_reloc_map c33_elf_reloc_map[] =
   { BFD_RELOC_C33_PUSHN_R1,	R_C33_PUSHN_R1 }, /* add tazaki 2004/08/19 */
   { BFD_RELOC_C33_PUSH_R1,	R_C33_PUSH_R1 },  /* add tazaki 2004/08/19 */
   { BFD_RELOC_C33_FUNCDESC,	R_C33_FUNCDESC },
-  { BFD_RELOC_C33_FUNCDESC_VALUE, R_C33_FUNCDESC_VALUE }
+  { BFD_RELOC_C33_FUNCDESC_VALUE, R_C33_FUNCDESC_VALUE },
+  { BFD_RELOC_C33_TLS_DTPMOD32, R_C33_TLS_DTPMOD32 },
+  { BFD_RELOC_C33_TLS_DTPREL32, R_C33_TLS_DTPREL32 },
+  { BFD_RELOC_C33_TLS_TPREL32, R_C33_TLS_TPREL32 },
+  { BFD_RELOC_C33_TLS_LE32, R_C33_TLS_LE32 }
 };
 
 
@@ -1932,6 +1948,28 @@ c33fdpic_call_reloc_p (int r_type)
 }
 
 static bool
+c33fdpic_tls_reloc_p (int type)
+{
+  return type >= R_C33_TLS_DTPMOD32 && type <= R_C33_TLS_LE32;
+}
+
+static bool
+c33fdpic_tls_dynamic_p (struct bfd_link_info *info, int type,
+                       struct elf_link_hash_entry *h)
+{
+  if (type == R_C33_TLS_LE32
+      || !elf_hash_table (info)->dynamic_sections_created)
+    return false;
+  if (type == R_C33_TLS_DTPREL32
+      && (h == NULL || SYMBOL_REFERENCES_LOCAL (info, h)))
+    return false;
+  if (type == R_C33_TLS_TPREL32 && bfd_link_executable (info)
+      && (h == NULL || SYMBOL_REFERENCES_LOCAL (info, h)))
+    return false;
+  return true;
+}
+
+static bool
 c33fdpic_check_relocs (bfd *abfd, struct bfd_link_info *info,
 		       asection *sec, const Elf_Internal_Rela *relocs)
 {
@@ -1961,7 +1999,14 @@ c33fdpic_check_relocs (bfd *abfd, struct bfd_link_info *info,
 	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
 	}
 
-      if (c33fdpic_call_reloc_p (r_type))
+      if (c33fdpic_tls_reloc_p (r_type))
+        {
+          if (h != NULL && !bfd_elf_link_record_dynamic_symbol (info, h))
+            return false;
+          if (r_type == R_C33_TLS_TPREL32)
+            info->flags |= DF_STATIC_TLS;
+        }
+      else if (c33fdpic_call_reloc_p (r_type))
 	{
 	  if (h != NULL)
 	    c33fdpic_entry (h)->call = 1;
@@ -2176,7 +2221,8 @@ c33fdpic_size_fixups (struct bfd_link_info *info, bool *changed)
 	      asection *sym_sec = NULL;
 	      bfd_vma off;
 
-	      if (r_type != R_C33_32 && r_type != R_C33_FUNCDESC)
+	      if (r_type != R_C33_32 && r_type != R_C33_FUNCDESC
+                  && !c33fdpic_tls_reloc_p (r_type))
 		continue;
 	      off = _bfd_elf_section_offset (info->output_bfd, info, s,
 					     rel->r_offset);
@@ -2210,7 +2256,14 @@ c33fdpic_size_fixups (struct bfd_link_info *info, bool *changed)
 		    continue;
 		}
 
-	      switch (c33fdpic_word_kind (info, r_type, h, sym_sec))
+	      if (c33fdpic_tls_reloc_p (r_type))
+        {
+          if (c33fdpic_tls_dynamic_p (info, r_type, h))
+            n.relas++;
+          continue;
+        }
+
+      switch (c33fdpic_word_kind (info, r_type, h, sym_sec))
 		{
 		case C33FDPIC_WORD_PLAIN:
 		  break;
@@ -2263,6 +2316,10 @@ c33fdpic_late_size_sections (struct bfd_link_info *info)
   bfd *ibfd;
   bool changed;
   asection *s;
+
+  /* A data-relative index cannot describe independently mapped text.
+     Keep the standard eight-byte header and scan FDEs only when unwinding. */
+  htab->elf.eh_info.u.dwarf.table = false;
 
   if (dynobj == NULL || htab->srofixup == NULL)
     return true;
@@ -2757,6 +2814,73 @@ c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
   const char *name = h != NULL ? h->root.root.string : NULL;
   enum c33fdpic_word kind;
   bfd_vma offset, where, value;
+
+  if (c33fdpic_tls_reloc_p (r_type))
+    {
+      bool dynamic = c33fdpic_tls_dynamic_p (info, r_type, h);
+      bool local = h == NULL || SYMBOL_REFERENCES_LOCAL (info, h);
+      asection *tls_sec = elf_hash_table (info)->tls_sec;
+      bfd_vma tls_offset = 0;
+      bfd_vma symndx = 0;
+
+      if (r_type == R_C33_TLS_DTPMOD32 && r_symndx == 0)
+        /* The local-dynamic module base has no associated TLS symbol. */
+        tls_offset = 0;
+      else if (local)
+        {
+          if (tls_sec == NULL || sec == NULL || !(sec->flags & SEC_THREAD_LOCAL))
+            {
+              _bfd_error_handler (_("%pB: TLS relocation against a non-TLS symbol"),
+                                  input_bfd);
+              return -1;
+            }
+          tls_offset = *relocation - tls_sec->vma;
+        }
+      else if (dynamic)
+        symndx = h->dynindx;
+      else
+        {
+          _bfd_error_handler (_("%pB: local-exec TLS needs a locally defined symbol"),
+                              input_bfd);
+          return -1;
+        }
+
+      if (r_type == R_C33_TLS_LE32 && !bfd_link_executable (info))
+        {
+          _bfd_error_handler (_("%pB: local-exec TLS is invalid in a shared library"),
+                              input_bfd);
+          return -1;
+        }
+      offset = _bfd_elf_section_offset (output_bfd, info, input_section,
+                                       rel->r_offset);
+      if (offset == (bfd_vma)-1 || offset == (bfd_vma)-2)
+        return 1;
+      where = input_section->output_section->vma + input_section->output_offset
+              + offset;
+      value = tls_offset + rel->r_addend;
+      if (dynamic)
+        {
+          if (input_section->output_section->flags & SEC_READONLY)
+            {
+              _bfd_error_handler (_("%pB: dynamic TLS relocation in read-only data"),
+                                  input_bfd);
+              return -1;
+            }
+          if (r_type == R_C33_TLS_DTPMOD32)
+            value = 0;
+          c33fdpic_add_rela (output_bfd, htab, where, r_type, symndx, value);
+          value = 0;
+        }
+      else if (r_type == R_C33_TLS_DTPMOD32)
+        value = 1;
+      else if (r_type == R_C33_TLS_TPREL32 || r_type == R_C33_TLS_LE32)
+        /* Static variant I includes TCB alignment padding. */
+        value += (8 + (1ul << elf_hash_table (info)->tls_sec->alignment_power) - 1)
+                 & ~((1ul << elf_hash_table (info)->tls_sec->alignment_power) - 1);
+      bfd_put_32 (output_bfd, value, contents + rel->r_offset);
+      *unresolved_reloc = false;
+      return 1;
+    }
 
   if (c33fdpic_call_reloc_p (r_type))
     {
@@ -3973,6 +4097,17 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 
 #include "elf32-target.h"
 
+/* Text and data load independently, so a pointer from .eh_frame to code
+   cannot become PC-relative. Keep the absolute relocations emitted by GCC,
+   including personality and LSDA pointers. */
+static bool
+c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
+                                   struct bfd_link_info *info ATTRIBUTE_UNUSED,
+                                   asection *sec ATTRIBUTE_UNUSED)
+{
+  return false;
+}
+
 /* FDPIC: the same relocations, plus executables and shared libraries for
    ld.so and the kernel's ELF FDPIC loader.  */
 
@@ -4017,5 +4152,9 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 #define elf_backend_want_plt_sym		0
 #undef elf_backend_got_header_size
 #define elf_backend_got_header_size		0
+
+#undef elf_backend_can_make_relative_eh_frame
+#define elf_backend_can_make_relative_eh_frame \
+  c33fdpic_can_make_relative_eh_frame
 
 #include "elf32-target.h"

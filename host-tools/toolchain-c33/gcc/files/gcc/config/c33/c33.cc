@@ -51,6 +51,9 @@
 #include "builtins.h"
 #include "rtl-iter.h"
 #include "opts.h"
+#if C33_NATIVE_TLS
+#include "c33-linux-tls.h"
+#endif
 
 /* This file should be included last.  */
 #include "target-def.h"
@@ -60,6 +63,18 @@
 #endif
 
 static void c33_print_operand_address (FILE *, machine_mode, rtx);
+
+const char *
+c33_output_thread_pointer (rtx *operands)
+{
+#if C33_NATIVE_TLS
+  rtx address_operands[2] = { operands[0], GEN_INT (C33_TLS_SLOT_ADDRESS) };
+  output_asm_insn ("xld.w %0,%1", address_operands);
+  return "ld.w %0,[%0]";
+#else
+  gcc_unreachable ();
+#endif
+}
 
 /* Names of the various data areas used on the c33.  */
 const char * GHS_default_section_names [(int) COUNT_OF_GHS_SECTION_KINDS];
@@ -2750,6 +2765,33 @@ c33_function_ok_for_sibcall (tree decl, tree)
 static bool
 c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
 {
+  rtx u = GET_CODE (x) == CONST ? XEXP (x, 0) : x;
+  if (GET_CODE (u) == UNSPEC
+      && (XINT (u, 1) == UNSPEC_TLS_LE
+          || XINT (u, 1) == UNSPEC_TLS_IE
+          || XINT (u, 1) == UNSPEC_TLS_GD
+          || XINT (u, 1) == UNSPEC_TLS_LD
+          || XINT (u, 1) == UNSPEC_TLS_DTPREL))
+    {
+      int code = XINT (u, 1);
+      bool pair = code == UNSPEC_TLS_GD || code == UNSPEC_TLS_LD;
+      gcc_assert (size == (pair ? 8 : 4));
+      const char *prefix = code == UNSPEC_TLS_LE ? "tlsle"
+                           : code == UNSPEC_TLS_IE ? "tlsie"
+                           : code == UNSPEC_TLS_DTPREL ? "tlsoff" : "tlsmod";
+      fprintf (asm_out_file, "\t.long\t%s(", prefix);
+      output_addr_const (asm_out_file, XVECEXP (u, 0, 0));
+      fputs (")\n", asm_out_file);
+      if (code == UNSPEC_TLS_LD)
+        fputs ("\t.long\t0\n", asm_out_file);
+      else if (code == UNSPEC_TLS_GD)
+        {
+          fputs ("\t.long\ttlsoff(", asm_out_file);
+          output_addr_const (asm_out_file, XVECEXP (u, 0, 0));
+          fputs (")\n", asm_out_file);
+        }
+      return true;
+    }
   if (TARGET_FDPIC
       && size == UNITS_PER_WORD
       && GET_CODE (x) == SYMBOL_REF
@@ -2984,6 +3026,8 @@ c33_issue_rate (void)
 static bool
 c33_legitimate_constant_p (machine_mode mode ATTRIBUTE_UNUSED, rtx x)
 {
+  if (C33_NATIVE_TLS && c33_tls_operand_p (x))
+    return false;
   /* Under -msep-data an address is never an immediate: emit_move_insn
      sends it to the constant pool, which is in the data segment.  */
   if (TARGET_SEP_DATA && c33_symbolic_p (x))
@@ -3092,6 +3136,100 @@ c33_symbolic_p (rtx x)
   return false;
 }
 
+/* Native ELF TLS on Linux.  Keep raw TLS symbols out of ordinary address
+   pools: the pools below contain offsets or module/offset pairs, never
+   process addresses.  Unlike a reserved TP register, the inline read changes
+   no register allocation for functions that do not use TLS. */
+bool
+c33_tls_operand_p (rtx x)
+{
+  if (GET_CODE (x) == CONST)
+    x = XEXP (x, 0);
+  if (GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1)))
+    x = XEXP (x, 0);
+  return GET_CODE (x) == SYMBOL_REF && SYMBOL_REF_TLS_MODEL (x) != 0;
+}
+
+rtx
+c33_thread_pointer (void)
+{
+  rtx tp = gen_reg_rtx (Pmode);
+  emit_insn (gen_c33_read_thread_pointer (tp));
+  return tp;
+}
+
+rtx
+c33_tls_address (rtx x)
+{
+  rtx addend = const0_rtx;
+  if (GET_CODE (x) == CONST)
+    x = XEXP (x, 0);
+  if (GET_CODE (x) == PLUS)
+    {
+      addend = XEXP (x, 1);
+      x = XEXP (x, 0);
+    }
+  enum tls_model model = SYMBOL_REF_TLS_MODEL (x);
+  gcc_assert (model != TLS_MODEL_NONE);
+  rtx result;
+  if (model == TLS_MODEL_LOCAL_EXEC || model == TLS_MODEL_INITIAL_EXEC)
+    {
+      int code = model == TLS_MODEL_LOCAL_EXEC ? UNSPEC_TLS_LE : UNSPEC_TLS_IE;
+      rtx offset = gen_rtx_CONST (Pmode,
+                      gen_rtx_UNSPEC (Pmode, gen_rtvec (1, x), code));
+      offset = copy_to_mode_reg (Pmode, force_const_mem (Pmode, offset));
+      rtx tp = c33_thread_pointer ();
+      result = expand_simple_binop (Pmode, PLUS, tp, offset,
+                                    NULL_RTX, 0, OPTAB_DIRECT);
+    }
+  else
+    {
+      /* All local-dynamic variables share the constant {this module, 0}
+         lookup. GCC can combine/hoist the base call, then add local offsets. */
+      bool ld = model == TLS_MODEL_LOCAL_DYNAMIC;
+      if (ld)
+        start_sequence ();
+      rtx index = gen_rtx_CONST (DImode,
+                    gen_rtx_UNSPEC (DImode, gen_rtvec (1, ld ? const0_rtx : x),
+                                   ld ? UNSPEC_TLS_LD : UNSPEC_TLS_GD));
+      rtx mem = force_const_mem (DImode, index);
+      rtx arg = copy_to_mode_reg (Pmode, XEXP (mem, 0));
+      result = emit_library_call_value (gen_rtx_SYMBOL_REF (Pmode, "__tls_get_addr"),
+                                        NULL_RTX, LCT_CONST, Pmode, arg, Pmode);
+      if (ld)
+        {
+          rtx_insn *insns = get_insns ();
+          end_sequence ();
+          rtx base = gen_reg_rtx (Pmode);
+          emit_libcall_block (insns, base, result,
+                              gen_rtx_UNSPEC (Pmode, gen_rtvec (1, const0_rtx),
+                                              UNSPEC_TLS_LD));
+          result = base;
+          rtx offset = gen_rtx_CONST (Pmode,
+                        gen_rtx_UNSPEC (Pmode, gen_rtvec (1, x), UNSPEC_TLS_DTPREL));
+          offset = copy_to_mode_reg (Pmode, force_const_mem (Pmode, offset));
+          result = expand_simple_binop (Pmode, PLUS, result, offset,
+                                       NULL_RTX, 0, OPTAB_DIRECT);
+        }
+    }
+  if (addend != const0_rtx)
+    result = expand_simple_binop (Pmode, PLUS, result, addend,
+                                  NULL_RTX, 0, OPTAB_DIRECT);
+  return result;
+}
+
+static bool
+c33_cannot_force_const_mem (machine_mode, rtx x)
+{
+  return C33_NATIVE_TLS && c33_tls_operand_p (x);
+}
+
+static rtx
+c33_legitimize_address (rtx x, rtx, machine_mode)
+{
+  return C33_NATIVE_TLS && c33_tls_operand_p (x) ? c33_tls_address (x) : x;
+}
+
 /* Helper function for `c33_legitimate_address_p'.  */
 
 static bool
@@ -3181,6 +3319,8 @@ c33_legitimate_address_p (machine_mode mode, rtx x, bool strict_p,
 			   code_helper = ERROR_MARK)
 {
   gcc_assert (ADDR_SPACE_GENERIC_P (as));
+  if (C33_NATIVE_TLS && c33_tls_operand_p (x))
+    return false;
 
   /* [%rb] and [%sp] -- plain register indirect (core manual 5.5.3).  */
   if (c33_rtx_ok_for_base_p (x, strict_p))
@@ -3546,6 +3686,13 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_LEGITIMATE_CONSTANT_P
 #define TARGET_LEGITIMATE_CONSTANT_P c33_legitimate_constant_p
+
+#undef TARGET_HAVE_TLS
+#define TARGET_HAVE_TLS C33_NATIVE_TLS
+#undef TARGET_CANNOT_FORCE_CONST_MEM
+#define TARGET_CANNOT_FORCE_CONST_MEM c33_cannot_force_const_mem
+#undef TARGET_LEGITIMIZE_ADDRESS
+#define TARGET_LEGITIMIZE_ADDRESS c33_legitimize_address
 
 #undef  TARGET_ADDR_SPACE_LEGITIMATE_ADDRESS_P
 #define TARGET_ADDR_SPACE_LEGITIMATE_ADDRESS_P c33_legitimate_address_p

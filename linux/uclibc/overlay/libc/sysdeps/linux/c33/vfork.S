@@ -1,10 +1,6 @@
 /* vfork for C33's stack-based CALL/RET convention.  */
 #include <features.h>
 
-#ifndef __C33_SEP_DATA__
-#error "uClibc for C33 is built -msep-data: errno is reached through %r15"
-#endif
-
 	.text
 	.align 1
 	.global __vfork
@@ -31,12 +27,16 @@ __vfork:
 	xld.w %r5,0xfffff000
 	cmp %r4,%r5
 	jrule 1f
-	not %r4,%r4
-	add %r4,1
-	ext doff_hi(errno)
-	ext doff_lo(errno)
-	ld.w [%r15],%r4
+	/* Restore the return address before a call can clobber %r12. */
+	push %r12
+	pushn %r0
+	not %r0,%r4
+	add %r0,1
+	xcall __errno_location
+	ld.w [%r4],%r0
+	popn %r0
 	xld.w %r4,-1
+	ret
 1:
 	push %r12
 	ret

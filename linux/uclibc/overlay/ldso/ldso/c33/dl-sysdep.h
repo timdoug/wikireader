@@ -33,6 +33,17 @@
 #define R_C33_FUNCDESC		32
 #define R_C33_FUNCDESC_VALUE	33
 #define R_C33_RELATIVE		34
+#define R_C33_TLS_DTPMOD32	35
+#define R_C33_TLS_DTPREL32	36
+#define R_C33_TLS_TPREL32		37
+#define R_C33_TLS_LE32		38
+
+#define c33_tls_reloc_p(type) \
+  ((type) == R_C33_TLS_DTPMOD32 || (type) == R_C33_TLS_DTPREL32 || \
+   (type) == R_C33_TLS_TPREL32)
+#define elf_machine_type_class(type) \
+  ((c33_tls_reloc_p(type) || (type) == R_C33_FUNCDESC || \
+    (type) == R_C33_FUNCDESC_VALUE) ? ELF_RTYPE_CLASS_PLT : 0)
 
 /* ld.so relocates itself with its own dynamic relocations.  */
 #define ARCH_NEEDS_BOOTSTRAP_RELOCS

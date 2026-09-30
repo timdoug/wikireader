@@ -31,6 +31,10 @@ extern int    compute_frame_size            (poly_int64, long *);
 extern void   c33_init_expanders           (void);
 
 #ifdef RTX_CODE
+extern bool c33_tls_operand_p (rtx);
+extern rtx c33_tls_address (rtx);
+extern rtx c33_thread_pointer (void);
+extern const char *c33_output_thread_pointer (rtx *);
 extern rtx    c33_return_addr              (int);
 extern void   c33_expand_eh_return         (rtx);
 extern void   c33_expand_compare_and_swap  (rtx *);

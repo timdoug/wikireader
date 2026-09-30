@@ -46,6 +46,8 @@ if [ "${which}" = libstdc++ ]; then
 	mkdir -p "${root}/linux/artifacts"
 	"${prefix}/bin/${linux_target}-g++" -Os -Wall -Werror -pthread \
 		"${here}/uclibc/cxx-test.cc" -latomic -o "${root}/linux/artifacts/cxx-test"
+	python3 "${root}/host-tools/toolchain-c33/gcc/tools/check-runtime.py" \
+		"${prefix}" "${root}/linux/artifacts/cxx-test"
 	exit 0
 fi
 

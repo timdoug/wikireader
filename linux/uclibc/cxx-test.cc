@@ -13,12 +13,17 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <pthread.h>
+#include <semaphore.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <typeinfo>
 #include <vector>
+#include <cstring>
+#include <ctime>
+#include <dlfcn.h>
 
 static int failures;
 
@@ -239,6 +244,63 @@ static void library(void)
 	CHECK(wide.size() == 4);
 }
 
+static std::atomic<int> tls_destroyed(0);
+struct ThreadLocal {
+	int value = 0;
+	~ThreadLocal() { tls_destroyed++; }
+};
+static thread_local ThreadLocal per_thread;
+
+static std::atomic<int> cancel_destroyed(0);
+static sem_t cancel_ready, cancel_block;
+struct CancelGuard {
+	~CancelGuard() { cancel_destroyed++; }
+};
+
+static void *cancel_worker(void *)
+{
+	CancelGuard guard;
+	sem_post(&cancel_ready);
+	sem_wait(&cancel_block);
+	return nullptr;
+}
+
+static void cancellation(void)
+{
+	CHECK(sem_init(&cancel_ready, 0, 0) == 0);
+	CHECK(sem_init(&cancel_block, 0, 0) == 0);
+	pthread_t thread;
+	CHECK(pthread_create(&thread, nullptr, cancel_worker, nullptr) == 0);
+	CHECK(sem_wait(&cancel_ready) == 0);
+	CHECK(pthread_cancel(thread) == 0);
+	void *result = nullptr;
+	CHECK(pthread_join(thread, &result) == 0 && result == PTHREAD_CANCELED);
+	CHECK(cancel_destroyed == 1);
+	sem_destroy(&cancel_ready);
+	sem_destroy(&cancel_block);
+}
+
+static void reload_throw()
+{
+	throw Thrown(73);
+}
+
+static void reload_unwind()
+{
+	for (int i = 0; i < 8; i++) {
+		void *module = dlopen("/mnt/sd/unwind.so", RTLD_NOW | RTLD_LOCAL);
+		CHECK(module != nullptr);
+		if (!module) return;
+		auto call = reinterpret_cast<void (*)(void (*)(void))>(dlsym(module, "unwind_library"));
+		CHECK(call != nullptr);
+		if (call) {
+			try { call(reload_throw); CHECK(false); }
+			catch (const Thrown &e) { CHECK(e.code == 73); }
+		}
+		CHECK(dlclose(module) == 0);
+	}
+}
+
 static void threads(void)
 {
 	std::mutex lock;
@@ -248,11 +310,14 @@ static void threads(void)
 	CHECK(!sequence.is_lock_free());
 	std::vector<std::thread> pool;
 	for (int t = 0; t < 4; t++)
-		pool.emplace_back([&] {
+		pool.emplace_back([&, t] {
+			int tls_errors = per_thread.value != 0;
+			per_thread.value = t + 1;
 			started++;
 			// Each thread throws and catches its own exception, so the
 			// per-thread exception state is exercised concurrently.
 			for (int i = 0; i < 200; i++) {
+				tls_errors += per_thread.value != t + 1;
 				sequence.fetch_add(1, std::memory_order_relaxed);
 				try {
 					throw Thrown(i);
@@ -261,10 +326,13 @@ static void threads(void)
 					total += e.code;
 				}
 			}
+			std::lock_guard<std::mutex> hold(lock);
+			CHECK(tls_errors == 0);
 		});
 	for (auto &t : pool)
 		t.join();
 	CHECK(started == 4);
+	CHECK(tls_destroyed == 4);
 	CHECK(total == 4 * (199 * 200 / 2));
 	CHECK(sequence.load() == UINT64_C(0xffffffff) + 800);
 	std::uint64_t expected = sequence.load();
@@ -272,13 +340,69 @@ static void threads(void)
 	CHECK(sequence.exchange(0) == UINT64_C(0x123456789abcdef0));
 }
 
-int main()
+static long long now()
 {
+	timespec t;
+	if (clock_gettime(CLOCK_MONOTONIC, &t)) std::abort();
+	return (long long)t.tv_sec * 1000000000 + t.tv_nsec;
+}
+
+__attribute__((noinline)) static void bench_throw(int depth)
+{
+	Guard g;
+	if (!depth) throw 7;
+	bench_throw(depth - 1);
+}
+
+static void exception_bench()
+{
+	extern const char wr_throw_begin[], wr_throw_end[];
+	std::printf("BENCH PC window: %p %p\n", wr_throw_begin, wr_throw_end);
+	FILE *maps = std::fopen("/proc/self/maps", "r");
+	if (!maps) std::abort();
+	char line[256];
+	while (std::fgets(line, sizeof(line), maps)) std::printf("BENCH MAP %s", line);
+	std::fclose(maps);
+	for (int depth : {0, 4, 16}) {
+		if (depth == 0) {
+			long long cold = now();
+			try { bench_throw(depth); }
+			catch (int value) { CHECK(value == 7 && live == 0); }
+			std::printf("BENCH first throw: %lld ns\n", now() - cold);
+		}
+		long long start = now();
+		if (depth == 4)
+			__asm__ volatile(".global wr_throw_begin\nwr_throw_begin: nop" ::: "memory");
+		for (int i = 0; i < 32; i++) {
+			try { bench_throw(depth); }
+			catch (int value) { CHECK(value == 7 && live == 0); }
+		}
+		if (depth == 4)
+			__asm__ volatile(".global wr_throw_end\nwr_throw_end: nop" ::: "memory");
+		std::printf("BENCH throw depth %d: %lld ns\n", depth, (now() - start) / 32);
+	}
+	long long start = now();
+	for (int i = 0; i < 32; i++) {
+		try { (void)std::vector<int>().at(3); CHECK(false); }
+		catch (const std::out_of_range &) { }
+	}
+	std::printf("BENCH libstdc++ throw: %lld ns\n", (now() - start) / 32);
+	std::puts(failures ? "BENCH FAIL" : "BENCH PASS");
+}
+
+int main(int argc, char **argv)
+{
+	if (argc == 2 && !std::strcmp(argv[1], "--bench")) {
+		exception_bench();
+		return failures != 0;
+	}
 	CHECK(constructed == 1 && global.value == 42);
 	exceptions();
 	rtti();
 	library();
 	threads();
+	reload_unwind();
+	cancellation();
 	std::cout << (failures ? "CXX FAIL" : "CXX PASS") << std::endl;
 	return failures != 0;
 }

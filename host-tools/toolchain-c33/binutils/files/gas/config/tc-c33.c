@@ -4867,6 +4867,26 @@ char    *g_pwhere_rm = 0;
 void
 md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
 {
+  if (fixp->fx_r_type == BFD_RELOC_C33_TLS_DTPMOD32
+      || fixp->fx_r_type == BFD_RELOC_C33_TLS_DTPREL32
+      || fixp->fx_r_type == BFD_RELOC_C33_TLS_TPREL32
+      || fixp->fx_r_type == BFD_RELOC_C33_TLS_LE32)
+    {
+      if (fixp->fx_addsy == NULL)
+        {
+          if (fixp->fx_r_type == BFD_RELOC_C33_TLS_DTPMOD32
+              && fixp->fx_offset == 0)
+            fixp->fx_addsy = &abs_symbol; /* tlsmod(0): this module. */
+          else
+            as_bad_where (fixp->fx_file, fixp->fx_line, _("TLS relocation needs a symbol"));
+        }
+      else
+        S_SET_THREAD_LOCAL (fixp->fx_addsy);
+      fixp->fx_done = 0;
+      fixp->fx_addnumber = fixp->fx_offset;
+      return;
+    }
+
   valueT value;
   char * where;
     long    insn;
@@ -5176,6 +5196,26 @@ parse_cons_expression_c33 (expressionS * exp)
       return BFD_RELOC_C33_FUNCDESC;
     }
 
+  /* Native ELF TLS offsets/pairs live in the writable constant pool. */
+  static const struct { const char *name; bfd_reloc_code_real_type type; }
+    tls_prefixes[] = {
+      { "tlsmod", BFD_RELOC_C33_TLS_DTPMOD32 },
+      { "tlsoff", BFD_RELOC_C33_TLS_DTPREL32 },
+      { "tlsie", BFD_RELOC_C33_TLS_TPREL32 },
+      { "tlsle", BFD_RELOC_C33_TLS_LE32 }
+    };
+  for (unsigned int i = 0; i < ARRAY_SIZE (tls_prefixes); i++)
+    {
+      size_t len = strlen (tls_prefixes[i].name);
+      if (strncmp (input_line_pointer, tls_prefixes[i].name, len) == 0
+          && input_line_pointer[len] == '(')
+        {
+          input_line_pointer += len;
+          expression (exp);
+          return tls_prefixes[i].type;
+        }
+    }
+
   /* See if there's a reloc prefix like hi() we have to handle.  */
   reloc = c33_reloc_prefix ();
 
@@ -5221,6 +5261,15 @@ cons_fix_new_c33 (fragS * frag, int where, int size, expressionS *exp,
     fix_new (frag, where, size, NULL, 0, 0, reloc);
 }
 
+static bool
+c33_tls_fix_p (fixS *fix)
+{
+  return fix->fx_r_type == BFD_RELOC_C33_TLS_DTPMOD32
+         || fix->fx_r_type == BFD_RELOC_C33_TLS_DTPREL32
+         || fix->fx_r_type == BFD_RELOC_C33_TLS_TPREL32
+         || fix->fx_r_type == BFD_RELOC_C33_TLS_LE32;
+}
+
 bool
 c33_fix_adjustable (fixS * fixP)
 {
@@ -5228,7 +5277,7 @@ c33_fix_adjustable (fixS * fixP)
     return 1;
 
   /* A descriptor belongs to a function, not to a section offset.  */
-  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC)
+  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC || c33_tls_fix_p (fixP))
     return 0;
  
   /* Prevent all adjustments to global symbols. */
@@ -5248,7 +5297,7 @@ c33_fix_adjustable (fixS * fixP)
 int
 c33_force_relocation (struct fix * fixP)
 {
-  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC)
+  if (fixP->fx_r_type == BFD_RELOC_C33_FUNCDESC || c33_tls_fix_p (fixP))
     return 1;
   if (fixP->fx_addsy && S_IS_WEAK (fixP->fx_addsy))
     return 1;

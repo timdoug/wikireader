@@ -1,0 +1,57 @@
+--- a/libgcc/unwind-dw2-fde-dip.c
++++ b/libgcc/unwind-dw2-fde-dip.c
+@@ -143,7 +143,7 @@
+ {
+   _Unwind_Ptr pc_low;
+   _Unwind_Ptr pc_high;
+-#if defined __FRV_FDPIC__ || defined __BFIN_FDPIC__
++#if defined __FRV_FDPIC__ || defined __BFIN_FDPIC__ || defined __FDPIC__
+   struct elf32_fdpic_loadaddr load_base;
+ #else
+   _Unwind_Ptr load_base;
+@@ -191,7 +191,7 @@
+   struct unw_eh_callback_data *data = (struct unw_eh_callback_data *) ptr;
+   const ElfW(Phdr) *phdr, *p_eh_frame_hdr, *p_dynamic;
+   long n, match;
+-#if defined __FRV_FDPIC__ || defined __BFIN_FDPIC__
++#if defined __FRV_FDPIC__ || defined __BFIN_FDPIC__ || defined __FDPIC__
+   struct elf32_fdpic_loadaddr load_base;
+ #else
+   _Unwind_Ptr load_base;
+@@ -200,7 +200,11 @@
+ 
+   struct ext_dl_phdr_info
+     {
++#if defined __FDPIC__
++      struct elf32_fdpic_loadaddr dlpi_addr;
++#else
+       ElfW(Addr) dlpi_addr;
++#endif
+       const char *dlpi_name;
+       const ElfW(Phdr) *dlpi_phdr;
+       ElfW(Half) dlpi_phnum;
+@@ -369,7 +373,7 @@
+ 	    break;
+ 	  }
+     }
+-# elif (defined __FRV_FDPIC__ || defined __BFIN_FDPIC__) && defined __linux__
++# elif (defined __FRV_FDPIC__ || defined __BFIN_FDPIC__ || defined __FDPIC__) && defined __linux__
+   data->dbase = load_base.got_value;
+ # else
+ #  error What is DW_EH_PE_datarel base on this platform?
+--- a/libgcc/crtstuff.c
++++ b/libgcc/crtstuff.c
+@@ -128,6 +128,13 @@
+    part of a bootstrap process.  Build the same crt*.o as would be
+    built with headers present, so that it is not necessary to build
+    glibc more than once for the bootstrap to converge.  */
++# define USE_PT_GNU_EH_FRAME
++#endif
++
++/* C33 uClibc supports FDPIC PT_GNU_EH_FRAME discovery. Static CRT keeps
++   explicit registration; its executable has no dynamic load map. */
++#if defined(__c33__) && defined(__UCLIBC__) && defined(HAVE_LD_EH_FRAME_HDR) \
++    && !defined(CRTSTUFFT_O)
+ # define USE_PT_GNU_EH_FRAME
+ #endif
+ 

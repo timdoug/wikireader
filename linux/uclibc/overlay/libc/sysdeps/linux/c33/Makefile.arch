@@ -2,4 +2,10 @@
 # Licensed under the LGPL v2.1, see the file COPYING.LIB in this tarball.
 
 CSRC-y :=
+CSRC-$(UCLIBC_HAS_TLS) += c33_read_tp.c
 SSRC-y := setjmp.S __longjmp.S vfork.S clone.S
+
+# The linker emits a PT_GNU_EH_FRAME header. Frame discovery is deferred
+# until unwinding; libc needs no startup dependency on libgcc_s.
+START_FILE-libc.so := $(SHARED_START_FILES)
+END_FILE-libc.so := $(SHARED_END_FILES)

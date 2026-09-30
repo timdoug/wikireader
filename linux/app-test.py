@@ -41,11 +41,13 @@ def suspend_run(root, emulator, files, make_flash, fat):
         card = out / "card.img"
         flash = out / "flash.rom"
         log = out / "boot.log"
+        uart = out / "uart.in"
+        uart.write_text("/mnt/sd/tlssusp.bin\n")
         card_files = dict(files)
         # wr.pmlog asks for the breadcrumbs this test reads back off the card.
         # loglevel=7 because the PM markers below are pr_info.
         card_files["init.ini"] = (
-            b"linux.ico : linux.app wr.blank=2 wr.suspend=6 wr.pmlog"
+            b"linux.ico : linux.app wr.blank=2 wr.suspend=30 wr.pmlog"
             b" s1c33_wake=1 loglevel=7\n")
         fat.make_image(card, card_files, 64)
         subprocess.run([sys.executable, str(make_flash), str(flash)],
@@ -56,6 +58,8 @@ def suspend_run(root, emulator, files, make_flash, fat):
             # this tap; wremu advances an idle machine to its next scripted
             # event, which is the touch that has to wake it.
             "-T", f"{ICON0[0]},{ICON0[1]},2500000000",
+            "--uart-input", str(uart), "--uart-start", "850000000",
+            "--uart-gap", "200000",
             "-c", str(card), "-e", str(flash),
         ]
         with log.open("w") as output:
@@ -86,17 +90,25 @@ def suspend_run(root, emulator, files, make_flash, fat):
         "PM: suspend exit",
         "C33 power: resumed",
         "C33 display: woken by touch",
+        "TLS SUSPEND PASS",
     ]
     missing = [marker for marker in expected if marker not in text]
+    ready = text.find("TLS SUSPEND READY")
+    asleep = text.find("PM: suspend entry (s2idle)", ready)
+    # Userspace thaws before the final "PM: suspend exit" printk.
+    resumed = text.find("Restarting tasks: Starting", asleep)
+    passed = text.find("TLS SUSPEND PASS", resumed)
+    if not (0 <= ready < asleep < resumed < passed):
+        missing.append("same-thread TLS check spanning suspend")
     # Channel 3 is the wake timer armed across suspend; it has to keep firing
     # while the tick is frozen, or nothing would re-check the wake sources.
     if not re.search(r"ch3 A \d+ B [1-9]", text):
         missing.append("suspend wake timer matches")
-    if missing or re.search(r"Kernel panic|suspend REFUSED", text):
+    if missing or re.search(r"Kernel panic|suspend REFUSED|TLS SUSPEND FAIL", text):
         print(text, file=sys.stderr)
         raise SystemExit("Linux suspend regression failed; missing: " +
                          ", ".join(missing or ["a clean suspend"]))
-    print("Suspend passed: idle -> s2idle -> touch -> resume")
+    print("Suspend passed: idle -> s2idle -> touch -> resume; live-thread TLS intact")
 
 
 def main():
@@ -107,9 +119,18 @@ def main():
     app = require(root / "linux/artifacts/linux.app")
     system = require(root / "linux/artifacts/linux.img")
     pthread_test = require(root / "linux/artifacts/pthread-test")
+    pthread_static = require(root / "linux/artifacts/pthread-test-static")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
     ipc_test = require(root / "linux/artifacts/ipc-test")
+    native_tls = require(root / "linux/artifacts/nptl-test")
+    tls_library = require(root / "linux/artifacts/tls-library.so")
+    tls_late = require(root / "linux/artifacts/tls-late-library.so")
+    tls_exec = require(root / "linux/artifacts/tls-exec-test")
+    tls_suspend = require(root / "linux/artifacts/tls-suspend-test")
+    unwind_library = require(root / "linux/artifacts/unwind-library.so")
+    runtime_bench = require(root / "linux/artifacts/runtime-bench")
+    card_test = require(root / "linux/card/bin/t")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
     fat = load_fat_helper(root)
@@ -130,9 +151,18 @@ def main():
             # The thread, atomic and C++ tests are not in the system image, so
             # they ride here.
             "pthtest.bin": pthread_test.read_bytes(),
+            "pthstat.bin": pthread_static.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
             "ipctest.bin": ipc_test.read_bytes(),
+            "nptl.bin": native_tls.read_bytes(),
+            "tlslib.so": tls_library.read_bytes(),
+            "tlslate.so": tls_late.read_bytes(),
+            "tlsexec.bin": tls_exec.read_bytes(),
+            "tlssusp.bin": tls_suspend.read_bytes(),
+            "unwind.so": unwind_library.read_bytes(),
+            "bench.bin": runtime_bench.read_bytes(),
+            "t.sh": card_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the
             # only thing on this machine that can supply one, and it comes
@@ -148,9 +178,8 @@ def main():
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
-        uart_input.write_text("/mnt/sd/pthtest.bin && /mnt/sd/atomtest.bin && "
-                              "/mnt/sd/ipctest.bin && ipcs -a && "
-                              "/mnt/sd/cxxtest.bin && "
+        uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
+                              "t && cat /mnt/sd/thread.txt && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
@@ -180,10 +209,15 @@ def main():
             "C33 display: blanked while idle",
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
+            "C33 BusyBox init: kernel self-test passed",
+            "NPTL PASS",
             "PTHREAD PASS",
+            "STATIC PTHREAD PASS",
             "ATOMIC PASS",
             "IPC PASS",
             "CXX PASS",
+            "BENCH PASS",
+            "PASS (thread.txt)",
             "C33 LINUX APP PASS",
             "application returned: 2",
             "watchdog reset",
@@ -195,7 +229,8 @@ def main():
             raise SystemExit("Launcher Linux regression failed; missing: " +
                              ", ".join(missing or ["second launcher boot"]))
 
-    print("Userspace passed: pthreads, C11/GCC atomics, cross-process IPC and C++")
+    print("Userspace passed: NPTL/native ELF TLS, pthreads, C11/GCC atomics, "
+          "cross-process IPC and C++")
     print("Launcher Linux passed: Grifo menu -> linux.app -> BusyBox -> "
           "reboot -> Grifo menu")
     suspend_run(root, emulator, files, make_flash, fat)

@@ -51,18 +51,17 @@
 
 /* uClibc's startup code, and crtreloc.o, with which an executable
    relocates itself before anything else.  Constructors run from
-   .init_array, which the linker script collects; crtbegin and crtend
-   bracket .eh_frame and register it with the unwinder.  */
+   .init_array, which the linker script collects. Static crtbeginT registers
+   .eh_frame; dynamic modules use PT_GNU_EH_FRAME discovery. */
 #undef STARTFILE_SPEC
 #define STARTFILE_SPEC \
   "%{!shared:crt1.o%s %{!mno-fdpic:crtreloc.o%s}} crti.o%s \
-   %{shared:crtbeginS.o%s;:crtbegin.o%s}"
+   %{shared:crtbeginS.o%s;static:crtbeginT.o%s;:crtbegin.o%s}"
 
 #undef ENDFILE_SPEC
 #define ENDFILE_SPEC "%{shared:crtendS.o%s;:crtend.o%s} crtn.o%s"
 
-/* Exceptions unwind with the DWARF tables, which cost nothing until
-   something throws.  The linker script keeps .eh_frame and
+/* Exceptions unwind with DWARF tables. The linker script keeps .eh_frame and
    .gcc_except_table in the data segment, where the loader relocates their
    absolute pointers.  */
 #undef DWARF2_UNWIND_INFO
@@ -73,8 +72,21 @@
    whenever nothing else had pulled in the object it names.  */
 #define GTHREAD_USE_WEAK 0
 
+#undef C33_NATIVE_TLS
+#define C33_NATIVE_TLS 1
+/* Configure's generic assembler probe cannot recognize C33 instructions. */
+#define HAVE_LD_EH_FRAME_HDR 1
+#define TARGET_DL_ITERATE_PHDR 1
+
 #undef LIB_SPEC
 #define LIB_SPEC "%{pthread:-lpthread} -lc"
+
+/* Keep arithmetic helpers static, but share the optional unwinder between
+   libc, C++ and dynamically loaded modules. libgcc_eh.a
+   is installed by the post-libc shared-runtime build for static links. */
+#undef LIBGCC_SPEC
+#define LIBGCC_SPEC \
+  "-lgcc %{static|static-libgcc:-lgcc_eh;shared-libgcc:-lgcc_s;:--push-state --as-needed -lgcc_s --pop-state}"
 
 /* The FDPIC emulation, and ld.so unless the link is static.  Without an
    MMU a program's stack cannot grow: the kernel allocates the size in
@@ -88,7 +100,7 @@
   %{!mno-fdpic:-m c33fdpic %{shared} %{static} \
     %{!shared:%{!static:%{rdynamic:-export-dynamic} \
       -dynamic-linker /lib/ld-uClibc.so.0}} \
-    %{!r:%{!shared:-z noexecstack -z stack-size=32768}}}"
+    %{!r:--eh-frame-hdr %{!shared:-z noexecstack -z stack-size=32768}}}"
 
 #undef LINK_GCC_C_SEQUENCE_SPEC
 #define LINK_GCC_C_SEQUENCE_SPEC "--start-group %G %{!nolibc:%L} --end-group"

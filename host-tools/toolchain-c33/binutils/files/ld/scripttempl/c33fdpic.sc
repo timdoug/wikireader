@@ -93,6 +93,14 @@ SECTIONS
     ${RELOCATING+PROVIDE_HIDDEN (__fini_array_end = .);}
   }
   .dynamic        : { *(.dynamic) }
+  /* The ELF TLS template has a PT_TLS header.  __tdata_start lets the
+     static libc find its initialized image after FDPIC relocation. */
+  .tdata          :
+  {
+    ${RELOCATING+PROVIDE_HIDDEN (__tdata_start = .);}
+    *(.tdata${RELOCATING+ .tdata.* .gnu.linkonce.td.*})
+  }
+  .tbss           : { *(.tbss${RELOCATING+ .tbss.* .gnu.linkonce.tb.*}) *(.tcommon) }
   .data           :
   {
     ${RELOCATING+PROVIDE (__data_start = .);}
@@ -104,6 +112,7 @@ SECTIONS
   .gcc_except_table : { *(.gcc_except_table${RELOCATING+ .gcc_except_table.*}) }
   .tm_clone_table : { *(.tm_clone_table) }
   .eh_frame       : { KEEP (*(.eh_frame)) }
+  .eh_frame_hdr   : { *(.eh_frame_hdr) }
   ${RELOCATING+_edata = .; PROVIDE (edata = .);}
   .bss            :
   {

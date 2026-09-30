@@ -10,6 +10,15 @@ import sys, pathlib
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')
 changed = []
 
+# Use the kernel's target ABI definition, never the build host's asm headers.
+# Both compiler build entry points run this script before invoking make.
+tls_uapi = pathlib.Path(__file__).resolve().parents[4] / 'linux/overlay/arch/c33/include/uapi/asm/tls.h'
+tls_target = ROOT / 'gcc/config/c33/c33-linux-tls.h'
+tls_text = tls_uapi.read_text()
+if not tls_target.exists() or tls_target.read_text() != tls_text:
+    tls_target.write_text(tls_text)
+    changed.append('gcc/config/c33/c33-linux-tls.h')
+
 def edit(rel, fn):
     p = ROOT / rel
     src = p.read_text(encoding='latin-1')
@@ -98,18 +107,24 @@ def libgcc_target(s):
 
 def libgcc_linux(s):
     """No-MMU Linux with uClibc-ng, FDPIC.  crtbegin.o and crtend.o
-    register .eh_frame with the unwinder (see c33/linux.h); crtbeginS.o and
-    crtendS.o do the same for a shared library, with its own __dso_handle.
+    use program-header unwind discovery (see c33/linux.h); crtbeginT.o keeps
+    explicit registration for static links. Shared CRT supplies __dso_handle.
 
     Floating point is soft-fp (c33/sfp-machine.h) rather than fp-bit:
     fp-bit unpacks every operand into a structure and packs the result,
     and a double add or multiply cost several times what soft-fp's word
     arithmetic does.  The bare-metal target keeps fp-bit for now."""
     block = ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"\n'
-             '\textra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"\n\t;;\n')
+             '\textra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o crtbeginT.o"\n'
+             '\tmd_unwind_header=c33/linux-unwind.h\n\t;;\n')
     if block in s:
         return None
-    for old in ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp"\n'
+    for old in ('c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"\n'
+                '\textra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"\n'
+                '\tmd_unwind_header=c33/linux-unwind.h\n\t;;\n',
+                'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"\n'
+                '\textra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"\n\t;;\n',
+                'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp"\n'
                 '\textra_parts="crtbegin.o crtend.o"\n\t;;\n',
                 'c33-*-linux*)\n\ttmake_file="${tmake_file} c33/t-c33 t-fdpbit"\n'
                 '\textra_parts="crtbegin.o crtend.o"\n\t;;\n',

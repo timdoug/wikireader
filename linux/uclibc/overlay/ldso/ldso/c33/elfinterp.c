@@ -21,7 +21,9 @@
 /* A module's relocations name the same few symbols again and again: every
    function built with the stack protector has its own pool word for
    __stack_chk_guard, and a lookup costs thousands of cycles here.  During
-   one pass over a module, each symbol is looked up once.  */
+   one pass over a module, each symbol is looked up once. TLS values are
+   module offsets; use the defining module as their cache-valid marker,
+   since an offset of zero (libc's errno) is valid. */
 struct c33_sym_cache {
 	char *addr;
 	struct elf_resolve *tpnt;
@@ -118,6 +120,48 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	sym_ref.tpnt = NULL;
 	symname = strtab + symtab[symtab_index].st_name;
 
+#ifdef __UCLIBC_HAS_TLS__
+	if (c33_tls_reloc_p(reloc_type)) {
+		/* TLS symbol values are offsets, including the valid offset zero.
+		 * They must never be translated through an FDPIC load map. */
+		unsigned long offset = rpnt->r_addend;
+		if (symtab_index) {
+			if (ELF_ST_BIND(sym_ref.sym->st_info) == STB_LOCAL) {
+				offset += sym_ref.sym->st_value;
+			} else if (_dl_c33_sym_cache &&
+				   _dl_c33_sym_cache[symtab_index].tpnt) {
+				offset += (unsigned long)_dl_c33_sym_cache[symtab_index].addr;
+				symbol_tpnt = _dl_c33_sym_cache[symtab_index].tpnt;
+			} else {
+				unsigned long value = (unsigned long)_dl_find_hash(symname, scope,
+					tpnt, ELF_RTYPE_CLASS_PLT, &sym_ref);
+				if (!sym_ref.tpnt || sym_ref.sym->st_shndx == SHN_UNDEF ||
+				    ELF_ST_TYPE(sym_ref.sym->st_info) != STT_TLS)
+					return 1;
+				symbol_tpnt = sym_ref.tpnt;
+				offset += value;
+				if (_dl_c33_sym_cache) {
+					_dl_c33_sym_cache[symtab_index].addr = (char *)value;
+					_dl_c33_sym_cache[symtab_index].tpnt = symbol_tpnt;
+				}
+			}
+		}
+		switch (reloc_type) {
+		case R_C33_TLS_DTPMOD32:
+			*reloc_addr = symbol_tpnt->l_tls_modid;
+			break;
+		case R_C33_TLS_DTPREL32:
+			*reloc_addr = offset;
+			break;
+		case R_C33_TLS_TPREL32:
+			CHECK_STATIC_TLS((struct link_map *)symbol_tpnt);
+			*reloc_addr = symbol_tpnt->l_tls_offset + offset;
+			break;
+		}
+		return 0;
+	}
+#endif
+
 	if (symtab_index == 0) {
 		/* R_C33_32 without a symbol is its addend; the others hold
 		   the module's own address there.  */
@@ -133,7 +177,8 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		symbol_tpnt = _dl_c33_sym_cache[symtab_index].tpnt;
 	} else {
 		symbol_addr = (unsigned long)
-			_dl_find_hash(symname, scope, NULL, 0, &sym_ref);
+			_dl_find_hash(symname, scope, tpnt,
+				elf_machine_type_class(reloc_type), &sym_ref);
 		if (symbol_addr && _dl_c33_sym_cache) {
 			_dl_c33_sym_cache[symtab_index].addr = (char *) symbol_addr;
 			_dl_c33_sym_cache[symtab_index].tpnt = sym_ref.tpnt;
@@ -259,7 +304,7 @@ _dl_linux_resolver(void *stub, unsigned long reloc_offset)
 		DL_RELOC_ADDR(tpnt->loadaddr, this_reloc->r_offset);
 
 	new_addr = _dl_find_hash(symname, &_dl_loaded_modules->symbol_scope,
-				 NULL, 0, &sym_ref);
+				 tpnt, ELF_RTYPE_CLASS_PLT, &sym_ref);
 	if (!new_addr) {
 		_dl_dprintf(2, "%s: can't resolve symbol '%s'\n",
 			    _dl_progname, symname);

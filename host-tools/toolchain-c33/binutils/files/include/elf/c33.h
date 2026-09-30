@@ -102,6 +102,12 @@ START_RELOC_NUMBERS (c33_reloc_type)
      RELOC_NUMBER (R_C33_FUNCDESC, 32)
      RELOC_NUMBER (R_C33_FUNCDESC_VALUE, 33)
      RELOC_NUMBER (R_C33_RELATIVE, 34)
+     /* Variant I: TP points at an 8-byte TCB, followed by TLS blocks.
+        No general register is reserved as the thread pointer. */
+     RELOC_NUMBER (R_C33_TLS_DTPMOD32, 35)
+     RELOC_NUMBER (R_C33_TLS_DTPREL32, 36)
+     RELOC_NUMBER (R_C33_TLS_TPREL32, 37)
+     RELOC_NUMBER (R_C33_TLS_LE32, 38)
 END_RELOC_NUMBERS (R_C33_max)
 
 

@@ -11,7 +11,7 @@
 # source tree out from under you, leaving empty directories and a build that
 # fails in confusing ways.
 #
-#   ./rebuild.sh [workdir [libstdc++|libatomic]]
+#   ./rebuild.sh [workdir [libstdc++|libatomic|libgcc-shared]]
 #
 # C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, in
 # its own build directory and into the same prefix, for C and C++.  It needs
@@ -112,6 +112,30 @@ CONFIG_ARGS=$(echo ${CONFIG_ARGS})
 
 N=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
+build_shared_libgcc() {
+	[ "${TARGET}" = c33-linux-uclibc ] || exit 1
+	# The compiler bootstrap has only libc headers. Build its shared
+	# runtime after libc is installed, using libgcc's standard shared rules.
+	# Keep the compiler and libstdc++ bootstrap configured for static runtimes.
+	# The bootstrap archive includes EH objects; make does not track that
+	# enable_shared=yes changes its membership. Force the archive split.
+	rm -f "${BUILD}/${TARGET}/libgcc/libgcc.a" \
+		"${BUILD}/${TARGET}/libgcc/libgcc_eh.a"
+	make -C "${BUILD}/${TARGET}/libgcc" -j"${N}" enable_shared=yes
+	make -C "${BUILD}/${TARGET}/libgcc" enable_shared=yes install
+	test -f "${PREFIX}/${TARGET}/lib/libgcc_s.so.1"
+	python3 "${HERE}/tools/check-runtime.py" "${PREFIX}"
+	if [ -d "${PREFIX}/${TARGET}/sysroot/lib" ]; then
+		cp "${PREFIX}/${TARGET}/lib/libgcc_s.so.1" \
+			"${PREFIX}/${TARGET}/sysroot/lib/"
+	fi
+}
+
+if [ "${STEP}" = libgcc-shared ]; then
+	build_shared_libgcc
+	exit 0
+fi
+
 if [ "${STEP}" = libatomic ]; then
 	[ "${TARGET}" = c33-linux-uclibc ] || {
 		echo "libatomic needs the Linux compiler and installed libc" >&2
@@ -151,6 +175,12 @@ if [ "${STEP}" = libstdc++ ]; then
 		install-target-libstdc++-v3
 	make -j"${N}" all-target-libstdc++-v3
 	make install-target-libstdc++-v3
+	# The top-level static bootstrap configuration rebuilds/reinstalls its
+	# combined libgcc while building libstdc++. Restore the runtime split
+	# before the installed compiler links any applications.
+	if [ "${TARGET}" = c33-linux-uclibc ]; then
+		build_shared_libgcc
+	fi
 	echo "==> DONE: ${PREFIX}/${TARGET}/lib/libstdc++.a"
 	exit 0
 fi

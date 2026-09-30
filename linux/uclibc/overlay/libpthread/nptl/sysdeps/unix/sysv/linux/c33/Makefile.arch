@@ -1,0 +1,2 @@
+# C33 NPTL; generic C cancellation and futex implementations.
+libpthread_linux_arch_CSRC = pthread_once.c
