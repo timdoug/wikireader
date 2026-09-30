@@ -2317,9 +2317,9 @@ c33fdpic_late_size_sections (struct bfd_link_info *info)
   bool changed;
   asection *s;
 
-  /* A data-relative index cannot describe independently mapped text.
-     Keep the standard eight-byte header and scan FDEs only when unwinding. */
-  htab->elf.eh_info.u.dwarf.table = false;
+  /* Keep the linker-generated header table in link-time address space.
+     The C33 FDPIC unwinder maps the PC before searching and the selected
+     FDE afterwards; the table itself needs no runtime relocations. */
 
   if (dynobj == NULL || htab->srofixup == NULL)
     return true;

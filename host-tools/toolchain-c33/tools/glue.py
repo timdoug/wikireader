@@ -259,6 +259,29 @@ def ld_default_separate_code(s):
 
 edit('ld/emultempl/elf.em', ld_default_separate_code)
 
+# C33 FDPIC keeps absolute FDE pointers because text and data load
+# independently. Its unwinder searches the normal header table in link-time
+# address space and maps only the selected FDE. Keep that table without
+# enabling the unsafe PC-relative conversion of the frame records.
+def c33_fdpic_eh_table(s):
+    if 'C33 FDPIC searches this table in link-time address space' in s:
+        return None
+    s = s.replace('#include "elf-bfd.h"\n',
+                  '#include "elf-bfd.h"\n#include "elf/c33.h"\n', 1)
+    old = ('    if (bfd_link_pic (info)\n'
+           '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
+    new = ('    /* C33 FDPIC searches this table in link-time address space. */\n'
+           '    if (bfd_link_pic (info)\n'
+           '\t\t&& !(bfd_get_arch (abfd) == bfd_arch_c33\n'
+           '\t\t     && (elf_elfheader (abfd)->e_flags & EF_C33_FDPIC))\n'
+           '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
+    if old not in s:
+        raise SystemExit('Cannot locate absolute FDE table suppression')
+    return s.replace(old, new, 1)
+
+
+edit('bfd/elf-eh-frame.c', c33_fdpic_eh_table)
+
 print('changed:')
 for c in changed:
     print('  +', c)

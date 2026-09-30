@@ -392,9 +392,15 @@ relocation and FDPIC load-map translation must never handle TLS offsets.
 
 FDPIC shared-library unwind tables retain absolute runtime relocations;
 ld must not turn pointers from data to independently loaded code into
-PC-relative encodings. Dynamic modules carry an eight-byte
-`PT_GNU_EH_FRAME` header in the data segment, pointing to `.eh_frame`
-without a data-relative search table (text and data map independently).
+PC-relative encodings. Dynamic modules carry a `PT_GNU_EH_FRAME` header
+and a sorted search table in the shared read-only segment. Version 1 uses
+the normal `pcrel|sdata4` frame pointer, `udata4` count and `datarel|sdata4`
+table encodings, but C33 FDPIC interprets their differences in link-time
+address space. The frame pointer is relative to its own word, and each
+table entry is relative to the header's link-time VMA. None is relocated.
+The unwinder converts the runtime PC to its module VMA before searching,
+then maps the selected FDE into the independently loaded data segment.
+The FDE itself retains its ordinary absolute runtime relocations.
 The optional shared `libgcc_s.so.1` unwinder discovers frames through
 `dl_iterate_phdr`; libc loads it on the first cancellation. Ordinary
 C links use `--as-needed` and do not require it at startup. Static links
@@ -402,13 +408,12 @@ use `crtbeginT` and explicit registration in the static unwinder. The
 unwinder recognizes the kernel's `rt_sigreturn` trampoline and restores
 registers from the signal frame, so cancellation can unwind a signal handler.
 
-C33/uClibc FDPIC modules without linker search tables get lazy sorted FDE
-indexes. Index lookup and mutation run within the serialized
-`dl_iterate_phdr` callback, and loader add/remove generations clear stale
-pointers. Four cache entries retain at most 32 KiB; a single index is limited
-to 16 KiB, with at most that much temporary sorting storage. Allocation
-failure or larger modules retain the original linear lookup. Static frame
-registration keeps libgcc's existing indexing path.
+C33/uClibc FDPIC lookup finishes inside the serialized `dl_iterate_phdr`
+callback, so a concurrent `dlclose` cannot remove a module during lookup.
+There is no allocated FDE index, sorting pass or retained FDE pointer cache.
+Each table costs 12 bytes plus 8 bytes per FDE, shared with the module's text.
+Older eight-byte headers without search tables retain linear FDE lookup.
+Static frame registration keeps libgcc's existing indexing path.
 
 ## Condition codes
 

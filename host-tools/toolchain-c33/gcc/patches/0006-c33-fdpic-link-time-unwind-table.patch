@@ -1,0 +1,232 @@
+--- a/libgcc/unwind-dw2-fde-dip.c
++++ b/libgcc/unwind-dw2-fde-dip.c
+@@ -97,6 +97,12 @@
+ #include "unwind-dw2-fde.c"
+ #undef _Unwind_Find_FDE
+ 
++/* C33 FDPIC header tables hold unrelocated link-time address differences.
++   Search in that address space; text and data have independent load maps. */
++#if defined(__c33__) && defined(__FDPIC__) && defined(__UCLIBC__)
++#define C33_FDPIC_EH_TABLE 1
++#endif
++
+ #ifndef PT_GNU_EH_FRAME
+ #define PT_GNU_EH_FRAME (PT_LOOS + 0x474e550)
+ #endif
+@@ -115,6 +121,13 @@
+ #endif
+   const struct unw_eh_frame_hdr *hdr;
+   int check_cache;
++#ifdef C33_FDPIC_EH_TABLE
++  const struct elf32_fdpic_loadmap *map;
++  _Unwind_Ptr hdr_vaddr;
++  size_t hdr_size;
++  struct dwarf_eh_bases *bases;
++  const fde *entry;
++#endif
+ };
+ 
+ /* Returns DATA->dbase if available, else NULL.  */
+@@ -184,6 +197,97 @@
+   return 0;
+ #endif
+ }
++
++#ifdef C33_FDPIC_EH_TABLE
++/* Convert a runtime PC to a module VMA once per frame lookup. */
++static int
++c33_unrelocate_pc (const struct elf32_fdpic_loadmap *map,
++                   _Unwind_Ptr pc, _Unwind_Ptr *vaddr)
++{
++  unsigned int i;
++  for (i = 0; i < map->nsegs; i++)
++    if (pc >= map->segs[i].addr
++        && pc - map->segs[i].addr < map->segs[i].p_memsz)
++      {
++        *vaddr = map->segs[i].p_vaddr + pc - map->segs[i].addr;
++        return 1;
++      }
++  return 0;
++}
++
++static const fde *
++c33_relocate_fde (const struct elf32_fdpic_loadmap *map, _Unwind_Ptr vaddr)
++{
++  unsigned int i;
++  for (i = 0; i < map->nsegs; i++)
++    if (vaddr >= map->segs[i].p_vaddr
++        && vaddr - map->segs[i].p_vaddr < map->segs[i].p_memsz)
++      return (const fde *) (map->segs[i].addr
++                           + vaddr - map->segs[i].p_vaddr);
++  return NULL;
++}
++
++static const fde *
++c33_find_fde_table (_Unwind_Ptr pc, _Unwind_Ptr dbase,
++                    struct dwarf_eh_bases *bases,
++                    const struct unw_eh_callback_data *data)
++{
++  struct fde_table {
++    signed initial_loc __attribute__ ((mode (SI)));
++    signed fde __attribute__ ((mode (SI)));
++  };
++  const unsigned char *p = (const unsigned char *) data->hdr;
++  unsigned count __attribute__ ((mode (SI)));
++  _Unwind_Ptr vaddr, func, range;
++  unsigned encoding;
++  size_t lo = 0, hi, mid;
++  const fde *entry;
++
++  if (data->hdr_size < 12 || !c33_unrelocate_pc (data->map, pc, &vaddr))
++    return NULL;
++  memcpy (&count, p + 8, sizeof (count));
++  if (!count || count > (data->hdr_size - 12) / sizeof (struct fde_table))
++    return NULL;
++  const struct fde_table *table = (const struct fde_table *) (p + 12);
++
++  /* The normal datarel values are differences from the header's link-time
++     VMA. They stay unmodified at load time, including the code addresses. */
++  hi = count;
++  while (lo < hi)
++    {
++      mid = lo + (hi - lo) / 2;
++      if (vaddr < data->hdr_vaddr + table[mid].initial_loc)
++        hi = mid;
++      else
++        lo = mid + 1;
++    }
++  if (!lo)
++    return NULL;
++  entry = c33_relocate_fde (data->map,
++                            data->hdr_vaddr + table[lo - 1].fde);
++  if (!entry)
++    return NULL;
++
++  /* The frame itself retains ordinary runtime relocations. Verify its
++     range and return a runtime function address to the rest of libgcc. */
++  encoding = get_fde_encoding (entry);
++  p = read_encoded_value_with_base (encoding,
++                                    base_from_cb_data (encoding, dbase),
++                                    entry->pc_begin, &func);
++  read_encoded_value_with_base (encoding & 0x0f, 0, p, &range);
++  if (pc < func || pc - func >= range)
++    return NULL;
++  bases->tbase = NULL;
++  bases->dbase = (void *) dbase;
++  bases->func = (void *) func;
++  return entry;
++}
++#endif
++
++static const fde *find_fde_tail (_Unwind_Ptr,
++                                const struct unw_eh_frame_hdr *,
++                                _Unwind_Ptr, struct dwarf_eh_bases *,
++                                const struct unw_eh_callback_data *);
+ 
+ static int
+ _Unwind_IteratePhdrCallback (struct dl_phdr_info *info, size_t size, void *ptr)
+@@ -380,6 +484,16 @@
+ # endif
+ #endif
+ 
++#ifdef C33_FDPIC_EH_TABLE
++  /* Finish under uClibc's loader lock so concurrent dlclose cannot unmap
++     the module while we search its table. No allocated index survives. */
++  data->map = load_base.map;
++  data->hdr_vaddr = p_eh_frame_hdr->p_vaddr;
++  data->hdr_size = p_eh_frame_hdr->p_memsz;
++  data->entry = find_fde_tail (data->pc, data->hdr,
++                              unw_eh_callback_data_dbase (data),
++                              data->bases, data);
++#endif
+   return 1;
+ }
+ 
+@@ -391,7 +505,8 @@
+ find_fde_tail (_Unwind_Ptr pc,
+ 	       const struct unw_eh_frame_hdr *hdr,
+ 	       _Unwind_Ptr dbase,
+-	       struct dwarf_eh_bases *bases)
++	       struct dwarf_eh_bases *bases,
++               const struct unw_eh_callback_data *data __attribute__ ((unused)))
+ {
+   const unsigned char *p = (const unsigned char *) (hdr + 1);
+   _Unwind_Ptr eh_frame;
+@@ -399,6 +514,14 @@
+ 
+   if (hdr->version != 1)
+     return NULL;
++
++#ifdef C33_FDPIC_EH_TABLE
++  if (data && data->map
++      && hdr->eh_frame_ptr_enc == (DW_EH_PE_pcrel | DW_EH_PE_sdata4)
++      && hdr->fde_count_enc == DW_EH_PE_udata4
++      && hdr->table_enc == (DW_EH_PE_datarel | DW_EH_PE_sdata4))
++    return c33_find_fde_table (pc, dbase, bases, data);
++#endif
+ 
+   if (__builtin_expect (hdr->eh_frame_ptr_enc == (DW_EH_PE_sdata4
+ 						  | DW_EH_PE_pcrel), 1))
+@@ -407,7 +530,13 @@
+ 	 BFD ld generates.  */
+       signed value __attribute__ ((mode (SI)));
+       memcpy (&value, p, sizeof (value));
+-      eh_frame = (_Unwind_Ptr) (p + value);
++#ifdef C33_FDPIC_EH_TABLE
++      if (data && data->map)
++        eh_frame = (_Unwind_Ptr) c33_relocate_fde
++          (data->map, data->hdr_vaddr + 4 + value);
++      else
++#endif
++        eh_frame = (_Unwind_Ptr) (p + value);
+       p += sizeof (value);
+     }
+   else
+@@ -416,6 +545,7 @@
+ 							 dbase),
+ 				      p, &eh_frame);
+ 
++#ifndef C33_FDPIC_EH_TABLE
+   /* We require here specific table encoding to speed things up.
+      Also, DW_EH_PE_datarel here means using PT_GNU_EH_FRAME start
+      as base, not the processor specific DW_EH_PE_datarel.  */
+@@ -511,6 +641,8 @@
+ 	}
+     }
+ 
++#endif
++
+   /* We have no sorted search table, so need to go the slow way.
+      As soon as GLIBC will provide API so to notify that a library has been
+      removed, we could cache this (and thus use search_object).  */
+@@ -558,7 +690,7 @@
+ # else
+ 			    0,
+ # endif
+-			    bases);
++			    bases, NULL);
+     else
+       return NULL;
+     }
+@@ -569,12 +701,20 @@
+   data.dbase = NULL;
+ #endif
+   data.check_cache = 1;
++#ifdef C33_FDPIC_EH_TABLE
++  data.bases = bases;
++  data.entry = NULL;
++#endif
+ 
+   if (dl_iterate_phdr (_Unwind_IteratePhdrCallback, &data) <= 0)
+     return NULL;
+ 
++#ifdef C33_FDPIC_EH_TABLE
++  return data.entry;
++#else
+   _Unwind_Ptr dbase = unw_eh_callback_data_dbase (&data);
+-  return find_fde_tail ((_Unwind_Ptr) pc, data.hdr, dbase, bases);
++  return find_fde_tail ((_Unwind_Ptr) pc, data.hdr, dbase, bases, &data);
++#endif
+ }
+ 
+ #else

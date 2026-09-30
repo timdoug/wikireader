@@ -119,6 +119,8 @@ cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 	-o "$root/linux/artifacts/tls-suspend-test"
 "${cross}gcc" -Os -Wall -Werror -fPIC -shared -funwind-tables \
 	"$root/linux/uclibc/unwind-library.c" -o "$root/linux/artifacts/unwind-library.so"
+python3 "$root/linux/uclibc/legacy-eh-header.py" \
+	"$root/linux/artifacts/unwind-library.so" "$root/linux/artifacts/unwind-legacy-library.so"
 "${cross}gcc" -nostdlib -static "$root/linux/uclibc/tls-exec-test.S" \
 	-o "$root/linux/artifacts/tls-exec-test"
 

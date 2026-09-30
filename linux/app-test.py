@@ -129,6 +129,7 @@ def main():
     tls_exec = require(root / "linux/artifacts/tls-exec-test")
     tls_suspend = require(root / "linux/artifacts/tls-suspend-test")
     unwind_library = require(root / "linux/artifacts/unwind-library.so")
+    unwind_legacy = require(root / "linux/artifacts/unwind-legacy-library.so")
     runtime_bench = require(root / "linux/artifacts/runtime-bench")
     card_test = require(root / "linux/card/bin/t")
     icon = require(root / "linux/artifacts/linux.ico")
@@ -161,6 +162,7 @@ def main():
             "tlsexec.bin": tls_exec.read_bytes(),
             "tlssusp.bin": tls_suspend.read_bytes(),
             "unwind.so": unwind_library.read_bytes(),
+            "unwind0.so": unwind_legacy.read_bytes(),
             "bench.bin": runtime_bench.read_bytes(),
             "t.sh": card_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.

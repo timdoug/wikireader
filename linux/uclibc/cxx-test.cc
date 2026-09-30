@@ -287,17 +287,21 @@ static void reload_throw()
 
 static void reload_unwind()
 {
-	for (int i = 0; i < 8; i++) {
-		void *module = dlopen("/mnt/sd/unwind.so", RTLD_NOW | RTLD_LOCAL);
-		CHECK(module != nullptr);
-		if (!module) return;
-		auto call = reinterpret_cast<void (*)(void (*)(void))>(dlsym(module, "unwind_library"));
-		CHECK(call != nullptr);
-		if (call) {
-			try { call(reload_throw); CHECK(false); }
-			catch (const Thrown &e) { CHECK(e.code == 73); }
+	// Exercise both linker tables and the old-style linear fallback, with
+	// the header in shared text and the FDEs in independently mapped data.
+	for (const char *path : { "/mnt/sd/unwind.so", "/mnt/sd/unwind0.so" }) {
+		for (int i = 0; i < 8; i++) {
+			void *module = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+			CHECK(module != nullptr);
+			if (!module) return;
+			auto call = reinterpret_cast<void (*)(void (*)(void))>(dlsym(module, "unwind_library"));
+			CHECK(call != nullptr);
+			if (call) {
+				try { call(reload_throw); CHECK(false); }
+				catch (const Thrown &e) { CHECK(e.code == 73); }
+			}
+			CHECK(dlclose(module) == 0);
 		}
-		CHECK(dlclose(module) == 0);
 	}
 }
 

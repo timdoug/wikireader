@@ -25,4 +25,6 @@ if len(sys.argv) > 2:
         raise SystemExit(f"{elf}: private unwinder definitions")
     if "[libgcc_s.so.1]" not in run("readelf", "-d", elf):
         raise SystemExit(f"{elf}: C++ unwinder dependency missing")
+subprocess.run([sys.executable, str(Path(__file__).with_name("check-eh-table.py")),
+                str(prefix / target / "lib/libgcc_s.so.1"), *sys.argv[2:]], check=True)
 print("C33 runtime guard passed")

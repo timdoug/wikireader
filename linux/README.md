@@ -496,19 +496,21 @@ and kernel futexes, and remains part of libc. Cancellation uses shared
 `libgcc_s.so.1`, loaded on the first cancellation in ordinary C programs;
 C++ programs that need exception handling load it at startup.
 The unwinder discovers module frames through
-`dl_iterate_phdr` and small `PT_GNU_EH_FRAME` headers.
-FDPIC frame lookup lazily builds sorted indexes inside the serialized
-program-header callback. It caches four modules, retains at most 32 KiB
-of indexes, and uses at most another 16 KiB while sorting. Loader add/remove
-generations invalidate the cache; allocation failures and oversized tables
-fall back to linear scanning. Repeated libstdc++ throws in the emulator
-fell from about 10.9 ms to 4.0 ms, with about 100 ms spent indexing on the
-first throw of the large C++ test. Ordinary C processes do not pay this cost
-until they request unwinding. `libc` builds the optional runtime after
+`dl_iterate_phdr` and `PT_GNU_EH_FRAME` headers.
+The linker emits sorted FDPIC search tables in the shared read-only segment.
+The unwinder searches with the PC's link-time address, then maps only the
+selected frame into the separate data segment. Lookup finishes inside the
+serialized program-header callback; it allocates no FDE index and needs no
+runtime sorting. Tables cost 12 bytes plus 8 bytes per FDE, shared between
+processes. Older modules without search tables fall back to linear scanning.
+The large C++ test's first throw fell from about 108 ms with runtime indexing
+to about 6 ms, while repeated libstdc++ throws remain about 3.8 ms in wremu.
+`libc` builds the optional runtime after
 installing libc, then installs it in the sysroot.
 `rootfs` includes the runtime and matching host symbols automatically.
 The post-runtime build checks that the arithmetic archive contains no
-unwind objects and that the dynamic C++ test uses the shared unwinder.
+unwind objects, that the dynamic C++ test uses the shared unwinder, and that
+its search tables are sorted, read-only and free of runtime relocations.
 Contended spinlocks yield on this single core instead of spinning until
 the scheduler preempts them; ordinary mutexes remain the usual choice.
 
