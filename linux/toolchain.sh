@@ -11,7 +11,7 @@
 # first; make -C linux libc then puts the library itself in the sysroot and
 # builds libstdc++ against it, with the libstdc++ step here.
 #
-#   toolchain.sh [all|elf|linux|libstdc++]
+#   toolchain.sh [all|elf|linux|libstdc++|libatomic]
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -28,13 +28,24 @@ linux_target=c33-linux-uclibc
 sysroot=${prefix}/${linux_target}/sysroot
 which=${1:-all}
 
+if [ "${which}" = libatomic ]; then
+	C33_TARGET=${linux_target} \
+		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" libatomic
+	mkdir -p "${here}/artifacts"
+	"${prefix}/bin/${linux_target}-gcc" -std=gnu11 -Os -Wall -Werror \
+		-ffunction-sections -fdata-sections -Wl,--gc-sections -pthread \
+		"${here}/uclibc/atomic-test.c" -latomic -o "${here}/artifacts/atomic-test"
+	exit 0
+fi
+
 if [ "${which}" = libstdc++ ]; then
+	"${here}/toolchain.sh" libatomic
 	C33_TARGET=${linux_target} \
 		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" libstdc++
 	# app-test.py runs this from the card.
 	mkdir -p "${root}/linux/artifacts"
 	"${prefix}/bin/${linux_target}-g++" -Os -Wall -Werror -pthread \
-		"${here}/uclibc/cxx-test.cc" -o "${root}/linux/artifacts/cxx-test"
+		"${here}/uclibc/cxx-test.cc" -latomic -o "${root}/linux/artifacts/cxx-test"
 	exit 0
 fi
 

@@ -1,0 +1,11 @@
+diff --git a/toolchain/Config.in b/toolchain/Config.in
+--- a/toolchain/Config.in
++++ b/toolchain/Config.in
+@@ -959,6 +959,7 @@ config BR2_TOOLCHAIN_HAS_LIBATOMIC
+ 	default y if BR2_TOOLCHAIN_GCC_AT_LEAST_4_8
+ 	depends on BR2_TOOLCHAIN_HAS_THREADS
+ 	depends on BR2_BINFMT_ELF || \
++		(BR2_BINFMT_FDPIC && BR2_c33) || \
+ 		(BR2_BINFMT_FLAT && BR2_arm && \
+ 		BR2_TOOLCHAIN_GCC_AT_LEAST_10)
+ 

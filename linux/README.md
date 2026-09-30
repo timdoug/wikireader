@@ -413,7 +413,7 @@ default of reading `/dev/urandom` would make the first program at boot wait
 3.4 s for the kernel's random pool.
 
 The library includes POSIX threads through LinuxThreads, the uClibc
-implementation that works without an MMU and without thread-local storage.
+implementation that works without an MMU and without native ELF TLS.
 The C33 port supplies `clone.S` and a `testandset` that masks interrupts for
 its load and store. That is atomic on a single core, and the C33 has no
 privilege level that would stop user code masking them. The thread library
@@ -427,6 +427,15 @@ contended mutex, per-thread `errno`, condition variables, semaphores,
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
 are about 8 KB of libc's text. `libc` then builds libstdc++
 against the installed C library, with `toolchain.sh libstdc++`.
+
+That step also builds GCC's upstream `libatomic` against the installed
+libc; `toolchain.sh libatomic` rebuilds just that runtime and its C test.
+The static archive lives beside `libstdc++.a` in the cross toolchain and
+is imported into Buildroot's staging sysroot. Link programs that need it
+with `-pthread -latomic` after their objects. There is no extra shared
+library to install on the card: only used code is linked into a program.
+Buildroot recognizes the C33 FDPIC toolchain as providing libatomic, so
+packages requiring atomic intrinsics can be selected.
 
 C++ exceptions unwind with the DWARF tables, which cost nothing until
 something throws. The tables hold absolute addresses, so they live in the
@@ -442,6 +451,19 @@ to be glibc 2.2, so gthreads would otherwise judge a program threaded by a
 weak reference to `__pthread_key_create`, which LinuxThreads does not have
 (`host-tools/toolchain-c33/gcc/patches/0003`). Atomics of up to 4 bytes are
 inline and lock-free, masking interrupts as `testandset` does.
+The runtime supplies 64-bit operations and generic aggregate load, store,
+exchange and compare-exchange. These use GCC's POSIX pthread-mutex fallback
+and report that they are not lock-free; do not use them in signal handlers
+or assume the locks synchronize separate processes. This unblocks C11
+`_Atomic uint64_t`, C++ `std::atomic<uint64_t>` and wider atomic records,
+without requiring an MMU, native TLS or NPTL.
+
+`libc` also builds `linux/artifacts/atomic-test`, run from the card by
+`app-test`: 64-bit arithmetic and bitwise operations, compare-exchange
+success and failure, carry across the 32-bit boundary, lock-free queries,
+and four threads contending on counters and a 24-byte aggregate spanning
+the runtime's lock-table boundary. The C++ test includes contended 64-bit
+`std::atomic` operations too.
 
 `libc` also builds `linux/artifacts/cxx-test`, which `app-test` runs from the
 card after the thread test: exceptions through 40 frames with callee-saved

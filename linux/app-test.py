@@ -108,6 +108,7 @@ def main():
     system = require(root / "linux/artifacts/linux.img")
     pthread_test = require(root / "linux/artifacts/pthread-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
+    atomic_test = require(root / "linux/artifacts/atomic-test")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
     fat = load_fat_helper(root)
@@ -125,10 +126,11 @@ def main():
             # The system itself, which linux.app mounts from here.
             "linux.img": system.read_bytes(),
             "linux.ico": icon.read_bytes(),
-            # The thread and C++ tests are not in the system image, so
+            # The thread, atomic and C++ tests are not in the system image, so
             # they ride here.
             "pthtest.bin": pthread_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
+            "atomtest.bin": atomic_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the
             # only thing on this machine that can supply one, and it comes
@@ -144,7 +146,8 @@ def main():
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
-        uart_input.write_text("/mnt/sd/pthtest.bin && /mnt/sd/cxxtest.bin && "
+        uart_input.write_text("/mnt/sd/pthtest.bin && /mnt/sd/atomtest.bin && "
+                              "/mnt/sd/cxxtest.bin && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
@@ -175,6 +178,7 @@ def main():
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "PTHREAD PASS",
+            "ATOMIC PASS",
             "CXX PASS",
             "C33 LINUX APP PASS",
             "application returned: 2",
@@ -187,6 +191,7 @@ def main():
             raise SystemExit("Launcher Linux regression failed; missing: " +
                              ", ".join(missing or ["second launcher boot"]))
 
+    print("Userspace passed: pthreads, C11/GCC atomics and C++")
     print("Launcher Linux passed: Grifo menu -> linux.app -> BusyBox -> "
           "reboot -> Grifo menu")
     suspend_run(root, emulator, files, make_flash, fat)

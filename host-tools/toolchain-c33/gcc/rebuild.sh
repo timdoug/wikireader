@@ -11,14 +11,15 @@
 # source tree out from under you, leaving empty directories and a build that
 # fails in confusing ways.
 #
-#   ./rebuild.sh [workdir [libstdc++]]
+#   ./rebuild.sh [workdir [libstdc++|libatomic]]
 #
 # C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, in
 # its own build directory and into the same prefix, for C and C++.  It needs
 # that triplet's binutils and a sysroot holding the kernel and uClibc-ng
 # headers (linux/toolchain.sh does all three).  libstdc++ links against the
 # C library, so it is left out of that build and made afterwards, once
-# uClibc-ng is installed, by the libstdc++ step.
+# uClibc-ng is installed, by the libstdc++ step. libatomic is also built
+# after libc, with its own step, using GCC's generic POSIX implementation.
 
 set -e
 
@@ -110,6 +111,35 @@ CONFIG_ARGS="--target=${TARGET} --prefix=${PREFIX} ${TARGET_CONFIG} \
 CONFIG_ARGS=$(echo ${CONFIG_ARGS})
 
 N=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+
+if [ "${STEP}" = libatomic ]; then
+	[ "${TARGET}" = c33-linux-uclibc ] || {
+		echo "libatomic needs the Linux compiler and installed libc" >&2
+		exit 1
+	}
+	# Like libstdc++, this runtime needs the installed C library. Build it
+	# separately so the compiler/header bootstrap does not depend on libc.
+	# GCC's generic POSIX implementation uses pthread locks for operations
+	# wider than the backend's inline atomics. Keep the archive static, as
+	# libstdc++ is, and let --gc-sections keep just each program's operations.
+	ATOMIC_BUILD="${SRC}/build-libatomic-${TARGET}"
+	rm -rf "${ATOMIC_BUILD}"
+	mkdir -p "${ATOMIC_BUILD}/gcc"
+	cd "${ATOMIC_BUILD}"
+	"${SRC}/libatomic/configure" --build="$("${SRC}/config.guess")" \
+		--host="${TARGET}" --target="${TARGET}" --prefix="${PREFIX}" \
+		--libdir="${PREFIX}/${TARGET}/lib" --disable-multilib \
+		--disable-shared --enable-static \
+		CC="${PREFIX}/bin/${TARGET}-gcc" \
+		CFLAGS="-Os -ffunction-sections -fdata-sections"
+	# GCC 16 also installs a copy into its compiler build directory. This
+	# standalone build keeps that temporary copy here instead.
+	make -j"${N}" gcc_objdir="${ATOMIC_BUILD}/gcc"
+	make install
+	test -f "${PREFIX}/${TARGET}/lib/libatomic.a"
+	echo "==> DONE: ${PREFIX}/${TARGET}/lib/libatomic.a"
+	exit 0
+fi
 
 if [ "${STEP}" = libstdc++ ]; then
 	cd "${BUILD}"

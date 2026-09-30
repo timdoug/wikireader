@@ -6,6 +6,7 @@
  */
 #include <atomic>
 #include <cstdio>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -243,6 +244,8 @@ static void threads(void)
 	std::mutex lock;
 	long total = 0;
 	std::atomic<int> started(0);
+	std::atomic<std::uint64_t> sequence(UINT64_C(0xffffffff));
+	CHECK(!sequence.is_lock_free());
 	std::vector<std::thread> pool;
 	for (int t = 0; t < 4; t++)
 		pool.emplace_back([&] {
@@ -250,6 +253,7 @@ static void threads(void)
 			// Each thread throws and catches its own exception, so the
 			// per-thread exception state is exercised concurrently.
 			for (int i = 0; i < 200; i++) {
+				sequence.fetch_add(1, std::memory_order_relaxed);
 				try {
 					throw Thrown(i);
 				} catch (const Thrown &e) {
@@ -262,6 +266,10 @@ static void threads(void)
 		t.join();
 	CHECK(started == 4);
 	CHECK(total == 4 * (199 * 200 / 2));
+	CHECK(sequence.load() == UINT64_C(0xffffffff) + 800);
+	std::uint64_t expected = sequence.load();
+	CHECK(sequence.compare_exchange_strong(expected, UINT64_C(0x123456789abcdef0)));
+	CHECK(sequence.exchange(0) == UINT64_C(0x123456789abcdef0));
 }
 
 int main()
