@@ -1,0 +1,227 @@
+--- a/libgcc/unwind-dw2-fde-dip.c
++++ b/libgcc/unwind-dw2-fde-dip.c
+@@ -97,6 +97,113 @@
+ #include "unwind-dw2-fde.c"
+ #undef _Unwind_Find_FDE
+ 
++/* C33's FDPIC text and data mappings cannot share a data-relative linker
++   search table.  Build the ordinary libgcc index lazily instead.  All cache
++   access, including lookup, stays inside uClibc's serialized phdr callback.
++   The loader's adds/subs generation invalidates pointers before reuse. */
++#if defined(__c33__) && defined(__FDPIC__) && defined(__UCLIBC__)
++#define C33_FDPIC_FDE_CACHE 1
++#define C33_FDE_CACHE_ENTRIES 4
++#define C33_FDE_CACHE_BYTES (32 * 1024)
++#define C33_FDE_INDEX_BYTES (16 * 1024)
++
++static struct c33_fde_cache_entry
++{
++  const fde *eh_frame;
++  void *dbase;
++  struct object ob;
++  size_t bytes;
++  unsigned long used;
++} c33_fde_cache[C33_FDE_CACHE_ENTRIES];
++static size_t c33_fde_cache_bytes;
++static unsigned long c33_fde_cache_clock;
++
++static void
++c33_fde_cache_release (struct c33_fde_cache_entry *entry)
++{
++  if (entry->ob.s.b.sorted)
++    free (entry->ob.u.sort);
++  c33_fde_cache_bytes -= entry->bytes;
++  memset (entry, 0, sizeof (*entry));
++}
++
++static void
++#ifdef SHARED
++__attribute__((destructor))
++#endif
++c33_fde_cache_clear (void)
++{
++  unsigned int i;
++  for (i = 0; i < C33_FDE_CACHE_ENTRIES; i++)
++    c33_fde_cache_release (&c33_fde_cache[i]);
++  c33_fde_cache_clock = 0;
++}
++
++static struct object *
++c33_fde_index (const fde *eh_frame, _Unwind_Ptr dbase)
++{
++  struct c33_fde_cache_entry *entry = NULL;
++  size_t count, bytes;
++  unsigned int i;
++
++  /* Keep relative ages valid even after the counter wraps. */
++  if (++c33_fde_cache_clock == 0)
++    {
++      c33_fde_cache_clear ();
++      c33_fde_cache_clock = 1;
++    }
++  for (i = 0; i < C33_FDE_CACHE_ENTRIES; i++)
++    {
++      struct c33_fde_cache_entry *candidate = &c33_fde_cache[i];
++      if (candidate->eh_frame == eh_frame
++          && candidate->dbase == (void *) dbase)
++        {
++          candidate->used = c33_fde_cache_clock;
++          /* Remember allocation failure / oversized tables: do not try
++             allocating again on every frame of this unwind. */
++          return candidate->ob.s.b.sorted ? &candidate->ob : NULL;
++        }
++      if (!entry || candidate->used < entry->used)
++        entry = candidate;
++    }
++
++  c33_fde_cache_release (entry);
++  entry->eh_frame = eh_frame;
++  entry->dbase = (void *) dbase;
++  entry->used = c33_fde_cache_clock;
++  entry->ob.pc_begin = (void *) -1;
++  entry->ob.dbase = (void *) dbase;
++  entry->ob.u.single = eh_frame;
++  entry->ob.s.b.encoding = DW_EH_PE_omit;
++  count = classify_object_over_fdes (&entry->ob, eh_frame, NULL);
++  if (count == 0 || count == (size_t) -1
++      || count > (C33_FDE_INDEX_BYTES - sizeof (struct fde_vector))
++                 / sizeof (const fde *))
++    return NULL;
++  bytes = sizeof (struct fde_vector) + count * sizeof (const fde *);
++
++  while (c33_fde_cache_bytes + bytes > C33_FDE_CACHE_BYTES)
++    {
++      struct c33_fde_cache_entry *oldest = NULL;
++      for (i = 0; i < C33_FDE_CACHE_ENTRIES; i++)
++        if (c33_fde_cache[i].bytes
++            && (!oldest || c33_fde_cache[i].used < oldest->used))
++          oldest = &c33_fde_cache[i];
++      c33_fde_cache_release (oldest);
++    }
++
++  entry->ob.s.b.count = count;
++  init_object (&entry->ob);
++  if (!entry->ob.s.b.sorted)
++    return NULL;  /* malloc failed: retain the existing linear fallback. */
++  entry->bytes = bytes;
++  c33_fde_cache_bytes += bytes;
++  /* init_object's temporary sort vector is freed before it returns: at
++     most 32 KiB retained plus 16 KiB scratch, allocated only on demand. */
++  return &entry->ob;
++}
++#endif
++
+ #ifndef PT_GNU_EH_FRAME
+ #define PT_GNU_EH_FRAME (PT_LOOS + 0x474e550)
+ #endif
+@@ -115,6 +222,10 @@
+ #endif
+   const struct unw_eh_frame_hdr *hdr;
+   int check_cache;
++#ifdef C33_FDPIC_FDE_CACHE
++  struct dwarf_eh_bases *bases;
++  const fde *entry;
++#endif
+ };
+ 
+ /* Returns DATA->dbase if available, else NULL.  */
+@@ -184,6 +295,10 @@
+   return 0;
+ #endif
+ }
++
++static const fde *find_fde_tail (_Unwind_Ptr,
++                                const struct unw_eh_frame_hdr *,
++                                _Unwind_Ptr, struct dwarf_eh_bases *, int);
+ 
+ static int
+ _Unwind_IteratePhdrCallback (struct dl_phdr_info *info, size_t size, void *ptr)
+@@ -213,6 +328,9 @@
+     };
+ 
+   match = 0;
++#ifdef C33_FDPIC_FDE_CACHE
++  int cacheable = size >= sizeof (struct ext_dl_phdr_info);
++#endif
+   phdr = info->dlpi_phdr;
+   load_base = info->dlpi_addr;
+   p_eh_frame_hdr = NULL;
+@@ -270,6 +388,9 @@
+ 	}
+       else
+ 	{
++#ifdef C33_FDPIC_FDE_CACHE
++          c33_fde_cache_clear ();
++#endif
+ 	  adds = einfo->dlpi_adds;
+ 	  subs = einfo->dlpi_subs;
+ 	  /* Initialize the cache.  Create a chain of cache entries,
+@@ -380,6 +501,11 @@
+ # endif
+ #endif
+ 
++#ifdef C33_FDPIC_FDE_CACHE
++  data->entry = find_fde_tail (data->pc, data->hdr,
++                               unw_eh_callback_data_dbase (data),
++                               data->bases, cacheable);
++#endif
+   return 1;
+ }
+ 
+@@ -391,7 +517,8 @@
+ find_fde_tail (_Unwind_Ptr pc,
+ 	       const struct unw_eh_frame_hdr *hdr,
+ 	       _Unwind_Ptr dbase,
+-	       struct dwarf_eh_bases *bases)
++	       struct dwarf_eh_bases *bases,
++               int cacheable __attribute__ ((unused)))
+ {
+   const unsigned char *p = (const unsigned char *) (hdr + 1);
+   _Unwind_Ptr eh_frame;
+@@ -520,7 +647,14 @@
+   ob.u.single = (fde *) eh_frame;
+   ob.s.i = 0;
+   ob.s.b.mixed_encoding = 1;  /* Need to assume worst case.  */
+-  const fde *entry = linear_search_fdes (&ob, (fde *) eh_frame, (void *) pc);
++  const fde *entry;
++#ifdef C33_FDPIC_FDE_CACHE
++  struct object *indexed = cacheable ? c33_fde_index ((fde *) eh_frame, dbase) : NULL;
++  if (indexed)
++    entry = search_object (indexed, (void *) pc);
++  else
++#endif
++    entry = linear_search_fdes (&ob, (fde *) eh_frame, (void *) pc);
+   if (entry != NULL)
+     {
+       _Unwind_Ptr func;
+@@ -558,7 +692,7 @@
+ # else
+ 			    0,
+ # endif
+-			    bases);
++			    bases, 0);
+     else
+       return NULL;
+     }
+@@ -569,12 +703,20 @@
+   data.dbase = NULL;
+ #endif
+   data.check_cache = 1;
++#ifdef C33_FDPIC_FDE_CACHE
++  data.bases = bases;
++  data.entry = NULL;
++#endif
+ 
+   if (dl_iterate_phdr (_Unwind_IteratePhdrCallback, &data) <= 0)
+     return NULL;
+ 
++#ifdef C33_FDPIC_FDE_CACHE
++  return data.entry;
++#else
+   _Unwind_Ptr dbase = unw_eh_callback_data_dbase (&data);
+-  return find_fde_tail ((_Unwind_Ptr) pc, data.hdr, dbase, bases);
++  return find_fde_tail ((_Unwind_Ptr) pc, data.hdr, dbase, bases, 0);
++#endif
+ }
+ 
+ #else
