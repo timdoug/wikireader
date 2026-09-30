@@ -9,5 +9,6 @@ int main(void)
 	DEFINE(TASK_THREAD, offsetof(struct task_struct, thread));
 	DEFINE(THREAD_KSP, offsetof(struct thread_struct, ksp));
 	DEFINE(THREAD_PSR, offsetof(struct thread_struct, psr));
+	DEFINE(THREAD_TLS, offsetof(struct thread_struct, tls));
 	return 0;
 }

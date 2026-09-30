@@ -11,6 +11,9 @@ SYM_FUNC_START(__c33_switch_to)
 	ld.w %r4,%r6
 	xld.w %r10,c33_current_task
 	xld.w [%r10],%r7
+	xld.w %r11,[%r7+TASK_THREAD+THREAD_TLS]
+	xld.w %r10,c33_current_tls
+	ld.w [%r10],%r11
 	xld.w %r10,[%r7+TASK_THREAD+THREAD_KSP]
 	ld.w %sp,%r10
 	/* Its own interrupt level, and interrupts still off. */

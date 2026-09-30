@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <asm/page.h>
 #include <asm/thread_info.h>
+#include <uapi/asm/tls.h>
 #include <asm-generic/vmlinux.lds.h>
 
 OUTPUT_FORMAT("elf32-c33")
@@ -8,6 +9,7 @@ OUTPUT_ARCH(c33)
 ENTRY(_start)
 
 jiffies = jiffies_64;
+c33_current_tls = C33_TLS_SLOT_ADDRESS;
 
 SECTIONS
 {

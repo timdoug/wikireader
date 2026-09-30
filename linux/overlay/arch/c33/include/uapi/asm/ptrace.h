@@ -21,4 +21,8 @@ struct pt_regs {
 #define PTRACE_GETFDPIC_EXEC	0
 #define PTRACE_GETFDPIC_INTERP	1
 
+/* Read/write the TLS base as a word at DATA; ADDR must be zero. */
+#define PTRACE_GET_THREAD_AREA	25
+#define PTRACE_SET_THREAD_AREA	26
+
 #endif

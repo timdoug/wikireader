@@ -7,5 +7,8 @@
 struct pt_regs;
 
 asmlinkage long c33_sys_rt_sigreturn(void);
+asmlinkage long sys_c33_set_tls(unsigned long tls);
+asmlinkage long sys_c33_get_tls(void);
+asmlinkage long sys_c33_get_tls_slot(void);
 
 #endif

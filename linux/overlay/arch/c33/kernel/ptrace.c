@@ -4,6 +4,7 @@
 #include <linux/regset.h>
 #include <linux/sched.h>
 #include <linux/sched/task_stack.h>
+#include <linux/uaccess.h>
 
 static int c33_gpr_get(struct task_struct *target,
 		       const struct user_regset *regset, struct membuf to)
@@ -52,5 +53,20 @@ void ptrace_disable(struct task_struct *child)
 long arch_ptrace(struct task_struct *child, long request, unsigned long addr,
 		 unsigned long data)
 {
+	unsigned long tls;
+
+	switch (request) {
+	case PTRACE_GET_THREAD_AREA:
+		if (addr != 0)
+			return -EINVAL;
+		return put_user(child->thread.tls, (unsigned long __user *)data);
+	case PTRACE_SET_THREAD_AREA:
+		if (addr != 0)
+			return -EINVAL;
+		if (get_user(tls, (unsigned long __user *)data))
+			return -EFAULT;
+		child->thread.tls = tls;
+		return 0;
+	}
 	return ptrace_request(child, request, addr, data);
 }

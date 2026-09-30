@@ -23,6 +23,8 @@ struct thread_struct {
 	unsigned long psr;
 	/* The bottom of an FDPIC program's stack, or 0: see c33_exception_enter. */
 	unsigned long stack_lo;
+	/* Userspace TLS base; published on each switch, without reserving a GPR. */
+	unsigned long tls;
 };
 
 #define INIT_THREAD { .ksp = 0, .usp = 0, .regs = NULL, .in_kernel = 1, .psr = 0, .stack_lo = 0 }
@@ -31,6 +33,7 @@ struct task_struct;
 extern void start_thread(struct pt_regs *regs, unsigned long pc,
 			 unsigned long sp);
 extern unsigned long __get_wchan(struct task_struct *p);
+extern unsigned long c33_current_tls;
 
 #define task_pt_regs(task) ((struct pt_regs *)(THREAD_SIZE + task_stack_page(task)) - 1)
 #define KSTK_EIP(task) ((task)->thread.regs ? (task)->thread.regs->pc : 0)

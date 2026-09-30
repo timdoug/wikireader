@@ -9,6 +9,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched/task_stack.h>
 #include <linux/string.h>
+#include <linux/syscalls.h>
 
 #include <asm/processor.h>
 #include <asm/wikireader.h>
@@ -20,6 +21,35 @@
 #define C33_STRINGIFY(value)     C33_STRINGIFY_(value)
 
 struct task_struct *c33_current_task = &init_task;
+
+/*
+ * C33 has no hardware TLS register.  On this uniprocessor NOMMU machine,
+ * userspace can read this word at its fixed address and obtain its TLS base
+ * without a syscall or consuming one of the four callee-saved general registers.
+ * The switch publishes it with interrupts disabled, alongside current.
+ */
+/* Defined at the fixed ABI address by vmlinux.lds.S, outside the allocator. */
+
+SYSCALL_DEFINE1(c33_set_tls, unsigned long, tls)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	current->thread.tls = tls;
+	WRITE_ONCE(c33_current_tls, tls);
+	local_irq_restore(flags);
+	return 0;
+}
+
+SYSCALL_DEFINE0(c33_get_tls)
+{
+	return current->thread.tls;
+}
+
+SYSCALL_DEFINE0(c33_get_tls_slot)
+{
+	return (unsigned long)&c33_current_tls;
+}
 
 asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs);
 asmlinkage struct pt_regs *c33_exception_exit(struct pt_regs *regs);
@@ -136,6 +166,12 @@ void show_stack(struct task_struct *task, unsigned long *stack,
 
 void flush_thread(void)
 {
+	unsigned long flags;
+
+	local_irq_save(flags);
+	current->thread.tls = 0;
+	WRITE_ONCE(c33_current_tls, 0);
+	local_irq_restore(flags);
 }
 
 void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
@@ -177,6 +213,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	p->thread.ksp = (unsigned long)switch_sp;
 	p->thread.in_kernel = 1;
 	p->thread.psr = 0;
+	if (args->flags & CLONE_SETTLS)
+		p->thread.tls = args->tls;
 	/* A thread's stack is wherever its creator put it. */
 	if (args->stack && (args->flags & CLONE_VM) && !(args->flags & CLONE_VFORK))
 		p->thread.stack_lo = 0;

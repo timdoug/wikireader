@@ -64,13 +64,24 @@ static int trace_test(const char *self)
 	if (pid <= 0)
 		return 0;
 	while (waitpid(pid, &status, 0) == pid && WIFSTOPPED(status) &&
-	       stops < 64) {
+	       stops < 512) {
 		stops++;
+		unsigned long tls;
+		/* The debugger ABI must expose the stopped child's TLS, not ours.
+		 * Write the same value back so tracing leaves the child untouched. */
+		if (ptrace(PTRACE_GET_THREAD_AREA, pid, 0, &tls) != 0 ||
+		    ptrace(PTRACE_SET_THREAD_AREA, pid, 0, &tls) != 0)
+			break;
 		if (ptrace(PTRACE_SYSCALL, pid, 0, 0) != 0)
 			break;
 	}
-	return stops > 2 && WIFEXITED(status) &&
-	       WEXITSTATUS(status) == CHILD_STATUS;
+	int passed = stops > 2 && WIFEXITED(status) &&
+		     WEXITSTATUS(status) == CHILD_STATUS;
+	if (!WIFEXITED(status) && !WIFSIGNALED(status)) {
+		kill(pid, SIGKILL);
+		waitpid(pid, &status, 0);
+	}
+	return passed;
 }
 
 static void signal_handler(int signal)

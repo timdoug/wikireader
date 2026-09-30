@@ -22,7 +22,8 @@
 #define __ASM_C33_IRAM_H
 
 #define C33_IRAM_START	0x00000c00
-#define C33_IRAM_END	0x00001fc0
+#include <uapi/asm/tls.h>
+#define C33_IRAM_END	C33_TLS_SLOT_ADDRESS
 
 #include <linux/compiler.h>
 #include <linux/types.h>

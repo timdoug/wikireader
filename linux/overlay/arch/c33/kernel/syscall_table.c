@@ -12,5 +12,5 @@
 
 void *const c33_sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls - 1] = sys_ni_syscall,
-#include <uapi/asm-generic/unistd.h>
+#include <uapi/asm/unistd.h>
 };
