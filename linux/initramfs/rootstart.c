@@ -217,13 +217,15 @@ static void mount_kernel_fs(void)
 		{ "devpts", "/newroot/dev/pts", 0 },
 		{ "tmpfs", "/newroot/tmp", "mode=1777" },
 		{ "tmpfs", "/newroot/run", "mode=0755" },
+		{ "tmpfs", "/newroot/dev/shm", "mode=1777" },
+		{ "mqueue", "/newroot/dev/mqueue", 0 },
 	};
 	unsigned int i;
 	long error;
 
 	for (i = 0; i < sizeof(fs) / sizeof(fs[0]); i++) {
-		/* devtmpfs has no pts directory of its own. */
-		if (i == 3)
+		/* These directories live on the newly mounted devtmpfs. */
+		if (i == 3 || i > 5)
 			sys(NR_mkdirat, AT_FDCWD, fs[i][1], 0755, 0, 0);
 		error = sys(NR_mount, fs[i][0], fs[i][1], fs[i][0],
 			    i > 3 ? MS_NOSUID | MS_NODEV : 0, (long)fs[i][2]);

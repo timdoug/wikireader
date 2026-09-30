@@ -465,6 +465,38 @@ and four threads contending on counters and a 24-byte aggregate spanning
 the runtime's lock-table boundary. The C++ test includes contended 64-bit
 `std::atomic` operations too.
 
+Local IPC is available through POSIX shared memory and message queues and
+System V shared memory, semaphores and messages. `rootstart` mounts
+`/dev/shm` and `/dev/mqueue` with sticky, world-writable directories and
+`nosuid,nodev`; `fstab` records them too. The NOMMU kernel uses its small
+ramfs-backed implementation for `tmpfs`, including shared mappings. It has
+no swap or tmpfs size quotas: allocate bounded buffers, truncate a new
+shared-memory object to its final size before mapping it, and unlink it
+when finished. A shared mapping needs contiguous physical memory, so it
+can fail under fragmentation even when total free memory looks sufficient.
+
+Link programs using `shm_open` or `mq_*` with `-lrt`. System V IPC is in
+libc; BusyBox provides `ipcs` and `ipcrm` to inspect and remove its objects.
+The C33 libc patch makes the split-time kernel IPC structures match its
+64-bit `time_t` ABI, and converts timestamps only for successful stat
+commands, avoiding writes beyond the shorter information structures.
+LinuxThreads still does not support process-shared POSIX semaphores or
+mutexes; use System V semaphores, message queues or kernel futexes for
+cross-process synchronization. The process-private libatomic fallback is
+also unsuitable for this purpose.
+The kernel patch forwards the backing file's NOMMU mapping capabilities
+through the System V shared-memory wrapper; without it `shmat` rejects
+the ramfs-backed segment with `ENODEV`.
+
+`libc` builds `linux/artifacts/ipc-test`, which `app-test` runs from the
+card. Two independently executed processes perform 64 round trips of a
+4 KB buffer through each shared-memory API: POSIX queues synchronize one
+exchange and System V semaphores the other. It also checks zeroed memory,
+close-on-exec, unlink/removal while mapped, IPC statistics and time64,
+three-argument and integer-argument `semctl`, message priority ordering,
+nonblocking and timed receive, and information-buffer bounds. X's MIT-SHM
+extension remains disabled; enabling and measuring it is separate work.
+
 `libc` also builds `linux/artifacts/cxx-test`, which `app-test` runs from the
 card after the thread test: exceptions through 40 frames with callee-saved
 registers restored, through a 3 KB frame, rethrown, carried in an

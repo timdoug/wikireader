@@ -1,0 +1,41 @@
+Forward backing-file mapping capabilities through the System V shm
+wrapper, so NOMMU shmat can use the direct ramfs-backed shared mapping.
+
+diff --git a/ipc/shm.c b/ipc/shm.c
+--- a/ipc/shm.c
++++ b/ipc/shm.c
+@@ -659,8 +659,24 @@
+ 						pgoff, flags);
+ }
+ 
++#ifndef CONFIG_MMU
++/* The wrapper must preserve the backing file's direct mapping support.
++ * Without this, NOMMU assumes an ordinary file and rejects MAP_SHARED. */
++static unsigned int shm_mmap_capabilities(struct file *file)
++{
++	struct shm_file_data *sfd = shm_file_data(file);
++
++	if (!sfd->file->f_op->mmap_capabilities)
++		return 0;
++	return sfd->file->f_op->mmap_capabilities(sfd->file);
++}
++#endif
++
+ static const struct file_operations shm_file_operations = {
+ 	.mmap		= shm_mmap,
++#ifndef CONFIG_MMU
++	.mmap_capabilities = shm_mmap_capabilities,
++#endif
+ 	.fsync		= shm_fsync,
+ 	.release	= shm_release,
+ 	.get_unmapped_area	= shm_get_unmapped_area,
+@@ -674,6 +690,9 @@
+  */
+ static const struct file_operations shm_file_operations_huge = {
+ 	.mmap		= shm_mmap,
++#ifndef CONFIG_MMU
++	.mmap_capabilities = shm_mmap_capabilities,
++#endif
+ 	.fsync		= shm_fsync,
+ 	.release	= shm_release,
+ 	.get_unmapped_area	= shm_get_unmapped_area,

@@ -109,6 +109,7 @@ def main():
     pthread_test = require(root / "linux/artifacts/pthread-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
+    ipc_test = require(root / "linux/artifacts/ipc-test")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
     fat = load_fat_helper(root)
@@ -131,6 +132,7 @@ def main():
             "pthtest.bin": pthread_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
+            "ipctest.bin": ipc_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the
             # only thing on this machine that can supply one, and it comes
@@ -147,6 +149,7 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("/mnt/sd/pthtest.bin && /mnt/sd/atomtest.bin && "
+                              "/mnt/sd/ipctest.bin && ipcs -a && "
                               "/mnt/sd/cxxtest.bin && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
@@ -179,6 +182,7 @@ def main():
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "PTHREAD PASS",
             "ATOMIC PASS",
+            "IPC PASS",
             "CXX PASS",
             "C33 LINUX APP PASS",
             "application returned: 2",
@@ -191,7 +195,7 @@ def main():
             raise SystemExit("Launcher Linux regression failed; missing: " +
                              ", ".join(missing or ["second launcher boot"]))
 
-    print("Userspace passed: pthreads, C11/GCC atomics and C++")
+    print("Userspace passed: pthreads, C11/GCC atomics, cross-process IPC and C++")
     print("Launcher Linux passed: Grifo menu -> linux.app -> BusyBox -> "
           "reboot -> Grifo menu")
     suspend_run(root, emulator, files, make_flash, fat)

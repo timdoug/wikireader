@@ -101,6 +101,11 @@ mkdir -p "$root/linux/artifacts"
 	-o "$build_dir/pthread-test"
 cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 
+# Independently executed processes share buffers and kernel IPC objects.
+"${cross}gcc" -std=gnu11 -Os -Wall -Werror -pthread \
+	"$root/linux/uclibc/ipc-test.c" -lrt -o "$build_dir/ipc-test"
+cp "$build_dir/ipc-test" "$root/linux/artifacts/ipc-test"
+
 libc_bytes=$(cat "$sysroot"/lib/libuClibc-*.so | wc -c)
 printf '%s\n' "C33 libc.so: $libc_bytes bytes"
 "${cross}size" "$build_dir/uclibc-smoke" "$build_dir/uclibc-smoke-static"
