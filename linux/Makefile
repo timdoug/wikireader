@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test core-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test shell
 
 vm:
 	./vm.sh
@@ -32,6 +32,9 @@ boot-test:
 
 app-test: build
 	./app-test.py
+
+signal-test: build
+	python3 ./signal-test.py
 
 core-test: build
 	$(SHELL_IN_VM) ./linux/debug/build.sh

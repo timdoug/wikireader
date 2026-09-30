@@ -7,6 +7,7 @@
 #include <linux/sched/signal.h>
 #include <linux/signal.h>
 #include <linux/uaccess.h>
+#include <linux/unistd.h>
 
 #include <asm/ptrace.h>
 #include <asm/syscall.h>
@@ -173,7 +174,11 @@ static void c33_restart_syscall(struct pt_regs *regs,
 		return;
 	}
 
-	regs->r[4] = regs->orig_r4;
+	/* Timed waits save an absolute deadline in the restart block. Calling
+	 * the original syscall again would start a fresh relative timeout,
+	 * including after SIGSTOP/SIGCONT with no userspace handler. */
+	regs->r[4] = regs->r[4] == -ERESTART_RESTARTBLOCK ?
+		__NR_restart_syscall : regs->orig_r4;
 	regs->pc -= 2;
 }
 

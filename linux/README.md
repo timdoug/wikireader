@@ -82,6 +82,18 @@ stepped through several `PTRACE_SYSCALL` stops before it reaches its exit
 status, instead of running straight there. Last, it checks the C library's
 start, `printf()`, `getpid()` and `setjmp()`/`longjmp()`.
 
+The separate signal regression checks interrupted reads with and without
+`SA_RESTART`, asynchronous return to userspace instructions with live
+registers and TLS, interrupted relative and absolute sleeps, and `ppoll`.
+Nested `SA_ONSTACK` handlers verify the alternate stack, `SA_SIGINFO`
+payloads, `ucontext` signal masks, and mask restoration on `rt_sigreturn`.
+Independently executed children are stopped and continued during timed
+waits. Restart-block waits enter `restart_syscall`, preserving the original
+deadline instead of starting a new relative timeout. A 600 ms sleep that
+took about 958 ms before this fix now takes about 603 ms in wremu.
+`ppoll` retains Linux's different behavior, excluding time spent stopped.
+The same regression also runs on native Linux to check these expectations.
+
 With a serial adapter attached, `earlycon=s1c33,mmio,0x300b00` reports through
 the standard early console from the first parsed parameter until `ttyC0`
 takes over and the boot console hands off.
@@ -456,6 +468,7 @@ make -C linux rootfs
 make -C linux build
 make -C linux boot-test
 make -C linux app-test
+make -C linux signal-test
 ```
 
 `fetch` reconstructs the pinned upstream kernel, uClibc-ng and Buildroot
@@ -466,6 +479,11 @@ in `linux/artifacts/`, along with the stripped `linux.app` and its Tux launcher
 icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
 requires Linux and BusyBox to start, then uses the standard reboot syscall and
 requires Grifo's watchdog reset to return to the menu.
+
+`app-test` includes the signal regression. To run it alone against already
+built artifacts, use `python3 linux/signal-test.py`; its boot log is saved
+in `linux/artifacts/signal-test-run/`. `--kernel` and `--binary` select saved
+builds for comparisons, and `--output` selects a separate log directory.
 
 `libc` builds a no-MMU C33 uClibc-ng, shared and static, with `ld.so`, the
 native asm-generic syscall ABI and time64 interfaces, and installs it with
