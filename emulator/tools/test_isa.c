@@ -400,6 +400,30 @@ static void debug_exception(void)
 	check("pending interrupt is accepted after retd", c.irqs_taken, 1);
 }
 
+static void prefix_profile(void)
+{
+	struct c33 c = init(0xc000);         /* ext 0; ext 0; ld.w %r0,0 */
+	unsigned long counts[256] = {0};
+	uint32_t samples[256] = {0};
+	uint64_t clocks[256] = {0}, fetch[256] = {0};
+	tw(NULL, ENTRY + 2, 2, 0xc000);
+	tw(NULL, ENTRY + 4, 2, 0x6c00);
+	c.pc_profile = true;
+	c.pcbuckets = counts;
+	c.pcsample = samples;
+	c.pcclk = clocks;
+	c.pcfetch = fetch;
+	uint64_t before = c.clk;
+	c33_step(&c);
+	unsigned bucket = C33_PCBUCKET(ENTRY);
+	check("prefix PC profile includes its MCLK cycles", clocks[bucket], c.clk - before);
+	before = c.clk;
+	c33_step(&c);
+	check("second prefix PC profile includes its MCLK cycles", clocks[bucket + 1], c.clk - before);
+	c33_step(&c);
+	check("PC profile cycle sum agrees with execution", clocks[bucket] + clocks[bucket + 1] + clocks[bucket + 2], c.clk);
+}
+
 int main(void)
 {
 	arithmetic();
@@ -412,6 +436,7 @@ int main(void)
 	jumps();
 	debug_exception();
 	sleep_modes();
+	prefix_profile();
 	if (fails) {
 		printf("\nFAILURES: %d\n", fails);
 		return 1;

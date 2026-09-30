@@ -344,8 +344,71 @@ scratch:
   sequence saves `%psr`, masks interrupts with `psrclr 4`, does its load and
   store, and restores `%psr`. That is atomic on a single core, and the C33 has
   no privilege level that would stop user code masking interrupts. GCC builds
-  every operation from the compare-and-swap and exchange patterns. 8-byte
-  atomics are library calls, and nothing provides them yet.
+  every operation from the compare-and-swap and exchange patterns. Larger
+  operations use the Linux toolchain's static `libatomic`, with pthread
+  mutexes; they are not lock-free or process-shared.
+
+## Native Linux TLS
+
+Linux uses ELF TLS with uClibc-ng NPTL. The general-register calling convention
+is unchanged: `%r2` remains callee-saved and available to the allocator. The
+bare-metal compiler continues to use GCC's emulated TLS.
+
+The thread pointer is read inline from the aligned A0 RAM word at
+`0x00001fbc`, reserved by the kernel outside the IRAM allocator. GCC emits
+`xld.w %rN,0x1fbc; ld.w %rN,[%rN]` and can combine or hoist reads within
+a thread. libc uses the same builtin for `THREAD_SELF` and the DTV.
+`__c33_read_tp()` remains as a compatibility wrapper; syscall 246
+(`c33_get_tls_slot`) returns the fixed address. Context switches publish
+the incoming thread's TLS base with interrupts disabled. On this UP NOMMU
+machine, an aligned read returns the caller's TP
+even if it is preempted between loads. Syscall 244 (`c33_set_tls`) sets TP;
+245 (`c33_get_tls`) reads it. `CLONE_SETTLS` initializes the child's TP;
+otherwise clone inherits it. Exec clears TP before the new loader initializes
+it. `PTRACE_GET_THREAD_AREA` and `PTRACE_SET_THREAD_AREA` use index zero and
+a pointer to a 32-bit word.
+
+The variant-I TCB at TP contains a DTV pointer and a private word (8 bytes),
+with `struct pthread` immediately before it. The first static TLS block
+starts at `align_up(8, PT_TLS.p_align)` relative to TP. Each subsequent
+module's placement is chosen by ld.so. TLS symbol values are offsets within
+their module's template, including the valid offset zero.
+
+| Relocation | Value |
+|---|---|
+| `R_C33_TLS_DTPMOD32` (35), `tlsmod(symbol)` | Module's DTV ID |
+| `R_C33_TLS_DTPREL32` (36), `tlsoff(symbol)` | Offset within that module's TLS |
+| `R_C33_TLS_TPREL32` (37), `tlsie(symbol)` | Offset from TP, resolved by ld.so |
+| `R_C33_TLS_LE32` (38), `tlsle(symbol)` | Executable's offset from TP, resolved by ld |
+
+Local-exec and initial-exec add an offset to the inline TP read.
+Initial-exec offsets for an executable's own locally bound TLS resolve
+at link time; imported offsets are dynamic relocations.
+Global-dynamic passes a `{module, offset}` pair to `__tls_get_addr`.
+Local-dynamic uses `{this module, 0}` (`tlsmod(0), 0`), giving all variables
+in a function a common base lookup, followed by link-time `tlsoff` offsets.
+`.tdata`/`.tbss` form `PT_TLS`; ordinary address
+relocation and FDPIC load-map translation must never handle TLS offsets.
+
+FDPIC shared-library unwind tables retain absolute runtime relocations;
+ld must not turn pointers from data to independently loaded code into
+PC-relative encodings. Dynamic modules carry an eight-byte
+`PT_GNU_EH_FRAME` header in the data segment, pointing to `.eh_frame`
+without a data-relative search table (text and data map independently).
+The optional shared `libgcc_s.so.1` unwinder discovers frames through
+`dl_iterate_phdr`; libc loads it on the first cancellation. Ordinary
+C links use `--as-needed` and do not require it at startup. Static links
+use `crtbeginT` and explicit registration in the static unwinder. The
+unwinder recognizes the kernel's `rt_sigreturn` trampoline and restores
+registers from the signal frame, so cancellation can unwind a signal handler.
+
+C33/uClibc FDPIC modules without linker search tables get lazy sorted FDE
+indexes. Index lookup and mutation run within the serialized
+`dl_iterate_phdr` callback, and loader add/remove generations clear stale
+pointers. Four cache entries retain at most 32 KiB; a single index is limited
+to 16 KiB, with at most that much temporary sorting storage. Allocation
+failure or larger modules retain the original linear lookup. Static frame
+registration keeps libgcc's existing indexing path.
 
 ## Condition codes
 

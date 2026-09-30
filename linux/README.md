@@ -315,7 +315,11 @@ linker puts first in `.rela.dyn` and counts in `DT_RELACOUNT`, and `ld.so`
 runs them through a loop of their own that relocates an address with one
 comparison instead of a search of the load map. A symbol named by many
 relocations, such as `__stack_chk_guard` in 218 of BusyBox's, is looked up
-once a module. Calls through the `.plt` are bound at their first call.
+once a module. TLS relocations reuse the same cache, including symbols at
+offset zero: libc's 401 references to `errno` need just one lookup. This
+cut single-threaded `/bin/true` spawn/exec/wait from about 119 ms to 94 ms
+in wremu, with 62 extra bytes of loader code and no extra cache memory.
+Calls through the `.plt` are bound at their first call.
 Libraries bind as ELF has them, without `-Bsymbolic`: a program may define a
 function a library also defines, and the library then calls the program's. Without an MMU there is
 nothing for RELRO to protect, so the image is built without it, which would
@@ -472,17 +476,70 @@ Every program start sets a stack-protector guard from the clock
 default of reading `/dev/urandom` would make the first program at boot wait
 3.4 s for the kernel's random pool.
 
-The library includes POSIX threads through LinuxThreads, the uClibc
-implementation that works without an MMU and without native ELF TLS.
-The C33 port supplies `clone.S` and a `testandset` that masks interrupts for
-its load and store. That is atomic on a single core, and the C33 has no
-privilege level that would stop user code masking them. The thread library
-is part of libc, about 22 KB of its shared text, and about 4 KB of every
-process's data once the port caps threads and thread-specific keys at their
-POSIX minimums (64 and 128) instead of 1024 each. `libc` also builds
-`linux/artifacts/pthread-test`. `app-test` runs it from the SD card: a
-contended mutex, per-thread `errno`, condition variables, semaphores,
-`pthread_once` and thread-specific data.
+The library includes NPTL and native ELF TLS on the NOMMU C33. Threads share
+one process ID and have separate kernel thread IDs, with `CLONE_SETTLS`,
+futex joins, per-thread `errno` and compiler `__thread` variables. All four
+ELF TLS models work in executables and shared libraries, including modules
+loaded with `dlopen` after threads have started. The general-register ABI
+is unchanged: no register is reserved for TLS. GCC and libc read the
+current TP inline from a reserved word at `0x00001fbc` in on-chip A0 RAM.
+The compiler build copies its definition from the kernel's `asm/tls.h`,
+so code generation and the kernel use the same ABI constant.
+Reading the thread pointer needs neither a helper call nor a syscall;
+dynamic TLS still uses `__tls_get_addr` to find its module's allocation.
+The ABI and relocations are in `host-tools/toolchain-c33/gcc/ABI.md`.
+
+Default worker stacks are 64 KB; the stack cache retains at most 256 KB,
+instead of the upstream 16 MB default. Stack guards cannot protect memory
+on this machine. NPTL uses the backend's interrupt-masking inline atomics
+and kernel futexes, and remains part of libc. Cancellation uses shared
+`libgcc_s.so.1`, loaded on the first cancellation in ordinary C programs;
+C++ programs that need exception handling load it at startup.
+The unwinder discovers module frames through
+`dl_iterate_phdr` and small `PT_GNU_EH_FRAME` headers.
+FDPIC frame lookup lazily builds sorted indexes inside the serialized
+program-header callback. It caches four modules, retains at most 32 KiB
+of indexes, and uses at most another 16 KiB while sorting. Loader add/remove
+generations invalidate the cache; allocation failures and oversized tables
+fall back to linear scanning. Repeated libstdc++ throws in the emulator
+fell from about 10.9 ms to 4.0 ms, with about 100 ms spent indexing on the
+first throw of the large C++ test. Ordinary C processes do not pay this cost
+until they request unwinding. `libc` builds the optional runtime after
+installing libc, then installs it in the sysroot.
+`rootfs` includes the runtime and matching host symbols automatically.
+The post-runtime build checks that the arithmetic archive contains no
+unwind objects and that the dynamic C++ test uses the shared unwinder.
+Contended spinlocks yield on this single core instead of spinning until
+the scheduler preempts them; ordinary mutexes remain the usual choice.
+
+`python3 linux/runtime-bench.py` measures mutex lock/unlock and actual
+`/bin/true` spawn/exec/wait through Grifo. Its `--image`, `--kernel` and
+`--binary` options allow comparison against saved builds; emulator timings
+are diagnostics rather than hardware performance guarantees.
+Use `--argument=--single` to leave the benchmark process single-threaded.
+With `--profile-workload exec --profile linux/artifacts/exec-profile`,
+capture the 32 spawn/exec/wait iterations instead of the mutex loop;
+pass `--iterations 32` to `profile-report.py` for that capture.
+Use `--profile linux/artifacts/mutex-profile` to capture just the marked
+mutex loop, then `python3 linux/profile-report.py linux/artifacts/mutex-profile`
+to attribute its instructions, MCLK cycles and fetch waits using guest
+load addresses and matching ELF symbols. For exceptions, use
+`--binary linux/artifacts/cxx-test --argument=--bench`; its profile window
+covers repeated throws through four extra frames. Pass the same `--binary`
+and `--iterations 32` to `profile-report.py` for that capture. Keep the
+benchmark ELF and `linux/artifacts/symbols` from the profiled build.
+
+`libc` builds `linux/artifacts/pthread-test`, `pthread-test-static` and
+`nptl-test`, with two small TLS libraries. `app-test` runs them from the
+SD card: contended mutexes,
+condition variables, semaphores, once initialization, thread-specific data
+and destructors, TLS initialization/alignment/isolation, thread identity,
+signals, robust mutex owner-death recovery, cancellation cleanup,
+contended spinlocks and exec clearing TP before libc initializes it.
+The suspend regression starts two threads before s2idle, blocks on the
+touchscreen without a timer, then checks their original thread pointers,
+TLS values and `errno` after touch wakes the machine. The C++ regression
+also throws through a shared library across repeated `dlopen`/`dlclose`.
 
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
 are about 8 KB of libc's text. `libc` then builds libstdc++
@@ -497,33 +554,35 @@ library to install on the card: only used code is linked into a program.
 Buildroot recognizes the C33 FDPIC toolchain as providing libatomic, so
 packages requiring atomic intrinsics can be selected.
 
-C++ exceptions unwind with the DWARF tables, which cost nothing until
-something throws. The tables hold absolute addresses, so they live in the
-data segment, where the loader relocates them, and `crtbegin.o` registers
-each module's `.eh_frame` with libgcc's unwinder. A personality routine is
+C++ exceptions unwind with DWARF tables. The tables hold absolute
+addresses, so they live in the data segment, where the loader relocates
+them. Dynamic modules use program-header discovery; static programs
+register their frames with `crtbeginT.o`. A personality routine is
 reached through a word holding its function descriptor. `.eh_frame` is an output section of its own after `.data`; placed
 inside `.data`, ld's `--gc-sections` editing of it emits relocations at the
 wrong offsets. A C program carries about 500 bytes of unwind tables from
-libgcc. C++ costs far more: `cxx-test` has 765 KB of shared text and, per
-process, 73 KB of unwind tables and 60 KB of other data, mostly vtables,
-typeinfo and locale tables. Threads call pthreads directly: uClibc-ng claims
+libgcc. C++ also carries unwind tables, vtables, typeinfo and locale tables.
+Both libc and C++ use the shared unwinder so cancellation runs C++
+destructors. Ordinary arithmetic helpers remain in the static libgcc
+archive. Threads call pthreads directly: uClibc-ng claims
 to be glibc 2.2, so gthreads would otherwise judge a program threaded by a
-weak reference to `__pthread_key_create`, which LinuxThreads does not have
+weak reference to `__pthread_key_create`, which the earlier LinuxThreads did not have
 (`host-tools/toolchain-c33/gcc/patches/0003`). Atomics of up to 4 bytes are
-inline and lock-free, masking interrupts as `testandset` does.
+inline and lock-free, masking interrupts around their read/modify/write.
 The runtime supplies 64-bit operations and generic aggregate load, store,
 exchange and compare-exchange. These use GCC's POSIX pthread-mutex fallback
 and report that they are not lock-free; do not use them in signal handlers
 or assume the locks synchronize separate processes. This unblocks C11
 `_Atomic uint64_t`, C++ `std::atomic<uint64_t>` and wider atomic records,
-without requiring an MMU, native TLS or NPTL.
+without requiring an MMU.
 
 `libc` also builds `linux/artifacts/atomic-test`, run from the card by
 `app-test`: 64-bit arithmetic and bitwise operations, compare-exchange
 success and failure, carry across the 32-bit boundary, lock-free queries,
 and four threads contending on counters and a 24-byte aggregate spanning
 the runtime's lock-table boundary. The C++ test includes contended 64-bit
-`std::atomic` operations too.
+`std::atomic` operations, initialized `thread_local` values and destructors,
+and cancellation through a blocked semaphore wait with RAII cleanup.
 
 Local IPC is available through POSIX shared memory and message queues and
 System V shared memory, semaphores and messages. `rootstart` mounts
@@ -540,10 +599,10 @@ libc; BusyBox provides `ipcs` and `ipcrm` to inspect and remove its objects.
 The C33 libc patch makes the split-time kernel IPC structures match its
 64-bit `time_t` ABI, and converts timestamps only for successful stat
 commands, avoiding writes beyond the shorter information structures.
-LinuxThreads still does not support process-shared POSIX semaphores or
-mutexes; use System V semaphores, message queues or kernel futexes for
-cross-process synchronization. The process-private libatomic fallback is
-also unsuitable for this purpose.
+NPTL supplies process-shared POSIX mutexes, condition variables and
+semaphores through kernel futexes; place the objects in genuinely shared
+memory. The process-private libatomic fallback remains unsuitable for
+cross-process synchronization.
 The kernel patch forwards the backing file's NOMMU mapping capabilities
 through the System V shared-memory wrapper; without it `shmat` rejects
 the ramfs-backed segment with `ENODEV`.
@@ -556,6 +615,8 @@ close-on-exec, unlink/removal while mapped, IPC statistics and time64,
 three-argument and integer-argument `semctl`, message priority ordering,
 nonblocking and timed receive, and information-buffer bounds. X's MIT-SHM
 extension remains disabled; enabling and measuring it is separate work.
+Two independently executed processes also perform 64 round trips using
+process-shared pthread mutexes, condition variables and POSIX semaphores.
 
 `libc` also builds `linux/artifacts/cxx-test`, which `app-test` runs from the
 card after the thread test: exceptions through 40 frames with callee-saved

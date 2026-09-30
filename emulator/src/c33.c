@@ -946,6 +946,11 @@ void c33_step(struct c33 *c)
 		   the model ran it at 33.0, which is sixteen prefixes at one
 		   cycle each. */
 		c->clk += 1;
+		if (c->pc_profile) {
+			c->pcclk[bucket] += c->clk - clk0;
+			if (c->row_counter)
+				c->pcrows[bucket] += *c->row_counter - rows0;
+		}
 		return;
 
 	case OP_NOP:
