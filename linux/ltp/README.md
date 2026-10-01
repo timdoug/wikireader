@@ -360,3 +360,23 @@ live-thread suspend checks pass (`ltp-app-sync-gaps.log`). These runs reuse
 `ltp-rootfs-msync.img` and the default emulator through Grifo. The combined
 original-interface count remains **1,188/1,236**; this new regression is
 separate coverage, not another upstream pass.
+
+## Timerfd time64 output conversion
+
+The timerfd wrappers had the same layout mismatch previously fixed in POSIX
+timers: the kernel writes a 32-byte time64 itimerspec, while C33's public
+itimerspec occupies 24 bytes. Both timerfd_gettime and timerfd_settime's
+old-value output now use kernel-layout temporaries and copy the four fields
+only on success. Aliased input/output remains supported, the optional
+old-value pointer may be NULL, and the non-time64 path is unchanged.
+
+The new `c33_timerfd_layout/1-1` regression checks surrounding guard words,
+unarmed and active timer values, aliased input/output, seconds beyond
+INT32_MAX, and unchanged output on invalid-input/bad-descriptor errors.
+The same binary fails on `ltp-rootfs-msync.img` (`ltp-timerfd-before`) and
+passes on `ltp-rootfs-timerfd.img` (`ltp-port-timerfd-run`). It also passes
+with native glibc. All eleven local regressions and the normal application,
+launcher and live-thread suspend checks pass on the corrected fixture
+(`ltp-app-timerfd.log`), using `ltp-kernel-sync-gaps.app` through Grifo.
+This adds Linux-specific local coverage; it does not change the original
+Open POSIX pass count.

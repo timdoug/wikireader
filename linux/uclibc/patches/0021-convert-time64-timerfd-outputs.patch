@@ -1,0 +1,50 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] timerfd: convert time64 outputs to public itimerspec
+
+Kernel time64 nanosecond fields are wider than long on 32-bit targets.
+Direct writes corrupt the public output and adjacent memory. Receive
+outputs in kernel-layout temporaries and convert only on success, including
+the optional old-value output and aliased input/output of timerfd_settime.
+Keep the non-time64 syscall path unchanged.
+
+diff --git a/libc/sysdeps/linux/common/timerfd.c b/libc/sysdeps/linux/common/timerfd.c
+--- a/libc/sysdeps/linux/common/timerfd.c
++++ b/libc/sysdeps/linux/common/timerfd.c
+@@ -27,7 +27,16 @@
+ #if defined(__UCLIBC_USE_TIME64__) && defined(__NR_timerfd_settime64)
+ int timerfd_settime(int ufd, int flags, const struct itimerspec *utmr, struct itimerspec *otmr)
+ {
+-    return INLINE_SYSCALL(timerfd_settime64, 4, ufd, flags, TO_ITS64_P(utmr), otmr);
++    struct __its64_struct old;
++    int ret = INLINE_SYSCALL(timerfd_settime64, 4, ufd, flags,
++                             TO_ITS64_P(utmr), otmr ? &old : NULL);
++    if (ret == 0 && otmr) {
++        otmr->it_interval.tv_sec = old.interval_tv_sec;
++        otmr->it_interval.tv_nsec = old.interval_tv_nsec;
++        otmr->it_value.tv_sec = old.value_tv_sec;
++        otmr->it_value.tv_nsec = old.value_tv_nsec;
++    }
++    return ret;
+ }
+ #else
+ _syscall4(int, timerfd_settime, int, ufd, int, flags, const struct itimerspec *, utmr, struct itimerspec *, otmr)
+@@ -39,7 +48,18 @@
+  */
+ #if defined(__NR_timerfd_gettime) || defined(__NR_timerfd_gettime64)
+ #if defined(__UCLIBC_USE_TIME64__) && defined(__NR_timerfd_gettime64)
+-_syscall2_64(int, timerfd_gettime, int, ufd, struct itimerspec *, otmr)
++int timerfd_gettime(int ufd, struct itimerspec *otmr)
++{
++    struct __its64_struct current;
++    int ret = INLINE_SYSCALL(timerfd_gettime64, 2, ufd, otmr ? &current : NULL);
++    if (ret == 0 && otmr) {
++        otmr->it_interval.tv_sec = current.interval_tv_sec;
++        otmr->it_interval.tv_nsec = current.interval_tv_nsec;
++        otmr->it_value.tv_sec = current.value_tv_sec;
++        otmr->it_value.tv_nsec = current.value_tv_nsec;
++    }
++    return ret;
++}
+ #else
+ _syscall2(int, timerfd_gettime, int, ufd, struct itimerspec *, otmr)
+ #endif

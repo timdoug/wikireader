@@ -47,6 +47,7 @@ def main():
              "c33_clock_capability/1-1": ["clock-capability.c"],
              "c33_exec_arguments/1-1": ["exec-arguments.c"],
              "c33_timer_layout/1-1": ["timer-layout.c"],
+             "c33_timerfd_layout/1-1": ["timerfd-layout.c"],
              "c33_signal_mask/1-1": ["signal-mask.c"],
              "c33_large_frame_flags/1-1": ["large-frame-flags.c"],
              "c33_sd_stream_reopen/1-1": ["sd-stream-reopen.c"],
