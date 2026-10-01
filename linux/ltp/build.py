@@ -45,6 +45,9 @@ def main():
     interfaces = suite / "conformance/interfaces"
     local = {"c33_vfork_error/1-1": ["vfork-error.c", "vfork-error-entry.S", "vfork-checked.S"],
              "c33_condvar_clock/1-1": ["condvar-clock.c"],
+             "c33_rwlock_priority/1-1": ["rwlock-priority.c"],
+             "c33_rwlock_static/1-1": ["rwlock-waits.c"],
+             "c33_rwlock_waits/1-1": ["rwlock-waits.c"],
              "c33_io_waits/1-1": ["io-waits.c"],
              "c33_unix_io/1-1": ["unix-io.c"],
              "c33_fd_events/1-1": ["fd-events.c"],
@@ -115,6 +118,8 @@ def main():
                    "-O2", "-g", "-pthread", "-I" + str(suite / "include"),
                    *map(str, sources)]
         command += ["-c", "-o", str(binary.with_suffix(".o"))] if compile_only else ["-lrt", "-o", str(binary)]
+        if name == "c33_rwlock_static/1-1":
+            command.append("-static")
         result = subprocess.run(command, capture_output=True, text=True)
         log = f"build-logs/p{index:03d}.txt"
         (args.output / log).write_text(result.stdout + result.stderr)
@@ -128,7 +133,8 @@ def main():
                                       if name == "c33_vfork_error/1-1" else [])
             if name in ("c33_io_waits/1-1", "c33_unix_io/1-1",
                         "c33_fd_events/1-1", "c33_blocking_cancel/1-1",
-                        "c33_futex_waits/1-1"):
+                        "c33_futex_waits/1-1", "c33_rwlock_priority/1-1",
+                        "c33_rwlock_static/1-1", "c33_rwlock_waits/1-1"):
                 dependencies.append(ROOT / "linux/ltp/io-checks.h")
             if name == "c33_large_frame_flags/1-1":
                 dependencies.append(ROOT / "host-tools/toolchain-c33/gcc/files/gcc/testsuite/gcc.target/c33/large-frame-flags-run.c")

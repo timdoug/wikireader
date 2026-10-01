@@ -16,15 +16,15 @@ C99, the suite's POSIX/XSI feature macros, `-O2`, pthreads, and librt.
 
 The initial uniform thirty-second sweep and subsequent per-case observations:
 
-| Status | Initial | Previous verified | After focused fixes |
-|---|---:|---:|---:|
-| Pass | 1,144 | 1,183 | 1,188 |
-| Unsupported | 40 | 29 | 29 |
-| Untested | 6 | 6 | 6 |
-| Fail | 18 | 12 | 8 |
-| Unresolved | 7 | 5 | 4 |
-| Timeout | 9 | 1 | 1 |
-| Other nonzero exit | 12 | 0 | 0 |
+| Status | Initial | Previous verified | After focused fixes | After rwlock fixes |
+|---|---:|---:|---:|---:|
+| Pass | 1,144 | 1,183 | 1,188 | 1,189 |
+| Unsupported | 40 | 29 | 29 | 29 |
+| Untested | 6 | 6 | 6 | 6 |
+| Fail | 18 | 12 | 8 | 7 |
+| Unresolved | 7 | 5 | 4 | 4 |
+| Timeout | 9 | 1 | 1 | 1 |
+| Other nonzero exit | 12 | 0 | 0 | 0 |
 
 All 1,236 cases produced a result. The original binaries, root image, and
 reports are retained under `linux/artifacts/ltp-all`,
@@ -32,8 +32,8 @@ reports are retained under `linux/artifacts/ltp-all`,
 
 The previous full sweep rebuilt unchanged upstream cases with the corrected compiler
 and used immutable `ltp-rootfs-final.img` and `ltp-kernel-before.app` fixtures.
-Its raw counts are **1,179 pass and four execution errors**, with the other
-final categories as shown above. Those four cases passed individually in
+Its raw counts are **1,179 pass and four execution errors**, with its other
+categories preserved in the raw report. Those four cases passed individually in
 fresh boots, on the same default emulator and fixtures. The combined
 per-case record is `ltp-verified/results.json`; it preserves each original
 error and links its fresh-boot report. It is **not a clean batch sweep**.
@@ -45,7 +45,7 @@ boots and completed. In particular, unchanged `clock_gettime/4-1` performs
 2.7 million `clock()` calls and passed with its 1,800-second guest budget.
 The Makefile now allows a 2,400-second host budget per batch.
 
-Of the 39 additional passes, eight come from appropriate deadlines, including
+Of the 39 additional passes in that earlier follow-up, eight come from appropriate deadlines, including
 cases that already pass on the old image. The other 31 cover signal masks,
 timer outputs, available clocks, and the large-frame compiler fix. No case
 that initially passed failed its final individual observation. This is
@@ -291,8 +291,8 @@ Remaining no-MMU memory-locking and fixed/protected-mapping
 expectations are not converted into passes. `mmap/24-1` expects repeated
 shared mappings to exhaust virtual address space; no-MMU can reuse one
 mapping, so a timeout does not demonstrate an allocation leak.
-The real-time rwlock priority-ordering failure remains to be resolved;
-the unprivileged native failure does not validate real-time ordering.
+The real-time rwlock failure in that snapshot is now fixed as described
+below; the unprivileged native failure does not validate real-time ordering.
 The `shm_unlink` permission error and valid repeat-unmap behavior are now
 corrected as described in the follow-up section above.
 
@@ -406,7 +406,7 @@ contains both new libc fixes and uses `ltp-kernel-sync-gaps.app` through
 Grifo with the default emulator. The combined original-interface score
 remains **1,188/1,236**: these fixes cover previously untested contracts,
 not changes to upstream tests or another full sweep. Memory-locking state
-and real-time rwlock admission/wakeup ordering remain unfinished.
+remains unfinished; the later rwlock correction is described below.
 
 ## I/O timeout validation and writeback
 
@@ -485,3 +485,74 @@ are collected in `ltp-io-followup.json`. No kernel, toolchain ABI or emulator
 timing changes were needed, and the physical card remains untouched.
 The original upstream interface observations remain **1,188/1,236**; this
 batch adds separate Linux-specific coverage rather than another full sweep.
+
+## Realtime rwlock handoff and timed-wait cleanup
+
+The unchanged `pthread_rwlock_unlock/3-1` now passes. The old NPTL unlock
+always selected a writer, letting a lower-priority writer overtake a
+higher-priority reader. The C33 implementation selects across one wait list,
+using current assigned priorities and favoring writers at equal priority,
+as required by [POSIX rwlock unlock](https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_rwlock_unlock.html).
+It reserves ownership before waking the selected thread. Admission follows
+the same rule for blocking, try and timed locks, including ordinary-priority
+readers arriving behind realtime writers.
+
+Reader ownership records preserve recursive read locking while writers are
+waiting. Timed waits use absolute realtime time64 futex deadlines, retry
+signals, remove expired waiters, and honor a grant committed during a
+timeout race. Removing the last queued writer also admits eligible readers
+while another reader still holds the lock. The new regression exposes this
+additional bug in the old implementation: those readers could remain asleep
+until a later unlock.
+
+This is specific to C33 no-MMU Linux: stack wait nodes and TLS/heap owner
+records have the same physical addresses in independent processes. The
+32-byte public object, static initializers and existing exported symbols
+remain intact, but two internal words now hold list pointers. Old statically
+linked rwlock implementations must be rebuilt before sharing a lock with
+the new implementation. Existing dynamically linked callers use the new
+functions without changing their declarations or object size.
+
+Four simultaneous distinct read locks use embedded owner records, adding
+64 bytes of libc TLS per thread; further locks allocate records and can
+return EAGAIN on exhaustion. Reader operations add ownership bookkeeping,
+and contended handoff queries each waiter's current priority once. This is
+a correctness change, with no claimed runtime speedup. In the measured
+fixture the stripped shared libc decreases from 501,980 to 501,720 bytes.
+
+The new local coverage comprises:
+
+* `c33_rwlock_priority/1-1`: FIFO/RR, ordinary/timed ordering, both increases
+  and decreases of blocked-thread priorities, equal-priority writer ties,
+  reader cohorts, recursive reads, new-reader admission and try-lock exclusion.
+* `c33_rwlock_waits/1-1`: invalid, expired and post-2038 deadlines, signal
+  retry, errno preservation, timeout removal, owner-record reuse/overflow,
+  512 contended operations, and independently exec'd processes sharing a
+  lock and semaphores through System V shared memory.
+* `c33_rwlock_static/1-1`: the same waits/ownership/process checks linked
+  statically, exercising static NPTL and TLS initialization as well.
+
+The two dynamic binaries fail/time out on the previous libc and pass on the
+new libc. Worker-entry handshakes plus scheduling delays allow them to reach
+blocking calls; they are not kernel-level proofs of a blocked state. All
+trials retain the default emulator model and full Grifo boot path.
+
+The release fixture is `ltp-rootfs-rwlock-release.img` with the unchanged
+`ltp-kernel-sync-gaps.app`. All **349 unchanged pthread cases** complete:
+**347 PASS and two UNSUPPORTED**. The latter are the upstream skips for
+undefined unlock operations; there are no remaining pthread failures.
+All 41 rwlock-family cases are included in that sweep. The existing and new
+dynamic local regressions pass **19/19**, and the static case passes **1/1**,
+for **20/20 local regressions** across the two reports. Application, TLS,
+atomics, IPC, C++, launcher reboot and live-thread suspend checks pass.
+
+Reports are `ltp-pthread-rwlock-release-run`, `ltp-port-rwlock-release-run`,
+`ltp-rwlock-static-run`, `ltp-rwlock-release-before`, and
+`ltp-app-rwlock-release.log`. `ltp-rwlock-followup.json` records their hashes
+and source/fixture identity. The combined original-interface observations
+advance from **1,188 to 1,189 of 1,236 (96.2%)**, retaining all prior passes.
+`ltp-rwlock-verified/results.json` merges the fresh pthread sweep into the
+previous per-case record; it is **not a new 1,236-case sweep**.
+[remaining.json](remaining.json) now audits the remaining **47 non-PASS**
+cases. Coherent no-MMU memory-lock accounting remains the main unfinished
+implementation work in that original interface set.

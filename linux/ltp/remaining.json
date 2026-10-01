@@ -1,12 +1,12 @@
 {
   "revision": "2279d708c817db657611a30c427c7d06c4360049",
-  "scope": "Audit of the remaining 48 non-PASS interface cases after the explicit synchronization fix; categories explain raw results and do not alter them.",
-  "combined_observations": "linux/artifacts/ltp-msync-verified/results.json",
+  "scope": "Audit of the remaining 47 non-PASS interface cases after the realtime rwlock fix; categories explain raw results and do not alter them.",
+  "combined_observations": "linux/artifacts/ltp-rwlock-verified/results.json",
   "counts": {
     "UNSUPPORTED": 29,
-    "PASS": 1188,
+    "PASS": 1189,
     "UNTESTED": 6,
-    "FAIL": 8,
+    "FAIL": 7,
     "UNRESOLVED": 4,
     "TIMEOUT": 1
   },
@@ -18,7 +18,6 @@
     "architecture-limitation": 9,
     "virtual-address-test-inapplicable": 1,
     "optional-feature": 23,
-    "implementation-bug": 1,
     "undefined-operation": 2,
     "limit-test-inapplicable": 1
   },
@@ -162,13 +161,6 @@
       "classification": "architecture-limitation",
       "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
       "source_sha256": "0bdbed1885f6aef1afbb9dde4c041ccc97e27d42c192747b0da3861d3a34fab9"
-    },
-    {
-      "name": "pthread_rwlock_unlock/3-1",
-      "observed_status": "FAIL",
-      "classification": "implementation-bug",
-      "reason": "RT queued readers and writers must acquire by priority, with writers first at equal priority. NPTL unlock always wakes a queued writer; the lower-priority writer overtakes the higher-priority reader. Needs coordinated admission and wakeup changes, including timed and process-shared locks.",
-      "source_sha256": "0ab418c86e9b249b077d1122fc8124ca91e926c54a4491625a0f2740a4435d67"
     },
     {
       "name": "pthread_rwlock_unlock/4-1",
