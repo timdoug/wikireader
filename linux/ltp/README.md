@@ -457,3 +457,31 @@ the cancellation test reaches its supervised timeout at epoll_wait
 (`ltp-port-io-epoll-run`) and on native Linux. The cancellation handshake
 confirms entry into the worker; a short delay lets it reach its empty wait,
 but is not a kernel-level proof that every trial was already sleeping.
+
+## Descriptor-test audit and raw futex coverage
+
+[syscall-candidates.json](syscall-candidates.json) records the source hashes
+for 37 pinned LTP units in poll, ppoll, pselect, epoll_wait, eventfd and
+timerfd. Every unit uses the modern C API whose test worker is launched with
+fork, including units without an explicit fork in their body. This is an
+audit, not 37 build attempts or runtime passes. The upstream sources and
+assertions remain untouched; running them unchanged requires further runner
+support. No fork call is silently replaced with vfork.
+
+The additional local `c33_futex_waits/1-1` directly exercises the kernel's
+time64 futex ABI: wide-timeout value mismatch, invalid nanoseconds, relative
+expiry, absolute monotonic/realtime expiry, expired deadlines, invalid
+bitsets and selective wakeups. It passes both before and after the libc
+changes. The two-waiter wake test uses an entry handshake and scheduling
+delay, with two-second deadlines to bound a failed wakeup.
+
+All **17 local regressions** pass on `ltp-rootfs-io-epoll.img` with
+`ltp-kernel-sync-gaps.app` (`ltp-port-io-epoll-run`). The exact same five new
+binaries on the preceding runtime produce **one PASS, three FAIL and one
+TIMEOUT** (`ltp-io-epoll-before`). All five new programs also pass on native
+Linux (`ltp-io-native.log`). Application, launcher reboot and live-thread TLS
+suspend checks pass (`ltp-app-io-epoll.log`). Fixture, source and report hashes
+are collected in `ltp-io-followup.json`. No kernel, toolchain ABI or emulator
+timing changes were needed, and the physical card remains untouched.
+The original upstream interface observations remain **1,188/1,236**; this
+batch adds separate Linux-specific coverage rather than another full sweep.

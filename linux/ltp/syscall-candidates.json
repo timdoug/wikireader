@@ -1,0 +1,234 @@
+{
+  "revision": "2279d708c817db657611a30c427c7d06c4360049",
+  "scope": "Audit of 37 candidate descriptor syscall source units. No upstream runtime results are claimed; all depend on the modern fork-based C harness.",
+  "harness": {
+    "source": "lib/tst_test.c",
+    "sha256": "89cd1f4d99f12b509081394c9f8c05cabce671693b75ca76e87dc3bcb2bb85b0",
+    "worker_fork_line": 1933
+  },
+  "method": "Enumerate *.c in poll, ppoll, pselect, epoll_wait, eventfd and timerfd. Every unit declares struct tst_test. Explicit-fork tokens are informational and do not establish fork-free eligibility; the harness forks every test worker.",
+  "cases": [
+    {
+      "name": "poll/poll01",
+      "source_sha256": "64f83578d9fb0cb218ca0028d503e703fb7c386151cf462536863c601fb97263",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "poll/poll02",
+      "source_sha256": "cc67602cb27514098352a0ba7f6d3390089265d78a844876383ad8836d745550",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "poll/poll03",
+      "source_sha256": "6d153f80d87a6c0f246e99741798c7fc53dd0e8f72b7f72d521956c7e197040e",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "poll/poll04",
+      "source_sha256": "b68222d9f5b9aa219d6f4eba3e774eb64e56d92ea1a4ae6a9363ae6cfe664ff9",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "ppoll/ppoll01",
+      "source_sha256": "95b27530d71cbe9cc00cefe80d0564c04a72792a69c2a86d7b27cea640f4e021",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "pselect/pselect01",
+      "source_sha256": "8e59a8e8424d16b92ec742b5aaf9b447ddf9d9d0300699ecc41052940d39e2d6",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "pselect/pselect02",
+      "source_sha256": "da448dfffb37081ee4de07732a3aa86d4b9e475d901d420e316eb20476e212a5",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "pselect/pselect03",
+      "source_sha256": "cd1f90ca69bf755d944ea11c08625dd8ee272ea595b8325d4cc7f854d6ff89a8",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait01",
+      "source_sha256": "3e9f533be9a14a059902be7e311650bef2d994387635888b68f061a154f5aed6",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait02",
+      "source_sha256": "45c3d7578ec3f86475e32ea3a0831396cc74bc0d81837268de5544f6d9c988bc",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait03",
+      "source_sha256": "38b438398c747ac226742ea91b03b6b1c7bb2d32a9206c9df1c5e43004eba752",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait04",
+      "source_sha256": "33410fe4fe3af79f3a6f357c7a84f4999284d21863df8af61529c84caf458ef4",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait05",
+      "source_sha256": "d060aa61d37894d9ed123b892b03782834749a669002ca7aafa33bb5d0701ff7",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait06",
+      "source_sha256": "586d181a11b209b0dcf371a20edef5bb77b2a02a79c5fdaaf79ed0e3a819792d",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait07",
+      "source_sha256": "3a9e4d48c21d0febe8069d83c48e633a0ea587577c4283e7ed587159a5d60a43",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait08",
+      "source_sha256": "b762686b6d1d0722fcedbcb79e6f9053320488ac2eca4a2603b5a619f167e2d0",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait09",
+      "source_sha256": "d3a571358dd22e5aa86bdcd4e64b6fa5638dd3b6078272de8a69b785878c612d",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait10",
+      "source_sha256": "7987a28145350cde8ab5ce861bb19893e781d20587888e91762fbf633fe9c448",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait11",
+      "source_sha256": "50760e2812515461a273d42d9d3e1bef7f9cbb1bb8c5f751b53b76a1bf9808b8",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait12",
+      "source_sha256": "6010c1322c2c8fcbc9282d58cc39b9c5498b41934ed76e94a8a754deba25fbaf",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait13",
+      "source_sha256": "3b7c47ad5d8a115f2ee77d7fa17b76d699f62bb6687b5f3fd1ce27d2c57741d5",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait14",
+      "source_sha256": "4409b970d93bd41d1c02022c661e4e74c7092e4629b042b9658e2eed0ee161e6",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "epoll_wait/epoll_wait15",
+      "source_sha256": "dd1c30990413e9ea44eadc6eca45c31bcf16eeadf559f6109fa52c675a662ab8",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "epoll_wait/epoll_wait16",
+      "source_sha256": "65bf79e7125fdd36e04b741d2abf8707e4bf4cdb09a422764dd5cc4b879d9750",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "eventfd/eventfd01",
+      "source_sha256": "585750df6ec88a56ba800af97b7720f4a0427f8df121ea80c243d8405735a62f",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "eventfd/eventfd02",
+      "source_sha256": "87d42622a58ecbbe19b5fc3399206d8f06cd3890db6a0b5e43f616f97473dddc",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "eventfd/eventfd03",
+      "source_sha256": "9d4e88031aca7519044c3a73c5c34fa7c3baf3e29348817345937e7041103ef9",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "eventfd/eventfd04",
+      "source_sha256": "40ea5198822f3bbb8ec920183d2a424c62d7da72f3a4a7fc5bd89afed18c1c4f",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "eventfd/eventfd05",
+      "source_sha256": "a545d020f4929e990b1114e7ff4b27e380c4aa1d6929ba3c99593669533bb6c7",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "eventfd/eventfd06",
+      "source_sha256": "7e20573493f3486a86c295cb7ae559ad943bb167d8c938ecc006729adb0dd018",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd01",
+      "source_sha256": "3e8b120aef166df636208d5031c36f04a5211f81597d822f4e23873e56299c99",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd02",
+      "source_sha256": "3af43afd79c42f8e418750309551d3a502fc2218e59129f9435e6f6ef233587c",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd04",
+      "source_sha256": "f5340c8f7c217aa1589a3e3573e37533a527fa7d94f07da7f70f0241d407fd64",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": true
+    },
+    {
+      "name": "timerfd/timerfd_create01",
+      "source_sha256": "c1a58f5478adcbaa1338a5eca7248b43764b73ba1ef8fa8792d690d915e0e41f",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd_gettime01",
+      "source_sha256": "eb7a405e768e2e8c8627de3290507b6f9528e36901008d95c4fde1bb4d64c0ef",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd_settime01",
+      "source_sha256": "fc6e594e3cc2e5ceca5dc408dd8349a54d0bdc244324627f9672865c2a89b867",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    },
+    {
+      "name": "timerfd/timerfd_settime02",
+      "source_sha256": "86b6205514b909af6b8a282c7fa6884e9121c4a3432ca41750fff2208c4f82a5",
+      "status": "REQUIRES_FORK_HARNESS",
+      "explicit_fork_token": false
+    }
+  ]
+}
