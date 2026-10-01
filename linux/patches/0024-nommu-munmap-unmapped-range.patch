@@ -1,0 +1,32 @@
+Unmapping an already unmapped range is a successful no-op, including on
+NOMMU. Keep rejecting unsupported partial file mappings, and reject address
+wraparound before looking for overlapping VMAs.
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -1435,19 +1435,14 @@
+ 		return -EINVAL;
+ 
+ 	end = start + len;
++	if (end < start)
++		return -EINVAL;
+ 
+ 	/* find the first potentially overlapping VMA */
+ 	vma = vma_find(&vmi, end);
+-	if (!vma) {
+-		static int limit;
+-		if (limit < 5) {
+-			pr_warn("munmap of memory not mmapped by process %d (%s): 0x%lx-0x%lx\n",
+-					current->pid, current->comm,
+-					start, start + len - 1);
+-			limit++;
+-		}
+-		return -EINVAL;
+-	}
++	/* POSIX permits ranges that contain no mapped pages. */
++	if (!vma)
++		return offset_in_page(start) ? -EINVAL : 0;
+ 
+ 	/* we're allowed to split an anonymous VMA but not a file-backed one */
+ 	if (vma->vm_file) {
