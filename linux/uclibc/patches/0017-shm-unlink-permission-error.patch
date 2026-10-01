@@ -1,0 +1,21 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] shm_unlink: translate sticky-directory denial to EACCES
+
+POSIX specifies EACCES when removal of a shared-memory object is denied.
+Linux unlink can instead report EPERM for sticky-directory ownership checks.
+Translate that error at the shm interface, as glibc does, while preserving
+all other errors and the underlying unlink semantics.
+
+diff --git a/librt/shm.c b/librt/shm.c
+--- a/librt/shm.c
++++ b/librt/shm.c
+@@ -102,6 +102,9 @@ int shm_unlink(const char *name)
+ 	if (shm_name == NULL)
+ 		return -1;
+ 	ret = unlink(shm_name);
++	/* POSIX requires EACCES for permission denied to shm_unlink. */
++	if (ret < 0 && errno == EPERM)
++		__set_errno(EACCES);
+ 	free(shm_name); /* doesn't affect errno */
+ 	return ret;
+ }
