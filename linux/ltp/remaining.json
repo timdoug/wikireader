@@ -1,24 +1,23 @@
 {
   "revision": "2279d708c817db657611a30c427c7d06c4360049",
-  "scope": "Audit of the remaining 47 non-PASS interface cases after the realtime rwlock fix; categories explain raw results and do not alter them.",
-  "combined_observations": "linux/artifacts/ltp-rwlock-verified/results.json",
+  "scope": "Audit of the remaining 40 non-PASS interface cases after no-MMU memory-locking support; categories explain raw results and do not alter them.",
+  "combined_observations": "linux/artifacts/ltp-mlock-verified/results.json",
   "counts": {
-    "UNSUPPORTED": 29,
-    "PASS": 1189,
+    "UNSUPPORTED": 28,
+    "PASS": 1196,
     "UNTESTED": 6,
-    "FAIL": 7,
-    "UNRESOLVED": 4,
-    "TIMEOUT": 1
+    "UNRESOLVED": 1,
+    "TIMEOUT": 1,
+    "FAIL": 4
   },
   "classifications": {
     "test-placeholder": 1,
     "permission-test-inapplicable": 3,
-    "nommu-implementation-limitation": 6,
     "nommu-mapping-limitation": 1,
     "architecture-limitation": 9,
     "virtual-address-test-inapplicable": 1,
-    "optional-feature": 23,
     "undefined-operation": 2,
+    "optional-feature": 22,
     "limit-test-inapplicable": 1
   },
   "cases": [
@@ -35,34 +34,6 @@
       "classification": "permission-test-inapplicable",
       "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
       "source_sha256": "4b0413147b57d3a1e02d27459013149c1b5ac04de475dbb928a2692b78e1f079"
-    },
-    {
-      "name": "mlock/12-1",
-      "observed_status": "FAIL",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "3dc4923e79185161fe4417e359e2ccdd0634d9dab005e01bf0908f02520d4f4e"
-    },
-    {
-      "name": "mlock/8-1",
-      "observed_status": "UNRESOLVED",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "4661ec524b7d12196fb311a7de3d08c486335e8d7f299e6ab9d04bde1fcbbb75"
-    },
-    {
-      "name": "mlockall/15-1",
-      "observed_status": "UNRESOLVED",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "f093105f750caa98143a2207d90793fdf80d4d4bebca554b92a1b530b40e4acf"
-    },
-    {
-      "name": "mlockall/3-6",
-      "observed_status": "FAIL",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "5abcc1dd708a25db5b8d5bcc0097ec585945a948f354efe1f6e9266acaa29a59"
     },
     {
       "name": "mlockall/3-7",
@@ -84,13 +55,6 @@
       "classification": "architecture-limitation",
       "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
       "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
-    },
-    {
-      "name": "mmap/18-1",
-      "observed_status": "FAIL",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "f1c806837ccf67eccac69689f0da67a179b7b72c7c4819909108c929c02436b6"
     },
     {
       "name": "mmap/24-1",
@@ -133,20 +97,6 @@
       "classification": "architecture-limitation",
       "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
       "source_sha256": "5380e1d74d2efc47668049cc69a37aec305b00411727f760b4e3cc0162605344"
-    },
-    {
-      "name": "munlock/10-1",
-      "observed_status": "UNRESOLVED",
-      "classification": "nommu-implementation-limitation",
-      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
-      "source_sha256": "993448cc5e5be5f586ec74c07ece7688ceadfcda3276e5c91c55176df85ace20"
-    },
-    {
-      "name": "munlockall/5-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Memory-locking support is not advertised (_POSIX_MEMLOCK); this capability-guarded case correctly returns UNSUPPORTED.",
-      "source_sha256": "32c466c03b1e9af69c310ae7d855e6cd0fa71239dd996cd0d53d96d0c747cb12"
     },
     {
       "name": "munmap/1-1",

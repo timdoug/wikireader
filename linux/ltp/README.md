@@ -16,15 +16,15 @@ C99, the suite's POSIX/XSI feature macros, `-O2`, pthreads, and librt.
 
 The initial uniform thirty-second sweep and subsequent per-case observations:
 
-| Status | Initial | Previous verified | After focused fixes | After rwlock fixes |
-|---|---:|---:|---:|---:|
-| Pass | 1,144 | 1,183 | 1,188 | 1,189 |
-| Unsupported | 40 | 29 | 29 | 29 |
-| Untested | 6 | 6 | 6 | 6 |
-| Fail | 18 | 12 | 8 | 7 |
-| Unresolved | 7 | 5 | 4 | 4 |
-| Timeout | 9 | 1 | 1 | 1 |
-| Other nonzero exit | 12 | 0 | 0 | 0 |
+| Status | Initial | Previous verified | After focused fixes | After rwlock fixes | After memory locking |
+|---|---:|---:|---:|---:|---:|
+| Pass | 1,144 | 1,183 | 1,188 | 1,189 | 1,196 |
+| Unsupported | 40 | 29 | 29 | 29 | 28 |
+| Untested | 6 | 6 | 6 | 6 | 6 |
+| Fail | 18 | 12 | 8 | 7 | 4 |
+| Unresolved | 7 | 5 | 4 | 4 | 1 |
+| Timeout | 9 | 1 | 1 | 1 | 1 |
+| Other nonzero exit | 12 | 0 | 0 | 0 | 0 |
 
 All 1,236 cases produced a result. The original binaries, root image, and
 reports are retained under `linux/artifacts/ltp-all`,
@@ -141,21 +141,19 @@ the earlier per-case observations, preserving report hashes and the four
 status changes. Its **1,187/1,236 passes (96.0%)** are not a new full sweep.
 
 [remaining.json](remaining.json) records the raw status, source hash and
-reason for all 48 remaining non-PASS interface cases after the additional
-synchronization fix below. These categories explain the
+reason for the current 40 remaining non-PASS interface cases, following
+the synchronization and memory-locking fixes described below. These categories explain the
 results; they do not turn exclusions or failures into passes:
 
 | Reason | Cases |
 |---|---:|
-| Optional features: sporadic scheduling, process-scope threads, memory locking | 23 |
+| Optional features: sporadic scheduling and process-scope threads | 22 |
 | MMU page protection or fixed virtual-address mappings | 9 |
-| Unimplemented no-MMU locking semantics | 6 |
 | Permission-denial precondition absent; Linux permits the query | 3 |
 | Undefined rwlock operations explicitly skipped by upstream on Linux | 2 |
 | AIO placeholder with no implemented test body | 1 |
 | Empty-file shared mapping setup unavailable on no-MMU | 1 |
 | Virtual-address exhaustion loop inapplicable on no-MMU | 1 |
-| Real-time rwlock priority-ordering bug | 1 |
 | Semaphore count-limit precondition absent | 1 |
 
 Literal 100% cannot be reached with this unchanged corpus on this hardware:
@@ -556,3 +554,83 @@ previous per-case record; it is **not a new 1,236-case sweep**.
 [remaining.json](remaining.json) now audits the remaining **47 non-PASS**
 cases. Coherent no-MMU memory-lock accounting remains the main unfinished
 implementation work in that original interface set.
+
+
+## No-MMU memory-lock validation and accounting
+
+Seven more unchanged upstream bodies pass:
+
+* `mlock/12-1` and `mlockall/15-1`: reject locking with EPERM when an
+  unprivileged process has a zero `RLIMIT_MEMLOCK`.
+* `mlock/8-1` and `munlock/10-1`: reject unmapped ranges with ENOMEM.
+* `mlockall/3-6`: `MS_INVALIDATE` rejects this process's locked pages with
+  EBUSY, including shared mappings.
+* `mmap/18-1`: `MCL_FUTURE` enforces the process's limit, returning EAGAIN
+  before attempting an oversized backing-file mapping.
+* `munlockall/5-1`: the now-advertised `_POSIX_MEMLOCK` capability selects
+  the unchanged test body, which successfully unlocks all mappings.
+
+C33's RAM is already resident. The kernel now implements the API's validation,
+limits and per-process state using a lazy bitmap indexed by RAM PFN, protected
+by `mmap_lock`. Overlapping locks do not double-count; partial unlocks and
+unmaps clear exactly the affected pages. Different processes have independent
+lock state, while threads share it. `MCL_FUTURE` applies to new mappings;
+`munlockall` and exec clear its policy and accounting. `MLOCK_ONFAULT` and
+`MCL_ONFAULT` have the same residency effect as ordinary locking on this
+no-MMU target. Non-RAM device mappings are already resident and do not consume
+RAM locking quota. `VmLck` exposes the charged pages in `/proc/PID/status`.
+
+The bitmap costs **1 KiB per process that locks RAM** on the current 32 MiB
+machine, plus a four-byte pointer per `mm_struct`; `mlockall(MCL_CURRENT)`
+builds a temporary bitmap before committing state. No VMA splits, page
+reference changes or new syscall numbers are needed. Locking does not add
+MMU protection or swapping. The generic backend is selected only for C33;
+other no-MMU libc targets retain their previous behavior.
+
+During lifecycle work, no-MMU `mremap` was also found to change `vm_end`
+without resizing its VMA lookup-tree entry or `total_vm`. The resize now updates
+both, along with the file interval tree and lock accounting. Tree allocation
+precedes changes, so a failed locked growth preserves the old mapping and
+its accounting. Late mmap failures release a reused region's attempted
+reference instead of destroying another process's live mapping.
+
+The new `c33_memory_lock/1-1` covers page rounding, overlap, partial unlock
+and unmap, unmapped holes, address overflow, exact `VmLck` accounting,
+partial `MS_INVALIDATE`, anonymous and private-file `mremap`, denied growth,
+`MAP_LOCKED`, raw `mlock2`, all legal locking flags, future-policy replacement,
+limits after dropping privileges, privileged bypass, thread sharing and exec
+reset. An independently exec'd child performs repeated limit-denied mappings
+of a live shared region; the parent's mapping and lock must survive. The
+ELF-FDPIC loader reserves no brk growth, so the brk check verifies rejection
+without changing the break or accounting; it does not claim successful heap
+growth coverage for other loaders.
+
+All **85 rebuilt unchanged memory-family cases** complete: **75 PASS,
+four FAIL, three UNSUPPORTED, two UNTESTED and one UNRESOLVED**. Every prior
+pass remains a pass. All **21 local regressions pass**, including the existing
+static rwlock case. Application, NPTL/TLS, atomics, IPC, C++, launcher reboot
+and live-thread suspend checks pass. All runs retain the full Grifo boot path
+and default emulator model; the physical card remains untouched.
+
+The release fixtures are `ltp-rootfs-mlock.img` and `ltp-kernel-mlock.app`.
+The rootfs derives from the rwlock release with only libc and loader replaced
+and byte-checked after installation. Reports are `ltp-memory-mlock-release-run`,
+`ltp-port-mlock-release-run` and `ltp-app-mlock-release.log`.
+The exact seven newly passing upstream binaries, using the new libc on the
+previous kernel, yield **six UNRESOLVED and one FAIL**, with no passes
+(`ltp-memory-mlock-before`). Those statuses differ from the old inline-no-op
+binaries because the new wrappers encounter missing kernel syscalls.
+
+Consumers of the previous inline no-op locking calls must be rebuilt.
+Replacing their runtime library alone cannot change those calls. The new libc
+wrappers require the new kernel; no compiler calling convention changes are
+involved. The stripped shared libc grows from **501,720 to 502,056 bytes**.
+
+`ltp-mlock-followup.json` records source, fixture and report hashes.
+`ltp-mlock-verified/results.json` merges the fresh 85-case report with earlier
+observations for the other 1,151 cases. The combined total advances from
+**1,189 to 1,196 of 1,236 (96.8%)**; this is **not a new full sweep**.
+[remaining.json](remaining.json) now contains **40 non-PASS** cases: four
+failures, one unresolved, one timeout, six untested and 28 unsupported.
+The empty-file shared mapping setup in `mlockall/3-7` still fails before its
+locking assertion; it has not been counted as fixed.

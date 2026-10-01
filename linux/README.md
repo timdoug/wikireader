@@ -628,6 +628,16 @@ shared-memory object to its final size before mapping it, and unlink it
 when finished. A shared mapping needs contiguous physical memory, so it
 can fail under fragmentation even when total free memory looks sufficient.
 
+C33 implements `mlock`, `munlock`, `mlockall`, `munlockall` and `mlock2`
+in the no-MMU kernel. RAM is already resident; these calls validate ranges,
+enforce `RLIMIT_MEMLOCK`, track locks per process, and prevent `MS_INVALIDATE`
+on locked pages. `MCL_FUTURE` also charges new mappings. Overlapping locks
+are idempotent, and unmap/exec clear state. `/proc/PID/status` reports `VmLck`.
+The lazy bitmap costs 1 KiB per locking process on the 32 MiB machine.
+Applications compiled with the old inline libc no-ops must be rebuilt, and
+the new libc wrappers require the matching kernel. The LTP coverage and
+remaining limitations are documented in [ltp/README.md](ltp/README.md).
+
 Link programs using `shm_open` or `mq_*` with `-lrt`. System V IPC is in
 libc; BusyBox provides `ipcs` and `ipcrm` to inspect and remove its objects.
 The C33 libc patch makes the split-time kernel IPC structures match its
