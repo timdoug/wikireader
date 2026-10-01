@@ -1,0 +1,68 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] epoll: retain validation and cancellation in syscall fallbacks
+
+Targets with only epoll_create1 must still reject nonpositive legacy
+epoll_create sizes. Targets with only epoll_pwait must provide the same
+cancellation point as epoll_wait, passing all six syscall arguments.
+Use one cancellable wrapper for both wait syscall paths.
+
+diff --git a/libc/sysdeps/linux/common/epoll.c b/libc/sysdeps/linux/common/epoll.c
+--- a/libc/sysdeps/linux/common/epoll.c
++++ b/libc/sysdeps/linux/common/epoll.c
+@@ -9,6 +9,7 @@
+ #include <sys/syscall.h>
+ #include <sys/epoll.h>
+ #include <cancel.h>
++#include <errno.h>
+ 
+ #ifdef L_epoll_create
+ # ifdef __NR_epoll_create
+@@ -22,7 +23,11 @@
+ # if defined __NR_epoll_create1 && !defined __NR_epoll_create
+ int epoll_create(int size)
+ {
+-	return INLINE_SYSCALL(epoll_create1, 1, 0);
++    if (size <= 0) {
++        __set_errno(EINVAL);
++        return -1;
++    }
++    return INLINE_SYSCALL(epoll_create1, 1, 0);
+ }
+ # endif
+ #endif
+@@ -48,25 +53,18 @@
+ 		    (epfd, events, maxevents, timeout, set))
+ #endif
+ 
+-#if defined L_epoll_wait
+-# if defined __NR_epoll_wait
++#if defined L_epoll_wait && (defined __NR_epoll_wait || defined __NR_epoll_pwait)
++# include <signal.h>
++
+ static int __NC(epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout)
+ {
+-	return INLINE_SYSCALL(epoll_wait, 4, epfd, events, maxevents, timeout);
++# ifdef __NR_epoll_wait
++    return INLINE_SYSCALL(epoll_wait, 4, epfd, events, maxevents, timeout);
++# else
++    return INLINE_SYSCALL(epoll_pwait, 6, epfd, events, maxevents, timeout,
++                          NULL, __SYSCALL_SIGSET_T_SIZE);
++# endif
+ }
+ CANCELLABLE_SYSCALL(int, epoll_wait, (int epfd, struct epoll_event *events, int maxevents, int timeout),
+-		    (epfd, events, maxevents, timeout))
+-
+-
+-# elif /* !defined L_epoll_wait && */ defined __NR_epoll_pwait
+-/*
+- * If epoll_wait is not defined, then call epoll_pwait instead using NULL
+- * for sigmask argument
+- */
+-#  include <stddef.h>
+-int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
+-{
+-	return INLINE_SYSCALL(epoll_pwait, 5, epfd, events, maxevents, timeout, NULL);
+-}
+-# endif
++                    (epfd, events, maxevents, timeout))
+ #endif

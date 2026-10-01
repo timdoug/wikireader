@@ -434,3 +434,26 @@ backpressure. Both binaries fail on `ltp-rootfs-condvar-clock.img`
 (`ltp-io-epoll-before`) and pass with the timeout fixes on `ltp-rootfs-io.img`
 (`ltp-timeouts-fixed`). Both also pass on native Linux. All trials use
 `ltp-kernel-sync-gaps.app`, the default emulator and the Grifo boot path.
+
+## Epoll fallback validation and cancellation
+
+C33 exposes epoll_create1 and epoll_pwait, without the older epoll_create
+and epoll_wait syscall numbers. The libc fallback for epoll_create ignored
+nonpositive size arguments, creating a descriptor instead of returning
+EINVAL. The epoll_wait fallback also bypassed the cancellation wrapper,
+so deferred cancellation left the thread blocked indefinitely. Validate
+legacy creation sizes and use one cancellable wait wrapper for both syscall
+paths, supplying all six epoll_pwait arguments.
+
+`c33_fd_events/1-1` reproduces both invalid-size cases and verifies eventfd
+counter/semaphore behavior, saturation and short-buffer errors, epoll's
+64-bit event payload, one-shot disabling/rearming, and timerfd periodic and
+absolute readiness on both clocks. `c33_blocking_cancel/1-1` exercises
+pending and blocking cancellation for read, poll, ppoll, select, pselect,
+recv, recvmmsg, epoll_wait and epoll_pwait, checking exactly one cleanup and
+intact TLS after each join. On the previous runtime the event test fails and
+the cancellation test reaches its supervised timeout at epoll_wait
+(`ltp-io-epoll-before`). Both pass on `ltp-rootfs-io-epoll.img`
+(`ltp-port-io-epoll-run`) and on native Linux. The cancellation handshake
+confirms entry into the worker; a short delay lets it reach its empty wait,
+but is not a kernel-level proof that every trial was already sleeping.
