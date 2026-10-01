@@ -1,0 +1,45 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] sysconf: probe available monotonic and CPU clocks
+
+Support time64-only syscall targets when probing monotonic clocks.
+Also query process and thread CPU clocks when their support must be
+determined at runtime instead of reporting absence without a probe.
+
+diff --git a/libc/unistd/sysconf.c b/libc/unistd/sysconf.c
+index d04705a..c8608b1 100644
+--- a/libc/unistd/sysconf.c
++++ b/libc/unistd/sysconf.c
+@@ -994,8 +994,19 @@ long int sysconf(int name)
+       RETURN_NEG_1;
+ #endif
+ 
++    case _SC_CPUTIME:
++#if defined __UCLIBC_HAS_REALTIME__ && \
++    (defined __NR_clock_getres || \
++     (defined __UCLIBC_USE_TIME64__ && defined __NR_clock_getres_time64))
++      if (clock_getres(CLOCK_PROCESS_CPUTIME_ID, NULL) >= 0)
++        return _POSIX_VERSION;
++#endif
++      RETURN_NEG_1;
++
+     case _SC_MONOTONIC_CLOCK:
+-#if defined __UCLIBC_HAS_REALTIME__ && defined __NR_clock_getres
++#if defined __UCLIBC_HAS_REALTIME__ && \
++    (defined __NR_clock_getres || \
++     (defined __UCLIBC_USE_TIME64__ && defined __NR_clock_getres_time64))
+       if (clock_getres(CLOCK_MONOTONIC, NULL) >= 0)
+         return _POSIX_VERSION;
+ #endif
+@@ -1005,6 +1016,12 @@ long int sysconf(int name)
+     case _SC_THREAD_CPUTIME:
+ # if _POSIX_THREAD_CPUTIME > 0
+       return _POSIX_THREAD_CPUTIME;
++# elif defined __UCLIBC_HAS_REALTIME__ && \
++    (defined __NR_clock_getres || \
++     (defined __UCLIBC_USE_TIME64__ && defined __NR_clock_getres_time64))
++      if (clock_getres(CLOCK_THREAD_CPUTIME_ID, NULL) >= 0)
++        return _POSIX_VERSION;
++      RETURN_NEG_1;
+ # else
+       RETURN_NEG_1;
+ # endif
