@@ -1,0 +1,73 @@
+Build msync for NOMMU as well as MMU kernels. Validate ranges and flags and
+sync shared file data through the existing implementation. Since NOMMU has
+no write faults, conservatively update writable shared mapping timestamps
+on explicit MS_SYNC/MS_ASYNC; private and read-only mappings do not do so.
+Also reject length-rounding overflow before it can become a zero-length sync.
+
+diff --git a/mm/Makefile b/mm/Makefile
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -36,7 +36,7 @@
+ mmu-y			:= nommu.o
+ mmu-$(CONFIG_MMU)	:= highmem.o memory.o mincore.o \
+ 			   mlock.o mmap.o mmu_gather.o mprotect.o mremap.o \
+-			   msync.o page_vma_mapped.o pagewalk.o \
++			   page_vma_mapped.o pagewalk.o \
+ 			   pgtable-generic.o rmap.o vmalloc.o vma.o vma_exec.o
+ 
+ 
+@@ -48,7 +48,7 @@
+ mmu-$(CONFIG_MMU)	+= mseal.o
+ endif
+ 
+-obj-y			:= filemap.o mempool.o oom_kill.o fadvise.o \
++obj-y			:= filemap.o msync.o mempool.o oom_kill.o fadvise.o \
+ 			   maccess.o page-writeback.o folio-compat.o \
+ 			   readahead.o swap.o truncate.o vmscan.o shrinker.o \
+ 			   shmem.o util.o mmzone.o vmstat.o backing-dev.o \
+diff --git a/mm/msync.c b/mm/msync.c
+--- a/mm/msync.c
++++ b/mm/msync.c
+@@ -46,6 +46,8 @@
+ 	if ((flags & MS_ASYNC) && (flags & MS_SYNC))
+ 		goto out;
+ 	error = -ENOMEM;
++	if (len > ULONG_MAX - (PAGE_SIZE - 1))
++		goto out;
+ 	len = (len + ~PAGE_MASK) & PAGE_MASK;
+ 	end = start + len;
+ 	if (end < start)
+@@ -64,6 +66,7 @@
+ 	for (;;) {
+ 		struct file *file;
+ 		loff_t fstart, fend;
++		bool update_time;
+ 
+ 		/* Still start < end. */
+ 		error = -ENOMEM;
+@@ -89,11 +92,22 @@
+ 			 ((loff_t)vma->vm_pgoff << PAGE_SHIFT);
+ 		fend = fstart + (min(end, vma->vm_end) - start) - 1;
+ 		start = vma->vm_end;
+-		if ((flags & MS_SYNC) && file &&
+-				(vma->vm_flags & VM_SHARED)) {
++		/* NOMMU shared stores have no write faults to update timestamps.
++		 * Conservatively mark writable mappings when explicitly synced. */
++		update_time = !IS_ENABLED(CONFIG_MMU) &&
++			(flags & (MS_SYNC | MS_ASYNC)) && (vma->vm_flags & VM_WRITE);
++		if (file && (vma->vm_flags & VM_SHARED) &&
++		    ((flags & MS_SYNC) || update_time)) {
+ 			get_file(file);
+ 			mmap_read_unlock(mm);
+-			error = vfs_fsync_range(file, fstart, fend, 1);
++			error = 0;
++			if (update_time) {
++				file_start_write(file);
++				error = file_update_time(file);
++				file_end_write(file);
++			}
++			if (!error && (flags & MS_SYNC))
++				error = vfs_fsync_range(file, fstart, fend, 1);
+ 			fput(file);
+ 			if (error || start >= end)
+ 				goto out;
