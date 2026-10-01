@@ -1,0 +1,50 @@
+Use the existing /dev/zero read iterator for ordinary reads as well as
+kernel reads. kernel_read rejects files that supply both read and read_iter;
+NOMMU's copy-backed private mmap uses kernel_read to initialize its buffer.
+The iterator already handles zero filling, partial faults and signals.
+
+diff --git a/drivers/char/mem.c b/drivers/char/mem.c
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -471,33 +471,6 @@
+ 	return written;
+ }
+ 
+-static ssize_t read_zero(struct file *file, char __user *buf,
+-			 size_t count, loff_t *ppos)
+-{
+-	size_t cleared = 0;
+-
+-	while (count) {
+-		size_t chunk = min_t(size_t, count, PAGE_SIZE);
+-		size_t left;
+-
+-		left = clear_user(buf + cleared, chunk);
+-		if (unlikely(left)) {
+-			cleared += (chunk - left);
+-			if (!cleared)
+-				return -EFAULT;
+-			break;
+-		}
+-		cleared += chunk;
+-		count -= chunk;
+-
+-		if (signal_pending(current))
+-			break;
+-		cond_resched();
+-	}
+-
+-	return cleared;
+-}
+-
+ static int mmap_zero_prepare(struct vm_area_desc *desc)
+ {
+ #ifndef CONFIG_MMU
+@@ -667,7 +640,6 @@
+ 	.llseek		= zero_lseek,
+ 	.write		= write_zero,
+ 	.read_iter	= read_iter_zero,
+-	.read		= read_zero,
+ 	.write_iter	= write_iter_zero,
+ 	.splice_read	= copy_splice_read,
+ 	.splice_write	= splice_write_zero,
