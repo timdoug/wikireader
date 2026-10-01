@@ -113,13 +113,16 @@ old board code set, and the buttons and power switch interrupting; SD reads
 through DMAengine, byte for byte, at every step of the read work below.
 Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
 
-Not yet run on the device (emulator-tested 2026-09-30, boot-test, app-test,
-signal-test and `startx`): `ld.so`'s call-free relocation loop and stack
-symbol cache, the compiler's forwarding descriptor at variadic and
-unprototyped calls only, short calls in userland, the executables'
-call-free self-relocation, and `s1c33-sd`'s 32 scatterlist segments. On the
-device, `check` and `pt`/`cxx` from the card, X by touch, and a raw read's
-md5 cover them.
+Validated 2026-10-01 on the user's board (`check.txt`, `thread.txt`):
+`ld.so`'s call-free relocation loop and stack symbol cache, the compiler's
+forwarding descriptor at variadic and unprototyped calls only, short calls
+in userland, the executables' call-free self-relocation, and `s1c33-sd`'s
+32 scatterlist segments. `linux.app`'s md5 matches; every thread, atomic,
+IPC and C++ test passes; `/bin/true` spawn/exec/wait is 92 ms (133 ms with
+the system of the morning of 2026-09-30, a 1.5x gap to wremu's 60 ms) and
+mutex lock/unlock 12.7 us; a raw 4 MB read is 2.92 s; Grifo loads
+`linux.app` in 2.90 s; the prompt is up 5.20 s after the kernel starts.
+X by touch has not been rerun on this build.
 
 ## SD card reads: where they stand
 
