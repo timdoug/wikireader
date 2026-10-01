@@ -1,0 +1,19 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] use the C33 kernel msync implementation
+
+C33 supplies msync for resident shared mappings. Declare its out-of-line
+cancellation-point wrapper instead of the generic no-MMU inline no-op.
+Other no-MMU targets retain their existing behavior.
+
+diff --git a/include/sys/mman.h b/include/sys/mman.h
+--- a/include/sys/mman.h
++++ b/include/sys/mman.h
+@@ -86,7 +86,7 @@
+    (and sets errno).  */
+ extern int mprotect (void *__addr, size_t __len, int __prot) __THROW;
+ 
+-#ifdef __ARCH_USE_MMU__
++#if defined __ARCH_USE_MMU__ || defined __TARGET_c33__
+ 
+ /* Synchronize the region starting at ADDR and extending LEN bytes with the
+    file it maps.  Filesystem operations on a file being mapped are
