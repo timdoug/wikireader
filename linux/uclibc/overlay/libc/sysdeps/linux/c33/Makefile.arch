@@ -1,7 +1,7 @@
 # Makefile for uClibc-ng
 # Licensed under the LGPL v2.1, see the file COPYING.LIB in this tarball.
 
-CSRC-y :=
+CSRC-y := sigaction.c
 CSRC-$(UCLIBC_HAS_TLS) += c33_read_tp.c
 SSRC-y := setjmp.S __longjmp.S vfork.S clone.S
 
