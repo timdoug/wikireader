@@ -1,19 +1,19 @@
 {
   "revision": "2279d708c817db657611a30c427c7d06c4360049",
-  "scope": "Audit of the remaining 49 non-PASS cases after the four focused fixes; categories explain raw results and do not alter them.",
-  "combined_observations": "linux/artifacts/ltp-remaining-verified/results.json",
+  "scope": "Audit of the remaining 48 non-PASS interface cases after the explicit synchronization fix; categories explain raw results and do not alter them.",
+  "combined_observations": "linux/artifacts/ltp-msync-verified/results.json",
   "counts": {
     "UNSUPPORTED": 29,
-    "PASS": 1187,
+    "PASS": 1188,
     "UNTESTED": 6,
-    "FAIL": 9,
+    "FAIL": 8,
     "UNRESOLVED": 4,
     "TIMEOUT": 1
   },
   "classifications": {
     "test-placeholder": 1,
     "permission-test-inapplicable": 3,
-    "nommu-implementation-limitation": 7,
+    "nommu-implementation-limitation": 6,
     "nommu-mapping-limitation": 1,
     "architecture-limitation": 9,
     "virtual-address-test-inapplicable": 1,
@@ -85,13 +85,6 @@
       "classification": "architecture-limitation",
       "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
       "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
-    },
-    {
-      "name": "mmap/14-1",
-      "observed_status": "FAIL",
-      "classification": "nommu-implementation-limitation",
-      "reason": "Shared stores modify resident file memory without a write fault, and no-MMU msync is an inline no-op. mtime/ctime are not updated after mapped writes; a coherent filesystem synchronization/timestamp contract remains work.",
-      "source_sha256": "8354cbdd8c502b59618d64765a42470c4fd7d8ca13a3f0d05db2c48c172cf39b"
     },
     {
       "name": "mmap/18-1",

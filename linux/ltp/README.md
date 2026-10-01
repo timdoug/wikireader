@@ -18,10 +18,10 @@ The initial uniform thirty-second sweep and subsequent per-case observations:
 
 | Status | Initial | Previous verified | After focused fixes |
 |---|---:|---:|---:|
-| Pass | 1,144 | 1,183 | 1,187 |
+| Pass | 1,144 | 1,183 | 1,188 |
 | Unsupported | 40 | 29 | 29 |
 | Untested | 6 | 6 | 6 |
-| Fail | 18 | 12 | 9 |
+| Fail | 18 | 12 | 8 |
 | Unresolved | 7 | 5 | 4 |
 | Timeout | 9 | 1 | 1 |
 | Other nonzero exit | 12 | 0 | 0 |
@@ -141,14 +141,15 @@ the earlier per-case observations, preserving report hashes and the four
 status changes. Its **1,187/1,236 passes (96.0%)** are not a new full sweep.
 
 [remaining.json](remaining.json) records the raw status, source hash and
-reason for every remaining non-PASS case. These categories explain the
+reason for all 48 remaining non-PASS interface cases after the additional
+synchronization fix below. These categories explain the
 results; they do not turn exclusions or failures into passes:
 
 | Reason | Cases |
 |---|---:|
 | Optional features: sporadic scheduling, process-scope threads, memory locking | 23 |
 | MMU page protection or fixed virtual-address mappings | 9 |
-| Unimplemented no-MMU locking or mapped-write timestamp semantics | 7 |
+| Unimplemented no-MMU locking semantics | 6 |
 | Permission-denial precondition absent; Linux permits the query | 3 |
 | Undefined rwlock operations explicitly skipped by upstream on Linux | 2 |
 | AIO placeholder with no implemented test body | 1 |
@@ -164,10 +165,72 @@ requires priority-aware reader/writer admission and wakeup, including timed
 and process-shared operations; waking readers indiscriminately is not a
 complete fix. POSIX specifies
 [priority order and writer precedence at equal priority](https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_rwlock_unlock.html).
-The no-MMU memory APIs need coherent kernel range/limit/lock-state handling
-and mapped-write synchronization before their broader contracts can be
-advertised. Those are implementation limitations, not all architectural
-impossibilities.
+The no-MMU locking APIs still need coherent kernel range/limit/lock-state
+handling before their broader contracts can be advertised. Those are
+implementation limitations, not all architectural impossibilities.
+
+## Extended coverage and resident-memory interfaces
+
+`build.py --extended` adds the pinned suite's functional and behavior cases
+and compiles its header-definition checks separately. It enumerates 20
+runtime candidates and 261 header checks. Thirteen runtime cases build and
+pass; seven require unavailable fork. Their source and the upstream bootstrap
+remain unchanged. Header checks compile with `-c` and are **not runtime
+passes**. Every failed compilation retains its command, source hash and log.
+
+The header checks found an advertised-interface bug: `_POSIX_ADVISORY_INFO`
+was 200809L, but no-MMU builds hid `posix_madvise` and its five constants.
+These declarations and the real implementation are now available. The kernel
+accepts normal/random/sequential/will-need advice after validating alignment,
+overflow and coverage by the calling process's VMAs. Memory is already
+resident, so accepted hints do not change contents. POSIX DONTNEED uses the
+same validation without invoking Linux's destructive MADV_DONTNEED operation.
+The wrapper returns error numbers directly and preserves errno. This follows
+the [POSIX requirement that advice preserve memory-access semantics](https://pubs.opengroup.org/onlinepubs/009604399/functions/posix_madvise.html).
+Header successes rise from **249/261 to 255/261**. The remaining six errors
+are five unavailable AIO header checks and the missing `getdate` declaration;
+they remain recorded as errors.
+
+One further original interface failure, `mmap/14-1`, now passes. C33's
+public `msync` was an inline no-op; it now calls the kernel through the
+normal cancellation-point wrapper. The existing kernel msync implementation
+also builds for NOMMU, validates flags/ranges and synchronizes shared files.
+Because direct shared stores do not generate write faults, explicit
+MS_SYNC/MS_ASYNC conservatively marks writable shared mapping timestamps.
+Private and read-only mappings leave timestamps unchanged, and private
+changes stay private. Length-rounding overflow is rejected before it can
+turn into a zero-length operation. Other no-MMU libc targets retain their
+existing msync wrapper behavior.
+
+This supplies explicit synchronization; it does **not** detect individual
+stores or make all no-MMU mapping semantics conform to MMU behavior.
+An unchanged writable mapping can receive a conservative timestamp update
+when explicitly synced. Applications rebuilt for the C33 msync wrapper
+require the matching kernel implementation; older C33 kernels return ENOSYS.
+Already compiled inline no-op callers need rebuilding to benefit.
+
+The latest immutable fixtures are `ltp-rootfs-msync.img` and
+`ltp-kernel-msync.app`. All **85 affected original cases** were rebuilt and
+rerun: `mmap/14-1` changes FAIL to PASS, with no lost passes
+(`ltp-mmap-msync-run`, `ltp-locking-msync-run`). Combined original-interface
+observations are **1,188/1,236**, retained with report hashes in
+`ltp-msync-verified/results.json`; this is not a new full sweep.
+The thirteen new runtime observations (`ltp-extended-msync-run`) are counted
+separately. `behavior/timers/1-1` performs no creations when `_SC_TIMER_MAX`
+reports an indeterminate limit, so its raw PASS does not establish timer
+capacity. `behavior/timers/2-1` explicitly accepts an indeterminate limit.
+
+All **ten local regressions** pass (`ltp-port-msync-run`). The advice case
+checks every hint, unchanged data and errno, invalid/overflowing ranges,
+and a hole between two remaining anonymous mappings. The synchronization
+case checks both timestamps, synchronous/asynchronous visibility, private
+and read-only isolation, invalid flags/addresses/lengths, unmapped holes,
+and pending deferred cancellation at msync. These same new regression
+binaries fail against kernels missing the corresponding implementation
+(`ltp-advice-old-kernel-run`, `ltp-msync-old-kernel-run`). Updated public
+headers also compile as C++20. The normal application, launcher reboot and
+live-thread TLS suspend tests pass (`ltp-app-msync.log`). All emulator runs
+retain the default model and FLASH -> Grifo -> launcher boot path.
 
 ## Emulator DMA limitation found during the sweep
 
@@ -260,7 +323,9 @@ python3 linux/ltp/run.py --binaries linux/artifacts/ltp-all \
 ```
 
 `build.py --list FILE` builds a specified subset, and `--port-tests` builds
-only the local regressions. It refuses dirty or differently pinned LTP
+only the local regressions. `--extended` builds functional/behavior runtime
+cases and records header-definition checks in a separate `compile_checks`
+manifest field. These selectors are mutually exclusive. It refuses dirty or differently pinned LTP
 checkouts rather than resetting them. `run.py --timeout N` sets a default
 in guest seconds; `--timeouts FILE` overrides selected cases and
 `--wall-timeout N` bounds the host trial. `sweep.py` retries missing cases
