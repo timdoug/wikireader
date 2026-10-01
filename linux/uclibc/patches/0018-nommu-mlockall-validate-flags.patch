@@ -1,0 +1,43 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mlockall: validate flags in the no-MMU inline implementation
+
+No-MMU memory is already resident, so valid locking requests remain no-ops.
+That does not make zero, unknown flags, or MCL_ONFAULT alone valid requests.
+Use the same flag validation as Linux's MMU implementation.
+
+diff --git a/include/sys/mman.h b/include/sys/mman.h
+--- a/include/sys/mman.h
++++ b/include/sys/mman.h
+@@ -39,6 +39,10 @@
+ #endif
+ 
+ #include <bits/mman.h>
++
++#ifndef __ARCH_USE_MMU__
++# include <errno.h>
++#endif
+ 
+ /* Return value of `mmap' in case of an error.  */
+ #define MAP_FAILED	((void *) -1)
+@@ -134,10 +138,19 @@
+ #else
+ 
+ /* On no-mmu systems, memory cannot be swapped out, so
+- * these functions will always succeed.  */
++ * valid locking requests need no action.  */
+ static __inline__ int mlock (const void *__addr, size_t __len) { return 0; }
+ static __inline__ int munlock (const void *__addr, size_t __len) { return 0; }
+-static __inline__ int mlockall (int __flags) { return 0; }
++static __inline__ int mlockall (int __flags)
++{
++  if (!__flags || (__flags & ~(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT)) ||
++      __flags == MCL_ONFAULT)
++    {
++      errno = EINVAL;
++      return -1;
++    }
++  return 0;
++}
+ static __inline__ int munlockall (void) { return 0; }
+ #endif
+ #endif /* __UCLIBC_HAS_REALTIME__ */
