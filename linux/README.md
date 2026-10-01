@@ -75,7 +75,15 @@ creation, scheduling, exec, exit, and parent wakeup. It installs a `SIGUSR1`
 handler, signals itself, and returns through the C33 `rt_sigreturn`
 trampoline; the kernel saves and restores the complete integer context,
 signal mask, and alternate-stack state in an aligned `ucontext` frame on the
-userspace stack. Traps reach the kernel through `CONFIG_GENERIC_ENTRY`, so
+userspace stack. Handler entry emulates the four-byte return-address push
+of a normal call: `SP % 16 == 12`, with the argument base at `SP + 4`
+aligned to sixteen bytes. `signal-entry.S` checks this before the C prologue,
+including nested delivery on an alternate stack; the sigreturn trampoline
+then runs with the return-address word already popped.
+Exception entry checks an active alternate signal stack against its own
+lower bound, so placing it below the ordinary stack does not trigger a
+false overflow diagnosis.
+Traps reach the kernel through `CONFIG_GENERIC_ENTRY`, so
 tracing, seccomp, and audit see every system call and the exit path is the
 generic one: a child that calls `PTRACE_TRACEME` before `execve()` must be
 stepped through several `PTRACE_SYSCALL` stops before it reaches its exit

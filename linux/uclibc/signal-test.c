@@ -23,6 +23,7 @@ static volatile sig_atomic_t caught;
 static __thread int tls_value = 33;
 static void *thread_pointer;
 static volatile sig_atomic_t handler_tls;
+static volatile sig_atomic_t handler_alignment;
 static unsigned char *alt_memory;
 static const size_t alt_size = 32768;
 static volatile sig_atomic_t outer_ok, inner_ok;
@@ -57,18 +58,24 @@ static void pause_ms(int ms)
 		require(errno == EINTR, "controller sleep");
 }
 
-static void handler(int signo)
+extern void c33_signal_handler_entry(int signo);
+extern void c33_signal_alt_entry(int signo, siginfo_t *info, void *context);
+
+void c33_signal_handler_body(int signo, unsigned long entry_sp_mod16)
 {
 	(void)signo;
 	caught++;
+	handler_alignment = entry_sp_mod16 == 12;
 	handler_tls = tls_value == 33 && __builtin_thread_pointer() == thread_pointer;
 }
 
 static void install(int flags)
 {
-	struct sigaction action = { .sa_handler = handler, .sa_flags = flags };
+	struct sigaction action = {
+		.sa_handler = c33_signal_handler_entry, .sa_flags = flags
+	};
 	sigemptyset(&action.sa_mask);
-	caught = handler_tls = 0;
+	caught = handler_tls = handler_alignment = 0;
 	require(sigaction(SIGUSR1, &action, NULL) == 0, "install signal handler");
 }
 
@@ -98,7 +105,8 @@ static void interrupted_read(int restart)
 	ssize_t result = read(fd[0], &byte, 1);
 	int error = errno;
 	require(pthread_join(worker, NULL) == 0 && sender.result == 0, "read sender join");
-	require(caught == 1 && handler_tls, "read handler TLS");
+	require(caught == 1 && handler_tls && handler_alignment,
+		"read handler TLS / entry alignment");
 	require(restart ? result == 1 && byte == 'x' : result == -1 && error == EINTR,
 		 restart ? "SA_RESTART read completes" : "read returns EINTR");
 	close(fd[0]);
@@ -115,7 +123,8 @@ static void interrupted_sleep(int restart)
 	int result = nanosleep(&duration, &remaining);
 	int error = errno;
 	require(pthread_join(worker, NULL) == 0 && sender.result == 0, "sleep sender join");
-	require(result == -1 && error == EINTR && caught == 1 && handler_tls,
+	require(result == -1 && error == EINTR && caught == 1 && handler_tls &&
+		 handler_alignment,
 		 "nanosleep returns EINTR even with SA_RESTART");
 	require(remaining.tv_sec == 0 && remaining.tv_nsec > 0 &&
 		 remaining.tv_nsec < duration.tv_nsec, "nanosleep remaining time64");
@@ -134,7 +143,7 @@ static void interrupted_userspace(void)
 	while (!caught)
 		__asm__ volatile ("" : "+r" (a), "+r" (b), "+r" (c) : : "memory");
 	require(a == 0x13579bdf && b == 0x2468ace0 && c == 0x12345678 &&
-		 errno == 123 && handler_tls && tls_value == 33 &&
+		 errno == 123 && handler_tls && handler_alignment && tls_value == 33 &&
 		 __builtin_thread_pointer() == thread_pointer, "asynchronous userspace signal return");
 	require(pthread_join(worker, NULL) == 0 && sender.result == 0 && caught == 1,
 		 "userspace sender join");
@@ -157,13 +166,15 @@ static void interrupted_wait(int restart, int absolute_sleep)
 		ppoll(NULL, 0, &deadline, NULL);
 	int error = errno;
 	require(pthread_join(worker, NULL) == 0 && sender.result == 0, "wait sender join");
-	require(caught == 1 && handler_tls, "wait handler TLS");
+	require(caught == 1 && handler_tls && handler_alignment,
+		"wait handler TLS / entry alignment");
 	require(absolute_sleep ? result == EINTR : result == -1 && error == EINTR,
 		 absolute_sleep ? "absolute clock_nanosleep returns EINTR" :
 		 "ppoll returns EINTR even with SA_RESTART");
 }
 
-static void alternate_handler(int signo, siginfo_t *info, void *context)
+void c33_signal_alt_body(int signo, siginfo_t *info, void *context,
+			 unsigned long entry_sp_mod16)
 {
 	int saved_errno = errno;
 	volatile unsigned char marker = 0;
@@ -171,13 +182,13 @@ static void alternate_handler(int signo, siginfo_t *info, void *context)
 	int on_stack = address >= (uintptr_t)alt_memory &&
 		address < (uintptr_t)alt_memory + alt_size;
 	if (signo == SIGUSR2) {
-		inner_ok = on_stack && tls_value == 33 &&
+		inner_ok = on_stack && entry_sp_mod16 == 12 && tls_value == 33 &&
 			__builtin_thread_pointer() == thread_pointer;
 	} else {
 		ucontext_t *uc = context;
 		sigset_t mask;
 		sigprocmask(SIG_SETMASK, NULL, &mask);
-		outer_ok = on_stack && info->si_code == SI_QUEUE &&
+		outer_ok = on_stack && entry_sp_mod16 == 12 && info->si_code == SI_QUEUE &&
 			info->si_value.sival_int == 73 && info->si_pid == getpid() &&
 			sigismember(&uc->uc_sigmask, SIGTERM) == 1 &&
 			sigismember(&uc->uc_sigmask, SIGUSR1) == 0 &&
@@ -199,7 +210,7 @@ static void alternate_stack(void)
 	stack_t stack = { .ss_sp = alt_memory, .ss_size = alt_size };
 	require(sigaltstack(&stack, NULL) == 0, "install alternate stack");
 	struct sigaction action = {
-		.sa_sigaction = alternate_handler, .sa_flags = SA_ONSTACK | SA_SIGINFO
+		.sa_sigaction = c33_signal_alt_entry, .sa_flags = SA_ONSTACK | SA_SIGINFO
 	};
 	sigemptyset(&action.sa_mask);
 	require(sigaction(SIGUSR1, &action, NULL) == 0 &&
@@ -314,6 +325,6 @@ int main(int argc, char **argv)
 	for (size_t i = 0; i < 4; i++) {
 		stopped_wait(argv[0], kinds[i]);
 	}
-	puts("SIGNAL PASS: EINTR, SA_RESTART, nested alternate stack, siginfo, TLS, stopped deadlines");
+	puts("SIGNAL PASS: entry alignment, EINTR, SA_RESTART, nested alternate stack, siginfo, TLS, stopped deadlines");
 	return 0;
 }

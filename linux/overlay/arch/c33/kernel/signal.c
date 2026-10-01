@@ -49,7 +49,8 @@ asmlinkage long c33_sys_rt_sigreturn(void)
 
 	frame = (void __user *)(regs->sp -
 			offsetof(struct c33_rt_sigframe, info));
-	if (((unsigned long)frame & 15) || !access_ok(frame, sizeof(*frame)))
+	if ((((unsigned long)frame + sizeof(frame->return_address)) & 15) ||
+	    !access_ok(frame, sizeof(*frame)))
 		goto badframe;
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
@@ -84,7 +85,10 @@ static void __user *c33_get_sigframe(struct ksignal *ksig,
 {
 	unsigned long sp = sigsp(regs->sp, ksig);
 
-	return (void __user *)((sp - size) & ~15UL);
+	/* Emulate call's four-byte return-address push: C enters at 12 mod
+	 * 16, while the argument base immediately above it is aligned. */
+	return (void __user *)(((sp - size + sizeof(unsigned long)) & ~15UL)
+			     - sizeof(unsigned long));
 }
 
 static int c33_setup_rt_frame(struct ksignal *ksig, sigset_t *set,

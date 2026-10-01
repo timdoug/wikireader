@@ -57,6 +57,7 @@ asmlinkage struct pt_regs *c33_exception_exit(struct pt_regs *regs);
 asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 {
 	struct pt_regs *kernel_regs;
+	unsigned long stack_lo;
 
 	if (current->thread.in_kernel) {
 		regs->reserved = 0;
@@ -71,10 +72,15 @@ asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 	 * process or another one keeps next to it.  Say so, rather than let
 	 * the damage surface later as someone else's crash.
 	 */
-	if (unlikely(regs->sp - 108 < current->thread.stack_lo)) {
+	/* An alternate signal stack can lie below the ordinary stack. Check
+	 * against its own allocation rather than diagnosing a valid handler
+	 * syscall or interrupt as an ordinary-stack overflow. */
+	stack_lo = on_sig_stack(regs->sp) ? current->sas_ss_sp :
+		current->thread.stack_lo;
+	if (unlikely(regs->sp - 108 < stack_lo)) {
 		pr_err("%s[%d]: stack overflow: sp %08lx, stack from %08lx, pc %08lx\n",
 		       current->comm, task_pid_nr(current), regs->sp,
-		       current->thread.stack_lo, regs->pc);
+		       stack_lo, regs->pc);
 		current->thread.stack_lo = 0;
 		force_sig(SIGKILL);
 	}
