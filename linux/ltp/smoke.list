@@ -1,0 +1,14 @@
+# Standalone Open POSIX cases reviewed for no fork(), MMU, or block-device needs.
+pthread_create/1-1
+pthread_join/1-1
+pthread_mutex_lock/1-1
+pthread_key_create/1-1
+pthread_once/1-1
+sigaction/1-1
+sigemptyset/1-1
+sigaddset/1-1
+clock_gettime/1-1
+clock_getres/1-1
+nanosleep/1-1
+timer_create/1-1
+sem_init/1-1

@@ -1036,6 +1036,45 @@ checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and
 requires the frontend to receive the scripted panel events from
 `/dev/input/event0`.
 
+## LTP POSIX tests
+
+`make -C linux ltp-test` runs thirteen smoke cases. `make -C linux
+ltp-all-test` attempts every numbered, non-speculative standalone interface
+case in LTP's Open POSIX suite, then runs every successful build. Both use
+unchanged upstream sources pinned to
+`2279d708c817db657611a30c427c7d06c4360049` and the existing compiler,
+kernel, and root filesystem. `make -C linux ltp-port-test` runs the local
+regressions for bugs found during the sweep.
+
+The first full sweep compiled 1,236 of 1,569 candidates: 262 needed
+unavailable `fork`, and 71 needed unavailable `aio.h`. With a uniform
+thirty-second guest deadline, 1,144 returned pass. The sweep exposed
+signal-mask marshalling, time64 timer-output, clock capability, and
+large-frame compiler bugs; a separate regression exposed the misaligned
+C-helper call on `vfork` failure.
+
+After fixes and appropriate deadlines, **1,183 cases pass individually**,
+39 more than initially. Eight gains are deadline corrections; 31 exercise
+the fixes or newly reported clock support. Seven local regressions and the
+normal application checks pass too. The raw final sweep has 1,179 passes
+and four execution errors caused by an emulator DMA stall after a tight
+CPU-timer loop; all four affected tests pass in fresh boots. The combined
+count is not a clean batch-sweep result. The contention-model issue is
+documented separately and no speculative kernel storage fix is included.
+
+Every test runs through FLASH -> Grifo -> launcher -> Linux, on an isolated
+virtual card. The supervisor uses genuine `vfork` followed by `exec`,
+records the program's exit status, and kills its process group on timeout.
+Reports retain unsupported, untested, unresolved, failure, and timeout
+results separately. The main LTP harness requires `fork`; replacing it
+with `vfork` would change its semantics. These are standalone POSIX trials,
+not a claim that all of LTP passes on no-MMU Linux.
+
+See [ltp/README.md](ltp/README.md) for coverage, fixes, limitations, and
+reproduction commands. Artifacts and detailed reports live under
+`linux/artifacts/ltp-*`. These runs use wremu with 32 MiB SDRAM; physical
+hardware and the 16 MiB configuration remain separate validation.
+
 ## What comes next
 
 Richer keyboard modes, console session management, and power management can

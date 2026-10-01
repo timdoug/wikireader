@@ -1,0 +1,12 @@
+{
+  "clock_getcpuclockid/1-1": 600,
+  "clock_gettime/4-1": 1800,
+  "mmap/10-1": 600,
+  "strchr/1-1": 180,
+  "strcpy/1-1": 180,
+  "strlen/1-1": 180,
+  "strncpy/1-1": 180,
+  "strncpy/2-1": 180,
+  "timer_settime/2-1": 60,
+  "timer_settime/5-3": 180
+}
