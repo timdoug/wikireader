@@ -1,0 +1,37 @@
+Validate an impossible fixed range before rejecting NOMMU placement.
+
+NOMMU does not support MAP_FIXED, but a fixed range outside TASK_SIZE
+has an independently identifiable ENOMEM error. Check length rounding,
+alignment and the fixed range without overflowing addr + len, then
+retain EINVAL for otherwise valid unsupported fixed mappings. Address
+hints on ordinary mappings remain ignored.
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -727,9 +727,6 @@ static int validate_mmap_request(struct file *file,
+ 	int ret;
+ 
+ 	/* do the simple checks first */
+-	if (flags & MAP_FIXED)
+-		return -EINVAL;
+-
+ 	if ((flags & MAP_TYPE) != MAP_PRIVATE &&
+ 	    (flags & MAP_TYPE) != MAP_SHARED)
+ 		return -EINVAL;
+@@ -742,6 +739,15 @@ static int validate_mmap_request(struct file *file,
+ 	if (!rlen || rlen > TASK_SIZE)
+ 		return -ENOMEM;
+ 
++	if (flags & MAP_FIXED) {
++		if (addr & ~PAGE_MASK)
++			return -EINVAL;
++		if (addr > TASK_SIZE - rlen)
++			return -ENOMEM;
++		/* A valid range still cannot be placed at a fixed address. */
++		return -EINVAL;
++	}
++
+ 	/* offset overflow? */
+ 	if ((pgoff + (rlen >> PAGE_SHIFT)) < pgoff)
+ 		return -EOVERFLOW;

@@ -143,14 +143,14 @@ the earlier per-case observations, preserving report hashes and the four
 status changes. Its **1,187/1,236 passes (96.0%)** are not a new full sweep.
 
 [remaining.json](remaining.json) records the raw status, source hash and
-reason for the current 39 remaining non-PASS interface cases, following
+reason for the current 38 remaining non-PASS interface cases, following
 the synchronization, memory-locking and mapping-ownership fixes below. These categories explain the
 results; they do not turn exclusions or failures into passes:
 
 | Reason | Cases |
 |---|---:|
 | Optional features: sporadic scheduling and process-scope threads | 22 |
-| MMU page protection or fixed virtual-address mappings | 9 |
+| MMU page protection or fixed virtual-address mappings | 8 |
 | Permission-denial precondition absent; Linux permits the query | 3 |
 | Undefined rwlock operations explicitly skipped by upstream on Linux | 2 |
 | AIO placeholder with no implemented test body | 1 |
@@ -707,3 +707,31 @@ The combined original-interface record advances from **1,196 to 1,197 of
 one unresolved, six untested and 28 unsupported. The four failures still
 require MMU protection or fixed virtual-address placement, and `mlockall/3-7`
 still fails its beyond-EOF shared-mapping setup.
+
+## Fixed-range validation
+
+`mmap/24-2` checks ENOMEM for an impossible fixed address range, not successful
+MAP_FIXED placement. The earlier audit wrongly described its errno as an
+architectural impossibility. NOMMU now validates rounded length and fixed
+address alignment, then compares the address against `TASK_SIZE - rounded_len`
+before returning EINVAL for otherwise valid unsupported fixed placement.
+The subtraction avoids address addition overflow. Ordinary address hints
+remain ignored, and rejected requests never change an existing mapping.
+The documented [mmap errors](https://man7.org/linux/man-pages/man2/mmap.2.html)
+include ENOMEM for an address outside the process address space.
+
+The unchanged `mmap/24-2` and the new `c33_mmap_errors/1-1` boundary regression
+both fail with the previous kernel and pass with `ltp-kernel-fixed-range.app`,
+using identical binaries and `ltp-rootfs-mlock.img`. The local regression checks
+rounding and address overflow, zero length, alignment, missing mapping type,
+valid-range rejection, ignored wrapping hints, and preservation of data and
+ownership through rejected calls. All 22 existing local regressions pass.
+
+The fresh 86-case memory batch has **77 PASS, three FAIL, three UNSUPPORTED,
+two UNTESTED and one UNRESOLVED**, with no lost passes. Its report is
+`ltp-memory-fixed-range-run/results.json`; focused before/after observations
+are in `ltp-fixed-range-before` and `ltp-fixed-range-after`. Source, fixture and
+report hashes are recorded in `ltp-fixed-range-followup.json`.
+Combined original-interface observations advance to **1,198/1,236 (96.9%)**,
+with **38 remaining non-PASS** and no timeouts. The combined report is
+`ltp-fixed-range-verified/results.json`, not a new full sweep.
