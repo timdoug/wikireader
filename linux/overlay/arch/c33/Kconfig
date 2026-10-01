@@ -22,6 +22,7 @@ config C33
 	select HAVE_PAGE_SIZE_4KB
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_UID16
+	select NOMMU_MLOCK
 	select IRQCHIP
 	select OF
 	select OF_EARLY_FLATTREE
