@@ -24,10 +24,16 @@ def module(name, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('wad', type=Path)
+    parser.add_argument('--app', type=Path, default=ROOT / 'doom/doom.app')
+    parser.add_argument('--map', type=Path, default=ROOT / 'doom/doom.map')
     args = parser.parse_args()
     out = Path(tempfile.mkdtemp(prefix='trace-', dir=ROOT / 'build/doom'))
-    for name in ('doom.app', 'doom.map', 'doom.dump'):
-        shutil.copyfile(ROOT / 'doom' / name, out / name)
+    shutil.copyfile(args.app, out / 'doom.app')
+    shutil.copyfile(args.map, out / 'doom.map')
+    with (out / 'doom.dump').open('w') as dump:
+        subprocess.run([
+            str(ROOT / 'host-tools/toolchain-c33/work/install/bin/c33-epson-elf-objdump'),
+            '-D', str(out / 'doom.app')], stdout=dump, check=True)
     subprocess.run([sys.executable, str(ROOT / 'samo-lib/mbr/make-flash.py'), str(out / 'flash.rom')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'doom/make-card.py'), str(out / 'card.img'),
                     str(args.wad.resolve()), '--app', str(out / 'doom.app'), '--args=-wrbench'], check=True)
