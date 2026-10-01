@@ -270,10 +270,8 @@
 /* List the order in which to allocate registers.  Each register must be
    listed once, even those in FIXED_REGISTERS.
 
-   On the 850, we make the return registers first, then all of the volatile
-   registers, then the saved registers in reverse order to better save the
-   registers with an out of line function, and finally the fixed
-   registers.  */
+   Prefer low callee-saved registers so dense saves can use the smallest
+   pushn/popn block.  */
 
 /* Prefer the call-clobbered registers, so leaf functions need no prologue,
    and only then fall back on the callee-saved ones.  */
@@ -283,7 +281,7 @@
    4,  5,				/* return value */		\
    6,  7,  8,  9,			/* argument registers */	\
   10, 11, 12, 13, 14,			/* call-clobbered scratch */	\
-   3,  2,  1,  0,			/* callee-saved */		\
+   0,  1,  2,  3,			/* callee-saved */		\
   15,					/* %r15, the data pointer */	\
   16, 17, 18, 19, 20, 21		/* sp, alr, ahr, cc, fp, ap */	\
 }

@@ -318,6 +318,11 @@ scratch:
   comparison.
 * Interrupts push both PC and PSR (`SP -= 8`); `reti` pops both.
 * Leaf functions that need no frame emit no prologue at all.
+* Preserved registers are allocated from `%r0` upward. Ordinary functions save one
+  contiguous block through its highest used preserved register, including
+  `%r3` when it is the frame pointer, using `pushn`/`popn` on all core types.
+  This retains the established frame layout and unwind implementation.
+  Register preservation and sixteen-byte call alignment are unchanged.
 * `pushn %rN` leaves `%r0` at the new `%sp` and `%rN` highest. The CFI says
   so: the CFA is the caller's `%sp` (entry `%sp` + 4), the return address is
   at CFA-4 in a DWARF column of its own (22, one past the hard registers), and

@@ -25,11 +25,40 @@ approval.
 | gas | 338 passes, 10 unsupported, no unexpected result |
 | binutils | 240 passes, 18 untested, 17 unsupported, no unexpected result |
 | ld | 479 passes, 13 XFAIL, 28 untested, 235 unsupported, no unexpected result |
-| ABI cross-link | All old/new caller/callee combinations agree |
+| ABI cross-link | 2026-09-30: all 20 output streams match the preserved pre-change compiler; legacy callers into modern varargs retain an existing mismatch |
 
 The complete unfiltered GCC suite has not been rerun since the focused fixes.
 When it is run, preserve `gcc.sum` and `gcc.log`, group findings by source
 and option set, and investigate only fresh unexpected results.
+
+### 2026-09-30 preserved-baseline comparison
+
+The initial ABI-compatible allocation-plus-sparse-save experiment passed 517 C33 target
+checks and 50 native-versus-target generated programs. The focused stack,
+setjmp and nested-function run gives 214 passes and 22 failures in
+`nestfunc-3.c`, `nestfunc-5.c` and `nestfunc-6.c`. The preserved compiler from
+before this change produces exactly the same verdicts on the same emulator
+and runtime. These results qualify the earlier exhaustive-run totals above;
+they do not establish a new exhaustive clean result. Diagnose the three
+cases independently instead of changing their tests or hiding their failures.
+
+The ABI cross-link probe also disagrees with the GCC 3.3.2 reference when a
+legacy caller invokes the modern `c_varargs` callee, and at `-O0` also
+`c_varargs_d`. This reproduces before and after the register-save change;
+the 36-value output of every caller/callee combination is byte-identical
+to its baseline at `-O0`, `-O1`, `-O2`, `-O3` and `-Os`.
+Logs and preserved compilers are in `../work/abi-compatible/`. These are
+remaining correctness/compatibility investigations, not ABI v2 prerequisites
+or failures caused by that save-layout experiment. Sparse saves were
+subsequently removed in favor of the established block-save implementation;
+the results above describe the experiment, not the selected allocation-only compiler.
+
+The selected allocation-only compiler, retaining contiguous saves, passes
+489 C33 target checks and 50 native-versus-target generated programs. All 20
+cross-link output streams still match the preserved pre-change compiler.
+The same focused frame tests retain exactly the baseline's 214 passes and
+22 failures. Current logs and rebuilt images are in `../work/abi-simple/`;
+the authoritative target summary is `target-final/gcc.sum` there.
 
 No compact non-sanitizer execution family from the previous full run remains
 unclassified. Long standard tests are supported by the deterministic

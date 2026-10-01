@@ -52,7 +52,7 @@ for seed in $(seq "$first" "$last"); do
 		echo "seed $seed: LINK FAILED"; sed -n 1,5p "$WORK/t$seed.lderr"; fail=$((fail+1)); continue
 	fi
 
-	"$WREMU" -n "$NINSN" "$WORK/t$seed.elf" 2>&1 \
+	"$WREMU" --bare-elf -n "$NINSN" "$WORK/t$seed.elf" 2>&1 \
 		| grep -E '^[0-9a-f]{8}$' > "$WORK/t$seed.emu.out"
 
 	if diff -q "$WORK/t$seed.host.out" "$WORK/t$seed.emu.out" >/dev/null 2>&1; then
