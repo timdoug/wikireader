@@ -113,6 +113,14 @@ old board code set, and the buttons and power switch interrupting; SD reads
 through DMAengine, byte for byte, at every step of the read work below.
 Grifo leaves P63 as #WDT_NMI, which is harmless with NMI off.
 
+Not yet run on the device (emulator-tested 2026-09-30, boot-test, app-test,
+signal-test and `startx`): `ld.so`'s call-free relocation loop and stack
+symbol cache, the compiler's forwarding descriptor at variadic and
+unprototyped calls only, short calls in userland, the executables'
+call-free self-relocation, and `s1c33-sd`'s 32 scatterlist segments. On the
+device, `check` and `pt`/`cxx` from the card, X by touch, and a raw read's
+md5 cover them.
+
 ## SD card reads: where they stand
 
 A raw 4 MB read (`dd` from `/dev/mmcblk0`, page cache dropped) takes 2.87
@@ -416,9 +424,16 @@ For X, largest first:
 
 The rest of the port, standards first (see "Standards" above):
 
-1. **What is left of the boot's gap to bFLT** is userland starting
-   (`ld.so` and libc, 66M cycles of the boot against 31M in wremu) and
-   the X sockets and VTs (about 0.6 s in wremu).
+1. **What is left of the boot's gap to bFLT** is userland starting and the
+   X sockets and VTs (about 0.6 s in wremu). A `/bin/true`
+   spawn/exec/wait takes about 60 ms in wremu (`runtime-bench.py
+   --profile-workload exec`): two fifths in the kernel's process creation
+   and teardown (the scheduler's load tracking a tenth of that, then
+   per-page allocation and freeing), a third in `ld.so`, whose relocations
+   are now bound by SDRAM latency at 150-300 cycles each, and a tenth in
+   the program's own `.rofixup` self-relocation (3,539 words for BusyBox).
+   A linker-merged GOT in place of each file's constant pool would leave
+   BusyBox 2,245 distinct words.
 2. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
    link tests for `c33-linux-uclibc`, in the VM; execution tests need a
    harness through wremu.
@@ -463,7 +478,17 @@ Performance, after those:
   DMAengine, which the user wants kept. Only if that changes.
 - **Boot and X memory under FDPIC**: libraries load whole, so libraries only
   Xfbdev uses (pixman, libXfont2, zlib, libfontenc, libsha1) could link into
-  it statically; the first exec reads libc's 489 KB of text.
+  it statically; the first exec reads libc's 487 KB of text.
+- **Kernel calls**: the kernel's 2.7 MB of text is past a short call's
+  2 MB reach, so it is built with `-mlong-calls`; 94% of its calls would
+  fit the short form (about 88 KB) if `ld` placed stubs for the rest, which
+  `elf32-c33.c` cannot yet do.
+- **Slab at the prompt** (1.5 MB in wremu) is mostly sysfs (about 5,900
+  kernfs nodes, half a megabyte with their names; the device tree's
+  `/sys/firmware` is 258 of them) and the block layer's reserve pools
+  (`biovec-max`, about 210 KB). `mmcblk0` uses mq-deadline, whose 128
+  scheduler requests each carry a scatterlist and a request; `none` would
+  drop them.
 
 Done since the second round trip, emulator-tested and **not yet run on
 hardware**: the contrast PWM (`drivers/pwm/pwm-s1c33.c`, timer 1, with its
