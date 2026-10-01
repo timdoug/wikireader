@@ -38,15 +38,45 @@ __self_reloc_map (const struct elf32_fdpic_loadmap *map, void ***p, void ***e)
   return p;
 }
 
+/* A program of the usual two segments, text then data: every word up to E
+   whose address and value both lie in a segment, in a loop of its own that
+   calls nothing, so that its state stays in registers.  It stops at the
+   first word it cannot do (a misaligned one, or a value outside both
+   segments) and returns where it stopped.  The words are always in the
+   data segment, which the linker checks; what they hold is in either, or
+   one past the end of the data segment, as __reloc_pointer allows.  */
+static void *** __attribute__ ((noinline, optimize ("O2")))
+__self_reloc_two (const struct elf32_fdpic_loadmap *map, void ***p, void ***e)
+{
+  unsigned long tv = map->segs[0].p_vaddr, tm = map->segs[0].p_memsz;
+  unsigned long td = map->segs[0].addr - tv;
+  unsigned long dv = map->segs[1].p_vaddr, dm = map->segs[1].p_memsz;
+  unsigned long dd = map->segs[1].addr - dv;
+
+  for (; p < e; p++)
+    {
+      unsigned long a = (unsigned long) *p, *w, v;
+
+      if (a - dv >= dm || (a & 3))
+	break;
+      w = (unsigned long *) (a + dd);
+      v = *w;
+      if (v - dv <= dm)
+	v += dd;
+      else if (v - tv < tm)
+	v += td;
+      else
+	break;
+      *w = v;
+    }
+  return p;
+}
+
 /* Every word the list names holds a link-time address of this module; both
    the word and what it holds move with their segments.  The last entry is
-   __dp's address, which is returned relocated: the caller's %r15.
-
-   Every program runs this at every exec, a word at a time -- BusyBox has
-   3,400 of them -- so a program of the usual two segments, text then data,
-   gets a loop of its own.  The words are always in the data segment, which
-   the linker checks; what they hold is in either, or one past the end of
-   the data segment, as __reloc_pointer allows.  */
+   __dp's address, which is returned relocated: the caller's %r15.  Every
+   program runs this at every exec -- BusyBox has 3,500 words -- so a
+   program of two segments goes through __self_reloc_two.  */
 attribute_hidden void *
 __self_reloc (const struct elf32_fdpic_loadmap *map, void ***p_link,
 	      void ***e_link)
@@ -57,31 +87,8 @@ __self_reloc (const struct elf32_fdpic_loadmap *map, void ***p_link,
   void ***e = p + (e_link - p_link);
 
   if (map->nsegs == 2)
-    {
-      unsigned long tv = map->segs[0].p_vaddr, tm = map->segs[0].p_memsz;
-      unsigned long td = map->segs[0].addr - tv;
-      unsigned long dv = map->segs[1].p_vaddr, dm = map->segs[1].p_memsz;
-      unsigned long dd = map->segs[1].addr - dv;
-
-      for (; p < e - 1; p++)
-	{
-	  unsigned long a = (unsigned long) *p, v;
-
-	  if (a - dv >= dm || (a & 3))
-	    {
-	      p = __self_reloc_map (map, p, p + 1) - 1;
-	      continue;
-	    }
-	  v = *(unsigned long *) (a + dd);
-	  if (v - dv <= dm)
-	    v += dd;
-	  else if (v - tv < tm)
-	    v += td;
-	  else
-	    v = (unsigned long) __reloc_pointer ((void *) v, map);
-	  *(unsigned long *) (a + dd) = v;
-	}
-    }
+    while ((p = __self_reloc_two (map, p, e - 1)) < e - 1)
+      p = __self_reloc_map (map, p, p + 1);
   else
     p = __self_reloc_map (map, p, e - 1);
 
