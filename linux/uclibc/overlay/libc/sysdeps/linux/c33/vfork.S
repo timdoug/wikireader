@@ -30,10 +30,15 @@ __vfork:
 	/* Restore the return address before a call can clobber %r12. */
 	push %r12
 	pushn %r0
+	/* The return address and saved r0 leave SP eight modulo sixteen.
+	 * A C helper needs an aligned argument base and the legacy descriptor. */
+	sub %sp,2
 	not %r0,%r4
 	add %r0,1
+	xld.w %r5,0xc3000000
 	xcall __errno_location
 	ld.w [%r4],%r0
+	add %sp,2
 	popn %r0
 	xld.w %r4,-1
 	ret
