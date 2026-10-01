@@ -1994,10 +1994,13 @@ static int sd_probe(struct platform_device *pdev)
 	mmc->f_min = max(host->clock >> 9, 400000UL);
 	mmc->f_max = host->clock >> 2;
 	mmc->max_blk_size = SD_BLOCKSIZE;
-	mmc->max_segs = SD_BLOCKSATONCE;
 	mmc->max_blk_count = SD_BLOCKSATONCE;
 	mmc->max_req_size = SD_BLOCKSATONCE * SD_BLOCKSIZE;
 	mmc->max_seg_size = mmc->max_req_size;
+	/* The block layer gives every request the queue can hold (193, with
+	   mq-deadline) a scatterlist of max_segs entries: 256 made that
+	   772 KB of RAM.  The largest request needs one segment a page.  */
+	mmc->max_segs = mmc->max_req_size / PAGE_SIZE;
 	ret = mmc_of_parse(mmc);
 	if (ret)
 		return ret;
