@@ -1,0 +1,54 @@
+Validate non-destructive memory advice for eagerly populated NOMMU mappings.
+Accept ordinary access-pattern hints without changing memory contents; reject
+unmapped ranges, overflow and unsupported operations such as MADV_DONTNEED.
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -1492,6 +1492,46 @@
+ }
+ EXPORT_SYMBOL(vm_munmap);
+ 
++/* Eagerly populated NOMMU mappings need no paging advice.  Validate the
++ * whole range nevertheless; POSIX advice must not silently accept holes. */
++SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len, int, behavior)
++{
++	struct mm_struct *mm = current->mm;
++	struct vm_area_struct *vma;
++	unsigned long end;
++	int ret = 0;
++
++	switch (behavior) {
++	case MADV_NORMAL:
++	case MADV_RANDOM:
++	case MADV_SEQUENTIAL:
++	case MADV_WILLNEED:
++		break;
++	default:
++		/* In particular, do not implement destructive MADV_DONTNEED. */
++		return -EINVAL;
++	}
++	if (offset_in_page(start) || len > ULONG_MAX - (PAGE_SIZE - 1))
++		return -EINVAL;
++	end = start + PAGE_ALIGN(len);
++	if (end < start)
++		return -EINVAL;
++	if (end == start)
++		return 0;
++
++	mmap_read_lock(mm);
++	while (start < end) {
++		vma = find_vma(mm, start);
++		if (!vma || start < vma->vm_start) {
++			ret = -ENOMEM;
++			break;
++		}
++		start = vma->vm_end;
++	}
++	mmap_read_unlock(mm);
++	return ret;
++}
++
+ SYSCALL_DEFINE2(munmap, unsigned long, addr, size_t, len)
+ {
+ 	return vm_munmap(addr, len);
