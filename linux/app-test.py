@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Boot Linux from Grifo's tiled launcher and require a reboot back to it."""
 
+import argparse
 import importlib.util
 import os
 from pathlib import Path
@@ -113,11 +114,15 @@ def suspend_run(root, emulator, files, make_flash, fat):
 
 def main():
     root = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--kernel", type=Path, default=root / "linux/artifacts/linux.app")
+    parser.add_argument("--rootfs", type=Path, default=root / "linux/artifacts/linux.img")
+    args = parser.parse_args()
     emulator = require(root / "emulator/wremu")
     grifo = require(root / "samo-lib/grifo/grifo.elf")
     launcher = require(root / "samo-lib/grifo/applications/init/init.app")
-    app = require(root / "linux/artifacts/linux.app")
-    system = require(root / "linux/artifacts/linux.img")
+    app = require(args.kernel)
+    system = require(args.rootfs)
     pthread_test = require(root / "linux/artifacts/pthread-test")
     pthread_static = require(root / "linux/artifacts/pthread-test-static")
     signal_test = require(root / "linux/artifacts/signal-test")

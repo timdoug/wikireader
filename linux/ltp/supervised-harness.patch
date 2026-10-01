@@ -1,0 +1,83 @@
+Run audited fork-free LTP descriptors under an external process supervisor.
+
+The test bodies and result macros are unchanged. The dedicated build mode
+keeps setup, assertions, cleanup, variants and upstream result aggregation,
+but runs the worker in the exec'd process. supervise.c owns its process
+group and deadline. No fork call is replaced with vfork.
+
+Descriptors requiring child processes, namespaces, filesystem iteration,
+commands or resources with external helpers are rejected before setup.
+The build script additionally selects reviewed source hashes. An unexpected
+fork through a library helper is a hard TBROK, never a fake child PID.
+
+diff --git a/lib/tst_test.c b/lib/tst_test.c
+--- a/lib/tst_test.c
++++ b/lib/tst_test.c
+@@ -1419,6 +1419,22 @@ static void do_setup(int argc, char *argv[])
+ 	if (!tst_test)
+ 		tst_brk(TBROK, "No tests to run");
+ 
++#ifdef TST_NOMMU_SUPERVISED
++	if (tst_test->forks_child || tst_test->child_needs_reinit ||
++	    tst_test->needs_checkpoints || tst_test->runs_script ||
++	    tst_test->needs_overlay || tst_test->all_filesystems ||
++	    tst_test->filesystems || tst_test->needs_device ||
++	    tst_test->needs_cmds || tst_test->needs_cgroup_ctrls ||
++	    tst_test->taint_check || tst_test->needs_rofs ||
++	    tst_test->needs_devfs || tst_test->needs_hugetlbfs ||
++	    (tst_test->test_variants > 1 && tst_test->bufs))
++		tst_brk(TCONF, "Descriptor requires the ordinary fork-based harness");
++	/* This mode must be launched by the checked process-group supervisor. */
++	if (!getenv("LTP_NOMMU_SUPERVISED") ||
++	    strcmp(getenv("LTP_NOMMU_SUPERVISED"), "1") || getpgrp() != getpid())
++		tst_brk(TBROK, "External no-MMU process supervisor required");
++#endif
++
+ 	if (tst_test->timeout < -1) {
+ 		tst_brk(TBROK, "Invalid timeout value %i",
+ 			tst_test->timeout);
+@@ -1700,6 +1713,9 @@ static void heartbeat(void)
+ 	if (tst_clock_gettime(CLOCK_MONOTONIC, &context->start_time))
+ 		tst_res(TWARN | TERRNO, "tst_clock_gettime() failed");
+ 
++#ifdef TST_NOMMU_SUPERVISED
++	return; /* The external supervisor enforces the fixed case deadline. */
++#endif
+ 	if (getppid() == 1) {
+ 		tst_res(TFAIL, "Main test process might have exit!");
+ 		/*
+@@ -1806,7 +1822,9 @@ static void testrun(void)
+ 	}
+ 
+ 	do_test_cleanup();
++#ifndef TST_NOMMU_SUPERVISED
+ 	exit(0);
++#endif
+ }
+ 
+ static pid_t test_pid;
+@@ -1921,6 +1939,16 @@ void tst_set_runtime(int runtime)
+ 
+ static void fork_testrun(void)
+ {
++#ifdef TST_NOMMU_SUPERVISED
++	show_failure_hints = 1;
++	tst_disable_oom_protection(0);
++	SAFE_SIGNAL(SIGALRM, SIG_DFL);
++	SAFE_SIGNAL(SIGUSR1, SIG_DFL);
++	SAFE_SIGNAL(SIGTERM, SIG_DFL);
++	SAFE_SIGNAL(SIGINT, SIG_DFL);
++	testrun();
++	return;
++#else
+ 	int status;
+ 
+ 	SAFE_SIGNAL(SIGINT, sigint_handler);
+@@ -1974,6 +1999,7 @@ static void fork_testrun(void)
+ 
+ 	if (WIFSIGNALED(status))
+ 		tst_brk(TBROK, "Test killed by %s!", tst_strsig(WTERMSIG(status)));
++#endif
+ }
+ 
+ static struct tst_fs *lookup_fs_desc(const char *fs_type, int all_filesystems)

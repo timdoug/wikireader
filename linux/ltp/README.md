@@ -459,9 +459,9 @@ but is not a kernel-level proof that every trial was already sleeping.
 for 37 pinned LTP units in poll, ppoll, pselect, epoll_wait, eventfd and
 timerfd. Every unit uses the modern C API whose test worker is launched with
 fork, including units without an explicit fork in their body. This is an
-audit, not 37 build attempts or runtime passes. The upstream sources and
-assertions remain untouched; running them unchanged requires further runner
-support. No fork call is silently replaced with vfork.
+initial audit, not 37 build attempts or runtime passes. The upstream sources
+and assertions remain untouched; the supervised runner added below now
+executes the reviewed subset. No fork call is silently replaced with vfork.
 
 The additional local `c33_futex_waits/1-1` directly exercises the kernel's
 time64 futex ABI: wide-timeout value mismatch, invalid nanoseconds, relative
@@ -769,3 +769,89 @@ bytes were dumped and checked. The stripped libc decreases from **502,056 to
 500,852 bytes**. No compiler calling convention or kernel syscall changes
 are involved. The original-interface record remains **1,198/1,236**; the
 modern syscall cohort is accounted separately below.
+
+## Supervised modern syscall coverage
+
+`build-syscalls.py` builds the 57 reviewed bodies listed with source hashes
+in [syscall-smoke.json](syscall-smoke.json). They cover descriptor duplication
+and close-on-exec flags, file and vector I/O, positional I/O and shared offsets,
+file sizes and links, relative open paths, pipe readiness/hangup, eventfd,
+epoll edge/one-shot/nesting/fairness, pselect errors and timerfd behavior.
+This is a separate cohort from the original 1,236 standalone POSIX interfaces.
+
+The source checkout must be clean at the pinned revision. The builder creates
+a new private clone, applies [supervised-harness.patch](supervised-harness.patch)
+to the library only, and verifies each test body against its reviewed hash.
+The externally exec'd process performs the ordinary test setup, callbacks,
+cleanup and result aggregation. `supervise.c` owns its process group and
+hard deadline; its vfork child only sets the group, execs or exits on error.
+The test worker retains ordinary signal defaults and OOM eligibility.
+Library heartbeats update timing state without signaling the supervisor.
+
+This is a restricted mode, not general fork support. Descriptors requiring
+children, checkpoints, namespace/filesystem machinery, external commands,
+device helpers or multiple variants with descriptor-owned buffers are
+rejected. An unexpected fork through any compiled helper exits with TBROK;
+it cannot produce a fake child PID or let a test pass by swallowing ENOSYS.
+Body review also excludes credential drops needing privileged parent cleanup
+and protected-pointer assertions. Future additions require the same review;
+absence of a literal fork token does not establish eligibility.
+
+The fixture includes an uncompressed copy of the tested kernel configuration,
+so configuration checks do not need an external zcat worker. Its hash is
+recorded, and the runner requires the matching kernel hash. Upstream guarded
+buffers still check canaries, but their guard-page protection is unavailable
+without an MMU. These results do not establish inaccessible-pointer coverage.
+
+The executable stack requirement is explicitly **256 KiB** through GNU_STACK
+metadata. The first trial's default 32 KiB was insufficient for pipe-sized
+automatic buffers in `epoll_wait01` and `write04`. Their bodies pass unchanged
+with adequate stacks. Initial stack failures and execution errors remain in
+`ltp-syscalls-run`; the adequate-stack pre-fix trial is
+`ltp-syscalls-stack-run`. This changes test build metadata, not a calling ABI.
+
+The final fresh 57-case batch (`ltp-syscalls-final-run`) has **54 PASS,
+two UNSUPPORTED and one FAIL**, with no execution errors or timeouts:
+
+* `eventfd06` requires unavailable libaio and retains its upstream skip.
+* `lseek11` requires real sparse-file SEEK_DATA/SEEK_HOLE behavior, which
+  this trial's ramfs temporary directory does not provide.
+* `timerfd01` expects exactly three accumulated expirations after sleeping
+  160 ms on a 50 ms periodic timer. It has reported four or six in batches;
+  a fresh boot of the same binary can pass. The raw batch failure remains
+  open rather than being replaced by a favorable observation. A separately
+  identified, instrumented fresh-boot diagnostic measured approximately
+  177–178 ms from arming through sleep and passed; it is not an unchanged
+  upstream result and does not diagnose the delayed failed batch.
+
+The native AArch64 comparison runs the same 57 bodies under the original
+fork-based harness and records **56 PASS and one UNSUPPORTED** for libaio
+(`ltp-syscalls-native-run`). Its temporary filesystem supports the sparse-file
+case. That comparison does not establish C33 timing behavior.
+[syscall-candidates.json](syscall-candidates.json) refreshes the initial
+37-unit audit with these observations and leaves the other units explicitly
+unrun, fork-dependent or protection-dependent.
+
+The runner decodes modern LTP result bits separately from POSIX exit codes.
+It records assertion counts and requires a nonempty, consistent success
+summary for PASS. Warnings and partially skipped cases remain distinct.
+All **ten local harness checks** produce their expected outcomes
+(`ltp-harness-final-run`): success, failure, broken setup, unsupported setup,
+warning, partial coverage, absent results, unexpected fork, fork-dependent
+descriptor rejection and enforced timeout. Their deliberate failures are
+not upstream passes; the generic runner correctly exits nonzero for them.
+Missing, empty and inconsistent summaries were also checked to reject PASS.
+
+All C33 runs use FLASH -> Grifo -> launcher -> Linux, the default emulator
+model and virtual fixtures. The physical card remains untouched.
+
+To reproduce, run the builder inside the Linux VM with autoconf, automake,
+m4 and pkg-config on PATH, the isolated C33 compiler, a new private `--work`
+directory, and `--kernel`/`--kernel-config` for the fixture. Use
+`--harness-checks` for the separate local matrix, or `--ordinary-harness`
+with native GCC and the native kernel config for a reference build.
+Run `sweep.py` with the generated binaries, `ltp-rootfs-poll.img` and
+`ltp-kernel-fixed-range.app`. The final batch used ten cases per boot,
+two concurrent emulators, thirty-second guest deadlines and a 300-second
+host deadline per boot. Source, fixture and report hashes are recorded in
+`ltp-syscalls-followup.json`.

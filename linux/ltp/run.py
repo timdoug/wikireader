@@ -20,6 +20,33 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def modern_result(code, segment):
+    # Modern LTP uses result bits, unlike standalone POSIX exit codes.
+    # Preserve partial coverage and require an actual success count.
+    summaries = re.findall(
+        r"Summary:\s*passed\s+(\d+)\s*failed\s+(\d+)\s*broken\s+(\d+)"
+        r"\s*skipped\s+(\d+)\s*warnings\s+(\d+)", segment)
+    counts = dict(zip(("passed", "failed", "broken", "skipped", "warnings"),
+                      map(int, summaries[0]))) if len(summaries) == 1 else None
+    if code == 124:
+        status = "TIMEOUT"
+    elif code >= 128 or code & ~39:
+        status = "ERROR"
+    elif code & 2:
+        status = "BROKEN"
+    elif code & 1:
+        status = "FAIL"
+    elif code & 4:
+        status = "WARNING"
+    elif code & 32:
+        status = "UNSUPPORTED"
+    elif not counts or not counts["passed"] or counts["failed"] or counts["broken"] or counts["warnings"]:
+        status = "ERROR"
+    else:
+        status = "PARTIAL_PASS" if counts["skipped"] else "PASS"
+    return {"status": status, "assertions": counts}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binaries", type=Path, default=ROOT / "linux/artifacts/ltp")
@@ -62,6 +89,8 @@ def main():
         "linux.ico": "linux/artifacts/linux.ico",
     }.items()}
     files["linux.app"] = app.require(args.kernel).read_bytes()
+    if manifest.get("kernel_sha256") and digest(files["linux.app"]) != manifest["kernel_sha256"]:
+        raise SystemExit("Kernel does not match the build's configuration fixture")
     files["linux.img"] = app.require(args.rootfs).read_bytes()
     for fixture in manifest.get("fixtures", []):
         data = (args.binaries / fixture["binary"]).read_bytes()
@@ -73,6 +102,8 @@ def main():
     if digest(files[supervisor["binary"]]) != supervisor["binary_sha256"]:
         raise SystemExit("Supervisor hash mismatch")
     commands = ["#!/bin/sh", "mkdir -p /tmp/ltp; cd /tmp/ltp"]
+    if manifest.get("result_format") == "ltp":
+        commands += ["export KCONFIG_PATH=/mnt/sd/kconf.txt"]
     for index, case in enumerate(cases):
         data = (args.binaries / case["binary"]).read_bytes()
         if digest(data) != case["binary_sha256"]:
@@ -144,7 +175,13 @@ def main():
         matches = re.findall(r"^LTP-RESULT " + re.escape(case["name"]) + r" (\d+)\s*$", text, re.M)
         code = int(matches[0]) if len(matches) == 1 else None
         status = STATUS.get(code, "MISSING" if code is None else "ERROR")
-        results.append({"name": case["name"], "status": status, "exit_status": code})
+        record = {"name": case["name"], "status": status, "exit_status": code}
+        if manifest.get("result_format") == "ltp" and code is not None:
+            segment = text.split("LTP-BEGIN " + case["name"] + "\n", 1)[-1]
+            segment = segment.split("LTP-RESULT " + case["name"], 1)[0]
+            record.update(modern_result(code, segment))
+            status = record["status"]
+        results.append(record)
         print(f"{status}: {case['name']} (exit {code})")
     complete = (host_error is None and "LTP-DONE" in text and "watchdog reset" in raw_text
                 and "C33 boot: Grifo application" in text and "init choosing" in text

@@ -34,6 +34,8 @@ int main(int argc, char **argv)
 	sigemptyset(&action.sa_mask);
 	if (sigaction(SIGALRM, &action, NULL))
 		return 125;
+	if (setenv("LTP_NOMMU_SUPERVISED", "1", 1))
+		return 125;
 
 	pid = vfork();
 	if (pid == 0) {

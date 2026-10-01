@@ -1,0 +1,298 @@
+{
+  "revision": "2279d708c817db657611a30c427c7d06c4360049",
+  "scope": "Reviewed syscall bodies eligible for external supervision. Assertions and source files remain unchanged; this is a separate cohort from standalone POSIX interfaces.",
+  "review": "Test callbacks, setup, cleanup, descriptor flags and referenced helpers were reviewed. No selected body needs fork, process isolation between library and worker, page protection, namespaces, mounts or external commands. Optional filesystem/AIO checks retain their upstream skips. Timer variants here do not own guarded descriptor buffers.",
+  "limitations": [
+    "Guard-page protection around tst_alloc buffers is unavailable on no-MMU; canary checks remain active. This does not establish protected-pointer EFAULT coverage.",
+    "No automatic eligibility inference from an absence of literal fork tokens.",
+    "Descriptors dropping credentials are excluded because privileged library cleanup requires a separate process.",
+    "Only reviewed test variants are admitted; arbitrary global state reset between variants is not supplied."
+  ],
+  "cases": [
+    {
+      "name": "dup/dup01",
+      "source_sha256": "d2de9028b1131ae75696c34f64012313305fda200c365901dd002541c6842d17",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup02",
+      "source_sha256": "ffc1763c5de2e8cfabdc17b146fd20aeadcf98a9477ed21a0eae05f61756bbc4",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup03",
+      "source_sha256": "75ba73b908eb20b7f8bf560eb6149cc4be31566d904c78ee68cd5d1aad3ae124",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup04",
+      "source_sha256": "371b30612d293fedfd98155e2c2c36f3dd326a074f07eff3416ac76e8e2b6f8c",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup05",
+      "source_sha256": "994b619f435bc011fec46d5b53e54e0619a67465594b4ca72735c8cd98a70f6f",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup06",
+      "source_sha256": "c19fa381008350df767c2af181c075c2d82e346891ff5a083d2ce826abf8b3ac",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup/dup07",
+      "source_sha256": "ae2e62b1037399bc9adcbbd755aef1de61d997d63af59cb111241dfe70bdf152",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup201",
+      "source_sha256": "152bc35a1b48c4ced141a0c0a5e5d76d9f6809af032e243ef41dcd21064c6bf6",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup202",
+      "source_sha256": "5528be05f8290b14bbc8a4a6764d7a9891cfedc8526d872986d3859a4ddb9871",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup203",
+      "source_sha256": "6a8eb039d09d495c24beacd3df0841f8327c13ae1edba4a7c557f9b2dee947fa",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup204",
+      "source_sha256": "e44baac9377e575a5765ac98bbe44b8d263f7323ccfaa45b07998e6755d6cf63",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup205",
+      "source_sha256": "32a6abe835fd4ef849785d4b4fc230e381a24edf8419bb8f166cbac57c106c8b",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup206",
+      "source_sha256": "1917aaddd33e45947d7d006d5da4b4f0d987fe9d24ff93ae1315d093e723769e",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup2/dup207",
+      "source_sha256": "517cd2a5ec4dee21e5f4b6ab8b1b7c9552faa1cd6f5f803e9f92d91dd7a0460a",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup3/dup3_01",
+      "source_sha256": "ebc072cb28963635e08e74e6835d9d0d75c05d80cb691ada54cfd08307d4e5a8",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "dup3/dup3_02",
+      "source_sha256": "d026e5d0a40fa90f7ed2ad0e4ec148d1f089f5c32ae1c2a9b37ebed98fdfcb4b",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "epoll_wait/epoll_wait01",
+      "source_sha256": "3e9f533be9a14a059902be7e311650bef2d994387635888b68f061a154f5aed6",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait04",
+      "source_sha256": "33410fe4fe3af79f3a6f357c7a84f4999284d21863df8af61529c84caf458ef4",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait06",
+      "source_sha256": "586d181a11b209b0dcf371a20edef5bb77b2a02a79c5fdaaf79ed0e3a819792d",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait07",
+      "source_sha256": "3a9e4d48c21d0febe8069d83c48e633a0ea587577c4283e7ed587159a5d60a43",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait09",
+      "source_sha256": "d3a571358dd22e5aa86bdcd4e64b6fa5638dd3b6078272de8a69b785878c612d",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait13",
+      "source_sha256": "3b7c47ad5d8a115f2ee77d7fa17b76d699f62bb6687b5f3fd1ce27d2c57741d5",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "epoll_wait/epoll_wait14",
+      "source_sha256": "4409b970d93bd41d1c02022c661e4e74c7092e4629b042b9658e2eed0ee161e6",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "eventfd/eventfd01",
+      "source_sha256": "585750df6ec88a56ba800af97b7720f4a0427f8df121ea80c243d8405735a62f",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "eventfd/eventfd02",
+      "source_sha256": "87d42622a58ecbbe19b5fc3399206d8f06cd3890db6a0b5e43f616f97473dddc",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "eventfd/eventfd03",
+      "source_sha256": "9d4e88031aca7519044c3a73c5c34fa7c3baf3e29348817345937e7041103ef9",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "eventfd/eventfd04",
+      "source_sha256": "40ea5198822f3bbb8ec920183d2a424c62d7da72f3a4a7fc5bd89afed18c1c4f",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "eventfd/eventfd06",
+      "source_sha256": "7e20573493f3486a86c295cb7ae559ad943bb167d8c938ecc006729adb0dd018",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "fstat/fstat02",
+      "source_sha256": "e777569b02a45ff90ee69c49794306fd4ccbdd3b09d53600b546aa9f52fd6127",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "lseek/lseek01",
+      "source_sha256": "bd151b5fcf22578761e5f20ac6016f823c4f747830b418275e71eea687d66118",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "lseek/lseek02",
+      "source_sha256": "879b91735b4d9251e9b0da2f9edbab09f52002cf6a43b7a703d313f682bb27f4",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "lseek/lseek07",
+      "source_sha256": "1a97928582fd76eaeb37104ef48e14fa19b137500a2d9560bc9dbab84c384b85",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "lseek/lseek11",
+      "source_sha256": "b3c3311a6805424fc5dae6e4f0bd8e82c6175729dfcb6d6512daf479fbb00be1",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "openat/openat01",
+      "source_sha256": "7ce74a73a623a1074c026514c53a4f166be2a58ad588d1f8c59710db7002b0cd",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "poll/poll01",
+      "source_sha256": "64f83578d9fb0cb218ca0028d503e703fb7c386151cf462536863c601fb97263",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "poll/poll03",
+      "source_sha256": "6d153f80d87a6c0f246e99741798c7fc53dd0e8f72b7f72d521956c7e197040e",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "poll/poll04",
+      "source_sha256": "b68222d9f5b9aa219d6f4eba3e774eb64e56d92ea1a4ae6a9363ae6cfe664ff9",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "pread/pread01",
+      "source_sha256": "ab839cc4e3936bc49e7b1a1e701eb974283a2dd23cbf837095897953c9a65310",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "pread/pread02",
+      "source_sha256": "52b805491f280351754cd02a431819126baee4e7e1788fa6d9f61c6784cac636",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "pselect/pselect02",
+      "source_sha256": "da448dfffb37081ee4de07732a3aa86d4b9e475d901d420e316eb20476e212a5",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "pselect/pselect03",
+      "source_sha256": "cd1f90ca69bf755d944ea11c08625dd8ee272ea595b8325d4cc7f854d6ff89a8",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "pwrite/pwrite01",
+      "source_sha256": "33637521602831f645a9baafcc62633d713fc0d29cf6cbca9163b5d4725f256a",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "pwrite/pwrite03",
+      "source_sha256": "188f23a013e9af4415ff300c006bc2e249e4afcb9eb7fde03d6aa1a5c9896cb9",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "pwrite/pwrite04",
+      "source_sha256": "acf2abd2e8c1f2357004807c0c8972cc178b07a0eed4d30d05979f8af4805538",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "read/read01",
+      "source_sha256": "78af2a7b180ca265572e3e344f021021b713abc3c589d36b5bff7bc7327b7686",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "read/read03",
+      "source_sha256": "4a0b4ea3b8bf48688842bc739490d0eeaf120d6f82cb799c213f556e7b530ad1",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "read/read04",
+      "source_sha256": "ff7bcab7c78f30a7ea50375f6c2628fb7c097ee0777406ecdffbc7e04551f54c",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "stat/stat02",
+      "source_sha256": "ee43a74f3a080ce7ddfc0e34b2d307d832bbd090253124333e6048725b6edf0c",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "timerfd/timerfd01",
+      "source_sha256": "3e8b120aef166df636208d5031c36f04a5211f81597d822f4e23873e56299c99",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "timerfd/timerfd02",
+      "source_sha256": "3af43afd79c42f8e418750309551d3a502fc2218e59129f9435e6f6ef233587c",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "timerfd/timerfd_create01",
+      "source_sha256": "c1a58f5478adcbaa1338a5eca7248b43764b73ba1ef8fa8792d690d915e0e41f",
+      "family": "descriptor-events"
+    },
+    {
+      "name": "unlink/unlink05",
+      "source_sha256": "13f06c57758c53d209af239e30f1c5978424008e09044aedea62660325068162",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "write/write01",
+      "source_sha256": "a847b59e052d3d14d82ff9d7aba31a60ce63f561b5c55a0d1caf4151f81fed09",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "write/write02",
+      "source_sha256": "fd780c2b4940d27cf5f3b0f22ebb2d09473d4d6847c7e15f5254e3dc8c60e933",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "write/write04",
+      "source_sha256": "1a535786b17d95707a1a43051c986bb885a57d8f7bc744f0c7fc111b2013ea0f",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "write/write06",
+      "source_sha256": "17cdc7cd72106a8da56aa054ae22218a084a40bbe8a039e4dd3d492d78b8da86",
+      "family": "filesystem-and-fds"
+    },
+    {
+      "name": "writev/writev01",
+      "source_sha256": "4145e9a3fe30d419bdfd4f51318ea2a9015ee51bbda007f99087b003fa0d0f1c",
+      "family": "filesystem-and-fds"
+    }
+  ]
+}

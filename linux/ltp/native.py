@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import subprocess
 import tempfile
+from run import modern_result
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +33,8 @@ def main():
             command = [str(args.binaries / manifest["supervisor"]["binary"]), str(args.timeout),
                        str(args.binaries / case["binary"])]
             process = subprocess.Popen(command, cwd=directory, stdin=subprocess.DEVNULL,
-                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
+                                       env={**os.environ, "KCONFIG_PATH": str(args.binaries / "kconf.txt")})
             try:
                 process.wait(timeout=args.timeout + 10)
                 status = STATUS.get(process.returncode, "ERROR")
@@ -47,7 +49,10 @@ def main():
                 process.kill()
                 process.wait()
                 status = "HOST_TIMEOUT"
-        return {"name": case["name"], "exit_status": process.returncode, "status": status, "log": str(log)}
+        record = {"name": case["name"], "exit_status": process.returncode, "status": status, "log": str(log)}
+        if manifest.get("result_format") == "ltp" and status != "HOST_TIMEOUT":
+            record.update(modern_result(process.returncode, log.read_text(errors="replace")))
+        return record
 
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
