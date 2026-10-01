@@ -193,11 +193,10 @@ buttons register first, reporting `ABS_X`, `ABS_Y`, and `BTN_TOUCH`. Its UART1 t
 to the touchscreen through Linux's tty-backed serdev layer. The input driver
 therefore contains only the controller packet parser and evdev reporting; UART
 registers, baud programming, buffering, and interrupts belong to the serial
-driver. The legacy board description publishes UART1 and its touchscreen child
-as a software-node firmware graph. Serdev enumerates that child, matches its
-`compatible` property against the driver's normal firmware table, and binds it
-through the driver core without a platform wrapper or forced attachment. The
-node also carries the standard `current-speed` and touchscreen dimension
+driver. The board device tree describes the touchscreen as a child of UART1.
+Upstream serdev enumerates that child, matches its `compatible` property
+against the driver's normal OF table, and binds it through the driver core.
+The node also carries the standard `current-speed` and touchscreen dimension
 properties consumed by the driver. Keyboard geometry, labels, press state, and
 character translation are entirely userspace policy: the touchscreen driver
 does not know about keys or TTYs.
@@ -270,7 +269,7 @@ logic. The watchdog is also the restart handler, so `reboot` resets the chip
 when there is no launcher to return to.
 The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
-GPIO descriptor taken from the same software-node graph as the SD slot's chip
+GPIO descriptor taken from the same device tree as the SD slot's chip
 select. `FBIOBLANK` therefore works, and because no kernel console blanks the
 screen on a machine that runs from two AA cells, the userspace console does it:
 it powers the panel down after `wr.blank=<seconds>` of no touch, wakes on the
@@ -1046,6 +1045,8 @@ display output are kept outside the checkout and removed afterward. The card
 is writable only for this isolated run; after the guest exits, the
 host parses its raw FAT image and requires `linux.ok` to contain the expected
 status. A console claim without persisted card bytes therefore fails the test.
+Set `KERNEL` and `ROOTFS` to test alternate images without replacing the
+default artifacts; `KEEP_LOG` retains the full boot log at the supplied path.
 The same regression requires the SD host to announce streamed HSDMA block reads, the
 DMA provider its polled channels, and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
 activity. It also

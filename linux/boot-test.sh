@@ -8,8 +8,8 @@ set -eu
 # does not exist.
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-app=$root/linux/artifacts/linux.app
-system=$root/linux/artifacts/linux.img
+app=${KERNEL:-$root/linux/artifacts/linux.app}
+system=${ROOTFS:-$root/linux/artifacts/linux.img}
 icon=$root/linux/artifacts/linux.ico
 grifo=$root/samo-lib/grifo/grifo.elf
 launcher=$root/samo-lib/grifo/applications/init/init.app
