@@ -1,0 +1,31 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] recvmmsg: copy remaining time64 timeout back to the caller
+
+The time64 syscall updates a kernel-layout temporary, but TO_TS64_P
+previously discarded the result. Retain it and convert the remaining
+timeout after receiving messages. Preserve NULL and unchanged error
+outputs, and leave the legacy syscall path unchanged.
+
+diff --git a/libc/inet/socketcalls.c b/libc/inet/socketcalls.c
+--- a/libc/inet/socketcalls.c
++++ b/libc/inet/socketcalls.c
+@@ -282,7 +282,18 @@
+ 			      int flags, struct timespec *tmo)
+ {
+ # if defined(__UCLIBC_USE_TIME64__) && defined(__NR_recvmmsg_time64)
+-	return (ssize_t)INLINE_SYSCALL(recvmmsg_time64, 5, sockfd, msg, vlen, flags, TO_TS64_P(tmo));
++    struct __ts64_struct ktmo;
++    if (tmo) {
++        ktmo.tv_sec = tmo->tv_sec;
++        ktmo.tv_nsec = tmo->tv_nsec;
++    }
++    ssize_t ret = INLINE_SYSCALL(recvmmsg_time64, 5, sockfd, msg, vlen,
++                                 flags, tmo ? &ktmo : NULL);
++    if (ret > 0 && tmo) {
++        tmo->tv_sec = ktmo.tv_sec;
++        tmo->tv_nsec = ktmo.tv_nsec;
++    }
++    return ret;
+ # elif defined(__NR_recvmmsg)
+ 	return (ssize_t)INLINE_SYSCALL(recvmmsg, 5, sockfd, msg, vlen, flags, tmo);
+ # elif __NR_socketcall

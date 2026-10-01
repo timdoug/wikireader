@@ -407,3 +407,30 @@ Grifo with the default emulator. The combined original-interface score
 remains **1,188/1,236**: these fixes cover previously untested contracts,
 not changes to upstream tests or another full sweep. Memory-locking state
 and real-time rwlock admission/wakeup ordering remain unfinished.
+
+## I/O timeout validation and writeback
+
+Two further local regressions find errors in the emulated time64 I/O paths.
+`recvmmsg` converted its input timeout to a temporary but discarded the
+kernel's remaining-time result. The wrapper now retains that temporary and
+copies its fields back after receiving messages, preserving NULL timeouts
+and unchanged error outputs. `select` converted negative microseconds to an
+unsigned value, normalized negative seconds into positive intervals, and
+could overflow time_t during normalization. It also discarded the timeout
+updated by its underlying pselect6 syscall. Validate negative fields first,
+saturate oversized normalization, and copy the remaining timeout back.
+The existing nonnegative GNU normalization extension remains supported.
+This restores [Linux select timeout writeback](https://man7.org/linux/man-pages/man2/select.2.html);
+POSIX permits either writeback behavior. The input-only public timeouts of
+pselect and ppoll remain unchanged.
+
+The new `c33_io_waits/1-1` checks readiness, seconds above INT32_MAX, malformed
+fields, normalization overflow, expiry, remaining time after signals with
+and without SA_RESTART, and atomic signal masks including an upper-word
+realtime signal. `c33_unix_io/1-1` checks stream vectors, EOF, descriptor
+passing with MSG_CMSG_CLOEXEC, datagram batch results and remaining time,
+error-output preservation, socket send/receive timeout layouts and bounded
+backpressure. Both binaries fail on `ltp-rootfs-condvar-clock.img`
+(`ltp-io-epoll-before`) and pass with the timeout fixes on `ltp-rootfs-io.img`
+(`ltp-timeouts-fixed`). Both also pass on native Linux. All trials use
+`ltp-kernel-sync-gaps.app`, the default emulator and the Grifo boot path.

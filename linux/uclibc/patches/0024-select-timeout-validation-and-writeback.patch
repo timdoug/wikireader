@@ -1,0 +1,83 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] select: validate and write back emulated Linux timeouts
+
+Reject negative fields before unsigned conversion or normalization can
+turn them into positive waits. Saturate normalization at the public
+time_t limit rather than overflowing. When select uses pselect6, retain
+and convert the kernel-updated timeout, including the time64 layout;
+keep pselect and ppoll input-only timeout semantics unchanged.
+
+diff --git a/libc/sysdeps/linux/common/select.c b/libc/sysdeps/linux/common/select.c
+--- a/libc/sysdeps/linux/common/select.c
++++ b/libc/sysdeps/linux/common/select.c
+@@ -9,6 +9,8 @@
+ #include <sys/syscall.h>
+ #include <sys/select.h>
+ #include <cancel.h>
++#include <errno.h>
++#include <limits.h>
+ 
+ #ifdef __NR__newselect
+ # undef __NR_select
+@@ -30,8 +32,14 @@
+ #if defined(__NR_pselect6) || defined(__NR_pselect6_time64)
+ 	struct timespec _ts, *ts = 0;
+ 	if (timeout) {
+-		uint32_t usec;
+-		_ts.tv_sec = timeout->tv_sec;
++        suseconds_t usec;
++        uintmax_t max_sec = UINTMAX_MAX >>
++            ((sizeof(uintmax_t) - sizeof(time_t)) * CHAR_BIT + 1);
++        if (timeout->tv_sec < 0 || timeout->tv_usec < 0) {
++            __set_errno(EINVAL);
++            return -1;
++        }
++        _ts.tv_sec = timeout->tv_sec;
+ 
+ 		/* GNU extension: allow for timespec values where the sub-sec
+ 		* field is equal to or more than 1 second.  The kernel will
+@@ -41,18 +49,37 @@
+ 		* on the POSIX general list for more information.
+ 		*/
+ 		usec = timeout->tv_usec;
+-		if (usec >= USEC_PER_SEC) {
+-			_ts.tv_sec += usec / USEC_PER_SEC;
+-			usec %= USEC_PER_SEC;
+-		}
+-		_ts.tv_nsec = usec * 1000;
++        /* Saturate oversized intervals instead of overflowing time_t. */
++        if ((uintmax_t)_ts.tv_sec > max_sec - usec / USEC_PER_SEC) {
++            _ts.tv_sec = max_sec;
++            _ts.tv_nsec = 999999999;
++        } else {
++            _ts.tv_sec += usec / USEC_PER_SEC;
++            _ts.tv_nsec = (usec % USEC_PER_SEC) * 1000;
++        }
+ 
+ 		ts = &_ts;
+ 	}
+ #if defined(__UCLIBC_USE_TIME64__) && defined(__NR_pselect6_time64)
+-	return INLINE_SYSCALL(pselect6_time64, 6, n, readfds, writefds, exceptfds, TO_TS64_P(ts), 0);
++    struct __ts64_struct kts;
++    if (ts) {
++        kts.tv_sec = ts->tv_sec;
++        kts.tv_nsec = ts->tv_nsec;
++    }
++    int ret = INLINE_SYSCALL(pselect6_time64, 6, n, readfds, writefds,
++                            exceptfds, ts ? &kts : NULL, 0);
++    if (timeout) {
++        timeout->tv_sec = kts.tv_sec;
++        timeout->tv_usec = kts.tv_nsec / 1000;
++    }
++    return ret;
+ #else
+-	return INLINE_SYSCALL(pselect6, 6, n, readfds, writefds, exceptfds, ts, 0);
++    int ret = INLINE_SYSCALL(pselect6, 6, n, readfds, writefds, exceptfds, ts, 0);
++    if (timeout) {
++        timeout->tv_sec = ts->tv_sec;
++        timeout->tv_usec = ts->tv_nsec / 1000;
++    }
++    return ret;
+ #endif
+ #elif defined(__NR_select)
+ 	return INLINE_SYSCALL(select, 5, n, readfds, writefds, exceptfds, timeout);

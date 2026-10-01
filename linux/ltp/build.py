@@ -45,6 +45,8 @@ def main():
     interfaces = suite / "conformance/interfaces"
     local = {"c33_vfork_error/1-1": ["vfork-error.c", "vfork-error-entry.S", "vfork-checked.S"],
              "c33_condvar_clock/1-1": ["condvar-clock.c"],
+             "c33_io_waits/1-1": ["io-waits.c"],
+             "c33_unix_io/1-1": ["unix-io.c"],
              "c33_clock_capability/1-1": ["clock-capability.c"],
              "c33_exec_arguments/1-1": ["exec-arguments.c"],
              "c33_timer_layout/1-1": ["timer-layout.c"],
@@ -121,6 +123,8 @@ def main():
         if name in local:
             dependencies = sources + ([ROOT / "linux/uclibc/overlay/libc/sysdeps/linux/c33/vfork.S"]
                                       if name == "c33_vfork_error/1-1" else [])
+            if name in ("c33_io_waits/1-1", "c33_unix_io/1-1"):
+                dependencies.append(ROOT / "linux/ltp/io-checks.h")
             if name == "c33_large_frame_flags/1-1":
                 dependencies.append(ROOT / "host-tools/toolchain-c33/gcc/files/gcc/testsuite/gcc.target/c33/large-frame-flags-run.c")
             record["dependencies_sha256"] = {str(p.relative_to(ROOT)): digest(p) for p in dependencies}
