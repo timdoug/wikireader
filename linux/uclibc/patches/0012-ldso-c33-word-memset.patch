@@ -1,0 +1,29 @@
+diff --git a/ldso/include/dl-string.h b/ldso/include/dl-string.h
+index 4a66161..411d8f4 100644
+--- a/ldso/include/dl-string.h
++++ b/ldso/include/dl-string.h
+@@ -168,6 +168,24 @@ lessthan4:
+ 	} while (--n);
+ 	return to;
+ }
++#elif defined(__c33__)
++/* Instruction fetches from SDRAM cost more than the stores: fill words
++   between the unaligned ends.  */
++static __always_inline void * _dl_memset(void *to, int c, size_t n)
++{
++	unsigned char *p = to;
++	unsigned long w = (unsigned char) c;
++
++	w |= w << 8;
++	w |= w << 16;
++	for (; n && ((unsigned long) p & 3); n--)
++		*p++ = c;
++	for (; n >= 4; n -= 4, p += 4)
++		*(unsigned long *) p = w;
++	for (; n; n--)
++		*p++ = c;
++	return to;
++}
+ #else
+ static __always_inline void * _dl_memset(void *str, int c, size_t len)
+ {

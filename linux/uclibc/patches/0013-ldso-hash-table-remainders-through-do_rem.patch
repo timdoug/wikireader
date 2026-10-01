@@ -1,0 +1,45 @@
+diff --git a/ldso/include/inline-hashtab.h b/ldso/include/inline-hashtab.h
+index 80a0da7..3d193a1 100644
+--- a/ldso/include/inline-hashtab.h
++++ b/ldso/include/inline-hashtab.h
+@@ -129,14 +129,18 @@ static __always_inline void **
+ find_empty_slot_for_expand(struct funcdesc_ht *htab, int hash)
+ {
+ 	size_t size = htab->size;
+-	unsigned int index = hash % size;
+-	void **slot = htab->entries + index;
++	unsigned int index;
++	void **slot;
+ 	int hash2;
+ 
++	/* do_rem: some targets have no divide instruction.  */
++	do_rem(index, (unsigned int) hash, size);
++	slot = htab->entries + index;
+ 	if (!*slot)
+ 		return slot;
+ 
+-	hash2 = 1 + hash % (size - 2);
++	do_rem(hash2, (unsigned int) hash, size - 2);
++	hash2 += 1;
+ 	for (;;) {
+ 		index += hash2;
+ 		if (index >= size)
+@@ -240,7 +244,7 @@ htab_find_slot(struct funcdesc_ht *htab, void *ptr, int insert,
+ 	hash = hash_fn(ptr);
+ 
+ 	size = htab->size;
+-	index = hash % size;
++	do_rem(index, (unsigned int) hash, size);
+ 
+ 	entry = &htab->entries[index];
+ 	if (!*entry)
+@@ -248,7 +252,8 @@ htab_find_slot(struct funcdesc_ht *htab, void *ptr, int insert,
+ 	else if (eq_fn(*entry, ptr))
+ 		return entry;
+ 
+-	hash2 = 1 + hash % (size - 2);
++	do_rem(hash2, (unsigned int) hash, size - 2);
++	hash2 += 1;
+ 	for (;;) {
+ 		index += hash2;
+ 		if (index >= size)

@@ -1,0 +1,18 @@
+diff --git a/ldso/ldso/Makefile.in b/ldso/ldso/Makefile.in
+index 0f8ed14..3431f35 100644
+--- a/ldso/ldso/Makefile.in
++++ b/ldso/ldso/Makefile.in
+@@ -19,6 +19,13 @@ ifeq ($(TARGET_ARCH),arm)
+ CFLAGS-rtld += -fno-unwind-tables -fno-asynchronous-unwind-tables
+ endif
+ 
++ifeq ($(TARGET_ARCH),c33)
++# The C33 fetches its instructions from SDRAM, and at -Os a loop jumps back
++# to a test at its top: two taken branches an iteration.  Every exec runs
++# the loader's loops thousands of times; -O2 takes 5% off an exec.
++CFLAGS-rtld += -O2
++endif
++
+ ifeq ($(TARGET_ARCH),bfin)
+ # for gcc 10.5.0 and above we need to use -ffreestanding
+ CFLAGS-rtld += -ffreestanding

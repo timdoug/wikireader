@@ -333,12 +333,17 @@ A library's own addresses are most of its relocations -- libc has 1,212 of
 them, redone in every process -- so they are `R_C33_RELATIVE`, which the
 linker puts first in `.rela.dyn` and counts in `DT_RELACOUNT`, and `ld.so`
 runs them through a loop of their own that relocates an address with one
-comparison instead of a search of the load map. A symbol named by many
-relocations, such as `__stack_chk_guard` in 218 of BusyBox's, is looked up
-once a module. TLS relocations reuse the same cache, including symbols at
-offset zero: libc's 401 references to `errno` need just one lookup. This
-cut single-threaded `/bin/true` spawn/exec/wait from about 119 ms to 94 ms
-in wremu, with 62 extra bytes of loader code and no extra cache memory.
+comparison instead of a search of the load map. The others go through a
+loop that makes no calls, so its state stays in registers, as long as their
+symbol has been looked up; a symbol named by many relocations, such as
+`__stack_chk_guard` in 218 of BusyBox's, is looked up once a module, into a
+256-entry table on the stack (libc's relocations name 59 of its 1,687
+symbols). TLS relocations reuse the same cache, including symbols at offset
+zero: libc's 401 references to `errno` need just one lookup. The PE core has
+no divide, so a lookup's remainder by the bucket count is a multiply by a
+reciprocal, and `ld.so` is built at `-O2`, whose loops branch once an
+iteration. Single-threaded `/bin/true` spawn/exec/wait takes about 64 ms in
+wremu, half of it in the kernel's process creation and teardown.
 Calls through the `.plt` are bound at their first call.
 Libraries bind as ELF has them, without `-Bsymbolic`: a program may define a
 function a library also defines, and the library then calls the program's. Without an MMU there is

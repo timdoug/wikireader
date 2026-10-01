@@ -21,104 +21,170 @@
 /* A module's relocations name the same few symbols again and again: every
    function built with the stack protector has its own pool word for
    __stack_chk_guard, and a lookup costs thousands of cycles here.  During
-   one pass over a module, each symbol is looked up once. TLS values are
-   module offsets; use the defining module as their cache-valid marker,
-   since an offset of zero (libc's errno) is valid. */
+   one pass over a module, each symbol is looked up once.  Few symbols are
+   named (libc's relocations name 59 of its 1,687), so the cache is a small
+   open-addressed table on the stack: an array by symbol index would be
+   13 KB for libc, which ld.so's allocator cannot give back.  An entry
+   holds the symbol's value, which for TLS is a module offset (libc's
+   errno is zero), and its defining module.  Insertion stops at three
+   quarters, so a probe always ends.  */
+#define C33_SYM_CACHE_SIZE	256
+
 struct c33_sym_cache {
+	unsigned long idx;		/* 0: free */
 	char *addr;
 	struct elf_resolve *tpnt;
 };
-static struct c33_sym_cache *_dl_c33_sym_cache;
 
-static int _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
-			ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab);
-
-static int
-_dl_parse(struct elf_resolve *tpnt, struct r_scope_elem *scope,
-	  unsigned long rel_addr, unsigned long rel_size,
-	  int (*reloc_fnc) (struct elf_resolve *tpnt, struct r_scope_elem *scope,
-			    ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab))
-{
-	unsigned int i;
-	char *strtab;
+struct c33_reloc_ctx {
+	struct elf_resolve *tpnt;
+	struct r_scope_elem *scope;
 	ElfW(Sym) *symtab;
-	ELF_RELOC *rpnt;
-	int symtab_index;
+	char *strtab;
+	struct c33_segs segs;
+	unsigned int free;
+	struct c33_sym_cache cache[C33_SYM_CACHE_SIZE];
+};
 
-	rpnt = (ELF_RELOC *) rel_addr;
-	rel_size = rel_size / sizeof(ELF_RELOC);
+static __always_inline struct c33_sym_cache *
+c33_cache_find(struct c33_sym_cache *cache, unsigned long idx)
+{
+	unsigned long slot;
+	struct c33_sym_cache *e;
 
-	symtab = (ElfW(Sym) *) tpnt->dynamic_info[DT_SYMTAB];
-	strtab = (char *) tpnt->dynamic_info[DT_STRTAB];
-
-	if (reloc_fnc == _dl_do_reloc) {
-		unsigned long nsyms = 0;
-
-		for (i = 0; i < rel_size; i++)
-			if (ELF_R_SYM(rpnt[i].r_info) >= nsyms)
-				nsyms = ELF_R_SYM(rpnt[i].r_info) + 1;
-		_dl_c33_sym_cache = nsyms
-			? _dl_malloc(nsyms * sizeof(*_dl_c33_sym_cache)) : NULL;
-		if (_dl_c33_sym_cache)
-			_dl_memset(_dl_c33_sym_cache, 0,
-				   nsyms * sizeof(*_dl_c33_sym_cache));
+	for (slot = idx;; slot++) {
+		e = &cache[slot & (C33_SYM_CACHE_SIZE - 1)];
+		if (e->idx == idx || e->idx == 0)
+			return e;
 	}
+}
 
-	for (i = 0; i < rel_size; i++, rpnt++) {
-		int res;
+static __always_inline void
+c33_cache_add(struct c33_reloc_ctx *ctx, unsigned long idx, char *addr,
+	      struct elf_resolve *def)
+{
+	struct c33_sym_cache *e = c33_cache_find(ctx->cache, idx);
 
-		symtab_index = ELF_R_SYM(rpnt->r_info);
-		debug_sym(symtab, strtab, symtab_index);
-		debug_reloc(symtab, strtab, rpnt);
+	if (e->idx || !ctx->free)
+		return;
+	ctx->free--;
+	e->idx = idx;
+	e->addr = addr;
+	e->tpnt = def;
+}
 
-		res = reloc_fnc(tpnt, scope, rpnt, symtab, strtab);
-		if (res == 0)
-			continue;
+static __always_inline void
+c33_store(unsigned long addr, unsigned long value)
+{
+	/* .eh_frame keeps pointers at any byte address.  */
+	if (addr & 3)
+		((struct { unsigned long v; } __attribute__((packed)) *)
+		 addr)->v = value;
+	else
+		*(unsigned long *) addr = value;
+}
 
-		_dl_dprintf(2, "\n%s: ", _dl_progname);
-		if (symtab_index)
-			_dl_dprintf(2, "symbol '%s': ",
-				    strtab + symtab[symtab_index].st_name);
-		if (res < 0) {
-			int reloc_type = ELF_R_TYPE(rpnt->r_info);
+/* The relocations whose symbol is cached, or which have none, without a
+   call, so that the loop's state stays in registers; tests in order of
+   frequency, and no jump table, whose base would take one.  Returns the
+   first relocation it leaves to c33_do_reloc.  */
+static const ELF_RELOC * __attribute__((noinline, optimize("no-jump-tables")))
+c33_relocate_fast(struct c33_reloc_ctx *ctx, const ELF_RELOC *rpnt,
+		  const ELF_RELOC *end)
+{
+	unsigned long split = ctx->segs.split;
+	unsigned long delta0 = ctx->segs.delta0, delta1 = ctx->segs.delta1;
 
-			_dl_dprintf(2, "can't handle reloc type %x\n", reloc_type);
-			_dl_exit(-res);
-		} else if (res > 0) {
-			_dl_dprintf(2, "can't resolve symbol\n");
+#if defined (__SUPPORT_LD_DEBUG__)
+	return rpnt;
+#endif
+	if (!ctx->segs.two)
+		return rpnt;
+	for (; rpnt < end; rpnt++) {
+		unsigned long info = rpnt->r_info;
+		unsigned long type = ELF_R_TYPE(info);
+		unsigned long off = rpnt->r_offset;
+		unsigned long value = rpnt->r_addend;
+		struct elf_resolve *def;
+
+		off += off >= split ? delta1 : delta0;
+		if (ELF_R_SYM(info)) {
+			struct c33_sym_cache *e =
+				c33_cache_find(ctx->cache, ELF_R_SYM(info));
+
+			if (e->idx != ELF_R_SYM(info))
+				break;
+			def = e->tpnt;
+			value += (unsigned long) e->addr;
+		} else {
+			/* R_C33_32 and TLS take the addend as it is; the
+			   others hold the module's own address there.  */
+			def = ctx->tpnt;
+			if (type == R_C33_RELATIVE
+			    || type == R_C33_FUNCDESC_VALUE)
+				value += value >= split ? delta1 : delta0;
+		}
+
+		if (type == R_C33_32 || type == R_C33_RELATIVE) {
+			c33_store(off, value);
+#ifdef __UCLIBC_HAS_TLS__
+		} else if (type == R_C33_TLS_TPREL32) {
+			if (def->l_tls_offset == NO_TLS_OFFSET)
+				break;
+			*(unsigned long *) off = def->l_tls_offset + value;
+#endif
+		} else if (type == R_C33_FUNCDESC_VALUE) {
+			struct funcdesc_value volatile *fd = (void *) off;
+
+			fd->entry_point = (void *) value;
+			fd->got_value = value ? def->loadaddr.got_value : 0;
+#ifdef __UCLIBC_HAS_TLS__
+		} else if (type == R_C33_TLS_DTPREL32) {
+			*(unsigned long *) off = value;
+		} else if (type == R_C33_TLS_DTPMOD32) {
+			*(unsigned long *) off = def->l_tls_modid;
+#endif
+		} else if (type != R_C33_NONE) {
+			/* R_C33_FUNCDESC, which needs the descriptor table,
+			   and anything not understood.  */
 			break;
 		}
 	}
-	if (_dl_c33_sym_cache) {
-		_dl_free(_dl_c33_sym_cache);
-		_dl_c33_sym_cache = NULL;
-	}
-	return i < rel_size ? 1 : 0;
+	return rpnt;
 }
 
-static int
-_dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
-	     ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab)
+/* Any relocation, looking its symbol up and caching it.  */
+static int __attribute__((noinline))
+c33_do_reloc(struct c33_reloc_ctx *ctx, const ELF_RELOC *rpnt)
 {
+	struct elf_resolve *tpnt = ctx->tpnt;
+	ElfW(Sym) *symtab = ctx->symtab;
 	int reloc_type;
 	int symtab_index;
 	char *symname;
-	unsigned long *reloc_addr;
+	unsigned long reloc_addr;
 	unsigned long reloc_value = 0;
 	unsigned long symbol_addr = 0;
 	struct elf_resolve *symbol_tpnt = tpnt;
-	struct funcdesc_value funcval;
+	struct c33_sym_cache *e;
 	struct symbol_ref sym_ref;
 #if defined (__SUPPORT_LD_DEBUG__)
 	unsigned long old_val;
 #endif
 
-	reloc_addr = (unsigned long *) DL_RELOC_ADDR(tpnt->loadaddr, rpnt->r_offset);
+	reloc_addr = c33_segs_addr(&ctx->segs, tpnt->loadaddr.map,
+				   rpnt->r_offset);
 	reloc_type = ELF_R_TYPE(rpnt->r_info);
 	symtab_index = ELF_R_SYM(rpnt->r_info);
 	sym_ref.sym = &symtab[symtab_index];
 	sym_ref.tpnt = NULL;
-	symname = strtab + symtab[symtab_index].st_name;
+	symname = ctx->strtab + symtab[symtab_index].st_name;
+	e = NULL;
+	if (symtab_index) {
+		e = c33_cache_find(ctx->cache, symtab_index);
+		if (e->idx != (unsigned long) symtab_index)
+			e = NULL;
+	}
 
 #ifdef __UCLIBC_HAS_TLS__
 	if (c33_tls_reloc_p(reloc_type)) {
@@ -126,36 +192,35 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		 * They must never be translated through an FDPIC load map. */
 		unsigned long offset = rpnt->r_addend;
 		if (symtab_index) {
-			if (ELF_ST_BIND(sym_ref.sym->st_info) == STB_LOCAL) {
+			if (e) {
+				offset += (unsigned long) e->addr;
+				symbol_tpnt = e->tpnt;
+			} else if (ELF_ST_BIND(sym_ref.sym->st_info) == STB_LOCAL) {
 				offset += sym_ref.sym->st_value;
-			} else if (_dl_c33_sym_cache &&
-				   _dl_c33_sym_cache[symtab_index].tpnt) {
-				offset += (unsigned long)_dl_c33_sym_cache[symtab_index].addr;
-				symbol_tpnt = _dl_c33_sym_cache[symtab_index].tpnt;
+				c33_cache_add(ctx, symtab_index,
+					      (char *) sym_ref.sym->st_value, tpnt);
 			} else {
-				unsigned long value = (unsigned long)_dl_find_hash(symname, scope,
-					tpnt, ELF_RTYPE_CLASS_PLT, &sym_ref);
+				unsigned long value = (unsigned long)_dl_find_hash(symname,
+					ctx->scope, tpnt, ELF_RTYPE_CLASS_PLT, &sym_ref);
 				if (!sym_ref.tpnt || sym_ref.sym->st_shndx == SHN_UNDEF ||
 				    ELF_ST_TYPE(sym_ref.sym->st_info) != STT_TLS)
 					return 1;
 				symbol_tpnt = sym_ref.tpnt;
 				offset += value;
-				if (_dl_c33_sym_cache) {
-					_dl_c33_sym_cache[symtab_index].addr = (char *)value;
-					_dl_c33_sym_cache[symtab_index].tpnt = symbol_tpnt;
-				}
+				c33_cache_add(ctx, symtab_index, (char *) value,
+					      symbol_tpnt);
 			}
 		}
 		switch (reloc_type) {
 		case R_C33_TLS_DTPMOD32:
-			*reloc_addr = symbol_tpnt->l_tls_modid;
+			*(unsigned long *) reloc_addr = symbol_tpnt->l_tls_modid;
 			break;
 		case R_C33_TLS_DTPREL32:
-			*reloc_addr = offset;
+			*(unsigned long *) reloc_addr = offset;
 			break;
 		case R_C33_TLS_TPREL32:
 			CHECK_STATIC_TLS((struct link_map *)symbol_tpnt);
-			*reloc_addr = symbol_tpnt->l_tls_offset + offset;
+			*(unsigned long *) reloc_addr = symbol_tpnt->l_tls_offset + offset;
 			break;
 		}
 		return 0;
@@ -166,23 +231,20 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		/* R_C33_32 without a symbol is its addend; the others hold
 		   the module's own address there.  */
 		symbol_addr = reloc_type == R_C33_32 ? rpnt->r_addend
-			: (unsigned long) DL_RELOC_ADDR(tpnt->loadaddr,
-							rpnt->r_addend);
+			: c33_segs_addr(&ctx->segs, tpnt->loadaddr.map,
+					rpnt->r_addend);
+	} else if (e) {
+		symbol_addr = (unsigned long) e->addr + rpnt->r_addend;
+		symbol_tpnt = e->tpnt;
 	} else if (ELF_ST_BIND(symtab[symtab_index].st_info) == STB_LOCAL) {
-		symbol_addr = (unsigned long) DL_RELOC_ADDR(tpnt->loadaddr,
-			symtab[symtab_index].st_value) + rpnt->r_addend;
-	} else if (_dl_c33_sym_cache && _dl_c33_sym_cache[symtab_index].addr) {
-		symbol_addr = (unsigned long) _dl_c33_sym_cache[symtab_index].addr
-			+ rpnt->r_addend;
-		symbol_tpnt = _dl_c33_sym_cache[symtab_index].tpnt;
+		symbol_addr = c33_segs_addr(&ctx->segs, tpnt->loadaddr.map,
+					    symtab[symtab_index].st_value);
+		c33_cache_add(ctx, symtab_index, (char *) symbol_addr, tpnt);
+		symbol_addr += rpnt->r_addend;
 	} else {
 		symbol_addr = (unsigned long)
-			_dl_find_hash(symname, scope, tpnt,
+			_dl_find_hash(symname, ctx->scope, tpnt,
 				elf_machine_type_class(reloc_type), &sym_ref);
-		if (symbol_addr && _dl_c33_sym_cache) {
-			_dl_c33_sym_cache[symtab_index].addr = (char *) symbol_addr;
-			_dl_c33_sym_cache[symtab_index].tpnt = sym_ref.tpnt;
-		}
 		/* Undefined weak references are allowed, and are zero.  */
 		if (!symbol_addr
 		    && ELF_ST_BIND(symtab[symtab_index].st_info) != STB_WEAK) {
@@ -191,8 +253,11 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 			_dl_exit(1);
 		}
 		symbol_tpnt = sym_ref.tpnt;
-		if (symbol_addr)
+		if (symbol_addr) {
+			c33_cache_add(ctx, symtab_index, (char *) symbol_addr,
+				      symbol_tpnt);
 			symbol_addr += rpnt->r_addend;
+		}
 	}
 
 #if defined (__SUPPORT_LD_DEBUG__)
@@ -204,27 +269,25 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		break;
 	case R_C33_32:
 	case R_C33_RELATIVE:
-		/* .eh_frame keeps pointers at any byte address.  */
 		reloc_value = symbol_addr;
-		if ((unsigned long) reloc_addr & 3)
-			((struct { unsigned long v; } __attribute__((packed)) *)
-			 reloc_addr)->v = reloc_value;
-		else
-			*reloc_addr = reloc_value;
+		c33_store(reloc_addr, reloc_value);
 		break;
-	case R_C33_FUNCDESC_VALUE:
+	case R_C33_FUNCDESC_VALUE: {
+		struct funcdesc_value funcval;
+
 		funcval.entry_point = (void *) symbol_addr;
 		funcval.got_value = symbol_addr
 			? symbol_tpnt->loadaddr.got_value : 0;
 		*(struct funcdesc_value volatile *) reloc_addr = funcval;
 		reloc_value = symbol_addr;
 		break;
+	}
 	case R_C33_FUNCDESC:
 		reloc_value = symbol_addr
 			? (unsigned long) _dl_funcdesc_for((void *) symbol_addr,
 				symbol_tpnt->loadaddr.got_value)
 			: 0;
-		*reloc_addr = reloc_value;
+		*(unsigned long *) reloc_addr = reloc_value;
 		break;
 	default:
 		return -1;
@@ -237,37 +300,48 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	return 0;
 }
 
+static void __attribute__((noinline, noreturn))
+c33_bad_reloc(const ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab)
+{
+	int symtab_index = ELF_R_SYM(rpnt->r_info);
+
+	_dl_dprintf(2, "\n%s: ", _dl_progname);
+	if (symtab_index)
+		_dl_dprintf(2, "symbol '%s': ",
+			    strtab + symtab[symtab_index].st_name);
+	_dl_dprintf(2, "can't handle reloc type %x\n", ELF_R_TYPE(rpnt->r_info));
+	_dl_exit(1);
+}
+
 /* Lazy binding.  A .plt descriptor starts out as {the link-time address
    of its entry's stub, 0}; loading the module makes that {the stub, the
    module's %r15}.  */
-static int
-_dl_do_lazy_reloc(struct elf_resolve *tpnt,
-		  struct r_scope_elem *scope __attribute__((unused)),
-		  ELF_RELOC *rpnt, ElfW(Sym) *symtab __attribute__((unused)),
-		  char *strtab __attribute__((unused)))
-{
-	struct funcdesc_value volatile *fd = (struct funcdesc_value *)
-		DL_RELOC_ADDR(tpnt->loadaddr, rpnt->r_offset);
-
-	switch (ELF_R_TYPE(rpnt->r_info)) {
-	case R_C33_NONE:
-		break;
-	case R_C33_FUNCDESC_VALUE:
-		fd->entry_point = (void *) DL_RELOC_ADDR(tpnt->loadaddr,
-							 fd->entry_point);
-		fd->got_value = tpnt->loadaddr.got_value;
-		break;
-	default:
-		return -1;
-	}
-	return 0;
-}
-
 void
 _dl_parse_lazy_relocation_information(struct dyn_elf *rpnt,
 	unsigned long rel_addr, unsigned long rel_size)
 {
-	_dl_parse(rpnt->dyn, NULL, rel_addr, rel_size, _dl_do_lazy_reloc);
+	struct elf_resolve *tpnt = rpnt->dyn;
+	const ELF_RELOC *r = (const ELF_RELOC *) rel_addr;
+	const ELF_RELOC *end = r + rel_size / sizeof(ELF_RELOC);
+	struct elf32_fdpic_loadmap *map = tpnt->loadaddr.map;
+	void *got = tpnt->loadaddr.got_value;
+	struct c33_segs segs;
+
+	c33_segs_init(&segs, map);
+	for (; r < end; r++) {
+		struct funcdesc_value volatile *fd;
+
+		if (ELF_R_TYPE(r->r_info) != R_C33_FUNCDESC_VALUE) {
+			if (ELF_R_TYPE(r->r_info) == R_C33_NONE)
+				continue;
+			c33_bad_reloc(r, (ElfW(Sym) *) tpnt->dynamic_info[DT_SYMTAB],
+				      (char *) tpnt->dynamic_info[DT_STRTAB]);
+		}
+		fd = (void *) c33_segs_addr(&segs, map, r->r_offset);
+		fd->entry_point = (void *) c33_segs_addr(&segs, map,
+			(unsigned long) fd->entry_point);
+		fd->got_value = got;
+	}
 }
 
 /* The first call through a .plt descriptor (resolve.S).  STUB is an address
@@ -324,7 +398,39 @@ int
 _dl_parse_relocation_information(struct dyn_elf *rpnt,
 	struct r_scope_elem *scope, unsigned long rel_addr, unsigned long rel_size)
 {
-	return _dl_parse(rpnt->dyn, scope, rel_addr, rel_size, _dl_do_reloc);
+	struct c33_reloc_ctx ctx;
+	const ELF_RELOC *r = (const ELF_RELOC *) rel_addr;
+	const ELF_RELOC *end = r + rel_size / sizeof(ELF_RELOC);
+	int i;
+
+	ctx.tpnt = rpnt->dyn;
+	ctx.scope = scope;
+	ctx.symtab = (ElfW(Sym) *) ctx.tpnt->dynamic_info[DT_SYMTAB];
+	ctx.strtab = (char *) ctx.tpnt->dynamic_info[DT_STRTAB];
+	c33_segs_init(&ctx.segs, ctx.tpnt->loadaddr.map);
+	ctx.free = C33_SYM_CACHE_SIZE / 4 * 3;
+	for (i = 0; i < C33_SYM_CACHE_SIZE; i++)
+		ctx.cache[i].idx = 0;
+
+	while ((r = c33_relocate_fast(&ctx, r, end)) < end) {
+		int res;
+
+		debug_sym(ctx.symtab, ctx.strtab, ELF_R_SYM(r->r_info));
+		debug_reloc(ctx.symtab, ctx.strtab, r);
+		res = c33_do_reloc(&ctx, r);
+		if (res < 0)
+			c33_bad_reloc(r, ctx.symtab, ctx.strtab);
+		if (res > 0) {
+			_dl_dprintf(2, "\n%s: ", _dl_progname);
+			if (ELF_R_SYM(r->r_info))
+				_dl_dprintf(2, "symbol '%s': ", ctx.strtab
+					    + ctx.symtab[ELF_R_SYM(r->r_info)].st_name);
+			_dl_dprintf(2, "can't resolve symbol\n");
+			return 1;
+		}
+		r++;
+	}
+	return 0;
 }
 
 #ifndef IS_IN_libdl
