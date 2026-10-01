@@ -18,7 +18,7 @@ int main(void)
     u.itc = &itc;
     assert(!uart_receive(&u, 'X'));
     mem_write(&m, REG + 0xb03, 1, 0xcb);
-    mem_write(&m, REG + 0x26a, 1, 0x50);
+    mem_write(&m, REG + 0x269, 1, 0x50); /* PLCDC_PSI00: serial 0 priority */
     mem_write(&m, REG + 0x276, 1, 3);
     for (unsigned i = 0; i < 4; i++) assert(uart_receive(&u, 'A' + i));
     assert((mem_read(&m, REG + 0xb02, 1) & 0xc1) == 0xc1);

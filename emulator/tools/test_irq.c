@@ -147,7 +147,8 @@ int main(void)
 	itc.reg[0x266 - ITC_BASE] = (2u << 4) | 1u; /* timers 0/1 */
 	itc.reg[0x267 - ITC_BASE] = (4u << 4) | 3u; /* timers 2/3 */
 	itc.reg[0x268 - ITC_BASE] = (6u << 4) | 5u; /* timers 4/5 */
-	itc.reg[0x26a - ITC_BASE] = (4u << 4) | 6u;
+	itc.reg[0x269 - ITC_BASE] = (4u << 4) | 5u; /* serial 0 / LCDC */
+	itc.reg[0x26a - ITC_BASE] = (2u << 4) | 6u; /* A/D / serial 1 */
 	check("port input 3 reads PP23L[6:4]", itc_priority(&itc, 19), 5);
 	check("key input 0 reads PK01L[2:0]", itc_priority(&itc, 20), 3);
 	for (unsigned channel = 0; channel < 4; channel++) {
@@ -166,7 +167,7 @@ int main(void)
 		check("comparison A shares its channel's priority",
 		      itc_priority(&itc, b + 1), channel + 1);
 	}
-	check("serial 0 reads PSI01_PAD[6:4]", itc_priority(&itc, 57), 4);
+	check("serial 0 reads PLCDC_PSI00[6:4]", itc_priority(&itc, 57), 4);
 	check("serial 1 reads PSI01_PAD[2:0]", itc_priority(&itc, 61), 6);
 
 	/* HSDMA channels use adjacent cause and enable bits. */
