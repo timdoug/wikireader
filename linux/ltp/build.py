@@ -44,6 +44,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     interfaces = suite / "conformance/interfaces"
     local = {"c33_vfork_error/1-1": ["vfork-error.c", "vfork-error-entry.S", "vfork-checked.S"],
+             "c33_condvar_clock/1-1": ["condvar-clock.c"],
              "c33_clock_capability/1-1": ["clock-capability.c"],
              "c33_exec_arguments/1-1": ["exec-arguments.c"],
              "c33_timer_layout/1-1": ["timer-layout.c"],

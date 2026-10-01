@@ -1,0 +1,21 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: use the selected condition clock on time64-only targets
+
+The clock_gettime64 branch was hidden behind the legacy clock_gettime
+syscall guard. On time64-only targets this silently chose gettimeofday,
+so monotonic deadlines were compared with realtime. Include the time64
+syscall in the outer guard and retain the existing conversion and fallback.
+
+diff --git a/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c b/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c
+--- a/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c
++++ b/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c
+@@ -100,7 +100,8 @@
+       struct __ts64_struct __rt64;
+ #endif
+       {
+-#ifdef __NR_clock_gettime
++#if defined(__NR_clock_gettime) || \
++    (defined(__UCLIBC_USE_TIME64__) && defined(__NR_clock_gettime64))
+ 	INTERNAL_SYSCALL_DECL (err);
+ # if !defined(__ASSUME_POSIX_TIMERS) || defined(__UCLIBC_USE_TIME64__)
+ 	int ret =

@@ -380,3 +380,30 @@ launcher and live-thread suspend checks pass on the corrected fixture
 (`ltp-app-timerfd.log`), using `ltp-kernel-sync-gaps.app` through Grifo.
 This adds Linux-specific local coverage; it does not change the original
 Open POSIX pass count.
+
+## Condition-variable clock selection on time64-only kernels
+
+The generic NPTL timed-wait implementation already converts time64 clock
+output, but its outer syscall guard required the legacy clock_gettime
+number. C33 has only clock_gettime64, so the implementation fell back to
+gettimeofday even for a CLOCK_MONOTONIC condition variable. Include the
+time64 syscall in that guard to reach the existing selected-clock path.
+
+The local `c33_condvar_clock/1-1` regression moves realtime forward one
+hour in a disposable emulator boot, checks 100 ms condition deadlines for
+both clocks, verifies mutex reacquisition, and restores realtime with the
+elapsed monotonic duration. It fails on `ltp-rootfs-timerfd.img`
+(`ltp-condvar-clock-before`): the monotonic wait expires in about **0.2 ms**,
+while the realtime wait takes about **101 ms**. The same binary passes on
+`ltp-rootfs-condvar-clock.img`: both waits take about **101 ms**. This test
+must run only in the disposable emulator; it changes the system clock.
+
+All **twelve local regressions** pass (`ltp-port-condvar-clock-run`), all
+**48 unchanged upstream condition-variable cases** pass
+(`ltp-condvar-upstream-run`), and application, launcher and live-thread
+suspend checks pass (`ltp-app-condvar-clock.log`). The latest root filesystem
+contains both new libc fixes and uses `ltp-kernel-sync-gaps.app` through
+Grifo with the default emulator. The combined original-interface score
+remains **1,188/1,236**: these fixes cover previously untested contracts,
+not changes to upstream tests or another full sweep. Memory-locking state
+and real-time rwlock admission/wakeup ordering remain unfinished.
