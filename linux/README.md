@@ -638,6 +638,13 @@ Applications compiled with the old inline libc no-ops must be rebuilt, and
 the new libc wrappers require the matching kernel. The LTP coverage and
 remaining limitations are documented in [ltp/README.md](ltp/README.md).
 
+Repeated no-MMU mappings of the same physical range retain separate ownership
+records. Each unmap removes one record; the last clears the mapping and locks,
+and process exit releases every remaining record and callback. The kernel
+enforces `/proc/sys/vm/max_map_count`, including these exact aliases.
+Nonidentical overlapping mappings return `ENOMEM` while preserving the live
+mapping; `/proc/PID/maps` shows each physical address range once.
+
 Link programs using `shm_open` or `mq_*` with `-lrt`. System V IPC is in
 libc; BusyBox provides `ipcs` and `ipcrm` to inspect and remove its objects.
 The C33 libc patch makes the split-time kernel IPC structures match its

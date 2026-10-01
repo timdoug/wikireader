@@ -16,15 +16,15 @@ C99, the suite's POSIX/XSI feature macros, `-O2`, pthreads, and librt.
 
 The initial uniform thirty-second sweep and subsequent per-case observations:
 
-| Status | Initial | Previous verified | After focused fixes | After rwlock fixes | After memory locking |
-|---|---:|---:|---:|---:|---:|
-| Pass | 1,144 | 1,183 | 1,188 | 1,189 | 1,196 |
-| Unsupported | 40 | 29 | 29 | 29 | 28 |
-| Untested | 6 | 6 | 6 | 6 | 6 |
-| Fail | 18 | 12 | 8 | 7 | 4 |
-| Unresolved | 7 | 5 | 4 | 4 | 1 |
-| Timeout | 9 | 1 | 1 | 1 | 1 |
-| Other nonzero exit | 12 | 0 | 0 | 0 | 0 |
+| Status | Initial | Previous verified | After focused fixes | After rwlock fixes | After memory locking | After mapping ownership |
+|---|---:|---:|---:|---:|---:|---:|
+| Pass | 1,144 | 1,183 | 1,188 | 1,189 | 1,196 | 1,197 |
+| Unsupported | 40 | 29 | 29 | 29 | 28 | 28 |
+| Untested | 6 | 6 | 6 | 6 | 6 | 6 |
+| Fail | 18 | 12 | 8 | 7 | 4 | 4 |
+| Unresolved | 7 | 5 | 4 | 4 | 1 | 1 |
+| Timeout | 9 | 1 | 1 | 1 | 1 | 0 |
+| Other nonzero exit | 12 | 0 | 0 | 0 | 0 | 0 |
 
 All 1,236 cases produced a result. The original binaries, root image, and
 reports are retained under `linux/artifacts/ltp-all`,
@@ -124,7 +124,9 @@ All **58 unchanged cases** in the affected locking, unmapping and POSIX shm
 families completed, with no previously passing case regressing
 (`ltp-remaining-run`). A further **27 mmap cases** retained their earlier
 results (`ltp-mmap-remaining-run`); the expensive `mmap/10-1` and the
-inapplicable `24-1` exhaustion loop were not repeated. All **eight local
+`24-1` exhaustion loop were not repeated in that batch. The earlier
+classification of the latter as inapplicable was wrong; see the mapping
+ownership fix below. All **eight local
 regressions** pass (`ltp-port-remaining-run`). The added no-MMU case exercises
 all six valid locking-flag combinations, invalid flags, ordinary/vector/empty
 zero reads, independent private zero mappings, repeat unmap, and invalid
@@ -141,8 +143,8 @@ the earlier per-case observations, preserving report hashes and the four
 status changes. Its **1,187/1,236 passes (96.0%)** are not a new full sweep.
 
 [remaining.json](remaining.json) records the raw status, source hash and
-reason for the current 40 remaining non-PASS interface cases, following
-the synchronization and memory-locking fixes described below. These categories explain the
+reason for the current 39 remaining non-PASS interface cases, following
+the synchronization, memory-locking and mapping-ownership fixes below. These categories explain the
 results; they do not turn exclusions or failures into passes:
 
 | Reason | Cases |
@@ -153,7 +155,6 @@ results; they do not turn exclusions or failures into passes:
 | Undefined rwlock operations explicitly skipped by upstream on Linux | 2 |
 | AIO placeholder with no implemented test body | 1 |
 | Empty-file shared mapping setup unavailable on no-MMU | 1 |
-| Virtual-address exhaustion loop inapplicable on no-MMU | 1 |
 | Semaphore count-limit precondition absent | 1 |
 
 Literal 100% cannot be reached with this unchanged corpus on this hardware:
@@ -285,14 +286,10 @@ are deadline corrections, not libc fixes. `strncpy/2-1` also has an upstream
 one-byte overflow in its own allocation; its raw pass is retained without
 claiming memory-safety coverage.
 
-Remaining no-MMU memory-locking and fixed/protected-mapping
-expectations are not converted into passes. `mmap/24-1` expects repeated
-shared mappings to exhaust virtual address space; no-MMU can reuse one
-mapping, so a timeout does not demonstrate an allocation leak.
-The real-time rwlock failure in that snapshot is now fixed as described
-below; the unprivileged native failure does not validate real-time ordering.
-The `shm_unlink` permission error and valid repeat-unmap behavior are now
-corrected as described in the follow-up section above.
+Fixed/protected-mapping expectations are not converted into passes.
+The earlier classification of `mmap/24-1` as a virtual-address-only
+limitation was wrong: it also accepts exhaustion of the configured mapping
+count. The ownership and limit fixes below make that unchanged case pass.
 
 The main LTP harness forks a worker even for tests without explicit fork.
 Replacing that with vfork would change its semantics, and Buildroot's LTP
@@ -634,3 +631,79 @@ observations for the other 1,151 cases. The combined total advances from
 failures, one unresolved, one timeout, six untested and 28 unsupported.
 The empty-file shared mapping setup in `mlockall/3-7` still fails before its
 locking assertion; it has not been counted as fixed.
+
+
+## Exact-alias ownership and no-MMU mapping limits
+
+Revisiting `mmap/24-1` found two real no-MMU mapping bugs. A repeat shared
+mapping returns the same physical address, but the Maple Tree stores only
+one VMA per range. Registering the new VMA replaced the old pointer without
+releasing or retaining its ownership record. The old record's file, region
+and callback references leaked. Unmapping the newer result also removed the
+lookup entry for the still-live older mapping; both `mlock` and `msync` then
+returned ENOMEM for it.
+
+Each tree entry now retains a chain of exact aliases. Every alias keeps its
+own VMA, file reference, region reference and mapping callbacks. Unmap removes
+one record and restores the preceding one; the final unmap clears the range's
+locks. Exit releases the entire chain, yielding between records, so System V
+attachment counts and callback cleanup stay balanced. Append and pop are
+constant time, and exit/proc metadata accounting are linear in retained
+records. The change adds one four-byte pointer per no-MMU VMA; it introduces
+no new userspace structure or compiler calling convention.
+
+Nonidentical overlapping ranges now return ENOMEM before registration,
+preserving the existing mapping and its locks. The previous behavior could
+clip a tree entry while leaving its VMA bounds unchanged. Supporting those
+partial overlaps would require a different representation; they are not
+silently treated as exact aliases. `/proc/PID/maps` continues to show physical
+address ranges once, while memory accounting includes each retained VMA
+record without charging its shared physical range once per alias. Whole and
+partial unmap also decrease `total_vm`.
+
+The existing `max_map_count` variable was checked for VMA splits but not new
+no-MMU mappings, and its sysctl was registered only by the MMU backend. The
+no-MMU backend now exposes `/proc/sys/vm/max_map_count` and enforces the limit
+before allocating a new mapping record, including exact aliases. This limits
+actual ownership records rather than adding a special test-only ceiling.
+
+The unchanged `mmap/24-1` now passes. Its own setup caps the sysctl at 65,530;
+the final fixture completes **65,520 additional mappings** (67,092,480 bytes
+of logical mapping requests) before ENOMEM, with ten existing mappings in
+that process. The backing buffer remains one resident shared allocation.
+Both kernels time out with the original thirty-second guest deadline. With
+**the same 180-second deadline**, the new kernel passes and the old kernel
+still times out. `timeouts.json` records that budget; the pass requires the
+kernel fixes as well as enough time to build and release the records.
+
+The new separate `c33_nommu_mappings/1-1` covers duplicate mmap ownership,
+locks through an intermediate unmap, partial-overlap rejection, exact aliases
+with different requested permissions, anonymous and alias limits, slot reuse,
+128 alias removals, and metadata accounting that returns to its baseline.
+It checks System V `shm_nattch` across duplicate attachments and an independently
+exec'd child that leaves 32 attachments for process exit. The exact final
+binary fails on the previous kernel, where the first intermediate unmap
+makes the older mapping disappear.
+
+All **86 unchanged memory-family cases** complete: **76 PASS, four FAIL,
+three UNSUPPORTED, two UNTESTED and one UNRESOLVED**, with no prior pass lost.
+All **22 local regressions** pass, including the static rwlock case. Application,
+NPTL/TLS, atomics, IPC, C++, launcher reboot and live-thread suspend checks
+pass. Every trial retains FLASH -> Grifo -> launcher -> Linux and the default
+emulator model; the physical SD card is untouched.
+
+The new kernel fixture is `ltp-kernel-mappings.app`; libc and rootfs remain
+`ltp-rootfs-mlock.img`. Reports are `ltp-memory-mappings-final-run`,
+`ltp-port-mappings-final-run`, `ltp-mappings-final-before`,
+`ltp-mapping-limit-before-long`, and `ltp-app-mappings-final.log`.
+The earlier thirty-second reports remain in `ltp-memory-mappings-release-run`
+and `ltp-mapping-limit-before`. `ltp-mappings-followup.json` records source,
+fixture and report hashes. `ltp-mappings-verified/results.json` refreshes the
+86 observations and retains prior results for the other 1,150 cases.
+
+The combined original-interface record advances from **1,196 to 1,197 of
+1,236 (96.8%)**, with **no remaining timeouts**. This is not a new full sweep.
+[remaining.json](remaining.json) now audits **39 non-PASS** cases: four failures,
+one unresolved, six untested and 28 unsupported. The four failures still
+require MMU protection or fixed virtual-address placement, and `mlockall/3-7`
+still fails its beyond-EOF shared-mapping setup.
