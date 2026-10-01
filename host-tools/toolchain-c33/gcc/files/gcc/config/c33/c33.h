@@ -549,11 +549,13 @@ struct cum_arg
 {
   int nbytes;
 
-  /* New callers describe the actual stack argument stream in %r5.  This is
-     used only by __builtin_apply; normal variadic callees continue to see
-     every anonymous argument in its historical stack location.  */
+  /* New callers of variadic and unprototyped functions describe the
+     actual stack argument stream in %r5.  This is used only by
+     __builtin_apply; normal variadic callees continue to see every
+     anonymous argument in its historical stack location.  */
   unsigned int stack_words;
   unsigned int apply_shadow_mask;
+  bool apply_descriptor;
 };
 
 /* Initialize a variable CUM of type CUMULATIVE_ARGS
@@ -565,6 +567,7 @@ struct cum_arg
     (CUM).nbytes = 0;                                                   \
     (CUM).stack_words = 0;                                              \
     (CUM).apply_shadow_mask = 0;                                        \
+    (CUM).apply_descriptor = c33_apply_descriptor_p (FNTYPE);           \
   } while (0)
 
 /* When a parameter is passed in a register, stack space is still
@@ -589,6 +592,11 @@ struct cum_arg
    (which implies -frename-registers) and passes without it.  */
 
 #define FUNCTION_ARG_REGNO_P(N) ((N) == 5 || ((N) >= 6 && (N) <= 12))
+
+/* What __builtin_apply_args saves for argument register REGNO (see
+   c33_apply_args_save_value).  */
+#define APPLY_ARGS_SAVE_VALUE(REGNO, REG) \
+  c33_apply_args_save_value ((REGNO), (REG))
 
 #define DEFAULT_PCC_STRUCT_RETURN 0
 

@@ -17,7 +17,7 @@
 # <http://www.gnu.org/licenses/>.
 
 # The Linux target has a single multilib, selected by DRIVER_SELF_SPECS in
-# c33/linux.h: PE core, -msep-data, -mlong-calls.
+# c33/linux.h: PE core, FDPIC, short calls.
 
 c33-c.o: $(srcdir)/config/c33/c33-c.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h \
   $(TM_H) $(CPPLIB_H) $(TREE_H) $(C_PRAGMA_H) $(GGC_H) $(TM_P_H)

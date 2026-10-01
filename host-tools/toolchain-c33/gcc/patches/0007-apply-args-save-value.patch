@@ -1,0 +1,15 @@
+diff --git a/gcc/builtins.cc b/gcc/builtins.cc
+--- a/gcc/builtins.cc
++++ b/gcc/builtins.cc
+@@ -1594,6 +1594,11 @@
+ 	  size = CEIL (size, align) * align;
+ 
+ 	tem = gen_rtx_REG (mode, INCOMING_REGNO (regno));
++#ifdef APPLY_ARGS_SAVE_VALUE
++	/* A target may record something else for a register that only some
++	   callers set, such as C33's forwarding descriptor.  */
++	tem = APPLY_ARGS_SAVE_VALUE (regno, tem);
++#endif
+ 
+ 	emit_move_insn (adjust_address (registers, mode, size), tem);
+ 	size += GET_MODE_SIZE (mode);

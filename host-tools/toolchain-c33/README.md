@@ -201,8 +201,11 @@ Additional independent checks are:
 
 `c33-linux-uclibc` is the same backend configured by `gcc/config/c33/linux.h`,
 building FDPIC ELF for no-MMU Linux with shared libraries: `-mcore=c33pe
--mfdpic -mlong-calls` by default, with the FDPIC rules in
-[`gcc/ABI.md`](gcc/ABI.md). It defines `__linux__`, `__unix__`, `__uClinux__`
+-mfdpic` and short calls by default, with the FDPIC rules in
+[`gcc/ABI.md`](gcc/ABI.md). A direct call never leaves its module (a call
+to another goes through the module's `.plt`), and a short call reaches 2 MB
+either way; `ld` reports a call out of reach, and a bigger module needs
+`-mlong-calls`. It defines `__linux__`, `__unix__`, `__uClinux__`
 and `__FDPIC__`, and uses glibc's `<stdint.h>` type conventions. Its `ld`
 defaults to the `c33fdpic` emulation (`elf32-c33fdpic` output), which writes
 `.plt` entries, function descriptors, dynamic relocations and the `.rofixup`

@@ -395,7 +395,8 @@ Mach-O executables under `host-tools/toolchain-c33/work`:
 
 - `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
 - `c33-linux-uclibc-` is the userspace compiler, for C and C++. It defaults to
-  `-mc33pe -mfdpic -mlong-calls`, defines `__uClinux__`, and links FDPIC
+  `-mc33pe -mfdpic` with short calls, which reach any module under 2 MB (the
+  largest, Xfbdev, is 1.1 MB), defines `__uClinux__`, and links FDPIC
   executables against uClibc-ng's shared libraries in its sysroot, with
   `/lib/ld-uClibc.so.0` as the interpreter; `-static` links a static FDPIC
   program and `-shared` a library. `-Wl,-z,stack-size=<bytes>` sets a

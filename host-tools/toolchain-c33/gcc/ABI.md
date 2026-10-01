@@ -145,7 +145,8 @@ difference is fine for `va_arg`, but it used to make `__builtin_apply`
 fundamentally lossy: after entry to a variadic forwarding function, GCC no
 longer knew which stack words a typed destination would expect in registers.
 
-New callers add a backward-compatible forwarding extension:
+New callers of variadic and unprototyped functions add a
+backward-compatible forwarding extension:
 
 * every anonymous argument remains in its historical stack slot;
 * an eligible anonymous scalar is also shadowed into the register that the
@@ -154,10 +155,18 @@ New callers add a backward-compatible forwarding extension:
   stack-word count and a mask of the shadowed words.
 
 Existing variadic callees ignore the shadow registers and `%r5`, so their
-observable ABI is unchanged.  `__builtin_apply_args` saves `%r5` together
-with the ordinary argument registers.  C33's `untyped_call` expansion then
-authenticates the descriptor and compacts only the duplicated words out of
-the copied outgoing stack block before calling the typed destination.
+observable ABI is unchanged.  A variadic function's `__builtin_apply_args`
+saves `%r5` together with the ordinary argument registers.  C33's
+`untyped_call` expansion then authenticates the descriptor and compacts only
+the duplicated words out of the copied outgoing stack block before calling
+the typed destination.
+
+A call to a prototyped, non-variadic function carries no descriptor: it has
+no anonymous arguments, so nothing to compact.  Such a function's
+`__builtin_apply_args` saves zero, which is no descriptor, in place of
+`%r5`, since `%r5` may still hold one that its caller passed to an earlier
+call (`APPLY_ARGS_SAVE_VALUE`, GCC patch 0007).  The load is six bytes; on
+every call it would be 9% of the Linux kernel's code.
 
 The initial descriptor represents up to 15 actual stack words (60 bytes);
 larger forwarding calls retain the old stack ABI but do not carry a valid

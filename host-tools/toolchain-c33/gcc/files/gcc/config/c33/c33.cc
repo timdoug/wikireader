@@ -307,17 +307,40 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 		  & -UNITS_PER_WORD);
 }
 
-/* Every newly compiled call carries an __builtin_apply forwarding
-   descriptor in caller-clobbered %r5:
+/* A call to a variadic or unprototyped function carries an
+   __builtin_apply forwarding descriptor in caller-clobbered %r5:
 
        31       24 23    20 19                         0
       +-----------+--------+----------------------------+
       |    c3     | nwords |       shadow word mask     |
       +-----------+--------+----------------------------+
 
-   The descriptor is deliberately harmless to ordinary callees.  Recording
-   it on all calls (not just variadic ones) also makes a typed call into a
-   function containing __builtin_apply_args unambiguous.  */
+   The descriptor is harmless to ordinary callees.  Only those two kinds
+   of callee can receive anonymous arguments, so only they need one: a
+   typed call has nothing to compact, and its callee saves zero in place
+   of %r5 (c33_apply_args_save_value).  The load is six bytes; on every
+   call it would be 9% of the kernel's code.  Library calls have no
+   FNTYPE and are typed.  */
+
+bool
+c33_apply_descriptor_p (const_tree fntype)
+{
+  return fntype && (stdarg_p (fntype) || !prototype_p (fntype));
+}
+
+/* __builtin_apply_args saves the incoming %r5 as the forwarding
+   descriptor.  A function that is not variadic was passed none, and its
+   own arguments duplicate nothing, so it saves zero, which is no
+   descriptor: %r5 may still hold one its caller passed to an earlier
+   call.  */
+
+rtx
+c33_apply_args_save_value (unsigned int regno, rtx reg)
+{
+  if (regno == 5 && cfun && !stdarg_p (TREE_TYPE (cfun->decl)))
+    return const0_rtx;
+  return reg;
+}
 
 static void
 c33_start_call_args (cumulative_args_t cum_v)
@@ -325,6 +348,9 @@ c33_start_call_args (cumulative_args_t cum_v)
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
   unsigned HOST_WIDE_INT descriptor = 0;
   rtx reg = gen_rtx_REG (SImode, 5);
+
+  if (!cum->apply_descriptor)
+    return;
 
   if (cum->stack_words <= 15)
     descriptor = (HOST_WIDE_INT_UC (0xc3) << 24)

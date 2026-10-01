@@ -27,14 +27,18 @@
    processes and its own data segment, which its code reaches through %r15.
    Calls to other modules go through function descriptors (see c33.md).
    -mno-fdpic builds static -msep-data code, as ARM's FDPIC target keeps
-   its non-FDPIC mode.  */
+   its non-FDPIC mode.
+
+   Calls are short by default: a direct call never leaves its module (one
+   in another module goes through the module's own .plt), and a short call
+   reaches 2 MB either way, twice the largest module.  ld reports a call
+   out of reach; a module that big needs -mlong-calls.  */
 
 #undef DRIVER_SELF_SPECS
 #define DRIVER_SELF_SPECS				\
   "%{!mcore=*:-mcore=c33pe}",				\
   "%{!mno-fdpic:%{!medda32:-mfdpic}}",			\
-  "%{!mno-sep-data:%{!medda32:-msep-data}}",		\
-  "%{!mno-long-calls:-mlong-calls}"
+  "%{!mno-sep-data:%{!medda32:-msep-data}}"
 
 #undef TARGET_OS_CPP_BUILTINS
 #define TARGET_OS_CPP_BUILTINS()			\
