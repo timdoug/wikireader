@@ -1093,6 +1093,15 @@ reproduction commands. Artifacts and detailed reports live under
 `linux/artifacts/ltp-*`. These runs use wremu with 32 MiB SDRAM; physical
 hardware and the 16 MiB configuration remain separate validation.
 
+## Upstream BusyBox and uClibc tests
+
+`linux/upstream-tests/` builds the upstream libc inventory and runs it and
+BusyBox's applet and Hush suites through Grifo on disposable virtual cards.
+It preserves build errors, runtime skips, failures, timeouts and crashes,
+and checks individual shell coverage after an interrupted module. See
+[upstream-tests/README.md](upstream-tests/README.md) for source revisions,
+reproduction commands, results and the resulting bug backlog.
+
 ## What comes next
 
 Richer keyboard modes, console session management, and power management can
