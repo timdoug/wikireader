@@ -1,0 +1,49 @@
+Use an available ppoll syscall before falling back to select emulation.
+
+C33 has ppoll_time64 but no legacy poll syscall. The select emulation
+loses POLLHUP/POLLERR events and imposes fd_set bookkeeping on a poll
+interface. Convert the millisecond timeout to the kernel timespec layout
+and invoke ppoll directly, retaining poll's cancellation wrapper. All
+negative poll timeouts mean an infinite wait. Targets with a legacy poll
+syscall, or without a usable ppoll syscall, retain their existing paths.
+
+diff --git a/libc/sysdeps/linux/common/poll.c b/libc/sysdeps/linux/common/poll.c
+--- a/libc/sysdeps/linux/common/poll.c
++++ b/libc/sysdeps/linux/common/poll.c
+@@ -27,5 +27,36 @@ static _syscall3(int, __NC(poll), struct pollfd *, fds,
+ 		 unsigned long int, nfds, int, timeout)
+ 
++#elif defined(__NR_ppoll) || (defined(__UCLIBC_USE_TIME64__) && defined(__NR_ppoll_time64))
++
++#include <signal.h>
++#include <time.h>
++#include <stddef.h>
++#if defined(__UCLIBC_USE_TIME64__) && defined(__NR_ppoll_time64)
++#include "internal/time64_helpers.h"
++#endif
++
++static int __NC(poll)(struct pollfd *fds, nfds_t nfds, int timeout)
++{
++#if defined(__UCLIBC_USE_TIME64__) && defined(__NR_ppoll_time64)
++    struct __ts64_struct ts;
++#else
++    struct timespec ts;
++#endif
++    if (timeout >= 0) {
++        ts.tv_sec = timeout / 1000;
++        ts.tv_nsec = (timeout % 1000) * 1000000L;
++    }
++#if defined(__UCLIBC_USE_TIME64__) && defined(__NR_ppoll_time64)
++    return INLINE_SYSCALL(ppoll_time64, 5, fds, nfds,
++                          timeout < 0 ? NULL : &ts, NULL,
++                          __SYSCALL_SIGSET_T_SIZE);
++#else
++    return INLINE_SYSCALL(ppoll, 5, fds, nfds,
++                          timeout < 0 ? NULL : &ts, NULL,
++                          __SYSCALL_SIGSET_T_SIZE);
++#endif
++}
++
+ #else /* !__NR_poll */
+ 
+ #include <alloca.h>

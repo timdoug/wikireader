@@ -65,6 +65,7 @@ def main():
              "c33_memory_sync/1-1": ["memory-sync.c"],
              "c33_memory_lock/1-1": ["memory-lock.c"],
              "c33_mmap_errors/1-1": ["mmap-errors.c"],
+             "c33_poll_events/1-1": ["poll-events.c"],
              "c33_nommu_mappings/1-1": ["nommu-mappings.c"]}
     if args.port_tests:
         cases = sorted(local)
@@ -138,7 +139,8 @@ def main():
                         "c33_fd_events/1-1", "c33_blocking_cancel/1-1",
                         "c33_futex_waits/1-1", "c33_rwlock_priority/1-1",
                         "c33_rwlock_static/1-1", "c33_rwlock_waits/1-1",
-                        "c33_memory_lock/1-1", "c33_mmap_errors/1-1", "c33_nommu_mappings/1-1"):
+                        "c33_memory_lock/1-1", "c33_mmap_errors/1-1",
+                        "c33_poll_events/1-1", "c33_nommu_mappings/1-1"):
                 dependencies.append(ROOT / "linux/ltp/io-checks.h")
             if name == "c33_large_frame_flags/1-1":
                 dependencies.append(ROOT / "host-tools/toolchain-c33/gcc/files/gcc/testsuite/gcc.target/c33/large-frame-flags-run.c")

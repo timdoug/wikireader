@@ -735,3 +735,37 @@ report hashes are recorded in `ltp-fixed-range-followup.json`.
 Combined original-interface observations advance to **1,198/1,236 (96.9%)**,
 with **38 remaining non-PASS** and no timeouts. The combined report is
 `ltp-fixed-range-verified/results.json`, not a new full sweep.
+
+## Poll events through the available kernel syscall
+
+The first modern syscall batch found a real libc failure in unchanged
+`poll/poll03`: closing a pipe writer must report POLLHUP, but C33's poll
+fell back to select emulation because it has no legacy poll syscall number.
+That emulation reported read readiness instead and could not report hangup
+or error independently of requested events. It also allocated fd_set
+bookkeeping even though poll has no FD_SETSIZE ceiling.
+
+When a usable ppoll syscall exists, libc now calls it directly with a local
+kernel-layout timeout. Milliseconds convert to seconds/nanoseconds without
+overflow, and every negative timeout requests an infinite wait. The existing
+poll cancellation wrapper remains in place. The legacy syscall and older
+select fallback remain for targets needing them. This follows the same
+[poll-through-ppoll approach in glibc](https://codebrowser.dev/glibc/glibc/sysdeps/unix/sysv/linux/poll.c.html).
+
+The unchanged pipe-hangup test changes FAIL to PASS using the same binary.
+The new `c33_poll_events/1-1` also fails on `ltp-rootfs-mlock.img` and passes
+on `ltp-rootfs-poll.img`, with the same kernel and binary. It covers buffered
+data plus hangup, drained hangup, zero requested events, negative and closed
+fds, pipe error, a real descriptor above FD_SETSIZE, negative and large
+timeouts, interruption and expiry. It also passes on native Linux.
+
+All **24 local regressions** pass (`ltp-port-poll-run`), including blocking and
+pending poll cancellation, TLS integrity after cancellation, the two mapping
+regressions, and the static rwlock case. Application, launcher reboot and
+live-thread TLS suspend checks pass (`ltp-app-poll.log`) using the exact
+`ltp-kernel-fixed-range.app` and `ltp-rootfs-poll.img` fixtures. The rootfs is
+a copy of the preceding image with only libc and loader replaced; installed
+bytes were dumped and checked. The stripped libc decreases from **502,056 to
+500,852 bytes**. No compiler calling convention or kernel syscall changes
+are involved. The original-interface record remains **1,198/1,236**; the
+modern syscall cohort is accounted separately below.
