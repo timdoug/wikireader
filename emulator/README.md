@@ -886,6 +886,13 @@ synchronous exceptions, debug exceptions, and prioritized interrupts. Cold
 reset establishes TTBR `0x00c00000`, a PE IDIR type byte of `0x06`, and DBBR
 `0x00060000`.
 
+`ld.w %rd,%pc` reads the address following the delay-slot instruction,
+as required by the PE manual's sections 5.14.2 and 7 (page 119). Reads
+outside a delay slot remain rejected: the September 26 hardware probe
+tested that form and found stale values. It did not test the documented
+delayed form. The delayed form is checked against the manual and upstream
+GCC nested-function tests; direct silicon confirmation remains outstanding.
+
 The generated decoder contains the union of Standard, Advanced, and PE
 binutils tables. A separate PE-valid bitmap rejects the nine Standard
 instructions removed from PE and the 18 Advanced-only operations. The

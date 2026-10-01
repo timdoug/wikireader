@@ -81,7 +81,7 @@ static void test_special_registers(void)
 
 	printf("\nspecial-register constraints\n");
 	c = run_sreg(0xa4f0, 0);             /* ld.w %r0,%pc */
-	check("PC transfer faults: silicon does not read the PC", c.halted, 1);
+	check("PC transfer outside a delay slot is rejected", c.halted, 1);
 	c = run_sreg(0xa000, ~0u);           /* ld.w %psr,%r0 */
 	check("unused PSR bits remain zero", c.sr[SR_PSR],
 	      PSR_IL_MASK | PSR_IE | PSR_C | PSR_V | PSR_Z | PSR_N);
@@ -120,6 +120,57 @@ static struct c33 init(unsigned vector)
 	tw(NULL, TTBR + vector * 4, 4, HANDLER | 1u);
 	tw(NULL, HANDLER, 2, 0x0000);       /* nop */
 	return c;
+}
+
+/* PE manual 5.14.2 and the ld.w instruction's caution define the PC read
+ * only in a delay slot. The read is the slot's following address, even
+ * when the pending branch selects a different target. */
+static void test_delayed_pc(void)
+{
+	static const struct {
+		uint16_t branch;
+		const char *name;
+		uint32_t target;
+		int stack_words;
+		bool zero;
+	} cases[] = {
+		{ 0x1f02, "trampoline jp.d .+4", ENTRY + 4, 0, false },
+		{ 0x1f04, "leaf jp.d .+8", ENTRY + 8, 0, false },
+		{ 0x0785, "jp.d %r5", HANDLER, 0, false },
+		{ 0x1d04, "call.d .+8", ENTRY + 8, -1, false },
+		{ 0x0705, "call.d %r5", HANDLER, -1, false },
+		{ 0x0740, "ret.d", HANDLER, 1, false },
+		{ 0x1904, "jreq.d taken", ENTRY + 8, 0, true },
+		{ 0x1904, "jreq.d not taken", ENTRY + 4, 0, false },
+	};
+
+	for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+		struct c33 c = init(0);
+		c.r[5] = HANDLER;
+		c.r[12] = 0xdeadbeef;
+		if (cases[i].zero)
+			c.sr[SR_PSR] |= PSR_Z;
+		uint32_t psr = c.sr[SR_PSR];
+		tw(NULL, STACK, 4, HANDLER);
+		tw(NULL, ENTRY, 2, cases[i].branch);
+		tw(NULL, ENTRY + 2, 2, 0xa4fc); /* ld.w %r12,%pc */
+		c33_step(&c);
+		c33_step(&c);
+		printf("\nPC read in %s slot\n", cases[i].name);
+		check("slot reads its following address", c.r[12], ENTRY + 4);
+		check("branch retains its selected target", c.pc, cases[i].target);
+		check("documented delayed PC read does not fault", c.halted, 0);
+		check("PC read preserves flags", c.sr[SR_PSR], psr);
+		check("only call/ret changes SP", c.sr[SR_SP],
+		      STACK + cases[i].stack_words * 4);
+		if (cases[i].stack_words == -1)
+			check("call saves the same continuation",
+			      tr(NULL, STACK - 4, 4), ENTRY + 4);
+		/* Retiring a slot must not authorize a later ordinary PC read. */
+		tw(NULL, c.pc, 2, 0xa4fc);
+		c33_step(&c);
+		check("the instruction after a slot is not itself a slot", c.halted, 1);
+	}
 }
 
 static void check_frame(struct c33 *c, uint32_t return_pc)
@@ -240,6 +291,7 @@ int main(void)
 
 	test_reset_registers();
 	test_special_registers();
+	test_delayed_pc();
 	for (unsigned i = 0; i < sizeof undefined / sizeof undefined[0]; i++)
 		test_undefined(undefined[i].word, undefined[i].name);
 	test_ext();

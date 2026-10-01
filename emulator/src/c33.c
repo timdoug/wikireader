@@ -1024,12 +1024,17 @@ void c33_step(struct c33 *c)
 		} else if (f->sreg == 2) {
 			/* ld.w %rN,%sreg  (0xa4N0): index is bits 7:4 */
 			uint32_t value;
-			/* The manual (section 2.2) says this reads the following
-			 * address, but on the S1C33E07 it returns a stale value
-			 * (pctest, 2026-09-26), so stop rather than pretend. */
-			if (((insn >> 4) & 0xf) == SR_PC)
-				fault(c, "ld.w %rd,%pc does not read the PC on silicon");
-			else if (read_sreg(c, (insn >> 4) & 0xf, &value))
+			/* PE manual 5.14.2 and ld.w's caution require a delay
+			 * slot for a PC read. The 2026-09-26 silicon probe used
+			 * ordinary reads, which returned stale values; keep those
+			 * rejected. In a slot, read its following address before
+			 * the pending branch replaces PC with the target. */
+			if (((insn >> 4) & 0xf) == SR_PC) {
+				if (was_delayed)
+					c->r[a] = at + 2;
+				else
+					fault(c, "ld.w %rd,%pc requires a delay slot");
+			} else if (read_sreg(c, (insn >> 4) & 0xf, &value))
 				c->r[a] = value;
 		} else {
 			fault(c, "unhandled ld.w form");

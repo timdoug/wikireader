@@ -17,7 +17,7 @@ approval.
 
 | Suite | Current focused result |
 | --- | --- |
-| `gcc.c-torture/execute` | 24,260 passes, 251 legitimate unsupported, zero failures or unresolved cases across all 1,692 sources and standard variants |
+| `gcc.c-torture/execute` | 2026-10-01: 24,276 passes, 243 unsupported, zero failures or unresolved cases across all 1,692 sources and standard variants |
 | `gcc.dg/torture` | Exhaustively replayed; no GCC/backend failure remains |
 | IPA | 807 passes, 4 XFAIL, 13 external-prerequisite unsupported, no unexpected result |
 | LTO | 1,651 passes, 34 external-prerequisite unsupported, no failures or unresolved cases |
@@ -47,9 +47,10 @@ legacy caller invokes the modern `c_varargs` callee, and at `-O0` also
 `c_varargs_d`. This reproduces before and after the register-save change;
 the 36-value output of every caller/callee combination is byte-identical
 to its baseline at `-O0`, `-O1`, `-O2`, `-O3` and `-Os`.
-Logs and preserved compilers are in `../work/abi-compatible/`. These are
-remaining correctness/compatibility investigations, not ABI v2 prerequisites
-or failures caused by that save-layout experiment. Sparse saves were
+Logs and preserved compilers are in `../work/abi-compatible/`. The legacy
+varargs mismatch remains a compatibility investigation; the nested-function
+execution failures are resolved by the delayed-PC correction below. Neither
+was caused by that save-layout experiment. Sparse saves were
 subsequently removed in favor of the established block-save implementation;
 the results above describe the experiment, not the selected allocation-only compiler.
 
@@ -64,6 +65,45 @@ No compact non-sanitizer execution family from the previous full run remains
 unclassified. Long standard tests are supported by the deterministic
 3.2-billion-instruction board ceiling and GCC's normal per-test timeout
 factor.
+
+### 2026-10-01 delayed PC reads
+
+All 29 execution failures in `20000822-1.c`, `nestfunc-3.c`, `nestfunc-5.c`
+and `nestfunc-6.c` stop at the trampoline's `ld.w %r12,%pc`. The emulator
+had rejected every PC read based on the September 26 hardware probe.
+Inspection of the preserved `linux/artifacts/strtest/pctest.c` shows that
+probe used ordinary PC reads. The PE manual, `id001580.pdf`, section 5.14.2
+and the instruction caution on printed page 119, requires a delay slot.
+GCC's existing `jp.d .+4; ld.w %r12,%pc` template follows that requirement.
+
+The emulator now returns the slot's following address for a delayed PC read
+and continues to reject ordinary reads. Compiler output, trampoline layout,
+calling convention and upstream tests are unchanged. The focused run covers
+`20000822-1.c` and every `nestfunc-*.c`: **87 PASS / 29 FAIL before**,
+**116 PASS / zero FAIL after**, including the standard optimization/LTO
+variants. The preserved pre-change compiler also has **116 PASS** with the
+corrected emulator. Direct silicon confirmation of the delayed form remains
+outstanding; the earlier probe cannot establish its behavior.
+
+ISA, exception, interrupt and UART checks pass. Serial-0 test fixtures were
+corrected separately to initialize `PLCDC_PSI00`, matching the register
+definitions and Grifo. Linux application, reboot and live-thread TLS suspend
+checks pass through FLASH -> Grifo -> launcher with the fixed-range kernel
+and poll-corrected rootfs. The broader `make -C emulator check` still fails
+the existing `test_dma.c:225` timing assertion; the same assertion fails when
+linked with the preserved pre-change CPU executor. It is separate from the
+PC-read correction.
+
+Focused and full-run logs, source selections and hashes are retained in
+`../work/trampoline-pc/`. The complete execute source set is partitioned into
+six disjoint DejaGnu selections, preserving the upstream driver and its
+standard option sets. The interrupted serial trial is retained as a partial
+observation and does not contribute to the complete rerun's totals.
+`execute-validated.json` verifies all 1,692 source hashes and disjoint result
+coverage; `execute-combined.sum` combines the six upstream summaries. The
+complete rerun has **24,276 PASS, zero FAIL or UNRESOLVED, 243 UNSUPPORTED**:
+all 29 failures from the reported 24,247-pass run become passes, with the
+unsupported count unchanged.
 
 ## Visible compiler-only mismatches
 

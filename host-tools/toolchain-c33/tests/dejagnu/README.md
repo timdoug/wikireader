@@ -92,7 +92,7 @@ large LTO objects and archives are never opened as Tcl text.
 
 | Driver | Result |
 | --- | --- |
-| `gcc.c-torture/execute` | 24,260 passes, 251 legitimate unsupported, zero failures or unresolved |
+| `gcc.c-torture/execute` | 2026-10-01: 24,276 passes, 243 unsupported, zero failures or unresolved |
 | `gcc.dg/torture` | no demonstrated GCC/backend failure |
 | IPA | 807 passes, 4 XFAIL, 13 unsupported, no unexpected |
 | LTO | 1,651 passes, 34 unsupported, zero failures or unresolved |
@@ -101,6 +101,14 @@ large LTO objects and archives are never opened as Tcl text.
 The final complete post-fix run is pending. Historical raw full-run counts are
 not current status; preserve the next `gcc.sum` and `gcc.log` and triage
 only its fresh unexpected results.
+
+The execute-family result is a complete rerun of all 1,692 sources, divided
+into six disjoint DejaGnu selections with standard optimization/LTO variants.
+Raw logs, the source/hash inventory, combined summary and coverage checks
+are in `../../work/trampoline-pc/`. The 29 nested-function execution failures
+were caused by an emulator rejection of documented delayed PC reads; the
+compiler and upstream tests were unchanged. See the dated investigation in
+`../DEJAGNU-TODO.md`, including the separate hardware-confirmation limit.
 
 The remaining target-dependent mismatches, optional compiler features, and
 external runtime boundary are documented in
