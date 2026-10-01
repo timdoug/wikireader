@@ -1,0 +1,85 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] c33: use kernel memory-locking contracts on NOMMU
+
+C33 now implements locking validation, limits, per-mm accounting and
+future mappings in the kernel. Use the existing locking syscalls instead
+of header no-ops and advertise MEMLOCK/MEMLOCK_RANGE when realtime support
+is enabled. Keep the old no-MMU behavior for other targets, and continue
+to withhold the MMU memory-protection capability. Rebuild consumers of
+the old inline wrappers to obtain the new behavior.
+
+diff --git a/include/sys/mman.h b/include/sys/mman.h
+--- a/include/sys/mman.h
++++ b/include/sys/mman.h
+@@ -117,7 +117,7 @@
+ 
+ 
+ #if defined __UCLIBC_HAS_REALTIME__
+-# ifdef __ARCH_USE_MMU__
++# if defined __ARCH_USE_MMU__ || defined __TARGET_c33__
+ 
+ /* Guarantee all whole pages mapped by the range [ADDR,ADDR+LEN) to
+    be memory resident.  */
+diff --git a/libc/sysdeps/linux/common/bits/uClibc_posix_opt.h b/libc/sysdeps/linux/common/bits/uClibc_posix_opt.h
+--- a/libc/sysdeps/linux/common/bits/uClibc_posix_opt.h
++++ b/libc/sysdeps/linux/common/bits/uClibc_posix_opt.h
+@@ -105,8 +105,12 @@
+ #endif
+ 
+ #ifndef __ARCH_USE_MMU__
+-# undef _POSIX_MEMLOCK
+-# undef _POSIX_MEMLOCK_RANGE
++# if defined __TARGET_c33__ && defined __UCLIBC_HAS_REALTIME__
++/* C33 provides no-MMU memory-lock validation and accounting. */
++# else
++#  undef _POSIX_MEMLOCK
++#  undef _POSIX_MEMLOCK_RANGE
++# endif
+ # undef _POSIX_MEMORY_PROTECTION
+ #endif
+ 
+diff --git a/libc/sysdeps/linux/common/mlock.c b/libc/sysdeps/linux/common/mlock.c
+--- a/libc/sysdeps/linux/common/mlock.c
++++ b/libc/sysdeps/linux/common/mlock.c
+@@ -8,6 +8,6 @@
+ 
+ #include <sys/syscall.h>
+ #include <sys/mman.h>
+-#if defined __ARCH_USE_MMU__ && defined __NR_mlock
++#if (defined __ARCH_USE_MMU__ || defined __TARGET_c33__) && defined __NR_mlock
+ _syscall2(int, mlock, const void *, addr, size_t, len)
+ #endif
+diff --git a/libc/sysdeps/linux/common/mlockall.c b/libc/sysdeps/linux/common/mlockall.c
+--- a/libc/sysdeps/linux/common/mlockall.c
++++ b/libc/sysdeps/linux/common/mlockall.c
+@@ -8,6 +8,6 @@
+ 
+ #include <sys/syscall.h>
+ #include <sys/mman.h>
+-#if defined __ARCH_USE_MMU__ && defined __NR_mlockall
++#if (defined __ARCH_USE_MMU__ || defined __TARGET_c33__) && defined __NR_mlockall
+ _syscall1(int, mlockall, int, flags)
+ #endif
+diff --git a/libc/sysdeps/linux/common/munlock.c b/libc/sysdeps/linux/common/munlock.c
+--- a/libc/sysdeps/linux/common/munlock.c
++++ b/libc/sysdeps/linux/common/munlock.c
+@@ -8,6 +8,6 @@
+ 
+ #include <sys/syscall.h>
+ #include <sys/mman.h>
+-#if defined __ARCH_USE_MMU__ && defined __NR_munlock
++#if (defined __ARCH_USE_MMU__ || defined __TARGET_c33__) && defined __NR_munlock
+ _syscall2(int, munlock, const void *, addr, size_t, len)
+ #endif
+diff --git a/libc/sysdeps/linux/common/munlockall.c b/libc/sysdeps/linux/common/munlockall.c
+--- a/libc/sysdeps/linux/common/munlockall.c
++++ b/libc/sysdeps/linux/common/munlockall.c
+@@ -8,7 +8,7 @@
+ 
+ #include <sys/syscall.h>
+ 
+-#if defined __NR_munlockall && defined __ARCH_USE_MMU__
++#if defined __NR_munlockall && (defined __ARCH_USE_MMU__ || defined __TARGET_c33__)
+ #include <sys/mman.h>
+ 
+ _syscall0(int, munlockall)
