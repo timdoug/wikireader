@@ -46,7 +46,8 @@ def main():
              "c33_timer_layout/1-1": ["timer-layout.c"],
              "c33_signal_mask/1-1": ["signal-mask.c"],
              "c33_large_frame_flags/1-1": ["large-frame-flags.c"],
-             "c33_sd_stream_reopen/1-1": ["sd-stream-reopen.c"]}
+             "c33_sd_stream_reopen/1-1": ["sd-stream-reopen.c"],
+             "c33_nommu_contract/1-1": ["nommu-contract.c"]}
     if args.port_tests:
         cases = sorted(local)
     elif args.all:

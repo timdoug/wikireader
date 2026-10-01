@@ -1,0 +1,370 @@
+{
+  "revision": "2279d708c817db657611a30c427c7d06c4360049",
+  "scope": "Audit of the remaining 49 non-PASS cases after the four focused fixes; categories explain raw results and do not alter them.",
+  "combined_observations": "linux/artifacts/ltp-remaining-verified/results.json",
+  "counts": {
+    "UNSUPPORTED": 29,
+    "PASS": 1187,
+    "UNTESTED": 6,
+    "FAIL": 9,
+    "UNRESOLVED": 4,
+    "TIMEOUT": 1
+  },
+  "classifications": {
+    "test-placeholder": 1,
+    "permission-test-inapplicable": 3,
+    "nommu-implementation-limitation": 7,
+    "nommu-mapping-limitation": 1,
+    "architecture-limitation": 9,
+    "virtual-address-test-inapplicable": 1,
+    "optional-feature": 23,
+    "implementation-bug": 1,
+    "undefined-operation": 2,
+    "limit-test-inapplicable": 1
+  },
+  "cases": [
+    {
+      "name": "aio_suspend/5-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "test-placeholder",
+      "reason": "No AIO operation is tested: capability guard returns UNSUPPORTED, and the remaining body always returns UNTESTED.",
+      "source_sha256": "c98ce815e84dcd93dce1af7fbe6844fb71f234c8d0107ef53c3910447f8f6875"
+    },
+    {
+      "name": "clock_getcpuclockid/5-1",
+      "observed_status": "UNTESTED",
+      "classification": "permission-test-inapplicable",
+      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
+      "source_sha256": "4b0413147b57d3a1e02d27459013149c1b5ac04de475dbb928a2692b78e1f079"
+    },
+    {
+      "name": "mlock/12-1",
+      "observed_status": "FAIL",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "3dc4923e79185161fe4417e359e2ccdd0634d9dab005e01bf0908f02520d4f4e"
+    },
+    {
+      "name": "mlock/8-1",
+      "observed_status": "UNRESOLVED",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "4661ec524b7d12196fb311a7de3d08c486335e8d7f299e6ab9d04bde1fcbbb75"
+    },
+    {
+      "name": "mlockall/15-1",
+      "observed_status": "UNRESOLVED",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "f093105f750caa98143a2207d90793fdf80d4d4bebca554b92a1b530b40e4acf"
+    },
+    {
+      "name": "mlockall/3-6",
+      "observed_status": "FAIL",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "5abcc1dd708a25db5b8d5bcc0097ec585945a948f354efe1f6e9266acaa29a59"
+    },
+    {
+      "name": "mlockall/3-7",
+      "observed_status": "UNRESOLVED",
+      "classification": "nommu-mapping-limitation",
+      "reason": "Setup maps a whole page of an empty file as MAP_SHARED. Direct no-MMU mappings cannot supply that beyond-EOF mapping; setup fails before the memory-lock assertion.",
+      "source_sha256": "d41fdb9bb4120222d4c99fffa590b56637b343ec55a4775f4f0836476728ee64"
+    },
+    {
+      "name": "mmap/11-2",
+      "observed_status": "UNTESTED",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "de404da493e82aed7fc02a14008d9be3db4986242521c0843bbc5edb0bc871f0"
+    },
+    {
+      "name": "mmap/11-3",
+      "observed_status": "UNTESTED",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
+    },
+    {
+      "name": "mmap/14-1",
+      "observed_status": "FAIL",
+      "classification": "nommu-implementation-limitation",
+      "reason": "Shared stores modify resident file memory without a write fault, and no-MMU msync is an inline no-op. mtime/ctime are not updated after mapped writes; a coherent filesystem synchronization/timestamp contract remains work.",
+      "source_sha256": "8354cbdd8c502b59618d64765a42470c4fd7d8ca13a3f0d05db2c48c172cf39b"
+    },
+    {
+      "name": "mmap/18-1",
+      "observed_status": "FAIL",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "f1c806837ccf67eccac69689f0da67a179b7b72c7c4819909108c929c02436b6"
+    },
+    {
+      "name": "mmap/24-1",
+      "observed_status": "TIMEOUT",
+      "classification": "virtual-address-test-inapplicable",
+      "reason": "Repeated MAP_SHARED calls reuse the resident mapping. The test loops until virtual mapping resources are exhausted; no-MMU lacks that MMU limit, so timeout is not evidence of an allocation leak.",
+      "source_sha256": "ef5e85669423cad5435174dedf66f78950051fe03797688b36f64fa6d6682d14"
+    },
+    {
+      "name": "mmap/24-2",
+      "observed_status": "FAIL",
+      "classification": "architecture-limitation",
+      "reason": "Requires MAP_FIXED virtual-address replacement/placement; no-MMU Linux rejects it with EINVAL. The expected replacement or address-limit errno cannot be supplied by a physical-address allocator.",
+      "source_sha256": "0845fc56c5f0d9d7fdc7a9e987515274fe23f01fcff928c9e9a80477f5bc127e"
+    },
+    {
+      "name": "mmap/3-1",
+      "observed_status": "FAIL",
+      "classification": "architecture-limitation",
+      "reason": "Requires MAP_FIXED virtual-address replacement/placement; no-MMU Linux rejects it with EINVAL. The expected replacement or address-limit errno cannot be supplied by a physical-address allocator.",
+      "source_sha256": "e1738fce634903932dd95f89ebcd5d1487b863546298e76c350f451db45e22c2"
+    },
+    {
+      "name": "mmap/6-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "6f5bcf3718d2ed40ff41b109ed33e0d7a6e2f95b96b67ae227faf9a61f2ad492"
+    },
+    {
+      "name": "mmap/6-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "87400f38f4276792f8be86122b16d2353884631a0184c750baffd0b055503bff"
+    },
+    {
+      "name": "mmap/6-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "5380e1d74d2efc47668049cc69a37aec305b00411727f760b4e3cc0162605344"
+    },
+    {
+      "name": "munlock/10-1",
+      "observed_status": "UNRESOLVED",
+      "classification": "nommu-implementation-limitation",
+      "reason": "No-MMU locking is an unadvertised libc no-op: no per-range validation, privilege/limit enforcement, VM_LOCKED state, or MCL_FUTURE accounting. These contracts could be implemented without an MMU, but require coherent kernel support beyond flag validation.",
+      "source_sha256": "993448cc5e5be5f586ec74c07ece7688ceadfcda3276e5c91c55176df85ace20"
+    },
+    {
+      "name": "munlockall/5-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Memory-locking support is not advertised (_POSIX_MEMLOCK); this capability-guarded case correctly returns UNSUPPORTED.",
+      "source_sha256": "32c466c03b1e9af69c310ae7d855e6cd0fa71239dd996cd0d53d96d0c747cb12"
+    },
+    {
+      "name": "munmap/1-1",
+      "observed_status": "FAIL",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "9fa93e8c23ab9faf40e674b98f8ca2bc7ee970f1e490a7ff18264a613b32855d"
+    },
+    {
+      "name": "munmap/1-2",
+      "observed_status": "FAIL",
+      "classification": "architecture-limitation",
+      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
+      "source_sha256": "0bdbed1885f6aef1afbb9dde4c041ccc97e27d42c192747b0da3861d3a34fab9"
+    },
+    {
+      "name": "pthread_rwlock_unlock/3-1",
+      "observed_status": "FAIL",
+      "classification": "implementation-bug",
+      "reason": "RT queued readers and writers must acquire by priority, with writers first at equal priority. NPTL unlock always wakes a queued writer; the lower-priority writer overtakes the higher-priority reader. Needs coordinated admission and wakeup changes, including timed and process-shared locks.",
+      "source_sha256": "0ab418c86e9b249b077d1122fc8124ca91e926c54a4491625a0f2740a4435d67"
+    },
+    {
+      "name": "pthread_rwlock_unlock/4-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "undefined-operation",
+      "reason": "Upstream explicitly returns UNSUPPORTED on Linux before unlocking an uninitialized lock or a lock owned by another thread.",
+      "source_sha256": "38dd852d187020574653633d384ed9b954716928f6087650f8ea99fb5fc866ac"
+    },
+    {
+      "name": "pthread_rwlock_unlock/4-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "undefined-operation",
+      "reason": "Upstream explicitly returns UNSUPPORTED on Linux before unlocking an uninitialized lock or a lock owned by another thread.",
+      "source_sha256": "60706317316529288d42b69789dae7807fe9802365af59a7786145a72c769870"
+    },
+    {
+      "name": "sched_get_priority_max/1-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "bd339f30d539a37f0c2d8fec9b4899fa8fa316613f5488273ed3df5f4b9a5a4e"
+    },
+    {
+      "name": "sched_get_priority_min/1-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "325b8164922e05935ef9445b7e956ebddf52fbbbde9ea4a82d1d8ff7c32e7c88"
+    },
+    {
+      "name": "sched_getparam/6-1",
+      "observed_status": "UNTESTED",
+      "classification": "permission-test-inapplicable",
+      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
+      "source_sha256": "4f61c03ac87145036ccf1b717b12fdc849ae3ace9dfd4a45ad6e79c937a4b906"
+    },
+    {
+      "name": "sched_getscheduler/7-1",
+      "observed_status": "UNTESTED",
+      "classification": "permission-test-inapplicable",
+      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
+      "source_sha256": "fc0f581dfe2fa40f5e4c70769a17358f77cc8b903e54e33906545d3aa95f0501"
+    },
+    {
+      "name": "sched_setparam/20-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "1d5e76c3da0495bb486df3f9f7f9180c0ed802343d69e9f1d15c1681440bc85d"
+    },
+    {
+      "name": "sched_setparam/21-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "87467f0ed060c64b4670615aaeab42c25fc2b49ffcdc24ec62865bcbaa61ea46"
+    },
+    {
+      "name": "sched_setparam/21-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "4ac5d35be754c6c5b78fb89b0aa61451eca7ea2cb65783f0b05c93ae0a4f420b"
+    },
+    {
+      "name": "sched_setparam/23-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "3369e80386ab118fdd145504ce4bfa7854925d68f97cd5b6099409ec657000c1"
+    },
+    {
+      "name": "sched_setparam/23-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "a71283622c8170a35245ea56cca44e1221c82a0b5f20659f86e8c4dc49cc6848"
+    },
+    {
+      "name": "sched_setparam/23-4",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "211ac3cd864e407e6aedc9b44bdd6832a7dbd0b11cddfc119bddc765b64d5685"
+    },
+    {
+      "name": "sched_setparam/23-5",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "55e8de3994d7e56264b92e784a54b94e99806f326b4898638d5a6274f982d915"
+    },
+    {
+      "name": "sched_setparam/25-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "a06aeb370410804c21822a302be2104f614b83b4bd5097255e9b137d5175f1b3"
+    },
+    {
+      "name": "sched_setparam/25-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "9377bccef770683aed7b5f24d4e2e73936859774e374eb9d0b5ba3f856c75f83"
+    },
+    {
+      "name": "sched_setparam/25-4",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "a76a89ba5b9a495e76b54ec8276d30d546bb3025424b5a42ed50cfc100fe7b76"
+    },
+    {
+      "name": "sched_setscheduler/15-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "5d4f71f043d6246917874aa1b0015ed38efa906e3bb62583464286ca6f586833"
+    },
+    {
+      "name": "sched_setscheduler/15-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "b9700151892baf364f06c442860fd4ab7ee60282dbf2e67790c1868e9e374534"
+    },
+    {
+      "name": "sched_setscheduler/17-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "63a263bbe401c91d6d89d9465766c4874db909cf8df4362f034191e0d2ccee4d"
+    },
+    {
+      "name": "sched_setscheduler/17-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "c2df2d1b51587fd8d3c77997bbc88f7aa01fdddd6cb16c183d811b88708e41bc"
+    },
+    {
+      "name": "sched_setscheduler/17-4",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "c90850eaffe5c8e521c922151ea677e0ab432ad2d15b28a8a4a92e61e99d798f"
+    },
+    {
+      "name": "sched_setscheduler/19-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "29643169c69a147ef182fb2b117d574ca829285fa77688ea253f614b15792287"
+    },
+    {
+      "name": "sched_setscheduler/19-3",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "af11e5c8d59c46862f43d0fdc5c096121096bde1e30783cce0c69cc902b051ce"
+    },
+    {
+      "name": "sched_setscheduler/19-4",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
+      "source_sha256": "45e9c145fc401cc29378ee026b47489d28a2b4c937a6e09808328f51ce75e10a"
+    },
+    {
+      "name": "sched_setscheduler/22-1",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires PTHREAD_SCOPE_PROCESS, which NPTL rejects with ENOTSUP.",
+      "source_sha256": "048678c53ad39b2ad6fed3d66ed12b033d0c89f849b0bb44b7c16687d17950ed"
+    },
+    {
+      "name": "sched_setscheduler/22-2",
+      "observed_status": "UNSUPPORTED",
+      "classification": "optional-feature",
+      "reason": "Requires PTHREAD_SCOPE_PROCESS, which NPTL rejects with ENOTSUP.",
+      "source_sha256": "f975b8e85cc1600d3bb1c15b80be504f8f5bb3f91a584579872f090dc90b9854"
+    },
+    {
+      "name": "sem_init/7-1",
+      "observed_status": "UNTESTED",
+      "classification": "limit-test-inapplicable",
+      "reason": "Unnamed semaphores have no configured SEM_NSEMS_MAX count limit. Upstream returns UNTESTED when sysconf reports no such limit; inventing a limit would add overhead and restrict working programs.",
+      "source_sha256": "1af6ade3bf0e9b6f6bc0960cdba5285d4ec2f974723cb4671d3344b39bb3607a"
+    }
+  ]
+}
