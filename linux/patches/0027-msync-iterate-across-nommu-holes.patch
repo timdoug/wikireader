@@ -1,0 +1,62 @@
+Use the common VMA iterator for msync on MMU and NOMMU kernels.
+NOMMU find_vma only returns a containing mapping, so a hole previously
+stopped synchronization before later shared files. Iterate across holes,
+retain ENOMEM for the range, and reset the cursor after dropping mmap_lock
+for file I/O. NOMMU MS_ASYNC must also visit later writable mappings for
+its timestamp updates; the MMU fast path remains unchanged.
+
+diff --git a/mm/msync.c b/mm/msync.c
+--- a/mm/msync.c
++++ b/mm/msync.c
+@@ -34,6 +34,7 @@
+ 	unsigned long end;
+ 	struct mm_struct *mm = current->mm;
+ 	struct vm_area_struct *vma;
++	struct vma_iterator vmi;
+ 	int unmapped_error = 0;
+ 	int error = -EINVAL;
+ 
+@@ -58,11 +59,13 @@
+ 	/*
+ 	 * If the interval [start,end) covers some unmapped address ranges,
+ 	 * just ignore them, but return -ENOMEM at the end. Besides, if the
+-	 * flag is MS_ASYNC (w/o MS_INVALIDATE) the result would be -ENOMEM
+-	 * anyway and there is nothing left to do, so return immediately.
++	 * flag is MS_ASYNC (w/o MS_INVALIDATE), MMU kernels have nothing
++	 * left to do and can return immediately. NOMMU still needs to update
++	 * writable shared mapping timestamps beyond the hole.
+ 	 */
+ 	mmap_read_lock(mm);
+-	vma = find_vma(mm, start);
++	vma_iter_init(&vmi, mm, start);
++	vma = vma_find(&vmi, end);
+ 	for (;;) {
+ 		struct file *file;
+ 		loff_t fstart, fend;
+@@ -74,7 +77,7 @@
+ 			goto out_unlock;
+ 		/* Here start < vma->vm_end. */
+ 		if (start < vma->vm_start) {
+-			if (flags == MS_ASYNC)
++			if (IS_ENABLED(CONFIG_MMU) && flags == MS_ASYNC)
+ 				goto out_unlock;
+ 			start = vma->vm_start;
+ 			if (start >= end)
+@@ -112,13 +115,15 @@
+ 			if (error || start >= end)
+ 				goto out;
+ 			mmap_read_lock(mm);
+-			vma = find_vma(mm, start);
++			/* The tree may change while the mmap lock is dropped. */
++			vma_iter_init(&vmi, mm, start);
++			vma = vma_find(&vmi, end);
+ 		} else {
+ 			if (start >= end) {
+ 				error = 0;
+ 				goto out_unlock;
+ 			}
+-			vma = find_vma(mm, vma->vm_end);
++			vma = vma_find(&vmi, end);
+ 		}
+ 	}
+ out_unlock:

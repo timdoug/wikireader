@@ -335,3 +335,28 @@ in temporary directories; it should remain unprivileged.
 `--kernel` and `--emulator` select immutable images for comparisons.
 Reports hash the emulator before launch and record `WREMU_*` environment
 overrides, including any diagnostic timing-model changes.
+
+## Synchronization across unmapped holes
+
+The follow-up kernel fixture `ltp-kernel-sync-gaps.app` uses a VMA iterator
+instead of `find_vma`, whose no-MMU implementation only finds a containing
+mapping. A leading or internal hole previously stopped msync before later
+shared mappings. The iterator synchronizes those mappings while retaining
+ENOMEM for the unmapped portions, and is reset whenever file I/O drops the
+mapping lock. No-MMU MS_ASYNC also traverses holes for its timestamp updates;
+the MMU asynchronous fast path is unchanged.
+
+The expanded local synchronization regression maps the first page read-only
+and the third page writable in a four-page contiguous ramfs file. The two
+remaining pages have backing storage but no VMA, providing deterministic
+leading, internal and trailing holes without depending on allocation luck.
+Both synchronous and asynchronous calls must update the writable mapping's
+timestamps and report ENOMEM. The read-only mapping cannot mask a skipped
+update. The exact same binary fails on `ltp-kernel-msync.app`
+(`ltp-sync-gaps-before-final`) and passes on the new kernel. All ten local
+regressions pass (`ltp-port-sync-gaps-run`), the 27 unchanged mmap outcomes
+are preserved (`ltp-mmap-sync-gaps-run`), and application, launcher and
+live-thread suspend checks pass (`ltp-app-sync-gaps.log`). These runs reuse
+`ltp-rootfs-msync.img` and the default emulator through Grifo. The combined
+original-interface count remains **1,188/1,236**; this new regression is
+separate coverage, not another upstream pass.
