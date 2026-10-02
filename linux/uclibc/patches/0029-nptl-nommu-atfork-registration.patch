@@ -1,0 +1,28 @@
+Let pthread_atfork() succeed without an MMU.
+
+NPTL's no-MMU __register_atfork() returned EPERM, although POSIX allows
+pthread_atfork() to fail only for lack of memory. Without an MMU there is
+no fork(), so a registered handler could never run; accept and ignore it.
+Callers which treat registration as fatal fail otherwise: mq_notify()
+closes its netlink helper and reports SIGEV_THREAD as unsupported.
+
+diff --git a/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c b/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c
+--- a/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c
++++ b/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c
+@@ -120,6 +120,7 @@ __linkin_atfork (struct fork_handler *newp)
+ 						newp, newp->next) != 0);
+ }
+ #else
++/* There is no fork() to run handlers.  */
+ int
+ __register_atfork (
+      void (*prepare) (void),
+@@ -127,7 +128,7 @@ __register_atfork (
+      void (*child) (void),
+      void *dso_handle)
+ {
+-    return EPERM;
++    return 0;
+ }
+ libc_hidden_def (__register_atfork)
+ #endif

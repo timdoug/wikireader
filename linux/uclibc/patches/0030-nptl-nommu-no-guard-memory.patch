@@ -1,0 +1,42 @@
+Do not reserve unprotected NPTL guard areas without an MMU.
+
+NPTL carved a thread's guard area out of the requested stack size, even
+without an MMU to protect it. Every thread lost a page of stack, and a
+guard as large as the stack failed pthread_create() with EINVAL. A
+mq_notify() SIGEV_THREAD request with such attributes silently lost its
+notification. Allocate no guard memory without an MMU; pthread_getattr_np()
+still reports the requested guard size, as it already does for rounding.
+
+diff --git a/libpthread/nptl/allocatestack.c b/libpthread/nptl/allocatestack.c
+--- a/libpthread/nptl/allocatestack.c
++++ b/libpthread/nptl/allocatestack.c
+@@ -449,6 +449,7 @@
+     {
+       /* Allocate some anonymous memory.  If possible use the cache.  */
+       size_t guardsize;
++      size_t reported_guardsize;
+       size_t reqsize;
+       void *mem = 0;
+       const int prot = (PROT_READ | PROT_WRITE);
+@@ -468,6 +469,12 @@
+       /* Make sure the size of the stack is enough for the guard and
+ 	 eventually the thread descriptor.  */
+       guardsize = (attr->guardsize + pagesize_m1) & ~pagesize_m1;
++      reported_guardsize = guardsize;
++#ifndef __ARCH_USE_MMU__
++      /* Without an MMU a guard cannot be protected.  It would only shrink
++	 the stack, and a guard as large as the stack would be rejected.  */
++      guardsize = 0;
++#endif
+       if (__builtin_expect (size < ((guardsize + __static_tls_size
+ 				     + MINIMAL_REST_STACK + pagesize_m1)
+ 				    & ~pagesize_m1),
+@@ -669,7 +676,7 @@
+       /* The pthread_getattr_np() calls need to get passed the size
+ 	 requested in the attribute, regardless of how large the
+ 	 actually used guardsize is.  */
+-      pd->reported_guardsize = guardsize;
++      pd->reported_guardsize = reported_guardsize;
+     }
+ 
+   /* Initialize the lock.  We have to do this unconditionally since the

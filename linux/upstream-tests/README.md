@@ -200,6 +200,35 @@ now fails with `ENOMEM`, as any range beyond `TASK_SIZE` does. The native
 test checks that error. Reports: `upstream-devmem-fixed`,
 `upstream-devmem-baseline`, and `upstream-suites/devmem-fixed-app.log`.
 
+## Validated no-MMU NPTL fixes
+
+NPTL's no-MMU `pthread_atfork()` returned `EPERM`, although POSIX lets it
+fail only for lack of memory. There is no `fork()` to run handlers, so
+`0029-nptl-nommu-atfork-registration.patch` accepts and ignores them.
+`mq_notify()` treated the failure as fatal. It closed its netlink helper and
+reported every `SIGEV_THREAD` request as `ENOSYS`.
+
+NPTL also carved an unprotected guard area out of each thread's stack. Each
+thread lost a page, and a guard as large as the stack failed
+`pthread_create()` with `EINVAL`. `0030-nptl-nommu-no-guard-memory.patch`
+allocates no guard memory without an MMU. `pthread_getattr_np()` still
+reports the requested size. `mq_notify()`'s helper had silently dropped
+notifications whose attributes carried such a guard.
+
+`tst-attr3` and `tst-mqueue6` pass. The NPTL check in the Grifo application
+tests registers an atfork handler, creates a thread whose guard equals its
+stack size, and receives a `SIGEV_THREAD` notification with those
+attributes. It fails with the previous libc and passes with both patches,
+as do the full application checks. Of 220 previously executed NPTL, pthread
+and TLS commands, 198 pass. Besides `tst-attr3` and `tst-mqueue6`, the run
+confirms `tst-oncex3`, `tst-oncex4` and 12 cancellation tests repaired by the
+loader fix. Thirteen of the 22 failures cannot allocate 1 MiB thread stacks
+in contiguous memory, and one exhausts memory. `tst-cond2`, `tst-signal3`,
+`tst-tls2` and `tst-tls3` newly fail this way. With the same kernel, the previous
+libc fails them identically. Reports: `upstream-atfork-fixed`,
+`upstream-guard-thread-regression`, `upstream-guard-fresh-boot`,
+`upstream-origin-fresh-boot`, and `upstream-suites/guard-fixed-app.log`.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces

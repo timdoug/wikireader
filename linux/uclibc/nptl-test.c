@@ -2,6 +2,8 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <mqueue.h>
 #include <pthread.h>
 #include <sched.h>
 #include <semaphore.h>
@@ -11,6 +13,7 @@
 #include <stdlib.h>
 #include <sys/syscall.h>
 #include <spawn.h>
+#include <time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -38,6 +41,8 @@ static int waiting;
 static int cleaned;
 static int (*late_tls)(int);
 static pthread_spinlock_t spin;
+static sem_t notified;
+static size_t notified_guard;
 static sem_t spin_ready;
 static int spin_count;
 
@@ -123,6 +128,22 @@ static void cleanup(void *arg)
 	(void)arg;
 	cleaned++;
 	pthread_mutex_unlock(&cancel_lock);
+}
+
+static void *returns(void *arg)
+{
+	return arg;
+}
+
+static void notify(union sigval value)
+{
+	pthread_attr_t attr;
+	(void)value;
+	if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+		pthread_attr_getguardsize(&attr, &notified_guard);
+		pthread_attr_destroy(&attr);
+	}
+	sem_post(&notified);
 }
 
 static void *cancelled(void *arg)
@@ -213,6 +234,36 @@ int main(void)
 	pthread_spin_unlock(&spin);
 	pthread_spin_destroy(&spin);
 	sem_destroy(&spin_ready);
+
+	/* No fork() can run handlers without an MMU; registering one still
+	 * succeeds. A guard as large as the stack is not carved from it. */
+	check(pthread_atfork(NULL, NULL, NULL) == 0, "atfork registration");
+	pthread_attr_t guard;
+	size_t stack = 0;
+	check(pthread_attr_init(&guard) == 0 &&
+	      pthread_attr_getstacksize(&guard, &stack) == 0 &&
+	      pthread_attr_setguardsize(&guard, stack) == 0, "guard attributes");
+	check(pthread_create(&threads[0], &guard, returns, &stack) == 0 &&
+	      pthread_join(threads[0], &result) == 0 && result == &stack,
+	      "guard as large as the stack");
+	/* mq_notify() starts SIGEV_THREAD notifications with those attributes. */
+	struct mq_attr queue_attr = { .mq_maxmsg = 1, .mq_msgsize = 1 };
+	mq_unlink("/nptl-test");
+	mqd_t queue = mq_open("/nptl-test", O_CREAT | O_EXCL | O_RDWR, 0600, &queue_attr);
+	struct sigevent event = { .sigev_notify = SIGEV_THREAD,
+				  .sigev_notify_function = notify,
+				  .sigev_notify_attributes = &guard };
+	check(sem_init(&notified, 0, 0) == 0 && queue != (mqd_t)-1 &&
+	      mq_notify(queue, &event) == 0, "mq_notify SIGEV_THREAD");
+	struct timespec deadline;
+	clock_gettime(CLOCK_REALTIME, &deadline);
+	deadline.tv_sec += 10;
+	check(mq_send(queue, "", 1, 0) == 0 && sem_timedwait(&notified, &deadline) == 0 &&
+	      notified_guard == stack, "notification thread and its guard size");
+	mq_close(queue);
+	mq_unlink("/nptl-test");
+	sem_destroy(&notified);
+	pthread_attr_destroy(&guard);
 	char *args[] = { "tlsexec", NULL };
 	extern char **environ;
 	pid_t child;
@@ -223,7 +274,7 @@ int main(void)
 		check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
 		      WEXITSTATUS(status) == 0, "exec clears TP before libc starts");
 
-	printf("NPTL %s: native ELF TLS, dlopen, identity, signals, destructors, robust mutex, cancellation\n",
+	printf("NPTL %s: native ELF TLS, dlopen, identity, signals, destructors, robust mutex, cancellation, mq_notify\n",
 	       failures ? "FAIL" : "PASS");
 	return failures != 0;
 }
