@@ -114,6 +114,8 @@ cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 "${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/signal-test.c" \
 	"$root/linux/uclibc/signal-entry.S" \
 	-o "$root/linux/artifacts/signal-test"
+"${cross}gcc" -O2 -Wall -Werror "$root/linux/uclibc/relocation-test.c" \
+	-o "$root/linux/artifacts/relocation-test"
 "${cross}gcc" -O2 -Wall -Werror -pthread -static \
 	"$root/linux/uclibc/pthread-test.c" -o "$root/linux/artifacts/pthread-test-static"
 "${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/runtime-bench.c" \

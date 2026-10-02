@@ -287,7 +287,8 @@ c33_do_reloc(struct c33_reloc_ctx *ctx, const ELF_RELOC *rpnt)
 			? (unsigned long) _dl_funcdesc_for((void *) symbol_addr,
 				symbol_tpnt->loadaddr.got_value)
 			: 0;
-		*(unsigned long *) reloc_addr = reloc_value;
+		/* Personality pointers in .eh_frame need not be word-aligned. */
+		c33_store(reloc_addr, reloc_value);
 		break;
 	default:
 		return -1;

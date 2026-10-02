@@ -126,6 +126,7 @@ def main():
     pthread_test = require(root / "linux/artifacts/pthread-test")
     pthread_static = require(root / "linux/artifacts/pthread-test-static")
     signal_test = require(root / "linux/artifacts/signal-test")
+    relocation_test = require(root / "linux/artifacts/relocation-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
     ipc_test = require(root / "linux/artifacts/ipc-test")
@@ -160,6 +161,7 @@ def main():
             "pthtest.bin": pthread_test.read_bytes(),
             "pthstat.bin": pthread_static.read_bytes(),
             "sigtest.bin": signal_test.read_bytes(),
+            "reloc.bin": relocation_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
             "ipctest.bin": ipc_test.read_bytes(),
@@ -188,7 +190,7 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
-                              "t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
+                              "/mnt/sd/reloc.bin && t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
@@ -220,6 +222,7 @@ def main():
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "C33 BusyBox init: kernel self-test passed",
             "NPTL PASS",
+            "RELOCATION PASS",
             "SIGNAL PASS:",
             "PTHREAD PASS",
             "STATIC PTHREAD PASS",

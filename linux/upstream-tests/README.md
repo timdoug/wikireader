@@ -95,6 +95,27 @@ and emulator
 `c7f9ff2d5117c20ca37196df82ab6f0bbea103e591084b0f9bb0f26c6023d40d`.
 All full-run and shell-remainder batches use that same baseline.
 
+## Validated loader fix
+
+The function-descriptor relocation now uses the loader's existing unaligned
+store helper. `.eh_frame` personality pointers can lie at addresses which
+are not word-aligned; the previous direct word store faulted during startup.
+On the same baseline compiler, kernel and libc, changing only the loader
+makes 12 of 14 selected previously failing cancellation/cleanup commands
+pass. The remaining two are `tst-cancelx7` (child still running) and
+`tst-cleanupx2` (expects a fault on a null-pointer store on no-MMU Linux).
+`tst-cancelx10` gets past loading and its first cleanup operations, then
+fails to allocate another explicit 1 MiB thread stack. `tst-cancelx2` still
+crashes during forced unwinding; it is a separate issue.
+
+`linux/uclibc/relocation-test.c` exercises descriptor pointers at all four
+byte alignments. It fails with the old loader and passes with the fix.
+The full `app-test.py` integration and suspend/TLS checks also pass with the
+fixed loader. Reports: `upstream-loader-fixed-cancellation`,
+`upstream-loader-fixed-probe`, `upstream-native-fixed`, and
+`upstream-suites/loader-fixed-app.log`. These are individual follow-ups;
+the baseline full-sweep results above remain unchanged.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces
