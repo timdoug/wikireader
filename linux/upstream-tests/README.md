@@ -239,7 +239,7 @@ fix. The 23 others:
 | `tst-cancel7`, `tst-cancelx7` | Hush runs `sh -c`'s command as a child, which outlives cancellation |
 | `tst-cleanup2`, `tst-cleanupx2` | Expect a null-pointer store to fault |
 | `tst-clock2` | Expects blocked threads' CPU clocks to advance |
-| `tst-cond10`, `tst-cond20`, `tst-cond21` | Exceed the upstream internal timeout |
+| `tst-cond10`, `tst-cond20`, `tst-cond21` | Exceed the upstream internal timeout; the first two pass in direct mode |
 | `tst-cancel14`, `tst-cancel15`, `ex3` | Intermittent: SIGSEGV, SIGSEGV, timeout |
 
 The 64 KiB thread stack is a deliberate RAM choice. Without a guard, the
@@ -247,8 +247,8 @@ The 64 KiB thread stack is a deliberate RAM choice. Without a guard, the
 or crash. The intermittent three pass on fresh boots and when the same
 batch is replayed. A race in asynchronous cancellation has not been ruled
 out. Reports: `upstream-atfork-fixed`, `upstream-final-thread-regression`,
-`upstream-final-cancel-fresh`, `upstream-final-batch12-repeat`, and
-`upstream-suites/final-app.log`.
+`upstream-final-cancel-fresh`, `upstream-final-batch12-repeat`,
+`upstream-final-cond-direct`, and `upstream-suites/final-app.log`.
 
 ## Isolation and reporting
 
