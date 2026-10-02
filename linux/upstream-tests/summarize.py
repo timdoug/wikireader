@@ -63,7 +63,7 @@ def main():
     pattern = r"^(?:-n )?(hush-[^:\n]+):[ \n]*(ok|skip[^\n]*|fail[^\n]*)$"
     for path in sorted(args.busybox.glob("batch-*/boot.log")):
         text = path.read_text(errors="replace").replace("\r", "\n")
-        for name, status in re.findall(pattern, text, re.M):
+        for name, status in re.findall(pattern, runner.hush_output(text), re.M):
             hush["hush/" + name] = {"name": "hush/" + name,
                                    "status": "PASS" if status == "ok" else "SKIPPED" if status.startswith("skip") else "FAIL",
                                    "boot_log": str(path.resolve()), "boot_log_sha256": runner.sha(path)}

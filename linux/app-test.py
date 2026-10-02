@@ -130,6 +130,7 @@ def main():
     origin_rpath = require(root / "linux/artifacts/origin-rpath")
     origin_runpath = require(root / "linux/artifacts/origin-runpath")
     origin_library = require(root / "linux/artifacts/origin.so")
+    exec_stack_test = require(root / "linux/artifacts/exec-stack-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
     ipc_test = require(root / "linux/artifacts/ipc-test")
@@ -168,6 +169,7 @@ def main():
             "origr.bin": origin_rpath.read_bytes(),
             "orign.bin": origin_runpath.read_bytes(),
             "origin.so": origin_library.read_bytes(),
+            "execstk.bin": exec_stack_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
             "ipctest.bin": ipc_test.read_bytes(),
@@ -197,6 +199,7 @@ def main():
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
                               "/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
+                              "/mnt/sd/execstk.bin && "
                               "t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
@@ -231,6 +234,7 @@ def main():
             "NPTL PASS",
             "RELOCATION PASS",
             "ORIGIN PASS",
+            "EXEC STACK PASS",
             "SIGNAL PASS:",
             "PTHREAD PASS",
             "STATIC PTHREAD PASS",

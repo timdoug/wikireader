@@ -81,12 +81,6 @@ passes in upstream direct mode with a 1,200-second external limit. Xargs
 passes on the original BusyBox image with a 1,200-second limit. These are
 individual follow-ups, not a replacement full sweep.
 
-`upstream-busybox-stack-long` also passes all three md5sum assertions on a
-private image with only the BusyBox ELF stack reservation changed from
-32 KiB to 128 KiB. This experiment is excluded from the baseline counts.
-No production stack configuration change is included: extra reserved stack
-uses real memory on no-MMU Linux, and other large-stack cases need review.
-
 The tested baseline kernel SHA-256 is
 `af396910fd14320c90b76fb9ec598f55250cbe0f695c83d94980795e11439a65`,
 root filesystem
@@ -155,6 +149,34 @@ Grifo application checks. The final stripped loader is 36,580 bytes versus
 36,108 in the baseline; libc remains byte-identical. Reports:
 `upstream-runpath-fixed-probe`, `upstream-origin-different-cwd`,
 `upstream-origin-fixed`, and `upstream-suites/fixed-runtime-provenance.json`.
+
+## Validated exec stack fix
+
+The no-MMU FDPIC loader copies argument and environment strings, their
+pointer arrays, the load maps and the auxiliary vector into the stack
+allocation. It sized that allocation from `PT_GNU_STACK` alone, so a large
+argument image consumed the program's stack. Past the bottom, it overwrote
+neighbouring memory, because no-MMU `copy_to_user` cannot fault.
+`0031-fdpic-reserve-initial-stack-image.patch` adds the image's size to the
+requested stack, as `binfmt_flat` does. A checked addition guards the
+untrusted `PT_GNU_STACK` size against overflow. A typical exec gets one more
+page: BusyBox's 32 KiB stack becomes a 36 KiB allocation.
+
+No-MMU Hush re-executes itself for command substitutions and passes its
+shell variables as arguments, so this was the cause of the BusyBox
+"stack overflow" and the Hush kernel panic. Without any BusyBox stack change,
+`md5sum` (3 of 3) and `sha256sum` (2 of 2) pass. So do the previously
+crashing `tick_huge` and the `heredoc_huge` Hush tests. `heredoc_huge` also
+needed the runner to ignore the console-blanking line printed between a test
+name and its result. `linux/uclibc/exec-stack-test.c` execs a program with a
+32 KiB stack, passing it a 120,000-byte argument, 8,000 arguments, or a
+120,000-byte environment variable. Each child checks its arguments and uses
+20 KB of its stack. The test is part of the Grifo application checks, which
+pass. A rerun of 80 executable libc commands covering the args, dlopen,
+malloc, mmap, pthread, setjmp, signal, stdlib, string and TLS families
+passes all but the baseline `mmap2` failure and `stratcliff` timeout. Reports: `upstream-exec-stack-fixed`, `upstream-stack-fixed-hush`,
+`upstream-stack-fixed-heredoc`, `upstream-stack-fixed-checksums`,
+`upstream-fixed-runtime-followup`, and `upstream-suites/all-fixed-app.log`.
 
 ## Isolation and reporting
 
@@ -263,9 +285,8 @@ every non-pass is a C33 implementation bug:
 - `dlopen/tst-origin` fails to find its packaged library through
   `$ORIGIN/testlib`, despite the ELF carrying the intended RPATH.
 - BusyBox's checksum stress test overflows the configured 32 KiB main
-  stack. A private larger-stack image is an experiment, not a shipped fix.
-  Hush's large command substitution also produces a kernel panic in a
-  fresh boot; its root cause remains open.
+  stack, and Hush's large command substitution panics the kernel. Both are
+  the exec stack image fix above.
 - BusyBox sed has three failures in tests explicitly marked as known
   upstream bugs. `SKIP_KNOWN_BUGS` is not set. Cpio tests require disabled
   `bzcat`, tar requires `bunzip2`, and unzip's setup requires absent `zip`;

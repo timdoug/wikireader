@@ -21,12 +21,18 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def hush_output(segment):
+    # Console blanking can interrupt run-all's header and its later "ok".
+    # Remove only this known standalone status line, keeping test failures.
+    return re.sub(r"^C33 display: blanked while idle\n", "", segment, flags=re.M)
+
+
 def verdict(suite, case, code, segment):
     if suite == "uclibc":
         assertions = Counter(re.findall(r"^(PASS|FAIL|SKIP) \S+", segment, re.M))
     elif case["name"].startswith("hush/"):
         assertions = Counter("PASS" if x == "ok" else "SKIP" if x.startswith("skip") else "FAIL"
-                             for x in re.findall(r"^(?:-n )?hush-[^:\n]+:[ \n]*(ok|skip[^\n]*|fail[^\n]*)$", segment, re.M))
+                             for x in re.findall(r"^(?:-n )?hush-[^:\n]+:[ \n]*(ok|skip[^\n]*|fail[^\n]*)$", hush_output(segment), re.M))
     else:
         assertions = Counter(re.findall(r"^(PASS|FAIL|SKIPPED|UNTESTED):", segment, re.M))
     passed = assertions["PASS"]

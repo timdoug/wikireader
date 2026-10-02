@@ -10,6 +10,12 @@ spec.loader.exec_module(runner)
 
 
 class Results(unittest.TestCase):
+    def test_console_status_between_shell_header_and_result(self):
+        case = {"name": "hush/hush-heredoc"}
+        for result, expected in [("ok", "PASS"), ("fail (1)", "FAIL")]:
+            output = "-n hush-heredoc/huge.tests:\nC33 display: blanked while idle\n " + result + "\n"
+            self.assertEqual(runner.verdict("busybox", case, 0, output)["status"], expected)
+
     def test_shell_failure_overrides_success_status(self):
         case = {"name": "hush/hush-bugs"}
         self.assertEqual(runner.verdict("busybox", case, 0, "-n hush-bugs/example.tests:\n fail (1)\n")["status"], "FAIL")
