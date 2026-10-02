@@ -1,0 +1,35 @@
+Unescape a literal glob directory before opening it.
+
+When a pattern's directory part has no metacharacters, glob() opened it
+as a path with its backslash escapes still in place. Hush quotes '-' in
+expansions as "\-", so `for f in "$dir"/*` found nothing whenever $dir
+contained a dash. Remove the escapes first, as glibc's glob() does.
+
+diff --git a/libc/misc/glob/glob.c b/libc/misc/glob/glob.c
+--- a/libc/misc/glob/glob.c
++++ b/libc/misc/glob/glob.c
+@@ -979,6 +979,24 @@
+     {
+       int old_pathc = pglob->gl_pathc;
+ 
++      /* Without metacharacters the directory is a path: drop its escapes,
++	 such as a shell's quoting of '-' as "\\-".  */
++      if (!(flags & GLOB_NOESCAPE) && strchr (dirname, '\\') != NULL)
++	{
++	  char *copy = alloca (strlen (dirname) + 1), *q = copy;
++	  const char *p;
++
++	  for (p = dirname; *p != '\0'; ++p)
++	    {
++	      if (*p == '\\' && p[1] != '\0')
++		++p;
++	      *q++ = *p;
++	    }
++	  *q = '\0';
++	  dirname = copy;
++	  dirlen = q - copy;
++	}
++
+       status = glob_in_dir (filename, dirname, flags, errfunc, pglob);
+       if (status != 0)
+ 	return status;

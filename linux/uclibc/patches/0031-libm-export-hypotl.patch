@@ -1,0 +1,17 @@
+Export hypotl.
+
+mathcalls.h declares hypotl with libm_hidden_proto, which renames the
+definition in w_hypotl.c to __GI_hypotl, but that file never defined the
+public alias with libm_hidden_def as w_hypot.c does. hypotl, a C99
+function, was therefore missing from the library and programs using it
+failed to link.
+
+diff --git a/libm/w_hypotl.c b/libm/w_hypotl.c
+--- a/libm/w_hypotl.c
++++ b/libm/w_hypotl.c
+@@ -37,4 +37,5 @@
+ 	return (long double) __ieee754_hypot((double) x, (double) y);
+ # endif /* __UCLIBC_HAS_FENV__ */
+ }
++libm_hidden_def(hypotl)
+ #endif /* __NO_LONG_DOUBLE_MATH */
