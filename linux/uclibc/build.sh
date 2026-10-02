@@ -124,6 +124,8 @@ cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 	-Wl,--enable-new-dtags,-rpath,'$ORIGIN' -o "$root/linux/artifacts/origin-runpath"
 "${cross}gcc" -O2 -Wall -Werror -Wl,-z,stack-size=32768 \
 	"$root/linux/uclibc/exec-stack-test.c" -o "$root/linux/artifacts/exec-stack-test"
+"${cross}gcc" -O2 -Wall -Werror "$root/linux/uclibc/devmem-test.c" \
+	-o "$root/linux/artifacts/devmem-test"
 "${cross}gcc" -O2 -Wall -Werror -pthread -static \
 	"$root/linux/uclibc/pthread-test.c" -o "$root/linux/artifacts/pthread-test-static"
 "${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/runtime-bench.c" \

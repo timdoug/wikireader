@@ -1,0 +1,24 @@
+Allow NOMMU regions which start at the same address.
+
+Direct character device mappings may overlap other regions; do_mmap()
+says so where it searches for shareable regions. A /dev/mem mapping at
+another region's start address, such as a page the process has already
+mapped, nevertheless hit BUG() in add_nommu_region() and panicked.
+Order regions with equal starts by their own addresses instead.
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -496,8 +496,11 @@
+ 			p = &(*p)->rb_right;
+ 		else if (pregion == region)
+ 			return;
++		/* Direct device mappings may alias another region's start. */
++		else if (region < pregion)
++			p = &(*p)->rb_left;
+ 		else
+-			BUG();
++			p = &(*p)->rb_right;
+ 	}
+ 
+ 	rb_link_node(&region->vm_rb, parent, p);

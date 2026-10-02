@@ -178,6 +178,28 @@ passes all but the baseline `mmap2` failure and `stratcliff` timeout. Reports: `
 `upstream-stack-fixed-heredoc`, `upstream-stack-fixed-checksums`,
 `upstream-fixed-runtime-followup`, and `upstream-suites/all-fixed-app.log`.
 
+## Validated /dev/mem mapping fix
+
+Linux 7.2's `/dev/mem` describes its mapping as a PFN remap action, which
+the no-MMU mm layer warned about and rejected. Every `/dev/mem` mmap
+failed with `EINVAL` and three kernel WARNs. No-MMU places such a mapping
+at the physical address itself. `0032-nommu-identity-pfn-mappings.patch`
+checks that identity, as no-MMU `remap_pfn_range()` does, and applies the
+same VMA flags. With the remap working, a mapping at another region's start
+address reached `BUG()` in the region tree and panicked the kernel.
+`0033-nommu-region-tree-aliased-starts.patch` orders such regions by
+address; `do_mmap()` already allows direct device mappings to overlap.
+
+`linux/uclibc/devmem-test.c` maps one of its own pages through `/dev/mem`,
+writes through the alias, reads it back with `pread`, and unmaps both
+mappings. It fails on the previous kernel and passes with both patches.
+It is part of the Grifo application checks, which pass, and the other six
+mmap tests still pass. Upstream `mmap2` maps the page at 0xfffff000. On
+no-MMU that mapping would end at 2^32 and wrap the VMA end to zero, so it
+now fails with `ENOMEM`, as any range beyond `TASK_SIZE` does. The native
+test checks that error. Reports: `upstream-devmem-fixed`,
+`upstream-devmem-baseline`, and `upstream-suites/devmem-fixed-app.log`.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces

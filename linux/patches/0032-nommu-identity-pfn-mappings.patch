@@ -1,0 +1,72 @@
+Prepare NOMMU PFN remap actions as identity mappings.
+
+Drivers converted to mmap_prepare, including /dev/mem, describe their
+mapping as a PFN remap action. NOMMU warned about and then rejected every
+such action, so a /dev/mem mmap failed with EINVAL and three WARNs. A
+driver's get_unmapped_area() hook already places a NOMMU mapping at the
+address it remaps. Check that identity, as NOMMU remap_pfn_range() does,
+and apply the same VMA flags; I/O remaps take the same path after the
+usual PFN conversion.
+
+A direct mapping of the last page would end at 2^32, which wraps vm_end
+to zero. Return ENOMEM, as for any range beyond TASK_SIZE.
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -1197,6 +1197,10 @@
+ 					goto error_just_free;
+ 
+ 				capabilities &= ~NOMMU_MAP_DIRECT;
++			} else if (addr > TASK_SIZE - len) {
++				/* The VMA end must not wrap past TASK_SIZE. */
++				ret = -ENOMEM;
++				goto error_just_free;
+ 			} else {
+ 				vma->vm_start = region->vm_start = addr;
+ 				vma->vm_end = region->vm_end = addr + len;
+@@ -1745,6 +1749,20 @@
+ }
+ EXPORT_SYMBOL(remap_pfn_range);
+ 
++int remap_pfn_range_prepare(struct vm_area_desc *desc)
++{
++	const struct mmap_action *action = &desc->action;
++	const unsigned long start = action->remap.start;
++
++	/* As above, the driver's get_unmapped_area() chose the address. */
++	if (start != (action->remap.start_pfn << PAGE_SHIFT) ||
++	    !range_in_vma_desc(desc, start, start + action->remap.size))
++		return -EINVAL;
++
++	vma_desc_set_flags_mask(desc, VMA_REMAP_FLAGS);
++	return 0;
++}
++
+ int vm_iomap_memory(struct vm_area_struct *vma, phys_addr_t start, unsigned long len)
+ {
+ 	unsigned long pfn = start >> PAGE_SHIFT;
+diff --git a/mm/util.c	2026-10-01 18:15:22.882546307 -0700 b/mm/util.c	2026-10-01 18:15:22.882546307 -0700
+--- a/mm/util.c	2026-10-01 18:15:22.882546307 -0700
++++ b/mm/util.c	2026-10-01 18:15:22.882546307 -0700
+@@ -1507,7 +1507,9 @@
+ 	case MMAP_NOTHING:
+ 		break;
+ 	case MMAP_REMAP_PFN:
++		return remap_pfn_range_prepare(desc);
+ 	case MMAP_IO_REMAP_PFN:
++		return io_remap_pfn_range_prepare(desc);
+ 	case MMAP_SIMPLE_IO_REMAP:
+ 	case MMAP_MAP_KERNEL_PAGES:
+ 		WARN_ON_ONCE(1); /* nommu cannot handle these. */
+@@ -1526,8 +1528,9 @@
+ 
+ 	switch (action->type) {
+ 	case MMAP_NOTHING:
+-		break;
++	/* A prepared PFN mapping is already the identity mapping. */
+ 	case MMAP_REMAP_PFN:
++		break;
+ 	case MMAP_IO_REMAP_PFN:
+ 	case MMAP_SIMPLE_IO_REMAP:
+ 	case MMAP_MAP_KERNEL_PAGES:
