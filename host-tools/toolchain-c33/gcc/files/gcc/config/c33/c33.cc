@@ -2887,27 +2887,6 @@ c33_asm_destructor (rtx symbol, int priority)
     C33_DEFAULT_DTOR (symbol, priority);
 }
 
-/* -mfdpic: memory a call cannot clobber, for the copy of %r15 it restores:
-   a stack slot of this frame.  */
-
-bool
-c33_frame_mem_p (rtx op)
-{
-  rtx addr;
-
-  if (!MEM_P (op))
-    return false;
-  addr = XEXP (op, 0);
-  if (GET_CODE (addr) == PLUS && CONST_INT_P (XEXP (addr, 1)))
-    addr = XEXP (addr, 0);
-  return (REG_P (addr)
-	  && (REGNO (addr) == STACK_POINTER_REGNUM
-	      || REGNO (addr) == FRAME_POINTER_REGNUM
-	      || REGNO (addr) == ARG_POINTER_REGNUM
-	      || (REGNO (addr) == HARD_FRAME_POINTER_REGNUM
-		  && frame_pointer_needed)));
-}
-
 /* -mfdpic: expand a call that may reach another module, and return true;
    return false for a call the ordinary patterns can make, to a function
    this module defines and nothing preempts.  RETVAL is the value's

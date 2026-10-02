@@ -134,14 +134,5 @@
   "The caller-clobbered sibling-call target register, @code{%r14}."
 )
 
-;; -mfdpic: where a call that may enter another module finds the caller's
-;; %r15 again afterwards.  Both survive the call: a callee-saved register,
-;; or the frame.  A special memory constraint, so that LRA never meets it by
-;; loading the address into a register the call would clobber.
 (define_register_constraint "c" "SAVED_REGS"
   "A callee-saved register, @code{%r0} to @code{%r3}.")
-
-(define_special_memory_constraint "A"
-  "A stack slot: memory addressed from @code{%sp} or the frame pointer."
-  (and (match_code "mem")
-       (match_test "c33_frame_mem_p (op)")))

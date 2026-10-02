@@ -116,6 +116,29 @@ fixed loader. Reports: `upstream-loader-fixed-cancellation`,
 `upstream-suites/loader-fixed-app.log`. These are individual follow-ups;
 the baseline full-sweep results above remain unchanged.
 
+## Validated compiler fix
+
+FDPIC calls now require the saved GOT operand in a preserved register. If
+it spills, LRA emits a normal load before the call; the restore stays inside
+the call template so implicit GOT accesses cannot be scheduled before it.
+Previously the call could read its saved GOT directly from the frame, but
+GCC DSE discarded that explicit read when recording the call's implicit
+memory effects, then deleted the initialization store. This explains the
+`bug269-setjmp` corruption, rather than a failure of libc's setjmp save area.
+The unused frame-only constraint and predicate are removed.
+
+The unchanged upstream `bug269-setjmp` and all four other selected setjmp
+commands pass after rebuilding with the fixed compiler, on the baseline
+kernel/libc with the loader fix. A standalone GCC regression derived from
+the same test also passes through Grifo. Rebuilding the whole inventory
+still produces 510 executables and the same 14 build errors. This is build
+coverage, not a new full execution sweep. Reports: `upstream-fixed-tests`,
+`upstream-compiler-fixed-setjmp-v2`, and `upstream-native-fixed`.
+
+The builder accepts `--compiler` and `--work` for isolated comparison builds.
+It cleans before compiling and no longer forces non-file setup targets
+with `make -B`, which could fail on an existing `testlib` directory.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces

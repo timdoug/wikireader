@@ -20,17 +20,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--guest", type=Path, default=Path("/home/timdoug.guest/wr-linux"))
     parser.add_argument("--output", type=Path, default=ROOT / "linux/artifacts/upstream-suites")
+    parser.add_argument("--compiler", type=Path, help="Compiler for an isolated follow-up build")
+    parser.add_argument("--work", default="upstream-suites", help="Guest work directory name")
     parser.add_argument("--package-only", action="store_true", help="Reuse the preceding libc test build")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    private = args.guest / "upstream-suites"
+    if Path(args.work).name != args.work or args.work in {".", ".."}:
+        raise SystemExit("Work must be a directory name under --guest")
+    private = args.guest / args.work
     src = private / "uclibc-ng-test"
     private.mkdir(parents=True, exist_ok=True)
     if not src.exists():
         subprocess.run(["git", "clone", "https://git.uclibc-ng.org/git/uclibc-ng-test.git", src], check=True)
         subprocess.run(["git", "-C", src, "checkout", "--detach", UCLIBC_REVISION], check=True)
-    compiler = args.guest / "ltp-isolated/toolchain/install/bin/c33-linux-uclibc-gcc"
+    compiler = (args.compiler or args.guest / "ltp-isolated/toolchain/install/bin/c33-linux-uclibc-gcc").resolve()
     if subprocess.check_output(["git", "-C", src, "rev-parse", "HEAD"], text=True).strip() != UCLIBC_REVISION:
         raise SystemExit("Unexpected uClibc test revision")
     if subprocess.check_output(["git", "-C", src, "status", "--porcelain", "--untracked-files=no"], text=True).strip():
@@ -40,7 +44,7 @@ def main():
                 if line.endswith("=y") and line.startswith(("UCLIBC_", "MALLOC_", "HAVE_SHARED="))]
     variables = [f"CC={compiler}", "UCLIBC_EXTRA_CFLAGS=-O2 -std=gnu99 -fpermissive",
                  "UCLIBC_EXTRA_LDFLAGS=-Wl,-z,stack-size=262144", "V=1", *features]
-    command = ["make", "-C", str(src), "-B", "-k", "-j4", *variables, "test_compile"]
+    command = ["make", "-C", str(src), "-k", "-j4", *variables, "test_compile"]
     if args.package_only:
         previous = json.loads((out / "manifest.json").read_text())
         if previous["compiler_sha256"] != sha(compiler) or previous["libc_config_sha256"] != sha(config):

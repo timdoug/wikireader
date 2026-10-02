@@ -558,7 +558,11 @@ the FDPIC linker refuses objects without it.
   another module: every indirect call, and every direct call to a symbol
   that is not `SYMBOL_REF_LOCAL_P`. The restore is part of the call pattern
   (`call_fdpic` and friends), from a copy of the entry `%r15` that the call
-  cannot clobber, in `%r0`-`%r3` or a stack slot (constraints `c` and `A`).
+  cannot clobber, in `%r0`-`%r3` (constraint `c`). If that copy spills,
+  LRA loads it before the call into a preserved register. An explicit frame
+  read inside a call pattern is insufficient: GCC's DSE clears those reads
+  when recording the call's implicit memory effects, and can delete the
+  initialization store.
   A separate restore would not do: `-msep-data` code reads `%r15` through
   every pool load without the RTL saying so, and the scheduler could put
   one of those between the call and the restore. For the same reason these
