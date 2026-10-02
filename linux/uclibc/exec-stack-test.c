@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Exec an ELF with a 32 KiB runtime stack and a larger initial stack image.
- * Cover long argument strings, many argument pointers, and environment.
- * No-MMU copy_to_user cannot catch an undersized allocation. */
+/* Exec an ELF with a 32 KiB stack and a larger initial stack image.
+ * Cover long argument strings, many argument pointers, and environment;
+ * each child keeps three quarters of its stack. No-MMU copy_to_user cannot
+ * catch an undersized allocation. Ordinary arguments come out of the
+ * 32 KiB, so the stack mapping is exactly that size. */
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,10 +25,27 @@ static __attribute__((noinline)) int check_stack(void)
 	return 0;
 }
 
+static int stack_mapping(void)
+{
+	FILE *maps = fopen("/proc/self/maps", "r");
+	char line[160];
+	uintptr_t start, end;
+	int size = -1;
+	while (maps && fgets(line, sizeof(line), maps))
+		if (strstr(line, "[stack]") &&
+		    sscanf(line, "%" SCNxPTR "-%" SCNxPTR, &start, &end) == 2)
+			size = end - start;
+	if (maps)
+		fclose(maps);
+	return size;
+}
+
 static int child(int argc, char **argv)
 {
 	if (check_stack())
 		return 1;
+	if (!strcmp(argv[1], "small"))
+		return stack_mapping() != 32768;
 	if (!strcmp(argv[1], "words")) {
 		if (argc != WORDS + 2)
 			return 1;
@@ -71,11 +91,13 @@ int main(int argc, char **argv)
 	char *strings[] = { argv[0], "strings", text + 8, NULL };
 	char *environment[] = { text, NULL };
 	char *env_args[] = { argv[0], "env", NULL };
+	char *small[] = { argv[0], "small", NULL };
 	words[0] = argv[0];
 	words[1] = "words";
 	for (int i = 2; i < WORDS + 2; i++)
 		words[i] = "word";
-	int failed = run(strings, empty) || run(words, empty) || run(env_args, environment);
+	int failed = run(small, empty) || run(strings, empty) || run(words, empty) ||
+		run(env_args, environment);
 	free(words);
 	free(text);
 	if (failed)

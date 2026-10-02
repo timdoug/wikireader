@@ -6,6 +6,10 @@ echo "C33 BusyBox init: PID 1 userspace started"
 # %c is the crashing process's RLIMIT_CORE, which the collector enforces.
 printf '1\n' > /proc/sys/kernel/core_pipe_limit
 printf '|/usr/libexec/wr-core %%P %%s %%t %%c\n' > /proc/sys/kernel/core_pattern
+# A fragmenting allocation raises every watermark by a 4 MiB pageblock until
+# kswapd catches up.  Without an MMU there is no compaction to benefit, and
+# 1 MiB allocations failed with 5.6 MB free.
+printf '0\n' > /proc/sys/vm/watermark_boost_factor
 
 # init starts the consoles only once this script ends, so a normal boot does
 # the setup and nothing else, and every exec counts: each is close to a

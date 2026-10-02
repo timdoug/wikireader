@@ -154,18 +154,18 @@ Grifo application checks. The final stripped loader is 36,580 bytes versus
 
 The no-MMU FDPIC loader copies argument and environment strings, their
 pointer arrays, the load maps and the auxiliary vector into the stack
-allocation. It sized that allocation from `PT_GNU_STACK` alone, so a large
-argument image consumed the program's stack. Past the bottom, it overwrote
-neighbouring memory, because no-MMU `copy_to_user` cannot fault.
-`0031-fdpic-reserve-initial-stack-image.patch` adds the image's size to the
-requested stack, as `binfmt_flat` does. A checked addition guards the
-untrusted `PT_GNU_STACK` size against overflow. A typical exec gets one more
-page: BusyBox's 32 KiB stack becomes a 36 KiB allocation. No-MMU mmap takes
-the next power-of-two contiguous block before trimming the tail, so a
-power-of-two stack size now needs a block twice as large. This fragments
-memory more: 1 MiB thread-stack tests such as `tst-tls2` pass on a fresh
-boot with the previous kernel and fail with this one. With watermark boosting
-disabled, `tst-cond2`, `tst-signal3` and `tst-tls2` pass again.
+allocation. It sized that allocation from `PT_GNU_STACK` without counting
+them. A large argument image consumed the program's stack, and past the
+bottom it overwrote neighbouring memory, because no-MMU `copy_to_user`
+cannot fault. `0031-fdpic-fit-initial-stack-image.patch` treats
+`PT_GNU_STACK` as the whole stack, arguments included, as `RLIMIT_STACK` is
+with an MMU. It grows the allocation only when the image exceeds a quarter
+of it, leaving the program three quarters, and checks the untrusted size
+for overflow. Ordinary execs cost nothing: the toolchain's default 32 KiB
+stack is still one 32 KiB block. No-MMU mmap takes the next power-of-two
+contiguous block before trimming the tail. Always adding the image would
+have doubled that block for every power-of-two stack, and the extra
+fragmentation made 1 MiB thread-stack tests such as `tst-tls2` fail.
 
 No-MMU Hush re-executes itself for command substitutions and passes its
 shell variables as arguments, so this was the cause of the BusyBox
@@ -174,14 +174,14 @@ shell variables as arguments, so this was the cause of the BusyBox
 crashing `tick_huge` and the `heredoc_huge` Hush tests. `heredoc_huge` also
 needed the runner to ignore the console-blanking line printed between a test
 name and its result. `linux/uclibc/exec-stack-test.c` execs a program with a
-32 KiB stack, passing it a 120,000-byte argument, 8,000 arguments, or a
+32 KiB stack. With ordinary arguments, its stack mapping must be exactly
+32 KiB. It then passes a 120,000-byte argument, 8,000 arguments, or a
 120,000-byte environment variable. Each child checks its arguments and uses
 20 KB of its stack. The test is part of the Grifo application checks, which
-pass. A rerun of 80 executable libc commands covering the args, dlopen,
-malloc, mmap, pthread, setjmp, signal, stdlib, string and TLS families
-passes all but the baseline `mmap2` failure and `stratcliff` timeout. Reports: `upstream-exec-stack-fixed`, `upstream-stack-fixed-hush`,
-`upstream-stack-fixed-heredoc`, `upstream-stack-fixed-checksums`,
-`upstream-fixed-runtime-followup`, and `upstream-suites/all-fixed-app.log`.
+pass. The always-add version fails the 32 KiB mapping check with 36 KiB.
+Reports: `upstream-exec-stack-quarter`, `upstream-exec-stack-reserve`,
+`upstream-quarter-checksums`, `upstream-quarter-hush`,
+`upstream-quarter-fresh-boot`, and `upstream-suites/stack-quarter-app.log`.
 
 ## Validated /dev/mem mapping fix
 
@@ -224,15 +224,31 @@ notifications whose attributes carried such a guard.
 tests registers an atfork handler, creates a thread whose guard equals its
 stack size, and receives a `SIGEV_THREAD` notification with those
 attributes. It fails with the previous libc and passes with both patches,
-as do the full application checks. Of 220 previously executed NPTL, pthread
-and TLS commands, 198 pass. Besides `tst-attr3` and `tst-mqueue6`, the run
-confirms `tst-oncex3`, `tst-oncex4` and 12 cancellation tests repaired by the
-loader fix. Thirteen of the 22 failures cannot allocate 1 MiB thread stacks
-in contiguous memory, and one exhausts memory. `tst-cond2`, `tst-signal3`,
-`tst-tls2` and `tst-tls3` newly fail this way. With the same kernel, the previous
-libc fails them identically. Reports: `upstream-atfork-fixed`,
-`upstream-guard-thread-regression`, `upstream-guard-fresh-boot`,
-`upstream-origin-fresh-boot`, and `upstream-suites/guard-fixed-app.log`.
+as do the full application checks.
+
+With all four fixes, and with `rcS` disabling watermark boosting, 197 of 220
+previously executed NPTL, pthread and TLS commands pass. That includes
+`tst-oncex3`, `tst-oncex4` and 12 cancellation tests repaired by the loader
+fix. The 23 others:
+
+| Commands | Cause |
+|---|---|
+| 9, e.g. `tst-barrier4`, `tst-tls2` | Several 1 MiB thread stacks in contiguous memory |
+| `tst-basic7` | Exhausts memory |
+| `tst-cancel2`, `tst-cancelx2` | A 100,000-byte array on a 64 KiB thread stack |
+| `tst-cancel7`, `tst-cancelx7` | Hush runs `sh -c`'s command as a child, which outlives cancellation |
+| `tst-cleanup2`, `tst-cleanupx2` | Expect a null-pointer store to fault |
+| `tst-clock2` | Expects blocked threads' CPU clocks to advance |
+| `tst-cond10`, `tst-cond20`, `tst-cond21` | Exceed the upstream internal timeout |
+| `tst-cancel14`, `tst-cancel15`, `ex3` | Intermittent: SIGSEGV, SIGSEGV, timeout |
+
+The 64 KiB thread stack is a deliberate RAM choice. Without a guard, the
+`tst-cancel2` overflow lands where layout puts it, so either test can pass
+or crash. The intermittent three pass on fresh boots and when the same
+batch is replayed. A race in asynchronous cancellation has not been ruled
+out. Reports: `upstream-atfork-fixed`, `upstream-final-thread-regression`,
+`upstream-final-cancel-fresh`, `upstream-final-batch12-repeat`, and
+`upstream-suites/final-app.log`.
 
 ## Isolation and reporting
 
@@ -343,6 +359,9 @@ every non-pass is a C33 implementation bug:
 - BusyBox's checksum stress test overflows the configured 32 KiB main
   stack, and Hush's large command substitution panics the kernel. Both are
   the exec stack image fix above.
+- `rcS` disables watermark boosting. With it, a fragmenting allocation
+  raised every watermark by a 4 MiB pageblock, and 1 MiB allocations failed
+  with 5.6 MB free. No-MMU has no compaction for the boost to help.
 - BusyBox sed has three failures in tests explicitly marked as known
   upstream bugs. `SKIP_KNOWN_BUGS` is not set. Cpio tests require disabled
   `bzcat`, tar requires `bunzip2`, and unzip's setup requires absent `zip`;
@@ -355,9 +374,10 @@ every non-pass is a C33 implementation bug:
   needed to evaluate those particular operations.
 - Libc locale tests request unavailable locales; some generated commands
   are utilities requiring arguments the upstream inventory does not supply.
-  Large thread-count tests exceed available contiguous memory. Networking,
-  message-queue notifications, file preallocation and MMU guard-page
-  assumptions also encounter configuration or no-MMU limits.
+  Large thread-count tests exceed available contiguous memory. Networking
+  (no IPv4: `if_nameindex` and `bug-if1` get `EAFNOSUPPORT`), file
+  preallocation on RAMFS and MMU guard-page assumptions also encounter
+  configuration or no-MMU limits.
 - Four math drivers report small ULP differences against generic zero-ULP
   tolerances. They require numerical review. Two long-double drivers cannot
   link `hypotl`. Nine TLS-assembly tests lack C33 definitions in upstream

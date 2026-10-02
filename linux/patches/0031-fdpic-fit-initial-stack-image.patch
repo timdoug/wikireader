@@ -1,0 +1,75 @@
+From: WikiReader Linux port
+Subject: [PATCH] binfmt_elf_fdpic: fit the initial no-MMU stack image
+
+The no-MMU loader copies argument strings, pointer arrays, load maps and
+auxiliary information into the stack allocation sized by PT_GNU_STACK,
+without accounting for them. A large argument image consumed the stack and
+then wrote below the mapping, corrupting other kernel or userspace
+allocations; no-MMU copy_to_user() cannot fault.
+
+Treat PT_GNU_STACK as the whole stack, the image included, as RLIMIT_STACK
+is with an MMU. Grow the allocation only when the image exceeds a quarter
+of it, keeping three quarters for the program. Ordinary execs keep exactly
+the requested size: always adding the image would push a power-of-two
+stack into a contiguous block twice as large before the tail is trimmed.
+The maximum argument image and ELF segment count bound the image size; the
+untrusted PT_GNU_STACK size needs checked addition.
+
+diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
+--- a/fs/binfmt_elf_fdpic.c
++++ b/fs/binfmt_elf_fdpic.c
+@@ -36,6 +36,7 @@
+ #include <linux/coredump.h>
+ #include <linux/dax.h>
+ #include <linux/regset.h>
++#include <linux/overflow.h>
+ 
+ #include <linux/uaccess.h>
+ #include <asm/param.h>
+@@ -411,10 +412,42 @@
+ 		PAGE_ALIGN(current->mm->start_brk);
+ 
+ #else
+-	/* create a stack area and zero-size brk area */
+-	stack_size = (stack_size + PAGE_SIZE - 1) & PAGE_MASK;
+-	if (stack_size < PAGE_SIZE * 2)
+-		stack_size = PAGE_SIZE * 2;
++	/* PT_GNU_STACK sizes the whole stack, as RLIMIT_STACK does with an MMU,
++	 * so the initial argument image comes out of it. Grow the stack only when
++	 * the image takes more than a quarter, leaving the program three quarters:
++	 * no-MMU copy_to_user() cannot fault, and an image larger than the stack
++	 * would overwrite neighbouring allocations.
++	 */
++	{
++		unsigned long image;
++		const char *platform = ELF_PLATFORM;
++
++		stack_size = max(stack_size, PAGE_SIZE * 2UL);
++		image = MAX_ARG_PAGES * PAGE_SIZE - bprm->p;
++		image += (bprm->argc + bprm->envc + 3UL) * sizeof(elf_caddr_t);
++		image += sizeof(current->mm->saved_auxv);
++		image += sizeof(struct elf_fdpic_loadmap) +
++			 exec_params.loadmap->nsegs * sizeof(struct elf_fdpic_loadseg);
++		if (interp_params.loadmap)
++			image += sizeof(struct elf_fdpic_loadmap) +
++				 interp_params.loadmap->nsegs * sizeof(struct elf_fdpic_loadseg);
++		if (platform)
++			image += strlen(platform) + 1;
++#ifdef ELF_BASE_PLATFORM
++		platform = ELF_BASE_PLATFORM;
++		if (platform)
++			image += strlen(platform) + 1;
++#endif
++		/* Alignment of strings, load maps, and the final stack pointer. */
++		image += 64;
++		if ((image > stack_size / 4 &&
++		     check_add_overflow(image, stack_size - stack_size / 4, &stack_size)) ||
++		    check_add_overflow(stack_size, PAGE_SIZE - 1, &stack_size)) {
++			retval = -E2BIG;
++			goto error;
++		}
++		stack_size &= PAGE_MASK;
++	}
+ 
+ 	stack_prot = PROT_READ | PROT_WRITE;
+ 	if (executable_stack == EXSTACK_ENABLE_X ||
