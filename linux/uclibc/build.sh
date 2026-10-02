@@ -128,6 +128,8 @@ cp "$build_dir/pthread-test" "$root/linux/artifacts/pthread-test"
 	-o "$root/linux/artifacts/devmem-test"
 "${cross}gcc" -O2 -Wall -Werror "$root/linux/uclibc/glob-test.c" \
 	-o "$root/linux/artifacts/glob-test"
+"${cross}gcc" -O2 -Wall -Werror "$root/linux/uclibc/time64-test.c" \
+	-o "$root/linux/artifacts/time64-test"
 "${cross}gcc" -O2 -Wall -Werror -pthread -static \
 	"$root/linux/uclibc/pthread-test.c" -o "$root/linux/artifacts/pthread-test-static"
 "${cross}gcc" -Os -Wall -Werror -pthread "$root/linux/uclibc/runtime-bench.c" \

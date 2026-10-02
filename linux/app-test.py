@@ -133,6 +133,7 @@ def main():
     exec_stack_test = require(root / "linux/artifacts/exec-stack-test")
     devmem_test = require(root / "linux/artifacts/devmem-test")
     glob_test = require(root / "linux/artifacts/glob-test")
+    time64_test = require(root / "linux/artifacts/time64-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
     ipc_test = require(root / "linux/artifacts/ipc-test")
@@ -174,6 +175,7 @@ def main():
             "execstk.bin": exec_stack_test.read_bytes(),
             "devmem.bin": devmem_test.read_bytes(),
             "glob.bin": glob_test.read_bytes(),
+            "time64.bin": time64_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
             "ipctest.bin": ipc_test.read_bytes(),
@@ -203,12 +205,12 @@ def main():
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
                               "/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
-                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && "
+                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && "
                               "t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
-            str(emulator), "-n", "2000000000",
+            str(emulator), "-n", "3000000000",
             "-T", f"{ICON0[0]},{ICON0[1]},100000000",
             "--uart-input", str(uart_input),
             "--uart-start", "850000000", "--uart-gap", "200000",
@@ -241,6 +243,7 @@ def main():
             "EXEC STACK PASS",
             "DEVMEM PASS",
             "GLOB PASS",
+            "TIME64 PASS",
             "SIGNAL PASS:",
             "PTHREAD PASS",
             "STATIC PTHREAD PASS",
