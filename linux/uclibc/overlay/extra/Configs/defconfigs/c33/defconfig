@@ -5,6 +5,10 @@ UCLIBC_FORMAT_FDPIC_ELF=y
 HAVE_SHARED=y
 # Libraries are in /lib and /usr/lib; there is no ld.so.cache to read.
 # LDSO_CACHE_SUPPORT is not set
+# Packages can keep private libraries beside their executable using $ORIGIN.
+LDSO_RUNPATH=y
+# Preserve relative paths in RPATH and LD_LIBRARY_PATH.
+# LDSO_SAFE_RUNPATH is not set
 # The GNU hash's Bloom filter rejects most modules without comparing a
 # name: ld.so looks up hundreds of symbols at every exec.
 LDSO_GNU_HASH_SUPPORT=y

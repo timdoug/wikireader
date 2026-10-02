@@ -1,0 +1,20 @@
+From: WikiReader Linux port
+Subject: [PATCH] ldso: expand $ORIGIN in the calling module's RUNPATH
+
+RUNPATH search passed a null origin to the shared path-expansion helper,
+so entries beginning with $ORIGIN were skipped. Supply the module's file
+name, as the RPATH search already does. Test from a different directory
+with LD_LIBRARY_PATH unset so a current-directory lookup cannot hide it.
+
+--- a/ldso/ldso/dl-elf.c
++++ b/ldso/ldso/dl-elf.c
+@@ -269,7 +269,8 @@
+ 	if (pnt) {
+ 		pnt += (unsigned long) tpnt->dynamic_info[DT_STRTAB];
+ 		_dl_if_debug_dprint("\tsearching RUNPATH='%s'\n", pnt);
+-		if ((tpnt1 = search_for_named_library(libname, rflags, pnt, rpnt, NULL)) != NULL)
++		if ((tpnt1 = search_for_named_library(libname, rflags, pnt, rpnt,
++						      tpnt->libname)) != NULL)
+ 			return tpnt1;
+ 	}
+ #ifdef __LDSO_RUNPATH_OF_EXECUTABLE__

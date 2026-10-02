@@ -139,6 +139,23 @@ The builder accepts `--compiler` and `--work` for isolated comparison builds.
 It cleans before compiling and no longer forces non-file setup targets
 with `make -B`, which could fail on an existing `testlib` directory.
 
+## Validated library search fix
+
+Enable the upstream loader's RPATH/RUNPATH feature explicitly: disabling
+`ld.so.cache` also disabled its default, so the executable's `$ORIGIN/testlib`
+RPATH was never searched. The unchanged `dlopen/tst-origin` and four adjacent
+dlopen tests pass with this configuration. In addition, RUNPATH's search
+must supply the module filename to expand `$ORIGIN`, just as RPATH's does;
+`0028-ldso-expand-runpath-origin.patch` fixes that separate omission.
+
+The new native tests run the same executable with DT_RPATH and DT_RUNPATH
+from a different directory, with LD_LIBRARY_PATH unset. RUNPATH fails with
+feature enablement alone; both pass with the patch. Both are part of the
+Grifo application checks. The final stripped loader is 36,580 bytes versus
+36,108 in the baseline; libc remains byte-identical. Reports:
+`upstream-runpath-fixed-probe`, `upstream-origin-different-cwd`,
+`upstream-origin-fixed`, and `upstream-suites/fixed-runtime-provenance.json`.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces
