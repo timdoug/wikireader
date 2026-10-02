@@ -84,9 +84,10 @@ static void setup_hs_tx(struct mem *m, uint32_t dst, unsigned size)
 
 int main(void)
 {
-	/* Manual-only DMA timing; the fitted per-transfer overhead is not
-	   part of what this test checks. */
+	/* Manual-only DMA timing; the fitted per-transfer overhead and the
+	   CPU's share of the bus are not part of what this test checks. */
 	model.dma_extra = 0;
+	model.dma_async = 0;
 	struct mem m;
 	struct cmu cmu;
 	struct itc itc;
@@ -393,6 +394,52 @@ int main(void)
 	while (sd.busy && clock < 50000) { clock++; sd_poll(&sd); }
 	assert(sd.xfers == 128 && dma.hsdma_channel_transfers[2] == 127);
 	assert(dma.hsdma_channel_transfers[3] == 0 && sd.overflows == 127);
+
+	/* A CPU that keeps SDRAM busy holds each write back by one access at
+	   most, since the DMA outranks it: the block arrives whole. */
+	model.dma_async = 1;
+	model.dma_extra = 30;
+	model.dma_cpu_penalty = 15;
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 4);
+	mem_write(&m, REG(0x1708), 4, SPI_CTL1_32BIT_MASTER_DMA);
+	mem_write(&m, REG(0x1704), 4, 0xffffffffu);
+	while (sd.xfers < 128 && clock < 50000) {
+		clock++;
+		if (!(clock & 1))
+			mem_wait(&m, MEM_CPU_READ, SDRAM_BASE + 0x8000, 4, clock);
+		sd_poll(&sd);
+		dma_poll(&dma);
+	}
+	assert(sd.xfers == 128 && sd.overflows == 0);
+	assert(clock <= 128 * (128 + 2 * 15));
+	while (dma.qn && clock < 50000) {
+		clock++;
+		dma_poll(&dma);
+	}
+	assert(dma.hsdma_channel_transfers[3] == 128 && dma.qn == 0);
+	model.dma_async = 0;
+	model.dma_extra = 0;
+
+	/* A transfer starts at its trigger, not when the engine went idle:
+	   one longer than an 8-bit character holds each next one back. */
+	model.dma_async = 1;
+	model.dma_extra = 40;
+	clock = 0;
+	reset_all(&m, &dma, &sd, &cmu, &itc);
+	setup_hs_tx(&m, dst, 1);
+	mem_write(&m, REG(0x1708), 4, SPI_CTL1_8BIT_MASTER_DMA);
+	mem_write(&m, REG(0x1704), 4, 0xff);
+	while (sd.xfers < 512 && clock < 50000) {
+		clock++;
+		sd_poll(&sd);
+		dma_poll(&dma);
+	}
+	printf("8-bit clock %llu\n", (unsigned long long)clock);
+	assert(sd.xfers == 512 && sd.overflows == 0);
+	model.dma_async = 0;
+	model.dma_extra = 0;
 
 	/* DMA_CKE=0: the trigger occurs, but neither engine can run. */
 	reset_all(&m, &dma, &sd, &cmu, &itc);

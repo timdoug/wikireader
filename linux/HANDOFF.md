@@ -177,13 +177,14 @@ parameters/run`, which times the same loops from SDRAM and from A0 RAM;
 and `read_timing`. Emulator and device results of both tools are in
 `artifacts/perf/` (gitignored).
 
-wremu was changed to match (`emulator/README.md`, `dma_async`): SPI DMA no
-longer freezes the CPU, and CPU data accesses to SDRAM hold its writes back.
-Its driver total is now within 1% of the device's. It still cannot say
-what the device's arbitration bound is (a larger penalty starves the write
-queue into receive overruns, which the device never has), and its per-word
-DMA cost is a fitted constant (`dma_extra`), so it cannot judge changes to
-what the DMA does per word; those need the device.
+wremu matches (`emulator/README.md`, `dma_async`): SPI DMA does not
+freeze the CPU, and a CPU data access to SDRAM holds a DMA write back by at
+most the rest of that access, since the DMA outranks the CPU. A timed raw
+4 MB read takes 2.91 s in wremu against 2.89 on the device, at 13,700
+driver cycles a block against 13,000 (device figures from the 2026-09-27
+kernel), most of the difference in the wait for data (2,300 against
+1,100). Its per-word DMA cost is a fitted constant (`dma_extra`), so it
+cannot judge changes to what the DMA does per word; those need the device.
 
 ## Boot: where it stands
 
@@ -474,9 +475,6 @@ Performance, after those:
   several cycles an instruction. The copy to user space is at the CPU's copy
   floor (about 4.0 cycles a byte), and the tick is 7% of the CPU when busy
   (HZ stays 100, the user's call).
-- **wremu's `dma_cpu_penalty`** (15) starves a stream left running beside a
-  copy, which the device does not (see `README.md`); judge streaming changes
-  with `WREMU_MODEL=dma_cpu_penalty=0`, or refit the penalty.
 - **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it leaves
   DMAengine, which the user wants kept. Only if that changes.
 - **Boot and X memory under FDPIC**: libraries load whole, so libraries only

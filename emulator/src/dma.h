@@ -29,12 +29,15 @@ struct dma {
 	/* model.dma_async: SPI transfers whose writes have yet to land. */
 	struct async_xfer {
 		uint64_t due;
+		uint64_t asked;	/* when the write first wanted the bus */
 		uint32_t dst, value;
 		unsigned size, ch;
 		bool done;	/* the channel's last: raise its flag */
 	} q[ASYNC_DEPTH];
 	unsigned qn;
 	uint64_t engine_free;
+	uint64_t trig_at[4];	/* when each SPI channel's request came */
+	uint64_t room_at;	/* when the queue last had room again */
 	bool polling;
 	unsigned long long async_delay;	/* cycles the CPU held them up */
 	uint64_t bus_available; /* wire events may precede the last DMA bus release */

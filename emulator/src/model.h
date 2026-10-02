@@ -48,9 +48,10 @@ struct model {
 	   (see dma.c).  0 keeps the old model, in which each transfer froze
 	   the CPU. */
 	unsigned dma_async;
-	/* MCLK cycles each CPU data access to SDRAM holds up the SPI DMA
-	   transfer in progress, with dma_async.  Instruction fetches and
-	   register accesses do not. */
+	/* MCLK cycles a CPU data access to SDRAM holds the bus, with
+	   dma_async: an SPI DMA write that wants the bus meanwhile waits
+	   for the access to end, and no longer, since the DMA outranks the
+	   CPU.  Instruction fetches and register accesses do not. */
 	unsigned dma_cpu_penalty;
 	/* Uncalibrated memory-DMA overhead per unit. Keep separate from the
 	   fitted SPI allowance; zero gives the documented bus-phase floor. */

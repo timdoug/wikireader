@@ -210,7 +210,7 @@ def main():
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
-            str(emulator), "-n", "3000000000",
+            str(emulator), "-n", "2000000000",
             "-T", f"{ICON0[0]},{ICON0[1]},100000000",
             "--uart-input", str(uart_input),
             "--uart-start", "850000000", "--uart-gap", "200000",

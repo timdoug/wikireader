@@ -302,7 +302,7 @@ with `WREMU_MODEL=name=value,...`.
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `dma_async` | 1 | SPI-triggered HSDMA runs beside the CPU, which keeps the bus; 0 freezes the CPU per transfer |
-| `dma_cpu_penalty` | 15 | cycles each CPU data access to SDRAM holds back an SPI DMA write in flight |
+| `dma_cpu_penalty` | 15 | cycles a CPU data access to SDRAM holds the bus against an SPI DMA write that asks for it meanwhile |
 | `sd_read_latency` | 12000 | cycles from a read command to the data token |
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
@@ -997,29 +997,29 @@ until the transmit channel caught up. Such a transfer now starts when the
 engine is free, reads its source at once, which empties the SPI receiver
 before the next character can overrun it, and writes its destination and
 raises its completion flag `dma_extra` later; the transmit channel's write
-to TXD is what lets the port start the next word. Each CPU data access to
-SDRAM holds every write in flight back by `dma_cpu_penalty`; instruction
-fetches and register accesses do not, because on the device neither the
-driver's SDRAM-resident status polls nor its descriptor preparation slowed
-a transfer. On a 4 MB read the driver's phases agree with the device within
-about 1% in total (29,200 against 29,000 cycles a block), and the check the
-CPU does during the transfer comes out at its measured no-DMA cost, where
-the old model inflated it by 60%. Above about 20 the penalty lets the CPU
-starve the queue of writes until received words overrun, which the device
-never does: the arbitration it stands for is bounded, and one number does
-not capture how. On the device the CPU's accesses cost the transfer
-little: with nothing but the next descriptors and a status spin beside it a
-block still took 19,600 cycles against 20,400 with the check, and writing
-the words to IVRAM instead of SDRAM, or running the check from SDRAM
-instead of A0 RAM, did not shorten it: the DMA's own time, which
-`dma_extra` stands in for. A streamed read (one transfer for many blocks)
-comes to about 141 cycles a word on the device and in wremu alike. The
-penalty is wrong for dense traffic, though: a stream left running while the
-kernel copies memory keeps going on the device, but here the copy's
-accesses hold its writes back until it almost stops (a raw 4 MB read 3.73
-s against the device's 2.87 to 2.89; `dma_cpu_penalty=0` gives 2.74).
-Whatever bounds the device's arbitration lets the DMA through far more
-often than one access in fifteen cycles. Memory-to-memory HSDMA keeps the synchronous model.
+to TXD is what lets the port start the next word. A transfer starts no
+earlier than its trigger, the engine being free and the four-deep queue of
+writes having room. The DMA outranks the CPU on the bus (II.4.3.1) but
+cannot take it from an access under way: a CPU data access to SDRAM holds
+the bus for `dma_cpu_penalty` cycles, and a write that asks for the bus
+meanwhile goes when that access ends. Accesses that begin after the write
+asked wait for it instead, so the CPU holds each write back by at most one
+access, and no amount of CPU traffic can starve the queue into receive
+overruns, which the device never has. Instruction fetches and register
+accesses hold nothing, because on the device neither the driver's
+SDRAM-resident status polls nor its descriptor preparation slowed a
+transfer. On the device the CPU's accesses cost the transfer little: with
+nothing but the next descriptors and a status spin beside it a block took
+19,600 cycles against 20,400 with the check, and writing the words to IVRAM
+instead of SDRAM, or running the check from SDRAM instead of A0 RAM, did not
+shorten it: the DMA's own time, which `dma_extra` stands in for. A streamed
+read (one transfer for many blocks) comes to about 141 cycles a word on the
+device and in wremu alike, and a raw 4 MB read through the Linux driver,
+whose stream keeps running while the kernel copies each request out, takes
+2.87 s in wremu against 2.87 to 2.89 on the device.
+[`tools/spi_dma_bench`](tools/spi_dma_bench/README.md) times SPI DMA streams
+beside controlled CPU loads, on the device and here.
+Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by

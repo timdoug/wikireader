@@ -1025,13 +1025,10 @@ the `init.ini` line `check`'s kernel log is a boot timeline, which
 `wr-console` ends with the uptime at which its prompt came up; with
 `bootlog.on` on the card Grifo appends each application's load to
 `bootlog.txt`, with its reads and how long opening the file, building the
-cluster map, reading the sections and zeroing took. wremu's DMA model was changed after them (`dma_async`), and its
-driver total per block for a stream was within 1% of the device's. It is
-too harsh on a stream left running while the kernel copies: its default
-`dma_cpu_penalty=15` holds the DMA back behind the copy's SDRAM accesses
-until little comes in (3.73 s), where the device keeps it going; with
-`WREMU_MODEL=dma_cpu_penalty=0` it gives 2.74 s against the device's 2.87
-to 2.89 s.
+cluster map, reading the sections and zeroing took. wremu's DMA model
+(`dma_async`) is checked against them: a raw 4 MB read takes 2.87 s in
+wremu against 2.87 to 2.89 on the device, and with the counters on its
+driver total is 13,700 cycles a block against the device's 13,000.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry

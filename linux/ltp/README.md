@@ -231,41 +231,30 @@ headers also compile as C++20. The normal application, launcher reboot and
 live-thread TLS suspend tests pass (`ltp-app-msync.log`). All emulator runs
 retain the default model and FLASH -> Grifo -> launcher boot path.
 
-## Emulator DMA limitation found during the sweep
+## Emulator DMA stall found during the sweep
 
-Running `timer_create/10-1` immediately before a new SD executable can leave
-subsequent reads stalled. The first case passes; following launches return
-127. An isolated diagnostic reproduces the same read failure inside one
-process after a timer signal interrupts a tight loop, so it does not require
-`vfork`, exec, or process teardown. Both CPU-time and monotonic timers trigger
-it. The seven local regressions above do not include this tight-loop case.
+Running `timer_create/10-1` immediately before a new SD executable left
+subsequent reads stalled in wremu: the first case passed and following
+launches returned 127. An isolated diagnostic reproduced the same read
+failure inside one process after a timer signal interrupted a tight loop.
+The cause was wremu's DMA contention model, which pushed every pending SPI
+DMA write back fifteen cycles for each CPU data access to SDRAM, without
+bound, so a dense loop held the card's writes back until the stream stalled.
+The device never stalls: its DMA outranks the CPU on the bus. wremu now holds
+a write back by at most the rest of the one access under way when it asks
+for the bus (`emulator/README.md`), which gives the device's raw 4 MB read
+time, and the unchanged two-case sequence passes on the default model
+(`ltp-sd-bounded-model`). The pass counts above were taken before that
+change.
 
-The emulator's DMA contention model adds fifteen cycles to each pending
-write for every CPU data access to SDRAM. Dense reads can accumulate a
-large future delay that persists after the loop has ended. The existing
-[emulator timing notes](../../emulator/README.md) already describe this
-model's failure to represent bounded arbitration under dense traffic.
-The card supplies the token, but the pending DMA writes stop making timely
-progress. The unchanged two-case sequence passes with
-`WREMU_MODEL=dma_cpu_penalty=0` (`ltp-sd-no-contention`); a private experiment
-bounding the accumulated delay also passes (`ltp-sd-bounded-contention`).
-Neither diagnostic is included in the default-model pass counts.
-
-No speculative SD driver change or emulator timing change is adopted.
-The proposed driver cleanup did not solve the failure. A contention fix
-needs comparison with the physical device's arbitration and timing, rather
-than silently changing a fitted parameter to make the suite green. The
-failure can also disrupt guest filesystem writes, so all trials use disposable
-virtual cards. The physical card remains untouched.
-
-Reproduce the default-model failure using the final fixtures:
+Rerun the two-case sequence using the final fixtures:
 
 ```sh
 python3 linux/ltp/run.py --binaries linux/artifacts/ltp-final \
   --rootfs linux/artifacts/ltp-rootfs-final.img \
   --kernel linux/artifacts/ltp-kernel-before.app \
   --case timer_create/10-1 --case timer_gettime/1-1 \
-  --output linux/artifacts/ltp-sd-repro-new
+  --output linux/artifacts/ltp-sd-bounded-model
 ```
 
 ## Deadlines and limitations
