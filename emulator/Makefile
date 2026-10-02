@@ -2,18 +2,21 @@
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
+LTO     ?= 1
+CFLAGS  += $(if $(filter 1,$(LTO)),-flto)
 
 # SDL2 for the live panel window
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null)
 CFLAGS     += $(SDL_CFLAGS)
 OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/model.o src/main.o
+FLAGS_CHANGED := $(shell printf '%s\n' '$(CC)' '$(CFLAGS)' '$(SDL_LIBS)' | cmp -s - .build-flags || echo FORCE)
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual test-sleigh
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual test-sleigh FORCE
 
 all: wremu
 
-wremu: $(OBJS)
+wremu: $(OBJS) .build-flags
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(SDL_LIBS)
 
 # Header dependencies come from the compiler. They used to be a hand-written
@@ -21,8 +24,17 @@ wremu: $(OBJS)
 # from it, so changing a struct layout left objects compiled against the old
 # one and main.c read a different field than the device wrote. Nothing warns
 # about that -- the numbers are just wrong.
-src/%.o: src/%.c
+src/%.o: src/%.c .build-flags $(FLAGS_CHANGED)
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
+
+# Rebuild when optimization/compiler/link flags change, including LTO=0.
+# Preserve the stamp's timestamp when nothing changed so normal make is idle.
+# Invalidate all objects even for a partial test build. FORCE also handles
+# make versions whose timestamps cannot distinguish two builds in one second.
+.build-flags: FORCE
+	@printf '%s\n' '$(CC)' '$(CFLAGS)' '$(SDL_LIBS)' > $@.tmp
+	@cmp -s $@.tmp $@ || { mv $@.tmp $@; rm -f $(OBJS) wremu; }
+	@rm -f $@.tmp
 
 -include $(OBJS:.o=.d)
 
@@ -250,7 +262,7 @@ test-sleigh:
 check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
 
 clean:
-	rm -f wremu $(OBJS) $(OBJS:.o=.d)
+	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp
 
 .PHONY: test-uart
 test-uart: tools/test_uart.c src/uart.o src/cmu.o src/itc.o src/mem.o src/model.o

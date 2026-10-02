@@ -1,6 +1,8 @@
 # build output
 wremu
 src/*.o
+.build-flags
+.build-flags.tmp
 
 # Firmware binaries and card images are build products, not sources.
 # grifo.elf / init.app / wiki.app come from the top-level `make install`;

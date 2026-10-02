@@ -66,6 +66,11 @@ SDL2 is required for the window (`brew install sdl2`). Generated C33 decode
 tables are committed, so the cross-compiler is not required for a normal
 emulator build.
 
+The host build enables link-time optimization (`-flto`) by default, allowing
+the compiler to optimize across the CPU, memory and peripheral modules.
+Use `make LTO=0` with a compiler/linker that does not support it. Changing
+the compiler or build flags automatically rebuilds the affected objects.
+
 `make check` runs all focused model tests. `make difftest` runs the generated
 native-versus-C33 execution comparison; see
 [`difftest/README.md`](difftest/README.md).
