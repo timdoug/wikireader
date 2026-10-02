@@ -53,6 +53,26 @@ struct model {
 	   for the access to end, and no longer, since the DMA outranks the
 	   CPU.  Instruction fetches and register accesses do not. */
 	unsigned dma_cpu_penalty;
+	/* Divided-clock periods between SPI characters beyond the manual's
+	   SPI_WAIT + 1: spibench on the device puts every DMA-fed character
+	   eight MCLK (two periods at MCLK/4) after the last, at 8, 16 and
+	   32 bits and whatever the CPU does. */
+	unsigned spi_wait_extra;
+	/* MCLK each SPI DMA bus phase, its read and its write, holds the
+	   internal bus against the CPU, with dma_async: the DMA outranks the
+	   CPU, whose accesses beyond A0 RAM wait it out. */
+	unsigned dma_bus_hold;
+	/* Which of the CPU's open SDRAM rows a DMA access to another row
+	   closes, with row_ports: 0 none, 1 the data row, 2 data and fetch. */
+	unsigned dma_row_evict;
+	/* ...and how long the same phase holds a CPU register access. */
+	unsigned dma_reg_hold;
+	/* MCLK from an SPI-triggered IDMA transfer's start to its write, with
+	   dma_async; spibench's receive-paced cases on the device. */
+	unsigned idma_extra;
+	/* Whether an SDRAM fetch that leaves the queues holds DMA writes back
+	   as a CPU data access does. */
+	unsigned dma_fetch_hold;
 	/* Uncalibrated memory-DMA overhead per unit. Keep separate from the
 	   fitted SPI allowance; zero gives the documented bus-phase floor. */
 	unsigned dma_mem_extra;

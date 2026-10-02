@@ -177,14 +177,15 @@ parameters/run`, which times the same loops from SDRAM and from A0 RAM;
 and `read_timing`. Emulator and device results of both tools are in
 `artifacts/perf/` (gitignored).
 
-wremu matches (`emulator/README.md`, `dma_async`): SPI DMA does not
-freeze the CPU, and a CPU data access to SDRAM holds a DMA write back by at
-most the rest of that access, since the DMA outranks the CPU. A timed raw
-4 MB read takes 2.91 s in wremu against 2.89 on the device, at 13,700
-driver cycles a block against 13,000 (device figures from the 2026-09-27
-kernel), most of the difference in the wait for data (2,300 against
-1,100). Its per-word DMA cost is a fitted constant (`dma_extra`), so it
-cannot judge changes to what the DMA does per word; those need the device.
+wremu matches (`emulator/README.md`, `dma_async`): SPI DMA runs beside the
+CPU and shares the bus with it, the DMA outranking the CPU, fitted to
+`emulator/tools/spi_dma_bench` on the device. On the kernel the device last
+ran `check` with, a timed raw 4 MB read takes 2.94 s in wremu against 2.92,
+at 13,300 driver cycles a block against the device's 13,700 less its
+writes: token 1,140 against 1,200, setup 860 against 810, check 9,640
+against 9,450, and the wait for data 1,400 against 1,890. Its per-word DMA
+cost is a fitted constant (`dma_extra`), so it cannot judge changes to what
+the DMA does per word; those need the device.
 
 ## Boot: where it stands
 

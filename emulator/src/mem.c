@@ -60,15 +60,28 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 	 * port is dma_extra, fitted separately, and charging both would be
 	 * the same cost twice.
 	 */
+	uint64_t stall = 0, free = m->dma_bus_free;
+
+	/* The DMA outranks the CPU on the internal bus, so a CPU access
+	   beyond A0 RAM waits out a DMA bus phase under way.  An SDRAM access
+	   waits in the controller, and only if it leaves the queues there. */
+	if (free && addr - REG_BASE < REG_SIZE)
+		free = free - model.dma_bus_hold + model.dma_reg_hold;
+	if (now < free && addr >= A0RAM_SIZE &&
+	    addr - SDRAM_BASE >= SDRAM_SIZE &&
+	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
+		stall = free - now;
+
 	if (model.mmio_wait && addr - REG_BASE < REG_SIZE &&
 	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
-		return model.mmio_wait;
+		return stall + model.mmio_wait;
 
 	if ((access == MEM_CPU_READ || access == MEM_CPU_WRITE) &&
 	    m->cpu_data_hook && addr - SDRAM_BASE < SDRAM_SIZE)
 		m->cpu_data_hook(m->cpu_data_ctx, now);
 
-	return m->wait ? m->wait(m->wait_ctx, access, addr, size, now) : 0;
+	return stall + (m->wait ? m->wait(m->wait_ctx, access, addr, size,
+					  now + stall) : 0);
 }
 
 /* Resolve an address to a host pointer, or NULL if not plain RAM. */

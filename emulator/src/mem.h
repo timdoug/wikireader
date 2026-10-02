@@ -75,6 +75,9 @@ struct mem {
 	/* Told of every CPU data access to SDRAM: the DMA engine's arbiter. */
 	void      (*cpu_data_hook)(void *ctx, uint64_t now);
 	void       *cpu_data_ctx;
+	/* MCLK until which a DMA bus phase holds the internal bus; the CPU's
+	   accesses beyond A0 RAM wait it out (dma.c). */
+	uint64_t    dma_bus_free;
 
 	/* diagnostics */
 	unsigned long unmapped_reads, unmapped_writes;

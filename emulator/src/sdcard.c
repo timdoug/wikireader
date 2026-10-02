@@ -684,7 +684,8 @@ void sd_poll(struct sdcard *sd)
 		} else {
 			/* V.2.5: TXD is consumed only AFTER SPI_WAIT expires. */
 			sd->next_start = sd->deadline +
-				((uint64_t)sd->spi_wait + 1u) * spi_divider(sd);
+				((uint64_t)sd->spi_wait + 1u +
+				 model.spi_wait_extra) * spi_divider(sd);
 			complete_spi(sd);
 		}
 		if (*sd->clock < observed)

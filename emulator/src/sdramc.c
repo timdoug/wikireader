@@ -305,6 +305,11 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	if (model.row_ports) {
 		row = row_identity(s, addr);
 		b = row_port(current_kind);
+		if (model.dma_row_evict && b == row_port(MEM_DMA_WRITE))
+			for (unsigned p = model.dma_row_evict > 1 ? 0 : 1;
+			     p <= 1; p++)
+				if (s->bank[p].valid && s->bank[p].row != row)
+					s->bank[p].valid = false;
 	}
 	s->kind_bank[current_kind][b]++;
 	if (s->bank[b].valid && s->bank[b].row == row) {
@@ -386,6 +391,26 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
  * after the first, since the controller fetches a line as separate 32-bit
  * reads rather than one burst; a data-queue fill pays dq_extra.
  */
+/* A fetch that leaves the queues holds the bus against the DMA as a data
+   access does (dma.c): spibench's receive-paced transfers fall behind code
+   running from SDRAM on the device, and not behind the same from A0 RAM. */
+static void fetch_holds_dma(const struct sdramc *s, uint64_t now)
+{
+	if (model.dma_fetch_hold && s->mem && s->mem->cpu_data_hook)
+		s->mem->cpu_data_hook(s->mem->cpu_data_ctx, now / 2);
+}
+
+/* When a request that leaves the queues can go: a CPU's waits out a DMA
+   bus phase under way (dma.c), in half-MCLK. */
+static uint64_t request_time(const struct sdramc *s, uint64_t now)
+{
+	uint64_t held = s->mem ? 2 * s->mem->dma_bus_free : 0;
+
+	if (current_kind == MEM_DMA_READ || current_kind == MEM_DMA_WRITE)
+		return now;
+	return held > now ? held : now;
+}
+
 static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 			      unsigned halfwords, uint64_t now,
 			      uint64_t *ready)
@@ -536,7 +561,9 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 			s->iq[slot].valid = true;
 			s->iq[slot].tag = tag;
-			schedule_read(s, tag, 8, now, s->iq[slot].ready);
+			fetch_holds_dma(s, now);
+			schedule_read(s, tag, 8, request_time(s, now),
+				      s->iq[slot].ready);
 			s->iq_misses++;
 			ready = s->iq[slot].ready[word];
 		}
@@ -583,7 +610,9 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 					prepare_external_access(s, now);
 					s->iq[pslot].valid = true;
 					s->iq[pslot].tag = ahead;
-					schedule_read(s, ahead, 8, now,
+					fetch_holds_dma(s, now);
+					schedule_read(s, ahead, 8,
+						      request_time(s, now),
 						      s->iq[pslot].ready);
 					s->iq_prefetches++;
 				}
@@ -620,14 +649,15 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 			slot = s->dq_next++ % entries;
 			s->dq[slot].valid = true;
 			s->dq[slot].tag = tag;
-			schedule_read(s, tag, 2, now, s->dq[slot].ready);
+			schedule_read(s, tag, 2, request_time(s, now),
+				      s->dq[slot].ready);
 			s->dq_misses++;
 		}
 		ready = s->dq[slot].ready[first] > s->dq[slot].ready[last]
 		      ? s->dq[slot].ready[first] : s->dq[slot].ready[last];
 	} else {
 		prepare_external_access(s, now);
-		ready = schedule_write(s, addr, size, now);
+		ready = schedule_write(s, addr, size, request_time(s, now));
 
 		/* A posted write does not hold the CPU up: it goes into the
 		 * controller's buffer and drains behind whatever the program

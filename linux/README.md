@@ -1026,9 +1026,10 @@ the `init.ini` line `check`'s kernel log is a boot timeline, which
 `bootlog.on` on the card Grifo appends each application's load to
 `bootlog.txt`, with its reads and how long opening the file, building the
 cluster map, reading the sections and zeroing took. wremu's DMA model
-(`dma_async`) is checked against them: a raw 4 MB read takes 2.87 s in
-wremu against 2.87 to 2.89 on the device, and with the counters on its
-driver total is 13,700 cycles a block against the device's 13,000.
+(`dma_async`) is checked against them: on the kernel the device last ran
+`check` with, a raw 4 MB read takes 2.94 s in wremu against 2.92 on the
+device, and with the counters on its driver total is 13,300 cycles a block
+against the device's 13,700 less its writes.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry

@@ -69,6 +69,12 @@ struct model model = {
 	.dma_extra = 30,
 	.dma_async = 1,
 	.dma_cpu_penalty = 15,
+	.spi_wait_extra = 1,
+	.dma_bus_hold = 8,
+	.dma_row_evict = 2,
+	.dma_reg_hold = 4,
+	.idma_extra = 38,
+	.dma_fetch_hold = 1,
 	/* Both refitted 2026-09-13 against a cardb sweep whose filesystem has
 	   one sector per cluster, so the driver issues a command per 512
 	   bytes and a per-command cost is most of the time rather than a
@@ -182,6 +188,12 @@ static const struct {
 	{ "dma_extra", NULL, &model.dma_extra },
 	{ "dma_async", NULL, &model.dma_async },
 	{ "dma_cpu_penalty", NULL, &model.dma_cpu_penalty },
+	{ "spi_wait_extra", NULL, &model.spi_wait_extra },
+	{ "dma_bus_hold", NULL, &model.dma_bus_hold },
+	{ "dma_row_evict", NULL, &model.dma_row_evict },
+	{ "dma_reg_hold", NULL, &model.dma_reg_hold },
+	{ "idma_extra", NULL, &model.idma_extra },
+	{ "dma_fetch_hold", NULL, &model.dma_fetch_hold },
 	{ "dma_mem_extra", NULL, &model.dma_mem_extra },
 	{ "sd_read_latency", &model.sd_read_latency, NULL },
 	{ "sd_init_latency", &model.sd_init_latency, NULL },

@@ -118,6 +118,16 @@ static void dma_write(struct dma *d, uint32_t addr, unsigned size,
 }
 
 static bool valid_dual_address(uint32_t addr, unsigned size);
+static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
+		      bool deferred, uint32_t *out_value, uint32_t *out_dst,
+		      unsigned *out_size);
+
+/* A DMA bus phase ending at @t holds the internal bus dma_bus_hold. */
+static void bus_hold(struct dma *d, uint64_t t)
+{
+	if (d->mem->dma_bus_free < t + model.dma_bus_hold)
+		d->mem->dma_bus_free = t + model.dma_bus_hold;
+}
 
 static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 {
@@ -172,9 +182,10 @@ static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 		    !valid_dual_address(dst, size) || ((src | dst) & (size - 1)))
 			return false;
 		t += mem_wait(d->mem, MEM_DMA_READ, src, size, t) + 1;
+		bus_hold(d, t);
 		struct async_xfer *x = &d->q[d->qn++];
 		x->value = mem_read(d->mem, src, size);
-		t += mem_wait(d->mem, MEM_DMA_WRITE, dst, size, t) + 1;
+		t += 1;	/* the write's own bus phase is when it lands */
 		d->engine_free = t;
 		x->due = x->asked = t + model.dma_extra;
 		x->dst = dst;
@@ -268,7 +279,48 @@ static bool valid_dual_address(uint32_t addr, unsigned size)
 	       (addr >= REG_BASE && addr - REG_BASE <= REG_SIZE - size);
 }
 
+/*
+ * With model.dma_async an SPI-triggered IDMA transfer runs beside the CPU
+ * too, as spibench shows on the device: it starts when the engine is free
+ * (after the HSDMA channel the same request triggered, which outranks it),
+ * loads and writes back its control information and reads its source on
+ * the engine's own time, holding the bus throughout, and its write to the
+ * destination lands idma_extra after it started.
+ */
 static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
+{
+	uint32_t dst, value;
+	unsigned size;
+	bool async = model.dma_async && d->clock && d->qn < ASYNC_DEPTH;
+	uint64_t *cpu_clock = d->clock, t = 0, start = 0;
+
+	if (async) {
+		start = t = *cpu_clock > d->engine_free ? *cpu_clock
+							: d->engine_free;
+		d->clock = &t;
+	}
+	bool done = idma_unit(d, channel, terminal, async, &value, &dst, &size);
+	d->clock = cpu_clock;
+	if (!done || !async)
+		return done;
+
+	struct async_xfer *x = &d->q[d->qn++];
+	x->due = x->asked = start + model.idma_extra;
+	x->dst = dst;
+	x->value = value;
+	x->size = size;
+	x->ch = 0;
+	x->done = false;
+	d->engine_free = t;
+	bus_hold(d, t);
+	return true;
+}
+
+/* One IDMA unit; with @deferred its destination write is left to the
+   caller, which gets the value, where it goes and its size. */
+static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
+		      bool deferred, uint32_t *out_value, uint32_t *out_dst,
+		      unsigned *out_size)
 {
 	uint32_t base, desc, ctl, count, src, dst, value;
 	unsigned size, smode, dmode, transfer_mode;
@@ -302,9 +354,14 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 	if (transfer_mode != 0)
 		return false;
 	value = dma_read(d, src, size);
-	dma_write(d, dst, size, value);
-	if (d->clock)
-		*d->clock += model.dma_extra;
+	*out_value = value;
+	*out_dst = dst;
+	*out_size = size;
+	if (!deferred) {
+		dma_write(d, dst, size, value);
+		if (d->clock)
+			*d->clock += model.dma_extra;
+	}
 	d->idma_transfers++;
 	src = advance(src, smode, size);
 	dst = advance(dst, dmode, size);
@@ -315,7 +372,7 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 	dma_write(d, desc + 4, 4, count);
 	dma_write(d, desc + 8, 4, src);
 	dma_write(d, desc + 12, 4, dst);
-	if (d->clock)
+	if (d->clock && !deferred)
 		d->bus_available = *d->clock;
 	*terminal = count == 0;
 	return true;
@@ -336,8 +393,10 @@ static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
  * under way: a CPU data access to SDRAM holds the bus for dma_cpu_penalty,
  * and a write that wants the bus meanwhile goes when that access ends.
  * Accesses that begin after the write asked wait for it instead, so the
- * CPU can hold a write back by one access and no more.  One transfer a
- * trigger, channel 2 before channel 3, as the hardware's priority has it.
+ * CPU can hold a write back by one access and no more.  Each of the
+ * transfer's bus phases in turn holds the bus against the CPU for
+ * dma_bus_hold (mem.c, sdramc.c).  One transfer a trigger, channel 2
+ * before channel 3, as the hardware's priority has it.
  * Memory-to-memory transfers stay as they were: the CPU waits for those
  * anyway.
  */
@@ -419,6 +478,8 @@ void dma_poll(struct dma *d)
 			if (d->qn == ASYNC_DEPTH)
 				d->room_at = at;
 			memmove(d->q, d->q + 1, --d->qn * sizeof(*d->q));
+			bus_hold(d, at + mem_wait(d->mem, MEM_DMA_WRITE, x.dst,
+						  x.size, at));
 			mem_write(d->mem, x.dst, x.size, x.value);
 			if (x.done)
 				d->itc->reg[ITC_FHDMA] |= (uint8_t)(1u << x.ch);

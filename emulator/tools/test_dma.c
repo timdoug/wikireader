@@ -88,6 +88,7 @@ int main(void)
 	   CPU's share of the bus are not part of what this test checks. */
 	model.dma_extra = 0;
 	model.dma_async = 0;
+	model.spi_wait_extra = 0;
 	struct mem m;
 	struct cmu cmu;
 	struct itc itc;

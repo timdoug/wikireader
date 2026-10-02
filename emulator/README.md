@@ -301,8 +301,14 @@ with `WREMU_MODEL=name=value,...`.
 | `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
-| `dma_async` | 1 | SPI-triggered HSDMA runs beside the CPU, which keeps the bus; 0 freezes the CPU per transfer |
+| `dma_async` | 1 | SPI-triggered HSDMA and IDMA run beside the CPU; 0 freezes the CPU per transfer |
 | `dma_cpu_penalty` | 15 | cycles a CPU data access to SDRAM holds the bus against an SPI DMA write that asks for it meanwhile |
+| `dma_fetch_hold` | 1 | an SDRAM fetch that leaves the queues holds the bus as a data access does |
+| `dma_bus_hold` | 8 | cycles each SPI DMA bus phase holds the bus against the CPU |
+| `dma_reg_hold` | 4 | ...against a CPU access to a peripheral register |
+| `dma_row_evict` | 2 | a DMA access to SDRAM closes the CPU's open rows: 0 none, 1 data, 2 data and fetch |
+| `idma_extra` | 38 | cycles from an SPI IDMA transfer's start to its write |
+| `spi_wait_extra` | 1 | divided-clock periods between SPI characters beyond SPI_WAIT + 1 |
 | `sd_read_latency` | 12000 | cycles from a read command to the data token |
 | `sd_init_latency` | 0 | cycles from the first ACMD41/CMD1 until the card becomes ready |
 | `sd_read_gap` | 0 | cycles before each subsequent CMD18 block token |
@@ -976,7 +982,11 @@ active pipeline in the summary.
 
 Manual V.2.5 defines separate TXD and shift registers: TDEF/TXDE occurs at
 shift start, while RDFF/RXDE occurs at completion. One TX word can queue
-while another shifts; SPI_WAIT delays consuming that queued word. The model
+while another shifts; SPI_WAIT delays consuming that queued word. On the
+device the queued word goes two divided-clock periods after the last
+character at SPI_WAIT=0, one more than the manual's SPI_WAIT + 1
+(`spi_wait_extra`): spibench measures every DMA-fed character 8 MCLK after
+the last at MCLK/4, at 8, 16 and 32 bits and whatever the CPU does. The model
 keeps those events on the wire timeline, serializes DMA bus use, and retains
 disabled-channel trigger flags until accepted or explicitly cleared. TXDE
 and RXDE independently gate their request sources. SPI characters carry bytes
@@ -984,49 +994,57 @@ MSB first. Focused tests check byte/halfword/word payloads, the wire-duration
 formula, TX terminal count preceding the final two RX completions, stale
 requests, and disabled request sources.
 
-The fitted `dma_extra=30` cost applies to both engines. It is an empirical
+The fitted `dma_extra=30` cost applies to both engines when they freeze the
+CPU (`dma_async=0`) and to SPI HSDMA writes when they do not. It is an empirical
 per-transfer allowance, not a measured arbitration waveform. Against the
 device on a full-archive startup it puts file DMA wait at 2.119 s versus
 2.183 measured, and total startup at 3.310 s versus 3.512.
 
-SPI-triggered HSDMA does not stop the CPU (`dma_async`). The Linux card
-driver's per-phase counters (`read_timing`) showed the device doing the
-opposite of what this model did before: the CPU's work ran at its no-DMA
-speed while the transfers fell behind it, so the wire idled between words
-until the transmit channel caught up. Such a transfer now starts when the
-engine is free, reads its source at once, which empties the SPI receiver
-before the next character can overrun it, and writes its destination and
-raises its completion flag `dma_extra` later; the transmit channel's write
-to TXD is what lets the port start the next word. A transfer starts no
-earlier than its trigger, the engine being free and the four-deep queue of
-writes having room. The DMA outranks the CPU on the bus (II.4.3.1) but
-cannot take it from an access under way: a CPU data access to SDRAM holds
-the bus for `dma_cpu_penalty` cycles, and a write that asks for the bus
-meanwhile goes when that access ends. Accesses that begin after the write
-asked wait for it instead, so the CPU holds each write back by at most one
-access, and no amount of CPU traffic can starve the queue into receive
-overruns, which the device never has. Instruction fetches and register
-accesses hold nothing, because on the device neither the driver's
-SDRAM-resident status polls nor its descriptor preparation slowed a
-transfer. On the device the CPU's accesses cost the transfer little: with
-nothing but the next descriptors and a status spin beside it a block took
-19,600 cycles against 20,400 with the check, and writing the words to IVRAM
-instead of SDRAM, or running the check from SDRAM instead of A0 RAM, did not
-shorten it: the DMA's own time, which `dma_extra` stands in for. A streamed
-read (one transfer for many blocks) comes to about 141 cycles a word on the
-device and in wremu alike, and a raw 4 MB read through the Linux driver,
-whose stream keeps running while the kernel copies each request out, takes
-2.87 s in wremu against 2.87 to 2.89 on the device.
-[`tools/spi_dma_bench`](tools/spi_dma_bench/README.md) times SPI DMA streams
-beside controlled CPU loads, on the device and here.
+SPI-triggered HSDMA and IDMA do not stop the CPU (`dma_async`). An HSDMA
+transfer starts no earlier than its trigger, the engine being free and the
+four-deep queue of writes having room; reads its source at once, which
+empties the SPI receiver before the next character can overrun it; and
+writes its destination and raises its completion flag `dma_extra` later.
+The transmit channel's write to TXD is what lets the port start the next
+word. An IDMA transfer on the SPI receive request starts after the HSDMA
+channel the same request triggered, loads and writes back its control
+information and reads its source on the engine's own time, and writes its
+destination `idma_extra` after it started.
+
+The two share one bus with the CPU. The DMA outranks the CPU (II.4.3.1) but
+cannot take the bus from an access under way: a CPU data access to SDRAM,
+or a fetch that leaves the controller's queues (`dma_fetch_hold`), holds it
+for `dma_cpu_penalty` cycles, and a DMA write that asks meanwhile goes when
+that access ends. Accesses that begin after the write asked wait for it
+instead, so the CPU holds each write back by at most one access, and no
+amount of CPU traffic can starve the queue into receive overruns, which the
+device never has. Each DMA bus phase, a source read and a destination
+write, holds the bus against the CPU for `dma_bus_hold` cycles, or
+`dma_reg_hold` for a CPU access to a peripheral register: the CPU's
+accesses beyond A0 RAM wait it out, an SDRAM one only if it leaves the
+controller's queues. A DMA access to SDRAM closes the CPU's open data and
+fetch rows when it opens another (`dma_row_evict`).
+
+[`tools/spi_dma_bench`](tools/spi_dma_bench/README.md) fits these against
+the device: 1,024-character streams at 8, 16 and 32 bits into SDRAM or IVRAM,
+fed by HSDMA or IDMA, beside nine CPU loops. wremu puts every HSDMA case's
+time a character within 0.4 cycles of the device (RMS of 54) and the IDMA
+cases' within 5.8 (18); the cycles a character the transfers take from the
+CPU are within 4.6 for HSDMA, 1.9 too few on average, and 6.1 for IDMA. The
+largest misses are a CPU storing one word at a time to SDRAM beside a
+stream into SDRAM, which the device slows by 12 to 15 cycles a character
+where wremu takes 3 to 5, and code running from SDRAM, which it slows by 10
+to 20 where wremu takes 2 to 14. The Linux card driver agrees: on the kernel the device ran `check` with,
+a raw 4 MB read takes 2.94 s in wremu against 2.92, at 13,300 driver cycles a
+block against the device's 13,700 less its writes.
 Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end
 of a successive transfer or each block. Each unit performs a read followed by
 a write through the SDRAM timing model. With unlimited sequential access the
-CPU's bus access stalls for the whole trigger. Limited sequential access,
-other hardware triggers, preemption within a DMA unit, and cycle-level
-CPU/DMA arbitration remain unmodeled. Nonzero access-time limits on multi-unit
+CPU's bus access stalls for the whole trigger. For these, limited sequential
+access, other hardware triggers, preemption within a DMA unit, and
+cycle-level CPU/DMA arbitration remain unmodeled. Nonzero access-time limits on multi-unit
 transfers are rejected rather than silently timed as unlimited transfers.
 
 Memory DMA uses the separate, uncalibrated `dma_mem_extra` parameter (default
