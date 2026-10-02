@@ -47,8 +47,9 @@ display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO and chip
 identification. It completes on a bare checkout; three targets skip and say
 so, wanting objdump captures or a local card image.
 
-Headless execution is deterministic and runs at about 80 million target
-instructions per host second.
+Headless execution is deterministic and fast-forwards blocked intervals.
+Host throughput depends on the instruction mix and memory timing; measure
+the full boot and test workload rather than assuming a fixed instruction rate.
 
 Timing follows the programmed clocks and memory/storage registers, with
 additional costs calibrated on hardware. See "Calibration" for the fitted
@@ -70,6 +71,40 @@ The host build enables link-time optimization (`-flto`) by default, allowing
 the compiler to optimize across the CPU, memory and peripheral modules.
 Use `make LTO=0` with a compiler/linker that does not support it. Changing
 the compiler or build flags automatically rebuilds the affected objects.
+
+To compare host performance, keep a baseline binary and run the same card
+and FLASH fixture with both builds:
+
+```sh
+make LTO=0
+cp wremu /tmp/wremu-before
+make
+python3 tools/bench_speed.py --before /tmp/wremu-before \
+    --flash /path/to/flash.rom --card /path/to/card.img \
+    --out /tmp/wremu-speed
+```
+
+The benchmark alternates five runs per binary, measures the entire run,
+and requires identical console output, executed/idle counts, guest time and
+framebuffer bytes. It records commands, logs, pixels and median wall times.
+The source card is read-only; add `--writable-card` for Linux or other
+workloads that need storage writes, giving each run a fresh card copy.
+Use `--instructions` and the UART input options to match the test workload,
+and `--require-text` to require its completion marker.
+
+Measured on 2026-10-02 on the local Apple Silicon host with Clang 21,
+with identical guest results in every run:
+
+| Workload | Trials per build | Median without LTO | Median with LTO | Wall time saved |
+| --- | ---: | ---: | ---: | ---: |
+| NuttX startup, `-n 400000000` | 5 | 4.344 s | 3.953 s | 9.0% |
+| Linux boot and self-tests, `-n 600000000` | 3 | 25.257 s | 22.622 s | 10.4% |
+
+NuttX executed 50,815,660 instructions; Linux executed 220,251,268 and reached
+both its self-test pass marker and userspace shell. The remaining budget was
+skipped as idle. Linux used fresh writable card copies. `-O3` alone did not
+improve the median materially in a separate comparison. These are host speed
+measurements, not changes to the modeled WikiReader clock.
 
 `make check` runs all focused model tests. `make difftest` runs the generated
 native-versus-C33 execution comparison; see
