@@ -54,6 +54,7 @@ BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_file"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
+BR2_PACKAGE_ZIP=y
 # X11: the kdrive server on the framebuffer (startx starts it), twm and xeyes.
 BR2_PACKAGE_XORG7=y
 BR2_PACKAGE_XSERVER_KDRIVE=y

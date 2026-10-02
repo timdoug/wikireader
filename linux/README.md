@@ -752,7 +752,10 @@ package's `-dirclean` target and then `make -C` the output directory redoes
 one package in a minute or two (`-rebuild` can leave a program unlinked
 against its rebuilt libraries).
 
-The image also carries `sl`, with ncurses and its terminfo. uClibc-ng
+The image also carries `sl`, with ncurses and its terminfo, and Info-ZIP
+`zip` (147 KB of code and 320 KB of buffers while it runs). BusyBox
+provides `bzip2`, `bunzip2`, `bzcat`, `uudecode`, `tar -j`, `echo -n` and
+fractional `sleep`, together about 20 KB of its shared code. uClibc-ng
 provides what Buildroot's own uClibc configuration offers packages, such as
 the SUSv2 to SUSv4 legacy functions, `nftw`, GNU `glob`, `%m`, memory streams,
 `wordexp` and `libutil`. It leaves out Sun RPC and `getcontext`, which has
