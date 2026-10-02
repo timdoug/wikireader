@@ -1,0 +1,16 @@
+{
+  "uclibc/crypt/sha256c-test": {"timeout": 1200, "env": {"TIMEOUTFACTOR": "1000"}},
+  "uclibc/crypt/sha512c-test": {"timeout": 1200, "direct": true},
+  "uclibc/nptl/tst-cond20": {"timeout": 1200, "direct": true},
+  "uclibc/nptl/tst-cond21": {"timeout": 2400, "direct": true},
+  "uclibc/regex/tst-regex2": {"timeout": 1200, "env": {"TIMEOUTFACTOR": "1000"}},
+  "uclibc/string/stratcliff": {"timeout": 1200, "env": {"TIMEOUTFACTOR": "1000"}},
+  "uclibc/unistd/tst-fallocate": {"disk": true},
+  "uclibc/unistd/tst-posix_fallocate": {"disk": true},
+  "busybox/applets/awk": {"timeout": 1200},
+  "busybox/applets/cp": {"disk": true, "timeout": 1200},
+  "busybox/applets/md5sum": {"timeout": 1200},
+  "busybox/applets/mv": {"disk": true, "timeout": 1200},
+  "busybox/applets/sha256sum": {"timeout": 1200},
+  "busybox/applets/xargs": {"timeout": 1200}
+}

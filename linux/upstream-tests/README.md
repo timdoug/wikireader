@@ -9,13 +9,23 @@ virtual SD card. These are emulator results; the physical device and the
 
 ## Sources and execution
 
-`build.py` uses the preserved Linux build under
-`/home/timdoug.guest/wr-linux/ltp-isolated`. Its separate test checkout is
+`build.py` uses the product build under `/home/timdoug.guest/wr-linux`:
+its compiler, its uClibc configuration and the BusyBox tree Buildroot built.
+Its separate test checkout is
 `/home/timdoug.guest/wr-linux/upstream-suites/uclibc-ng-test`, pinned to
 `132c6134d69146bcafbdda68ae3a9cbd9f8fb921`, the revision selected by our
-Buildroot 2026.08 package. It verifies that tracked upstream test sources
-stay unchanged. BusyBox tests come from the exact source tree which built
-the installed BusyBox.
+Buildroot 2026.08 package. `arch/` adds the C33 in upstream's
+per-architecture form. `tls-macros-c33.h` and its include line in
+`tls-macros.h` give the TLS tests their four access models. Every C33 TLS
+relocation is a data word, so the macros emit those words and C reads them.
+`libm-test-ulps-c33` lists the math drivers' tolerances. It comes from
+upstream's procedure: each driver's `-u` output on the board, merged by
+`gen-libm-test.pl -n`. Except for the long-double drivers' `ceil` and
+`floor` cases, ARM's file lists the same cases. Those come from inputs a
+53-bit long double rounds, not from the functions. `build.py` verifies
+that the include line is the only change to tracked upstream test sources.
+BusyBox tests come from the exact source tree which built the installed
+BusyBox.
 
 The libc build supplies the actual enabled libc configuration symbols to
 upstream Make and attempts every selected family, including math. It uses
@@ -33,7 +43,7 @@ with the upstream harness's required `-ne` support. Source lint
 (`all_sourcecode.tests`) runs on the Linux build host against the complete
 BusyBox source tree; it is counted separately from C33 execution.
 
-The main inventory contains 524 libc commands (510 built, 14 build errors),
+The main inventory contains 524 libc commands (521 built, 3 build errors),
 96 BusyBox applet/source groups and 19 Hush modules. Upstream Make disables
 39 additional libc tests. Ash is disabled in our BusyBox configuration;
 `busybox-disabled-suites.json` records its 367 test files and hashes. None
@@ -48,58 +58,57 @@ are printed into the serial log.
 
 ## Results
 
-A full sweep with every fix below (all 524 libc commands and every BusyBox
-group, plus each Hush test individually wherever its module timed out)
-gives:
+A full sweep of the product build (all 524 libc commands and every BusyBox
+group, then each Hush test individually wherever its module timed out, and
+the fixtures' long-deadline cases) gives:
 
 | Inventory and counting unit | Pass | Fail | Skip/untested | Other |
 |---|---:|---:|---:|---|
-| uClibc selected commands (524) | 412 | 43 | 51 | 14 build errors, 3 timeouts, 1 crash |
-| BusyBox applet result markers (783) | 650 | 10 | 123 | None |
-| Individual Hush tests (404) | 377 | 23 | 3 | 1 timeout |
+| uClibc selected commands (524) | 433 | 37 | 51 | 3 build errors |
+| BusyBox applet result markers (792) | 671 | 8 | 113 | None |
+| Individual Hush tests (404) | 388 | 15 | 0 | 1 timeout |
 
-That is 90% of runnable libc commands, 98% of BusyBox applet assertions and
-94% of runnable Hush tests. Applet groups: 38 pass outright, 14 contain passes and
-skips, 37 are skipped and 6 fail. The 123 skipped markers comprise 95
-`SKIPPED` and 28 `UNTESTED` upstream markers; a skipped group can stand for
-several unavailable tests. `md5sum`, `sha256sum` and `xargs` need a
-1,200-second limit rather than the default 120. Host source lint separately
-has 2 passes and 3 failures, flagging current upstream source rather than
-executed C33 code.
+That is 92% of runnable libc commands, 98.8% of BusyBox applet assertions
+and 96% of Hush tests. Applet groups: 41 pass outright, 16 contain passes
+and skips, 35 are skipped and 3 fail. The skipped markers comprise 89
+`SKIPPED` and 24 `UNTESTED` upstream markers; a skipped group can stand for
+several unavailable tests. Host source lint separately has 2 passes and 3
+failures, flagging current upstream source rather than executed C33 code.
 
 None of the remaining failures is a known C33 defect:
 
 | Commands or tests | Cause |
 |---|---|
 | 15 libc `locale/*` | No locale data in this configuration; two are utilities run without arguments |
-| 11 libc NPTL | Several 1 MiB thread stacks in contiguous memory, or memory exhaustion |
-| 6 libc: `tst-cond20/21`, `tst-regex2`, `stratcliff`, SHA crypt | Slow at 60 MHz; the crypt tests pass with longer limits |
-| 4 libc math drivers | uClibc fdlibm's last-place results, bit-identical on IEEE hardware; ARM's ULP file allows the same cases, C33 has none |
-| 5 libc: `tst-cleanup2/x2`, `mmap2`, `tst-cancel2`, `tst-clock2` | No-MMU semantics, a 100 KB array on a 64 KiB thread stack, pre-kernel thread clocks |
+| 15 libc NPTL | Several 1 MiB thread stacks in contiguous memory, or memory exhaustion |
+| 3 BusyBox `bunzip2`/`bzip2`, 3 `cpio` | bzip2's default level needs a 3.6 MB contiguous buffer; the suite fragments memory first |
+| 2 libc: `tst-cleanup2/x2` | Expect a null-pointer store to fault |
+| 1 libc: `mmap2` | Maps the page that ends at 4 GiB, which a no-MMU VMA cannot represent |
 | 2 libc: `tst-cancel7/x7` | Hush runs `sh -c`'s command as a child, which outlives cancellation |
 | 2 libc `inet` | No IPv4 configured |
-| 2 libc fallocate | RAMFS fixture |
-| 7 Hush, 2 Hush, 2 Hush | Disabled fractional `sleep`, `echo -n` and Unicode |
 | 8 Hush leak tests + `many_ifs` timeout | Disabled `HUSH_MEMLEAK` builtin |
+| 2 Hush | Disabled Unicode |
+| 1 Hush `signal_read1` | `read` from the runner's `/dev/null` races its HUP; upstream expects a blocking terminal |
 | 4 Hush, 3 sed | Upstream bugs: the Hush tests fail identically in a native no-MMU build; sed's are marked as known |
-| `cp`, `mv`, `cpio`, `tar`, `unzip` | 5 MiB sparse file on RAMFS; disabled `bzcat`, `bunzip2`, `zip` |
 
-The 14 build errors are 9 TLS tests without C33 definitions in upstream
-`tls-macros.h`, 2 long-double drivers without `hypotl`, and absent
-ifaddrs, resolver and iconv interfaces. Intermittently, `tst-cancel14` and
-`tst-cancel15` died of SIGSEGV, and `ex3` and Hush `signal_read1` failed
-once in a batch. They pass on fresh boots and replays; a race has not been
-ruled out.
+`tst-clock2` is among the memory failures here; it also expects blocked
+threads' CPU clocks to advance. `tst-cancel2` and `tst-cancelx2` put a
+100,000-byte array on a 64 KiB thread stack, so the overflow lands wherever
+layout puts it and either can pass or crash. The 64 KiB stack is a
+deliberate RAM choice. `tst-cancel14`, `tst-cancel15` and `ex3` failed once
+in an earlier batch and pass on fresh boots and replays; a race has not
+been ruled out.
 
 The sweep used kernel
-`e325fb8bac9187f832d92156446f465056a39ac2b216bd8eb8bd93f084ad8dc6`, root
-filesystem
-`8c772ed7be55e64c28ad8f216ea708e8f07d2e9ceccd5dd42ef6de390b41bd90` and
-emulator `c7f9ff2d5117c20ca37196df82ab6f0bbea103e591084b0f9bb0f26c6023d40d`.
-Reports: `upstream-uclibc-sweep2`, `upstream-busybox-sweep2`,
-`upstream-busybox-sweep2-hush` and `upstream-busybox-sweep2-long`. The
-first sweep, on the unfixed baseline, remains in `upstream-uclibc-full`
-and `upstream-busybox-full`.
+`3a25725d8bd7efca12c9ef4d364d68e99ded821db4143fc38304ce4ce29a5b67`, root
+filesystem `205c2236b1b27e3fe28ef41131308c36dfdc4b3b60643d902ee78db199797073`
+(the product `linux.img` grown to 32 MB) and emulator
+`c7f9ff2d5117c20ca37196df82ab6f0bbea103e591084b0f9bb0f26c6023d40d`.
+Reports: `upstream-uclibc-sweep3`, `upstream-uclibc-sweep3-slow`,
+`upstream-busybox-sweep3`, `upstream-busybox-sweep3-long` and
+`upstream-busybox-sweep3-hush`, audited in
+`upstream-suites/summary-product.json`. The first sweep, on the unfixed
+baseline, remains in `upstream-uclibc-full` and `upstream-busybox-full`.
 
 ## Validated loader fix
 
@@ -257,6 +266,22 @@ out. Reports: `upstream-atfork-fixed`, `upstream-final-thread-regression`,
 `upstream-final-cancel-fresh`, `upstream-final-batch12-repeat`,
 `upstream-final-cond-direct`, and `upstream-suites/final-app.log`.
 
+## Validated glob and hypotl fixes
+
+uClibc's `glob()` opened a directory without metacharacters as a path,
+backslash escapes and all. Hush escapes `-` in quoted text as `\-`, so
+`for f in "$dir"/*` matched nothing whenever `$dir` contained a dash.
+BusyBox's `runtest` uses that form, and found none of `cp`'s test cases
+under `/upstream-work`. `0032-glob-unescape-literal-directory.patch`
+removes the escapes first, as glibc does. `linux/uclibc/glob-test.c` fails
+with the previous libc and passes with the fix. It is part of the Grifo
+application checks.
+
+`mathcalls.h` declares `hypotl` with `libm_hidden_proto`, but `w_hypotl.c`
+never defined the public alias, so the long-double math drivers could not
+link. `0031-libm-export-hypotl.patch` adds it. Reports: `upstream-glob-old`,
+`upstream-glob-new` and `upstream-suites/product-app.log`.
+
 ## Isolation and reporting
 
 `supervise.c` uses genuine `vfork` followed by `execv`. It never replaces
@@ -272,7 +297,14 @@ An early full sweep lacked this fixture, so its two failures are retained
 alongside separate successful fixture-corrected runs.
 
 Default limits are 120 guest seconds per command/module and 1,200 host
-seconds per boot. Both are adjustable. A timeout retains assertions already
+seconds per boot. Both are adjustable. `case-fixtures.json` gives six slow
+libc commands and three BusyBox groups 1,200 seconds. The libc ones also
+get upstream's `TIMEOUTFACTOR`, so the test skeleton's own deadline yields
+to the external one. The two fallocate commands and BusyBox's `cp` and `mv`
+groups run in `/upstream-work` on the ext4 root. No-MMU RAMFS supports
+neither fallocate nor files over 4 MiB, the largest contiguous block. Test
+cards carry a copy of `linux.img` grown to 32 MB with `resize2fs`, since
+`cp` writes a 5 MiB file; the product image stays 16 MB. A timeout retains assertions already
 completed and remains a timeout. A crash triggers fresh boots for subsequent
 unattempted commands. Output failure markers override a successful harness
 exit, since upstream Hush does not propagate every failure through its exit
@@ -296,7 +328,8 @@ Build on the Linux VM, then run on macOS from the repository root:
 
 ```sh
 limactl shell wr-linux -- python3 \
-  /Users/timdoug/wikireader/linux/upstream-tests/build.py
+  /Users/timdoug/wikireader/linux/upstream-tests/build.py \
+  --output /Users/timdoug/wikireader/linux/artifacts/upstream-product-tests
 limactl shell wr-linux -- python3 \
   /Users/timdoug/wikireader/linux/upstream-tests/check-supervisor.py
 limactl shell wr-linux -- python3 \
@@ -304,33 +337,42 @@ limactl shell wr-linux -- python3 \
   --output /Users/timdoug/wikireader/linux/artifacts/upstream-source-new
 python3 linux/upstream-tests/check-results.py
 
+limactl shell wr-linux -- bash -c 'cp linux/artifacts/linux.img /tmp/r.img &&
+  truncate -s 32M /tmp/r.img && /sbin/e2fsck -fy /tmp/r.img;
+  /sbin/resize2fs /tmp/r.img && cp /tmp/r.img linux/artifacts/upstream-root-32m.img'
 python3 linux/upstream-tests/run.py uclibc \
-  --binaries linux/artifacts/upstream-fixed-tests \
-  --kernel linux/artifacts/upstream-stack-quarter.app \
-  --rootfs linux/artifacts/upstream-final-fixed.img \
+  --binaries linux/artifacts/upstream-product-tests \
+  --rootfs linux/artifacts/upstream-root-32m.img \
   --output linux/artifacts/upstream-uclibc-new --batch-size 12 --jobs 3
 python3 linux/upstream-tests/run.py busybox \
-  --kernel linux/artifacts/upstream-stack-quarter.app \
-  --rootfs linux/artifacts/upstream-final-fixed.img \
+  --binaries linux/artifacts/upstream-product-tests \
+  --rootfs linux/artifacts/upstream-root-32m.img \
   --output linux/artifacts/upstream-busybox-new --batch-size 6 --jobs 3
 ```
 
-`upstream-fixed-tests` is the libc inventory rebuilt with the fixed
-compiler.
-
-Output directories must be new. The generic runner defaults to the standard
-`linux/artifacts/linux.app` and `linux.img`; these commands name the exact
-tested private fixtures instead. Selected reruns accept repeated `--case`
-arguments. Individual shell selections use, for example,
+Output directories must be new. The runner boots the standard
+`linux/artifacts/linux.app`. `build.py --output` names the inventory
+directory (`upstream-product-tests` here). Selected reruns accept repeated
+`--case` arguments. Individual shell selections use, for example,
 `--hush-case hush-misc/return1.tests`. `--direct` uses the upstream
 test-skeleton's supported `-d` mode for explicitly selected libc cases; this
 bypasses its internal fork/deadline wrapper and is identified separately
 in reports. An external supervisor still bounds execution.
 
 Hush tests without a result in a timed-out module are then selected
-individually with `--hush-case`, as `upstream-busybox-sweep2-hush` does.
-`summarize.py` audits a set of reports built from one inventory manifest,
-such as the first sweep's (`upstream-suites/summary.json`).
+individually with `--hush-case`. `summarize.py` audits reports built from
+one inventory, with those Hush runs and any reruns as follow-ups:
+
+```sh
+python3 linux/upstream-tests/summarize.py \
+  --binaries linux/artifacts/upstream-product-tests \
+  --uclibc linux/artifacts/upstream-uclibc-sweep3 \
+  --busybox linux/artifacts/upstream-busybox-sweep3 \
+  --hush linux/artifacts/upstream-busybox-sweep3-hush \
+  --libc-followup linux/artifacts/upstream-uclibc-sweep3-slow \
+  --busybox-followup linux/artifacts/upstream-busybox-sweep3-long \
+  --output linux/artifacts/upstream-suites/summary-product.json
+```
 
 Run both suites even when the first returns nonzero. The builder uses
 `make -k` and records unsuccessful compilation; the runner exits nonzero

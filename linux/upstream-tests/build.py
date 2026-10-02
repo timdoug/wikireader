@@ -10,6 +10,12 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
 UCLIBC_REVISION = "132c6134d69146bcafbdda68ae3a9cbd9f8fb921"
+# C33 support in upstream's per-architecture form: a TLS macro header with
+# its include line, and the math tests' ULP tolerances.
+ARCH = ROOT / "linux/upstream-tests/arch"
+ARCH_PATCH = ARCH / "tls-macros.patch"
+ARCH_FILES = {"tls-macros-c33.h": "test/tls/tls-macros-c33.h",
+              "libm-test-ulps-c33": "test/math/libm-test-ulps-c33"}
 
 
 def sha(path):
@@ -34,12 +40,20 @@ def main():
     if not src.exists():
         subprocess.run(["git", "clone", "https://git.uclibc-ng.org/git/uclibc-ng-test.git", src], check=True)
         subprocess.run(["git", "-C", src, "checkout", "--detach", UCLIBC_REVISION], check=True)
-    compiler = (args.compiler or args.guest / "ltp-isolated/toolchain/install/bin/c33-linux-uclibc-gcc").resolve()
+    compiler = (args.compiler or args.guest / "toolchain/install/bin/c33-linux-uclibc-gcc").resolve()
     if subprocess.check_output(["git", "-C", src, "rev-parse", "HEAD"], text=True).strip() != UCLIBC_REVISION:
         raise SystemExit("Unexpected uClibc test revision")
+    # A previous build leaves the C33 include line applied.
+    subprocess.run(["git", "-C", src, "checkout", "--", "test/tls/tls-macros.h"], check=True)
     if subprocess.check_output(["git", "-C", src, "status", "--porcelain", "--untracked-files=no"], text=True).strip():
         raise SystemExit("uClibc test source must be clean")
-    config = args.guest / "ltp-isolated/uclibc-build/.config"
+    subprocess.run(["git", "-C", src, "apply", ARCH_PATCH], check=True)
+    for name, target in ARCH_FILES.items():
+        if (ARCH / name).exists():
+            shutil.copyfile(ARCH / name, src / target)
+        else:
+            (src / target).unlink(missing_ok=True)
+    config = args.guest / "uclibc-build/.config"
     features = [line for line in config.read_text().splitlines()
                 if line.endswith("=y") and line.startswith(("UCLIBC_", "MALLOC_", "HAVE_SHARED="))]
     variables = [f"CC={compiler}", "UCLIBC_EXTRA_CFLAGS=-O2 -std=gnu99 -fpermissive",
@@ -84,7 +98,7 @@ def main():
                "--eval=wr_inventory: ; @printf '%s\\n' '$(TESTS_DISABLED)'", "wr_inventory"]
         text = subprocess.check_output(cmd, text=True)
         disabled += [f"{directory.parent.name}/{name}" for name in text.split()]
-    bb = args.guest / "ltp-isolated/buildroot-build/build/busybox-1.38.0"
+    bb = args.guest / "buildroot-build/build/busybox-1.38.0"
     if "# CONFIG_ASH is not set" not in (bb / ".config").read_text():
         raise SystemExit("This board runner expects Hush; an Ash-enabled build needs its shell suite too")
     ash = bb / "shell/ash_test"
@@ -125,12 +139,15 @@ def main():
     with tarfile.open(out / "suite.tar.gz", "w:gz", format=tarfile.USTAR_FORMAT) as archive:
         for name in ["uclibc", "busybox"]:
             archive.add(stage / name, arcname=name)
-    if subprocess.check_output(["git", "-C", src, "status", "--porcelain", "--untracked-files=no"], text=True).strip():
+    if (subprocess.check_output(["git", "-C", src, "status", "--porcelain", "--untracked-files=no"], text=True).split()
+            != ["M", "test/tls/tls-macros.h"] or
+            subprocess.run(["git", "-C", src, "apply", "--reverse", "--check", ARCH_PATCH]).returncode):
         raise SystemExit("Build changed tracked upstream test source")
     tracked = subprocess.check_output(["git", "-C", src, "ls-files", "-z"]).decode().split("\0")
     manifest = {"uclibc_revision": UCLIBC_REVISION, "busybox_version": "1.38.0",
                 "compiler": str(compiler), "compiler_sha256": sha(compiler),
                 "build_command": command, "build_exit": build_exit, "libc_config_sha256": sha(config),
+                "arch_support_sha256": {p.name: sha(p) for p in sorted(ARCH.iterdir()) if p.is_file()},
                 "uclibc": entries, "uclibc_upstream_disabled": disabled, "busybox": bb_entries,
                 "source_sha256": {p: sha(src / p) for p in tracked if p and (src / p).is_file()},
                 "busybox_source_sha256": {str(p.relative_to(bb)): sha(p)
@@ -138,7 +155,7 @@ def main():
                                           for p in sorted(tree.rglob("*")) if p.is_file()},
                 "busybox_config_sha256": sha(bb / ".config"),
                 "echo_helper_source_sha256": sha(bb / "scripts/echo.c"),
-                "busybox_binary_sha256": sha(args.guest / "ltp-isolated/buildroot-build/target/bin/busybox"),
+                "busybox_binary_sha256": sha(args.guest / "buildroot-build/target/bin/busybox"),
                 "archive_sha256": sha(out / "suite.tar.gz"), "supervisor_sha256": sha(out / "super.bin")}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print("uClibc inventory:", len(entries), "built:", sum(x["status"] == "BUILT" for x in entries), flush=True)

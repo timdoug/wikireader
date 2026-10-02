@@ -15,6 +15,10 @@ import tarfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+# Per-case deadlines, environment, and an ext4 working directory for tests
+# which need more than no-MMU RAMFS offers.  Keyed by suite/case.
+FIXTURES = ROOT / "linux/upstream-tests/case-fixtures.json"
+DISK = "/upstream-work"
 
 
 def sha(path):
@@ -22,9 +26,10 @@ def sha(path):
 
 
 def hush_output(segment):
-    # Console blanking can interrupt run-all's header and its later "ok".
-    # Remove only this known standalone status line, keeping test failures.
-    return re.sub(r"^C33 display: blanked while idle\n", "", segment, flags=re.M)
+    # Console blanking can interrupt run-all's header and its later "ok",
+    # at a line start or straight after the header.  Remove only this known
+    # status message, keeping test failures.
+    return segment.replace("C33 display: blanked while idle\n", "")
 
 
 def verdict(suite, case, code, segment):
@@ -105,10 +110,26 @@ def trial(args, manifest, cases, out):
         # Both ethers tests explicitly require this manually supplied fixture.
         commands += ["printf '00:11:22:33:44:55 teeth\\n' >/tmp/upstream/ethers",
                      "ln -sf /tmp/upstream/ethers /etc/ethers"]
+    fixtures = {}
     for index, case in enumerate(cases):
+        fixture = args.fixtures.get(f"{args.suite}/{case['name']}", {})
+        if fixture:
+            fixtures[case["name"]] = fixture
+        setup = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in fixture.get("env", {}).items())
+        top = "/tmp/upstream/"
+        if fixture.get("disk"):
+            setup += f"mkdir -p {DISK} || exit 125\n"
+            if args.suite == "uclibc":
+                setup += f"export TMPDIR={DISK}\n"
+            else:
+                # BusyBox's runtest works in its own directory.
+                tree = case["directory"].split("/")[0]
+                setup += (f"rm -rf {DISK}/{tree} && cp -a /tmp/upstream/{tree} {DISK}/ "
+                          "|| exit 125\n")
+                top = DISK + "/"
         if args.suite == "uclibc":
-            row = case["upstream_row"] + (" -d" if args.direct else "")
-            script = ("#!/bin/sh\ncd /tmp/upstream/uclibc/test || exit 125\n"
+            row = case["upstream_row"] + (" -d" if args.direct or fixture.get("direct") else "")
+            script = ("#!/bin/sh\n" + setup + "cd /tmp/upstream/uclibc/test || exit 125\n"
                       "printf '%s\\n' " + shlex.quote(row) +
                       " > uclibcng-testrunner.in\nexec sh ./uclibcng-testrunner.sh\n")
         else:
@@ -117,7 +138,7 @@ def trial(args, manifest, cases, out):
                 module = str(Path(case["hush_test"]).parent)
                 selection = ("chmod -x " + shlex.quote(module) + "/*.tests\n" +
                              "chmod +x " + shlex.quote(case["hush_test"]) + " || exit 125\n")
-            script = ("#!/bin/sh\ncd /tmp/upstream/" + case["directory"] +
+            script = ("#!/bin/sh\n" + setup + "cd " + top + case["directory"] +
                       " || exit 125\n" + selection + case["command"] + "\n")
             if case["name"].startswith("hush/"):
                 script += ("status=$?\nfor file in *.fail; do\n"
@@ -127,7 +148,8 @@ def trial(args, manifest, cases, out):
         name = f"t{index:03d}.sh"
         files[name] = script.encode()
         commands += [f"echo UPSTREAM-BEGIN {case['name']}",
-                     f"/mnt/sd/super.bin {args.timeout} /bin/sh /mnt/sd/{name} </dev/null",
+                     f"/mnt/sd/super.bin {max(args.timeout, fixture.get('timeout', 0))} "
+                     f"/bin/sh /mnt/sd/{name} </dev/null",
                      "status=$?", f"echo UPSTREAM-RESULT {case['name']} $status"]
     commands += ["echo UPSTREAM-DONE", "reboot -f"]
     files["run.sh"] = ("\n".join(commands) + "\n").encode()
@@ -147,7 +169,9 @@ def trial(args, manifest, cases, out):
     with (out / "boot.log").open("w") as log:
         process = subprocess.Popen(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
                                    env={**os.environ, "WREMU_HOLD_MS": "33"})
-        deadline = time.monotonic() + args.wall_timeout
+        # Longer guest deadlines extend the host's, at half real time.
+        extra = sum(max(0, f.get("timeout", 0) - args.timeout) for f in fixtures.values())
+        deadline = time.monotonic() + args.wall_timeout + 2 * extra
         try:
             while process.poll() is None:
                 text = (out / "boot.log").read_text(errors="replace")
@@ -187,7 +211,7 @@ def trial(args, manifest, cases, out):
     complete = (not host_error and "UPSTREAM-DONE" in text and "watchdog reset" in raw and
                 "C33 boot: Grifo application" in text and all(x["exit_status"] is not None for x in results))
     report = {"suite": args.suite, "complete": complete, "host_error": host_error,
-              "command": command, "guest_timeout": args.timeout,
+              "command": command, "guest_timeout": args.timeout, "fixtures": fixtures,
               "fixture_sha256": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()},
               "emulator_sha256": sha(ROOT / "emulator/wremu"),
               "environment": {k: v for k, v in os.environ.items() if k.startswith("WREMU_")},
@@ -215,6 +239,7 @@ def main():
     parser.add_argument("--hush-case", action="append", help="Select an individual upstream Hush test, e.g. hush-misc/func7.tests")
     parser.add_argument("--direct", action="store_true", help="Use the upstream test-skeleton -d mode (selected libc tests only)")
     args = parser.parse_args()
+    args.fixtures = json.loads(FIXTURES.read_text())
     if min(args.timeout, args.wall_timeout, args.batch_size, args.jobs) <= 0:
         raise SystemExit("Deadlines, batch size and job count must be positive")
     for name in ["binaries", "output", "kernel", "rootfs"]:
@@ -267,7 +292,7 @@ def main():
             observed[case["name"]] = result
     results += list(observed.values())
     report = {"suite": args.suite, "manifest_sha256": sha(args.binaries / "manifest.json"),
-              "cases": len(cases), "direct_mode": args.direct, "counts": dict(Counter(x["status"] for x in results)),
+              "cases": len(cases), "direct_mode": args.direct, "fixtures_sha256": sha(FIXTURES), "counts": dict(Counter(x["status"] for x in results)),
               "complete": all(x["status"] != "MISSING" for x in results),
               "clean_trials": all(x["complete"] for x in reports),
               "results": sorted(results, key=lambda x: x["name"]), "batches": reports}

@@ -15,6 +15,8 @@ class Results(unittest.TestCase):
         for result, expected in [("ok", "PASS"), ("fail (1)", "FAIL")]:
             output = "-n hush-heredoc/huge.tests:\nC33 display: blanked while idle\n " + result + "\n"
             self.assertEqual(runner.verdict("busybox", case, 0, output)["status"], expected)
+            output = "hush-heredoc/huge.tests:C33 display: blanked while idle\n " + result + "\n"
+            self.assertEqual(runner.verdict("busybox", case, 0, output)["status"], expected)
 
     def test_shell_failure_overrides_success_status(self):
         case = {"name": "hush/hush-bugs"}
