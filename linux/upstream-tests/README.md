@@ -160,7 +160,12 @@ neighbouring memory, because no-MMU `copy_to_user` cannot fault.
 `0031-fdpic-reserve-initial-stack-image.patch` adds the image's size to the
 requested stack, as `binfmt_flat` does. A checked addition guards the
 untrusted `PT_GNU_STACK` size against overflow. A typical exec gets one more
-page: BusyBox's 32 KiB stack becomes a 36 KiB allocation.
+page: BusyBox's 32 KiB stack becomes a 36 KiB allocation. No-MMU mmap takes
+the next power-of-two contiguous block before trimming the tail, so a
+power-of-two stack size now needs a block twice as large. This fragments
+memory more: 1 MiB thread-stack tests such as `tst-tls2` pass on a fresh
+boot with the previous kernel and fail with this one. With watermark boosting
+disabled, `tst-cond2`, `tst-signal3` and `tst-tls2` pass again.
 
 No-MMU Hush re-executes itself for command substitutions and passes its
 shell variables as arguments, so this was the cause of the BusyBox
