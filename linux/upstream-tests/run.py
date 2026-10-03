@@ -15,6 +15,9 @@ import tarfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+# Leave CPU capacity for interactive work and bound simultaneous guest RAM.
+# Newer Python versions also account for the process's available CPUs.
+DEFAULT_JOBS = min(4, max(1, (getattr(os, "process_cpu_count", os.cpu_count)() or 4) // 2))
 # Per-case deadlines, environment, and an ext4 working directory for tests
 # which need more than no-MMU RAMFS offers.  Keyed by suite/case.
 FIXTURES = ROOT / "linux/upstream-tests/case-fixtures.json"
@@ -82,6 +85,7 @@ def hush_cases(archive_path):
 
 
 def trial(args, manifest, cases, out):
+    trial_started = time.monotonic()
     out.mkdir(parents=True, exist_ok=False)
     spec = importlib.util.spec_from_file_location("wr_app", ROOT / "linux/app-test.py")
     app = importlib.util.module_from_spec(spec)
@@ -89,13 +93,23 @@ def trial(args, manifest, cases, out):
     fat = app.load_fat_helper(ROOT)
     # Stage only the requested families, keeping RAM available for the tests.
     selected = {x["directory"] for x in cases}
+    staged_members = 0
     with tarfile.open(args.binaries / "suite.tar.gz") as archive, tarfile.open(out / "tests.tar", "w") as packed:
         for member in archive:
-            keep = member.name.startswith("busybox/") if args.suite == "busybox" else (
-                member.name in {"uclibc/test/uclibcng-testrunner.sh"} or
-                any(member.name == directory or member.name.startswith(directory + "/") for directory in selected))
+            family = any(member.name == directory or member.name.startswith(directory + "/")
+                         for directory in selected)
+            if args.suite == "busybox":
+                # Keep the binary/config and the complete selected upstream
+                # trees. Applet trials do not use the separate Hush tree and
+                # Hush trials do not use testsuite; unpacking both costs more
+                # than a thousand guest file creations before the first test.
+                keep = member.name.startswith("busybox/") and (
+                    args.full_busybox_fixture or Path(member.name).parent == Path("busybox") or family)
+            else:
+                keep = member.name == "uclibc/test/uclibcng-testrunner.sh" or family
             if keep:
                 packed.addfile(member, archive.extractfile(member) if member.isfile() else None)
+                staged_members += 1
     files = {name: path.read_bytes() for name, path in {
         "kernel.elf": ROOT / "samo-lib/grifo/grifo.elf",
         "init.app": ROOT / "samo-lib/grifo/applications/init/init.app",
@@ -162,10 +176,13 @@ def trial(args, manifest, cases, out):
     subprocess.run(["python3", str(ROOT / "samo-lib/mbr/make-flash.py"), str(flash)],
                    check=True, stdout=subprocess.DEVNULL)
     (out / "uart.in").write_text("sh /mnt/sd/run.sh\n")
-    command = [str(ROOT / "emulator/wremu"), "-n", "1000000000000", "-T", "40,36,100000000",
+    command = [str(args.emulator), "-n", "1000000000000", "-T", "40,36,100000000",
                "--uart-input", str(out / "uart.in"), "--uart-start", "850000000",
                "--uart-gap", "200000", "-c", str(card), "-e", str(flash)]
     host_error = None
+    first_case_at = done_at = returned_at = None
+    emulator_started = time.monotonic()
+    fixture_seconds = emulator_started - trial_started
     with (out / "boot.log").open("w") as log:
         process = subprocess.Popen(command, cwd=out, stdout=log, stderr=subprocess.STDOUT,
                                    env={**os.environ, "WREMU_HOLD_MS": "33"})
@@ -175,9 +192,15 @@ def trial(args, manifest, cases, out):
         try:
             while process.poll() is None:
                 text = (out / "boot.log").read_text(errors="replace")
+                now = time.monotonic()
+                if first_case_at is None and "UPSTREAM-BEGIN " in text:
+                    first_case_at = now
                 finish = text.find("UPSTREAM-DONE")
+                if done_at is None and finish >= 0:
+                    done_at = now
                 reset = text.find("watchdog reset", finish) if finish >= 0 else -1
                 if reset >= 0 and "init choosing" in text[reset:]:
+                    returned_at = now
                     process.terminate()
                     break
                 if "Kernel panic" in text:
@@ -196,7 +219,19 @@ def trial(args, manifest, cases, out):
             if process.poll() is None:
                 process.kill()
                 process.wait()
+    emulator_finished = time.monotonic()
+    emulator_seconds = emulator_finished - emulator_started
     raw = (out / "boot.log").read_text(errors="replace")
+    # A fast final phase can finish between polls. Account for its markers
+    # in the final log at process completion rather than dropping the phase.
+    if first_case_at is None and "UPSTREAM-BEGIN " in raw:
+        first_case_at = emulator_finished
+    finish = raw.find("UPSTREAM-DONE")
+    if done_at is None and finish >= 0:
+        done_at = emulator_finished
+    reset = raw.find("watchdog reset", finish) if finish >= 0 else -1
+    if returned_at is None and reset >= 0 and "init choosing" in raw[reset:]:
+        returned_at = emulator_finished
     text = re.sub(r" *\[[a-z][^\]\n]*\]\n?", "", raw.replace("\r", "\n"))
     results = []
     for case in cases:
@@ -209,17 +244,29 @@ def trial(args, manifest, cases, out):
         if segment:
             (out / (case["name"].replace("/", "_") + ".log")).write_text(segment)
     complete = (not host_error and "UPSTREAM-DONE" in text and "watchdog reset" in raw and
-                "C33 boot: Grifo application" in text and all(x["exit_status"] is not None for x in results))
+                returned_at is not None and "C33 boot: Grifo application" in text and
+                all(x["exit_status"] is not None for x in results))
     report = {"suite": args.suite, "complete": complete, "host_error": host_error,
               "command": command, "guest_timeout": args.timeout, "fixtures": fixtures,
               "fixture_sha256": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()},
-              "emulator_sha256": sha(ROOT / "emulator/wremu"),
+              "emulator_sha256": sha(args.emulator),
+              "full_busybox_fixture": args.full_busybox_fixture,
+              "staged_archive_members": staged_members,
               "environment": {k: v for k, v in os.environ.items() if k.startswith("WREMU_")},
               "results": results}
-    (out / "results.json").write_text(json.dumps(report, indent=2) + "\n")
     # Keep logs and exact fixture hashes; disposable card copies are large.
     card.unlink()
     (out / "tests.tar").unlink()
+    # Phase boundaries are observed by the existing 0.5-second log poll;
+    # complete trial/emulator durations use the monotonic clock directly.
+    report["host_seconds"] = {
+        "fixture": fixture_seconds, "emulator": emulator_seconds,
+        "boot_to_first_case": first_case_at - emulator_started if first_case_at else None,
+        "cases_to_done": done_at - first_case_at if done_at and first_case_at else None,
+        "done_to_launcher": returned_at - done_at if returned_at and done_at else None,
+        "total": time.monotonic() - trial_started,
+    }
+    (out / "results.json").write_text(json.dumps(report, indent=2) + "\n")
     print(out.name, dict(Counter(x["status"] for x in results)), flush=True)
     return report
 
@@ -231,10 +278,15 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, default=ROOT / "linux/artifacts/linux.app")
     parser.add_argument("--rootfs", type=Path, default=ROOT / "linux/artifacts/linux.img")
+    parser.add_argument("--emulator", type=Path, default=ROOT / "emulator/wremu",
+                        help="emulator binary to test, including an LTO or PGO candidate")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--wall-timeout", type=int, default=1200)
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--jobs", type=int, default=DEFAULT_JOBS,
+                        help=f"parallel emulators (default: {DEFAULT_JOBS}; half the available CPUs, capped at 4)")
+    parser.add_argument("--full-busybox-fixture", action="store_true",
+                        help="stage both BusyBox test trees for baseline comparisons")
     parser.add_argument("--case", action="append")
     parser.add_argument("--hush-case", action="append", help="Select an individual upstream Hush test, e.g. hush-misc/func7.tests")
     parser.add_argument("--direct", action="store_true", help="Use the upstream test-skeleton -d mode (selected libc tests only)")
@@ -242,7 +294,7 @@ def main():
     args.fixtures = json.loads(FIXTURES.read_text())
     if min(args.timeout, args.wall_timeout, args.batch_size, args.jobs) <= 0:
         raise SystemExit("Deadlines, batch size and job count must be positive")
-    for name in ["binaries", "output", "kernel", "rootfs"]:
+    for name in ["binaries", "output", "kernel", "rootfs", "emulator"]:
         setattr(args, name, getattr(args, name).resolve())
     args.output.mkdir(parents=True, exist_ok=False)
     manifest = json.loads((args.binaries / "manifest.json").read_text())
@@ -273,6 +325,7 @@ def main():
                for c in cases if c["status"] != "BUILT" or c.get("host_only")]
     selected = [c for c in cases if c["status"] == "BUILT" and not c.get("host_only")]
     reports = []
+    run_started = time.monotonic()
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [pool.submit(trial, args, manifest, selected[i:i + args.batch_size],
                                args.output / f"batch-{i:04d}")
@@ -292,6 +345,9 @@ def main():
             observed[case["name"]] = result
     results += list(observed.values())
     report = {"suite": args.suite, "manifest_sha256": sha(args.binaries / "manifest.json"),
+              "jobs": args.jobs, "batch_size": args.batch_size,
+              "full_busybox_fixture": args.full_busybox_fixture,
+              "host_seconds": time.monotonic() - run_started,
               "cases": len(cases), "direct_mode": args.direct, "fixtures_sha256": sha(FIXTURES), "counts": dict(Counter(x["status"] for x in results)),
               "complete": all(x["status"] != "MISSING" for x in results),
               "clean_trials": all(x["complete"] for x in reports),

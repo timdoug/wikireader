@@ -359,6 +359,51 @@ test-skeleton's supported `-d` mode for explicitly selected libc cases; this
 bypasses its internal fork/deadline wrapper and is identified separately
 in reports. An external supervisor still bounds execution.
 
+For host performance comparisons, `--emulator /path/to/wremu` selects a
+baseline or PGO candidate without replacing the normal emulator binary.
+Reports record its hash, `jobs`, `batch_size`, total suite wall time and
+each batch's fixture/emulator wall time. Batch `host_seconds` also splits
+boot-to-first-case, cases-to-done and done-to-launcher time. Phase boundaries
+are observed by the runner's existing 0.5-second log poll or at process
+completion, so allow that resolution when interpreting short phases. A missing marker leaves its
+phase timing null. Verdicts and the reboot-back-to-Grifo requirement are
+the same for every selected binary.
+
+Compare fixed selections and inventories with alternating binary order,
+then compare batch sizes and job counts separately. `WR_FAT_TIME` pins the
+fixture timestamp when exact replay matters. Larger batches amortize the
+full boot; more jobs run independent cards concurrently. Both tradeoffs
+depend on guest RAM usage and host capacity, so check results as well as
+wall time before changing suite settings.
+
+The default job count is half the available CPUs, rounded down and bounded
+between one and four; `--jobs` overrides it. This uses four workers on the
+local eight-CPU host, where the selected comparison improved from 72.2 to
+45.3 seconds with matching verdicts and assertion counts.
+
+BusyBox batches stage the complete upstream test trees selected by their
+cases, together with the shared binary and configuration. Applet batches
+therefore extract `testsuite`, Hush batches extract `shell/hush_test`, and
+a mixed batch extracts both. The product applet fixture has 376 archive
+entries versus 1,210 when both trees are packed. `--full-busybox-fixture`
+restores the full fixture for comparison; reports record that choice and
+the staged member count.
+
+On the local eight-CPU Apple Silicon host with Clang 21, the four selected
+BusyBox cases (basename, dirname, echo, printf) took 112.799 seconds with
+LTO, two workers and the full fixture, versus 45.319 seconds with PGO,
+four workers and the selected tree: **2.49x faster**, measured end to end.
+Both configurations used one case per batch, with identical verdicts and
+assertion counts. This is a four-batch comparison rather than a full sweep
+or a measurement of the default eight-case batch size.
+
+Separately, selecting the applet tree reduced a single LTO batch from
+118.915 to 108.388 seconds (8.9%). The sampled Hush return test improved
+from 30.460 to 25.933 seconds (14.9%) with PGO in both configurations and
+matching results. The [measurement record](../../emulator/tools/host-speed-2026-10-02.json)
+contains the configurations, hashes and timings. It uses runtime sources
+at `29004d17`; source/profile changes and different hosts need fresh runs.
+
 Hush tests without a result in a timed-out module are then selected
 individually with `--hush-case`. `summarize.py` audits reports built from
 one inventory, with those Hush runs and any reruns as follow-ups:
