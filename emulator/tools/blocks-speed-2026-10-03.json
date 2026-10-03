@@ -1,0 +1,422 @@
+{
+  "date": "2026-10-03",
+  "baseline_source_revision": "007b96d6a204e9c66678e7bcf328fc0ef91ffa3d",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "build_flags": "-O2 -g -flto; PGO builds independently trained on the same 600-million-cycle FLASH/Grifo/launcher/Linux boot.",
+  "runtime_fixture_sha256": {
+    "flash.rom": "917075cca07d121638bbcfa2f8466e4f00d8a0af984bf61b6619b957ad0df003",
+    "card.img": "ee1c6adfe448bbb2274983e2d94a196a8571c5a8ddbb03eaba4b86d13cc0cbcb",
+    "uart.in": "385efe91a81910aa5df2638e9f2f85082e1579ddffcb9fc198905c2ab7a6923b"
+  },
+  "runtime_components_sha256": {
+    "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+    "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+    "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+    "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+    "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+    "bench.bin": "4a25706029f0cc2fc97eff796793fbb2b017025712526a87ea3be491f5e4d5cf",
+    "init.ini": "896c94d390b4ebacc1839e444bd07b02f7b4e7c978f55fc3560dba9f931cf300"
+  },
+  "runtime_parameters": {
+    "cycle_budget": 4000000000,
+    "touch": "40,36,100000000",
+    "uart_start": 850000000,
+    "uart_gap": 200000,
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "writable_card": true,
+    "allow_reset": true,
+    "required_guest_markers": [
+      "BENCH PASS",
+      "watchdog reset"
+    ]
+  },
+  "training_parameters": {
+    "cycle_budget": 600000000,
+    "touch": "40,36,100000000",
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "uart_input": false,
+    "fresh_writable_card_per_build": true,
+    "runtime_commands_and_upstream_cases_excluded": true
+  },
+  "timing_method": "Alternating before/after trials of immutable binaries; fresh writable card clone per trial; clone/hash outside wall timing; compilation and other emulator comparisons serialized.",
+  "comparison_baseline": "Active-source interrupt scan with unconditional candidate packing and fresh PGO; this exploratory interrupt baseline predates restoration of the empty-group fast path.",
+  "baseline_binary_sha256": "da174884cd9daab105b2b0ab4e71570709105ab8d0404380058f5451663f64aa",
+  "runtime_first": {
+    "host_seconds": {
+      "before": [
+        7.513899207988288,
+        7.506122166989371,
+        7.4905752500053495
+      ],
+      "after": [
+        8.628411292011151,
+        7.7924297919962555,
+        7.80584162499872
+      ]
+    },
+    "median_seconds": {
+      "before": 7.506122166989371,
+      "after": 7.80584162499872
+    },
+    "speedup": 0.9616031848443507,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "runtime_second": {
+    "host_seconds": {
+      "before": [
+        7.531123875000048,
+        7.453720749996137,
+        7.48113783300505
+      ],
+      "after": [
+        8.711661374982214,
+        7.882317541982047,
+        7.865625540987821
+      ]
+    },
+    "median_seconds": {
+      "before": 7.48113783300505,
+      "after": 7.882317541982047
+    },
+    "speedup": 0.949103838199835,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "variants": [
+    {
+      "name": "decoded sequences",
+      "description": "128 slots of up to 16 decoded words, sequential cursor, mapped-RAM lookahead only, validate raw word after timed fetch, retain instruction-boundary device polls.",
+      "binary_sha256": "ab666e0f6647b47718a94d1ceccd208cabb7e9cd2c80a4de3acf9256b361f7c5",
+      "profile_sha256": "c170cd5b89cd48cbe8b7e76b4146a6650e769f08a781e32efdd21fd6c30e1e9c",
+      "retained_patch": "experiments/decoded-blocks-2026-10-03.patch"
+    },
+    {
+      "name": "decoded sequences with static clocks and direct load dispatch",
+      "description": "Also precompute fixed cycle costs and common LD_W shape dispatch; preserve dynamic prefix, call-extra and taken-branch costs. Incremental source patch applies after the first variant.",
+      "binary_sha256": "e1f28b49451aa4b3d65a5ae887ca56e36ad7d51c379523a5784717d64bc84bf7",
+      "profile_sha256": "0e9f1b2ca038cfb977e555971592a9cba046f61a96aaf72fd890e8fb238d41a4",
+      "retained_patch": "experiments/decoded-blocks-costs-2026-10-03.patch"
+    }
+  ],
+  "runtime_environment": {
+    "WREMU_HOLD_MS": "33",
+    "WREMU_DECODE_BLOCKS": "1"
+  },
+  "instruction_differential_checks_per_variant": 294912,
+  "upstream_first_variant": {
+    "busybox": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "before": {
+        "host_seconds": 68.98458862499683,
+        "counts": {
+          "PASS": 3,
+          "PARTIAL_PASS": 1
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "applets/basename",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 2
+            }
+          },
+          {
+            "name": "applets/dirname",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 7
+            }
+          },
+          {
+            "name": "applets/echo",
+            "exit_status": 0,
+            "status": "PARTIAL_PASS",
+            "assertions": {
+              "PASS": 4,
+              "UNTESTED": 7
+            }
+          },
+          {
+            "name": "applets/printf",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 24
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.23242699998081662,
+          "emulator": 68.73500616700039,
+          "boot_to_first_case": 10.620464292005636,
+          "cases_to_done": 57.593787207995774,
+          "done_to_launcher": 0.5013432920095511,
+          "total": 68.98279799998272
+        }
+      },
+      "after": {
+        "host_seconds": 72.63566299999366,
+        "counts": {
+          "PASS": 3,
+          "PARTIAL_PASS": 1
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "applets/basename",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 2
+            }
+          },
+          {
+            "name": "applets/dirname",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 7
+            }
+          },
+          {
+            "name": "applets/echo",
+            "exit_status": 0,
+            "status": "PARTIAL_PASS",
+            "assertions": {
+              "PASS": 4,
+              "UNTESTED": 7
+            }
+          },
+          {
+            "name": "applets/printf",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 24
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.22364054201170802,
+          "emulator": 72.39634508299059,
+          "boot_to_first_case": 10.603687915980117,
+          "cases_to_done": 61.21779725002125,
+          "done_to_launcher": 0.5042961250001099,
+          "total": 72.63404058301239
+        }
+      },
+      "speedup": 0.9497344111115618,
+      "identical_verdicts_assertions": true,
+      "fixture_identity": {
+        "before": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 376,
+          "full_busybox_fixture": false
+        },
+        "after": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 376,
+          "full_busybox_fixture": false
+        }
+      }
+    },
+    "uclibc": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "before": {
+        "host_seconds": 33.611258500022814,
+        "counts": {
+          "PASS": 4
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "args/arg_test",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "ctype/ctype",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tester",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tst-strlen",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.1836050419951789,
+          "emulator": 33.41152145797969,
+          "boot_to_first_case": 7.598215707985219,
+          "cases_to_done": 24.803008999995654,
+          "done_to_launcher": 1.0102967499988154,
+          "total": 33.60918674999266
+        }
+      },
+      "after": {
+        "host_seconds": 32.645619582996005,
+        "counts": {
+          "PASS": 4
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "args/arg_test",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "ctype/ctype",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tester",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tst-strlen",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.19429800001671538,
+          "emulator": 32.4330752909882,
+          "boot_to_first_case": 7.08951745799277,
+          "cases_to_done": 24.79688450001413,
+          "done_to_launcher": 0.501368666999042,
+          "total": 32.64390545801143
+        }
+      },
+      "speedup": 1.029579432994734,
+      "identical_verdicts_assertions": true,
+      "fixture_identity": {
+        "before": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+            "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+            "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+            "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+            "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+            "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 44,
+          "full_busybox_fixture": false
+        },
+        "after": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+            "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+            "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+            "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+            "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+            "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 44,
+          "full_busybox_fixture": false
+        }
+      }
+    }
+  },
+  "decision": "Neither decoded-sequence prototype improves the runtime workload. Keep experimental patch/results; production CPU remains the existing interpreter. These results do not evaluate batched device polling or an ARM64 JIT.",
+  "prototype_patch_sha256": {
+    "decoded-blocks-2026-10-03.patch": "df31e87d4552cd9922047fe8e428ac1a5d256943fae6787be8d677fe5ffaff28",
+    "decoded-blocks-costs-2026-10-03.patch": "2622f9189173950e95bafda32709bd28388260f2dcad8db4972bbb12d6f38cf0"
+  }
+}

@@ -1,0 +1,162 @@
+diff --git a/emulator/src/c33.c b/emulator/src/c33.c
+--- a/emulator/src/c33.c
++++ b/emulator/src/c33.c
+@@ -703,16 +703,62 @@
+ 	fault(c, why);
+ }
+ 
++enum block_op {
++	BLOCK_LDW_R_I = OP_COUNT, BLOCK_LDW_R_R, BLOCK_LDW_R_LRB,
++	BLOCK_LDW_R_LRBP, BLOCK_LDW_LRB_R, BLOCK_LDW_LRBP_R,
++	BLOCK_LDW_R_LSPPIB, BLOCK_LDW_LSPPIB_R,
++	BLOCK_LDW_R_LDPPIB, BLOCK_LDW_LDPPIB_R
++};
++
+ static struct c33_decoded decode_word(uint16_t insn)
+ {
+ 	unsigned form = c33_form_of[insn];
+ 	const struct c33_form *f = &c33_forms[form];
+-	return (struct c33_decoded){
++	unsigned op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
++	struct c33_decoded d = {
+ 		.a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0,
+ 		.b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0,
+-		.insn = insn, .form = form,
+-		.op = pe_encoding_valid(insn) ? f->op : OP_INVALID,
++		.insn = insn, .form = form, .op = op, .exec_op = op,
++		.clocks = cycle_cost(op, f, insn, false, false, SDRAM_BASE),
+ 	};
++	if (op == OP_CALL || op == OP_RET) d.clocks = 4;
++	if (op == OP_CALL_D || op == OP_RET_D) d.clocks = 3;
++	if (op == OP_LD_W) {
++		switch (f->shape_id) {
++		case SHAPE_R_I: d.exec_op = BLOCK_LDW_R_I; break;
++		case SHAPE_R_R: d.exec_op = BLOCK_LDW_R_R; break;
++		case SHAPE_R_LRB: d.exec_op = BLOCK_LDW_R_LRB; break;
++		case SHAPE_R_LRBP: d.exec_op = BLOCK_LDW_R_LRBP; break;
++		case SHAPE_LRB_R: d.exec_op = BLOCK_LDW_LRB_R; break;
++		case SHAPE_LRBP_R: d.exec_op = BLOCK_LDW_LRBP_R; break;
++		case SHAPE_R_LSPPIB: d.exec_op = BLOCK_LDW_R_LSPPIB; break;
++		case SHAPE_LSPPIB_R: d.exec_op = BLOCK_LDW_LSPPIB_R; break;
++		case SHAPE_R_LDPPIB: d.exec_op = BLOCK_LDW_R_LDPPIB; break;
++		case SHAPE_LDPPIB_R: d.exec_op = BLOCK_LDW_LDPPIB_R; break;
++		default: break;
++		}
++	}
++	return d;
++}
++
++static unsigned block_clocks(const struct c33_decoded *d,
++			     bool conditional_taken, bool had_ext, uint32_t next_pc)
++{
++	switch (d->op) {
++	case OP_CALL: case OP_CALL_D: case OP_RET: case OP_RET_D:
++		return d->clocks + model.call_extra;
++	case OP_JREQ: case OP_JRNE: case OP_JRGT: case OP_JRGE:
++	case OP_JRLT: case OP_JRLE: case OP_JRUGT: case OP_JRUGE:
++	case OP_JRULT: case OP_JRULE:
++		return conditional_taken ? (next_pc < SDRAM_BASE ?
++			model.branch_taken_iram : model.branch_taken) : d->clocks;
++	case OP_BSET: case OP_BCLR: case OP_BNOT: case OP_BTST:
++		return d->clocks + had_ext;
++	case OP_LD_W: case OP_LD_B: case OP_LD_UB: case OP_LD_H: case OP_LD_UH:
++		return had_ext && d->clocks == 1 ? 2 : d->clocks;
++	default:
++		return d->clocks;
++	}
+ }
+ 
+ static bool block_end(const struct c33_decoded *d)
+@@ -981,7 +1027,17 @@
+ 	bool was_delayed = c->delay_pending;
+ 	uint32_t delay_to = c->delay_target;
+ 
+-	switch (op) {
++	switch (d ? d->exec_op : op) {
++	case BLOCK_LDW_R_I: goto ldw_r_i;
++	case BLOCK_LDW_R_R: goto ldw_r_r;
++	case BLOCK_LDW_R_LRB: goto ldw_r_lrb;
++	case BLOCK_LDW_R_LRBP: goto ldw_r_lrbp;
++	case BLOCK_LDW_LRB_R: goto ldw_lrb_r;
++	case BLOCK_LDW_LRBP_R: goto ldw_lrbp_r;
++	case BLOCK_LDW_R_LSPPIB: goto ldw_r_lsppib;
++	case BLOCK_LDW_LSPPIB_R: goto ldw_lsppib_r;
++	case BLOCK_LDW_R_LDPPIB: goto ldw_r_ldppib;
++	case BLOCK_LDW_LDPPIB_R: goto ldw_ldppib_r;
+ 	case OP_INVALID:
+ 	case OP_DIV0S: case OP_DIV0U: case OP_DIV1: case OP_DIV2S: case OP_DIV3S:
+ 	case OP_MAC: case OP_MIRROR: case OP_SCAN0: case OP_SCAN1:
+@@ -1060,15 +1116,19 @@
+ 	/* ---- moves and loads ------------------------------------------- */
+ 	case OP_LD_W:
+ 		if ((f->shape_id == SHAPE_R_I)) {                    /* immediate */
++		ldw_r_i:;
+ 			c->r[a] = imm_ext_s(c, (uint32_t)b, f->f[1].width);
+ 		} else if ((f->shape_id == SHAPE_R_R)) {
++		ldw_r_r:;
+ 			c->r[a] = c->r[b];
+ 		} else if ((f->shape_id == SHAPE_R_LRB)) {
++		ldw_r_lrb:;
+ 			/* an ext prefix turns [%rs] into [%rs+imm] */
+ 			uint32_t v = rd(c, c->r[b] + imm_ext(c, 0, 0), 4);
+ 			if (!c->access_fault)
+ 				c->r[a] = v;
+ 		} else if ((f->shape_id == SHAPE_R_LRBP)) {
++		ldw_r_lrbp:;
+ 			uint32_t addr = c->r[b];
+ 			uint32_t v = rd(c, addr, 4);
+ 			if (!c->access_fault) {
+@@ -1077,25 +1137,31 @@
+ 					c->r[a] = v;
+ 			}
+ 		} else if ((f->shape_id == SHAPE_LRB_R)) {
++		ldw_lrb_r:;
+ 			wr(c, c->r[a] + imm_ext(c, 0, 0), 4, c->r[b]);
+ 		} else if ((f->shape_id == SHAPE_LRBP_R)) {
++		ldw_lrbp_r:;
+ 			wr(c, c->r[a], 4, c->r[b]);
+ 			if (!c->access_fault)
+ 				c->r[a] += 4;
+ 		} else if ((f->shape_id == SHAPE_R_LSPPIB)) {
++		ldw_r_lsppib:;
+ 			uint32_t v = rd(c, c->sr[SR_SP] +
+ 					sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+ 			if (!c->access_fault)
+ 				c->r[a] = v;
+ 		} else if ((f->shape_id == SHAPE_LSPPIB_R)) {
++		ldw_lsppib_r:;
+ 			wr(c, c->sr[SR_SP] +
+ 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
+ 		} else if ((f->shape_id == SHAPE_R_LDPPIB)) {
++		ldw_r_ldppib:;
+ 			uint32_t v = rd(c, c->sr[SR_DP] +
+ 					sp_disp(c, (uint32_t)b, f->f[1].width, 4), 4);
+ 			if (!c->access_fault)
+ 				c->r[a] = v;
+ 		} else if ((f->shape_id == SHAPE_LDPPIB_R)) {
++		ldw_ldppib_r:;
+ 			wr(c, c->sr[SR_DP] +
+ 			   sp_disp(c, (uint32_t)a, f->f[0].width, 4), 4, c->r[b]);
+ 		} else if (f->sreg == 1) {
+@@ -1673,7 +1739,8 @@
+ 	 * prefixes into the following instruction.
+ 	 */
+ 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
+-	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext, c->pc);
++	c->clk += d ? block_clocks(d, conditional_taken, had_ext, c->pc) :
++		cycle_cost(op, f, insn, conditional_taken, had_ext, c->pc);
+ 	if (c->pc_profile) {
+ 		c->pcclk[bucket] += c->clk - clk0;
+ 		if (c->row_counter)
+diff --git a/emulator/src/c33.h b/emulator/src/c33.h
+--- a/emulator/src/c33.h
++++ b/emulator/src/c33.h
+@@ -70,7 +70,7 @@
+ struct c33_decoded {
+ 	int16_t a, b;
+ 	uint16_t insn;
+-	uint8_t form, op;
++	uint8_t form, op, exec_op, clocks;
+ };
+ struct c33_block {
+ 	uint32_t pc;

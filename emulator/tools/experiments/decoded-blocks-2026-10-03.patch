@@ -1,0 +1,359 @@
+diff --git a/emulator/src/c33.c b/emulator/src/c33.c
+index 21c2e890..061d7ed1 100644
+--- a/emulator/src/c33.c
++++ b/emulator/src/c33.c
+@@ -538,6 +538,7 @@ void c33_reset(struct c33 *c, uint32_t entry)
+ 	 */
+ 	memset(c, 0, offsetof(struct c33, reset_barrier__));
+ 	c->pc = pc_value(entry);
++	if (c->blocks) memset(c->blocks, 0, sizeof *c->blocks);
+ 	/* Fixed cold-reset values from Core Manual sections 2.5, 2.7, 2.8. */
+ 	c->sr[SR_TTBR] = 0x00c00000;
+ 	c->sr[SR_IDIR] = 0x06000000; /* PE type; revision/model is unspecified */
+@@ -702,6 +703,82 @@ void c33_fault(struct c33 *c, const char *why)
+ 	fault(c, why);
+ }
+ 
++static struct c33_decoded decode_word(uint16_t insn)
++{
++	unsigned form = c33_form_of[insn];
++	const struct c33_form *f = &c33_forms[form];
++	return (struct c33_decoded){
++		.a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0,
++		.b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0,
++		.insn = insn, .form = form,
++		.op = pe_encoding_valid(insn) ? f->op : OP_INVALID,
++	};
++}
++
++static bool block_end(const struct c33_decoded *d)
++{
++	switch (d->op) {
++	case OP_EXT: case OP_NOP: case OP_ADD: case OP_SUB: case OP_CMP:
++	case OP_ADC: case OP_SBC: case OP_AND: case OP_OR: case OP_XOR:
++	case OP_NOT: case OP_SLL: case OP_SRL: case OP_SRA:
++	case OP_MLT_H: case OP_MLTU_H: case OP_MLT_W: case OP_MLTU_W:
++	case OP_LD_B: case OP_LD_UB: case OP_LD_H: case OP_LD_UH:
++		return false;
++	case OP_LD_W:
++		return c33_forms[d->form].sreg != 0;
++	default:
++		/* Conservative: control transfers and uncommon forms end a block. */
++		return true;
++	}
++}
++
++static __attribute__((noinline)) struct c33_block *fill_block(struct c33 *c,
++							    uint32_t at)
++{
++	struct c33_block *b = &c->blocks->slot[(at >> 1) & (C33_BLOCK_SLOTS - 1)];
++	if (b->count && b->pc == at)
++		return b;
++	b->pc = at;
++	b->count = 0;
++	/* Decode only directly mapped RAM. No speculative MMIO or bus timing. */
++	for (unsigned i = 0; i < C33_BLOCK_INSNS; i++) {
++		uint32_t pc = at + i * 2;
++		if (pc < at || pc < c->fetch_lo || pc >= c->fetch_hi ||
++		    c->fetch_hi - pc < 2)
++			break;
++		uint16_t word;
++		memcpy(&word, c->fetch_ptr + (pc - c->fetch_lo), 2);
++		b->insn[i] = decode_word(word);
++		b->count++;
++		if (block_end(&b->insn[i]))
++			break;
++	}
++	return b;
++}
++
++static const struct c33_decoded *block_decode(struct c33 *c, uint32_t at,
++					    uint16_t insn)
++{
++	struct c33_blocks *cache = c->blocks;
++	struct c33_block *b = cache->current;
++	unsigned i = cache->next_index;
++	if (!b || at != cache->next_pc || i >= b->count) {
++		b = fill_block(c, at);
++		cache->current = b;
++		i = 0;
++	}
++	if (!b->count)
++		return NULL;
++	/* Validate the fetched word, even mid-block: DMA and guest stores may
++	 * replace code at any boundary. Re-decode this word without skipping
++	 * its timing; later words receive the same check before execution. */
++	if (b->insn[i].insn != insn)
++		b->insn[i] = decode_word(insn);
++	cache->next_pc = at + 2;
++	cache->next_index = i + 1;
++	return &b->insn[i];
++}
++
+ void c33_step(struct c33 *c)
+ {
+ 	if (c->halted)
+@@ -876,8 +953,9 @@ void c33_step(struct c33 *c)
+ 			return;
+ 	}
+ 	c->last_insn = insn;
+-	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
+-	uint8_t op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
++	const struct c33_decoded *d = c->blocks ? block_decode(c, at, insn) : NULL;
++	const struct c33_form *f = &c33_forms[d ? d->form : c33_form_of[insn]];
++	uint8_t op = d ? d->op : pe_encoding_valid(insn) ? f->op : OP_INVALID;
+ 	if (c->profile)
+ 		c->opcount[op]++;
+ 	unsigned bucket = C33_PCBUCKET(at);
+@@ -895,8 +973,8 @@ void c33_step(struct c33 *c)
+ 			c->sp_low_dstram = sp;
+ 	}
+ 
+-	int32_t a = f->nfields > 0 ? fld(insn, &f->f[0]) : 0;
+-	int32_t b = f->nfields > 1 ? fld(insn, &f->f[1]) : 0;
++	int32_t a = d ? d->a : f->nfields > 0 ? fld(insn, &f->f[0]) : 0;
++	int32_t b = d ? d->b : f->nfields > 1 ? fld(insn, &f->f[1]) : 0;
+ 	bool had_ext = c->n_ext != 0;
+ 	bool conditional_taken = false;
+ 
+diff --git a/emulator/src/c33.h b/emulator/src/c33.h
+index f8f4bb6f..30310a3e 100644
+--- a/emulator/src/c33.h
++++ b/emulator/src/c33.h
+@@ -63,6 +63,27 @@ struct c33_bus {
+ 	void     *ctx;
+ };
+ 
++/* Experimental decoded sequences. Raw words are validated after timed fetch,
++ * so CPU/DMA stores, aliases and host writes cannot leave stale instructions. */
++#define C33_BLOCK_SLOTS 128
++#define C33_BLOCK_INSNS 16
++struct c33_decoded {
++	int16_t a, b;
++	uint16_t insn;
++	uint8_t form, op;
++};
++struct c33_block {
++	uint32_t pc;
++	unsigned count;
++	struct c33_decoded insn[C33_BLOCK_INSNS];
++};
++struct c33_blocks {
++	struct c33_block slot[C33_BLOCK_SLOTS];
++	struct c33_block *current;
++	uint32_t next_pc;
++	unsigned next_index;
++};
++
+ struct c33 {
+ 	uint32_t r[16];
+ 	uint32_t sr[SR_COUNT];
+@@ -142,6 +163,7 @@ struct c33 {
+ 	 */
+ 	char     reset_barrier__[0];
+ 
++	struct c33_blocks *blocks; /* optional host decode cache */
+ 	struct c33_bus bus;
+ 	const unsigned *region_epoch;
+ 	/* Optional: asks the interrupt controller whether a cause is still
+diff --git a/emulator/src/main.c b/emulator/src/main.c
+index 68ba1cc1..8c4f48a4 100644
+--- a/emulator/src/main.c
++++ b/emulator/src/main.c
+@@ -734,6 +734,8 @@ int main(int argc, char **argv)
+ 		.fetch_wait_ctx = &sdramc,
+ 		.ctx = &mem,
+ 	};
++	if (getenv("WREMU_DECODE_BLOCKS"))
++		cpu.blocks = calloc(1, sizeof *cpu.blocks);
+ 	cpu.trace_syscalls = trace_syscalls;
+ 	c33_reset(&cpu, entry);
+ 	cpu.trace_syscalls = trace_syscalls;
+@@ -1415,6 +1417,7 @@ int main(int argc, char **argv)
+ 	}
+ 
+ done:
++	free(cpu.blocks);
+ 	if (uart_fd >= 0 && uart_fd != STDIN_FILENO) close(uart_fd);
+ 	if (stop && strcmp(stop, "breakpoint") &&
+ 	    strcmp(stop, "window closed") && strcmp(stop, "powered off")) {
+diff --git a/emulator/tools/test_c33_blocks.c b/emulator/tools/test_c33_blocks.c
+new file mode 100644
+--- /dev/null
++++ b/emulator/tools/test_c33_blocks.c
+@@ -0,0 +1,160 @@
++/* Execute cached and ordinary decoding against independently mapped buses. */
++#include <stddef.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "../src/c33.h"
++#include "../src/model.h"
++
++#define SIZE 4096
++struct bus {
++    uint8_t ram[SIZE];
++    unsigned reads, writes, waits, fetches, epoch;
++    bool replace;
++    unsigned offset;
++};
++static uint32_t read_bus(void *ctx, uint32_t a, unsigned size)
++{
++    struct bus *b = ctx;
++    uint32_t v = 0;
++    b->reads++;
++    for (unsigned i = 0; i < size; i++)
++        v |= (uint32_t)b->ram[(a + i + b->offset) & (SIZE - 1)] << (8 * i);
++    return v;
++}
++static void write_bus(void *ctx, uint32_t a, unsigned size, uint32_t v)
++{
++    struct bus *b = ctx;
++    b->writes++;
++    for (unsigned i = 0; i < size; i++)
++        b->ram[(a + i + b->offset) & (SIZE - 1)] = v >> (8 * i);
++}
++static uint8_t *region(void *ctx, uint32_t a, uint32_t *base, uint32_t *len)
++{
++    struct bus *b = ctx;
++    if (a >= SIZE || b->offset) return NULL;
++    *base = 0; *len = SIZE;
++    return b->ram;
++}
++static uint64_t wait_bus(void *ctx, enum mem_access access, uint32_t a,
++                         unsigned size, uint64_t now)
++{
++    struct bus *b = ctx;
++    b->waits++;
++    return (a ^ size ^ access ^ now) & 3;
++}
++static uint64_t fetch_wait(void *ctx, uint32_t a, uint64_t now)
++{
++    struct bus *b = ctx;
++    b->fetches++;
++    if (b->replace) {
++        /* A DMA-like store performed by the timing callback before fetch. */
++        write_bus(b, a, 2, 0x6010); /* add r0,1 */
++        b->replace = false;
++    }
++    return (now ^ a) & 3;
++}
++static void setup(struct c33 *c, struct bus *b, struct c33_blocks *cache)
++{
++    memset(c, 0, sizeof *c);
++    c->blocks = cache;
++    c->bus = (struct c33_bus){.read=read_bus, .write=write_bus,
++        .region=region, .wait=wait_bus, .fetch_wait=fetch_wait,
++        .fetch_wait_ctx=b, .ctx=b};
++    c->region_epoch = &b->epoch;
++    c33_reset(c, 0x100);
++    c->sr[SR_SP] = 0xe00;
++    c->sr[SR_TTBR] = 0x400;
++    c->sr[SR_DBBR] = 0x500;
++    c->sp_initialized = true;
++}
++static unsigned checks;
++static void step_pair(struct c33 *a, struct c33 *b,
++                      struct bus *ab, struct bus *bb)
++{
++    bool restart = wremu_fetch_restart;
++    c33_step(a);
++    bool a_restart = wremu_fetch_restart;
++    wremu_fetch_restart = restart;
++    c33_step(b);
++    if (a_restart != wremu_fetch_restart) abort();
++    struct c33 ac = *a, bc = *b;
++    ac.fetch_ptr = bc.fetch_ptr = NULL;
++    ac.data_ptr = bc.data_ptr = NULL;
++    if (memcmp(&ac, &bc, offsetof(struct c33, reset_barrier__)) ||
++        memcmp(ab, bb, sizeof *ab)) {
++        fprintf(stderr, "block differential check %u failed at %08x/%08x\n",
++                checks, a->cur_pc, b->cur_pc);
++        exit(1);
++    }
++    checks++;
++}
++int main(void)
++{
++    struct c33 a, b;
++    struct bus ab = {0}, bb = {0};
++    struct c33_blocks *cache = calloc(1, sizeof *cache);
++    if (!cache) return 1;
++    /* Every word, with no prefix, one/two prefixes, and a delay slot.
++     * Keep the cache populated between words to exercise replacement. */
++    for (unsigned mode = 0; mode < 4; mode++) {
++        memset(cache, 0, sizeof *cache);
++        for (unsigned word = 0; word < 65536; word++) {
++            memset(&ab, 0, sizeof ab);
++            for (unsigned i = 0; i < 64; i++)
++                write_bus(&ab, 0x400 + i * 4, 4, 0x180);
++            write_bus(&ab, 0x100, 2, word);
++            bb = ab;
++            setup(&a, &ab, NULL);
++            /* Preserve decode state instead of resetting it here. */
++            setup(&b, &bb, NULL); b.blocks = cache;
++            for (unsigned i = 0; i < 16; i++)
++                a.r[i] = b.r[i] = 0x600 + i * 4;
++            a.sr[SR_PSR] = b.sr[SR_PSR] = word & 15;
++            a.profile = b.profile = true;
++            model.call_extra = (word / 257) & 7;
++            model.branch_taken = 3 + ((word / 127) & 3);
++            model.branch_taken_iram = 2 + ((word / 63) & 3);
++            a.n_ext = b.n_ext = mode < 3 ? mode : 0;
++            a.ext[0] = b.ext[0] = 0x123;
++            a.ext[1] = b.ext[1] = 0x456;
++            a.delay_pending = b.delay_pending = mode == 3;
++            a.delay_target = b.delay_target = 0x200;
++            wremu_fetch_restart = false;
++            step_pair(&a, &b, &ab, &bb);
++        }
++    }
++    /* Run actual sequences through cached blocks, including code replacement,
++     * mapping changes, prefix IRQ deferral, and delayed branches. */
++    memset(&ab, 0, sizeof ab);
++    const uint16_t code[] = {0xc001,0x6010,0x2210,0x1902,0x6011,0x0000,0x18fa};
++    for (unsigned i = 0; i < sizeof code / sizeof *code; i++)
++        write_bus(&ab, 0x100 + i * 2, 2, code[i]);
++    for (unsigned i = 0; i < 64; i++) write_bus(&ab, 0x400+i*4, 4, 0x100);
++    bb = ab;
++    setup(&a, &ab, NULL); setup(&b, &bb, cache);
++    for (unsigned i = 0; i < 32768; i++) {
++        if (!(i & 63)) {
++            a.pc = b.pc = 0x100;
++            a.sleeping = b.sleeping = false;
++            a.halted = b.halted = false;
++            a.n_ext = b.n_ext = 0;
++            a.delay_pending = b.delay_pending = false;
++        }
++        if (!(i & 127)) ab.replace = bb.replace = true;
++        if (!(i & 255)) {
++            ab.offset = bb.offset = ab.offset ? 0 : 32;
++            ab.epoch++; bb.epoch++;
++        }
++        if (!(i & 511)) {
++            c33_raise_irq(&a, 19, 7); c33_raise_irq(&b, 19, 7);
++            a.sr[SR_PSR] |= PSR_IE; b.sr[SR_PSR] |= PSR_IE;
++        }
++        step_pair(&a, &b, &ab, &bb);
++    }
++    c33_reset(&b, 0x100);
++    if (b.blocks != cache || cache->current || cache->slot[0].count) abort();
++    free(cache);
++    printf("C33 decoded blocks: %u differential instruction checks passed\n", checks);
++    return 0;
++}
+diff --git a/emulator/Makefile b/emulator/Makefile
+--- a/emulator/Makefile
++++ b/emulator/Makefile
+@@ -85,6 +85,11 @@
+ test-itc-select: tools/test_itc_select.c src/itc.o src/mem.o src/model.o
+ 	$(CC) $(TEST_CFLAGS) -o /tmp/test_itc_select $^
+ 	/tmp/test_itc_select
++
++.PHONY: test-c33-blocks
++test-c33-blocks: tools/test_c33_blocks.c src/c33.o src/model.o
++	$(CC) $(TEST_CFLAGS) -o /tmp/test_c33_blocks $^
++	/tmp/test_c33_blocks
+ 
+ # Core instruction semantics not exercised by the firmware images.
+ test-isa: tools/test_isa.c src/c33.o src/model.o

@@ -333,6 +333,44 @@ verified by the full runtime and upstream workflows. The
 [measurements](tools/irq-speed-2026-10-03.json) include all trials, discarded
 variants, profiles, binaries and fixture identities.
 
+### Decoded-block experiments
+
+Two decoded-block prototypes were evaluated on 2026-10-03. They cache up to
+16 instructions per sequence in 128 slots. Every instruction still performs
+its timed fetch and validates the fetched word before using cached operands,
+so CPU stores, DMA writes, alias changes and reset cannot execute stale code.
+MMIO is never fetched speculatively, and device polls still occur at every
+instruction boundary. The second version additionally caches fixed cycle
+costs and selects common word-load handlers directly; model-dependent and
+prefix-dependent timing remains dynamic.
+
+Both versions preserve the runtime benchmark's full guest results, but their
+cache and dispatch overhead exceeds the decoding savings on that workload.
+These results concern decoded sequences with the current instruction-boundary
+polling; they do not evaluate a block runner that amortizes device polling or
+an ARM64 JIT.
+
+The first runtime comparison is 7.506 -> 7.806 seconds (0.96x), and the
+second is 7.481 -> 7.882 seconds (0.95x), each across three alternating trials
+per binary against the interrupt selector with unconditional candidate
+packing. Both use independently trained PGO with blocks enabled during
+training. The first variant's single upstream batches are about 5% slower
+for BusyBox and 3% faster for uClibc, with identical fixtures/verdicts/assertions;
+these do not establish a consistent gain. See the
+[complete measurements](tools/blocks-speed-2026-10-03.json).
+
+The [first prototype and differential test](tools/experiments/decoded-blocks-2026-10-03.patch)
+and [second variant](tools/experiments/decoded-blocks-costs-2026-10-03.patch)
+are retained as experimental patches. The second patch applies after the first. Apply it in a separate checkout with
+`git apply`, build with `make -C emulator`, and run
+`make -C emulator test-c33-blocks`. Set `WREMU_DECODE_BLOCKS=1` for full-system
+runs through FLASH, Grifo and the launcher. PGO training must also enable the
+cache, and must use a fresh profile. The differential test compares every
+16-bit encoding with zero, one or two prefixes and a delay slot, plus
+sequences with code replacement, mapping changes and interrupts: 294,912
+instruction comparisons. Model timing settings vary between checks to catch
+stale cached costs.
+
 ## Run
 
 Every run boots the way the device does: mask ROM, MBR, the boot loader in
