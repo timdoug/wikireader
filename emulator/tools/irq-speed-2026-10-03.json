@@ -1,0 +1,654 @@
+{
+  "date": "2026-10-03",
+  "baseline_source_revision": "007b96d6a204e9c66678e7bcf328fc0ef91ffa3d",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "build_flags": "-O2 -g -flto; PGO builds independently trained on the same 600-million-cycle FLASH/Grifo/launcher/Linux boot.",
+  "runtime_fixture_sha256": {
+    "flash.rom": "917075cca07d121638bbcfa2f8466e4f00d8a0af984bf61b6619b957ad0df003",
+    "card.img": "ee1c6adfe448bbb2274983e2d94a196a8571c5a8ddbb03eaba4b86d13cc0cbcb",
+    "uart.in": "385efe91a81910aa5df2638e9f2f85082e1579ddffcb9fc198905c2ab7a6923b"
+  },
+  "runtime_components_sha256": {
+    "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+    "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+    "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+    "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+    "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+    "bench.bin": "4a25706029f0cc2fc97eff796793fbb2b017025712526a87ea3be491f5e4d5cf",
+    "init.ini": "896c94d390b4ebacc1839e444bd07b02f7b4e7c978f55fc3560dba9f931cf300"
+  },
+  "runtime_parameters": {
+    "cycle_budget": 4000000000,
+    "touch": "40,36,100000000",
+    "uart_start": 850000000,
+    "uart_gap": 200000,
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "writable_card": true,
+    "allow_reset": true,
+    "required_guest_markers": [
+      "BENCH PASS",
+      "watchdog reset"
+    ]
+  },
+  "training_parameters": {
+    "cycle_budget": 600000000,
+    "touch": "40,36,100000000",
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "uart_input": false,
+    "fresh_writable_card_per_build": true,
+    "runtime_commands_and_upstream_cases_excluded": true
+  },
+  "timing_method": "Alternating before/after trials of immutable binaries; fresh writable card clone per trial; clone/hash outside wall timing; compilation and other emulator comparisons serialized.",
+  "candidate_change": "Reject empty masked flag/enable groups before building a 24-bit enabled-pending bitmap; visit only active sources in fixed priority order, directly extract priority, and stop at level 7. No persistent arbitration cache.",
+  "candidate_source_sha256": {
+    "emulator/src/itc.c": "3043095b97424ab4ccf42e54ffa801748a5e8f294cef0a2152b89552d25b5cd5",
+    "emulator/tools/test_itc_select.c": "52130c89e57946660add9e19f042c8f96b3241ec29a4835525a41d46da61c15f"
+  },
+  "binary_sha256": {
+    "before_pgo": "c28a7e7b759f9cdb531398073f84789e615004210790b6f043cd590640bb9cee",
+    "after_pgo": "6c2d00c109e3561aa07a069f0fe9bcebb9c0e8bc426278e7758bb98bbf6f7a30",
+    "before_lto": "aa4723f1abf8ad8ba06a2cd1d2bb78427fc4f13366a9e338be4d2c35b916876d",
+    "after_lto": "a44d8b709ec140737ccc19885f27c3567dfb518dfe019b20a5af9052a1b792c0"
+  },
+  "profile_sha256": {
+    "before": "3d4e3925cc9f19d1effcf12b4594538e980feb2f218780eb81d73ff1a8be7ec9",
+    "after": "caf66995fef252e50fe9efa1c8b0888e25563f4ce9486f58d520484a0fb4a3d1"
+  },
+  "runtime_matched_pgo": {
+    "host_seconds": {
+      "before": [
+        10.523919750005007,
+        10.739444790990092,
+        10.706424333999166,
+        10.786995709000621,
+        10.923339917004341
+      ],
+      "after": [
+        9.130791540985228,
+        9.271291333978297,
+        9.325892166001722,
+        9.298841957992408,
+        9.707178749988088
+      ]
+    },
+    "median_seconds": {
+      "before": 10.739444790990092,
+      "after": 9.298841957992408
+    },
+    "speedup": 1.1549228215196707,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "runtime_lto": {
+    "host_seconds": {
+      "before": [
+        17.206657208007528,
+        16.928125749982428,
+        17.36019337500329
+      ],
+      "after": [
+        15.005631499981973,
+        14.90112229200895,
+        15.61973908302025
+      ]
+    },
+    "median_seconds": {
+      "before": 17.206657208007528,
+      "after": 15.005631499981973
+    },
+    "speedup": 1.1466799786485626,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "exploratory_packed_candidate": {
+    "source_sha256": "4387890a82f1b18343b299bf36112e316d79f8ae62110241f427d420d7ca7268",
+    "binary_sha256": "da174884cd9daab105b2b0ab4e71570709105ab8d0404380058f5451663f64aa",
+    "profile_sha256": "655beee27dc561074feed9335bf9733b910bda4134440da41aa1c7b56081b98e",
+    "runtime_first": {
+      "host_seconds": {
+        "before": [
+          12.605101166001987,
+          8.679559958021855,
+          8.660207540990086
+        ],
+        "after": [
+          8.379689583991421,
+          7.503477041987935,
+          7.524724499991862
+        ]
+      },
+      "median_seconds": {
+        "before": 8.679559958021855,
+        "after": 7.524724499991862
+      },
+      "speedup": 1.1534721248640056,
+      "identical_guest_work_output_pixels": true,
+      "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+      "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+    },
+    "runtime_matched_pgo": {
+      "host_seconds": {
+        "before": [
+          9.160571165994043,
+          9.485040250001475,
+          9.50478554199799,
+          9.589652750000823,
+          9.600985625002068
+        ],
+        "after": [
+          10.574953415984055,
+          8.080235542001901,
+          8.566704833006952,
+          8.423341083020205,
+          8.457981209008722
+        ]
+      },
+      "median_seconds": {
+        "before": 9.50478554199799,
+        "after": 8.457981209008722
+      },
+      "speedup": 1.1237652705913204,
+      "identical_guest_work_output_pixels": true,
+      "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+      "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+    },
+    "runtime_lto": {
+      "host_seconds": {
+        "before": [
+          17.7871165839897,
+          15.338269208004931,
+          15.63213229100802
+        ],
+        "after": [
+          14.29469395900378,
+          13.366858958994271,
+          14.44409716699738
+        ]
+      },
+      "median_seconds": {
+        "before": 15.63213229100802,
+        "after": 14.29469395900378
+      },
+      "speedup": 1.0935618723870495,
+      "identical_guest_work_output_pixels": true,
+      "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+      "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+    },
+    "upstream_matched_pgo": {
+      "busybox": {
+        "before": {
+          "host_seconds": 68.10882683400996,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "host_phases_seconds": {
+            "fixture": 0.35187495799618773,
+            "emulator": 67.73792508299812,
+            "boot_to_first_case": 10.088471333001507,
+            "cases_to_done": 56.64145604200894,
+            "done_to_launcher": 1.0079977079876699,
+            "total": 68.10653491600533
+          }
+        },
+        "after": {
+          "host_seconds": 68.98458862499683,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "host_phases_seconds": {
+            "fixture": 0.23242699998081662,
+            "emulator": 68.73500616700039,
+            "boot_to_first_case": 10.620464292005636,
+            "cases_to_done": 57.593787207995774,
+            "done_to_launcher": 0.5013432920095511,
+            "total": 68.98279799998272
+          }
+        }
+      },
+      "uclibc": {
+        "after": {
+          "host_seconds": 33.611258500022814,
+          "counts": {
+            "PASS": 4
+          },
+          "host_phases_seconds": {
+            "fixture": 0.1836050419951789,
+            "emulator": 33.41152145797969,
+            "boot_to_first_case": 7.598215707985219,
+            "cases_to_done": 24.803008999995654,
+            "done_to_launcher": 1.0102967499988154,
+            "total": 33.60918674999266
+          }
+        },
+        "before": {
+          "host_seconds": 32.05757174998871,
+          "counts": {
+            "PASS": 4
+          },
+          "host_phases_seconds": {
+            "fixture": 0.18586575001245365,
+            "emulator": 31.855045625008643,
+            "boot_to_first_case": 7.597674499993445,
+            "cases_to_done": 23.24318679200951,
+            "done_to_launcher": 1.0141843330056872,
+            "total": 32.05565533300978
+          }
+        }
+      }
+    },
+    "decision": "Packing candidates unconditionally helps the runtime workload but costs work in the common empty-interrupt case. Restore the original empty-group rejection before packing."
+  },
+  "rejected_winner_cache": {
+    "description": "Compare the live pending bitmap and ten priority-register bytes with the previous selection before reusing the winning source. Includes direct DMA/register edits and no CPU acceptance cache.",
+    "comparison_baseline": "active-source scan with unconditional candidate packing",
+    "runtime_matched_pgo": {
+      "host_seconds": {
+        "before": [
+          7.464325540990103,
+          7.466166083002463,
+          7.420706083998084
+        ],
+        "after": [
+          8.24872149998555,
+          7.457195916009368,
+          7.413766040990595
+        ]
+      },
+      "median_seconds": {
+        "before": 7.464325540990103,
+        "after": 7.457195916009368
+      },
+      "speedup": 1.0009560731756328,
+      "identical_guest_work_output_pixels": true,
+      "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+      "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+    },
+    "binary_sha256": "3a113b8eaf3de6c5cd650d4c48111ae319f0663f8779eb5fc1283a3bc01c765c",
+    "profile_sha256": "fc7cd3f46daa20f3f6c3029431994e1d1bf16426326031d26ff7c568a772c526",
+    "differential_selection_checks": 1704960,
+    "decision": "No meaningful gain; retain the simpler scan."
+  },
+  "upstream_matched_pgo": {
+    "busybox": {
+      "runs_per_build": 2,
+      "jobs": 1,
+      "batch_size": 8,
+      "before": {
+        "host_seconds": 79.2703319999855,
+        "counts": {
+          "PASS": 3,
+          "PARTIAL_PASS": 1
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "applets/basename",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 2
+            }
+          },
+          {
+            "name": "applets/dirname",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 7
+            }
+          },
+          {
+            "name": "applets/echo",
+            "exit_status": 0,
+            "status": "PARTIAL_PASS",
+            "assertions": {
+              "PASS": 4,
+              "UNTESTED": 7
+            }
+          },
+          {
+            "name": "applets/printf",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 24
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.34219820899306796,
+          "emulator": 78.90542974998243,
+          "boot_to_first_case": 10.584645625000121,
+          "cases_to_done": 67.30808295798488,
+          "done_to_launcher": 1.0127011669974308,
+          "total": 79.26650541697745
+        }
+      },
+      "after": {
+        "host_seconds": 87.40573441699962,
+        "counts": {
+          "PASS": 3,
+          "PARTIAL_PASS": 1
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "applets/basename",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 2
+            }
+          },
+          {
+            "name": "applets/dirname",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 7
+            }
+          },
+          {
+            "name": "applets/echo",
+            "exit_status": 0,
+            "status": "PARTIAL_PASS",
+            "assertions": {
+              "PASS": 4,
+              "UNTESTED": 7
+            }
+          },
+          {
+            "name": "applets/printf",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 24
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.3764057500229683,
+          "emulator": 87.01052258297568,
+          "boot_to_first_case": 12.649502707994543,
+          "cases_to_done": 73.35464954198687,
+          "done_to_launcher": 1.0063703329942655,
+          "total": 87.40320100000827
+        }
+      },
+      "speedup": 0.958211524294996,
+      "identical_verdicts_assertions": true,
+      "fixture_identity": {
+        "before": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 376,
+          "full_busybox_fixture": false
+        },
+        "after": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 376,
+          "full_busybox_fixture": false
+        }
+      },
+      "reverse_order_repeat": {
+        "before": {
+          "host_seconds": 63.294997416989645,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "clean_trials": true,
+          "host_phases_seconds": {
+            "fixture": 0.1851037080050446,
+            "emulator": 63.09466508298647,
+            "boot_to_first_case": 9.581789041985758,
+            "cases_to_done": 52.49229083300452,
+            "done_to_launcher": 1.0205852079961915,
+            "total": 63.29347699999926
+          }
+        },
+        "after": {
+          "host_seconds": 61.37699862502632,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "clean_trials": true,
+          "host_phases_seconds": {
+            "fixture": 0.2378772500087507,
+            "emulator": 61.12445599999046,
+            "boot_to_first_case": 9.111899582989281,
+            "cases_to_done": 51.50318541700835,
+            "done_to_launcher": 0.5093709999928251,
+            "total": 61.375292332988465
+          }
+        }
+      },
+      "host_seconds": {
+        "before": [
+          79.2703319999855,
+          63.294997416989645
+        ],
+        "after": [
+          87.40573441699962,
+          61.37699862502632
+        ]
+      },
+      "median_seconds": {
+        "before": 71.28266470848757,
+        "after": 74.39136652101297
+      },
+      "qualification": "Large host-time variation: first pair slower, opposite-order pair faster. No repeatable upstream speedup established."
+    },
+    "uclibc": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "before": {
+        "host_seconds": 31.060478250001324,
+        "counts": {
+          "PASS": 4
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "args/arg_test",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "ctype/ctype",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tester",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tst-strlen",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.17560266601503827,
+          "emulator": 30.87089841699344,
+          "boot_to_first_case": 7.106597000005422,
+          "cases_to_done": 22.751750666997395,
+          "done_to_launcher": 1.0125507499906234,
+          "total": 31.058961500006262
+        }
+      },
+      "after": {
+        "host_seconds": 31.742232624994358,
+        "counts": {
+          "PASS": 4
+        },
+        "clean_trials": true,
+        "results": [
+          {
+            "name": "args/arg_test",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "ctype/ctype",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tester",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          },
+          {
+            "name": "string/tst-strlen",
+            "exit_status": 0,
+            "status": "PASS",
+            "assertions": {
+              "PASS": 1
+            }
+          }
+        ],
+        "host_phases_seconds": {
+          "fixture": 0.3141339580179192,
+          "emulator": 31.412072917009937,
+          "boot_to_first_case": 7.097341458982555,
+          "cases_to_done": 23.8100242500077,
+          "done_to_launcher": 0.5047072080196813,
+          "total": 31.740532750001876
+        }
+      },
+      "speedup": 0.9785221668857593,
+      "identical_verdicts_assertions": true,
+      "fixture_identity": {
+        "before": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+            "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+            "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+            "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+            "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+            "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 44,
+          "full_busybox_fixture": false
+        },
+        "after": {
+          "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+          "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+          "fixture_components_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+            "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+            "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+            "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+            "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+            "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          },
+          "staged_archive_members": 44,
+          "full_busybox_fixture": false
+        }
+      },
+      "qualification": "One pair; about 2% slower, no meaningful demonstrated gain."
+    }
+  },
+  "validation": {
+    "itc_selection_differential_checks": 1704960,
+    "native_models": "passed",
+    "sd_dma_driver_cases": 122,
+    "full_runtime_console_work_pixels_card": "identical",
+    "skips": [
+      "binutils reference captures absent",
+      "GUI DMA local fixture absent",
+      "GUI boot local fixture absent",
+      "bare watchdog fixture intentionally skipped to preserve Grifo boot policy"
+    ],
+    "watchdog_reset": "Verified through full runtime and upstream launcher paths."
+  },
+  "training_validation": {
+    "identical_console_work_pixels": true,
+    "identical_unmodified_function_profile_counts": {
+      "c33_step": "8741a9265f2f8a10d82ab4be720ee27bffedf87a18058c1f7705ac3611bd71b6",
+      "timer_poll": "8ff024def7d5feae0c0240ac0ff8bc1c355db48ad5691a452167021049b39119",
+      "sdramc_fetch_wait": "eeb27e7fb325c11596e76f167f7f63b211f404afff5ccc6263bd05a42c8b53f9"
+    }
+  }
+}

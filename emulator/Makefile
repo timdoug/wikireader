@@ -81,6 +81,11 @@ test-irq: tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
 	/tmp/test_irq
 
+.PHONY: test-itc-select
+test-itc-select: tools/test_itc_select.c src/itc.o src/mem.o src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_itc_select $^
+	/tmp/test_itc_select
+
 # Core instruction semantics not exercised by the firmware images.
 test-isa: tools/test_isa.c src/c33.o src/model.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_isa tools/test_isa.c src/c33.o src/model.o
@@ -284,7 +289,7 @@ test-sleigh:
 	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
-check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
+check: test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp

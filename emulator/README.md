@@ -294,6 +294,45 @@ Both `SD_DMA_TX=IDMA` and the default `HSDMA` configuration are tested,
 including one-word payloads and stopping TX with a word queued behind the
 shift register. There are 122 C33 cases across the four configurations.
 
+### Interrupt selection
+
+Interrupt arbitration builds a bitmap of enabled, pending sources and visits
+only those bits, in the manual's fixed priority order. Priority zero remains
+masked; the first vector wins ties; a level-seven winner ends the scan.
+Selection reads the live register file on every call, preserving MMIO writes,
+reset and flags written directly by DMA. CPU interrupt acceptance, prefix
+and delay-slot protection, and HALT wake behavior retain their existing rules.
+
+`make test-itc-select test-irq` checks selection against the original
+per-vector rules, including all flag/enable byte combinations in each group,
+mixed priorities, direct flag changes, MMIO and reset. The selection test
+performs 1,704,960 comparisons; the CPU tests cover IL, IE, NMI, delayed
+branches, prefix sequences and masked HALT wake-up.
+
+On the local Apple Silicon host with Clang 21, the full FLASH -> Grifo ->
+launcher -> Linux mutex/spawn/exec/wait/reboot benchmark preserves its console,
+counters, pixels and final writable card contents:
+
+| Build | Alternating trials per binary | Before | After | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| Independently trained PGO | 5 | 10.739 s | 9.299 s | 1.15x |
+| Ordinary LTO | 3 | 17.207 s | 15.006 s | 1.15x |
+
+Selected upstream batches preserve fixtures, verdicts, assertions and return
+to the Grifo launcher, but do not establish a repeatable test-batch speedup.
+BusyBox's two opposite-order pairs range from 10% slower to 3% faster, with
+large absolute host-time variation; uClibc's single pair is about 2% slower.
+These selected cases are not a complete inventory qualification.
+
+A winner-cache prototype adds no meaningful runtime gain. The adopted
+selector retains the original cheap empty-group rejection before packing
+active candidates. All available native models and 122 Grifo-path SD DMA
+driver cases pass; local decode/GUI fixtures are absent, and the bare watchdog
+fixture is deliberately skipped under the Grifo boot policy. Reboots are
+verified by the full runtime and upstream workflows. The
+[measurements](tools/irq-speed-2026-10-03.json) include all trials, discarded
+variants, profiles, binaries and fixture identities.
+
 ## Run
 
 Every run boots the way the device does: mask ROM, MBR, the boot loader in

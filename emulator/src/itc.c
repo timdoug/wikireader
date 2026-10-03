@@ -166,69 +166,63 @@ bool itc_enabled(const struct itc *t, unsigned vector)
 	}
 }
 
-static bool itc_flagged(const struct itc *t, unsigned vector)
+/* Compress the two cause bits per timer into adjacent candidate bits. */
+static unsigned timer_candidates(unsigned causes)
 {
-	if (vector >= 22 && vector <= 25)
-		return (t->reg[FDMA] & (1u << (vector - 22))) != 0;
-	if (vector >= 30 && vector <= 51 &&
-	    ((vector - 30) % 4u) < 2u) {
-		unsigned channel = (vector - 30) / 4u;
-		unsigned is_a = (vector - 30) & 1u;
-		static const uint8_t freg[] = { F16T01, F16T23, F16T45 };
-		return (t->reg[freg[channel / 2]] &
-			(1u << (2u + 4u * (channel & 1u) + is_a))) != 0;
-	}
-	switch (vector) {
-	case 19: return (t->reg[FK01_FP03] & (1u << 3)) != 0;
-	case 20: return (t->reg[FK01_FP03] & (1u << 4)) != 0;
-	case 56: return (t->reg[FSIF01] & (1u << 0)) != 0;
-	case 57: return (t->reg[FSIF01] & (1u << 1)) != 0;
-	case 58: return (t->reg[FSIF01] & (1u << 2)) != 0;
-	case 60: return (t->reg[FSIF01] & (1u << 3)) != 0;
-	case 61: return (t->reg[FSIF01] & (1u << 4)) != 0;
-	case 62: return (t->reg[FSIF01] & (1u << 5)) != 0;
-	default: return false;
-	}
+	return ((causes >> 2) & 3u) | ((causes >> 4) & 12u);
 }
 
 bool itc_next_irq(const struct itc *t, unsigned *vector, unsigned *priority)
 {
-	/* Most instructions have no enabled cause pending. Reject that case
-	 * using the six flag/enable groups before walking individual vectors.
-	 * Read the registers directly so MMIO writes, reasserted level sources,
-	 * and reset take effect immediately without a cached arbitration result. */
-	if (!((t->reg[FK01_FP03] & t->reg[EK01_EP03] & 0x18u) |
-	      (t->reg[FDMA] & t->reg[EDMA] & 0x0fu) |
-	      (t->reg[F16T01] & t->reg[E16T01] & 0xccu) |
-	      (t->reg[F16T23] & t->reg[E16T23] & 0xccu) |
-	      (t->reg[F16T45] & t->reg[E16T45] & 0xccu) |
-	      (t->reg[FSIF01] & t->reg[ESIF01] & 0x3fu)))
+	/* Candidate bits follow Table III.2.1.1.1's fixed priority order.
+	 * Read live registers, including flags set directly by DMA. */
+	unsigned port = t->reg[FK01_FP03] & t->reg[EK01_EP03] & 0x18u;
+	unsigned dma = t->reg[FDMA] & t->reg[EDMA] & 0x0fu;
+	unsigned timer01 = t->reg[F16T01] & t->reg[E16T01] & 0xccu;
+	unsigned timer23 = t->reg[F16T23] & t->reg[E16T23] & 0xccu;
+	unsigned timer45 = t->reg[F16T45] & t->reg[E16T45] & 0xccu;
+	unsigned serial = t->reg[FSIF01] & t->reg[ESIF01] & 0x3fu;
+	/* Empty groups are the common case in CPU-bound tests. Reject them
+	 * before paying to pack candidate bits; retain the original fast path. */
+	if (!(port | dma | timer01 | timer23 | timer45 | serial))
 		return false;
-
-	/* Table III.2.1.1.1 is ordered from highest to lowest fixed priority.
-	 * Keeping the first vector on a tie implements that documented order. */
+	uint32_t pending = (port >> 3) | (dma << 2) |
+		(timer_candidates(timer01) << 6) |
+		(timer_candidates(timer23) << 10) |
+		(timer_candidates(timer45) << 14) | (serial << 18);
 	static const uint8_t vectors[] = {
 		19, 20, 22, 23, 24, 25,
 		30, 31, 34, 35, 38, 39, 42, 43, 46, 47, 50, 51,
 		56, 57, 58, 60, 61, 62
 	};
-	bool found = false;
+	static const uint8_t preg[] = {
+		PP23L, PK01L, PHSD01L, PHSD01L, PHSD23L, PHSD23L,
+		P16T01, P16T01, P16T01, P16T01,
+		P16T23, P16T23, P16T23, P16T23,
+		P16T45, P16T45, P16T45, P16T45,
+		PLCDC_PSI00, PLCDC_PSI00, PLCDC_PSI00,
+		PSI01_PAD, PSI01_PAD, PSI01_PAD
+	};
+	static const uint8_t shift[] = {
+		4, 0, 0, 4, 0, 4,
+		0, 0, 4, 4, 0, 0, 4, 4, 0, 0, 4, 4,
+		4, 4, 4, 0, 0, 0
+	};
 	unsigned best = 0;
-
-	for (unsigned i = 0; i < sizeof vectors / sizeof vectors[0]; i++) {
-		unsigned v = vectors[i];
-		unsigned p;
-		if (!itc_flagged(t, v) || !itc_enabled(t, v))
-			continue;
-		p = itc_priority(t, v);
-		if (p == 0 || (found && p <= best))
-			continue;
-		found = true;
-		best = p;
-		*vector = v;
-		*priority = p;
+	while (pending) {
+		unsigned i = (unsigned)__builtin_ctz(pending);
+		pending &= pending - 1;
+		unsigned p = (t->reg[preg[i]] >> shift[i]) & 7u;
+		if (p > best) {
+			best = p;
+			*vector = vectors[i];
+			*priority = p;
+			/* No later candidate can beat level 7 or its tie order. */
+			if (p == 7)
+				break;
+		}
 	}
-	return found;
+	return best != 0;
 }
 
 void itc_set_flag(struct itc *t, unsigned vector)
