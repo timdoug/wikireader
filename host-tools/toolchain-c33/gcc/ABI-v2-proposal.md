@@ -823,6 +823,9 @@ these experiments separate from the initial ABI comparison.
 Keep a register-return-address leaf convention available as a separate
 private experiment. The local manual, section 5.14.2, explicitly demonstrates:
 
+The device reads the PC this way correctly after every delayed branch
+(`emulator/tools/pc_read_test`, 2026-10-02):
+
 ```text
 jp.d leaf
 ld.w %r8,%pc        ; delay slot captures the continuation

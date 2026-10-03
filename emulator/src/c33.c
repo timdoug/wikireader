@@ -1025,10 +1025,12 @@ void c33_step(struct c33 *c)
 			/* ld.w %rN,%sreg  (0xa4N0): index is bits 7:4 */
 			uint32_t value;
 			/* PE manual 5.14.2 and ld.w's caution require a delay
-			 * slot for a PC read. The 2026-09-26 silicon probe used
-			 * ordinary reads, which returned stale values; keep those
-			 * rejected. In a slot, read its following address before
-			 * the pending branch replaces PC with the target. */
+			 * slot for a PC read. On silicon a read in a slot gives
+			 * its following address after every delayed branch, and
+			 * an ordinary read the previous instruction's result
+			 * (tools/pc_read_test), so ordinary reads are rejected.
+			 * In a slot, read its following address before the
+			 * pending branch replaces PC with the target. */
 			if (((insn >> 4) & 0xf) == SR_PC) {
 				if (was_delayed)
 					c->r[a] = at + 2;

@@ -942,11 +942,14 @@ reset establishes TTBR `0x00c00000`, a PE IDIR type byte of `0x06`, and DBBR
 `0x00060000`.
 
 `ld.w %rd,%pc` reads the address following the delay-slot instruction,
-as required by the PE manual's sections 5.14.2 and 7 (page 119). Reads
-outside a delay slot remain rejected: the September 26 hardware probe
-tested that form and found stale values. It did not test the documented
-delayed form. The delayed form is checked against the manual and upstream
-GCC nested-function tests; direct silicon confirmation remains outstanding.
+as required by the PE manual's sections 5.14.2 and 7 (page 119), and as
+the device does: [`tools/pc_read_test`](tools/pc_read_test/README.md) read
+it in the slot of `jp.d` (to the next instruction, further on, and through
+a register), `jrne.d` taken and not, `call.d` and `ret.d`, from SDRAM and
+A0 RAM, 126,000 times without a miss, and a GCC nested-function trampoline
+returned the right answer 700 times in 700. A read outside a delay slot
+returns whatever the previous instruction left behind, never the PC, so
+wremu rejects one.
 
 The generated decoder contains the union of Standard, Advanced, and PE
 binutils tables. A separate PE-valid bitmap rejects the nine Standard

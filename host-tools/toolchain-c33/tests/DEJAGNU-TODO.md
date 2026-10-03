@@ -82,17 +82,22 @@ calling convention and upstream tests are unchanged. The focused run covers
 `20000822-1.c` and every `nestfunc-*.c`: **87 PASS / 29 FAIL before**,
 **116 PASS / zero FAIL after**, including the standard optimization/LTO
 variants. The preserved pre-change compiler also has **116 PASS** with the
-corrected emulator. Direct silicon confirmation of the delayed form remains
-outstanding; the earlier probe cannot establish its behavior.
+corrected emulator. The device confirms the delayed form
+(`emulator/tools/pc_read_test`, 2026-10-02): a read in the slot of every
+delayed branch gives the slot's following address, 126,000 reads without a
+miss, and a GCC trampoline on the stack returns the right value 700 times
+in 700, while a read outside a slot gives the previous instruction's
+result.
 
 ISA, exception, interrupt and UART checks pass. Serial-0 test fixtures were
 corrected separately to initialize `PLCDC_PSI00`, matching the register
 definitions and Grifo. Linux application, reboot and live-thread TLS suspend
 checks pass through FLASH -> Grifo -> launcher with the fixed-range kernel
-and poll-corrected rootfs. The broader `make -C emulator check` still fails
-the existing `test_dma.c:225` timing assertion; the same assertion fails when
-linked with the preserved pre-change CPU executor. It is separate from the
-PC-read correction.
+and poll-corrected rootfs. `make -C emulator check` passes: its
+`test_dma.c:225` timing assertion, which failed independently of the
+PC-read correction, was checking the synchronous DMA model against an
+emulator running the asynchronous one, and since 21d6b252 those checks run
+on the model they were written for.
 
 Focused and full-run logs, source selections and hashes are retained in
 `../work/trampoline-pc/`. The complete execute source set is partitioned into
