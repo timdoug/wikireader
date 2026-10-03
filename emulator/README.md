@@ -27,10 +27,12 @@ values for them. Four separate bugs have come from that gap: a guest clock
 developed.
 
 `--bare-elf IMAGE` still runs an ELF with no boot. **It is only for the
-toolchain test suites** -- `tests/dejagnu`, `tests/abi` and
-`doom/tests/c33_math_test.py` -- which run compiler output rather than
-firmware and have no loader to go through. Nothing that runs on a
-WikiReader may use it, for development or for measurement.
+toolchain test suites** -- `tests/dejagnu`, `tests/abi`, tinycc's ABI test,
+`doom/tests/c33_math_test.py`, the instruction difftest, NuttX's string
+test and the watchdog test's few hand-written instructions -- which run
+compiler output rather than firmware and have no loader to go through.
+Nothing that runs on a WikiReader may use it, for development or for
+measurement.
 
 Build the firmware with the [modern C33 toolchain](../host-tools/toolchain-c33/README.md).
 See the [ZIM reader guide](../zim/README.md) for archive and card setup.
@@ -111,30 +113,29 @@ native-versus-C33 execution comparison; see
 [`difftest/README.md`](difftest/README.md).
 
 `make test-sd-dma-driver` additionally compiles the production SD receive
-backend as C33 code and runs both `SD_DMA_BITS=8` and `32`. It covers alignment,
-byte order, CRC boundaries, partial-transfer recovery, overflow, profiling,
-busy-register access, and GPIO/interrupt restoration. It requires the project
-C33 toolchain (or `TOOLCHAIN_BIN=/path/to/bin`) and creates a temporary 512-byte
-card image; it does not access attached cards or archives.
+backend into a Grifo application, boots it through the FLASH and Grifo, and
+runs both `SD_DMA_BITS=8` and `32`. It covers alignment, byte order, CRC
+boundaries, partial-transfer recovery, overflow, profiling, busy-register
+access, and GPIO/interrupt restoration. It requires the project C33
+toolchain (or `TOOLCHAIN_BIN=/path/to/bin`) and creates a temporary card
+image with a pattern sector before its partition; it does not access
+attached cards or archives.
 Both `SD_DMA_TX=IDMA` and the default `HSDMA` configuration are tested,
 including one-word payloads and stopping TX with a word queued behind the
 shift register. There are 122 C33 cases across the four configurations.
 
 ## Run
 
-Direct kernel ELF boot is convenient for CPU and firmware debugging, but it
-skips the file-loader's peripheral handoff:
+Every run boots the way the device does: mask ROM, MBR, the boot loader in
+FLASH, `kernel.elf` (Grifo) off the card, `init.app`, then the application
+`init.ini` names. A direct ELF boot runs at the 48 MHz reset clock instead
+of Grifo's 60, clocks the card at 12 MHz instead of 15 and skips Grifo's
+hardware setup, so wremu refuses one unless `--bare-elf` says it is
+compiler output for the toolchain suites. `make-flash.py` builds the FLASH:
 
 ```sh
-./wremu -c images/wrcard.img images/grifo.elf
-```
-
-Use the serial-FLASH boot chain for the live panel. It performs the real LCD
-controller initialization before loading the kernel:
-
-```sh
-./wremu -g -N 3,1000000 -e ../samo-lib/mbr/flash.rom \
-    -c images/wrcard.img
+rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
+./wremu -g -N 3,1000000 -e /tmp/flash.rom -c images/wrcard.img
 ```
 
 With a window, the device initially appears powered off. Press `P` or click
@@ -164,7 +165,7 @@ data.
 | `-e FILE` | Attach serial FLASH and use the hardware boot path. |
 | `-n N` | Stop after `N` target cycles/instructions; the GUI defaults to unlimited. |
 | `-s` | Trace grifo syscalls with call sites and return values. |
-| `-K cycle,TEXT` | Type text on the on-screen keyboard. |
+| `-K cycle,TEXT` | Type text on the on-screen keyboard: the reader's (wiki.app, zim.app), or with `--keyboard linux` the Linux console's. |
 | `-T x,y,cycle` | Tap a pixel; repeatable, up to eight. |
 | `-G x,y0,y1,cycle` | Drag vertically; repeatable, up to eight. |
 | `-N code,cycle` | Press random/search/history/power (`0`-`3`); repeatable, up to eight. |
@@ -257,15 +258,14 @@ ZIM reader article load, Simple English `Cat`, retrieval to render entry,
 run from the repository root with a card from `zim/make-card-image`:
 
 ```sh
-./emulator/wremu -R -c /tmp/card.dmg samo-lib/grifo/grifo.elf \
+rm -f /tmp/flash.rom && python3 samo-lib/mbr/make-flash.py /tmp/flash.rom
+./emulator/wremu -R -e /tmp/flash.rom -c /tmp/card.dmg \
     -T 40,36,100000000 -K 300000000,CAT -T 30,40,500000000 \
     -Y 0x<retrieve_article>,0x<render_article_with_pcf> -F prof.txt -n 1200000000
 ```
 
 Use addresses from the matching `zim/zim.map`; they move with every build.
-Booting `grifo.elf` rather than `-e samo-lib/mbr/flash.rom` skips the
-file-loader's LCD initialization, which is over long before the window
-opens, and is what the benchmark harness does. The first tap picks the
+The first tap picks the
 reader on the launcher menu, so `-Z` cannot be used. Scripted tap release is
 delivered when the emulator next idles; a faster build can therefore render
 extra frames while the scripted touch remains held.

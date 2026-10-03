@@ -74,9 +74,9 @@ The runner uses the local C33 toolchain and small captured boot files in
 `build/wr128/hsdma-tx/hsdma-boot`, with the currently built
 `samo-lib/grifo/grifo.elf` kernel (its hash is recorded in each result).
 It constructs a roughly 65-MB sparse FAT
-fixture and executes the real file-loader, current tested kernel, launcher
-and benchmark. The harness supplies the loader's inherited stack; earlier
-FLASH stages are not modeled. Neither a ZIM nor an attached card is read.
+fixture and boots it the way the device does: mask ROM, MBR, the FLASH boot
+loader `samo-lib/mbr/make-flash.py` builds, the kernel, the launcher and the
+benchmark. Neither a ZIM nor an attached card is read.
 Builds, images, logs and JSON results go to `build/wr128/mem-dma`.
 
 ## Device results
@@ -122,26 +122,24 @@ were 485.8, 377.5 and 341.7 us respectively; different-bank times were 351.5,
 480.7 us, but has no equivalent CPU-pattern-fill control in this benchmark.
 It verifies the mode, not an advantage over a tuned CPU implementation.
 
-The zero-extra-overhead model got the main winners right, but timing errors
-depend on the path. It predicts 42.349/25.131 ms for the large same/different
-bank DMA copies: 11.9%/22.2% longer than hardware. Conversely, its A0 batch
-predictions are 5.6%/6.9% shorter than hardware. Its 5-KiB IVRAM DMA prediction
-is 9.3% short. The 512-KiB DMA fill and block-reset case agree within 0.3%.
-All percentages here use hardware time as the denominator.
+With `dma_mem_extra=0` the current model, booted through the FLASH, gets
+the main winners right but not the DMA copies. It predicts 50.878 ms for
+both large DMA copies: 34.5% longer than hardware's same-bank time and
+147.4% longer than its different-bank one. The model gives DMA one SDRAM
+row register (`row_ports`), so a DMA copy changes row on every access
+whatever the buffers' separation, and cannot express the device's far
+faster copy between buffers 4 MB apart. Its A0 batch predictions are
+34.071 ms for both, within 2.5% of hardware. Its 5-KiB IVRAM DMA prediction
+is 14.1% short, the 512-KiB DMA fill agrees within 0.4%, and the
+block-reset case is 20.1% long. All percentages here use hardware time as
+the denominator. No global timing calibration was changed to force a fit.
 
-For the large SDRAM copies, the model excess is about 2.1 MCLKs per word
-in both bank layouts. That suggests investigating shared read/turnaround
-timing or phase overlap; this experiment does not isolate the cause. Adding
-positive `dma_mem_extra` makes those predictions worse, and spoils the close
-fill result. No global timing calibration was changed to force a fit.
-
-The logged SDRAM configuration is `0x1353` on hardware and `0x1352` in the
-loader fixture (32 versus 16 MiB). The model uses the same 1-KiB row and
-4-MiB bank spacing for both settings, and all benchmark buffers fit below
-16 MiB at identical addresses. Refresh settings match after masking the
-read-only SELDO status bit: hardware `0x01ff0120`, model `0x03ff0120`.
-The model currently reports SELDO whenever self-refresh is enabled; that
-readback is a known approximation, not a different refresh interval.
+The device ran the benchmark under the Grifo of its day, which programmed
+the SDRAM controller `0x1353` with refresh `0x01ff0120`. Today's Grifo
+programs `0x1243` and `0x03ff01c0` (the SELDO status bit reads back set in
+wremu), the timings measured since, so the model figures above are not
+under the device's timings; comparing them needs the benchmark run on the
+hardware again.
 
 These results are what the reader's bulk-copy helper is built on: an A0 CPU
 batch for ordinary copies and DMA for large ones and for fills. They do not

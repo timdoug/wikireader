@@ -144,8 +144,15 @@ boot chain and the profiling caveats. Once you have them:
 
 ```sh
 cd emulator
-./wremu -c images/wrcard.img images/grifo.elf
+rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
+./wremu -e /tmp/flash.rom -c images/wrcard.img
 ```
+
+That boots the way the device does: mask ROM, MBR, the boot loader in
+FLASH, `kernel.elf` (Grifo) off the card, `init.app`, then the application
+`init.ini` names. Never boot an application or kernel any other way; wremu
+refuses a bare ELF unless `--bare-elf` says it is compiler output for the
+toolchain suites.
 
 `-R` resets and runs headless, `-n` caps cycles, `-s` traces syscalls, and
 `-K`/`-T`/`-N` script keys, taps and buttons.

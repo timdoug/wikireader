@@ -1,5 +1,15 @@
-/* Run the production receive backend as C33 code, including timeout recovery. */
+/* Run the production receive backend as a Grifo application, booted the way
+ * the device boots (MBR, FLASH loader, grifo, init.app), including timeout
+ * recovery.  It reads TEST_SECTOR, which the runner fills with a pattern in
+ * the card's reserved area, by CMD17 with the card's own driver idle. */
 #include "../../samo-lib/grifo/src/sd_dma.c"
+
+/* From the application API (grifo.h), whose names clash with the kernel's
+   own headers that sd_dma.c includes. */
+int debug_printf(const char *format, ...);
+void power_off(void) __attribute__((noreturn));
+
+#define TEST_SECTOR 1
 
 enum fault_kind {
     NO_FAULT,
@@ -10,11 +20,16 @@ enum fault_kind {
 };
 static enum fault_kind fault;
 static unsigned timer_calls, case_number, measure;
-volatile unsigned test_result[4];
+static unsigned test_result[4];
 static BYTE buffer[520] __attribute__((aligned(4)));
 
-void test_done(void) __attribute__((noinline, noreturn));
-void test_done(void) { for (;;) asm volatile ("nop"); }
+/* Report on the serial port, which the runner reads, and power off. */
+static void __attribute__((noreturn)) test_done(void)
+{
+    debug_printf("SD DMA DRIVER RESULT %x %u %u %u\n", test_result[0],
+                 test_result[1], test_result[2], test_result[3]);
+    power_off();
+}
 static void require(int condition, unsigned line)
 {
     if (!condition) {
@@ -45,29 +60,8 @@ unsigned long __attribute__((noinline)) Timer_get(void)
     return call * (fault ? DMA_TIMEOUT_TICKS + 1 : 60);
 }
 int Serial_printf(const char *fmt, ...) { (void)fmt; return 0; }
-int snprintf(char *s, size_t n, const char *fmt, ...)
-{
-    (void)fmt;
-    if (n) *s = 0;
-    return 0;
-}
 void mmc_set_spi_receive_dma(mmc_spi_receive_dma_fn fn) { (void)fn; }
 void mmc_set_spi_receive_stream(mmc_spi_receive_stream_fn fn) { (void)fn; }
-void *memcpy(void *dst, const void *src, size_t size)
-{
-    BYTE *d = dst;
-    const BYTE *s = src;
-
-    while (size--)
-        *d++ = *s++;
-    return dst;
-}
-void *memset(void *dst, int value, size_t size)
-{
-    BYTE *p = dst;
-    while (size--) *p++ = (BYTE)value;
-    return dst;
-}
 
 static BYTE exchange(BYTE out)
 {
@@ -95,8 +89,8 @@ static void begin_read(void)
     exchange(0xff);
     REG_P5_P5D &= ~1;
     exchange(0xff);
-    exchange(0x51); /* CMD17, sector zero */
-    for (i = 0; i < 4; i++) exchange(0);
+    exchange(0x51); /* CMD17; the card is SDHC, so the address is a sector */
+    for (i = 0; i < 4; i++) exchange((BYTE)(TEST_SECTOR >> (24 - 8 * i)));
     exchange(0x95);
     for (i = 0; i < 100000; i++)
         if (exchange(0xff) == 0) break;
@@ -121,6 +115,11 @@ static void run_case(unsigned offset, unsigned bytes, enum fault_kind injection)
     begin_read();
     got = receive_dma(dst, bytes);
     CHECK(REG_SPI_INT == 0x14); /* observed stock-loader configuration */
+    /* HSDMA2 transmits only aligned 32-bit payloads; IDMA the rest. */
+    if (!injection && got > 4)
+        CHECK(REG_HSDMA_HTGR2 ==
+              (SD_DMA_TX_HSDMA && SD_DMA_BITS == 32 && !offset && !(bytes & 3)
+               && dma_word_enabled ? 0x99 : 0x90));
     CHECK(REG_P6_47_CFP == 0x54 && REG_P6_IOC6 == 0 && REG_P6_P6D == 0x30);
     if (measure) {
         SD_DMA_profile(&stats, true);
@@ -228,10 +227,9 @@ static void run_tests(void)
     test_result[1] = case_number;
     test_done();
 }
-void __attribute__((noreturn)) _start(void)
+int grifo_main(int argc, char **argv)
 {
-    asm volatile ("xld.w %r15, 0x101ff000\n\tld.w %sp, %r15\n\t"
-                  "xld.w %r15, __dp\n\tld.w %r4, 0\n\tld.w %psr, %r4");
+    (void)argc; (void)argv;
     run_tests();
     test_done();
 }

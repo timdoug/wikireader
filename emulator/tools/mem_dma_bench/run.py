@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run the physical benchmark app through the real loader/kernel on a tiny FAT fixture.
+"""Run the physical benchmark app on a tiny FAT fixture, booted the way the
+device boots: mask ROM, MBR, the FLASH boot loader, grifo as kernel.elf off
+the card, init.app, then the benchmark.
 
 Reads only local boot executables. Never accesses an attached card or a ZIM.
-The loader harness supplies its inherited stack; earlier FLASH boot is omitted.
 """
 import argparse
 import hashlib
@@ -10,9 +11,9 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import struct
 import subprocess
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -148,35 +149,14 @@ def read_file(path, wanted):
     return None
 
 
-def build_loader(*, lcd_ready=False):
-    main = (ROOT / 'emulator/src/main.c').read_text()
-    old = 'uint32_t boot_sp = 0;'
-    assert main.count(old) == 1
-    main = main.replace(old, 'uint32_t boot_sp = MASK_ROM_STACK_TOP;')
-    if lcd_ready:
-        # Direct file-loader entry inherits the menu's enabled LCD, just as
-        # it inherits the mask-ROM stack. Supply that omitted boot state in
-        # this harness only, including after the GUI's power-on reset.
-        for old, new in (
-            ('lcd_attach(&mem, &lcd);',
-             'lcd_attach(&mem, &lcd);\n\tmem_write(&mem, REG_BASE + 0x1a04, 4, 3);'),
-            ('lcd_reset(lcd);',
-             'lcd_reset(lcd);\n\tif (path) mem_write(mem, REG_BASE + 0x1a04, 4, 3);'),
-        ):
-            assert main.count(old) == 1
-            main = main.replace(old, new)
-    source = STAGE / 'loader-main.c'
-    source.write_text(main)
-    obj = STAGE / 'loader-main.o'
-    cflags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', 'sdl2'], text=True))
-    libs = shlex.split(subprocess.check_output(['pkg-config', '--libs', 'sdl2'], text=True))
-    subprocess.run(['cc', '-O2', '-I'+str(ROOT/'emulator/src'), '-I'+str(ROOT/'emulator'),
-                    *cflags, '-c', str(source), '-o', str(obj)], check=True)
-    objects = [ROOT/'emulator/src'/f'{name}.o' for name in
-        'c33 mem elf uart sdcard periph lcd display touch timer wdt itc cmu port eeprom sdramc dma model'.split()]
-    exe = STAGE / 'loader-wremu'
-    subprocess.run(['cc', '-o', str(exe), str(obj), *map(str, objects), *libs], check=True)
-    return exe
+def build_flash(stage):
+    """The FLASH the device boots from, for wremu's -e: mask ROM, MBR, the
+    boot loader, then kernel.elf (grifo) and init.app off the card."""
+    flash = stage / 'flash.rom'
+    flash.unlink(missing_ok=True)
+    subprocess.run([sys.executable, str(ROOT/'samo-lib/mbr/make-flash.py'), str(flash)],
+                   check=True, stdout=subprocess.DEVNULL)
+    return flash
 
 
 def parse_log(log):
@@ -201,9 +181,8 @@ def main():
     if not args.no_build:
         subprocess.run(['make', '-C', str(ROOT/'emulator'), 'wremu'], check=True)
         subprocess.run(['make', '-C', str(Path(__file__).parent)], check=True)
-        exe = build_loader()
-    else:
-        exe = STAGE / 'loader-wremu'
+    exe = ROOT/'emulator/wremu'
+    flash = build_flash(STAGE)
     files = {name: (ROOT/'build/wr128/hsdma-tx/hsdma-boot'/name).read_bytes()
              for name in ('init.app', 'zim.ico')}
     files['kernel.elf'] = (ROOT/'samo-lib/grifo/grifo.elf').read_bytes()
@@ -216,8 +195,8 @@ def main():
     env = dict(os.environ, WREMU_MODEL=f'dma_mem_extra={args.extra}')
     transcript = STAGE / f'model-{args.extra}.txt'
     with transcript.open('w') as out:
-        run = subprocess.run([str(exe), '-c', str(image), '-b', '0x'+done,
-            '-n', '2000000000', str(ROOT/'samo-lib/mbr/file-loader.elf')],
+        run = subprocess.run([str(exe), '-e', str(flash), '-c', str(image),
+            '-b', '0x'+done, '-n', '2000000000'],
             cwd=ROOT, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=240)
     log = read_file(image, 'membench.log')
     if log is None:

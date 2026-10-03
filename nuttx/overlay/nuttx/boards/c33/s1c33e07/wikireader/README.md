@@ -456,34 +456,13 @@ The PTY test covers 12,800 binary/CR/LF translation cases across four signal
 configurations, verifies bulk writes, exercises partial/error retries, and
 checks control-character delivery to the opposite endpoint's foreground PID.
 
-### Complete emulated FLASH/card boot
+### The FLASH boot program limit
 
 The MBR copies **7,424 bytes** of a boot program and no more, which a
 file-loader can outgrow: past that its filename table falls outside the copied
 region, FLASH offset `0x4000` already belongs to the next application header,
 and the symptom is an empty filename before NuttX is ever entered.
 `samo-lib/mbr/Makefile` now fails the build when a program exceeds it.
-
-The fixture tool builds a **separate kernel-only loader**, preserving the GPL
-notice in the generated source. It uses the existing firmware libraries and
-linker script, rejects a payload larger than the slot/copy limit, and patches
-only `0x2300..0x3fff` in a copy of `flash.rom`. The source checkout is not
-changed.
-
-```sh
-python3 boards/c33/s1c33e07/wikireader/tools/make_boot_fixture.py
-python3 boards/c33/s1c33e07/wikireader/tools/test_terminal.py \
-  --flash build/wikireader/boot-fixture/flash-nuttx.rom \
-  --card build/wikireader/boot-fixture/nuttx-card.img \
-  --out build/wikireader/lcd-flash
-```
-
-The fixture tool also makes a FAT32 card image containing `kernel.elf`, verifies
-file readback, and records input/output hashes in `manifest.json`. It reuses
-the existing pure FAT fixture helper in `emulator/tools/mem_dma_bench/run.py`;
-it does not run that helper's build or benchmark commands. The emulator opens
-the card read-only. The full boot uses the loader's 16 MiB SDRAM configuration
-and reaches the same LCD terminal. No physical card or device was written.
 
 ### Run from the launcher
 

@@ -366,10 +366,8 @@ and `--history` reopens its first saved entry. `--stage PATH` isolates a test
 from an interactive session that is still open.
 
 The demo uses article HTML extracted from the local full English ZIM and the
-production SD file-loader, kernel and app in a disposable FAT image. It does
-not exercise the serial-FLASH boot menu. The loader harness supplies the
-inherited stack and enabled LCD state that the omitted boot stages leave;
-the firmware and the normal emulator's reset behavior remain unchanged.
+production kernel and app in a disposable FAT image, booted the way the
+device boots: MBR, the FLASH boot loader, grifo, init.app, zim.app.
 
 Extracted article text retains its Wikipedia licensing footer. The generated
 card and screenshots stay under `build/sparrow/emulator/`; no physical SD is written.

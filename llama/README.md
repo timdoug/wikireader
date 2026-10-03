@@ -92,7 +92,8 @@ whose centres are 139, 168 and 195, QWERTY with backspace ending the middle
 row and `#` bottom right. So scripted typing works with no emulator change:
 
 ```sh
-./wremu -R -e ../samo-lib/mbr/flash.rom -c /tmp/card.img \
+rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
+./wremu -R -e /tmp/flash.rom -c /tmp/card.img \
     -n 900000000 -K 100000000,'LILY SAW A CAT#'
 ```
 

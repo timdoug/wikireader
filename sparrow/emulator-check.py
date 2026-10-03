@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Replay an Ask question in a live WikiReader window, then leave it interactive.
 Extracts a few unmodified HTML blobs from the local ZIM into a tiny test ZIM.
-Uses the repository's FAT fixture builder and production file-loader/kernel/firmware.
+Uses the repository's FAT fixture builder and production kernel/firmware, booted
+the way the device boots: MBR, the FLASH boot loader, grifo, init.app, zim.app.
 Use --headless for an automated screenshot run without a window.
 """
 import argparse
@@ -93,8 +94,8 @@ def prepare(source,database,fresh=False):
         f.seek(rootpos);f.write(root)
     (STAGE/'source.json').write_text(json.dumps({'local_zim':str(source),'app_sha256':hashlib.sha256(files['zim.app']).hexdigest(),'database_sha256':hashlib.sha256(files['sparrow.dat']).hexdigest()},indent=2)+'\n')
     fixture.STAGE=STAGE
-    progress('Building the emulator loader harness...')
-    return image,fixture.build_loader(lcd_ready=True)
+    progress('Building the FLASH image...')
+    return image,fixture.build_flash(STAGE)
 
 
 def replay(cmd,env,gui,limited,expected_taps):
@@ -106,7 +107,7 @@ def replay(cmd,env,gui,limited,expected_taps):
         progress('The demo types automatically. Afterwards, click links, drag to scroll, '
                  'or press 1 for Search and 2 for History. Close the window or press Esc to finish.')
     started=time.monotonic();started_wall=time.time();last_report=started;typed=0;taps=0
-    with transcript.open('w') as log, transcript.open() as reader:
+    with transcript.open('w') as log, transcript.open(errors='replace') as reader:
         proc=subprocess.Popen(cmd,cwd=STAGE,env=env,stdout=log,stderr=subprocess.STDOUT)
         try:
             while True:
@@ -184,8 +185,8 @@ def main():
         p.error('a Sparrow emulator session is already using the demo card; close it first')
     progress('Sparrow demo: reopen the first saved History entry' if args.history else f'Sparrow demo: {args.query}')
     if args.reuse_card:
-        image,emulator=STAGE/'card.img',STAGE/'loader-wremu'
-        if not image.exists() or not emulator.exists():p.error('--reuse-card requires a previously prepared demo')
+        image,flash=STAGE/'card.img',STAGE/'flash.rom'
+        if not image.exists() or not flash.exists():p.error('--reuse-card requires a previously prepared demo')
         source=json.loads((STAGE/'source.json').read_text())
         if source['app_sha256']!=hashlib.sha256((ROOT/'zim/zim.app').read_bytes()).hexdigest():
             p.error('demo firmware differs from zim.app; run without --reuse-card to rebuild and preserve History')
@@ -193,11 +194,11 @@ def main():
             p.error('demo data differs from the requested index; run without --reuse-card to rebuild and preserve History')
         progress('Reusing the demo card and its saved history...')
     else:
-        image,emulator=prepare(args.source,args.database,args.fresh)
+        image,flash=prepare(args.source,args.database,args.fresh)
     app=(ROOT/'zim/zim.map').read_text()
     addr=re.search(r'^\s+0x([0-9a-f]+)\s+zim_startup_keyboard_ready\s*$',app,re.M)[1]
     # -K releases one key before the next. The final tap follows all typing.
-    cmd=[str(emulator),'-c',str(image),'-Z','0x'+addr]
+    cmd=[str(ROOT/'emulator/wremu'),'-e',str(flash),'-c',str(image),'-Z','0x'+addr]
     if args.history:
         cmd+=['-N','2,3000000','-T','110,43,60000000']
     else:
@@ -207,7 +208,6 @@ def main():
     if cycles is None and not args.gui:cycles=850000000 if args.tap_link else 650000000
     if cycles is not None:cmd+=['-n',str(cycles)]
     if args.tap_link:cmd+=['-T','70,100,540000000']
-    cmd.append(str(ROOT/'samo-lib/mbr/file-loader.elf'))
     env=dict(os.environ,WREMU_BOARD_REV='7')
     replay(cmd,env,args.gui,cycles is not None,2 if args.tap_link else 1)
     lock.close()

@@ -49,7 +49,9 @@ for caller in ('gcc', 'tcc'):
              out / 'runtime.c.o', libgcc, '-o', elf], name + '-link')
         symbols = subprocess.check_output([nm, elf], text=True)
         addr = re.search(r'^([0-9a-f]+) T test_done$', symbols, re.M)[1]
-        log = run([a.wikireader / 'emulator/wremu', '-n', '10000000', '-b', '0x' + addr, elf], name)
+        # --bare-elf: compiler output, not firmware.
+        log = run([a.wikireader / 'emulator/wremu', '-n', '10000000', '-b', '0x' + addr,
+                   '--bare-elf', elf], name)
         if '\nC33_ABI_OK\n' not in log or 'C33_ABI_FAIL' in log or 'stop reason: runaway' in log:
             raise SystemExit(f'{name} failed: {out / (name + ".log")}')
         print('PASS:', name)
