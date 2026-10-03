@@ -102,5 +102,7 @@ extern bool sdramc_trace_on;
 
 void sdramc_attach(struct mem *m, struct sdramc *s);
 void sdramc_reset(struct sdramc *s);
+/* Fetch timing without generic CPU data/MMIO arbitration for SDRAM. */
+uint64_t sdramc_fetch_wait(void *ctx, uint32_t addr, uint64_t now);
 
 #endif /* SDRAMC_H */

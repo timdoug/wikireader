@@ -513,8 +513,10 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	return s->bus_free;
 }
 
-static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
-			    unsigned size, uint64_t mclk_now)
+/* Keep misses and bus scheduling out of the instruction-queue hit path. */
+static __attribute__((noinline))
+uint64_t sdramc_wait_slow(void *ctx, enum mem_access access, uint32_t addr,
+			 unsigned size, uint64_t mclk_now)
 {
 	struct sdramc *s = ctx;
 	uint64_t now, ready, wait;
@@ -721,6 +723,77 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 	wait = ready > now ? (ready - now + 1) / 2 : 0;
 	s->wait_cycles += wait;
 	return wait;
+}
+
+static unsigned iq_slot(const struct sdramc *s, uint32_t tag)
+{
+	if (s->iq[0].valid && s->iq[0].tag == tag)
+		return 0;
+	if (s->iq[1].valid && s->iq[1].tag == tag)
+		return 1;
+	return 2;
+}
+
+static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
+			    unsigned size, uint64_t mclk_now)
+{
+	struct sdramc *s = ctx;
+	uint64_t now = mclk_now * 2;
+	if (addr - SDRAM_BASE >= SDRAM_SIZE ||
+	    !(s->reg[OFF_INI] & SDON) || !(s->reg[OFF_APP] & APPON) ||
+	    !s->initialised)
+		return 0;
+	if (access != MEM_CPU_FETCH || !(s->reg[OFF_APP] & IQBEN))
+		goto slow;
+
+	unsigned slot = iq_slot(s, addr & ~15u);
+	if (slot == 2)
+		goto slow;
+	/* A queue hit can still enter self-refresh or issue an auto-refresh.
+	 * Leave those state changes, including the exact due edge, to the
+	 * regular path. Hits while already self-refreshing do not wake RAM.
+	 */
+	if (!s->self_refresh) {
+		if (!s->next_refresh || now >= s->next_refresh)
+			goto slow;
+		if ((s->reg[OFF_REF] & SELEN) && s->last_sdram_access) {
+			uint64_t idle = ((s->reg[OFF_REF] >> 16) & 0x7f) * sd_tick(s);
+			uint64_t due = s->last_sdram_access + idle;
+			if (idle && now >= due && due < s->next_refresh)
+				goto slow;
+		}
+	}
+	bool flowing = addr > s->last_fetch && addr - s->last_fetch <= 4;
+	if (model.iq_lookahead && (flowing || !model.iq_lookahead_seq)) {
+		uint32_t ahead = (addr + model.iq_lookahead) & ~15u;
+		if (ahead != (addr & ~15u) && iq_slot(s, ahead) == 2)
+			goto slow;
+	}
+
+	s->accesses[MEM_CPU_FETCH]++;
+	current_kind = MEM_CPU_FETCH;
+	s->iq_hits++;
+	s->last_fetch = addr;
+	uint64_t ready = s->iq[slot].ready[(addr >> 1) & 7];
+	if (wremu_fetch_restart && model.branch_bubble) {
+		uint64_t floor = now + 2 * (uint64_t)model.branch_bubble;
+		if (ready < floor)
+			ready = floor;
+	}
+	uint64_t wait = ready > now ? (ready - now + 1) / 2 : 0;
+	s->wait_cycles += wait;
+	return wait;
+slow:
+	return sdramc_wait_slow(ctx, access, addr, size, mclk_now);
+}
+
+uint64_t sdramc_fetch_wait(void *ctx, uint32_t addr, uint64_t now)
+{
+	struct sdramc *s = ctx;
+	if (addr - SDRAM_BASE < SDRAM_SIZE)
+		return sdramc_wait(s, MEM_CPU_FETCH, addr, 2, now);
+	/* Internal RAM and MMIO retain the memory map's DMA bus arbitration. */
+	return mem_wait(s->mem, MEM_CPU_FETCH, addr, 2, now);
 }
 
 static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,

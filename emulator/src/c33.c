@@ -808,7 +808,9 @@ void c33_step(struct c33 *c)
 	c->fetch_seq = at + 2;
 	uint64_t clk0 = c->clk;
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
-	if (c->bus.wait)
+	if (c->bus.fetch_wait)
+		c->clk += c->bus.fetch_wait(c->bus.fetch_wait_ctx, at, c->clk);
+	else if (c->bus.wait)
 		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
 	if (at < 0x10000000u && (!model.iram_word_fetch || !(at & 2)))
 		/* A0 RAM and the other internal memories are not the same

@@ -1,0 +1,403 @@
+{
+  "date": "2026-10-02",
+  "baseline_source_revision": "78500e73ae56d96f2b78d5c9f76cc894bf7a6d64",
+  "candidate_change": "Optional direct SDRAM instruction-fetch timing callback, preserving generic internal RAM/MMIO arbitration. Serve safe instruction-queue hits separately from the general scheduler, retaining refresh, lookahead fills, readiness, branch floors and diagnostics.",
+  "candidate_source_sha256": {
+    "emulator/src/c33.c": "8fb7b269516a4e3047513b4e3280d6c699e4fb0e6d4177ef991917d21af1ded3",
+    "emulator/src/c33.h": "a2e2feccbb2eeba76b8f35990f9298dc8b5beb796635179b62424188c889c9e1",
+    "emulator/src/main.c": "5b98af3934033a72a388529663c7977b7657848b91f8bc635164ee38299242b9",
+    "emulator/src/sdramc.c": "0d3b2d1cbc0127e0032026b459256b152057f5ac4c9013e084da1a55f9fff5cf",
+    "emulator/src/sdramc.h": "76b465573c7d5fc3bde728931c960944dded9def234ceb78055a6af823365102"
+  },
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "host_logical_cpus": 8,
+  "build_flags": "-O2 -g -flto; PGO builds additionally use independently trained boot profiles.",
+  "binary_sha256": {
+    "before_lto": "2f08b0447160866fcce893187a37e831ac600a3f320170da7f826796443a8093",
+    "after_lto": "0dc5e49d33e61dbffe42b41cbfd36307449ee71e449f562c597093090558d702",
+    "before_pgo": "fad42a8e3d988bcf8bc8c37d5d2fbe22afb9a063bad1e27048fc3768d3abb1a1",
+    "after_pgo": "c28a7e7b759f9cdb531398073f84789e615004210790b6f043cd590640bb9cee"
+  },
+  "profile_sha256": {
+    "before": "26cfa70b9ff9d424f42d0da67b9b84d023c69fec84ebf1f2c0de9e4a3f4754ba",
+    "after": "3d4e3925cc9f19d1effcf12b4594538e980feb2f218780eb81d73ff1a8be7ec9"
+  },
+  "profiling": {
+    "method": "Temporary Apple ARM64 SIGPROF PC sampling of the baseline PGO implementation, symbolized with LTO debug info/dSYM and inline frames. Samples outside the emulator binary are excluded. Diagnostic sampling is not used for performance timings.",
+    "samples_in_binary": 3252,
+    "leaf_source_samples": {
+      "c33.c": 957,
+      "mem.c": 255,
+      "uart.c": 62,
+      "sdcard.c": 89,
+      "eeprom.c": 1,
+      "timer.c": 154,
+      "itc.c": 596,
+      "sdramc.c": 582,
+      "dma.c": 180,
+      "main.c": 307,
+      "cmu.c": 1,
+      "wdt.c": 68
+    },
+    "sdram_sample_fraction": 0.17896678966789667,
+    "unchanged_guest_output_work": true
+  },
+  "runtime_fixture_sha256": {
+    "flash.rom": "917075cca07d121638bbcfa2f8466e4f00d8a0af984bf61b6619b957ad0df003",
+    "card.img": "ee1c6adfe448bbb2274983e2d94a196a8571c5a8ddbb03eaba4b86d13cc0cbcb",
+    "uart.in": "385efe91a81910aa5df2638e9f2f85082e1579ddffcb9fc198905c2ab7a6923b"
+  },
+  "runtime_components_sha256": {
+    "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+    "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+    "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+    "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+    "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+    "bench.bin": "4a25706029f0cc2fc97eff796793fbb2b017025712526a87ea3be491f5e4d5cf",
+    "init.ini": "896c94d390b4ebacc1839e444bd07b02f7b4e7c978f55fc3560dba9f931cf300"
+  },
+  "runtime_parameters": {
+    "cycle_budget": 4000000000,
+    "touch": "40,36,100000000",
+    "uart_start": 850000000,
+    "uart_gap": 200000,
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "writable_card": true,
+    "allow_reset": true,
+    "required_guest_markers": [
+      "BENCH PASS",
+      "watchdog reset"
+    ]
+  },
+  "runtime_lto": {
+    "host_seconds": {
+      "before": [
+        13.559989665984176,
+        13.625201874994673,
+        15.041974624997238
+      ],
+      "after": [
+        14.047340082994197,
+        12.880237584002316,
+        13.746397707989672
+      ]
+    },
+    "median_seconds": {
+      "before": 13.625201874994673,
+      "after": 13.746397707989672
+    },
+    "speedup": 0.9911834477970503,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "runtime_matched_pgo": {
+    "host_seconds": {
+      "before": [
+        8.874553958012257,
+        8.797478417021921,
+        8.82379912500619,
+        8.75198887498118,
+        8.673346625000704
+      ],
+      "after": [
+        8.359272915986367,
+        8.313334833015688,
+        8.25286325000343,
+        8.21386179199908,
+        8.273662207997404
+      ]
+    },
+    "median_seconds": {
+      "before": 8.797478417021921,
+      "after": 8.273662207997404
+    },
+    "speedup": 1.0633112877775202,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "upstream_matched_pgo": {
+    "busybox": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+      "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+      "full_busybox_fixture": false,
+      "staged_archive_members": 376,
+      "fixture_components_sha256": {
+        "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+        "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+        "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+        "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+        "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+        "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+        "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+        "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+        "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+        "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+        "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+        "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+        "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+      },
+      "identical_fixtures_verdicts_assertions": true,
+      "clean_trials": true,
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "host_seconds": {
+        "before": 55.71274512499804,
+        "after": 52.53858858300373
+      },
+      "phase_seconds": {
+        "before": {
+          "fixture": 0.26916416600579396,
+          "emulator": 55.429016375012,
+          "boot_to_first_case": 8.562990417005494,
+          "cases_to_done": 46.32244374998845,
+          "done_to_launcher": 0.5051842080138158,
+          "total": 55.71102279101615
+        },
+        "after": {
+          "fixture": 0.16045687498990446,
+          "emulator": 52.360090166999726,
+          "boot_to_first_case": 8.050315875007072,
+          "cases_to_done": 43.805418082978576,
+          "done_to_launcher": 0.5043562090140767,
+          "total": 52.53691091699875
+        }
+      },
+      "speedup": 1.0604157178105305
+    },
+    "uclibc": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+      "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+      "full_busybox_fixture": false,
+      "staged_archive_members": 44,
+      "fixture_components_sha256": {
+        "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+        "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+        "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+        "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+        "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+        "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+        "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+        "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+        "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+        "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+        "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+        "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+        "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+      },
+      "identical_fixtures_verdicts_assertions": true,
+      "clean_trials": true,
+      "results": [
+        {
+          "name": "args/arg_test",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "ctype/ctype",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "string/tester",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "string/tst-strlen",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        }
+      ],
+      "counts": {
+        "PASS": 4
+      },
+      "host_seconds": {
+        "after": 24.924842375010485,
+        "before": 28.8719907499908
+      },
+      "phase_seconds": {
+        "after": {
+          "fixture": 0.16223470799741335,
+          "emulator": 24.749132958997507,
+          "boot_to_first_case": 6.053374459006591,
+          "cases_to_done": 18.129600499989465,
+          "done_to_launcher": 0.5005473750061356,
+          "total": 24.923497167008463
+        },
+        "before": {
+          "fixture": 0.1453147499996703,
+          "emulator": 28.70941920799669,
+          "boot_to_first_case": 6.054593624983681,
+          "cases_to_done": 21.64771866600495,
+          "done_to_launcher": 1.007106917008059,
+          "total": 28.87037787499139
+        }
+      },
+      "speedup": 1.1583620195302702
+    }
+  },
+  "rejected_experiments": {
+    "queue_hit_outline_only": {
+      "description": "Small guarded instruction-queue hit wrapper around an outlined general scheduler, without a specialized core fetch callback. No useful PGO gain.",
+      "lto": {
+        "host_seconds": {
+          "before": [
+            16.188806457997998,
+            13.666162500012433,
+            13.641589125007158
+          ],
+          "after": [
+            14.301999457995407,
+            13.444921624992276,
+            13.513182582973968
+          ]
+        },
+        "median_seconds": {
+          "before": 13.666162500012433,
+          "after": 13.513182582973968
+        },
+        "speedup": 1.0113207910941138,
+        "identical_guest_work_output_pixels": true,
+        "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+        "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+      },
+      "pgo": {
+        "host_seconds": {
+          "before": [
+            13.938748249987839,
+            8.71020183400833,
+            8.647428083990235,
+            8.492912582994904,
+            8.724118540994823
+          ],
+          "after": [
+            9.550361500005238,
+            8.593182457989315,
+            8.708563041989692,
+            8.78954154101666,
+            9.07108487500227
+          ]
+        },
+        "median_seconds": {
+          "before": 8.71020183400833,
+          "after": 8.78954154101666
+        },
+        "speedup": 0.9909733964350599,
+        "identical_guest_work_output_pixels": true,
+        "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+        "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+      }
+    },
+    "cached_clock_event_deadline": {
+      "description": "Cached the earliest auto/self-refresh transition for the hit guard. LTO-only result effectively tied; no PGO measurement. The added cache state was discarded.",
+      "lto": {
+        "host_seconds": {
+          "before": [
+            13.45659704200807,
+            13.72208470798796,
+            13.49942279199604
+          ],
+          "after": [
+            16.85798754199641,
+            13.358181332994718,
+            13.405534167017322
+          ]
+        },
+        "median_seconds": {
+          "before": 13.49942279199604,
+          "after": 13.405534167017322
+        },
+        "speedup": 1.0070037212847303,
+        "identical_guest_work_output_pixels": true,
+        "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+        "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+      }
+    }
+  },
+  "validation": {
+    "command": "make -C emulator -j4 -k PGO_USE=wremu.profdata C33_BIN=<absent directory> check test-mem-dma test-sd-dma-driver",
+    "exit": 0,
+    "differential_transactions": 262144,
+    "differential_scope": "Specialized fetch versus general scheduler: all waits, controller state, diagnostics, DMA hook calls/clock holds, memory size/epoch; lookahead settings, refresh edges, self-refresh, branch restarts, writes, register changes and controller resets/disable. Native core callback selection/reset checks also pass.",
+    "sd_dma_cases": 122,
+    "skipped": [
+      "decoder comparison (local ref-*.txt absent)",
+      "GUI DMA/boot (local images absent)",
+      "bare watchdog reset fixture (intentionally skipped to retain Grifo firmware boot path; full Grifo reboots verified by runtime and upstream runs)"
+    ],
+    "final_local_binary_sha256": "c28a7e7b759f9cdb531398073f84789e615004210790b6f043cd590640bb9cee",
+    "final_binary_matches_measured_pgo": true,
+    "local_profile": "emulator/wremu.profdata (ignored, freshly trained for current source)"
+  },
+  "limitations": "Runtime PGO: five alternating pairs with identical complete console, guest work, pixels and final card bytes. LTO-only: three pairs, no observed improvement. Upstream: one selected batch per version/suite, identical staged fixtures/verdicts/assertions and return to Grifo launcher; phase timestamps have 0.5-second resolution. No full inventory sweep or GUI benchmark. Source profiling uses a temporary diagnostic build and approximate statistical samples, not stock sample output (which was dominated by loader/debugger reporting).",
+  "training": {
+    "description": "Both instrumented sources execute the same FLASH -> MBR -> Grifo -> init.app launcher -> Linux boot, excluding runtime/upstream benchmark commands.",
+    "cycle_budget": 600000000,
+    "touch": "40,36,100000000",
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "identical_console_work_pixels": true,
+    "console_sha256": "3942c67422c8a04f3371b86c2f708dd25d394f27ea3d382046ec13a88fc2fe88",
+    "screen_sha256": "fbe76ff9cb3e3e9ad546e0324a5b65e9e7494b40bf42841274fb59ec9110e32f"
+  }
+}

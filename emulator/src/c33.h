@@ -57,6 +57,9 @@ struct c33_bus {
 	uint8_t *(*region)(void *ctx, uint32_t addr, uint32_t *base, uint32_t *len);
 	uint64_t (*wait)(void *ctx, enum mem_access access, uint32_t addr,
 			 unsigned size, uint64_t now);
+	/* Optional specialized timing for a 16-bit instruction fetch. */
+	uint64_t (*fetch_wait)(void *ctx, uint32_t addr, uint64_t now);
+	void     *fetch_wait_ctx;
 	void     *ctx;
 };
 

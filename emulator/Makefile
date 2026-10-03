@@ -194,6 +194,11 @@ test-sdramc: tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_sdramc tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
 	/tmp/test_sdramc
 
+.PHONY: test-sdramc-fetch
+test-sdramc-fetch: tools/test_sdramc_fetch.c src/sdramc.c src/sdramc.h src/c33.o src/model.o src/mem.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_sdramc_fetch tools/test_sdramc_fetch.c src/c33.o src/model.o src/mem.o
+	/tmp/test_sdramc_fetch
+
 # Fixed CPU/product/model/version bytes at the documented identification area.
 test-chipid: tools/test_chipid.c src/mem.o src/model.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_chipid tools/test_chipid.c src/mem.o src/model.o
@@ -279,7 +284,7 @@ test-sleigh:
 	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
-check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
+check: test-uart test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp

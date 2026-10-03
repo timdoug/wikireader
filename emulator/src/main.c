@@ -730,6 +730,8 @@ int main(int argc, char **argv)
 		.write = mem_write,
 		.region = (uint8_t *(*)(void *, uint32_t, uint32_t *, uint32_t *))mem_region,
 		.wait = mem_wait,
+		.fetch_wait = sdramc_fetch_wait,
+		.fetch_wait_ctx = &sdramc,
 		.ctx = &mem,
 	};
 	cpu.trace_syscalls = trace_syscalls;

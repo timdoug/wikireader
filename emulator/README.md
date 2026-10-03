@@ -233,6 +233,51 @@ The optional decoder comparison and GUI tests lack their local fixtures.
 The bare watchdog fixture was skipped to keep firmware runs on the Grifo
 path; reboot behavior is covered by the full-boot comparisons above.
 
+### SDRAM instruction-fetch timing
+
+The CPU has an optional instruction-fetch timing callback alongside its
+general bus wait callback. The full-system emulator uses it to send SDRAM
+fetches directly to the controller; internal RAM and MMIO still pass through
+the memory map's DMA arbitration. Other CPU users retain the general callback
+when the specialized one is absent. Both callbacks survive CPU reset.
+
+The controller serves an instruction-queue hit through a small function
+when neither refresh service nor a new lookahead fill is needed. Misses,
+due refresh transitions and new prefetches use the general scheduler.
+The hit path retains halfword readiness, branch-restart floors, queue
+invalidation and diagnostic counts; the general scheduler remains the
+reference for the differential test.
+
+On the same full Grifo/launcher/Linux runtime fixture, five alternating
+PGO trial pairs measured **8.797 -> 8.274 seconds (1.063x)**. Console output,
+guest work, pixels and final card bytes matched exactly. Both profiles
+were trained on the same boot workload, excluding benchmark commands.
+The LTO-only comparison showed no improvement in three pairs, so the
+measured gain applies to the PGO build. Outlining queue hits alone and a
+separate cached-refresh-deadline prototype did not show a useful gain.
+The deadline cache was discarded.
+
+Selected PGO batches, with one worker, batch size eight and identical staged
+fixtures, also improved. These are single runs per version; verdicts,
+assertion counts and watchdog return to the launcher match:
+
+| Cases | General fetch timing | Specialized fetch timing | Speedup |
+| --- | ---: | ---: | ---: |
+| BusyBox basename, dirname, echo, printf | 55.713 s | 52.539 s | 1.060x |
+| uClibc args, ctype, string tester and strlen | 28.872 s | 24.925 s | 1.158x |
+
+`make test-sdramc-fetch` checks fetch callback selection/reset and compares
+262,144 transactions against the general scheduler, including full
+controller state, counters, DMA hooks and address aliasing. It covers
+lookahead settings, refresh edges, self-refresh, branch restarts, CPU/DMA
+writes, register changes and disabled/reset controller states.
+The available model checks and all 122 Grifo SD DMA cases pass with PGO.
+The decoder comparison and GUI targets lack their local fixtures; the bare
+watchdog fixture was skipped in favor of the Grifo reboot comparisons.
+
+The [fetch measurements](tools/fetch-speed-2026-10-02.json) record the
+profiles, binaries, fixtures, trial timings and validation.
+
 `make check` runs all focused model tests. `make difftest` runs the generated
 native-versus-C33 execution comparison; see
 [`difftest/README.md`](difftest/README.md).
