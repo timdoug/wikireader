@@ -1,0 +1,935 @@
+{
+  "date": "2026-10-02",
+  "runtime_source_revision": "29004d17df9873279d150fec5f1fb9d7c0d0234d",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "host_logical_cpus": 8,
+  "build_flags": "-O2 -g -flto; candidate adds -fprofile-instr-use=<local merged profile>",
+  "profile_sha256": "24633736e87b61fffa4d52bc61925137cd9a3382c0c4a50ccfac249634473779",
+  "binary_sha256": {
+    "lto": "1eed74923868bd8da57ebc069a31da512a6fd71e2d884c06a238f218cf4b7f34",
+    "pgo": "3761aa636333bc6814d457d0352b5cc757e78f83ee3c482e8a0931e415f30346"
+  },
+  "training": "NuttX startup (-n 400000000) and Linux boot/self-tests (-n 600000000), both FLASH -> Grifo -> application.",
+  "linux_runtime": {
+    "host_seconds": {
+      "before": [
+        22.14414437499363,
+        18.394877249986166,
+        18.149496375001036
+      ],
+      "after": [
+        17.867047874984564,
+        14.45151666700258,
+        12.975050874985754
+      ]
+    },
+    "median_seconds": {
+      "before": 18.394877249986166,
+      "after": 14.45151666700258
+    },
+    "speedup": 1.2728682859971048,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "upstream_pgo": {
+    "busybox": {
+      "lto": [
+        {
+          "exit": 0,
+          "wall": 118.98400737499469,
+          "host_seconds": 118.91471291700145,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "results": [
+            {
+              "name": "applets/basename",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 2
+              }
+            },
+            {
+              "name": "applets/dirname",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 7
+              }
+            },
+            {
+              "name": "applets/echo",
+              "exit_status": 0,
+              "status": "PARTIAL_PASS",
+              "assertions": {
+                "PASS": 4,
+                "UNTESTED": 7
+              }
+            },
+            {
+              "name": "applets/printf",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 24
+              }
+            }
+          ],
+          "clean_trials": true
+        }
+      ],
+      "pgo": [
+        {
+          "exit": 0,
+          "wall": 90.5998874999932,
+          "host_seconds": 90.53613079100614,
+          "counts": {
+            "PASS": 3,
+            "PARTIAL_PASS": 1
+          },
+          "results": [
+            {
+              "name": "applets/basename",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 2
+              }
+            },
+            {
+              "name": "applets/dirname",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 7
+              }
+            },
+            {
+              "name": "applets/echo",
+              "exit_status": 0,
+              "status": "PARTIAL_PASS",
+              "assertions": {
+                "PASS": 4,
+                "UNTESTED": 7
+              }
+            },
+            {
+              "name": "applets/printf",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 24
+              }
+            }
+          ],
+          "clean_trials": true
+        }
+      ]
+    },
+    "uclibc": {
+      "lto": [
+        {
+          "exit": 0,
+          "wall": 54.88314225000795,
+          "host_seconds": 54.81606758298585,
+          "counts": {
+            "PASS": 4
+          },
+          "results": [
+            {
+              "name": "args/arg_test",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "ctype/ctype",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "string/tester",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "string/tst-strlen",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            }
+          ],
+          "clean_trials": true
+        }
+      ],
+      "pgo": [
+        {
+          "exit": 0,
+          "wall": 40.066471209021984,
+          "host_seconds": 40.00370300002396,
+          "counts": {
+            "PASS": 4
+          },
+          "results": [
+            {
+              "name": "args/arg_test",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "ctype/ctype",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "string/tester",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            },
+            {
+              "name": "string/tst-strlen",
+              "exit_status": 0,
+              "status": "PASS",
+              "assertions": {
+                "PASS": 1
+              }
+            }
+          ],
+          "clean_trials": true
+        }
+      ]
+    }
+  },
+  "runner_comparisons": {
+    "staging-lto": {
+      "host_seconds": 108.38836545799859,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": false,
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.22120504098711535,
+            "emulator": 108.15071000001626,
+            "boot_to_first_case": 15.650872124999296,
+            "cases_to_done": 90.80447254201863,
+            "done_to_launcher": 1.5121243329776917,
+            "total": 108.38609729098971
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    },
+    "staging-pgo": {
+      "host_seconds": 83.97642679099226,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": false,
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.2692773749877233,
+            "emulator": 83.69094495801255,
+            "boot_to_first_case": 12.605531833018176,
+            "cases_to_done": 70.08002704198589,
+            "done_to_launcher": 1.0053860830084886,
+            "total": 83.97416662500473
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    },
+    "workers-2": {
+      "host_seconds": 72.24513904200285,
+      "jobs": 2,
+      "batch_size": 1,
+      "full_busybox_fixture": false,
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.44349700000020675,
+            "emulator": 29.22823595898808,
+            "boot_to_first_case": 14.119114959001308,
+            "cases_to_done": 14.105145499983337,
+            "done_to_launcher": 1.0039755000034347,
+            "total": 29.68357945900061
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "run.sh": "3b29dfee4c3baca61b6529198a8a952465c4ae327eec302048f26d9e8d9c9aa1",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.4448725830006879,
+            "emulator": 34.25927033400512,
+            "boot_to_first_case": 14.10781312501058,
+            "cases_to_done": 19.147682958981022,
+            "done_to_launcher": 1.003774250013521,
+            "total": 34.71694758301601
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "run.sh": "f94d0fdd61269440c074f285f2c5f825f2e1869a2e20c40e9304055b16c41e12",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.1869654170004651,
+            "emulator": 35.30410424998263,
+            "boot_to_first_case": 14.103672666999046,
+            "cases_to_done": 20.15787837500102,
+            "done_to_launcher": 1.0079709159908816,
+            "total": 35.50193233398022
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "25396adf3b068de777c85a70c49dbafcd908be492e4f89923e4fd09d5a57602f",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.20119174997671507,
+            "emulator": 42.34637654200196,
+            "boot_to_first_case": 14.613267667009495,
+            "cases_to_done": 26.722716167016188,
+            "done_to_launcher": 1.0103927079762798,
+            "total": 42.557785499986494
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "run.sh": "621cac690608dde47253effb6b58848b384f5426aa399e177295fb1f7eddefc8",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    },
+    "workers-4": {
+      "host_seconds": 45.319411667005625,
+      "jobs": 4,
+      "batch_size": 1,
+      "full_busybox_fixture": false,
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.4040888329909649,
+            "emulator": 32.244230625015916,
+            "boot_to_first_case": 15.618732167000417,
+            "cases_to_done": 15.609104500006652,
+            "done_to_launcher": 1.0073512500093784,
+            "total": 32.66208033301518
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+            "run.sh": "3b29dfee4c3baca61b6529198a8a952465c4ae327eec302048f26d9e8d9c9aa1",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.405743084003916,
+            "emulator": 37.26527658299892,
+            "boot_to_first_case": 15.60561891598627,
+            "cases_to_done": 20.6420107090089,
+            "done_to_launcher": 1.0095238749927375,
+            "total": 37.682609625015175
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+            "run.sh": "f94d0fdd61269440c074f285f2c5f825f2e1869a2e20c40e9304055b16c41e12",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.4056674170133192,
+            "emulator": 38.80479108297732,
+            "boot_to_first_case": 15.648325124988332,
+            "cases_to_done": 22.147589083004277,
+            "done_to_launcher": 1.0088768749847077,
+            "total": 39.22204774999409
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+            "run.sh": "25396adf3b068de777c85a70c49dbafcd908be492e4f89923e4fd09d5a57602f",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        },
+        {
+          "host_seconds": {
+            "fixture": 0.41243441702681594,
+            "emulator": 44.89377262498601,
+            "boot_to_first_case": 15.616257040994242,
+            "cases_to_done": 28.73337541698129,
+            "done_to_launcher": 0.5051723750075325,
+            "total": 45.31797375000315
+          },
+          "staged_archive_members": 376,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+            "t000.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+            "run.sh": "621cac690608dde47253effb6b58848b384f5426aa399e177295fb1f7eddefc8",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    },
+    "hush-full": {
+      "host_seconds": 30.45965254199109,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": true,
+      "counts": {
+        "PASS": 1
+      },
+      "results": [
+        {
+          "name": "hush/hush-misc/return1.tests",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.17325891699874774,
+            "emulator": 30.27373325001099,
+            "boot_to_first_case": 23.71852691701497,
+            "cases_to_done": 5.5447651659778785,
+            "done_to_launcher": 1.0104411670181435,
+            "total": 30.458174458995927
+          },
+          "staged_archive_members": 1210,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+            "t000.sh": "2c3a89f826637309e6de4adc093b9bc9bf67d6fe38e546d2e476da3873a4722b",
+            "run.sh": "f9942a7f1228693b5fa7881dfd21f5e9be3a37e33302108002e3a674204833bf",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    },
+    "hush-staged": {
+      "host_seconds": 25.933357333007734,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": false,
+      "counts": {
+        "PASS": 1
+      },
+      "results": [
+        {
+          "name": "hush/hush-misc/return1.tests",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        }
+      ],
+      "clean_trials": true,
+      "batches": [
+        {
+          "host_seconds": {
+            "fixture": 0.16797958401730284,
+            "emulator": 25.752723582991166,
+            "boot_to_first_case": 19.18800879101036,
+            "cases_to_done": 5.55429579198244,
+            "done_to_launcher": 1.0104189999983646,
+            "total": 25.93188254200504
+          },
+          "staged_archive_members": 838,
+          "fixture_sha256": {
+            "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+            "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+            "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+            "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+            "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+            "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+            "tests.tar": "dd06f8531c4bd25cb450119ee9e2f49992593ebe6a29cb2b547a9fd4cdecbe98",
+            "t000.sh": "2c3a89f826637309e6de4adc093b9bc9bf67d6fe38e546d2e476da3873a4722b",
+            "run.sh": "f9942a7f1228693b5fa7881dfd21f5e9be3a37e33302108002e3a674204833bf",
+            "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+          }
+        }
+      ]
+    }
+  },
+  "combined_baseline": {
+    "host_seconds": 112.79901770802098,
+    "jobs": 2,
+    "batch_size": 1,
+    "full_busybox_fixture": true,
+    "counts": {
+      "PASS": 3,
+      "PARTIAL_PASS": 1
+    },
+    "results": [
+      {
+        "name": "applets/basename",
+        "exit_status": 0,
+        "status": "PASS",
+        "assertions": {
+          "PASS": 2
+        }
+      },
+      {
+        "name": "applets/dirname",
+        "exit_status": 0,
+        "status": "PASS",
+        "assertions": {
+          "PASS": 7
+        }
+      },
+      {
+        "name": "applets/echo",
+        "exit_status": 0,
+        "status": "PARTIAL_PASS",
+        "assertions": {
+          "PASS": 4,
+          "UNTESTED": 7
+        }
+      },
+      {
+        "name": "applets/printf",
+        "exit_status": 0,
+        "status": "PASS",
+        "assertions": {
+          "PASS": 24
+        }
+      }
+    ],
+    "clean_trials": true,
+    "batches": [
+      {
+        "host_seconds": {
+          "fixture": 0.3074628750036936,
+          "emulator": 47.913668166991556,
+          "boot_to_first_case": 31.256086166977184,
+          "cases_to_done": 15.146875292004552,
+          "done_to_launcher": 1.5107067080098204,
+          "total": 48.23259070899803
+        },
+        "staged_archive_members": 1210,
+        "fixture_sha256": {
+          "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+          "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+          "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+          "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+          "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+          "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+          "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+          "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+          "run.sh": "3b29dfee4c3baca61b6529198a8a952465c4ae327eec302048f26d9e8d9c9aa1",
+          "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+        }
+      },
+      {
+        "host_seconds": {
+          "fixture": 0.3073710829776246,
+          "emulator": 53.64457829200546,
+          "boot_to_first_case": 31.256073000025935,
+          "cases_to_done": 20.69409912498668,
+          "done_to_launcher": 1.5098960000032093,
+          "total": 53.96285245800391
+        },
+        "staged_archive_members": 1210,
+        "fixture_sha256": {
+          "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+          "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+          "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+          "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+          "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+          "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+          "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+          "t000.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+          "run.sh": "f94d0fdd61269440c074f285f2c5f825f2e1869a2e20c40e9304055b16c41e12",
+          "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+        }
+      },
+      {
+        "host_seconds": {
+          "fixture": 0.16604820798966102,
+          "emulator": 56.48672508398886,
+          "boot_to_first_case": 30.25058504199842,
+          "cases_to_done": 24.716622125008143,
+          "done_to_launcher": 1.5155652079847641,
+          "total": 56.663732207991416
+        },
+        "staged_archive_members": 1210,
+        "fixture_sha256": {
+          "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+          "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+          "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+          "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+          "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+          "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+          "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+          "t000.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+          "run.sh": "25396adf3b068de777c85a70c49dbafcd908be492e4f89923e4fd09d5a57602f",
+          "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+        }
+      },
+      {
+        "host_seconds": {
+          "fixture": 0.27028724999399856,
+          "emulator": 64.28244891698705,
+          "boot_to_first_case": 30.250596083991695,
+          "cases_to_done": 32.791119916015305,
+          "done_to_launcher": 1.0104525839851703,
+          "total": 64.56327662500553
+        },
+        "staged_archive_members": 1210,
+        "fixture_sha256": {
+          "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+          "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+          "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+          "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+          "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+          "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+          "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+          "t000.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+          "run.sh": "621cac690608dde47253effb6b58848b384f5426aa399e177295fb1f7eddefc8",
+          "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+        }
+      }
+    ]
+  },
+  "combined_speedup": 2.488977980050506,
+  "inventory_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+  "fixture_components_sha256": {
+    "runtime": {
+      "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+      "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+      "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+      "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+      "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+      "bench.bin": "4a25706029f0cc2fc97eff796793fbb2b017025712526a87ea3be491f5e4d5cf"
+    },
+    "busybox_full": {
+      "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+      "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+      "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+      "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+      "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+      "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+      "tests.tar": "3670e2e302febebfcd7d6486f8db811b5e43e5fed3e64344577d55c33c752292",
+      "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+      "run.sh": "3b29dfee4c3baca61b6529198a8a952465c4ae327eec302048f26d9e8d9c9aa1",
+      "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+    },
+    "busybox_staged": {
+      "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+      "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+      "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+      "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+      "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+      "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+      "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+      "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+      "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+      "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+      "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+      "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+      "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+    }
+  },
+  "validation": {
+    "command": "make -C emulator -j4 -k PGO_USE=<profile> check test-mem-dma test-sd-dma-driver",
+    "exit": 0,
+    "sd_dma_cases": 122,
+    "skipped": [
+      "test-gui-dma (local images missing)",
+      "test-gui-boot (local images missing)"
+    ],
+    "build_modes": "Missing/conflicting profiles fail early; explicit CFLAGS retain LTO/PGO/SDL; unchanged make is idle; replacing profile content invalidates all objects, including partial builds; ordinary LTO and PGO restoration pass."
+  },
+  "limitations": "Runtime benchmark uses three alternating pairs and compares complete console, counters, pixels and final card bytes. Upstream comparisons are single runs per configuration, with matching verdicts/assertion counts and return to the Grifo launcher. Selected workloads only; not a complete inventory qualification. Host phase observations have 0.5-second resolution."
+}

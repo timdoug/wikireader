@@ -88,11 +88,16 @@ python3 tools/bench_speed.py --before /tmp/wremu-before \
 
 The benchmark alternates five runs per binary, measures the entire run,
 and requires identical console output, executed/idle counts, guest time and
-framebuffer bytes. It records commands, logs, pixels and median wall times.
+framebuffer bytes, plus the final card contents for writable workloads.
+It records commands, logs, pixels and median wall times. Card copying and
+verification are outside the measured emulator run.
 The source card is read-only; add `--writable-card` for Linux or other
 workloads that need storage writes, giving each run a fresh card copy.
 Use `--instructions` and the UART input options to match the test workload,
 and `--require-text` to require its completion marker.
+`--touch X,Y,CYCLE` selects an application from a launcher menu. For an
+intentional reboot, add `--allow-reset` and require the expected reboot and
+application pass markers; resets otherwise fail the comparison.
 
 Measured on 2026-10-02 on the local Apple Silicon host with Clang 21,
 with identical guest results in every run:
@@ -107,6 +112,78 @@ both its self-test pass marker and userspace shell. The remaining budget was
 skipped as idle. Linux used fresh writable card copies. `-O3` alone did not
 improve the median materially in a separate comparison. These are host speed
 measurements, not changes to the modeled WikiReader clock.
+
+### Optional profile-guided optimization
+
+Clang can optimize further using a profile of representative guest work.
+PGO is opt-in: profiles depend on the source and training workload and are
+local build artifacts. Use `llvm-profdata` from the same toolchain as Clang
+(`xcrun llvm-profdata` with Apple Clang).
+
+From the emulator directory, create an instrumented binary and check that
+training still produces the same guest results as the ordinary LTO build:
+
+```sh
+pgo_dir=$(mktemp -d /tmp/wremu-pgo.XXXXXX)
+mkdir "$pgo_dir/raw"
+make CC=clang
+cp wremu "$pgo_dir/lto"
+make CC=clang PGO_GENERATE="$pgo_dir/raw"
+cp wremu "$pgo_dir/instrumented"
+python3 tools/bench_speed.py --before "$pgo_dir/lto" \
+    --after "$pgo_dir/instrumented" --trials 1 \
+    --flash /path/to/flash.rom --card /path/to/card.img \
+    --out "$pgo_dir/training"
+```
+
+Repeat the training command with representative FLASH/Grifo/application
+fixtures and distinct output directories; use `--writable-card` for Linux
+and any application that writes storage. Include completion markers and
+the UART/touch options the workload requires. Raw profile names include
+the binary signature and process ID so concurrent trials cannot overwrite
+one another. Instrumentation adds overhead; its timings are not PGO gains.
+
+Merge the raw profiles and build the optimized binary:
+
+```sh
+llvm-profdata merge -o "$pgo_dir/wremu.profdata" "$pgo_dir"/raw/*.profraw
+make CC=clang PGO_USE="$pgo_dir/wremu.profdata"
+cp wremu "$pgo_dir/pgo"
+```
+
+Use `bench_speed.py` to compare `$pgo_dir/lto` and `$pgo_dir/pgo` on fresh
+fixtures, including tests excluded from training. The upstream Linux
+runner also accepts `--emulator /path/to/binary` and records host phase
+timings for comparisons of whole test batches.
+
+`PGO_GENERATE` and `PGO_USE` are mutually exclusive. A missing profile or
+Clang's stale-profile diagnostic fails the build. Replacing a profile at
+the same path invalidates all objects; plain `make` returns to ordinary
+LTO. Explicit `CFLAGS` still receive the selected LTO/PGO and SDL flags.
+Focused model tests exercise the optimized emulator objects, while their
+own test code is compiled without the emulator's use-profile.
+
+On the same Apple Silicon host with Clang 21, a profile trained on NuttX
+startup and Linux boot/self-tests also improved workloads excluded from
+training. These measurements use the later SDRAM model at `29004d17`, so
+their absolute times should not be compared with the earlier LTO table.
+
+| Workload | Runs per build | LTO | LTO + PGO | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| Linux mutex and spawn/exec/wait benchmark, including reboot | 3 | 18.395 s | 14.452 s | 1.27x |
+| BusyBox basename, dirname, echo, printf; one batch | 1 | 118.915 s | 90.536 s | 1.31x |
+| uClibc args, ctype, string tester and strlen; one batch | 1 | 54.816 s | 40.004 s | 1.37x |
+
+The runtime benchmark matches full console output, counters, pixels and
+final card contents. Both upstream comparisons match verdicts and assertion
+counts and return through the watchdog reset to the Grifo launcher.
+`make check test-mem-dma test-sd-dma-driver` passes with PGO; the two GUI
+targets skip because their local images are absent. These selected runs
+do not replace a complete inventory qualification.
+The [recorded measurements](tools/host-speed-2026-10-02.json) include binary
+and fixture hashes, profile identity, timings and validation details.
+See also Clang's [PGO documentation](https://clang.llvm.org/docs/UsersManual.html#profile-guided-optimization)
+for profile collection and merging.
 
 `make check` runs all focused model tests. `make difftest` runs the generated
 native-versus-C33 execution comparison; see

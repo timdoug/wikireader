@@ -2,6 +2,7 @@
 """Compare host speed through the full boot, requiring identical guest results."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -30,6 +31,10 @@ def main():
     parser.add_argument("--uart-input", type=Path)
     parser.add_argument("--uart-start", type=int, default=250_000_000)
     parser.add_argument("--uart-gap", type=int, default=50_000)
+    parser.add_argument("--touch", action="append", default=[], metavar="X,Y,CYCLE",
+                        help="script a panel tap, e.g. to choose a launcher app; repeatable")
+    parser.add_argument("--allow-reset", action="store_true",
+                        help="allow expected watchdog resets in reboot workloads")
     args = parser.parse_args()
     if args.trials < 1 or args.instructions < 1 or args.timeout <= 0:
         parser.error("trials, instructions and timeout must be positive")
@@ -45,6 +50,8 @@ def main():
         guest_args += ["--uart-input", str(args.uart_input.resolve()),
                        "--uart-start", str(args.uart_start),
                        "--uart-gap", str(args.uart_gap)]
+    for touch in args.touch:
+        guest_args += ["-T", touch]
     out = args.out.resolve()
     times = {"before": [], "after": []}
     reference = None
@@ -76,17 +83,25 @@ def main():
             console = (folder / "emulator.log").read_bytes()
             work = re.search(rb"--- work: (\d+) instructions executed, .* ---", console)
             if (process.returncode or not work or int(work[1]) == 0 or
-                    re.search(rb"^stop reason:|^fault:|PANIC|Kernel panic|Assertion|^--- resets:",
-                              console, re.MULTILINE)):
+                    re.search(rb"^stop reason:|^fault:|PANIC|Kernel panic|Assertion",
+                              console, re.MULTILINE) or
+                    (not args.allow_reset and b"--- resets:" in console)):
                 raise SystemExit(f"Guest failure; see {folder / 'emulator.log'}")
             for marker in args.require_text:
                 if marker.encode() not in console:
                     raise SystemExit(f"Missing guest marker {marker!r}: {folder}")
-            result = (console, (folder / "screen.pgm").read_bytes())
+            card_sha256 = None
+            if args.writable_card:
+                digest = hashlib.sha256()
+                with (folder / "card.img").open("rb") as written:
+                    for chunk in iter(lambda: written.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                card_sha256 = digest.hexdigest()
+            result = (console, (folder / "screen.pgm").read_bytes(), card_sha256)
             if reference is None:
                 reference = result
             elif result != reference:
-                raise SystemExit(f"Guest output, work or pixels changed: {folder}")
+                raise SystemExit(f"Guest output, work, pixels or card writes changed: {folder}")
             times[name].append(elapsed)
             print(f"{name} {trial + 1}: {elapsed:.3f} s", flush=True)
 
@@ -94,6 +109,7 @@ def main():
     metrics = {"host_seconds": times, "median_seconds": medians,
                "speedup": medians["before"] / medians["after"],
                "identical_guest_work_output_pixels": True,
+               "writable_card_sha256": card_sha256,
                "guest_work": work[0].decode()}
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     print(f"PASS: identical guest work/output/pixels; full-run median "
