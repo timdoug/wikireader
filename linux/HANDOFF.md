@@ -180,10 +180,12 @@ and `read_timing`. Emulator and device results of both tools are in
 wremu matches (`emulator/README.md`, `dma_async`): SPI DMA runs beside the
 CPU and shares the bus with it, the DMA outranking the CPU, fitted to
 `emulator/tools/spi_dma_bench` on the device. On the kernel the device last
-ran `check` with, a timed raw 4 MB read takes 2.94 s in wremu against 2.92,
-at 13,300 driver cycles a block against the device's 13,700 less its
-writes: token 1,140 against 1,200, setup 860 against 810, check 9,640
-against 9,450, and the wait for data 1,400 against 1,890. Its per-word DMA
+ran `check` with, a timed raw 4 MB read takes 2.92 s in wremu as on the
+device, at 13,400 driver cycles a block against the device's 13,700 less
+its writes: token 1,110 against 1,200, setup 820 against 810, check 8,460
+against 9,450, and the wait for data 2,780 against 1,890. The check is
+short by what wremu undercharges a CPU copy between two banks (libc 10.5%
+in the memory-copy benchmark). Its per-word DMA
 cost is a fitted constant (`dma_extra`), so it cannot judge changes to what
 the DMA does per word; those need the device.
 

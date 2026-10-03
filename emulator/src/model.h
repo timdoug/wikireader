@@ -63,7 +63,9 @@ struct model {
 	   CPU, whose accesses beyond A0 RAM wait it out. */
 	unsigned dma_bus_hold;
 	/* Which of the CPU's open SDRAM rows a DMA access to another row
-	   closes, with row_ports: 0 none, 1 the data row, 2 data and fetch. */
+	   closes, with row_ports: 0 none, 1 the data row, 2 data and fetch;
+	   with bank_conflict, which closes data rows anyway, 2 closes the
+	   fetch row too, and only in the same bank. */
 	unsigned dma_row_evict;
 	/* ...and how long the same phase holds a CPU register access. */
 	unsigned dma_reg_hold;
@@ -106,6 +108,16 @@ struct model {
 	   pass and four megabytes apart, in another bank by the geometry
 	   table, costs 140.10. */
 	unsigned row_ports;
+	/* With row_ports, reads and writes (the CPU's and the DMA's) have row
+	   registers of their own... */
+	unsigned rw_ports;
+	/* ...and opening a row closes any other data register's row in the
+	   same physical bank, which can hold only one.  membench on the device:
+	   a copy within a bank changes row every access, one between two banks
+	   does not, and ubench's two read streams thrash in any bank. */
+	unsigned bank_conflict;
+	/* row_change_extra for a DMA access, in half-MCLK. */
+	unsigned dma_row_change_extra;
 	/* An SDCLK in half-MCLK units, with DBF clear. Two is SDCLK = MCLK,
 	   which is what the SDRAMC gets: III.1.9.4 runs the interface on
 	   OSC_W and MCLKDIV is 0. Four stood here for a day, fitted from a

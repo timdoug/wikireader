@@ -279,10 +279,19 @@ static unsigned row_port(unsigned kind)
 {
 	switch (kind) {
 	case MEM_CPU_FETCH:            return 0;
-	case MEM_DMA_READ:
-	case MEM_DMA_WRITE:            return 2;
+	case MEM_DMA_READ:             return 2;
+	case MEM_DMA_WRITE:            return model.rw_ports ? 4 : 2;
+	case MEM_CPU_WRITE:            return model.rw_ports ? 3 : 1;
 	default:                       return 1;
 	}
+}
+
+/* The physical bank a row identity (row_identity) lies in. */
+static unsigned identity_bank(const struct sdramc *s, uint32_t row)
+{
+	const struct geometry *g = &geometry[s->reg[OFF_CTL] & 7];
+
+	return (row >> g->row_bits) & (g->banks - 1);
 }
 
 static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
@@ -303,9 +312,20 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	address_parts(s, addr, &b, &row);
 	pb = b;
 	if (model.row_ports) {
+		bool dma = current_kind == MEM_DMA_READ ||
+			   current_kind == MEM_DMA_WRITE;
+
 		row = row_identity(s, addr);
 		b = row_port(current_kind);
-		if (model.dma_row_evict && b == row_port(MEM_DMA_WRITE))
+		/* Another data register's row in this bank closes when this
+		   one opens another; the fetch row only for the DMA. */
+		if (model.bank_conflict)
+			for (unsigned p = 0; p < 5; p++)
+				if (p != b && (p || (dma && model.dma_row_evict > 1)) &&
+				    s->bank[p].valid && s->bank[p].row != row &&
+				    identity_bank(s, s->bank[p].row) == pb)
+					s->bank[p].valid = false;
+		if (!model.bank_conflict && model.dma_row_evict && dma)
 			for (unsigned p = model.dma_row_evict > 1 ? 0 : 1;
 			     p <= 1; p++)
 				if (s->bank[p].valid && s->bank[p].row != row)
@@ -381,7 +401,8 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 	   before the read whether or not a row had to be closed first
 	   (boards/.../tools/ubench-sdclk-device.txt). */
 	at += trp(s) * tick;
-	return at + model.row_change_extra;
+	return at + (current_kind == MEM_DMA_READ || current_kind == MEM_DMA_WRITE ?
+		     model.dma_row_change_extra : model.row_change_extra);
 }
 
 /*

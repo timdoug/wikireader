@@ -9,7 +9,7 @@ CFLAGS := -O2 -mc33pe -mlong-calls -std=gnu99 -fgnu89-inline -falign-loops=16 \
  -I$(ROOT)/samo-lib/mini-libc/include -I$(ROOT)/samo-lib/drivers/include
 
 .PHONY: all
-all: $(OUT)/membench.app
+all: $(OUT)/membench.app $(OUT)/membench.ico
 $(OUT):
 	mkdir -p $@
 $(OUT)/membench.o: membench.c Makefile | $(OUT)
@@ -19,3 +19,6 @@ $(OUT)/membench.elf: $(OUT)/membench.o $(ROOT)/samo-lib/grifo/lds/application.ld
 	 -o $@ $< $(ROOT)/samo-lib/grifo/lib/libgrifo.a $(ROOT)/samo-lib/mini-libc/lib/libc.a -lgcc
 $(OUT)/membench.app: $(OUT)/membench.elf
 	$(STRIP) --strip-unneeded --strip-debug --remove-section=.lcd -o $@ $<
+# A framed square with a diagonal: 64x64, one bit a pixel, MSB first, 1 = black.
+$(OUT)/membench.ico: Makefile | $(OUT)
+	python3 -c 'import sys; rows = [(0xffffffffffffffff if y in (0, 63) else 0x8000000000000001 | (1 << (63 - y))) for y in range(64)]; sys.stdout.buffer.write(b"".join(r.to_bytes(8, "big") for r in rows))' > $@

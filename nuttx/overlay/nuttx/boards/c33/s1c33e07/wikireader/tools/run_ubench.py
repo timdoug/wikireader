@@ -35,8 +35,7 @@ def run_emulator(args):
     card = out / "card.img"
     fat = run_benchmarks.load_fat_helper(args.wikireader.resolve())
     # The whole boot, not just the application: mask ROM, MBR, kernel.elf,
-    # init.app.  Handing the emulator a bare grifo.elf is what
-    # run_benchmarks.py still does and the emulator now refuses -- a direct
+    # init.app.  The emulator refuses a bare grifo.elf: a direct
     # boot leaves the SDRAM controller, the clocks and the serial line in a
     # state the hardware is never in, which is exactly what a timing
     # measurement must not do.

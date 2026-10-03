@@ -28,7 +28,7 @@ static uint8_t saved_select, saved_irq;
 static uint16_t saved_hs[8], saved_adv[6];
 static uint32_t dma_stop[6];
 
-/* Model runner stops here after durable results; physical hardware chains ZIM. */
+/* The model runner stops here after durable results. */
 void __attribute__((noinline)) membench_done(void) { asm volatile("nop"); }
 
 static int log_line(const char *text)
@@ -221,40 +221,51 @@ static void restore(void)
     memcpy(WINDOW, saved_window, WINDOW_SIZE);
 }
 
+/* Show the outcome; power off for the model runner ("off"), or wait for a
+ * tap and return to the launcher on the device. */
+static int finish(int power, const char *message)
+{
+    event_t event;
+    membench_done();
+    lcd_clear(LCD_WHITE); lcd_at_xy(0,0);
+    lcd_print(message);
+    lcd_print("\nResults in membench.log.\nTap to return.\n");
+    if (power) power_off();
+    event_flush();
+    for (;;) {
+        event_wait(&event, NULL, NULL);
+        if (event.item_type == EVENT_TOUCH_DOWN ||
+            event.item_type == EVENT_BUTTON_DOWN)
+            return 0;
+    }
+}
+
 int grifo_main(int argc, char **argv)
 {
     static const unsigned sizes[] = {64,256,1024,4096,16384,65536,262144,524288};
     static const unsigned ivsizes[] = {64,1024,4096,5120};
-    unsigned long marker;
+    /* Where a copy's source and destination sit relative to each other:
+       the controller keeps a row open per bank, and the model needs to know
+       which separations the DMA finds in another bank. */
+    static const unsigned long seps[] = {20480, 32768, 65536, 131072, 262144,
+        524288, 1UL<<20, 2UL<<20, 3UL<<20, 4UL<<20, 5UL<<20, 6UL<<20, 7UL<<20};
+    int power = argc > 1 && strcmp(argv[1], "off") == 0;
     char line[512];
     int h, ok = 1;
-    (void)argc; (void)argv;
-    if (file_size("membench.on", &marker) != FILE_ERROR_OK)
-        chain("zim.app started-from-init");
-    if (file_delete("membench.on") != FILE_ERROR_OK)
-        chain("zim.app started-from-init");
-    /* Restore normal startup before touching DMA. A watchdog/power failure
-     * cannot leave an automatically repeating benchmark behind. */
-    h = file_create("init.ini", FILE_OPEN_WRITE);
-    if (h < 0) chain("zim.app started-from-init");
-    const char normal[] = "zim.ico : zim.app started-from-init\n";
-    ok = file_write(h, (void *)normal, sizeof(normal)-1) == sizeof(normal)-1;
-    if (file_close(h) != FILE_ERROR_OK) ok = 0;
-    if (!ok) chain("zim.app started-from-init");
     h = file_create("membench.log", FILE_OPEN_WRITE);
-    if (h < 0) chain("zim.app started-from-init");
-    if (file_close(h) != FILE_ERROR_OK) chain("zim.app started-from-init");
-    snprintf(line, sizeof(line), "MEMBENCH v1 build=%s %s clock_hz=60000000 repeats=%u setup_included=1 acctime=unlimited\n",
+    if (h < 0) return finish(power, "Cannot create membench.log.");
+    if (file_close(h) != FILE_ERROR_OK) return finish(power, "Cannot create membench.log.");
+    snprintf(line, sizeof(line), "MEMBENCH v2 build=%s %s clock_hz=60000000 repeats=%u setup_included=1 acctime=unlimited\n",
              __DATE__, __TIME__, REPEATS);
-    if (!log_line(line)) chain("zim.app started-from-init");
+    if (!log_line(line)) return finish(power, "Cannot write membench.log.");
     if ((REG_HS0_EN | REG_HS1_EN | REG_HS2_EN | REG_HS3_EN) & 1) {
         log_line("ABORT: DMA channel already active\n");
-        chain("zim.app started-from-init");
+        return finish(power, "A DMA channel was busy.");
     }
     allocation = memory_allocate(3 * BANK, "memory benchmark");
     if (!allocation) {
         log_line("ABORT: buffer allocation failed\n");
-        chain("zim.app started-from-init");
+        return finish(power, "Not enough memory.");
     }
     source = (unsigned char *)(((uintptr_t)allocation + BANK - 1) & ~(BANK-1));
     source += 1024;
@@ -311,12 +322,15 @@ int grifo_main(int argc, char **argv)
     for (unsigned method = BACK_CPU; ok && method <= BACK_DMA; ++method)
         ok = run_case("overlap", method, source+32, source, 4096);
     if (ok) ok = run_case("repeat", BLOCK_DMA, same_bank, source, 4096);
+    for (unsigned i = 0; ok && i < sizeof(seps)/sizeof(*seps); ++i) {
+        char layout[24];
+        snprintf(layout, sizeof(layout), "sep%lu", seps[i]);
+        ok = run_case(layout, DMA32, source + seps[i], source, 16384);
+        if (ok) ok = run_case(layout, BATCH_FAST, source + seps[i], source, 16384);
+    }
     restore();
     memory_free(allocation, "memory benchmark");
     snprintf(line, sizeof(line), "END MEMBENCH cases=%u failed=%u complete=%d state_restored=1\n", cases, failed, ok);
     log_line(line);
-    lcd_clear(LCD_WHITE); lcd_at_xy(0,0);
-    lcd_print(ok ? "Benchmark complete.\nStarting Wikipedia..." : "Benchmark stopped.\nResults saved.");
-    membench_done();
-    chain("zim.app started-from-init");
+    return finish(power, ok ? "Memory benchmark complete." : "Memory benchmark stopped.");
 }

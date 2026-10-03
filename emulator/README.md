@@ -246,12 +246,14 @@ counts, are what to look at on this core: the ZIM article load below runs at
 ranks the wrong lines. The CPU has no cache; the model charges a row change
 for every move to another 1 KiB row, closes every bank at each auto-refresh,
 and treats the two-slot 16-byte instruction queue as the only fetch
-buffering. A row register belongs to the access port (fetch, data, DMA) and
-not to the bank, so two data addresses evict one another however far apart
-they are: the device reads a pair 4 MB apart at the same cost as a pair a
-kilobyte apart. That is measured for a pair of read streams and no more --
-a 512 KiB *copy* on the device does care about the separation, which nothing
-here explains. See
+buffering. A row register belongs to the kind of access -- a fetch, a read
+or a write, the CPU's or the DMA's -- and not to the bank, so two read
+streams evict one another however far apart they are: the device reads a
+pair 4 MB apart at the same cost as a pair a kilobyte apart. A physical
+bank holds one open row, though, so opening a row closes any other data
+register's row in the same 4 MB bank (`bank_conflict`): a copy within a
+bank changes row on every access and a copy between two banks does not,
+which is what the device's copies measure. See
 [the memory-copy benchmark](tools/mem_dma_bench/README.md).
 
 ZIM reader article load, Simple English `Cat`, retrieval to render entry,
@@ -296,6 +298,9 @@ with `WREMU_MODEL=name=value,...`.
 | `wr_rd_turn` | 0 | extra half-MCLK for an SDRAM read after a write |
 | `sdclk_half` | 4 | half-MCLK per SDCLK; the device divides MCLK by two |
 | `row_ports` | 1 | the open row belongs to the access port, not the bank |
+| `rw_ports` | 1 | reads and writes have row registers of their own |
+| `bank_conflict` | 1 | opening a row closes another data register's row in the same physical bank |
+| `dma_row_change_extra` | 0 | half-MCLK a DMA row change adds; the device's copies pay only tRP and tRCD |
 | `row_change_extra` | 1 | extra half-MCLK on a row change |
 | `cas_first` | 0 | the first halfword lands on the CAS cycle, not after it |
 | `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
@@ -306,7 +311,7 @@ with `WREMU_MODEL=name=value,...`.
 | `dma_fetch_hold` | 1 | an SDRAM fetch that leaves the queues holds the bus as a data access does |
 | `dma_bus_hold` | 8 | cycles each SPI DMA bus phase holds the bus against the CPU |
 | `dma_reg_hold` | 4 | ...against a CPU access to a peripheral register |
-| `dma_row_evict` | 2 | a DMA access to SDRAM closes the CPU's open rows: 0 none, 1 data, 2 data and fetch |
+| `dma_row_evict` | 2 | 2: a DMA access to SDRAM also closes the fetch row in its bank (without `bank_conflict`: 1 the data row, 2 both, in any bank) |
 | `idma_extra` | 38 | cycles from an SPI IDMA transfer's start to its write |
 | `spi_wait_extra` | 1 | divided-clock periods between SPI characters beyond SPI_WAIT + 1 |
 | `sd_read_latency` | 12000 | cycles from a read command to the data token |
@@ -575,10 +580,14 @@ only happens if a store retires before the bus has taken it, and
 `write_post = 0` takes the rv32 interpreter from 0.0793 to 0.0947.
 `row_ports = 1` gives the open row to the access kind rather than the bank,
 where the manual supports "max. 4 SDRAM banks and bank active mode"; the
-device charges the same for two addresses a kilobyte apart and four
-megabytes apart, which under the geometry table are different banks. That
-geometry is separately suspect -- both 32 MB boards behave as 4 MB banks
-where the table says 8 MB -- and the discrepancy is unexplained.
+device charges the same for two read addresses a kilobyte apart and four
+megabytes apart, which under the geometry table are different banks.
+`rw_ports` gives reads and writes registers of their own, and
+`bank_conflict` closes another register's row when one opens in the same
+physical bank. The memory-copy benchmark's separation sweep puts that bank
+on the device at exactly 4 MB, as the geometry table has it: a DMA copy
+costs 17.7 cycles a word with its buffers up to 3 MB apart and 9.8 from
+4 MB, and the CPU's word-at-a-time copy 25.0 against 17.3.
 
 ### Whole programs
 
@@ -1022,21 +1031,23 @@ device never has. Each DMA bus phase, a source read and a destination
 write, holds the bus against the CPU for `dma_bus_hold` cycles, or
 `dma_reg_hold` for a CPU access to a peripheral register: the CPU's
 accesses beyond A0 RAM wait it out, an SDRAM one only if it leaves the
-controller's queues. A DMA access to SDRAM closes the CPU's open data and
-fetch rows when it opens another (`dma_row_evict`).
+controller's queues. A DMA access to SDRAM that opens a row closes the
+CPU's open rows in the same bank: its data rows as any data access would
+(`bank_conflict`), and its fetch row as well (`dma_row_evict`).
 
 [`tools/spi_dma_bench`](tools/spi_dma_bench/README.md) fits these against
 the device: 1,024-character streams at 8, 16 and 32 bits into SDRAM or IVRAM,
 fed by HSDMA or IDMA, beside nine CPU loops. wremu puts every HSDMA case's
-time a character within 0.4 cycles of the device (RMS of 54) and the IDMA
-cases' within 5.8 (18); the cycles a character the transfers take from the
-CPU are within 4.6 for HSDMA, 1.9 too few on average, and 6.1 for IDMA. The
+time a character within 0.5 cycles of the device (RMS of 54) and the IDMA
+cases' within 5.9 (18); the cycles a character the transfers take from the
+CPU are within 4.4 for HSDMA, 1.8 too few on average, and 5.4 for IDMA. The
 largest misses are a CPU storing one word at a time to SDRAM beside a
 stream into SDRAM, which the device slows by 12 to 15 cycles a character
-where wremu takes 3 to 5, and code running from SDRAM, which it slows by 10
-to 20 where wremu takes 2 to 14. The Linux card driver agrees: on the kernel the device ran `check` with,
-a raw 4 MB read takes 2.94 s in wremu against 2.92, at 13,300 driver cycles a
-block against the device's 13,700 less its writes.
+where wremu takes 6, and code running from SDRAM, which it slows by 10 to
+20 where wremu takes 2 to 14. The Linux card driver agrees: on the kernel
+the device ran `check` with, a raw 4 MB read takes 2.92 s in wremu as on
+the device, at 13,400 driver cycles a block against the device's 13,700
+less its writes.
 Memory-to-memory HSDMA keeps the synchronous model.
 Software-triggered HSDMA also supports single, successive and block transfers,
 fixed/incrementing/decrementing addresses, and address restoration at the end

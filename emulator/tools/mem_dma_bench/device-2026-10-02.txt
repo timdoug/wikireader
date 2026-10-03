@@ -1,0 +1,244 @@
+MEMBENCH v2 build=Oct  2 2026 17:19:27 clock_hz=60000000 repeats=3 setup_included=1 acctime=unlimited
+CONFIG src=10400400 same=10500400 other=10800400 ivram=00081a00 sdram_ctl=00001243 refresh=01ff01c0 app=8000000b dma_gate=3b0c736e
+TIMING timer_pair_ticks=496 previous_mode=1 previous_acctime=0 rst=7
+BEGIN case=0 layout=same method=dma32 bytes=64 src=10400400 dst=10500400
+RESULT case=0 layout=same method=dma32 bytes=64 ticks=2438,2434,2428 min=2428 median=2434 max=2438 verified=1
+BEGIN case=1 layout=same method=libc bytes=64 src=10400400 dst=10500400
+RESULT case=1 layout=same method=libc bytes=64 ticks=1398,1399,1395 min=1395 median=1398 max=1399 verified=1
+BEGIN case=2 layout=same method=batch8 bytes=64 src=10400400 dst=10500400
+RESULT case=2 layout=same method=batch8 bytes=64 ticks=1098,1096,1101 min=1096 median=1098 max=1101 verified=1
+BEGIN case=3 layout=same method=batch8-a0 bytes=64 src=10400400 dst=10500400
+RESULT case=3 layout=same method=batch8-a0 bytes=64 ticks=997,992,994 min=992 median=994 max=997 verified=1
+BEGIN case=4 layout=same method=dma32 bytes=64 src=10400400 dst=10500400
+RESULT case=4 layout=same method=dma32 bytes=64 ticks=2442,2442,2429 min=2429 median=2442 max=2442 verified=1
+BEGIN case=5 layout=same method=libc bytes=256 src=10400400 dst=10500400
+RESULT case=5 layout=same method=libc bytes=256 ticks=2600,2602,2617 min=2600 median=2602 max=2617 verified=1
+BEGIN case=6 layout=same method=batch8 bytes=256 src=10400400 dst=10500400
+RESULT case=6 layout=same method=batch8 bytes=256 ticks=2146,2142,2139 min=2139 median=2142 max=2146 verified=1
+BEGIN case=7 layout=same method=batch8-a0 bytes=256 src=10400400 dst=10500400
+RESULT case=7 layout=same method=batch8-a0 bytes=256 ticks=1754,1755,1752 min=1752 median=1754 max=1755 verified=1
+BEGIN case=8 layout=same method=dma32 bytes=256 src=10400400 dst=10500400
+RESULT case=8 layout=same method=dma32 bytes=256 ticks=3268,3283,3284 min=3268 median=3283 max=3284 verified=1
+BEGIN case=9 layout=same method=libc bytes=1024 src=10400400 dst=10500400
+RESULT case=9 layout=same method=libc bytes=1024 ticks=7401,7397,7416 min=7397 median=7401 max=7416 verified=1
+BEGIN case=10 layout=same method=batch8 bytes=1024 src=10400400 dst=10500400
+RESULT case=10 layout=same method=batch8 bytes=1024 ticks=6316,6316,6313 min=6313 median=6316 max=6316 verified=1
+BEGIN case=11 layout=same method=batch8-a0 bytes=1024 src=10400400 dst=10500400
+RESULT case=11 layout=same method=batch8-a0 bytes=1024 ticks=4805,4790,4807 min=4790 median=4805 max=4807 verified=1
+BEGIN case=12 layout=same method=dma32 bytes=1024 src=10400400 dst=10500400
+RESULT case=12 layout=same method=dma32 bytes=1024 ticks=6596,6607,6623 min=6596 median=6607 max=6623 verified=1
+BEGIN case=13 layout=same method=libc bytes=4096 src=10400400 dst=10500400
+RESULT case=13 layout=same method=libc bytes=4096 ticks=26616,26611,26615 min=26611 median=26615 max=26616 verified=1
+BEGIN case=14 layout=same method=batch8 bytes=4096 src=10400400 dst=10500400
+RESULT case=14 layout=same method=batch8 bytes=4096 ticks=23015,23004,23003 min=23003 median=23004 max=23015 verified=1
+BEGIN case=15 layout=same method=batch8-a0 bytes=4096 src=10400400 dst=10500400
+RESULT case=15 layout=same method=batch8-a0 bytes=4096 ticks=16971,16982,16980 min=16971 median=16980 max=16982 verified=1
+BEGIN case=16 layout=same method=dma32 bytes=4096 src=10400400 dst=10500400
+RESULT case=16 layout=same method=dma32 bytes=4096 ticks=19804,19791,19793 min=19791 median=19793 max=19804 verified=1
+BEGIN case=17 layout=same method=libc bytes=16384 src=10400400 dst=10500400
+RESULT case=17 layout=same method=libc bytes=16384 ticks=103410,103408,103409 min=103408 median=103409 max=103410 verified=1
+BEGIN case=18 layout=same method=batch8 bytes=16384 src=10400400 dst=10500400
+RESULT case=18 layout=same method=batch8 bytes=16384 ticks=89780,89765,89769 min=89765 median=89769 max=89780 verified=1
+BEGIN case=19 layout=same method=batch8-a0 bytes=16384 src=10400400 dst=10500400
+RESULT case=19 layout=same method=batch8-a0 bytes=16384 ticks=65722,65713,65724 min=65713 median=65722 max=65724 verified=1
+BEGIN case=20 layout=same method=dma32 bytes=16384 src=10400400 dst=10500400
+RESULT case=20 layout=same method=dma32 bytes=16384 ticks=72537,72530,72539 min=72530 median=72537 max=72539 verified=1
+BEGIN case=21 layout=same method=libc bytes=65536 src=10400400 dst=10500400
+RESULT case=21 layout=same method=libc bytes=65536 ticks=410608,410612,410601 min=410601 median=410608 max=410612 verified=1
+BEGIN case=22 layout=same method=batch8 bytes=65536 src=10400400 dst=10500400
+RESULT case=22 layout=same method=batch8 bytes=65536 ticks=356824,356828,356829 min=356824 median=356828 max=356829 verified=1
+BEGIN case=23 layout=same method=batch8-a0 bytes=65536 src=10400400 dst=10500400
+RESULT case=23 layout=same method=batch8-a0 bytes=65536 ticks=260663,260678,260667 min=260663 median=260667 max=260678 verified=1
+BEGIN case=24 layout=same method=dma32 bytes=65536 src=10400400 dst=10500400
+RESULT case=24 layout=same method=dma32 bytes=65536 ticks=283355,283358,283360 min=283355 median=283358 max=283360 verified=1
+BEGIN case=25 layout=same method=libc bytes=262144 src=10400400 dst=10500400
+RESULT case=25 layout=same method=libc bytes=262144 ticks=1639395,1639407,1639407 min=1639395 median=1639407 max=1639407 verified=1
+BEGIN case=26 layout=same method=batch8 bytes=262144 src=10400400 dst=10500400
+RESULT case=26 layout=same method=batch8 bytes=262144 ticks=1425042,1425039,1425059 min=1425039 median=1425042 max=1425059 verified=1
+BEGIN case=27 layout=same method=batch8-a0 bytes=262144 src=10400400 dst=10500400
+RESULT case=27 layout=same method=batch8-a0 bytes=262144 ticks=1040496,1040483,1040491 min=1040483 median=1040491 max=1040496 verified=1
+BEGIN case=28 layout=same method=dma32 bytes=262144 src=10400400 dst=10500400
+RESULT case=28 layout=same method=dma32 bytes=262144 ticks=1126617,1126628,1126617 min=1126617 median=1126617 max=1126628 verified=1
+BEGIN case=29 layout=same method=libc bytes=524288 src=10400400 dst=10500400
+RESULT case=29 layout=same method=libc bytes=524288 ticks=3277798,3277798,3277798 min=3277798 median=3277798 max=3277798 verified=1
+BEGIN case=30 layout=same method=batch8 bytes=524288 src=10400400 dst=10500400
+RESULT case=30 layout=same method=batch8 bytes=524288 ticks=2849323,2849329,2849336 min=2849323 median=2849329 max=2849336 verified=1
+BEGIN case=31 layout=same method=batch8-a0 bytes=524288 src=10400400 dst=10500400
+RESULT case=31 layout=same method=batch8-a0 bytes=524288 ticks=2080256,2080238,2080237 min=2080237 median=2080238 max=2080256 verified=1
+BEGIN case=32 layout=same method=dma32 bytes=524288 src=10400400 dst=10500400
+RESULT case=32 layout=same method=dma32 bytes=524288 ticks=2250905,2250905,2250905 min=2250905 median=2250905 max=2250905 verified=1
+BEGIN case=33 layout=other method=libc bytes=64 src=10400400 dst=10800400
+RESULT case=33 layout=other method=libc bytes=64 ticks=1290,1291,1279 min=1279 median=1290 max=1291 verified=1
+BEGIN case=34 layout=other method=batch8 bytes=64 src=10400400 dst=10800400
+RESULT case=34 layout=other method=batch8 bytes=64 ticks=1079,1082,1082 min=1079 median=1082 max=1082 verified=1
+BEGIN case=35 layout=other method=batch8-a0 bytes=64 src=10400400 dst=10800400
+RESULT case=35 layout=other method=batch8-a0 bytes=64 ticks=981,977,988 min=977 median=981 max=988 verified=1
+BEGIN case=36 layout=other method=dma32 bytes=64 src=10400400 dst=10800400
+RESULT case=36 layout=other method=dma32 bytes=64 ticks=2324,2311,2313 min=2311 median=2313 max=2324 verified=1
+BEGIN case=37 layout=other method=libc bytes=256 src=10400400 dst=10800400
+RESULT case=37 layout=other method=libc bytes=256 ticks=2117,2120,2116 min=2116 median=2117 max=2120 verified=1
+BEGIN case=38 layout=other method=batch8 bytes=256 src=10400400 dst=10800400
+RESULT case=38 layout=other method=batch8 bytes=256 ticks=2053,2051,2056 min=2051 median=2053 max=2056 verified=1
+BEGIN case=39 layout=other method=batch8-a0 bytes=256 src=10400400 dst=10800400
+RESULT case=39 layout=other method=batch8-a0 bytes=256 ticks=1701,1701,1691 min=1691 median=1701 max=1701 verified=1
+BEGIN case=40 layout=other method=dma32 bytes=256 src=10400400 dst=10800400
+RESULT case=40 layout=other method=dma32 bytes=256 ticks=2775,2779,2779 min=2775 median=2779 max=2779 verified=1
+BEGIN case=41 layout=other method=libc bytes=1024 src=10400400 dst=10800400
+RESULT case=41 layout=other method=libc bytes=1024 ticks=5433,5440,5437 min=5433 median=5437 max=5440 verified=1
+BEGIN case=42 layout=other method=batch8 bytes=1024 src=10400400 dst=10800400
+RESULT case=42 layout=other method=batch8 bytes=1024 ticks=5949,5957,5948 min=5948 median=5949 max=5957 verified=1
+BEGIN case=43 layout=other method=batch8-a0 bytes=1024 src=10400400 dst=10800400
+RESULT case=43 layout=other method=batch8-a0 bytes=1024 ticks=4560,4559,4563 min=4559 median=4560 max=4563 verified=1
+BEGIN case=44 layout=other method=dma32 bytes=1024 src=10400400 dst=10800400
+RESULT case=44 layout=other method=dma32 bytes=1024 ticks=4573,4566,4589 min=4566 median=4573 max=4589 verified=1
+BEGIN case=45 layout=other method=libc bytes=4096 src=10400400 dst=10800400
+RESULT case=45 layout=other method=libc bytes=4096 ticks=18748,18752,18757 min=18748 median=18752 max=18757 verified=1
+BEGIN case=46 layout=other method=batch8 bytes=4096 src=10400400 dst=10800400
+RESULT case=46 layout=other method=batch8 bytes=4096 ticks=21544,21552,21556 min=21544 median=21552 max=21556 verified=1
+BEGIN case=47 layout=other method=batch8-a0 bytes=4096 src=10400400 dst=10800400
+RESULT case=47 layout=other method=batch8-a0 bytes=4096 ticks=16034,16033,16033 min=16033 median=16033 max=16034 verified=1
+BEGIN case=48 layout=other method=dma32 bytes=4096 src=10400400 dst=10800400
+RESULT case=48 layout=other method=dma32 bytes=4096 ticks=11674,11676,11674 min=11674 median=11674 max=11676 verified=1
+BEGIN case=49 layout=other method=libc bytes=16384 src=10400400 dst=10800400
+RESULT case=49 layout=other method=libc bytes=16384 ticks=72023,72004,72004 min=72004 median=72004 max=72023 verified=1
+BEGIN case=50 layout=other method=batch8 bytes=16384 src=10400400 dst=10800400
+RESULT case=50 layout=other method=batch8 bytes=16384 ticks=83956,83950,83951 min=83950 median=83951 max=83956 verified=1
+BEGIN case=51 layout=other method=batch8-a0 bytes=16384 src=10400400 dst=10800400
+RESULT case=51 layout=other method=batch8-a0 bytes=16384 ticks=61938,62008,62008 min=61938 median=62008 max=62008 verified=1
+BEGIN case=52 layout=other method=dma32 bytes=16384 src=10400400 dst=10800400
+RESULT case=52 layout=other method=dma32 bytes=16384 ticks=40020,40018,40028 min=40018 median=40020 max=40028 verified=1
+BEGIN case=53 layout=other method=libc bytes=65536 src=10400400 dst=10800400
+RESULT case=53 layout=other method=libc bytes=65536 ticks=285067,285078,285074 min=285067 median=285074 max=285078 verified=1
+BEGIN case=54 layout=other method=batch8 bytes=65536 src=10400400 dst=10800400
+RESULT case=54 layout=other method=batch8 bytes=65536 ticks=333555,333552,333550 min=333550 median=333552 max=333555 verified=1
+BEGIN case=55 layout=other method=batch8-a0 bytes=65536 src=10400400 dst=10800400
+RESULT case=55 layout=other method=batch8-a0 bytes=65536 ticks=245538,245526,245533 min=245526 median=245533 max=245538 verified=1
+BEGIN case=56 layout=other method=dma32 bytes=65536 src=10400400 dst=10800400
+RESULT case=56 layout=other method=dma32 bytes=65536 ticks=153351,153323,153332 min=153323 median=153332 max=153351 verified=1
+BEGIN case=57 layout=other method=libc bytes=262144 src=10400400 dst=10800400
+RESULT case=57 layout=other method=libc bytes=262144 ticks=1137310,1137302,1137285 min=1137285 median=1137302 max=1137310 verified=1
+BEGIN case=58 layout=other method=batch8 bytes=262144 src=10400400 dst=10800400
+RESULT case=58 layout=other method=batch8 bytes=262144 ticks=1331943,1331943,1331943 min=1331943 median=1331943 max=1331943 verified=1
+BEGIN case=59 layout=other method=batch8-a0 bytes=262144 src=10400400 dst=10800400
+RESULT case=59 layout=other method=batch8-a0 bytes=262144 ticks=979944,979945,979926 min=979926 median=979944 max=979945 verified=1
+BEGIN case=60 layout=other method=dma32 bytes=262144 src=10400400 dst=10800400
+RESULT case=60 layout=other method=dma32 bytes=262144 ticks=606525,606525,606525 min=606525 median=606525 max=606525 verified=1
+BEGIN case=61 layout=other method=libc bytes=524288 src=10400400 dst=10800400
+RESULT case=61 layout=other method=libc bytes=524288 ticks=2273588,2273591,2273591 min=2273588 median=2273591 max=2273591 verified=1
+BEGIN case=62 layout=other method=batch8 bytes=524288 src=10400400 dst=10800400
+RESULT case=62 layout=other method=batch8 bytes=524288 ticks=2663157,2663150,2663151 min=2663150 median=2663151 max=2663157 verified=1
+BEGIN case=63 layout=other method=batch8-a0 bytes=524288 src=10400400 dst=10800400
+RESULT case=63 layout=other method=batch8-a0 bytes=524288 ticks=1959135,1959138,1959138 min=1959135 median=1959138 max=1959138 verified=1
+BEGIN case=64 layout=other method=dma32 bytes=524288 src=10400400 dst=10800400
+RESULT case=64 layout=other method=dma32 bytes=524288 ticks=1210744,1210739,1210739 min=1210739 median=1210739 max=1210744 verified=1
+BEGIN case=65 layout=ivram method=libc bytes=64 src=10400400 dst=00081a10
+RESULT case=65 layout=ivram method=libc bytes=64 ticks=1216,1218,1210 min=1210 median=1216 max=1218 verified=1
+BEGIN case=66 layout=ivram method=batch8 bytes=64 src=10400400 dst=00081a10
+RESULT case=66 layout=ivram method=batch8 bytes=64 ticks=1056,1050,1049 min=1049 median=1050 max=1056 verified=1
+BEGIN case=67 layout=ivram method=batch8-a0 bytes=64 src=10400400 dst=00081a10
+RESULT case=67 layout=ivram method=batch8-a0 bytes=64 ticks=946,944,943 min=943 median=944 max=946 verified=1
+BEGIN case=68 layout=ivram method=dma32 bytes=64 src=10400400 dst=00081a10
+RESULT case=68 layout=ivram method=dma32 bytes=64 ticks=2294,2285,2293 min=2285 median=2293 max=2294 verified=1
+BEGIN case=69 layout=ivram method=libc bytes=1024 src=10400400 dst=00081a10
+RESULT case=69 layout=ivram method=libc bytes=1024 ticks=5087,5091,5091 min=5087 median=5091 max=5091 verified=1
+BEGIN case=70 layout=ivram method=batch8 bytes=1024 src=10400400 dst=00081a10
+RESULT case=70 layout=ivram method=batch8 bytes=1024 ticks=5549,5527,5537 min=5527 median=5537 max=5549 verified=1
+BEGIN case=71 layout=ivram method=batch8-a0 bytes=1024 src=10400400 dst=00081a10
+RESULT case=71 layout=ivram method=batch8-a0 bytes=1024 ticks=4012,4027,4028 min=4012 median=4027 max=4028 verified=1
+BEGIN case=72 layout=ivram method=dma32 bytes=1024 src=10400400 dst=00081a10
+RESULT case=72 layout=ivram method=dma32 bytes=1024 ticks=4304,4308,4298 min=4298 median=4304 max=4308 verified=1
+BEGIN case=73 layout=ivram method=libc bytes=4096 src=10400400 dst=00081a10
+RESULT case=73 layout=ivram method=libc bytes=4096 ticks=17462,17462,17479 min=17462 median=17462 max=17479 verified=1
+BEGIN case=74 layout=ivram method=batch8 bytes=4096 src=10400400 dst=00081a10
+RESULT case=74 layout=ivram method=batch8 bytes=4096 ticks=19957,19962,19908 min=19908 median=19957 max=19962 verified=1
+BEGIN case=75 layout=ivram method=batch8-a0 bytes=4096 src=10400400 dst=00081a10
+RESULT case=75 layout=ivram method=batch8-a0 bytes=4096 ticks=13799,13798,13812 min=13798 median=13799 max=13812 verified=1
+BEGIN case=76 layout=ivram method=dma32 bytes=4096 src=10400400 dst=00081a10
+RESULT case=76 layout=ivram method=dma32 bytes=4096 ticks=10571,10579,10575 min=10571 median=10575 max=10579 verified=1
+BEGIN case=77 layout=ivram method=libc bytes=5120 src=10400400 dst=00081a10
+RESULT case=77 layout=ivram method=libc bytes=5120 ticks=21604,21604,21597 min=21597 median=21604 max=21604 verified=1
+BEGIN case=78 layout=ivram method=batch8 bytes=5120 src=10400400 dst=00081a10
+RESULT case=78 layout=ivram method=batch8 bytes=5120 ticks=24733,24749,24757 min=24733 median=24749 max=24757 verified=1
+BEGIN case=79 layout=ivram method=batch8-a0 bytes=5120 src=10400400 dst=00081a10
+RESULT case=79 layout=ivram method=batch8-a0 bytes=5120 ticks=17079,17076,17107 min=17076 median=17079 max=17107 verified=1
+BEGIN case=80 layout=ivram method=dma32 bytes=5120 src=10400400 dst=00081a10
+RESULT case=80 layout=ivram method=dma32 bytes=5120 ticks=12657,12664,12655 min=12655 median=12657 max=12664 verified=1
+BEGIN case=81 layout=same method=dma8 bytes=4096 src=10400400 dst=10500400
+RESULT case=81 layout=same method=dma8 bytes=4096 ticks=28223,28223,28223 min=28223 median=28223 max=28223 verified=1
+BEGIN case=82 layout=same method=dma16 bytes=4096 src=10400400 dst=10500400
+RESULT case=82 layout=same method=dma16 bytes=4096 ticks=21965,21961,21957 min=21957 median=21961 max=21965 verified=1
+BEGIN case=83 layout=other method=dma8 bytes=4096 src=10400400 dst=10800400
+RESULT case=83 layout=other method=dma8 bytes=4096 ticks=20112,20114,20109 min=20109 median=20112 max=20114 verified=1
+BEGIN case=84 layout=other method=dma16 bytes=4096 src=10400400 dst=10800400
+RESULT case=84 layout=other method=dma16 bytes=4096 ticks=13777,13777,13777 min=13777 median=13777 max=13777 verified=1
+BEGIN case=85 layout=fill method=fill-cpu bytes=4096 src=10400400 dst=10500400
+RESULT case=85 layout=fill method=fill-cpu bytes=4096 ticks=6144,6140,6138 min=6138 median=6140 max=6144 verified=1
+BEGIN case=86 layout=fill method=fill-dma bytes=4096 src=10400400 dst=10500400
+RESULT case=86 layout=fill method=fill-dma bytes=4096 ticks=6436,6417,6428 min=6417 median=6428 max=6436 verified=1
+BEGIN case=87 layout=fill method=fill-cpu bytes=65536 src=10400400 dst=10500400
+RESULT case=87 layout=fill method=fill-cpu bytes=65536 ticks=84519,84532,84531 min=84519 median=84531 max=84532 verified=1
+BEGIN case=88 layout=fill method=fill-dma bytes=65536 src=10400400 dst=10500400
+RESULT case=88 layout=fill method=fill-dma bytes=65536 ticks=69280,69274,69278 min=69274 median=69278 max=69280 verified=1
+BEGIN case=89 layout=fill method=fill-cpu bytes=524288 src=10400400 dst=10500400
+RESULT case=89 layout=fill method=fill-cpu bytes=524288 ticks=669817,669814,669814 min=669814 median=669814 max=669817 verified=1
+BEGIN case=90 layout=fill method=fill-dma bytes=524288 src=10400400 dst=10500400
+RESULT case=90 layout=fill method=fill-dma bytes=524288 ticks=538151,538129,538137 min=538129 median=538137 max=538151 verified=1
+BEGIN case=91 layout=overlap method=back-cpu bytes=4096 src=10400400 dst=10400420
+RESULT case=91 layout=overlap method=back-cpu bytes=4096 ticks=20036,20024,20019 min=20019 median=20024 max=20036 verified=1
+BEGIN case=92 layout=overlap method=back-dma bytes=4096 src=10400400 dst=10400420
+RESULT case=92 layout=overlap method=back-dma bytes=4096 ticks=11911,11916,11912 min=11911 median=11912 max=11916 verified=1
+BEGIN case=93 layout=repeat method=block-reset bytes=4096 src=10400400 dst=10500400
+RESULT case=93 layout=repeat method=block-reset bytes=4096 ticks=27291,27272,27307 min=27272 median=27291 max=27307 verified=1
+BEGIN case=94 layout=sep20480 method=dma32 bytes=16384 src=10400400 dst=10405400
+RESULT case=94 layout=sep20480 method=dma32 bytes=16384 ticks=72537,72530,72539 min=72530 median=72537 max=72539 verified=1
+BEGIN case=95 layout=sep20480 method=batch8-a0 bytes=16384 src=10400400 dst=10405400
+RESULT case=95 layout=sep20480 method=batch8-a0 bytes=16384 ticks=65729,65723,65713 min=65713 median=65723 max=65729 verified=1
+BEGIN case=96 layout=sep32768 method=dma32 bytes=16384 src=10400400 dst=10408400
+RESULT case=96 layout=sep32768 method=dma32 bytes=16384 ticks=72530,72539,72536 min=72530 median=72536 max=72539 verified=1
+BEGIN case=97 layout=sep32768 method=batch8-a0 bytes=16384 src=10400400 dst=10408400
+RESULT case=97 layout=sep32768 method=batch8-a0 bytes=16384 ticks=65725,65723,65713 min=65713 median=65723 max=65725 verified=1
+BEGIN case=98 layout=sep65536 method=dma32 bytes=16384 src=10400400 dst=10410400
+RESULT case=98 layout=sep65536 method=dma32 bytes=16384 ticks=72530,72539,72536 min=72530 median=72536 max=72539 verified=1
+BEGIN case=99 layout=sep65536 method=batch8-a0 bytes=16384 src=10400400 dst=10410400
+RESULT case=99 layout=sep65536 method=batch8-a0 bytes=16384 ticks=65729,65723,65713 min=65713 median=65723 max=65729 verified=1
+BEGIN case=100 layout=sep131072 method=dma32 bytes=16384 src=10400400 dst=10420400
+RESULT case=100 layout=sep131072 method=dma32 bytes=16384 ticks=72538,72537,72530 min=72530 median=72537 max=72538 verified=1
+BEGIN case=101 layout=sep131072 method=batch8-a0 bytes=16384 src=10400400 dst=10420400
+RESULT case=101 layout=sep131072 method=batch8-a0 bytes=16384 ticks=65719,65707,65729 min=65707 median=65719 max=65729 verified=1
+BEGIN case=102 layout=sep262144 method=dma32 bytes=16384 src=10400400 dst=10440400
+RESULT case=102 layout=sep262144 method=dma32 bytes=16384 ticks=72530,72539,72536 min=72530 median=72536 max=72539 verified=1
+BEGIN case=103 layout=sep262144 method=batch8-a0 bytes=16384 src=10400400 dst=10440400
+RESULT case=103 layout=sep262144 method=batch8-a0 bytes=16384 ticks=65713,65724,65718 min=65713 median=65718 max=65724 verified=1
+BEGIN case=104 layout=sep524288 method=dma32 bytes=16384 src=10400400 dst=10480400
+RESULT case=104 layout=sep524288 method=dma32 bytes=16384 ticks=72538,72543,72537 min=72537 median=72538 max=72543 verified=1
+BEGIN case=105 layout=sep524288 method=batch8-a0 bytes=16384 src=10400400 dst=10480400
+RESULT case=105 layout=sep524288 method=batch8-a0 bytes=16384 ticks=65729,65723,65713 min=65713 median=65723 max=65729 verified=1
+BEGIN case=106 layout=sep1048576 method=dma32 bytes=16384 src=10400400 dst=10500400
+RESULT case=106 layout=sep1048576 method=dma32 bytes=16384 ticks=72530,72539,72536 min=72530 median=72536 max=72539 verified=1
+BEGIN case=107 layout=sep1048576 method=batch8-a0 bytes=16384 src=10400400 dst=10500400
+RESULT case=107 layout=sep1048576 method=batch8-a0 bytes=16384 ticks=65729,65723,65713 min=65713 median=65723 max=65729 verified=1
+BEGIN case=108 layout=sep2097152 method=dma32 bytes=16384 src=10400400 dst=10600400
+RESULT case=108 layout=sep2097152 method=dma32 bytes=16384 ticks=72530,72539,72536 min=72530 median=72536 max=72539 verified=1
+BEGIN case=109 layout=sep2097152 method=batch8-a0 bytes=16384 src=10400400 dst=10600400
+RESULT case=109 layout=sep2097152 method=batch8-a0 bytes=16384 ticks=65717,65718,65718 min=65717 median=65718 max=65718 verified=1
+BEGIN case=110 layout=sep3145728 method=dma32 bytes=16384 src=10400400 dst=10700400
+RESULT case=110 layout=sep3145728 method=dma32 bytes=16384 ticks=72543,72537,72530 min=72530 median=72537 max=72543 verified=1
+BEGIN case=111 layout=sep3145728 method=batch8-a0 bytes=16384 src=10400400 dst=10700400
+RESULT case=111 layout=sep3145728 method=batch8-a0 bytes=16384 ticks=65723,65713,65724 min=65713 median=65723 max=65724 verified=1
+BEGIN case=112 layout=sep4194304 method=dma32 bytes=16384 src=10400400 dst=10800400
+RESULT case=112 layout=sep4194304 method=dma32 bytes=16384 ticks=40028,40045,40036 min=40028 median=40036 max=40045 verified=1
+BEGIN case=113 layout=sep4194304 method=batch8-a0 bytes=16384 src=10400400 dst=10800400
+RESULT case=113 layout=sep4194304 method=batch8-a0 bytes=16384 ticks=61944,62008,62008 min=61944 median=62008 max=62008 verified=1
+BEGIN case=114 layout=sep5242880 method=dma32 bytes=16384 src=10400400 dst=10900400
+RESULT case=114 layout=sep5242880 method=dma32 bytes=16384 ticks=40018,40028,40045 min=40018 median=40028 max=40045 verified=1
+BEGIN case=115 layout=sep5242880 method=batch8-a0 bytes=16384 src=10400400 dst=10900400
+RESULT case=115 layout=sep5242880 method=batch8-a0 bytes=16384 ticks=61935,61926,61969 min=61926 median=61935 max=61969 verified=1
+BEGIN case=116 layout=sep6291456 method=dma32 bytes=16384 src=10400400 dst=10a00400
+RESULT case=116 layout=sep6291456 method=dma32 bytes=16384 ticks=40016,40028,40045 min=40016 median=40028 max=40045 verified=1
+BEGIN case=117 layout=sep6291456 method=batch8-a0 bytes=16384 src=10400400 dst=10a00400
+RESULT case=117 layout=sep6291456 method=batch8-a0 bytes=16384 ticks=61945,61926,61969 min=61926 median=61945 max=61969 verified=1
+BEGIN case=118 layout=sep7340032 method=dma32 bytes=16384 src=10400400 dst=10b00400
+RESULT case=118 layout=sep7340032 method=dma32 bytes=16384 ticks=40016,40018,40028 min=40016 median=40018 max=40028 verified=1
+BEGIN case=119 layout=sep7340032 method=batch8-a0 bytes=16384 src=10400400 dst=10b00400
+RESULT case=119 layout=sep7340032 method=batch8-a0 bytes=16384 ticks=61945,61969,61969 min=61945 median=61969 max=61969 verified=1
+END MEMBENCH cases=120 failed=0 complete=1 state_restored=1

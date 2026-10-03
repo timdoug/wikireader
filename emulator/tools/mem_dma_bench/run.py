@@ -169,7 +169,7 @@ def parse_log(log):
             row['ticks'] = [int(n) for n in row['ticks'].split(',')]
             rows.append(row)
     assert 'complete=1 state_restored=1' in log and 'failed=0' in log
-    assert len(rows) == 94 and all(row['verified'] == 1 for row in rows), len(rows)
+    assert len(rows) == 120 and all(row['verified'] == 1 for row in rows), len(rows)
     return rows
 
 
@@ -183,11 +183,11 @@ def main():
         subprocess.run(['make', '-C', str(Path(__file__).parent)], check=True)
     exe = ROOT/'emulator/wremu'
     flash = build_flash(STAGE)
-    files = {name: (ROOT/'build/wr128/hsdma-tx/hsdma-boot'/name).read_bytes()
-             for name in ('init.app', 'zim.ico')}
+    files = {'init.app': (ROOT/'samo-lib/grifo/applications/init/init.app').read_bytes()}
     files['kernel.elf'] = (ROOT/'samo-lib/grifo/grifo.elf').read_bytes()
-    files.update({'init.ini': b'zim.ico : membench.app\n',
-                  'membench.on': b'', 'membench.app': (STAGE/'membench.app').read_bytes()})
+    files.update({'init.ini': b'membench.ico : membench.app off\n',
+                  'membench.ico': (STAGE/'membench.ico').read_bytes(),
+                  'membench.app': (STAGE/'membench.app').read_bytes()})
     image = STAGE / f'model-{args.extra}.img'
     make_image(image, files)
     symbols = subprocess.check_output([str(TOOLCHAIN/'c33-epson-elf-nm'), str(STAGE/'membench.elf')], text=True)
@@ -204,12 +204,9 @@ def main():
     (STAGE/f'model-{args.extra}.log').write_bytes(log)
     rows = parse_log(log.decode())
     assert run.returncode == 0, run.returncode
-    assert read_file(image, 'membench.on') is None
-    assert read_file(image, 'init.ini') == b'zim.ico : zim.app started-from-init\n'
     result = {'dma_mem_extra': args.extra, 'rows': rows,
         'app_sha256': hashlib.sha256(files['membench.app']).hexdigest(),
-        'kernel_sha256': hashlib.sha256(files['kernel.elf']).hexdigest(),
-        'normal_init_restored': True, 'one_shot_marker_consumed': True}
+        'kernel_sha256': hashlib.sha256(files['kernel.elf']).hexdigest()}
     (STAGE/f'model-{args.extra}.json').write_text(json.dumps(result, indent=2)+'\n')
     print(f'MEMBENCH: {len(rows)} verified cases, DMA memory overhead {args.extra} cycles/unit')
     for row in rows:

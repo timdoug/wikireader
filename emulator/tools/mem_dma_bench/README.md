@@ -1,6 +1,6 @@
 # C33 memory-copy benchmark
 
-This one-shot Grifo application measures 94 cases, three samples per case.
+This Grifo application measures 120 cases, three samples per case.
 It compares the existing libc copy, an eight-word CPU batch from SDRAM,
 the same batch from A0 RAM, and software-triggered HSDMA0. The kernel, SD
 transport and Wikipedia app are unchanged.
@@ -8,8 +8,9 @@ transport and Wikipedia app are unchanged.
 The cases cover aligned 64-byte through 512-KiB copies between different
 rows of the same SDRAM bank and between different banks; 64-byte through
 5-KiB copies to IVRAM; byte and halfword DMA; CPU/DMA fills; overlapping
-backward copies; and block transfers that restore the source after each
-64-byte pattern. A 12-MiB allocation provides owned buffers with explicit
+backward copies; block transfers that restore the source after each
+64-byte pattern; and 16-KiB DMA and A0-batch copies with their buffers
+20 KiB to 7 MiB apart. A 12-MiB allocation provides owned buffers with explicit
 4-MiB bank spacing. Only the unused IVRAM window is borrowed, at 0x81a00;
 the visible framebuffer stays at 0x80000. Both the window and the borrowed
 word at 0x84400 are saved and restored. The latter is outside this kernel's
@@ -30,12 +31,12 @@ with transfers capped at 512 KiB. The software timeout can run only when
 the CPU gets the bus; the watchdog remains enabled for a controller stall.
 It does not test simultaneous SD DMA, CPU/DMA overlap or bus-release limits.
 
-Before the first transfer, the app consumes `membench.on` and restores the
-normal `init.ini`. Each case has a closed log checkpoint before it starts.
-After success or a recoverable failure, it restores the DMA configuration,
-frees its buffers and chains `zim.app`. A subsequent boot runs Wikipedia.
-The hardware installer verifies the previously tested kernel identity and
-backs up the small boot files before changing the launch command.
+On the device it is a launcher entry: copy `membench.app` and `membench.ico`
+from `build/wr128/mem-dma` to the card and add `membench.ico : membench.app`
+to `init.ini`. Each case has a closed log checkpoint in `membench.log`
+before it starts. After success or a recoverable failure, it restores the
+DMA configuration, frees its buffers and returns to the launcher at a tap;
+with `off` as its argument, as the model runner gives it, it powers off.
 
 ## Model and tests
 
@@ -70,9 +71,9 @@ python3 emulator/tools/mem_dma_bench/run.py --no-build --extra 2
 python3 emulator/tools/mem_dma_bench/run.py --no-build --extra 4
 ```
 
-The runner uses the local C33 toolchain and small captured boot files in
-`build/wr128/hsdma-tx/hsdma-boot`, with the currently built
-`samo-lib/grifo/grifo.elf` kernel (its hash is recorded in each result).
+The runner uses the local C33 toolchain, the built launcher and the
+currently built `samo-lib/grifo/grifo.elf` kernel (its hash is recorded in
+each result).
 It constructs a roughly 65-MB sparse FAT
 fixture and boots it the way the device does: mask ROM, MBR, the FLASH boot
 loader `samo-lib/mbr/make-flash.py` builds, the kernel, the launcher and the
@@ -81,32 +82,33 @@ Builds, images, logs and JSON results go to `build/wr128/mem-dma`.
 
 ## Device results
 
-All 94 cases pass on the 32 MiB reader: 282 timed transfers, every output
-word and guard checked. Times below are medians of three samples, including
-setup and timer calls:
+`device-2026-10-02.txt` is the 32 MiB reader under today's Grifo (SDRAM
+controller `0x1243`, refresh `0x01ff01c0`, as wremu runs it). All 120 cases
+pass: 360 timed transfers, every output word and guard checked. Times below
+are medians of three samples, including setup and timer calls:
 
 | Copy | Bytes | Existing libc | CPU batch, SDRAM code | CPU batch, A0 code | DMA32 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Same bank, different rows | 524,288 | 57.608 ms | 48.006 ms | **34.856 ms** | 37.834 ms |
-| Different banks | 524,288 | 40.960 ms | 44.910 ms | 33.244 ms | **20.561 ms** |
-| SDRAM to IVRAM | 5,120 | 360.083 us | 412.100 us | 286.900 us | **225.017 us** |
-| Fill from fixed internal word | 524,288 | 11.328 ms | - | - | **9.130 ms** |
+| Same bank, different rows | 524,288 | 54.630 ms | 47.489 ms | **34.671 ms** | 37.515 ms |
+| Different banks | 524,288 | 37.893 ms | 44.386 ms | 32.652 ms | **20.179 ms** |
+| SDRAM to IVRAM | 5,120 | 360.1 us | 412.5 us | 284.6 us | **210.9 us** |
+| Fill from fixed internal word | 524,288 | 11.164 ms | - | - | **8.969 ms** |
 
-Different-bank DMA takes 49.8% less time than libc and 38.2% less than the
-A0 batch. Same-bank A0 batching takes 39.5% less time than libc and 7.9% less
-than DMA. Large fills take 19.4% less time with DMA. Copying the 5-KiB IVRAM
-window saves 135 us versus libc, or 62 us versus the A0 batch; these are
+Different-bank DMA takes 46.7% less time than libc and 38.2% less than the
+A0 batch. Same-bank A0 batching takes 36.5% less time than libc and 7.6% less
+than DMA. Large fills take 19.7% less time with DMA. Copying the 5-KiB IVRAM
+window saves 149 us versus libc, or 74 us versus the A0 batch; these are
 small absolute savings, not a measured improvement to the reader UI.
 
-**Treat the bank labels as "4 MB apart" and "close together", not as banks.**
-Buffers here are spaced by an assumed 4 MiB bank stride. A later probe found
-that two *read* streams cost the device the same whatever their separation,
-which is why the reader no longer places anything by bank, and the timing
-model charges no distance penalty. That probe does not cover a copy, and this
-benchmark plainly measured distance mattering to one -- 57.6 ms against
-41.0 for libc, 37.8 against 20.6 for DMA -- while barely touching the
-batched A0 copy. Nothing here explains that; it is the open question in this
-file.
+**Banks are 4 MB, and a copy pays for sharing one.** The separation sweep
+copies 16 KiB by DMA and by the A0 batch with the buffers 20 KiB to 7 MiB
+apart. The DMA copy costs 1,209 us (17.7 cycles a word) at every separation
+up to 3 MiB and 667 us (9.8) from 4 MiB on, where the destination moves into
+the next bank; the A0 batch, which changes row twice per eight words rather
+than twice per word, goes from 1,095 to 1,033 us. Two *read* streams cost
+the device the same whatever their separation (ubench), so the controller
+keeps a row each for reads and writes, and a bank can hold only one of them
+open.
 
 Among tested sizes, DMA first beats libc at 1 KiB in all three copy layouts.
 It first beats the A0 batch at 4 KiB for different-bank and IVRAM copies;
@@ -116,30 +118,22 @@ exact thresholds for a production dispatcher. Tests use aligned addresses
 and one pair of buffers per layout.
 
 Byte, halfword and word DMA all copied correctly. At 4 KiB, same-bank times
-were 485.8, 377.5 and 341.7 us respectively; different-bank times were 351.5,
-243.7 and 206.7 us. The backward overlapping DMA copy took 210.2 us versus
-333.9 us for memmove. The 64-byte source-reset block test completed in
-480.7 us, but has no equivalent CPU-pattern-fill control in this benchmark.
+were 470.4, 366.0 and 329.9 us respectively; different-bank times were 335.2,
+229.6 and 194.6 us. The backward overlapping DMA copy took 198.5 us versus
+333.7 us for memmove. The 64-byte source-reset block test completed in
+454.9 us, but has no equivalent CPU-pattern-fill control in this benchmark.
 It verifies the mode, not an advantage over a tuned CPU implementation.
 
-With `dma_mem_extra=0` the current model, booted through the FLASH, gets
-the main winners right but not the DMA copies. It predicts 50.878 ms for
-both large DMA copies: 34.5% longer than hardware's same-bank time and
-147.4% longer than its different-bank one. The model gives DMA one SDRAM
-row register (`row_ports`), so a DMA copy changes row on every access
-whatever the buffers' separation, and cannot express the device's far
-faster copy between buffers 4 MB apart. Its A0 batch predictions are
-34.071 ms for both, within 2.5% of hardware. Its 5-KiB IVRAM DMA prediction
-is 14.1% short, the 512-KiB DMA fill agrees within 0.4%, and the
-block-reset case is 20.1% long. All percentages here use hardware time as
-the denominator. No global timing calibration was changed to force a fit.
-
-The device ran the benchmark under the Grifo of its day, which programmed
-the SDRAM controller `0x1353` with refresh `0x01ff0120`. Today's Grifo
-programs `0x1243` and `0x03ff01c0` (the SELDO status bit reads back set in
-wremu), the timings measured since, so the model figures above are not
-under the device's timings; comparing them needs the benchmark run on the
-hardware again.
+wremu with the same Grifo and launcher matches the 120 cases to 7.0% RMS
+(log error; DMA 8.2%, CPU 6.3%) with reads and writes in row registers of
+their own that conflict within a bank (`rw_ports`, `bank_conflict`) and no
+controller overhead on a DMA row change beyond tRP and tRCD
+(`dma_row_change_extra`). The large DMA copies come out 6.1% long within a
+bank and 11.1% long between banks, the A0 batch 1.7% and 4.7% short, libc
+2.9% and 10.5% short, the 5-KiB IVRAM DMA 8.8% short, the 512-KiB DMA fill
+within 0.4% and the block-reset case 8.5% long. All percentages use
+hardware time as the denominator. With one row register for all DMA, the
+model had the DMA copies 35.6% and 152.1% long.
 
 These results are what the reader's bulk-copy helper is built on: an A0 CPU
 batch for ordinary copies and DMA for large ones and for fills. They do not
