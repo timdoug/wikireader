@@ -27,9 +27,16 @@ struct timerblk {
 	 */
 	uint16_t compare[6][2];
 	uint16_t compare_buffer[6][2];
+	/* Counters/phase are synchronized on deadlines and timer MMIO accesses. */
 	uint16_t count[6];
 	uint64_t phase[6];           /* fractional input below one timer tick */
 	uint64_t last_raw;
+	uint64_t last_observed;      /* last poll/MMIO boundary, even if deferred */
+	bool     clock_valid;
+	bool     clock_present;
+	uint32_t clock_regs[3];      /* CMU gate, source/divider, PLL */
+	uint32_t clock_hz;
+	uint32_t clock_gates;
 	bool     deadline_valid;
 	uint64_t next_deadline;      /* next internal compare, in raw MCLK clocks */
 	const struct itc *itc;
@@ -43,7 +50,7 @@ struct timerblk {
 
 /* Drive the tick from real elapsed time rather than emulated cycles. */
 void timer_use_wallclock(struct timerblk *t);
-/* Advance all running timers and present any resulting interrupt. */
+/* Service due comparisons and present pending interrupts on every poll. */
 void timer_poll(struct timerblk *t, struct c33 *cpu);
 /* Clear counters and pending deadlines, keeping the clock sources. */
 void timer_reset(struct timerblk *t);

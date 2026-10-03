@@ -1,0 +1,299 @@
+{
+  "date": "2026-10-02",
+  "baseline_source_revision": "fbba71a5fc28e53e897888dd998874ccaa85e4a9",
+  "candidate_change": "Deadline-driven headless timer updates; synchronize timer MMIO and CMU clock/gate transitions; retain per-poll IRQ arbitration and eager interactive wall-clock timers.",
+  "candidate_source_sha256": {
+    "emulator/src/timer.c": "4c443bd86d29ccff27e89ec1ce81f07e152cbbe3466a3c256bbfa0d8f7b6a1a4",
+    "emulator/src/timer.h": "70db255aef804db9f89e8139dbb5855773bb786b2a13f2031c5d0a36803e80b0"
+  },
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "host_logical_cpus": 8,
+  "build_flags": "-O2 -g -flto; matched PGO builds add -fprofile-instr-use=<own fresh boot profile>.",
+  "binary_sha256": {
+    "before-lto": "1eed74923868bd8da57ebc069a31da512a6fd71e2d884c06a238f218cf4b7f34",
+    "after-lto": "2f08b0447160866fcce893187a37e831ac600a3f320170da7f826796443a8093",
+    "before-matched-pgo": "4e321f93dd27c844a449487ce889abdc059f650156803385ae824e21177d8c3f",
+    "after-matched-pgo": "48cad289939f926e1ae372c55e24ecfe7a2068b070d4059c2621f7d1e46d9a20"
+  },
+  "profile_sha256": {
+    "before": "00ee7a5e747631f228bb76baf4e7009fb1b8d7697aa1a65b34ca4bf03ca1fbaa",
+    "after": "26cfa70b9ff9d424f42d0da67b9b84d023c69fec84ebf1f2c0de9e4a3f4754ba"
+  },
+  "training": {
+    "description": "Both instrumented sources execute the same FLASH -> MBR -> Grifo -> init.app launcher -> Linux boot. No UART input or runtime/upstream benchmark commands are used in training.",
+    "cycle_budget": 600000000,
+    "touch": "40,36,100000000",
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "identical_console_work_pixels": true,
+    "console_sha256": "3942c67422c8a04f3371b86c2f708dd25d394f27ea3d382046ec13a88fc2fe88",
+    "screen_sha256": "fbe76ff9cb3e3e9ad546e0324a5b65e9e7494b40bf42841274fb59ec9110e32f",
+    "init_ini": "linux.ico : linux.app loglevel=7 earlycon=s1c33,mmio,0x300b00\nlinux.ico : linux.app loglevel=7 earlycon=s1c33,mmio,0x300b00\n"
+  },
+  "runtime_fixture_sha256": {
+    "flash.rom": "917075cca07d121638bbcfa2f8466e4f00d8a0af984bf61b6619b957ad0df003",
+    "card.img": "ee1c6adfe448bbb2274983e2d94a196a8571c5a8ddbb03eaba4b86d13cc0cbcb",
+    "uart.in": "385efe91a81910aa5df2638e9f2f85082e1579ddffcb9fc198905c2ab7a6923b"
+  },
+  "runtime_components_sha256": {
+    "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+    "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+    "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+    "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+    "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+    "bench.bin": "4a25706029f0cc2fc97eff796793fbb2b017025712526a87ea3be491f5e4d5cf",
+    "init.ini": "896c94d390b4ebacc1839e444bd07b02f7b4e7c978f55fc3560dba9f931cf300"
+  },
+  "runtime_parameters": {
+    "cycle_budget": 4000000000,
+    "touch": "40,36,100000000",
+    "uart_start": 850000000,
+    "uart_gap": 200000,
+    "environment": {
+      "WREMU_HOLD_MS": "33"
+    },
+    "writable_card": true,
+    "allow_reset": true,
+    "required_guest_markers": [
+      "BENCH PASS",
+      "watchdog reset"
+    ]
+  },
+  "runtime_lto": {
+    "host_seconds": {
+      "before": [
+        17.384335374983493,
+        16.421246291982243,
+        16.43091516700224
+      ],
+      "after": [
+        14.488227082998492,
+        13.572420500015141,
+        13.626523915998405
+      ]
+    },
+    "median_seconds": {
+      "before": 16.43091516700224,
+      "after": 13.626523915998405
+    },
+    "speedup": 1.205803862253623,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "runtime_matched_pgo": {
+    "host_seconds": {
+      "before": [
+        14.90210212499369,
+        12.395172374992399,
+        12.338223500002641
+      ],
+      "after": [
+        9.520558249991154,
+        8.666513374977512,
+        8.6675337079796
+      ]
+    },
+    "median_seconds": {
+      "before": 12.395172374992399,
+      "after": 8.6675337079796
+    },
+    "speedup": 1.4300691283820468,
+    "identical_guest_work_output_pixels": true,
+    "writable_card_sha256": "e15d7c010c69d18d3054aca647e37bf043f86728a9a45dad63c0c82931fae507",
+    "guest_work": "--- work: 199135529 instructions executed, 3800924417 idle, 74294.9 ms guest ---"
+  },
+  "upstream_matched_pgo": {
+    "busybox": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": false,
+      "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+      "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+      "staged_archive_members": 376,
+      "fixture_components_sha256": {
+        "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+        "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+        "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+        "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+        "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+        "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+        "tests.tar": "e8c9a3c68069218d53d4ae6b571b6b4e5511fc10a3a3427c25b7de7be7894d6b",
+        "t000.sh": "fe968102860fac53c30c08f059522cf330ed4e17e2b47ce9f9d8033b9eb6e451",
+        "t001.sh": "2d59ac44b26c8a85a1416674b6357c7f82bbe9949ccdfda327219c75262f869b",
+        "t002.sh": "8ee1601e79d1514ffb056a7ce86c6c96edad7103a444747b414e7bd0fa9e6f0f",
+        "t003.sh": "bae7c370348d35640d467f1703db3c14cc71e07fc8da8a6f4b788460e03ed67d",
+        "run.sh": "a0d09838c6502a22bbadd85e75f0187ab034cf4719226bfb1f261d453b236a97",
+        "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+      },
+      "identical_staged_fixtures_verdicts_assertions": true,
+      "clean_trials": true,
+      "results": [
+        {
+          "name": "applets/basename",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 2
+          }
+        },
+        {
+          "name": "applets/dirname",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 7
+          }
+        },
+        {
+          "name": "applets/echo",
+          "exit_status": 0,
+          "status": "PARTIAL_PASS",
+          "assertions": {
+            "PASS": 4,
+            "UNTESTED": 7
+          }
+        },
+        {
+          "name": "applets/printf",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 24
+          }
+        }
+      ],
+      "counts": {
+        "PASS": 3,
+        "PARTIAL_PASS": 1
+      },
+      "host_seconds": {
+        "before": 84.02935075000278,
+        "after": 54.624596708017634
+      },
+      "phase_seconds": {
+        "before": {
+          "fixture": 0.26653799999621697,
+          "emulator": 83.74847137500183,
+          "boot_to_first_case": 12.592639415990561,
+          "cases_to_done": 70.02572241702,
+          "done_to_launcher": 1.002918457990745,
+          "total": 84.02776816600817
+        },
+        "after": {
+          "fixture": 0.17318225000053644,
+          "emulator": 54.437679334019776,
+          "boot_to_first_case": 8.56700662500225,
+          "cases_to_done": 45.326453750021756,
+          "done_to_launcher": 0.5052265419799369,
+          "total": 54.622896167013096
+        }
+      },
+      "speedup": 1.538306107762425
+    },
+    "uclibc": {
+      "runs_per_build": 1,
+      "jobs": 1,
+      "batch_size": 8,
+      "full_busybox_fixture": false,
+      "manifest_sha256": "00b8bb0a4545e08d1f8ecf8f9740d672a7b0e36942a8de0eb80402fb4677036a",
+      "fixtures_sha256": "2abb1464234429d5d46eac70e24d8bab17753aefc877838efb838f875c19b2d9",
+      "staged_archive_members": 44,
+      "fixture_components_sha256": {
+        "kernel.elf": "9af8162f5ab918613edf6435e2d0931456599da344a91bf08a0635f8ba82ef23",
+        "init.app": "891dad535255acee70561e215790d15fe2a4681727d6f6a47cc032c04b49691f",
+        "linux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+        "linux.app": "7f4ac7a84737d96a65195632e7ee6b727a8ae15b47ecac190d28af2053f1a972",
+        "linux.img": "d0fee5c619ea229eb06b2a0bf4a31cd2a7d654476e37d2929df54f2ea72424d5",
+        "super.bin": "d707705087f80bce8643f5e81bf1fc168fc6bb7608252b500bb3f4a484a4d20c",
+        "tests.tar": "c5de2681cebf8f21e9c9fd420ac49748cc90f4256d4bf58d720513a113eaae04",
+        "t000.sh": "ea96a7182f4924e3ab9d120762c8df8409b11b02255c6ef29321d5bc7cfa6b73",
+        "t001.sh": "327ee1e721a04e25a8c85fca94de590eef695dcdaa085850b958c76cf8fd9a0a",
+        "t002.sh": "dd443dfe2278b39c189df1a27bfeb9dec8153af4b9711da7aff278935db2fb7b",
+        "t003.sh": "5834ca859504ca22dfe7578ef090b1464b23fe84531f4a2fff436e1ccac6a493",
+        "run.sh": "cb51db147538d679525a9833078ca777d6c086e489e3931fbb3342cf52c049d4",
+        "init.ini": "6a3203f1a7ead34b0c559a63f2acf5067fcb78a1740917d189fe9780d8710bed"
+      },
+      "identical_staged_fixtures_verdicts_assertions": true,
+      "clean_trials": true,
+      "results": [
+        {
+          "name": "args/arg_test",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "ctype/ctype",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "string/tester",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        },
+        {
+          "name": "string/tst-strlen",
+          "exit_status": 0,
+          "status": "PASS",
+          "assertions": {
+            "PASS": 1
+          }
+        }
+      ],
+      "counts": {
+        "PASS": 4
+      },
+      "host_seconds": {
+        "after": 27.43207995800185,
+        "before": 41.05293549998896
+      },
+      "phase_seconds": {
+        "after": {
+          "fixture": 0.1528086249891203,
+          "emulator": 27.266267250000965,
+          "boot_to_first_case": 6.055092833004892,
+          "cases_to_done": 20.20078770798864,
+          "done_to_launcher": 1.0103867090074345,
+          "total": 27.430747540987795
+        },
+        "before": {
+          "fixture": 0.15513670799555257,
+          "emulator": 40.879995041992515,
+          "boot_to_first_case": 8.589885958994273,
+          "cases_to_done": 31.284463332995074,
+          "done_to_launcher": 1.0056457500031684,
+          "total": 41.05121916698408
+        }
+      },
+      "speedup": 1.4965301779099676
+    }
+  },
+  "validation": {
+    "expanded_timer_tests": "16,000 eager/bulk state comparisons, 20,000 lazy/eager event and clock boundary comparisons, plus explicit rate/gate/fractional-clock/exact-deadline/non-timer-IRQ checks. The expanded test program passes against both original and optimized timer implementations.",
+    "command": "make -C emulator -j4 -k PGO_USE=wremu.profdata C33_BIN=<absent directory> check test-mem-dma test-sd-dma-driver",
+    "exit": 0,
+    "sd_dma_cases": 122,
+    "skipped": [
+      "test (local ref-*.txt absent)",
+      "test-gui-dma (local images absent)",
+      "test-gui-boot (local images absent)",
+      "test-wdt-reset (bare fixture intentionally skipped to retain Grifo firmware boot path; watchdog resets verified in full-boot runtime and upstream runs)"
+    ],
+    "final_local_binary_sha256": "48cad289939f926e1ae372c55e24ecfe7a2068b070d4059c2621f7d1e46d9a20",
+    "final_binary_matches_measured_pgo": true,
+    "local_profile": "emulator/wremu.profdata (ignored build artifact, freshly trained for the new source)"
+  },
+  "limitations": "Runtime: three alternating pairs per build with byte-identical full console, guest counters, pixels and final writable card contents. Upstream: one selected batch per version/suite; identical staged fixtures, verdicts and assertions, including return to the Grifo launcher. No full inventory sweep or interactive GUI benchmark. Upstream phase timestamps have 0.5-second polling resolution. PGO profiles were trained identically on boot only, unlike the earlier mixed-workload PGO record; absolute times from those records should not be compared as paired measurements."
+}

@@ -207,7 +207,7 @@ static struct matches advance_channel(struct timerblk *t, unsigned channel,
 
 static uint32_t input_hz(const struct timerblk *t)
 {
-	return t->cmu ? cmu_mclk_hz(t->cmu) : RAW_HZ;
+	return t->clock_hz;
 }
 
 static uint32_t suspend_speedup(unsigned channel, const struct timerblk *t,
@@ -237,7 +237,7 @@ static bool internally_running(const struct timerblk *t, unsigned channel)
 	uint16_t clkctl = t->reg[clkctl_offset(channel) / 2u];
 	return (ctl & (PRUNx | CKSLx)) == PRUNx &&
 	       (clkctl & P16TONx) &&
-	       (!t->cmu || cmu_t16_enabled(t->cmu, channel)) &&
+	       (t->clock_gates & (1u << channel)) &&
 	       !(advanced(t) && (t->reg[OFF_CNT_PAUSE / 2] & (1u << channel)));
 }
 
@@ -245,7 +245,7 @@ static bool externally_running(const struct timerblk *t, unsigned channel)
 {
 	uint16_t ctl = t->reg[ctl_offset(channel) / 2u];
 	return (ctl & (PRUNx | CKSLx)) == (PRUNx | CKSLx) &&
-	       (!t->cmu || cmu_t16_enabled(t->cmu, channel)) &&
+	       (t->clock_gates & (1u << channel)) &&
 	       !(advanced(t) && (t->reg[OFF_CNT_PAUSE / 2] & (1u << channel)));
 }
 
@@ -311,9 +311,8 @@ static void schedule_deadline(struct timerblk *t, uint64_t now)
 	}
 }
 
-static void timer_sync(struct timerblk *t)
+static void timer_sync_to(struct timerblk *t, uint64_t now)
 {
-	uint64_t now = raw_now(t);
 	uint64_t elapsed = now - t->last_raw;
 	uint32_t hz = input_hz(t);
 	t->last_raw = now;
@@ -355,9 +354,50 @@ static void timer_sync(struct timerblk *t)
 	}
 }
 
+/*
+ * CMU writes can happen between instruction polls. Finish the deferred old
+ * interval at the previous poll/MMIO boundary, then charge the current
+ * interval to the new clock, exactly as eager instruction polling did.
+ * Reads of these three registers are cheaper than decoding the clock tree
+ * and advancing/rescheduling all six channels on every instruction.
+ */
+static bool refresh_clock(struct timerblk *t)
+{
+	uint32_t gates = t->cmu ? t->cmu->reg[(0x1b04 - CMU_BASE) / 4] : 0;
+	uint32_t source = t->cmu ? t->cmu->reg[(0x1b08 - CMU_BASE) / 4] : 0;
+	uint32_t pll = t->cmu ? t->cmu->reg[(0x1b0c - CMU_BASE) / 4] : 0;
+	if (t->clock_valid && t->clock_present == (t->cmu != NULL) &&
+	    t->clock_regs[0] == gates && t->clock_regs[1] == source &&
+	    t->clock_regs[2] == pll)
+		return false;
+	if (t->clock_valid)
+		timer_sync_to(t, t->last_observed);
+	t->clock_valid = true;
+	t->clock_present = t->cmu != NULL;
+	t->clock_regs[0] = gates;
+	t->clock_regs[1] = source;
+	t->clock_regs[2] = pll;
+	t->clock_hz = t->cmu ? cmu_mclk_hz(t->cmu) : RAW_HZ;
+	t->clock_gates = t->cmu ? (gates >> 13) & 0x3f : 0x3f;
+	return true;
+}
+
+static void timer_sync(struct timerblk *t)
+{
+	uint64_t now = raw_now(t);
+	refresh_clock(t);
+	timer_sync_to(t, now);
+	t->last_observed = now;
+}
+
 void timer_poll(struct timerblk *t, struct c33 *cpu)
 {
-	timer_sync(t);
+	uint64_t now = raw_now(t);
+	bool changed = refresh_clock(t);
+	if (changed || t->wallclock ||
+	    (t->deadline_valid && now >= t->next_deadline))
+		timer_sync_to(t, now);
+	t->last_observed = now;
 	if (t->itc) {
 		unsigned vector, priority;
 		if (itc_next_irq(t->itc, &vector, &priority))

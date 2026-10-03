@@ -185,6 +185,54 @@ and fixture hashes, profile identity, timings and validation details.
 See also Clang's [PGO documentation](https://clang.llvm.org/docs/UsersManual.html#profile-guided-optimization)
 for profile collection and merging.
 
+### Deadline-driven timers
+
+Headless timer polling advances the six channels when the next comparison
+is due, when timer MMIO exposes or changes state, or when the CMU clock
+configuration changes. Between events it checks the deadline and the three
+relevant CMU registers. Clock changes finish deferred work at the previous
+poll/MMIO boundary using the old rate and gates, then charge the current
+interval to the new configuration. Fractional ticks, buffered comparisons
+and the timer 0/5 cascade retain their existing behavior. Interrupt
+arbitration still runs on every poll, including for non-timer sources.
+Interactive wall-clock timers continue to advance on every poll.
+
+The full FLASH -> Grifo -> launcher -> Linux mutex and spawn/exec/wait
+benchmark, including watchdog reboot, measured the following on Apple
+Silicon with Clang 21. Each row uses three alternating trial pairs and
+requires identical console output, guest work, pixels and final card bytes.
+
+| Build | Eager timers | Deadline-driven timers | Speedup |
+| --- | ---: | ---: | ---: |
+| LTO | 16.431 s | 13.627 s | 1.21x |
+| LTO + PGO | 12.395 s | 8.668 s | 1.43x |
+
+Selected upstream batches using the PGO builds also improved, with one
+worker, batch size eight and identical staged fixtures. These are single
+runs per version, with matching verdicts/assertion counts and a watchdog
+return to the Grifo launcher:
+
+| Cases | Eager timers | Deadline-driven timers | Speedup |
+| --- | ---: | ---: | ---: |
+| BusyBox basename, dirname, echo, printf | 84.029 s | 54.625 s | 1.54x |
+| uClibc args, ctype, string tester and strlen | 41.053 s | 27.432 s | 1.50x |
+
+Both PGO versions were freshly trained on the same 600-million-cycle
+launcher-to-Linux boot without benchmark commands. This controls for
+profile differences; the prior PGO measurements used a different training
+mix. The [timer measurements](tools/timer-speed-2026-10-02.json) record the
+build/profile/fixture identities, trial timings and validation. These are
+selected workloads, rather than a complete upstream test sweep.
+
+The timer tests compare 16,000 eager-versus-bulk states and 20,000 lazy
+poll boundaries with eager counter reads, including CMU source/PLL/gate
+changes, timer MMIO and resets. Explicit checks cover fractional clocks
+at gate/rate changes, exact comparison deadlines and unrelated pending IRQs.
+The available model checks and all 122 Grifo SD DMA cases pass with PGO.
+The optional decoder comparison and GUI tests lack their local fixtures.
+The bare watchdog fixture was skipped to keep firmware runs on the Grifo
+path; reboot behavior is covered by the full-boot comparisons above.
+
 `make check` runs all focused model tests. `make difftest` runs the generated
 native-versus-C33 execution comparison; see
 [`difftest/README.md`](difftest/README.md).

@@ -110,7 +110,13 @@ static void test_poll_cadence(void)
 			fine.reg[(0x7e0 - 0x780) / 2] = P16TON;
 			fine.reg[5 * 4 + 3] = PRUN | CKSL;
 		}
-		struct timerblk bulk = fine;
+		struct mem fine_mem = {0}, bulk_mem = {0};
+		struct timerblk seed = fine;
+		timer_attach(&fine_mem, &fine, &fine_clk, &fine_itc, &cmu);
+		fine = seed;
+		struct timerblk bulk;
+		timer_attach(&bulk_mem, &bulk, &bulk_clk, &bulk_itc, &cmu);
+		bulk = seed;
 		fine.cycles = &fine_clk;
 		bulk.cycles = &bulk_clk;
 		fine.cmu = bulk.cmu = &cmu;
@@ -126,12 +132,18 @@ static void test_poll_cadence(void)
 			fine.reg[(0x7dc - 0x780) / 2] =
 				bulk.reg[(0x7dc - 0x780) / 2] =
 				(next_random() >> 16) & 0x3f;
+			/* Synchronize the configuration boundary before advancing. */
+			mem_read(&fine_mem, TC0, 2);
+			mem_read(&bulk_mem, TC0, 2);
 			for (unsigned poll = 0; poll < 32; poll++) {
 				fine_clk += steps[next_random() % 7];
 				timer_poll(&fine, NULL); /* ITC enables are all zero. */
+				/* Counter reads force eager synchronization as an oracle. */
+				mem_read(&fine_mem, TC0, 2);
 			}
 			bulk_clk = fine_clk;
 			timer_poll(&bulk, NULL);
+			mem_read(&bulk_mem, TC0, 2);
 			comparisons++;
 			if (memcmp(fine.count, bulk.count, sizeof fine.count) ||
 			    memcmp(fine.phase, bulk.phase, sizeof fine.phase) ||
@@ -151,6 +163,168 @@ static void test_poll_cadence(void)
 	}
 	printf("poll cadence: %u counter/phase/match/deadline comparisons ok\n",
 	       comparisons);
+}
+
+/* Clock/gate writes between polls must not retroactively change the deferred
+ * interval. Compare lazy polls with a counter read after every eager poll.
+ * MMIO writes, buffered comparisons, the cascade, resets and pending flags
+ * all remain visible at the same instruction boundaries.
+ */
+static void test_lazy_poll(void)
+{
+	struct mem eager_mem = {0}, lazy_mem = {0};
+	struct cmu eager_cmu, lazy_cmu;
+	struct timerblk eager, lazy;
+	struct itc eager_itc = {0}, lazy_itc = {0};
+	uint64_t clk = 0;
+	cmu_attach(&eager_mem, &eager_cmu);
+	cmu_attach(&lazy_mem, &lazy_cmu);
+	timer_attach(&eager_mem, &eager, &clk, &eager_itc, &eager_cmu);
+	timer_attach(&lazy_mem, &lazy, &clk, &lazy_itc, &lazy_cmu);
+	mem_write(&eager_mem, REG_BASE + 0x1b24, 4, 0x96);
+	mem_write(&lazy_mem, REG_BASE + 0x1b24, 4, 0x96);
+	static const uint32_t sources[] = {
+		0, 2, 3 | (5u << 8), 5, 3 | (7u << 20) | (3u << 2)
+	};
+	static const uint32_t steps[] = {0, 1, 2, 59, 60, 4096, 1000000};
+	unsigned comparisons = 0;
+	for (unsigned step = 0; step < 20000; step++) {
+		clk += steps[next_random() % 7];
+		uint32_t addr = 0, value = 0;
+		switch (next_random() % 12) {
+		case 0:
+			addr = REG_BASE + 0x1b08;
+			value = sources[next_random() % 5];
+			break;
+		case 1:
+			addr = REG_BASE + 0x1b04;
+			value = (next_random() >> 16) << 13;
+			break;
+		case 2:
+			addr = REG_BASE + 0x1b0c;
+			value = (next_random() >> 16) & 0xff;
+			break;
+		case 3:
+			addr = CNT_PAUSE;
+			value = next_random() >> 16;
+			break;
+		case 4:
+			addr = ADVMODE;
+			value = next_random() >> 31;
+			break;
+		case 5:
+			addr = REG_BASE + 0x7e0 + 2 * (next_random() % 6);
+			value = next_random() >> 16;
+			break;
+		case 6: case 7: case 8:
+			addr = REG_BASE + 0x780 + 2 * (next_random() % 24);
+			value = next_random() >> 16;
+			break;
+		case 9:
+			addr = DA16_0 + 2 * (next_random() % 3);
+			value = next_random() >> 16;
+			break;
+		case 10:
+			if (step % 97 == 0) {
+				cmu_reset(&eager_cmu);
+				cmu_reset(&lazy_cmu);
+				timer_reset(&eager);
+				timer_reset(&lazy);
+				mem_write(&eager_mem, REG_BASE + 0x1b24, 4, 0x96);
+				mem_write(&lazy_mem, REG_BASE + 0x1b24, 4, 0x96);
+			}
+			break;
+		}
+		if (addr) {
+			unsigned size = addr >= REG_BASE + CMU_BASE ? 4 : 2;
+			mem_write(&eager_mem, addr, size, value);
+			mem_write(&lazy_mem, addr, size, value);
+		}
+		timer_poll(&eager, NULL);
+		mem_read(&eager_mem, TC0, 2);
+		timer_poll(&lazy, NULL);
+		comparisons++;
+		if (memcmp(eager.fires, lazy.fires, sizeof eager.fires) ||
+		    memcmp(eager_itc.reg, lazy_itc.reg, sizeof eager_itc.reg) ||
+		    eager.deadline_valid != lazy.deadline_valid ||
+		    (eager.deadline_valid && eager.next_deadline != lazy.next_deadline)) {
+			printf("lazy event/clock boundary FAIL: step %u\n", step);
+			fails++;
+			return;
+		}
+		if (step % 8 == 0) {
+			mem_read(&lazy_mem, TC0, 2);
+			if (memcmp(eager.count, lazy.count, sizeof eager.count) ||
+			    memcmp(eager.phase, lazy.phase, sizeof eager.phase) ||
+			    memcmp(eager.compare, lazy.compare, sizeof eager.compare)) {
+				printf("lazy MMIO synchronization FAIL: step %u\n", step);
+				fails++;
+				return;
+			}
+		}
+	}
+	printf("lazy polling: %u event/clock boundary comparisons ok\n", comparisons);
+}
+
+static void test_lazy_boundaries(void)
+{
+	struct mem mem = {0};
+	struct cmu cmu;
+	struct timerblk timer;
+	struct itc itc = {0};
+	uint64_t clk = 0;
+	cmu_attach(&mem, &cmu);
+	timer_attach(&mem, &timer, &clk, &itc, &cmu);
+	mem_write(&mem, REG_BASE + 0x1b24, 4, 0x96);
+	mem_write(&mem, REG_BASE + 0x1b0c, 4, (9u << 4) | 1);
+	mem_write(&mem, REG_BASE + 0x1b08, 4, 3 | (7u << 20) | (3u << 2));
+	mem_write(&mem, CR0A, 2, 10);
+	mem_write(&mem, CR0B, 2, 19);
+	mem_write(&mem, CLKCTL0, 2, P16TON);
+	mem_write(&mem, CTL0, 2, PRUN);
+	clk = 5;
+	timer_poll(&timer, NULL);
+	clk = 6;
+	mem_write(&mem, REG_BASE + 0x1b08, 4, 2); /* 60 MHz -> 48 MHz */
+	timer_poll(&timer, NULL);
+	check("clock change preserves the deferred old-rate interval",
+	      mem_read(&mem, TC0, 2), 5);
+	check("clock change charges only the current interval at the new rate",
+	      timer.phase[0], 48000000);
+	clk = 7;
+	mem_write(&mem, REG_BASE + 0x1b04, 4, 0);
+	timer_poll(&timer, NULL);
+	clk = 100;
+	timer_poll(&timer, NULL);
+	check("a gated timer retains count without charging the stopped interval",
+	      mem_read(&mem, TC0, 2), 5);
+	clk = 101;
+	mem_write(&mem, REG_BASE + 0x1b04, 4, 1u << 13);
+	timer_poll(&timer, NULL);
+	check("ungating retains the fractional clock from before the pause",
+	      mem_read(&mem, TC0, 2), 6);
+	check("ungating charges just one new-rate instruction interval",
+	      timer.phase[0], 36000000);
+	mem_write(&mem, REG_BASE + 0x1b08, 4, 3 | (7u << 20) | (3u << 2));
+	mem_write(&mem, CTL0, 2, PRESET | PRUN);
+	clk += 9;
+	timer_poll(&timer, NULL);
+	check("comparison A stays quiet before its exact deadline", timer.fires[0][0], 0);
+	clk++;
+	timer_poll(&timer, NULL);
+	check("comparison A fires on its exact deadline", timer.fires[0][0], 1);
+	clk += 10;
+	timer_poll(&timer, NULL);
+	check("comparison B fires on the inclusive counter wrap", timer.fires[0][1], 1);
+	check("counter reads synchronize after comparison B", mem_read(&mem, TC0, 2), 0);
+	/* Disabled timer causes must not suppress unrelated pending IRQs. */
+	itc.reg[0x70] = 1u << 4; /* key input 0 enable */
+	itc.reg[0x62] = 7;       /* key input 0 priority */
+	itc_set_flag(&itc, 20);
+	struct c33 cpu = {0};
+	timer_poll(&timer, &cpu);
+	check("a deferred timer poll still presents unrelated pending IRQs",
+	      cpu.irq_vector, 20);
 }
 
 int main(void)
@@ -313,6 +487,8 @@ int main(void)
 	      mem_read(&mem, TC2, 2), 0);
 	unsetenv("WREMU_SUSPEND_DIV");
 	test_poll_cadence();
+	test_lazy_poll();
+	test_lazy_boundaries();
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all timer tests passed");
