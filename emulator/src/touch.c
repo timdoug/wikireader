@@ -256,36 +256,49 @@ void touch_poll(struct touch *t, struct c33 *cpu)
 }
 
 /*
- * On-screen keyboard geometry, measured from the rendered framebuffer:
- * ten columns on a 24-pixel pitch centred at x = 12 + 24*i, and four rows
- * centred at y = 131, 153, 175, 197. The space bar spans columns 3..5.
+ * On-screen keyboard geometry, measured from the rendered framebuffer: ten
+ * columns on a 24-pixel pitch centred at x = 12 + 24*i on both keyboards.
+ * The reader's (wiki.app, zim.app) has three rows centred at y = 139, 168,
+ * 195, with the space bar across columns 4..5 and '#' the key bottom right.
+ * The Linux console's has four rows centred at y = 131, 153, 175, 197, with
+ * the space bar across columns 3..5 and '#' Enter.
  */
-static const char *const kb_rows[3] = {
+static const char *const reader_rows[3] = {
+	"QWERTYUIOP",
+	"ASDFGHJKL<",       /* '<' is backspace */
+	"ZXCV  BNM#",       /* '#' is the key bottom right */
+};
+static const char *const linux_rows[3] = {
 	"QWERTYUIOP",
 	"ASDFGHJKL<",       /* '<' is backspace */
 	"^ZXCVBNM-?",       /* '^' is Shift */
 };
 
+bool touch_linux_keyboard;
+
 bool touch_key_pos(char ch, int *x, int *y)
 {
-	static const int row_y[4] = { 131, 153, 175, 197 };
+	static const int reader_y[3] = { 139, 168, 195 };
+	static const int linux_y[4] = { 131, 153, 175, 197 };
+	const char *const *rows = touch_linux_keyboard ? linux_rows : reader_rows;
+	const int *row_y = touch_linux_keyboard ? linux_y : reader_y;
 
 	if (ch >= 'a' && ch <= 'z')
 		ch = (char)(ch - 'a' + 'A');
 
-	if (ch == ' ') {                 /* space bar spans three columns */
-		*x = 12 + 24 * 4;
-		*y = row_y[3];
+	if (ch == ' ') {
+		*x = touch_linux_keyboard ? 12 + 24 * 4 : 12 + 24 * 4 + 12;
+		*y = touch_linux_keyboard ? row_y[3] : row_y[2];
 		return true;
 	}
-	if (ch == '#') {                 /* Enter, for scripted shell input */
+	if (ch == '#' && touch_linux_keyboard) {	/* Enter */
 		*x = 12 + 24 * 9;
 		*y = row_y[3];
 		return true;
 	}
 	for (int r = 0; r < 3; r++)
 		for (int c = 0; c < 10; c++)
-			if (kb_rows[r][c] == ch && ch != ' ') {
+			if (rows[r][c] == ch && ch != ' ') {
 				*x = 12 + 24 * c;
 				*y = row_y[r];
 				return true;

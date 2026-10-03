@@ -77,6 +77,7 @@ EOF
 		-n "${LIMIT:-900000000}" \
 		-e "$work/flash.rom" -c "$work/card.img" \
 		--uart-input "$work/uart.in" --uart-start "${UART_START:-500000000}" \
+		--keyboard linux \
 		-K "${KEYS_AT:-600000000},ecj<ho touch-keyboard pass#" \
 		-T 36,197,${TAPS_AT:-780000000} -T 108,175,$((${TAPS_AT:-780000000} + 10000000)) \
 		-T 228,197,$((${TAPS_AT:-780000000} + 20000000)) \

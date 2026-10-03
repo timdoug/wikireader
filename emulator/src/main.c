@@ -61,6 +61,8 @@ static void usage(const char *p)
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
 		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
+		"  --keyboard reader|linux  which keyboard -K types on: the\n"
+		"         reader's (wiki.app, zim.app; the default) or Linux's\n"
 		"  -c F   attach FAT32 card image F\n"
 		"  -R     open the card image read-only\n"
 		"  --uart-input F  receive console bytes from F (- for stdin)\n"
@@ -425,6 +427,15 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
 			limit = strtoul(argv[++i], NULL, 0);
 			limit_given = true;
+		}
+		else if (!strcmp(argv[i], "--keyboard") && i + 1 < argc) {
+			const char *k = argv[++i];
+
+			if (strcmp(k, "reader") && strcmp(k, "linux")) {
+				fprintf(stderr, "--keyboard is reader or linux\n");
+				return 2;
+			}
+			touch_linux_keyboard = !strcmp(k, "linux");
 		}
 		else if (!strcmp(argv[i], "--bare-elf") && i + 1 < argc) {
 			bare_elf = true;

@@ -78,6 +78,9 @@ uint32_t touch_baud(const struct touch *t);
 void touch_post(struct touch *t, struct c33 *cpu, int x, int y, bool pressed);
 void touch_poll(struct touch *t, struct c33 *cpu);
 /* Pixel centre of an on-screen keyboard key, or false if unmapped. */
+/* -K types on the reader's keyboard, or with --keyboard linux the Linux
+   console's. */
+extern bool touch_linux_keyboard;
 bool touch_key_pos(char ch, int *x, int *y);
 
 #endif /* TOUCH_H */
