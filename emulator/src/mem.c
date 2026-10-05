@@ -43,6 +43,14 @@ void mem_set_timing(struct mem *m, mem_wait_fn fn, void *ctx)
 	m->wait_ctx = ctx;
 }
 
+/* RAM the CPU reaches without the AHB bus: A0RAM, and IVRAM once it joins
+   area 0 (I.6.2). */
+static bool local_ram(const struct mem *m, uint32_t addr)
+{
+	return addr < A0RAM_SIZE ||
+	       (m->ivram_area0 && addr - IVRAM_A0_BASE < IVRAM_SIZE);
+}
+
 uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 		  unsigned size, uint64_t now)
 {
@@ -64,10 +72,13 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 	/* The DMA outranks the CPU on the internal bus, so a CPU access
 	   beyond A0 RAM waits out a DMA bus phase under way.  An SDRAM access
-	   waits in the controller, and only if it leaves the queues there. */
+	   waits in the controller, and only if it leaves the queues there.
+	   A0 RAM here includes IVRAM while it is in area 0: the manual has
+	   the CPU reaching both without the AHB bus and without a wait
+	   (I.6.2). */
 	if (free && addr - REG_BASE < REG_SIZE)
 		free = free - model.dma_bus_hold + model.dma_reg_hold;
-	if (now < free && addr >= A0RAM_SIZE &&
+	if (now < free && !local_ram(m, addr) &&
 	    addr - SDRAM_BASE >= SDRAM_SIZE &&
 	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
 		stall = free - now;
@@ -101,7 +112,7 @@ void mem_set_sdram_size(struct mem *m, uint32_t bytes)
 		bytes = 0;
 	if (m->sdram_alias != bytes) {
 		m->sdram_alias = bytes;
-		m->sdram_epoch++;
+		m->region_epoch++;
 	}
 }
 
@@ -118,8 +129,12 @@ static uint8_t *ram_ptr(struct mem *m, uint32_t a, unsigned size)
 	}
 	if (a <= A0RAM_SIZE - size)
 		return m->a0ram + a;
-	if (a >= IVRAM_BASE && a - IVRAM_BASE <= IVRAM_SIZE - size)
+	if (m->ivram_area0) {
+		if (a >= IVRAM_A0_BASE && a - IVRAM_A0_BASE <= IVRAM_SIZE - size)
+			return m->ivram + (a - IVRAM_A0_BASE);
+	} else if (a >= IVRAM_BASE && a - IVRAM_BASE <= IVRAM_SIZE - size) {
 		return m->ivram + (a - IVRAM_BASE);
+	}
 	if (a >= DSTRAM_BASE && a - DSTRAM_BASE <= DSTRAM_SIZE - size)
 		return m->dstram + (a - DSTRAM_BASE);
 	return NULL;
@@ -176,13 +191,25 @@ uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len)
 	if (addr < A0RAM_SIZE) {
 		*base = 0; *len = A0RAM_SIZE; return m->a0ram;
 	}
-	if (addr >= IVRAM_BASE && addr < IVRAM_BASE + IVRAM_SIZE) {
+	if (m->ivram_area0) {
+		if (addr >= IVRAM_A0_BASE && addr < IVRAM_A0_BASE + IVRAM_SIZE) {
+			*base = IVRAM_A0_BASE; *len = IVRAM_SIZE; return m->ivram;
+		}
+	} else if (addr >= IVRAM_BASE && addr < IVRAM_BASE + IVRAM_SIZE) {
 		*base = IVRAM_BASE; *len = IVRAM_SIZE; return m->ivram;
 	}
 	if (addr >= DSTRAM_BASE && addr < DSTRAM_BASE + DSTRAM_SIZE) {
 		*base = DSTRAM_BASE; *len = DSTRAM_SIZE; return m->dstram;
 	}
 	return NULL;
+}
+
+void mem_set_ivram_area0(struct mem *m, bool area0)
+{
+	if (m->ivram_area0 == area0)
+		return;
+	m->ivram_area0 = area0;
+	m->region_epoch++;
 }
 
 uint32_t mem_read(void *ctx, uint32_t addr, unsigned size)

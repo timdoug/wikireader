@@ -20,6 +20,11 @@
 #define A0RAM_SIZE   (8u * 1024)
 #define IVRAM_BASE   0x00080000u
 #define IVRAM_SIZE   (12u * 1024)
+/* Where IVRAM goes when pLCDC_IRAM moves it into area 0, extending A0RAM
+   from 8 KB to 20 KB of no-wait RAM (I.6.2).  It leaves area 3 when it
+   does: the manual gives it one place at a time, and the boot ROM's MP3
+   decoder is what asks for the move. */
+#define IVRAM_A0_BASE 0x00002000u
 #define DSTRAM_BASE  0x00084000u
 #define DSTRAM_SIZE  (2u * 1024)
 #define CHIP_ID_BASE 0x00020000u
@@ -67,7 +72,10 @@ struct mem {
 	 * hardware.  Bumped in epoch so cached region pointers are dropped.
 	 */
 	uint32_t sdram_alias;
-	unsigned sdram_epoch;
+	/* Bumped whenever the decode changes, so cached region pointers are
+	   dropped: the SDRAM aliasing above and the IVRAM move below. */
+	unsigned region_epoch;
+	bool ivram_area0;
 	struct mmio_dev dev[MAX_MMIO];
 	unsigned ndev;
 	mem_wait_fn wait;
@@ -113,6 +121,8 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
  * Returns NULL for MMIO and unmapped addresses.
  */
 uint8_t *mem_region(struct mem *m, uint32_t addr, uint32_t *base, uint32_t *len);
+/* pLCDC_IRAM: IVRAM answers at 0x2000 instead of 0x80000 while this is on. */
+void mem_set_ivram_area0(struct mem *m, bool area0);
 
 uint32_t mem_read(void *ctx, uint32_t addr, unsigned size);
 void     mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val);

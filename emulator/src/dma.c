@@ -117,7 +117,7 @@ static void dma_write(struct dma *d, uint32_t addr, unsigned size,
 	mem_write(d->mem, addr, size, value);
 }
 
-static bool valid_dual_address(uint32_t addr, unsigned size);
+static bool valid_dual_address(const struct dma *d, uint32_t addr, unsigned size);
 static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 		      bool deferred, uint32_t *out_value, uint32_t *out_dst,
 		      unsigned *out_size);
@@ -178,8 +178,8 @@ static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 		uint64_t t = *d->clock;
 
 		d->reg[HS_TF(ch)] = 0;
-		if (!valid_dual_address(src, size) ||
-		    !valid_dual_address(dst, size) || ((src | dst) & (size - 1)))
+		if (!valid_dual_address(d, src, size) ||
+		    !valid_dual_address(d, dst, size) || ((src | dst) & (size - 1)))
 			return false;
 		t += mem_wait(d->mem, MEM_DMA_READ, src, size, t) + 1;
 		bus_hold(d, t);
@@ -221,7 +221,7 @@ static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 		mode == 2 ? ((count & 255u) ? (count & 255u) : 256u) : 1u;
 	d->reg[HS_TF(ch)] = 0;
 	while (units--) {
-		if (!valid_dual_address(src, size) || !valid_dual_address(dst, size) ||
+		if (!valid_dual_address(d, src, size) || !valid_dual_address(d, dst, size) ||
 		    ((src | dst) & (size - 1)))
 			return false;
 		/* One read followed by one write, NOT a block-sized staging FIFO.
@@ -270,10 +270,12 @@ static bool valid_descriptor(uint32_t addr)
 	return ram && !(addr & 0x0fu);
 }
 
-static bool valid_dual_address(uint32_t addr, unsigned size)
+static bool valid_dual_address(const struct dma *d, uint32_t addr, unsigned size)
 {
-	/* Area 0 and Area 2 are forbidden for IDMA/HSDMA dual transfers. */
-	return (addr >= IVRAM_BASE && addr - IVRAM_BASE <= IVRAM_SIZE - size) ||
+	/* Area 0 and Area 2 are forbidden for IDMA/HSDMA dual transfers, so
+	   IVRAM is a legal address only while it answers in area 3. */
+	return (!d->mem->ivram_area0 && addr >= IVRAM_BASE &&
+		addr - IVRAM_BASE <= IVRAM_SIZE - size) ||
 	       (addr >= DSTRAM_BASE && addr - DSTRAM_BASE <= DSTRAM_SIZE - size) ||
 	       (addr >= SDRAM_BASE && addr - SDRAM_BASE <= SDRAM_SIZE - size) ||
 	       (addr >= REG_BASE && addr - REG_BASE <= REG_SIZE - size);
@@ -347,7 +349,7 @@ static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 	transfer_mode = (ctl >> 4) & 3;
 	if (transfer_mode == 3 || ((ctl >> 16) & 3) == 3)
 		return false;
-	if (!valid_dual_address(src, size) || !valid_dual_address(dst, size))
+	if (!valid_dual_address(d, src, size) || !valid_dual_address(d, dst, size))
 		return false;
 
 	/* The dormant WikiReader path uses one transfer for each SPI request. */

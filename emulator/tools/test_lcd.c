@@ -70,6 +70,7 @@ static void main_set(int x, int y)
 int main(void)
 {
 	char buf[160];
+	uint32_t base, len;
 
 	mem_init(&mem);
 	lcd_attach(&mem, &lcd);
@@ -179,6 +180,33 @@ int main(void)
 	wr32(0x1a04, 0x3);                   /* firmware re-enables the panel */
 	check("and the old image is gone rather than flashed back up",
 	      lcd_pixel(&lcd, &mem, 120, 100), 0);
+
+	/*
+	 * pLCDC_IRAM moves IVRAM out of area 3 and into area 0 at 0x2000,
+	 * which is how the boot ROM's MP3 decoder gets 20 KB of no-wait RAM
+	 * (I.6.2).  The device shows the move, not a second window: a run of
+	 * romdump's companion with the area filled first came back changed
+	 * only at 0x2fe8-0x4fff.
+	 */
+	mem_clear_ram(&mem);
+	mem_write(&mem, IVRAM_BASE, 4, 0xa5a5a5a5);
+	check("IVRAM answers in area 3 to begin with",
+	      mem_read(&mem, IVRAM_BASE, 4) == 0xa5a5a5a5, 1);
+	check("and area 0 above A0RAM is unmapped",
+	      mem_region(&mem, IVRAM_A0_BASE, &base, &len) == NULL, 1);
+	wr32(0x1a64, 1);
+	check("pLCDC_IRAM moves the same cells to 0x2000",
+	      mem_read(&mem, IVRAM_A0_BASE, 4) == 0xa5a5a5a5, 1);
+	check("and area 3 no longer answers for them",
+	      mem_region(&mem, IVRAM_BASE, &base, &len) == NULL, 1);
+	check("a write at 0x2000 reaches the same cells",
+	      (mem_write(&mem, IVRAM_A0_BASE, 4, 0x5a5a5a5a),
+	       mem_read(&mem, IVRAM_A0_BASE, 4)) == 0x5a5a5a5a, 1);
+	wr32(0x1a64, 0);
+	check("clearing it puts them back in area 3",
+	      mem_read(&mem, IVRAM_BASE, 4) == 0x5a5a5a5a, 1);
+	check("with area 0 unmapped again",
+	      mem_region(&mem, IVRAM_A0_BASE, &base, &len) == NULL, 1);
 
 	printf("\n%s\n", fails ? "FAILURES" : "all LCD tests passed");
 	return fails != 0;

@@ -26,6 +26,8 @@ struct lcd {
 	 * displayed frame while the firmware scrolls by repointing MADD. */
 	const uint64_t *clk;
 	bool trace;
+	/* For pLCDC_IRAM, which moves IVRAM between areas 3 and 0. */
+	struct mem *mem;
 };
 
 void lcd_attach(struct mem *m, struct lcd *l);

@@ -190,7 +190,7 @@ int main(void)
 			    memcmp(&fast, &normalized, sizeof fast) ||
 			    fast_mem.dma_bus_free != ref_mem.dma_bus_free ||
 			    fast_mem.sdram_alias != ref_mem.sdram_alias ||
-			    fast_mem.sdram_epoch != ref_mem.sdram_epoch ||
+			    fast_mem.region_epoch != ref_mem.region_epoch ||
 			    fast_bus.calls != ref_bus.calls || fast_bus.last != ref_bus.last) {
 				printf("SDRAM fetch mismatch: trial %u step %u kind %u addr %08x "
 				       "wait %llu/%llu\n", trial, step, kind, addr,

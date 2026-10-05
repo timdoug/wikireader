@@ -26,6 +26,8 @@
 #define OFF_PS      (0x1a04u - LCDC_BASE)
 #define OFF_DMD     (0x1a60u - LCDC_BASE)
 #define OFF_MADD    (0x1a70u - LCDC_BASE)
+/* pLCDC_IRAM: D0 set moves IVRAM into area 0 (I.6.2, VIII.1). */
+#define OFF_IRAM    (0x1a64u - LCDC_BASE)
 #define OFF_MLADD   (0x1a74u - LCDC_BASE)
 #define OFF_SADD    (0x1a80u - LCDC_BASE)
 #define OFF_SSP     (0x1a88u - LCDC_BASE)
@@ -65,6 +67,8 @@ static bool lcd_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			else
 				l->starts++;
 		}
+		if (off - LCDC_BASE == OFF_IRAM && l->mem)
+			mem_set_ivram_area0(l->mem, *val & 1);
 		if (off - LCDC_BASE == OFF_MADD) {
 			l->fb_addr = *val;
 			if (l->trace)
@@ -145,10 +149,15 @@ void lcd_reset(struct lcd *l)
 {
 	const uint64_t *clk = l->clk;
 	bool trace = l->trace;
+	struct mem *m = l->mem;
 
 	memset(l, 0, sizeof *l);
 	l->clk = clk;
 	l->trace = trace;
+	l->mem = m;
+	/* A reset leaves IVRAM where the LCDC has it by default, area 3. */
+	if (m)
+		mem_set_ivram_area0(m, false);
 	/*
 	 * grifo does not publish the framebuffer through MADD: LCD.c's
 	 * LCD_ResetFrameBuffer() loads the linker symbol directly
@@ -170,6 +179,7 @@ void lcd_reset(struct lcd *l)
 
 void lcd_attach(struct mem *m, struct lcd *l)
 {
+	l->mem = m;
 	lcd_reset(l);
 	mem_add_mmio(m, "lcdc", LCDC_BASE, LCDC_LEN, lcd_mmio, l);
 }
