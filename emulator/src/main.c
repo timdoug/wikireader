@@ -1335,6 +1335,15 @@ int main(int argc, char **argv)
 					next = due;
 			}
 			{
+				uint64_t at;
+				if (uart_deadline(&uart, &at)) {
+					uint64_t due = cpu.cycles +
+						(at > cpu.clk ? at - cpu.clk : 0);
+					if (due < next)
+						next = due;
+				}
+			}
+			{
 				uint64_t delay;
 				if (wdt_deadline(&wdt, &delay)) {
 					uint64_t due = cpu.cycles + delay;

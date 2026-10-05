@@ -17,7 +17,7 @@ int main(void)
     uart_attach(&m, &u, NULL);
     u.itc = &itc;
     assert(!uart_receive(&u, 'X'));
-    mem_write(&m, REG + 0xb03, 1, 0xcb);
+    mem_write(&m, REG + 0xb03, 1, 0xc3);          /* TX, RX, 8N1 */
     mem_write(&m, REG + 0x269, 1, 0x50); /* PLCDC_PSI00: serial 0 priority */
     mem_write(&m, REG + 0x276, 1, 3);
     for (unsigned i = 0; i < 4; i++) assert(uart_receive(&u, 'A' + i));
@@ -45,6 +45,7 @@ int main(void)
        the buffer, so TDBE clears until the first frame is done. */
     uint64_t clock = 1000;
     uart_set_clock(&u, &clock);
+    mem_write(&m, REG + 0xb03, 1, 0xc3);          /* TX, RX, 8N1 */
     mem_write(&m, REG + 0xb04, 1, 0x10);          /* IRDA: DIVMD 1/8 */
     mem_write(&m, REG + 0xb06, 1, 64);            /* BRTRDL */
     mem_write(&m, REG + 0xb07, 1, 0);             /* BRTRDM */
@@ -52,15 +53,47 @@ int main(void)
     mem_write(&m, REG + 0xb00, 1, 'a');
     assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* shifting, buffer free */
     assert(mem_read(&m, REG + 0xb02, 1) & 0x20);  /* TEND: busy */
+    /* The transmit cause (FSIF0 D2) rises when the buffer empties: at
+       once for 'a', which went straight to the shifter, but for 'b' only
+       when it leaves the buffer, a frame later. */
+    assert(mem_read(&m, REG + 0x286, 1) & 4);
+    mem_write(&m, REG + 0x286, 1, 4);
+    assert(!(mem_read(&m, REG + 0x286, 1) & 4));
     mem_write(&m, REG + 0xb00, 1, 'b');
     assert(!(mem_read(&m, REG + 0xb02, 1) & 2));  /* buffer full */
+    assert(!(mem_read(&m, REG + 0x286, 1) & 4));  /* and no cause */
     clock = 1000 + 10399;
+    uart_poll(&u);
     assert(!(mem_read(&m, REG + 0xb02, 1) & 2));
+    assert(!(mem_read(&m, REG + 0x286, 1) & 4));
     clock = 1000 + 10400;
+    uart_poll(&u);
+    assert(mem_read(&m, REG + 0x286, 1) & 4);     /* buffer empty: cause */
+    uint64_t at;
+    assert(!uart_deadline(&u, &at));
     assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* 'b' has started */
     assert(mem_read(&m, REG + 0xb02, 1) & 0x20);
     clock = 1000 + 20800;
     assert(!(mem_read(&m, REG + 0xb02, 1) & 0x20)); /* the line is idle */
+
+    /* The frame follows the control register: STPB (D3) set is two stop
+       bits (V.1), and parity adds one more, so 8E2 is twelve bits. */
+    mem_write(&m, REG + 0xb03, 1, 0xcb);          /* 8N2 */
+    clock = 30000;
+    mem_write(&m, REG + 0xb00, 1, 'x');
+    clock = 30000 + 11439;
+    assert(mem_read(&m, REG + 0xb02, 1) & 0x20);
+    clock = 30000 + 11440;
+    assert(!(mem_read(&m, REG + 0xb02, 1) & 0x20));
+    mem_write(&m, REG + 0xb03, 1, 0xeb);          /* 8E2 */
+    clock = 50000;
+    mem_write(&m, REG + 0xb00, 1, 'y');
+    clock = 50000 + 12479;
+    assert(mem_read(&m, REG + 0xb02, 1) & 0x20);
+    clock = 50000 + 12480;
+    assert(!(mem_read(&m, REG + 0xb02, 1) & 0x20));
+    mem_write(&m, REG + 0xb03, 1, 0xc3);
+
     uart_set_clock(&u, NULL);
     mem_write(&m, REG + 0xb00, 1, 'c');
     assert(mem_read(&m, REG + 0xb02, 1) & 2);     /* untimed: at once */
@@ -74,7 +107,7 @@ int main(void)
 
         cmu_attach(&m, &cmu);
         uart_set_cmu(&u, &cmu);
-        mem_write(&m, REG + 0xb03, 1, 0xcb);           /* RX enable */
+        mem_write(&m, REG + 0xb03, 1, 0xc3);           /* RX enable */
         assert(uart_can_receive(&u));
         mem_write(&m, REG + 0x1b24, 4, 0x96);          /* PROTECT off */
         mem_write(&m, REG + 0x1b04, 4, mem_read(&m, REG + 0x1b04, 4) & ~(1u << 5));

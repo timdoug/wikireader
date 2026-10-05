@@ -33,5 +33,7 @@ void uart_reset(struct uart *u);
 bool uart_can_receive(const struct uart *u);
 bool uart_receive(struct uart *u, uint8_t byte);
 void uart_poll(struct uart *u);
+/* When a byte waiting to transmit empties the buffer, if one is waiting. */
+bool uart_deadline(const struct uart *u, uint64_t *at);
 
 #endif /* UART_H */

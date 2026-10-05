@@ -40,22 +40,38 @@
 /* D[7:6]: 0 means "1 or 0" bytes, 1 means 2, 2 means 3, 3 means 4. */
 #define RXDNUM(n)     ((uint32_t)((n) <= 1 ? 0 : (n) >= 4 ? 3 : (n) - 1) << 6)
 
-/* One frame, 8N1, in CPU cycles: ten bits of 2 * (BRTRD + 1) * DIVMD. */
+/* EFSIFx_CTL (V.1).  Writing 1 to STPB selects TWO stop bits. */
+#define EPRx          (1u << 5)   /* parity bit enabled */
+#define STPBx         (1u << 3)   /* two stop bits */
+#define SMD0x         (1u << 0)   /* 8 data bits rather than 7 */
+
+/* One frame in CPU cycles: a start bit, 7 or 8 data bits, the parity bit
+   if enabled and 1 or 2 stop bits, each 2 * (BRTRD + 1) * DIVMD. */
 static uint64_t uart_frame(const struct uart *u)
 {
 	unsigned brtrd = ((unsigned)u->brtrdm << 8) | u->brtrdl;
 	unsigned divmd = (u->irda & 0x10) ? 8 : 16;
+	unsigned bits = 1 + ((u->control & SMD0x) ? 8 : 7) +
+			((u->control & EPRx) ? 1 : 0) +
+			((u->control & STPBx) ? 2 : 1);
 
-	return 10ull * 2 * (brtrd + 1) * divmd;
+	return (uint64_t)bits * 2 * (brtrd + 1) * divmd;
 }
 
-/* Bring the transmitter up to date: a byte waiting in the buffer starts
-   shifting the moment the one before it is done. */
+/*
+ * Bring the transmitter up to date: a byte waiting in the buffer starts
+ * shifting the moment the one before it is done.  That empties the buffer,
+ * which is what raises the transmit cause (V.1): raising it at the write
+ * instead, while the buffer was full, let a driver that cleared the cause
+ * and found TDBE clear wait for an interrupt that never came.
+ */
 static void uart_settle(struct uart *u)
 {
 	if (u->clock && u->tx_buffered && *u->clock >= u->tx_done) {
 		u->tx_done += uart_frame(u);
 		u->tx_buffered = false;
+		if (u->itc)
+			itc_set_flag(u->itc, 58);
 	}
 }
 
@@ -120,15 +136,20 @@ static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	if (is_write) {
 		switch (reg) {
 		case OFF_TXD:
+			/* A free shifter takes the byte and the buffer is empty
+			   again at once; a busy one leaves it waiting. */
 			if (u->clock) {
 				uart_settle(u);
-				if (*u->clock >= u->tx_done)
+				if (*u->clock >= u->tx_done) {
 					u->tx_done = *u->clock + uart_frame(u);
-				else
+					if (u->itc) itc_set_flag(u->itc, 58);
+				} else {
 					u->tx_buffered = true;
+				}
+			} else if (u->itc) {
+				itc_set_flag(u->itc, 58);
 			}
 			u->tx_count++;
-			if (u->itc) itc_set_flag(u->itc, 58);
 			if (u->out) {
 				fputc((int)(*val & 0xff), u->out);
 				fflush(u->out);
@@ -233,8 +254,17 @@ void uart_poll(struct uart *u)
 {
 	if (!u->itc || !uart_clocked(u))
 		return;
+	uart_settle(u);
 	if (u->rx_count)
 		itc_set_flag(u->itc, 57);
 	if (u->errors)
 		itc_set_flag(u->itc, 56);
+}
+
+bool uart_deadline(const struct uart *u, uint64_t *at)
+{
+	if (!u->clock || !u->tx_buffered)
+		return false;
+	*at = u->tx_done;
+	return true;
 }
