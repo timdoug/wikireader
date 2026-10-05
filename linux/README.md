@@ -5,6 +5,9 @@ WikiReader. Linux executes directly on the C33. `wremu` models the WikiReader
 hardware for development and regression testing; it does not run Linux under
 a different guest ISA.
 
+The [upstream convention review](UPSTREAM-REVIEW.md) records the patch audit,
+recommended cleanups, hardware tradeoffs and suggested implementation order.
+
 The current milestone boots the complete production-style path:
 
 ```text

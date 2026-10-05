@@ -752,8 +752,8 @@
 #define NO_PARx   (0x0 << 5)
 #define ODDx 	  (0x1 << 4)
 #define EVENx 	  (0x0 << 4)
-#define ONE_STPBx (0x1 << 3)
-#define TWO_STPBx (0x0 << 3)
+#define TWO_STPBx (0x1 << 3)
+#define ONE_STPBx (0x0 << 3)
 #define SCLKx 	  (0x1 << 2)
 #define INT_CLKx  (0x0 << 2)
 #define EIGHT_BIT_ASYNx   0x3

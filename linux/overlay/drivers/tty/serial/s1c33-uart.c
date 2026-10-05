@@ -26,10 +26,9 @@
 #define S1C33_UART_ERRORS	0x1c
 #define S1C33_UART_TX_ENABLE	BIT(7)
 #define S1C33_UART_RX_ENABLE	BIT(6)
-#define S1C33_UART_ONE_STOP_BIT	BIT(3)
+#define S1C33_UART_TWO_STOP_BITS	BIT(3)
 #define S1C33_UART_EIGHT_BIT_ASYNC 0x03
 #define S1C33_UART_8N1		(S1C33_UART_RX_ENABLE | \
-				 S1C33_UART_ONE_STOP_BIT | \
 				 S1C33_UART_EIGHT_BIT_ASYNC)
 #define S1C33_UART_DEFAULT_BAUD	115200
 #define S1C33_UART_NR		2
@@ -200,14 +199,19 @@ static void s1c33_uart_set_termios(struct uart_port *port,
 				   struct ktermios *new,
 				   const struct ktermios *old)
 {
+	struct s1c33_uart *uart = container_of(port, struct s1c33_uart, port);
 	unsigned long flags;
 	unsigned int baud;
 
-	new->c_cflag &= ~(CSIZE | CSTOPB | PARENB | PARODD | CRTSCTS);
+	new->c_cflag &= ~(CSIZE | PARENB | PARODD | CRTSCTS);
 	new->c_cflag |= CS8 | CLOCAL;
 	baud = uart_get_baud_rate(port, new, old, 300, 230400);
 
 	uart_port_lock_irqsave(port, &flags);
+	if (new->c_cflag & CSTOPB)
+		uart->control |= S1C33_UART_TWO_STOP_BITS;
+	else
+		uart->control &= ~S1C33_UART_TWO_STOP_BITS;
 	s1c33_uart_set_baud(port, baud);
 	uart_update_timeout(port, new->c_cflag, baud);
 	uart_port_unlock_irqrestore(port, flags);

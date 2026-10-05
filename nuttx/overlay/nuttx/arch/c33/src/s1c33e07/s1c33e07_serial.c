@@ -41,7 +41,7 @@ static int c33_setup(struct uart_dev_s *dev)
   uint32_t divisor = (CONFIG_S1C33E07_MCLK + CONFIG_UART0_BAUD * 8) /
                       (CONFIG_UART0_BAUD * 16) - 1;
 
-  putreg8(0xcb, S1C33_UART0_CTL);
+  putreg8(0xc3, S1C33_UART0_CTL);   /* TX, RX, 8N1: STPB (D3) set is 2 stop bits */
   putreg8(0x10, S1C33_REGBASE + 0xb04);
   putreg8(0, S1C33_REGBASE + 0xb05);
   putreg8(divisor >> 8, S1C33_REGBASE + 0xb07);

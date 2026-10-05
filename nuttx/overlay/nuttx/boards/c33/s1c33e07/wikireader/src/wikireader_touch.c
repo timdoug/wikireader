@@ -312,7 +312,7 @@ int wikireader_touch_initialize(void)
     }
 
   modifyreg8(S1C33_P0_FUNC47, 3, 1);
-  putreg8(0x4b, S1C33_UART1_CTL);
+  putreg8(0x43, S1C33_UART1_CTL);   /* RX, 8N1 */
   putreg8(0x10, S1C33_UART1_IRDA);
   putreg8(0, S1C33_UART1_BRT);
   putreg8(divisor >> 8, S1C33_UART1_BRTH);
