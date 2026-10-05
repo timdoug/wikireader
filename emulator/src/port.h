@@ -82,12 +82,18 @@ struct port {
 
 	/* For the pins this port holds that other devices depend on. */
 	struct c33 *cpu;
+	struct eeprom *eeprom;
 };
 
 void port_attach(struct mem *m, struct port *p, const struct itc *itc);
 /* Watch for the SDRAM losing the pin that addresses it.  Optional: without
    it the function registers are just bits that read back. */
 void port_watch_sdram(struct port *p, struct c33 *cpu);
+/* End the FLASH's command when its chip select rises, as the part does,
+   rather than at the next SPI character: drivers release and reassert it
+   between commands without clocking anything in between. */
+struct eeprom;
+void port_watch_eeprom(struct port *p, struct eeprom *e);
 void port_reset(struct port *p);   /* keeps the controller link */
 /* Press or release one of the three front buttons: 0 random, 1 search,
    2 history. Raises the key-input interrupt if the controller wants it. */

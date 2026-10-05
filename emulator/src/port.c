@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 
+#include "eeprom.h"
 #include "mem.h"
 #include "port.h"
 
@@ -71,6 +72,7 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 	if (is_write) {
 		uint8_t p6_before = p->reg[OFF_P6D];
 		uint8_t p5cfp_before = p->reg[OFF_P5CFP03];
+		uint8_t p5_before = p->reg[OFF_P5D];
 		for (unsigned k = 0; k < size; k++) {
 			uint8_t mask = port_reg_mask(i + k);
 			uint8_t v = (uint8_t)(*val >> (8 * k));
@@ -78,6 +80,10 @@ static bool port_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 					    | (v & mask);
 		}
 		p->writes++;
+
+		if (p->eeprom && !(p5_before & (1u << CS_EEPROM_BIT)) &&
+		    (p->reg[OFF_P5D] & (1u << CS_EEPROM_BIT)))
+			eeprom_deselect(p->eeprom);
 
 		/*
 		 * Watch for the shutdown signal. power_off() drives P63 as an
@@ -224,6 +230,7 @@ void port_reset(struct port *p)
 {
 	const struct itc *keep = p->itc;
 	struct c33 *cpu = p->cpu;
+	struct eeprom *eeprom = p->eeprom;
 
 	memset(p, 0, sizeof *p);
 	p->itc = keep;
@@ -231,6 +238,7 @@ void port_reset(struct port *p)
 	/* A reset restarts the machine; it does not rewire the board. */
 
 	p->cpu = cpu;
+	p->eeprom = eeprom;
 	p->reg[OFF_P5D] = (1u << CS_SDCARD_BIT) | (1u << CS_EEPROM_BIT);
 	/* Pull-ups per REG_MISC_PUP6. In particular P64 is high while no CTP
 	 * receive sequence is in progress; leaving it low makes Suspend()
@@ -286,4 +294,9 @@ void port_attach(struct mem *m, struct port *p, const struct itc *itc)
 	porta_value = (uint8_t)(0x08u ^ (rev ? strtoul(rev, NULL, 0) & 0x0fu : 0x07u));
 	mem_add_mmio(m, "ports", PORT_BASE, PORT_LEN, port_mmio, p);
 	mem_add_mmio(m, "porta", PORTA_BASE, PORTA_LEN, porta_mmio, p);
+}
+
+void port_watch_eeprom(struct port *p, struct eeprom *e)
+{
+	p->eeprom = e;
 }

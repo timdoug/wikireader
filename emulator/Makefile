@@ -102,8 +102,8 @@ test-lcd: tools/test_lcd.c src/lcd.o src/mem.o src/model.o
 	/tmp/test_lcd
 
 # ADC scaling, checked by running grifo's own conversions over the counts.
-test-adc: tools/test_adc.c src/periph.o src/mem.o src/model.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/mem.o src/model.o
+test-adc: tools/test_adc.c src/periph.o src/cmu.o src/mem.o src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_adc tools/test_adc.c src/periph.o src/cmu.o src/mem.o src/model.o
 	/tmp/test_adc
 
 # Window events: the path from an SDL click to the touch panel, which
@@ -210,8 +210,8 @@ test-chipid: tools/test_chipid.c src/mem.o src/model.o
 	/tmp/test_chipid
 
 # GPIO reset masks and the modeled key/power interrupt inputs.
-test-port: tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
+test-port: tools/test_port.c src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
 	/tmp/test_port
 
 # Documented SPI DMA pipeline, including representative failure modes.

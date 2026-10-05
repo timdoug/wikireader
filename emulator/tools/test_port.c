@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../src/c33.h"
+#include "../src/eeprom.h"
 #include "../src/itc.h"
 #include "../src/mem.h"
 #include "../src/port.h"
@@ -167,6 +168,31 @@ int main(void)
 		      cpu.fault != NULL, true);
 		check("and says which pin it was",
 		      cpu.fault && strstr(cpu.fault, "SDA10") != NULL, true);
+	}
+
+	/* Raising the FLASH's chip select ends its command there and then,
+	   with no SPI character needed to notice: drivers release and
+	   reassert it between commands. */
+	{
+		static struct eeprom e;
+
+		memset(&e, 0, sizeof e);
+		e.present = true;
+		e.data[0x1234] = 0x5a;
+		port_watch_eeprom(&port, &e);
+		mem_write(&mem, REG_BASE + 0x38a, 1, 0x01);   /* P52 low */
+		eeprom_exchange(&e, 0x05);                     /* READ STATUS */
+		mem_write(&mem, REG_BASE + 0x38a, 1, 0x05);   /* P52 high */
+		check("a rising FLASH select ends the command", e.cmd, 0);
+		mem_write(&mem, REG_BASE + 0x38a, 1, 0x01);
+		eeprom_exchange(&e, 0x03);
+		eeprom_exchange(&e, 0x00);
+		eeprom_exchange(&e, 0x12);
+		eeprom_exchange(&e, 0x34);
+		check("so the next command reads data, not status",
+		      eeprom_exchange(&e, 0x00), 0x5a);
+		mem_write(&mem, REG_BASE + 0x38a, 1, 0x05);
+		port_watch_eeprom(&port, NULL);
 	}
 
 	mem_free(&mem);

@@ -1,5 +1,6 @@
 /*
- * SPI serial FLASH (PM25LV512).
+ * SPI serial FLASH, 64K: an Eon EN25F05 (JEDEC ID 1c 31 10) on the three
+ * units romdump has read; Openmoko's sources name a PMC Pm25LV512.
  *
  * Command set from samo-lib/drivers/src/FLASH.c, as copied into
  * samo-lib/mbr/menu.c. Only the read paths matter for booting, but the
@@ -24,8 +25,11 @@ enum {
 	CMD_WRITE_ENABLE  = 0x06,
 	CMD_FAST_READ     = 0x0b,
 	CMD_SECTOR_ERASE  = 0x20,
+	CMD_JEDEC_ID      = 0x9f,
 	CMD_CHIP_ERASE    = 0xc7,
 };
+
+static const uint8_t JEDEC_ID[3] = { 0x1c, 0x31, 0x10 };
 
 /* Status register: bit 0 WIP (never busy here), bit 1 WEL. */
 #define ST_WEL 0x02
@@ -79,6 +83,9 @@ uint8_t eeprom_exchange(struct eeprom *e, uint8_t out)
 	switch (e->cmd) {
 	case CMD_READ_STATUS:
 		return e->write_enabled ? ST_WEL : 0x00;
+
+	case CMD_JEDEC_ID:
+		return e->phase <= sizeof JEDEC_ID ? JEDEC_ID[e->phase - 1] : 0xff;
 
 	case CMD_READ_DATA:
 	case CMD_FAST_READ:

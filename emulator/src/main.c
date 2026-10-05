@@ -741,6 +741,8 @@ int main(int argc, char **argv)
 	/* The port block holds a pin the SDRAM controller needs; tell it so,
 	   now that both of them exist. */
 	port_watch_sdram(&port, &cpu);
+	if (eeprom_path)
+		port_watch_eeprom(&port, &eeprom);
 
 	/* Only --bare-elf gets here, and this is why it is not for firmware:
 	   the loader would have programmed the SDRAM controller and the
