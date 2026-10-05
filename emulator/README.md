@@ -493,7 +493,8 @@ counts, are what to look at on this core: the ZIM article load below runs at
 ranks the wrong lines. The CPU has no cache; the model charges a row change
 for every move to another 1 KiB row, closes every bank at each auto-refresh,
 and treats the two-slot 16-byte instruction queue as the only fetch
-buffering. A row register belongs to the kind of access -- a fetch, a read
+buffering.  An auto-refresh closes every row register and every physical
+bank, so the access after one activates but pays no precharge. A row register belongs to the kind of access -- a fetch, a read
 or a write, the CPU's or the DMA's -- and not to the bank, so two read
 streams evict one another however far apart they are: the device reads a
 pair 4 MB apart at the same cost as a pair a kilobyte apart. A physical
@@ -1364,9 +1365,14 @@ The current model includes:
   clock gates honoured by the timers, the watchdog, HSDMA, the SPI block and
   both EFSIF ports: an unclocked block drops writes, reads as zero and raises
   no interrupt, and the run summary's `cmu gates` line counts that traffic;
-- ADC sweep/status behavior with physically plausible board values;
+- ADC sweep/status behavior with physically plausible board values, each
+  channel converting in its sampling time and 11 clocks of the prescaled
+  MCLK (256 us a three-channel sweep at grifo's MCLK/256);
 - the watchdog, including its clock gate, its NMI output, and the reset it
-  asserts, which restarts the machine; and
+  asserts, which restarts the machine;
+- pLCDC_IRAM, which moves the 12 KB of IVRAM out of area 3 and into area 0
+  at 0x2000, where the CPU reaches it with no wait and the DMA engine may
+  not reach it at all (I.6.2); and
 - the S1C33E07 fixed chip-identification bytes.
 
 Both ways of stopping the device are modelled, because the firmware uses both
@@ -1527,14 +1533,18 @@ For an NSH image, for example:
 ```
 
 `make test-uart` checks FIFO ordering, overflow, receive/error interrupt
-priority, flag reassertion while data remains, UART reset, and that transmit
-takes the time the line takes.
+priority, flag reassertion while data remains, UART reset, that transmit
+takes the time the line takes, and when the transmit cause rises.
 
 Transmit is timed from the baud rate registers the firmware programs: a bit
-is 2 * (BRTRD + 1) DIVMD clocks of the CPU's clock, a frame ten of them --
-10,400 cycles at 57600 baud -- and the transmitter is the hardware's one-byte
-buffer in front of a shift register, so TDBE clears while a byte waits and
-firmware that polls it waits a frame a byte from the third byte of a run.
+is 2 * (BRTRD + 1) DIVMD clocks of the CPU's clock, and a frame is a start
+bit, seven or eight data bits, the parity bit if enabled and one or two stop
+bits, as EFSIFx_CTL selects -- 10,400 cycles for 8N1 at 57600 baud.  STPB
+(D3) set is two stop bits (manual V.1).  The transmitter is the hardware's
+one-byte buffer in front of a shift register, so TDBE clears while a byte
+waits and firmware that polls it waits a frame a byte from the third byte of
+a run.  The transmit cause rises when the buffer empties: at once for a byte
+written to an idle transmitter, a frame later for one that had to wait.
 It was measured before it was modelled: the translator's first run on
 silicon (`riscv/`) read 1.75x the emulator, and the whole difference was
 console output, four hundred million cycles of a Linux boot, which this
