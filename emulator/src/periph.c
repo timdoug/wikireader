@@ -36,6 +36,7 @@
 #include <string.h>
 
 #include "periph.h"
+#include "cmu.h"
 
 #define AD_CLKCTL   0x0520u
 #define AD_BLOCK    0x0540u
@@ -87,30 +88,89 @@ uint16_t adc_count(unsigned channel)
 	}
 }
 
+/* A channel's result lands, with its flags. */
+static void adc_finish_channel(struct periph *p, unsigned ch)
+{
+	uint8_t bit = (uint8_t)(1u << ch);
+
+	p->data[ch] = adc_count(ch);
+
+	/* The standard register is overwritten once per channel. */
+	if (p->add_adf)
+		p->add_owe = 1;
+	p->add = p->data[ch];
+	p->add_adf = 1;
+
+	if (p->adf & bit) {
+		p->owe |= bit;
+		p->overwrites++;
+	}
+	p->adf |= bit;
+}
+
+/*
+ * One channel takes its sampling time (ST, EN_SMPL_STAT D[9:8]: 3, 5, 7 or
+ * 9 ADC clocks) and 11 clocks of successive approximation, at MCLK / (2 <<
+ * CLKCTL[2:0]) while PSONAD is set (VII.1.4): grifo's 0x000f is MCLK/256,
+ * 85 us a channel at 60 MHz.  In raw cycles, which count at 60 MHz
+ * whatever MCLK is (timer.c).  Zero for a stopped prescaler.
+ */
+#define PSONAD      (1u << 3)
+#define RAW_HZ      60000000ull   /* the cycle counter's rate (timer.c) */
+static uint64_t adc_channel_cycles(const struct periph *p)
+{
+	uint64_t mclk = p->cmu ? cmu_mclk_hz(p->cmu) : RAW_HZ;
+	unsigned st = 3 + 2 * ((p->reg[OFF_EN_SMPL_STAT / 2] >> 8) & 3);
+	uint64_t clocks = (uint64_t)(st + 11) * (2u << (p->clkctl & 7));
+
+	if (!(p->clkctl & PSONAD) || !mclk)
+		return 0;
+	return clocks * RAW_HZ / mclk;
+}
+
+/* Bring a sweep up to date: each channel lands when its time is up. */
+static void adc_settle(struct periph *p)
+{
+	uint16_t chnl = p->reg[OFF_TRIG_CHNL / 2];
+
+	while (p->sweeping && p->clock && p->channel_cycles &&
+	       *p->clock >= p->channel_done) {
+		adc_finish_channel(p, p->channel);
+		if (p->channel < p->last) {
+			p->channel++;
+		} else {
+			p->conversions++;
+			/* Normal mode stops after one selected-channel sweep. */
+			if (!(chnl & CONTINUOUS)) {
+				p->reg[OFF_EN_SMPL_STAT / 2] &= ~ADSTART;
+				p->sweeping = false;
+				return;
+			}
+			p->channel = CS(chnl);
+		}
+		p->channel_done += p->channel_cycles;
+	}
+}
+
 static void adc_convert(struct periph *p)
 {
 	uint16_t chnl = p->reg[OFF_TRIG_CHNL / 2];
 	unsigned first = CS(chnl), last = CE(chnl);
-	uint8_t swept = 0;
 
 	if (last >= AD_CHANNELS)
 		last = AD_CHANNELS - 1;
-	for (unsigned ch = first; ch <= last; ch++) {
-		swept |= 1u << ch;
-		p->data[ch] = adc_count(ch);
-
-		/* The standard register is overwritten once per channel. */
-		if (p->add_adf)
-			p->add_owe = 1;
-		p->add = p->data[ch];
-		p->add_adf = 1;
+	if (p->clock) {
+		p->sweeping = true;
+		p->channel = first;
+		p->last = last;
+		p->channel_cycles = adc_channel_cycles(p);
+		p->channel_done = *p->clock + p->channel_cycles;
+		return;
 	}
 
-	if (p->adf & swept) {
-		p->owe |= p->adf & swept;
-		p->overwrites++;
-	}
-	p->adf |= swept;
+	/* Untimed: the whole sweep at once. */
+	for (unsigned ch = first; ch <= last; ch++)
+		adc_finish_channel(p, ch);
 	p->conversions++;
 
 	/* Normal mode stops after one selected-channel sweep. */
@@ -165,9 +225,12 @@ static void adc_write_reg(struct periph *p, uint32_t reg, uint16_t value,
 		p->reg[idx] = (p->reg[idx] & ~mask) | (value & mask);
 		if ((lanes & OWE) && !(value & OWE))
 			p->add_owe = 0;               /* write zero to clear */
-		if ((p->reg[idx] & (ADSTART | ADENABLE)) ==
-		    (ADSTART | ADENABLE) &&
-		    !(p->reg[OFF_TRIG_CHNL / 2] & (3u << 3)))
+		/* Clearing ADST or ADE ends a sweep; its channel is lost. */
+		if ((p->reg[idx] & (ADSTART | ADENABLE)) !=
+		    (ADSTART | ADENABLE))
+			p->sweeping = false;
+		else if (!p->sweeping &&
+			 !(p->reg[OFF_TRIG_CHNL / 2] & (3u << 3)))
 			adc_convert(p);
 		return;
 	case OFF_END:
@@ -197,6 +260,7 @@ static bool adc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 {
 	struct periph *p = ctx;
 
+	adc_settle(p);
 	if (off == AD_CLKCTL || off == AD_CLKCTL + 1) {
 		uint16_t lanes = size == 1 ? (off & 1 ? 0xff00 : 0x00ff) : 0xffff;
 		uint16_t value = size == 1 && (off & 1) ? *val << 8 : *val;
@@ -205,6 +269,14 @@ static bool adc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			uint16_t mask = CLKCTL_WRITABLE & lanes;
 			p->clkctl = (p->clkctl & ~mask) | (value & mask);
 			p->adc_writes++;
+			/* A sweep waiting for a clock starts its channel now. */
+			if (p->sweeping && p->clock) {
+				uint64_t cycles = adc_channel_cycles(p);
+
+				if (!p->channel_cycles && cycles)
+					p->channel_done = *p->clock + cycles;
+				p->channel_cycles = cycles;
+			}
 		} else {
 			*val = size == 1 && (off & 1) ? p->clkctl >> 8 : p->clkctl;
 		}
@@ -240,7 +312,12 @@ static bool adc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 void periph_reset(struct periph *p)
 {
+	const uint64_t *clock = p->clock;
+	const struct cmu *cmu = p->cmu;
+
 	memset(p, 0, sizeof *p);
+	p->clock = clock;
+	p->cmu = cmu;
 	p->reg[OFF_EN_SMPL_STAT / 2] = EN_SMPL_STAT_RESET;
 	p->reg[OFF_CH04_INTMASK / 2] = CH04_INTMASK_RESET;
 }
@@ -250,4 +327,14 @@ void periph_attach(struct mem *m, struct periph *p)
 	periph_reset(p);
 	mem_add_mmio(m, "adc-clk", AD_CLKCTL, 2, adc_mmio, p);
 	mem_add_mmio(m, "adc", AD_BLOCK, AD_BLOCK_LEN, adc_mmio, p);
+}
+
+void periph_set_clock(struct periph *p, const uint64_t *clock)
+{
+	p->clock = clock;
+}
+
+void periph_set_cmu(struct periph *p, const struct cmu *cmu)
+{
+	p->cmu = cmu;
 }

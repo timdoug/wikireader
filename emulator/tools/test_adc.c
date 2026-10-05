@@ -169,6 +169,41 @@ int main(void)
 	wr8(0x55f, 0x01);
 	check("high-byte writes select advanced mode", rd8(0x55f), 0x01);
 
+	/* Timed, each channel takes its sampling time and 11 clocks at the
+	   prescaled clock: grifo's settings (ST 9, MCLK/256) make 20 clocks of
+	   256 cycles a channel.  With no CMU the counter's rate is MCLK. */
+	uint64_t clock = 100000;
+	periph_reset(&adc);
+	periph_set_clock(&adc, &clock);
+	wr(0x520, 0x000f);
+	wr(0x542, 0x1000);
+	wr(0x544, 0x0304);
+	wr(0x544, rd(0x544) | 0x02);
+	check("a timed sweep has no result at once", rd(0x546) & 0x07, 0);
+	clock = 100000 + 5119;
+	check("channel 0 is not done after 5119 cycles", rd(0x546) & 0x07, 0);
+	clock = 100000 + 5120;
+	check("channel 0 lands after 20 clocks of MCLK/256", rd(0x546) & 0x07, 1);
+	clock = 100000 + 3 * 5120 - 1;
+	check("channel 2 is still converting", rd(0x546) & 0x07, 3);
+	check("ADST stays set while it converts", rd(0x544) & 0x02, 0x02);
+	clock = 100000 + 3 * 5120;
+	check("the sweep ends with channel 2", rd(0x546) & 0x07, 7);
+	check("normal mode clears ADST at the end", rd(0x544) & 0x02, 0);
+	rd(0x548); rd(0x54a); rd(0x54c);
+	wr(0x544, rd(0x544) | 0x02);
+	clock += 5119;
+	wr(0x544, rd(0x544) & ~0x02);
+	clock += 100000;
+	check("clearing ADST abandons the sweep", rd(0x546) & 0x07, 0);
+	wr(0x520, 0x0007);
+	wr(0x544, rd(0x544) | 0x02);
+	clock += 1000000;
+	check("with PSONAD clear the converter waits", rd(0x546) & 0x07, 0);
+	wr(0x520, 0x000f);
+	clock += 3 * 5120;
+	check("setting PSONAD lets the waiting sweep run", rd(0x546) & 0x07, 7);
+
 	printf("\n%s\n", fails ? "FAILURES" : "all ADC tests passed");
 	return fails != 0;
 }

@@ -1,6 +1,7 @@
 #ifndef PERIPH_H
 #define PERIPH_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "mem.h"
@@ -27,6 +28,12 @@ struct periph {
 	uint8_t  owe;               /* overwrite-error flags, one per ch */
 	uint8_t  add_adf;           /* standard-mode completion flag */
 	uint8_t  add_owe;           /* standard-mode overwrite flag */
+	const uint64_t *clock;      /* the CPU's cycle count, if timed */
+	const struct cmu *cmu;      /* MCLK, if modelled */
+	bool     sweeping;          /* a conversion under way */
+	unsigned channel, last;     /* the channel converting, the sweep's last */
+	uint64_t channel_done;      /* when it finishes, in raw cycles */
+	uint64_t channel_cycles;    /* one channel's conversion, in raw cycles */
 	unsigned long adc_writes;
 	unsigned long conversions;
 	unsigned long overwrites;
@@ -34,6 +41,9 @@ struct periph {
 
 void periph_reset(struct periph *p);
 void periph_attach(struct mem *m, struct periph *p);
+/* Time conversions by this clock; without one a sweep completes at once. */
+void periph_set_clock(struct periph *p, const uint64_t *clock);
+void periph_set_cmu(struct periph *p, const struct cmu *cmu);
 /* Converter count for a channel, exposed for testing. */
 uint16_t adc_count(unsigned channel);
 
