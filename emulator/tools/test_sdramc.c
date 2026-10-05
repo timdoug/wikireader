@@ -178,8 +178,11 @@ int main(void)
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x0000008c);
 	check64("prime DQB before refresh",
 		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE, 4, 0), 7);
+	/* The refresh waits tRP + tRFC and leaves every bank precharged, so
+	   the read after it activates and waits tRCD without paying the
+	   precharge or the array recovery a second time. */
 	check64("due auto-refresh adds tRP + tRFC before a cold read",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 145), 26);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 145), 22);
 	check64("auto-refresh counter records the issued refresh",
 		sdramc.refreshes, 1);
 
@@ -193,10 +196,10 @@ int main(void)
 	check64("buffer hit records no self-refresh exit",
 		sdramc.self_refresh_exits, 0);
 	/* Both of these close every bank, so the read that follows activates
-	   one and waits tRCD for it, four more than these asked for while
-	   the tRCD charge was missing. */
+	   one and waits tRCD for it, two more than these asked for while the
+	   tRCD charge was missing. */
 	check64("self-refresh exit adds tXSR+1 before a cold read",
-		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 140), 27);
+		mem_wait(&mem, MEM_CPU_READ, SDRAM_BASE + 4, 4, 140), 23);
 	check64("self-refresh exit is counted", sdramc.self_refresh_exits, 1);
 
 	sdramc_reset(&sdramc);

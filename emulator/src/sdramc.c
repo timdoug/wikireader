@@ -126,10 +126,22 @@ static void publish_size(struct sdramc *s)
 		mem_set_sdram_size(s->mem, bytes);
 }
 
+/*
+ * Close every open row.  A refresh precharges all banks, so nothing stays
+ * open across one -- and bank[] is indexed by access port when row_ports is
+ * set, five of them with rw_ports, not by the four physical banks.
+ */
+static void close_rows(struct sdramc *s)
+{
+	for (unsigned i = 0; i < SDRAMC_MAX_BANKS; i++) {
+		s->bank[i].valid = false;
+		s->phys[i].valid = false;
+	}
+}
+
 static void empty_queues(struct sdramc *s)
 {
-	for (unsigned i = 0; i < 4; i++)
-		s->bank[i].valid = false;
+	close_rows(s);
 	for (unsigned i = 0; i < 2; i++)
 		s->iq[i].valid = false;
 	for (unsigned i = 0; i < SDRAMC_MAX_DQ; i++)
@@ -181,8 +193,7 @@ static void service_refresh(struct sdramc *s, uint64_t now)
 	s->next_refresh += n * period;
 	s->refreshes += n;
 	s->last_sdram_access = s->bus_free;
-	for (unsigned i = 0; i < 4; i++)
-		s->bank[i].valid = false;
+	close_rows(s);
 }
 
 /* Advance the autonomous self-refresh counter without waking the SDRAM. */
@@ -201,8 +212,7 @@ static void observe_self_refresh(struct sdramc *s, uint64_t now)
 	if (now >= due && (!s->next_refresh || due < s->next_refresh)) {
 		s->self_refresh = true;
 		s->next_refresh = 0;
-		for (unsigned i = 0; i < 4; i++)
-			s->bank[i].valid = false;
+		close_rows(s);
 	}
 }
 
