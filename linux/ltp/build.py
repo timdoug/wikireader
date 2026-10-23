@@ -66,7 +66,8 @@ def main():
              "c33_memory_lock/1-1": ["memory-lock.c"],
              "c33_mmap_errors/1-1": ["mmap-errors.c"],
              "c33_poll_events/1-1": ["poll-events.c"],
-             "c33_nommu_mappings/1-1": ["nommu-mappings.c"]}
+             "c33_nommu_mappings/1-1": ["nommu-mappings.c"],
+             "c33_syscall_entry/1-1": ["syscall-entry.c"]}
     if args.port_tests:
         cases = sorted(local)
     elif args.all:

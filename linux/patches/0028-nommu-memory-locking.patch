@@ -26,7 +26,7 @@ diff --git a/fs/proc/task_nommu.c b/fs/proc/task_nommu.c
 diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
 --- a/include/linux/mm_types.h
 +++ b/include/linux/mm_types.h
-@@ -1266,7 +1266,10 @@
+@@ -1281,7 +1281,10 @@
  		unsigned long hiwater_vm;  /* High-water virtual memory usage */
  
  		unsigned long total_vm;	   /* Total pages mapped */
@@ -41,7 +41,7 @@ diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
 diff --git a/kernel/fork.c b/kernel/fork.c
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -1093,6 +1093,9 @@
+@@ -1100,6 +1100,9 @@
  	mm_pgtables_bytes_init(mm);
  	mm->map_count = 0;
  	mm->locked_vm = 0;
@@ -70,10 +70,10 @@ diff --git a/mm/Kconfig b/mm/Kconfig
 diff --git a/mm/Makefile b/mm/Makefile
 --- a/mm/Makefile
 +++ b/mm/Makefile
-@@ -147,3 +147,5 @@
- obj-$(CONFIG_EXECMEM) += execmem.o
+@@ -148,3 +148,5 @@
  obj-$(CONFIG_TMPFS_QUOTA) += shmem_quota.o
  obj-$(CONFIG_LAZY_MMU_MODE_KUNIT_TEST) += tests/lazy_mmu_mode_kunit.o
+ obj-$(CONFIG_MEM_ALLOC_PROFILING) += alloc_tag.o
 +
 +obj-$(CONFIG_NOMMU_MLOCK) += nommu_mlock.o
 diff --git a/mm/msync.c b/mm/msync.c
@@ -86,8 +86,8 @@ diff --git a/mm/msync.c b/mm/msync.c
 +#include <linux/nommu_mlock.h>
  #include <linux/mman.h>
  #include <linux/file.h>
- #include <linux/syscalls.h>
-@@ -86,7 +87,8 @@
+ #include <linux/pagemap.h>
+@@ -87,7 +88,8 @@
  		}
  		/* Here vma->vm_start <= start < vma->vm_end. */
  		if ((flags & MS_INVALIDATE) &&
@@ -163,17 +163,9 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  	vma_close(vma);
  	if (vma->vm_file)
  		fput(vma->vm_file);
-@@ -1024,6 +1027,7 @@
- 	struct rb_node *rb;
- 	unsigned long capabilities, result;
- 	int ret;
-+	bool registered = false;
- 	VMA_ITERATOR(vmi, current->mm, 0);
- 
- 	*populate = 0;
-@@ -1035,6 +1039,11 @@
- 	if (ret < 0)
- 		return ret;
+@@ -1039,6 +1042,11 @@
+ 	if (current->mm->map_count >= get_sysctl_max_map_count())
+ 		return -ENOMEM;
  
 +#ifdef CONFIG_NOMMU_MLOCK
 +	if ((flags & MAP_LOCKED) && !rlimit(RLIMIT_MEMLOCK) && !capable(CAP_IPC_LOCK))
@@ -183,7 +175,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  	/* we ignore the address hint */
  	addr = 0;
  	len = PAGE_ALIGN(len);
-@@ -1042,6 +1051,12 @@
+@@ -1046,6 +1054,12 @@
  	/* we've determined that we can make the mapping, now translate what we
  	 * now know into VMA flags */
  	vm_flags |= determine_vm_flags(file, prot, flags, capabilities);
@@ -196,23 +188,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  
  
  	/* we're going to need to record the mapping */
-@@ -1136,6 +1151,7 @@
- 			fput(region->vm_file);
- 			kmem_cache_free(vm_region_jar, region);
- 			region = pregion;
-+			registered = true;
- 			result = start;
- 			goto share;
- 		}
-@@ -1179,6 +1195,7 @@
- 	if (ret < 0)
- 		goto error_just_free;
- 	add_nommu_region(region);
-+	registered = true;
- 
- 	/* clear anonymous mappings that don't ask for uninitialized data */
- 	if (!vma->vm_file &&
-@@ -1190,18 +1207,25 @@
+@@ -1193,13 +1207,19 @@
  	/* okay... we have a mapping; now we have to register it */
  	result = vma->vm_start;
  
@@ -224,16 +200,18 @@ diff --git a/mm/nommu.c b/mm/nommu.c
 -	if (vma_iter_prealloc(&vmi, vma))
 +	ret = vma_iter_prealloc(&vmi, vma);
 +	if (ret)
- 		goto error_just_free;
+ 		goto error_vma_iter_prealloc;
 +	if (vm_flags & VM_LOCKED) {
 +		ret = nommu_mlock_range(current->mm, vma->vm_start, vma->vm_end);
 +		if (ret) {
 +			ret = -EAGAIN;
-+			goto error_just_free;
++			goto error_free_mapping;
 +		}
 +	}
  
- 	setup_vma_to_mm(vma, current->mm);
+ 	add_nommu_region(region);
+ 
+@@ -1207,6 +1227,7 @@
  	current->mm->map_count++;
  	/* add the VMA to the tree */
  	vma_iter_store_new(&vmi, vma);
@@ -241,30 +219,15 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  
  	/* we flush the region from the icache only when the first executable
  	 * mapping of it is made  */
-@@ -1215,8 +1239,21 @@
- 	return result;
+@@ -1250,6 +1271,7 @@
+ 	show_mem();
+ 	ret = -ENOMEM;
  
- error_just_free:
--	up_write(&nommu_region_sem);
-+	if (registered) {
-+		vma_close(vma);
-+		__put_nommu_region(region); /* drops nommu_region_sem */
-+		region = NULL;
-+	} else {
-+		up_write(&nommu_region_sem);
-+	}
- error:
-+	if (!region) {
-+		vma_iter_free(&vmi);
-+		if (vma->vm_file)
-+			fput(vma->vm_file);
-+		vm_area_free(vma);
-+		return ret;
-+	}
- 	vma_iter_free(&vmi);
- 	if (region->vm_file)
- 		fput(region->vm_file);
-@@ -1414,6 +1451,7 @@
++error_free_mapping:
+ 	/* in case that the region is allocated via do_mmap_private() */
+ 	if ((region->vm_usage == 1) && (region->vm_flags & VM_MAPPED_COPY))
+ 		free_page_series(region->vm_start, region->vm_top);
+@@ -1444,6 +1466,7 @@
  	add_nommu_region(region);
  	up_write(&nommu_region_sem);
  
@@ -272,7 +235,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  	free_page_series(from, to);
  	return 0;
  }
-@@ -1555,6 +1593,7 @@
+@@ -1585,6 +1608,7 @@
  	 * user of the mm
  	 */
  	mmap_write_lock(mm);
@@ -280,7 +243,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  	for_each_vma(vmi, vma) {
  		cleanup_vma_from_mm(vma);
  		delete_vma(mm, vma);
-@@ -1579,6 +1618,9 @@
+@@ -1609,6 +1633,9 @@
  			unsigned long flags, unsigned long new_addr)
  {
  	struct vm_area_struct *vma;
@@ -290,7 +253,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  
  	/* insanity checks first */
  	old_len = PAGE_ALIGN(old_len);
-@@ -1605,8 +1647,36 @@
+@@ -1635,8 +1662,36 @@
  	if (new_len > vma->vm_region->vm_end - vma->vm_region->vm_start)
  		return (unsigned long) -ENOMEM;
  

@@ -1,6 +1,6 @@
 # Native C33 Linux
 
-This directory contains the no-MMU Linux port for the Epson S1C33E07
+This directory contains the no-MMU Linux 7.3 port for the Epson S1C33E07
 WikiReader. Linux executes directly on the C33. `wremu` models the WikiReader
 hardware for development and regression testing; it does not run Linux under
 a different guest ISA.

@@ -132,9 +132,10 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		 * Tracing, seccomp, and audit get their say here, and may
 		 * rewrite the number or ask for the call to be skipped.
 		 */
-		nr = syscall_enter_from_user_mode(regs, regs->r[4]);
-		local_irq_enable();
-		if (nr >= 0 && nr < NR_syscalls) {
+		nr = regs->orig_r4;
+		regs->r[4] = -ENOSYS;
+		if (syscall_enter_from_user_mode_randomize_stack(regs, &nr) &&
+		    nr >= 0 && nr < NR_syscalls) {
 			c33_syscall_fn_t fn =
 				(c33_syscall_fn_t)c33_sys_call_table[nr];
 
@@ -143,8 +144,6 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					((unsigned long long)regs->r[10] << 32)
 					| regs->r[9],
 					regs->r[10], regs->r[11]);
-		} else if (nr != -1L) {
-			regs->r[4] = -ENOSYS;
 		}
 		syscall_exit_to_user_mode(regs);
 		regs->orig_r4 = -1L;

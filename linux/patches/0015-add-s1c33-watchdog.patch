@@ -28,9 +28,10 @@ diff --git a/drivers/watchdog/Makefile b/drivers/watchdog/Makefile
 index bc1d52220..0e32767f0 100644
 --- a/drivers/watchdog/Makefile
 +++ b/drivers/watchdog/Makefile
-@@ -105,6 +105,9 @@ obj-$(CONFIG_SUNPLUS_WATCHDOG) += sunplus_wdt.o
+@@ -106,7 +106,10 @@ obj-$(CONFIG_SUNPLUS_WATCHDOG) += sunplus_wdt.o
  obj-$(CONFIG_MARVELL_GTI_WDT) += marvell_gti_wdt.o
  obj-$(CONFIG_GUNYAH_WATCHDOG) += gunyah_wdt.o
+ obj-$(CONFIG_MA35D1_WDT) += ma35d1_wdt.o
  
 +# C33 Architecture
 +obj-$(CONFIG_S1C33_WATCHDOG) += s1c33_wdt.o

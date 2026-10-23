@@ -8,8 +8,8 @@ current slot, pop one mapping per unmap, and release the entire chain on
 exit. Retain locks until the last mapping of the range is removed.
 
 Reject nonidentical overlapping ranges before registration rather than
-clipping existing VMA records. Enforce the existing max_map_count on new
-mappings and expose its sysctl on NOMMU, matching the MMU control. Update
+clipping existing VMA records. Expose the max_map_count sysctl on NOMMU,
+matching the MMU control; upstream already enforces it on new mappings. Update
 total_vm on unmap and include retained alias metadata in proc accounting.
 /proc/PID/maps continues to show each physical address range once.
 
@@ -113,16 +113,6 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  	vma_close(vma);
  	if (vma->vm_file)
  		fput(vma->vm_file);
-@@ -1044,6 +1056,9 @@
- 		return -EPERM;
- #endif
- 
-+	if (current->mm->map_count >= get_sysctl_max_map_count())
-+		return -ENOMEM;
-+
- 	/* we ignore the address hint */
- 	addr = 0;
- 	len = PAGE_ALIGN(len);
 @@ -1209,6 +1224,17 @@
  
  share:

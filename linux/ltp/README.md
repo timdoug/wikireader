@@ -85,7 +85,13 @@ Its reports are under `ltp-native-all-run`.
   the unchanged test, including against the old rootfs.
 
 The local regressions are accounted separately from upstream passes.
-They check both signal-mask words and failure-output preservation, timer
+`c33_syscall_entry/1-1` checks the Linux 7.3 generic entry API: an unknown
+syscall returns `ENOSYS`, a tracer can rewrite its number to `getppid`, and
+skipping a syscall preserves the return value the tracer supplied. It uses
+the C33 general-register set through `PTRACE_GETREGSET`/`PTRACE_SETREGSET`;
+the architecture selects `HAVE_ARCH_TRACEHOOK` to expose those operations.
+
+The other cases check both signal-mask words and failure-output preservation, timer
 buffer canaries/aliasing/failure output, three clock capability queries,
 large-frame branches, and short/long argument lists through genuine
 `vfork` plus `execv`, `execl`, `execle`, and `execlp`. The `vfork` failure

@@ -23,7 +23,7 @@ diff --git a/mm/Makefile b/mm/Makefile
 -obj-y			:= filemap.o mempool.o oom_kill.o fadvise.o \
 +obj-y			:= filemap.o msync.o mempool.o oom_kill.o fadvise.o \
  			   maccess.o page-writeback.o folio-compat.o \
- 			   readahead.o swap.o truncate.o vmscan.o shrinker.o \
+ 			   readahead.o folio.o truncate.o vmscan.o shrinker.o \
  			   shmem.o util.o mmzone.o vmstat.o backing-dev.o \
 diff --git a/mm/msync.c b/mm/msync.c
 --- a/mm/msync.c
@@ -46,7 +46,7 @@ diff --git a/mm/msync.c b/mm/msync.c
  		/* Still start < end. */
  		error = -ENOMEM;
 @@ -89,11 +92,22 @@
- 			 ((loff_t)vma->vm_pgoff << PAGE_SHIFT);
+ 		fstart = (loff_t)linear_page_index(vma, start) << PAGE_SHIFT;
  		fend = fstart + (min(end, vma->vm_end) - start) - 1;
  		start = vma->vm_end;
 -		if ((flags & MS_SYNC) && file &&
