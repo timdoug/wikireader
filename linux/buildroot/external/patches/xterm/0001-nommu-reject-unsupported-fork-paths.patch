@@ -1,0 +1,40 @@
+On NOMMU the wr-xterm launcher supplies a PTY using xterm's -S option.
+The ordinary child-creation path and optional subprocess features cannot
+use fork; fail explicitly if one is requested rather than using vfork
+inside code which modifies the parent's address space and waits for it.
+
+diff --git a/main.c b/main.c
+--- a/main.c
++++ b/main.c
+@@ -133,6 +133,16 @@
+ #include <xtermcap.h>
+ #include <xterm_io.h>
+ 
++#ifdef __uClinux__
++/* The launcher uses posix_spawn and -S; fork is unavailable on NOMMU. */
++pid_t
++fork(void)
++{
++    errno = ENOSYS;
++    return -1;
++}
++#endif
++
+ #if OPT_WIDE_CHARS
+ #include <charclass.h>
+ #endif
+diff --git a/xterm.h b/xterm.h
+--- a/xterm.h
++++ b/xterm.h
+@@ -46,6 +46,11 @@
+ #undef bcopy
+ #include <X11/Xos.h>
+ 
++#ifdef __uClinux__
++/* uClibc does not declare fork on NOMMU; main.c supplies an ENOSYS stub. */
++extern pid_t fork(void);
++#endif
++
+ #ifndef HAVE_CONFIG_H
+ 
+ #define HAVE_LIB_XAW 1

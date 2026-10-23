@@ -1,3 +1,4 @@
 source "$BR2_EXTERNAL_WIKIREADER_PATH/package/wikireader-system/Config.in"
 source "$BR2_EXTERNAL_WIKIREADER_PATH/package/wr-console/Config.in"
 source "$BR2_EXTERNAL_WIKIREADER_PATH/package/xserver-kdrive/Config.in"
+source "$BR2_EXTERNAL_WIKIREADER_PATH/package/wr-xterm/Config.in"

@@ -1,0 +1,14 @@
+Allow xterm's externally supplied PTY mode on NOMMU. The wr-xterm package
+starts its command through posix_spawn and gives xterm the master via -S.
+
+diff --git a/package/xterm/Config.in b/package/xterm/Config.in
+--- a/package/xterm/Config.in
++++ b/package/xterm/Config.in
+@@ -1,7 +1,6 @@
+ config BR2_PACKAGE_XTERM
+ 	bool "xterm"
+ 	depends on BR2_PACKAGE_XORG7
+-	depends on BR2_USE_MMU # fork()
+ 	select BR2_PACKAGE_NCURSES
+ 	select BR2_PACKAGE_XLIB_LIBXAW
+ 	help
