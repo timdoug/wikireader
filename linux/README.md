@@ -835,7 +835,11 @@ fill takes milliseconds, so the short slice ended partway through xeyes'
 redraw and the idle handler put the half-drawn eyes (the old pupil cleared,
 the new one not yet drawn) on the panel, waits
 for its socket, runs the client, and stops the server when the client exits,
-which gives VT 1 back to the console. With no client it runs twm and xeyes.
+which gives VT 1 back to the console. With no client it runs twm, xeyes on
+the right, and a 32-column, 22-row xterm on the left running a login shell.
+Its built-in 5x8 bitmap font fits `uname -a; cat /proc/cpuinfo`, the complete
+output, and the next live prompt. The root menu's Xterm entry opens another
+interactive shell at the same size.
 Dragging on the background moves the pointer; holding still there for 0.6 s
 opens twm's menu (`buildroot/external/patches/xapp_twm`: twm opens menus
 only from buttons, and a touch is its only button), whose Exit ends the
@@ -849,6 +853,27 @@ drag that starts on the background or a frame. It also drops raw motion
 queued behind the event it is drawing, since drawing asks where the pointer
 is now. It moves the pupils along (dx, dy) over its length instead of
 through `atan2`, `cos` and `sin`, which were most of its arithmetic.
+
+Xterm 410 uses its supported `-S` mode with an externally supplied PTY.
+`buildroot/external/package/wr-xterm` installs a small launcher as `xterm`
+and the upstream terminal as `/usr/libexec/xterm`. The launcher uses
+`posix_spawn` to start the terminal and a helper that establishes the
+controlling terminal, consumes xterm's window-ID handshake, and executes the
+requested command. This avoids running xterm's `fork` child inside a shared
+address space. X display, font and geometry options are passed through;
+the launcher handles `-e` commands and `-hold`. An optional
+`WR_XTERM_INITIAL_COMMAND` is entered through the PTY after the shell's line
+editor switches to noncanonical, no-echo input. Ctrl-L clears the startup
+banner and redraws the real prompt before the command is entered; the shell
+executes it normally and retains it in history. The variable is removed from
+the child's environment so nested terminals do not repeat the command.
+
+`make -C linux x11-test` uses the existing kernel and root image. It checks
+the command's PTY, foreground process group, geometry and environment;
+verifies that the same shell returns to its line editor after the command;
+checks both clients through Xlib; tests session cleanup; and boots the default
+system-information desktop. It also checks the 5x8 font's actual cell size.
+Reports and the screenshot are in `artifacts/x11-run/`.
 
 A drag under twm costs about 46 ms of CPU a frame in wremu, so the eyes
 follow at about 20 frames a second and a 33 Hz touch stream runs ahead of
@@ -871,7 +896,7 @@ was most of the cost of filling its pupils. libX11 is built without its East Asi
 multi-byte charsets (`buildroot/external/patches/xlib_libX11`), whose tables
 were 410 KB of every X program, and libXfont2 with only its built-in fonts
 (`buildroot/patches/0003`: no FreeType or font-file readers, 575 KB of the
-server). With X up, 3.97 MB of text is mapped: Xfbdev 1.27 MB, twm 143 KB,
+server). Before adding xterm, 3.97 MB of text was mapped: Xfbdev 1.27 MB, twm 143 KB,
 xeyes 30 KB, and 21 shared libraries, each loaded whole (libX11 696 KB, libc
 489 KB, pixman 384 KB, libXt 305 KB). The static programs these replaced
 kept only the functions they reached, about 3.3 MB in all: with only twm and

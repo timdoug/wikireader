@@ -27,6 +27,7 @@ menu "session"
 {
 "Twm"		f.title
 "Xeyes"		f.exec "exec xeyes &"
+"Xterm"		f.exec "exec xterm -fn 5x8 -geometry 32x22+0+0 &"
 "Move"		f.move
 "Resize"	f.resize
 "Raise"		f.raise

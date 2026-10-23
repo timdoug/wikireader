@@ -19,8 +19,8 @@ come through IIO, `generic-adc-battery` and `ntc_thermistor`; the watchdog
 through the watchdog core; the pins through a pinctrl driver
 (`drivers/pinctrl/pinctrl-s1c33.c`, which also owns the GPIOs); the SD card's
 HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
-`app-test.py` both pass, both through Grifo. It also runs X11 (Xfbdev, twm and
-xeyes, by touch), so far only in wremu: see "X11: where it stands".
+`app-test.py` both pass, both through Grifo. It also runs X11 (Xfbdev, twm,
+xeyes and xterm): see "X11: where it stands".
 
 Validated 2026-10-22 in wremu on Linux 7.3: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
@@ -308,6 +308,31 @@ Left, largest first:
 
 ## X11: where it stands
 
+The default `startx` session now puts a 32x22 xterm login shell on the left
+and 64x48 xeyes on the right. A public-domain X.Org 5x8 Latin-1 bitmap is
+compiled into libXfont2 beside fixed and cursor (4,221 compressed bytes).
+The launcher enters `uname -a; cat /proc/cpuinfo` through the PTY
+once the shell's line editor is ready, leaving the real echoed command,
+output and next prompt visible. Ctrl-L clears the banner first; the command
+is retained in shell history. The root menu's Xterm entry opens another shell.
+Xterm 410 is an ordinary FDPIC
+X client. The `wr-xterm` launcher supplies its PTY through the supported
+`-S` option, using `posix_spawn` and a separate controlling-terminal helper
+instead of xterm's unavailable `fork` path. The upstream binary lives at
+`/usr/libexec/xterm`; `/usr/bin/xterm` is the launcher.
+
+Validated 2026-10-22 in wremu with Linux 7.3: `make -C linux x11-test`
+checks the PTY, foreground session, terminal size, TERM/WINDOWID, command
+execution followed by the same shell waiting for input, visible side-by-side
+X windows, session cleanup and the default desktop.
+The normal boot and application tests pass with the new 16 MiB root image.
+The CPU-info and smaller-font update's saved run and screenshot are in
+`artifacts/x11-cpuinfo-run/`; xterm has not yet been checked
+on hardware. The rebuilt `linux.img` was installed on WRBOOT, verified after
+unmount/remount, and the card ejected. The prior image is in
+`artifacts/sd-before-cpuinfo.lndi7kjq/`; hashes are in
+`artifacts/sd-cpuinfo-install.txt`.
+
 Proven on the device 2026-09-28 (FDPIC build): `startx` at the
 console prompt brings up Xfbdev on the classic grey weave with twm and
 xeyes; dragging on the background moves the pointer and the eyes follow,
@@ -337,7 +362,7 @@ The pieces:
   `c33/sfp-machine.h`); 2,000 IEEE vectors matched bit for bit
   (`artifacts/fptest`, gitignored).
 
-Measured in wremu, launcher path:
+Measured in wremu before adding xterm, launcher path:
 
 | | |
 |---|---|
