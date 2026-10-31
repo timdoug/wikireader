@@ -20,6 +20,9 @@
 #include "src/utils/bit_reader_inl_utils.h"
 #include "src/utils/bit_reader_utils.h"
 #include "src/webp/types.h"
+#if defined(__c33__)
+#include "zim_overlay.h"
+#endif
 
 WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
 
@@ -330,6 +333,34 @@ static void ParseIntraMode(VP8BitReader* const br, VP8Decoder* const dec,
                                                          : H_PRED;
 }
 
+#if defined(__c33__)
+// WikiReader: as VP8DecodeMB (vp8_dec.c), parse the row on the DSTRAM stack
+// with a copy of the reader there; it is written back before the result,
+// which reads dec->br, is taken.
+typedef struct {
+  VP8BitReader* br;
+  VP8Decoder* dec;
+} ParseIntraModeRowArgs;
+
+static size_t ParseIntraModeRowOnDstram(const void* p) {
+  const ParseIntraModeRowArgs* const a = (const ParseIntraModeRowArgs*)p;
+  VP8BitReader br = *a->br;
+  int mb_x;
+  for (mb_x = 0; mb_x < a->dec->mb_w; ++mb_x) {
+    ParseIntraMode(&br, a->dec, mb_x);
+  }
+  *a->br = br;
+  return 0;
+}
+
+int VP8ParseIntraModeRow(VP8BitReader* const br, VP8Decoder* const dec) {
+  ParseIntraModeRowArgs args;
+  args.br = br;
+  args.dec = dec;
+  (void)zim_call_on_dstram(ParseIntraModeRowOnDstram, &args);
+  return !dec->br.eof;
+}
+#else
 int VP8ParseIntraModeRow(VP8BitReader* const br, VP8Decoder* const dec) {
   int mb_x;
   for (mb_x = 0; mb_x < dec->mb_w; ++mb_x) {
@@ -337,6 +368,7 @@ int VP8ParseIntraModeRow(VP8BitReader* const br, VP8Decoder* const dec) {
   }
   return !dec->br.eof;
 }
+#endif
 
 //------------------------------------------------------------------------------
 // Paragraph 13
