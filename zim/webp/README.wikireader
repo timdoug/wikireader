@@ -8,7 +8,8 @@ C33 changes applied: luma-only output, the IVRAM overlay sections, the
 three-byte bit-reader refill, no gamma-compressed chroma (it needs pow()),
 rescaler row loops that keep the scaling fields in registers, and irow/frow
 interleaved (WEBP_RESCALER_ROW_STEP) so that reading both is one SDRAM
-stream rather than two that evict each other's row.
+stream rather than two that evict each other's row, and an alpha palette
+map that looks up a 256-byte copy of the palette's alpha in A0 RAM.
 
 Only the generic C decoder, its utility code, and public headers are retained.
 The encoder, mux/demux libraries, examples, tests, platform SIMD paths, and

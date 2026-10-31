@@ -332,7 +332,7 @@ static void HE4_C(uint8_t* dst) {  // horizontal
 }
 
 #if !WEBP_NEON_OMIT_C_CODE
-static void DC4_C(uint8_t* dst) {  // DC
+static void ZIM_OVERLAY_SECTION("ovlwebp") DC4_C(uint8_t* dst) {  // DC
   uint32_t dc = 4;
   int i;
   for (i = 0; i < 4; ++i) dc += dst[i - BPS] + dst[-1 + i * BPS];

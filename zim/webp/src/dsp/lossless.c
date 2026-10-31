@@ -28,6 +28,9 @@
 #include "src/webp/decode.h"
 #include "src/webp/format_constants.h"
 #include "src/webp/types.h"
+#if defined(__c33__)
+#include "zim_overlay.h"
+#endif
 
 //------------------------------------------------------------------------------
 // Image transforms.
@@ -421,6 +424,24 @@ COLOR_INDEX_INVERSE(VP8LColorIndexInverseTransformAlpha, MapAlpha_C, , uint8_t,
 
 #undef COLOR_INDEX_INVERSE
 
+#if defined(__c33__)
+// WikiReader: the 8-bit map reads a source byte and a 32-bit palette entry per
+// pixel, two SDRAM streams that evict each other's row every time. Copy the
+// palette's alpha bytes into A0 RAM first, after the boolean coder's log table
+// (zim_image.c), and run from IVRAM. The palette always has 256 entries here:
+// this map is used only at eight bits per pixel, and the decoder expands the
+// color map to 1 << 8 entries for that.
+static void ZIM_OVERLAY_SECTION("ovlwebp")
+MapAlphaC33(const uint8_t* src, const uint32_t* const color_map, uint8_t* dst,
+            int y_start, int y_end, int width) {
+  uint8_t* const lut = zim_fast_scratch + 256;
+  const uint8_t* const end = src + (y_end - y_start) * width;
+  int i;
+  for (i = 0; i < 256; ++i) lut[i] = VP8GetAlphaValue(color_map[i]);
+  while (src < end) *dst++ = lut[*src++];
+}
+#endif
+
 void VP8LInverseTransform(const VP8LTransform* const transform, int row_start,
                           int row_end, const uint32_t* const in,
                           uint32_t* const out) {
@@ -675,7 +696,12 @@ WEBP_DSP_INIT_FUNC(VP8LDspInit) {
   VP8LConvertBGRAToRGB565 = VP8LConvertBGRAToRGB565_C;
 
   VP8LMapColor32b = MapARGB_C;
+#if defined(__c33__)
+  VP8LMapColor8b = MapAlphaC33;
+  (void)MapAlpha_C;
+#else
   VP8LMapColor8b = MapAlpha_C;
+#endif
 
   // If defined, use CPUInfo() to overwrite some pointers with faster versions.
   if (VP8GetCPUInfo != NULL) {

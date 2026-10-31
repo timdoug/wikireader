@@ -27,7 +27,8 @@
  * application.lds): a cycle an access and no SDRAM row.  Shared by phases
  * that never run at the same time: the FSE table builder (632 bytes of
  * per-symbol tables) and the wrapper (384 bytes of width and word-break
- * tables), and WebP's boolean-coder log table (256 bytes).  Nothing in the
+ * tables), and WebP's boolean-coder log table (256 bytes) with the alpha
+ * palette's lookup table after it (256 bytes, dsp/lossless.c).  Nothing in the
  * kernel touches this RAM. */
 #define ZIM_FAST_SCRATCH_SIZE 640
 extern unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE];
