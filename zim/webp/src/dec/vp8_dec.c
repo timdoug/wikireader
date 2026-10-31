@@ -471,6 +471,129 @@ GetLargeValue(VP8BitReader* const br, const uint8_t* const p) {
 }
 
 // Returns the position of the last non-zero coeff plus one
+#if defined(__c33__)
+// WikiReader: the boolean decoder on locals. With the reader's fields in the
+// struct, GCC stored value, bits and range after every bit and loaded them
+// again for the next: the struct escapes into GetLargeValue() and
+// VP8LoadFinalBytes(), and -fno-strict-aliasing makes every out[] store a
+// possible write to it. Here they live in registers and go back to the struct
+// only around those two calls and on return. Same arithmetic as VP8GetBit()
+// (ZIM_WEBP_FAST_BITS), VP8GetSigned() and the three-byte refill.
+typedef struct {
+  bit_t value;
+  range_t range;
+  int bits;
+  const uint8_t* buf;
+} C33BoolState;
+
+#define C33_SPILL(br, s)  \
+  do {                    \
+    (br)->value = (s).value; \
+    (br)->range = (s).range; \
+    (br)->bits = (s).bits;   \
+    (br)->buf = (s).buf;     \
+  } while (0)
+#define C33_RELOAD(br, s) \
+  do {                    \
+    (s).value = (br)->value; \
+    (s).range = (br)->range; \
+    (s).bits = (br)->bits;   \
+    (s).buf = (br)->buf;     \
+  } while (0)
+
+static WEBP_INLINE __attribute__((always_inline)) void C33Refill(
+    VP8BitReader* const br, C33BoolState* const s) {
+  if (s->buf < br->buf_max) {
+    const bit_t in = ((bit_t)s->buf[0] << 16) | ((bit_t)s->buf[1] << 8) |
+                     (bit_t)s->buf[2];
+    s->buf += 3;
+    s->value = in | (s->value << 24);
+    s->bits += 24;
+  } else {
+    C33_SPILL(br, *s);
+    VP8LoadFinalBytes(br);
+    C33_RELOAD(br, *s);
+  }
+}
+
+static WEBP_INLINE __attribute__((always_inline)) int C33GetBit(
+    VP8BitReader* const br, C33BoolState* const s, int prob) {
+  range_t range = s->range;
+  if (s->bits < 0) C33Refill(br, s);
+  {
+    const int pos = s->bits;
+    const range_t split = (range * prob) >> 8;
+    const range_t value = (range_t)(s->value >> pos);
+    const int bit = (value > split);
+    if (bit) {
+      range -= split;
+      s->value -= (bit_t)(split + 1) << pos;
+    } else {
+      range = split + 1;
+    }
+    {
+      const int shift = 7 ^ zim_fast_scratch[range];
+      range <<= shift;
+      s->bits -= shift;
+    }
+    s->range = range - 1;
+    return bit;
+  }
+}
+
+static WEBP_INLINE __attribute__((always_inline)) int C33GetSigned(
+    VP8BitReader* const br, C33BoolState* const s, int v) {
+  if (s->bits < 0) C33Refill(br, s);
+  {
+    const int pos = s->bits;
+    const range_t split = s->range >> 1;
+    const range_t value = (range_t)(s->value >> pos);
+    const int32_t mask = (int32_t)(split - value) >> 31;  // -1 or 0
+    s->bits -= 1;
+    s->range += (range_t)mask;
+    s->range |= 1;
+    s->value -= (bit_t)((split + 1) & (uint32_t)mask) << pos;
+    return (v ^ mask) - mask;
+  }
+}
+
+static int ZIM_OVERLAY_SECTION("ovlwebp")
+GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
+              int ctx, const quant_t dq, int n, int16_t* out) {
+  const uint8_t* p = prob[n]->probas[ctx];
+  C33BoolState s;
+  C33_RELOAD(br, s);
+  for (; n < 16; ++n) {
+    if (!C33GetBit(br, &s, p[0])) {
+      C33_SPILL(br, s);
+      return n;  // previous coeff was last non-zero coeff
+    }
+    while (!C33GetBit(br, &s, p[1])) {  // sequence of zero coeffs
+      p = prob[++n]->probas[0];
+      if (n == 16) {
+        C33_SPILL(br, s);
+        return 16;
+      }
+    }
+    {  // non zero coeff
+      const VP8ProbaArray* const p_ctx = &prob[n + 1]->probas[0];
+      int v;
+      if (!C33GetBit(br, &s, p[2])) {
+        v = 1;
+        p = p_ctx[1];
+      } else {
+        C33_SPILL(br, s);
+        v = GetLargeValue(br, p);
+        C33_RELOAD(br, s);
+        p = p_ctx[2];
+      }
+      out[kZigzag[n]] = C33GetSigned(br, &s, v) * dq[n > 0];
+    }
+  }
+  C33_SPILL(br, s);
+  return 16;
+}
+#else
 static int ZIM_OVERLAY_SECTION("ovlwebp")
 GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
               int ctx, const quant_t dq, int n, int16_t* out) {
@@ -498,6 +621,7 @@ GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
   }
   return 16;
 }
+#endif
 
 // This version of GetCoeffs() uses VP8GetBitAlt() which is an alternate version
 // of VP8GetBitAlt() targeting specific platforms.
