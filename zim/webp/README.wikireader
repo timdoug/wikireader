@@ -5,7 +5,10 @@ This directory contains the decoder-only subset of libwebp from
 https://chromium.googlesource.com/webm/libwebp at main, commit
 `1844042d1ca751e62e61df7617dba19c98588339` (2026-10-19), with the reader's
 C33 changes applied: luma-only output, the IVRAM overlay sections, the
-three-byte bit-reader refill, and no gamma-compressed chroma (it needs pow()).
+three-byte bit-reader refill, no gamma-compressed chroma (it needs pow()),
+rescaler row loops that keep the scaling fields in registers, and irow/frow
+interleaved (WEBP_RESCALER_ROW_STEP) so that reading both is one SDRAM
+stream rather than two that evict each other's row.
 
 Only the generic C decoder, its utility code, and public headers are retained.
 The encoder, mux/demux libraries, examples, tests, platform SIMD paths, and

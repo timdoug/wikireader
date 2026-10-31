@@ -56,11 +56,11 @@ int WebPRescalerNeeds64Bit(int src_width, int src_height, int dst_width,
 uint64_t WebPRescalerWorkSize(int src_width, int src_height, int dst_width,
                               int dst_height, int num_channels) {
   const uint64_t num_elements = (uint64_t)dst_width * num_channels;
+  // WikiReader: in 64-bit mode frow is alone in its region but keeps the step.
   const size_t element_size =
       (WebPRescalerNeeds64Bit(src_width, src_height, dst_width, dst_height)
-           ? sizeof(rescaler_accum_t)
-           : sizeof(rescaler_t)) +
-      sizeof(rescaler_t);
+           ? sizeof(rescaler_accum_t) + WEBP_RESCALER_ROW_STEP * sizeof(rescaler_t)
+           : 2 * sizeof(rescaler_t));
   const uint64_t work_size = num_elements * element_size;
   return (work_size + WEBP_ALIGN_CST) & ~(uint64_t)WEBP_ALIGN_CST;
 }
@@ -112,7 +112,9 @@ int WebPRescalerInit(WebPRescaler* const rescaler, int src_width,
           rescaler_t*, work,
           (size_t)num_channels * dst_width * sizeof(rescaler_t));
       rescaler->frow = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
-          rescaler_t*, work + num_channels * dst_width,
+          rescaler_t*,
+          WEBP_RESCALER_ROW_STEP == 2 ? work + 1
+                                      : work + num_channels * dst_width,
           (size_t)num_channels * dst_width * sizeof(rescaler_t));
       rescaler->irow64 = NULL;
     }
@@ -221,11 +223,16 @@ WebPRescalerImport(WebPRescaler* const rescaler, int num_lines,
       int x;
       if (rescaler->use_64bit) {
         for (x = 0; x < rescaler->num_channels * rescaler->dst_width; ++x) {
-          rescaler->irow64[x] += rescaler->frow[x];
+          rescaler->irow64[x] += rescaler->frow[WEBP_RESCALER_ROW_STEP * x];
         }
       } else {
-        for (x = 0; x < rescaler->num_channels * rescaler->dst_width; ++x) {
-          rescaler->irow[x] += rescaler->frow[x];
+        // WikiReader: locals, so the stores do not reload the pointers.
+        rescaler_t* const irow = rescaler->irow;
+        const rescaler_t* const frow = rescaler->frow;
+        const int n = WEBP_RESCALER_ROW_STEP * rescaler->num_channels *
+                      rescaler->dst_width;
+        for (x = 0; x < n; x += WEBP_RESCALER_ROW_STEP) {
+          irow[x] += frow[x];
         }
       }
     }

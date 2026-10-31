@@ -28,6 +28,18 @@ WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
 #define WEBP_RESCALER_FRAC(x, y) \
   ((uint32_t)(((uint64_t)(x) << WEBP_RESCALER_RFIX) / (y)))
 
+// WikiReader: on the C33 the 32-bit rows are interleaved, irow[STEP * x]
+// beside frow[STEP * x]. The loops read both, and two read streams evict each
+// other's SDRAM row on every access; one stream does not. irow64 stays
+// contiguous; frow keeps the step in both modes.
+#if !defined(WEBP_RESCALER_ROW_STEP)
+#if defined(__c33__)
+#define WEBP_RESCALER_ROW_STEP 2
+#else
+#define WEBP_RESCALER_ROW_STEP 1
+#endif
+#endif
+
 // Structure used for on-the-fly rescaling
 typedef uint32_t rescaler_t;        // type for side-buffer
 typedef uint64_t rescaler_accum_t;  // type for 64-bit accumulator buffer

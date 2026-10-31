@@ -78,7 +78,7 @@ build/rescaler.o build/rescaler_utils.o build/io_dec.o build/vp8l_dec.o: CFLAGS 
 build/dec.o: CFLAGS += -mlong-calls
 # Target flags follow the shared rules' -fno-builtin. Enable fixed-size
 # copies in the WebP bit reader without changing the legacy UI's build.
-build/vp8_dec.o build/zim_image.o: CFLAGS += -fbuiltin
+build/vp8_dec.o build/zim_image.o build/tree_dec.o build/dec.o build/frame_dec.o: CFLAGS += -fbuiltin
 
 # After linking, give each overlay section its load address so the kernel's
 # ELF loader stores it in SDRAM; the code inside stays linked for IVRAM.

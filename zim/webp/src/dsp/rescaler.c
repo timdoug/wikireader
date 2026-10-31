@@ -60,6 +60,11 @@ WebPRescalerImportRowExpand_C(WebPRescaler* WEBP_RESTRICT const wrk,
                               const uint8_t* WEBP_RESTRICT src) {
   const int x_stride = wrk->num_channels;
   const int x_out_max = wrk->dst_width * wrk->num_channels;
+  // WikiReader: the stores through frow may alias *wrk, so without these
+  // locals every pixel reloads the fields from SDRAM.
+  rescaler_t* const frow = wrk->frow;
+  const int x_add = wrk->x_add;
+  const int x_sub = wrk->x_sub;
   int channel;
   assert(!WebPRescalerInputDone(wrk));
   assert(wrk->x_expand);
@@ -67,22 +72,22 @@ WebPRescalerImportRowExpand_C(WebPRescaler* WEBP_RESTRICT const wrk,
     int x_in = channel;
     int x_out = channel;
     // simple bilinear interpolation
-    int accum = wrk->x_add;
+    int accum = x_add;
     rescaler_t left = (rescaler_t)src[x_in];
     rescaler_t right =
         (wrk->src_width > 1) ? (rescaler_t)src[x_in + x_stride] : left;
     x_in += x_stride;
     while (1) {
-      wrk->frow[x_out] = right * wrk->x_add + (left - right) * accum;
+      frow[WEBP_RESCALER_ROW_STEP * x_out] = right * x_add + (left - right) * accum;
       x_out += x_stride;
       if (x_out >= x_out_max) break;
-      accum -= wrk->x_sub;
+      accum -= x_sub;
       if (accum < 0) {
         left = right;
         x_in += x_stride;
         assert(x_in < wrk->src_width * x_stride);
         right = (rescaler_t)src[x_in];
-        accum += wrk->x_add;
+        accum += x_add;
       }
     }
     assert(wrk->x_sub == 0 /* <- special case for src_width=1 */ || accum == 0);
@@ -94,6 +99,11 @@ WebPRescalerImportRowShrink_C(WebPRescaler* WEBP_RESTRICT const wrk,
                                    const uint8_t* WEBP_RESTRICT src) {
   const int x_stride = wrk->num_channels;
   const int x_out_max = wrk->dst_width * wrk->num_channels;
+  // WikiReader: as above, keep the fields out of the pixel loop.
+  rescaler_t* const frow = wrk->frow;
+  const int x_add = wrk->x_add;
+  const int x_sub = wrk->x_sub;
+  const uint32_t fx_scale = wrk->fx_scale;
   int channel;
   assert(!WebPRescalerInputDone(wrk));
   assert(!wrk->x_expand);
@@ -104,9 +114,9 @@ WebPRescalerImportRowShrink_C(WebPRescaler* WEBP_RESTRICT const wrk,
     int accum = 0;
     while (x_out < x_out_max) {
       uint32_t base = 0;
-      accum += wrk->x_add;
+      accum += x_add;
       while (accum > 0) {
-        accum -= wrk->x_sub;
+        accum -= x_sub;
         assert(x_in < wrk->src_width * x_stride);
         base = src[x_in];
         sum += base;
@@ -114,9 +124,9 @@ WebPRescalerImportRowShrink_C(WebPRescaler* WEBP_RESTRICT const wrk,
       }
       {  // Emit next horizontal pixel.
         const rescaler_t frac = base * (-accum);
-        wrk->frow[x_out] = sum * wrk->x_sub - frac;
+        frow[WEBP_RESCALER_ROW_STEP * x_out] = sum * x_sub - frac;
         // fresh fractional start for next pixel
-        sum = (int)MULT_FIX(frac, wrk->fx_scale);
+        sum = (int)MULT_FIX(frac, fx_scale);
       }
       x_out += x_stride;
     }
@@ -134,29 +144,31 @@ WebPRescalerExportRowExpand_C(WebPRescaler* const wrk) {
   rescaler_t* const irow = wrk->irow;
   const int x_out_max = wrk->dst_width * wrk->num_channels;
   const rescaler_t* const frow = wrk->frow;
+  const uint32_t fy_scale = wrk->fy_scale;  // WikiReader: out of the loop
   assert(!WebPRescalerOutputDone(wrk));
   assert(wrk->y_accum <= 0);
   assert(wrk->y_expand);
   assert(wrk->y_sub != 0);
   if (wrk->y_accum == 0) {
     for (x_out = 0; x_out < x_out_max; ++x_out) {
-      const uint32_t J = frow[x_out];
-      const int v = (int)MULT_FIX(J, wrk->fy_scale);
+      const uint32_t J = frow[WEBP_RESCALER_ROW_STEP * x_out];
+      const int v = (int)MULT_FIX(J, fy_scale);
       dst[x_out] = (v > 255) ? 255u : (uint8_t)v;
     }
   } else {
     const uint32_t B = WEBP_RESCALER_FRAC(-wrk->y_accum, wrk->y_sub);
     const uint32_t A = (uint32_t)(WEBP_RESCALER_ONE - B);
     for (x_out = 0; x_out < x_out_max; ++x_out) {
-      const uint64_t I = (uint64_t)A * frow[x_out] + (uint64_t)B * irow[x_out];
+      const uint64_t I = (uint64_t)A * frow[WEBP_RESCALER_ROW_STEP * x_out] +
+                         (uint64_t)B * irow[WEBP_RESCALER_ROW_STEP * x_out];
       const uint32_t J = (uint32_t)((I + ROUNDER) >> WEBP_RESCALER_RFIX);
-      const int v = (int)MULT_FIX(J, wrk->fy_scale);
+      const int v = (int)MULT_FIX(J, fy_scale);
       dst[x_out] = (v > 255) ? 255u : (uint8_t)v;
     }
   }
 }
 
-#define EXPORT_ROW_SHRINK(IROW_TYPE, IROW)                                   \
+#define EXPORT_ROW_SHRINK(IROW_TYPE, IROW, ISTEP)                            \
   do {                                                                       \
     int x_out;                                                               \
     uint8_t* const dst = wrk->dst;                                           \
@@ -164,32 +176,34 @@ WebPRescalerExportRowExpand_C(WebPRescaler* const wrk) {
     const int x_out_max = wrk->dst_width * wrk->num_channels;                \
     const rescaler_t* const frow = wrk->frow;                                \
     const uint32_t yscale = wrk->fy_scale * (-wrk->y_accum);                 \
+    const uint32_t fxy_scale = wrk->fxy_scale; /* WikiReader: hoisted */     \
     assert(!WebPRescalerOutputDone(wrk));                                    \
     assert(wrk->y_accum <= 0);                                               \
     assert(!wrk->y_expand);                                                  \
     if (yscale) {                                                            \
       for (x_out = 0; x_out < x_out_max; ++x_out) {                          \
-        const uint32_t frac = (uint32_t)MULT_FIX_FLOOR(frow[x_out], yscale); \
-        const int v = (int)MULT_FIX(irow[x_out] - frac, wrk->fxy_scale);     \
+        const uint32_t frac = (uint32_t)MULT_FIX_FLOOR(frow[WEBP_RESCALER_ROW_STEP * x_out],     \
+                                                          yscale);           \
+        const int v = (int)MULT_FIX(irow[ISTEP * x_out] - frac, fxy_scale);  \
         dst[x_out] = (v > 255) ? 255u : (uint8_t)v;                          \
-        irow[x_out] = frac; /* new fractional start */                       \
+        irow[ISTEP * x_out] = frac; /* new fractional start */               \
       }                                                                      \
     } else {                                                                 \
       for (x_out = 0; x_out < x_out_max; ++x_out) {                          \
-        const int v = (int)MULT_FIX(irow[x_out], wrk->fxy_scale);            \
+        const int v = (int)MULT_FIX(irow[ISTEP * x_out], fxy_scale);         \
         dst[x_out] = (v > 255) ? 255u : (uint8_t)v;                          \
-        irow[x_out] = 0;                                                     \
+        irow[ISTEP * x_out] = 0;                                             \
       }                                                                      \
     }                                                                        \
   } while (0)
 
 void ZIM_OVERLAY_SECTION("ovlwebp")
 WebPRescalerExportRowShrink_C(WebPRescaler* const wrk) {
-  EXPORT_ROW_SHRINK(rescaler_t, irow);
+  EXPORT_ROW_SHRINK(rescaler_t, irow, WEBP_RESCALER_ROW_STEP);
 }
 
 static void RescalerExportRowShrink64_C(WebPRescaler* const wrk) {
-  EXPORT_ROW_SHRINK(rescaler_accum_t, irow64);
+  EXPORT_ROW_SHRINK(rescaler_accum_t, irow64, 1);
 }
 
 #undef EXPORT_ROW_SHRINK
@@ -235,8 +249,8 @@ WebPRescalerExportRow(WebPRescaler* const wrk) {
         assert(wrk->src_height == wrk->dst_height && wrk->x_add == 1);
         assert(wrk->src_width == 1 && wrk->dst_width <= 2);
         for (i = 0; i < wrk->num_channels * wrk->dst_width; ++i) {
-          wrk->dst[i] = (uint8_t)wrk->irow[i];
-          wrk->irow[i] = 0;
+          wrk->dst[i] = (uint8_t)wrk->irow[WEBP_RESCALER_ROW_STEP * i];
+          wrk->irow[WEBP_RESCALER_ROW_STEP * i] = 0;
         }
       }
     }
