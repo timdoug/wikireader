@@ -41,6 +41,9 @@ extern unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE];
  * the same stack and never runs at the same time. */
 #define ZIM_DSTRAM_STACK_TOP 0x84800u
 size_t zim_call_on_dstram(size_t (*fn)(const void *), const void *args);
+/* The bottom of that stack, for scratch that is dead whenever something runs
+ * on the stack: WebP's 832-byte prediction block (frame_dec.c). */
+#define ZIM_DSTRAM_SCRATCH ((unsigned char *)0x00084400)
 
 /* Copy an overlay in unless it is already there. */
 void zim_overlay_ensure(const void *load_start, const void *load_stop);

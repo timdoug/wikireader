@@ -27,6 +27,9 @@
 #include "src/webp/decode.h"
 #include "src/webp/format_constants.h"
 #include "src/webp/types.h"
+#if defined(__c33__)
+#include "zim_overlay.h"
+#endif
 
 WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
 
@@ -813,7 +816,15 @@ WEBP_NODISCARD static int AllocateMemory(VP8Decoder* const dec,
 
   mem = (uint8_t*)WEBP_ALIGN(mem);
   assert((yuv_size & WEBP_ALIGN_CST) == 0);
+#if defined(__c33__)
+  // WikiReader: prediction and the inverse transforms read and write this
+  // block for every macroblock; put it in DSTRAM. ReconstructRow sets up
+  // everything it reads in it, so it only has to survive one call, and nothing
+  // runs on the DSTRAM stack during that call.
+  dec->yuv_b = ZIM_DSTRAM_SCRATCH;
+#else
   dec->yuv_b = mem;
+#endif
   mem += yuv_size;
 
   dec->mb_data = (VP8MBData*)mem;
