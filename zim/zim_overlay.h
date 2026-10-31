@@ -14,6 +14,8 @@
 #ifndef WIKIREADER_ZIM_OVERLAY_H
 #define WIKIREADER_ZIM_OVERLAY_H
 
+#include <stddef.h>
+
 #if defined(__c33__)
 
 /* The window buffer follows the 6656-byte frame buffer at the start of
@@ -32,6 +34,13 @@
  * kernel touches this RAM. */
 #define ZIM_FAST_SCRATCH_SIZE 640
 extern unsigned char zim_fast_scratch[ZIM_FAST_SCRATCH_SIZE];
+
+/* Run fn(args) on the 1 KB stack in DSTRAM below 0x84800, where a spill or
+ * a local costs a cycle and no SDRAM row.  Only for leaf work with a small
+ * frame that makes no call into the kernel; Zstandard's sequence loop uses
+ * the same stack and never runs at the same time. */
+#define ZIM_DSTRAM_STACK_TOP 0x84800u
+size_t zim_call_on_dstram(size_t (*fn)(const void *), const void *args);
 
 /* Copy an overlay in unless it is already there. */
 void zim_overlay_ensure(const void *load_start, const void *load_stop);

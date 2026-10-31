@@ -639,7 +639,11 @@ WEBP_NODISCARD static int ParseResiduals(VP8Decoder* const dec, VP8MB* const mb,
 //------------------------------------------------------------------------------
 // Main loop
 
+#if defined(__c33__)
+static int DecodeMB(VP8Decoder* const dec, VP8BitReader* const token_br) {
+#else
 int VP8DecodeMB(VP8Decoder* const dec, VP8BitReader* const token_br) {
+#endif
   VP8MB* const left = dec->mb_info - 1;
   VP8MB* const mb = dec->mb_info + dec->mb_x;
   VP8MBData* const block = dec->mb_data + dec->mb_x;
@@ -665,6 +669,31 @@ int VP8DecodeMB(VP8Decoder* const dec, VP8BitReader* const token_br) {
 
   return !token_br->eof;
 }
+
+#if defined(__c33__)
+// WikiReader: the coefficient loop touches the token reader's state on every
+// bit, and its spills, from SDRAM; each access opened another row. Run the
+// macroblock on the DSTRAM stack with a copy of the reader there.
+typedef struct {
+  VP8Decoder* dec;
+  VP8BitReader* token_br;
+} DecodeMBArgs;
+
+static size_t DecodeMBOnDstram(const void* p) {
+  const DecodeMBArgs* const a = (const DecodeMBArgs*)p;
+  VP8BitReader br = *a->token_br;
+  const int ok = DecodeMB(a->dec, &br);
+  *a->token_br = br;
+  return (size_t)ok;
+}
+
+int VP8DecodeMB(VP8Decoder* const dec, VP8BitReader* const token_br) {
+  DecodeMBArgs args;
+  args.dec = dec;
+  args.token_br = token_br;
+  return (int)zim_call_on_dstram(DecodeMBOnDstram, &args);
+}
+#endif
 
 void VP8InitScanline(VP8Decoder* const dec) {
   VP8MB* const left = dec->mb_info - 1;
