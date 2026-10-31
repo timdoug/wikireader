@@ -18,11 +18,14 @@
 #include <string.h>
 
 #include "src/dsp/lossless_common.h"
+#include "src/utils/bounds_safety.h"
 #include "src/utils/color_cache_utils.h"
 #include "src/utils/utils.h"
 #include "src/webp/encode.h"
 #include "src/webp/format_constants.h"
 #include "src/webp/types.h"
+
+WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
 
 // -----------------------------------------------------------------------------
 
@@ -62,7 +65,8 @@ static WEBP_INLINE void SwapColor(uint32_t* const col1, uint32_t* const col2) {
   *col2 = tmp;
 }
 
-int SearchColorNoIdx(const uint32_t sorted[], uint32_t color, int num_colors) {
+int SearchColorNoIdx(const uint32_t WEBP_COUNTED_BY(num_colors) sorted[],
+                     uint32_t color, int num_colors) {
   int low = 0, hi = num_colors;
   if (sorted[low] == color) return low;  // loop invariant: sorted[low] != color
   while (1) {
@@ -79,8 +83,10 @@ int SearchColorNoIdx(const uint32_t sorted[], uint32_t color, int num_colors) {
   return 0;
 }
 
-void PrepareMapToPalette(const uint32_t palette[], uint32_t num_colors,
-                         uint32_t sorted[], uint32_t idx_map[]) {
+void PrepareMapToPalette(const uint32_t WEBP_COUNTED_BY(num_colors) palette[],
+                         uint32_t num_colors,
+                         uint32_t WEBP_COUNTED_BY(num_colors) sorted[],
+                         uint32_t WEBP_COUNTED_BY(num_colors) idx_map[]) {
   uint32_t i;
   memcpy(sorted, palette, num_colors * sizeof(*sorted));
   qsort(sorted, num_colors, sizeof(*sorted), PaletteCompareColorsForQsort);
@@ -94,7 +100,9 @@ void PrepareMapToPalette(const uint32_t palette[], uint32_t num_colors,
 #define COLOR_HASH_SIZE (MAX_PALETTE_SIZE * 4)
 #define COLOR_HASH_RIGHT_SHIFT 22  // 32 - log2(COLOR_HASH_SIZE).
 
-int GetColorPalette(const WebPPicture* const pic, uint32_t* const palette) {
+int GetColorPalette(const WebPPicture* const pic,
+                    uint32_t* const WEBP_COUNTED_BY_OR_NULL(MAX_PALETTE_SIZE)
+                        palette) {
   int i;
   int x, y;
   int num_colors = 0;
@@ -160,8 +168,8 @@ int GetColorPalette(const WebPPicture* const pic, uint32_t* const palette) {
 // no benefit to re-organize them greedily. A monotonic development
 // would be spotted in green-only situations (like lossy alpha) or gray-scale
 // images.
-static int PaletteHasNonMonotonousDeltas(const uint32_t* const palette,
-                                         int num_colors) {
+static int PaletteHasNonMonotonousDeltas(
+    const uint32_t* const WEBP_COUNTED_BY(num_colors) palette, int num_colors) {
   uint32_t predict = 0x000000;
   int i;
   uint8_t sign_found = 0x00;
@@ -184,8 +192,9 @@ static int PaletteHasNonMonotonousDeltas(const uint32_t* const palette,
   return (sign_found & (sign_found << 1)) != 0;  // two consequent signs.
 }
 
-static void PaletteSortMinimizeDeltas(const uint32_t* const palette_sorted,
-                                      int num_colors, uint32_t* const palette) {
+static void PaletteSortMinimizeDeltas(
+    const uint32_t* const WEBP_COUNTED_BY(num_colors) palette_sorted,
+    int num_colors, uint32_t* const WEBP_COUNTED_BY(num_colors) palette) {
   uint32_t predict = 0x00000000;
   int i, k;
   memcpy(palette, palette_sorted, num_colors * sizeof(*palette));
@@ -220,9 +229,9 @@ static void PaletteSortMinimizeDeltas(const uint32_t* const palette_sorted,
 // Pinho and Antonio J. R. Neves.
 
 // Finds the biggest cooccurrence in the matrix.
-static void CoOccurrenceFindMax(const uint32_t* const cooccurrence,
-                                uint32_t num_colors, uint8_t* const c1,
-                                uint8_t* const c2) {
+static void CoOccurrenceFindMax(
+    const uint32_t* const WEBP_COUNTED_BY(num_colors* num_colors) cooccurrence,
+    uint32_t num_colors, uint8_t* const c1, uint8_t* const c2) {
   // Find the index that is most frequently located adjacent to other
   // (different) indexes.
   uint32_t best_sum = 0u;
@@ -249,28 +258,27 @@ static void CoOccurrenceFindMax(const uint32_t* const cooccurrence,
 }
 
 // Builds the cooccurrence matrix
-static int CoOccurrenceBuild(const WebPPicture* const pic,
-                             const uint32_t* const palette, uint32_t num_colors,
-                             uint32_t* cooccurrence) {
+WEBP_NODISCARD static int CoOccurrenceBuild(
+    const WebPPicture* const pic,
+    const uint32_t* const WEBP_COUNTED_BY(num_colors) palette_sorted,
+    uint32_t num_colors,
+    uint32_t* WEBP_COUNTED_BY(num_colors* num_colors) cooccurrence) {
   uint32_t *lines, *line_top, *line_current, *line_tmp;
   int x, y;
   const uint32_t* src = pic->argb;
   uint32_t prev_pix = ~src[0];
   uint32_t prev_idx = 0u;
-  uint32_t idx_map[MAX_PALETTE_SIZE] = {0};
-  uint32_t palette_sorted[MAX_PALETTE_SIZE];
   lines = (uint32_t*)WebPSafeMalloc(2 * pic->width, sizeof(*lines));
   if (lines == NULL) {
     return 0;
   }
   line_top = &lines[0];
   line_current = &lines[pic->width];
-  PrepareMapToPalette(palette, num_colors, palette_sorted, idx_map);
   for (y = 0; y < pic->height; ++y) {
     for (x = 0; x < pic->width; ++x) {
       const uint32_t pix = src[x];
       if (pix != prev_pix) {
-        prev_idx = idx_map[SearchColorNoIdx(palette_sorted, pix, num_colors)];
+        prev_idx = SearchColorNoIdx(palette_sorted, pix, num_colors);
         prev_pix = pix;
       }
       line_current[x] = prev_idx;
@@ -301,12 +309,175 @@ struct Sum {
   uint32_t sum;
 };
 
-static int PaletteSortModifiedZeng(const WebPPicture* const pic,
-                                   const uint32_t* const palette_in,
-                                   uint32_t num_colors,
-                                   uint32_t* const palette) {
-  uint32_t i, j, ind;
+// Minimizes the co-occurrence linear arrangement cost
+//   sum cooccurrence(i, j) * |pos(i) - pos(j)|
+// left after a constructive sort.
+//
+// Moving a color shifts every color between its old and new slot, so an
+// edge between two *untouched* colors that straddles the insertion point
+// also changes its |pos(i) - pos(j)| length by one. Omitting that "cut"
+// term makes the search sub-optimal and even uphill.
+//
+// The local search below re-evaluates every candidate slot for a color in
+// a single O(n) sweep. We don't recompute the reinsertion cost each time:
+// the cost is split into a part that only depends on the moved color's own
+// edges (updated incrementally as the sweep advances) and a part coming from
+// the untouched colors straddling the slot (looked up from 'cut[]', held
+// fixed for the current color's sweep). Summing the two at each slot keeps
+// the full pass O(n^2) instead of O(n^3).
+
+// cut[k] = signed weight difference (to_after - to_before) between the first
+// k entries of 'order' and the rest. This function's loop is O(n^2).
+static void MinLACutProfile(const uint32_t* WEBP_RESTRICT const cooccurrence,
+                            uint32_t num_colors,
+                            const uint8_t* WEBP_RESTRICT const order,
+                            int64_t* WEBP_RESTRICT const cut) {
+  uint32_t k;
+  int64_t running = 0;
+  cut[0] = 0;
+  for (k = 0; k < num_colors; ++k) {
+    const uint32_t* const row = &cooccurrence[order[k] * num_colors];
+    int64_t to_before = 0, to_after = 0;
+    uint32_t m;
+    for (m = 0; m < k; ++m) to_before += row[order[m]];
+    for (m = k + 1; m < num_colors; ++m) to_after += row[order[m]];
+    running += to_after - to_before;
+    cut[k + 1] = running;
+  }
+}
+
+// Returns order[j] as if the segment order[at + 1, m] had been shifted left
+// by one, and order[at] inserted as the new order[m]. Lets MinLABestSlot()
+// work in-place without actually shifting order[].
+static WEBP_INLINE uint32_t
+ActualColorIdx(const uint8_t* WEBP_RESTRICT const order, uint32_t at,
+               uint32_t m, uint32_t j) {
+  return (j == m) ? order[at] : (j < at) ? order[j] : order[j + 1];
+}
+
+// Returns the slot with the lowest reinsertion cost for order[at] (may be
+// 'at' itself). 'at' wins ties against the true minimum, so a color that
+// isn't worth moving never gets shuffled sideways for no gain.
+static uint32_t MinLABestSlot(const uint32_t* WEBP_RESTRICT const cooccurrence,
+                              uint32_t num_colors, uint32_t at,
+                              const int64_t* WEBP_RESTRICT const cut,
+                              const uint8_t* WEBP_RESTRICT const order,
+                              const uint64_t* WEBP_RESTRICT const row_sum) {
+  const uint32_t color = order[at];
+  const uint32_t* const row = &cooccurrence[color * num_colors];
+  const uint32_t m = num_colors - 1;
+  // The self-cooccurrence term is always 0, so summing over all colors but
+  // 'color' (as own(j) needs) equals summing over all of them, i.e. row_sum.
+  const int64_t total_w = row_sum[color];
+  int64_t left_w = 0, left_wr = 0, pre_v = 0;
+  uint32_t j, best_j = 0;
+  int64_t best = WEBP_INT64_MAX, at_cost = 0;
+  for (j = 0; j < num_colors; ++j) {
+    const uint32_t r = ActualColorIdx(order, at, m, j);
+    // color's own edges: sum_u w(u) * |j - (r_u + (r_u >= j))|,
+    // up to a constant
+    const int64_t own = j * (2 * left_w - total_w) - left_w - 2 * left_wr;
+    // edges between the untouched colors that straddle slot j
+    const int64_t straddle =
+        (j <= at) ? cut[j] - pre_v
+                  : cut[j + 1] - (total_w - pre_v - row[order[j]]);
+    const int64_t cost = own + straddle;
+    if (cost < best) {
+      best = cost;
+      best_j = j;
+    }
+    if (j == at) at_cost = cost;
+    pre_v += row[order[j]];
+    left_w += row[r];
+    left_wr += (int64_t)row[r] * j;
+  }
+  return (at_cost == best) ? at : best_j;  // at_cost >= best always holds
+}
+
+#define MINLA_MAX_SWEEPS 40
+
+// Improves order[] in-place greedily with local search: relocates one color at
+// a time to its best slot until no relocation improves.
+static void PaletteMinLARefine(const uint32_t* WEBP_RESTRICT const cooccurrence,
+                               uint32_t num_colors,
+                               uint8_t* WEBP_RESTRICT const order) {
+  int64_t cut[MAX_PALETTE_SIZE + 1];
+  uint64_t row_sum[MAX_PALETTE_SIZE];
+  uint32_t c;
+  int sweep;
+  // Per-color full row sum, independent of order[]/at: computed once here
+  // instead of re-summed on every MinLABestSlot() call.
+  for (c = 0; c < num_colors; ++c) {
+    const uint32_t* const row = &cooccurrence[c * num_colors];
+    uint64_t sum = 0;
+    uint32_t u;
+    for (u = 0; u < num_colors; ++u) sum += row[u];
+    row_sum[c] = sum;
+  }
+  // Computed once for the initial order[]. Kept up-to-date afterward in the
+  // loop.
+  MinLACutProfile(cooccurrence, num_colors, order, cut);
+  for (sweep = 0; sweep < MINLA_MAX_SWEEPS; ++sweep) {
+    int moved = 0;
+    uint32_t at;
+    for (at = 0; at < num_colors; ++at) {
+      const uint32_t best_j =
+          MinLABestSlot(cooccurrence, num_colors, at, cut, order, row_sum);
+      if (best_j != at) {  // insert: shift only the affected sub-range
+        const uint32_t color = order[at];  // read before the shift clobbers it
+        if (best_j > at) {
+          WEBP_UNSAFE_MEMMOVE(order + at, order + at + 1,
+                              (best_j - at) * sizeof(*order));
+        } else {
+          WEBP_UNSAFE_MEMMOVE(order + best_j + 1, order + best_j,
+                              (at - best_j) * sizeof(*order));
+        }
+        order[best_j] = (uint8_t)color;
+        MinLACutProfile(cooccurrence, num_colors, order, cut);
+        ++moved;
+      }
+    }
+    if (moved == 0) break;
+  }
+}
+#undef MINLA_MAX_SWEEPS
+
+// Refines the color order already in 'palette' and writes it back.
+WEBP_NODISCARD static int PaletteMinLARefineColors(
+    const WebPPicture* const pic,
+    const uint32_t* const WEBP_COUNTED_BY(num_colors) palette_in,
+    uint32_t num_colors, uint32_t* const WEBP_COUNTED_BY(num_colors) palette) {
+  uint32_t* cooccurrence;
+  uint8_t order[MAX_PALETTE_SIZE];
+  uint32_t i;
+  cooccurrence =
+      (uint32_t*)WebPSafeCalloc(num_colors * num_colors, sizeof(*cooccurrence));
+  if (cooccurrence == NULL) return 0;
+  if (!CoOccurrenceBuild(
+          pic, palette_in, num_colors,
+          WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+              uint32_t*, cooccurrence,
+              num_colors * num_colors * sizeof(*cooccurrence)))) {
+    WebPSafeFree(cooccurrence);
+    return 0;
+  }
+  for (i = 0; i < num_colors; ++i) {
+    order[i] = (uint8_t)SearchColorNoIdx(palette_in, palette[i], num_colors);
+  }
+  PaletteMinLARefine(cooccurrence, num_colors, order);
+  for (i = 0; i < num_colors; ++i) palette[i] = palette_in[order[i]];
+  WebPSafeFree(cooccurrence);
+  return 1;
+}
+
+WEBP_NODISCARD static int PaletteSortModifiedZeng(
+    const WebPPicture* const pic,
+    const uint32_t* const WEBP_COUNTED_BY(num_colors) palette_in,
+    uint32_t num_colors, int do_min_la,
+    uint32_t* const WEBP_COUNTED_BY(num_colors) palette) {
+  uint32_t i, ind;
   uint8_t remapping[MAX_PALETTE_SIZE];
+  uint8_t order[MAX_PALETTE_SIZE];
   uint32_t* cooccurrence;
   struct Sum sums[MAX_PALETTE_SIZE];
   uint32_t first, last;
@@ -319,13 +490,20 @@ static int PaletteSortModifiedZeng(const WebPPicture* const pic,
   if (cooccurrence == NULL) {
     return 0;
   }
-  if (!CoOccurrenceBuild(pic, palette_in, num_colors, cooccurrence)) {
+  if (!CoOccurrenceBuild(
+          pic, palette_in, num_colors,
+          WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+              uint32_t*, cooccurrence,
+              num_colors * num_colors * sizeof(*cooccurrence)))) {
     WebPSafeFree(cooccurrence);
     return 0;
   }
 
   // Initialize the mapping list with the two best indices.
-  CoOccurrenceFindMax(cooccurrence, num_colors, &remapping[0], &remapping[1]);
+  CoOccurrenceFindMax(WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+                          const uint32_t*, cooccurrence,
+                          num_colors * num_colors * sizeof(*cooccurrence)),
+                      num_colors, &remapping[0], &remapping[1]);
 
   // We need to append and prepend to the list of remapping. To this end, we
   // actually define the next start/end of the list as indices in a vector (with
@@ -336,6 +514,7 @@ static int PaletteSortModifiedZeng(const WebPPicture* const pic,
   if (num_sums > 0) {
     // Initialize the sums with the first two remappings and find the best one
     struct Sum* best_sum = &sums[0];
+    int32_t j;
     best_sum->index = 0u;
     best_sum->sum = 0u;
     for (i = 0, j = 0; i < num_colors; ++i) {
@@ -352,9 +531,9 @@ static int PaletteSortModifiedZeng(const WebPPicture* const pic,
       // Compute delta to know if we need to prepend or append the best index.
       int32_t delta = 0;
       const int32_t n = num_colors - num_sums;
-      for (ind = first, j = 0; (ind + j) % num_colors != last + 1; ++j) {
+      for (ind = first, j = 0; j < n; ++j) {
         const uint16_t l_j = remapping[(ind + j) % num_colors];
-        delta += (n - 1 - 2 * (int32_t)j) *
+        delta += (n - 1 - 2 * j) *
                  (int32_t)cooccurrence[best_index * num_colors + l_j];
       }
       if (delta > 0) {
@@ -376,11 +555,17 @@ static int PaletteSortModifiedZeng(const WebPPicture* const pic,
     }
   }
   assert((last + 1) % num_colors == first);
+  for (i = 0; i < num_colors; ++i) {
+    order[i] = remapping[(first + i) % num_colors];
+  }
+  if (do_min_la) {
+    PaletteMinLARefine(cooccurrence, num_colors, order);
+  }
   WebPSafeFree(cooccurrence);
 
   // Re-map the palette.
   for (i = 0; i < num_colors; ++i) {
-    palette[i] = palette_in[remapping[(first + i) % num_colors]];
+    palette[i] = palette_in[order[i]];
   }
   return 1;
 }
@@ -388,8 +573,15 @@ static int PaletteSortModifiedZeng(const WebPPicture* const pic,
 // -----------------------------------------------------------------------------
 
 int PaletteSort(PaletteSorting method, const struct WebPPicture* const pic,
-                const uint32_t* const palette_sorted, uint32_t num_colors,
-                uint32_t* const palette) {
+                const uint32_t* const WEBP_COUNTED_BY(num_colors)
+                    palette_sorted,
+                uint32_t num_colors,
+                uint32_t* const WEBP_COUNTED_BY(num_colors) palette) {
+  assert(num_colors > 0);
+  if (num_colors == 1) {
+    palette[0] = palette_sorted[0];
+    return 1;
+  }
   switch (method) {
     case kSortedDefault:
       if (palette_sorted[0] == 0 && num_colors > 17) {
@@ -404,7 +596,13 @@ int PaletteSort(PaletteSorting method, const struct WebPPicture* const pic,
       PaletteSortMinimizeDeltas(palette_sorted, num_colors, palette);
       return 1;
     case kModifiedZeng:
-      return PaletteSortModifiedZeng(pic, palette_sorted, num_colors, palette);
+    case kMinLAFromZeng:
+      return PaletteSortModifiedZeng(pic, palette_sorted, num_colors,
+                                     /*do_min_la=*/(method == kMinLAFromZeng),
+                                     palette);
+    case kMinLAFromDelta:
+      PaletteSortMinimizeDeltas(palette_sorted, num_colors, palette);
+      return PaletteMinLARefineColors(pic, palette_sorted, num_colors, palette);
     case kUnusedPalette:
     case kPaletteSortingNum:
       break;

@@ -11,6 +11,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include "src/utils/rescaler_utils.h"
+
 #include <assert.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -19,33 +21,103 @@
 #include "zim_overlay.h"
 
 #include "src/dsp/dsp.h"
-#include "src/webp/types.h"
-#include "src/utils/rescaler_utils.h"
+#include "src/utils/bounds_safety.h"
 #include "src/utils/utils.h"
+#include "src/webp/types.h"
+
+WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
 
 //------------------------------------------------------------------------------
 
-int WebPRescalerInit(WebPRescaler* const rescaler,
-                     int src_width, int src_height,
-                     uint8_t* const dst,
-                     int dst_width, int dst_height, int dst_stride,
-                     int num_channels, rescaler_t* const work) {
+int WebPRescalerNeeds64Bit(int src_width, int src_height, int dst_width,
+                           int dst_height) {
+  if (src_height >= dst_height && dst_height > 0) {
+    // In horizontal downscaling (src_width >= dst_width), each input row
+    // contributes at most 255 * src_width + dst_width / 2 to frow (due to
+    // MULT_FIX rounding). In horizontal upscaling (src_width < dst_width),
+    // bilinear expansion scales contributions by x_add = dst_width - 1, giving
+    // at most 255 * (dst_width - 1) per row.
+    // During vertical downscaling, EXPORT_ROW_SHRINK initializes irow with the
+    // fractional carry-over 'frac' (< frow) from the previous export cycle, and
+    // WebPRescalerImport then adds up to ceil(src_height / dst_height) full
+    // frow rows to irow before the next export subtracts the new frac.
+    const uint64_t max_row_contrib =
+        (src_width >= dst_width)
+            ? (uint64_t)255 * src_width + (uint64_t)dst_width / 2
+            : (uint64_t)255 * (dst_width - 1);
+    const uint64_t num_rows =
+        ((uint64_t)src_height + dst_height - 1) / dst_height + 1;
+    const uint64_t max_accum = max_row_contrib * num_rows;
+    return max_accum > UINT_MAX;
+  }
+  return 0;
+}
+
+uint64_t WebPRescalerWorkSize(int src_width, int src_height, int dst_width,
+                              int dst_height, int num_channels) {
+  const uint64_t num_elements = (uint64_t)dst_width * num_channels;
+  const size_t element_size =
+      (WebPRescalerNeeds64Bit(src_width, src_height, dst_width, dst_height)
+           ? sizeof(rescaler_accum_t)
+           : sizeof(rescaler_t)) +
+      sizeof(rescaler_t);
+  const uint64_t work_size = num_elements * element_size;
+  return (work_size + WEBP_ALIGN_CST) & ~(uint64_t)WEBP_ALIGN_CST;
+}
+
+int WebPRescalerInit(WebPRescaler* const rescaler, int src_width,
+                     int src_height, uint8_t* const dst, int dst_width,
+                     int dst_height, int dst_stride, int num_channels,
+                     rescaler_t* const work) {
   const int x_add = src_width, x_sub = dst_width;
   const int y_add = src_height, y_sub = dst_height;
-  const uint64_t total_size = 2ull * dst_width * num_channels * sizeof(*work);
-  if (!CheckSizeOverflow(total_size)) return 0;
+  const uint64_t total_size_bytes = WebPRescalerWorkSize(
+      src_width, src_height, dst_width, dst_height, num_channels);
+  if (!CheckSizeOverflow(total_size_bytes)) return 0;
 
-  rescaler->x_expand = (src_width < dst_width);
-  rescaler->y_expand = (src_height < dst_height);
-  rescaler->src_width = src_width;
-  rescaler->src_height = src_height;
-  rescaler->dst_width = dst_width;
-  rescaler->dst_height = dst_height;
-  rescaler->src_y = 0;
-  rescaler->dst_y = 0;
-  rescaler->dst = dst;
-  rescaler->dst_stride = dst_stride;
-  rescaler->num_channels = num_channels;
+  {
+    rescaler_t* const WEBP_BIDI_INDEXABLE bounded_work =
+        WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(rescaler_t*, work,
+                                         (size_t)total_size_bytes);
+
+    rescaler->x_expand = (src_width < dst_width);
+    rescaler->y_expand = (src_height < dst_height);
+    rescaler->use_64bit =
+        WebPRescalerNeeds64Bit(src_width, src_height, dst_width, dst_height);
+    rescaler->src_width = src_width;
+    rescaler->src_height = src_height;
+    rescaler->src_y = 0;
+    rescaler->dst_y = 0;
+    rescaler->dst = dst;
+    rescaler->dst_stride = dst_stride;
+    rescaler->dst_height = dst_height;
+    if (rescaler->use_64bit) {
+      assert(WEBP_IS_ALIGNED(work, rescaler_accum_t));
+      rescaler->dst_width = dst_width;
+      rescaler->num_channels = num_channels;
+      rescaler->irow = NULL;
+      rescaler->frow = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+          rescaler_t*,
+          (uint8_t*)work +
+              (size_t)num_channels * dst_width * sizeof(rescaler_accum_t),
+          (size_t)num_channels * dst_width * sizeof(rescaler_t));
+      rescaler->irow64 = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+          rescaler_accum_t*, work,
+          (size_t)num_channels * dst_width * sizeof(rescaler_accum_t));
+    } else {
+      assert(WEBP_IS_ALIGNED(work, rescaler_t));
+      rescaler->dst_width = dst_width;
+      rescaler->num_channels = num_channels;
+      rescaler->irow = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+          rescaler_t*, work,
+          (size_t)num_channels * dst_width * sizeof(rescaler_t));
+      rescaler->frow = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+          rescaler_t*, work + num_channels * dst_width,
+          (size_t)num_channels * dst_width * sizeof(rescaler_t));
+      rescaler->irow64 = NULL;
+    }
+    memset(bounded_work, 0, (size_t)total_size_bytes);
+  }
 
   // for 'x_expand', we use bilinear interpolation
   rescaler->x_add = rescaler->x_expand ? (x_sub - 1) : x_add;
@@ -78,9 +150,6 @@ int WebPRescalerInit(WebPRescaler* const rescaler,
     rescaler->fy_scale = WEBP_RESCALER_FRAC(1, rescaler->x_add);
     // rescaler->fxy_scale is unused here.
   }
-  rescaler->irow = work;
-  rescaler->frow = work + num_channels * dst_width;
-  memset(work, 0, (size_t)total_size);
 
   WebPRescalerDspInit();
   return 1;
@@ -91,6 +160,10 @@ int WebPRescalerGetScaledDimensions(int src_width, int src_height,
                                     int* const scaled_height) {
   assert(scaled_width != NULL);
   assert(scaled_height != NULL);
+  if (src_width < 0 || src_height < 0 || *scaled_width < 0 ||
+      *scaled_height < 0) {
+    return 0;
+  }
   {
     int width = *scaled_width;
     int height = *scaled_height;
@@ -136,13 +209,24 @@ WebPRescalerImport(WebPRescaler* const rescaler, int num_lines,
     if (rescaler->y_expand) {
       rescaler_t* const tmp = rescaler->irow;
       rescaler->irow = rescaler->frow;
-      rescaler->frow = tmp;
+      rescaler->frow = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(
+          rescaler_t*, tmp,
+          (size_t)rescaler->num_channels * rescaler->dst_width * sizeof(*tmp));
+      WEBP_SELF_ASSIGN(rescaler->dst_width);
+      WEBP_SELF_ASSIGN(rescaler->num_channels);
+      WEBP_SELF_ASSIGN(rescaler->irow64);
     }
     WebPRescalerImportRow(rescaler, src);
-    if (!rescaler->y_expand) {    // Accumulate the contribution of the new row.
+    if (!rescaler->y_expand) {  // Accumulate the contribution of the new row.
       int x;
-      for (x = 0; x < rescaler->num_channels * rescaler->dst_width; ++x) {
-        rescaler->irow[x] += rescaler->frow[x];
+      if (rescaler->use_64bit) {
+        for (x = 0; x < rescaler->num_channels * rescaler->dst_width; ++x) {
+          rescaler->irow64[x] += rescaler->frow[x];
+        }
+      } else {
+        for (x = 0; x < rescaler->num_channels * rescaler->dst_width; ++x) {
+          rescaler->irow[x] += rescaler->frow[x];
+        }
       }
     }
     ++rescaler->src_y;

@@ -27,6 +27,8 @@
 #include "src/webp/mux_types.h"  // ALPHA_FLAG
 #include "src/webp/types.h"
 
+WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
+
 //------------------------------------------------------------------------------
 // RIFF layout is:
 //   Offset  tag
@@ -59,9 +61,11 @@
 // and VP8_STATUS_OK otherwise.
 // In case there are not enough bytes (partial RIFF container), return 0 for
 // *riff_size. Else return the RIFF size extracted from the header.
-static VP8StatusCode ParseRIFF(const uint8_t** const data,
-                               size_t* const data_size, int have_all_data,
-                               size_t* const riff_size) {
+static VP8StatusCode ParseRIFF(const uint8_t* WEBP_COUNTED_BY(*data_size) *
+                                   WEBP_SINGLE const data,
+                               size_t* WEBP_SINGLE const data_size,
+                               int have_all_data,
+                               size_t* WEBP_SINGLE const riff_size) {
   assert(data != NULL);
   assert(data_size != NULL);
   assert(riff_size != NULL);
@@ -84,8 +88,8 @@ static VP8StatusCode ParseRIFF(const uint8_t** const data,
       }
       // We have a RIFF container. Skip it.
       *riff_size = size;
-      *data += RIFF_HEADER_SIZE;
       *data_size -= RIFF_HEADER_SIZE;
+      *data += RIFF_HEADER_SIZE;
     }
   }
   return VP8_STATUS_OK;
@@ -98,11 +102,13 @@ static VP8StatusCode ParseRIFF(const uint8_t** const data,
 // If a VP8X chunk is found, found_vp8x is set to true and *width_ptr,
 // *height_ptr and *flags_ptr are set to the corresponding values extracted
 // from the VP8X chunk.
-static VP8StatusCode ParseVP8X(const uint8_t** const data,
-                               size_t* const data_size,
-                               int* const found_vp8x,
-                               int* const width_ptr, int* const height_ptr,
-                               uint32_t* const flags_ptr) {
+static VP8StatusCode ParseVP8X(const uint8_t* WEBP_COUNTED_BY(*data_size) *
+                                   WEBP_SINGLE const data,
+                               size_t* WEBP_SINGLE const data_size,
+                               int* WEBP_SINGLE const found_vp8x,
+                               int* WEBP_SINGLE const width_ptr,
+                               int* WEBP_SINGLE const height_ptr,
+                               uint32_t* WEBP_SINGLE const flags_ptr) {
   const uint32_t vp8x_size = CHUNK_HEADER_SIZE + VP8X_CHUNK_SIZE;
   assert(data != NULL);
   assert(data_size != NULL);
@@ -137,8 +143,8 @@ static VP8StatusCode ParseVP8X(const uint8_t** const data,
     if (width_ptr != NULL) *width_ptr = width;
     if (height_ptr != NULL) *height_ptr = height;
     // Skip over VP8X header bytes.
-    *data += vp8x_size;
     *data_size -= vp8x_size;
+    *data += vp8x_size;
     *found_vp8x = 1;
   }
   return VP8_STATUS_OK;
@@ -151,14 +157,14 @@ static VP8StatusCode ParseVP8X(const uint8_t** const data,
 //         VP8_STATUS_OK otherwise.
 // If an alpha chunk is found, *alpha_data and *alpha_size are set
 // appropriately.
-static VP8StatusCode ParseOptionalChunks(const uint8_t** const data,
-                                         size_t* const data_size,
-                                         size_t const riff_size,
-                                         const uint8_t** const alpha_data,
-                                         size_t* const alpha_size) {
-  const uint8_t* buf;
+static VP8StatusCode ParseOptionalChunks(
+    const uint8_t* WEBP_COUNTED_BY(*data_size) * WEBP_SINGLE const data,
+    size_t* WEBP_SINGLE const data_size, size_t const riff_size,
+    const uint8_t* WEBP_COUNTED_BY(*alpha_size) * WEBP_SINGLE const alpha_data,
+    size_t* WEBP_SINGLE const alpha_size) {
   size_t buf_size;
-  uint32_t total_size = TAG_SIZE +           // "WEBP".
+  const uint8_t* WEBP_COUNTED_BY(buf_size) buf;
+  uint64_t total_size = TAG_SIZE +           // "WEBP".
                         CHUNK_HEADER_SIZE +  // "VP8Xnnnn".
                         VP8X_CHUNK_SIZE;     // data.
   assert(data != NULL);
@@ -173,10 +179,10 @@ static VP8StatusCode ParseOptionalChunks(const uint8_t** const data,
 
   while (1) {
     uint32_t chunk_size;
-    uint32_t disk_chunk_size;   // chunk_size with padding
+    uint32_t disk_chunk_size;  // chunk_size with padding
 
-    *data = buf;
     *data_size = buf_size;
+    *data = buf;
 
     if (buf_size < CHUNK_HEADER_SIZE) {  // Insufficient data.
       return VP8_STATUS_NOT_ENOUGH_DATA;
@@ -184,7 +190,7 @@ static VP8StatusCode ParseOptionalChunks(const uint8_t** const data,
 
     chunk_size = GetLE32(buf + TAG_SIZE);
     if (chunk_size > MAX_CHUNK_PAYLOAD) {
-      return VP8_STATUS_BITSTREAM_ERROR;          // Not a valid chunk size.
+      return VP8_STATUS_BITSTREAM_ERROR;  // Not a valid chunk size.
     }
     // For odd-sized chunk-payload, there's one byte padding at the end.
     disk_chunk_size = (CHUNK_HEADER_SIZE + chunk_size + 1) & ~1u;
@@ -192,23 +198,22 @@ static VP8StatusCode ParseOptionalChunks(const uint8_t** const data,
 
     // Check that total bytes skipped so far does not exceed riff_size.
     if (riff_size > 0 && (total_size > riff_size)) {
-      return VP8_STATUS_BITSTREAM_ERROR;          // Not a valid chunk size.
+      return VP8_STATUS_BITSTREAM_ERROR;  // Not a valid chunk size.
     }
 
     // Start of a (possibly incomplete) VP8/VP8L chunk implies that we have
     // parsed all the optional chunks.
     // Note: This check must occur before the check 'buf_size < disk_chunk_size'
     // below to allow incomplete VP8/VP8L chunks.
-    if (!memcmp(buf, "VP8 ", TAG_SIZE) ||
-        !memcmp(buf, "VP8L", TAG_SIZE)) {
+    if (!memcmp(buf, "VP8 ", TAG_SIZE) || !memcmp(buf, "VP8L", TAG_SIZE)) {
       return VP8_STATUS_OK;
     }
 
-    if (buf_size < disk_chunk_size) {             // Insufficient data.
+    if (buf_size < disk_chunk_size) {  // Insufficient data.
       return VP8_STATUS_NOT_ENOUGH_DATA;
     }
 
-    if (!memcmp(buf, "ALPH", TAG_SIZE)) {         // A valid ALPH header.
+    if (!memcmp(buf, "ALPH", TAG_SIZE)) {  // A valid ALPH header.
       *alpha_data = buf + CHUNK_HEADER_SIZE;
       *alpha_size = chunk_size;
     }
@@ -227,20 +232,25 @@ static VP8StatusCode ParseOptionalChunks(const uint8_t** const data,
 // If a VP8/VP8L chunk is found, *chunk_size is set to the total number of bytes
 // extracted from the VP8/VP8L chunk header.
 // The flag '*is_lossless' is set to 1 in case of VP8L chunk / raw VP8L data.
-static VP8StatusCode ParseVP8Header(const uint8_t** const data_ptr,
-                                    size_t* const data_size, int have_all_data,
-                                    size_t riff_size, size_t* const chunk_size,
-                                    int* const is_lossless) {
-  const uint8_t* const data = *data_ptr;
+static VP8StatusCode ParseVP8Header(const uint8_t* WEBP_COUNTED_BY(*data_size) *
+                                        WEBP_SINGLE const data_ptr,
+                                    size_t* WEBP_SINGLE const data_size,
+                                    int have_all_data, size_t riff_size,
+                                    size_t* WEBP_SINGLE const chunk_size,
+                                    int* WEBP_SINGLE const is_lossless) {
+  const size_t local_data_size = *data_size;
+  const uint8_t* WEBP_COUNTED_BY(local_data_size) const data = *data_ptr;
   const int is_vp8 = !memcmp(data, "VP8 ", TAG_SIZE);
   const int is_vp8l = !memcmp(data, "VP8L", TAG_SIZE);
   const uint32_t minimal_size =
       TAG_SIZE + CHUNK_HEADER_SIZE;  // "WEBP" + "VP8 nnnn" OR
                                      // "WEBP" + "VP8Lnnnn"
+  (void)local_data_size;
   assert(data != NULL);
   assert(data_size != NULL);
   assert(chunk_size != NULL);
   assert(is_lossless != NULL);
+  assert(local_data_size >= TAG_SIZE);  // what the two memcmp() above need
 
   if (*data_size < CHUNK_HEADER_SIZE) {
     return VP8_STATUS_NOT_ENOUGH_DATA;  // Insufficient data.
@@ -257,8 +267,8 @@ static VP8StatusCode ParseVP8Header(const uint8_t** const data_ptr,
     }
     // Skip over CHUNK_HEADER_SIZE bytes from VP8/VP8L Header.
     *chunk_size = size;
-    *data_ptr += CHUNK_HEADER_SIZE;
     *data_size -= CHUNK_HEADER_SIZE;
+    *data_ptr += CHUNK_HEADER_SIZE;
     *is_lossless = is_vp8l;
   } else {
     // Raw VP8/VP8L bitstream (no header).
@@ -282,14 +292,13 @@ static VP8StatusCode ParseVP8Header(const uint8_t** const data_ptr,
 // RIFF + VP8X + (optional chunks) + VP8(L)
 // ALPH + VP8 <-- Not a valid WebP format: only allowed for internal purpose.
 // VP8(L)     <-- Not a valid WebP format: only allowed for internal purpose.
-static VP8StatusCode ParseHeadersInternal(const uint8_t* data,
-                                          size_t data_size,
-                                          int* const width,
-                                          int* const height,
-                                          int* const has_alpha,
-                                          int* const has_animation,
-                                          int* const format,
-                                          WebPHeaderStructure* const headers) {
+static VP8StatusCode ParseHeadersInternal(
+    const uint8_t* WEBP_COUNTED_BY(data_size_param) data_param,
+    size_t data_size_param, int* const width, int* const height,
+    int* const has_alpha, int* const has_animation, int* const format,
+    WebPHeaderStructure* const headers) {
+  size_t data_size = data_size_param;
+  const uint8_t* WEBP_COUNTED_BY(data_size) data = data_param;
   int canvas_width = 0;
   int canvas_height = 0;
   int image_width = 0;
@@ -305,22 +314,22 @@ static VP8StatusCode ParseHeadersInternal(const uint8_t* data,
   if (data == NULL || data_size < RIFF_HEADER_SIZE) {
     return VP8_STATUS_NOT_ENOUGH_DATA;
   }
-  memset(&hdrs, 0, sizeof(hdrs));
+  WEBP_UNSAFE_MEMSET(&hdrs, 0, sizeof(hdrs));
   hdrs.data = data;
   hdrs.data_size = data_size;
 
   // Skip over RIFF header.
   status = ParseRIFF(&data, &data_size, have_all_data, &hdrs.riff_size);
   if (status != VP8_STATUS_OK) {
-    return status;   // Wrong RIFF header / insufficient data.
+    return status;  // Wrong RIFF header / insufficient data.
   }
   found_riff = (hdrs.riff_size > 0);
 
   // Skip over VP8X.
   {
     uint32_t flags = 0;
-    status = ParseVP8X(&data, &data_size, &found_vp8x,
-                       &canvas_width, &canvas_height, &flags);
+    status = ParseVP8X(&data, &data_size, &found_vp8x, &canvas_width,
+                       &canvas_height, &flags);
     if (status != VP8_STATUS_OK) {
       return status;  // Wrong VP8X / insufficient data.
     }
@@ -332,7 +341,7 @@ static VP8StatusCode ParseHeadersInternal(const uint8_t* data,
     }
     if (has_alpha != NULL) *has_alpha = !!(flags & ALPHA_FLAG);
     if (has_animation != NULL) *has_animation = animation_present;
-    if (format != NULL) *format = 0;   // default = undefined
+    if (format != NULL) *format = 0;  // default = undefined
 
     image_width = canvas_width;
     image_height = canvas_height;
@@ -350,11 +359,16 @@ static VP8StatusCode ParseHeadersInternal(const uint8_t* data,
   // Skip over optional chunks if data started with "RIFF + VP8X" or "ALPH".
   if ((found_riff && found_vp8x) ||
       (!found_riff && !found_vp8x && !memcmp(data, "ALPH", TAG_SIZE))) {
+    size_t local_alpha_data_size = 0;
+    const uint8_t* WEBP_COUNTED_BY(local_alpha_data_size) local_alpha_data =
+        NULL;
     status = ParseOptionalChunks(&data, &data_size, hdrs.riff_size,
-                                 &hdrs.alpha_data, &hdrs.alpha_data_size);
+                                 &local_alpha_data, &local_alpha_data_size);
     if (status != VP8_STATUS_OK) {
       goto ReturnWidthHeight;  // Invalid chunk size / insufficient data.
     }
+    hdrs.alpha_data = local_alpha_data;
+    hdrs.alpha_data_size = local_alpha_data_size;
   }
 
   // Skip over VP8/VP8L header.
@@ -403,7 +417,7 @@ static VP8StatusCode ParseHeadersInternal(const uint8_t* data,
     assert((uint64_t)(data - headers->data) < MAX_CHUNK_PAYLOAD);
     assert(headers->offset == headers->data_size - data_size);
   }
- ReturnWidthHeight:
+ReturnWidthHeight:
   if (status == VP8_STATUS_OK ||
       (status == VP8_STATUS_NOT_ENOUGH_DATA && found_vp8x && headers == NULL)) {
     if (has_alpha != NULL) {
@@ -425,9 +439,13 @@ VP8StatusCode WebPParseHeaders(WebPHeaderStructure* const headers) {
   int has_animation = 0;
   assert(headers != NULL);
   // fill out headers, ignore width/height/has_alpha.
-  status = ParseHeadersInternal(headers->data, headers->data_size,
-                                NULL, NULL, NULL, &has_animation,
-                                NULL, headers);
+  {
+    const uint8_t* WEBP_BIDI_INDEXABLE const bounded_data =
+        WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(const uint8_t*, headers->data,
+                                         headers->data_size);
+    status = ParseHeadersInternal(bounded_data, headers->data_size, NULL, NULL,
+                                  NULL, &has_animation, NULL, headers);
+  }
   if (status == VP8_STATUS_OK || status == VP8_STATUS_NOT_ENOUGH_DATA) {
     // The WebPDemux API + libwebp can be used to decode individual
     // uncomposited frames or the WebPAnimDecoder can be used to fully
@@ -444,7 +462,7 @@ VP8StatusCode WebPParseHeaders(WebPHeaderStructure* const headers) {
 
 void WebPResetDecParams(WebPDecParams* const params) {
   if (params != NULL) {
-    memset(params, 0, sizeof(*params));
+    WEBP_UNSAFE_MEMSET(params, 0, sizeof(*params));
   }
 }
 
@@ -452,9 +470,9 @@ void WebPResetDecParams(WebPDecParams* const params) {
 // "Into" decoding variants
 
 // Main flow
-WEBP_NODISCARD static VP8StatusCode DecodeInto(const uint8_t* const data,
-                                               size_t data_size,
-                                               WebPDecParams* const params) {
+WEBP_NODISCARD static VP8StatusCode DecodeInto(
+    const uint8_t* WEBP_COUNTED_BY(data_size) const data, size_t data_size,
+    WebPDecParams* const params) {
   VP8StatusCode status;
   VP8Io io;
   WebPHeaderStructure headers;
@@ -462,7 +480,7 @@ WEBP_NODISCARD static VP8StatusCode DecodeInto(const uint8_t* const data,
   headers.data = data;
   headers.data_size = data_size;
   headers.have_all_data = 1;
-  status = WebPParseHeaders(&headers);   // Process Pre-VP8 chunks.
+  status = WebPParseHeaders(&headers);  // Process Pre-VP8 chunks.
   if (status != VP8_STATUS_OK) {
     return status;
   }
@@ -485,18 +503,19 @@ WEBP_NODISCARD static VP8StatusCode DecodeInto(const uint8_t* const data,
 
     // Decode bitstream header, update io->width/io->height.
     if (!VP8GetHeaders(dec, &io)) {
-      status = dec->status;   // An error occurred. Grab error status.
+      status = dec->status;  // An error occurred. Grab error status.
     } else {
       // Allocate/check output buffers.
       status = WebPAllocateDecBuffer(io.width, io.height, params->options,
                                      params->output);
       if (status == VP8_STATUS_OK) {  // Decode
         // This change must be done before calling VP8Decode()
-        dec->mt_method = VP8GetThreadMethod(params->options, &headers,
-                                            io.width, io.height);
+        dec->mt_method =
+            VP8GetThreadMethod(params->options, &headers, io.width, io.height);
         VP8InitDithering(params->options, dec);
         if (!VP8Decode(dec, &io)) {
-          status = dec->status;
+          status =
+              (params->status != VP8_STATUS_OK) ? params->status : dec->status;
         }
       }
     }
@@ -507,7 +526,7 @@ WEBP_NODISCARD static VP8StatusCode DecodeInto(const uint8_t* const data,
       return VP8_STATUS_OUT_OF_MEMORY;
     }
     if (!VP8LDecodeHeader(dec, &io)) {
-      status = dec->status;   // An error occurred. Grab error status.
+      status = dec->status;  // An error occurred. Grab error status.
     } else {
       // Allocate/check output buffers.
       status = WebPAllocateDecBuffer(io.width, io.height, params->options,
@@ -534,11 +553,10 @@ WEBP_NODISCARD static VP8StatusCode DecodeInto(const uint8_t* const data,
 }
 
 // Helpers
-WEBP_NODISCARD static uint8_t* DecodeIntoRGBABuffer(WEBP_CSP_MODE colorspace,
-                                                    const uint8_t* const data,
-                                                    size_t data_size,
-                                                    uint8_t* const rgba,
-                                                    int stride, size_t size) {
+WEBP_NODISCARD static uint8_t* DecodeIntoRGBABuffer(
+    WEBP_CSP_MODE colorspace,
+    const uint8_t* WEBP_COUNTED_BY(data_size) const data, size_t data_size,
+    uint8_t* WEBP_COUNTED_BY(size) const rgba, int stride, size_t size) {
   WebPDecParams params;
   WebPDecBuffer buf;
   if (rgba == NULL || !WebPInitDecBuffer(&buf)) {
@@ -546,10 +564,10 @@ WEBP_NODISCARD static uint8_t* DecodeIntoRGBABuffer(WEBP_CSP_MODE colorspace,
   }
   WebPResetDecParams(&params);
   params.output = &buf;
-  buf.colorspace    = colorspace;
-  buf.u.RGBA.rgba   = rgba;
+  buf.colorspace = colorspace;
+  buf.u.RGBA.rgba = rgba;
   buf.u.RGBA.stride = stride;
-  buf.u.RGBA.size   = size;
+  buf.u.RGBA.size = size;
   buf.is_external_memory = 1;
   if (DecodeInto(data, data_size, &params) != VP8_STATUS_OK) {
     return NULL;
@@ -557,50 +575,63 @@ WEBP_NODISCARD static uint8_t* DecodeIntoRGBABuffer(WEBP_CSP_MODE colorspace,
   return rgba;
 }
 
-uint8_t* WebPDecodeRGBInto(const uint8_t* data, size_t data_size,
-                           uint8_t* output, size_t size, int stride) {
+uint8_t* WebPDecodeRGBInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                           size_t data_size,
+                           uint8_t* WEBP_COUNTED_BY(size) output, size_t size,
+                           int stride) {
   return DecodeIntoRGBABuffer(MODE_RGB, data, data_size, output, stride, size);
 }
 
-uint8_t* WebPDecodeRGBAInto(const uint8_t* data, size_t data_size,
-                            uint8_t* output, size_t size, int stride) {
+uint8_t* WebPDecodeRGBAInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                            size_t data_size,
+                            uint8_t* WEBP_COUNTED_BY(size) output, size_t size,
+                            int stride) {
   return DecodeIntoRGBABuffer(MODE_RGBA, data, data_size, output, stride, size);
 }
 
-uint8_t* WebPDecodeARGBInto(const uint8_t* data, size_t data_size,
-                            uint8_t* output, size_t size, int stride) {
+uint8_t* WebPDecodeARGBInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                            size_t data_size,
+                            uint8_t* WEBP_COUNTED_BY(size) output, size_t size,
+                            int stride) {
   return DecodeIntoRGBABuffer(MODE_ARGB, data, data_size, output, stride, size);
 }
 
-uint8_t* WebPDecodeBGRInto(const uint8_t* data, size_t data_size,
-                           uint8_t* output, size_t size, int stride) {
+uint8_t* WebPDecodeBGRInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                           size_t data_size,
+                           uint8_t* WEBP_COUNTED_BY(size) output, size_t size,
+                           int stride) {
   return DecodeIntoRGBABuffer(MODE_BGR, data, data_size, output, stride, size);
 }
 
-uint8_t* WebPDecodeBGRAInto(const uint8_t* data, size_t data_size,
-                            uint8_t* output, size_t size, int stride) {
+uint8_t* WebPDecodeBGRAInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                            size_t data_size,
+                            uint8_t* WEBP_COUNTED_BY(size) output, size_t size,
+                            int stride) {
   return DecodeIntoRGBABuffer(MODE_BGRA, data, data_size, output, stride, size);
 }
 
-uint8_t* WebPDecodeYUVInto(const uint8_t* data, size_t data_size,
-                           uint8_t* luma, size_t luma_size, int luma_stride,
-                           uint8_t* u, size_t u_size, int u_stride,
-                           uint8_t* v, size_t v_size, int v_stride) {
+uint8_t* WebPDecodeYUVInto(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                           size_t data_size,
+                           uint8_t* WEBP_COUNTED_BY(luma_size) luma,
+                           size_t luma_size, int luma_stride,
+                           uint8_t* WEBP_COUNTED_BY(u_size) u, size_t u_size,
+                           int u_stride, uint8_t* WEBP_COUNTED_BY(v_size) v,
+                           size_t v_size, int v_stride) {
   WebPDecParams params;
   WebPDecBuffer output;
   if (luma == NULL || !WebPInitDecBuffer(&output)) return NULL;
   WebPResetDecParams(&params);
   params.output = &output;
-  output.colorspace      = MODE_YUV;
-  output.u.YUVA.y        = luma;
+  output.colorspace = MODE_YUV;
+  output.u.YUVA.y = luma;
   output.u.YUVA.y_stride = luma_stride;
-  output.u.YUVA.y_size   = luma_size;
-  output.u.YUVA.u        = u;
+  output.u.YUVA.y_size = luma_size;
+  output.u.YUVA.u = u;
   output.u.YUVA.u_stride = u_stride;
-  output.u.YUVA.u_size   = u_size;
-  output.u.YUVA.v        = v;
+  output.u.YUVA.u_size = u_size;
+  output.u.YUVA.v = v;
   output.u.YUVA.v_stride = v_stride;
-  output.u.YUVA.v_size   = v_size;
+  output.u.YUVA.v_size = v_size;
   output.is_external_memory = 1;
   if (DecodeInto(data, data_size, &params) != VP8_STATUS_OK) {
     return NULL;
@@ -611,7 +642,8 @@ uint8_t* WebPDecodeYUVInto(const uint8_t* data, size_t data_size,
 //------------------------------------------------------------------------------
 
 WEBP_NODISCARD static uint8_t* Decode(WEBP_CSP_MODE mode,
-                                      const uint8_t* const data,
+                                      const uint8_t* WEBP_COUNTED_BY(data_size)
+                                          const data,
                                       size_t data_size, int* const width,
                                       int* const height,
                                       WebPDecBuffer* const keep_info) {
@@ -636,50 +668,50 @@ WEBP_NODISCARD static uint8_t* Decode(WEBP_CSP_MODE mode,
   if (DecodeInto(data, data_size, &params) != VP8_STATUS_OK) {
     return NULL;
   }
-  if (keep_info != NULL) {    // keep track of the side-info
+  if (keep_info != NULL) {  // keep track of the side-info
     WebPCopyDecBuffer(&output, keep_info);
   }
   // return decoded samples (don't clear 'output'!)
   return WebPIsRGBMode(mode) ? output.u.RGBA.rgba : output.u.YUVA.y;
 }
 
-uint8_t* WebPDecodeRGB(const uint8_t* data, size_t data_size,
-                       int* width, int* height) {
+uint8_t* WebPDecodeRGB(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                       size_t data_size, int* width, int* height) {
   return Decode(MODE_RGB, data, data_size, width, height, NULL);
 }
 
-uint8_t* WebPDecodeRGBA(const uint8_t* data, size_t data_size,
-                        int* width, int* height) {
+uint8_t* WebPDecodeRGBA(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                        size_t data_size, int* width, int* height) {
   return Decode(MODE_RGBA, data, data_size, width, height, NULL);
 }
 
-uint8_t* WebPDecodeARGB(const uint8_t* data, size_t data_size,
-                        int* width, int* height) {
+uint8_t* WebPDecodeARGB(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                        size_t data_size, int* width, int* height) {
   return Decode(MODE_ARGB, data, data_size, width, height, NULL);
 }
 
-uint8_t* WebPDecodeBGR(const uint8_t* data, size_t data_size,
-                       int* width, int* height) {
+uint8_t* WebPDecodeBGR(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                       size_t data_size, int* width, int* height) {
   return Decode(MODE_BGR, data, data_size, width, height, NULL);
 }
 
-uint8_t* WebPDecodeBGRA(const uint8_t* data, size_t data_size,
-                        int* width, int* height) {
+uint8_t* WebPDecodeBGRA(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                        size_t data_size, int* width, int* height) {
   return Decode(MODE_BGRA, data, data_size, width, height, NULL);
 }
 
-uint8_t* WebPDecodeYUV(const uint8_t* data, size_t data_size,
-                       int* width, int* height, uint8_t** u, uint8_t** v,
-                       int* stride, int* uv_stride) {
+uint8_t* WebPDecodeYUV(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                       size_t data_size, int* width, int* height, uint8_t** u,
+                       uint8_t** v, int* stride, int* uv_stride) {
   // data, width and height are checked by Decode().
   if (u == NULL || v == NULL || stride == NULL || uv_stride == NULL) {
     return NULL;
   }
 
   {
-    WebPDecBuffer output;   // only to preserve the side-infos
-    uint8_t* const out = Decode(MODE_YUV, data, data_size,
-                                width, height, &output);
+    WebPDecBuffer output;  // only to preserve the side-infos
+    uint8_t* const out =
+        Decode(MODE_YUV, data, data_size, width, height, &output);
 
     if (out != NULL) {
       const WebPYUVABuffer* const buf = &output.u.YUVA;
@@ -695,10 +727,12 @@ uint8_t* WebPDecodeYUV(const uint8_t* data, size_t data_size,
 
 static void DefaultFeatures(WebPBitstreamFeatures* const features) {
   assert(features != NULL);
-  memset(features, 0, sizeof(*features));
+  WEBP_UNSAFE_MEMSET(features, 0, sizeof(*features));
 }
 
-static VP8StatusCode GetFeatures(const uint8_t* const data, size_t data_size,
+static VP8StatusCode GetFeatures(const uint8_t* WEBP_COUNTED_BY(data_size)
+                                     const data,
+                                 size_t data_size,
                                  WebPBitstreamFeatures* const features) {
   if (features == NULL || data == NULL) {
     return VP8_STATUS_INVALID_PARAM;
@@ -706,17 +740,16 @@ static VP8StatusCode GetFeatures(const uint8_t* const data, size_t data_size,
   DefaultFeatures(features);
 
   // Only parse enough of the data to retrieve the features.
-  return ParseHeadersInternal(data, data_size,
-                              &features->width, &features->height,
-                              &features->has_alpha, &features->has_animation,
-                              &features->format, NULL);
+  return ParseHeadersInternal(
+      data, data_size, &features->width, &features->height,
+      &features->has_alpha, &features->has_animation, &features->format, NULL);
 }
 
 //------------------------------------------------------------------------------
 // WebPGetInfo()
 
-int WebPGetInfo(const uint8_t* data, size_t data_size,
-                int* width, int* height) {
+int WebPGetInfo(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                size_t data_size, int* width, int* height) {
   WebPBitstreamFeatures features;
 
   if (GetFeatures(data, data_size, &features) != VP8_STATUS_OK) {
@@ -724,7 +757,7 @@ int WebPGetInfo(const uint8_t* data, size_t data_size,
   }
 
   if (width != NULL) {
-    *width  = features.width;
+    *width = features.width;
   }
   if (height != NULL) {
     *height = features.height;
@@ -736,15 +769,14 @@ int WebPGetInfo(const uint8_t* data, size_t data_size,
 //------------------------------------------------------------------------------
 // Advance decoding API
 
-int WebPInitDecoderConfigInternal(WebPDecoderConfig* config,
-                                  int version) {
+int WebPInitDecoderConfigInternal(WebPDecoderConfig* config, int version) {
   if (WEBP_ABI_IS_INCOMPATIBLE(version, WEBP_DECODER_ABI_VERSION)) {
-    return 0;   // version mismatch
+    return 0;  // version mismatch
   }
   if (config == NULL) {
     return 0;
   }
-  memset(config, 0, sizeof(*config));
+  WEBP_UNSAFE_MEMSET(config, 0, sizeof(*config));
   DefaultFeatures(&config->input);
   if (!WebPInitDecBuffer(&config->output)) {
     return 0;
@@ -782,17 +814,22 @@ int WebPValidateDecoderConfig(const WebPDecoderConfig* config) {
 
   // In case the WebPBitstreamFeatures has been filled in, check further.
   if (config->input.width > 0 || config->input.height > 0) {
+    int width = config->input.width;
+    int height = config->input.height;
     int scaled_width = options->scaled_width;
     int scaled_height = options->scaled_height;
-    if (options->use_cropping &&
-        !WebPCheckCropDimensions(config->input.width, config->input.height,
-                                 options->crop_left, options->crop_top,
-                                 options->crop_width, options->crop_height)) {
-      return 0;
+    if (options->use_cropping) {
+      if (!WebPCheckCropDimensions(width, height, options->crop_left,
+                                   options->crop_top, options->crop_width,
+                                   options->crop_height)) {
+        return 0;
+      }
+      width = options->crop_width;
+      height = options->crop_height;
     }
-    if (options->use_scaling && !WebPRescalerGetScaledDimensions(
-                                    config->input.width, config->input.height,
-                                    &scaled_width, &scaled_height)) {
+    if (options->use_scaling &&
+        !WebPRescalerGetScaledDimensions(width, height, &scaled_width,
+                                         &scaled_height)) {
       return 0;
     }
   }
@@ -807,11 +844,13 @@ int WebPValidateDecoderConfig(const WebPDecoderConfig* config) {
   return 1;
 }
 
-VP8StatusCode WebPGetFeaturesInternal(const uint8_t* data, size_t data_size,
+VP8StatusCode WebPGetFeaturesInternal(const uint8_t* WEBP_COUNTED_BY(data_size)
+                                          data,
+                                      size_t data_size,
                                       WebPBitstreamFeatures* features,
                                       int version) {
   if (WEBP_ABI_IS_INCOMPATIBLE(version, WEBP_DECODER_ABI_VERSION)) {
-    return VP8_STATUS_INVALID_PARAM;   // version mismatch
+    return VP8_STATUS_INVALID_PARAM;  // version mismatch
   }
   if (features == NULL) {
     return VP8_STATUS_INVALID_PARAM;
@@ -819,8 +858,8 @@ VP8StatusCode WebPGetFeaturesInternal(const uint8_t* data, size_t data_size,
   return GetFeatures(data, data_size, features);
 }
 
-VP8StatusCode WebPDecode(const uint8_t* data, size_t data_size,
-                         WebPDecoderConfig* config) {
+VP8StatusCode WebPDecode(const uint8_t* WEBP_COUNTED_BY(data_size) data,
+                         size_t data_size, WebPDecoderConfig* config) {
   WebPDecParams params;
   VP8StatusCode status;
 
@@ -864,8 +903,8 @@ VP8StatusCode WebPDecode(const uint8_t* data, size_t data_size,
 //------------------------------------------------------------------------------
 // Cropping and rescaling.
 
-int WebPCheckCropDimensions(int image_width, int image_height,
-                            int x, int y, int w, int h) {
+int WebPCheckCropDimensions(int image_width, int image_height, int x, int y,
+                            int w, int h) {
   return WebPCheckCropDimensionsBasic(x, y, w, h) &&
          !(x >= image_width || w > image_width || w > image_width - x ||
            y >= image_height || h > image_height || h > image_height - y);
@@ -884,7 +923,7 @@ int WebPIoInitFromOptions(const WebPDecoderOptions* const options,
     h = options->crop_height;
     x = options->crop_left;
     y = options->crop_top;
-    if (!WebPIsRGBMode(src_colorspace)) {   // only snap for YUV420
+    if (!WebPIsRGBMode(src_colorspace)) {  // only snap for YUV420
       x &= ~1;
       y &= ~1;
     }
@@ -892,9 +931,9 @@ int WebPIoInitFromOptions(const WebPDecoderOptions* const options,
       return 0;  // out of frame boundary error
     }
   }
-  io->crop_left   = x;
-  io->crop_top    = y;
-  io->crop_right  = x + w;
+  io->crop_left = x;
+  io->crop_top = y;
+  io->crop_right = x + w;
   io->crop_bottom = y + h;
   io->mb_w = w;
   io->mb_h = h;
@@ -921,8 +960,8 @@ int WebPIoInitFromOptions(const WebPDecoderOptions* const options,
 
   if (io->use_scaling) {
     // disable filter (only for large downscaling ratio).
-    io->bypass_filtering |= (io->scaled_width < W * 3 / 4) &&
-                            (io->scaled_height < H * 3 / 4);
+    io->bypass_filtering |=
+        (io->scaled_width < W * 3 / 4) && (io->scaled_height < H * 3 / 4);
     io->fancy_upsampling = 0;
   }
   return 1;

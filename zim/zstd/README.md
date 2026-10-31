@@ -1,9 +1,9 @@
 # Zstandard decoder
 
-`zstddeclib.c` began as the official decoder-only single-file amalgamation
-from Zstandard 1.5.7, generated with upstream's
-`build/single_file_libs/create_single_file_decoder.sh`. **It is no longer
-that file.** It carries about 1,100 added lines under 52 `__c33__` guards,
+`zstddeclib.c` began as the official decoder-only single-file amalgamation,
+generated with upstream's `build/single_file_libs/create_single_file_decoder.sh`,
+now from the `dev` branch at `49cf51799ea051457f57243527aa2058f999f005`
+(2026-10-05). **It is no longer that file.** It carries about 1,100 added lines under 52 `__c33__` guards,
 and it is not a candidate for a drop-in re-generation: regenerating it
 discards all of the following.
 
@@ -19,11 +19,16 @@ Current ZIM archives store clusters in Zstandard format. On C33 this decoder
 contributes about 71 KiB of text and negligible static data; working memory is
 allocated only while an article cluster is decoded.
 
-Upstream: <https://github.com/facebook/zstd/tree/v1.5.7>, which is still
-upstream's newest release. The only entry above it on the `dev` branch is
-v1.6.0 (Dec 2025), whose two lines both concern disabling legacy format
-support; no decoder work has landed since 1.5.7. The decompression speed-ups
-in zstd's history were x86-64 and ARM assembly and are already in 1.5.7.
+Upstream: <https://github.com/facebook/zstd/tree/dev>. The newest release is
+still v1.5.7. The decoder changes on `dev` since then are AArch64, x86-64 and
+RISC-V code, the BMI2 dispatch, and two fixes in dictionary code the reader
+never reaches (the multiple-dictionary hash set and the custom calloc it
+uses); article loads measure the same as with 1.5.7.
+
+To move to a newer upstream, generate the amalgamation at the old and the new
+revision and three-way merge this file onto the new one (`git merge-file`).
+`ZSTD_decodeSequence` keeps the C33 version as its own branch beside
+upstream's AArch64 and generic bodies.
 
 License: BSD-3-Clause or GPL-2.0-only, at the user's option. This directory
 includes the upstream BSD license in `LICENSE`.

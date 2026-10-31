@@ -17,9 +17,9 @@
 #include "zim_overlay.h"
 
 #include "src/dsp/cpu.h"
-#include "src/webp/types.h"
 #include "src/dsp/dsp.h"
 #include "src/utils/rescaler_utils.h"
+#include "src/webp/types.h"
 
 //------------------------------------------------------------------------------
 // Implementations of critical functions ImportRow / ExportRow
@@ -55,10 +55,9 @@ static WEBP_INLINE uint32_t C33MultFixFloor(uint32_t x, uint32_t y) {
 
 //------------------------------------------------------------------------------
 // Row import
-
-void ZIM_OVERLAY_SECTION("ovlwebp")
+WEBP_UBSAN_IGNORE_UNSIGNED_OVERFLOW void ZIM_OVERLAY_SECTION("ovlwebp")
 WebPRescalerImportRowExpand_C(WebPRescaler* WEBP_RESTRICT const wrk,
-                                   const uint8_t* WEBP_RESTRICT src) {
+                              const uint8_t* WEBP_RESTRICT src) {
   const int x_stride = wrk->num_channels;
   const int x_out_max = wrk->dst_width * wrk->num_channels;
   int channel;
@@ -113,7 +112,7 @@ WebPRescalerImportRowShrink_C(WebPRescaler* WEBP_RESTRICT const wrk,
         sum += base;
         x_in += x_stride;
       }
-      {        // Emit next horizontal pixel.
+      {  // Emit next horizontal pixel.
         const rescaler_t frac = base * (-accum);
         wrk->frow[x_out] = sum * wrk->x_sub - frac;
         // fresh fractional start for next pixel
@@ -149,8 +148,7 @@ WebPRescalerExportRowExpand_C(WebPRescaler* const wrk) {
     const uint32_t B = WEBP_RESCALER_FRAC(-wrk->y_accum, wrk->y_sub);
     const uint32_t A = (uint32_t)(WEBP_RESCALER_ONE - B);
     for (x_out = 0; x_out < x_out_max; ++x_out) {
-      const uint64_t I = (uint64_t)A * frow[x_out]
-                       + (uint64_t)B * irow[x_out];
+      const uint64_t I = (uint64_t)A * frow[x_out] + (uint64_t)B * irow[x_out];
       const uint32_t J = (uint32_t)((I + ROUNDER) >> WEBP_RESCALER_RFIX);
       const int v = (int)MULT_FIX(J, wrk->fy_scale);
       dst[x_out] = (v > 255) ? 255u : (uint8_t)v;
@@ -158,32 +156,43 @@ WebPRescalerExportRowExpand_C(WebPRescaler* const wrk) {
   }
 }
 
+#define EXPORT_ROW_SHRINK(IROW_TYPE, IROW)                                   \
+  do {                                                                       \
+    int x_out;                                                               \
+    uint8_t* const dst = wrk->dst;                                           \
+    IROW_TYPE* const irow = wrk->IROW;                                       \
+    const int x_out_max = wrk->dst_width * wrk->num_channels;                \
+    const rescaler_t* const frow = wrk->frow;                                \
+    const uint32_t yscale = wrk->fy_scale * (-wrk->y_accum);                 \
+    assert(!WebPRescalerOutputDone(wrk));                                    \
+    assert(wrk->y_accum <= 0);                                               \
+    assert(!wrk->y_expand);                                                  \
+    if (yscale) {                                                            \
+      for (x_out = 0; x_out < x_out_max; ++x_out) {                          \
+        const uint32_t frac = (uint32_t)MULT_FIX_FLOOR(frow[x_out], yscale); \
+        const int v = (int)MULT_FIX(irow[x_out] - frac, wrk->fxy_scale);     \
+        dst[x_out] = (v > 255) ? 255u : (uint8_t)v;                          \
+        irow[x_out] = frac; /* new fractional start */                       \
+      }                                                                      \
+    } else {                                                                 \
+      for (x_out = 0; x_out < x_out_max; ++x_out) {                          \
+        const int v = (int)MULT_FIX(irow[x_out], wrk->fxy_scale);            \
+        dst[x_out] = (v > 255) ? 255u : (uint8_t)v;                          \
+        irow[x_out] = 0;                                                     \
+      }                                                                      \
+    }                                                                        \
+  } while (0)
+
 void ZIM_OVERLAY_SECTION("ovlwebp")
 WebPRescalerExportRowShrink_C(WebPRescaler* const wrk) {
-  int x_out;
-  uint8_t* const dst = wrk->dst;
-  rescaler_t* const irow = wrk->irow;
-  const int x_out_max = wrk->dst_width * wrk->num_channels;
-  const rescaler_t* const frow = wrk->frow;
-  const uint32_t yscale = wrk->fy_scale * (-wrk->y_accum);
-  assert(!WebPRescalerOutputDone(wrk));
-  assert(wrk->y_accum <= 0);
-  assert(!wrk->y_expand);
-  if (yscale) {
-    for (x_out = 0; x_out < x_out_max; ++x_out) {
-      const uint32_t frac = (uint32_t)MULT_FIX_FLOOR(frow[x_out], yscale);
-      const int v = (int)MULT_FIX(irow[x_out] - frac, wrk->fxy_scale);
-      dst[x_out] = (v > 255) ? 255u : (uint8_t)v;
-      irow[x_out] = frac;   // new fractional start
-    }
-  } else {
-    for (x_out = 0; x_out < x_out_max; ++x_out) {
-      const int v = (int)MULT_FIX(irow[x_out], wrk->fxy_scale);
-      dst[x_out] = (v > 255) ? 255u : (uint8_t)v;
-      irow[x_out] = 0;
-    }
-  }
+  EXPORT_ROW_SHRINK(rescaler_t, irow);
 }
+
+static void RescalerExportRowShrink64_C(WebPRescaler* const wrk) {
+  EXPORT_ROW_SHRINK(rescaler_accum_t, irow64);
+}
+
+#undef EXPORT_ROW_SHRINK
 
 #undef MULT_FIX_FLOOR
 #undef MULT_FIX
@@ -210,14 +219,25 @@ WebPRescalerExportRow(WebPRescaler* const wrk) {
     if (wrk->y_expand) {
       WebPRescalerExportRowExpand(wrk);
     } else if (wrk->fxy_scale) {
-      WebPRescalerExportRowShrink(wrk);
+      if (wrk->use_64bit) {
+        RescalerExportRowShrink64_C(wrk);
+      } else {
+        WebPRescalerExportRowShrink(wrk);
+      }
     } else {  // special case
       int i;
-      assert(wrk->src_height == wrk->dst_height && wrk->x_add == 1);
-      assert(wrk->src_width == 1 && wrk->dst_width <= 2);
-      for (i = 0; i < wrk->num_channels * wrk->dst_width; ++i) {
-        wrk->dst[i] = wrk->irow[i];
-        wrk->irow[i] = 0;
+      if (wrk->use_64bit) {
+        for (i = 0; i < wrk->num_channels * wrk->dst_width; ++i) {
+          wrk->dst[i] = (uint8_t)wrk->irow64[i];
+          wrk->irow64[i] = 0;
+        }
+      } else {
+        assert(wrk->src_height == wrk->dst_height && wrk->x_add == 1);
+        assert(wrk->src_width == 1 && wrk->dst_width <= 2);
+        for (i = 0; i < wrk->num_channels * wrk->dst_width; ++i) {
+          wrk->dst[i] = (uint8_t)wrk->irow[i];
+          wrk->irow[i] = 0;
+        }
       }
     }
     wrk->y_accum += wrk->y_add;
@@ -285,5 +305,5 @@ WEBP_DSP_INIT_FUNC(WebPRescalerDspInit) {
   assert(WebPRescalerExportRowShrink != NULL);
   assert(WebPRescalerImportRowExpand != NULL);
   assert(WebPRescalerImportRowShrink != NULL);
-#endif   // WEBP_REDUCE_SIZE
+#endif  // WEBP_REDUCE_SIZE
 }

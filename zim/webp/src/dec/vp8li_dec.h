@@ -15,7 +15,7 @@
 #ifndef WEBP_DEC_VP8LI_DEC_H_
 #define WEBP_DEC_VP8LI_DEC_H_
 
-#include <string.h>     // for memcpy()
+#include <string.h>  // for memcpy()
 
 #include "src/dec/vp8_dec.h"
 #include "src/dec/webpi_dec.h"
@@ -27,73 +27,77 @@
 #include "src/webp/format_constants.h"
 #include "src/webp/types.h"
 
+WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum {
-  READ_DATA = 0,
-  READ_HDR = 1,
-  READ_DIM = 2
-} VP8LDecodeState;
+#define NUM_ARGB_CACHE_ROWS 16
+
+typedef enum { READ_DATA = 0, READ_HDR = 1, READ_DIM = 2 } VP8LDecodeState;
 
 typedef struct VP8LTransform VP8LTransform;
 struct VP8LTransform {
-  VP8LImageTransformType type;   // transform type.
-  int                    bits;   // subsampling bits defining transform window.
-  int                    xsize;  // transform window X index.
-  int                    ysize;  // transform window Y index.
-  uint32_t*              data;   // transform data.
+  VP8LImageTransformType type;  // transform type.
+  int bits;                     // subsampling bits defining transform window.
+  int xsize;                    // transform window X index.
+  int ysize;                    // transform window Y index.
+  uint32_t* data;               // transform data.
 };
 
 typedef struct {
-  int             color_cache_size;
-  VP8LColorCache  color_cache;
-  VP8LColorCache  saved_color_cache;  // for incremental
+  int color_cache_size;
+  VP8LColorCache color_cache;
+  VP8LColorCache saved_color_cache;  // for incremental
 
-  int             huffman_mask;
-  int             huffman_subsample_bits;
-  int             huffman_xsize;
-  uint32_t*       huffman_image;
-  int             num_htree_groups;
-  HTreeGroup*     htree_groups;
-  HuffmanTables   huffman_tables;
+  int huffman_mask;
+  int huffman_subsample_bits;
+  int huffman_xsize;
+  uint32_t* huffman_image;
+  int num_htree_groups;
+  HTreeGroup* htree_groups;
+  HuffmanTables huffman_tables;
 } VP8LMetadata;
 
 typedef struct VP8LDecoder VP8LDecoder;
 struct VP8LDecoder {
-  VP8StatusCode    status;
-  VP8LDecodeState  state;
-  VP8Io*           io;
+  VP8StatusCode status;
+  VP8LDecodeState state;
+  VP8Io* io;
 
-  const WebPDecBuffer* output;    // shortcut to io->opaque->output
+  const WebPDecBuffer* output;  // shortcut to io->opaque->output
 
-  uint32_t*        pixels;        // Internal data: either uint8_t* for alpha
-                                  // or uint32_t* for BGRA.
-  uint32_t*        argb_cache;    // Scratch buffer for temporary BGRA storage.
+  uint32_t* pixels;      // Internal data: either uint8_t* for alpha
+                         // or uint32_t* for BGRA.
+  uint32_t* argb_cache;  // Scratch buffer for temporary BGRA storage.
+  uint16_t* accumulated_rgb_pixels;  // Scratch buffer for accumulated RGB for
+                                     // YUV conversion.
 
-  VP8LBitReader    br;
-  int              incremental;   // if true, incremental decoding is expected
-  VP8LBitReader    saved_br;      // note: could be local variables too
-  int              saved_last_pixel;
+  VP8LBitReader br;
+  int incremental;         // if true, incremental decoding is expected
+  VP8LBitReader saved_br;  // note: could be local variables too
+  int saved_last_pixel;
 
-  int              width;
-  int              height;
-  int              last_row;      // last input row decoded so far.
-  int              last_pixel;    // last pixel decoded so far. However, it may
-                                  // not be transformed, scaled and
-                                  // color-converted yet.
-  int              last_out_row;  // last row output so far.
+  int width;
+  int height;
+  int last_row;          // last input row decoded so far.
+  int last_pixel;        // last pixel decoded so far. However, it may
+                         // not be transformed, scaled and
+                         // color-converted yet.
+  int last_out_row;      // last row output so far.
+  int num_window_rows;   // number of rows allocated in dec->pixels.
+  int window_start_row;  // first image row currently stored in dec->pixels.
 
-  VP8LMetadata     hdr;
+  VP8LMetadata hdr;
 
-  int              next_transform;
-  VP8LTransform    transforms[NUM_TRANSFORMS];
+  int next_transform;
+  VP8LTransform transforms[NUM_TRANSFORMS];
   // or'd bitset storing the transforms types.
-  uint32_t         transforms_seen;
+  uint32_t transforms_seen;
 
-  uint8_t*         rescaler_memory;  // Working memory for rescaling work.
-  WebPRescaler*    rescaler;         // Common rescaler for all channels.
+  uint8_t* rescaler_memory;  // Working memory for rescaling work.
+  WebPRescaler* rescaler;    // Common rescaler for all channels.
 };
 
 //------------------------------------------------------------------------------
@@ -104,10 +108,10 @@ struct ALPHDecoder;  // Defined in dec/alphai.h.
 // in vp8l.c
 
 // Decodes image header for alpha data stored using lossless compression.
-// Returns false in case of error.
-WEBP_NODISCARD int VP8LDecodeAlphaHeader(struct ALPHDecoder* const alph_dec,
-                                         const uint8_t* const data,
-                                         size_t data_size);
+// Returns VP8_STATUS_OK on success, the reason for the failure otherwise.
+WEBP_NODISCARD VP8StatusCode VP8LDecodeAlphaHeader(
+    struct ALPHDecoder* const alph_dec,
+    const uint8_t* const WEBP_COUNTED_BY(data_size) data, size_t data_size);
 
 // Decodes *at least* 'last_row' rows of alpha. If some of the initial rows are
 // already decoded in previous call(s), it will resume decoding from where it
@@ -141,10 +145,23 @@ WEBP_NODISCARD int ReadHuffmanCodesHelper(
     const int* const mapping, VP8LDecoder* const dec,
     HuffmanTables* const huffman_tables, HTreeGroup** const htree_groups);
 
+// Returns the number of rows to allocate in a sliding window buffer of width
+// 'width' and image height 'height' that needs to retain at least
+// 'max_history_rows' previous rows.
+int VP8LGetWindowRows(int width, int height, int max_history_rows);
+
+// Shifts rows prior to 'min_keep_row' out of 'data' (which holds pixels of
+// size 'elem_size' starting at row '*window_start_row' up to window pixel
+// offset 'src_offset'), updates '*window_start_row', and returns the number of
+// shifted pixels (or 0 if no shift occurred).
+ptrdiff_t VP8LShiftWindowBuffer(void* const data, int width, size_t elem_size,
+                                int min_keep_row, ptrdiff_t src_offset,
+                                int* const window_start_row);
+
 //------------------------------------------------------------------------------
 
 #ifdef __cplusplus
-}    // extern "C"
+}  // extern "C"
 #endif
 
 #endif  // WEBP_DEC_VP8LI_DEC_H_
