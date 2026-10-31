@@ -374,6 +374,12 @@ int main(int argc, char **argv)
 #define NCALLER 8
 	uint32_t probe_caller[NPROBE][NCALLER];
 	unsigned long long probe_caller_n[NPROBE][NCALLER];
+	/* A hit is counted before c33_step, which may take an interrupt
+	   instead of executing the probed instruction; the instruction then
+	   runs, and is counted again, when the handler returns.  Each step
+	   remembers which probes it counted, and where, to take those back. */
+	bool probe_counted[NPROBE];
+	unsigned probe_caller_slot[NPROBE];
 	memset(probe_caller_n, 0, sizeof probe_caller_n);
 	memset(probe_hits, 0, sizeof probe_hits);
 	memset(probe_gap_exec, 0, sizeof probe_gap_exec);
@@ -1016,9 +1022,13 @@ int main(int argc, char **argv)
 			}
 		}
 
+		bool probed = false;
+		unsigned long exceptions = cpu.irqs_taken + cpu.nmis_taken;
 		for (unsigned k = 0; armed && k < nprobe; k++) {
-			if (cpu.pc != probe[k])
+			probe_counted[k] = cpu.pc == probe[k];
+			if (!probe_counted[k])
 				continue;
+			probed = true;
 			if (!probe_hits[k]) {
 				probe_first_exec[k] = executed;
 				probe_first_clk[k] = cpu.clk;
@@ -1054,6 +1064,7 @@ int main(int argc, char **argv)
 						break;
 					}
 				}
+				probe_caller_slot[k] = j;
 			}
 		}
 
@@ -1414,6 +1425,16 @@ int main(int argc, char **argv)
 
 		c33_step(&cpu);
 		executed++;
+
+		if (probed && cpu.irqs_taken + cpu.nmis_taken != exceptions) {
+			for (unsigned k = 0; k < nprobe; k++) {
+				if (!probe_counted[k])
+					continue;
+				probe_hits[k]--;
+				if (probe_caller_slot[k] < NCALLER)
+					probe_caller_n[k][probe_caller_slot[k]]--;
+			}
+		}
 
 		/*
 		 * Runaway detection, from the word c33_step already fetched.
