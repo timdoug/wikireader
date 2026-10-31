@@ -68,12 +68,20 @@ time on cache snapshot and restore.
   tables reduce SDRAM row changes.
 - The Zstandard sequence loop and table builder run in A0 RAM. HTML,
   wrapping, Huffman, WebP and dithering use mutually exclusive IVRAM
-  overlays. The WebP overlay occupies 5,220 of its 5,632 bytes; preserve the
+  overlays. The WebP overlay occupies 5,408 of its 5,632 bytes; preserve the
   linker bounds and long-call flags when changing these paths.
 - Lossy WebP reconstruction produces scaled luma and alpha for the one-bit
   display, skips unused chroma work, uses C33 fixed-point multiplies, and
   accelerates transforms, rescaling and Atkinson dithering. Images stay
   incremental so touch is handled between decoder checkpoints.
+- Image decoding avoids SDRAM row changes the same way. Macroblock and
+  intra-mode parsing run on the DSTRAM stack below 0x84800 with a copy of
+  the bit reader there, the coefficient loop keeps the boolean decoder in
+  registers, the 832-byte prediction block lives at the bottom of that
+  stack region, the rescaler's two accumulator rows are interleaved into one
+  read stream, and paletted alpha maps through a 256-byte table in A0 RAM.
+  Together these took the first photo of six Wikivoyage articles from
+  578-2825 ms to 436-2104 ms in the emulator, 25-27% each.
 - Grifo retains SDRAM retiming, DMA descriptors in DSTRAM, and bounded DMA
   completion polling. Aligned payloads use 32-bit SPI and DMA; commands,
   tokens, CRCs and unaligned transfers stay byte-wide. `SD_DMA_BITS=8`
