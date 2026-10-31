@@ -24,13 +24,15 @@ xeyes and xterm): see "X11: where it stands".
 
 Validated 2026-10-31 in wremu on Linux 7.3.1: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
-`debug/core-test.py`, and all 25 local LTP port regressions pass against the
-existing root image. All 28 kernel patches apply in order to pristine v7.3.1.
+`debug/core-test.py`, `x11/run.py` and all 25 local LTP port regressions
+pass with a root image built from Buildroot 2026.08.1. All 28 kernel patches
+apply in order to pristine v7.3.1.
 The series keeps upstream's deferred NOMMU region registration and error
 cleanup, and drops our duplicate mapping-count check. C33 uses the generic
 syscall-entry API and exposes its existing register set to ptrace;
 the syscall-entry regression checks number rewriting and preservation
-of a tracer-supplied return value. Logs are `artifacts/kernel-7.3.1-*`.
+of a tracer-supplied return value. Logs are `artifacts/kernel-7.3.1-*` and
+`artifacts/buildroot-2026.08.1-*`.
 Linux 7.3 has not yet been checked on physical hardware; the device results
 below describe earlier kernels.
 

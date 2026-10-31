@@ -14,7 +14,7 @@ its compiler, its uClibc configuration and the BusyBox tree Buildroot built.
 Its separate test checkout is
 `/home/timdoug.guest/wr-linux/upstream-suites/uclibc-ng-test`, pinned to
 `132c6134d69146bcafbdda68ae3a9cbd9f8fb921`, the revision selected by our
-Buildroot 2026.08 package. `arch/` adds the C33 in upstream's
+Buildroot 2026.08.1 package. `arch/` adds the C33 in upstream's
 per-architecture form. `tls-macros-c33.h` and its include line in
 `tls-macros.h` give the TLS tests their four access models. Every C33 TLS
 relocation is a data word, so the macros emit those words and C reads them.

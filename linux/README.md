@@ -678,7 +678,7 @@ registers restored, through a 3 KB frame, rethrown, carried in an
 cross-casts; static construction; iostreams, containers and `shared_ptr`;
 and four threads throwing and catching concurrently under a mutex.
 
-`rootfs` builds the root filesystem with Buildroot 2026.08 and leaves it as
+`rootfs` builds the root filesystem with Buildroot 2026.08.1 and leaves it as
 `linux/artifacts/linux.img`, a 16 MB ext4 image with 4 KB blocks and no
 metadata checksums. It goes on the card's FAT partition beside `linux.app`,
 in one piece: every read into it walks its FAT chain, and on a card whose
