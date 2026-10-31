@@ -12,10 +12,10 @@ index 1a330bdd34..dc06a66910 100644
 +/tinycc/
 +/.venv/
 diff --git a/arch/Kconfig b/arch/Kconfig
-index b40bab2a0f..2dd410998e 100644
+index d328a3030c..ce960a9fd6 100644
 --- a/arch/Kconfig
 +++ b/arch/Kconfig
-@@ -52,6 +52,16 @@ config ARCH_AVR
+@@ -54,6 +54,16 @@ config ARCH_AVR
  	---help---
  		Atmel 8-bit bit AVR and 32-bit AVR32 architectures
  
@@ -32,7 +32,7 @@ index b40bab2a0f..2dd410998e 100644
  config ARCH_HC
  	bool "Freescale HC"
  	select ARCH_NOINTC
-@@ -216,6 +226,7 @@ config ARCH
+@@ -221,6 +231,7 @@ config ARCH
  	default "arm"     if ARCH_ARM
  	default "arm64"   if ARCH_ARM64
  	default "avr"     if ARCH_AVR
@@ -40,7 +40,7 @@ index b40bab2a0f..2dd410998e 100644
  	default "hc"      if ARCH_HC
  	default "mips"    if ARCH_MIPS
  	default "misoc"   if ARCH_MISOC
-@@ -240,6 +251,10 @@ endif
+@@ -245,6 +256,10 @@ endif
  if ARCH_AVR
  source "arch/avr/Kconfig"
  endif
@@ -52,7 +52,7 @@ index b40bab2a0f..2dd410998e 100644
  source "arch/hc/Kconfig"
  endif
 diff --git a/boards/Kconfig b/boards/Kconfig
-index 640e56c916..696e1f472a 100644
+index 5245027770..3bbfb87d75 100644
 --- a/boards/Kconfig
 +++ b/boards/Kconfig
 @@ -12,6 +12,10 @@ choice
@@ -66,7 +66,7 @@ index 640e56c916..696e1f472a 100644
  config ARCH_BOARD_AMBER
  	bool "Amber Web Server"
  	depends on ARCH_CHIP_ATMEGA128
-@@ -3878,6 +3882,7 @@ endif # ARCH_BOARD_CUSTOM
+@@ -4107,6 +4111,7 @@ endif # ARCH_BOARD_CUSTOM
  
  config ARCH_BOARD
  	string
@@ -74,7 +74,7 @@ index 640e56c916..696e1f472a 100644
  	default "amber"                        if ARCH_BOARD_AMBER
  	default "arduino-mega2560"             if ARCH_BOARD_ARDUINO_MEGA2560
  	default "arduino-due"                  if ARCH_BOARD_ARDUINO_DUE
-@@ -5983,3 +5988,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
+@@ -6284,3 +6289,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
  endif # BOARD_ETC_ROMFS_PASSWD_EXTRA_ENABLE
  
  endif # BOARD_ETC_ROMFS_PASSWD_ENABLE
@@ -83,10 +83,10 @@ index 640e56c916..696e1f472a 100644
 +source "boards/c33/s1c33e07/wikireader/Kconfig"
 +endif
 diff --git a/drivers/serial/pty.c b/drivers/serial/pty.c
-index c4f2eab5ce..ca9591b0e9 100644
+index 009588659f..edd4e52be0 100644
 --- a/drivers/serial/pty.c
 +++ b/drivers/serial/pty.c
-@@ -117,6 +117,7 @@ struct pty_devpair_s
+@@ -123,6 +123,7 @@ struct pty_devpair_s
    bool pp_susv1;                /* SUSv1 or BSD style */
    bool pp_locked;               /* Slave is locked */
    bool pp_unlinked;             /* File has been unlinked */
@@ -94,7 +94,7 @@ index c4f2eab5ce..ca9591b0e9 100644
    uint8_t pp_minor;             /* Minor device number */
    uint16_t pp_nopen;            /* Open file count */
    sem_t pp_slavesem;            /* Slave lock semaphore */
-@@ -599,6 +600,7 @@ static ssize_t pty_write(FAR struct file *filep,
+@@ -605,6 +606,7 @@ static ssize_t pty_write(FAR struct file *filep,
  #if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
    pid_t pid;
  #endif
@@ -102,7 +102,7 @@ index c4f2eab5ce..ca9591b0e9 100644
    size_t i;
    char ch;
  
-@@ -618,8 +620,9 @@ static ssize_t pty_write(FAR struct file *filep,
+@@ -624,8 +626,9 @@ static ssize_t pty_write(FAR struct file *filep,
  
    if ((dev->pd_oflag & OPOST) != 0)
      {
@@ -114,7 +114,7 @@ index c4f2eab5ce..ca9591b0e9 100644
         *
         *   OXTABS - primarily a full-screen terminal optimisation
         *   ONOEOT - Unix interoperability hack
-@@ -630,6 +633,50 @@ static ssize_t pty_write(FAR struct file *filep,
+@@ -636,6 +639,50 @@ static ssize_t pty_write(FAR struct file *filep,
        ntotal = 0;
        for (i = 0; i < len; i++)
          {
@@ -165,7 +165,7 @@ index c4f2eab5ce..ca9591b0e9 100644
            ch = *buffer++;
  
            /* Mapping CR to NL? */
-@@ -930,6 +977,55 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+@@ -989,6 +1036,55 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
          break;
  #endif
  
@@ -796,7 +796,7 @@ index dbbce3173b..e9ddd5956b 100644
  CSRCS += nxterm_unregister.c
  endif
 diff --git a/graphics/nxterm/nxterm.h b/graphics/nxterm/nxterm.h
-index 9cae216459..6be8ced57c 100644
+index a3e9c37d53..e045303482 100644
 --- a/graphics/nxterm/nxterm.h
 +++ b/graphics/nxterm/nxterm.h
 @@ -80,6 +80,7 @@ enum nxterm_vt100state_e
@@ -852,7 +852,7 @@ index 9cae216459..6be8ced57c 100644
    struct nxterm_bitmap_s bm[CONFIG_NXTERM_MXCHARS];
  
    /* Keyboard input support */
-@@ -231,6 +254,37 @@ void nxterm_putc(FAR struct nxterm_state_s *priv, uint8_t ch);
+@@ -232,6 +255,37 @@ void nxterm_putc(FAR struct nxterm_state_s *priv, uint8_t ch);
  void nxterm_showcursor(FAR struct nxterm_state_s *priv);
  void nxterm_hidecursor(FAR struct nxterm_state_s *priv);
  
@@ -1653,10 +1653,10 @@ index bbb2b5ba15..1011f98c26 100644
    /* Unregister the driver */
  
 diff --git a/graphics/nxterm/nxterm_vt100.c b/graphics/nxterm/nxterm_vt100.c
-index e421af785a..9a2884ffbb 100644
+index c92a9f4305..9a2884ffbb 100644
 --- a/graphics/nxterm/nxterm_vt100.c
 +++ b/graphics/nxterm/nxterm_vt100.c
-@@ -34,320 +34,382 @@
+@@ -34,313 +34,382 @@
  #include "nxterm.h"
  
  /****************************************************************************
@@ -1696,16 +1696,9 @@ index e421af785a..9a2884ffbb 100644
 -/* <esc>[K is the VT100 command erases to the end of the line. */
 +#define VT100_MAX_PARAMS 8
  
--static const char g_erasetoeol[] = VT100_CLEAREOL;
--static const char g_cursorleft[] =
--{
--  ASCII_ESC, '[', 'D'
--};
--
--static const char g_cursorright[] =
--{
--  ASCII_ESC, '[', 'C'
--};
+-static const char g_erasetoeol[]  = VT100_CLEAREOL;
+-static const char g_cursorleft[]  = VT100_CURSORLF_;
+-static const char g_cursorright[] = VT100_CURSORRT_;
 +/* ECMA-48 control sequence byte ranges */
  
 -/* The list of all VT100 sequences supported by the emulation */
@@ -1822,7 +1815,8 @@ index e421af785a..9a2884ffbb 100644
 -  uint16_t i;
 +  struct nxgl_rect_s bounds;
 +  int cellh = priv->fheight + CONFIG_NXTERM_LINESEPARATION;
-+
+ 
+-  /* Find the closest saved glyph to the left on the current line. */
 +  if (mode == 2 || mode == 3)
 +    {
 +      bounds.pt1.x = 0;
@@ -1832,14 +1826,13 @@ index e421af785a..9a2884ffbb 100644
 +      nxterm_eraseregion(priv, &bounds);
 +      return;
 +    }
- 
--  /* Find the closest saved glyph to the left on the current line. */
++
 +  /* Whole lines above or below the cursor, then the partial line it is on */
- 
--  for (i = 0; i < priv->nchars; i++)
++
 +  bounds.pt1.x = 0;
 +  bounds.pt2.x = priv->wndo.wsize.w - 1;
-+
+ 
+-  for (i = 0; i < priv->nchars; i++)
 +  if (mode == 1)
      {
 -      if (priv->bm[i].pos.y == priv->fpos.y &&
@@ -1855,15 +1848,15 @@ index e421af785a..9a2884ffbb 100644
 +    {
 +      bounds.pt1.y = priv->fpos.y + cellh;
 +      bounds.pt2.y = priv->wndo.wsize.h - 1;
-+    }
-+
-+  if (bounds.pt2.y >= bounds.pt1.y)
-+    {
-+      nxterm_eraseregion(priv, &bounds);
      }
  
 -  priv->fpos.x = x;
 -  return OK;
++  if (bounds.pt2.y >= bounds.pt1.y)
++    {
++      nxterm_eraseregion(priv, &bounds);
++    }
++
 +  nxterm_eraseline(priv, mode);
  }
  
@@ -1882,13 +1875,13 @@ index e421af785a..9a2884ffbb 100644
  {
 -  FAR const struct nxfonts_glyph_s *glyph;
 -  int i;
-+  int row;
-+  int col;
- 
+-
 -  /* Prefer the most recently rendered glyph when editing has overdrawn a
 -   * character at the same location.
 -   */
--
++  int row;
++  int col;
+ 
 -  for (i = priv->nchars - 1; i >= 0; i--)
 -    {
 -      if (priv->bm[i].pos.y == priv->fpos.y &&
@@ -1960,35 +1953,35 @@ index e421af785a..9a2884ffbb 100644
  
 -      if (ch == 'm')
 +      if (ch >= '0' && ch <= '9')
-+        {
+         {
+-          priv->nseq = 0;
+-          return VT100_PROCESSED;
 +          if (nparams < VT100_MAX_PARAMS)
 +            {
 +              params[nparams] = params[nparams] * 10 + (ch - '0');
 +            }
 +
 +          havedigit = true;
-+        }
+         }
 +      else if (ch == ';' || ch == ':')
-         {
--          priv->nseq = 0;
--          return VT100_PROCESSED;
++        {
 +          if (++nparams < VT100_MAX_PARAMS)
 +            {
 +              params[nparams] = 0;
 +            }
 +
 +          havedigit = true;
-         }
++        }
 +      else if (ch == '?' || ch == '<' || ch == '=' || ch == '>')
 +        {
 +          /* A private-parameter marker is only valid before the digits */
-+
+ 
+-      if ((ch < '0' || ch > '9') && ch != ';' && ch != ':')
 +          if (havedigit)
 +            {
 +              return VT100_ABORT;
 +            }
- 
--      if ((ch < '0' || ch > '9') && ch != ';' && ch != ':')
++
 +          isprivate = true;
 +        }
 +      else
@@ -2254,7 +2247,7 @@ index e421af785a..9a2884ffbb 100644
  }
  
  /****************************************************************************
-@@ -405,11 +467,28 @@ enum nxterm_vt100state_e nxterm_vt100(FAR struct nxterm_state_s *priv,
+@@ -398,11 +467,28 @@ enum nxterm_vt100state_e nxterm_vt100(FAR struct nxterm_state_s *priv,
  
    seqsize = priv->nseq;
    priv->seq[seqsize] = ch;
@@ -2287,7 +2280,7 @@ index e421af785a..9a2884ffbb 100644
      {
        /* The newly added character is indeed part of a VT100 escape sequence
 diff --git a/libs/libc/machine/Kconfig b/libs/libc/machine/Kconfig
-index 87a349f625..7274bcf2c7 100644
+index 3cee9cd98c..c611ce3917 100644
 --- a/libs/libc/machine/Kconfig
 +++ b/libs/libc/machine/Kconfig
 @@ -803,6 +803,9 @@ endif
@@ -2314,31 +2307,6 @@ index e8e03b6543..311094b729 100644
  ifeq ($(CONFIG_ARCH_MIPS),y)
  include $(TOPDIR)/libs/libc/machine/mips/Make.defs
  endif
-diff --git a/libs/libc/stdio/lib_getdelim.c b/libs/libc/stdio/lib_getdelim.c
-index 3eaed14caa..bdd692f6aa 100644
---- a/libs/libc/stdio/lib_getdelim.c
-+++ b/libs/libc/stdio/lib_getdelim.c
-@@ -99,9 +99,18 @@ ssize_t getdelim(FAR char **lineptr, size_t *n, int delimiter,
-       goto errout;
-     }
- 
--  /* Verify the buffer size */
-+  /* Verify the buffer size.
-+   *
-+   * A null *lineptr has no size for *n to describe, so whatever it holds
-+   * cannot be believed: callers routinely pass an uninitialized size along
-+   * with a null pointer, which both glibc and musl accept because there is
-+   * nothing else they could sensibly do with it. Taking the value at face
-+   * value here meant trying to allocate a garbage-sized buffer and failing
-+   * the call, which reads as a plain end of file to a caller that is only
-+   * checking the return for "> 0".
-+   */
- 
--  bufsize = *n;
-+  bufsize = *lineptr == NULL ? 0 : *n;
-   if (bufsize == 0)
-     {
-       /* Pick an initial buffer size */
 diff --git a/libs/libc/string/lib_strchr.c b/libs/libc/string/lib_strchr.c
 index 9002dbae8f..9f8059669f 100644
 --- a/libs/libc/string/lib_strchr.c
@@ -2411,17 +2379,3 @@ index 873e9b66ac..1fe7672689 100644
          {
            r = s;
          }
-diff --git a/libs/libc/unistd/lib_sysconf.c b/libs/libc/unistd/lib_sysconf.c
-index 20655721c1..a52e946f84 100644
---- a/libs/libc/unistd/lib_sysconf.c
-+++ b/libs/libc/unistd/lib_sysconf.c
-@@ -239,6 +239,9 @@ long sysconf(int name)
-       case _SC_CLK_TCK:
-         return CLOCKS_PER_SEC;
- 
-+      case _SC_ARG_MAX:
-+        return ARG_MAX;
-+
-       case _SC_OPEN_MAX:
-         return OPEN_MAX;
- 

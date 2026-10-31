@@ -125,7 +125,7 @@ index 904eb9f81..997a54189 100644
  #include "luamod_list.h"
    {NULL, NULL},
 diff --git a/nshlib/Kconfig b/nshlib/Kconfig
-index 8f1740a18..3416eab69 100644
+index 026d9acbc..65e72896a 100644
 --- a/nshlib/Kconfig
 +++ b/nshlib/Kconfig
 @@ -225,6 +225,29 @@ config NSH_DISABLEBG
@@ -159,10 +159,10 @@ index 8f1740a18..3416eab69 100644
  	bool "Enable alias support"
  	default !DEFAULT_SMALL
 diff --git a/nshlib/nsh.h b/nshlib/nsh.h
-index 9ac148b94..11443fb3b 100644
+index 1f98d4bf2..2400a8d97 100644
 --- a/nshlib/nsh.h
 +++ b/nshlib/nsh.h
-@@ -848,6 +848,9 @@ int nsh_dropbearstart(void);
+@@ -849,6 +849,9 @@ int nsh_dropbearstart(void);
  /* Application interface */
  
  int nsh_command(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char *argv[]);
@@ -173,10 +173,10 @@ index 9ac148b94..11443fb3b 100644
  #ifdef CONFIG_NSH_BUILTIN_APPS
  int nsh_builtin(FAR struct nsh_vtbl_s *vtbl, FAR const char *cmd,
 diff --git a/nshlib/nsh_command.c b/nshlib/nsh_command.c
-index 14a375ebc..b2a304d87 100644
+index d4e3654a1..12ec58865 100644
 --- a/nshlib/nsh_command.c
 +++ b/nshlib/nsh_command.c
-@@ -1253,6 +1253,34 @@ static int cmd_expr(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
+@@ -1274,6 +1274,34 @@ static int cmd_expr(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
   *
   ****************************************************************************/
  
@@ -212,10 +212,10 @@ index 14a375ebc..b2a304d87 100644
  {
    const struct cmdmap_s  *cmdmap;
 diff --git a/nshlib/nsh_parse.c b/nshlib/nsh_parse.c
-index 9de45b887..b458daa3a 100644
+index ec8251357..7eee473e7 100644
 --- a/nshlib/nsh_parse.c
 +++ b/nshlib/nsh_parse.c
-@@ -39,6 +39,10 @@
+@@ -40,6 +40,10 @@
  #  include <sys/stat.h>
  #endif
  
@@ -225,8 +225,8 @@ index 9de45b887..b458daa3a 100644
 +
  #include <nuttx/version.h>
  #include <nuttx/sched_note.h>
- 
-@@ -750,8 +754,49 @@ static int nsh_execute(FAR struct nsh_vtbl_s *vtbl,
+ #include <nuttx/lib/lib.h>
+@@ -755,8 +759,49 @@ static int nsh_execute(FAR struct nsh_vtbl_s *vtbl,
         *  0 (OK)     if the command was successful
         */
  
@@ -274,8 +274,8 @@ index 9de45b887..b458daa3a 100644
 +#endif
 +
        /* Restore the original output.  Undirect will close the redirection
-        * file descriptor.
-        */
+        * file descriptor.  Do not test the np_redir_* flags again: a script
+        * ("source") parses its lines with this vtbl, which clears them.
 diff --git a/system/toybox/Kconfig.commands b/system/toybox/Kconfig.commands
 index 6cc64eb0f..631a1a19a 100644
 --- a/system/toybox/Kconfig.commands

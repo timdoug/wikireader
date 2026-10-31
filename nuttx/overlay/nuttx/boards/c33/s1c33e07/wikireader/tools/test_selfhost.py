@@ -84,9 +84,9 @@ def main():
                  'OBJECT', 'RELOAD', 'RECOVERY', 'FIB'):
         if f'\n{name}_STATUS=0\n' not in text or f'\n{name}_STATUS=1\n' in text:
             raise SystemExit(f'{name} failed: {out / "emulator.log"}')
-    for name in ('ERROR', 'EXIT'):
-        if f'\n{name}_STATUS=1\n' not in text:
-            raise SystemExit(f'{name} did not fail')
+    for name, status in (('ERROR', 1), ('EXIT', 23)):
+        if f'\n{name}_STATUS={status}\n' not in text:
+            raise SystemExit(f'{name} did not exit with status {status}')
     match = re.search(r'\nBOOTSTRAP_MATCH (\d+) ([0-9a-f]+)\n', text)
     if not match or '\nC33_REGRESSION_OK 3659629602\n' not in text or text.count('\nC33_FLOAT_OK\n') != 2:
         raise SystemExit('Compiled compiler failed a regression')

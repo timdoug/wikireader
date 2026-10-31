@@ -5,7 +5,11 @@ include $(TOPDIR)/tools/Config.mk
 CROSSDEV ?= c33-epson-elf-
 CC = $(CROSSDEV)gcc
 CXX = $(CROSSDEV)g++
-CPP = $(CC) -E -P -x c
+# nxglib preprocesses its sources with $(CPP) and compiles the result with
+# $(CFLAGS), so both need the same C standard: under GCC's default C23,
+# stdbool.h leaves bool to the keyword that gnu11 does not have.
+ARCHCSTANDARD = -std=gnu11
+CPP = $(CC) -E -P -x c $(ARCHCSTANDARD)
 LD = $(CROSSDEV)ld
 AR = $(CROSSDEV)ar rcs
 UNAR = $(CROSSDEV)ar x
@@ -30,7 +34,7 @@ endif
 ARCHOPTIMIZATION += -ffile-prefix-map=$(TOPDIR)=nuttx
 ARCHINCLUDES = -I$(TOPDIR)/include
 CFLAGS = $(ARCHCPUFLAGS) $(ARCHOPTIMIZATION) $(ARCHINCLUDES) \
-         -std=gnu11 -ffreestanding -Wall -Wstrict-prototypes -Wshadow \
+         $(ARCHCSTANDARD) -ffreestanding -Wall -Wstrict-prototypes -Wshadow \
          -Wundef -ffunction-sections -fdata-sections $(EXTRAFLAGS)
 CPPFLAGS = $(ARCHINCLUDES) $(EXTRAFLAGS)
 AFLAGS = $(CFLAGS) -D__ASSEMBLY__

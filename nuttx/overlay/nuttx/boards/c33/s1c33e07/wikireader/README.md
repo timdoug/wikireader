@@ -219,8 +219,8 @@ visible. Linux hosts should use `-l` instead of `-m`.
 
 Tested versions:
 
-* NuttX base: `88c8623ced`.
-* nuttx-apps: `2f76986584ddd3881335e5897bbd80e12ae431a2`.
+* NuttX base: `bd8ee153d3`.
+* nuttx-apps: `35cdcc9a850c7d41f6ff80bde3799f3a17cde4c8`.
 * C33 GCC: 16.2.0; binutils: 2.47.20260726.
 * Python Kconfiglib: 14.1.0; GNU make; `flock`.
 * wremu with the UART changes and 256-event tap scripts in `~/wikireader/emulator`.

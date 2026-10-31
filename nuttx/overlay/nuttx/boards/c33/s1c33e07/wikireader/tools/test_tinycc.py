@@ -90,10 +90,11 @@ def main():
     for tag in ('SOURCE', 'OBJECT', 'RELOAD', 'RECOVERY', 'REPEAT', 'FLOAT'):
         if f'\n{tag}_STATUS=0\n' not in text or f'\n{tag}_STATUS=1\n' in text:
             raise SystemExit(f'{tag} failed')
-    # NSH normalizes nonzero builtin exits to shell status 1.
-    for tag in ('BAD', 'ASM', 'LINK', 'RETURN', 'EXIT'):
-        if f'\n{tag}_STATUS=1\n' not in text:
-            raise SystemExit(f'{tag} did not report failure')
+    # $? is the program's own exit status; compiler errors are EXIT_FAILURE.
+    for tag, status in (('BAD', 1), ('ASM', 1), ('LINK', 1), ('RETURN', 37),
+                        ('EXIT', 23)):
+        if f'\n{tag}_STATUS={status}\n' not in text:
+            raise SystemExit(f'{tag} did not report status {status}')
     for bad in ('C33: fatal', 'compiler is already running', 'unmapped read',
                 'unmapped write', 'runaway:', 'Assertion failed', 'C33_REGRESSION_FAIL'):
         if bad in text:

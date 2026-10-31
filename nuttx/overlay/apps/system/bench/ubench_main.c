@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "bench_card.h"
 

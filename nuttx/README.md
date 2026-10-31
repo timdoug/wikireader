@@ -293,8 +293,8 @@ to be found and dealt with:
   `SYSTEM_TOYBOX`'s Kconfig does not say it depends on one. Rather than write
   ~500 lines of stack-copying assembly for a board nobody has powered on,
   patch `0025` spawns instead — see "How processes start" below.
-* `getdelim()` and `sysconf(_SC_ARG_MAX)` were both wrong in NuttX's libc;
-  see "Three bugs found on the way".
+* `getdelim()` and `sysconf(_SC_ARG_MAX)` were both wrong in NuttX's libc,
+  and upstream has since fixed both; see "Eight bugs found on the way".
 
 Two are deliberately off: `setsid` wants session leadership, which NuttX does
 not have, and `getconf` wants POSIX limit macros NuttX does not define.
@@ -417,8 +417,9 @@ here rather than its default `/mnt/fs`.
 
 Five were latent in NuttX itself -- three in the C library, which Toybox is
 the first thing here to exercise that much of, and two in the FAT driver,
-found by the card work below; they are fixed in `patches/nuttx.patch`. The
-others are Toybox's, in patches `0025` and `0028`.
+found by the card work below. Upstream NuttX has since fixed `getdelim()` and
+`sysconf(_SC_ARG_MAX)` itself; `patches/nuttx.patch` fixes the other three.
+The others are Toybox's, in patches `0025` and `0028`.
 
 Three of the eight are the same mistake: assuming plain `char` is unsigned. It
 is signed here — `DEFAULT_SIGNED_CHAR 1` in the compiler's C33 backend,

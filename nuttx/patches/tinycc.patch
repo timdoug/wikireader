@@ -134,7 +134,7 @@ index 44ea25fa..1a20ccbf 100644
  #elif defined(TCC_TARGET_MACHO)
      "apple-darwin"
 diff --git a/tcc.h b/tcc.h
-index ce9b5189..3356ade0 100644
+index 864a4e32..db1b8d9e 100644
 --- a/tcc.h
 +++ b/tcc.h
 @@ -41,6 +41,11 @@
@@ -216,10 +216,10 @@ index ce9b5189..3356ade0 100644
  /* target address type */
  #define addr_t ElfW(Addr)
 diff --git a/tccelf.c b/tccelf.c
-index def5aebc..168495d3 100644
+index 9e2d1364..b4fe1b40 100644
 --- a/tccelf.c
 +++ b/tccelf.c
-@@ -2711,6 +2711,8 @@ static int tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr)
+@@ -2713,6 +2713,8 @@ static int tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr)
          ? EF_ARM_VFP_FLOAT : EF_ARM_SOFT_FLOAT;
  #elif defined TCC_TARGET_ARM
      ehdr.e_ident[EI_OSABI] = ELFOSABI_ARM;
@@ -229,10 +229,10 @@ index def5aebc..168495d3 100644
      /* XXX should be configurable */
      ehdr.e_flags = EF_RISCV_FLOAT_ABI_DOUBLE;
 diff --git a/tccgen.c b/tccgen.c
-index 8f4cd13a..c8deeccd 100644
+index 1b634671..4d69d55a 100644
 --- a/tccgen.c
 +++ b/tccgen.c
-@@ -3177,7 +3177,7 @@ op_err:
+@@ -3185,7 +3185,7 @@ op_err:
          gv(RC_TYPE(vtop->type.t));
  }
  
@@ -241,7 +241,7 @@ index 8f4cd13a..c8deeccd 100644
  #define gen_cvt_itof1 gen_cvt_itof
  #else
  /* generic itof for unsigned long long case */
-@@ -3204,7 +3204,7 @@ static void gen_cvt_itof1(int t)
+@@ -3212,7 +3212,7 @@ static void gen_cvt_itof1(int t)
  }
  #endif
  
@@ -250,7 +250,7 @@ index 8f4cd13a..c8deeccd 100644
  #define gen_cvt_ftoi1 gen_cvt_ftoi
  #else
  /* generic ftoi for unsigned long long case */
-@@ -3522,7 +3522,7 @@ ST_FUNC int type_size(CType *type, int *a)
+@@ -3530,7 +3530,7 @@ ST_FUNC int type_size(CType *type, int *a)
          return LDOUBLE_SIZE;
      } else if (bt == VT_DOUBLE || bt == VT_LLONG) {
  #if (defined TCC_TARGET_I386 && !defined TCC_TARGET_PE) \
@@ -259,7 +259,7 @@ index 8f4cd13a..c8deeccd 100644
          *a = 4;
  #else
          *a = 8;
-@@ -4006,12 +4006,19 @@ redo:
+@@ -4033,12 +4033,19 @@ redo:
              } else {
                  n = MAX_ALIGN;
              }
@@ -279,7 +279,7 @@ index 8f4cd13a..c8deeccd 100644
              ad->a.packed = 1;
              break;
          case TOK_WEAK1:
-@@ -4788,7 +4795,11 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
+@@ -4817,7 +4824,11 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
                      tcc_error("alignment must be a positive power of two");
                }
                skip(')');
@@ -292,7 +292,7 @@ index 8f4cd13a..c8deeccd 100644
              }
              continue;
          case TOK_LONG:
-@@ -5879,6 +5890,10 @@ ST_FUNC void unary(void)
+@@ -5927,6 +5938,10 @@ ST_FUNC void unary(void)
              mk_pointer(&type);
              vset(&type, VT_LOCAL, 0);       /* local frame */
              while (level--) {
@@ -303,7 +303,7 @@ index 8f4cd13a..c8deeccd 100644
  #ifdef TCC_TARGET_RISCV64
                  vpushi(2*PTR_SIZE);
                  gen_op('-');
-@@ -5891,6 +5906,9 @@ ST_FUNC void unary(void)
+@@ -5939,6 +5954,9 @@ ST_FUNC void unary(void)
  #ifdef TCC_TARGET_ARM
                  vpushi(2*PTR_SIZE);
                  gen_op('+');

@@ -24,6 +24,9 @@ STUB = r"""
 #define ONLRET 8
 #define CONFIG_TTY_SIGINT_CHAR 3
 #define CONFIG_TTY_SIGTSTP_CHAR 26
+#undef _POSIX_VDISABLE
+#define _POSIX_VDISABLE '\0'
+typedef unsigned char cc_t;
 struct inode { void *i_private; };
 struct file { struct inode *f_inode; };
 struct pty_devpair_s;
@@ -34,7 +37,10 @@ struct pty_dev_s {
   pid_t pd_pid;
   unsigned pd_oflag;
 };
-struct pty_devpair_s { struct pty_dev_s pp_master, pp_slave; };
+struct pty_devpair_s {
+  struct pty_dev_s pp_master, pp_slave;
+  cc_t pp_vintr, pp_vsusp;
+};
 static unsigned char output[8192];
 static size_t used, calls, capacity;
 static int fail_at, got_signal, signal_pid;
@@ -74,7 +80,9 @@ static unsigned rnd(void)
 }
 int main(void)
 {
-  struct pty_devpair_s pair = {0};
+  struct pty_devpair_s pair = {
+    .pp_vintr = CONFIG_TTY_SIGINT_CHAR, .pp_vsusp = CONFIG_TTY_SIGTSTP_CHAR
+  };
   struct pty_dev_s dev = {.pd_devpair = &pair};
   struct inode inode = {&dev};
   struct file file = {&inode};
