@@ -11,7 +11,7 @@ right.
 
 ## State
 
-The port runs Linux 7.3 (`revisions`). It boots the production path and the
+The port runs Linux 7.3.1 (`revisions`). It boots the production path and the
 Grifo launcher path, mounts the card, runs BusyBox as PID 1, draws a
 userspace terminal on the panel, takes touch input, blanks the display when
 idle, suspends to idle, and wakes on a touch. Battery and board temperature
@@ -22,15 +22,15 @@ HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
 `app-test.py` both pass, both through Grifo. It also runs X11 (Xfbdev, twm,
 xeyes and xterm): see "X11: where it stands".
 
-Validated 2026-10-22 in wremu on Linux 7.3: full-chain `boot-test.sh`,
+Validated 2026-10-31 in wremu on Linux 7.3.1: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
 `debug/core-test.py`, and all 25 local LTP port regressions pass against the
-existing root image. All 28 kernel patches apply in order to pristine v7.3.
-The rebase keeps upstream's deferred NOMMU region registration and error
-cleanup, and drops our duplicate mapping-count check. C33 uses the new
-generic syscall-entry API and exposes its existing register set to ptrace;
-the added syscall-entry regression checks number rewriting and preservation
-of a tracer-supplied return value. Logs are `artifacts/kernel-7.3-*`.
+existing root image. All 28 kernel patches apply in order to pristine v7.3.1.
+The series keeps upstream's deferred NOMMU region registration and error
+cleanup, and drops our duplicate mapping-count check. C33 uses the generic
+syscall-entry API and exposes its existing register set to ptrace;
+the syscall-entry regression checks number rewriting and preservation
+of a tracer-supplied return value. Logs are `artifacts/kernel-7.3.1-*`.
 Linux 7.3 has not yet been checked on physical hardware; the device results
 below describe earlier kernels.
 
