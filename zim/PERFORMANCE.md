@@ -84,6 +84,14 @@ time on cache snapshot and restore.
   first image of ten Wikipedia and Wikivoyage articles decodes 21-27%
   faster, 11.2 s to 8.5 s in total, and the first screen finishes 4.5-17%
   sooner; retrieval is unchanged. The emulator predicted 26-28%.
+- Text comes before pictures. The first page goes up with blank image boxes,
+  which are decoded and drawn in afterwards, and an article of 64 KB of HTML
+  or more is first shown from a prefix of it (converted until there are 4 KB
+  of text) and completed in the background once that page is up, the
+  renderer moved onto the complete stream without a redraw. On the device
+  (2026-11-01) text appears 45-76% sooner, 0.93-1.44 s instead of 3.0-4.5 s
+  on Wikipedia's Cat, Paris, Tokyo and London; the article completes about 3%
+  later. Cluster decoding is now most of the wait for the first page.
 - Grifo retains SDRAM retiming, DMA descriptors in DSTRAM, and bounded DMA
   completion polling. Aligned payloads use 32-bit SPI and DMA; commands,
   tokens, CRCs and unaligned transfers stay byte-wide. `SD_DMA_BITS=8`
