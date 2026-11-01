@@ -1370,6 +1370,17 @@ int render_article_with_pcf()
 	 * page is on the panel, before anything else is drawn. */
 	if (article_stream_finish && display_first_page && article_stream_finish())
 		return 1;
+	/* Work behind the renderer, such as filling in image boxes it drew
+	 * blank, goes first: the lazy-rendering limit below is about what lies
+	 * ahead, and the renderer may already be past it. */
+	if (article_stream_prepare && display_first_page) {
+		prepare_status = article_stream_prepare(NULL);
+		if (prepare_status) {
+			if (prepare_status < 0)
+				draw_article_progress(-1, 0);
+			return prepare_status > 0;
+		}
+	}
 	/* A storage backend may leave expensive objects in the article stream
 	 * deferred. Keep a few screens rendered ahead of the visible viewport,
 	 * enough for a flick to coast into, and resume naturally when

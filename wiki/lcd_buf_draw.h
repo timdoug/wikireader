@@ -295,7 +295,8 @@ typedef struct _ARTICLE_RENDER_INFO
 
 /* The storage backend may prepare an expensive stream object incrementally.
  * Zero means ready, positive means run another slice, and negative means
- * paused until another event changes the interaction state. */
+ * paused until another event changes the interaction state.  Once the first
+ * page is up it is also called with NULL, for work behind the renderer. */
 typedef int (*ARTICLE_STREAM_PREPARE)(unsigned char *position);
 typedef long (*ARTICLE_LINK_HANDLER)(long article_id, int resolve);
 

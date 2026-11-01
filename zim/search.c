@@ -628,6 +628,7 @@ static int article_image(void *opaque, const unsigned char *source_path,
 static int prepare_article_image(unsigned char *stream)
 {
 	ZIM_DEFERRED_IMAGE *deferred;
+	int late;
 	ZIM_DIRENT dirent;
 	char path[ZIM_DIRENT_TEXT_MAX];
 	size_t webp_size;
@@ -645,6 +646,7 @@ static int prepare_article_image(unsigned char *stream)
 		return 0;
 	if (deferred->stream != stream && !deferred->drawn)
 		return 0;
+	late = deferred->stream != stream;
 	/* Let the viewport settle before choosing a new batch or advancing a
 	 * decoder. Existing decoder state survives direct and kinetic scrolling. */
 	wikilib_service_pending_touch_events();
@@ -729,7 +731,10 @@ out:
 	image_progress(0);
 	if (deferred_image_next == image_batch_end)
 		draw_article_progress(-1, 0);
-	return 0;
+	/* Behind the renderer there is no stream token to draw next, and
+	 * past its limit it would report the page idle: say there is more,
+	 * so the next box is filled without waiting for an event. */
+	return late;
 }
 
 bool search_string_changed;
