@@ -218,7 +218,7 @@ static void load_one(int pass, const ENTRY *e)
 			     "read_us=%lu read_sectors=%lu open_us=%lu screen_us=%lu "
 			     "image_us=%lu images=%d blob_us=%lu html_us=%lu "
 			     "budget_us=%lu wrap_us=%lu raw=%lu text=%lu article=%lu "
-			     "paint_us=%lu\n",
+			     "paint_us=%lu preview=%d finish_us=%lu\n",
 			     label, pass, zim_catalog_path(wiki), e->title,
 			     us(zim_bench.retrieve_ticks),
 			     us((unsigned long)zim_bench.io.read_ticks),
@@ -231,7 +231,9 @@ static void load_one(int pass, const ENTRY *e)
 			     us(m[ZB_DONE] - m[ZB_WRAP]),
 			     zim_bench.raw_size, zim_bench.text_size,
 			     zim_bench.article_size,
-			     painted ? us(painted - start) : 0);
+			     painted ? us(painted - start) : 0, zim_bench.preview,
+			     zim_bench.preview ?
+				     us(m[ZB_FINISHED] - m[ZB_FINISH]) : 0);
 		if (n > 0 && n < (int)sizeof(line))
 			append_log(line, n);
 	}

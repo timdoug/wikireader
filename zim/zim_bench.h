@@ -30,6 +30,8 @@ enum {
 	ZB_BUDGET,      /* image budget scan starts */
 	ZB_WRAP,        /* wrapping starts */
 	ZB_DONE,        /* wrapped */
+	ZB_FINISH,      /* a preview's completion starts */
+	ZB_FINISHED,    /* ...and is done */
 	ZB_MARKS
 };
 
@@ -42,6 +44,7 @@ typedef struct {
 	unsigned long retrieve_ticks;   /* __wrap_retrieve_article */
 	file_io_stats_t io;             /* card reads during the retrieval */
 	int images;                     /* decoders created, up to 16 */
+	int preview;                    /* 1 previewed, 2 previewed but redisplayed */
 } ZIM_BENCH;
 
 extern ZIM_BENCH zim_bench;

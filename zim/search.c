@@ -1112,6 +1112,8 @@ static void populate_results(void)
 	more_search_results = search_cursor_peek();
 }
 
+static int finish_article(void);
+
 static void article_bitmap_placed(const unsigned char *record, int x, int y)
 {
 	size_t i;
@@ -1129,6 +1131,7 @@ void search_init(void)
 {
 	set_article_stream_prepare(prepare_article_image);
 	set_article_bitmap_placed(article_bitmap_placed);
+	set_article_stream_finish(finish_article);
 	set_article_link_handler(handle_article_link);
 	if (!archive_file.open) {
 		static const unsigned char message[] = "Opening ZIM archive...";
@@ -1445,6 +1448,160 @@ void get_article_title_from_idx(long index, unsigned char *title)
 	title[MAX_TITLE_ACTUAL - 1] = '\0';
 }
 
+/* Text in text_buffer to the article stream in file_buffer, with its images,
+ * links and anchors recorded and their stream pointers made final. */
+/* foreground: the load the reader is waiting on, with its progress bar and
+ * benchmark marks; a preview's completion runs under the shown page. */
+static int wrap_article(size_t text_size, ARTICLE_HEADER *header,
+			size_t *article_size, int *article_height, int foreground)
+{
+	size_t i;
+
+	deferred_image_count = 0;
+	deferred_image_next = 0;
+	deferred_link_count = 0;
+	deferred_anchor_count = 0;
+	article_text_size = text_size;
+	if (foreground)
+		ZIM_BENCH_MARK(ZB_BUDGET);
+	image_budget = article_image_budget(text_buffer, text_size);
+	if (foreground)
+		ZIM_BENCH_MARK(ZB_WRAP);
+	if (zim_text_to_article_images_links_progress(text_buffer, text_size,
+					     file_buffer, FILE_BUFFER_SIZE,
+					     article_size, article_image, NULL,
+					     article_link, NULL, article_anchor,
+					     NULL, article_height,
+					     foreground ? article_wrap_progress : NULL,
+					     NULL))
+		return -1;
+	if (foreground)
+		ZIM_BENCH_MARK(ZB_DONE);
+	memcpy(header, file_buffer, sizeof(*header));
+	if (header->offset_article < sizeof(*header))
+		return -1;
+	for (i = 0; i < deferred_image_count; i++)
+		deferred_images[i].stream += header->offset_article - sizeof(*header);
+	return 0;
+}
+
+/* A long article is first shown from a prefix of its HTML: the converter is a
+ * single forward pass, so a prefix ending at a tag converts to the start of
+ * the whole article's text, and its first page wraps the same.  Once that
+ * page is up, finish_article() converts the rest and moves the renderer onto
+ * the complete stream.  Converting and wrapping a long article is about a
+ * second and a half on the device; its first page needs a fraction of it. */
+#define PREVIEW_MIN_RAW (64 * 1024)     /* shorter articles convert whole */
+#define PREVIEW_FIRST_CUT (24 * 1024)   /* HTML bytes tried first, then doubled */
+#define PREVIEW_TEXT (4 * 1024)         /* text that covers several screens */
+
+static struct {
+	int pending;
+	const unsigned char *raw;       /* the decoded-cluster cache or raw_buffer */
+	size_t raw_size;
+} preview;
+
+static int convert_article_text(const unsigned char *raw, size_t raw_size,
+				size_t *text_size)
+{
+	size_t cut;
+
+	preview.pending = 0;
+	if (raw_size >= PREVIEW_MIN_RAW && !pending_fragment_length) {
+		for (cut = PREVIEW_FIRST_CUT; cut < raw_size / 2; cut *= 2) {
+			size_t end = cut;
+
+			while (end && raw[end] != '<')
+				end--;
+			if (!end || zim_html_to_text_images_progress(raw, end,
+					text_buffer, FILE_BUFFER_SIZE, text_size,
+					NULL, NULL))
+				break;
+			if (*text_size >= PREVIEW_TEXT) {
+				preview.pending = 1;
+				preview.raw = raw;
+				preview.raw_size = raw_size;
+				return 0;
+			}
+		}
+	}
+	return zim_html_to_text_images_progress(raw, raw_size, text_buffer,
+						FILE_BUFFER_SIZE, text_size,
+						article_html_progress, NULL);
+}
+
+static int finish_article(void)
+{
+	ARTICLE_HEADER header;
+	size_t text_size, article_size, rendered, old_images, i;
+	long old_offset, delta;
+	int article_height;
+	int same;
+	unsigned char *shown;
+	int *drawn;
+
+	if (!preview.pending)
+		return 0;
+	preview.pending = 0;
+	ZIM_BENCH_MARK(ZB_FINISH);
+	/* What the renderer has consumed must come out the same, and the
+	 * image boxes it drew must still be filled in. */
+	old_offset = (long)current_article_header.offset_article;
+	rendered = (size_t)(article_buf_pointer - (file_buffer + old_offset));
+	old_images = deferred_image_count;
+	shown = malloc(rendered + 1);
+	drawn = malloc(3 * sizeof(*drawn) * (old_images + 1));
+	if (shown)
+		memcpy(shown, file_buffer + old_offset, rendered);
+	for (i = 0; drawn && i < old_images; i++) {
+		drawn[3 * i] = deferred_images[i].drawn;
+		drawn[3 * i + 1] = deferred_images[i].drawn_x;
+		drawn[3 * i + 2] = deferred_images[i].drawn_y;
+	}
+	if (zim_html_to_text_images_progress(preview.raw, preview.raw_size,
+					     text_buffer, FILE_BUFFER_SIZE,
+					     &text_size, NULL, NULL) ||
+	    wrap_article(text_size, &header, &article_size, &article_height, 0)) {
+		free(shown);
+		free(drawn);
+		article_buf_pointer = NULL;
+		print_article_error();
+		return 1;
+	}
+	set_article_stream_height(article_height);
+	current_article_valid = 1;
+	current_article_size = article_size;
+	current_article_height = article_height;
+	current_article_header = header;
+	delta = (long)header.offset_article - old_offset;
+	same = shown && drawn &&
+#ifdef ZIM_TEST_PREVIEW_REDISPLAY
+	       0 &&
+#endif
+	       header.offset_article + rendered <= article_size &&
+	       !memcmp(shown, file_buffer + header.offset_article, rendered);
+	if (same) {
+		for (i = 0; i < old_images && i < deferred_image_count; i++)
+			if (drawn[3 * i] && deferred_images[i].stream <
+					    article_buf_pointer + delta) {
+				deferred_images[i].drawn = 1;
+				deferred_images[i].drawn_x = drawn[3 * i + 1];
+				deferred_images[i].drawn_y = drawn[3 * i + 2];
+			}
+		article_stream_replaced(delta);
+	} else {
+		/* Not expected; start the page again where it is. */
+		set_article_initial_y_pos(lcd_draw_cur_y_pos);
+		display_retrieved_article(saved_idx_article);
+	}
+	free(shown);
+	free(drawn);
+	ZIM_BENCH_MARK(ZB_FINISHED);
+	if (zim_bench.active)
+		zim_bench.preview = same ? 1 : 2;
+	return 1;
+}
+
 int retrieve_article(long encoded_index)
 {
 	ARTICLE_HEADER article_header;
@@ -1457,6 +1614,7 @@ int retrieve_article(long encoded_index)
 	int rc = 0;
 	int article_height;
 	zim_overlay_invalidate();   /* the search screen draws into IVRAM */
+	preview.pending = 0;        /* an unfinished preview is dropped */
 	set_article_stream_height(0);
 	draw_article_progress(-1, 0);
 	image_batch_first = image_batch_end = 0;
@@ -1524,42 +1682,22 @@ int retrieve_article(long encoded_index)
 convert_html:
 	ZIM_BENCH_MARK(ZB_HTML);
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
-	rc = zim_html_to_text_images_progress(raw, raw_size, text_buffer,
-					      FILE_BUFFER_SIZE, &text_size,
-					      article_html_progress, NULL);
+	rc = convert_article_text(raw, raw_size, &text_size);
 	if (rc)
 		goto error;
 	draw_progress_bar(ARTICLE_PROGRESS_HTML_END, ARTICLE_PROGRESS_LIMIT);
-	deferred_image_count = 0;
-	deferred_image_next = 0;
-	deferred_link_count = 0;
-	deferred_anchor_count = 0;
-	article_text_size = text_size;
-	ZIM_BENCH_MARK(ZB_BUDGET);
-	image_budget = article_image_budget(text_buffer, text_size);
-	ZIM_BENCH_MARK(ZB_WRAP);
-	if (zim_text_to_article_images_links_progress(text_buffer, text_size,
-					     file_buffer, FILE_BUFFER_SIZE,
-					     &article_size, article_image, NULL,
-					     article_link, NULL, article_anchor,
-					     NULL, &article_height,
-					     article_wrap_progress, NULL))
+	if (wrap_article(text_size, &article_header, &article_size,
+			 &article_height, 1))
 		goto error;
-	ZIM_BENCH_MARK(ZB_DONE);
 	if (zim_bench.active) {
 		zim_bench.raw_size = raw_size;
 		zim_bench.text_size = text_size;
 		zim_bench.article_size = article_size;
 	}
 	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
-	memcpy(&article_header, file_buffer, sizeof(article_header));
-	if (article_header.offset_article < sizeof(article_header))
-		goto error;
-	for (index = 0; index < deferred_image_count; index++)
-		deferred_images[index].stream += article_header.offset_article -
-			sizeof(article_header);
 	set_article_stream_height(article_height);
-	current_article_valid = 1;
+	/* A preview is not the article yet: not cached until finished. */
+	current_article_valid = !preview.pending;
 	current_article_index = (uint32_t)encoded_index & ARTICLE_INDEX_MASK;
 	current_article_size = article_size;
 	current_article_height = article_height;

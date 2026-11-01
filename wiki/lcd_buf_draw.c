@@ -122,6 +122,9 @@ long saved_idx_article = 0;
 long saved_prev_idx_article = 0;
 static ARTICLE_STREAM_PREPARE article_stream_prepare;
 static ARTICLE_BITMAP_PLACED article_bitmap_placed;
+static ARTICLE_STREAM_FINISH article_stream_finish;
+static int article_link_base;          /* articleLink[] entries before the stream's */
+static long displayed_article_idx;
 static ARTICLE_LINK_HANDLER article_link_handler;
 static int article_stream_height;
 static int scroll_bar_visible;
@@ -146,6 +149,11 @@ void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
 void set_article_bitmap_placed(ARTICLE_BITMAP_PLACED placed)
 {
 	article_bitmap_placed = placed;
+}
+
+void set_article_stream_finish(ARTICLE_STREAM_FINISH finish)
+{
+	article_stream_finish = finish;
 }
 
 /* One-bit, MSB-first rows of (width + 7) / 8 bytes at pixel (x, y). */
@@ -1358,6 +1366,10 @@ int render_article_with_pcf()
 		draw_article_progress(-1, 0);
 		return 0;
 	}
+	/* A backend that put up a preview completes the article once the first
+	 * page is on the panel, before anything else is drawn. */
+	if (article_stream_finish && display_first_page && article_stream_finish())
+		return 1;
 	/* A storage backend may leave expensive objects in the article stream
 	 * deferred. Keep a few screens rendered ahead of the visible viewport,
 	 * enough for a flick to coast into, and resume naturally when
@@ -1949,6 +1961,59 @@ void add_show_hide_language_link()
 	lcd_draw_buf.y_adjustment = 0;
 }
 
+/* The stream's own links, after the entries display_retrieved_article() put
+ * first.  Again when a preview is replaced by the complete article. */
+static void load_article_links(void)
+{
+	ARTICLE_HEADER article_header;
+	unsigned int offset;
+	unsigned int start_x, end_x, start_y, end_y;
+	int i;
+	int nCurrentWikiId = get_wiki_id_from_idx(nCurrentWiki);
+	int nArticleWikiId = ARTICLE_WIKI_ID(displayed_article_idx);
+	int nLinkWikiId;
+
+	memcpy(&article_header, file_buffer, sizeof(ARTICLE_HEADER));
+	article_link_count = article_link_base;
+	if(article_header.article_link_count > MAX_ARTICLE_LINKS - article_link_count)
+		article_header.article_link_count = MAX_ARTICLE_LINKS - article_link_count;
+
+	offset = sizeof(ARTICLE_HEADER);
+	for(i = 0; i < article_header.article_link_count && article_link_count < MAX_ARTICLE_LINKS; i++)
+	{
+		memcpy(&articleLink[article_link_count],file_buffer+offset,sizeof(ARTICLE_LINK));
+		nLinkWikiId = ARTICLE_WIKI_ID(articleLink[article_link_count].article_id);
+		if ((article_link_handler &&
+		     article_link_handler((long)articleLink[article_link_count].article_id,
+					  0)) ||
+		    ((!nArticleWikiId || nArticleWikiId == nCurrentWikiId || get_wiki_idx_from_id(nArticleWikiId) >= 0) && !nLinkWikiId) ||
+		    (nLinkWikiId && get_wiki_idx_from_id(nLinkWikiId) >= 0))
+		{
+			if (nArticleWikiId && !nLinkWikiId)
+				articleLink[article_link_count].article_id |= ARTICLE_WIKI_BITS(nArticleWikiId);
+			if (article_start_y_pos)
+			{
+				start_x = articleLink[article_link_count].start_xy & 0xFF;
+				start_y = (articleLink[article_link_count].start_xy >> 8) & 0xFFFFFF;
+				end_x = articleLink[article_link_count].end_xy & 0xFF;
+				end_y = (articleLink[article_link_count].end_xy >> 8) & 0xFFFFFF;
+				articleLink[article_link_count].start_xy = (unsigned  long)(start_x | ((start_y + article_start_y_pos) << 8));
+				articleLink[article_link_count].end_xy = (unsigned  long)(end_x | ((end_y + article_start_y_pos) << 8));
+			}
+			article_link_count++;
+		}
+		offset+=sizeof(ARTICLE_LINK);
+	}
+
+}
+
+void article_stream_replaced(long delta)
+{
+	if (article_buf_pointer)
+		article_buf_pointer += delta;
+	load_article_links();
+}
+
 void display_retrieved_article(long idx_article)
 {
 	int i;
@@ -1956,12 +2021,8 @@ void display_retrieved_article(long idx_article)
 	ARTICLE_HEADER article_header;
 	unsigned char title[MAX_TITLE_ACTUAL];
 	int bKeepPos = 0;
-	int nCurrentWikiId = get_wiki_id_from_idx(nCurrentWiki);
-	int nArticleWikiId;
-	int nLinkWikiId;
 	unsigned int start_x, end_x, start_y, end_y;
 
-	nArticleWikiId = ARTICLE_WIKI_ID(idx_article);
 	if (article_initial_y_pos >= 0)
 	{
 		init_render_article(article_initial_y_pos);
@@ -2061,35 +2122,9 @@ void display_retrieved_article(long idx_article)
 	if (lcd_draw_init_y_pos < article_start_y_pos)
 		lcd_draw_init_y_pos = article_start_y_pos;
 
-	if(article_header.article_link_count > MAX_ARTICLE_LINKS - article_link_count)
-		article_header.article_link_count = MAX_ARTICLE_LINKS - article_link_count;
-
-	offset = sizeof(ARTICLE_HEADER);
-	for(i = 0; i < article_header.article_link_count && article_link_count < MAX_ARTICLE_LINKS; i++)
-	{
-		memcpy(&articleLink[article_link_count],file_buffer+offset,sizeof(ARTICLE_LINK));
-		nLinkWikiId = ARTICLE_WIKI_ID(articleLink[article_link_count].article_id);
-		if ((article_link_handler &&
-		     article_link_handler((long)articleLink[article_link_count].article_id,
-					  0)) ||
-		    ((!nArticleWikiId || nArticleWikiId == nCurrentWikiId || get_wiki_idx_from_id(nArticleWikiId) >= 0) && !nLinkWikiId) ||
-		    (nLinkWikiId && get_wiki_idx_from_id(nLinkWikiId) >= 0))
-		{
-			if (nArticleWikiId && !nLinkWikiId)
-				articleLink[article_link_count].article_id |= ARTICLE_WIKI_BITS(nArticleWikiId);
-			if (article_start_y_pos)
-			{
-				start_x = articleLink[article_link_count].start_xy & 0xFF;
-				start_y = (articleLink[article_link_count].start_xy >> 8) & 0xFFFFFF;
-				end_x = articleLink[article_link_count].end_xy & 0xFF;
-				end_y = (articleLink[article_link_count].end_xy >> 8) & 0xFFFFFF;
-				articleLink[article_link_count].start_xy = (unsigned  long)(start_x | ((start_y + article_start_y_pos) << 8));
-				articleLink[article_link_count].end_xy = (unsigned  long)(end_x | ((end_y + article_start_y_pos) << 8));
-			}
-			article_link_count++;
-		}
-		offset+=sizeof(ARTICLE_LINK);
-	}
+	article_link_base = article_link_count;
+	displayed_article_idx = idx_article;
+	load_article_links();
 
 	article_buf_pointer = file_buffer+article_header.offset_article;
 

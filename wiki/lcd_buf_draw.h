@@ -310,6 +310,12 @@ void set_article_bitmap_placed(ARTICLE_BITMAP_PLACED placed);
 void draw_article_bitmap_late(int x, int y, int width, int height,
 			      const unsigned char *bits);
 extern int display_first_page;
+/* A backend that showed a preview of the article returns nonzero from here
+ * once it has replaced file_buffer with the complete article, having called
+ * article_stream_replaced() with how far the stream moved, or redisplayed. */
+typedef int (*ARTICLE_STREAM_FINISH)(void);
+void set_article_stream_finish(ARTICLE_STREAM_FINISH finish);
+void article_stream_replaced(long delta);
 void set_article_link_handler(ARTICLE_LINK_HANDLER handler);
 void set_article_initial_y_pos(long y_pos);
 void set_article_stream_height(int height);
