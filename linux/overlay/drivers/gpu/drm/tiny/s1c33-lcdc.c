@@ -21,20 +21,24 @@
 #include <linux/platform_device.h>
 
 #include <drm/clients/drm_client_setup.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
+#include <drm/drm_crtc.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_encoder.h>
 #include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_fbdev_dma.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
+#include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_modeset_helper_vtables.h>
+#include <drm/drm_plane.h>
 #include <drm/drm_probe_helper.h>
-#include <drm/drm_simple_kms_helper.h>
 
 #define S1C33_LCD_WIDTH		240
 #define S1C33_LCD_HEIGHT	208
@@ -52,7 +56,9 @@
 
 struct s1c33_lcdc {
 	struct drm_device drm;
-	struct drm_simple_display_pipe pipe;
+	struct drm_plane plane;
+	struct drm_crtc crtc;
+	struct drm_encoder encoder;
 	struct drm_connector connector;
 	void __iomem *regs;
 	struct gpio_desc *enable;
@@ -145,14 +151,23 @@ static void s1c33_lcdc_convert(struct s1c33_lcdc *lcdc,
 	}
 }
 
-static int s1c33_lcdc_check(struct drm_simple_display_pipe *pipe,
-			    struct drm_plane_state *plane_state,
-			    struct drm_crtc_state *crtc_state)
+static int s1c33_lcdc_plane_atomic_check(struct drm_plane *plane,
+					 struct drm_atomic_commit *state)
 {
+	struct s1c33_lcdc *lcdc = to_lcdc(plane->dev);
+	struct drm_plane_state *plane_state =
+		drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc_state *crtc_state =
+		drm_atomic_get_new_crtc_state(state, &lcdc->crtc);
 	struct drm_framebuffer *fb = plane_state->fb;
+	int ret;
 
-	if (!fb || fb->format->format != DRM_FORMAT_D1)
-		return 0;
+	ret = drm_atomic_helper_check_plane_state(plane_state, crtc_state,
+						  DRM_PLANE_NO_SCALING,
+						  DRM_PLANE_NO_SCALING,
+						  false, false);
+	if (ret || !plane_state->visible || fb->format->format != DRM_FORMAT_D1)
+		return ret;
 	/* Scanned as it is: from a word, in whole words a line. */
 	if (fb->pitches[0] % 4 || (plane_state->src_x >> 16) % 32 ||
 	    (drm_fb_dma_get_gem_addr(fb, plane_state, 0) & 3))
@@ -160,48 +175,102 @@ static int s1c33_lcdc_check(struct drm_simple_display_pipe *pipe,
 	return 0;
 }
 
-static void s1c33_lcdc_update(struct drm_simple_display_pipe *pipe,
-			      struct drm_plane_state *old_state)
+/*
+ * A D1 framebuffer is pointed at; any other has its damage converted into
+ * the D1 image in IVRAM, which is pointed at.  This runs before the CRTC is
+ * enabled, so the panel lights on the right picture.
+ */
+static void s1c33_lcdc_plane_atomic_update(struct drm_plane *plane,
+					   struct drm_atomic_commit *state)
 {
-	struct s1c33_lcdc *lcdc = to_lcdc(pipe->crtc.dev);
-	struct drm_plane_state *state = pipe->plane.state;
-	struct drm_framebuffer *fb = state->fb;
+	struct s1c33_lcdc *lcdc = to_lcdc(plane->dev);
+	struct drm_plane_state *old_state =
+		drm_atomic_get_old_plane_state(state, plane);
+	struct drm_plane_state *plane_state = plane->state;
+	struct drm_framebuffer *fb = plane_state->fb;
 	struct drm_atomic_helper_damage_iter iter;
 	struct drm_rect clip;
 
-	if (!fb || !pipe->crtc.state->active)
+	if (!fb || !lcdc->crtc.state->active)
 		return;
 	if (fb->format->format == DRM_FORMAT_D1) {
-		s1c33_lcdc_scan(lcdc, drm_fb_dma_get_gem_addr(fb, state, 0),
+		s1c33_lcdc_scan(lcdc, drm_fb_dma_get_gem_addr(fb, plane_state, 0),
 				fb->pitches[0]);
 		return;
 	}
-	drm_atomic_helper_damage_iter_init(&iter, old_state, state);
+	drm_atomic_helper_damage_iter_init(&iter, old_state, plane_state);
 	drm_atomic_for_each_plane_damage(&iter, &clip)
 		s1c33_lcdc_convert(lcdc, fb, &clip);
 	s1c33_lcdc_scan(lcdc, lcdc->vram_phys, S1C33_LCD_STRIDE);
 }
 
-static void s1c33_lcdc_enable(struct drm_simple_display_pipe *pipe,
-			      struct drm_crtc_state *crtc_state,
-			      struct drm_plane_state *plane_state)
-{
-	struct s1c33_lcdc *lcdc = to_lcdc(pipe->crtc.dev);
+static const struct drm_plane_helper_funcs s1c33_lcdc_plane_helper_funcs = {
+	.prepare_fb = drm_gem_plane_helper_prepare_fb,
+	.atomic_check = s1c33_lcdc_plane_atomic_check,
+	.atomic_update = s1c33_lcdc_plane_atomic_update,
+};
 
-	s1c33_lcdc_power(lcdc, true);
-	s1c33_lcdc_update(pipe, plane_state);
+static const struct drm_plane_funcs s1c33_lcdc_plane_funcs = {
+	.update_plane = drm_atomic_helper_update_plane,
+	.disable_plane = drm_atomic_helper_disable_plane,
+	.destroy = drm_plane_cleanup,
+	.reset = drm_atomic_helper_plane_reset,
+	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+};
+
+static enum drm_mode_status
+s1c33_lcdc_crtc_mode_valid(struct drm_crtc *crtc,
+			   const struct drm_display_mode *mode)
+{
+	return drm_crtc_helper_mode_valid_fixed(crtc, mode, &s1c33_lcdc_mode);
 }
 
-static void s1c33_lcdc_disable(struct drm_simple_display_pipe *pipe)
+static int s1c33_lcdc_crtc_atomic_check(struct drm_crtc *crtc,
+					struct drm_atomic_commit *state)
 {
-	s1c33_lcdc_power(to_lcdc(pipe->crtc.dev), false);
+	struct drm_crtc_state *crtc_state =
+		drm_atomic_get_new_crtc_state(state, crtc);
+	int ret;
+
+	if (crtc_state->enable) {
+		ret = drm_atomic_helper_check_crtc_primary_plane(crtc_state);
+		if (ret)
+			return ret;
+	}
+	return drm_atomic_add_affected_planes(state, crtc);
 }
 
-static const struct drm_simple_display_pipe_funcs s1c33_lcdc_pipe_funcs = {
-	.check = s1c33_lcdc_check,
-	.enable = s1c33_lcdc_enable,
-	.disable = s1c33_lcdc_disable,
-	.update = s1c33_lcdc_update,
+static void s1c33_lcdc_crtc_atomic_enable(struct drm_crtc *crtc,
+					  struct drm_atomic_commit *state)
+{
+	s1c33_lcdc_power(to_lcdc(crtc->dev), true);
+}
+
+static void s1c33_lcdc_crtc_atomic_disable(struct drm_crtc *crtc,
+					   struct drm_atomic_commit *state)
+{
+	s1c33_lcdc_power(to_lcdc(crtc->dev), false);
+}
+
+static const struct drm_crtc_helper_funcs s1c33_lcdc_crtc_helper_funcs = {
+	.mode_valid = s1c33_lcdc_crtc_mode_valid,
+	.atomic_check = s1c33_lcdc_crtc_atomic_check,
+	.atomic_enable = s1c33_lcdc_crtc_atomic_enable,
+	.atomic_disable = s1c33_lcdc_crtc_atomic_disable,
+};
+
+static const struct drm_crtc_funcs s1c33_lcdc_crtc_funcs = {
+	.reset = drm_atomic_helper_crtc_reset,
+	.destroy = drm_crtc_cleanup,
+	.set_config = drm_atomic_helper_set_config,
+	.page_flip = drm_atomic_helper_page_flip,
+	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+};
+
+static const struct drm_encoder_funcs s1c33_lcdc_encoder_funcs = {
+	.destroy = drm_encoder_cleanup,
 };
 
 static int s1c33_lcdc_get_modes(struct drm_connector *connector)
@@ -328,20 +397,36 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 	drm->mode_config.preferred_depth = 1;
 	drm->mode_config.funcs = &s1c33_lcdc_mode_config_funcs;
 
+	/* One plane on one CRTC, through an encoder that is only wiring, to
+	   the panel. */
+	drm_plane_helper_add(&lcdc->plane, &s1c33_lcdc_plane_helper_funcs);
+	ret = drm_universal_plane_init(drm, &lcdc->plane, 0,
+				       &s1c33_lcdc_plane_funcs,
+				       s1c33_lcdc_formats,
+				       ARRAY_SIZE(s1c33_lcdc_formats), NULL,
+				       DRM_PLANE_TYPE_PRIMARY, NULL);
+	if (ret)
+		return ret;
+	drm_plane_enable_fb_damage_clips(&lcdc->plane);
+	drm_crtc_helper_add(&lcdc->crtc, &s1c33_lcdc_crtc_helper_funcs);
+	ret = drm_crtc_init_with_planes(drm, &lcdc->crtc, &lcdc->plane, NULL,
+					&s1c33_lcdc_crtc_funcs, NULL);
+	if (ret)
+		return ret;
+	lcdc->encoder.possible_crtcs = drm_crtc_mask(&lcdc->crtc);
+	ret = drm_encoder_init(drm, &lcdc->encoder, &s1c33_lcdc_encoder_funcs,
+			       DRM_MODE_ENCODER_NONE, NULL);
+	if (ret)
+		return ret;
 	drm_connector_helper_add(&lcdc->connector, &s1c33_lcdc_connector_hfuncs);
 	ret = drm_connector_init(drm, &lcdc->connector,
 				 &s1c33_lcdc_connector_funcs,
 				 DRM_MODE_CONNECTOR_DPI);
 	if (ret)
 		return ret;
-	ret = drm_simple_display_pipe_init(drm, &lcdc->pipe,
-					   &s1c33_lcdc_pipe_funcs,
-					   s1c33_lcdc_formats,
-					   ARRAY_SIZE(s1c33_lcdc_formats),
-					   NULL, &lcdc->connector);
+	ret = drm_connector_attach_encoder(&lcdc->connector, &lcdc->encoder);
 	if (ret)
 		return ret;
-	drm_plane_enable_fb_damage_clips(&lcdc->pipe.plane);
 	drm_mode_config_reset(drm);
 
 	ret = drm_dev_register(drm, 0);
