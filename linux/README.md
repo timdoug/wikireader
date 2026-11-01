@@ -828,8 +828,13 @@ Its terminal is 40 columns by 15 rows and implements the Linux console as
 insertion and deletion of characters and lines, a scrolling region, reverse
 video, saving, hiding and reporting the cursor, and xterm's deferred wrap in
 the last column. Tab stops are every eight columns. Colours and other
-renditions are ignored, since the panel has one bit a pixel. The console's
-line-drawing characters are shown as `+`, `-` and `|`. The cursor is its cell
+renditions are ignored, since the panel has one bit a pixel. The text is in
+the kernel's own 6x8 console font (`lib/fonts/font_6x8.c`), the boot screen's,
+all 256 characters in the CP437 layout, so the line-drawing characters curses
+sends for `TERM=linux` are drawn as lines; the keyboard is labelled in X's
+misc-fixed 6x13, as the X keyboard is. `console/make-fonts.py` writes both
+into `console/wr-fonts.h` from the kernel source and X.Org's
+font-misc-misc 1.1.3 (fetched with its SHA-256). The cursor is its cell
 drawn inverted. Full-screen programs such as BusyBox `vi`, `less` and `top`,
 and curses programs such as `sl`, therefore work. Escape is Ctrl+`[`.
 `console/terminal-test.c` checks the escape handling on the build machine,

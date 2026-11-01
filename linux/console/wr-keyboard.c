@@ -226,8 +226,8 @@ static void draw_key(int key, int pressed)
 	char label_buffer[4];
 	const char *label = key_label(key, label_buffer);
 	unsigned int label_length = strlen(label);
-	unsigned int label_x = x0 + (KEY_WIDTH - label_length * FONT_WIDTH) / 2;
-	unsigned int label_y = y0 + (y1 - y0 + 1 - FONT_HEIGHT) / 2;
+	unsigned int label_x = x0 + (KEY_WIDTH - label_length * KEY_FONT_WIDTH) / 2;
+	unsigned int label_y = y0 + (y1 - y0 + 1 - KEY_FONT_HEIGHT) / 2;
 	unsigned int x;
 	unsigned int y;
 
@@ -244,7 +244,7 @@ static void draw_key(int key, int pressed)
 		}
 	}
 	for (x = 0; x < label_length; x++)
-		draw_character(label_x + x * FONT_WIDTH, label_y, label[x],
+		draw_label_character(label_x + x * KEY_FONT_WIDTH, label_y, label[x],
 			       pressed);
 }
 
@@ -741,7 +741,6 @@ int main(void)
 	unsigned int poll_count = 0;
 	unsigned int k;
 
-	index_glyphs();
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;

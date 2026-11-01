@@ -539,31 +539,6 @@ static void control_sequence(unsigned char final)
 	}
 }
 
-/*
- * The Linux console's CP437 line-drawing characters, which curses sends for
- * TERM=linux boxes, as the ASCII the font has.
- */
-static unsigned char printable(unsigned char byte)
-{
-	if (byte < 0x80)
-		return byte;
-	switch (byte) {
-	case 0xb3: case 0xba:
-		return '|';
-	case 0xc4: case 0xcd:
-		return '-';
-	case 0xb0: case 0xb1: case 0xb2: case 0xdb:
-		return '#';
-	case 0xf8:
-		return 'o';
-	case 0xfe: case 0xf9: case 0xfa:
-		return '.';
-	default:
-		return (byte >= 0xb4 && byte <= 0xda) || byte == 0xc5 ?
-			'+' : '?';
-	}
-}
-
 static void terminal_put(unsigned char byte)
 {
 	/* A character in the last column wraps only when the next one comes,
@@ -573,7 +548,9 @@ static void terminal_put(unsigned char byte)
 		terminal_index();
 		wrap_pending = 0;
 	}
-	cells[cursor_y][cursor_x] = printable(byte);
+	/* The font is the Linux console's, in its CP437 layout, so the line-drawing
+	   characters curses sends for TERM=linux are drawn as they are. */
+	cells[cursor_y][cursor_x] = byte;
 	attrs[cursor_y][cursor_x] = rendition;
 	draw_cell(cursor_y, cursor_x);
 	if (cursor_x == TEXT_COLUMNS - 1)
@@ -1011,8 +988,6 @@ int main(void)
 	int slave_fd;
 	int master_fd;
 	pid_t shell;
-
-	index_glyphs();
 
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)

@@ -63,7 +63,6 @@ int main(void)
 	ssize_t length;
 	unsigned int i;
 
-	index_glyphs();
 	if (pipe(pipe_fds))
 		return 1;
 	terminal_fd = pipe_fds[1];
@@ -160,7 +159,7 @@ int main(void)
 
 	reset();
 	feed("\033]0;title\007ok\xc4\xb3\xda");
-	expect_row(0, "ok-|+", "title ignored, line drawing as ASCII");
+	expect_row(0, "ok\xc4\xb3\xda", "title ignored, line drawing kept for the CP437 font");
 
 	reset();
 	feed("abc\033[2J");
