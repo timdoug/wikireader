@@ -41,12 +41,9 @@ fi
 mkdir -p "${WORK}"
 cd "${WORK}"
 
-if [ ! -f "${TARBALL}" ]; then
-	echo "==> downloading ${TARBALL} (about 100 MB)"
-	curl -fsSL -o "${TARBALL}.tmp" \
-		"https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/${TARBALL}"
-	mv "${TARBALL}.tmp" "${TARBALL}"
-fi
+"${HERE}/../../fetch-verified.sh" \
+	"https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/${TARBALL}" "${TARBALL}" \
+	e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 
 if [ ! -d "${SRC}" ]; then
 	echo "==> extracting"

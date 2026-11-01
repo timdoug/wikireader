@@ -19,15 +19,13 @@ TOOLS="${HERE}/../tools"
 WORK=${1:-${HERE}/work}
 TARBALL="binutils-${BINUTILS_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/binutils/${TARBALL}"
+SHA256=154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 SRC="${WORK}/binutils-${BINUTILS_VERSION}"
 
 mkdir -p "${WORK}"
 cd "${WORK}"
 
-if [ ! -f "${TARBALL}" ]; then
-	echo "==> downloading ${TARBALL}"
-	curl -fsSL -o "${TARBALL}" "${URL}"
-fi
+"${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
 if [ ! -d "${SRC}" ]; then
 	echo "==> extracting"

@@ -26,9 +26,14 @@ MP_BUILD   = $(CURDIR)/mpbuild
 MP_CFLAGS = $(ARCHCPUFLAGS) $(ARCHOPTIMIZATION) $(ARCHINCLUDES) \
             -std=gnu11 -ffreestanding -D__NuttX__
 
+# Each version's tarball is checked before it is unpacked; a version without
+# a hash here stops the build rather than going unverified.
+MP_SHA256_1.29.0 = 8072f6ad42c0e3bbfca88ed09bf8f1106ce207a39129af920f70081b8f2fe286
+
 $(MP_TARBALL):
-	@echo "Downloading: $(MP_TARBALL)"
-	$(Q) curl -O -L $(MP_URL)/$(MP_TARBALL)
+	$(Q) $(if $(MP_SHA256_$(MP_VERSION)),,$(error no SHA-256 for MicroPython $(MP_VERSION) in $(lastword $(MAKEFILE_LIST))))
+	$(Q) $(TOPDIR)/../../../host-tools/fetch-verified.sh \
+		$(MP_URL)/$(MP_TARBALL) $@ $(MP_SHA256_$(MP_VERSION))
 
 $(MP_DIR): $(MP_TARBALL)
 	$(Q) tar zxf $(MP_TARBALL)

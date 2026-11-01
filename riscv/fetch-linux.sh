@@ -14,15 +14,17 @@ here=$(cd "$(dirname "$0")" && pwd)
 # Not under build/: `make clean` removes that, and re-downloading a
 # 3.5 MB kernel because you rebuilt the application is unfriendly.
 out="${here}/linux"
-url=https://github.com/cnlohr/mini-rv32ima-images/raw/master/images/linux-6.1.14-rv32nommu-cnl-1.zip
-dts=https://raw.githubusercontent.com/cnlohr/mini-rv32ima/master/mini-rv32ima/sixtyfourmb.dts
+# Pinned to the commits that were master on 2026-11-01, and checked.
+url=https://github.com/cnlohr/mini-rv32ima-images/raw/7da8c6e486b7d510426b5c2283cd338abcf04eb7/images/linux-6.1.14-rv32nommu-cnl-1.zip
+dts=https://raw.githubusercontent.com/cnlohr/mini-rv32ima/84858f58cb41899705e2ff2d6ee3b2d5c0795bfe/mini-rv32ima/sixtyfourmb.dts
+fetch="${here}/../host-tools/fetch-verified.sh"
 
 mkdir -p "${out}"
-if [ ! -f "${out}/Image" ]; then
-	curl -sSL --fail -o "${out}/image.zip" "${url}"
-	( cd "${out}" && unzip -o image.zip >/dev/null )
-fi
-[ -f "${out}/sixtyfourmb.dts" ] || curl -sSL --fail -o "${out}/sixtyfourmb.dts" "${dts}"
+"${fetch}" "${url}" "${out}/image.zip" \
+	add651195348b538c309becb39c5f8ef4f9d15ec275a2954b02016fc38091393
+[ -f "${out}/Image" ] || ( cd "${out}" && unzip -o image.zip >/dev/null )
+"${fetch}" "${dts}" "${out}/sixtyfourmb.dts" \
+	65f78b5a7ce5a6d240a2685de079cc91c8ace3fce1b9e78f0f9c7d1b0f12d342
 
 command -v dtc >/dev/null || { echo "need dtc (brew install dtc)" >&2; exit 1; }
 

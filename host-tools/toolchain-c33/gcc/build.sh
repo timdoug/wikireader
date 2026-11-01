@@ -19,6 +19,7 @@ TOOLS="${HERE}/tools"
 WORK=${1:-${HERE}/work}
 TARBALL="gcc-${GCC_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/${TARBALL}"
+SHA256=e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 SRC="${WORK}/gcc-${GCC_VERSION}"
 
 BINUTILS_BIN="${WORK}/install/bin"
@@ -32,10 +33,7 @@ export PATH
 mkdir -p "${WORK}"
 cd "${WORK}"
 
-if [ ! -f "${TARBALL}" ]; then
-	echo "==> downloading ${TARBALL} (about 100 MB)"
-	curl -fsSL -o "${TARBALL}" "${URL}"
-fi
+"${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
 if [ ! -d "${SRC}" ]; then
 	echo "==> extracting"
