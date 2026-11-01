@@ -30,6 +30,7 @@
 #include "zim_startup.h"
 #include "zim_copy.h"
 #include "zim_sparrow.h"
+#include "zim_bench.h"
 
 #define ZIM_RAW_BUFFER_SIZE FILE_BUFFER_SIZE
 #define ZIM_MIN_IMAGE_WIDTH 80
@@ -651,6 +652,11 @@ static int prepare_article_image(unsigned char *stream)
 		rc = zim_image_decoder_step(deferred_image_decoder);
 		if (rc > 0)
 			return 1;
+		if (zim_bench.active && zim_bench.image_started &&
+		    !zim_bench.image_done) {
+			zim_bench.image_destroy = timer_get();
+			zim_bench.image_done = 1;
+		}
 		if (rc < 0 || deferred_decode_width != deferred->width ||
 		    deferred_decode_height != deferred->height ||
 		    deferred_decode_bitmap_size != deferred->bitmap_size)
@@ -677,6 +683,13 @@ static int prepare_article_image(unsigned char *stream)
 	if (rc)
 		goto out;
 	image_progress(IMAGE_PROGRESS_BLOB_END);
+	if (zim_bench.active) {
+		zim_bench.images++;
+		if (!zim_bench.image_started) {
+			zim_bench.image_started = 1;
+			zim_bench.image_create = timer_get();
+		}
+	}
 	deferred_image_decoder = zim_image_decoder_create(raw_buffer, webp_size,
 		deferred->width, deferred->height, stream + 4,
 		deferred->bitmap_size, &deferred_decode_width,
@@ -1347,6 +1360,31 @@ long result_list_next_result(long encoded_position, long *article_id,
 	strncpy((char *)title, dirent.title, MAX_TITLE_ACTUAL - 1);
 	title[MAX_TITLE_ACTUAL - 1] = '\0';
 	return (long)ordinal + 2;
+}
+
+long zim_bench_find_title(const char *title)
+{
+	unsigned char found[MAX_TITLE_ACTUAL];
+	long index = 0;
+	unsigned int i;
+
+	clear_search_string();
+	for (; *title; title++)
+		search_add_char(*title, 0);
+	search_fetch();
+	for (i = 0; i < results.count && !index; i++) {
+		get_article_title_from_idx((long)results.article[i], found);
+		if (!strcasecmp((const char *)found, (const char *)search_string))
+			index = (long)results.article[i];
+	}
+	clear_search_string();
+	return index;
+}
+
+void zim_bench_drop_caches(void)
+{
+	article_cache_flush();
+	zim_blob_cache_reset();
 }
 
 void get_article_title_from_idx(long index, unsigned char *title)

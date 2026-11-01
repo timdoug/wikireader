@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "zim_startup.h"
 #include "zim_copy.h"
+#include "zim_bench.h"
 
 extern int __real_retrieve_article(long);
 extern int __real_render_article_with_pcf(void);
@@ -17,6 +18,16 @@ static file_io_stats_t io;
 
 int LOG_CODE __wrap_retrieve_article(long index)
 {
+    if (zim_bench.active) {
+        unsigned long start;
+        int rc;
+        file_profile(&zim_bench.io, true);
+        start = timer_get();
+        rc = __real_retrieve_article(index);
+        zim_bench.retrieve_ticks = timer_get() - start;
+        file_profile(&zim_bench.io, false);
+        return rc;
+    }
     if (!zim_startup_logging()) return __real_retrieve_article(index);
     unsigned long start;
     ZIM_COPY_STATS before = zim_copy_stats;

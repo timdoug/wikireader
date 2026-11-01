@@ -126,6 +126,7 @@ SOURCES += zim_sparrow.c
 SOURCES += sparrow.c
 SOURCES += html.c
 SOURCES += zim_dstram.c   # after everything, so no hot code moved
+SOURCES += zim_bench.c    # likewise; the launcher's "bench" mode
 vpath %.c ${ROOT_DIR}/sparrow
 
 IMAGES += keyboard_123.png

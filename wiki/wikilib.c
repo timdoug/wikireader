@@ -42,6 +42,7 @@
 #include "highlight.h"
 #ifdef ZIM_APP
 #include "zim_startup.h"
+#include "zim_bench.h"
 #endif
 
 #define LCD_Y_CALIBRATION_ADJUSTMENT (-1)
@@ -1437,6 +1438,8 @@ int wikilib_run(void)
 	load_all_fonts();
 #ifdef ZIM_APP
 	zim_startup_flush();
+	if (zim_bench_requested())
+		zim_bench_start();
 #endif
 
 	for (;;) {
