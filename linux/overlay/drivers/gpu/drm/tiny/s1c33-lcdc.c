@@ -100,11 +100,21 @@ static void s1c33_lcdc_power(struct s1c33_lcdc *lcdc, bool on)
 	}
 }
 
-/* Dark below half brightness, by the usual luma weights. */
-static inline bool s1c33_dark(unsigned int r, unsigned int g, unsigned int b)
-{
-	return r * 77 + g * 150 + b * 29 < 128 * 256;
-}
+/*
+ * Dark where green is below half: on a black-and-white panel that is the
+ * same answer as half luma for every grey, which is what clients draw, and
+ * for the six pure colours, at a third of the instructions.  Eight pixels
+ * make a byte, unrolled, since the kernel is built for size and would not
+ * unroll it, and this loop is all a converted frame costs.
+ */
+#define S1C33_XRGB_DARK(p)	(~(p) >> 15 & 1)
+#define S1C33_RGB565_DARK(p)	(~(p) >> 10 & 1)
+
+#define S1C33_BYTE(dark, px)						\
+	((dark((px)[0]) << 7) | (dark((px)[1]) << 6) |			\
+	 (dark((px)[2]) << 5) | (dark((px)[3]) << 4) |			\
+	 (dark((px)[4]) << 3) | (dark((px)[5]) << 2) |			\
+	 (dark((px)[6]) << 1) | dark((px)[7]))
 
 /* Convert the damaged rectangle of an XRGB8888 or RGB565 frame to D1. */
 static void s1c33_lcdc_convert(struct s1c33_lcdc *lcdc,
@@ -113,38 +123,24 @@ static void s1c33_lcdc_convert(struct s1c33_lcdc *lcdc,
 {
 	struct drm_gem_dma_object *gem = drm_fb_dma_get_gem_obj(fb, 0);
 	const u8 *src = (const u8 *)gem->vaddr + fb->offsets[0];
-	bool rgb565 = fb->format->format == DRM_FORMAT_RGB565;
-	unsigned int x0 = clip->x1 & ~7, x1 = min_t(int, ALIGN(clip->x2, 8), fb->width);
-	unsigned int x, y;
+	unsigned int pitch = fb->pitches[0];
+	/* Whole bytes of the panel; its 240 pixels are 30 of them. */
+	unsigned int b0 = clip->x1 / 8, b1 = DIV_ROUND_UP(clip->x2, 8);
+	unsigned int y, b;
 
 	for (y = clip->y1; y < clip->y2; y++) {
-		const u8 *line = src + y * fb->pitches[0];
 		u8 __iomem *out = lcdc->vram + y * S1C33_LCD_STRIDE;
 
-		for (x = x0; x < x1; x += 8) {
-			unsigned int bit, n = min(8U, x1 - x);
-			u8 byte = 0;
+		if (fb->format->format == DRM_FORMAT_RGB565) {
+			const u16 *px = (const u16 *)(src + y * pitch) + b0 * 8;
 
-			for (bit = 0; bit < n; bit++) {
-				unsigned int r, g, b;
+			for (b = b0; b < b1; b++, px += 8)
+				writeb(S1C33_BYTE(S1C33_RGB565_DARK, px), out + b);
+		} else {
+			const u32 *px = (const u32 *)(src + y * pitch) + b0 * 8;
 
-				if (rgb565) {
-					u16 p = ((const u16 *)line)[x + bit];
-
-					r = (p >> 8) & 0xf8;
-					g = (p >> 3) & 0xfc;
-					b = (p << 3) & 0xf8;
-				} else {
-					u32 p = ((const u32 *)line)[x + bit];
-
-					r = (p >> 16) & 0xff;
-					g = (p >> 8) & 0xff;
-					b = p & 0xff;
-				}
-				if (s1c33_dark(r, g, b))
-					byte |= 0x80 >> bit;
-			}
-			writeb(byte, out + x / 8);
+			for (b = b0; b < b1; b++, px += 8)
+				writeb(S1C33_BYTE(S1C33_XRGB_DARK, px), out + b);
 		}
 	}
 }
