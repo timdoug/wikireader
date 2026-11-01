@@ -142,6 +142,13 @@ all: $(TARGETS)
 # These translation units include the shared implementation directly.
 src/string/memcpy.o src/string/memmove.o: src/string/bcopy.c
 
+# Start the copy and fill loops at the same place in a 32-byte fetch line
+# whatever an application links before the library.  Otherwise growing the
+# application moves them across the C33's loop fetch window: the ZIM reader's
+# Cat retrieval spent 7.8 ms more in memcpy with it at offset 18 than at 26,
+# for the same instructions.
+src/string/memcpy.o src/string/memset.o: CFLAGS += -falign-functions=32
+
 .c.o:
 	$(GCC) -M $(CFLAGS) $< > $(<:.c=.d)
 	$(GCC) $(CFLAGS) -c $< -o $(<:.c=.o)
