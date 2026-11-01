@@ -652,10 +652,11 @@ static int prepare_article_image(unsigned char *stream)
 		rc = zim_image_decoder_step(deferred_image_decoder);
 		if (rc > 0)
 			return 1;
-		if (zim_bench.active && zim_bench.image_started &&
-		    !zim_bench.image_done) {
-			zim_bench.image_destroy = timer_get();
-			zim_bench.image_done = 1;
+		if (zim_bench.active && zim_bench.images > 0 &&
+		    zim_bench.images <= ZIM_BENCH_IMAGES) {
+			ZIM_BENCH_IMAGE *b = &zim_bench.image[zim_bench.images - 1];
+
+			b->decode_ticks = timer_get() - b->created;
 		}
 		if (rc < 0 || deferred_decode_width != deferred->width ||
 		    deferred_decode_height != deferred->height ||
@@ -676,6 +677,14 @@ static int prepare_article_image(unsigned char *stream)
 	rc = zim_archive_find_path(&archive, 'C', path, &dirent);
 	if (rc && rc != ZIM_ERR_TRUNCATED)
 		goto out;
+	if (zim_bench.active && zim_bench.images < ZIM_BENCH_IMAGES) {
+		ZIM_BENCH_IMAGE *b = &zim_bench.image[zim_bench.images];
+
+		b->y = deferred->stream_y;
+		b->width = deferred->width;
+		b->height = deferred->height;
+		b->read_ticks = timer_get();
+	}
 	image_progress(IMAGE_PROGRESS_BLOB_START);
 	rc = zim_archive_read_blob_progress(&archive, &dirent, raw_buffer,
 					    ZIM_RAW_BUFFER_SIZE, &webp_size,
@@ -683,12 +692,11 @@ static int prepare_article_image(unsigned char *stream)
 	if (rc)
 		goto out;
 	image_progress(IMAGE_PROGRESS_BLOB_END);
-	if (zim_bench.active) {
-		zim_bench.images++;
-		if (!zim_bench.image_started) {
-			zim_bench.image_started = 1;
-			zim_bench.image_create = timer_get();
-		}
+	if (zim_bench.active && zim_bench.images < ZIM_BENCH_IMAGES) {
+		ZIM_BENCH_IMAGE *b = &zim_bench.image[zim_bench.images++];
+
+		b->created = timer_get();
+		b->read_ticks = b->created - b->read_ticks;
 	}
 	deferred_image_decoder = zim_image_decoder_create(raw_buffer, webp_size,
 		deferred->width, deferred->height, stream + 4,
@@ -1472,6 +1480,7 @@ int retrieve_article(long encoded_index)
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_START, ARTICLE_PROGRESS_LIMIT);
 	/* Convert straight out of the decoded-cluster cache when possible; the
 	 * copy into raw_buffer is only needed for uncompressed clusters. */
+	ZIM_BENCH_MARK(ZB_BLOB);
 	rc = zim_archive_view_blob_progress(&archive, &dirent, &raw, &raw_size,
 					    article_blob_progress, NULL);
 	if (rc) {
@@ -1483,6 +1492,7 @@ int retrieve_article(long encoded_index)
 		raw = raw_buffer;
 	}
 convert_html:
+	ZIM_BENCH_MARK(ZB_HTML);
 	draw_progress_bar(ARTICLE_PROGRESS_BLOB_END, ARTICLE_PROGRESS_LIMIT);
 	rc = zim_html_to_text_images_progress(raw, raw_size, text_buffer,
 					      FILE_BUFFER_SIZE, &text_size,
@@ -1495,7 +1505,9 @@ convert_html:
 	deferred_link_count = 0;
 	deferred_anchor_count = 0;
 	article_text_size = text_size;
+	ZIM_BENCH_MARK(ZB_BUDGET);
 	image_budget = article_image_budget(text_buffer, text_size);
+	ZIM_BENCH_MARK(ZB_WRAP);
 	if (zim_text_to_article_images_links_progress(text_buffer, text_size,
 					     file_buffer, FILE_BUFFER_SIZE,
 					     &article_size, article_image, NULL,
@@ -1503,6 +1515,12 @@ convert_html:
 					     NULL, &article_height,
 					     article_wrap_progress, NULL))
 		goto error;
+	ZIM_BENCH_MARK(ZB_DONE);
+	if (zim_bench.active) {
+		zim_bench.raw_size = raw_size;
+		zim_bench.text_size = text_size;
+		zim_bench.article_size = article_size;
+	}
 	draw_progress_bar(ARTICLE_PROGRESS_WRAP_END, ARTICLE_PROGRESS_LIMIT);
 	memcpy(&article_header, file_buffer, sizeof(article_header));
 	if (article_header.offset_article < sizeof(article_header))

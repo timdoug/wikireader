@@ -131,6 +131,8 @@ static void append_log(const char *line, int length)
 	unsigned long size = 0;
 	int h;
 
+	/* The serial port too: the emulator's log, or a cable on the device. */
+	debug_printf("%s", line);
 	if (file_size(BENCH_LOG, &size) == FILE_ERROR_OK) {
 		h = file_open(BENCH_LOG, FILE_OPEN_READ | FILE_OPEN_WRITE);
 		if (h >= 0 && file_lseek(h, size) != FILE_ERROR_OK) {
@@ -169,11 +171,11 @@ static unsigned long us(unsigned long ticks)
 
 static void load_one(int pass, const ENTRY *e)
 {
-	char line[320];
+	char line[512];
 	unsigned long start, opened, idle;
 	long index;
 	int wiki = find_archive(e->archive);
-	int n;
+	int i, n;
 
 	if (wiki < 0)
 		return;
@@ -200,20 +202,40 @@ static void load_one(int pass, const ENTRY *e)
 		watchdog(WATCHDOG_KEY);
 	idle = timer_get();
 	zim_bench.active = 0;
-	n = snprintf(line, sizeof(line),
-		     "ZB label=%s pass=%d archive=%s title=%s retrieve_us=%lu "
-		     "read_us=%lu read_sectors=%lu open_us=%lu screen_us=%lu "
-		     "image_us=%lu images=%d\n",
-		     label, pass, zim_catalog_path(wiki), e->title,
-		     us(zim_bench.retrieve_ticks),
-		     us((unsigned long)zim_bench.io.read_ticks),
-		     (unsigned long)zim_bench.io.read_sectors,
-		     us(opened - start), us(idle - start),
-		     zim_bench.image_done ?
-			     us(zim_bench.image_destroy - zim_bench.image_create) : 0,
-		     zim_bench.images);
-	if (n > 0 && n < (int)sizeof(line))
-		append_log(line, n);
+	{
+		const unsigned long *m = zim_bench.mark;
+
+		n = snprintf(line, sizeof(line),
+			     "ZB label=%s pass=%d archive=%s title=%s retrieve_us=%lu "
+			     "read_us=%lu read_sectors=%lu open_us=%lu screen_us=%lu "
+			     "image_us=%lu images=%d blob_us=%lu html_us=%lu "
+			     "budget_us=%lu wrap_us=%lu raw=%lu text=%lu article=%lu\n",
+			     label, pass, zim_catalog_path(wiki), e->title,
+			     us(zim_bench.retrieve_ticks),
+			     us((unsigned long)zim_bench.io.read_ticks),
+			     (unsigned long)zim_bench.io.read_sectors,
+			     us(opened - start), us(idle - start),
+			     us(zim_bench.image[0].decode_ticks), zim_bench.images,
+			     m[ZB_BLOB] ? us(m[ZB_HTML] - m[ZB_BLOB]) : 0,
+			     us(m[ZB_BUDGET] - m[ZB_HTML]),
+			     us(m[ZB_WRAP] - m[ZB_BUDGET]),
+			     us(m[ZB_DONE] - m[ZB_WRAP]),
+			     zim_bench.raw_size, zim_bench.text_size,
+			     zim_bench.article_size);
+		if (n > 0 && n < (int)sizeof(line))
+			append_log(line, n);
+	}
+	for (i = 0; i < zim_bench.images; i++) {
+		const ZIM_BENCH_IMAGE *b = &zim_bench.image[i];
+
+		n = snprintf(line, sizeof(line),
+			     "ZBI label=%s pass=%d title=%s image=%d y=%ld size=%dx%d "
+			     "read_us=%lu decode_us=%lu\n",
+			     label, pass, e->title, i, b->y, b->width, b->height,
+			     us(b->read_ticks), us(b->decode_ticks));
+		if (n > 0 && n < (int)sizeof(line))
+			append_log(line, n);
+	}
 }
 
 /* The comparison: for every article, the fastest measured pass of each

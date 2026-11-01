@@ -65,6 +65,7 @@ static void usage(const char *p)
 		"         reader's (wiki.app, zim.app; the default) or Linux's\n"
 		"  -c F   attach FAT32 card image F\n"
 		"  -R     open the card image read-only\n"
+		"  -V     read-only, but keep the guest's writes in memory\n"
 		"  --uart-input F  receive console bytes from F (- for stdin)\n"
 		"  --uart-start N  first console byte cycle (default 1000000)\n"
 		"  --uart-gap N    cycles between console bytes (default 50000)\n"
@@ -297,6 +298,7 @@ int main(int argc, char **argv)
 	bool gui = false; int gui_scale = 3;
 	bool profile = false;
 	bool card_readonly = false;
+	bool card_volatile = false;
 	const char *uart_input = NULL;
 	int uart_fd = -1;
 	uint64_t uart_due = 1000000, uart_gap = 50000;
@@ -469,6 +471,8 @@ int main(int argc, char **argv)
 		}
 		else if (!strcmp(argv[i], "-R"))
 			card_readonly = true;
+		else if (!strcmp(argv[i], "-V"))
+			card_readonly = card_volatile = true;
 		else if (!strcmp(argv[i], "-m"))
 			trace_mmio = true;
 		else if (!strcmp(argv[i], "--trace-sd"))
@@ -668,6 +672,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "error: cannot open card image %s\n", card);
 		return 1;
 	}
+	if (card_volatile)
+		sd_volatile_writes(&sd);
 	sd.trace = trace_sd || trace_mmio;
 
 	struct dma dma;

@@ -65,6 +65,12 @@ struct sdcard {
 	int       wlen;
 	int       crc_seen;
 	bool      readonly;       /* image opened without write access */
+	/* -V: the image is opened read-only but the guest's writes succeed and
+	 * are kept here, so a run can use a real card (or a shared image)
+	 * without changing it. Linear, unordered: a run writes few blocks. */
+	bool      volatile_writes;
+	struct sd_overlay_block { uint32_t blk; uint8_t data[512]; } *overlay;
+	size_t    overlay_len, overlay_cap;
 
 	/* SPI controller state */
 	const struct cmu *cmu;      /* optional: SPI_CKE gates the block */
@@ -116,6 +122,8 @@ struct sdcard {
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
 	       const struct port *port, struct eeprom *eeprom, bool readonly);
+/* After sd_attach with readonly: accept writes into memory (-V). */
+void sd_volatile_writes(struct sdcard *sd);
 void sd_close(struct sdcard *sd);
 /* Return the card to its just-powered state, keeping the image open. */
 void sd_reset(struct sdcard *sd);

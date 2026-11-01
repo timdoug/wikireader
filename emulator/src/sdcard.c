@@ -18,6 +18,13 @@
  * numbers rather than byte offsets.
  */
 
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#if defined(__APPLE__)
+#include <sys/disk.h>
+#elif defined(__linux__)
+#include <linux/fs.h>
+#endif
 #include <string.h>
 
 #include "model.h"
@@ -94,10 +101,53 @@ static void queue_register(struct sdcard *sd, const uint8_t *data, size_t len)
 	push(sd, crc);
 }
 
+static struct sd_overlay_block *overlay_find(struct sdcard *sd, uint32_t blk)
+{
+	for (size_t i = 0; i < sd->overlay_len; i++)
+		if (sd->overlay[i].blk == blk)
+			return &sd->overlay[i];
+	return NULL;
+}
+
+static bool overlay_store(struct sdcard *sd, uint32_t blk, const uint8_t *data)
+{
+	struct sd_overlay_block *b = overlay_find(sd, blk);
+
+	if (!b) {
+		if (sd->overlay_len == sd->overlay_cap) {
+			size_t cap = sd->overlay_cap ? 2 * sd->overlay_cap : 64;
+			void *grown = realloc(sd->overlay, cap * sizeof *sd->overlay);
+
+			if (!grown)
+				return false;
+			sd->overlay = grown;
+			sd->overlay_cap = cap;
+		}
+		b = &sd->overlay[sd->overlay_len++];
+		b->blk = blk;
+	}
+	memcpy(b->data, data, 512);
+	return true;
+}
+
+void sd_volatile_writes(struct sdcard *sd)
+{
+	sd->volatile_writes = true;
+}
+
 static bool read_block(struct sdcard *sd, uint32_t blk, uint8_t *out)
 {
 	if (!sd->img)
 		return false;
+	if (sd->overlay_len) {
+		const struct sd_overlay_block *b = overlay_find(sd, blk);
+
+		if (b) {
+			memcpy(out, b->data, 512);
+			sd->blocks_read++;
+			return true;
+		}
+	}
 	if (fseeko(sd->img, (off_t)blk * 512, SEEK_SET) != 0)
 		return false;
 	size_t n = fread(out, 1, 512, sd->img);
@@ -359,7 +409,11 @@ static void finish_block(struct sdcard *sd)
 {
 	bool wrote = false;
 
-	if (sd->img && !sd->readonly &&
+	if (sd->img && sd->volatile_writes && sd->write_blk < sd->blocks &&
+	    overlay_store(sd, sd->write_blk, sd->wbuf)) {
+		sd->blocks_written++;
+		wrote = true;
+	} else if (sd->img && !sd->readonly &&
 	    sd->write_blk < sd->blocks &&
 	    fseeko(sd->img, (off_t)sd->write_blk * 512, SEEK_SET) == 0 &&
 	    fwrite(sd->wbuf, 1, 512, sd->img) == 512) {
@@ -826,6 +880,23 @@ bool sd_attach(struct mem *m, struct sdcard *sd, const char *path,
 		fseeko(sd->img, 0, SEEK_END);
 		sd->blocks = (uint64_t)ftello(sd->img) / 512;
 		rewind(sd->img);
+		/* A raw device (a real card in a reader) has no length to
+		 * seek to; ask the system how many blocks it has. */
+		if (!sd->blocks) {
+#if defined(__APPLE__)
+			uint64_t count = 0;
+			uint32_t size = 0;
+
+			if (!ioctl(fileno(sd->img), DKIOCGETBLOCKCOUNT, &count) &&
+			    !ioctl(fileno(sd->img), DKIOCGETBLOCKSIZE, &size) && size)
+				sd->blocks = count * size / 512;
+#elif defined(__linux__)
+			uint64_t bytes = 0;
+
+			if (!ioctl(fileno(sd->img), BLKGETSIZE64, &bytes))
+				sd->blocks = bytes / 512;
+#endif
+		}
 	}
 	mem_add_mmio(m, "spi/sd", SPI_BASE, SPI_LEN, spi_mmio, sd);
 	return true;

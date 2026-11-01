@@ -2,8 +2,10 @@
 # ARCHIVE-NAME-PART | Title; entries whose archive is not on the card are
 # skipped.  Optional: "passes N" for more than one pass, "warmup" for an
 # unrecorded first pass (only card-read timings need it).
+wikipedia_en_all | Cat
+wikipedia_en_all | Paris
+wikipedia_en_all | Tokyo
+wikipedia_en_all | London
 wikivoyage | Paris
 wikivoyage | Sydney
-wikivoyage | Tokyo
-wikipedia_en_all | Cat
 simple | Cat
