@@ -106,7 +106,7 @@ contrast_expected="wikireader-lcd panel: contrast 2048 of 4095 adopted from the 
 sensors_expected="C33 sensors: battery 3083 mV, board 22 C"
 # 2^30 counts of Grifo's 60 MHz MCLK.
 watchdog_expected="s1c33-wdt 300660.watchdog: 60000000 Hz, up to 17895 ms a period"
-evdev_expected="C33 input: userspace console received evdev touch events"
+evdev_expected="C33 input: soft keyboard received evdev touch events"
 init_expected="C33 BusyBox init: PID 1 userspace started"
 diagnostic_expected="C33 BusyBox init: kernel self-test passed"
 busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive tools"

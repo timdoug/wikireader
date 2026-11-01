@@ -115,38 +115,38 @@ that scrolls 40 columns by 24 rows of the ordinary kernel log in Linux's
 standard 6x8 font until late init. An unhandled exception draws a solid
 fault bar below the text, so failures before userspace remain visible without
 attaching to the serial pads. The boot logo is placed on the physical right edge.
-Once init is running, `/sbin/wr-console` takes over the ordinary fbdev device.
-It renders a 40-column terminal and soft keyboard, allocates a Unix98 PTY from
-`/dev/ptmx`, and makes the PTY slave Hush's controlling terminal. Its four-row
-keyboard provides lowercase and shifted letters, `123`/`ABC` symbol pages,
-Control, Tab, Space, cursor keys, Backspace, and Enter. A released soft key is
-not written to the PTY directly: the frontend registers the soft keyboard as
-a `uinput` device and reports the key on it, with `KEY_LEFTSHIFT` and
-`KEY_LEFTCTRL` around it as a physical keyboard would, so the key is visible
-to any program that reads evdev. The frontend is also the terminal's
-keyboard driver, since no VT carries a terminal: it opens every evdev node that has keys
-and no absolute axes -- the soft keyboard, the front buttons, anything added
-later -- and turns their presses into bytes for the PTY with a US keymap,
-falling back to writing the PTY directly if `/dev/uinput` is missing. The
-front buttons have no terminal meaning of their own and get the three things
-a terminal without other keys most wants: random is an interrupt (`^C`),
-search is Tab, and history is the up arrow. The power switch cannot cut power
-from Linux, so it is the sleep button: it suspends until the next touch when
-`wr.suspend` is set and blanks the panel otherwise. Only a press counts as
-activity, so the release of the key that blanked the machine does not wake
-it. The frontend writes only changed text rows
-and key bands through fbdev. Packed glyph writes and overlap-safe framebuffer
+Once init is running, two programs share the ordinary fbdev device:
+`/sbin/wr-console`, a 40-column terminal in the top 120 rows, and
+`/sbin/wr-keyboard`, a four-row touchscreen keyboard below it. The console
+allocates a Unix98 PTY from `/dev/ptmx` and makes the PTY slave Hush's
+controlling terminal. The keyboard provides lowercase and shifted letters,
+`123`/`ABC` symbol pages, Control, Tab, Space, cursor keys, Backspace, and
+Enter; it is a `uinput` device, "WikiReader soft keyboard", and reports a
+tapped key on it with `KEY_LEFTSHIFT` and `KEY_LEFTCTRL` around it as a
+physical keyboard would, so the key reaches any program that reads evdev.
+The console is the terminal's keyboard driver, since no VT carries a
+terminal: it opens every evdev node that has keys and no absolute axes --
+the soft keyboard, the front buttons, anything added later, which inotify on
+`/dev/input` reports -- and turns their presses into bytes for the PTY with a
+US keymap. The front buttons have no terminal meaning of their own and get
+the three things a terminal without other keys most wants: random is an
+interrupt (`^C`), search is Tab, and history is the up arrow. The power
+switch cannot cut power from Linux, so it is the sleep button: the keyboard
+suspends until the next touch when `wr.suspend` is set and blanks the panel
+otherwise. Only a press counts as activity, so the release of the key that
+blanked the machine does not wake it. Each program writes only its own rows
+through fbdev: the console its changed text rows, the keyboard its key bands. Packed glyph writes and overlap-safe framebuffer
 row moves make scrolling cheap; bounded output frames are paced when they
 scroll so commands remain visibly animated instead of either repainting every
 byte or jumping directly to their final screen. Pacing never sits between a
 key and the first thing that key produced: the first frame of a burst is
 painted immediately and only its continuation is paced, which keeps the
-touch-to-shell latency the boot test bounds. BusyBox init respawns the
-frontend if it exits; the
+touch-to-shell latency the boot test bounds. BusyBox init respawns either
+program if it exits; the
 independent `ttyC0` recovery shell remains available throughout.
 
 Suspend-to-idle works: `wr.suspend=<seconds>` on the launcher's line makes the
-console freeze the machine once nothing has touched it for that long, and the
+keyboard freeze the machine once nothing has touched it for that long, and the
 next touch resumes it, and lights the panel itself on the way out: the kernel
 spends that touch as its wake event, so no key arrives to do it and the
 machine would otherwise resume to a dark screen indistinguishable from a dead
@@ -274,10 +274,13 @@ The framebuffer driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same device tree as the SD slot's chip
 select. `FBIOBLANK` therefore works, and because no kernel console blanks the
-screen on a machine that runs from two AA cells, the userspace console does it:
-it powers the panel down after `wr.blank=<seconds>` of no touch, wakes on the
-next one without letting that touch type, and keeps the panel on for
-`wr.blank=0`. The launcher's `init.ini` line carries that number, so the idle
+screen on a machine that runs from two AA cells, the keyboard does it, since
+the touchscreen is both what keeps the machine busy and what wakes it: it
+powers the panel down after `wr.blank=<seconds>` with no touch or button, and
+keeps the panel on for `wr.blank=0`. Idle means no input, as for the kernel's
+own console blanking. The touch that wakes the panel types nothing, and while
+the panel is dark the keyboard grabs the buttons (`EVIOCGRAB`), so neither
+does the press that wakes it. The launcher's `init.ini` line carries that number, so the idle
 timeout is a card edit.
 
 The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
@@ -737,8 +740,8 @@ kernel code, which took the kernel's code past the 2 MB reach of a short
 call, so the kernel is built with `-mlong-calls`.
 `buildroot/patches/` adds the C33 as a Buildroot architecture, with an
 external toolchain only. The `buildroot/external/` tree holds the defconfig,
-the BusyBox configuration and two packages, `wr-console` and
-`wikireader-system`. The latter installs `initramfs/`'s init configuration
+the BusyBox configuration and the packages, among them `wr-console` (the
+console and its keyboard) and `wikireader-system`. The latter installs `initramfs/`'s init configuration
 and builds `wr-selftest`.
 Buildroot builds with `c33-linux-uclibc-` from `toolchain`, as FDPIC with
 shared libraries. Everything is compiled with `-ffunction-sections
@@ -812,11 +815,12 @@ includes `free`, `top`, `pstree`, `pgrep`, `pkill`, `pidof`, `pmap`, `lsof`,
 terminal settings. These are available commands, with no extra daemons
 started at boot.
 
-`wr-console` is the framebuffer frontend. It uses only standard
-fbdev, evdev, Unix98 PTY, devpts, process, and TTY interfaces; the application
-contains no S1C33 register access or private kernel ABI. It is installed as
-`/sbin/wr-console`, and BusyBox init supervises it beside the serial recovery
-shell. Its shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
+`wr-console` and `wr-keyboard` are the framebuffer frontend. They use only
+standard fbdev, evdev, uinput, Unix98 PTY, devpts, process, and TTY
+interfaces; neither contains S1C33 register access or private kernel ABI
+(`wr.pmlog` reads the button ports through `/dev/mem` for its log). BusyBox
+init supervises both beside the serial recovery shell. The console's
+shell's `PATH` ends in `/mnt/sd/bin`, so a program copied into the
 card's `bin` folder runs by name.
 
 Its terminal is 40 columns by 15 rows and implements the Linux console as
@@ -833,9 +837,11 @@ and the Buildroot package runs it before building the console.
 
 The console holds VT 1 in process mode. When another program switches VTs,
 the kernel asks the console first: it stops drawing (it keeps drawing into
-its own copy of the screen), drops touches and keys, stops its blank and
-suspend timers, and answers; when VT 1 comes back it repaints. Its VT's
-keyboard mode is `K_OFF`, since the console reads the keyboards itself.
+its own copy of the screen), drops keys, and answers; when VT 1 comes back it
+repaints. Its VT's keyboard mode is `K_OFF`, since the console reads the
+keyboards itself. The keyboard follows `/sys/class/tty/tty0/active`: while
+another VT has the panel it draws nothing, ignores touches and stops its
+blank and suspend timers, and when VT 1 comes back it repaints its rows.
 
 `startx [CLIENT] [-- SERVER-ARGS]` runs an X client on the panel: it starts
 `Xfbdev` on the touchscreen and the buttons, with the classic grey weave

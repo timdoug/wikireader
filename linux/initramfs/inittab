@@ -1,5 +1,6 @@
 ::sysinit:/etc/init.d/rcS
 ttyC0::respawn:-/bin/sh
+::respawn:/sbin/wr-keyboard
 ::respawn:/sbin/wr-console
 # seedrng, then the watchdog daemon: after the consoles, so that its exec
 # does not hold them up.

@@ -495,10 +495,17 @@ The rest of the port, standards first (see "Standards" above):
    `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/0002`
    (the stack guard's time from `clock_gettime64`) too.
 6. **Buildroot patch 0002**: drop its static-library half.
-7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal. Its soft
-   keyboard is a `uinput` device and it feeds every keyboard-shaped evdev
-   node into the PTY, so keys reach any program; what remains is that the
-   terminal itself is not the kernel's. The pacing, blanking, and suspend
+7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft
+   keyboard is its own program, `console/wr-keyboard.c`, a `uinput` device,
+   so keys reach any program; what remains is that the terminal itself is
+   not the kernel's. Measured 2026-11-01 (wremu, through Grifo): fbcon with
+   the 6x8 font costs 33 KB of kernel and 7.8 ms a scrolled line against
+   the console's ~2.3 ms of CPU, since it scrolls row by row comparing
+   every cell (`FRAMEBUFFER_CONSOLE_LEGACY_ACCELERATION`, else it redraws
+   every glyph); its one-bit console is white on black, and reverse video
+   leaves cleared areas black. Panning (`pLCDC_MADD`, with the 5 KB of
+   free IVRAM) would make scrolling nearly free, but moves the keyboard
+   too, which would then need the LCDC's sub-window. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.

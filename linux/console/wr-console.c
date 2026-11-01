@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* WikiReader userspace framebuffer terminal and touchscreen keyboard. */
+/* WikiReader userspace framebuffer terminal. */
 #include <fcntl.h>
 #include <linux/fb.h>
 #include <linux/kd.h>
 #include <linux/vt.h>
 #include <linux/input.h>
-#include <linux/uinput.h>
 #include <time.h>
 #include <poll.h>
 #include <signal.h>
@@ -13,165 +12,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
-#define LCD_WIDTH	240
-#define LCD_HEIGHT	208
-#define LCD_STRIDE	32
-#define LCD_BYTES	(LCD_STRIDE * LCD_HEIGHT)
+#include "wr-keymap.h"
+#include "wr-panel.h"
+
 #define TEXT_COLUMNS	40
 #define TEXT_ROWS	15
-#define FONT_WIDTH	6
-#define FONT_HEIGHT	8
 #define TEXT_HEIGHT	(TEXT_ROWS * FONT_HEIGHT)
-#define KEYBOARD_Y	120
-#define KEY_WIDTH	24
-#define KEY_ROWS	4
-
-#define WR_KEY_BACKSPACE	19
-#define WR_KEY_SHIFT		20
-#define WR_KEY_CONTROL		30
-#define WR_KEY_SYMBOLS		31
-#define WR_KEY_TAB		32
-#define WR_KEY_SPACE_FIRST	33
-#define WR_KEY_SPACE_LAST	35
-#define WR_KEY_LEFT		36
-#define WR_KEY_RIGHT		37
-#define WR_KEY_ENTER_FIRST	38
-#define WR_KEY_ENTER_LAST	39
 
 #define OUTPUT_BATCH_BYTES	256
 #define OUTPUT_QUIET_MS		8
 #define SCROLL_FRAME_MS		16
 
-struct glyph {
-	char character;
-	uint8_t rows[7];
-};
-
-static const struct glyph glyphs[] = {
-	{ 'A', { 14, 17, 17, 31, 17, 17, 17 } },
-	{ 'B', { 30, 17, 17, 30, 17, 17, 30 } },
-	{ 'C', { 14, 17, 16, 16, 16, 17, 14 } },
-	{ 'D', { 30, 17, 17, 17, 17, 17, 30 } },
-	{ 'E', { 31, 16, 16, 30, 16, 16, 31 } },
-	{ 'F', { 31, 16, 16, 30, 16, 16, 16 } },
-	{ 'G', { 14, 17, 16, 23, 17, 17, 15 } },
-	{ 'H', { 17, 17, 17, 31, 17, 17, 17 } },
-	{ 'I', { 14, 4, 4, 4, 4, 4, 14 } },
-	{ 'J', { 7, 2, 2, 2, 18, 18, 12 } },
-	{ 'K', { 17, 18, 20, 24, 20, 18, 17 } },
-	{ 'L', { 16, 16, 16, 16, 16, 16, 31 } },
-	{ 'M', { 17, 27, 21, 21, 17, 17, 17 } },
-	{ 'N', { 17, 25, 21, 19, 17, 17, 17 } },
-	{ 'O', { 14, 17, 17, 17, 17, 17, 14 } },
-	{ 'P', { 30, 17, 17, 30, 16, 16, 16 } },
-	{ 'Q', { 14, 17, 17, 17, 21, 18, 13 } },
-	{ 'R', { 30, 17, 17, 30, 20, 18, 17 } },
-	{ 'S', { 15, 16, 16, 14, 1, 1, 30 } },
-	{ 'T', { 31, 4, 4, 4, 4, 4, 4 } },
-	{ 'U', { 17, 17, 17, 17, 17, 17, 14 } },
-	{ 'V', { 17, 17, 17, 17, 17, 10, 4 } },
-	{ 'W', { 17, 17, 17, 21, 21, 21, 10 } },
-	{ 'X', { 17, 17, 10, 4, 10, 17, 17 } },
-	{ 'Y', { 17, 17, 10, 4, 4, 4, 4 } },
-	{ 'Z', { 31, 1, 2, 4, 8, 16, 31 } },
-	{ 'a', { 0, 0, 14, 1, 15, 17, 15 } },
-	{ 'b', { 16, 16, 30, 17, 17, 17, 30 } },
-	{ 'c', { 0, 0, 14, 16, 16, 17, 14 } },
-	{ 'd', { 1, 1, 15, 17, 17, 17, 15 } },
-	{ 'e', { 0, 0, 14, 17, 31, 16, 14 } },
-	{ 'f', { 6, 9, 8, 28, 8, 8, 8 } },
-	{ 'g', { 0, 0, 15, 17, 15, 1, 14 } },
-	{ 'h', { 16, 16, 30, 17, 17, 17, 17 } },
-	{ 'i', { 4, 0, 12, 4, 4, 4, 14 } },
-	{ 'j', { 2, 0, 6, 2, 2, 18, 12 } },
-	{ 'k', { 16, 16, 18, 20, 24, 20, 18 } },
-	{ 'l', { 12, 4, 4, 4, 4, 4, 14 } },
-	{ 'm', { 0, 0, 26, 21, 21, 17, 17 } },
-	{ 'n', { 0, 0, 30, 17, 17, 17, 17 } },
-	{ 'o', { 0, 0, 14, 17, 17, 17, 14 } },
-	{ 'p', { 0, 0, 30, 17, 30, 16, 16 } },
-	{ 'q', { 0, 0, 15, 17, 15, 1, 1 } },
-	{ 'r', { 0, 0, 22, 25, 16, 16, 16 } },
-	{ 's', { 0, 0, 15, 16, 14, 1, 30 } },
-	{ 't', { 8, 8, 28, 8, 8, 9, 6 } },
-	{ 'u', { 0, 0, 17, 17, 17, 19, 13 } },
-	{ 'v', { 0, 0, 17, 17, 17, 10, 4 } },
-	{ 'w', { 0, 0, 17, 17, 21, 21, 10 } },
-	{ 'x', { 0, 0, 17, 10, 4, 10, 17 } },
-	{ 'y', { 0, 0, 17, 17, 15, 1, 14 } },
-	{ 'z', { 0, 0, 31, 2, 4, 8, 31 } },
-	{ '0', { 14, 17, 19, 21, 25, 17, 14 } },
-	{ '1', { 4, 12, 4, 4, 4, 4, 14 } },
-	{ '2', { 14, 17, 1, 2, 4, 8, 31 } },
-	{ '3', { 30, 1, 1, 14, 1, 1, 30 } },
-	{ '4', { 2, 6, 10, 18, 31, 2, 2 } },
-	{ '5', { 31, 16, 16, 30, 1, 1, 30 } },
-	{ '6', { 14, 16, 16, 30, 17, 17, 14 } },
-	{ '7', { 31, 1, 2, 4, 8, 8, 8 } },
-	{ '8', { 14, 17, 17, 14, 17, 17, 14 } },
-	{ '9', { 14, 17, 17, 15, 1, 1, 14 } },
-	{ '#', { 10, 31, 10, 10, 31, 10, 0 } },
-	{ '/', { 1, 2, 2, 4, 8, 8, 16 } },
-	{ '-', { 0, 0, 0, 31, 0, 0, 0 } },
-	{ '_', { 0, 0, 0, 0, 0, 0, 31 } },
-	{ '.', { 0, 0, 0, 0, 0, 12, 12 } },
-	{ ':', { 0, 12, 12, 0, 12, 12, 0 } },
-	{ '>', { 16, 8, 4, 2, 4, 8, 16 } },
-	{ '<', { 1, 2, 4, 8, 4, 2, 1 } },
-	{ '=', { 0, 0, 31, 0, 31, 0, 0 } },
-	{ '+', { 0, 4, 4, 31, 4, 4, 0 } },
-	{ '*', { 0, 17, 10, 31, 10, 17, 0 } },
-	{ '!', { 4, 4, 4, 4, 4, 0, 4 } },
-	{ '?', { 14, 17, 1, 2, 4, 0, 4 } },
-	{ '[', { 14, 8, 8, 8, 8, 8, 14 } },
-	{ ']', { 14, 2, 2, 2, 2, 2, 14 } },
-	{ '(', { 2, 4, 8, 8, 8, 4, 2 } },
-	{ ')', { 8, 4, 2, 2, 2, 4, 8 } },
-	{ '@', { 14, 17, 23, 21, 23, 16, 14 } },
-	{ '$', { 4, 15, 20, 14, 5, 30, 4 } },
-	{ '%', { 17, 2, 4, 8, 16, 17, 0 } },
-	{ '\'', { 4, 4, 8, 0, 0, 0, 0 } },
-	{ '"', { 10, 10, 20, 0, 0, 0, 0 } },
-	{ ';', { 0, 12, 12, 0, 12, 4, 8 } },
-	{ '&', { 12, 18, 20, 8, 21, 18, 13 } },
-	{ '^', { 4, 10, 17, 0, 0, 0, 0 } },
-	{ '|', { 4, 4, 4, 4, 4, 4, 4 } },
-	{ '\\', { 16, 8, 8, 4, 2, 2, 1 } },
-	{ '`', { 8, 4, 0, 0, 0, 0, 0 } },
-	{ '{', { 2, 4, 4, 8, 4, 4, 2 } },
-	{ '}', { 8, 4, 4, 2, 4, 4, 8 } },
-	{ '~', { 0, 0, 9, 22, 0, 0, 0 } },
-};
-
-static const char letter_keys[3][11] = {
-	"qwertyuiop",
-	"asdfghjkl",
-	"zxcvbnm-?",
-};
-
-static const char symbol_keys[2][2][11] = {
-	{
-		"1234567890",
-		"-/:;()$&@",
-	},
-	{
-		"!@#$%^&*()",
-		"[]{}<>|~`",
-	},
-};
-
-static const char symbol_third_row[2][10] = {
-	".'\"=+*_!\\",
-	",_`~=+*^\\",
-};
-
-static uint8_t framebuffer[LCD_BYTES];
 /*
  * The terminal is the Linux console as TERM=linux describes it to curses
  * programs: cursor addressing and movement, insertion and deletion of
@@ -212,10 +70,6 @@ static int private_mode;
 static int terminal_fd = -1;	/* the PTY master, for replies */
 static unsigned int dirty_text_first = TEXT_ROWS;
 static unsigned int dirty_text_last;
-static int active_key = -1;
-static int shift_active;
-static int control_active;
-static int symbols_active;
 static int fb_fd;
 static int log_fd;
 /*
@@ -229,27 +83,20 @@ static int vt_fd = -1;
 static int vt_pipe[2] = { -1, -1 };
 static int vt_away;
 /*
- * Key delivery.  The soft keyboard is a keyboard as far as Linux is
- * concerned: it is a uinput device, and tapping a key here reports a press
- * and release on it.  Everything that arrives on any keyboard-shaped evdev
- * node -- that device, the front buttons, anything added later -- is turned
- * into bytes for the shell's PTY below.  Keys are therefore visible to any
- * program that reads evdev, not only to this one, and this program is the
- * only keyboard driver a machine without a VT has.
+ * Key delivery.  No VT carries a terminal, so this program is the shell's
+ * keyboard driver: everything that arrives on a keyboard-shaped evdev node
+ * -- wr-keyboard's soft keyboard, the front buttons, anything added later,
+ * which inotify on /dev/input reports -- is turned into bytes for the PTY.
  */
-#define MAX_KEYBOARDS		4
-#define SOFT_KEYBOARD_NAME	"WikiReader soft keyboard"
-static int uinput_fd = -1;
+#define MAX_KEYBOARDS		8
 static int keyboard_fds[MAX_KEYBOARDS];
+static unsigned int keyboard_numbers[MAX_KEYBOARDS];
 static unsigned int keyboard_count;
+static int inotify_fd = -1;
 static int shift_down;
 static int control_down;
 static int keyboard_reported;
 static int button_reported;
-static void set_display_blank(int blank);
-static void suspend_until_touch(void);
-static void power_line(const char *what);
-static long monotonic_seconds(void);
 static unsigned int scrolls_pending;
 /*
  * Pacing keeps a burst of output readable, but it must never sit between a
@@ -258,18 +105,6 @@ static unsigned int scrolls_pending;
  * the continuation of the same burst is paced.
  */
 static int burst_painted;
-/*
- * There is no VT here, so nothing else would ever turn the panel off on a
- * device that runs from two AA cells. The timeout comes from the kernel
- * command line, which the launcher takes from a line on the card:
- * wr.blank=<seconds>, and wr.blank=0 to keep the panel on.
- */
-#define BLANK_SECONDS_DEFAULT	120
-static int blank_seconds = BLANK_SECONDS_DEFAULT;
-static int suspend_seconds;
-static int power_logging;
-static int display_blanked;
-static long idle_since;
 
 static void log_text(const char *text)
 {
@@ -313,91 +148,6 @@ static void note_ready(void)
 	}
 }
 
-/* Indexed by character, filled from glyphs[] at startup: searching the list
-   for every cell drawn was most of what a redraw cost. */
-static const uint8_t *glyph_index[128];
-
-static void index_glyphs(void)
-{
-	static const uint8_t blank[7];
-	unsigned int i;
-
-	for (i = 0; i < 128; i++)
-		glyph_index[i] = blank;
-	for (i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++)
-		if ((unsigned char)glyphs[i].character < 128)
-			glyph_index[(unsigned char)glyphs[i].character] =
-				glyphs[i].rows;
-}
-
-static const uint8_t *glyph_rows(unsigned char character)
-{
-	return glyph_index[character & 127];
-}
-
-static void set_pixel(unsigned int x, unsigned int y, int black)
-{
-	uint8_t mask;
-
-	if (x >= LCD_WIDTH || y >= LCD_HEIGHT)
-		return;
-	mask = 0x80 >> (x & 7);
-	if (black)
-		framebuffer[y * LCD_STRIDE + (x >> 3)] |= mask;
-	else
-		framebuffer[y * LCD_STRIDE + (x >> 3)] &= ~mask;
-}
-
-/* Pixels x0..x1 of row y, a byte at a time between the partial ends. */
-static void fill_span(unsigned int x0, unsigned int x1, unsigned int y,
-		      int black)
-{
-	uint8_t *row = framebuffer + y * LCD_STRIDE;
-	unsigned int first = x0 >> 3;
-	unsigned int last = x1 >> 3;
-	uint8_t head = 0xff >> (x0 & 7);
-	uint8_t tail = 0xff << (7 - (x1 & 7));
-	unsigned int i;
-
-	if (first == last) {
-		head &= tail;
-		row[first] = black ? row[first] | head : row[first] & ~head;
-		return;
-	}
-	row[first] = black ? row[first] | head : row[first] & ~head;
-	for (i = first + 1; i < last; i++)
-		row[i] = black ? 0xff : 0;
-	row[last] = black ? row[last] | tail : row[last] & ~tail;
-}
-
-static void draw_character(unsigned int x, unsigned int y,
-			   unsigned char character, int inverse)
-{
-	const uint8_t *rows = glyph_rows(character);
-	unsigned int gy;
-	unsigned int offset = x & 7;
-	uint16_t mask = 0xfc00U >> offset;
-
-	for (gy = 0; gy < FONT_HEIGHT; gy++) {
-		uint8_t *destination = framebuffer + (y + gy) * LCD_STRIDE +
-			(x >> 3);
-		uint16_t pixels = gy < 7 ?
-			((uint16_t)rows[gy] << 11) >> offset : 0;
-
-		if (inverse)
-			pixels = ~pixels & mask;
-		destination[0] = (destination[0] & ~(mask >> 8)) |
-			(pixels >> 8);
-		destination[1] = (destination[1] & ~(uint8_t)mask) |
-			(uint8_t)pixels;
-	}
-}
-
-static void clear_rows(unsigned int first, unsigned int count)
-{
-	memset(framebuffer + first * LCD_STRIDE, 0, count * LCD_STRIDE);
-}
-
 static void write_rows(unsigned int first, unsigned int count)
 {
 	size_t offset = first * LCD_STRIDE;
@@ -436,107 +186,6 @@ static void mark_all_text(void)
 	dirty_text_last = TEXT_ROWS - 1;
 }
 
-static int key_character(int key)
-{
-	int character;
-
-	if (key >= 0 && key < 10) {
-		character = symbols_active ? symbol_keys[shift_active][0][key] :
-			letter_keys[0][key];
-	} else if (key >= 10 && key < WR_KEY_BACKSPACE) {
-		character = symbols_active ?
-			symbol_keys[shift_active][1][key - 10] :
-			letter_keys[1][key - 10];
-	} else if (key > WR_KEY_SHIFT && key < WR_KEY_CONTROL) {
-		character = symbols_active ?
-			symbol_third_row[shift_active][key - WR_KEY_SHIFT - 1] :
-			letter_keys[2][key - WR_KEY_SHIFT - 1];
-	} else {
-		return -1;
-	}
-	if (!symbols_active && shift_active &&
-	    character >= 'a' && character <= 'z')
-		character -= 'a' - 'A';
-	return character;
-}
-
-static const char *key_label(int key, char label[4])
-{
-	const char *text = NULL;
-	int character;
-
-	switch (key) {
-	case WR_KEY_BACKSPACE:
-		text = "BS";
-		break;
-	case WR_KEY_SHIFT:
-		text = "Sh";
-		break;
-	case WR_KEY_CONTROL:
-		text = "Ctl";
-		break;
-	case WR_KEY_SYMBOLS:
-		text = symbols_active ? "ABC" : "123";
-		break;
-	case WR_KEY_TAB:
-		text = "Tab";
-		break;
-	case WR_KEY_SPACE_FIRST ... WR_KEY_SPACE_LAST:
-		text = "SP";
-		break;
-	case WR_KEY_LEFT:
-		text = "<";
-		break;
-	case WR_KEY_RIGHT:
-		text = ">";
-		break;
-	case WR_KEY_ENTER_FIRST ... WR_KEY_ENTER_LAST:
-		text = "EN";
-		break;
-	default:
-		character = key_character(key);
-		label[0] = character >= 0 ? character : ' ';
-		label[1] = '\0';
-		return label;
-	}
-	return text;
-}
-
-static void draw_key(int key, int pressed)
-{
-	unsigned int row = key / 10;
-	unsigned int column = key % 10;
-	unsigned int y0 = KEYBOARD_Y +
-		row * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS;
-	unsigned int y1 = KEYBOARD_Y +
-		(row + 1) * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS - 1;
-	unsigned int x0 = column * KEY_WIDTH;
-	unsigned int x1 = x0 + KEY_WIDTH - 1;
-	char label_buffer[4];
-	const char *label = key_label(key, label_buffer);
-	unsigned int label_length = strlen(label);
-	unsigned int label_x = x0 + (KEY_WIDTH - label_length * FONT_WIDTH) / 2;
-	unsigned int label_y = y0 + (y1 - y0 + 1 - FONT_HEIGHT) / 2;
-	unsigned int x;
-	unsigned int y;
-
-	pressed |= (key == WR_KEY_SHIFT && shift_active) ||
-		(key == WR_KEY_CONTROL && control_active) ||
-		(key == WR_KEY_SYMBOLS && symbols_active);
-	for (y = y0; y <= y1; y++) {
-		int solid = pressed || y == y0 || y == y1;
-
-		fill_span(x0, x1, y, solid);
-		if (!solid) {
-			set_pixel(x0, y, 1);
-			set_pixel(x1, y, 1);
-		}
-	}
-	for (x = 0; x < label_length; x++)
-		draw_character(label_x + x * FONT_WIDTH, label_y, label[x],
-			       pressed);
-}
-
 static void draw_text_rows(unsigned int first, unsigned int last)
 {
 	unsigned int row;
@@ -570,41 +219,10 @@ static void flush_text(void)
 	burst_painted = 1;
 }
 
-static void flush_key(int key)
-{
-	unsigned int row;
-	unsigned int first;
-	unsigned int last;
-
-	if (key < 0 || key >= KEY_ROWS * 10)
-		return;
-	row = key / 10;
-	first = KEYBOARD_Y + row * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS;
-	last = KEYBOARD_Y +
-		(row + 1) * (LCD_HEIGHT - KEYBOARD_Y) / KEY_ROWS - 1;
-	draw_key(key, key == active_key);
-	write_rows(first, last - first + 1);
-}
-
-static void flush_keyboard(void)
-{
-	int key;
-
-	clear_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
-	for (key = 0; key < KEY_ROWS * 10; key++)
-		draw_key(key, key == active_key);
-	write_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
-}
-
 static void flush_display(void)
 {
-	int key;
-
 	draw_text_rows(0, TEXT_ROWS - 1);
-	clear_rows(KEYBOARD_Y, LCD_HEIGHT - KEYBOARD_Y);
-	for (key = 0; key < KEY_ROWS * 10; key++)
-		draw_key(key, key == active_key);
-	write_rows(0, LCD_HEIGHT);
+	write_rows(0, TEXT_HEIGHT);
 	dirty_text_first = TEXT_ROWS;
 	dirty_text_last = 0;
 }
@@ -1111,74 +729,6 @@ static void consume_terminal_output(int master_fd)
 	flush_text();
 }
 
-static int key_at(unsigned int x, unsigned int y)
-{
-	unsigned int row;
-
-	if (x >= LCD_WIDTH || y < KEYBOARD_Y || y >= LCD_HEIGHT)
-		return -1;
-	row = (y - KEYBOARD_Y) * KEY_ROWS / (LCD_HEIGHT - KEYBOARD_Y);
-	return row * 10 + x / KEY_WIDTH;
-}
-
-/* The US layout, which is what the soft keyboard's labels are. */
-static const struct {
-	unsigned short code;
-	char plain;
-	char shifted;
-} keymap[] = {
-	{ KEY_1, '1', '!' }, { KEY_2, '2', '@' }, { KEY_3, '3', '#' },
-	{ KEY_4, '4', '$' }, { KEY_5, '5', '%' }, { KEY_6, '6', '^' },
-	{ KEY_7, '7', '&' }, { KEY_8, '8', '*' }, { KEY_9, '9', '(' },
-	{ KEY_0, '0', ')' }, { KEY_MINUS, '-', '_' }, { KEY_EQUAL, '=', '+' },
-	{ KEY_Q, 'q', 'Q' }, { KEY_W, 'w', 'W' }, { KEY_E, 'e', 'E' },
-	{ KEY_R, 'r', 'R' }, { KEY_T, 't', 'T' }, { KEY_Y, 'y', 'Y' },
-	{ KEY_U, 'u', 'U' }, { KEY_I, 'i', 'I' }, { KEY_O, 'o', 'O' },
-	{ KEY_P, 'p', 'P' }, { KEY_LEFTBRACE, '[', '{' },
-	{ KEY_RIGHTBRACE, ']', '}' }, { KEY_A, 'a', 'A' }, { KEY_S, 's', 'S' },
-	{ KEY_D, 'd', 'D' }, { KEY_F, 'f', 'F' }, { KEY_G, 'g', 'G' },
-	{ KEY_H, 'h', 'H' }, { KEY_J, 'j', 'J' }, { KEY_K, 'k', 'K' },
-	{ KEY_L, 'l', 'L' }, { KEY_SEMICOLON, ';', ':' },
-	{ KEY_APOSTROPHE, '\'', '"' }, { KEY_GRAVE, '`', '~' },
-	{ KEY_BACKSLASH, '\\', '|' }, { KEY_Z, 'z', 'Z' }, { KEY_X, 'x', 'X' },
-	{ KEY_C, 'c', 'C' }, { KEY_V, 'v', 'V' }, { KEY_B, 'b', 'B' },
-	{ KEY_N, 'n', 'N' }, { KEY_M, 'm', 'M' }, { KEY_COMMA, ',', '<' },
-	{ KEY_DOT, '.', '>' }, { KEY_SLASH, '/', '?' }, { KEY_SPACE, ' ', ' ' },
-};
-
-/* Keys the soft keyboard reports that carry no character of their own. */
-static const unsigned short special_keys[] = {
-	KEY_ENTER, KEY_BACKSPACE, KEY_TAB, KEY_ESC, KEY_LEFT, KEY_RIGHT,
-	KEY_UP, KEY_DOWN, KEY_LEFTSHIFT, KEY_LEFTCTRL,
-};
-
-static int key_for_character(int character, int *shift)
-{
-	unsigned int i;
-
-	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++) {
-		if (keymap[i].plain == character) {
-			*shift = 0;
-			return keymap[i].code;
-		}
-		if (keymap[i].shifted == character) {
-			*shift = 1;
-			return keymap[i].code;
-		}
-	}
-	return -1;
-}
-
-static int character_for_key(unsigned int code, int shift)
-{
-	unsigned int i;
-
-	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
-		if (keymap[i].code == code)
-			return shift ? keymap[i].shifted : keymap[i].plain;
-	return -1;
-}
-
 /*
  * What a key press means to the shell.  The front buttons have no terminal
  * meaning of their own, so they get the three things a terminal on a device
@@ -1244,122 +794,56 @@ static int deliver_key(int master_fd, unsigned int code, int shift,
 	return write(master_fd, output, length) == (ssize_t)length;
 }
 
-static void add_event(struct input_event *events, unsigned int *count,
-		      unsigned int type, unsigned int code, int value)
+/* Open event node N if it is a keyboard: keys and no absolute axes. */
+static void add_keyboard(unsigned int n)
 {
-	memset(&events[*count], 0, sizeof(events[0]));
-	events[*count].type = type;
-	events[*count].code = code;
-	events[*count].value = value;
-	(*count)++;
-}
-
-/* Press and release one key on the soft keyboard, with its modifiers. */
-static int emit_key(unsigned int code, int shift, int control)
-{
-	struct input_event events[10];
-	unsigned int count = 0;
-	ssize_t length;
-
-	if (shift)
-		add_event(events, &count, EV_KEY, KEY_LEFTSHIFT, 1);
-	if (control)
-		add_event(events, &count, EV_KEY, KEY_LEFTCTRL, 1);
-	add_event(events, &count, EV_KEY, code, 1);
-	add_event(events, &count, EV_SYN, SYN_REPORT, 0);
-	add_event(events, &count, EV_KEY, code, 0);
-	if (control)
-		add_event(events, &count, EV_KEY, KEY_LEFTCTRL, 0);
-	if (shift)
-		add_event(events, &count, EV_KEY, KEY_LEFTSHIFT, 0);
-	add_event(events, &count, EV_SYN, SYN_REPORT, 0);
-	length = (ssize_t)(count * sizeof(events[0]));
-	if (write(uinput_fd, events, count * sizeof(events[0])) != length) {
-		power_line("uinput write failed");
-		return 0;
-	}
-	return 1;
-}
-
-static int create_soft_keyboard(void)
-{
-	struct uinput_setup setup;
-	unsigned int i;
+	unsigned long evbits = 0;
+	char path[32];
+	unsigned int k;
 	int fd;
 
-	fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	for (k = 0; k < keyboard_count; k++)
+		if (keyboard_numbers[k] == n)
+			return;
+	if (keyboard_count == MAX_KEYBOARDS)
+		return;
+	snprintf(path, sizeof(path), "/dev/input/event%u", n);
+	fd = open(path, O_RDONLY | O_NONBLOCK);
 	if (fd < 0)
-		return -1;
-	if (ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0)
-		goto fail;
-	for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
-		if (ioctl(fd, UI_SET_KEYBIT, keymap[i].code) < 0)
-			goto fail;
-	for (i = 0; i < sizeof(special_keys) / sizeof(special_keys[0]); i++)
-		if (ioctl(fd, UI_SET_KEYBIT, special_keys[i]) < 0)
-			goto fail;
-	memset(&setup, 0, sizeof(setup));
-	setup.id.bustype = BUS_VIRTUAL;
-	strncpy(setup.name, SOFT_KEYBOARD_NAME, sizeof(setup.name) - 1);
-	if (ioctl(fd, UI_DEV_SETUP, &setup) < 0 || ioctl(fd, UI_DEV_CREATE) < 0)
-		goto fail;
-	return fd;
-fail:
-	close(fd);
-	return -1;
+		return;
+	if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), &evbits) < 0 ||
+	    (evbits & (1ul << EV_ABS)) || !(evbits & (1ul << EV_KEY))) {
+		close(fd);
+		return;
+	}
+	keyboard_numbers[keyboard_count] = n;
+	keyboard_fds[keyboard_count++] = fd;
 }
 
-/*
- * Sort the event nodes: the one with absolute axes is the touchscreen,
- * anything else with keys is a keyboard, including the soft one just made.
- */
-static void open_input_devices(int *touch_fd)
+static void scan_keyboards(void)
 {
 	unsigned int n;
 
-	*touch_fd = -1;
-	keyboard_count = 0;
-	for (n = 0; n < 16; n++) {
-		unsigned long evbits = 0;
-		char path[32];
-		int fd;
-
-		snprintf(path, sizeof(path), "/dev/input/event%u", n);
-		fd = open(path, O_RDONLY | O_NONBLOCK);
-		if (fd < 0)
-			continue;
-		if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), &evbits) < 0) {
-			close(fd);
-			continue;
-		}
-		if (evbits & (1ul << EV_ABS)) {
-			if (*touch_fd < 0)
-				*touch_fd = fd;
-			else
-				close(fd);
-		} else if ((evbits & (1ul << EV_KEY)) &&
-			   keyboard_count < MAX_KEYBOARDS) {
-			keyboard_fds[keyboard_count++] = fd;
-		} else {
-			close(fd);
-		}
-	}
+	for (n = 0; n < 32; n++)
+		add_keyboard(n);
 }
 
-static const char *button_name(unsigned int code)
+/* A node came or went in /dev/input: wr-keyboard's may come after this. */
+static void input_nodes_changed(void)
 {
-	switch (code) {
-	case KEY_F1:
-		return "random";
-	case KEY_SEARCH:
-		return "search";
-	case KEY_BACK:
-		return "history";
-	case KEY_POWER:
-		return "power";
-	default:
-		return NULL;
-	}
+	char buffer[512];
+
+	while (read(inotify_fd, buffer, sizeof(buffer)) > 0)
+		;
+	scan_keyboards();
+}
+
+static void drop_keyboard(unsigned int k)
+{
+	close(keyboard_fds[k]);
+	keyboard_count--;
+	keyboard_fds[k] = keyboard_fds[keyboard_count];
+	keyboard_numbers[k] = keyboard_numbers[keyboard_count];
 }
 
 /* One event from a keyboard device.  Returns 1 if the shell got bytes. */
@@ -1385,28 +869,11 @@ static int keyboard_event(int master_fd, const struct input_event *event)
 	if (!event->value)
 		return 0;
 	button = button_name(event->code);
-	if (button) {
-		snprintf(line, sizeof(line), "button %s pressed", button);
-		power_line(line);
-	}
 	if (button && !button_reported) {
 		snprintf(line, sizeof(line), "C33 input: front button %s\n",
 			 button);
 		log_text(line);
 		button_reported = 1;
-	}
-	if (event->code == KEY_POWER) {
-		/* The switch cannot cut power here; it is the sleep button. */
-		if (suspend_seconds) {
-			log_text("C33 input: power switch suspends until touch\n");
-			set_display_blank(1);
-			suspend_until_touch();
-			idle_since = monotonic_seconds();
-		} else {
-			log_text("C33 input: power switch blanks the panel\n");
-			set_display_blank(1);
-		}
-		return 0;
 	}
 	if (!deliver_key(master_fd, event->code, shift_down, control_down))
 		return 0;
@@ -1415,64 +882,6 @@ static int keyboard_event(int master_fd, const struct input_event *event)
 		keyboard_reported = 1;
 	}
 	return 1;
-}
-
-static int send_key(int master_fd, int key, int *redraw_keyboard)
-{
-	unsigned int code;
-	int shift = 0;
-	int control = 0;
-	int character;
-
-	*redraw_keyboard = 0;
-	if (key == WR_KEY_SHIFT) {
-		shift_active = !shift_active;
-		*redraw_keyboard = 1;
-		return 0;
-	}
-	if (key == WR_KEY_CONTROL) {
-		control_active = !control_active;
-		*redraw_keyboard = 1;
-		return 0;
-	}
-	if (key == WR_KEY_SYMBOLS) {
-		symbols_active = !symbols_active;
-		shift_active = 0;
-		*redraw_keyboard = 1;
-		return 0;
-	}
-	if (key == WR_KEY_BACKSPACE) {
-		code = KEY_BACKSPACE;
-	} else if (key == WR_KEY_TAB) {
-		code = KEY_TAB;
-	} else if (key >= WR_KEY_SPACE_FIRST && key <= WR_KEY_SPACE_LAST) {
-		code = KEY_SPACE;
-	} else if (key == WR_KEY_LEFT || key == WR_KEY_RIGHT) {
-		code = key == WR_KEY_LEFT ? KEY_LEFT : KEY_RIGHT;
-	} else if (key >= WR_KEY_ENTER_FIRST && key <= WR_KEY_ENTER_LAST) {
-		code = KEY_ENTER;
-	} else {
-		int found;
-
-		character = key_character(key);
-		if (character < 0)
-			return 0;
-		found = key_for_character(character, &shift);
-		if (found < 0)
-			return 0;
-		code = (unsigned int)found;
-		control = control_active;
-	}
-	if (shift_active || control_active) {
-		shift_active = 0;
-		control_active = 0;
-		*redraw_keyboard = 1;
-	}
-	/* Without uinput the key goes straight to the shell, as it used to. */
-	if (uinput_fd < 0)
-		return deliver_key(master_fd, code, shift, control);
-	burst_painted = 0;
-	return emit_key(code, shift, control);
 }
 
 static int open_pty(int *slave_fd)
@@ -1541,187 +950,6 @@ static pid_t start_shell(int master, int slave)
 	return child;
 }
 
-static long monotonic_seconds(void)
-{
-	struct timespec now;
-	int ret = clock_gettime(CLOCK_MONOTONIC, &now);
-
-	if (ret < 0)
-		return 0;
-	return now.tv_sec;
-}
-
-static void read_timeouts(void)
-{
-	char cmdline[512];
-	const char *found;
-	int fd = open("/proc/cmdline", O_RDONLY);
-	ssize_t count;
-
-	if (fd < 0)
-		return;
-	count = read(fd, cmdline, sizeof(cmdline) - 1);
-	close(fd);
-	if (count <= 0)
-		return;
-	cmdline[count] = '\0';
-	found = strstr(cmdline, "wr.blank=");
-	if (found)
-		blank_seconds = atoi(found + strlen("wr.blank="));
-	found = strstr(cmdline, "wr.suspend=");
-	if (found)
-		suspend_seconds = atoi(found + strlen("wr.suspend="));
-	power_logging = strstr(cmdline, "wr.pmlog") != NULL;
-	if (blank_seconds < 0)
-		blank_seconds = 0;
-	if (suspend_seconds < 0)
-		suspend_seconds = 0;
-}
-
-/*
- * Suspend is opt-in from the same command line, because a machine that
- * suspends without a working wake source needs its batteries pulled. The
- * write returns when the kernel has resumed; the touch that caused the wake
- * arrives afterwards and unblanks the panel like any other.
- */
-/*
- * A device with no serial cannot say why it failed to wake, so each attempt
- * leaves a line on the card: how long it slept, and how the touch interrupt
- * count moved across it. A file that ends in "suspending" is a machine that
- * never came back.
- */
-static void set_display_blank(int blank);
-
-/*
- * The port data, direction and function bytes for P0 and P6: what the power
- * switch and the buttons are reading, straight from the registers, for a
- * device that cannot say so any other way.
- */
-static void port_state(char *out, size_t size)
-{
-	static const unsigned long addresses[] = {
-		0x300380, 0x300381, 0x3003a0, 0x30038c, 0x30038d, 0x3003ac,
-	};
-	unsigned char values[6];
-	unsigned int i;
-	int fd = open("/dev/mem", O_RDONLY);
-
-	if (fd < 0) {
-		snprintf(out, size, "ports unreadable");
-		return;
-	}
-	for (i = 0; i < 6; i++)
-		if (lseek(fd, (off_t)addresses[i], SEEK_SET) < 0 ||
-		    read(fd, &values[i], 1) != 1)
-			values[i] = 0xee;
-	close(fd);
-	snprintf(out, size,
-		 "P0D=%02x IOC0=%02x P0CFP03=%02x P6D=%02x IOC6=%02x P6CFP03=%02x",
-		 values[0], values[1], values[2], values[3], values[4], values[5]);
-}
-
-static void power_line(const char *what)
-{
-	char ports[96];
-	char line[160];
-	int length;
-	int fd;
-
-	if (!power_logging)
-		return;
-	fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
-	if (fd < 0)
-		return;
-	port_state(ports, sizeof(ports));
-	length = snprintf(line, sizeof(line), "%s: %s\n", what, ports);
-	if (length > 0)
-		write(fd, line, length);
-	close(fd);
-	sync();
-}
-
-static void power_note(const char *what, long seconds)
-{
-	char text[2048];
-	char line[96];
-	int fd;
-	int length;
-	int source;
-
-	/* Writing a card is slow enough to be felt, so it is opt-in. */
-	if (!power_logging)
-		return;
-	fd = open("/mnt/sd/linuxpm.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
-	if (fd < 0)
-		return;
-	length = snprintf(line, sizeof(line), "%s at %ld s\n", what, seconds);
-	if (length > 0)
-		write(fd, line, length);
-	{
-		char ports[96];
-
-		port_state(ports, sizeof(ports));
-		length = snprintf(line, sizeof(line), "%s\n", ports);
-		if (length > 0)
-			write(fd, line, length);
-	}
-	/*
-	 * Which interrupt moved is the only evidence there is for what woke
-	 * the machine, so keep the whole table rather than one parsed number.
-	 */
-	source = open("/proc/interrupts", O_RDONLY);
-	if (source >= 0) {
-		ssize_t count = read(source, text, sizeof(text));
-
-		if (count > 0)
-			write(fd, text, count);
-		close(source);
-	}
-	close(fd);
-	sync();
-}
-
-static void suspend_until_touch(void)
-{
-	long before = monotonic_seconds();
-	int fd = open("/sys/power/state", O_WRONLY);
-
-	if (fd < 0) {
-		log_text("C33 power: no suspend support\n");
-		suspend_seconds = 0;
-		return;
-	}
-	log_text("C33 power: suspending until touch\n");
-	power_note("suspending", before);
-	if (write(fd, "freeze\n", 7) < 0) {
-		log_text("C33 power: suspend REFUSED\n");
-		suspend_seconds = 0;
-	} else {
-		log_text("C33 power: resumed\n");
-	}
-	close(fd);
-	/*
-	 * The touch that woke the machine was spent on waking it: the kernel
-	 * takes that interrupt as its wake event, so no key arrives to turn
-	 * the panel back on. Light it before anything slower happens, or the
-	 * wait for the screen is whatever else this function does.
-	 */
-	set_display_blank(0);
-	power_note("resumed", monotonic_seconds() - before);
-}
-
-static void set_display_blank(int blank)
-{
-	if (blank == display_blanked)
-		return;
-	if (ioctl(fb_fd, FBIOBLANK,
-		  blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK) < 0)
-		return;
-	display_blanked = blank;
-	log_text(blank ? "C33 display: blanked while idle\n"
-			: "C33 display: woken by touch\n");
-}
-
 static void vt_signalled(int sig)
 {
 	char byte = sig == SIGUSR1 ? 'r' : 'a';
@@ -1763,17 +991,12 @@ static void vt_request(void)
 	while (read(vt_pipe[0], &byte, 1) == 1) {
 		if (byte == 'r' && !vt_away) {
 			vt_away = 1;
-			active_key = -1;
 			ioctl(vt_fd, VT_RELDISP, 1);
 			log_text("C33 console: panel handed to another VT\n");
 		} else if (byte == 'a' && vt_away) {
 			ioctl(vt_fd, VT_RELDISP, VT_ACKACQ);
 			vt_away = 0;
-			/* Whoever had the panel may have left it blanked. */
-			ioctl(fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
-			display_blanked = 0;
-			idle_since = monotonic_seconds();
-			write_rows(0, LCD_HEIGHT);
+			write_rows(0, TEXT_HEIGHT);
 			log_text("C33 console: panel back\n");
 		}
 	}
@@ -1785,13 +1008,7 @@ int main(void)
 	struct fb_fix_screeninfo fixed;
 	struct pollfd poll_fds[3 + MAX_KEYBOARDS];
 	struct input_event events[8];
-	unsigned int touch_x = 0;
-	unsigned int touch_y = 0;
-	unsigned int poll_count;
-	unsigned int k;
-	int touch_reported = 0;
 	int slave_fd;
-	int input_fd;
 	int master_fd;
 	pid_t shell;
 
@@ -1801,9 +1018,7 @@ int main(void)
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
 	fb_fd = open("/dev/fb0", O_RDWR);
-	uinput_fd = create_soft_keyboard();
-	open_input_devices(&input_fd);
-	if (fb_fd < 0 || input_fd < 0 ||
+	if (fb_fd < 0 ||
 	    ioctl(fb_fd, FBIOGET_VSCREENINFO, &variable) < 0 ||
 	    ioctl(fb_fd, FBIOGET_FSCREENINFO, &fixed) < 0 ||
 	    variable.xres != LCD_WIDTH || variable.yres != LCD_HEIGHT ||
@@ -1817,6 +1032,10 @@ int main(void)
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
+	inotify_fd = inotify_init1(IN_NONBLOCK);
+	if (inotify_fd >= 0)
+		inotify_add_watch(inotify_fd, "/dev/input", IN_CREATE);
+	scan_keyboards();
 
 	master_fd = open_pty(&slave_fd);
 	if (master_fd < 0) {
@@ -1833,148 +1052,59 @@ int main(void)
 	flush_display();
 	log_text("C33 userspace console: fbdev + evdev + PTY shell ready\n");
 	note_ready();
-	if (uinput_fd >= 0)
-		log_text("C33 input: soft keyboard registered as a uinput device\n");
-	else
-		log_text("C33 input: no uinput, soft keys go straight to the PTY\n");
-
-	poll_fds[0].fd = master_fd;
-	poll_fds[0].events = POLLIN;
-	poll_fds[1].fd = input_fd;
-	poll_fds[1].events = POLLIN;
-	for (k = 0; k < keyboard_count; k++) {
-		poll_fds[2 + k].fd = keyboard_fds[k];
-		poll_fds[2 + k].events = POLLIN;
-	}
-	poll_count = 2 + keyboard_count;
 	take_vt();
-	if (vt_fd >= 0) {
-		poll_fds[poll_count].fd = vt_pipe[0];
-		poll_fds[poll_count].events = POLLIN;
-		poll_count++;
-	}
-	read_timeouts();
-	idle_since = monotonic_seconds();
+
 	for (;;) {
-		long idle = monotonic_seconds() - idle_since;
-		int wait = -1;
+		unsigned int poll_count = 1;
+		unsigned int vt_index = 0;
+		unsigned int inotify_index = 0;
+		unsigned int first_keyboard;
+		unsigned int k;
 
-		if (vt_away)
-			idle = 0;
-		if (blank_seconds && !display_blanked && idle >= blank_seconds)
-			set_display_blank(1);
-		if (suspend_seconds && idle >= suspend_seconds) {
-			power_line("idle timeout");
-			set_display_blank(1);
-			suspend_until_touch();
-			idle_since = monotonic_seconds();
-			idle = 0;
+		poll_fds[0].fd = master_fd;
+		poll_fds[0].events = POLLIN;
+		if (vt_fd >= 0) {
+			vt_index = poll_count;
+			poll_fds[poll_count].fd = vt_pipe[0];
+			poll_fds[poll_count++].events = POLLIN;
 		}
-		if (blank_seconds && !display_blanked)
-			wait = (int)(blank_seconds - idle) * 1000;
-		if (suspend_seconds) {
-			int until = (int)(suspend_seconds - idle) * 1000;
-
-			if (wait < 0 || until < wait)
-				wait = until;
+		if (inotify_fd >= 0) {
+			inotify_index = poll_count;
+			poll_fds[poll_count].fd = inotify_fd;
+			poll_fds[poll_count++].events = POLLIN;
 		}
-		if (wait < 0 || vt_away)
-			wait = -1;
-		else if (wait < 1)
-			wait = 1;
-		if (poll(poll_fds, poll_count, wait) < 0)
-			continue;
-		if (vt_fd >= 0 && (poll_fds[poll_count - 1].revents & POLLIN))
-			vt_request();
+		first_keyboard = poll_count;
 		for (k = 0; k < keyboard_count; k++) {
+			poll_fds[poll_count].fd = keyboard_fds[k];
+			poll_fds[poll_count++].events = POLLIN;
+		}
+		if (poll(poll_fds, poll_count, -1) < 0)
+			continue;
+		if (vt_index && (poll_fds[vt_index].revents & POLLIN))
+			vt_request();
+		/* Backwards, since dropping one moves the last into its place. */
+		for (k = keyboard_count; k-- > 0;) {
+			short revents = poll_fds[first_keyboard + k].revents;
 			ssize_t count;
 			unsigned int i;
-			int was_blanked = display_blanked;
 
-			if (!(poll_fds[2 + k].revents & POLLIN))
+			if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+				drop_keyboard(k);
+				continue;
+			}
+			if (!(revents & POLLIN))
 				continue;
 			count = read(keyboard_fds[k], events, sizeof(events));
 			if (count <= 0 || vt_away)
 				continue;
-			/*
-			 * Only a press counts as activity: the release of the
-			 * key that blanked or suspended the machine arrives
-			 * afterwards and must not undo it.
-			 */
-			for (i = 0; i < count / sizeof(events[0]); i++)
-				if (events[i].type == EV_KEY && events[i].value)
-					break;
-			if (i == count / sizeof(events[0]))
-				continue;
-			idle_since = monotonic_seconds();
-			set_display_blank(0);
-			/* A key that wakes the panel is spent on waking it. */
-			if (was_blanked)
-				continue;
 			for (i = 0; i < count / sizeof(events[0]); i++)
 				keyboard_event(master_fd, &events[i]);
 		}
-		if (poll_fds[0].revents & POLLIN) {
+		/* After the drops: a new node may reuse a dropped one's number. */
+		if (inotify_index && (poll_fds[inotify_index].revents & POLLIN))
+			input_nodes_changed();
+		if (poll_fds[0].revents & POLLIN)
 			consume_terminal_output(master_fd);
-			if (!vt_away) {
-				idle_since = monotonic_seconds();
-				set_display_blank(0);
-			}
-		}
-		if (poll_fds[1].revents & POLLIN) {
-			ssize_t count = read(input_fd, events, sizeof(events));
-			unsigned int event_count;
-			unsigned int i;
-			int was_blanked = display_blanked;
-
-			if (count <= 0 || vt_away)
-				continue;
-			idle_since = monotonic_seconds();
-			set_display_blank(0);
-			/* The touch that wakes the panel must not also type. */
-			if (was_blanked)
-				continue;
-			event_count = count / sizeof(events[0]);
-			if (!touch_reported) {
-				log_text("C33 input: userspace console received evdev touch events\n");
-				touch_reported = 1;
-			}
-			for (i = 0; i < event_count; i++) {
-				if (events[i].type == EV_ABS &&
-				    events[i].code == ABS_X)
-					touch_x = events[i].value;
-				else if (events[i].type == EV_ABS &&
-					 events[i].code == ABS_Y)
-					touch_y = events[i].value;
-				else if (events[i].type == EV_KEY &&
-					 events[i].code == BTN_TOUCH &&
-					 events[i].value) {
-					int previous = active_key;
-
-
-					active_key = key_at(touch_x, touch_y);
-					if (previous != active_key) {
-						flush_key(previous);
-						flush_key(active_key);
-					}
-				} else if (events[i].type == EV_KEY &&
-					   events[i].code == BTN_TOUCH &&
-					   !events[i].value) {
-					int released = key_at(touch_x, touch_y);
-					int previous = active_key;
-					int redraw_keyboard = 0;
-
-					if (released >= 0 && released == active_key)
-						send_key(master_fd, released,
-							 &redraw_keyboard);
-					active_key = -1;
-					if (redraw_keyboard)
-						flush_keyboard();
-					else
-						flush_key(previous);
-				}
-			}
-		}
 		if (poll_fds[0].revents & (POLLERR | POLLHUP))
 			break;
 	}
