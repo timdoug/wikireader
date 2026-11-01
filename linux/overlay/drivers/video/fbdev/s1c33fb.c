@@ -38,6 +38,13 @@ static const struct fb_var_screeninfo s1c33fb_var = {
 	.xres_virtual = S1C33_FB_WIDTH,
 	.yres_virtual = S1C33_FB_HEIGHT,
 	.bits_per_pixel = 1,
+	/* The panel shows each byte's high bit first, the reverse of the
+	 * little-endian default. */
+	.nonstd = FB_NONSTD_REV_PIX_IN_B,
+	/* One bit of each: what fbcon and others read as the pixel's depth. */
+	.red = { .length = 1 },
+	.green = { .length = 1 },
+	.blue = { .length = 1 },
 	.activate = FB_ACTIVATE_NOW,
 	.height = -1,
 	.width = -1,
@@ -139,6 +146,8 @@ static int s1c33fb_probe(struct platform_device *pdev)
 	fb->lcdc = lcdc;
 	fb->enable = enable;
 	info->fbops = &s1c33fb_ops;
+	/* The panel is internal RAM: fbcon may scroll by moving it, not redrawing. */
+	info->flags |= FBINFO_READS_FAST;
 	info->fix = s1c33fb_fix;
 	info->fix.smem_start = resource->start;
 	info->fix.smem_len = resource_size(resource);
