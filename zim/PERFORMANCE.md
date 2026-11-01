@@ -80,8 +80,10 @@ time on cache snapshot and restore.
   registers, the 832-byte prediction block lives at the bottom of that
   stack region, the rescaler's two accumulator rows are interleaved into one
   read stream, and paletted alpha maps through a 256-byte table in A0 RAM.
-  Together these took the first photo of six Wikivoyage articles from
-  578-2825 ms to 436-2104 ms in the emulator, 25-27% each.
+  On the device (2026-11-01, `zim/bench-device.sh`, two passes each) the
+  first image of ten Wikipedia and Wikivoyage articles decodes 21-27%
+  faster, 11.2 s to 8.5 s in total, and the first screen finishes 4.5-17%
+  sooner; retrieval is unchanged. The emulator predicted 26-28%.
 - Grifo retains SDRAM retiming, DMA descriptors in DSTRAM, and bounded DMA
   completion polling. Aligned payloads use 32-bit SPI and DMA; commands,
   tokens, CRCs and unaligned transfers stay byte-wide. `SD_DMA_BITS=8`
