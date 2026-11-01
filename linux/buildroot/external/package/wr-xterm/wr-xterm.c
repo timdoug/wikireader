@@ -30,6 +30,37 @@ static void fail(const char *what)
     exit(1);
 }
 
+/* The on-screen keyboard, aimed at this terminal, which startx's session asks
+ * for with WR_XTERM_KEYBOARD: started here, where the window is known, so the
+ * shell runs nothing for it, and in a process group of its own, so that a ^C
+ * typed in the terminal is not its. */
+static void start_keyboard(const char *window, int slave)
+{
+    char *args[] = {"xkeyboard", (char *)window, NULL};
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attributes;
+    pid_t pid;
+
+    if (posix_spawn_file_actions_init(&actions) != 0)
+        return;
+    if (posix_spawnattr_init(&attributes) != 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        return;
+    }
+    for (int fd = 0; fd < 3; ++fd)
+        posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", O_RDWR, 0);
+    if (slave > 2)
+        posix_spawn_file_actions_addclose(&actions, slave);
+    posix_spawnattr_setpgroup(&attributes, 0);
+    /* uClibc forks for a new process group unless told vfork is safe, and
+     * without an MMU it cannot fork. */
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_USEVFORK);
+    if (posix_spawnp(&pid, "xkeyboard", &actions, &attributes, args, environ) != 0)
+        fputs("xterm: cannot start xkeyboard\n", stderr);
+    posix_spawnattr_destroy(&attributes);
+    posix_spawn_file_actions_destroy(&actions);
+}
+
 static void child_command(const char *path, char **command)
 {
     int slave;
@@ -64,6 +95,12 @@ static void child_command(const char *path, char **command)
     snprintf(window, sizeof(window), "%lu", id);
     if (setenv("WINDOWID", window, 1) < 0 || setenv("TERM", "xterm", 1) < 0)
         fail("xterm: environment");
+    const char *keyboard = getenv("WR_XTERM_KEYBOARD");
+    int want_keyboard = keyboard && *keyboard;
+    /* A terminal started from this one should not start another keyboard. */
+    unsetenv("WR_XTERM_KEYBOARD");
+    if (want_keyboard)
+        start_keyboard(window, slave);
     tty.c_lflag |= ECHO;
     if (tcsetattr(slave, TCSANOW, &tty) < 0 ||
         tcsetpgrp(slave, getpgrp()) < 0 ||

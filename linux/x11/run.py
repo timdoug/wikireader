@@ -130,7 +130,7 @@ echo XKEYBOARD PASS
     assert (out / "xterm.txt").read_text().endswith("XTERM PTY PASS\n")
     assert (out / "x11.fb").stat().st_size == 32 * 208
     print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, live shell after initial command")
-    print("X11 passed: 5x8 font; xterm and xeyes side by side; session cleanup; uname/cpuinfo desktop")
+    print("X11 passed: 5x8 font; xterm and xeyes side by side; session cleanup; default desktop")
     print("Keyboard passed: xvkbd typed \"touch /k\" into the demo's xterm, / from its 123 page")
     print(f"Screenshot: {out / 'screen.pgm'}")
 

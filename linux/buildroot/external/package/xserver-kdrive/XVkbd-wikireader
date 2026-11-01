@@ -1,7 +1,7 @@
 !
 ! xvkbd on the WikiReader: the console keyboard's four rows of ten keys,
-! across the bottom 88 rows of the panel, in the server's built-in 5x8 font,
-! black on white.  startx's session starts it with
+! across the bottom 88 rows of the panel, black on white.  xkeyboard starts
+! it with
 !   xvkbd -xrm '*customization: -wikireader'
 ! and 123 is xvkbd's AltGr page.  Focus picks the window to type into: tap
 ! it, then the window.
@@ -27,14 +27,15 @@ xvkbd.autoRepeat: false
 ! one key.
 xvkbd.altgrLock: true
 
-XVkbd*Font: 5x8
-XVkbd*generalFont: 5x8
-XVkbd*letterFont: 5x8
-XVkbd*specialFont: 5x8
-XVkbd*keypadFont: 5x8
-XVkbd*banner.font: 5x8
-XVkbd*completion_list.font: 5x8
-XVkbd*display_panel*label.font: 5x8
+! The server's larger built-in font, 6x13: Ctl, Tab and 123 just fit a key.
+XVkbd*Font: fixed
+XVkbd*generalFont: fixed
+XVkbd*letterFont: fixed
+XVkbd*specialFont: fixed
+XVkbd*keypadFont: fixed
+XVkbd*banner.font: fixed
+XVkbd*completion_list.font: fixed
+XVkbd*display_panel*label.font: fixed
 XVkbd*Background: white
 XVkbd*Foreground: black
 XVkbd*generalBackground: white
