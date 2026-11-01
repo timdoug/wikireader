@@ -1,4 +1,8 @@
 BR2_c33=y
+# The same sources build the same root image, wherever they are built: fixed
+# dates here, a fixed file system UUID and hash seed below, and no build
+# paths in the binaries (external.mk).  The random seed is the exception.
+BR2_REPRODUCIBLE=y
 BR2_OPTIMIZE_S=y
 BR2_ENABLE_DEBUG=y
 BR2_DEBUG_2=y
@@ -51,7 +55,9 @@ BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # alone would get 1 KB ones and four times the I/O requests.  No orphan
 # file: mounting reads its 32 blocks one at a time, 0.3 s of every boot;
 # orphans then go in the superblock's list, as before ext4 had the file.
-BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_file"
+# Nothing identifies the image by UUID, so it and the directory hash seed
+# are fixed rather than random.
+BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_file -U c6304613-c75a-436c-b803-c7c17cee048c -E hash_seed=406d4924-7578-49f4-b199-cb2f6ae17663"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
 BR2_PACKAGE_ZIP=y

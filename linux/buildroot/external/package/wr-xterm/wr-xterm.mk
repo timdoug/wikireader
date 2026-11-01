@@ -12,6 +12,8 @@ WR_XTERM_DEPENDENCIES = xterm
 # Bitmap fonts from Xfbdev, no session manager, luit or Tektronix terminal.
 XTERM_CONF_OPTS += --disable-session-mgt --disable-tek4014 --disable-luit \
 	--disable-setuid --disable-setgid
+# No run path to the sysroot: see external.mk.
+XTERM_CONF_OPTS += --disable-rpath-hack
 
 define WR_XTERM_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror \

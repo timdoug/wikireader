@@ -755,6 +755,17 @@ package's `-dirclean` target and then `make -C` the output directory redoes
 one package in a minute or two (`-rebuild` can leave a program unlinked
 against its rebuilt libraries).
 
+The same sources build the same `linux.app` and `linux.img`, byte for byte,
+in any build directory. The kernel's build date is the tree's last commit
+and its builder `wikireader@wikireader`, build 1. Buildroot's
+`BR2_REPRODUCIBLE` fixes the image's dates, and the defconfig its file
+system UUID and directory hash seed. Buildroot removes target run paths
+only after linking, leaving the build directory's length behind in the
+binary, so `external.mk` has libtool link none (no target program needs
+one) and xterm is configured `--disable-rpath-hack`. The one file that
+differs is `/var/lib/seedrng/seed.credit`, the random seed the first boot
+credits: one every build shared would be public.
+
 The image also carries `sl`, with ncurses and its terminfo, and Info-ZIP
 `zip` (147 KB of code and 320 KB of buffers while it runs). BusyBox
 provides `bzip2`, `bunzip2`, `bzcat`, `uudecode`, `tar -j`, `echo -n` and

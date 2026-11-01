@@ -9,6 +9,16 @@ build_dir=${WR_LINUX_BUILD:-$guest_root/linux-build}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
 cross=$tool_dir/install/bin/c33-epson-elf-
 
+# The same sources build the same kernel.  Left alone, kbuild records who
+# built it, on which host, when, and how many times (uname -v and the
+# initramfs dates); fix all four, the date to the tree's last commit.
+: "${SOURCE_DATE_EPOCH:=$(git -c safe.directory='*' -C "$root" log -1 --format=%ct)}"
+export SOURCE_DATE_EPOCH
+KBUILD_BUILD_TIMESTAMP=$(LC_ALL=C date -u -d "@$SOURCE_DATE_EPOCH")
+export KBUILD_BUILD_TIMESTAMP
+export KBUILD_BUILD_USER=wikireader KBUILD_BUILD_HOST=wikireader
+export KBUILD_BUILD_VERSION=1
+
 if [ ! -x "${cross}gcc" ]; then
 	echo "C33 compiler not found at ${cross}gcc" >&2
 	echo "Run make -C linux toolchain first." >&2
