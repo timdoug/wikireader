@@ -1,0 +1,9 @@
+# The device benchmark's articles (bench-device.sh installs this file).
+# ARCHIVE-NAME-PART | Title; entries whose archive is not on the card are
+# skipped.  Optional: "passes N" for more than one pass, "warmup" for an
+# unrecorded first pass (only card-read timings need it).
+wikivoyage | Paris
+wikivoyage | Sydney
+wikivoyage | Tokyo
+wikipedia_en_all | Cat
+simple | Cat

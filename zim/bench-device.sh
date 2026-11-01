@@ -8,13 +8,11 @@
 # default 5d87bb2b, the build before the 2026-10-31 image work) as
 # zimold.app, both carrying the same benchmark driver (zim_bench.c), and
 # adds an inverted-kiwi icon to the launcher.  Tapping it runs the baseline,
-# which chains to the new build; each loads the articles in zimbench.lst
-# cold, twice after a warm-up pass, and appends its timings to
-# zimbench.txt.  The new build then shows the comparison; a tap returns to
+# which chains to the new build; each loads the articles in zim/zimbench.lst
+# cold, once by default, and appends its timings to zimbench.txt.  The new build then shows the comparison; a tap returns to
 # the launcher.  Run --report with the card back in this machine.
 #
-# zimbench.lst lines are "ARCHIVE-NAME-PART | Title"; entries whose archive
-# is not on the card are skipped.  An existing list is left alone.
+# zim/zimbench.lst says which articles; it is copied to the card each time.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -87,25 +85,7 @@ copy() {
 copy "$out/zim.app" zim.app
 copy "$out/zimold.app" zimold.app
 copy "$out/zimbench.ico" zimbench.ico
-if [ ! -f "$boot/zimbench.lst" ]; then
-	cat > "$out/zimbench.lst" <<'EOF'
-# ARCHIVE-NAME-PART | Title   (entries whose archive is absent are skipped)
-wikivoyage | Paris
-wikivoyage | London
-wikivoyage | Rome
-wikivoyage | Tokyo
-wikivoyage | Berlin
-wikivoyage | Sydney
-wikipedia_en_all | Cat
-wikipedia_en_all | Tokyo
-wikipedia_en_all | Paris
-wikipedia_en_all | London
-simple | Cat
-simple | Tokyo
-simple | Water
-EOF
-	copy "$out/zimbench.lst" zimbench.lst
-fi
+copy "$here/zimbench.lst" zimbench.lst
 entry='zimbench.ico : zimold.app bench old zim.app new'
 if grep -q '^zimbench.ico ' "$boot/init.ini"; then
 	awk -v line="$entry" '$1 == "zimbench.ico" { print line; next } { print }' \

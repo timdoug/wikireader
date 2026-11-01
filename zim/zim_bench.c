@@ -14,7 +14,6 @@
 
 #define BENCH_LIST "0:/zimbench.lst"
 #define BENCH_LOG "0:/zimbench.txt"
-#define BENCH_PASSES 3          /* the first warms the kernel's caches */
 #define MAX_ENTRIES 32
 #define MAX_TITLE 64
 #define LINE_HEIGHT 13
@@ -32,14 +31,16 @@ typedef struct {
 
 static ENTRY entries[MAX_ENTRIES];
 static int entry_count;
+/* One pass answers most questions: image decoding is CPU work and repeats to
+ * the microsecond.  "passes N" in the list asks for more, and "warmup" for an
+ * unrecorded pass 0 first, for questions about card reads. */
+static int passes = 1;
+static int warmup;
 
-/* Used when the card carries no list: the articles the emulator runs. */
+/* Used when the card carries no list (zim/zimbench.lst is the usual one). */
 static const char default_list[] =
-	"wikivoyage | Paris\n" "wikivoyage | London\n" "wikivoyage | Rome\n"
-	"wikivoyage | Tokyo\n" "wikivoyage | Berlin\n" "wikivoyage | Sydney\n"
-	"wikipedia_en_all | Cat\n" "wikipedia_en_all | Tokyo\n"
-	"wikipedia_en_all | Paris\n" "simple | Cat\n" "simple | Tokyo\n"
-	"simple | Water\n";
+	"wikivoyage | Paris\n" "wikivoyage | Sydney\n" "wikivoyage | Tokyo\n"
+	"wikipedia_en_all | Cat\n" "simple | Cat\n";
 
 static char list_text[2048];
 
@@ -99,7 +100,11 @@ static void load_list(void)
 		if (!end)
 			end = p + strlen(p);
 		bar = memchr(p, '|', (size_t)(end - p));
-		if (*p != '#' && bar) {
+		if (!strncmp(p, "passes ", 7))
+			passes = atoi(p + 7) > 0 ? atoi(p + 7) : 1;
+		else if (!strncmp(p, "warmup", 6))
+			warmup = 1;
+		else if (*p != '#' && bar) {
 			ENTRY *e = &entries[entry_count];
 
 			trim_copy(e->archive, sizeof(e->archive), p, bar);
@@ -385,10 +390,10 @@ void zim_bench_start(void)
 
 	load_list();
 	n = snprintf(line, sizeof(line), "ZBRUN label=%s entries=%d passes=%d\n",
-		     label, entry_count, BENCH_PASSES - 1);
+		     label, entry_count, passes);
 	if (n > 0 && n < (int)sizeof(line))
 		append_log(line, n);
-	for (pass = 0; pass < BENCH_PASSES; pass++)
+	for (pass = warmup ? 0 : 1; pass <= passes; pass++)
 		for (i = 0; i < entry_count; i++)
 			load_one(pass, &entries[i]);
 	if (nCurrentWiki != original)
