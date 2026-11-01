@@ -79,6 +79,10 @@ typedef struct {
 	uint16_t height;
 	size_t bitmap_size;
 	int stream_y;
+	/* Where the renderer drew its box, if it got there first: the first
+	 * page goes up with blank boxes, filled in once decoded. */
+	int drawn_x, drawn_y;
+	int drawn;
 } ZIM_DEFERRED_IMAGE;
 
 typedef struct {
@@ -616,6 +620,7 @@ static int article_image(void *opaque, const unsigned char *source_path,
 	deferred->height = *height;
 	deferred->bitmap_size = *bitmap_size;
 	deferred->stream_y = stream_y;
+	deferred->drawn = 0;
 	deferred_image_count++;
 	return 0;
 }
@@ -633,7 +638,12 @@ static int prepare_article_image(unsigned char *stream)
 	/* Placeholders and metadata are emitted in the same order. Keep a cursor
 	 * instead of searching every image for every article-stream token. */
 	deferred = &deferred_images[deferred_image_next];
-	if (deferred->stream != stream)
+	/* Text first: until the first page is on the panel the renderer passes
+	 * images as blank boxes.  Then each is decoded where it stands, or, if
+	 * the renderer already drew its box, decoded and drawn into it. */
+	if (!display_first_page)
+		return 0;
+	if (deferred->stream != stream && !deferred->drawn)
 		return 0;
 	/* Let the viewport settle before choosing a new batch or advancing a
 	 * decoder. Existing decoder state survives direct and kinetic scrolling. */
@@ -656,12 +666,13 @@ static int prepare_article_image(unsigned char *stream)
 		    zim_bench.images <= ZIM_BENCH_IMAGES) {
 			ZIM_BENCH_IMAGE *b = &zim_bench.image[zim_bench.images - 1];
 
-			b->decode_ticks = timer_get() - b->created;
+			b->done = timer_get();
+			b->decode_ticks = b->done - b->created;
 		}
 		if (rc < 0 || deferred_decode_width != deferred->width ||
 		    deferred_decode_height != deferred->height ||
 		    deferred_decode_bitmap_size != deferred->bitmap_size)
-			memset(stream + 4, 0, deferred->bitmap_size);
+			memset(deferred->stream + 4, 0, deferred->bitmap_size);
 		zim_image_decoder_destroy(deferred_image_decoder);
 		deferred_image_decoder = NULL;
 		goto out;
@@ -699,7 +710,7 @@ static int prepare_article_image(unsigned char *stream)
 		b->read_ticks = b->created - b->read_ticks;
 	}
 	deferred_image_decoder = zim_image_decoder_create(raw_buffer, webp_size,
-		deferred->width, deferred->height, stream + 4,
+		deferred->width, deferred->height, deferred->stream + 4,
 		deferred->bitmap_size, &deferred_decode_width,
 		&deferred_decode_height, &deferred_decode_bitmap_size,
 		image_decode_progress, NULL);
@@ -710,6 +721,10 @@ static int prepare_article_image(unsigned char *stream)
 	return 1;
 
 out:
+	if (deferred->drawn)
+		draw_article_bitmap_late(deferred->drawn_x, deferred->drawn_y,
+					 deferred->width, deferred->height,
+					 deferred->stream + 4);
 	deferred_image_next++;
 	image_progress(0);
 	if (deferred_image_next == image_batch_end)
@@ -894,6 +909,7 @@ static int article_cache_restore(uint32_t index)
 		deferred_images[i].height = images[i].height;
 		deferred_images[i].width = images[i].width;
 		deferred_images[i].stream_y = images[i].stream_y;
+		deferred_images[i].drawn = 0;
 	}
 	links = (const CACHED_LINK *)(images + entry->image_count);
 	for (i = 0; i < entry->link_count; i++) {
@@ -1096,9 +1112,23 @@ static void populate_results(void)
 	more_search_results = search_cursor_peek();
 }
 
+static void article_bitmap_placed(const unsigned char *record, int x, int y)
+{
+	size_t i;
+
+	for (i = deferred_image_next; i < deferred_image_count; i++)
+		if (deferred_images[i].stream == record) {
+			deferred_images[i].drawn_x = x;
+			deferred_images[i].drawn_y = y;
+			deferred_images[i].drawn = 1;
+			return;
+		}
+}
+
 void search_init(void)
 {
 	set_article_stream_prepare(prepare_article_image);
+	set_article_bitmap_placed(article_bitmap_placed);
 	set_article_link_handler(handle_article_link);
 	if (!archive_file.open) {
 		static const unsigned char message[] = "Opening ZIM archive...";

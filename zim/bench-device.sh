@@ -4,9 +4,9 @@
 #   zim/bench-device.sh [BOOT_VOLUME]      build both readers and install
 #   zim/bench-device.sh --report [BOOT]    compare the results on the card
 #
-# Installs this tree's reader as zim.app and the baseline (BENCH_BASE,
-# default 5d87bb2b, the build before the 2026-10-31 image work) as
-# zimold.app, both carrying the same benchmark driver (zim_bench.c), and
+# Installs this tree's reader as zim.app and the baseline (BENCH_BASE, a
+# commit, default HEAD) as zimold.app, both carrying the benchmark driver
+# (zim_bench.c), and
 # adds an inverted-kiwi icon to the launcher.  Tapping it runs the baseline,
 # which chains to the new build; each loads the articles in zim/zimbench.lst
 # cold, once by default, and appends its timings to zimbench.txt.  The new build then shows the comparison; a tap returns to
@@ -17,7 +17,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
-base=${BENCH_BASE:-5d87bb2b}
+base=${BENCH_BASE:-HEAD}
 out=$here/build/bench
 
 if [ "${1:-}" = --report ]; then
@@ -45,23 +45,26 @@ for d in samo-lib/grifo/include samo-lib/grifo/lib samo-lib/mini-libc/lib; do
 	mkdir -p "$tree/$d"
 	cp -R "$root/$d/." "$tree/$d/"
 done
-# The driver and its hooks, in files the image work did not touch: apart
-# from the commit that added the driver, they must match the baseline.
+# A baseline that already has the driver builds as it stands.  An older one
+# gets it from the commit that added it, in files that differ from the
+# baseline only by the driver.
 added=$(git -C "$root" log --diff-filter=A --format=%H -1 -- zim/zim_bench.c)
-for f in zim/zim_bench.c zim/zim_bench.h zim/zim.c zim/search.c \
-	 zim/zim_page.c wiki/wikilib.c; do
-	if [ "$f" != zim/zim_bench.c ] && [ "$f" != zim/zim_bench.h ] &&
-	   ! git -C "$root" diff --quiet "$base" "$added^" -- "$f"; then
-		echo "$f changed since $base other than for the benchmark" >&2
-		exit 1
-	fi
-	cp "$root/$f" "$tree/$f"
-done
-# After the last source, as here, so the benchmark moves no existing code.
-awk 'FNR == NR { if ($0 ~ /^SOURCES \+= /) last = FNR; next }
-     { print } FNR == last { print "SOURCES += zim_bench.c" }' \
-    "$tree/zim/Makefile" "$tree/zim/Makefile" > "$tree/zim/Makefile.new"
-mv "$tree/zim/Makefile.new" "$tree/zim/Makefile"
+if [ ! -f "$tree/zim/zim_bench.c" ]; then
+	for f in zim/zim_bench.c zim/zim_bench.h zim/zim.c zim/search.c \
+		 zim/zim_page.c wiki/wikilib.c; do
+		if [ "$f" != zim/zim_bench.c ] && [ "$f" != zim/zim_bench.h ] &&
+		   ! git -C "$root" diff --quiet "$base" "$added^" -- "$f"; then
+			echo "$f changed since $base other than for the benchmark" >&2
+			exit 1
+		fi
+		git -C "$root" show "$added:$f" > "$tree/$f"
+	done
+	# After the last source, so the benchmark moves no existing code.
+	awk 'FNR == NR { if ($0 ~ /^SOURCES \+= /) last = FNR; next }
+	     { print } FNR == last { print "SOURCES += zim_bench.c" }' \
+	    "$tree/zim/Makefile" "$tree/zim/Makefile" > "$tree/zim/Makefile.new"
+	mv "$tree/zim/Makefile.new" "$tree/zim/Makefile"
+fi
 make -C "$tree/zim" > "$out/old-build.log" 2>&1 ||
 	{ tail -20 "$out/old-build.log" >&2; exit 1; }
 cp "$tree/zim/zim.app" "$out/zimold.app"

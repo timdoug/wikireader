@@ -301,6 +301,15 @@ typedef long (*ARTICLE_LINK_HANDLER)(long article_id, int resolve);
 
 void init_lcd_draw_buf();
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare);
+/* Told where each bitmap in the stream was drawn: its record (the escape
+ * byte) and its top-left pixel in the article buffer.  A backend that leaves
+ * a bitmap blank until the first page is up draws it later with
+ * draw_article_bitmap_late(). */
+typedef void (*ARTICLE_BITMAP_PLACED)(const unsigned char *record, int x, int y);
+void set_article_bitmap_placed(ARTICLE_BITMAP_PLACED placed);
+void draw_article_bitmap_late(int x, int y, int width, int height,
+			      const unsigned char *bits);
+extern int display_first_page;
 void set_article_link_handler(ARTICLE_LINK_HANDLER handler);
 void set_article_initial_y_pos(long y_pos);
 void set_article_stream_height(int height);

@@ -20,6 +20,7 @@ typedef struct {
 	unsigned long read_ticks;       /* its blob off the card */
 	unsigned long decode_ticks;     /* decoder created .. destroyed */
 	unsigned long created;
+	unsigned long done;             /* decoded, in timer ticks */
 } ZIM_BENCH_IMAGE;
 
 /* Phase marks inside retrieve_article(), in timer ticks. */
@@ -34,6 +35,7 @@ enum {
 
 typedef struct {
 	int active;
+	unsigned long start;            /* the tap */
 	unsigned long mark[ZB_MARKS];
 	unsigned long raw_size, text_size, article_size;
 	ZIM_BENCH_IMAGE image[ZIM_BENCH_IMAGES];

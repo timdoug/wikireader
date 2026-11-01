@@ -121,6 +121,7 @@ int b_show_scroll_bar = 0;
 long saved_idx_article = 0;
 long saved_prev_idx_article = 0;
 static ARTICLE_STREAM_PREPARE article_stream_prepare;
+static ARTICLE_BITMAP_PLACED article_bitmap_placed;
 static ARTICLE_LINK_HANDLER article_link_handler;
 static int article_stream_height;
 static int scroll_bar_visible;
@@ -140,6 +141,46 @@ static void lcd_draw_buf_ensure_rows(long end_y);
 void set_article_stream_prepare(ARTICLE_STREAM_PREPARE prepare)
 {
 	article_stream_prepare = prepare;
+}
+
+void set_article_bitmap_placed(ARTICLE_BITMAP_PLACED placed)
+{
+	article_bitmap_placed = placed;
+}
+
+/* One-bit, MSB-first rows of (width + 7) / 8 bytes at pixel (x, y). */
+static void buf_draw_bitmap(int x, int y, int width, int height,
+			    const unsigned char *bits)
+{
+	int stride = (width + 7) / 8;
+	int i, j;
+
+	lcd_draw_buf_ensure_rows(y + height);
+	if (x % 8 == 0) {
+		int bytes = stride;
+		int byte_idx = x / 8;
+
+		if (bytes > LCD_BUF_WIDTH_BYTES - 1)
+			bytes = LCD_BUF_WIDTH_BYTES - 1;
+		for (i = 0; i < height; i++, y++, bits += stride)
+			if (y < LCD_BUF_HEIGHT_PIXELS)
+				memcpy(&lcd_draw_buf.screen_buf[y * LCD_BUF_WIDTH_BYTES + byte_idx],
+				       bits, bytes);
+	} else {
+		for (i = 0; i < height; i++, y++, bits += stride)
+			for (j = 0; y < LCD_BUF_HEIGHT_PIXELS && j < width; j++)
+				if (bits[j / 8] & (1 << (7 - j % 8)))
+					guilib_buffer_set_pixel(lcd_draw_buf.screen_buf,
+								x + j, y);
+	}
+}
+
+void draw_article_bitmap_late(int x, int y, int width, int height,
+			      const unsigned char *bits)
+{
+	buf_draw_bitmap(x, y, width, height, bits);
+	if (y < lcd_draw_cur_y_pos + LCD_HEIGHT && y + height > lcd_draw_cur_y_pos)
+		repaint_current_article();
 }
 
 void set_article_link_handler(ARTICLE_LINK_HANDLER handler)
@@ -527,10 +568,8 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 	int font_idx;
 	int nWidth;
 	int nHeight;
-	int nBytes;
 	int nImageY;
-	int i, j;
-	int nByteIdx, nBitIdx;
+	int nByteIdx;
 
 	if (NULL == pUTF8 || NULL == *pUTF8) {
 		return;
@@ -684,39 +723,11 @@ void buf_draw_UTF8_str(const unsigned char **pUTF8)
 			if (lcd_draw_buf.line_height < nHeight + 1)
 				lcd_draw_buf.actual_height = nHeight + 3;
 			nImageY = lcd_draw_buf.current_y + 3;
-			lcd_draw_buf_ensure_rows(nImageY + nHeight);
-			if ((lcd_draw_buf.current_x + LCD_LEFT_MARGIN + lcd_draw_buf.x_adjustment) % 8 == 0)
-			{
-				nBytes = (nWidth + 7) / 8;
-				if (nBytes > LCD_BUF_WIDTH_BYTES - 1)
-					nBytes = LCD_BUF_WIDTH_BYTES - 1;
-				nByteIdx = (lcd_draw_buf.current_x  + LCD_LEFT_MARGIN + lcd_draw_buf.x_adjustment) / 8;
-				for (i = 0; i < nHeight; i++)
-				{
-					if (nImageY < LCD_BUF_HEIGHT_PIXELS)
-						memcpy(&lcd_draw_buf.screen_buf[nImageY * LCD_BUF_WIDTH_BYTES + nByteIdx], *pUTF8, nBytes);
-					*pUTF8 += (nWidth + 7) / 8;
-					nImageY++;
-				}
-			}
-			else
-			{
-				for (i = 0; i < nHeight; i++)
-				{
-					for(j = 0; nImageY < LCD_BUF_HEIGHT_PIXELS && j < nWidth; j++)
-					{
-						nByteIdx = j / 8;
-						nBitIdx = 7 - (j % 8);
-						if ((*pUTF8)[nByteIdx] & (1 << nBitIdx))
-						{
-							guilib_buffer_set_pixel(lcd_draw_buf.screen_buf, lcd_draw_buf.current_x +
-										LCD_LEFT_MARGIN + lcd_draw_buf.x_adjustment + j, nImageY);
-						}
-					}
-					*pUTF8 += (nWidth + 7) / 8;
-					nImageY++;
-				}
-			}
+			nByteIdx = lcd_draw_buf.current_x + LCD_LEFT_MARGIN + lcd_draw_buf.x_adjustment;
+			if (article_bitmap_placed)   /* the record began four bytes back */
+				article_bitmap_placed(*pUTF8 - 4, nByteIdx, nImageY);
+			buf_draw_bitmap(nByteIdx, nImageY, nWidth, nHeight, *pUTF8);
+			*pUTF8 += (long)nHeight * ((nWidth + 7) / 8);
 			lcd_draw_buf.current_x += nWidth;
 			break;
 		default:

@@ -172,7 +172,7 @@ static unsigned long us(unsigned long ticks)
 static void load_one(int pass, const ENTRY *e)
 {
 	char line[512];
-	unsigned long start, opened, idle;
+	unsigned long start, opened, idle, painted = 0;
 	long index;
 	int wiki = find_archive(e->archive);
 	int i, n;
@@ -195,11 +195,19 @@ static void load_one(int pass, const ENTRY *e)
 	zim_bench.active = 1;
 	watchdog(WATCHDOG_KEY);
 	start = timer_get();
+	zim_bench.start = start;
 	display_link_article(index);
 	opened = timer_get();
 	/* The main loop's work while idle: the first screen and its images. */
-	while (render_article_with_pcf())
+	for (;;) {
+		int more = render_article_with_pcf();
+
+		if (!painted && display_first_page)
+			painted = timer_get();
+		if (!more)
+			break;
 		watchdog(WATCHDOG_KEY);
+	}
 	idle = timer_get();
 	zim_bench.active = 0;
 	{
@@ -209,7 +217,8 @@ static void load_one(int pass, const ENTRY *e)
 			     "ZB label=%s pass=%d archive=%s title=%s retrieve_us=%lu "
 			     "read_us=%lu read_sectors=%lu open_us=%lu screen_us=%lu "
 			     "image_us=%lu images=%d blob_us=%lu html_us=%lu "
-			     "budget_us=%lu wrap_us=%lu raw=%lu text=%lu article=%lu\n",
+			     "budget_us=%lu wrap_us=%lu raw=%lu text=%lu article=%lu "
+			     "paint_us=%lu\n",
 			     label, pass, zim_catalog_path(wiki), e->title,
 			     us(zim_bench.retrieve_ticks),
 			     us((unsigned long)zim_bench.io.read_ticks),
@@ -221,7 +230,8 @@ static void load_one(int pass, const ENTRY *e)
 			     us(m[ZB_WRAP] - m[ZB_BUDGET]),
 			     us(m[ZB_DONE] - m[ZB_WRAP]),
 			     zim_bench.raw_size, zim_bench.text_size,
-			     zim_bench.article_size);
+			     zim_bench.article_size,
+			     painted ? us(painted - start) : 0);
 		if (n > 0 && n < (int)sizeof(line))
 			append_log(line, n);
 	}
@@ -230,9 +240,10 @@ static void load_one(int pass, const ENTRY *e)
 
 		n = snprintf(line, sizeof(line),
 			     "ZBI label=%s pass=%d title=%s image=%d y=%ld size=%dx%d "
-			     "read_us=%lu decode_us=%lu\n",
+			     "read_us=%lu decode_us=%lu done_us=%lu\n",
 			     label, pass, e->title, i, b->y, b->width, b->height,
-			     us(b->read_ticks), us(b->decode_ticks));
+			     us(b->read_ticks), us(b->decode_ticks),
+			     b->done ? us(b->done - start) : 0);
 		if (n > 0 && n < (int)sizeof(line))
 			append_log(line, n);
 	}
