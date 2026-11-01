@@ -51,18 +51,19 @@ def main():
     if "old" not in data or "new" not in data:
         sys.exit(f"{path}: need a complete run of both builds (found {sorted(data)})")
     old, new = best(data["old"]), best(data["new"])
-    for field, title in (("image_us", "First image decode"),
+    for field, title in (("paint_us", "Tap to first paint (text on the panel)"),
+                         ("image_us", "First image decode"),
                          ("retrieve_us", "Article retrieval"),
                          ("screen_us", "Tap to finished first screen")):
         print(f"\n{title}, ms (fastest measured pass)")
         print(f"{'archive':28} {'article':12} {'old':>9} {'new':>9} {'change':>8} {'spread':>7}")
         tot_o = tot_n = 0
         for key in sorted(set(old) & set(new)):
-            o = min(r[field] for r in old[key])
-            n = min(r[field] for r in new[key])
+            o = min(r.get(field, 0) for r in old[key])
+            n = min(r.get(field, 0) for r in new[key])
             if not o or not n:
                 continue
-            spread = max(r[field] for r in new[key]) / n
+            spread = max(r.get(field, 0) for r in new[key]) / n
             tot_o += o
             tot_n += n
             print(f"{key[0][:28]:28} {key[1][:12]:12} {o/1000:9.1f} {n/1000:9.1f} "

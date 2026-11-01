@@ -45,11 +45,15 @@ for d in samo-lib/grifo/include samo-lib/grifo/lib samo-lib/mini-libc/lib; do
 	mkdir -p "$tree/$d"
 	cp -R "$root/$d/." "$tree/$d/"
 done
-# A baseline that already has the driver builds as it stands.  An older one
+# A baseline that already has the driver's hooks gets this tree's driver, so
+# both builds measure the same things (it is measurement, not reader code).
+# An older one
 # gets it from the commit that added it, in files that differ from the
 # baseline only by the driver.
 added=$(git -C "$root" log --diff-filter=A --format=%H -1 -- zim/zim_bench.c)
-if [ ! -f "$tree/zim/zim_bench.c" ]; then
+if [ -f "$tree/zim/zim_bench.c" ]; then
+	cp "$here/zim_bench.c" "$here/zim_bench.h" "$tree/zim/"
+else
 	for f in zim/zim_bench.c zim/zim_bench.h zim/zim.c zim/search.c \
 		 zim/zim_page.c wiki/wikilib.c; do
 		if [ "$f" != zim/zim_bench.c ] && [ "$f" != zim/zim_bench.h ] &&

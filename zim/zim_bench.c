@@ -19,6 +19,7 @@
 #define LINE_HEIGHT 13
 
 ZIM_BENCH zim_bench;
+extern int display_first_page;   /* lcd_buf_draw.c; older trees lack its declaration */
 
 static const char *label = "zim";
 static const char *next_app;
