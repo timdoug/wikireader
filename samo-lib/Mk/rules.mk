@@ -44,7 +44,11 @@ OPT ?= -O2
 # both toolchains and on every axis measured -- gcc 3.3.2: boot -2.6%,
 # kernel -2.3%, wiki.app -2.2%; gcc 16 at -O2: boot -0.6%, wiki.app -1.7%.
 # Rendering is byte-identical either way.
-CFLAGS += -Wall -Werror -I. $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) $(TARGET_ARCH_FLAGS) $(INCLUDES)
+# Build where you like and get the same image: without this the tree's
+# absolute path lands in __FILE__ strings (fatal_error) and in debug info.
+PREFIX_MAP := -ffile-prefix-map=$(ROOT_DIR)=.
+
+CFLAGS += -Wall -Werror -I. $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) $(TARGET_ARCH_FLAGS) $(PREFIX_MAP) $(INCLUDES)
 ASFLAGS = -mc33pe --fatal-warnings
 
 # protection in case some Makefile includes this too early

@@ -48,7 +48,9 @@ OPT ?= -O2
 # both toolchains and on every axis measured -- gcc 3.3.2: boot -2.6%,
 # kernel -2.3%, wiki.app -2.2%; gcc 16 at -O2: boot -0.6%, wiki.app -1.7%.
 # Rendering is byte-identical either way.
-CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) -mc33pe
+# The same library wherever the tree is: its path stays out of debug info.
+CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) -mc33pe \
+	-ffile-prefix-map=$(abspath $(CURDIR)/../..)=.
 ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
 
 C_STRING_OPERATIONS = \
