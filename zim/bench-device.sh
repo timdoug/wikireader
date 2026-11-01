@@ -47,11 +47,13 @@ for d in samo-lib/grifo/include samo-lib/grifo/lib samo-lib/mini-libc/lib; do
 	mkdir -p "$tree/$d"
 	cp -R "$root/$d/." "$tree/$d/"
 done
-# The driver and its hooks, in files the image work did not touch.
+# The driver and its hooks, in files the image work did not touch: apart
+# from the commit that added the driver, they must match the baseline.
+added=$(git -C "$root" log --diff-filter=A --format=%H -1 -- zim/zim_bench.c)
 for f in zim/zim_bench.c zim/zim_bench.h zim/zim.c zim/search.c \
 	 zim/zim_page.c wiki/wikilib.c; do
 	if [ "$f" != zim/zim_bench.c ] && [ "$f" != zim/zim_bench.h ] &&
-	   ! git -C "$root" diff --quiet "$base" HEAD -- "$f"; then
+	   ! git -C "$root" diff --quiet "$base" "$added^" -- "$f"; then
 		echo "$f changed since $base other than for the benchmark" >&2
 		exit 1
 	fi
