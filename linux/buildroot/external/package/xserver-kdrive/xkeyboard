@@ -1,0 +1,7 @@
+#!/bin/sh
+# xkeyboard [WINDOW]: the on-screen keyboard across the bottom of the panel,
+# typing into WINDOW (an X window ID, such as an xterm's $WINDOWID) or, with
+# none, into whichever window its Focus key is pointed at.  Its messages go
+# to /tmp/xkeyboard.log, as the server's go to /tmp/Xfbdev.log.
+exec xvkbd -xrm '*customization: -wikireader' ${1:+-window "$1"} \
+	>/tmp/xkeyboard.log 2>&1

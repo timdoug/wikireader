@@ -74,33 +74,64 @@ sleep 1
 cat /dev/fb0 >/mnt/sd/x11.fb
 cat /mnt/sd/xdemo.txt
 echo XTERM DEMO PASS
+# The demo's xterm starts the on-screen keyboard aimed at itself; the taps
+# run.py schedules type "touch /k" on it, the slash from its 123 page.
+n=0
+while :; do
+    if pidof xvkbd >/dev/null; then break; fi
+    n=$((n + 1))
+    [ "$n" -lt 60 ] || { echo XKEYBOARD FAIL: not running; exit 1; }
+    sleep 1
+done
+echo XKEYBOARD READY
+n=0
+while :; do
+    if [ -e /k ]; then break; fi
+    n=$((n + 1))
+    [ "$n" -lt 600 ] || { echo XKEYBOARD FAIL: nothing typed; cat /tmp/xkeyboard.log; exit 1; }
+    sleep 1
+done
+rm /k
+echo XKEYBOARD PASS
 """
     fat.make_image(out / "card.img", files, 64)
     (out / "flash.rom").unlink(missing_ok=True)
     subprocess.run([sys.executable, str(ROOT / "samo-lib/mbr/make-flash.py"),
                     str(out / "flash.rom")], check=True, stdout=subprocess.DEVNULL)
     (out / "uart.in").write_text("sh /mnt/sd/xrun.sh\n")
+    # "touch /k" and Enter on the keyboard, whose window is up by about
+    # cycle 3.7e9 (XKEYBOARD READY); the script waits for the file however
+    # late the taps land.  Keys are 24 pixels a side from row 120.
+    keys = {"t": (108, 131), "o": (204, 131), "u": (156, 131), "c": (84, 175),
+            "h": (132, 153), "k": (180, 153), " ": (84, 197), "123": (36, 197),
+            "/": (36, 153), "ABC": (36, 197), "\n": (204, 197)}
+    taps = []
+    for n, key in enumerate(["t", "o", "u", "c", "h", " ", "123", "/", "ABC", "k", "\n"]):
+        x, y = keys[key]
+        taps += ["-T", f"{x},{y},{4600000000 + n * 60000000}"]
     with (out / "boot.log").open("w") as log:
-        subprocess.run([str(ROOT / "emulator/wremu"), "-n", "3500000000",
+        subprocess.run([str(ROOT / "emulator/wremu"), "-n", "7000000000", *taps,
                         "-e", str(out / "flash.rom"), "-c", str(out / "card.img"),
                         "--uart-input", str(out / "uart.in"),
                         "--uart-start", "600000000", "--uart-gap", "200000"],
                        cwd=out, stdout=log, stderr=subprocess.STDOUT,
-                       check=True, timeout=300, env=os.environ)
+                       check=True, timeout=600, env=os.environ)
     for name in ("xterm.txt", "xshell.txt", "xwin.txt", "x11.log", "xdemo.txt", "xdemo.log", "x11.fb"):
         data = fat.read_file(out / "card.img", name)
         if data is not None:
             (out / name).write_bytes(data)
     text = (out / "boot.log").read_text(errors="replace").replace("\r", "")
-    for marker in ("XTERM INTERACTIVE PTY PASS", "XTERM SHELL PASS", "XTERM CLEANUP PASS", "XTERM DEMO PASS"):
+    for marker in ("XTERM INTERACTIVE PTY PASS", "XTERM SHELL PASS", "XTERM CLEANUP PASS", "XTERM DEMO PASS",
+                   "XKEYBOARD PASS"):
         if marker not in text:
             raise SystemExit(f"Missing {marker}; see {out / 'boot.log'}")
-    if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL", text):
+    if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL|XKEYBOARD FAIL", text):
         raise SystemExit(f"X11 regression failed; see {out / 'boot.log'}")
     assert (out / "xterm.txt").read_text().endswith("XTERM PTY PASS\n")
     assert (out / "x11.fb").stat().st_size == 32 * 208
     print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, live shell after initial command")
     print("X11 passed: 5x8 font; xterm and xeyes side by side; session cleanup; uname/cpuinfo desktop")
+    print("Keyboard passed: xvkbd typed \"touch /k\" into the demo's xterm, / from its 123 page")
     print(f"Screenshot: {out / 'screen.pgm'}")
 
 

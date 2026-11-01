@@ -1,0 +1,106 @@
+!
+! xvkbd on the WikiReader: the console keyboard's four rows of ten keys,
+! across the bottom 88 rows of the panel, in the server's built-in 5x8 font,
+! black on white.  startx's session starts it with
+!   xvkbd -xrm '*customization: -wikireader'
+! and 123 is xvkbd's AltGr page.  Focus picks the window to type into: tap
+! it, then the window.
+!
+#include "XVkbd-common"
+
+xvkbd.inheritGeoemetry: false
+xvkbd.windowGeometry: 240x88+0+120
+xvkbd.keypad: false
+! Row 0 is the function-key row to xvkbd, and here it is q to p (compact
+! mode would drop it).
+xvkbd.functionkey: true
+! No word completion: its dictionary takes minutes to load on this CPU, and
+! its panel would cover a row.
+xvkbd.dictFile: /dev/null
+xvkbd.integrateCompletionPanel: false
+xvkbd.modalKeytop: true
+! The key goes to the chosen window; moving the pointer into it and back
+! for every key would only make twm shift focus to and fro.
+xvkbd.jumpPointer: false
+xvkbd.autoRepeat: false
+! 123 stays until tapped again, as on the console; Shift and Ctl are for
+! one key.
+xvkbd.altgrLock: true
+
+XVkbd*Font: 5x8
+XVkbd*generalFont: 5x8
+XVkbd*letterFont: 5x8
+XVkbd*specialFont: 5x8
+XVkbd*keypadFont: 5x8
+XVkbd*banner.font: 5x8
+XVkbd*completion_list.font: 5x8
+XVkbd*display_panel*label.font: 5x8
+XVkbd*Background: white
+XVkbd*Foreground: black
+XVkbd*generalBackground: white
+XVkbd*specialBackground: white
+XVkbd*specialForeground: black
+XVkbd*focusBackground: white
+XVkbd*highlightBackground: white
+XVkbd*highlightForeground: black
+XVkbd*highlightThickness: 0
+XVkbd*shadowWidth: 0
+
+! Each key 24 pixels square less a little height, with its 1-pixel border.
+XVkbd*Command.borderWidth: 1
+XVkbd*Repeater.borderWidth: 1
+XVkbd*Command.width: 22
+XVkbd*Repeater.width: 22
+XVkbd*Command.height: 20
+XVkbd*Repeater.height: 20
+XVkbd*row1.vertDistance: 0
+XVkbd*BackSpace.horizDistance: 0
+XVkbd*Tab.width: 22
+XVkbd*Control_L.width: 22
+XVkbd*Shift_L.width: 22
+XVkbd*BackSpace.width: 22
+XVkbd*Return.width: 22
+xvkbd*Mode_switch.width: 22
+XVkbd*space.width: 70
+
+xvkbd.normalkeys: \
+q w e r t y u i o p \n\
+a s d f g h j k l BackSpace \n\
+Shift_L z x c v b n m - ? \n\
+Control_L Mode_switch Tab space Left Right Return Focus
+xvkbd.shiftkeys: \
+Q W E R T Y U I O P \n\
+A S D F G H J K L BackSpace \n\
+Shift_L Z X C V B N M - ? \n\
+Control_L Mode_switch Tab space Left Right Return Focus
+xvkbd.altgrkeys: \
+1 2 3 4 5 6 7 8 9 0 \n\
+- / : ; ( ) $ & @ BackSpace \n\
+Shift_L . ' " = + * _ ! \\ \n\
+Control_L Mode_switch Tab space Left Right Return Focus
+xvkbd.shiftaltgrkeys: \
+! @ # $ % ^ & * ( ) \n\
+[ ] { } < > | ~ ` BackSpace \n\
+Shift_L , _ ` ~ = + * ^ \\ \n\
+Control_L Mode_switch Tab space Left Right Return Focus
+
+xvkbd.normalkeylabels: \
+q w e r t y u i o p \n\
+a s d f g h j k l BS \n\
+Sh z x c v b n m - ? \n\
+Ctl 123 Tab SP < > EN Fcs
+xvkbd.shiftkeylabels: \
+Q W E R T Y U I O P \n\
+A S D F G H J K L BS \n\
+Sh Z X C V B N M - ? \n\
+Ctl 123 Tab SP < > EN Fcs
+xvkbd.altgrkeylabels: \
+1 2 3 4 5 6 7 8 9 0 \n\
+- / : ; ( ) $ & @ BS \n\
+Sh . ' " = + * _ ! \\ \n\
+Ctl ABC Tab SP < > EN Fcs
+xvkbd.shiftaltgrkeylabels: \
+! @ # $ % ^ & * ( ) \n\
+[ ] { } < > | ~ ` BS \n\
+Sh , _ ` ~ = + * ^ \\ \n\
+Ctl ABC Tab SP < > EN Fcs

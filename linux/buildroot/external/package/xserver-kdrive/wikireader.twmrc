@@ -14,6 +14,8 @@ MenuFont "fixed"
 IconFont "fixed"
 IconManagerFont "fixed"
 BorderWidth 1
+# The on-screen keyboard (xkeyboard) spans the bottom of the panel.
+NoTitle { "xvkbd" }
 
 MoveDelta 3
 Function "move-or-raise" { f.move f.deltastop f.raise }
@@ -28,6 +30,7 @@ menu "session"
 "Twm"		f.title
 "Xeyes"		f.exec "exec xeyes &"
 "Xterm"		f.exec "exec xterm -fn 5x8 -geometry 32x22+0+0 &"
+"Keyboard"	f.exec "exec xkeyboard &"
 "Move"		f.move
 "Resize"	f.resize
 "Raise"		f.raise

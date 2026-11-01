@@ -2,8 +2,9 @@
 # startx [CLIENT [ARGS...]] [-- SERVER-ARGS...]: start the X server on the
 # panel, the touchscreen and the buttons, run CLIENT on it, and stop the
 # server when CLIENT exits, which gives the panel back to the console.  With
-# no CLIENT the session is twm, xeyes and an interactive xterm showing system info;
-# twm's Exit ends it.
+# no CLIENT the session is twm, xeyes, and an interactive xterm showing system
+# info with the on-screen keyboard below it, typing into it; twm's Exit ends
+# it.
 
 # Split at --: what follows goes to the server, what precedes is the client.
 server=
@@ -20,7 +21,7 @@ for arg; do
 done
 [ $# -gt 0 ] ||
 	set -- sh -c 'xeyes -geometry 64x48+172+0 &
-		WR_XTERM_INITIAL_COMMAND="uname -a; cat /proc/cpuinfo" xterm -fn 5x8 -geometry 32x22+0+0 -T sh &
+		WR_XTERM_INITIAL_COMMAND="xkeyboard \$WINDOWID & uname -a; cat /proc/cpuinfo" xterm -fn 5x8 -geometry 32x12+0+0 -T sh &
 		exec twm -f /usr/share/X11/twm/wikireader.twmrc'
 # Builtins only: every exec, and every $(...), costs a tenth of a second.
 for n in 0 1 2 3 4 5 6 7; do

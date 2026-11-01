@@ -682,7 +682,7 @@ cross-casts; static construction; iostreams, containers and `shared_ptr`;
 and four threads throwing and catching concurrently under a mutex.
 
 `rootfs` builds the root filesystem with Buildroot 2026.08.1 and leaves it as
-`linux/artifacts/linux.img`, a 16 MB ext4 image with 4 KB blocks and no
+`linux/artifacts/linux.img`, a 24 MB ext4 image with 4 KB blocks and no
 metadata checksums. It goes on the card's FAT partition beside `linux.app`,
 in one piece: every read into it walks its FAT chain, and on a card whose
 free space is scattered the chain jumps about the FAT, which the device
@@ -853,10 +853,22 @@ redraw and the idle handler put the half-drawn eyes (the old pupil cleared,
 the new one not yet drawn) on the panel, waits
 for its socket, runs the client, and stops the server when the client exits,
 which gives VT 1 back to the console. With no client it runs twm, xeyes on
-the right, and a 32-column, 22-row xterm on the left running a login shell.
-Its built-in 5x8 bitmap font fits `uname -a; cat /proc/cpuinfo`, the complete
-output, and the next live prompt. The root menu's Xterm entry opens another
-interactive shell at the same size.
+the right, and a 32-column, 12-row xterm on the left running a login shell,
+with the on-screen keyboard below it. Its built-in 5x8 bitmap font fits
+`uname -a; cat /proc/cpuinfo` and the next live prompt. The root menu's
+Xterm entry opens another 22-row interactive shell, and its Keyboard entry
+another keyboard.
+
+The keyboard is xvkbd, Buildroot's package, started by `xkeyboard [WINDOW]`
+with its own layout (`XVkbd-wikireader`, an app-defaults customization): the
+console keyboard's four rows of ten across the bottom 88 rows, in the 5x8
+font, black on white, 123 being xvkbd's AltGr page and staying until tapped
+again. It sends keys through XTest to one window: the demo's xterm starts it
+with its own `$WINDOWID`, and its Focus key, then a tap on a window, points it
+elsewhere. twm gives the focus to whatever window the pointer enters, and the
+keyboard takes none, so a tap on it would otherwise leave nothing focused.
+Its word-completion dictionary is not read (`dictFile: /dev/null`): loading
+it took minutes on this CPU. Its messages go to `/tmp/xkeyboard.log`.
 Dragging on the background moves the pointer; holding still there for 0.6 s
 opens twm's menu (`buildroot/external/patches/xapp_twm`: twm opens menus
 only from buttons, and a touch is its only button), whose Exit ends the
@@ -889,7 +901,8 @@ the child's environment so nested terminals do not repeat the command.
 the command's PTY, foreground process group, geometry and environment;
 verifies that the same shell returns to its line editor after the command;
 checks both clients through Xlib; tests session cleanup; and boots the default
-system-information desktop. It also checks the 5x8 font's actual cell size.
+system-information desktop, then types `touch /k` into its xterm with taps on
+the keyboard. It also checks the 5x8 font's actual cell size.
 Reports and the screenshot are in `artifacts/x11-run/`.
 
 A drag under twm costs about 46 ms of CPU a frame in wremu, so the eyes

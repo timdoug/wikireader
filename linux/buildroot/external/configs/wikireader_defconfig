@@ -48,7 +48,7 @@ BR2_PACKAGE_WR_CONSOLE=y
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 # The WikiReader's boot partition is only 64 MB.
-BR2_TARGET_ROOTFS_EXT2_SIZE="16M"
+BR2_TARGET_ROOTFS_EXT2_SIZE="24M"
 BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # No metadata checksums: a software CRC32C over every metadata block is
 # too dear on this CPU.  4 KB blocks, a page each, where the image's size
@@ -61,7 +61,7 @@ BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_fi
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
 BR2_PACKAGE_ZIP=y
-# X11: the framebuffer server, twm, xeyes and a PTY-backed xterm.
+# X11: the framebuffer server, twm, xeyes, a PTY-backed xterm and a keyboard.
 BR2_PACKAGE_XORG7=y
 BR2_PACKAGE_XSERVER_KDRIVE=y
 # The server shows only its built-in fonts: no FreeType or font-file readers.
@@ -69,3 +69,5 @@ BR2_PACKAGE_XLIB_LIBXFONT2_BUILTIN_FONTS_ONLY=y
 BR2_PACKAGE_XAPP_XEYES=y
 BR2_PACKAGE_XAPP_TWM=y
 BR2_PACKAGE_WR_XTERM=y
+# An on-screen keyboard for X, laid out as the console's (xkeyboard).
+BR2_PACKAGE_XVKBD=y

@@ -63,6 +63,10 @@ define XSERVER_KDRIVE_INSTALL_KEYMAP
 	$(INSTALL) -D -m 0755 $(XSERVER_KDRIVE_PKGDIR)/startx $(TARGET_DIR)/usr/bin/startx
 	$(INSTALL) -D -m 0644 $(XSERVER_KDRIVE_PKGDIR)/wikireader.twmrc \
 		$(TARGET_DIR)/usr/share/X11/twm/wikireader.twmrc
+	$(INSTALL) -D -m 0755 $(XSERVER_KDRIVE_PKGDIR)/xkeyboard \
+		$(TARGET_DIR)/usr/bin/xkeyboard
+	$(INSTALL) -D -m 0644 $(XSERVER_KDRIVE_PKGDIR)/XVkbd-wikireader \
+		$(TARGET_DIR)/usr/share/X11/app-defaults/XVkbd-wikireader
 endef
 XSERVER_KDRIVE_POST_INSTALL_TARGET_HOOKS += XSERVER_KDRIVE_INSTALL_KEYMAP
 
