@@ -270,10 +270,11 @@ keeps running, so the driver stops it across a suspend. Only the reset output
 is used; the NMI output, `#WDT_NMI`, is P63, which is wired to the power
 logic. The watchdog is also the restart handler, so `reboot` resets the chip
 when there is no launcher to return to.
-The framebuffer driver also owns the two controls that stop the panel: the
+The display driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same device tree as the SD slot's chip
-select. `FBIOBLANK` therefore works, and because no kernel console blanks the
+select. `FBIOBLANK`, which DRM's fbdev emulation turns into turning the
+display off and on, therefore works, and because no kernel console blanks the
 screen on a machine that runs from two AA cells, the keyboard does it, since
 the touchscreen is both what keeps the machine busy and what wakes it: it
 powers the panel down after `wr.blank=<seconds>` with no touch or button, and
@@ -283,11 +284,25 @@ the panel is dark the keyboard grabs the buttons (`EVIOCGRAB`), so neither
 does the press that wakes it. The launcher's `init.ini` line carries that number, so the idle
 timeout is a card edit.
 
-The same 240x208 one-bit memory is registered with fbdev as `/dev/fb0` for
-ordinary applications. The early renderer remains independent of fbdev so it
-can still report failures before platform drivers have probed. The kernel's
-standard monochrome Tux asset is enabled and briefly drawn when fbdev probes;
-the userspace console replaces it after init completes.
+The panel is a DRM device, `drivers/gpu/drm/tiny/s1c33-lcdc.c` in the
+overlay, `/dev/dri/card0`. The controller can scan any word-aligned memory,
+internal video RAM or SDRAM, from its main window's start address, so a
+framebuffer in the panel's own format, DRM's `D1` (a bit a pixel, the leftmost
+in the high bit, set for black), is scanned where it is, and a page flip is a
+register write. An `XRGB8888` or `RGB565` framebuffer, which is what modern
+clients draw, is converted where damaged into a `D1` image in internal video
+RAM, which is then scanned. DRM's fbdev emulation gives `/dev/fb0`, one-bit,
+`MONO01`, 32 bytes a line, as before, and scanned in place: without an MMU
+it has no way to see writes through `mmap` (deferred I/O needs page faults),
+so the panel shows its buffer itself, and the console and Xfbdev run on it
+unchanged. `patches/0035` teaches fbdev emulation the monochrome `D1` and
+`R1`; it knew only the indexed `C1`. Without fbcon nothing would set
+emulation's mode, so the driver shows it at probe, with the kernel's
+monochrome Tux, until the userspace console replaces it. The early renderer
+remains independent of all this so it can still report failures before
+platform drivers have probed. `CONFIG_FB_S1C33`, the fbdev driver it
+replaced, is still in the tree, and DRM with fbdev emulation adds about
+240 KB of kernel code.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,

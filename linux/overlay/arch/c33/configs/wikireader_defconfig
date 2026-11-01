@@ -113,7 +113,15 @@ CONFIG_USB_SUPPORT=n
 CONFIG_SOUND=n
 CONFIG_DRM=n
 CONFIG_FB=y
-CONFIG_FB_S1C33=y
+# The LCD as a DRM device (drivers/gpu/drm/tiny/s1c33-lcdc.c); fbdev
+# emulation keeps /dev/fb0, one-bit and scanned in place, for the console
+# and X.  CONFIG_FB_S1C33=y instead is the fbdev driver it replaced.
+# CONFIG_FB_S1C33 is not set
+CONFIG_DRM=y
+CONFIG_DRM_S1C33_LCDC=y
+CONFIG_DRM_FBDEV_EMULATION=y
+# fbcon would default on with it; wr-console is the console.
+# CONFIG_FRAMEBUFFER_CONSOLE is not set
 CONFIG_LCD_CLASS_DEVICE=y
 CONFIG_LCD_WIKIREADER=y
 CONFIG_PWM=y

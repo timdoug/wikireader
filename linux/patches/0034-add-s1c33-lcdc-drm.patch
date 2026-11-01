@@ -1,0 +1,42 @@
+Add a DRM driver for the Epson S1C33 LCD controller.
+
+The WikiReader's 240x208 one-bit panel as a tiny DRM device: D1 framebuffers,
+the panel's own format, are scanned where they are; XRGB8888 and RGB565 ones
+are converted to it where damaged.  The driver itself is in the overlay.
+
+diff --git a/drivers/gpu/drm/tiny/Kconfig b/drivers/gpu/drm/tiny/Kconfig
+index f0e72d4b6a..b42a1bd46d 100644
+--- a/drivers/gpu/drm/tiny/Kconfig
++++ b/drivers/gpu/drm/tiny/Kconfig
+@@ -98,6 +98,19 @@ config DRM_PIXPAPER
+ 
+ 	  If M is selected, the module will be built as pixpaper.ko.
+ 
++config DRM_S1C33_LCDC
++	tristate "DRM support for the Epson S1C33 LCD controller"
++	depends on DRM && (C33 || COMPILE_TEST)
++	select DRM_CLIENT_SELECTION
++	select DRM_GEM_DMA_HELPER
++	select DRM_KMS_HELPER
++	select FB_SYS_REV_PIXELS_IN_BYTE if DRM_FBDEV_EMULATION
++	select FB_PROVIDE_GET_FB_UNMAPPED_AREA if DRM_FBDEV_EMULATION && !MMU
++	help
++	  DRM driver for the LCD controller of the Epson S1C33E07, as the
++	  WikiReader drives its 240x208 one-bit panel: D1 framebuffers are
++	  scanned in place, XRGB8888 and RGB565 ones converted to it.
++
+ config TINYDRM_HX8357D
+ 	tristate "DRM support for HX8357D display panels"
+ 	depends on DRM && SPI
+diff --git a/drivers/gpu/drm/tiny/Makefile b/drivers/gpu/drm/tiny/Makefile
+index 48d30bf615..dcdf447ce4 100644
+--- a/drivers/gpu/drm/tiny/Makefile
++++ b/drivers/gpu/drm/tiny/Makefile
+@@ -7,6 +7,7 @@ obj-$(CONFIG_DRM_CIRRUS_QEMU)		+= cirrus-qemu.o
+ obj-$(CONFIG_DRM_GM12U320)		+= gm12u320.o
+ obj-$(CONFIG_DRM_PANEL_MIPI_DBI)	+= panel-mipi-dbi.o
+ obj-$(CONFIG_DRM_PIXPAPER)              += pixpaper.o
++obj-$(CONFIG_DRM_S1C33_LCDC)		+= s1c33-lcdc.o
+ obj-$(CONFIG_TINYDRM_HX8357D)		+= hx8357d.o
+ obj-$(CONFIG_TINYDRM_ILI9163)		+= ili9163.o
+ obj-$(CONFIG_TINYDRM_ILI9225)		+= ili9225.o

@@ -1,0 +1,121 @@
+Let fbdev emulation use the one-bit monochrome formats.
+
+DRM has D1 and R1, a bit a pixel dark or bright where set, but fbdev
+emulation knew only the indexed C1: a driver offering D1 got no fbdev.
+A one-bit color mode now also takes the plane's D1 or R1, the chosen
+format is carried in the surface size to the DMA helper, which made it
+again from bpp and depth, and the result is described as fbdev's MONO01
+or MONO10 with a bit of each color.  On a little-endian machine the
+pixel order is marked reversed in the byte, since these formats put the
+leftmost pixel in the high bit.
+
+diff --git a/drivers/gpu/drm/drm_fb_helper.c b/drivers/gpu/drm/drm_fb_helper.c
+index 0817b639b3..9af190afa9 100644
+--- a/drivers/gpu/drm/drm_fb_helper.c
++++ b/drivers/gpu/drm/drm_fb_helper.c
+@@ -1041,6 +1041,23 @@ static void drm_fb_helper_fill_pixel_fmt(struct fb_var_screeninfo *var,
+ {
+ 	u8 depth = format->depth;
+ 
++	/* One-bit monochrome: a bit of each, which is the depth fbdev reads. */
++	if (format->format == DRM_FORMAT_D1 || format->format == DRM_FORMAT_R1) {
++		var->red.offset = 0;
++		var->green.offset = 0;
++		var->blue.offset = 0;
++		var->red.length = 1;
++		var->green.length = 1;
++		var->blue.length = 1;
++		var->transp.offset = 0;
++		var->transp.length = 0;
++#ifdef __LITTLE_ENDIAN
++		/* The leftmost pixel is a byte's high bit, against fbdev's default. */
++		var->nonstd = FB_NONSTD_REV_PIX_IN_B;
++#endif
++		return;
++	}
++
+ 	if (format->is_color_indexed) {
+ 		var->red.offset = 0;
+ 		var->green.offset = 0;
+@@ -1147,6 +1164,8 @@ int drm_fb_helper_check_var(struct fb_var_screeninfo *var,
+ 	case DRM_FORMAT_C1:
+ 	case DRM_FORMAT_C2:
+ 	case DRM_FORMAT_C4:
++	case DRM_FORMAT_D1:
++	case DRM_FORMAT_R1:
+ 		/* supported format with sub-byte pixels */
+ 		break;
+ 
+@@ -1369,6 +1388,13 @@ static uint32_t drm_fb_helper_find_format(struct drm_fb_helper *fb_helper, const
+ 		if (formats[i] == format)
+ 			return format;
+ 	}
++	/* A one-bit color mode is as well met by a monochrome format. */
++	if (color_mode == 1) {
++		for (i = 0; i < format_count; ++i) {
++			if (formats[i] == DRM_FORMAT_D1 || formats[i] == DRM_FORMAT_R1)
++				return formats[i];
++		}
++	}
+ 	drm_warn(dev, "format %p4cc not supported\n", &format);
+ 
+ 	return DRM_FORMAT_INVALID;
+@@ -1437,6 +1463,7 @@ static int __drm_fb_helper_find_sizes(struct drm_fb_helper *fb_helper,
+ 	info = drm_format_info(surface_format);
+ 	sizes->surface_bpp = drm_format_info_bpp(info, 0);
+ 	sizes->surface_depth = info->depth;
++	sizes->surface_format = surface_format;
+ 
+ 	/* first up get a count of crtcs now in use and new min/maxes width/heights */
+ 	crtc_count = 0;
+@@ -1578,6 +1605,8 @@ static void drm_fb_helper_fill_var(struct fb_info *info,
+ 	case DRM_FORMAT_C1:
+ 	case DRM_FORMAT_C2:
+ 	case DRM_FORMAT_C4:
++	case DRM_FORMAT_D1:
++	case DRM_FORMAT_R1:
+ 		/* supported format with sub-byte pixels */
+ 		break;
+ 
+@@ -1620,6 +1649,11 @@ void drm_fb_helper_fill_info(struct fb_info *info,
+ 
+ 	drm_fb_helper_fill_fix(info, fb->pitches[0],
+ 			       fb->format->is_color_indexed);
++	/* D1 is dark where set, R1 bright. */
++	if (fb->format->format == DRM_FORMAT_D1)
++		info->fix.visual = FB_VISUAL_MONO01;
++	else if (fb->format->format == DRM_FORMAT_R1)
++		info->fix.visual = FB_VISUAL_MONO10;
+ 	drm_fb_helper_fill_var(info, fb_helper,
+ 			       sizes->fb_width, sizes->fb_height);
+ 
+diff --git a/drivers/gpu/drm/drm_fbdev_dma.c b/drivers/gpu/drm/drm_fbdev_dma.c
+index 9412d9fdd7..ce32d1c0ec 100644
+--- a/drivers/gpu/drm/drm_fbdev_dma.c
++++ b/drivers/gpu/drm/drm_fbdev_dma.c
+@@ -280,8 +280,11 @@ int drm_fbdev_dma_driver_fbdev_probe(struct drm_fb_helper *fb_helper,
+ 		    sizes->surface_width, sizes->surface_height,
+ 		    sizes->surface_bpp);
+ 
+-	format = drm_driver_legacy_fb_format(dev, sizes->surface_bpp,
+-					     sizes->surface_depth);
++	/* The format itself, where bpp and depth alone would not say it. */
++	format = sizes->surface_format;
++	if (!format)
++		format = drm_driver_legacy_fb_format(dev, sizes->surface_bpp,
++						     sizes->surface_depth);
+ 	buffer = drm_client_buffer_create_dumb(client, sizes->surface_width,
+ 					       sizes->surface_height, format);
+ 	if (IS_ERR(buffer))
+diff --git a/include/drm/drm_fb_helper.h b/include/drm/drm_fb_helper.h
+index 0c5e5ed7b5..aae0c4d770 100644
+--- a/include/drm/drm_fb_helper.h
++++ b/include/drm/drm_fb_helper.h
+@@ -61,6 +61,7 @@ struct drm_fb_helper_surface_size {
+ 	u32 surface_height;
+ 	u32 surface_bpp;
+ 	u32 surface_depth;
++	u32 surface_format;	/* the 4CC code bpp and depth came from */
+ };
+ 
+ /**
