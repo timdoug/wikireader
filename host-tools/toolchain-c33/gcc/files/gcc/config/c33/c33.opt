@@ -74,15 +74,15 @@ Generate FDPIC code for no-MMU Linux with shared libraries: -msep-data, with eac
 
 memcpy
 Target Mask(MEMCPY)
-Call memcpy for block moves rather than expanding them inline.
+Accepted for compatibility; has no effect.
 
 mbig-switch
 Target Mask(BIG_SWITCH)
-Use 4 byte entries in switch tables.
+Accepted for compatibility: switch table entries are always 4 bytes.
 
 mjump-tables-in-data-section
 Target Mask(JUMP_TABLES_IN_DATA_SECTION)
-Put jump tables in .data rather than .text.
+Put jump tables in the read-only data section rather than with the code.
 
 mdebug
 Target Undocumented Mask(DEBUG)
@@ -94,7 +94,7 @@ Enable backend debugging.
 
 msda=
 Target RejectNegative Joined UInteger
-Set the max size of data eligible for the default data area.
+Put data of at most this size in the small-data sections (.sdata, .sbss, .rosdata); it is addressed as other data is.
 
 msda-
 Target RejectNegative Joined Undocumented Alias(msda=)

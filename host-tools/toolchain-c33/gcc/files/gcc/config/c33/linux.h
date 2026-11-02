@@ -102,9 +102,11 @@
 
 #undef C33_NATIVE_TLS
 #define C33_NATIVE_TLS 1
-/* Configure's generic assembler probe cannot recognize C33 instructions. */
-#define HAVE_LD_EH_FRAME_HDR 1
 #define TARGET_DL_ITERATE_PHDR 1
+
+/* Every object says whether its code needs an executable stack.  */
+#undef TARGET_ASM_FILE_END
+#define TARGET_ASM_FILE_END file_end_indicate_exec_stack
 
 #undef LIB_SPEC
 #define LIB_SPEC "%{pthread:-lpthread} -lc"

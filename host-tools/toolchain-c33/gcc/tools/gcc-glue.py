@@ -5,19 +5,24 @@ Everything C33-specific lives in gcc/files/; this script does the handful of
 edits to *shared* files that a new target needs, so the tree stays a pristine
 upstream release plus a drop-in.
 """
-import sys, pathlib
+import re, sys, pathlib
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')
 changed = []
 
-# Use the kernel's target ABI definition, never the build host's asm headers.
-# Both compiler build entry points run this script before invoking make.
-tls_uapi = pathlib.Path(__file__).resolve().parents[4] / 'linux/overlay/arch/c33/include/uapi/asm/tls.h'
-tls_target = ROOT / 'gcc/config/c33/c33-linux-tls.h'
-tls_text = tls_uapi.read_text()
-if not tls_target.exists() or tls_target.read_text() != tls_text:
-    tls_target.write_text(tls_text)
-    changed.append('gcc/config/c33/c33-linux-tls.h')
+# The TLS slot is part of the Linux ABI, defined in the port
+# (c33-linux-tls.h) and in the kernel's <asm/tls.h>.  Where this tree also
+# holds the kernel, check that they agree.
+tls_uapi = (pathlib.Path(__file__).resolve().parents[4]
+            / 'linux/overlay/arch/c33/include/uapi/asm/tls.h')
+tls_port = (pathlib.Path(__file__).resolve().parents[1]
+            / 'files/gcc/config/c33/c33-linux-tls.h')
+if tls_uapi.exists():
+    def tls_slot(path):
+        m = re.search(r'#define\s+C33_TLS_SLOT_ADDRESS\s+(\S+)', path.read_text())
+        return int(m.group(1), 0) if m else None
+    if tls_slot(tls_uapi) != tls_slot(tls_port):
+        raise SystemExit(f'C33_TLS_SLOT_ADDRESS differs: {tls_uapi} and {tls_port}')
 
 def edit(rel, fn):
     p = ROOT / rel
@@ -253,5 +258,306 @@ for t in ('dr2581-1', 'dr2581-2'):
 # -msep-data keeps the constant pool in .data.
 edit(GXX + 'cpp0x/initlist-const1.C', replace_once(
     'xfail hppa*-*-hpux* powerpc-ibm-aix* }', 'xfail hppa*-*-hpux* powerpc-ibm-aix* c33-*-*linux* }'))
+
+# ------------------------------------------------------------------- gcc/doc
+
+def put_between(before, after, block, marker):
+    """Make BLOCK the text between BEFORE and the AFTER that follows it.
+
+    Upstream has nothing there, so the first run inserts BLOCK; a later run
+    replaces an older version of it, recognised by MARKER, so that editing
+    BLOCK here updates a glued tree.  Any other text there, or a missing
+    anchor, stops the script rather than guess."""
+    def fn(s):
+        i = s.find(before)
+        if i < 0:
+            raise SystemExit(f'gcc-glue: anchor not found: {before!r}')
+        i += len(before)
+        j = s.find(after, i)
+        if j < 0:
+            raise SystemExit(f'gcc-glue: anchor not found: {after!r}')
+        current = s[i:j]
+        if current == block:
+            return None
+        if current and marker not in current:
+            raise SystemExit(f'gcc-glue: unexpected text before {after!r}')
+        return s[:i] + block + s[j:]
+    return fn
+
+
+# invoke.texi: the option summary, the menu and the section, each placed
+# between Blackfin and C6X as the alphanumeric order requires.
+edit('gcc/doc/invoke.texi', put_between(
+    '-micplb}\n\n', '@emph{C6X Options} (@ref{C6X Options})',
+    '''@emph{C33 Options} (@ref{C33 Options})
+@gccoptlist{-mcore=@var{core}  -mc33  -mc33adv  -mc33pe
+-mlong-calls  -medda32  -msep-data  -mfdpic
+-memcpy  -mbig-switch  -mjump-tables-in-data-section
+-msda=@var{n}}
+
+''', '@ref{C33 Options}'))
+
+edit('gcc/doc/invoke.texi', put_between(
+    '* Blackfin Options::\n', '* C6X Options::\n',
+    '* C33 Options::\n', 'C33 Options'))
+
+C33_OPTIONS = '''@node C33 Options
+@subsection C33 Options
+@cindex C33 Options
+
+These @samp{-m} options are defined for the Seiko Epson S1C33 (C33)
+family of processors.
+
+@table @gcctabopt
+@opindex mcore
+@item -mcore=@var{core}
+Generate code for the C33 core @var{core}: @samp{c33} for the standard
+core, @samp{c33adv} for the Advanced core, or @samp{c33pe} for the PE
+core.  The default is @samp{c33}, except for
+@samp{c33-*-linux-uclibc}, where it is @samp{c33pe}.
+
+GCC passes the core to the assembler, which records it in the object
+file; the linker does not link objects built for different cores.  For
+the Advanced and PE cores GCC uses @code{swaph} for 16-bit byte swaps
+and defines the preprocessor macro @code{__c33adv__} or
+@code{__c33pe__}.  For the PE core GCC expands atomic exchange and
+compare-and-swap operations inline, with interrupts disabled around the
+memory access; for the other cores they are calls to the
+@code{__atomic} library functions.
+
+@opindex mc33
+@opindex mc33adv
+@opindex mc33pe
+@item -mc33
+@itemx -mc33adv
+@itemx -mc33pe
+These are the same as @option{-mcore=c33}, @option{-mcore=c33adv} and
+@option{-mcore=c33pe}.
+
+@opindex mlong-calls
+@opindex mno-long-calls
+@item -mlong-calls
+@itemx -mno-long-calls
+Make direct calls and sibling calls with @code{xcall} and @code{xjp},
+whose two @code{ext} prefixes reach the whole 32-bit address space,
+rather than with @code{scall} and @code{sjp}, whose one @code{ext}
+prefix reaches 2 megabytes in either direction.  The default is
+@option{-mno-long-calls}; the linker reports a call that is out of
+range.  For @samp{c33-*-linux-uclibc} a call to another module goes
+through the calling module's own @code{.plt}, so only a program or
+shared library larger than 2 megabytes needs @option{-mlong-calls}.
+
+@opindex medda32
+@opindex mno-edda32
+@item -medda32
+@itemx -mno-edda32
+@option{-medda32} reaches static and global variables at their absolute
+addresses, which take two @code{ext} prefixes to load.
+@option{-mno-edda32} reaches them through the default data area
+instead: at an offset from @code{%r15} given by a pair of @code{ext}
+prefixes (@code{doff_hi} and @code{doff_lo}), which a single load or
+store can use.  The startup code must then set @code{%r15} to the
+address of the symbol @code{__dp}.  The default is @option{-medda32},
+and the preprocessor macro @code{__C33_EDDA32__} is defined when it is
+in effect.
+
+@option{-msep-data} and @option{-mfdpic} turn @option{-medda32} off;
+giving @option{-medda32} together with either of them is an error.  For
+@samp{c33-*-linux-uclibc}, @option{-medda32} also turns off the default
+@option{-mfdpic} and @option{-msep-data}.
+
+@opindex msep-data
+@opindex mno-sep-data
+@item -msep-data
+@itemx -mno-sep-data
+Generate code whose text contains no absolute addresses, so that one
+copy of it can be shared by processes that each have their own data
+segment, on a system without an MMU@.  @code{%r15} holds the address of
+the data segment, the symbol @code{__dp}.  Writable variables in data
+and bss sections are reached at offsets from @code{%r15}.  Every other
+address, of a function, a string literal, read-only data or a label, is
+loaded from the constant pool, which this option places in the data
+segment.  Read-only data that holds addresses goes in
+@code{.data.rel.ro}, and switch tables hold offsets rather than
+addresses, so they stay in the text.
+
+The preprocessor macro @code{__C33_SEP_DATA__} is defined.  The default
+is @option{-mno-sep-data}, except for @samp{c33-*-linux-uclibc}.
+
+@opindex mfdpic
+@opindex mno-fdpic
+@item -mfdpic
+@itemx -mno-fdpic
+Generate code for the FDPIC ABI, which no-MMU Linux uses for programs
+and shared libraries.  FDPIC code is @option{-msep-data} code in which
+each module, a program or a shared library, has its own data segment
+and its own value of @code{%r15}.  A function pointer is the address of
+a function descriptor, which holds the function's entry point and the
+@code{%r15} of the module that defines it.  Data that another module
+may define is reached through a word in the constant pool that the
+dynamic linker fills in, and a call that may enter another module
+restores the caller's @code{%r15} afterwards.
+
+@option{-mfdpic} implies @option{-msep-data}, and defines the
+preprocessor macros @code{__FDPIC__} and @code{__C33_FDPIC__}.  It is
+the default for @samp{c33-*-linux-uclibc}, whose startup files and
+libraries are FDPIC: code compiled with @option{-mno-fdpic} or
+@option{-medda32} there is for linking by other means, such as a kernel
+or a boot loader, not with the C library.
+
+@opindex memcpy
+@item -memcpy
+This option is accepted for compatibility with older C33 compilers.  It
+has no effect.
+
+@opindex mbig-switch
+@item -mbig-switch
+This option is accepted for compatibility with older C33 compilers.  It
+does not change the object code: switch tables always have 4-byte
+entries, aligned to 4 bytes.
+
+@opindex mjump-tables-in-data-section
+@opindex mno-jump-tables-in-data-section
+@item -mjump-tables-in-data-section
+@itemx -mno-jump-tables-in-data-section
+Put the tables for switch statements in the read-only data section
+rather than in the text section.  The default is
+@option{-mno-jump-tables-in-data-section}.
+
+@opindex msda
+@item -msda=@var{n}
+Put static and global variables of @var{n} bytes or less in the
+@code{.sdata} and @code{.sbss} sections, or @code{.rosdata} for
+constants.  @var{n} can be at most 65536, and the default is 0.  This
+changes where the variables are placed, not how they are addressed.
+@end table
+
+'''
+
+edit('gcc/doc/invoke.texi', put_between(
+    'are enabled; for standalone applications the default is off.\n'
+    '@end table\n\n',
+    '@node C6X Options\n', C33_OPTIONS, '@node C33 Options'))
+
+# md.texi: Machine Constraints, between Blackfin and C-SKY.
+edit('gcc/doc/md.texi', put_between(
+    '@item H\n@itemx Q\nAny SYMBOL_REF.\n@end table\n\n',
+    '@item C-SKY---@file{config/csky/constraints.md}',
+    '''@item C33---@file{config/c33/constraints.md}
+@table @code
+@item c
+A callee-saved register, @code{%r0} to @code{%r3}.
+
+@item f
+The stack pointer, @code{%sp}.
+
+@item Z
+Register @code{%r14}, which holds the target of an indirect sibling
+call.
+
+@item I
+Integer constant 0.
+
+@item J
+A signed 5-bit integer constant, @minus{}16 to 15.
+
+@item K
+A signed 16-bit integer constant.
+
+@item L
+A signed 32-bit integer constant whose low 16 bits are zero.
+
+@item M
+An unsigned 16-bit integer constant.
+
+@item N
+An integer constant from 0 to 31, a shift count.
+
+@item O
+An integer constant from @minus{}255 to 255.
+
+@item G
+A floating-point zero.
+
+@item Q
+A memory operand that one two-byte instruction can reach:
+@code{[%r@var{n}]} or @code{[%r@var{n}]+}.
+
+@item Y
+A memory operand that the bit instructions can reach: a general
+register plus an unsigned 26-bit displacement, or an absolute address.
+@end table
+
+@ifset INTERNALS
+The C33 back end also defines these constraints, which are not intended
+for inline assembler.  Only @code{S} is used by an instruction pattern.
+
+@table @code
+@item S
+A symbol other than one in the zero data area: the target of a direct
+call.
+
+@item b
+A general register or @code{%sp}, the registers usable as a memory
+base.
+
+@item e
+A general register; the same as @code{r}.
+
+@item R
+A symbol in the small, tiny or zero data area, optionally plus a signed
+16-bit offset.
+
+@item U
+A symbol in the zero data area, optionally plus an offset.
+
+@item W
+An integer constant from 0x8000 to 0x3fffff.
+
+@item H
+@itemx P
+@itemx T
+These never match.
+@end table
+@end ifset
+
+''', 'config/c33/constraints.md'))
+
+# install.texi: host/target specific notes, after Blackfin.
+edit('gcc/doc/install.texi', put_between(
+    '@uref{#bfin,,Blackfin}\n', '@item\n@uref{#cris,,cris}',
+    '@item\n@uref{#c33-x-elf,,c33-*-elf}\n'
+    '@item\n@uref{#c33-x-linux-uclibc,,c33-*-linux-uclibc}\n',
+    '#c33-x-elf'))
+
+edit('gcc/doc/install.texi', put_between(
+    'are available at @uref{https://sourceforge.net/projects/adi-toolchain/}.\n\n',
+    '@html\n<hr />\n@end html\n@anchor{cris}',
+    '''@html
+<hr />
+@end html
+@anchor{c33-x-elf}
+@heading c33-*-elf
+Seiko Epson S1C33 (C33) processors, without an operating system.  The
+standard, Advanced and PE cores are supported.
+@ifnothtml
+@xref{C33 Options,, C33 Options, gcc, Using the GNU Compiler
+Collection (GCC)},
+@end ifnothtml
+@ifhtml
+See ``C33 Options'' in the main manual
+@end ifhtml
+for a list of C33-specific options.
+
+@html
+<hr />
+@end html
+@anchor{c33-x-linux-uclibc}
+@heading c33-*-linux-uclibc
+No-MMU Linux on the C33 PE core, with uClibc-ng as the C library.
+Programs and shared libraries are FDPIC ELF: the compiler defaults to
+@option{-mcore=c33pe} and @option{-mfdpic}.
+
+''', '@anchor{c33-x-elf}'))
 
 print('changed:', changed or '(already applied)')

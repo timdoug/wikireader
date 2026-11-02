@@ -459,8 +459,8 @@ into a preceding `and`/`or` and then branching on `C`.
 ## Data areas - the distinctive part
 
 The C33 has several "data areas" addressed relative to a base register, so that
-globals can be reached without materialising a full 32-bit address. GCC's
-default mode uses the *default data area* based on `%r15`:
+globals can be reached without materialising a full 32-bit address. With
+`-mno-edda32`, GCC uses the *default data area* based on `%r15`:
 
 ```c
 int g; int rd(void) { return g; }
@@ -480,9 +480,11 @@ area") the compiler instead materialises the absolute address:
 	ld.w	%r4,[%r4]
 ```
 
-`samo-lib` builds C with the **default** (`%r15`-relative) mode -
-`samo-lib/Mk/rules.mk` passes `-mc33pe -mlong-calls` and *not* `-medda32`. Both
-modes must work.
+`-medda32` is the bare-metal compiler's default (`MASK_EXT_32` in
+`common/config/c33/c33-common.cc`), and `samo-lib` builds with it:
+`samo-lib/Mk/rules.mk` passes `-mc33pe` and neither option. `-msep-data` and
+`-mfdpic`, the Linux defaults, use the `%r15`-relative form. Both modes must
+work.
 
 Analogous `g`/`s`/`t`/`z` areas exist (`R_C33_GL`, `R_C33_SH/SL`,
 `R_C33_TH/TL`, `R_C33_ZH/ZL`) selected by the `-mezda`/`-metda`/`-mesda`

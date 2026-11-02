@@ -469,6 +469,46 @@ for f in ('gas/configure.ac', 'gas/configure'):
 print('gas ext_remove wiring done')
 
 
+# ------------------------------------------------------- gas: C33 chapter
+# gas/doc/c-c33.texi is the "C33 Dependent Features" chapter.  It is wired
+# in as c-v850.texi is: listed in CPU_DOCS (doc/local.mk, and the
+# Makefile.in generated from it), enabled by "@set C33" in all.texi and
+# its shipped copy asconfig.texi, and named in as.texi's machine menu and
+# includes; as.texi also gets the option synopsis most targets have.  Each
+# goes before CR16, as the alphabetical order puts it after BPF.
+
+def before(src, anchor, addition, guard):
+    """Insert `addition` immediately before `anchor`."""
+    if guard in src:
+        return None
+    i = src.index(anchor)
+    return src[:i] + addition + src[i:]
+
+
+edit('gas/doc/local.mk', lambda s: before(
+    s, '\t%D%/c-cr16.texi \\\n', '\t%D%/c-c33.texi \\\n', '%D%/c-c33.texi'))
+edit('gas/Makefile.in', lambda s: before(
+    s, '\tdoc/c-cr16.texi \\\n', '\tdoc/c-c33.texi \\\n', 'doc/c-c33.texi'))
+for f in ('gas/doc/all.texi', 'gas/doc/asconfig.texi'):
+    edit(f, lambda s: before(s, '@set CR16\n', '@set C33\n', '@set C33\n'))
+edit('gas/doc/as.texi', lambda s: before(
+    s, '@ifset CR16\n* CR16-Dependent::',
+    '@ifset C33\n* C33-Dependent::               C33 Dependent Features\n'
+    '@end ifset\n', '* C33-Dependent::'))
+edit('gas/doc/as.texi', lambda s: before(
+    s, '@ifset CR16\n@include c-cr16.texi\n',
+    '@ifset C33\n@include c-c33.texi\n@end ifset\n\n', '@include c-c33.texi'))
+edit('gas/doc/as.texi', lambda s: before(
+    s, '@ifset CRIS\n\n@emph{Target CRIS options:}',
+    '@ifset C33\n\n@emph{Target C33 options:}\n'
+    '   [@b{-mc33adv}|@b{-mc33pe}] [@b{-medda32}]\n'
+    '   [@b{-mc33_ext} @var{file}.dump]\n'
+    '   [@b{-mfdpic}|@b{-mno-fdpic}]\n'
+    '@end ifset\n', '@emph{Target C33 options:}'))
+
+print('gas documentation wiring done')
+
+
 # -------- readelf: let it resolve relocations inside DWARF sections -----------
 # The whole point of moving off STABS was to get modern objdump/readelf on the
 # emulator work, and without this readelf refuses:
