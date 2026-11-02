@@ -8,123 +8,201 @@
 
 <img src="doc/zim-hafele-keating.jpg" alt="The Hafele-Keating experiment article and its photograph" width="800">
 
-Firmware and tools for the Epson S1C33 WikiReader handheld. Forked from
-[stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
+This repository holds firmware and tools for the WikiReader, a handheld built
+around the Epson S1C33E07 (a 60 MHz C33 CPU with 16 or 32 MiB of SDRAM). It
+is a fork of [stephen-mw/wikireader](https://github.com/stephen-mw/wikireader).
 
-Most of the work here is a current toolchain, a full-system emulator, a reader
-for standard ZIM archives, and the operating systems and emulators that run on
-the device. The original dump-processing pipeline still works and is
-unchanged.
+We added a current GCC and binutils, a full-system emulator, a reader for
+Kiwix ZIM archives, and three operating systems: NuttX, Linux, and a RISC-V
+machine that boots Linux. We also ported Doom, a Macintosh Plus, a Game Boy
+and Llama 2, and dumped the chip's boot ROM. All of them start from the normal
+launcher. The original pipeline that turns a
+Wikipedia dump into a WikiReader image still works, unchanged.
+
+## How the device boots
+
+The chip's mask ROM loads a small boot program from the serial FLASH. That
+program loads Grifo, the WikiReader's kernel, from `kernel.elf` on the SD
+card. Grifo starts `init.app`, the icon launcher, and `init.ini` lists the
+applications on its screen. Every program in this repository starts this way,
+on the device and in the emulator.
 
 ## What's here
 
-- `host-tools/toolchain-c33` - binutils 2.47 and GCC 16.2 targeting C33,
-  prefix `c33-epson-elf-`. Builds the complete firmware. The original
-  binutils 2.10.1 / GCC 3.3.2 build is kept as an ABI and assembler oracle.
-- `emulator` - `wremu`, a full-system emulator. Boots the serial-FLASH chain
-  and SD-card applications, including the DMA kernel. Runs headless or in an
-  SDL2 window. Timing is modelled and calibrated against hardware; the limits
-  are documented.
-- `zim` - `zim.app`, a reader for ZIM 6 archives, the format Kiwix uses. Reads
-  them through the kernel's FatFs service. Zstandard and WebP decoders are
-  included, since the C33 has to decode both itself. Boot files sit on FAT32
-  and the archive on a second exFAT partition, so archives over 4 GiB work.
-- `samo-lib` - the grifo kernel, FatFs R0.16, mini-libc and drivers. SD reads
-  use 32-bit DMA.
-- `wiki` - the original reader application, with fixes.
-- `doom` - `doom.app`. Monochrome, touch movement, front-button controls.
-  Engine source is vendored and pinned.
-- `minivmac` - `minivmac.app`, a soundless 4 MiB Macintosh Plus that boots
-  System 7.1 to the Finder. A 68000-to-C33 trace translator runs the hot paths
-  and falls back to Mini vMac's own handlers. The 512x342 screen is shown
-  through a native-resolution 240x160 viewport that pans at the edges, and
-  touch drives the mouse. ROM and floppy images are user-supplied. Upstream
-  Mini vMac is fetched at a pinned revision on the first build.
-- `nuttx` - `nuttx.app`, Apache NuttX on the C33: NSH with 139 Toybox
-  commands (`awk grep sed find sort xargs tar` ...), `vi`, a hex editor, ZMODEM
-  transfer, four interpreters (Lua, MicroPython, BASIC and the WikiReader's
-  own Forth) and a native TinyCC that compiles C33 code on the device, itself
-  included. It drives the card with its own SPI and MMC/SD drivers and mounts
-  the boot partition at `/sd`; the exFAT archive partition needs a driver it
-  does not have. It runs from the launcher like the other applications, but
-  takes the machine over from the kernel rather than calling it, and keeps it
-  until `poweroff` or `reboot`. The port is carried as an overlay and patches
-  against pinned upstream revisions, which the first build fetches.
-- `linux` - a no-MMU Linux 7.3 running natively on the C33, entered from the
-  same FLASH and file-loader chain as the firmware. It brings up 32 MiB of
-  SDRAM, generic IRQs, a 100 Hz tick, both UARTs on serial-core, and SPI with
-  MMC/SD and HSDMA reads, mounting the card's FAT partition. The panel is
-  `/dev/fb0` and the touchscreen `/dev/input/event0`, bound through serdev.
-  Userspace is static BusyBox 1.38 as PID 1, bFLT binaries linked against
-  uClibc-ng, a framebuffer terminal and soft keyboard on a PTY, and a recovery
-  shell on the serial port. The kernel builds in a Debian VM, not on macOS.
-- `riscv` - `riscv.app`, an rv32ima machine: an interpreter, and a translator
-  that emits native C33 code instead. It boots a no-MMU M-mode Linux with a
-  terminal and soft keyboard on the panel, and carries a bare-metal benchmark
-  image that attributes cost per guest kernel. The guest kernel and device
-  trees are fetched, not built here.
-- `llama` - `llama.app`, Llama 2 inference. `stories260K` generates at 119 ms
-  a token with int8 weights and no floating point anywhere in the forward
-  pass. Checkpoints come from `tinyllamas` and are converted on the host.
-- `sparrow` - an offline factual answer engine over Wikidata claims. It works,
-  but has only been measured against a sample; see `sparrow/STATUS.md`.
+### Toolchain
 
-Each directory has its own README with the detail.
+- `host-tools/toolchain-c33`: binutils 2.47 and GCC 16.2 for the C33. There
+  are two targets. `c33-epson-elf-` builds the firmware and applications.
+  `c33-linux-uclibc-` builds C and C++ programs for Linux, as FDPIC ELF with
+  shared libraries. The binutils test suites pass with no unexpected failures
+  on both targets. GCC's execute torture suite runs inside Linux in the
+  emulator: 24,353 tests pass and one fails. We kept the original binutils
+  2.10.1 and GCC 3.3.2 build so that we can check the ABI and assembler output
+  against it.
+
+### Emulator
+
+- `emulator`: `wremu`, a full-system emulator. It boots the whole chain above
+  from a FLASH image and a card image, and it runs headless or in an SDL2
+  window. We measured the device's memory timing, SPI and DMA behaviour, and
+  the CPU's fetch rules on real hardware, and fitted the emulator's timing
+  model to those measurements. For ZIM article loads and the RISC-V
+  benchmark, the emulator's times are within 3% of the device's. The
+  emulator's README lists where the model is still off.
+
+### Reading Wikipedia
+
+- `zim`: `zim.app` reads ZIM archives, the format Kiwix uses. It handles a
+  full English Wikipedia (124 GB) as well as smaller archives, and you can
+  keep several archives on one card and pick one from a list. It has prefix
+  search, links between articles, links within a page, history, and inline
+  photographs. It decodes Zstandard and WebP on the C33 itself and dithers
+  photos to one bit. It draws an article's text first and fills in images
+  after. On a real device, Simple English Wikipedia shows the first page of
+  the Cat article 0.87 s after the tap. The card has two partitions: FAT32
+  for the boot files and exFAT for the archives, so an archive can be larger
+  than 4 GiB.
+- `wiki`: the original reader for the WikiReader's own format, with fixes.
+- `sparrow`: answers short factual questions offline from Wikidata, then
+  opens the matching article in `zim.app`. It works, but we have only
+  measured it on a sample of the data; see `sparrow/STATUS.md`.
+
+### Kernel and libraries
+
+- `samo-lib`: Grifo, FatFs R0.16, mini-libc, the drivers, and the MBR boot
+  program. SD reads use 32-bit DMA, and FatFs reads runs of adjacent clusters
+  in one request.
+- `samo-lib/forth`: the WikiReader's own Forth. Its source is in Forth, and
+  the Forth can compile that source itself. `bootstrap.py` runs it in the
+  emulator through Grifo and gets the same bytes that gforth writes, so you
+  can build the Forth without gforth.
+
+### Operating systems
+
+- `linux`: Linux 7.3 without an MMU, running natively on the C33. It starts
+  from the launcher like any other application, and `reboot` returns to the
+  launcher. One kernel image runs on both 16 MiB and 32 MiB boards. The board
+  is described in a device tree, with schemas for every binding. Each piece of
+  hardware has a standard Linux driver:
+  - the LCD as a DRM device, with `/dev/fb0` on top of it
+  - the touchscreen through serdev, and the buttons and power switch through
+    `gpio-keys`
+  - the SD card through a dedicated host driver with DMA reads
+  - pins and GPIOs through pinctrl, clocks through the common clock framework,
+    and the timers as a clocksource with high-resolution timers
+  - a PWM for the contrast, IIO for the battery voltage and temperature, and
+    the watchdog
+
+  Buildroot 2026.08.1 builds the root filesystem, a 24 MB ext4 image that
+  lives as one file on the card's FAT partition. All programs share one copy
+  of BusyBox and of uClibc-ng in memory. On screen, Linux shows a terminal
+  with a touch keyboard. `startx` starts X11 (Xfbdev, twm, xterm and xeyes),
+  which you control by touch. Suspend works, and a touch wakes the device. On
+  the device, the shell prompt appears 4.76 s after the kernel starts. C++ works,
+  with exceptions and threads. 1,183 of LTP's POSIX tests pass. A Wayland
+  session (cage and foot) also builds, but it is switched off because X is
+  much cheaper on this CPU.
+- `nuttx`: Apache NuttX. You get NSH with 139 Toybox commands (`awk grep sed
+  find sort xargs tar` and more), `vi`, a hex editor, and ZMODEM file
+  transfer. Five languages run on the device: Lua, MicroPython, BASIC, the
+  WikiReader's own Forth, and C through TinyCC. TinyCC compiles C33 code on
+  the device and can compile itself. NuttX has its own SPI and SD drivers and mounts the
+  boot partition at `/sd`. Once it starts, it runs the machine until
+  `poweroff` or `reboot`.
+- `riscv`: `riscv.app`, an rv32ima machine that boots a no-MMU RISC-V Linux
+  with a terminal and touch keyboard. It can interpret RISC-V code or
+  translate it to C33 code as it runs. On the device, the interpreter takes
+  72.7 cycles per RISC-V instruction and the translator 13.2. The guest
+  kernel is downloaded, not built here.
+
+### Emulators and games
+
+- `doom`: `doom.app`, the original Doom in black and white, with touch and
+  button controls. The first level runs at 14.7 frames a second on the
+  device. The engine source lives in the repository at a fixed revision.
+- `minivmac`: `minivmac.app`, a 4 MiB Macintosh Plus without sound. It boots
+  System 7.1 to the Finder. A translator turns hot 68000 code into C33 code,
+  and Mini vMac runs everything else. The screen shows a 240x160 window onto
+  the Mac's 512x342 display and scrolls when the pointer reaches an edge.
+  Touch moves the mouse. You need to supply the ROM and floppy images.
+- `gameboy`: `gameboy.app`, a Game Boy (DMG) emulator based on Peanut-GB,
+  without sound. We rewrote the CPU, timing and drawing code for the C33. In
+  the emulator, games run at 145% to 224% of full speed, Link's Awakening
+  included. It has not yet been timed on a device. It lists the `.gb` files
+  on the card and keeps battery saves.
+
+### Machine learning
+
+- `llama`: `llama.app` runs Llama 2 models from `tinyllamas`. `stories260K`
+  writes TinyStories text at 119 ms a token. The weights are int8, and the
+  forward pass has no floating point at all. That change made it about ten
+  times faster. A host script converts the checkpoints.
+
+### Hardware research
+
+- `romdump`: `romdump.app` copies the boot FLASH and the chip's 64 KB boot
+  ROM to the card. We dumped three devices, and all three boot ROMs match.
+  Most of the ROM is an MP3 decoder that Epson's manuals do not mention.
+  `romdump/BOOTROM.md` describes the boot code and the decoder. The top
+  16 KB of the ROM reads back as zeros by every method we tried.
+- `mp3rom`: `mp3rom.app` calls the ROM's MP3 decoder on test files and saves
+  its output, so that we could measure what it does.
+
+Each directory has its own README with the details.
 
 ## Building
 
-Build the toolchain first. It downloads and builds binutils and GCC, and takes
-about ten minutes:
+First build the toolchain. This downloads binutils and GCC, builds them, and
+takes about ten minutes:
 
 ```sh
 host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
 host-tools/toolchain-c33/gcc/rebuild.sh
 ```
 
-It installs under `host-tools/toolchain-c33/work/install/`, which is what
-everything else looks for by default. Then, from the repository root:
+It installs under `host-tools/toolchain-c33/work/install/`. The other
+Makefiles look there by default. Then, from the repository root:
 
 ```sh
 make wiki zim doom
 ```
 
-That builds all three applications; mini-libc, drivers, fatfs and grifo come in
-as dependencies.
+This builds the three applications, along with mini-libc, the drivers, FatFs
+and Grifo.
 
-`make minivmac` builds the Macintosh emulator separately. Its first build
-fetches the pinned upstream source. See `minivmac/README.md` for the required
-card layout and ROM/disk names.
+Other applications have their own targets:
 
-`make nuttx` builds `nuttx.app` as well. It is separate because it does not
-build from this tree: the first run clones NuttX, nuttx-apps and TinyCC at
-pinned revisions, about 340 MB, and lays this repository's port over them. It
-also needs GNU `make` and `flock`. See `nuttx/README.md`.
+- `make minivmac` and `make gameboy` download the upstream emulator source at
+  a fixed revision on the first build. `minivmac/README.md` lists the ROM and
+  disk files you need on the card.
+- `make nuttx` downloads NuttX, nuttx-apps and TinyCC at fixed revisions on
+  the first run (about 340 MB) and applies this repository's port on top. It
+  also needs GNU `make` and `flock`. See `nuttx/README.md`.
+- `make -C riscv`, `make -C llama`, `make -C romdump` and `make -C mp3rom`
+  build those applications. Run `riscv/fetch-linux.sh` once to download the
+  RISC-V guest kernel and device trees.
 
-`make -C riscv` and `make -C llama` build `riscv.app` and `llama.app` with the
-same toolchain. `riscv/fetch-linux.sh` fetches the guest kernel and device
-trees the RISC-V Linux entry needs.
-
-Native Linux builds in an ARM64 Debian Lima VM, because Kbuild and the C33
-toolchain want a Linux userspace:
+Linux builds in an ARM64 Debian VM under Lima, since the kernel build and
+Buildroot need a Linux host:
 
 ```sh
-make -C linux provision    # once: the VM and its build prerequisites
-make -C linux toolchain    # once: a Linux-hosted C33 toolchain
-make -C linux build
+make -C linux provision    # once: create the VM and install what it needs
+make -C linux toolchain    # once: build the Linux C33 toolchain in the VM
+make -C linux build        # kernel, root filesystem and linux.app
+make -C linux boot-test    # boot it through Grifo and check the console,
+                           # card, panel and touch input
 ```
 
-`make -C linux boot-test` then boots the result through the full emulated
-path and checks the console, the card, the panel and the touch input. See
-`linux/README.md`.
+`linux/README.md` covers the other tests: `x11-test`, `dt-check`,
+`ltp-test`, `gcc-test` and `binutils-test`.
 
-Clean targets are `<component>-clean`. Extra flags go in `OPT`, which is
-appended after `-Werror` and already defaults to `-O2`. Build output is
-git-ignored.
+Each component has a `<component>-clean` target. Extra compiler flags go in
+`OPT`. The build adds them after `-Werror`, and the default is `-O2`. Git
+ignores all build output.
 
-The original EPSON binutils 2.10.1 / GCC 3.3.2 toolchain is still buildable
-with `make toolchain`. Nothing depends on it; it is kept as an ABI and
-assembler oracle. Set `TOOLCHAIN_BIN` to `host-tools/toolchain-install/bin` to
-build with it.
+You can still build the original EPSON binutils 2.10.1 / GCC 3.3.2 toolchain
+with `make toolchain`. Nothing depends on it. To build with it, set
+`TOOLCHAIN_BIN` to `host-tools/toolchain-install/bin`.
 
 ## Emulator
 
@@ -133,14 +211,15 @@ make -C emulator
 make -C emulator check
 ```
 
-The decode tables are committed, so building the emulator does not need the
-cross-compiler. SDL2 is only needed for the window (`brew install sdl2`).
-`check` runs on a bare checkout; the few tests that need a local card image or
-objdump captures say so and skip.
+You don't need the cross-compiler to build the emulator, because the decode
+tables are checked in. You need SDL2 only for the window (`brew install
+sdl2`). `check` runs on a fresh checkout. A few tests need a local card image
+or objdump output; when those are missing, the tests skip themselves and
+print why.
 
-Running firmware needs two things the repository does not carry: a kernel you
-have built, and a card image. `emulator/README.md` covers both, along with the
-boot chain and the profiling caveats. Once you have them:
+To run firmware you need two things that are not in the repository: a kernel
+that you have built, and a card image. `emulator/README.md` explains how to
+get both, and also covers the boot chain and profiling. Then:
 
 ```sh
 cd emulator
@@ -148,29 +227,30 @@ rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
 ./wremu -e /tmp/flash.rom -c images/wrcard.img
 ```
 
-That boots the way the device does: mask ROM, MBR, the boot loader in
-FLASH, `kernel.elf` (Grifo) off the card, `init.app`, then the application
-`init.ini` names. Never boot an application or kernel any other way; wremu
-refuses a bare ELF unless `--bare-elf` says it is compiler output for the
-toolchain suites.
+This boots the same way the device does: mask ROM, the boot program in FLASH,
+Grifo from the card, `init.app`, then whatever application `init.ini` names.
+Always boot this way. If you load an application or kernel directly, it runs
+at the wrong clock speed and skips the hardware setup that Grifo does, so its
+behaviour and timing do not match the device. `wremu` only accepts a bare ELF
+with `--bare-elf`, which exists for the compiler test suites.
 
-`-R` resets and runs headless, `-n` caps cycles, `-s` traces syscalls, and
-`-K`/`-T`/`-N` script keys, taps and buttons.
+Useful options: `-R` resets and runs headless, `-n` limits the number of
+cycles, `-s` traces system calls, and `-K`, `-T` and `-N` send scripted keys,
+taps and button presses.
 
 ## SD cards
 
-`zim/make-card-image` (macOS) writes a two-partition card: FAT32 for the boot
-files, exFAT for the archive. `zim/README.md` has the layout and the launcher.
-Pass `--nuttx` to add `nuttx.app` to the menu.
+`zim/make-card-image` (macOS) writes a card with two partitions: FAT32 for the
+boot files and exFAT for the archives. `zim/README.md` describes the layout
+and the launcher. Add `--nuttx` to put `nuttx.app` on the menu.
 
-`install-card.sh` updates a card already made: with the boot partition
-mounted, it copies the built applications and icons over, rewrites their
-launcher entries in `init.ini` in place, and verifies every file again after
-a remount.
+`install-card.sh` updates an existing card. Mount the boot partition, and the
+script copies the built applications and icons over, updates their lines in
+`init.ini`, then remounts the card and checks every file again.
 
 ## Classic image build
 
-The original pipeline renders a Wikimedia dump into the WikiReader's own
+The original pipeline converts a Wikimedia dump into the WikiReader's own
 format. It runs in Docker:
 
 ```sh
@@ -179,19 +259,19 @@ docker run --rm -v $(pwd)/build:/build -ti \
     docker.io/stephenmw/wikireader:latest autowiki 20200601
 ```
 
-The result is in `build/<date>/image`; copy it to a FAT32 card. It needs about
-16 GB of RAM and runs a little over 12 hours. The manual steps, the
-dump-cleaning one-liner and multi-machine builds are in
-[doc/image-build.text](doc/image-build.text).
+The result goes to `build/<date>/image`; copy it to a FAT32 card. The build
+needs about 16 GB of RAM and takes a little over 12 hours.
+[doc/image-build.text](doc/image-build.text) has the manual steps, a command
+to clean the dump, and instructions for building on several machines.
 
-This is separate from `zim.app`, which reads ZIM archives directly and needs
-none of it.
+`zim.app` does not use any of this. It reads ZIM archives directly.
 
 ## Notes
 
-The Epson S1C33 manuals are not in this repository. They are available from
-Epson and the Internet Archive; `host-tools/toolchain-c33/gcc/ABI.md` says
-which ones and what they cover.
+The Epson S1C33 manuals are not in this repository. You can get them from
+Epson and from the Internet Archive. `host-tools/toolchain-c33/gcc/ABI.md`
+lists which manuals you need and what each one covers. The board schematics
+are in `Circuits/`.
 
-The older notes under `doc/` describe the legacy 3.3.2 path, including a
-32-bit-host workaround the current toolchain does not need.
+The older notes in `doc/` describe the old 3.3.2 toolchain. They include a
+workaround for 32-bit hosts that the current toolchain does not need.
