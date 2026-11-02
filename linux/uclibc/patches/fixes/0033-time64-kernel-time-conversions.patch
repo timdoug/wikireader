@@ -5,12 +5,83 @@ getitimer, getrusage and waitid system calls of a 32-bit kernel write
 32-bit timevals. getitimer and getrusage passed the caller's structure
 straight through and returned garbage; so did wait4 on kernels without
 wait4, through its waitid fallback. Convert, as setitimer already does,
-and copy wait4's system time microseconds from the right word.
+and copy wait4's system time microseconds from the right word.  The
+kernel layouts and their conversions are in internal/time64_helpers.h,
+and setitimer uses them too.
 
 adjtimex used clock_adjtime only when the 32-bit clock_adjtime system
 call exists, so kernels with just clock_adjtime64 returned ENOSYS.
 
+diff --git a/include/internal/time64_helpers.h b/include/internal/time64_helpers.h
+index 40367a0..7528325 100644
+--- a/include/internal/time64_helpers.h
++++ b/include/internal/time64_helpers.h
+@@ -5,6 +5,9 @@
+ #include <bits/types.h>
+ #include <time.h>
+ #include <stddef.h>
++#include <string.h>
++#include <sys/time.h>
++#include <sys/resource.h>
+ 
+ #if defined(__UCLIBC_USE_TIME64__) && __TARGET_ARCH_BITS__ == 32 && LINUX_VERSION_CODE < KERNEL_VERSION(5,1,0)
+ #error 64bit time on 32bit targets is not supported on Linux < 5.1.0
+@@ -58,4 +61,53 @@ static inline void __its_from_its64(struct itimerspec *__its,
+ }
+ 
+ 
++/* System calls with no time64 version still take 32-bit timevals.  */
++struct __tv32_struct {
++    __S32_TYPE tv_sec;
++    __S32_TYPE tv_usec;
++};
++
++struct __itv32_struct {
++    struct __tv32_struct it_interval;
++    struct __tv32_struct it_value;
++};
++
++/* The kernel's rusage: 32-bit timevals, then the same 14 longs.  */
++struct __rusage32_struct {
++    struct __tv32_struct ru_utime;
++    struct __tv32_struct ru_stime;
++    long ru_counts[14];
++};
++
++static inline void __tv_from_tv32(struct timeval *__tv,
++                                  const struct __tv32_struct *__k)
++{
++    __tv->tv_sec = __k->tv_sec;
++    __tv->tv_usec = __k->tv_usec;
++}
++
++static inline void __itv_from_itv32(struct itimerval *__itv,
++                                    const struct __itv32_struct *__k)
++{
++    __tv_from_tv32(&__itv->it_interval, &__k->it_interval);
++    __tv_from_tv32(&__itv->it_value, &__k->it_value);
++}
++
++static inline void __itv32_from_itv(struct __itv32_struct *__k,
++                                    const struct itimerval *__itv)
++{
++    __k->it_interval.tv_sec = __itv->it_interval.tv_sec;
++    __k->it_interval.tv_usec = __itv->it_interval.tv_usec;
++    __k->it_value.tv_sec = __itv->it_value.tv_sec;
++    __k->it_value.tv_usec = __itv->it_value.tv_usec;
++}
++
++static inline void __rusage_from_rusage32(struct rusage *__ru,
++                                          const struct __rusage32_struct *__k)
++{
++    __tv_from_tv32(&__ru->ru_utime, &__k->ru_utime);
++    __tv_from_tv32(&__ru->ru_stime, &__k->ru_stime);
++    memcpy(&__ru->ru_maxrss, __k->ru_counts, sizeof(__k->ru_counts));
++}
++
+ #endif /* _TIME64_HELPERS_H */
 diff --git a/libc/sysdeps/linux/common/adjtimex.c b/libc/sysdeps/linux/common/adjtimex.c
+index af57a37..331d752 100644
 --- a/libc/sysdeps/linux/common/adjtimex.c
 +++ b/libc/sysdeps/linux/common/adjtimex.c
 @@ -12,7 +12,7 @@
@@ -23,34 +94,24 @@ diff --git a/libc/sysdeps/linux/common/adjtimex.c b/libc/sysdeps/linux/common/ad
  #elif defined(__NR_adjtimex)
      return syscall(__NR_adjtimex, buf);
 diff --git a/libc/sysdeps/linux/common/getitimer.c b/libc/sysdeps/linux/common/getitimer.c
+index 08b3510..f63454f 100644
 --- a/libc/sysdeps/linux/common/getitimer.c
 +++ b/libc/sysdeps/linux/common/getitimer.c
-@@ -8,4 +8,31 @@
+@@ -8,4 +8,20 @@
  
  #include <sys/syscall.h>
  #include <sys/time.h>
 +
 +#if defined(__UCLIBC_USE_TIME64__)
-+
-+/* The kernel's itimerval has 32-bit timevals, as in setitimer.c.  */
-+struct itimerval32_struct {
-+	__S32_TYPE __interval_sec;
-+	__S32_TYPE __interval_usec;
-+	__S32_TYPE __value_sec;
-+	__S32_TYPE __value_usec;
-+};
++#include "internal/time64_helpers.h"
 +
 +int getitimer(__itimer_which_t which, struct itimerval *value)
 +{
-+	struct itimerval32_struct __itv32;
++	struct __itv32_struct __itv32;
 +	int __ret = INLINE_SYSCALL(getitimer, 2, which, &__itv32);
 +
-+	if (__ret == 0) {
-+		value->it_interval.tv_sec = __itv32.__interval_sec;
-+		value->it_interval.tv_usec = __itv32.__interval_usec;
-+		value->it_value.tv_sec = __itv32.__value_sec;
-+		value->it_value.tv_usec = __itv32.__value_usec;
-+	}
++	if (__ret == 0)
++		__itv_from_itv32(value, &__itv32);
 +
 +	return __ret;
 +}
@@ -58,74 +119,100 @@ diff --git a/libc/sysdeps/linux/common/getitimer.c b/libc/sysdeps/linux/common/g
  _syscall2(int, getitimer, __itimer_which_t, which, struct itimerval *, value)
 +#endif
 diff --git a/libc/sysdeps/linux/common/getrusage.c b/libc/sysdeps/linux/common/getrusage.c
+index e2ee366..1895493 100644
 --- a/libc/sysdeps/linux/common/getrusage.c
 +++ b/libc/sysdeps/linux/common/getrusage.c
-@@ -10,4 +10,34 @@
+@@ -10,4 +10,20 @@
  #include <unistd.h>
  #include <wait.h>
  #include <sys/resource.h>
 +
 +#if defined(__UCLIBC_USE_TIME64__)
-+#include <string.h>
-+
-+/* The kernel's rusage has 32-bit timevals before the same 14 longs.  */
-+struct rusage32_struct {
-+	__S32_TYPE __utime_sec;
-+	__S32_TYPE __utime_usec;
-+	__S32_TYPE __stime_sec;
-+	__S32_TYPE __stime_usec;
-+	long __counts[14];
-+};
++#include "internal/time64_helpers.h"
 +
 +int getrusage(__rusage_who_t who, struct rusage *usage)
 +{
-+	struct rusage32_struct __ru32;
++	struct __rusage32_struct __ru32;
 +	int __ret = INLINE_SYSCALL(getrusage, 2, who, &__ru32);
 +
-+	if (__ret == 0) {
-+		usage->ru_utime.tv_sec = __ru32.__utime_sec;
-+		usage->ru_utime.tv_usec = __ru32.__utime_usec;
-+		usage->ru_stime.tv_sec = __ru32.__stime_sec;
-+		usage->ru_stime.tv_usec = __ru32.__stime_usec;
-+		memcpy(&usage->ru_maxrss, __ru32.__counts, sizeof(__ru32.__counts));
-+	}
++	if (__ret == 0)
++		__rusage_from_rusage32(usage, &__ru32);
 +
 +	return __ret;
 +}
 +#else
  _syscall2(int, getrusage, __rusage_who_t, who, struct rusage *, usage)
 +#endif
+diff --git a/libc/sysdeps/linux/common/setitimer.c b/libc/sysdeps/linux/common/setitimer.c
+index eab5413..bdbd6db 100644
+--- a/libc/sysdeps/linux/common/setitimer.c
++++ b/libc/sysdeps/linux/common/setitimer.c
+@@ -11,31 +11,16 @@
+ 
+ 
+ #if defined(__UCLIBC_USE_TIME64__)
+-
+-struct itimerval32_struct {
+-	__S32_TYPE __interval_sec;
+-	__S32_TYPE __interval_usec;
+-	__S32_TYPE __value_sec;
+-	__S32_TYPE __value_usec;
+-};
++#include "internal/time64_helpers.h"
+ 
+ int setitimer(__itimer_which_t which, const struct itimerval *restrict new, struct itimerval *restrict old)
+ {
+-	struct itimerval32_struct __itv32 = {
+-		.__interval_sec = new->it_interval.tv_sec,
+-		.__interval_usec = new->it_interval.tv_usec,
+-		.__value_sec = new->it_value.tv_sec,
+-		.__value_usec = new->it_value.tv_usec
+-	};
+-	struct itimerval32_struct __itv32_old;
++	struct __itv32_struct __itv32, __itv32_old;
+ 
++	__itv32_from_itv(&__itv32, new);
+ 	int __ret = INLINE_SYSCALL(setitimer, 3, which, &__itv32, &__itv32_old);
+-	if (__ret == 0 && old) {
+-		old->it_interval.tv_sec = __itv32_old.__interval_sec;
+-		old->it_interval.tv_usec = __itv32_old.__interval_usec;
+-		old->it_value.tv_sec = __itv32_old.__value_sec;
+-		old->it_value.tv_usec = __itv32_old.__value_usec;
+-	}
++	if (__ret == 0 && old)
++		__itv_from_itv32(old, &__itv32_old);
+ 
+ 	return __ret;
+ }
 diff --git a/libc/sysdeps/linux/common/wait4.c b/libc/sysdeps/linux/common/wait4.c
+index 33d9fed..b3949a8 100644
 --- a/libc/sysdeps/linux/common/wait4.c
 +++ b/libc/sysdeps/linux/common/wait4.c
-@@ -10,6 +10,7 @@
+@@ -10,6 +10,11 @@
  #include <sys/wait.h>
  #include <sys/resource.h>
  #include <errno.h>
 +#include <string.h>
++
++#if defined(__UCLIBC_USE_TIME64__)
++#include "internal/time64_helpers.h"
++#endif
  
  #if defined(__NR_waitid)
  /* wait4() expressed via the waitid(2) syscall.  Used as the implementation
-@@ -47,9 +48,27 @@
+@@ -47,9 +52,20 @@ static pid_t __wait4_via_waitid(pid_t pid, int *status, int opts, struct rusage
  		type = P_PID;
  	}
  
 +#if defined(__UCLIBC_USE_TIME64__)
-+	/* The kernel's rusage has 32-bit timevals before the same 14 longs.  */
-+	struct {
-+		__S32_TYPE time[4];
-+		long counts[14];
-+	} ru32;
++	struct __rusage32_struct ru32;
 +
 +	res = INLINE_SYSCALL(waitid, 5, type, pid, &info, opts | WEXITED,
 +			     rusage ? &ru32 : NULL);
 +	if (res < 0)
 +		return res;
-+	if (rusage) {
-+		rusage->ru_utime = (struct timeval){ .tv_sec = ru32.time[0], .tv_usec = ru32.time[1] };
-+		rusage->ru_stime = (struct timeval){ .tv_sec = ru32.time[2], .tv_usec = ru32.time[3] };
-+		memcpy(&rusage->ru_maxrss, ru32.counts, sizeof(ru32.counts));
-+	}
++	if (rusage)
++		__rusage_from_rusage32(rusage, &ru32);
 +#else
  	res = INLINE_SYSCALL(waitid, 5, type, pid, &info, opts | WEXITED, rusage);
  	if (res < 0)
@@ -134,7 +221,7 @@ diff --git a/libc/sysdeps/linux/common/wait4.c b/libc/sysdeps/linux/common/wait4
  
  	if (info.si_pid && status) {
  		int sw = 0;
-@@ -105,7 +124,7 @@
+@@ -105,7 +121,7 @@ pid_t __wait4_nocancel(pid_t pid, int *status, int opts, struct rusage *rusage)
  		__S32_TYPE r32[4];
  		memcpy(r32, kru, 4 * sizeof(__S32_TYPE));
  		rusage->ru_utime = (struct timeval){ .tv_sec = r32[0], .tv_usec = r32[1] };

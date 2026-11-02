@@ -5,9 +5,30 @@ The kernel uses 64-bit nanosecond fields while libc uses long. Passing
 a public output buffer directly corrupts both its contents and adjacent
 memory on 32-bit targets. Use kernel-layout temporaries and convert only
 after successful syscalls, including the optional timer_settime output.
+The conversion is __its_from_its64() in internal/time64_helpers.h.
 
+diff --git a/include/internal/time64_helpers.h b/include/internal/time64_helpers.h
+index e2ed0f3..d09072b 100644
+--- a/include/internal/time64_helpers.h
++++ b/include/internal/time64_helpers.h
+@@ -32,5 +32,15 @@ struct __its64_struct {
+                                                      .value_tv_sec = ((struct itimerspec *)(__its))->it_value.tv_sec, \
+                                                      .value_tv_nsec = ((struct itimerspec *)(__its))->it_value.tv_nsec}) : NULL)
+ 
++/* Copy a kernel time64 itimerspec out to the caller's.  */
++static inline void __its_from_its64(struct itimerspec *__its,
++                                    const struct __its64_struct *__k)
++{
++    __its->it_interval.tv_sec = __k->interval_tv_sec;
++    __its->it_interval.tv_nsec = __k->interval_tv_nsec;
++    __its->it_value.tv_sec = __k->value_tv_sec;
++    __its->it_value.tv_nsec = __k->value_tv_nsec;
++}
++
+ 
+ #endif /* _TIME64_HELPERS_H */
 diff --git a/libpthread/nptl/sysdeps/unix/sysv/linux/timer_gettime.c b/libpthread/nptl/sysdeps/unix/sysv/linux/timer_gettime.c
-index fccda69..c2778fa 100644
+index fccda69..f7f3228 100644
 --- a/libpthread/nptl/sysdeps/unix/sysv/linux/timer_gettime.c
 +++ b/libpthread/nptl/sysdeps/unix/sysv/linux/timer_gettime.c
 @@ -23,6 +23,10 @@
@@ -21,7 +42,7 @@ index fccda69..c2778fa 100644
  
  #if defined(__NR_timer_gettime) || defined(__NR_timer_gettime64)
  # ifndef __ASSUME_POSIX_TIMERS
-@@ -49,9 +53,18 @@ timer_gettime (
+@@ -49,9 +53,13 @@ timer_gettime (
      {
        struct timer *kt = (struct timer *) timerid;
  
@@ -33,20 +54,15 @@ index fccda69..c2778fa 100644
 +      int res = INLINE_SYSCALL (timer_gettime64, 2, kt->ktimerid,
 +                                value ? &kvalue : NULL);
 +      if (res == 0 && value)
-+        {
-+          value->it_interval.tv_sec = kvalue.interval_tv_sec;
-+          value->it_interval.tv_nsec = kvalue.interval_tv_nsec;
-+          value->it_value.tv_sec = kvalue.value_tv_sec;
-+          value->it_value.tv_nsec = kvalue.value_tv_nsec;
-+        }
++        __its_from_its64 (value, &kvalue);
  # else
        int res = INLINE_SYSCALL (timer_gettime, 2, kt->ktimerid, value);
  # endif
 diff --git a/libpthread/nptl/sysdeps/unix/sysv/linux/timer_settime.c b/libpthread/nptl/sysdeps/unix/sysv/linux/timer_settime.c
-index fca839d..b04b717 100644
+index fca839d..7d86e17 100644
 --- a/libpthread/nptl/sysdeps/unix/sysv/linux/timer_settime.c
 +++ b/libpthread/nptl/sysdeps/unix/sysv/linux/timer_settime.c
-@@ -56,10 +56,18 @@ timer_settime (
+@@ -56,10 +56,13 @@ timer_settime (
      {
        struct timer *kt = (struct timer *) timerid;
  
@@ -58,12 +74,7 @@ index fca839d..b04b717 100644
 -				TO_ITS64_P(value), ovalue);
 +                                TO_ITS64_P(value), ovalue ? &kold : NULL);
 +      if (res == 0 && ovalue)
-+        {
-+          ovalue->it_interval.tv_sec = kold.interval_tv_sec;
-+          ovalue->it_interval.tv_nsec = kold.interval_tv_nsec;
-+          ovalue->it_value.tv_sec = kold.value_tv_sec;
-+          ovalue->it_value.tv_nsec = kold.value_tv_nsec;
-+        }
++        __its_from_its64 (ovalue, &kold);
  # else
        int res = INLINE_SYSCALL (timer_settime, 4, kt->ktimerid, flags,
  				value, ovalue);

@@ -8,6 +8,7 @@ and convert the kernel-updated timeout, including the time64 layout;
 keep pselect and ppoll input-only timeout semantics unchanged.
 
 diff --git a/libc/sysdeps/linux/common/select.c b/libc/sysdeps/linux/common/select.c
+index 71a9dae..f42f148 100644
 --- a/libc/sysdeps/linux/common/select.c
 +++ b/libc/sysdeps/linux/common/select.c
 @@ -9,6 +9,8 @@
@@ -19,7 +20,7 @@ diff --git a/libc/sysdeps/linux/common/select.c b/libc/sysdeps/linux/common/sele
  
  #ifdef __NR__newselect
  # undef __NR_select
-@@ -30,8 +32,14 @@
+@@ -30,8 +32,14 @@ int __NC(select)(int n, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
  #if defined(__NR_pselect6) || defined(__NR_pselect6_time64)
  	struct timespec _ts, *ts = 0;
  	if (timeout) {
@@ -36,7 +37,7 @@ diff --git a/libc/sysdeps/linux/common/select.c b/libc/sysdeps/linux/common/sele
  
  		/* GNU extension: allow for timespec values where the sub-sec
  		* field is equal to or more than 1 second.  The kernel will
-@@ -41,18 +49,37 @@
+@@ -41,18 +49,35 @@ int __NC(select)(int n, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
  		* on the POSIX general list for more information.
  		*/
  		usec = timeout->tv_usec;
@@ -59,10 +60,8 @@ diff --git a/libc/sysdeps/linux/common/select.c b/libc/sysdeps/linux/common/sele
  #if defined(__UCLIBC_USE_TIME64__) && defined(__NR_pselect6_time64)
 -	return INLINE_SYSCALL(pselect6_time64, 6, n, readfds, writefds, exceptfds, TO_TS64_P(ts), 0);
 +    struct __ts64_struct kts;
-+    if (ts) {
-+        kts.tv_sec = ts->tv_sec;
-+        kts.tv_nsec = ts->tv_nsec;
-+    }
++    if (ts)
++        __ts64_from_ts(&kts, ts);
 +    int ret = INLINE_SYSCALL(pselect6_time64, 6, n, readfds, writefds,
 +                            exceptfds, ts ? &kts : NULL, 0);
 +    if (timeout) {

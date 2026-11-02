@@ -4,27 +4,51 @@ Subject: [PATCH] recvmmsg: copy remaining time64 timeout back to the caller
 The time64 syscall updates a kernel-layout temporary, but TO_TS64_P
 previously discarded the result. Retain it and convert the remaining
 timeout after receiving messages. Preserve NULL and unchanged error
-outputs, and leave the legacy syscall path unchanged.
+outputs, and leave the legacy syscall path unchanged.  The conversions
+are __ts64_from_ts() and __ts_from_ts64() in internal/time64_helpers.h.
 
+diff --git a/include/internal/time64_helpers.h b/include/internal/time64_helpers.h
+index d09072b..40367a0 100644
+--- a/include/internal/time64_helpers.h
++++ b/include/internal/time64_helpers.h
+@@ -32,6 +32,21 @@ struct __its64_struct {
+                                                      .value_tv_sec = ((struct itimerspec *)(__its))->it_value.tv_sec, \
+                                                      .value_tv_nsec = ((struct itimerspec *)(__its))->it_value.tv_nsec}) : NULL)
+ 
++/* Copy a timespec into the kernel's time64 layout, and back out.  */
++static inline void __ts64_from_ts(struct __ts64_struct *__k,
++                                  const struct timespec *__ts)
++{
++    __k->tv_sec = __ts->tv_sec;
++    __k->tv_nsec = __ts->tv_nsec;
++}
++
++static inline void __ts_from_ts64(struct timespec *__ts,
++                                  const struct __ts64_struct *__k)
++{
++    __ts->tv_sec = __k->tv_sec;
++    __ts->tv_nsec = __k->tv_nsec;
++}
++
+ /* Copy a kernel time64 itimerspec out to the caller's.  */
+ static inline void __its_from_its64(struct itimerspec *__its,
+                                     const struct __its64_struct *__k)
 diff --git a/libc/inet/socketcalls.c b/libc/inet/socketcalls.c
+index 1762833..480da82 100644
 --- a/libc/inet/socketcalls.c
 +++ b/libc/inet/socketcalls.c
-@@ -282,7 +282,18 @@
+@@ -282,7 +282,14 @@ static ssize_t __NC(recvmmsg)(int sockfd, struct mmsghdr *msg, size_t vlen,
  			      int flags, struct timespec *tmo)
  {
  # if defined(__UCLIBC_USE_TIME64__) && defined(__NR_recvmmsg_time64)
 -	return (ssize_t)INLINE_SYSCALL(recvmmsg_time64, 5, sockfd, msg, vlen, flags, TO_TS64_P(tmo));
 +    struct __ts64_struct ktmo;
-+    if (tmo) {
-+        ktmo.tv_sec = tmo->tv_sec;
-+        ktmo.tv_nsec = tmo->tv_nsec;
-+    }
++    if (tmo)
++        __ts64_from_ts(&ktmo, tmo);
 +    ssize_t ret = INLINE_SYSCALL(recvmmsg_time64, 5, sockfd, msg, vlen,
 +                                 flags, tmo ? &ktmo : NULL);
-+    if (ret > 0 && tmo) {
-+        tmo->tv_sec = ktmo.tv_sec;
-+        tmo->tv_nsec = ktmo.tv_nsec;
-+    }
++    if (ret > 0 && tmo)
++        __ts_from_ts64(tmo, &ktmo);
 +    return ret;
  # elif defined(__NR_recvmmsg)
  	return (ssize_t)INLINE_SYSCALL(recvmmsg, 5, sockfd, msg, vlen, flags, tmo);
