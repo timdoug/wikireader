@@ -1305,10 +1305,8 @@ relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
 
 `make -C linux gcc-test` runs GCC's execute torture (`GCC_TESTS` takes other
 runtest selectors) with the installed compiler, and its programs in Linux in
-wremu, booted through Grifo: **24,353 passes and one failure**, `pr43987` at
-`-O0`, which uses a `char` array as a structure of pointers and faults when
-the array lands on an odd address; GCC aligns nothing it does not have to on
-C33. 204 are unsupported: nested-function trampolines, which GCC does not
+wremu, booted through Grifo: **24,354 passes, no failures**. 204 are
+unsupported: nested-function trampolines, which GCC does not
 make for `-mfdpic`, 128-bit integers, decimal float, uClibc's partial C99
 math, and GCC's expensive tests.
 
@@ -1331,7 +1329,9 @@ unrelocated; it addressed 64 MB and more past a symbol through the 26-bit
 data-area displacement; the FDPIC linker script ignored `-z max-page-size`,
 `-Ttext-segment`, `-z separate-code` and `--enable-linker-version`, folded
 `ld -r`'s startup and exit text into `.text`, and kept two `.note.GNU-stack`
-sections; ld crashed on a non-FDPIC input; ld's `.rofixup` sizing and
+sections; a byte array used as words (`pr43987`) faulted when it landed on
+an odd address, so GCC now word-aligns byte arrays, as SPARC, MIPS and SH
+do; ld crashed on a non-FDPIC input; ld's `.rofixup` sizing and
 relocation disagreed about script-defined absolute symbols; a discarded
 `.rela.dyn` left its dynamic tags; the Linux assembler made non-FDPIC
 objects by default; and `poweroff` halted instead of returning to Grifo,

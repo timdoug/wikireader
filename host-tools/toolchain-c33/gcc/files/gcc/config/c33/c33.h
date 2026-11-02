@@ -189,6 +189,15 @@
    when given unaligned data.  */
 #define STRICT_ALIGNMENT  1
 
+/* Word-align arrays of bytes, as SPARC, MIPS and SH do: a word loop over a
+   buffer needs no byte prologue, and a byte array a program uses as words
+   does not fault for landing on an odd address.  GCC applies it only to
+   definitions that bind locally, so it changes no interface.  */
+#define DATA_ALIGNMENT(TYPE, ALIGN)				\
+  (TREE_CODE (TYPE) == ARRAY_TYPE				\
+   && TYPE_MODE (TREE_TYPE (TYPE)) == QImode			\
+   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+
 /* Define this as 1 if `char' should by default be signed; else as 0.
 
    On the NEC C33, loads do sign extension, so make this default.  */
