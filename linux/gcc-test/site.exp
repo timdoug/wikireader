@@ -14,3 +14,6 @@ if {[info exists env(C33L_GCC)]} {
     set GCC_UNDER_TEST $env(C33L_GCC)
     set TOOL_EXECUTABLE $env(C33L_GCC)
 }
+if {[info exists env(C33L_GXX)]} {
+    set GXX_UNDER_TEST $env(C33L_GXX)
+}

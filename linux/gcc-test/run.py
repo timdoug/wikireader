@@ -106,7 +106,8 @@ def main():
         print(vm("linux/gcc-test/run-gcc.sh", *sys.argv[1:]), end="", flush=True)
         names = sorted(p.name for p in QUEUE.iterdir())
         if not names:
-            print(f"Results: {OUT / 'results/gcc.sum'}")
+            tool = "g++" if "--tool=g++" in sys.argv[1:] else "gcc"
+            print(f"Results: {OUT / 'results' / (tool + '.sum')}")
             return
         done = 0
         while done < len(names):

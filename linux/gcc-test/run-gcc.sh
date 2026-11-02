@@ -24,10 +24,24 @@ mkdir -p "$C33L_QUEUE" "$C33L_RESULTS" "$C33L_OBJDIR"
 # effective-target checks use) come from its build tree.
 [ -f "$C33L_BUILD_SITE" ] || make -C "$(dirname "$C33L_BUILD_SITE")" site.exp >/dev/null
 [ -f "$C33L_BUILD_SITE" ] || { echo "no $C33L_BUILD_SITE" >&2; exit 1; }
+# --tool=g++ runs the C++ suites, at one standard (C++17) unless
+# GXX_TESTSUITE_STDS says otherwise: the others mostly test the front end.
+tool=gcc
+case ${1:-} in
+--tool=*) tool=${1#--tool=}; shift ;;
+esac
+driver=$C33L_GCC
+if [ "$tool" = g++ ]; then
+	driver=$work/toolchain/install/bin/c33-linux-uclibc-g++
+	export C33L_GXX=$driver
+	export GXX_TESTSUITE_STDS=${GXX_TESTSUITE_STDS:-17}
+	[ "$#" -gt 0 ] || set -- g++.dg/dg.exp g++.dg/torture/dg-torture.exp \
+		old-deja.exp
+fi
 [ "$#" -gt 0 ] || set -- gcc.c-torture/execute/execute.exp
 cd "$C33L_OBJDIR"
-runtest --tool gcc --target c33-linux-uclibc --target_board=c33-linux \
+runtest --tool "$tool" --target c33-linux-uclibc --target_board=c33-linux \
 	--srcdir "$gcc_src/gcc/testsuite" --objdir "$C33L_OBJDIR" \
-	--tool_exec "$C33L_GCC" "$@" >/dev/null 2>&1 || true
-grep "^# of\|^=== " gcc.sum | tail -12
+	--tool_exec "$driver" "$@" >/dev/null 2>&1 || true
+grep "^# of\|^=== " "$tool.sum" | tail -12
 echo "queued: $(ls "$C33L_QUEUE" | wc -l)"
