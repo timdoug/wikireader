@@ -350,7 +350,7 @@ The pieces:
 - `initramfs/rootstart.c` makes `/dev/tty1..12`; `console/wr-console.c` holds
   VT 1 in `VT_PROCESS` mode and repaints on acquire.
 - Buildroot: FDPIC with shared libraries (`buildroot/patches/0002` still
-  lets X build without an MMU) and `0003` (libXfont2 built-in fonts only);
+  lets X build without an MMU) and `0004` (libXfont2 built-in fonts only);
   the defconfig adds X and `-ffunction-sections -fdata-sections`/
   `--gc-sections` for everything.
 - `buildroot/external/package/xserver-kdrive`: xorg-server 1.19.7 Xfbdev with

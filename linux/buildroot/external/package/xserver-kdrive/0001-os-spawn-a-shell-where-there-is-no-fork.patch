@@ -1,0 +1,112 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH 1/5] os: spawn a shell where there is no fork
+
+A uClibc system without an MMU has no fork().  System() and Popen() run
+"/bin/sh -c" with the real user and group IDs and perhaps one end of a
+pipe as stdin or stdout, which posix_spawn() does with
+POSIX_SPAWN_RESETIDS and its file actions.  Fopen() forks only where
+there are no saved IDs, which is not Linux.
+---
+diff --git a/os/utils.c b/os/utils.c
+--- a/os/utils.c
++++ b/os/utils.c
+@@ -191,6 +191,40 @@
+ #include <X11/Xos_r.h>
+ 
+ #include <errno.h>
++#if defined(__UCLIBC__) && !defined(__ARCH_USE_MMU__)
++/* No fork() without an MMU: a child is spawned, as System() and Popen()
++   need -- a shell, with the real IDs and perhaps one end of a pipe. */
++#define SPAWN_SHELL
++#include <spawn.h>
++extern char **environ;
++
++/* Run "/bin/sh -c COMMAND" with the real user and group IDs, FD (if not
++   -1) as descriptor TARGET, and CLOSE_FD (if not -1) closed.  Return its
++   pid, or -1.  */
++static pid_t
++SpawnShell(const char *command, int fd, int target, int close_fd)
++{
++    char *argv[] = { "sh", "-c", (char *) command, NULL };
++    posix_spawn_file_actions_t actions;
++    posix_spawnattr_t attr;
++    pid_t pid;
++    int err;
++
++    posix_spawn_file_actions_init(&actions);
++    if (fd != -1 && fd != target) {
++        posix_spawn_file_actions_adddup2(&actions, fd, target);
++        posix_spawn_file_actions_addclose(&actions, fd);
++    }
++    if (close_fd != -1)
++        posix_spawn_file_actions_addclose(&actions, close_fd);
++    posix_spawnattr_init(&attr);
++    posix_spawnattr_setflags(&attr, POSIX_SPAWN_RESETIDS);
++    err = posix_spawn(&pid, "/bin/sh", &actions, &attr, argv, environ);
++    posix_spawnattr_destroy(&attr);
++    posix_spawn_file_actions_destroy(&actions);
++    return err ? -1 : pid;
++}
++#endif
+ 
+ Bool CoreDump;
+ 
+@@ -1389,10 +1423,16 @@
+     }
+     DebugF("System: `%s'\n", command);
+ 
+-    switch (pid = fork()) {
++#ifdef SPAWN_SHELL
++    pid = SpawnShell(command, -1, -1, -1);
++#else
++    pid = fork();
++#endif
++    switch (pid) {
+     case -1:                   /* error */
+         p = -1;
+         break;
++#ifndef SPAWN_SHELL
+     case 0:                    /* child */
+         if (setgid(getgid()) == -1)
+             _exit(127);
+@@ -1400,6 +1440,7 @@
+             _exit(127);
+         execl("/bin/sh", "sh", "-c", command, (char *) NULL);
+         _exit(127);
++#endif
+     default:                   /* parent */
+         do {
+             p = waitpid(pid, &status, 0);
+@@ -1453,7 +1494,15 @@
+     }
+ #endif
+ 
+-    switch (pid = fork()) {
++#ifdef SPAWN_SHELL
++    if (*type == 'r')
++        pid = SpawnShell(command, pdes[1], 1, pdes[0]);
++    else
++        pid = SpawnShell(command, pdes[0], 0, pdes[1]);
++#else
++    pid = fork();
++#endif
++    switch (pid) {
+     case -1:                   /* error */
+         close(pdes[0]);
+         close(pdes[1]);
+@@ -1463,6 +1512,7 @@
+             perror("signal");
+ #endif
+         return NULL;
++#ifndef SPAWN_SHELL
+     case 0:                    /* child */
+         if (setgid(getgid()) == -1)
+             _exit(127);
+@@ -1486,6 +1536,7 @@
+         }
+         execl("/bin/sh", "sh", "-c", command, (char *) NULL);
+         _exit(127);
++#endif
+     }
+ 
+     /* Avoid EINTR during stdio calls */
