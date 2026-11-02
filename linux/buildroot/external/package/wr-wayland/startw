@@ -1,0 +1,25 @@
+#!/bin/sh
+# startw [CLIENT [ARGS...]]: run CLIENT, foot by default, under cage, a
+# Wayland compositor showing one application at a time, on the panel, the
+# touchscreen and the keyboards, with the soft keyboard, wlkeyboard, along
+# the bottom.  It runs on a VT of its own, so the console steps aside, and
+# comes back when the client exits.
+if [ "${1:-}" = --session ]; then
+	# Inside cage, which lasts as long as the client: the keyboard goes
+	# when cage does.
+	shift
+	wlkeyboard &
+	exec "$@"
+fi
+[ $# -gt 0 ] || set -- foot
+export XDG_RUNTIME_DIR=/run/wayland
+# foot runs nothing without a UTF-8 locale; en_US.UTF-8 is the system's.
+export LANG="${LANG:-en_US.UTF-8}"
+mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+# libseat's noop backend: running as root, cage opens the devices itself,
+# and there is one seat.
+export LIBSEAT_BACKEND=noop
+# openvt gives the program the VT as its terminal, so cage's messages are
+# sent to a file from inside.  -d: the panel is too small for title bars,
+# so clients are asked to draw none, and cage draws none either.
+exec openvt -c 2 -s -w -- sh -c 'exec cage -d -- startw --session "$@" 2>/tmp/cage.log' cage "$@"

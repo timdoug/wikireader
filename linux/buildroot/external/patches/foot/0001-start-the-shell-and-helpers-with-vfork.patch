@@ -1,0 +1,36 @@
+Start the shell and helpers with vfork.
+
+Each child works on its own copies and then execs or _exits, never
+returning, so vfork does, and it is the only way to start a process on
+a machine without an MMU.  The helper child's setenv() calls reach the
+parent's environment too, which only those launches read.
+
+--- a/slave.c
++++ b/slave.c
+@@ -382,7 +382,11 @@
+         return -1;
+     }
+ 
+-    pid_t pid = fork();
++    /* The child works on its own copies (environment, signals, directory,
++     * terminal) and then execs or _exits, never returning from here, so
++     * vfork does: it is all a machine without an MMU has.  What it
++     * allocates stays allocated in the parent. */
++    pid_t pid = vfork();
+     switch (pid) {
+     case -1:
+         LOG_ERRNO("failed to fork");
+--- a/spawn.c
++++ b/spawn.c
+@@ -26,7 +26,10 @@
+         goto err;
+     }
+ 
+-    pid_t pid = fork();
++    /* vfork, as for the shell: the child execs or _exits.  Its setenv()
++     * calls also change the parent's environment, which only these
++     * helper launches read. */
++    pid_t pid = vfork();
+     if (pid < 0) {
+         LOG_ERRNO("failed to fork");
+         goto err;

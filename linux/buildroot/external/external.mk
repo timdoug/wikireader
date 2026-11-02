@@ -17,3 +17,9 @@ define WR_LIBTOOL_NO_RUN_PATH
 			done)))
 endef
 GLOBAL_INSTRUMENTATION_HOOKS += WR_LIBTOOL_NO_RUN_PATH
+
+# Without an MMU a program's stack is the size its link asks for, 32 KB by
+# default, and nothing grows it.  cage and foot each reach 44 KB starting
+# a session (wremu, high-water mark of the zeroed stack).
+CAGE_LDFLAGS += -Wl,-z,stack-size=65536
+FOOT_LDFLAGS += -Wl,-z,stack-size=65536

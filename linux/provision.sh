@@ -17,7 +17,11 @@ sudo -E apt-get install -y \
 	python3 python3-venv cpio xz-utils unzip file wget perl \
 	libssl-dev libelf-dev libncurses-dev zlib1g-dev \
 	libgmp-dev libmpfr-dev libmpc-dev device-tree-compiler \
-	dwarves texinfo cmake
+	dwarves texinfo cmake locales
+
+# uClibc-ng builds its en_US.UTF-8 locale from the build machine's.
+sudo sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen
+sudo locale-gen
 
 # The VM keeps the Mac's time, which Lima's guest agent sets every ten
 # seconds.  timesyncd set it to NTP's in between, 0.8 s apart, and each

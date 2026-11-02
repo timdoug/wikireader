@@ -1,0 +1,11 @@
+config BR2_PACKAGE_WR_WAYLAND
+	bool "WikiReader Wayland session"
+	depends on BR2_PACKAGE_CAGE
+	depends on BR2_PACKAGE_FOOT
+	depends on BR2_PACKAGE_XORG7 # xkeyboard-config
+	select BR2_PACKAGE_XKEYBOARD_CONFIG
+	select BR2_PACKAGE_WR_WLKEYBOARD
+	help
+	  startw, which runs foot (or another client) under cage on a VT
+	  of its own with wlkeyboard below it; X's misc-fixed 6x13, the
+	  font it uses; and a US keymap for libxkbcommon.

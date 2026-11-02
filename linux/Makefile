@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -43,6 +43,13 @@ core-test: build
 x11-test:
 	$(SHELL_IN_VM) ./linux/x11/build.sh
 	python3 ./x11/run.py
+
+wayland-test:
+	python3 ./wayland/run.py
+
+libffi-test:
+	$(SHELL_IN_VM) ./linux/libffi/build.sh
+	python3 ./libffi/run.py
 
 # Uses the existing compiler, kernel and rootfs; no full system rebuild.
 ltp-build:

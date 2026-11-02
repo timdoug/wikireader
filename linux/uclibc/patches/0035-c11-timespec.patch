@@ -1,0 +1,76 @@
+Add ISO C11's struct timespec and timespec_get to <time.h>.
+
+C11 has struct timespec in <time.h>, but uClibc-ng defined it only for
+POSIX.1b or the default feature set: a strict -std=c11 program, wlroots'
+headers included, had an incomplete type.  timespec_get, with TIME_UTC,
+completes C11's time functions, over clock_gettime.
+
+diff --git a/include/time.h b/include/time.h
+index 1a14089..b2e5232 100644
+--- a/include/time.h
++++ b/include/time.h
+@@ -108,7 +108,8 @@ typedef __timer_t timer_t;
+ 
+ #if !defined __timespec_defined &&				\
+     ((defined _TIME_H &&					\
+-      (defined __USE_POSIX199309 || defined __USE_MISC)) ||	\
++      (defined __USE_POSIX199309 || defined __USE_MISC ||	\
++       defined __USE_ISOC11)) ||					\
+       defined __need_timespec)
+ # define __timespec_defined	1
+ 
+@@ -391,6 +392,15 @@ extern int timer_getoverrun (timer_t __timerid) __THROW;
+ #  endif /* __UCLIBC_HAS_REALTIME__ */
+ # endif /* __USE_POSIX199309 */
+ 
++#ifdef __USE_ISOC11
++/* Time base values for timespec_get.  */
++# define TIME_UTC 1
++
++/* Set TS to calendar time based in time base BASE.  */
++extern int timespec_get (struct timespec *__ts, int __base)
++     __THROW __nonnull ((1));
++#endif
++
+ __END_DECLS
+ 
+ #endif /* <time.h> included.  */
+diff --git a/libc/misc/time/Makefile.in b/libc/misc/time/Makefile.in
+index 906a1b2..d8c4a38 100644
+--- a/libc/misc/time/Makefile.in
++++ b/libc/misc/time/Makefile.in
+@@ -13,7 +13,7 @@ CSRC-$(UCLIBC_SUSV3_LEGACY) += ftime.c
+ CSRC-y += asctime.c asctime_r.c clock.c ctime.c ctime_r.c gmtime.c gmtime_r.c \
+ 	localtime.c localtime_r.c mktime.c strftime.c strptime.c tzset.c \
+ 	_time_t2tm.c __time_tm.c _time_mktime.c dysize.c timegm.c \
+-	_time_mktime_tzi.c _time_localtime_tzi.c
++	_time_mktime_tzi.c _time_localtime_tzi.c timespec_get.c
+ CSRC-$(UCLIBC_HAS_FLOATS) += difftime.c
+ CSRC-$(UCLIBC_HAS_XLOCALE) += strftime_l.c strptime_l.c
+ CSRC-$(UCLIBC_HAS_WCHAR) += wcsftime.c
+diff --git a/libc/misc/time/timespec_get.c b/libc/misc/time/timespec_get.c
+new file mode 100644
+index 0000000..d295f4f
+--- /dev/null
++++ b/libc/misc/time/timespec_get.c
+@@ -0,0 +1,20 @@
++/* ISO C11 timespec_get.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the uClibc-ng Library.
++
++   The uClibc-ng Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.  */
++
++#include <time.h>
++
++/* Set TS to calendar time based in time base BASE, which is TIME_UTC, the
++   only one: return BASE, or 0 if it cannot.  */
++int
++timespec_get (struct timespec *ts, int base)
++{
++  if (base != TIME_UTC || clock_gettime (CLOCK_REALTIME, ts) != 0)
++    return 0;
++  return base;
++}

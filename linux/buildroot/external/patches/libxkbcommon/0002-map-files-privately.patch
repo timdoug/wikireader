@@ -1,0 +1,17 @@
+Map files privately.
+
+A read-only mapping reads the same whether it is shared or private, but
+without an MMU most filesystems can only give a private one, a copy:
+shared, every keymap and rules file failed with ENODEV.
+
+--- a/src/utils.c
++++ b/src/utils.c
+@@ -30,7 +30,7 @@
+     if (fstat(fd, &stat_buf) != 0)
+         return false;
+ 
+-    string = mmap(NULL, stat_buf.st_size, PROT_READ, MAP_SHARED, fd, 0);
++    string = mmap(NULL, stat_buf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+     if (string == MAP_FAILED)
+         return false;
+ 

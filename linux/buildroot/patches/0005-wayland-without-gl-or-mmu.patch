@@ -1,0 +1,239 @@
+Build wlroots, cage, foot and seatd for a no-MMU uClibc device.
+
+wlroots renders with pixman and allocates DRM dumb buffers whatever else
+it has, so EGL, OpenGL ES and GBM are used when present rather than
+required, and it needs libudev, as libinput does, not a udev daemon.
+seatd's built-in backend forks, like its daemon, so it is for MMU systems;
+without either libseat has its noop backend and the client of a seatd
+run elsewhere.  fcft and foot need ISO C11
+threads, which uClibc-ng can provide: BR2_TOOLCHAIN_HAS_C11_THREADS says
+so, set for glibc and musl and by a question for external uClibc ones.
+cage builds the layer shell's protocol header with wayland-scanner, for
+the external tree's layer shell patch.
+
+--- a/package/wlroots/Config.in
++++ b/package/wlroots/Config.in
+@@ -1,8 +1,5 @@
+-comment "wlroots needs udev, EGL, OpenGL ES and GBM support"
+-	depends on !BR2_PACKAGE_HAS_LIBEGL || \
+-		!BR2_PACKAGE_HAS_LIBEGL || \
+-		!BR2_PACKAGE_HAS_LIBGLES || \
+-		!BR2_PACKAGE_HAS_UDEV
++comment "wlroots needs libudev"
++	depends on !BR2_PACKAGE_HAS_LIBUDEV
+ 
+ comment "wlroots needs a toolchain w/ threads, dynamic library"
+ 	depends on !BR2_TOOLCHAIN_HAS_THREADS || \
+@@ -12,10 +9,7 @@
+ 	bool "wlroots"
+ 	depends on !BR2_STATIC_LIBS # wayland
+ 	depends on BR2_TOOLCHAIN_HAS_THREADS # libdrm, wayland
+-	depends on BR2_PACKAGE_HAS_UDEV # libinput
+-	depends on BR2_PACKAGE_HAS_LIBEGL
+-	depends on BR2_PACKAGE_HAS_LIBGLES
+-	depends on BR2_PACKAGE_HAS_LIBGBM
++	depends on BR2_PACKAGE_HAS_LIBUDEV # libinput
+ 	select BR2_PACKAGE_HWDATA
+ 	select BR2_PACKAGE_HWDATA_PNP_IDS
+ 	select BR2_PACKAGE_LIBDISPLAY_INFO
+@@ -30,6 +24,10 @@
+ 	  wlroots is a modular Wayland library for building compositors
+ 	  which implements many of their common features.
+ 
++	  It always renders with pixman, in software, into DRM dumb
++	  buffers; OpenGL ES rendering and GBM buffers are built when
++	  EGL, OpenGL ES and GBM are available.
++
+ 	  https://gitlab.freedesktop.org/wlroots/wlroots
+ 
+ if BR2_PACKAGE_WLROOTS
+--- a/package/wlroots/wlroots.mk
++++ b/package/wlroots/wlroots.mk
+@@ -15,22 +15,29 @@
+ 	host-wayland \
+ 	hwdata \
+ 	libdisplay-info \
++	libdrm \
+ 	libinput \
+ 	libxkbcommon \
+-	libegl \
+-	libgles \
+-	libgbm \
+ 	pixman \
+ 	seatd \
+-	udev \
++	libudev \
+ 	wayland \
+ 	wayland-protocols
+ 
+ WLROOTS_CONF_OPTS = -Dexamples=false -Dxcb-errors=disabled -Dlibliftoff=disabled
+ 
+-WLROOTS_RENDERERS = gles2
+ WLROOTS_BACKENDS = libinput drm
+ 
++ifeq ($(BR2_PACKAGE_HAS_LIBEGL)$(BR2_PACKAGE_HAS_LIBGLES),yy)
++WLROOTS_RENDERERS += gles2
++WLROOTS_DEPENDENCIES += libegl libgles
++endif
++
++ifeq ($(BR2_PACKAGE_HAS_LIBGBM),y)
++WLROOTS_ALLOCATORS += gbm
++WLROOTS_DEPENDENCIES += libgbm
++endif
++
+ ifeq ($(BR2_PACKAGE_WLROOTS_X11),y)
+ WLROOTS_BACKENDS += x11
+ WLROOTS_DEPENDENCIES += libxcb xcb-util-wm xcb-util-renderutil xlib_libX11
+@@ -50,6 +57,7 @@
+ 
+ WLROOTS_CONF_OPTS += \
+ 	-Dbackends=$(subst $(space),$(comma),$(strip $(WLROOTS_BACKENDS))) \
+-	-Drenderers=$(subst $(space),$(comma),$(strip $(WLROOTS_RENDERERS)))
++	-Drenderers=$(subst $(space),$(comma),$(strip $(WLROOTS_RENDERERS))) \
++	-Dallocators=$(subst $(space),$(comma),$(strip $(WLROOTS_ALLOCATORS)))
+ 
+ $(eval $(meson-package))
+--- a/package/cage/Config.in
++++ b/package/cage/Config.in
+@@ -1,8 +1,5 @@
+-comment "cage needs udev, EGL, OpenGL ES and GBM support"
+-	depends on !BR2_PACKAGE_HAS_LIBEGL || \
+-		!BR2_PACKAGE_HAS_LIBGLES || \
+-		!BR2_PACKAGE_HAS_LIBGBM || \
+-		!BR2_PACKAGE_HAS_UDEV
++comment "cage needs libudev"
++	depends on !BR2_PACKAGE_HAS_LIBUDEV
+ 
+ comment "cage needs a toolchain w/ threads, dynamic library"
+ 	depends on !BR2_TOOLCHAIN_HAS_THREADS || \
+@@ -12,10 +9,7 @@
+ 	bool "cage"
+ 	depends on !BR2_STATIC_LIBS # wlroots
+ 	depends on BR2_TOOLCHAIN_HAS_THREADS # wlroots
+-	depends on BR2_PACKAGE_HAS_LIBEGL # wlroots
+-	depends on BR2_PACKAGE_HAS_LIBGLES # wlroots
+-	depends on BR2_PACKAGE_HAS_LIBGBM # wlroots
+-	depends on BR2_PACKAGE_HAS_UDEV # wlroots
++	depends on BR2_PACKAGE_HAS_LIBUDEV # wlroots
+ 	select BR2_PACKAGE_WLROOTS
+ 	help
+ 	  Kiosk compositor for Wayland, which displays a single
+--- a/package/cage/cage.mk
++++ b/package/cage/cage.mk
+@@ -8,7 +8,7 @@
+ CAGE_SITE = https://github.com/cage-kiosk/cage/releases/download/v$(CAGE_VERSION)
+ CAGE_LICENSE = MIT
+ CAGE_LICENSE_FILES = LICENSE
+-CAGE_DEPENDENCIES = host-pkgconf wlroots
++CAGE_DEPENDENCIES = host-pkgconf host-wayland wlroots
+ CAGE_CONF_OPTS = -Dman-pages=disabled
+ 
+ $(eval $(meson-package))
+--- a/package/seatd/Config.in
++++ b/package/seatd/Config.in
+@@ -1,7 +1,8 @@
+ menuconfig BR2_PACKAGE_SEATD
+ 	bool "seatd"
+ 	select BR2_PACKAGE_SEATD_BUILTIN \
+-		if !BR2_PACKAGE_SYSTEMD_LOGIND && !BR2_PACKAGE_SEATD_DAEMON
++		if !BR2_PACKAGE_SYSTEMD_LOGIND && !BR2_PACKAGE_SEATD_DAEMON && \
++			BR2_USE_MMU
+ 	help
+ 	  Seat management daemon and support library.
+ 
+@@ -11,9 +12,14 @@
+ 
+ config BR2_PACKAGE_SEATD_BUILTIN
+ 	bool "builtin backend"
++	depends on BR2_USE_MMU # fork()
+ 	help
+ 	  Builtin in-process seatd implementation inside libseat.
+ 
++	  Without it, the daemon or logind, libseat has only its noop
++	  backend (LIBSEAT_BACKEND=noop), which opens devices directly
++	  and suits a compositor running as root on a single seat.
++
+ config BR2_PACKAGE_SEATD_DAEMON
+ 	bool "seatd daemon"
+ 	depends on BR2_USE_MMU # fork()
+--- a/package/seatd/seatd.mk
++++ b/package/seatd/seatd.mk
+@@ -47,6 +47,10 @@
+ 		$(TARGET_DIR)/usr/lib/systemd/system/seatd.service
+ endef
+ 
++else ifeq ($(BR2_PACKAGE_SEATD_BUILTIN)$(BR2_PACKAGE_SYSTEMD_LOGIND),)
++# libseat needs a backend besides noop: the client of a seatd running
++# elsewhere, which needs no fork(), as the daemon and builtin do.
++SEATD_CONF_OPTS += -Dlibseat-seatd=enabled -Dserver=disabled
+ else
+ SEATD_CONF_OPTS += -Dlibseat-seatd=disabled -Dserver=disabled
+ endif
+--- a/package/fcft/Config.in
++++ b/package/fcft/Config.in
+@@ -1,6 +1,6 @@
+ config BR2_PACKAGE_FCFT
+ 	bool "fcft"
+-	depends on BR2_TOOLCHAIN_USES_GLIBC || BR2_TOOLCHAIN_USES_MUSL # C11 threads
++	depends on BR2_TOOLCHAIN_HAS_C11_THREADS
+ 	select BR2_PACKAGE_FONTCONFIG
+ 	select BR2_PACKAGE_FREETYPE
+ 	select BR2_PACKAGE_PIXMAN
+@@ -48,5 +48,5 @@
+ 
+ endif # BR2_PACKAGE_FCFT
+ 
+-comment "fcft needs a glibc or musl toolchain"
+-	depends on !(BR2_TOOLCHAIN_USES_GLIBC || BR2_TOOLCHAIN_USES_MUSL)
++comment "fcft needs a toolchain w/ C11 threads"
++	depends on !BR2_TOOLCHAIN_HAS_C11_THREADS
+--- a/package/foot/Config.in
++++ b/package/foot/Config.in
+@@ -1,6 +1,6 @@
+ config BR2_PACKAGE_FOOT
+ 	bool "foot"
+-	depends on BR2_TOOLCHAIN_USES_GLIBC || BR2_TOOLCHAIN_USES_MUSL # fcft
++	depends on BR2_TOOLCHAIN_HAS_C11_THREADS # fcft
+ 	depends on !BR2_STATIC_LIBS # wayland
+ 	select BR2_PACKAGE_FCFT
+ 	select BR2_PACKAGE_FONTCONFIG
+@@ -32,6 +32,5 @@
+ 
+ endif # BR2_PACKAGE_FOOT
+ 
+-comment "foot needs a glibc or musl toolchain w/ dynamic library"
+-	depends on !(BR2_TOOLCHAIN_USES_GLIBC || BR2_TOOLCHAIN_USES_MUSL) || \
+-		BR2_STATIC_LIBS
++comment "foot needs a toolchain w/ C11 threads, dynamic library"
++	depends on !BR2_TOOLCHAIN_HAS_C11_THREADS || BR2_STATIC_LIBS
+--- a/toolchain/Config.in
++++ b/toolchain/Config.in
+@@ -267,6 +267,11 @@
+ config BR2_TOOLCHAIN_HAS_THREADS
+ 	bool
+ 
++# ISO C11 threads, <threads.h>
++config BR2_TOOLCHAIN_HAS_C11_THREADS
++	bool
++	default y if BR2_TOOLCHAIN_USES_GLIBC || BR2_TOOLCHAIN_USES_MUSL
++
+ config BR2_TOOLCHAIN_HAS_THREADS_DEBUG
+ 	bool
+ 
+--- a/toolchain/toolchain-external/toolchain-external-custom/Config.in.options
++++ b/toolchain/toolchain-external/toolchain-external-custom/Config.in.options
+@@ -596,6 +596,14 @@
+ 	  threads. If you don't know, leave the default value,
+ 	  Buildroot will tell you if it's correct or not.
+ 
++config BR2_TOOLCHAIN_EXTERNAL_HAS_C11_THREADS
++	bool "Toolchain has C11 threads support?"
++	select BR2_TOOLCHAIN_HAS_C11_THREADS
++	help
++	  Select this option if your external toolchain's C library
++	  provides the ISO C11 threads interface, <threads.h>, which
++	  uClibc-ng releases do not.
++
+ endif # BR2_TOOLCHAIN_EXTERNAL_HAS_THREADS
+ 
+ endif # BR2_TOOLCHAIN_EXTERNAL_CUSTOM_UCLIBC

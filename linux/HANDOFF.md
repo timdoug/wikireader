@@ -393,6 +393,36 @@ it; the programs' load addresses move when their sizes do, so read them
 from `/proc/PID/maps` after a size change. `ARGS='-- -nocursor'` measures
 without the cursor (about a fifth of a frame).
 
+## Wayland: where it stands
+
+`startw` runs cage (wlroots, pixman, DRM) with foot in it and `wlkeyboard`
+along the bottom; taps on the keyboard type into foot's shell. Validated in
+wremu through Grifo 2026-11-01 by `make -C linux wayland-test`; not yet run
+on the device. `README.md` has the design.
+
+What it took, beyond packages: a C33 libffi (`make -C linux libffi-test`,
+179 of 180), uClibc-ng's C11 threads, strict-C11 `timespec`, `reallocarray`
+for the no-MMU allocator, locales (foot runs no shell without UTF-8) and the
+strict-C `struct stat` fix (FreeType smashed its stack); `CONFIG_MEMFD_CREATE`
+on ramfs; libxkbcommon mapping files privately; vfork in cage and foot; the
+layer shell in cage; a build-time US keymap; 64 KB stacks for cage and foot.
+
+Measured in wremu: the session is up 65 s after the kernel starts. Profiled
+(`linux/profile-report.py` with `/proc/PID/maps`, the probe quiet): 67 s of
+CPU, libc 30 s, kernel 17 s, libxkbcommon 9.5 s, expat 3.5 s, FreeType 3.2 s,
+fontconfig 1.8 s. One keymap costs 5 s to compile from rules, 2 s to write
+as text (printf) and 7.5 s to compile from text, and cage (twice), wlroots'
+virtual keyboard, foot and `wlkeyboard` do it about five times;
+`__heap_free`, uClibc-ng's walk of its address-sorted free list, is 9 s.
+
+Next, in order: fewer and smaller keymap compiles (one in cage for all its
+keyboards; a smaller keymap without `inet(evdev)` and mouse keys); a finger
+in uClibc-ng's free list so a free near the last costs nothing; PCF instead
+of BDF and fewer fontconfig files; then the device. foot warns that there is
+no Compose file for `en_US.UTF-8` (dead keys, which the soft keyboard has
+none of). The DRM mode's clock is the simple-panel placeholder, so wlroots
+reports 0.020 Hz.
+
 ## Standards: how far the port follows upstream
 
 Nothing for the C33 is upstream anywhere, so "standard" here means following

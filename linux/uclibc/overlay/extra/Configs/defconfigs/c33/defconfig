@@ -27,6 +27,15 @@ PTHREADS_STACK_DEFAULT_SIZE=65536
 UCLIBC_HAS_IPV6=y
 # libstdc++ and many packages need the wide-character functions.
 UCLIBC_HAS_WCHAR=y
+# C11's <uchar.h>, char32_t and mbrtoc32, which foot uses.
+UCLIBC_HAS_UCHAR=y
+# Locales, as Buildroot's uClibc-ng has them, for UTF-8: en_US.UTF-8 (and
+# en_US, ISO-8859-1), built from the build machine's, which
+# linux/provision.sh generates.  foot runs no shell without one.
+UCLIBC_HAS_LOCALE=y
+UCLIBC_HAS_XLOCALE=y
+UCLIBC_BUILD_MINIMAL_LOCALE=y
+UCLIBC_BUILD_MINIMAL_LOCALES="en_US"
 UCLIBC_HAS_SSP=y
 # Without an MMU the canary only catches bugs, and reading /dev/urandom in
 # every program would wait for the random pool at boot and cost each exec.

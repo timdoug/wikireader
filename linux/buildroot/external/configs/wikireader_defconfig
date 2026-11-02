@@ -25,10 +25,13 @@ BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_1=y
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_UCLIBC=y
 # BR2_TOOLCHAIN_EXTERNAL_INET_RPC is not set
 BR2_TOOLCHAIN_EXTERNAL_WCHAR=y
+BR2_TOOLCHAIN_EXTERNAL_LOCALE=y
 BR2_TOOLCHAIN_EXTERNAL_CXX=y
 BR2_TOOLCHAIN_EXTERNAL_HAS_THREADS=y
 # BR2_TOOLCHAIN_EXTERNAL_HAS_THREADS_DEBUG is not set
 BR2_TOOLCHAIN_EXTERNAL_HAS_THREADS_NPTL=y
+# uClibc patches/0034 adds <threads.h>.
+BR2_TOOLCHAIN_EXTERNAL_HAS_C11_THREADS=y
 BR2_TOOLCHAIN_EXTERNAL_HAS_SSP=y
 BR2_TOOLCHAIN_EXTERNAL_HAS_SSP_STRONG=y
 BR2_BINFMT_FDPIC=y
@@ -48,7 +51,7 @@ BR2_PACKAGE_WR_CONSOLE=y
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 # The WikiReader's boot partition is only 64 MB.
-BR2_TARGET_ROOTFS_EXT2_SIZE="24M"
+BR2_TARGET_ROOTFS_EXT2_SIZE="32M"
 BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # No metadata checksums: a software CRC32C over every metadata block is
 # too dear on this CPU.  4 KB blocks, a page each, where the image's size
@@ -71,3 +74,13 @@ BR2_PACKAGE_XAPP_TWM=y
 BR2_PACKAGE_WR_XTERM=y
 # An on-screen keyboard for X, laid out as the console's (xkeyboard).
 BR2_PACKAGE_XVKBD=y
+# Wayland: cage, a one-application compositor on wlroots' pixman renderer,
+# with foot; libinput finds devices through libudev-zero, there being no
+# udev daemon.  startw runs it.
+BR2_PACKAGE_LIBUDEV_ZERO=y
+BR2_PACKAGE_CAGE=y
+BR2_PACKAGE_FOOT=y
+BR2_PACKAGE_WR_WAYLAND=y
+# wlroots needs only pnp.ids; the board has no PCI or USB host.
+# BR2_PACKAGE_HWDATA_PCI_IDS is not set
+# BR2_PACKAGE_HWDATA_USB_IDS is not set

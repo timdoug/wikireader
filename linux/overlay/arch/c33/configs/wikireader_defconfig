@@ -111,7 +111,6 @@ CONFIG_S1C33_WATCHDOG=y
 CONFIG_PCI=n
 CONFIG_USB_SUPPORT=n
 CONFIG_SOUND=n
-CONFIG_DRM=n
 CONFIG_FB=y
 # The LCD as a DRM device (drivers/gpu/drm/tiny/s1c33-lcdc.c); fbdev
 # emulation keeps /dev/fb0, one-bit and scanned in place, for the console
@@ -134,6 +133,10 @@ CONFIG_HW_RANDOM=n
 CONFIG_PROC_FS=y
 CONFIG_SYSFS=y
 CONFIG_TMPFS=y
+# Without an MMU tmpfs is ramfs, which memfd_create() makes its files in:
+# the shared memory Wayland clients draw in and hand the compositor.  Such
+# a file takes no seals.
+CONFIG_MEMFD_CREATE=y
 CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO_NONE=y
 CONFIG_FRAME_POINTER=y

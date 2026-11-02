@@ -1,0 +1,19 @@
+Build ffi_get_closure_size() for a target without closures.
+
+ffi_closure is declared only where FFI_CLOSURES is set, so types.c failed
+to compile for a port without them.  There it is 0.
+
+--- a/src/types.c
++++ b/src/types.c
+@@ -50,7 +50,11 @@
+ 
+ size_t ffi_get_closure_size (void)
+ {
++#if FFI_CLOSURES
+   return sizeof(ffi_closure);
++#else
++  return 0;
++#endif
+ }
+ 
+ /* Type definitions */

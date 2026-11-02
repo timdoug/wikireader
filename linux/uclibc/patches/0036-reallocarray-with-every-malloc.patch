@@ -1,0 +1,41 @@
+Provide reallocarray with every malloc implementation.
+
+reallocarray only checks M * N for overflow and calls realloc, which any
+of uClibc-ng's allocators provides, but it was built and declared only
+with malloc-standard: a no-MMU configuration, which uses malloc, lacked it,
+and foot failed to build.
+
+diff --git a/libc/stdlib/malloc-standard/reallocarray.c b/libc/stdlib/reallocarray.c
+similarity index 100%
+rename from libc/stdlib/malloc-standard/reallocarray.c
+rename to libc/stdlib/reallocarray.c
+diff --git a/include/stdlib.h b/include/stdlib.h
+index 448c5e3..c4560e6 100644
+--- a/include/stdlib.h
++++ b/include/stdlib.h
+@@ -986,10 +986,9 @@ extern int getpt (void);
+ extern int getloadavg (double __loadavg[], int __nelem)
+      __THROW __nonnull ((1));
+ 
+-/* reallocarray() only provided by the malloc-standard implementation */
+-#if defined(__MALLOC_STANDARD__)
++/* Reallocate an array of M elements of N bytes, failing with ENOMEM
++   where M * N overflows.  */
+ extern void *reallocarray (void *__ptr, size_t __m, size_t __n);
+-#endif
+ 
+ #endif
+ 
+diff --git a/libc/stdlib/Makefile.in b/libc/stdlib/Makefile.in
+index 386890c..98886da 100644
+--- a/libc/stdlib/Makefile.in
++++ b/libc/stdlib/Makefile.in
+@@ -17,7 +17,7 @@ CSRC-y := \
+ 	lldiv.c getpt.c drand48-iter.c jrand48.c \
+ 	jrand48_r.c lcong48.c lrand48.c lrand48_r.c mrand48.c mrand48_r.c nrand48.c \
+ 	nrand48_r.c rand_r.c srand48.c srand48_r.c seed48.c seed48_r.c \
+-	a64l.c l64a.c __uc_malloc.c secure_getenv.c
++	a64l.c l64a.c __uc_malloc.c secure_getenv.c reallocarray.c
+ CSRC-$(UCLIBC_SUSV2_LEGACY) += valloc.c
+ CSRC-$(UCLIBC_HAS_ADVANCED_REALTIME) += posix_memalign.c
+ CSRC-$(UCLIBC_HAS_PTY) += grantpt.c unlockpt.c ptsname.c

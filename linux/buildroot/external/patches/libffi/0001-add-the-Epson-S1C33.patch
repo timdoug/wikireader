@@ -1,0 +1,472 @@
+Add the Epson S1C33.
+
+Calls, ffi_call, for every type, variadic calls included, as the C33 port
+of GCC makes them: arguments in %r6-%r9 (an 8-byte one may run on into
+%r10, except a double, which then goes on the stack), the rest and
+aggregates without a scalar mode on the stack in order, a variadic call
+with every unnamed argument (and the last named one) on the stack as well
+and a __builtin_apply descriptor in %r5, results in %r4:%r5 or to memory
+through a hidden first argument.  Under FDPIC the call takes the
+function descriptor's data pointer, as GCC's own indirect calls do.
+No closures yet.
+
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -70,12 +70,14 @@
+ 	src/wasm/ffitarget.h \
+ 	src/x86/ffitarget.h src/x86/internal.h src/x86/internal64.h	\
+ 	src/x86/asmnames.h src/xtensa/ffitarget.h src/dlmalloc.c	\
++	src/c33/ffitarget.h						\
+ 	src/kvx/ffitarget.h src/kvx/asm.h				\
+ 	src/loongarch/ffitarget.h
+ 
+ EXTRA_libffi_la_SOURCES = src/aarch64/ffi.c src/aarch64/sysv.S		\
+ 	src/aarch64/win64_armasm.S src/alpha/ffi.c src/alpha/osf.S	\
+ 	src/arc/ffi.c src/arc/arcompact.S src/arm/ffi.c			\
++	src/c33/ffi.c src/c33/sysv.S					\
+ 	src/arm/sysv.S src/arm/ffi.c src/arm/sysv_msvc_arm32.S		\
+ 	src/avr32/ffi.c src/avr32/sysv.S src/bfin/ffi.c			\
+ 	src/bfin/sysv.S src/cris/ffi.c src/cris/sysv.S src/frv/ffi.c	\
+--- a/configure.host
++++ b/configure.host
+@@ -57,6 +57,11 @@
+ 	SOURCES="ffi.c sysv.S"
+ 	;;
+ 
++  c33*-*-*)
++	TARGET=C33; TARGETDIR=c33
++	SOURCES="ffi.c sysv.S"
++	;;
++
+   csky-*-*)
+         TARGET=CSKY; TARGETDIR=csky
+         SOURCES="ffi.c sysv.S"
+--- a/src/c33/ffi.c
++++ b/src/c33/ffi.c
+@@ -0,0 +1,270 @@
++/* -----------------------------------------------------------------------
++   ffi.c - Copyright (c) 2026 Tim Douglas
++
++   Epson S1C33 foreign function interface.
++
++   Permission is hereby granted, free of charge, to any person obtaining
++   a copy of this software and associated documentation files (the
++   ``Software''), to deal in the Software without restriction, including
++   without limitation the rights to use, copy, modify, merge, publish,
++   distribute, sublicense, and/or sell copies of the Software, and to
++   permit persons to whom the Software is furnished to do so, subject to
++   the following conditions:
++
++   The above copyright notice and this permission notice shall be included
++   in all copies or substantial portions of the Software.
++
++   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND,
++   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++   NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
++   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
++   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++   DEALINGS IN THE SOFTWARE.
++   ----------------------------------------------------------------------- */
++
++/* The calling convention, as the C33 port of GCC makes calls:
++
++   - Arguments take 4-byte slots in %r6-%r9, in order, each starting at the
++     next free word.  An 8-byte value may start in %r9 and run on into %r10
++     (and a 16-byte complex into %r12), except a double: one that would
++     start in %r9 goes on the stack and takes no slot, so a later word still
++     gets %r9.  What finds no slot goes on the stack, in order, each item
++     word-aligned and padded to a word.
++   - An aggregate GCC gives a scalar machine mode (size 1, 2, 4 or 8, and
++     aligned at least as that integer, to at most a word) travels as that
++     scalar; one with a lone double, nested or not, is a double.  Any other
++     aggregate is copied onto the stack and takes no slot.
++   - A call to a variadic function treats its last named argument as
++     unnamed too, and every unnamed argument has a stack slot, in order,
++     besides the register a named one would have had.  %r5 then carries a
++     descriptor of that stack stream for __builtin_apply: 0xc3 in the top
++     byte, its words in bits 20-23 and in bits 0-19 those that are also in
++     registers, made as GCC makes it.
++   - A value comes back in %r4, or %r4:%r5 for 8 bytes.  Anything larger,
++     and an aggregate without a scalar mode, is returned to memory whose
++     address is passed as a hidden first argument, in %r6.
++   - %r0-%r3 are the callee's to preserve; %r15 is FDPIC's data pointer,
++     which the caller restores.  */
++
++#include <ffi.h>
++#include <ffi_common.h>
++
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++/* regs[0] is %r5, regs[1..7] are %r6-%r12; ffi_call_SYSV leaves %r4 and
++   %r5 as they came back in regs[8] and regs[9].  */
++extern void ffi_call_SYSV (void *stack, unsigned bytes, unsigned *regs,
++			   void (*fn) (void)) FFI_HIDDEN;
++
++enum
++{
++  C33_ARG_STACK,		/* an aggregate without a scalar mode */
++  C33_ARG_WORDS,		/* a scalar, or an aggregate passed as one */
++  C33_ARG_DOUBLE		/* a double, or an aggregate of one */
++};
++
++enum
++{
++  C33_RET_VOID,
++  C33_RET_REGS,
++  C33_RET_MEMORY
++};
++
++/* Whether an aggregate holds a single double, at any depth, which GCC
++   gives DFmode.  */
++static int
++c33_lone_double (const ffi_type *t)
++{
++  while (t->type == FFI_TYPE_STRUCT)
++    {
++      if (t->elements[0] == NULL || t->elements[1] != NULL)
++	return 0;
++      t = t->elements[0];
++    }
++  return t->type == FFI_TYPE_DOUBLE || t->type == FFI_TYPE_LONGDOUBLE;
++}
++
++static int
++c33_classify (const ffi_type *t)
++{
++  size_t need;
++
++  switch (t->type)
++    {
++    case FFI_TYPE_DOUBLE:
++#if FFI_TYPE_LONGDOUBLE != FFI_TYPE_DOUBLE
++    case FFI_TYPE_LONGDOUBLE:
++#endif
++      return C33_ARG_DOUBLE;
++    case FFI_TYPE_STRUCT:
++      /* STRICT_ALIGNMENT: the mode's alignment, a word at most, must not
++	 exceed the aggregate's.  */
++      need = t->size < 4 ? t->size : 4;
++      if ((t->size != 1 && t->size != 2 && t->size != 4 && t->size != 8)
++	  || t->alignment < need)
++	return C33_ARG_STACK;
++      return c33_lone_double (t) ? C33_ARG_DOUBLE : C33_ARG_WORDS;
++    default:
++      return C33_ARG_WORDS;
++    }
++}
++
++static unsigned
++c33_round (size_t size)
++{
++  return (size + 3) & ~3u;
++}
++
++ffi_status FFI_HIDDEN
++ffi_prep_cif_machdep (ffi_cif *cif)
++{
++  const ffi_type *r = cif->rtype;
++  unsigned bytes = 0;
++  unsigned i;
++
++  if (r->type == FFI_TYPE_VOID)
++    cif->flags = C33_RET_VOID;
++  else if (r->size > 8
++	   || (r->type == FFI_TYPE_STRUCT
++	       && c33_classify (r) == C33_ARG_STACK))
++    cif->flags = C33_RET_MEMORY;
++  else
++    cif->flags = C33_RET_REGS;
++
++  /* At most every argument on the stack.  */
++  for (i = 0; i < cif->nargs; i++)
++    bytes += c33_round (cif->arg_types[i]->size);
++  cif->bytes = bytes;
++  cif->nfixedargs = cif->nargs;
++  return FFI_OK;
++}
++
++ffi_status FFI_HIDDEN
++ffi_prep_cif_machdep_var (ffi_cif *cif, unsigned nfixedargs,
++			  unsigned ntotalargs __attribute__ ((unused)))
++{
++  ffi_status status = ffi_prep_cif_machdep (cif);
++
++  cif->nfixedargs = nfixedargs;
++  return status;
++}
++
++/* A scalar's words, widened to a word if it is narrower.  */
++static void
++c33_words (const ffi_type *t, const void *value, unsigned *w)
++{
++  memset (w, 0, 4 * sizeof (*w));
++  switch (t->type)
++    {
++    case FFI_TYPE_SINT8:
++      w[0] = (unsigned) (int) *(const int8_t *) value;
++      break;
++    case FFI_TYPE_UINT8:
++      w[0] = *(const uint8_t *) value;
++      break;
++    case FFI_TYPE_SINT16:
++      w[0] = (unsigned) (int) *(const int16_t *) value;
++      break;
++    case FFI_TYPE_UINT16:
++      w[0] = *(const uint16_t *) value;
++      break;
++    default:
++      memcpy (w, value, t->size);
++      break;
++    }
++}
++
++void
++ffi_call (ffi_cif *cif, void (*fn) (void), void *rvalue, void **avalue)
++{
++  unsigned regs[10] = { 0 };
++  unsigned nbytes = 0, stack_bytes = 0, stack_words = 0, mask = 0;
++  int variadic = cif->nfixedargs != cif->nargs;
++  /* GCC treats a variadic call's last named argument as unnamed.  */
++  unsigned named = variadic && cif->nfixedargs > 0
++		   ? cif->nfixedargs - 1 : cif->nfixedargs;
++  char *stack = alloca (cif->bytes + 4);
++  void *result = rvalue;
++  unsigned i;
++
++  if (cif->flags == C33_RET_MEMORY)
++    {
++      if (result == NULL)
++	result = alloca (cif->rtype->size);
++      regs[1] = (unsigned) (uintptr_t) result;
++      nbytes = 4;
++    }
++
++  for (i = 0; i < cif->nargs; i++)
++    {
++      const ffi_type *t = cif->arg_types[i];
++      int kind = c33_classify (t);
++      unsigned words = c33_round (t->size) / 4;
++      int unnamed = i >= named;
++      int skips = kind == C33_ARG_DOUBLE && nbytes >= 12;
++      int reg = kind != C33_ARG_STACK && nbytes < 16 && !skips;
++      /* GCC's own count for the descriptor, which takes the fifth slot
++	 for a register one.  */
++      int in_registers = kind != C33_ARG_STACK && nbytes <= 16 && !skips;
++      unsigned w[4];
++
++      if (kind == C33_ARG_STACK)
++	{
++	  memcpy (stack + stack_bytes, avalue[i], t->size);
++	  memset (stack + stack_bytes + t->size, 0,
++		  c33_round (t->size) - t->size);
++	  stack_bytes += c33_round (t->size);
++	}
++      else
++	{
++	  c33_words (t, avalue[i], w);
++	  if (reg)
++	    memcpy (&regs[1 + nbytes / 4], w, words * 4);
++	  if (unnamed || !reg)
++	    {
++	      memcpy (stack + stack_bytes, w, words * 4);
++	      stack_bytes += words * 4;
++	    }
++	}
++
++      if (unnamed || !in_registers)
++	{
++	  if (unnamed && in_registers && stack_words + words <= 20)
++	    mask |= ((1u << words) - 1) << stack_words;
++	  stack_words += words;
++	}
++      if (kind == C33_ARG_STACK || skips)
++	continue;
++      nbytes += words * 4;
++    }
++
++  if (variadic && stack_words <= 15)
++    regs[0] = 0xc3000000u | (stack_words << 20) | mask;
++
++  ffi_call_SYSV (stack, stack_bytes, regs, fn);
++
++  if (cif->flags != C33_RET_REGS || rvalue == NULL)
++    return;
++  switch (cif->rtype->type)
++    {
++    case FFI_TYPE_SINT8:
++      *(ffi_sarg *) rvalue = (int8_t) regs[8];
++      break;
++    case FFI_TYPE_UINT8:
++      *(ffi_arg *) rvalue = (uint8_t) regs[8];
++      break;
++    case FFI_TYPE_SINT16:
++      *(ffi_sarg *) rvalue = (int16_t) regs[8];
++      break;
++    case FFI_TYPE_UINT16:
++      *(ffi_arg *) rvalue = (uint16_t) regs[8];
++      break;
++    default:
++      memcpy (rvalue, &regs[8], cif->rtype->size);
++      break;
++    }
++}
+--- a/src/c33/ffitarget.h
++++ b/src/c33/ffitarget.h
+@@ -0,0 +1,55 @@
++/* -----------------------------------------------------------------*-C-*-
++   ffitarget.h - Copyright (c) 2026 Tim Douglas
++
++   Target configuration macros for the Epson S1C33.
++
++   Permission is hereby granted, free of charge, to any person obtaining
++   a copy of this software and associated documentation files (the
++   ``Software''), to deal in the Software without restriction, including
++   without limitation the rights to use, copy, modify, merge, publish,
++   distribute, sublicense, and/or sell copies of the Software, and to
++   permit persons to whom the Software is furnished to do so, subject to
++   the following conditions:
++
++   The above copyright notice and this permission notice shall be included
++   in all copies or substantial portions of the Software.
++
++   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND,
++   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++   NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
++   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
++   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++   DEALINGS IN THE SOFTWARE.
++
++   ----------------------------------------------------------------------- */
++
++#ifndef LIBFFI_TARGET_H
++#define LIBFFI_TARGET_H
++
++#ifndef LIBFFI_H
++#error "Please do not include ffitarget.h directly into your source.  Use ffi.h instead."
++#endif
++
++#ifndef LIBFFI_ASM
++typedef unsigned long ffi_arg;
++typedef signed long ffi_sarg;
++
++typedef enum ffi_abi {
++  FFI_FIRST_ABI = 0,
++  FFI_SYSV,
++  FFI_LAST_ABI,
++  FFI_DEFAULT_ABI = FFI_SYSV
++} ffi_abi;
++#endif
++
++/* Calls only, for now: no closures.  */
++#define FFI_CLOSURES 0
++#define FFI_NATIVE_RAW_API 0
++
++#define FFI_TARGET_SPECIFIC_VARIADIC 1
++#define FFI_TARGET_HAS_COMPLEX_TYPE
++#define FFI_EXTRA_CIF_FIELDS unsigned nfixedargs
++
++#endif
+--- a/src/c33/sysv.S
++++ b/src/c33/sysv.S
+@@ -0,0 +1,95 @@
++/* -----------------------------------------------------------------------
++   sysv.S - Copyright (c) 2026 Tim Douglas
++
++   Epson S1C33 foreign function interface.
++
++   Permission is hereby granted, free of charge, to any person obtaining
++   a copy of this software and associated documentation files (the
++   ``Software''), to deal in the Software without restriction, including
++   without limitation the rights to use, copy, modify, merge, publish,
++   distribute, sublicense, and/or sell copies of the Software, and to
++   permit persons to whom the Software is furnished to do so, subject to
++   the following conditions:
++
++   The above copyright notice and this permission notice shall be included
++   in all copies or substantial portions of the Software.
++
++   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND,
++   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++   NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
++   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
++   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++   DEALINGS IN THE SOFTWARE.
++   ----------------------------------------------------------------------- */
++
++#define LIBFFI_ASM
++#include <fficonfig.h>
++#include <ffi.h>
++
++/* void ffi_call_SYSV (void *stack, unsigned bytes, unsigned *regs,
++			void (*fn) (void));
++
++   Copies BYTES (a multiple of 4) from STACK to a new stack top, loads
++   %r5-%r12 from REGS[0..7], calls FN and stores %r4 and %r5 as they come
++   back in REGS[8] and REGS[9].  Under FDPIC, FN is a function descriptor
++   and the call takes its data pointer, as GCC's own indirect calls do;
++   %r15 is put back before returning, since a caller in this module does
++   not restore it.  */
++
++	.text
++	.align	1
++	.global	ffi_call_SYSV
++	.hidden	ffi_call_SYSV
++	.type	ffi_call_SYSV, @function
++ffi_call_SYSV:
++	pushn	%r3		/* %r0-%r3 are ours to preserve */
++	ld.w	%r0,%sp		/* the frame, for the return */
++	ld.w	%r1,%r8		/* REGS */
++	ld.w	%r2,%r9		/* FN */
++	ld.w	%r3,%r15	/* this module's data pointer */
++
++	/* Room for the stack stream, rounded to 16 bytes.  */
++	ld.w	%r4,%r7
++	xadd	%r4,15
++	xand	%r4,-16
++	ld.w	%r10,%sp
++	sub	%r10,%r4
++	ld.w	%sp,%r10
++
++	/* Copy it, a word at a time.  */
++	ld.w	%r5,%sp
++1:	xcmp	%r7,0
++	jreq	2f
++	ld.w	%r4,[%r6]+
++	ld.w	[%r5]+,%r4
++	xsub	%r7,4
++	jp	1b
++
++2:	ld.w	%r5,[%r1]
++	xld.w	%r6,[%r1+4]
++	xld.w	%r7,[%r1+8]
++	xld.w	%r8,[%r1+12]
++	xld.w	%r9,[%r1+16]
++	xld.w	%r10,[%r1+20]
++	xld.w	%r11,[%r1+24]
++	xld.w	%r12,[%r1+28]
++#ifdef __FDPIC__
++	xld.w	%r15,[%r2+4]
++	ld.w	%r14,[%r2]
++	call	%r14
++#else
++	call	%r2
++#endif
++	ld.w	%r15,%r3
++	xld.w	[%r1+32],%r4
++	xld.w	[%r1+36],%r5
++	ld.w	%sp,%r0
++	popn	%r3
++	ret
++	.size	ffi_call_SYSV, .-ffi_call_SYSV
++
++#if defined __ELF__ && defined __linux__
++	.section	.note.GNU-stack,"",%progbits
++#endif

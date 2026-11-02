@@ -1,0 +1,19 @@
+Leave out malloc_trim on uClibc-ng.
+
+uClibc-ng defines __GLIBC__ for compatibility, but provides malloc_trim
+only with its malloc-standard allocator, and foot failed to build with
+the others.
+
+--- a/terminal.c
++++ b/terminal.c
+@@ -2037,7 +2037,9 @@
+ 
+     free(term);
+ 
+-#if defined(__GLIBC__)
++/* uClibc-ng defines __GLIBC__ too, but has malloc_trim only with one of its
++ * allocators. */
++#if defined(__GLIBC__) && !defined(__UCLIBC__)
+     if (!malloc_trim(0))
+         LOG_WARN("failed to trim memory");
+ #endif

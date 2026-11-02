@@ -596,8 +596,19 @@ TLS values and `errno` after touch wakes the machine. The C++ regression
 also throws through a shared library across repeated `dlopen`/`dlclose`.
 
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
-are about 8 KB of libc's text. `libc` then builds libstdc++
-against the installed C library, with `toolchain.sh libstdc++`.
+are about 8 KB of libc's text. It has locales as Buildroot's uClibc-ng does,
+with `newlocale` and `uselocale`, and builds one, `en_US`, as `en_US.UTF-8`
+and as ISO-8859-1, from the build machine's (`provision.sh` generates it in
+the VM): 90 KB of libc's text, loaded once. `<uchar.h>` is there too, and
+patches add C11's `<threads.h>` (`patches/0034`, over pthreads),
+`timespec_get` and `struct timespec` in strict C11 (`0035`), and
+`reallocarray` with every allocator, not only the MMU's (`0036`).
+`patches/0037` fixes `struct stat` as strict C (`-std=c99` and the like)
+declares it on 32-bit machines with 64-bit time: its timestamps were `int`,
+12 bytes short of what `stat` fills, so FreeType, built that way, had its
+stack overwritten opening a font. `libc` compiles
+`uclibc/stat-layout-test.c` in strict C to keep it so. `libc` then builds
+libstdc++ against the installed C library, with `toolchain.sh libstdc++`.
 
 That step also builds GCC's upstream `libatomic` against the installed
 libc; `toolchain.sh libatomic` rebuilds just that runtime and its C test.
@@ -951,6 +962,66 @@ xeyes 30 KB, and 21 shared libraries, each loaded whole (libX11 696 KB, libc
 kept only the functions they reached, about 3.3 MB in all: with only twm and
 xeyes sharing libX11, sharing does not yet pay for the whole libraries.
 Startup is mostly reading them from the card.
+
+Wayland runs beside X: `startw` at the console prompt starts cage 0.3, a
+compositor that shows one application full screen, on wlroots 0.20's pixman
+renderer and DRM backend, with foot 1.26 in it and `wlkeyboard`, the soft
+keyboard, below. `startw CLIENT ARGS` runs another client. It takes VT 2,
+so the console steps aside, and gives the panel back when the client exits.
+cage opens the DRM device and the input devices itself, as root, through
+libseat's `noop` backend; libinput finds the devices with libudev-zero,
+there being no udev daemon. wlroots composites into `XRGB8888` dumb buffers,
+which the DRM driver converts to the panel where damaged.
+
+`buildroot/patches/0005` lets wlroots build without EGL and GBM (it
+allocates DRM dumb buffers and renders with pixman whatever else it has),
+lets seatd and libseat build without an MMU, and gives Buildroot
+`BR2_TOOLCHAIN_HAS_C11_THREADS`, which fcft and foot need and the external
+uClibc-ng toolchain now has. In `buildroot/external/patches`, cage and
+foot start their clients with `vfork`, foot leaves out glibc's
+`malloc_trim` (uClibc-ng claims to be glibc but has it only for the MMU
+allocator), libxkbcommon maps files privately (a shared mapping of an ext4
+file fails without an MMU), and cage gets the layer shell (`cage/0002`):
+layer surfaces drawn above or below the application, which gets the space
+their exclusive zones leave; touch and pointer reach them; they take no
+keyboard focus. libffi had no C33 port; `libffi/0001` adds one for calls,
+which libwayland makes for every message (closures are not ported).
+`make -C linux libffi-test` runs libffi's own call tests on it through
+Grifo: 179 of 180 pass, and `call-overread`, which needs `mprotect` guard
+pages, cannot.
+
+`wlkeyboard` (`console/wlkeyboard.c`) is the console's keyboard,
+`console/wr-keys.h`, which `wr-keyboard` also draws from, on a layer shell
+surface 88 pixels high across the bottom of the panel with an exclusive
+zone. Taps become keys of the virtual keyboard protocol, so they go to the
+client with the keyboard focus; the compositor tracks no modifiers for
+those keys, so Shift and Ctrl go as modifier state around the key. It draws
+a bit a pixel and widens what changed into an `RGB565` shared-memory buffer.
+Shared memory comes from `memfd_create`, which the kernel builds on ramfs
+without an MMU (`CONFIG_MEMFD_CREATE`): such files take shared mappings but
+no seals.
+
+`wr-wayland` installs `startw`, X's misc-fixed 6x13 as the font foot asks
+for by `foot.ini` and fontconfig (`70-wr-fixed.conf`), and a US keymap for
+libxkbcommon: `xkbcomp` resolves it at build time from xkeyboard-config into
+one file a component under `/usr/share/X11/xkb`, with a rules file that
+gives it for every model and layout, instead of the 4 MB of sources. cage
+runs with `-d`, so clients draw no title bars; foot needs a UTF-8 locale or
+runs no shell, and `startw` sets `LANG=en_US.UTF-8`. Without an MMU a
+program's stack is what its link asks for: cage and foot get 64 KB
+(`external.mk`); each reaches 44 KB starting a session.
+
+`make -C linux wayland-test` boots through Grifo, runs `startw`, taps
+`touch /w` and Enter on `wlkeyboard` and waits for the file, then reads the
+panel back from the driver's scanout in internal video RAM
+(`artifacts/wayland-run/screen.pgm`). The session takes 65 s to come up in
+wremu, most of it compiling keymaps: libxkbcommon takes 5 s to compile the
+keymap from its rules, 2 s to write it as text and 7.5 s to compile that
+text, and between cage's two keyboards, the virtual keyboard, foot and
+`wlkeyboard` that is done about five times. uClibc-ng's allocator frees by
+walking an address-sorted list of free areas, a fifth of that time.
+fontconfig parsing its 24 configuration files and FreeType parsing the BDF
+font are most of the rest.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

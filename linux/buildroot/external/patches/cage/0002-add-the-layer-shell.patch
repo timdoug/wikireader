@@ -1,0 +1,916 @@
+Add the layer shell.
+
+wlr-layer-shell surfaces (panels, docks, on-screen keyboards) are placed on
+their output in four scene layers around the views, background and bottom
+below, top and overlay above, and their exclusive zones are kept from the
+views, which with one output fill what is left.  Touch and pointer input
+reach them as they do views; they take no keyboard focus, so a keyboard
+surface types into the application under it.  An output taken away closes
+the surfaces on it.
+
+diff --git a/cage.c b/cage.c
+index d524dfd..dc8f551 100644
+--- a/cage.c
++++ b/cage.c
+@@ -29,6 +29,7 @@
+ #include <wlr/types/wlr_gamma_control_v1.h>
+ #include <wlr/types/wlr_idle_inhibit_v1.h>
+ #include <wlr/types/wlr_idle_notify_v1.h>
++#include <wlr/types/wlr_layer_shell_v1.h>
+ #include <wlr/types/wlr_output_layout.h>
+ #include <wlr/types/wlr_output_management_v1.h>
+ #include <wlr/types/wlr_presentation_time.h>
+@@ -54,6 +55,7 @@
+ #endif
+ 
+ #include "idle_inhibit_v1.h"
++#include "layer_shell.h"
+ #include "output.h"
+ #include "seat.h"
+ #include "server.h"
+@@ -377,6 +379,23 @@ main(int argc, char *argv[])
+ 
+ 	server.scene_output_layout = wlr_scene_attach_output_layout(server.scene, server.output_layout);
+ 
++	server.layers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND] = wlr_scene_tree_create(&server.scene->tree);
++	server.layers[ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM] = wlr_scene_tree_create(&server.scene->tree);
++	server.views_tree = wlr_scene_tree_create(&server.scene->tree);
++	server.layers[ZWLR_LAYER_SHELL_V1_LAYER_TOP] = wlr_scene_tree_create(&server.scene->tree);
++	server.layers[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&server.scene->tree);
++	for (int i = 0; i < 4; i++) {
++		if (!server.layers[i]) {
++			server.views_tree = NULL;
++		}
++	}
++	if (!server.views_tree) {
++		wlr_log(WLR_ERROR, "Unable to create scene layers");
++		ret = 1;
++		goto end;
++	}
++	wl_list_init(&server.layer_surfaces);
++
+ 	struct wlr_compositor *compositor = wlr_compositor_create(server.wl_display, 6, server.renderer);
+ 	if (!compositor) {
+ 		wlr_log(WLR_ERROR, "Unable to create the wlroots compositor");
+@@ -528,6 +547,15 @@ main(int argc, char *argv[])
+ 		goto end;
+ 	}
+ 
++	struct wlr_layer_shell_v1 *layer_shell = wlr_layer_shell_v1_create(server.wl_display, 4);
++	if (!layer_shell) {
++		wlr_log(WLR_ERROR, "Unable to create the layer shell");
++		ret = 1;
++		goto end;
++	}
++	server.new_layer_surface.notify = handle_new_layer_surface;
++	wl_signal_add(&layer_shell->events.new_surface, &server.new_layer_surface);
++
+ 	struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard =
+ 		wlr_virtual_keyboard_manager_v1_create(server.wl_display);
+ 	if (!virtual_keyboard) {
+@@ -644,6 +672,7 @@ main(int argc, char *argv[])
+ #endif
+ 	wl_list_remove(&server.new_virtual_pointer.link);
+ 	wl_list_remove(&server.new_virtual_keyboard.link);
++	wl_list_remove(&server.new_layer_surface.link);
+ 	wl_list_remove(&server.output_manager_apply.link);
+ 	wl_list_remove(&server.output_manager_test.link);
+ 	wl_list_remove(&server.xdg_toplevel_decoration.link);
+diff --git a/layer_shell.c b/layer_shell.c
+new file mode 100644
+index 0000000..df85380
+--- /dev/null
++++ b/layer_shell.c
+@@ -0,0 +1,176 @@
++/*
++ * Cage: A Wayland kiosk.
++ *
++ * Layer shell surfaces: panels, docks and on-screen keyboards, drawn above
++ * or below the application, which gets the area their exclusive zones
++ * leave.  They take no keyboard focus.
++ *
++ * See the LICENSE file accompanying this file.
++ */
++
++#define _POSIX_C_SOURCE 200112L
++
++#include <stdlib.h>
++#include <wayland-server-core.h>
++#include <wlr/types/wlr_layer_shell_v1.h>
++#include <wlr/types/wlr_output_layout.h>
++#include <wlr/types/wlr_scene.h>
++#include <wlr/util/box.h>
++#include <wlr/util/log.h>
++
++#include "layer_shell.h"
++#include "output.h"
++#include "server.h"
++#include "view.h"
++
++void
++arrange_layers(struct cg_output *output)
++{
++	struct cg_server *server = output->server;
++	struct wlr_box full_area;
++	wlr_output_layout_get_box(server->output_layout, output->wlr_output, &full_area);
++	if (wlr_box_empty(&full_area)) {
++		return;
++	}
++
++	/* Exclusive zones are taken from the top layer down, as in other
++	   compositors. */
++	struct wlr_box usable_area = full_area;
++	for (int layer = ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY; layer >= ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND; layer--) {
++		struct cg_layer_surface *surface;
++		wl_list_for_each (surface, &server->layer_surfaces, link) {
++			if (surface->output != output || !surface->layer_surface->initialized ||
++			    surface->layer_surface->current.layer != (enum zwlr_layer_shell_v1_layer) layer) {
++				continue;
++			}
++			wlr_scene_layer_surface_v1_configure(surface->scene, &full_area, &usable_area);
++		}
++	}
++
++	if (!wlr_box_equal(&usable_area, &output->usable_area)) {
++		output->usable_area = usable_area;
++		view_position_all(server);
++	}
++}
++
++static void
++handle_layer_surface_map(struct wl_listener *listener, void *data)
++{
++	struct cg_layer_surface *surface = wl_container_of(listener, surface, map);
++	if (surface->output) {
++		arrange_layers(surface->output);
++	}
++}
++
++static void
++handle_layer_surface_unmap(struct wl_listener *listener, void *data)
++{
++	struct cg_layer_surface *surface = wl_container_of(listener, surface, unmap);
++	if (surface->output) {
++		arrange_layers(surface->output);
++	}
++}
++
++static void
++handle_layer_surface_commit(struct wl_listener *listener, void *data)
++{
++	struct cg_layer_surface *surface = wl_container_of(listener, surface, commit);
++	struct wlr_layer_surface_v1 *layer_surface = surface->layer_surface;
++
++	if (!layer_surface->initial_commit && layer_surface->current.committed == 0) {
++		return;
++	}
++	if (layer_surface->current.committed & WLR_LAYER_SURFACE_V1_STATE_LAYER) {
++		wlr_scene_node_reparent(&surface->scene->tree->node,
++					surface->server->layers[layer_surface->current.layer]);
++	}
++	/* The initial commit is answered with a configure, which this sends. */
++	if (surface->output) {
++		arrange_layers(surface->output);
++	}
++}
++
++static void
++handle_layer_surface_destroy(struct wl_listener *listener, void *data)
++{
++	struct cg_layer_surface *surface = wl_container_of(listener, surface, destroy);
++
++	wl_list_remove(&surface->map.link);
++	wl_list_remove(&surface->unmap.link);
++	wl_list_remove(&surface->commit.link);
++	wl_list_remove(&surface->destroy.link);
++	wl_list_remove(&surface->link);
++	if (surface->output) {
++		arrange_layers(surface->output);
++	}
++	free(surface);
++}
++
++void
++handle_new_layer_surface(struct wl_listener *listener, void *data)
++{
++	struct cg_server *server = wl_container_of(listener, server, new_layer_surface);
++	struct wlr_layer_surface_v1 *layer_surface = data;
++	struct cg_output *output = NULL;
++
++	if (layer_surface->output) {
++		output = layer_surface->output->data;
++	} else {
++		struct cg_output *candidate;
++		wl_list_for_each (candidate, &server->outputs, link) {
++			if (candidate->wlr_output->enabled) {
++				output = candidate;
++				break;
++			}
++		}
++	}
++	if (!output) {
++		wlr_log(WLR_ERROR, "No output for layer surface %s", layer_surface->namespace);
++		wlr_layer_surface_v1_destroy(layer_surface);
++		return;
++	}
++	layer_surface->output = output->wlr_output;
++
++	struct cg_layer_surface *surface = calloc(1, sizeof(struct cg_layer_surface));
++	if (!surface) {
++		wlr_log(WLR_ERROR, "Failed to allocate layer surface");
++		wlr_layer_surface_v1_destroy(layer_surface);
++		return;
++	}
++	surface->scene =
++		wlr_scene_layer_surface_v1_create(server->layers[layer_surface->pending.layer], layer_surface);
++	if (!surface->scene) {
++		wlr_log(WLR_ERROR, "Failed to allocate layer surface scene node");
++		free(surface);
++		wlr_layer_surface_v1_destroy(layer_surface);
++		return;
++	}
++	surface->server = server;
++	surface->output = output;
++	surface->layer_surface = layer_surface;
++	layer_surface->data = surface;
++
++	surface->map.notify = handle_layer_surface_map;
++	wl_signal_add(&layer_surface->surface->events.map, &surface->map);
++	surface->unmap.notify = handle_layer_surface_unmap;
++	wl_signal_add(&layer_surface->surface->events.unmap, &surface->unmap);
++	surface->commit.notify = handle_layer_surface_commit;
++	wl_signal_add(&layer_surface->surface->events.commit, &surface->commit);
++	surface->destroy.notify = handle_layer_surface_destroy;
++	wl_signal_add(&layer_surface->events.destroy, &surface->destroy);
++	wl_list_insert(&server->layer_surfaces, &surface->link);
++}
++
++/* An output going away takes its layer surfaces with it, as the protocol
++   says: their clients are told with closed. */
++void
++layer_shell_destroy_output(struct cg_output *output)
++{
++	struct cg_layer_surface *surface, *tmp;
++	wl_list_for_each_safe (surface, tmp, &output->server->layer_surfaces, link) {
++		if (surface->output == output) {
++			surface->output = NULL;
++			wlr_layer_surface_v1_destroy(surface->layer_surface);
++		}
++	}
++}
+diff --git a/layer_shell.h b/layer_shell.h
+new file mode 100644
+index 0000000..4183565
+--- /dev/null
++++ b/layer_shell.h
+@@ -0,0 +1,28 @@
++#ifndef CG_LAYER_SHELL_H
++#define CG_LAYER_SHELL_H
++
++#include <wayland-server-core.h>
++#include <wlr/types/wlr_layer_shell_v1.h>
++#include <wlr/types/wlr_scene.h>
++
++#include "output.h"
++
++struct cg_layer_surface {
++	struct cg_server *server;
++	struct cg_output *output;
++	struct wlr_layer_surface_v1 *layer_surface;
++	struct wlr_scene_layer_surface_v1 *scene;
++
++	struct wl_listener map;
++	struct wl_listener unmap;
++	struct wl_listener commit;
++	struct wl_listener destroy;
++
++	struct wl_list link; // cg_server::layer_surfaces
++};
++
++void handle_new_layer_surface(struct wl_listener *listener, void *data);
++void arrange_layers(struct cg_output *output);
++void layer_shell_destroy_output(struct cg_output *output);
++
++#endif
+diff --git a/meson.build b/meson.build
+index 586e999..892caa9 100644
+--- a/meson.build
++++ b/meson.build
+@@ -86,9 +86,20 @@ if scdoc.found()
+   endforeach
+ endif
+ 
++wayland_scanner_dep = dependency('wayland-scanner', native: true)
++wayland_scanner = find_program(wayland_scanner_dep.get_variable('wayland_scanner'), native: true)
++layer_shell_header = custom_target(
++  'wlr-layer-shell-unstable-v1-protocol.h',
++  input: 'protocol/wlr-layer-shell-unstable-v1.xml',
++  output: '@BASENAME@-protocol.h',
++  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
++)
++
+ cage_sources = [
+   'cage.c',
+   'idle_inhibit_v1.c',
++  'layer_shell.c',
++  layer_shell_header,
+   'output.c',
+   'seat.c',
+   'view.c',
+diff --git a/output.c b/output.c
+index 9f2a708..dc82c9f 100644
+--- a/output.c
++++ b/output.c
+@@ -34,6 +34,7 @@
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ 
++#include "layer_shell.h"
+ #include "output.h"
+ #include "seat.h"
+ #include "server.h"
+@@ -179,6 +180,10 @@ handle_output_layout_change(struct wl_listener *listener, void *data)
+ {
+ 	struct cg_server *server = wl_container_of(listener, server, output_layout_change);
+ 
++	struct cg_output *output;
++	wl_list_for_each (output, &server->outputs, link) {
++		arrange_layers(output);
++	}
+ 	view_position_all(server);
+ 	update_output_manager_config(server);
+ }
+@@ -203,6 +208,7 @@ output_destroy(struct cg_output *output)
+ 	struct cg_server *server = output->server;
+ 	bool was_nested_output = is_nested_output(output);
+ 
++	layer_shell_destroy_output(output);
+ 	output->wlr_output->data = NULL;
+ 
+ 	wl_list_remove(&output->destroy.link);
+diff --git a/output.h b/output.h
+index fa72545..bc4be15 100644
+--- a/output.h
++++ b/output.h
+@@ -3,6 +3,7 @@
+ 
+ #include <wayland-server-core.h>
+ #include <wlr/types/wlr_output.h>
++#include <wlr/util/box.h>
+ 
+ #include "server.h"
+ #include "view.h"
+@@ -11,6 +12,8 @@ struct cg_output {
+ 	struct cg_server *server;
+ 	struct wlr_output *wlr_output;
+ 	struct wlr_scene_output *scene_output;
++	/* In layout coordinates, what layer surfaces' exclusive zones leave. */
++	struct wlr_box usable_area;
+ 
+ 	struct wl_listener commit;
+ 	struct wl_listener request_state;
+diff --git a/protocol/wlr-layer-shell-unstable-v1.xml b/protocol/wlr-layer-shell-unstable-v1.xml
+new file mode 100644
+index 0000000..e9f27e4
+--- /dev/null
++++ b/protocol/wlr-layer-shell-unstable-v1.xml
+@@ -0,0 +1,407 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<protocol name="wlr_layer_shell_unstable_v1">
++  <copyright>
++    Copyright © 2017 Drew DeVault
++
++    Permission to use, copy, modify, distribute, and sell this
++    software and its documentation for any purpose is hereby granted
++    without fee, provided that the above copyright notice appear in
++    all copies and that both that copyright notice and this permission
++    notice appear in supporting documentation, and that the name of
++    the copyright holders not be used in advertising or publicity
++    pertaining to distribution of the software without specific,
++    written prior permission.  The copyright holders make no
++    representations about the suitability of this software for any
++    purpose.  It is provided "as is" without express or implied
++    warranty.
++
++    THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS
++    SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
++    FITNESS, IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
++    SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
++    AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
++    ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
++    THIS SOFTWARE.
++  </copyright>
++
++  <interface name="zwlr_layer_shell_v1" version="5">
++    <description summary="create surfaces that are layers of the desktop">
++      Clients can use this interface to assign the surface_layer role to
++      wl_surfaces. Such surfaces are assigned to a "layer" of the output and
++      rendered with a defined z-depth respective to each other. They may also be
++      anchored to the edges and corners of a screen and specify input handling
++      semantics. This interface should be suitable for the implementation of
++      many desktop shell components, and a broad number of other applications
++      that interact with the desktop.
++    </description>
++
++    <request name="get_layer_surface">
++      <description summary="create a layer_surface from a surface">
++        Create a layer surface for an existing surface. This assigns the role of
++        layer_surface, or raises a protocol error if another role is already
++        assigned.
++
++        Creating a layer surface from a wl_surface which has a buffer attached
++        or committed is a client error, and any attempts by a client to attach
++        or manipulate a buffer prior to the first layer_surface.configure call
++        must also be treated as errors.
++
++        After creating a layer_surface object and setting it up, the client
++        must perform an initial commit without any buffer attached.
++        The compositor will reply with a layer_surface.configure event.
++        The client must acknowledge it and is then allowed to attach a buffer
++        to map the surface.
++
++        You may pass NULL for output to allow the compositor to decide which
++        output to use. Generally this will be the one that the user most
++        recently interacted with.
++
++        Clients can specify a namespace that defines the purpose of the layer
++        surface.
++      </description>
++      <arg name="id" type="new_id" interface="zwlr_layer_surface_v1"/>
++      <arg name="surface" type="object" interface="wl_surface"/>
++      <arg name="output" type="object" interface="wl_output" allow-null="true"/>
++      <arg name="layer" type="uint" enum="layer" summary="layer to add this surface to"/>
++      <arg name="namespace" type="string" summary="namespace for the layer surface"/>
++    </request>
++
++    <enum name="error">
++      <entry name="role" value="0" summary="wl_surface has another role"/>
++      <entry name="invalid_layer" value="1" summary="layer value is invalid"/>
++      <entry name="already_constructed" value="2" summary="wl_surface has a buffer attached or committed"/>
++    </enum>
++
++    <enum name="layer">
++      <description summary="available layers for surfaces">
++        These values indicate which layers a surface can be rendered in. They
++        are ordered by z depth, bottom-most first. Traditional shell surfaces
++        will typically be rendered between the bottom and top layers.
++        Fullscreen shell surfaces are typically rendered at the top layer.
++        Multiple surfaces can share a single layer, and ordering within a
++        single layer is undefined.
++      </description>
++
++      <entry name="background" value="0"/>
++      <entry name="bottom" value="1"/>
++      <entry name="top" value="2"/>
++      <entry name="overlay" value="3"/>
++    </enum>
++
++    <!-- Version 3 additions -->
++
++    <request name="destroy" type="destructor" since="3">
++      <description summary="destroy the layer_shell object">
++        This request indicates that the client will not use the layer_shell
++        object any more. Objects that have been created through this instance
++        are not affected.
++      </description>
++    </request>
++  </interface>
++
++  <interface name="zwlr_layer_surface_v1" version="5">
++    <description summary="layer metadata interface">
++      An interface that may be implemented by a wl_surface, for surfaces that
++      are designed to be rendered as a layer of a stacked desktop-like
++      environment.
++
++      Layer surface state (layer, size, anchor, exclusive zone,
++      margin, interactivity) is double-buffered, and will be applied at the
++      time wl_surface.commit of the corresponding wl_surface is called.
++
++      Attaching a null buffer to a layer surface unmaps it.
++
++      Unmapping a layer_surface means that the surface cannot be shown by the
++      compositor until it is explicitly mapped again. The layer_surface
++      returns to the state it had right after layer_shell.get_layer_surface.
++      The client can re-map the surface by performing a commit without any
++      buffer attached, waiting for a configure event and handling it as usual.
++    </description>
++
++    <request name="set_size">
++      <description summary="sets the size of the surface">
++        Sets the size of the surface in surface-local coordinates. The
++        compositor will display the surface centered with respect to its
++        anchors.
++
++        If you pass 0 for either value, the compositor will assign it and
++        inform you of the assignment in the configure event. You must set your
++        anchor to opposite edges in the dimensions you omit; not doing so is a
++        protocol error. Both values are 0 by default.
++
++        Size is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="width" type="uint"/>
++      <arg name="height" type="uint"/>
++    </request>
++
++    <request name="set_anchor">
++      <description summary="configures the anchor point of the surface">
++        Requests that the compositor anchor the surface to the specified edges
++        and corners. If two orthogonal edges are specified (e.g. 'top' and
++        'left'), then the anchor point will be the intersection of the edges
++        (e.g. the top left corner of the output); otherwise the anchor point
++        will be centered on that edge, or in the center if none is specified.
++
++        Anchor is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="anchor" type="uint" enum="anchor"/>
++    </request>
++
++    <request name="set_exclusive_zone">
++      <description summary="configures the exclusive geometry of this surface">
++        Requests that the compositor avoids occluding an area with other
++        surfaces. The compositor's use of this information is
++        implementation-dependent - do not assume that this region will not
++        actually be occluded.
++
++        A positive value is only meaningful if the surface is anchored to one
++        edge or an edge and both perpendicular edges. If the surface is not
++        anchored, anchored to only two perpendicular edges (a corner), anchored
++        to only two parallel edges or anchored to all edges, a positive value
++        will be treated the same as zero.
++
++        A positive zone is the distance from the edge in surface-local
++        coordinates to consider exclusive.
++
++        Surfaces that do not wish to have an exclusive zone may instead specify
++        how they should interact with surfaces that do. If set to zero, the
++        surface indicates that it would like to be moved to avoid occluding
++        surfaces with a positive exclusive zone. If set to -1, the surface
++        indicates that it would not like to be moved to accommodate for other
++        surfaces, and the compositor should extend it all the way to the edges
++        it is anchored to.
++
++        For example, a panel might set its exclusive zone to 10, so that
++        maximized shell surfaces are not shown on top of it. A notification
++        might set its exclusive zone to 0, so that it is moved to avoid
++        occluding the panel, but shell surfaces are shown underneath it. A
++        wallpaper or lock screen might set their exclusive zone to -1, so that
++        they stretch below or over the panel.
++
++        The default value is 0.
++
++        Exclusive zone is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="zone" type="int"/>
++    </request>
++
++    <request name="set_margin">
++      <description summary="sets a margin from the anchor point">
++        Requests that the surface be placed some distance away from the anchor
++        point on the output, in surface-local coordinates. Setting this value
++        for edges you are not anchored to has no effect.
++
++        The exclusive zone includes the margin.
++
++        Margin is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="top" type="int"/>
++      <arg name="right" type="int"/>
++      <arg name="bottom" type="int"/>
++      <arg name="left" type="int"/>
++    </request>
++
++    <enum name="keyboard_interactivity">
++      <description summary="types of keyboard interaction possible for a layer shell surface">
++        Types of keyboard interaction possible for layer shell surfaces. The
++        rationale for this is twofold: (1) some applications are not interested
++        in keyboard events and not allowing them to be focused can improve the
++        desktop experience; (2) some applications will want to take exclusive
++        keyboard focus.
++      </description>
++
++      <entry name="none" value="0">
++        <description summary="no keyboard focus is possible">
++          This value indicates that this surface is not interested in keyboard
++          events and the compositor should never assign it the keyboard focus.
++
++          This is the default value, set for newly created layer shell surfaces.
++
++          This is useful for e.g. desktop widgets that display information or
++          only have interaction with non-keyboard input devices.
++        </description>
++      </entry>
++      <entry name="exclusive" value="1">
++        <description summary="request exclusive keyboard focus">
++          Request exclusive keyboard focus if this surface is above the shell surface layer.
++
++          For the top and overlay layers, the seat will always give
++          exclusive keyboard focus to the top-most layer which has keyboard
++          interactivity set to exclusive. If this layer contains multiple
++          surfaces with keyboard interactivity set to exclusive, the compositor
++          determines the one receiving keyboard events in an implementation-
++          defined manner. In this case, no guarantee is made when this surface
++          will receive keyboard focus (if ever).
++
++          For the bottom and background layers, the compositor is allowed to use
++          normal focus semantics.
++
++          This setting is mainly intended for applications that need to ensure
++          they receive all keyboard events, such as a lock screen or a password
++          prompt.
++        </description>
++      </entry>
++      <entry name="on_demand" value="2" since="4">
++        <description summary="request regular keyboard focus semantics">
++          This requests the compositor to allow this surface to be focused and
++          unfocused by the user in an implementation-defined manner. The user
++          should be able to unfocus this surface even regardless of the layer
++          it is on.
++
++          Typically, the compositor will want to use its normal mechanism to
++          manage keyboard focus between layer shell surfaces with this setting
++          and regular toplevels on the desktop layer (e.g. click to focus).
++          Nevertheless, it is possible for a compositor to require a special
++          interaction to focus or unfocus layer shell surfaces (e.g. requiring
++          a click even if focus follows the mouse normally, or providing a
++          keybinding to switch focus between layers).
++
++          This setting is mainly intended for desktop shell components (e.g.
++          panels) that allow keyboard interaction. Using this option can allow
++          implementing a desktop shell that can be fully usable without the
++          mouse.
++        </description>
++      </entry>
++    </enum>
++
++    <request name="set_keyboard_interactivity">
++      <description summary="requests keyboard events">
++        Set how keyboard events are delivered to this surface. By default,
++        layer shell surfaces do not receive keyboard events; this request can
++        be used to change this.
++
++        This setting is inherited by child surfaces set by the get_popup
++        request.
++
++        Layer surfaces receive pointer, touch, and tablet events normally. If
++        you do not want to receive them, set the input region on your surface
++        to an empty region.
++
++        Keyboard interactivity is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="keyboard_interactivity" type="uint" enum="keyboard_interactivity"/>
++    </request>
++
++    <request name="get_popup">
++      <description summary="assign this layer_surface as an xdg_popup parent">
++        This assigns an xdg_popup's parent to this layer_surface.  This popup
++        should have been created via xdg_surface::get_popup with the parent set
++        to NULL, and this request must be invoked before committing the popup's
++        initial state.
++
++        See the documentation of xdg_popup for more details about what an
++        xdg_popup is and how it is used.
++      </description>
++      <arg name="popup" type="object" interface="xdg_popup"/>
++    </request>
++
++    <request name="ack_configure">
++      <description summary="ack a configure event">
++        When a configure event is received, if a client commits the
++        surface in response to the configure event, then the client
++        must make an ack_configure request sometime before the commit
++        request, passing along the serial of the configure event.
++
++        If the client receives multiple configure events before it
++        can respond to one, it only has to ack the last configure event.
++
++        A client is not required to commit immediately after sending
++        an ack_configure request - it may even ack_configure several times
++        before its next surface commit.
++
++        A client may send multiple ack_configure requests before committing, but
++        only the last request sent before a commit indicates which configure
++        event the client really is responding to.
++      </description>
++      <arg name="serial" type="uint" summary="the serial from the configure event"/>
++    </request>
++
++    <request name="destroy" type="destructor">
++      <description summary="destroy the layer_surface">
++        This request destroys the layer surface.
++      </description>
++    </request>
++
++    <event name="configure">
++      <description summary="suggest a surface change">
++        The configure event asks the client to resize its surface.
++
++        Clients should arrange their surface for the new states, and then send
++        an ack_configure request with the serial sent in this configure event at
++        some point before committing the new surface.
++
++        The client is free to dismiss all but the last configure event it
++        received.
++
++        The width and height arguments specify the size of the window in
++        surface-local coordinates.
++
++        The size is a hint, in the sense that the client is free to ignore it if
++        it doesn't resize, pick a smaller size (to satisfy aspect ratio or
++        resize in steps of NxM pixels). If the client picks a smaller size and
++        is anchored to two opposite anchors (e.g. 'top' and 'bottom'), the
++        surface will be centered on this axis.
++
++        If the width or height arguments are zero, it means the client should
++        decide its own window dimension.
++      </description>
++      <arg name="serial" type="uint"/>
++      <arg name="width" type="uint"/>
++      <arg name="height" type="uint"/>
++    </event>
++
++    <event name="closed">
++      <description summary="surface should be closed">
++        The closed event is sent by the compositor when the surface will no
++        longer be shown. The output may have been destroyed or the user may
++        have asked for it to be removed. Further changes to the surface will be
++        ignored. The client should destroy the resource after receiving this
++        event, and create a new surface if they so choose.
++      </description>
++    </event>
++
++    <enum name="error">
++      <entry name="invalid_surface_state" value="0" summary="provided surface state is invalid"/>
++      <entry name="invalid_size" value="1" summary="size is invalid"/>
++      <entry name="invalid_anchor" value="2" summary="anchor bitfield is invalid"/>
++      <entry name="invalid_keyboard_interactivity" value="3" summary="keyboard interactivity is invalid"/>
++      <entry name="invalid_exclusive_edge" value="4" summary="exclusive edge is invalid given the surface anchors"/>
++    </enum>
++
++    <enum name="anchor" bitfield="true">
++      <entry name="top" value="1" summary="the top edge of the anchor rectangle"/>
++      <entry name="bottom" value="2" summary="the bottom edge of the anchor rectangle"/>
++      <entry name="left" value="4" summary="the left edge of the anchor rectangle"/>
++      <entry name="right" value="8" summary="the right edge of the anchor rectangle"/>
++    </enum>
++
++    <!-- Version 2 additions -->
++
++    <request name="set_layer" since="2">
++      <description summary="change the layer of the surface">
++        Change the layer that the surface is rendered on.
++
++        Layer is double-buffered, see wl_surface.commit.
++      </description>
++      <arg name="layer" type="uint" enum="zwlr_layer_shell_v1.layer" summary="layer to move this surface to"/>
++    </request>
++
++    <!-- Version 5 additions -->
++
++    <request name="set_exclusive_edge" since="5">
++      <description summary="set the edge the exclusive zone will be applied to">
++        Requests an edge for the exclusive zone to apply. The exclusive
++        edge will be automatically deduced from anchor points when possible,
++        but when the surface is anchored to a corner, it will be necessary
++        to set it explicitly to disambiguate, as it is not possible to deduce
++        which one of the two corner edges should be used.
++
++        The edge must be one the surface is anchored to, otherwise the
++        invalid_exclusive_edge protocol error will be raised.
++      </description>
++      <arg name="edge" type="uint" enum="anchor"/>
++    </request>
++  </interface>
++</protocol>
+diff --git a/seat.c b/seat.c
+index 5f659a4..d3edb75 100644
+--- a/seat.c
++++ b/seat.c
+@@ -73,17 +73,16 @@ desktop_view_at(struct cg_server *server, double lx, double ly, struct wlr_surfa
+ 	*surface = scene_surface->surface;
+ 
+ 	/* Walk up the tree until we find a node with a data pointer. When done,
+-	 * we've found the node representing the view. */
++	 * we've found the node representing the view. A layer surface has
++	 * none, and gives no view but its surface. */
+ 	while (!node->data) {
+ 		if (!node->parent) {
+-			node = NULL;
+-			break;
++			return NULL;
+ 		}
+ 
+ 		node = &node->parent->node;
+ 	}
+ 
+-	assert(node != NULL);
+ 	return node->data;
+ }
+ 
+@@ -507,11 +506,11 @@ handle_touch_down(struct wl_listener *listener, void *data)
+ 	wlr_cursor_absolute_to_layout_coords(seat->cursor, &event->touch->base, event->x, event->y, &lx, &ly);
+ 
+ 	double sx, sy;
+-	struct wlr_surface *surface;
+-	struct cg_view *view = desktop_view_at(seat->server, lx, ly, &surface, &sx, &sy);
++	struct wlr_surface *surface = NULL;
++	desktop_view_at(seat->server, lx, ly, &surface, &sx, &sy);
+ 
+ 	uint32_t serial = 0;
+-	if (view) {
++	if (surface) {
+ 		serial = wlr_seat_touch_notify_down(seat->seat, surface, event->time_msec, event->touch_id, sx, sy);
+ 	}
+ 
+@@ -558,10 +557,10 @@ handle_touch_motion(struct wl_listener *listener, void *data)
+ 	wlr_cursor_absolute_to_layout_coords(seat->cursor, &event->touch->base, event->x, event->y, &lx, &ly);
+ 
+ 	double sx, sy;
+-	struct wlr_surface *surface;
+-	struct cg_view *view = desktop_view_at(seat->server, lx, ly, &surface, &sx, &sy);
++	struct wlr_surface *surface = NULL;
++	desktop_view_at(seat->server, lx, ly, &surface, &sx, &sy);
+ 
+-	if (view) {
++	if (surface) {
+ 		wlr_seat_touch_point_focus(seat->seat, surface, event->time_msec, event->touch_id, sx, sy);
+ 		wlr_seat_touch_notify_motion(seat->seat, event->time_msec, event->touch_id, sx, sy);
+ 	} else {
+@@ -625,8 +624,8 @@ process_cursor_motion(struct cg_seat *seat, uint32_t time_msec, double dx, doubl
+ 	struct wlr_seat *wlr_seat = seat->seat;
+ 	struct wlr_surface *surface = NULL;
+ 
+-	struct cg_view *view = desktop_view_at(seat->server, seat->cursor->x, seat->cursor->y, &surface, &sx, &sy);
+-	if (!view) {
++	desktop_view_at(seat->server, seat->cursor->x, seat->cursor->y, &surface, &sx, &sy);
++	if (!surface) {
+ 		wlr_seat_pointer_clear_focus(wlr_seat);
+ 	} else {
+ 		wlr_seat_pointer_notify_enter(wlr_seat, surface, sx, sy);
+diff --git a/server.h b/server.h
+index 27f212a..0f6b00d 100644
+--- a/server.h
++++ b/server.h
+@@ -42,6 +42,12 @@ struct cg_server {
+ 	struct wlr_scene_output_layout *scene_output_layout;
+ 
+ 	struct wlr_scene *scene;
++	/* Layer shell's four layers, background to overlay, with the views
++	   between bottom and top. */
++	struct wlr_scene_tree *layers[4];
++	struct wlr_scene_tree *views_tree;
++	struct wl_list layer_surfaces; // cg_layer_surface::link
++	struct wl_listener new_layer_surface;
+ 	/* Includes disabled outputs; depending on the output_mode
+ 	 * some outputs may be disabled. */
+ 	struct wl_list outputs; // cg_output::link
+diff --git a/view.c b/view.c
+index 94fd75e..aeefccd 100644
+--- a/view.c
++++ b/view.c
+@@ -82,19 +82,33 @@ view_center(struct cg_view *view, struct wlr_box *layout_box)
+ 	int width, height;
+ 	view->impl->get_geometry(view, &width, &height);
+ 
+-	view->lx = (layout_box->width - width) / 2;
+-	view->ly = (layout_box->height - height) / 2;
++	view->lx = layout_box->x + (layout_box->width - width) / 2;
++	view->ly = layout_box->y + (layout_box->height - height) / 2;
+ 
+ 	if (view->scene_tree) {
+ 		wlr_scene_node_set_position(&view->scene_tree->node, view->lx, view->ly);
+ 	}
+ }
+ 
++/* The output layout, less what layer surfaces keep for themselves when
++   there is one output to keep it from. */
++static void
++view_usable_box(struct cg_server *server, struct wlr_box *box)
++{
++	wlr_output_layout_get_box(server->output_layout, NULL, box);
++	if (wl_list_length(&server->outputs) == 1) {
++		struct cg_output *output = wl_container_of(server->outputs.next, output, link);
++		if (!wlr_box_empty(&output->usable_area)) {
++			*box = output->usable_area;
++		}
++	}
++}
++
+ void
+ view_position(struct cg_view *view)
+ {
+ 	struct wlr_box layout_box;
+-	wlr_output_layout_get_box(view->server->output_layout, NULL, &layout_box);
++	view_usable_box(view->server, &layout_box);
+ 
+ 	if (view_is_primary(view) || view_extends_output_layout(view, &layout_box)) {
+ 		view_maximize(view, &layout_box);
+@@ -147,7 +161,7 @@ handle_surface_request_close(struct wl_listener *listener, void *data)
+ void
+ view_map(struct cg_view *view, struct wlr_surface *surface)
+ {
+-	view->scene_tree = wlr_scene_subsurface_tree_create(&view->server->scene->tree, surface);
++	view->scene_tree = wlr_scene_subsurface_tree_create(view->server->views_tree, surface);
+ 	if (!view->scene_tree)
+ 		goto fail;
+ 	view->scene_tree->node.data = view;
