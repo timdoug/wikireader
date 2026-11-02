@@ -21,9 +21,6 @@
 /* Minimal stack size after allocating thread descriptor and guard size.  */
 #define MINIMAL_REST_STACK	2048
 
-/* Reuse a few default-size stacks without retaining half the board's RAM. */
-#define ARCH_STACK_CACHE_MAXSIZE (256 * 1024)
-
 /* Alignment requirement for TCB.  */
 #define TCB_ALIGNMENT		16
 

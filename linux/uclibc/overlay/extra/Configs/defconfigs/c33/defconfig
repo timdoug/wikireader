@@ -23,7 +23,12 @@ UCLIBC_EXTRA_CFLAGS="-g"
 # UCLIBC_HAS_FPU is not set
 DO_C99_MATH=y
 UCLIBC_HAS_THREADS_NATIVE=y
+# The C33 kernel implements msync and memory locking without an MMU.
+UCLIBC_HAS_NOMMU_MSYNC=y
+UCLIBC_HAS_NOMMU_MLOCK=y
 PTHREADS_STACK_DEFAULT_SIZE=65536
+# Reuse a few default-size stacks without keeping much of 32 MB.
+PTHREADS_STACK_CACHE_SIZE=262144
 UCLIBC_HAS_IPV6=y
 # libstdc++ and many packages need the wide-character functions.
 UCLIBC_HAS_WCHAR=y

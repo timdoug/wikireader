@@ -1,0 +1,38 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: make the stack cache's size a configuration option
+
+PTHREADS_STACK_CACHE_SIZE, beside PTHREADS_STACK_DEFAULT_SIZE: how much
+memory the stacks of exited threads may keep for reuse.  The default is
+the 16 MiB allocatestack.c had; a system with little memory sets it low.
+
+diff --git a/extra/Configs/Config.in b/extra/Configs/Config.in
+index 0d04dbf..ded7acb 100644
+--- a/extra/Configs/Config.in
++++ b/extra/Configs/Config.in
+@@ -675,6 +675,13 @@ config PTHREADS_STACK_DEFAULT_SIZE
+ 	  systems where the stack size is fixed and the default stack size may
+ 	  be excessively large and waste memory.
+ 
++config PTHREADS_STACK_CACHE_SIZE
++	int "Thread stack cache size"
++	default 16777216 # 16 MiB
++	help
++	  How much memory the stacks of exited threads may keep for reuse.
++	  A system with little memory can set this low.
++
+ config UCLIBC_HAS_SYSLOG
+ 	bool "Syslog support"
+ 	default y
+diff --git a/libpthread/nptl/allocatestack.c b/libpthread/nptl/allocatestack.c
+index 941ef22..9fcf33f 100644
+--- a/libpthread/nptl/allocatestack.c
++++ b/libpthread/nptl/allocatestack.c
+@@ -104,7 +104,7 @@
+    embedded systems don't have enough ram for big dirty stack caches,
+    reduce it to 16MiB. 4 does not work, f.e. tst-kill4 segfaults.
+ */
+-static size_t stack_cache_maxsize = 16 * 1024 * 1024;
++static size_t stack_cache_maxsize = __PTHREADS_STACK_CACHE_SIZE__;
+ static size_t stack_cache_actsize;
+ 
+ /* Mutex protecting this variable.  */
