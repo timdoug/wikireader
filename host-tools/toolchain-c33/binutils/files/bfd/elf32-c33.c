@@ -980,6 +980,18 @@ bfd_byte * g_dpoff_m_address = NULL;
 /* �������̃V���{�����m�肷�� */
 /* FIXME:  The code here probably ought to be removed and the code in reloc.c
    allowed to do its  stuff instead.  At least for most of the relocs, anwyay.  */
+/* The data-area checks below say which area a value did not fit and why.
+   BFD's status values have no room for that, so the message goes beside a
+   bfd_reloc_dangerous, for c33_elf_relocate_section to report.  */
+static const char *c33_reloc_message;
+
+static bfd_reloc_status_type
+c33_reloc_problem (const char *message)
+{
+  c33_reloc_message = message;
+  return bfd_reloc_dangerous;
+}
+
 static bfd_reloc_status_type
 c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
      bfd *      abfd;
@@ -1116,11 +1128,11 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_doff_globalpointer;
+				return c33_reloc_problem (_("Default Data area pointer value is larger than symbol address value."));
 
 			/* over 26bit ? */
 			if (addend > 0x3ffffff)
-				return bfd_reloc_doff_over_64mb;
+				return c33_reloc_problem (_("The offset value of a symbol is over 64MB.(default data area)"));
 
 			/* add symbol25:13 to insn */
 			insn += ((addend >> 13) & 0x1fff);
@@ -1132,14 +1144,14 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else{
-				return bfd_reloc_over_doff_globalpointer;
+				return c33_reloc_problem (_("Default Data area pointer value is larger than symbol address value."));
 			}
 
 			/* over 13bit ? */
 			if (addend > 0x1fff){
 				/* if exist doff_hi() before ext ? */
 				if (g_doff_hi_address != (address - 2)){
-					return bfd_reloc_doff_over_8kb;
+					return c33_reloc_problem (_("The offset value of a symbol is over 8KB.(default data area)"));
 				}
 			}
 			
@@ -1153,12 +1165,12 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else{
-				return bfd_reloc_over_goff_globalpointer;
+				return c33_reloc_problem (_("G Data area pointer value is larger than symbol address value."));
 			}
 
 			/* over 13bit ? */
 			if (addend > 0x1fff){
-				return bfd_reloc_goff_over_8kb;
+				return c33_reloc_problem (_("The offset value of a symbol is over 8KB.(G data area)"));
 			}
 			
 			insn += (addend & 0x1fff);
@@ -1175,11 +1187,11 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_soff_globalpointer;
+				return c33_reloc_problem (_("S Data area pointer value is larger than symbol address value."));
 
 			/* over 26bit ? */
 			if (addend > 0x3ffffff)
-				return bfd_reloc_soff_over_64mb;
+				return c33_reloc_problem (_("The offset value of a symbol is over 64MB.(S data area)"));
 
 			/* add symbol25:13 to insn */
 			insn += ((addend >> 13) & 0x1fff);
@@ -1192,12 +1204,12 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_soff_globalpointer;
+				return c33_reloc_problem (_("S Data area pointer value is larger than symbol address value."));
 
 			if (addend > 0x1fff){
 				/* if exist soff_hi() before ext ? */
 				if (g_soff_hi_address != (address - 2)){
-					return bfd_reloc_soff_over_8kb;
+					return c33_reloc_problem (_("The offset value of a symbol is over 8KB.(S data area)"));
 				}
 			}
 
@@ -1215,11 +1227,11 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_toff_globalpointer;
+				return c33_reloc_problem (_("T Data area pointer value is larger than symbol address value."));
 
 			/* over 26bit ? */
 			if (addend > 0x3ffffff)
-				return bfd_reloc_toff_over_64mb;
+				return c33_reloc_problem (_("The offset value of a symbol is over 64MB.(T data area)"));
 
 			/* add symbol25:13 to insn */
 			insn += ((addend >> 13) & 0x1fff);
@@ -1233,13 +1245,13 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_toff_globalpointer;
+				return c33_reloc_problem (_("T Data area pointer value is larger than symbol address value."));
 
 			/* over 13bit ? */
 			if (addend > 0x1fff){
 				/* if exist toff_hi() before ext ? */
 				if (g_toff_hi_address != (address - 2)){
-					return bfd_reloc_toff_over_8kb;
+					return c33_reloc_problem (_("The offset value of a symbol is over 8KB.(T data area)"));
 				}
 			}
 
@@ -1257,11 +1269,11 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_zoff_globalpointer;
+				return c33_reloc_problem (_("Z Data area pointer value is larger than symbol address value."));
 
 			/* over 26bit ? */
 			if (addend > 0x3ffffff)
-				return bfd_reloc_zoff_over_64mb;
+				return c33_reloc_problem (_("The offset value of a symbol is over 64MB.(Z data area)"));
 
 			/* add symbol25:13 to insn */
 			insn += ((addend >> 13) & 0x1fff);
@@ -1274,13 +1286,13 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_zoff_globalpointer;
+				return c33_reloc_problem (_("Z Data area pointer value is larger than symbol address value."));
 
 			/* over 13bit ? */
 			if (addend > 0x1fff){
 				/* if exist zoff_hi() before ext ? */
 				if (g_zoff_hi_address != (address - 2)){
-					return bfd_reloc_zoff_over_8kb;
+					return c33_reloc_problem (_("The offset value of a symbol is over 8KB.(Z data area)"));
 				}
 			}
 
@@ -1295,7 +1307,7 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_doff_globalpointer;
+				return c33_reloc_problem (_("Default Data area pointer value is larger than symbol address value."));
 
 			/* Get Instruction code */
 			insn = bfd_get_16(abfd, address);
@@ -1309,13 +1321,13 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_doff_globalpointer;
+				return c33_reloc_problem (_("Default Data area pointer value is larger than symbol address value."));
 
 			/* over 19bit ? */
 			if (addend > 0x7ffff){
 				/* if exist dpoff_h() before ext ? */
 				if (g_dpoff_h_address != (address - 2)){
-					return bfd_reloc_dpoff_over_512kb;
+					return c33_reloc_problem (_("The offset value of a symbol is over 512KB.(default data area)"));
 				}
 			}
 
@@ -1327,13 +1339,13 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 			if (addend >= gp)
 				addend -= gp;
 			else
-				return bfd_reloc_over_doff_globalpointer;
+				return c33_reloc_problem (_("Default Data area pointer value is larger than symbol address value."));
 
 			/* over 6bit ? */
 			if (addend > 0x3f){
 				/* if exist dpoff_m() before ext ? */
 				if (g_dpoff_m_address != (address - 2)){
-					return bfd_reloc_dpoff_over_64b;
+					return c33_reloc_problem (_("The offset value of a symbol is over 64byte.(default data area)"));
 				}
 			}
 
@@ -3337,7 +3349,9 @@ fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 	      goto common_error;
 
 	    case bfd_reloc_dangerous:
-	      msg = _("internal error: dangerous relocation");
+	      msg = (c33_reloc_message != NULL ? c33_reloc_message
+		     : _("internal error: dangerous relocation"));
+	      c33_reloc_message = NULL;
 	      goto common_error;
 
 	    case bfd_reloc_other:
@@ -3348,72 +3362,6 @@ fprintf (stderr, "unknown: name: %s\n", h->root.root.string);
 	      msg = _("could not locate special linker symbol __ep");
 	      goto common_error;
 
-/* add tazaki 2002.01.11 >>>>> */
-		case bfd_reloc_over_doff_globalpointer:
-	      msg = _("Default Data area pointer value is larger than symbol address value.");
-	      goto common_error;
-
-		case bfd_reloc_over_goff_globalpointer:
-	      msg = _("G Data area pointer value is larger than symbol address value.");
-	      goto common_error;
-
-		case bfd_reloc_over_soff_globalpointer:
-	      msg = _("S Data area pointer value is larger than symbol address value.");
-	      goto common_error;
-
-		case bfd_reloc_over_toff_globalpointer:
-	      msg = _("T Data area pointer value is larger than symbol address value.");
-	      goto common_error;
-
-		case bfd_reloc_over_zoff_globalpointer:
-	      msg = _("Z Data area pointer value is larger than symbol address value.");
-	      goto common_error;
-
-		case bfd_reloc_doff_over_64mb:
-	      msg = _("The offset value of a symbol is over 64MB.(default data area)");
-	      goto common_error;
-
-		case bfd_reloc_doff_over_8kb:
-	      msg = _("The offset value of a symbol is over 8KB.(default data area)");
-	      goto common_error;
-
-		case bfd_reloc_goff_over_8kb:
-	      msg = _("The offset value of a symbol is over 8KB.(G data area)");
-	      goto common_error;
-
-		case bfd_reloc_soff_over_64mb:
-	      msg = _("The offset value of a symbol is over 64MB.(S data area)");
-	      goto common_error;
-
-		case bfd_reloc_soff_over_8kb:
-	      msg = _("The offset value of a symbol is over 8KB.(S data area)");
-	      goto common_error;
-
-		case bfd_reloc_toff_over_64mb:
-	      msg = _("The offset value of a symbol is over 64MB.(T data area)");
-	      goto common_error;
-
-		case bfd_reloc_toff_over_8kb:
-	      msg = _("The offset value of a symbol is over 8KB.(T data area)");
-	      goto common_error;
-
-		case bfd_reloc_zoff_over_64mb:
-	      msg = _("The offset value of a symbol is over 64MB.(Z data area)");
-	      goto common_error;
-
-		case bfd_reloc_zoff_over_8kb:
-	      msg = _("The offset value of a symbol is over 8KB.(Z data area)");
-	      goto common_error;
-
-		case bfd_reloc_dpoff_over_512kb:
-	      msg = _("The offset value of a symbol is over 512KB.(default data area)");
-	      goto common_error;
-		
-		case bfd_reloc_dpoff_over_64b:
-	      msg = _("The offset value of a symbol is over 64byte.(default data area)");
-	      goto common_error;
-		
-/* add tazaki 2002.01.11 <<<<< */
 
 	    default:
 	      msg = _("internal error: unknown error");
@@ -4161,6 +4109,16 @@ c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
   return false;
 }
 
+/* The unwinder (libgcc's FDPIC support) searches .eh_frame_hdr's table by
+   link-time address and maps only the FDE it selects, so the table is good
+   although the FDEs' addresses stay absolute.  */
+static bool
+c33fdpic_eh_frame_table_link_time_p (bfd *abfd ATTRIBUTE_UNUSED,
+				     struct bfd_link_info *info ATTRIBUTE_UNUSED)
+{
+  return true;
+}
+
 /* FDPIC: the same relocations, plus executables and shared libraries for
    ld.so and the kernel's ELF FDPIC loader.  */
 
@@ -4209,5 +4167,8 @@ c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
 #undef elf_backend_can_make_relative_eh_frame
 #define elf_backend_can_make_relative_eh_frame \
   c33fdpic_can_make_relative_eh_frame
+#undef elf_backend_eh_frame_table_link_time_p
+#define elf_backend_eh_frame_table_link_time_p \
+  c33fdpic_eh_frame_table_link_time_p
 
 #include "elf32-target.h"

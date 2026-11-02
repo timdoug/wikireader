@@ -249,45 +249,79 @@ for f in ('ld/Makefile.am', 'ld/Makefile.in'):
 edit('ld/configure.tgt', ld_tgt_fdpic)
 
 
-# elf.em's SEPARATE_CODE setting means a target must never combine code and
-# data, even for an explicit -N/OMAGIC link.  C33 only needs the normal
-# separate-code policy as its default, while still honoring -N and
-# -z noseparate-code.  Allow an emulation to select that default independently
-# of the configure-wide DEFAULT_LD_Z_SEPARATE_CODE value.
-def ld_default_separate_code(s):
-    if 'DEFAULT_SEPARATE_CODE}' in s:
+# C33 firmware links with -z separate-code by default, still honouring -N
+# and -z noseparate-code: a per-target configure default, as Linux/x86's.
+def ld_separate_code_default(s):
+    if 'c33-*-elf*)' in s:
         return None
+    anchor = '# Enable -z separate-code and --warn-textrel by default for Linux/x86.\n'
+    return s.replace(anchor,
+        '# Enable -z separate-code by default for C33 firmware.\n'
+        'case "${target}" in\n'
+        'c33-*-elf*)\n'
+        '  if test ${ac_default_ld_z_separate_code} = unset; then\n'
+        '    ac_default_ld_z_separate_code=1\n'
+        '  fi\n'
+        '  ;;\n'
+        'esac\n\n' + anchor, 1)
+
+
+edit('ld/configure.tgt', ld_separate_code_default)
+
+# A backend capability: the unwinder searches .eh_frame_hdr's table in
+# link-time address space, so absolute FDE addresses, which a shared object
+# keeps when its frames cannot be made PC-relative, do not stop the table
+# being built.  C33 FDPIC keeps absolute FDE pointers because text and data
+# load independently, and its unwinder maps only the selected FDE.
+EH_HOOK_DOC = (
+    '  /* This function returns TRUE if the unwinder searches the\n'
+    '     .eh_frame_hdr table in link-time address space, so that absolute\n'
+    '     FDE addresses in a shared object need not suppress the table.  */\n'
+    '  bool (*elf_backend_eh_frame_table_link_time_p)\n'
+    '     (bfd *, struct bfd_link_info *);\n\n')
+
+
+def eh_hook_header(s):
+    if 'elf_backend_eh_frame_table_link_time_p' in s:
+        return None
+    anchor = ('  bool (*elf_backend_can_make_lsda_relative_eh_frame)\n'
+              '     (bfd *, struct bfd_link_info *, asection *);\n\n')
+    return s.replace(anchor, anchor + EH_HOOK_DOC, 1)
+
+
+def eh_hook_target(s):
+    if 'elf_backend_eh_frame_table_link_time_p' in s:
+        return None
+    s = s.replace(
+        '#ifndef elf_backend_encode_eh_address\n',
+        '#ifndef elf_backend_eh_frame_table_link_time_p\n'
+        '#define elf_backend_eh_frame_table_link_time_p\tNULL\n'
+        '#endif\n#ifndef elf_backend_encode_eh_address\n', 1)
     return s.replace(
-        '  link_info.separate_code = DEFAULT_LD_Z_SEPARATE_CODE;\n',
-        '  link_info.separate_code = `if test '
-        '"x${DEFAULT_SEPARATE_CODE}" = xyes; then echo true; '
-        'else echo DEFAULT_LD_Z_SEPARATE_CODE; fi`;\n', 1)
+        '  elf_backend_can_make_lsda_relative_eh_frame,\n  elf_backend_encode_eh_address,\n',
+        '  elf_backend_can_make_lsda_relative_eh_frame,\n'
+        '  elf_backend_eh_frame_table_link_time_p,\n  elf_backend_encode_eh_address,\n', 1)
 
 
-edit('ld/emultempl/elf.em', ld_default_separate_code)
-
-# C33 FDPIC keeps absolute FDE pointers because text and data load
-# independently. Its unwinder searches the normal header table in link-time
-# address space and maps only the selected FDE. Keep that table without
-# enabling the unsafe PC-relative conversion of the frame records.
-def c33_fdpic_eh_table(s):
-    if 'C33 FDPIC searches this table in link-time address space' in s:
+def eh_hook_use(s):
+    if 'elf_backend_eh_frame_table_link_time_p' in s:
         return None
-    s = s.replace('#include "elf-bfd.h"\n',
-                  '#include "elf-bfd.h"\n#include "elf/c33.h"\n', 1)
     old = ('    if (bfd_link_pic (info)\n'
            '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
-    new = ('    /* C33 FDPIC searches this table in link-time address space. */\n'
-           '    if (bfd_link_pic (info)\n'
-           '\t\t&& !(bfd_get_arch (abfd) == bfd_arch_c33\n'
-           '\t\t     && (elf_elfheader (abfd)->e_flags & EF_C33_FDPIC))\n'
+    new = ('    if (bfd_link_pic (info)\n'
+           '\t\t&& !(get_elf_backend_data (info->output_bfd)\n'
+           '\t\t       ->elf_backend_eh_frame_table_link_time_p\n'
+           '\t\t     && (get_elf_backend_data (info->output_bfd)\n'
+           '\t\t\t ->elf_backend_eh_frame_table_link_time_p (abfd, info)))\n'
            '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
     if old not in s:
         raise SystemExit('Cannot locate absolute FDE table suppression')
     return s.replace(old, new, 1)
 
 
-edit('bfd/elf-eh-frame.c', c33_fdpic_eh_table)
+edit('bfd/elf-bfd.h', eh_hook_header)
+edit('bfd/elfxx-target.h', eh_hook_target)
+edit('bfd/elf-eh-frame.c', eh_hook_use)
 
 print('changed:')
 for c in changed:
@@ -395,45 +429,6 @@ edit('bfd/reloc.c', add_missing_relocs(lambda n: f'  {n}\n',
 
 print('reloc pass done')
 
-# -------- C33-specific bfd_reloc_status_type values ---------------------------
-# The C33 small-data-area relocations report their own overflow conditions so
-# the linker can name the offending area (global/small/tiny/zero/dp).
-C33_STATUS = [
-    'bfd_reloc_over_doff_globalpointer', 'bfd_reloc_over_goff_globalpointer',
-    'bfd_reloc_over_soff_globalpointer', 'bfd_reloc_over_toff_globalpointer',
-    'bfd_reloc_over_zoff_globalpointer',
-    'bfd_reloc_doff_over_64mb', 'bfd_reloc_doff_over_8kb',
-    'bfd_reloc_goff_over_8kb',
-    'bfd_reloc_soff_over_64mb', 'bfd_reloc_soff_over_8kb',
-    'bfd_reloc_toff_over_64mb', 'bfd_reloc_toff_over_8kb',
-    'bfd_reloc_zoff_over_64mb', 'bfd_reloc_zoff_over_8kb',
-    'bfd_reloc_dpoff_over_512kb', 'bfd_reloc_dpoff_over_64b',
-]
-
-
-def status_bfd_in2(s):
-    if C33_STATUS[0] in s:
-        return None
-    body = ('\n  /* Seiko Epson C33 data-area overflow conditions.  */\n'
-            + ''.join(f'  {n},\n' for n in C33_STATUS))
-    return s.replace('  bfd_reloc_dangerous\n }\n bfd_reloc_status_type;',
-                     '  bfd_reloc_dangerous,\n' + body + ' }\n bfd_reloc_status_type;', 1)
-
-
-edit('bfd/bfd-in2.h', status_bfd_in2)
-
-
-def status_reloc_c(s):
-    if C33_STATUS[0] in s:
-        return None
-    body = ('.\n.  {* Seiko Epson C33 data-area overflow conditions.  *}\n'
-            + ''.join(f'.  {n},\n' for n in C33_STATUS))
-    return s.replace('.  bfd_reloc_dangerous\n', '.  bfd_reloc_dangerous,\n' + body, 1)
-
-
-edit('bfd/reloc.c', status_reloc_c)
-
-print('status pass done')
 
 # ---------------- gas: build ext_remove.c for the c33 target ------------------
 # ext_remove.c implements the second assembly pass that strips redundant "ext"
