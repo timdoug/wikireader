@@ -51,7 +51,7 @@ OPT ?= -O2
 # The same library wherever the tree is: its path stays out of debug info.
 CFLAGS=-Wall -I. -Iinclude $(DEBUG_CFLAGS) $(GNU89_INLINE) -mno-long-calls -fno-builtin $(OPT) -mc33pe \
 	-ffile-prefix-map=$(abspath $(CURDIR)/../..)=.
-ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe -mc33_ext
+ASFLAGS=-c -xassembler-with-cpp -Wa,$(DEBUG_ASFLAGS) -medda32 -mc33pe
 
 C_STRING_OPERATIONS = \
     src/string/bcmp.o \

@@ -25,7 +25,6 @@
 #include "opcode/c33.h"
 #include "elf/c33.h"
 #include "elf-bfd.h"			/* for elf_elfheader */
-#include "ext_remove.h"				// add D.Fujimoto 2007/06/21
 
 #define AREA_CDA 0
 #define AREA_GDA 1
@@ -1218,7 +1217,6 @@ enum c33_options
   OPTION_C33ADV = OPTION_MD_BASE,
   OPTION_C33PE,
   OPTION_MEDDA32,
-  OPTION_C33_EXT,
   OPTION_FDPIC,
   OPTION_NO_FDPIC
 };
@@ -1228,7 +1226,6 @@ const struct option md_longopts[] =
   {"mc33adv",  no_argument,       NULL, OPTION_C33ADV},
   {"mc33pe",   no_argument,       NULL, OPTION_C33PE},
   {"medda32",  no_argument,       NULL, OPTION_MEDDA32},
-  {"mc33_ext", required_argument, NULL, OPTION_C33_EXT},
   {"mfdpic",   no_argument,       NULL, OPTION_FDPIC},
   {"mno-fdpic", no_argument,      NULL, OPTION_NO_FDPIC},
   {NULL, no_argument, NULL, 0}
@@ -1385,7 +1382,6 @@ C33 options:\n\
   -mc33adv                assemble for the C33 ADV architecture\n\
   -mc33pe                 assemble for the C33 PE architecture\n\
   -medda32                do not use the default data area\n\
-  -mc33_ext FILE.dump     optimise ext prefixes using FILE.dump\n\
   -mfdpic                 assemble for the FDPIC ABI%s\n\
   -mno-fdpic              assemble without the FDPIC ABI\n"),
 	   g_iFdpic ? _(" (the default)") : "");
@@ -1421,20 +1417,6 @@ md_parse_option (int c, const char * arg)
     case OPTION_NO_FDPIC:
       g_iFdpic = 0;
       return 1;
-
-    case OPTION_C33_EXT:
-      {
-	size_t len = arg == NULL ? 0 : strlen (arg);
-
-	if (len < 5 || strcmp (arg + len - 5, ".dump") != 0)
-	  {
-	    as_bad (_("-mc33_ext requires a .dump file"));
-	    return 0;
-	  }
-	cp_Dump_File_Name = xstrdup (arg);
-	g_c33_ext = 1;
-	return 1;
-      }
 
     default:
       return 0;
@@ -2062,12 +2044,6 @@ md_assemble (char * str)
 
 
 // ADD D.Fujimoto 2007/06/21 >>>>>>>
-#ifdef EXT_REMOVE
-	if( g_c33_ext == 1 ){
-		// get the offset from the nearest symbol
-		evaluate_offset_from_symbol();
-	}
-#endif
 // ADD D.Fujimoto 2007/06/21 <<<<<<<
 
     pSymbolName = &szSymbolName[0];                         /* Symbol name pointer domain initialization for [imm26] add tazaki 2001.11.28*/
@@ -2724,34 +2700,6 @@ md_assemble (char * str)
                             /* YES scall,sjp,sjrxx */
                             
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-							// optimizing ext inst
-							if (g_c33_ext == 1) {
-								i_ext_cnt = evaluate_ext_count_for_jumps(ex, 1, count_ext_for_jumps);
-							}
-
-							if (i_ext_cnt == 0) {
-								// no ext
-								reloc = BFD_RELOC_C33_S_RL;
-
-							} else {
-
-								/* 1 ext  */
-								opcode = (struct c33_opcode *)c33_ext_opcodes;
-								extra_data_befor_insn = true;
-								extra_data_len	= 1;
-								extraInsnBuf[0] = opcode->opcode;
-								if (fc >= MAX_INSN_FIXUPS)
-								  as_fatal (_("too many fixups"));
-
-								fixups[ fc ].exp	 = ex;
-								fixups[ fc ].opindex = * opcode->operands;
-								fixups[ fc ].reloc	 = BFD_RELOC_C33_S_RM;
-								++fc;
-
-								reloc = BFD_RELOC_C33_S_RL;
-							}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
                             /* 1 ext  */
@@ -2768,7 +2716,6 @@ md_assemble (char * str)
                             ++fc;
 
                             reloc = BFD_RELOC_C33_S_RL;
-#endif	/* EXT_REMOVE */
 
                         
                         }
@@ -2783,58 +2730,6 @@ md_assemble (char * str)
                             /* str�ɃV���{�����������Ă���B�Q�p�X�@�A�Z���u���̂Ƃ��A������r����B */
                             
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-							// optimizing ext inst
-							if (g_c33_ext == 1) {
-								i_ext_cnt = evaluate_ext_count_for_jumps(ex, 2, count_ext_for_jumps);
-							}
-
-							if (i_ext_cnt == 0) {
-								// no ext
-								reloc = BFD_RELOC_C33_S_RL;
-
-							} else if (i_ext_cnt == 1) {
-								// 1 ext
-								opcode = (struct c33_opcode *)c33_ext_opcodes;
-								extra_data_befor_insn = true;
-								extra_data_len	= 1;
-								extraInsnBuf[0] = opcode->opcode;
-
-								if (fc >= MAX_INSN_FIXUPS)
-								  as_fatal (_("too many fixups"));
-
-								fixups[ fc ].exp	 = ex;
-								fixups[ fc ].opindex = * opcode->operands;
-								fixups[ fc ].reloc	 = BFD_RELOC_C33_S_RM;
-								++fc;
-
-								reloc = BFD_RELOC_C33_S_RL;
-
-							} else {
-
-								/* 2 ext  */
-								opcode = (struct c33_opcode *)c33_ext_opcodes;
-								extra_data_befor_insn = true;
-								extra_data_len	= 2;
-								extraInsnBuf[0] = opcode->opcode;
-								extraInsnBuf[1] = opcode->opcode;
-
-								if (fc >= MAX_INSN_FIXUPS)
-								  as_fatal (_("too many fixups"));
-
-								fixups[ fc ].exp	 = ex;
-								fixups[ fc ].opindex = * opcode->operands;	/* operand of ext */
-								fixups[ fc ].reloc	 = BFD_RELOC_C33_S_RH;
-								++fc;
-
-								fixups[ fc ].exp	 = ex;
-								fixups[ fc ].opindex = * opcode->operands;
-								fixups[ fc ].reloc	 = BFD_RELOC_C33_S_RM;
-								++fc;
-
-								reloc = BFD_RELOC_C33_S_RL;
-							}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
                             /* 2 ext  */
@@ -2859,7 +2754,6 @@ md_assemble (char * str)
 
                             reloc = BFD_RELOC_C33_S_RL;
 
-#endif	/* EXT_REMOVE */
                         }
                     }
                     else if ((ex.X_op == O_symbol) && (operand->flags & C33_OPERAND_SYMBOL)){
@@ -2899,61 +2793,6 @@ md_assemble (char * str)
                                 /* xld.w    label+imm32@l */
 
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-								// optimizing ext inst
-								// pattern	xld.w %rd, LABEL
-								if (g_c33_ext == 1) {
-									i_ext_cnt = evaluate_ext_count(ex, 0, count_ext_for_xld_rd_symbol);
-								}
-
-								if (i_ext_cnt == 0) {
-									// no ext
-									reloc = BFD_RELOC_C33_L;
-
-								} else if (i_ext_cnt == 1) {
-									// 1 ext
-									opcode = (struct c33_opcode *)c33_ext_opcodes;
-									extra_data_befor_insn = true;
-									extra_data_len	= 1;
-									extraInsnBuf[0] = opcode->opcode;
-
-									if (fc >= MAX_INSN_FIXUPS)
-									  as_fatal (_("too many fixups"));
-
-									fixups[ fc ].exp	 = ex;
-									fixups[ fc ].opindex = * opcode->operands;
-									fixups[ fc ].reloc	 = BFD_RELOC_C33_M;
-									++fc;
-
-									reloc = BFD_RELOC_C33_L;
-
-
-								} else {
-
-									/* 2 ext */
-									opcode = (struct c33_opcode *)c33_ext_opcodes;
-									extra_data_befor_insn = true;
-									extra_data_len	= 2;
-									extraInsnBuf[0] = opcode->opcode;
-									extraInsnBuf[1] = opcode->opcode;
-
-									if (fc >= MAX_INSN_FIXUPS)
-									  as_fatal (_("too many fixups"));
-
-									fixups[ fc ].exp	 = ex;
-									fixups[ fc ].opindex = * opcode->operands;	/* operand of ext */
-									fixups[ fc ].reloc	 = BFD_RELOC_C33_H;
-									++fc;
-
-									fixups[ fc ].exp	 = ex;
-									fixups[ fc ].opindex = * opcode->operands;
-									fixups[ fc ].reloc	 = BFD_RELOC_C33_M;
-									++fc;
-
-									reloc = BFD_RELOC_C33_L;
-
-								}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
                                     
                                 /* 2 ext */
@@ -2977,7 +2816,6 @@ md_assemble (char * str)
                                 ++fc;
 
                                 reloc = BFD_RELOC_C33_L;
-#endif	/* EXT_REMOVE */
                             }
                         }
                     }
@@ -3187,38 +3025,6 @@ md_assemble (char * str)
 	                                    /* ld.w  (symbol+imm32-dp)@0-5   : ld.w r0,[%dp+imm6] */
 
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-										// optimizing ext inst
-										// for following patterns 
-										// 
-										// ald.* %rd, [LABEL]	(mem read)	(without medda32)
-										// ald.* [LABEL], %rd 	(mem write)	(without medda32)
-										if (g_c33_ext == 1) {
-											i_ext_cnt = evaluate_ext_count(ex, g_dpAddress, count_ext_for_ald_mem_rw);
-										}
-
-										if (i_ext_cnt == 0) {
-											// no ext
-											reloc = BFD_RELOC_C33_DPL;
-
-										} else {
-											/* 1 ext */
-											opcode = (struct c33_opcode *)c33_ext_opcodes;
-											extra_data_befor_insn = true;
-											extra_data_len	= 1;
-											extraInsnBuf[0] = opcode->opcode;
-
-											if (fc >= MAX_INSN_FIXUPS)
-											  as_fatal (_("too many fixups"));
-
-											fixups[ fc ].exp	 = ex;
-											fixups[ fc ].opindex = * opcode->operands;
-											fixups[ fc ].reloc	 = BFD_RELOC_C33_DPM;
-											++fc;
-											reloc = BFD_RELOC_C33_DPL;
-
-										}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
 	                                    /* 1 ext */
@@ -3235,7 +3041,6 @@ md_assemble (char * str)
 	                                    fixups[ fc ].reloc   = BFD_RELOC_C33_DPM;
 	                                    ++fc;
 	                                    reloc = BFD_RELOC_C33_DPL;
-#endif	/* EXT_REMOVE */
 		                             }
 #if 0
 		                             else
@@ -3327,60 +3132,6 @@ md_assemble (char * str)
                                     /* ld.w  (symbol+imm32-%dp)@0-5   : ld.w r0,[%dp+imm6] */
 
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-									//  optimizing ext inst
-									// for following patterns 
-									// 
-									// xld.* %rd, [LABEL]	(mem read)	(without medda32 and is ADV)
-									// xld.* [LABEL], %rd 	(mem write)	(without medda32 and is ADV)
-									if (g_c33_ext == 1) {
-										i_ext_cnt = evaluate_ext_count(ex, g_dpAddress, count_ext_for_xld_mem_rw_adv);
-									}
-
-									if (i_ext_cnt == 0) {
-										// no ext
-										reloc = BFD_RELOC_C33_DPL;
-
-									} else if (i_ext_cnt == 1) {
-										// 1 ext
-										opcode = (struct c33_opcode *)c33_ext_opcodes;
-										extra_data_befor_insn = true;
-										extra_data_len	= 1;
-										extraInsnBuf[0] = opcode->opcode;
-
-										if (fc >= MAX_INSN_FIXUPS)
-										  as_fatal (_("too many fixups"));
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DPM;
-										++fc;
-										reloc = BFD_RELOC_C33_DPL;
-
-									} else {
-										/* 2 ext */
-										opcode = (struct c33_opcode *)c33_ext_opcodes;
-										extra_data_befor_insn = true;
-										extra_data_len	= 2;
-										extraInsnBuf[0] = opcode->opcode;
-										extraInsnBuf[1] = opcode->opcode;
-
-										if (fc >= MAX_INSN_FIXUPS)
-										  as_fatal (_("too many fixups"));
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;	/* ext�̃I�y�����h */
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DPH;
-										++fc;
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DPM;
-										++fc;
-										reloc = BFD_RELOC_C33_DPL;
-
-									}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
                                     /* 2 ext */
@@ -3403,7 +3154,6 @@ md_assemble (char * str)
                                     fixups[ fc ].reloc   = BFD_RELOC_C33_DPM;
                                     ++fc;
                                     reloc = BFD_RELOC_C33_DPL;
-#endif	/* EXT_REMOVE */
 
                                 }
                             }
@@ -3490,71 +3240,6 @@ md_assemble (char * str)
                                 else if (operand->range == 26 && g_iMedda32 == 0 ){		/* use data area */
 
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-									// optimizing ext inst
-									// for following patterns 
-									// 
-									// xld.* %rd, [LABEL]	(mem read)	(without medda32 and not ADV)
-									// xld.* [LABEL], %rd 	(mem write)	(without medda32 and not ADV)
-									// xb*	 [LABEL], imm3				(without medda32)
-									if (g_c33_ext == 1) {
-										i_ext_cnt = evaluate_ext_count(ex, g_dpAddress, count_ext_for_xld_mem_rw);
-									}
-
-									if (i_ext_cnt == 1) {
-										// 1 ext
-										// at least 1 ext will be appended
-										opcode = (struct c33_opcode *)c33_ext_opcodes;
-										extra_data_befor_insn = true;
-										extra_data_len	= 1;
-										extraInsnBuf[0] = opcode->opcode;
-
-										if (fc >= MAX_INSN_FIXUPS)
-										  as_fatal (_("too many fixups"));
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DL;
-										++fc;
-
-										/* Save Register Number. */
-										ex.X_op 		= O_register;
-										ex.X_add_number = GP_REG;
-										ex.X_add_symbol = NULL;
-										ex.X_op_symbol	= NULL;
-
-
-									} else {
-
-										/* 2 ext */
-										opcode = (struct c33_opcode *)c33_ext_opcodes;
-										extra_data_befor_insn = true;
-										extra_data_len	= 2;
-										extraInsnBuf[0] = opcode->opcode;
-										extraInsnBuf[1] = opcode->opcode;
-
-										if (fc >= MAX_INSN_FIXUPS)
-										  as_fatal (_("too many fixups"));
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;	/* operand of ext */
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DH;
-										++fc;
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_DL;
-										++fc;
-										
-											
-										/* Save Register Number. */
-										ex.X_op 		= O_register;
-										ex.X_add_number = GP_REG;
-										ex.X_add_symbol = NULL;
-										ex.X_op_symbol	= NULL;
-
-									}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
                                     /* 2 ext */
@@ -3584,273 +3269,11 @@ md_assemble (char * str)
                                     ex.X_add_symbol = NULL;
                                     ex.X_op_symbol  = NULL;
 
-#endif	/* EXT_REMOVE */
 								}
 								/* add T.Tazaki 2004/08/19 >>> */
                                 else if ((operand->range == 19 || operand->range == 26) && g_iMedda32 == 1 ){	/* xld �� ald ���p  : no use data area */
 
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-									// optimizing ext inst
-									// for following patterns 
-									// 
-									// xld.* %rd, [LABEL]	(mem read)	(with medda32)
-									// xld.* [LABEL], %rd 	(mem write)	(with medda32)
-									// ald.* %rd, [LABEL]	(mem read)	(with medda32)
-									// ald.* [LABEL], %rd 	(mem write)	(with medda32)
-									// xb*	 [LABEL], imm3				(with medda32)
-
-									/* �X�N���b�`��%r0�����A%rs = %r0�̂Ƃ��͌�ŁA�X�N���b�`��%r1�ɕύX�����B */
-									/* 0:pushn %r0		   			*/
-									/* 1:ext  label+imm32@m 		*/
-									/* 2:ext  label+imm32@m 		*/
-									/* 3:ld.x %r0,label+imm32@l 	*/
-									/* 4:ld.x [%r0],%rs   			*/
-									/* 5:popn %r0					*/
-
-// macro which means that we are now dealing with a memory read (*ld.* %rd, [LABEL]) operation
-// and not memory write or bit operation
-#define IS_MEM_READ ( (operand->flags & (C33_XLDB_RD + C33_XLDH_RD + C33_XLDW_RD + C33_XLDUB_RD + C33_XLDUH_RD)) != 0 )
-
-
-									if (g_c33_ext == 1) {
-										// for ald
-										if (operand->range == 19) {
-											i_ext_cnt = evaluate_ext_count(ex, 0, count_ext_for_ald_mem_rw32);
-										} else {
-											i_ext_cnt = evaluate_ext_count(ex, 0, count_ext_for_xld_mem_rw32);
-										}
-									}
-
-									// determine extraInsnBuf indices from ext counts
-									if (i_ext_cnt == 0) {
-										// no ext
-										if (IS_MEM_READ) {
-											insn_idx_low  = 0;
-										} else {
-											insn_idx_low  = 1;
-										}
-									} else if (i_ext_cnt == 1) {
-										// 1 ext
-										if (IS_MEM_READ) {
-											insn_idx_low  = 1;
-										} else {
-											insn_idx_low  = 2;
-										}
-									} else {
-										// 2 ext
-										if (IS_MEM_READ) {
-											if (operand->range == 26) {
-												insn_idx_low  = 2;
-											} else {
-												insn_idx_low  = 1;		// ald
-											}
-										} else {
-											if (operand->range == 26) {
-												insn_idx_low  = 3;
-											} else {
-												insn_idx_low  = 2;		// ald
-											}
-										}
-									}
-
-									// set all indices
-									insn_idx_high = (insn_idx_low < 2) ? 0 : insn_idx_low - 2;	// negative -> 0
-									insn_idx_mid  = (insn_idx_low < 1) ? 0 : insn_idx_low - 1;	// negative -> 0
-									insn_idx_low  = insn_idx_low;
-									insn_idx_load = insn_idx_low + 1;
-									insn_idx_pop  = insn_idx_low + 2;	// only for mem write
-
-
-									// push insn
-									extraInsnBuf[0] = 0x0200;	/* pushn %r0 */ 
-
-									// ext insn
-									opcode = (struct c33_opcode *)c33_ext_opcodes;
-									extra_data_befor_insn = true;
-
-									if (i_ext_cnt == 0) {
-										; // do nothing
-									} else if (i_ext_cnt == 1) {
-										extraInsnBuf[insn_idx_mid] = opcode->opcode;
-									} else {
-										// ald.* does not have ext @h
-										if (operand->range == 26) {
-											extraInsnBuf[insn_idx_high] = opcode->opcode;
-										}
-										extraInsnBuf[insn_idx_mid]  = opcode->opcode;
-									}
-
-
-									// fill fixup array
-									if (fc >= MAX_INSN_FIXUPS)
-									  as_fatal (_("too many fixups"));
-
-									/* ����́A�����N��Apushn %rs �� %rs ���ABFD_RELOC_C33_H �ɐݒ肳��Ă��܂��̂ŐV�K��BFD_RELOC_C33_PUSHN_R0
-									   ��ǉ����āA�����J�� "pushn %r0" ��ݒ肳���邽�߂ɂ���B 
-									   xld.x %rd,[symbol+imm] �́Apush/pop ���s��Ȃ��B */
-									if (!IS_MEM_READ)
-									{
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands; 
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_PUSHN_R0;
-										++fc;
-									}
-
-									if (i_ext_cnt == 0) {
-										// 
-										reloc = BFD_RELOC_C33_L;
-                                	} else if (i_ext_cnt == 1) {
-
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_M;
-										++fc;
-
-										reloc = BFD_RELOC_C33_L;
-
-									} else {
-										
-										// ald.* has only 1 ext
-										if ( operand->range == 26 ) {
-											fixups[ fc ].exp	 = ex;
-											fixups[ fc ].opindex = * opcode->operands;	/* operand of ext */
-											fixups[ fc ].reloc	 = BFD_RELOC_C33_H;
-											++fc;
-										}
-										fixups[ fc ].exp	 = ex;
-										fixups[ fc ].opindex = * opcode->operands;
-										fixups[ fc ].reloc	 = BFD_RELOC_C33_M;
-										++fc;
-
-										reloc = BFD_RELOC_C33_L;
-
-									} 
-
-
-									// low insn (ld.w %rd, @l)
-									ulrd = insn & 0x000f;
-									if( operand->range == 26 )
-									{
-										if (IS_MEM_READ)
-										{
-											extraInsnBuf[insn_idx_low] = insn;		/* ld.w %rd,sign6 */
-										}
-										else
-										{
-											insn &= 0xfff0;
-											extraInsnBuf[insn_idx_low] = insn;		/* ld.w %r0,sign6 */
-										}
-									}
-									else
-									{
-										if (IS_MEM_READ)
-										{
-											/* ald.x %rd,[symbol+imm] */
-											extraInsnBuf[insn_idx_low] = insn;		/* ld.w %rd,sign6 */
-										}
-										else
-										{
-											/* ald.x [symbol+imm],%rs */
-											insn &= 0xfff0;
-											extraInsnBuf[insn_idx_low] = insn;		/* ld.w %r0,sign6 */
-										}
-									}
-
-									// load insn
-									if ((operand->flags & C33_XLDB_RD) != 0) 
-									{
-										insn = 0x2000 + ulrd + ulrd * 16;		/* ld.b %rd,[%rd] */
-									}
-									else if((operand->flags & C33_XLDB_WR) != 0) 
-									{
-										g_iXload = 1;		/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iXload_range = operand->range;
-										insn = 0x3400;							/* ld.b [%r0],%rs */
-									}
-									if ((operand->flags & C33_XLDH_RD) != 0) 
-									{
-										insn = 0x2800 + ulrd + ulrd * 16;		/* ld.h %rd,[%rd] */
-									}
-									else if((operand->flags & C33_XLDH_WR) != 0) 
-									{
-										g_iXload = 1;				/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iXload_range = operand->range;
-										insn = 0x3800;							/* ld.h [%r0],%rs */
-									}
-									if ((operand->flags & C33_XLDW_RD) != 0) 
-									{
-										insn = 0x3000 + ulrd + ulrd * 16;		/* ld.w %rd,[%rd] */
-									}
-									else if((operand->flags & C33_XLDW_WR) != 0) 
-									{
-										g_iXload = 1;				/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iXload_range = operand->range;
-										insn = 0x3c00;							/* ld.w [%r0],%rs */
-									}
-									if ((operand->flags & C33_XLDUB_RD) != 0) 
-									{
-										insn = 0x2400 + ulrd + ulrd * 16;		/* ld.ub %rd,[%rd] */
-									}
-									else if((operand->flags & C33_XLDUH_RD) != 0) 
-									{
-										insn = 0x2c00 + ulrd + ulrd * 16;		/* ld.uh %rd,[%r0] */
-									}
-									else if((operand->flags & C33_XBTST) != 0) 
-									{
-										g_iBitTest = 1;		/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iBitTest_range = operand->range;
-										insn = 0xa800;				/* btst [%r0],imm3 */ /* �����ł̓I�y�����h�l imm3 �͐ݒ肵�Ȃ��B */
-									}
-									else if((operand->flags & C33_XBCLR) != 0) 
-									{
-										g_iBitTest = 1;		/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iBitTest_range = operand->range;
-										insn = 0xac00;				/* bclr [%r0],imm3 */ /* �����ł̓I�y�����h�l imm3 �͐ݒ肵�Ȃ��B */
-									}
-									else if((operand->flags & C33_XBSET) != 0) 
-									{
-										g_iBitTest = 1;		/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iBitTest_range = operand->range;
-										insn = 0xb000;				/* bset [%r0],imm3 */ /* �����ł̓I�y�����h�l imm3 �͐ݒ肵�Ȃ��B */
-									}
-									else if((operand->flags & C33_XBNOT) != 0) 
-									{
-										g_iBitTest = 1;		/* �I�y�����h�l�擾�p�Ƀt���O���P�ɂ���B */
-										g_iBitTest_range = operand->range;
-										insn = 0xb400;				/* bnot [%r0],imm3 */ /* �����ł̓I�y�����h�l imm3 �͐ݒ肵�Ȃ��B */
-									}
-									if( operand->range == 26 )
-									{
-										if (IS_MEM_READ)
-										{
-											extraInsnBuf[insn_idx_load] = insn;
-											extra_data_len = insn_idx_load;
-										}
-										else
-										{
-											extraInsnBuf[insn_idx_load] = insn;
-											insn = 0x0240;				/* popn %r0 */
-											extraInsnBuf[insn_idx_pop] = insn;
-											extra_data_len = insn_idx_pop;
-										}
-									}
-									else
-									{
-										if (IS_MEM_READ)
-										{
-											extraInsnBuf[insn_idx_load] = insn;
-											extra_data_len = insn_idx_load;
-										}
-										else
-										{
-											extraInsnBuf[insn_idx_load] = insn;
-											insn = 0x0240;				/* popn %r0 */
-											extraInsnBuf[insn_idx_pop] = insn;
-											extra_data_len = insn_idx_pop;
-										}
-									}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
 
                                 	/* �X�N���b�`��%r0�����A%rs = %r0�̂Ƃ��͌�ŁA�X�N���b�`��%r1�ɕύX�����B */
@@ -4036,7 +3459,6 @@ md_assemble (char * str)
 
 
 								/* add T.Tazaki 2004/08/19 <<< */
-#endif	/* EXT_REMOVE */
                                 }
                                 else {
                                     errmsg = _("invalid operand");
@@ -4334,84 +3756,6 @@ md_assemble (char * str)
                     case O_register:
                         /* An operand and an operation code are made into a command code. */
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-						if (g_iXload == 1)		/* xld.x [symbol+imm],%rs ? */
-						{
-							if( g_iXload_range == 26 )	/* xld.x */
-							{
-								if( ex.X_add_number == 0 )	/* xld.x [symbol+imm],%rs  : %rs = %r0 ? */
-								{
-
-									/* change %r0 --> %r1 */
-									if( g_iAdvance == 0 && g_iPE == 0 )	/* STD ? */
-									{
-										extraInsnBuf[0] = 0x0201;								/* pushn %r1 */
-										fixups[ 0 ].reloc   = BFD_RELOC_C33_PUSHN_R1;			/* pushn %r1 */
-									}
-									else
-									{
-										/* ADV or PE */
-										extraInsnBuf[0] = 0x0011;								/* push %r1 */
-										fixups[ 0 ].reloc   = BFD_RELOC_C33_PUSH_R1;			/* push %r1 */
-									}
-									extraInsnBuf[insn_idx_low] = 0x6c01;						/* ld.w %r1,symbol+imm */
-									extraInsnBuf[insn_idx_load] = (extraInsnBuf[insn_idx_load] & 0xff0f) | 0x0010;	/* ld.x [%r1],%rs	   */
-									if( g_iAdvance == 0 && g_iPE == 0 )	/* STD ? */
-									{
-										extraInsnBuf[insn_idx_pop] = 0x0241;					/* popn  %r1		   */
-										insn = 0x0241;
-									}
-									else
-									{
-										/* ADV or PE */
-										extraInsnBuf[insn_idx_pop] = 0x0051;					/* pop	 %r1		   */
-										insn = 0x0051;
-									}
-								}
-								extraInsnBuf[insn_idx_load] = c33_insert_operand (extraInsnBuf[insn_idx_load], operand, ex.X_add_number,
-											  (char *) NULL, 0,
-											  copy_of_instruction,flags);
-							}
-							else
-							{
-								/* g_iXload_range = 19 : ald.x */
-								if( ex.X_add_number == 0 )	/* ald.x [symbol+imm],%rs  : %rs = %r0 ? */
-								{
-
-									/* change %r0 --> %r1 */
-									if( g_iAdvance == 0 && g_iPE == 0 )	/* STD ? */
-									{
-										extraInsnBuf[0] = 0x0201;								/* pushn %r1 */
-										fixups[ 0 ].reloc   = BFD_RELOC_C33_PUSHN_R1;			/* pushn %r1 */
-									}
-									else
-									{
-										/* ADV or PE */
-										extraInsnBuf[0] = 0x0011;								/* push %r1 */
-										fixups[ 0 ].reloc   = BFD_RELOC_C33_PUSH_R1;			/* push %r1 */
-									}
-									extraInsnBuf[insn_idx_low] = 0x6c01;						/* ld.w %r1,symbol+imm */
-									extraInsnBuf[insn_idx_load] = (extraInsnBuf[insn_idx_load] & 0xff0f) | 0x0010;	/* ld.x [%r1],%rs	   */
-									if( g_iAdvance == 0 && g_iPE == 0 )	/* STD ? */
-									{
-										extraInsnBuf[insn_idx_pop] = 0x0241;					/* popn  %r1		   */
-										insn = 0x0241;
-									}
-									else
-									{
-										/* ADV or PE */
-										extraInsnBuf[insn_idx_pop] = 0x0051;					/* pop	 %r1		   */
-										insn = 0x0051;
-									}
-								}
-								extraInsnBuf[insn_idx_load] = c33_insert_operand (extraInsnBuf[insn_idx_load], operand, ex.X_add_number,
-											  (char *) NULL, 0,
-											  copy_of_instruction,flags);
-							}
-							g_iXload = 0;
-							g_iXload_range = 0;
-						}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
                         /* add T.Tazaki 2004/08/19 >>> */
 				        if (g_iXload == 1)		/* xld.x [symbol+imm],%rs ? */
@@ -4490,7 +3834,6 @@ md_assemble (char * str)
 							g_iXload_range = 0;
 						}
                         /* add T.Tazaki 2004/08/19 <<< */
-#endif	/* EXT_REMOVE */
 						else
 						{
 	                        insn = c33_insert_operand (insn, operand, ex.X_add_number,
@@ -4502,25 +3845,6 @@ md_assemble (char * str)
                     case O_constant:
                         /* An operand and an operation code are made into a command code. */
 // ADD D.Fujimoto 2007/06/25 >>>>>>>
-#ifdef EXT_REMOVE
-						if (g_iBitTest == 1)		/* bit test inst ? */
-						{
-							if( g_iBitTest_range == 26 )
-							{
-								extraInsnBuf[insn_idx_load] = c33_insert_operand (extraInsnBuf[insn_idx_load], operand, ex.X_add_number,
-											  (char *) NULL, 0,
-											  copy_of_instruction,flags);
-							}
-							else
-							{
-								extraInsnBuf[insn_idx_load] = c33_insert_operand (extraInsnBuf[insn_idx_load], operand, ex.X_add_number,
-											  (char *) NULL, 0,
-											  copy_of_instruction,flags);
-							}
-							g_iBitTest = 0;
-							g_iBitTest_range = 0;
-						}
-#else
 // ADD D.Fujimoto 2007/06/25 <<<<<<<
                         /* add T.Tazaki 2004/07/30 >>> */
 				        if (g_iBitTest == 1)		/* bit test inst ? */
@@ -4542,7 +3866,6 @@ md_assemble (char * str)
 							g_iBitTest_range = 0;
 						}
                         /* add T.Tazaki 2004/07/30 <<< */
-#endif	/* EXT_REMOVE */
 						else
 						{
 	                        insn = c33_insert_operand (insn, operand, ex.X_add_number,
@@ -4671,9 +3994,6 @@ md_assemble (char * str)
             }
 
 // ADD D.Fujimoto 2007/06/25 calculating inst offset for ext remove >>>>>>>
-#ifdef EXT_REMOVE
-			ul_All_Offset += extra_data_len;
-#endif	/* EXT_REMOVE */
 // ADD D.Fujimoto 2007/06/25 calculating inst offset for ext remove <<<<<<<
 
 

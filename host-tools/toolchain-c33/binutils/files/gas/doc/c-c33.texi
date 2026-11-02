@@ -55,13 +55,6 @@ operand is reached at an offset from the default data pointer:
 PE cores, and @code{%dp} with @code{dpoff_h}, @code{dpoff_m} and
 @code{dpoff_l} on the Advanced core.  @xref{C33 Opcodes}.
 
-@cindex @code{-mc33_ext} command-line option, C33
-@item -mc33_ext @var{file}.dump
-Omit @code{ext} prefixes that the final addresses show to be
-unnecessary.  @var{file}@code{.dump} is the symbol table of the program
-linked from a first assembly, as printed by @samp{objdump -t}; its name
-must end in @samp{.dump}.
-
 @cindex @code{-mfdpic} command-line option, C33
 @item -mfdpic
 Mark the object as FDPIC code, by setting @code{EF_C33_FDPIC} in the ELF

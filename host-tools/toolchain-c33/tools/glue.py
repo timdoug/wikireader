@@ -376,43 +376,6 @@ edit('bfd/reloc.c', add_missing_relocs(lambda n: f'  {n}\n',
 print('reloc pass done')
 
 
-# ---------------- gas: build ext_remove.c for the c33 target ------------------
-# ext_remove.c implements the second assembly pass that strips redundant "ext"
-# prefixes.  Wire it in the way bfin wires its parser: list it as an extra
-# source so automake emits a rule, then pull the object in via extra_objects.
-def gas_make_ext(s):
-    if 'ext_remove.c' in s:
-        return None
-    s = s.replace('\tconfig/tc-c33.c \\', '\tconfig/tc-c33.c \\\n\text_remove.c \\', 1)
-    s = s.replace('\tconfig/tc-c33.h \\', '\tconfig/tc-c33.h \\\n\text_remove.h \\', 1)
-    return s
-
-
-for f in ('gas/Makefile.am', 'gas/Makefile.in'):
-    edit(f, gas_make_ext)
-
-
-def gas_extra_objects(s):
-    if 'ext_remove.o' in s:
-        return None
-    return s.replace(
-        '      bfin)\n',
-        '      c33)\n'
-        '\tfor f in ext_remove.o; do\n'
-        '\t  case " $extra_objects " in\n'
-        '\t    *" $f "*) ;;\n'
-        '\t    *) extra_objects="$extra_objects $f" ;;\n'
-        '\t  esac\n'
-        '\tdone\n'
-        '\t;;\n'
-        '\n'
-        '      bfin)\n', 1)
-
-
-for f in ('gas/configure.ac', 'gas/configure'):
-    edit(f, gas_extra_objects)
-
-print('gas ext_remove wiring done')
 
 
 # ------------------------------------------------------- gas: C33 chapter
@@ -448,7 +411,6 @@ edit('gas/doc/as.texi', lambda s: before(
     s, '@ifset CRIS\n\n@emph{Target CRIS options:}',
     '@ifset C33\n\n@emph{Target C33 options:}\n'
     '   [@b{-mc33adv}|@b{-mc33pe}] [@b{-medda32}]\n'
-    '   [@b{-mc33_ext} @var{file}.dump]\n'
     '   [@b{-mfdpic}|@b{-mno-fdpic}]\n'
     '@end ifset\n', '@emph{Target C33 options:}'))
 
