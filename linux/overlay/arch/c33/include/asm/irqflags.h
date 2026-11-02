@@ -7,6 +7,7 @@
 static inline unsigned long arch_local_save_flags(void)
 {
 	unsigned long flags;
+
 	__asm__ volatile ("ld.w %0, %%psr" : "=r" (flags));
 	return flags;
 }
@@ -24,6 +25,7 @@ static inline void arch_local_irq_enable(void)
 static inline unsigned long arch_local_irq_save(void)
 {
 	unsigned long flags = arch_local_save_flags();
+
 	arch_local_irq_disable();
 	return flags;
 }

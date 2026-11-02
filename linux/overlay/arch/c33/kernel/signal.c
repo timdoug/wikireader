@@ -20,8 +20,6 @@ struct c33_rt_sigframe {
 	struct ucontext uc;
 };
 
-extern void c33_rt_sigreturn_trampoline(void);
-
 static int c33_restore_sigcontext(struct pt_regs *regs,
 				  struct sigcontext __user *context)
 {
@@ -85,8 +83,10 @@ static void __user *c33_get_sigframe(struct ksignal *ksig,
 {
 	unsigned long sp = sigsp(regs->sp, ksig);
 
-	/* Emulate call's four-byte return-address push: C enters at 12 mod
-	 * 16, while the argument base immediately above it is aligned. */
+	/*
+	 * Emulate call's four-byte return-address push: C enters at 12 mod
+	 * 16, while the argument base immediately above it is aligned.
+	 */
 	return (void __user *)(((sp - size + sizeof(unsigned long)) & ~15UL)
 			     - sizeof(unsigned long));
 }
@@ -178,9 +178,11 @@ static void c33_restart_syscall(struct pt_regs *regs,
 		return;
 	}
 
-	/* Timed waits save an absolute deadline in the restart block. Calling
+	/*
+	 * Timed waits save an absolute deadline in the restart block. Calling
 	 * the original syscall again would start a fresh relative timeout,
-	 * including after SIGSTOP/SIGCONT with no userspace handler. */
+	 * including after SIGSTOP/SIGCONT with no userspace handler.
+	 */
 	regs->r[4] = regs->r[4] == -ERESTART_RESTARTBLOCK ?
 		__NR_restart_syscall : regs->orig_r4;
 	regs->pc -= 2;

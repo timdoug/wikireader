@@ -43,6 +43,15 @@ void c33_iram_init(void);
 void *__c33_iram_func(void *func);
 void *c33_iram_alloc(size_t size);
 
+/*
+ * lib/string.S's and lib/div.S's routines, linked as __iramfunc code, and
+ * the pointers through which the exported stubs reach them.
+ */
+extern char __c33_memset[], __c33_memcpy[], __c33_memmove[];
+extern void *c33_memset_fn, *c33_memcpy_fn, *c33_memmove_fn;
+extern char __c33_udivsi3[], __c33_umodsi3[], __c33_div64_32[];
+extern void *c33_udivsi3_fn, *c33_umodsi3_fn, *c33_div64_32_fn;
+
 /* The A0 RAM copy of @func, or @func itself if it has none. */
 #define c33_iram_func(func)	((typeof(&(func)))__c33_iram_func(func))
 

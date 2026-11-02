@@ -442,8 +442,10 @@ static const struct s1c33_group s1c33_groups[] = {
 	S1C33_GROUP(lcd),
 };
 
-/* Group numbers: the pins' own first, then the named groups; a named
- * group's function is numbered after the signals. */
+/*
+ * Group numbers: the pins' own first, then the named groups; a named
+ * group's function is numbered after the signals.
+ */
 #define S1C33_NPINS		ARRAY_SIZE(s1c33_pins)
 #define S1C33_FN_GROUP(i)	(S1C33_FN_PORT + 1 + (i))
 
@@ -779,8 +781,10 @@ static void s1c33_gpio_key_interrupt(struct s1c33_gpio *gpio)
 	u8 bits;
 
 	spin_lock(&gpio->lock);
-	/* Store what was read as the new pattern, and go round again if a
-	 * line moved in between: the mismatch would never interrupt. */
+	/*
+	 * Store what was read as the new pattern, and go round again if a
+	 * line moved in between: the mismatch would never interrupt.
+	 */
 	do {
 		bits = s1c33_gpio_key_bits(gpio);
 		rose |= bits & ~gpio->key_state;
@@ -809,8 +813,10 @@ static void s1c33_gpio_port3_interrupt(struct s1c33_gpio *gpio)
 	spin_lock(&gpio->lock);
 	before = gpio->port3_level;
 	s1c33_gpio_arm_port3(gpio);
-	/* Re-armed for the next edge; one that came first is already lost
-	 * to the hardware, so check the level once more. */
+	/*
+	 * Re-armed for the next edge; one that came first is already lost
+	 * to the hardware, so check the level once more.
+	 */
 	if (s1c33_gpio_port3_bit(gpio) != gpio->port3_level)
 		s1c33_gpio_arm_port3(gpio);
 	report = gpio->port3_enabled &&

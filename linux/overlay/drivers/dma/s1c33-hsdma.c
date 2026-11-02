@@ -376,7 +376,7 @@ hsdma_prep(struct hsdma_chan *c, dma_addr_t source, bool source_inc,
 	d = c->spares ? c->spare[--c->spares] : NULL;
 	if (!d) {
 		spin_unlock_irqrestore(&c->lock, irqflags);
-		d = kmalloc(sizeof(*d), GFP_NOWAIT);
+		d = kmalloc_obj(*d, GFP_NOWAIT);
 		if (!d)
 			return NULL;
 		spin_lock_irqsave(&c->lock, irqflags);

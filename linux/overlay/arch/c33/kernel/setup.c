@@ -20,13 +20,11 @@
 #define C33_SDRAMC_ADDRC_MASK      7
 
 unsigned long memory_start;
-unsigned long memory_end;
 EXPORT_SYMBOL(memory_start);
+unsigned long memory_end;
 EXPORT_SYMBOL(memory_end);
 
-extern void paging_init(void);
 asmlinkage __visible void __init c33_start(int argc, char **argv);
-void __init arch_cpu_finalize_init(void);
 
 /* The launcher's arguments, copied out of its memory before anything runs. */
 static char c33_launcher_args[COMMAND_LINE_SIZE] __initdata;
@@ -190,8 +188,4 @@ void __init setup_arch(char **cmdline_p)
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
 	c33_lcd_console_register();
-}
-
-void __init arch_cpu_finalize_init(void)
-{
 }

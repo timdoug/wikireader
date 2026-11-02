@@ -38,8 +38,10 @@ static const struct fb_var_screeninfo s1c33fb_var = {
 	.xres_virtual = S1C33_FB_WIDTH,
 	.yres_virtual = S1C33_FB_HEIGHT,
 	.bits_per_pixel = 1,
-	/* The panel shows each byte's high bit first, the reverse of the
-	 * little-endian default. */
+	/*
+	 * The panel shows each byte's high bit first, the reverse of the
+	 * little-endian default.
+	 */
 	.nonstd = FB_NONSTD_REV_PIX_IN_B,
 	/* One bit of each: what fbcon and others read as the pixel's depth. */
 	.red = { .length = 1 },

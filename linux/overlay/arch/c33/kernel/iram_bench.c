@@ -18,11 +18,7 @@
 
 #include <asm/iram.h>
 
-void c33_bench_alu(unsigned int passes);
-void c33_bench_load(const u32 *p, unsigned int blocks);
-void c33_bench_store(u32 *p, unsigned int blocks, u32 v);
-u32 c33_bench_lookup(const u32 *p, unsigned int words, const u16 *table);
-extern char __c33_memcpy[], __c33_memset[], __c33_udivsi3[];
+#include "iram_bench.h"
 
 #define BUF_BYTES	4096
 #define REPEAT		16

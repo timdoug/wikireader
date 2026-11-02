@@ -34,9 +34,11 @@
 #define S1C33_ITC_BANK		16
 #define S1C33_ITC_VECTORS	64
 
-/* Register index within the enable and flag banks, stored plus one so that
+/*
+ * Register index within the enable and flag banks, stored plus one so that
  * zero means "not an interrupt source", the bit within it, and the group's
- * priority register and nibble. */
+ * priority register and nibble.
+ */
 struct s1c33_itc_source {
 	u8 index;
 	u8 bit;
@@ -103,8 +105,10 @@ static void s1c33_itc_ack(struct irq_data *data)
 	       s1c33_itc_reg(S1C33_ITC_FLAG, data->hwirq));
 }
 
-/* A source starts with its flag clear: whatever ran before Linux, or before
- * its driver, may have left the cause pending. */
+/*
+ * A source starts with its flag clear: whatever ran before Linux, or before
+ * its driver, may have left the cause pending.
+ */
 static unsigned int s1c33_itc_startup(struct irq_data *data)
 {
 	s1c33_itc_ack(data);
@@ -118,8 +122,10 @@ static struct irq_chip s1c33_itc_chip = {
 	.irq_mask = s1c33_itc_mask,
 	.irq_unmask = s1c33_itc_unmask,
 	.irq_ack = s1c33_itc_ack,
-	/* Nothing powers the controller down, so a wake source is simply an
-	 * interrupt that suspend leaves enabled. */
+	/*
+	 * Nothing powers the controller down, so a wake source is simply an
+	 * interrupt that suspend leaves enabled.
+	 */
 	.flags = IRQCHIP_SKIP_SET_WAKE,
 };
 

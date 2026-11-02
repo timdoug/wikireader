@@ -397,8 +397,10 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 	drm->mode_config.preferred_depth = 1;
 	drm->mode_config.funcs = &s1c33_lcdc_mode_config_funcs;
 
-	/* One plane on one CRTC, through an encoder that is only wiring, to
-	   the panel. */
+	/*
+	 * One plane on one CRTC, through an encoder that is only wiring, to
+	 * the panel.
+	 */
 	drm_plane_helper_add(&lcdc->plane, &s1c33_lcdc_plane_helper_funcs);
 	ret = drm_universal_plane_init(drm, &lcdc->plane, 0,
 				       &s1c33_lcdc_plane_funcs,

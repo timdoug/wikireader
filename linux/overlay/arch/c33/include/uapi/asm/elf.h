@@ -3,7 +3,7 @@
 #define _UAPI_ASM_C33_ELF_H
 #include <linux/types.h>
 typedef unsigned long elf_greg_t;
-/* One per word of struct pt_regs, which ELF_CORE_COPY_REGS copies whole. */
+/* One per word of struct pt_regs, which a core dump copies whole. */
 #define ELF_NGREG 24
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 typedef struct { unsigned long unused; } elf_fpregset_t;

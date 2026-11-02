@@ -110,8 +110,10 @@ enum sd_phase {
 struct sd_timing {
 	bool on;
 	u32 blocks, requests;
-	/* Streamed reads: transfers, gap bytes, requests that carried on
-	 * and the bytes already in when they did, and blocks that failed. */
+	/*
+	 * Streamed reads: transfers, gap bytes, requests that carried on
+	 * and the bytes already in when they did, and blocks that failed.
+	 */
 	u32 transfers, gap_bytes, carried, in_hand, errors;
 	u32 commands, written;
 	u64 cycles[SD_T_PHASES];
@@ -697,7 +699,7 @@ static int sd_response(struct s1c33_sd *host, struct mmc_command *cmd,
 		if ((R1_SPI_PARAMETER | R1_SPI_ADDRESS) & cmd->resp[0])
 			value = -EFAULT;
 		else if (R1_SPI_ILLEGAL_COMMAND & cmd->resp[0])
-			value = -ENOSYS;
+			value = -ENOSYS; /* the MMC core's "card lacks it" */
 		else if (R1_SPI_COM_CRC & cmd->resp[0])
 			value = -EILSEQ;
 		else if ((R1_SPI_ERASE_SEQ | R1_SPI_ERASE_RESET) & cmd->resp[0])
@@ -1997,9 +1999,11 @@ static int sd_probe(struct platform_device *pdev)
 	mmc->max_blk_count = SD_BLOCKSATONCE;
 	mmc->max_req_size = SD_BLOCKSATONCE * SD_BLOCKSIZE;
 	mmc->max_seg_size = mmc->max_req_size;
-	/* The block layer gives every request the queue can hold (193, with
-	   mq-deadline) a scatterlist of max_segs entries: 256 made that
-	   772 KB of RAM.  The largest request needs one segment a page.  */
+	/*
+	 * The block layer gives every request the queue can hold (193, with
+	 * mq-deadline) a scatterlist of max_segs entries: 256 made that
+	 * 772 KB of RAM.  The largest request needs one segment a page.
+	 */
 	mmc->max_segs = mmc->max_req_size / PAGE_SIZE;
 	ret = mmc_of_parse(mmc);
 	if (ret)

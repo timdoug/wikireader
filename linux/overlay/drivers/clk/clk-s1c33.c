@@ -170,7 +170,7 @@ static struct clk_hw *s1c33_register_mclk(struct device_node *node)
 	struct clk_hw *hw;
 	int ret;
 
-	hw = kzalloc(sizeof(*hw), GFP_KERNEL);
+	hw = kzalloc_obj(*hw);
 	if (!hw)
 		return ERR_PTR(-ENOMEM);
 	hw->init = &init;
@@ -215,7 +215,7 @@ static void __init s1c33_cmu_init(struct device_node *node)
 
 		if (!s1c33_gates[i].name)
 			continue;
-		gate = kzalloc(sizeof(*gate), GFP_KERNEL);
+		gate = kzalloc_obj(*gate);
 		if (!gate) {
 			ret = -ENOMEM;
 			goto err;

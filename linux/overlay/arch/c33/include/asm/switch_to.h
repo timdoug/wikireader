@@ -5,5 +5,9 @@ struct task_struct;
 extern struct task_struct *__c33_switch_to(struct task_struct *prev,
 					   struct task_struct *next);
 #define switch_to(prev, next, last) \
-	do { (last) = __c33_switch_to((prev), (next)); } while (0)
+	((last) = __c33_switch_to((prev), (next)))
+
+/* Where copy_thread() starts a new task: kernel/switch.S. */
+void ret_from_fork(void);
+void ret_from_kernel_thread(void);
 #endif

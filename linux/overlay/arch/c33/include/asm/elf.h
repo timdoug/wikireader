@@ -28,7 +28,5 @@
 		(_regs)->r[7] = (_interp_map_addr);			\
 		(_regs)->r[8] = (_dynamic_addr);			\
 	} while (0)
-#define ELF_CORE_COPY_REGS(dest, regs) \
-	do { memcpy((dest), (regs), sizeof(*(regs))); } while (0);
 #define SET_PERSONALITY(ex) set_personality(PER_LINUX)
 #endif

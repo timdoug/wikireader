@@ -12,6 +12,7 @@
 #include <linux/syscalls.h>
 
 #include <asm/processor.h>
+#include <asm/switch_to.h>
 #include <asm/wikireader.h>
 
 #define C33_GRIFO_EXIT_POWER_OFF 1
@@ -62,9 +63,11 @@ asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 	 * process or another one keeps next to it.  Say so, rather than let
 	 * the damage surface later as someone else's crash.
 	 */
-	/* An alternate signal stack can lie below the ordinary stack. Check
+	/*
+	 * An alternate signal stack can lie below the ordinary stack. Check
 	 * against its own allocation rather than diagnosing a valid handler
-	 * syscall or interrupt as an ordinary-stack overflow. */
+	 * syscall or interrupt as an ordinary-stack overflow.
+	 */
 	stack_lo = on_sig_stack(regs->sp) ? current->sas_ss_sp :
 		current->thread.stack_lo;
 	if (unlikely(regs->sp - 108 < stack_lo)) {
@@ -126,9 +129,11 @@ void machine_halt(void)
 		__asm__ volatile ("halt");
 }
 
-/* Power is Grifo's to cut: the launcher, back in control, turns the unit
-   off.  As a sys-off handler, so that the kernel knows it can power off and
-   poweroff does not settle for a halt.  */
+/*
+ * Power is Grifo's to cut: the launcher, back in control, turns the unit
+ * off.  As a sys-off handler, so that the kernel knows it can power off and
+ * poweroff does not settle for a halt.
+ */
 static int c33_grifo_power_off(struct sys_off_data *data)
 {
 	c33_grifo_exit(C33_GRIFO_EXIT_POWER_OFF);
@@ -173,8 +178,8 @@ void show_stack(struct task_struct *task, unsigned long *stack,
 				 ~(THREAD_SIZE - 1));
 	printk("%sStack:", loglvl);
 	while (stack < end && words++ < 32)
-		printk(" %08lx", *stack++);
-	printk("\n");
+		pr_cont(" %08lx", *stack++);
+	pr_cont("\n");
 }
 
 void flush_thread(void)
@@ -218,8 +223,6 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
 	struct pt_regs *childregs = task_pt_regs(p);
 	unsigned long *switch_sp = (unsigned long *)childregs - 5;
-	extern void ret_from_fork(void);
-	extern void ret_from_kernel_thread(void);
 
 	memset(switch_sp, 0, 4 * sizeof(*switch_sp) + sizeof(*childregs));
 	p->thread.regs = childregs;

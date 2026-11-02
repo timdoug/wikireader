@@ -15,6 +15,7 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
+#include <asm/syscall.h>
 #include <asm/syscalls.h>
 #include <asm/wikireader.h>
 
@@ -23,8 +24,6 @@
 #define C33_IRQ_FLAG_FIRST    (C33_REG_BASE + 0x280)
 #define C33_SYSCALL_VECTOR    12
 
-extern unsigned long c33_vector_table[];
-extern void *const c33_sys_call_table[];
 unsigned long c33_boot_ttbr;
 int c33_grifo_booted;
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
@@ -154,8 +153,10 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 	/* Only a syscall frame carries a number; see arch_do_signal_or_restart(). */
 	regs->orig_r4 = -1L;
-	/* Signals and core notes must see the interrupted user frame, rather
-	 * than the frame left by its most recent syscall. */
+	/*
+	 * Signals and core notes must see the interrupted user frame, rather
+	 * than the frame left by its most recent syscall.
+	 */
 	if (user_mode(regs))
 		current->thread.regs = regs;
 
