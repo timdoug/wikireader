@@ -4,7 +4,7 @@ diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconf
 @@ -10,1 +10,12 @@
 +config TOUCHSCREEN_WIKIREADER
 +	bool "Openmoko WikiReader touchscreen"
-+	depends on C33_WIKIREADER && SERIAL_S1C33
++	depends on (C33_WIKIREADER && SERIAL_S1C33) || (COMPILE_TEST && TTY)
 +	select SERIAL_DEV_BUS
 +	select SERIAL_DEV_CTRL_TTYPORT
 +	help
@@ -26,7 +26,7 @@ diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 @@ -14,1 +14,23 @@
 +config SERIAL_S1C33
 +	bool "Epson S1C33 serial port support"
-+	depends on C33 && TTY
++	depends on (C33 || COMPILE_TEST) && TTY
 +	select SERIAL_CORE
 +	help
 +	  Enable the asynchronous serial controller found in Epson S1C33
@@ -59,7 +59,7 @@ diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
 @@ -47,1 +47,13 @@
 +config FB_S1C33
 +	bool "Epson S1C33 WikiReader framebuffer"
-+	depends on FB && C33
++	depends on FB && (C33 || COMPILE_TEST)
 +	select FB_IOMEM_HELPERS
 +	select FB_CFB_REV_PIXELS_IN_BYTE
 +	select FB_PROVIDE_GET_FB_UNMAPPED_AREA

@@ -7,7 +7,7 @@ index a61c6dc63..8615f6b93 100644
         depends on VERSATILE_FPGA_IRQ
  
 +config S1C33_ITC
-+	bool
++	bool "Epson S1C33 interrupt controller" if COMPILE_TEST
 +	select IRQ_DOMAIN
 +	help
 +	  The interrupt controller of the Epson S1C33 family, which turns
