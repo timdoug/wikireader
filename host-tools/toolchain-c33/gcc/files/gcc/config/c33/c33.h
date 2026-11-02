@@ -89,8 +89,12 @@
 
    Both spellings are matched because -mc33pe is an Alias of -mcore=.  */
 #define ASM_SPEC \
-  "%{mc33adv|mcore=c33adv:-mc33adv} %{mc33pe|mcore=c33pe:-mc33pe} \
-   %{mfdpic:-mfdpic}"
+  "%{mc33adv|mcore=c33adv:-mc33adv} %{mc33pe|mcore=c33pe:-mc33pe} " \
+  ASM_FDPIC_SPEC
+
+/* FDPIC or not, for the assembler; a Linux assembler makes FDPIC objects
+   unless told otherwise (linux.h).  */
+#define ASM_FDPIC_SPEC "%{mfdpic:-mfdpic}"
 
 #define LINK_SPEC ""
 #define CPP_SPEC ""

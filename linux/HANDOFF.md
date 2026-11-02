@@ -492,9 +492,12 @@ Where the kernel still departs:
 
 The toolchain follows them in design (`host-tools/toolchain-c33/gcc/ABI.md`:
 descriptors as on SH, constructor tables as on ARM). Where it departs:
-- The GCC and binutils test suites have never been run for
-  `c33-linux-uclibc`; our own tests (uClibc, `cxx-test`, BusyBox, LTP, X)
-  exercise it.
+- GCC's execute torture passes but for `pr43987` at `-O0` (README, "GCC
+  and binutils test suites"): GCC does not word-align `char` arrays, as
+  SPARC, MIPS and SH do, so one used as a structure faults when it lands on
+  an odd address.  `DATA_ALIGNMENT` would fix it, in `linux.h` for Linux
+  alone or in `c33.h` for the firmware too.  `gcc.dg` and the C++ suites
+  have not been run.
 - The unwind tables are data, with absolute pointers, so every process has
   its own copy (73 KB for `cxx-test`); SH keeps them in text with GOT-relative
   relocations the C33 linker does not have.

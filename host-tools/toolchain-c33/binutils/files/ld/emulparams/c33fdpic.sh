@@ -4,8 +4,9 @@ SCRIPT_NAME=c33fdpic
 OUTPUT_FORMAT="elf32-c33fdpic"
 ARCH=c33
 MACHINE=
-MAXPAGESIZE=0x1000
-COMMONPAGESIZE=0x1000
+# No COMMONPAGESIZE: without an MMU there is no RELRO to page-align, and
+# leaving it unset makes ld report -z relro ignored, as FRV's and Blackfin's.
+MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
 ENTRY=_start
 TEMPLATE_NAME=elf
 GENERATE_SHLIB_SCRIPT=yes

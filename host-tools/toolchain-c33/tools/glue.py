@@ -184,6 +184,13 @@ edit('gas/configure.tgt', lambda s: after(
     '  c33-*-*)\t\t\t\tfmt=elf ;;\n',
     'c33-*-*)\t\t\t\tfmt=elf'))
 
+# A Linux target gets the Linux environment, TE_LINUX, under which the
+# assembler makes FDPIC objects by default, as FRV's does.
+edit('gas/configure.tgt', lambda s: after(
+    s, '  v850*-*-*)\t\t\t\tfmt=elf ;;',
+    '  c33-*-*linux*)\t\t\tfmt=elf em=linux ;;\n',
+    'c33-*-*linux*)'))
+
 
 def gas_make(s):
     if 'tc-c33.c' in s:
@@ -550,3 +557,74 @@ def readelf_reloc_names(s):
 edit('binutils/readelf.c', readelf_reloc_names)
 
 print('readelf DWARF reloc knowledge done')
+
+
+# ------------------------------------------------------- ld testsuite targets
+# A C33 Linux link is FDPIC, which, like FRV's and Blackfin's, refuses an
+# absolute address in a read-only segment: the loader relocates segments
+# independently, and text is shared.  Expect what those targets expect.
+C33_LINUX = 'c33-*-*linux*'
+
+
+def xfail_line(s):
+    out = []
+    for line in s.splitlines(keepends=True):
+        if line.startswith('#xfail:') and 'frv-' in line and C33_LINUX not in line:
+            line = line.replace('frv-', C33_LINUX + ' frv-', 1)
+        out.append(line)
+    return ''.join(out)
+
+
+for f in ('comm-data5', 'ehdr_start', 'ehdr_start-shared', 'pr23591', 'pr23648'):
+    edit(f'ld/testsuite/ld-elf/{f}.d', xfail_line)
+for f in ('pr19167', 'start', 'start3', 'start4'):
+    edit(f'ld/testsuite/ld-gc/{f}.d', xfail_line)
+for f in ('empty-address-1', 'empty-address-2a', 'empty-address-2b'):
+    edit(f'ld/testsuite/ld-scripts/{f}.d', xfail_line)
+# x = ABSOLUTE(x) makes x absolute only once .rofixup is sized; Blackfin's
+# FDPIC refuses it the same way.
+edit('ld/testsuite/ld-scripts/pr14962.d', lambda s: None if C33_LINUX in s else s.replace(
+    '#xfail: bfin-*-linux*\n', f'#xfail: bfin-*-linux* {C33_LINUX}\n', 1))
+
+
+def shared_exp(s):
+    if C33_LINUX in s:
+        return None
+    # The expected failures of pr22471 and the DT_TEXTREL tests.
+    s = re.sub(r'^\] bfin-\*-\* (.*frv-)', r'] bfin-*-* ' + C33_LINUX + r' \1',
+               s, flags=re.M)
+    # pr25458 needs copy relocations, which FDPIC never makes.
+    s = s.replace('\tfrv-*-* { }\n', f'\t{C33_LINUX} {{ }}\n\tfrv-*-* {{ }}\n', 1)
+    s = s.replace('setup_xfail frv-*-* lm32-*-*\n',
+                  f'setup_xfail {C33_LINUX} frv-*-* lm32-*-*\n', 1)
+    # Nor does it copy a function pointer's target: pr22374 passes.
+    return s.replace('clear_xfail alpha-*-* bfin-*-linux* ',
+                     f'clear_xfail alpha-*-* bfin-*-linux* {C33_LINUX} ', 1)
+
+
+edit('ld/testsuite/ld-elf/shared.exp', shared_exp)
+
+# 64ksec's sections hold addresses: writable ones, as FRV Linux has them.
+edit('ld/testsuite/ld-elf/sec64k.exp', lambda s: None if C33_LINUX in s else s.replace(
+    'if {![istarget "frv-*-*linux*"]} then {',
+    f'if {{![istarget "frv-*-*linux*"] && ![istarget "{C33_LINUX}"]}} then {{', 1))
+
+edit('ld/testsuite/ld-scripts/sysroot-prefix.exp', lambda s: after(
+    s, '     || [istarget frv-*-*]',
+    f'     || [istarget {C33_LINUX}]\n', C33_LINUX))
+
+edit('ld/testsuite/ld-scripts/weak.exp', lambda s: after(
+    s, '    setup_xfail bfin-*-linux*',
+    f'    setup_xfail {C33_LINUX}\n', C33_LINUX))
+
+# FDPIC makes .rofixup entries, never DT_TEXTREL, as Blackfin's.
+edit('ld/testsuite/ld-elf/pr19539.d', lambda s: None if C33_LINUX in s else s.replace(
+    '#xfail: ![check_pie_support] || bfin-*-*\n',
+    f'#xfail: ![check_pie_support] || bfin-*-* || {C33_LINUX}\n', 1))
+
+# The unwind tables are data after .data, where the loader relocates them,
+# so .tbss is not where elf.sc's layout puts it.
+edit('ld/testsuite/ld-elf/tbss4.d', lambda s: None if C33_LINUX in s else s.replace(
+    '#notarget: hppa64-*-* ia64-*-*\n', f'#notarget: hppa64-*-* ia64-*-* {C33_LINUX}\n', 1))
+
+print('ld testsuite expectations done')

@@ -126,10 +126,27 @@ void machine_halt(void)
 		__asm__ volatile ("halt");
 }
 
-void machine_power_off(void)
+/* Power is Grifo's to cut: the launcher, back in control, turns the unit
+   off.  As a sys-off handler, so that the kernel knows it can power off and
+   poweroff does not settle for a halt.  */
+static int c33_grifo_power_off(struct sys_off_data *data)
+{
+	c33_grifo_exit(C33_GRIFO_EXIT_POWER_OFF);
+}
+
+static int __init c33_power_off_init(void)
 {
 	if (c33_grifo_booted)
-		c33_grifo_exit(C33_GRIFO_EXIT_POWER_OFF);
+		register_sys_off_handler(SYS_OFF_MODE_POWER_OFF,
+					 SYS_OFF_PRIO_FIRMWARE,
+					 c33_grifo_power_off, NULL);
+	return 0;
+}
+arch_initcall(c33_power_off_init);
+
+void machine_power_off(void)
+{
+	do_kernel_power_off();
 	machine_halt();
 }
 

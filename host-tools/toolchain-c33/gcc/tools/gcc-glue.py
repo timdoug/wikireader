@@ -140,4 +140,20 @@ edit('libgcc/config.host', libgcc_cpu_type)
 edit('libgcc/config.host', libgcc_target)
 edit('libgcc/config.host', libgcc_linux)
 
+# ------------------------------------------------------------ gcc testsuite
+
+# The PE core has no divide instructions; libgcc divides, and a zero divisor
+# does not trap.  The test already says so for csky, or1k and the like.
+def no_division_trap(s):
+    if '__c33__' in s:
+        return None
+    anchor = '#elif defined (__pru__)\n'
+    return s.replace(anchor,
+                     '#elif defined (__c33__)\n'
+                     '  /* C33 PE divides in libgcc, which does not trap.  */\n'
+                     '# define DO_TEST 0\n' + anchor, 1)
+
+
+edit('gcc/testsuite/gcc.c-torture/execute/20101011-1.c', no_division_trap)
+
 print('changed:', changed or '(already applied)')

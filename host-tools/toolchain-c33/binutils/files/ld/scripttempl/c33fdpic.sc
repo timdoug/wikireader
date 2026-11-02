@@ -13,6 +13,18 @@
 # are permitted in any medium without royalty provided the copyright
 # notice and this notice are preserved.
 
+# A final link drops the stack note, which only says what the code
+# needs; ld -r keeps one, merged from all of them.
+STACKNOTE=".note.GNU-stack 0 : { *(.note.GNU-stack) }"
+# -Ttext-segment moves the whole image, headers and all.
+TEXT_START="SEGMENT_START(\"text-segment\", 0)"
+# -z separate-code gives the code pages of its own, which no other
+# section shares; off by default, as it costs up to two pages.
+CODE_ALIGN=
+case "$LD_FLAG" in
+  *textonly*) CODE_ALIGN=". = ALIGN(${MAXPAGESIZE});" ;;
+esac
+
 cat <<EOF
 /* Copyright (C) 2026 Free Software Foundation, Inc.
 
@@ -27,9 +39,9 @@ ${RELOCATING+${LIB_SEARCH_DIRS}}
 
 SECTIONS
 {
-  ${RELOCATING+. = SIZEOF_HEADERS;}
-  .interp         : { *(.interp) }
+  ${RELOCATING+. = ${TEXT_START} + SIZEOF_HEADERS;}
   .note.gnu.build-id : { *(.note.gnu.build-id) }
+  .interp         : { *(.interp) }
   .hash           : { *(.hash) }
   .gnu.hash       : { *(.gnu.hash) }
   .dynsym         : { *(.dynsym) }
@@ -39,17 +51,19 @@ SECTIONS
   .gnu.version_r  : { *(.gnu.version_r) }
   .rela.dyn       : { *(.rela.dyn) }
   .rela.plt       : { *(.rela.plt) }
+  ${RELOCATING+${CODE_ALIGN}}
   .plt            : { *(.plt) }
   .text           :
   {
-    *(.text.unlikely${RELOCATING+ .text.*_unlikely .text.unlikely.*})
-    *(.text.exit${RELOCATING+ .text.exit.*})
-    *(.text.startup${RELOCATING+ .text.startup.*})
-    *(.text.hot${RELOCATING+ .text.hot.*})
+    ${RELOCATING+*(.text.unlikely .text.*_unlikely .text.unlikely.*)}
+    ${RELOCATING+*(.text.exit .text.exit.*)}
+    ${RELOCATING+*(.text.startup .text.startup.*)}
+    ${RELOCATING+*(.text.hot .text.hot.*)}
     *(.text${RELOCATING+ .stub .text.* .gnu.linkonce.t.*})
   }
   .init           : { ${RELOCATING+KEEP (*(SORT_NONE(.init)))} ${RELOCATING-*(.init)} }
   .fini           : { ${RELOCATING+KEEP (*(SORT_NONE(.fini)))} ${RELOCATING-*(.fini)} }
+  ${RELOCATING+${CODE_ALIGN}}
   .rodata         : { *(.rodata${RELOCATING+ .rodata.* .gnu.linkonce.r.*}) }
   .rodata1        : { *(.rodata1) }
   /* Unrelocated link-time search entries are shared with the text.  The
@@ -127,13 +141,14 @@ SECTIONS
   }
   ${RELOCATING+_end = .; PROVIDE (end = .);}
 
-  .comment        0 : { *(.comment) }
+  .comment        0 (INFO) : { *(.comment); LINKER_VERSION; }
+  ${RELOCATING-${STACKNOTE}}
 EOF
 
 source_sh $srcdir/scripttempl/DWARF.sc
 
 cat <<EOF
   .gnu.attributes 0 : { KEEP (*(.gnu.attributes)) }
-  /DISCARD/ : { *(.gnu_debuglink) *(.gnu.lto_*) }
+  /DISCARD/ : { ${RELOCATING+*(.note.GNU-stack)} *(.gnu_debuglink) *(.gnu.lto_*) }
 }
 EOF

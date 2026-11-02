@@ -46,6 +46,7 @@ extern bool        c33_sep_data_symbol_p (rtx);
 extern bool        c33_fdpic_expand_call (rtx, rtx, rtx);
 extern void        c33_fdpic_restore_r15 (void);
 extern bool        c33_symbolic_p (rtx);
+extern bool        c33_sep_data_split_p (rtx);
 extern bool        c33_short_memory_p (rtx);
 extern bool        c33_bit_memory_p (rtx);
 extern int         c33_move_length (rtx_insn *);

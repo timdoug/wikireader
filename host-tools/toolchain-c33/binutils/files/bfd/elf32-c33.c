@@ -1765,6 +1765,10 @@ struct c33fdpic_link_hash_entry
   unsigned int call : 1;
   /* An R_C33_FUNCDESC names the symbol.  */
   unsigned int fd : 1;
+  /* Whether its value is absolute, as it was when .rofixup and .rela.dyn
+     were sized (abs_sized), so that writing them agrees.  */
+  unsigned int abs : 1;
+  unsigned int abs_sized : 1;
   /* Its .plt entry and the descriptor in .got the entry loads.  */
   bfd_vma plt_offset;
   bfd_vma plt_got;
@@ -1816,6 +1820,8 @@ c33fdpic_link_hash_newfunc (struct bfd_hash_entry *entry,
 
       e->call = 0;
       e->fd = 0;
+      e->abs = 0;
+      e->abs_sized = 0;
       e->plt_offset = C33FDPIC_NONE;
       e->plt_got = C33FDPIC_NONE;
       e->fd_got = C33FDPIC_NONE;
@@ -2054,9 +2060,33 @@ c33fdpic_fd_local (struct bfd_link_info *info, struct elf_link_hash_entry *h)
    or against a local symbol in SYM_SEC.  relocate_section and the sizing
    below must agree exactly.  */
 
+/* Whether a symbol's value is absolute: its relocations need no load-time
+   work.  ld settles some symbols late: one a linker script defines may move
+   into or out of the absolute section after .rofixup and .rela.dyn are
+   sized (bfd_is_abs_symbol knows only the "." kind, which ld makes
+   section-relative), and .sizeof.SECTION, a size rather than an address,
+   stays in its section until ld gives it its value.  So the answer is
+   taken when the sections are sized (SIZING) and kept for writing them,
+   which must agree.  */
+
+static bool
+c33fdpic_abs_symbol_p (struct elf_link_hash_entry *h, bool sizing)
+{
+  struct c33fdpic_link_hash_entry *e = c33fdpic_entry (h);
+
+  if (sizing || !e->abs_sized)
+    {
+      e->abs = ((h->start_stop && startswith (h->root.root.string, ".sizeof."))
+		|| bfd_is_abs_symbol (&h->root));
+      e->abs_sized |= sizing;
+    }
+  return e->abs;
+}
+
 static enum c33fdpic_word
 c33fdpic_word_kind (struct bfd_link_info *info, int r_type,
-		    struct elf_link_hash_entry *h, asection *sym_sec)
+		    struct elf_link_hash_entry *h, asection *sym_sec,
+		    bool sizing)
 {
   enum c33fdpic_word own = (bfd_link_executable (info)
 			    ? C33FDPIC_WORD_ROFIXUP : C33FDPIC_WORD_RELATIVE);
@@ -2081,7 +2111,7 @@ c33fdpic_word_kind (struct bfd_link_info *info, int r_type,
 
   if (!SYMBOL_REFERENCES_LOCAL (info, h))
     return C33FDPIC_WORD_SYMBOLIC;
-  if (c33fdpic_defined_p (h) && bfd_is_abs_section (h->root.u.def.section))
+  if (c33fdpic_abs_symbol_p (h, sizing))
     return C33FDPIC_WORD_PLAIN;
   return own;
 }
@@ -2263,7 +2293,7 @@ c33fdpic_size_fixups (struct bfd_link_info *info, bool *changed)
           continue;
         }
 
-      switch (c33fdpic_word_kind (info, r_type, h, sym_sec))
+      switch (c33fdpic_word_kind (info, r_type, h, sym_sec, true))
 		{
 		case C33FDPIC_WORD_PLAIN:
 		  break;
@@ -2423,6 +2453,15 @@ c33fdpic_discard_info (bfd *ibfd ATTRIBUTE_UNUSED,
   if (!c33fdpic_size_fixups (info, &changed))
     info->callbacks->einfo (_("%F%P: cannot size .rofixup: %E\n"));
   return changed;
+}
+
+/* Whether a linker section's contents have no place in the output.  */
+
+static bool
+c33fdpic_discarded_p (asection *s)
+{
+  return (s->output_section == NULL
+	  || bfd_is_abs_section (s->output_section));
 }
 
 static void
@@ -2756,17 +2795,21 @@ c33fdpic_finish_dynamic_sections (struct bfd_link_info *info,
 	      dyn.d_un.d_ptr = c33fdpic_dp (info);
 	      break;
 	    case DT_RELACOUNT:
-	      dyn.d_un.d_val = relative;
+	      dyn.d_un.d_val = (c33fdpic_discarded_p (htab->elf.srelgot)
+				? 0 : relative);
 	      break;
 	    /* The generic code counts every RELA section into DT_RELA; the
-	       .plt's are a table of their own.  */
+	       .plt's are a table of their own.  A table the link's script
+	       discards is empty.  */
 	    case DT_RELA:
 	    case DT_RELASZ:
 	    case DT_JMPREL:
 	    case DT_PLTRELSZ:
 	      o = (dyn.d_tag == DT_RELA || dyn.d_tag == DT_RELASZ
 		   ? htab->elf.srelgot : htab->elf.srelplt);
-	      if (dyn.d_tag == DT_RELASZ || dyn.d_tag == DT_PLTRELSZ)
+	      if (c33fdpic_discarded_p (o))
+		dyn.d_un.d_val = 0;
+	      else if (dyn.d_tag == DT_RELASZ || dyn.d_tag == DT_PLTRELSZ)
 		dyn.d_un.d_val = o->size;
 	      else
 		dyn.d_un.d_ptr = (o->output_section->vma + o->output_offset);
@@ -2944,7 +2987,7 @@ c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
     }
 
   kind = c33fdpic_word_kind (info, r_type, h,
-			     h == NULL ? sec : NULL);
+			     h == NULL ? sec : NULL, false);
   offset = _bfd_elf_section_offset (output_bfd, info, input_section,
 				    rel->r_offset);
   if (offset == (bfd_vma) -1 || offset == (bfd_vma) -2)
@@ -3042,6 +3085,16 @@ c33_elf_relocate_section (struct bfd_link_info * info,
 
   symtab_hdr = & elf_tdata (input_bfd)->symtab_hdr;
   sym_hashes = elf_sym_hashes (input_bfd);
+
+  /* An object not built for FDPIC was refused when its flags were merged,
+     and ld goes on to report every such error before stopping.  Its
+     relocations have no FDPIC meaning, and no FDPIC input may have made
+     the sections they would use, so stop here.  */
+  if (IS_FDPIC (output_bfd) && !IS_FDPIC (input_bfd))
+    {
+      bfd_set_error (bfd_error_wrong_format);
+      return false;
+    }
 
   /* Reset the list of remembered HI16S relocs to empty.  */
   free_ah     = previous_ah;

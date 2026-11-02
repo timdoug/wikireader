@@ -2,7 +2,7 @@
 #objdump: -d
 #name: C33 backtick statement separator and .previous
 
-.*: +file format elf32-c33
+.*: +file format elf32-c33(fdpic)?
 
 Disassembly of section .text:
 

@@ -1,0 +1,58 @@
+# DejaGnu board for c33-linux-uclibc: GCC's tests compiled as the Linux
+# programs the WikiReader runs (FDPIC, shared uClibc-ng), executed in
+# Linux in wremu, booted through Grifo, in batches (run-gcc.sh).
+#
+# Executing a test looks its program up by content in the results the
+# batches recorded.  One not yet run is queued and reported UNRESOLVED; the
+# driver runs the queue and asks DejaGnu again, until nothing is queued.
+
+global env
+
+foreach var {C33L_GCC C33L_QUEUE C33L_RESULTS} {
+    if {![info exists env($var)] || $env($var) eq ""} {
+	perror "c33-linux: run-gcc.sh did not set $var"
+	return
+    }
+}
+
+load_generic_config "sim"
+
+set_board_info compiler $env(C33L_GCC)
+set_board_info multitop ""
+set_board_info cflags ""
+# Without an MMU a program's stack is what its link asks for, 32 KB by
+# default; the tests get 1 MB.  They are told half that: they size frames
+# from it, and -O0 copies a by-value argument of half of what they are told.
+set_board_info ldflags "-Wl,-z,stack-size=1048576"
+set_board_info gcc,stack_size 524288
+set_board_info mathlib "-lm"
+set_board_info obj_format elf
+set_board_info noargs 1
+# Taking a nested function's address needs a trampoline, which GCC does not
+# make for -mfdpic ("sorry, unimplemented").
+set_board_info gcc,no_trampolines 1
+set_board_info gdb,nosignals 1
+set_board_info is_simulator 1
+
+proc c33-linux_load {dest prog args} {
+    global env
+
+    if {![file exists $prog]} {
+	return [list unresolved "c33-linux: executable does not exist: $prog"]
+    }
+    set sha [lindex [exec sha256sum $prog] 0]
+    set result [file join $env(C33L_RESULTS) $sha]
+    if {![file exists $result]} {
+	file copy -force $prog [file join $env(C33L_QUEUE) $sha]
+	return [list unresolved "c33-linux: queued for wremu as $sha"]
+    }
+    set f [open $result rb]
+    set status [gets $f]
+    set output [read $f]
+    close $f
+    if {$status eq "exit-0"} {
+	return [list pass $output]
+    }
+    verbose -log "c33-linux: $sha ended $status"
+    return [list fail "$status\n$output"]
+}

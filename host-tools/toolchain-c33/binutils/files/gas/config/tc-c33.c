@@ -1202,7 +1202,14 @@ system_register_name (expressionS * expressionP,
 int g_iAdvance = 0;		/* 1 = C33 ADV (advanced) architecture.  */
 int g_iPE      = 0;		/* 1 = C33 PE architecture.  */
 int g_iMedda32 = 0;		/* 1 = do not use the default data area.  */
-int g_iFdpic   = 0;		/* 1 = FDPIC code, see bfd/elf32-c33.c.  */
+/* 1 = FDPIC code, see bfd/elf32-c33.c.  Linux programs are FDPIC, so a
+   Linux target's assembler makes it unless told -mno-fdpic, as FRV's
+   does.  */
+#ifdef TE_LINUX
+int g_iFdpic   = 1;
+#else
+int g_iFdpic   = 0;
+#endif
 
 const char md_shortopts[] = "m:";
 
@@ -1212,7 +1219,8 @@ enum c33_options
   OPTION_C33PE,
   OPTION_MEDDA32,
   OPTION_C33_EXT,
-  OPTION_FDPIC
+  OPTION_FDPIC,
+  OPTION_NO_FDPIC
 };
 
 const struct option md_longopts[] =
@@ -1222,6 +1230,7 @@ const struct option md_longopts[] =
   {"medda32",  no_argument,       NULL, OPTION_MEDDA32},
   {"mc33_ext", required_argument, NULL, OPTION_C33_EXT},
   {"mfdpic",   no_argument,       NULL, OPTION_FDPIC},
+  {"mno-fdpic", no_argument,      NULL, OPTION_NO_FDPIC},
   {NULL, no_argument, NULL, 0}
 };
 const size_t md_longopts_size = sizeof (md_longopts);
@@ -1376,7 +1385,10 @@ C33 options:\n\
   -mc33adv                assemble for the C33 ADV architecture\n\
   -mc33pe                 assemble for the C33 PE architecture\n\
   -medda32                do not use the default data area\n\
-  -mc33_ext FILE.dump     optimise ext prefixes using FILE.dump\n"));
+  -mc33_ext FILE.dump     optimise ext prefixes using FILE.dump\n\
+  -mfdpic                 assemble for the FDPIC ABI%s\n\
+  -mno-fdpic              assemble without the FDPIC ABI\n"),
+	   g_iFdpic ? _(" (the default)") : "");
 }
 
 /******************************************************************************
@@ -1404,6 +1416,10 @@ md_parse_option (int c, const char * arg)
 
     case OPTION_FDPIC:
       g_iFdpic = 1;
+      return 1;
+
+    case OPTION_NO_FDPIC:
+      g_iFdpic = 0;
       return 1;
 
     case OPTION_C33_EXT:

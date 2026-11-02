@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -53,6 +53,16 @@ dt-check: vm
 libffi-test:
 	$(SHELL_IN_VM) ./linux/libffi/build.sh
 	python3 ./libffi/run.py
+
+# The toolchain's own suites, for c33-linux-uclibc: binutils' in its build
+# tree; GCC's execute torture (or the runtest selectors in GCC_TESTS), its
+# programs run in Linux in wremu.  Both use the existing toolchain, kernel
+# and rootfs.
+binutils-test: vm
+	$(SHELL_IN_VM) sh -c 'make -C $${WR_LINUX_WORK:-$$HOME/wr-linux}/toolchain/binutils-2.47/build-c33-linux-uclibc check-gas check-binutils check-ld'
+
+gcc-test:
+	python3 ./gcc-test/run.py $(GCC_TESTS)
 
 # Uses the existing compiler, kernel and rootfs; no full system rebuild.
 ltp-build:

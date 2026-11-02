@@ -26,13 +26,19 @@ WikiReader firmware.
 | objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core and words that violate fixed opcode bits. |
 | GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
 
-The exact-source binutils testsuites have no unexpected failures:
+The exact-source binutils testsuites have no unexpected failures, for
+bare metal and for no-MMU Linux (`make -C linux binutils-test`):
 
-| Suite | Results |
-| --- | --- |
-| gas | 339 passes, 10 unsupported |
-| binutils | 240 passes, 18 untested, 17 unsupported |
-| ld | 479 passes, 13 expected failures, 28 untested, 235 unsupported |
+| Suite | `c33-epson-elf` | `c33-linux-uclibc` |
+| --- | --- | --- |
+| gas | 340 passes, 10 unsupported | 340 passes, 10 unsupported |
+| binutils | 240 passes, 18 untested, 17 unsupported | 242 passes, 18 untested, 13 unsupported |
+| ld | 480 passes, 13 expected failures, 28 untested, 235 unsupported | 724 passes, 24 expected failures, 28 untested, 209 unsupported |
+
+The Linux linker's expected failures are FRV's and Blackfin's: FDPIC
+refuses an absolute address in a read-only segment. GCC's execute torture
+for Linux runs in Linux in wremu (`linux/README.md`, "GCC and binutils test
+suites").
 
 Unsupported cases are generic-suite features not supplied by this target;
 they are not hidden C33 failures.

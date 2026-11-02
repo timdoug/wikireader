@@ -34,6 +34,11 @@
    reaches 2 MB either way, twice the largest module.  ld reports a call
    out of reach; a module that big needs -mlong-calls.  */
 
+/* The Linux assembler makes FDPIC objects by default, so non-FDPIC code
+   (-mno-fdpic, -medda32) says so.  */
+#undef ASM_FDPIC_SPEC
+#define ASM_FDPIC_SPEC "%{mfdpic:-mfdpic;:-mno-fdpic}"
+
 #undef DRIVER_SELF_SPECS
 #define DRIVER_SELF_SPECS				\
   "%{!mcore=*:-mcore=c33pe}",				\

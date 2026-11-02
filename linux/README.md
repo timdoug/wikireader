@@ -1287,6 +1287,56 @@ and checks individual shell coverage after an interrupted module. See
 [upstream-tests/README.md](upstream-tests/README.md) for source revisions,
 reproduction commands, results and the resulting bug backlog.
 
+## GCC and binutils test suites
+
+`make -C linux binutils-test` runs the gas, binutils and ld suites in the
+`c33-linux-uclibc` build tree:
+
+| Suite | Results |
+| --- | --- |
+| gas | 340 passes, 10 unsupported |
+| binutils | 242 passes, 18 untested, 13 unsupported |
+| ld | 724 passes, 24 expected failures, 28 untested, 209 unsupported |
+
+The expected failures are the ones upstream already expects of FRV and
+Blackfin FDPIC, added for `c33-*-*linux*` by `glue.py`: the linker refuses
+an absolute address in a read-only segment, which the loader cannot
+relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
+
+`make -C linux gcc-test` runs GCC's execute torture (`GCC_TESTS` takes other
+runtest selectors) with the installed compiler, and its programs in Linux in
+wremu, booted through Grifo: **24,353 passes and one failure**, `pr43987` at
+`-O0`, which uses a `char` array as a structure of pointers and faults when
+the array lands on an odd address; GCC aligns nothing it does not have to on
+C33. 204 are unsupported: nested-function trampolines, which GCC does not
+make for `-mfdpic`, 128-bit integers, decimal float, uClibc's partial C99
+math, and GCC's expensive tests.
+
+`gcc-test/c33-linux.exp` is the DejaGnu board. It compiles and links as the
+system does, and looks each program's result up by the SHA-256 of the
+binary; one with none is queued and reported unresolved. `gcc-test/run.py`
+alternates a DejaGnu pass in the VM with batches of up to 3,000 queued
+programs on one card, which `gcc-test/runner.c` runs one by one, each with
+stdin from `/dev/null`, a 60-second deadline and the page cache dropped
+first, until a pass queues nothing. A program that takes the machine down is
+recorded as having crashed it, and the batch goes on without it. A rebuilt
+toolchain reruns only the programs whose bytes changed. Tests are told
+512 KB of stack and get 1 MB: `-O0` copies a by-value argument of half what
+a test is told.
+
+What the suites found, all fixed: GCC put out-of-object addresses such as a
+loop's end (`tmp + 288` past a 240-byte array) in the constant pool, where
+startup relocation, which goes by the segment an address lies in, left them
+unrelocated; it addressed 64 MB and more past a symbol through the 26-bit
+data-area displacement; the FDPIC linker script ignored `-z max-page-size`,
+`-Ttext-segment`, `-z separate-code` and `--enable-linker-version`, folded
+`ld -r`'s startup and exit text into `.text`, and kept two `.note.GNU-stack`
+sections; ld crashed on a non-FDPIC input; ld's `.rofixup` sizing and
+relocation disagreed about script-defined absolute symbols; a discarded
+`.rela.dyn` left its dynamic tags; the Linux assembler made non-FDPIC
+objects by default; and `poweroff` halted instead of returning to Grifo,
+since the kernel had no power-off handler.
+
 ## What comes next
 
 Richer keyboard modes, console session management, and power management can

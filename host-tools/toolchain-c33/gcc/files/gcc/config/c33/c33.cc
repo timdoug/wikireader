@@ -3074,7 +3074,15 @@ c33_dp_relative_address_p (rtx x)
   if (GET_CODE (x) == CONST)
     x = XEXP (x, 0);
   if (GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1)))
-    x = XEXP (x, 0);
+    {
+      /* The displacement has 26 bits: an offset of 64 MB either way never
+	 fits, wherever the symbol is.  Dead code indexes that far.  */
+      HOST_WIDE_INT limit = HOST_WIDE_INT_1 << 26;
+
+      if (!IN_RANGE (INTVAL (XEXP (x, 1)), 1 - limit, limit - 1))
+	return false;
+      x = XEXP (x, 0);
+    }
 
   if (TARGET_SEP_DATA)
     return c33_sep_data_symbol_p (x);
@@ -3223,10 +3231,45 @@ c33_tls_address (rtx x)
   return result;
 }
 
+/* Under -msep-data an address constant is a word of the constant pool, and
+   the program's startup relocates that word by the segment the address lies
+   in.  GCC forms addresses outside their object -- a loop's end, tmp + 288
+   for a 240-byte tmp, or a base biased below the start -- that can lie
+   outside every segment and so stay unrelocated.  True if X is such an
+   address: it is the object's address from the pool plus the offset.  One
+   past the end stays whole; a segment's relocation covers it.  */
+
+bool
+c33_sep_data_split_p (rtx x)
+{
+  rtx base, offset;
+  HOST_WIDE_INT off;
+  tree decl;
+
+  if (!TARGET_SEP_DATA)
+    return false;
+  split_const (x, &base, &offset);
+  if (offset == const0_rtx
+      || (GET_CODE (base) != SYMBOL_REF && GET_CODE (base) != LABEL_REF))
+    return false;
+  off = INTVAL (offset);
+  if (GET_CODE (base) == SYMBOL_REF && off > 0)
+    {
+      if (offset_within_block_p (base, off))
+	return false;
+      decl = SYMBOL_REF_DECL (base);
+      if (decl && off == int_size_in_bytes (TREE_TYPE (decl)))
+	return false;
+    }
+  return true;
+}
+
 static bool
 c33_cannot_force_const_mem (machine_mode, rtx x)
 {
-  return C33_NATIVE_TLS && c33_tls_operand_p (x);
+  /* The second kind is the movsi expander's to build.  */
+  return ((C33_NATIVE_TLS && c33_tls_operand_p (x))
+	  || c33_sep_data_split_p (x));
 }
 
 static rtx

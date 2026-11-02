@@ -12,6 +12,7 @@ moc_*
 *.asm33
 gcc
 gcc-*
+!/linux/gcc-test/
 binutils
 binutils-*
 install

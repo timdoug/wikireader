@@ -1,0 +1,16 @@
+# Site configuration for GCC's testsuite on c33-linux-uclibc: GCC's
+# generated build-site settings, then this directory's board.
+global env
+if {[info exists env(C33L_BUILD_SITE)] && [file isfile $env(C33L_BUILD_SITE)]} {
+    source $env(C33L_BUILD_SITE)
+}
+if {[info exists env(C33L_OBJDIR)] && $env(C33L_OBJDIR) ne ""} {
+    set tmpdir $env(C33L_OBJDIR)
+}
+unset -nocomplain TESTING_IN_BUILD_TREE
+unset -nocomplain TEST_GCC_EXEC_PREFIX
+set boards_dir [list [file normalize [file dirname [info script]]]]
+if {[info exists env(C33L_GCC)]} {
+    set GCC_UNDER_TEST $env(C33L_GCC)
+    set TOOL_EXECUTABLE $env(C33L_GCC)
+}
