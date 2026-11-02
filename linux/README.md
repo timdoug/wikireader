@@ -255,7 +255,7 @@ thermistor under a 120k pull-up to the same rail; `ntc_thermistor` reads it
 as `/sys/class/hwmon/hwmon*/temp1_input` in millidegrees. The part, a
 TCT6GJ104H410, is not in that driver's tables, so the board names the Murata
 NCP03WF104, another 100k thermistor with B = 4250 K. AIN2, the panel's V4
-bias, is a plain IIO channel. `patches/0014` makes `generic-adc-battery`
+bias, is a plain IIO channel. `patches/fixes/0014` makes `generic-adc-battery`
 treat a battery nothing supplies as discharging rather than charging.
 
 The chip's watchdog is `drivers/watchdog/s1c33_wdt.c` on the watchdog core:
@@ -299,7 +299,7 @@ RAM, which is then scanned. DRM's fbdev emulation gives `/dev/fb0`, one-bit,
 `MONO01`, 32 bytes a line, as before, and scanned in place: without an MMU
 it has no way to see writes through `mmap` (deferred I/O needs page faults),
 so the panel shows its buffer itself, and the console and Xfbdev run on it
-unchanged. `patches/0035` teaches fbdev emulation the monochrome `D1` and
+unchanged. `patches/features/0035` teaches fbdev emulation the monochrome `D1` and
 `R1`; it knew only the indexed `C1`. Without fbcon nothing would set
 emulation's mode, so the driver shows it at probe, with the kernel's
 monochrome Tux, until the userspace console replaces it. The early renderer
@@ -334,7 +334,7 @@ of it Grifo loading the larger image. The kernel also has virtual terminals,
 with only the dummy console behind them: they draw nothing, and kernel
 messages stay on the serial port. They decide which full-screen program owns
 the display, as on a desktop. Registering all 63 VT devices at boot took
-0.45 s, about 7 ms a device in sysfs and devtmpfs, so `patches/0018`
+0.45 s, about 7 ms a device in sysfs and devtmpfs, so `patches/perf/0018`
 registers a VT's device when the VT is allocated, with one character device
 for all of them; `rootstart` makes `/dev/tty1` to `/dev/tty12`, so a VT opens
 by number before it exists. VTs cost about 0.2 s of boot.
@@ -603,12 +603,12 @@ also throws through a shared library across repeated `dlopen`/`dlclose`.
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
 are about 8 KB of libc's text. It has no locales, which would be 90 KB of
 libc's text for `en_US.UTF-8`; when enabled (`UCLIBC_HAS_LOCALE`), their
-generated tables go into a build directory `patches/0038` makes first, a
+generated tables go into a build directory `patches/arch/0038` makes first, a
 race under `make -j`. `<uchar.h>` is there, and
-patches add C11's `<threads.h>` (`patches/0034`, over pthreads),
+patches add C11's `<threads.h>` (`patches/arch/0034`, over pthreads),
 `timespec_get` and `struct timespec` in strict C11 (`0035`), and
 `reallocarray` with every allocator, not only the MMU's (`0036`).
-`patches/0037` fixes `struct stat` as strict C (`-std=c99` and the like)
+`patches/arch/0037` fixes `struct stat` as strict C (`-std=c99` and the like)
 declares it on 32-bit machines with 64-bit time: its timestamps were `int`,
 12 bytes short of what `stat` fills, so FreeType, built that way, had its
 stack overwritten opening a font. `libc` compiles
@@ -616,10 +616,10 @@ stack overwritten opening a font. `libc` compiles
 
 The allocator is uClibc-ng's `malloc`, the one for machines without an MMU:
 its heap grows by page-sized `mmap`s and keeps its free areas in one list in
-address order. `patches/0039` starts every search at a finger, the free
+address order. `uclibc/patches/perf/0039` starts every search at a finger, the free
 area of the last change, instead of the head; a free used to walk the list
 as far as its place, and that was a fifth of compiling a keymap here.
-`patches/0040` fixes `memalign`, which could make blocks too small to hold
+`uclibc/patches/fixes/0040` fixes `memalign`, which could make blocks too small to hold
 the free-area record written into them when freed, overwriting the end of
 the block before. `uclibc/malloc-test.c`, run by `app-test`, frees such a
 block between live ones, then mixes `malloc`, `free`, `realloc` and
@@ -649,7 +649,7 @@ destructors. Ordinary arithmetic helpers remain in the static libgcc
 archive. Threads call pthreads directly: uClibc-ng claims
 to be glibc 2.2, so gthreads would otherwise judge a program threaded by a
 weak reference to `__pthread_key_create`, which the earlier LinuxThreads did not have
-(`host-tools/toolchain-c33/gcc/patches/0003`). Atomics of up to 4 bytes are
+(`host-tools/toolchain-c33/gcc/patches/fixes/0003`). Atomics of up to 4 bytes are
 inline and lock-free, masking interrupts around their read/modify/write.
 The runtime supplies 64-bit operations and generic aggregate load, store,
 exchange and compare-exchange. These use GCC's POSIX pthread-mutex fallback
@@ -748,7 +748,7 @@ with direct I/O, so ext4's reads neither start the FAT file's readahead nor
 get cached twice. Every read into the image first finds its cluster by
 walking the file's FAT chain, cached per file as at most eight runs of
 consecutive clusters; the device's boot volume has 512-byte clusters, so
-`linux.img` is a chain of 32,768. `patches/0020` follows runs of
+`linux.img` is a chain of 32,768. `patches/perf/0020` follows runs of
 consecutive clusters within a FAT block with a load and a compare a step
 (through `fat_ent_read()` a step is about 1,300 cycles, and a walk down the
 whole image 0.7 s), and reads ahead the FAT blocks a walk has still to

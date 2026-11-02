@@ -65,7 +65,11 @@ echo "==> registering the c33 target"
 python3 "${HERE}/tools/gcc-glue.py" "${SRC}"
 
 echo "==> applying GCC correctness patches"
-for patchfile in "${HERE}"/patches/*.patch; do
+# fixes/ are general GCC corrections, port/ the C33 port's changes to
+# shared code (patches/README.md); applied in number order.
+for patchfile in $(for p in "${HERE}"/patches/*/*.patch; do
+		echo "${p##*/} ${p}"
+	done | sort | cut -d' ' -f2); do
 	if patch -d "${SRC}" -p1 --forward --dry-run --silent < "${patchfile}"; then
 		patch -d "${SRC}" -p1 --forward --silent < "${patchfile}"
 	elif patch -d "${SRC}" -p1 --reverse --dry-run --silent < "${patchfile}"; then

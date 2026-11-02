@@ -224,7 +224,7 @@ libraries came after that. On the device the prompt is up 4.76 s after the
 kernel starts, against 4.12 for the static bFLT system before the X sockets
 and VTs. It took 7.58 at first: every read into `linux.img` walks its FAT
 chain, 32,768 clusters at the boot volume's 512-byte cluster size, and the
-card had it in 57 pieces all over the FAT. `patches/0020` follows runs of
+card had it in 57 pieces all over the FAT. `patches/perf/0020` follows runs of
 consecutive clusters with a load and a compare and reads the FAT ahead of a
 walk; `/tmp` and `/run` became tmpfs (X's files there were replayed from
 the journal, 1.6 s); and the partition was re-laid out with `linux.img`
@@ -344,7 +344,7 @@ to the console. `startx CLIENT -- SERVER-ARGS` works as usual.
 
 The pieces:
 - Kernel: `CONFIG_NET` with only `AF_UNIX`; VTs behind the dummy console,
-  registered on allocation (`patches/0018`); `FB_PROVIDE_GET_FB_UNMAPPED_AREA`
+  registered on allocation (`patches/perf/0018`); `FB_PROVIDE_GET_FB_UNMAPPED_AREA`
   for a no-MMU `mmap` of the panel; `INIT_STACK_NONE`; `__iramfunc` is
   `flatten`; the SD stream wait yields (`cond_resched()`).
 - `initramfs/rootstart.c` makes `/dev/tty1..12`; `console/wr-console.c` holds
@@ -479,10 +479,12 @@ smaller: prompt 5.30 s against 4.82, `/init` at 1.93 s against 1.36.
 Where the kernel still departs:
 - The port is `overlay/` copied over a pinned tag, not a patch series.
 - Changes to shared code that are optimisations or conformance rather than
-  the port: lazy VT registration (`patches/0018`), FAT cluster-chain walking
-  (`0020`), no-MMU memory locking (`0028`), `MAP_FIXED` errno order
-  (`0030`). The review would make them optional or drop them; the no-MMU
-  correctness fixes among `0021`-`0033` stay.
+  the port are kept apart from it (`patches/README.md`): `perf/` holds lazy
+  VT registration (0018) and the FAT cluster-chain walk (0020), `features/`
+  no-MMU memory locking (0028), the `MAP_FIXED` errno order (0030) and the
+  other optional generic features, `fixes/` the no-MMU correctness fixes
+  that stand on their own. uClibc-ng's and GCC's patches are grouped the
+  same way.
 - The HSDMA driver polls for completion and keeps its own lists instead of
   `virt-dma`, by measurement (README): HALT stops SPI-triggered transfers,
   and virt-dma's tasklet cost a third of a card block.
@@ -534,13 +536,13 @@ The rest of the port, standards first (see "Standards" above):
 3. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
    linker, `ASM_PREFERRED_EH_DATA_FORMAT` pc-relative and GOT-relative.
 4. **TLS and NPTL.**
-5. **Send upstream** `uclibc/patches/0003`: uClibc-ng's FDPIC descriptor
+5. **Send upstream** `uclibc/patches/fixes/0003`: uClibc-ng's FDPIC descriptor
    table rehashes by descriptor address but is searched by entry point, so
    after the first resize a lookup misses and a second "canonical"
    descriptor appears (every FDPIC port); and GCC
-   `host-tools/toolchain-c33/gcc/patches/0004`: libgcc's and libstdc++'s
+   `host-tools/toolchain-c33/gcc/patches/fixes/0004`: libgcc's and libstdc++'s
    `#if __FDPIC__` exception paths are ARM's and call
-   `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/0002`
+   `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/fixes/0002`
    (the stack guard's time from `clock_gettime64`) too.
 6. **Buildroot patch 0002**: drop its static-library half.
 7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft

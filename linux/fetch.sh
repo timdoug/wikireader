@@ -28,8 +28,11 @@ fi
 git -C "${src}" reset --hard HEAD
 git -C "${src}" clean -fdx
 
-for patch in "${here}"/patches/*.patch; do
-	[ -e "${patch}" ] || break
+# The patches are grouped by kind (patches/README.md) and applied in number
+# order across the groups: a later patch may build on an earlier one.
+for patch in $(for p in "${here}"/patches/*/*.patch; do
+		echo "${p##*/} ${p}"
+	done | sort | cut -d' ' -f2); do
 	git -C "${src}" apply "${patch}"
 done
 
@@ -57,8 +60,10 @@ if [ -d "${here}/uclibc/overlay" ]; then
 	cp -R "${here}/uclibc/overlay/." "${uclibc_src}/"
 fi
 
-for patch in "${here}"/uclibc/patches/*.patch; do
-	[ -e "${patch}" ] || break
+# Grouped and ordered as the kernel's (uclibc/patches/README.md).
+for patch in $(for p in "${here}"/uclibc/patches/*/*.patch; do
+		echo "${p##*/} ${p}"
+	done | sort | cut -d' ' -f2); do
 	git -C "${uclibc_src}" apply "${patch}"
 done
 
