@@ -199,8 +199,11 @@ rather than being removed, so a program that asks gets a defined answer and
 not a link error. The LCD words need no C at all: they write to `0x00080000`,
 which is where the framebuffer still is.
 
-The interpreter is metacompiled by `gforth` at build time, which is the one
-tool here that has no substitute: `meta.fs` is itself a Forth program. Three
+The interpreter is metacompiled by `gforth` at build time: `meta.fs` is
+itself a Forth program. The Forth can also run `meta.fs` itself and gets the
+same bytes; `samo-lib/forth/bootstrap.py` does that in the emulator, so the
+bare-metal build in `samo-lib/forth` works without gforth. This build still
+calls gforth directly. Three
 changes let the same sources build both ways, all guarded by `NUTTX_FORTH` so
 the bare-metal image is unchanged:
 

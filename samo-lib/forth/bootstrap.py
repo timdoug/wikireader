@@ -20,24 +20,21 @@ in the tree, which is worth being uneasy about -- except that this is the
 program that proves it: what comes out is checked against the source it
 came from, and against gforth whenever gforth is around.
 
-Regenerating the seed, when the Forth has changed enough to be worth it:
+Regenerating the seed, when the Forth has changed enough to be worth it
+(switching CONFIG needs a distclean either side, or stale objects from the
+other configuration end up in the link):
 
-    make -C nuttx CONFIG=forthseed
+    make -C nuttx distclean && make -C nuttx CONFIG=forthseed
     cp nuttx/nuttx.app samo-lib/forth/seed/wrforth-seed.app
+    make -C nuttx distclean && make -C nuttx
 
-**The seed in the tree needs that doing before this will run.**  This
-script used to hand the seed to the emulator as a bare ELF, which no longer
-boots -- a direct boot leaves the SDRAM controller, the clocks and the
-serial line in a state the hardware is never in, and the serial line is how
-this drives the metacompiler.  It now puts the seed on the card as init.app
-under a kernel.elf and boots the whole chain, which is right and is what
-every other harness here does.  The seed itself does not survive that
-handoff: grifo chains through `jpr.d %r0` at 0x10000200 with r0 holding
-0x00300281, a peripheral register address rather than a code offset, and
-execution lands in zeros before the seed prints anything.  It was built and
-only ever exercised under the direct boot, so it has never had to.  The
-same NuttX configuration built today boots the chain perfectly well as
-nuttx.app, so regenerating is expected to be the whole fix.
+The seed goes on the card as init.app under Grifo, and the run boots the
+whole chain: mask ROM, FLASH, kernel.elf, then the seed.  So forthseed is a
+Grifo application like wikireader:app -- WIKIREADER_GRIFO_APP, RAM from
+0x10040000, 60 MHz loop calibration -- with NSH on the serial port and none
+of the panel.  A seed built for a loader that leaves it the whole machine
+links at 0x10000000, over Grifo, and dies in the jump to it before printing
+anything; the seed built on 2026-09-12 was one of those.
 """
 
 import argparse
