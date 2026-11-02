@@ -111,10 +111,18 @@
 		#io-channel-cells = <1>;
 	};
 
+	/* Two AAA cells, full at 3.0 V and empty at 2.1 V, as Grifo has them. */
+	cells: battery-cells {
+		compatible = "simple-battery";
+		voltage-min-design-microvolt = <2100000>;
+		voltage-max-design-microvolt = <3000000>;
+	};
+
 	battery {
 		compatible = "adc-battery";
 		io-channels = <&battery_divider 0>;
 		io-channel-names = "voltage";
+		monitored-battery = <&cells>;
 	};
 
 	thermistor {

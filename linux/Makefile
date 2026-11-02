@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -46,6 +46,9 @@ x11-test:
 
 wayland-test:
 	python3 ./wayland/run.py
+
+dt-check: vm
+	$(SHELL_IN_VM) ./linux/dt-check.sh
 
 libffi-test:
 	$(SHELL_IN_VM) ./linux/libffi/build.sh

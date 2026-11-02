@@ -1,0 +1,13 @@
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index ba20029693..ea00198a94 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1263,6 +1263,8 @@ patternProperties:
+     description: OpenCores.org
+   "^openembed,.*":
+     description: OpenEmbed
++  "^openmoko,.*":
++    description: Openmoko, Inc.
+   "^openpandora,.*":
+     description: OpenPandora GmbH
+   "^openrisc,.*":

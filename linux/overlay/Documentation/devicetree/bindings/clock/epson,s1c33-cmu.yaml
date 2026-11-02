@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/epson,s1c33-cmu.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 clock-management unit
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  MCLK, the system clock, from the high-speed oscillator divided, from the
+  low-speed oscillator, or from the PLL on the high-speed one, and the
+  peripherals' gates.  The clock numbers are in
+  include/dt-bindings/clock/s1c33-cmu.h.
+
+properties:
+  compatible:
+    const: epson,s1c33-cmu
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: The high-speed oscillator, OSC3
+      - description: The low-speed oscillator, OSC1
+
+  clock-names:
+    items:
+      - const: osc3
+      - const: osc1
+
+  '#clock-cells':
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - '#clock-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@301b00 {
+        compatible = "epson,s1c33-cmu";
+        reg = <0x301b00 0x30>;
+        clocks = <&osc3>, <&osc1>;
+        clock-names = "osc3", "osc1";
+        #clock-cells = <1>;
+    };

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/touchscreen/openmoko,wikireader-touchscreen.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Openmoko WikiReader touchscreen
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  The WikiReader's touchscreen controller, which sends reports over a
+  serial line; a child of its serial port.
+
+allOf:
+  - $ref: touchscreen.yaml#
+  - $ref: /schemas/serial/serial-peripheral-props.yaml#
+
+properties:
+  compatible:
+    const: openmoko,wikireader-touchscreen
+
+  reset-gpios:
+    maxItems: 1
+
+required:
+  - compatible
+  - current-speed
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    serial {
+        touchscreen {
+            compatible = "openmoko,wikireader-touchscreen";
+            reset-gpios = <&pinctrl 7 GPIO_ACTIVE_HIGH>;
+            current-speed = <9600>;
+            touchscreen-size-x = <240>;
+            touchscreen-size-y = <208>;
+        };
+    };

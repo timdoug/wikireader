@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interrupt-controller/epson,s1c33-itc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 interrupt controller
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  The S1C33E07's interrupt controller.  A source is its trap vector, and
+  sources are grouped, each group with one priority level that the second
+  cell sets.
+
+properties:
+  compatible:
+    const: epson,s1c33-itc
+
+  reg:
+    maxItems: 1
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+    description:
+      The source's trap vector, and its group's priority, 1 (lowest) to 7.
+
+required:
+  - compatible
+  - reg
+  - interrupt-controller
+  - '#interrupt-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    interrupt-controller@300260 {
+        compatible = "epson,s1c33-itc";
+        reg = <0x300260 0x40>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
+    };

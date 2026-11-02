@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/dma/epson,s1c33-hsdma.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 high-speed DMA controller
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  Four channels, each with triggers of its own, chosen in the interrupt
+  controller's block, where its priority and transfer-count flags are too.
+  A request is <channel trigger>.
+
+allOf:
+  - $ref: dma-controller.yaml#
+
+properties:
+  compatible:
+    const: epson,s1c33-hsdma
+
+  reg:
+    items:
+      - description: The DMA controller's registers
+      - description: Its interrupt priority register
+      - description: Its transfer-count flags
+      - description: Its trigger selects
+
+  reg-names:
+    items:
+      - const: dma
+      - const: priority
+      - const: flags
+      - const: triggers
+
+  clocks:
+    maxItems: 1
+
+  '#dma-cells':
+    const: 2
+    description: The channel, 0 to 3, and its trigger source, 0 to 15.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - clocks
+  - '#dma-cells'
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/s1c33-cmu.h>
+
+    dma-controller@301100 {
+        compatible = "epson,s1c33-hsdma";
+        reg = <0x301100 0xa0>, <0x300264 0x1>, <0x300281 0x1>,
+              <0x300298 0x2>;
+        reg-names = "dma", "priority", "flags", "triggers";
+        clocks = <&cmu S1C33_CLK_HSDMA>;
+        #dma-cells = <2>;
+    };

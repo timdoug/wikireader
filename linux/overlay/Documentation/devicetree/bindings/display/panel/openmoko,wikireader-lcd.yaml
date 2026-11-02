@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/openmoko,wikireader-lcd.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Openmoko WikiReader panel contrast
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  The WikiReader's panel, whose contrast is a PWM's duty cycle.
+
+properties:
+  compatible:
+    const: openmoko,wikireader-lcd
+
+  pwms:
+    maxItems: 1
+
+required:
+  - compatible
+  - pwms
+
+additionalProperties: false
+
+examples:
+  - |
+    panel {
+        compatible = "openmoko,wikireader-lcd";
+        pwms = <&pwm 0 68267 0>;
+    };

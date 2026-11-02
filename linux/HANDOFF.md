@@ -436,66 +436,73 @@ mode's clock is the simple-panel placeholder, so wlroots reports 0.020 Hz.
 
 ## Standards: how far the port follows upstream
 
-Nothing for the C33 is upstream anywhere, so "standard" here means following
-the conventions of the upstream no-MMU and FDPIC ports: FRV, Blackfin, SH and
-ARM (x86 has an MMU and no FDPIC). The FDPIC userland, the PSR fix and the
-stack check ran on the device 2026-09-28: `check` clean, X and xeyes by touch.
+Nothing for the C33 is upstream anywhere, so "standard" here means the
+conventions upstream asks of a new architecture and of the no-MMU and FDPIC
+ports (SH, ARM, FRV, Blackfin, csky, nios2). `UPSTREAM-REVIEW.md` (local,
+2026-10-03) is the review this section answers.
 
-Userland follows them. Buildroot, uClibc-ng and BusyBox build and run as
-FDPIC ELF with shared libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC
-`ld.so` with lazy binding, `DT_RELACOUNT` and `R_C33_RELATIVE`, libraries
-binding as ELF has them, programs with 32 KB stacks. Local changes that
-remain: Buildroot's C33 architecture patch (needed); Buildroot patch 0002,
-whose static-library half no longer applies now that the libraries are
-shared, only its no-MMU `libpthread-stubs` half; small behavioural patches to
-twm, xeyes and libX11 (`buildroot/external/patches`); `xserver-kdrive`, since
-X.org dropped kdrive after 1.19; and `wr-console`, a userspace terminal where
-the kernel's would be VT and fbcon.
+Userland follows them. Buildroot (an external tree, its package
+infrastructure), uClibc-ng and BusyBox run as FDPIC ELF with shared
+libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC `ld.so`, NPTL with
+native ELF TLS through a fixed thread-pointer slot (`C33_TLS_SLOT_ADDRESS`),
+64-bit `off_t` and `time_t`. Buildroot patches: the C33 architecture, libxcb's
+pthread-stubs without an MMU, libatomic for the C33, libXfont2's built-in
+fonts, xterm's external PTY, and the Wayland stack, which is off. Local
+programs where upstream has nothing that fits: `xserver-kdrive` (X.org
+dropped kdrive after 1.19), and `wr-console`, a userspace terminal where the
+kernel's would be VT and fbcon.
 
-The toolchain follows them in design, as `host-tools/toolchain-c33/gcc/ABI.md`
-describes: descriptors decided by `SYMBOL_REF_FUNCTION_P` as on SH,
-constructor tables of entry points through the constructor hooks as on ARM,
-the personality routine through `ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX`. Where it
-departs:
-- The GCC and binutils test suites have never been run for
-  `c33-linux-uclibc`; only our own tests (the uClibc smoke tests, `cxx-test`,
-  the BusyBox suite, X) exercise it. `dejagnu` is in the VM.
-- The unwind tables are data, with absolute pointers, so every process has
-  its own copy: 73 KB a process for `cxx-test`. SH keeps them read-only in
-  text, pc-relative for code and GOT-relative (`@GOT`, `@GOTFUNCDESC`) for
-  data and the personality routine, which needs GOT-entry relocations the
-  C33 linker does not have.
-- No thread-local storage, so threads are LinuxThreads, not NPTL. TLS needs
-  a thread-pointer convention, TLS relocations in binutils and GCC, kernel
-  support, and uClibc-ng's NPTL port.
-- No gdb, gdbserver or strace.
-- libstdc++ is static only; a shared one would be loaded whole by the first
-  C++ program, which pays only once two run at once, and none are on the
-  image.
-- The GCC backend is an Epson-era fork of V850's; upstreaming it would be a
-  project of its own.
+The kernel uses the generic mechanisms: generic entry, irqdomains, a device
+tree with a schema for every binding (`make -C linux dt-check`:
+`dt_binding_check` and `dtbs_check` clean), the common clock framework from
+`drivers/clk` with the board's oscillators as fixed clocks, pinctrl, a
+DMAengine provider that runs callbacks from its tasklet, an MMC host, DRM on
+the atomic helpers, and the stock regulator, GPIO-key, ADC battery and
+thermistor drivers. Every driver that says `COMPILE_TEST` compiles on arm64.
+The system call table and UAPI numbers are generated from
+`scripts/syscall.tbl`, with `c33_set_tls` its one call of its own, and the
+ABI has 64-bit time and file offsets only.
 
-The kernel follows them least:
-- The board is a device tree (`arch/c33/boot/dts/`), built into the kernel;
-  every driver matches by `compatible`, and interrupts carry their priority
-  (`<vector priority>`), which the interrupt controller sets. It costs about
-  100 KB of kernel and, in wremu on a contiguous card, 0.74 s of boot
-  (4.64 -> 5.38 s to the prompt): device links 0.22 s (`fw_devlink=off`
-  would give it back; the user keeps the default), unflattening and scanning the 6 KB blob 0.19 s (libfdt's
-  checked accessors, 20,000 calls of 260 cycles), the tree's sysfs mirror
-  0.11 s, the rest in creating devices from the tree's nodes. Named pin
-  groups took the tree from 52 nodes to 36 and 0.10 s of that back (5.28
-  s); on the device the prompt is then up at 5.21 s, with the battery,
-  thermistor and panel as before. On the device 2026-09-29 everything works (buttons, touch,
-  X) and the cost is smaller: prompt 5.30 s against 4.82, `/init` at 1.93
-  s against 1.36.
-- The kernel has only `binfmt_elf_fdpic`; `rootstart` is a static FDPIC
-  program with no C library. On the device 2026-09-29: prompt 4.82 s,
-  `check` clean, the thread and C++ tests pass. The Linux compiler keeps `-mno-fdpic`, as ARM's
-  FDPIC target keeps its non-FDPIC mode.
+The device tree (`arch/c33/boot/dts/`) is built into the kernel; interrupts
+carry their priority (`<vector priority>`), which the interrupt controller
+sets. It costs about 100 KB of kernel and, in wremu on a contiguous card,
+0.74 s of boot (4.64 -> 5.38 s to the prompt): device links 0.22 s
+(`fw_devlink=off` would give it back; the user keeps the default),
+unflattening and scanning the 6 KB blob 0.19 s (libfdt's checked accessors,
+20,000 calls of 260 cycles), the tree's sysfs mirror 0.11 s, the rest in
+creating devices from the tree's nodes. Named pin groups took the tree from
+52 nodes to 36 and 0.10 s of that back (5.28 s); on the device the prompt is
+then up at 5.21 s, with the battery, thermistor and panel as before. On the
+device 2026-09-29 everything works (buttons, touch, X) and the cost is
+smaller: prompt 5.30 s against 4.82, `/init` at 1.93 s against 1.36.
+
+Where the kernel still departs:
 - The port is `overlay/` copied over a pinned tag, not a patch series.
-- The early LCD console is the architecture's own, not `earlycon` or fbcon;
-  patch 0018 changes the VT core for boot time.
+- Changes to shared code that are optimisations or conformance rather than
+  the port: lazy VT registration (`patches/0018`), FAT cluster-chain walking
+  (`0020`), no-MMU memory locking (`0028`), `MAP_FIXED` errno order
+  (`0030`). The review would make them optional or drop them; the no-MMU
+  correctness fixes among `0021`-`0033` stay.
+- The HSDMA driver polls for completion and keeps its own lists instead of
+  `virt-dma`, by measurement (README): HALT stops SPI-triggered transfers,
+  and virt-dma's tasklet cost a third of a card block.
+- The timer sets its cascade's two pin functions in the port registers: it
+  starts from `time_init()`, before the pin controller.
+- The early LCD console is the architecture's own, not `earlycon`.
+
+The toolchain follows them in design (`host-tools/toolchain-c33/gcc/ABI.md`:
+descriptors as on SH, constructor tables as on ARM). Where it departs:
+- The GCC and binutils test suites have never been run for
+  `c33-linux-uclibc`; our own tests (uClibc, `cxx-test`, BusyBox, LTP, X)
+  exercise it.
+- The unwind tables are data, with absolute pointers, so every process has
+  its own copy (73 KB for `cxx-test`); SH keeps them in text with GOT-relative
+  relocations the C33 linker does not have.
+- No gdb, gdbserver or strace.
+- libstdc++ is static only.
+- The GCC backend is an Epson-era fork of V850's; the review's binutils and
+  GCC items (new global BFD relocation status values, architecture checks in
+  shared EH code) are open.
 
 ## What is left, in the order I would take it
 

@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pinctrl/epson,s1c33-pinctrl.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 pin controller and GPIO
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  The function select of ports 0 to 9 and the GPIOs of ports 0 to 6, a GPIO
+  numbered port * 8 + bit.  Each pin is a group named for it ("P65"), and
+  a peripheral's pins are a named group too, whose function has the same
+  name.
+
+properties:
+  compatible:
+    const: epson,s1c33-pinctrl
+
+  reg:
+    items:
+      - description: The port data and direction registers
+      - description: The function select registers
+      - description: The port interrupt registers
+
+  reg-names:
+    items:
+      - const: port
+      - const: function
+      - const: interrupt
+
+  interrupts:
+    items:
+      - description: Key input 0
+      - description: Port input 3
+
+  interrupt-names:
+    items:
+      - const: key0
+      - const: port3
+
+  gpio-controller: true
+
+  '#gpio-cells':
+    const: 2
+
+patternProperties:
+  '-hog$':
+    type: object
+    required:
+      - gpio-hog
+
+  '-pins$':
+    type: object
+    $ref: pincfg-node.yaml#
+    additionalProperties: false
+
+    properties:
+      groups:
+        description: A named group, or pins as groups of their own
+        items:
+          pattern: '^(uart0|spi|adc|lcd|P[0-9][0-7])$'
+
+      pins:
+        items:
+          pattern: '^P[0-9][0-7]$'
+
+      function:
+        description:
+          The group's function, "gpio" for a pin's I/O port, or one of the
+          signals the manual lists for the pin.
+        pattern: '^[a-z0-9_]+$'
+
+      output-low: true
+      output-high: true
+
+    required:
+      - function
+
+    oneOf:
+      - required: [groups]
+      - required: [pins]
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - gpio-controller
+  - '#gpio-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    pinctrl@300380 {
+        compatible = "epson,s1c33-pinctrl";
+        reg = <0x300380 0x0e>, <0x3003a0 0x14>, <0x3003c0 0x16>;
+        reg-names = "port", "function", "interrupt";
+        interrupts = <20 3>, <19 3>;
+        interrupt-names = "key0", "port3";
+        gpio-controller;
+        #gpio-cells = <2>;
+
+        flash-cs-hog {
+            gpio-hog;
+            gpios = <42 GPIO_ACTIVE_HIGH>;
+            output-high;
+        };
+
+        sd-pins {
+            groups = "spi";
+            function = "spi";
+        };
+
+        sd-hold-pins {
+            pins = "P67";
+            function = "gpio";
+            output-low;
+        };
+    };

@@ -44,7 +44,11 @@ Grifo loads the kernel alone; it has no `/memory` node and no bootargs,
 which the SDRAM controller and the launcher supply. Every driver matches by
 `compatible`, and each device finds its clocks, pins, GPIOs, supplies, DMA
 channels and PWM through the tree's references, which also order the
-probes. The device-tree core costs the kernel about 100 KB. The S1C33
+probes. Each binding has a schema in `overlay/Documentation/devicetree/
+bindings`; `make -C linux dt-check` runs `dt_binding_check` on them and
+`dtbs_check` on the board against every schema, with the dtschema
+`provision.sh` installs. The device-tree core costs the kernel about 100 KB.
+The S1C33
 interrupt controller is `drivers/irqchip/irq-s1c33.c`, an irqchip behind a
 linear irqdomain whose hardware interrupt numbers are the trap vectors. The
 tree names an interrupt `<vector priority>`, and the controller sets the
@@ -275,7 +279,7 @@ controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same device tree as the SD slot's chip
 select. `FBIOBLANK`, which DRM's fbdev emulation turns into turning the
 display off and on, therefore works, and because no kernel console blanks the
-screen on a machine that runs from two AA cells, the keyboard does it, since
+screen on a machine that runs from two AAA cells, the keyboard does it, since
 the touchscreen is both what keeps the machine busy and what wakes it: it
 powers the panel down after `wr.blank=<seconds>` with no touch or button, and
 keeps the panel on for `wr.blank=0`. Idle means no input, as for the kernel's
@@ -306,15 +310,15 @@ replaced, is still in the tree, and DRM with fbdev emulation adds about
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
-which this boot path replaces. Linux decodes the live CMU clock selection and
-publishes MCLK through the common clock framework, with the clock-management
-unit's peripheral gates as its children. Both serial ports and the SD host
-acquire and enable a standard gated clock, and so does the HSDMA controller;
-their drivers no longer call a board-specific clock
-callback or receive a copied clock rate. Only the timer block is gated by
-hand, because it starts before any provider exists. The
-clocksource and clock event take their rate from the same hardware decoder,
-which runs before clock providers exist.
+which this boot path replaces. `drivers/clk/clk-s1c33.c` reads the live CMU
+clock selection and publishes MCLK through the common clock framework, its
+rate following from its parent, the board's 48 MHz or 32.768 kHz
+oscillator (fixed clocks in the device tree), with the clock-management
+unit's peripheral gates as its children. It registers from `time_init()`
+(`CLK_OF_DECLARE`), so the timer block, which starts there, takes MCLK and
+its four channels' gates as clocks like every other driver; only the
+cascade's two pin functions are set by hand, since the pin controller
+probes later. `udelay` takes MCLK's rate from the timer.
 This also keeps a kernel entered by already-running firmware correct if that
 firmware selected the PLL first. UART initial speeds and the touchscreen
 link's receive-only wiring are firmware properties, so the serial driver has
@@ -503,6 +507,7 @@ make -C linux build
 make -C linux boot-test
 make -C linux app-test
 make -C linux signal-test
+make -C linux dt-check
 ```
 
 `fetch` reconstructs the pinned upstream kernel, uClibc-ng and Buildroot

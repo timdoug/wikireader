@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/timer/epson,s1c33-t16.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 16-bit timer block
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  Six 16-bit timers.  Timer 0 counts MCLK and its output clocks timer 5
+  through the board's wiring of P12 to P74, so the two read as one 32-bit
+  counter; timer 2 is the clock event and timer 3 a slow wake from suspend.
+
+properties:
+  compatible:
+    const: epson,s1c33-t16
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    items:
+      - description: Timer 2's compare A, the clock event
+      - description: Timer 3's compare A, the suspend wake
+
+  clocks:
+    items:
+      - description: MCLK, which the timers count
+      - description: Timer 0's gate
+      - description: Timer 2's gate
+      - description: Timer 3's gate
+      - description: Timer 5's gate
+
+  clock-names:
+    items:
+      - const: mclk
+      - const: tm0
+      - const: tm2
+      - const: tm3
+      - const: tm5
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/s1c33-cmu.h>
+
+    timer@300780 {
+        compatible = "epson,s1c33-t16";
+        reg = <0x300780 0x80>;
+        interrupts = <38 4>, <42 4>;
+        clocks = <&cmu S1C33_CLK_MCLK>, <&cmu S1C33_CLK_TM0>,
+                 <&cmu S1C33_CLK_TM2>, <&cmu S1C33_CLK_TM3>,
+                 <&cmu S1C33_CLK_TM5>;
+        clock-names = "mclk", "tm0", "tm2", "tm3", "tm5";
+    };

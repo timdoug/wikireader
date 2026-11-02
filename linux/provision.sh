@@ -17,7 +17,11 @@ sudo -E apt-get install -y \
 	python3 python3-venv cpio xz-utils unzip file wget perl \
 	libssl-dev libelf-dev libncurses-dev zlib1g-dev \
 	libgmp-dev libmpfr-dev libmpc-dev device-tree-compiler \
-	dwarves texinfo cmake
+	dwarves texinfo cmake swig python3-dev
+
+# dtschema, for make -C linux dt-check.
+python3 -m venv "$HOME/wr-linux/dtschema-venv"
+"$HOME/wr-linux/dtschema-venv/bin/pip" install dtschema yamllint
 
 # The VM keeps the Mac's time, which Lima's guest agent sets every ten
 # seconds.  timesyncd set it to NTP's in between, 0.8 s apart, and each
