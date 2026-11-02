@@ -41,16 +41,6 @@ SYSCALL_DEFINE1(c33_set_tls, unsigned long, tls)
 	return 0;
 }
 
-SYSCALL_DEFINE0(c33_get_tls)
-{
-	return current->thread.tls;
-}
-
-SYSCALL_DEFINE0(c33_get_tls_slot)
-{
-	return (unsigned long)&c33_current_tls;
-}
-
 asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs);
 asmlinkage struct pt_regs *c33_exception_exit(struct pt_regs *regs);
 

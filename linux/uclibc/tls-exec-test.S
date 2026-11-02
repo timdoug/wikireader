@@ -10,10 +10,6 @@ _start:
 	ld.w %r4,[%r4]
 	cmp %r4,0
 	jrne fail
-	xld.w %r4,__NR_c33_get_tls
-	int 0
-	cmp %r4,0
-	jrne fail
 	ld.w %r6,0
 	jp exit
 fail:

@@ -12,7 +12,12 @@
 #include <linux/kernel.h>
 #include <linux/processor.h>
 
-#include <asm/clock.h>
+/*
+ * Before the timer runs, a delay spins a loop of a cycle or more a turn
+ * for as many turns as MCLK's fastest, 60 MHz, has cycles: only ever an
+ * overestimate.
+ */
+#define MAX_CYCLES_PER_USEC	60
 
 static unsigned long cycles_per_usec(void)
 {
@@ -20,8 +25,8 @@ static unsigned long cycles_per_usec(void)
 
 	/* MCLK is selected before the kernel starts and does not change. */
 	if (!cached)
-		cached = c33_mclk_hz() / 1000000;
-	return cached;
+		cached = s1c33_timer_rate() / 1000000;
+	return cached ? cached : MAX_CYCLES_PER_USEC;
 }
 
 void __delay(unsigned long cycles)
@@ -55,6 +60,6 @@ EXPORT_SYMBOL(__ndelay);
 
 void __init calibrate_delay(void)
 {
-	loops_per_jiffy = c33_mclk_hz() / HZ;
+	loops_per_jiffy = s1c33_timer_rate() / HZ;
 	pr_info("Delay loop: %lu MCLK cycles per jiffy\n", loops_per_jiffy);
 }

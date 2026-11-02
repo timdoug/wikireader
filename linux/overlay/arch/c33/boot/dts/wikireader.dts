@@ -234,3 +234,11 @@
 		touchscreen-size-y = <208>;
 	};
 };
+
+&osc3 {
+	clock-frequency = <48000000>;
+};
+
+&osc1 {
+	clock-frequency = <32768>;
+};

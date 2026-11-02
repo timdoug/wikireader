@@ -12,6 +12,19 @@
 	#size-cells = <1>;
 	interrupt-parent = <&itc>;
 
+	/* The oscillators' crystals are the board's, which sets their rates. */
+	osc3: oscillator-osc3 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-output-names = "osc3";
+	};
+
+	osc1: oscillator-osc1 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-output-names = "osc1";
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -59,7 +72,10 @@
 			compatible = "epson,s1c33-t16";
 			reg = <0x300780 0x80>;
 			interrupts = <38 4>, <42 4>;
-			clocks = <&cmu S1C33_CLK_MCLK>;
+			clocks = <&cmu S1C33_CLK_MCLK>, <&cmu S1C33_CLK_TM0>,
+				 <&cmu S1C33_CLK_TM2>, <&cmu S1C33_CLK_TM3>,
+				 <&cmu S1C33_CLK_TM5>;
+			clock-names = "mclk", "tm0", "tm2", "tm3", "tm5";
 		};
 
 		/* Timer 1 as a PWM, on P11. */
@@ -134,6 +150,8 @@
 		cmu: clock-controller@301b00 {
 			compatible = "epson,s1c33-cmu";
 			reg = <0x301b00 0x30>;
+			clocks = <&osc3>, <&osc1>;
+			clock-names = "osc3", "osc1";
 			#clock-cells = <1>;
 		};
 	};

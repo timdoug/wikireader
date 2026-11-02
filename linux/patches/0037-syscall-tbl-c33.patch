@@ -1,0 +1,13 @@
+diff --git a/scripts/syscall.tbl b/scripts/syscall.tbl
+index 0ab5316051..072ab62b37 100644
+--- a/scripts/syscall.tbl
++++ b/scripts/syscall.tbl
+@@ -300,6 +300,8 @@
+ 
+ 244	nios2	cacheflush			sys_cacheflush
+ 
++244	c33	c33_set_tls			sys_c33_set_tls
++
+ 244	or1k	or1k_atomic			sys_or1k_atomic
+ 
+ 258	riscv	riscv_hwprobe			sys_riscv_hwprobe

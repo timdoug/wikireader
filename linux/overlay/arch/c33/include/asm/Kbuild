@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+syscall-y += syscall_table_32.h
 generic-y += cmpxchg.h
 generic-y += cache.h
 generic-y += extable.h

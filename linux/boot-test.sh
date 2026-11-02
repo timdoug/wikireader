@@ -129,7 +129,7 @@ signal_expected="C33 signal test: handler -> rt_sigreturn passed"
 trace_expected="C33 trace test: PTRACE_SYSCALL stopped the child passed"
 libc_output='C33 uClibc smoke: pid=[1-9][0-9]* longjmp=7'
 libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
-clock_expected="C33 clock: registered 60000000 Hz MCLK and 6 peripheral gates"
+clock_expected="s1c33-cmu: 60000000 Hz MCLK from osc3, 10 gates"
 gpio_expected="s1c33-pinctrl 300380.pinctrl: registered 74 pins, 111 functions and 56 GPIOs, P03 and P60..P62 interrupting"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \

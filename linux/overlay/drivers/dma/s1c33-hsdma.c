@@ -11,8 +11,12 @@
  *
  * Completion is found by polling: the transfer-count flag each channel
  * raises in the interrupt controller is read by tx_status, which retires
- * the descriptor, runs its callback and starts the next, so a client waits
- * with dmaengine_tx_status() or dma_sync_wait().  tx_status also gives the
+ * the descriptor and starts the next, so a client waits with
+ * dmaengine_tx_status() or dma_sync_wait().  A descriptor with a callback
+ * is handed to the channel's tasklet, which runs the callback as DMAengine
+ * has callbacks run, outside the caller's context and locks;
+ * dmaengine_synchronize() waits for it.  One without, the usual case here,
+ * is recycled at once.  tx_status also gives the
  * residue of a transfer under way, from the channel's count, so a client
  * can use what has come in so far.  That is the point on this
  * part, not a shortcut: the CPU would otherwise sleep in HALT, and on
@@ -29,6 +33,7 @@
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/dmaengine.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/list.h>
 #include <linux/module.h>
@@ -85,6 +90,8 @@ struct hsdma_chan {
 	struct list_head prepared;	/* not submitted, or kept for reuse */
 	struct list_head submitted;
 	struct list_head issued;
+	struct list_head completed;	/* retired, callback still to run */
+	struct tasklet_struct tasklet;
 	struct hsdma_desc *active;
 	struct hsdma_desc *spare[HSDMA_SPARE_DESCS];
 	unsigned int spares;
@@ -174,12 +181,21 @@ static void hsdma_recycle(struct hsdma_chan *c, struct hsdma_desc *d)
 		kfree(d);
 }
 
+/* A finished descriptor whose callback, if any, has run.  Under the lock. */
+static void hsdma_retire(struct hsdma_chan *c, struct hsdma_desc *d)
+{
+	if (dmaengine_desc_test_reuse(&d->tx))
+		list_add_tail(&d->node, &c->prepared);
+	else
+		hsdma_recycle(c, d);
+}
+
 /*
  * Retire the active descriptor if its count has run out, and start the
- * next.  Under the channel lock; the callback, if any, is left in @cb for
- * the caller to run once the lock is dropped.
+ * next.  One with a callback waits for the tasklet.  Under the channel
+ * lock.
  */
-static void hsdma_poll(struct hsdma_chan *c, struct dmaengine_desc_callback *cb)
+static void hsdma_poll(struct hsdma_chan *c)
 {
 	struct hsdma_desc *d = c->active;
 
@@ -187,12 +203,37 @@ static void hsdma_poll(struct hsdma_chan *c, struct dmaengine_desc_callback *cb)
 		return;
 	hsdma_stop(c);
 	dma_cookie_complete(&d->tx);
-	dmaengine_desc_get_callback(&d->tx, cb);
-	if (dmaengine_desc_test_reuse(&d->tx))
-		list_add_tail(&d->node, &c->prepared);
-	else
-		hsdma_recycle(c, d);
+	if (d->tx.callback || d->tx.callback_result) {
+		list_add_tail(&d->node, &c->completed);
+		tasklet_schedule(&c->tasklet);
+	} else {
+		hsdma_retire(c, d);
+	}
 	hsdma_start(c);
+}
+
+/* Run the callbacks of retired descriptors, one at a time, unlocked. */
+static void hsdma_complete(struct tasklet_struct *t)
+{
+	struct hsdma_chan *c = from_tasklet(c, t, tasklet);
+	struct dmaengine_desc_callback cb;
+	struct hsdma_desc *d;
+	unsigned long flags;
+
+	for (;;) {
+		spin_lock_irqsave(&c->lock, flags);
+		d = list_first_entry_or_null(&c->completed, struct hsdma_desc,
+					     node);
+		if (d) {
+			dmaengine_desc_get_callback(&d->tx, &cb);
+			list_del(&d->node);
+			hsdma_retire(c, d);
+		}
+		spin_unlock_irqrestore(&c->lock, flags);
+		if (!d)
+			break;
+		dmaengine_desc_callback_invoke(&cb, NULL);
+	}
 }
 
 /*
@@ -230,7 +271,6 @@ static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 				       struct dma_tx_state *state)
 {
 	struct hsdma_chan *c = to_hsdma_chan(chan);
-	struct dmaengine_desc_callback cb = { };
 	enum dma_status status;
 	unsigned long flags;
 
@@ -238,12 +278,11 @@ static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 	if (status == DMA_COMPLETE)
 		return status;
 	spin_lock_irqsave(&c->lock, flags);
-	hsdma_poll(c, &cb);
+	hsdma_poll(c);
 	status = dma_cookie_status(chan, cookie, state);
 	if (status != DMA_COMPLETE && state)
 		dma_set_residue(state, hsdma_residue(c, cookie));
 	spin_unlock_irqrestore(&c->lock, flags);
-	dmaengine_desc_callback_invoke(&cb, NULL);
 	return status;
 }
 
@@ -255,16 +294,14 @@ static enum dma_status hsdma_tx_status(struct dma_chan *chan,
 static void hsdma_issue_pending(struct dma_chan *chan)
 {
 	struct hsdma_chan *c = to_hsdma_chan(chan);
-	struct dmaengine_desc_callback cb = { };
 	unsigned long flags;
 
 	spin_lock_irqsave(&c->lock, flags);
-	hsdma_poll(c, &cb);
+	hsdma_poll(c);
 	list_splice_tail_init(&c->submitted, &c->issued);
 	if (!c->active)
 		hsdma_start(c);
 	spin_unlock_irqrestore(&c->lock, flags);
-	dmaengine_desc_callback_invoke(&cb, NULL);
 }
 
 /*
@@ -277,12 +314,11 @@ static dma_cookie_t hsdma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
 	struct hsdma_chan *c = to_hsdma_chan(tx->chan);
 	struct hsdma_desc *d = to_hsdma_desc(tx);
-	struct dmaengine_desc_callback cb = { };
 	unsigned long flags;
 	dma_cookie_t cookie;
 
 	spin_lock_irqsave(&c->lock, flags);
-	hsdma_poll(c, &cb);
+	hsdma_poll(c);
 	if (d == c->active) {
 		cookie = -EBUSY;
 	} else {
@@ -290,7 +326,6 @@ static dma_cookie_t hsdma_tx_submit(struct dma_async_tx_descriptor *tx)
 		list_move_tail(&d->node, &c->submitted);
 	}
 	spin_unlock_irqrestore(&c->lock, flags);
-	dmaengine_desc_callback_invoke(&cb, NULL);
 	return cookie;
 }
 
@@ -414,8 +449,9 @@ hsdma_prep_interleaved(struct dma_chan *chan,
 }
 
 /*
- * Stop the channel and drop everything queued.  Descriptors kept for reuse
- * go back to the prepared list for their owner to free.
+ * Stop the channel and drop everything queued, and the callbacks not yet
+ * run.  Descriptors kept for reuse go back to the prepared list for their
+ * owner to free.
  */
 static int hsdma_terminate_all(struct dma_chan *chan)
 {
@@ -431,6 +467,7 @@ static int hsdma_terminate_all(struct dma_chan *chan)
 	c->active = NULL;
 	list_splice_tail_init(&c->submitted, &head);
 	list_splice_tail_init(&c->issued, &head);
+	list_splice_tail_init(&c->completed, &head);
 	list_for_each_entry_safe(d, next, &head, node) {
 		if (dmaengine_desc_test_reuse(&d->tx)) {
 			list_move_tail(&d->node, &c->prepared);
@@ -441,6 +478,12 @@ static int hsdma_terminate_all(struct dma_chan *chan)
 	}
 	spin_unlock_irqrestore(&c->lock, flags);
 	return 0;
+}
+
+/* No callback runs once this returns, as dmaengine_synchronize() asks. */
+static void hsdma_synchronize(struct dma_chan *chan)
+{
+	tasklet_kill(&to_hsdma_chan(chan)->tasklet);
 }
 
 static int hsdma_alloc_chan_resources(struct dma_chan *chan)
@@ -458,6 +501,7 @@ static void hsdma_free_chan_resources(struct dma_chan *chan)
 	struct hsdma_desc *d, *next;
 
 	hsdma_terminate_all(chan);
+	hsdma_synchronize(chan);
 	hsdma_set_trigger(c->hsdma, c->id, 0);
 	list_for_each_entry_safe(d, next, &c->prepared, node) {
 		list_del(&d->node);
@@ -564,6 +608,7 @@ static int hsdma_probe(struct platform_device *pdev)
 	hsdma->dd.device_prep_interleaved_dma = hsdma_prep_interleaved;
 	hsdma->dd.device_config = hsdma_config;
 	hsdma->dd.device_terminate_all = hsdma_terminate_all;
+	hsdma->dd.device_synchronize = hsdma_synchronize;
 	hsdma->dd.device_tx_status = hsdma_tx_status;
 	hsdma->dd.device_issue_pending = hsdma_issue_pending;
 	INIT_LIST_HEAD(&hsdma->dd.channels);
@@ -577,6 +622,8 @@ static int hsdma_probe(struct platform_device *pdev)
 		INIT_LIST_HEAD(&c->prepared);
 		INIT_LIST_HEAD(&c->submitted);
 		INIT_LIST_HEAD(&c->issued);
+		INIT_LIST_HEAD(&c->completed);
+		tasklet_setup(&c->tasklet, hsdma_complete);
 		c->chan.device = &hsdma->dd;
 		list_add_tail(&c->chan.device_node, &hsdma->dd.channels);
 	}

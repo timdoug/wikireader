@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <mqueue.h>
 #include <pthread.h>
+#include <asm/tls.h>
 #include <sched.h>
 #include <semaphore.h>
 #include <signal.h>
@@ -85,11 +86,10 @@ static void *worker(void *p)
 	int errors = 0;
 	pid_t tid = syscall(SYS_gettid);
 	void *tp = __builtin_thread_pointer();
-	volatile unsigned long *slot = (void *)syscall(__NR_c33_get_tls_slot);
+	volatile unsigned long *slot = (void *)C33_TLS_SLOT_ADDRESS;
 	errors += local_exec != 11 || initial_exec != 22 || global_dynamic != 33 ||
 		local_dynamic != 44 || zero != 0 || signals != 0;
-	errors += !tp || tp != (void *)*slot ||
-		(long)tp != syscall(__NR_c33_get_tls);
+	errors += !tp || tp != (void *)*slot;
 	errors += library_tls(seed) != 1 || library_ie != seed;
 	errors += pthread_setspecific(key, p) != 0;
 	local_exec = seed;

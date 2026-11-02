@@ -17,22 +17,21 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/sched_clock.h>
 #include <linux/suspend.h>
 
 #include <linux/clocksource/timer-s1c33.h>
 
-#include <asm/clock.h>
-
-#define S1C33_T16_BASE		0x00300780UL
-#define S1C33_T16_CRA(n)	(S1C33_T16_BASE + (n) * 8)
-#define S1C33_T16_CRB(n)	(S1C33_T16_BASE + (n) * 8 + 2)
-#define S1C33_T16_TC(n)		(S1C33_T16_BASE + (n) * 8 + 4)
-#define S1C33_T16_CTL(n)	(S1C33_T16_BASE + (n) * 8 + 6)
-#define S1C33_T16_PAUSE		0x003007dcUL
-#define S1C33_T16_ADVMODE	0x003007deUL
-#define S1C33_T16_CLKCTL(n)	(0x003007e0UL + (n) * 2)
+/* Offsets in the block, the device tree's reg. */
+#define S1C33_T16_CRA(n)	((n) * 8)
+#define S1C33_T16_CRB(n)	((n) * 8 + 2)
+#define S1C33_T16_TC(n)		((n) * 8 + 4)
+#define S1C33_T16_CTL(n)	((n) * 8 + 6)
+#define S1C33_T16_PAUSE		0x5c
+#define S1C33_T16_ADVMODE	0x5e
+#define S1C33_T16_CLKCTL(n)	(0x60 + (n) * 2)
 
 #define S1C33_ADVMODE_ON	BIT(0)
 #define S1C33_CTL_PRUN		BIT(0)
@@ -46,7 +45,11 @@
 #define S1C33_CLKCTL_DIV4096	7
 
 
-/* TM0 output on P12 and the EXCL5 input on P74 carry the cascade. */
+/*
+ * TM0 output on P12 and the EXCL5 input on P74 carry the cascade.  The pin
+ * functions are set here, in the port registers, because the clocksource
+ * starts from time_init(), before the pin controller probes.
+ */
 #define S1C33_P1_03_CFP		0x003003a2UL
 #define S1C33_P1_TM0		0x01
 #define S1C33_P7_4_CFP		0x003003afUL
@@ -73,22 +76,29 @@
 #define S1C33_MIN_DELTA		2
 #define S1C33_MAX_DELTA		0xfffe
 
+static void __iomem *t16_base;
 static bool s1c33_timer_ready;
+static unsigned long s1c33_counter_rate;
 static unsigned long s1c33_event_rate;
 
-static u16 t16_read(unsigned long reg)
+static u16 t16_read(unsigned int reg)
 {
-	return readw((void __iomem *)reg);
+	return readw(t16_base + reg);
 }
 
-static void t16_write(u16 value, unsigned long reg)
+static void t16_write(u16 value, unsigned int reg)
 {
-	writew(value, (void __iomem *)reg);
+	writew(value, t16_base + reg);
 }
 
 bool s1c33_timer_running(void)
 {
 	return s1c33_timer_ready;
+}
+
+unsigned long s1c33_timer_rate(void)
+{
+	return s1c33_counter_rate;
 }
 
 u32 s1c33_timer_cycles(void)
@@ -185,19 +195,27 @@ static irqreturn_t s1c33_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void __init s1c33_timer_clocks_on(void)
+/* The four channels' clocks, held for good, and the cascade's pins. */
+static int __init s1c33_timer_clocks_on(struct device_node *node)
 {
-	/*
-	 * time_init() runs long before the clock framework has a provider, so
-	 * the four channels this driver owns are gated by hand.
-	 */
-	c33_cmu_gate(C33_CMU_TM0 | C33_CMU_TM2 | C33_CMU_TM3 | C33_CMU_TM5,
-		     true);
+	static const char * const gates[] = { "tm0", "tm2", "tm3", "tm5" };
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(gates); i++) {
+		struct clk *clk = of_clk_get_by_name(node, gates[i]);
+		int ret = IS_ERR(clk) ? PTR_ERR(clk) : clk_prepare_enable(clk);
+
+		if (ret) {
+			pr_err("s1c33-timer: no %s clock: %d\n", gates[i], ret);
+			return ret;
+		}
+	}
 
 	writeb((readb((void __iomem *)S1C33_P1_03_CFP) & ~S1C33_CFP_MASK) |
 	       S1C33_P1_TM0, (void __iomem *)S1C33_P1_03_CFP);
 	writeb((readb((void __iomem *)S1C33_P7_4_CFP) & ~S1C33_CFP_MASK) |
 	       S1C33_P7_EXCL5, (void __iomem *)S1C33_P7_4_CFP);
+	return 0;
 }
 
 static void __init s1c33_counter_init(unsigned long rate)
@@ -344,7 +362,8 @@ static void __init s1c33_wake_init(unsigned long rate, int irq)
 }
 
 /*
- * "epson,s1c33-t16": the clock is MCLK, the first interrupt the clock
+ * "epson,s1c33-t16": the clocks are MCLK, which the timers count, and the
+ * gates of channels 0, 2, 3 and 5; the first interrupt is the clock
  * event's (timer 2 A) and the second the suspend wake's (timer 3 A).
  */
 static int __init s1c33_timer_of_init(struct device_node *node)
@@ -352,8 +371,9 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 	unsigned long mclk_hz;
 	int event_irq, wake_irq;
 	struct clk *clk;
+	int ret;
 
-	clk = of_clk_get(node, 0);
+	clk = of_clk_get_by_name(node, "mclk");
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
 	mclk_hz = clk_get_rate(clk);
@@ -361,8 +381,14 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 	wake_irq = irq_of_parse_and_map(node, 1);
 	if (!mclk_hz || !event_irq || !wake_irq)
 		return -EINVAL;
+	t16_base = of_iomap(node, 0);
+	if (!t16_base)
+		return -ENOMEM;
 
-	s1c33_timer_clocks_on();
+	ret = s1c33_timer_clocks_on(node);
+	if (ret)
+		return ret;
+	s1c33_counter_rate = mclk_hz;
 	s1c33_counter_init(mclk_hz);
 	s1c33_clockevent_init(mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 	s1c33_wake_init(mclk_hz / S1C33_WAKE_DIVISOR, wake_irq);
