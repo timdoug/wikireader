@@ -34,29 +34,6 @@
 #undef STARTFILE_SPEC
 #undef ASM_SPEC
 
-/* Flags the V850 option set had that the C33 does not.  Rather than thread
-   the removals through every use, they are pinned here to the value that is
-   true for this target, with the reason.  Simplifying the code that reads
-   them is cleanup still owed -- see "Next steps" in gcc/README.md.  */
-
-/* Structures larger than 8 bytes are passed in memory, with the caller
-   supplying a hidden pointer to the return slot as the first argument
-   (ABI.md, derived from the original compiler).  That is what V850 called
-   its "old GCC ABI"; the RH850 alternative is not this target's.  */
-#define TARGET_GCC_ABI		1
-
-/* No ep register: V850 reserved r30 as a short-addressing base.  The C33's
-   analogue is %r15 for the default data area, handled separately.  */
-#define TARGET_EP		0
-
-/* All of %r0-%r15 are ordinary general registers here; V850 reserved r2 and
-   r5 for the application.  */
-#define TARGET_APP_REGS		1
-
-/* sld/sst and callt are V850 instructions.  */
-#define TARGET_SMALL_SLD	0
-#define TARGET_DISABLE_CALLT	1
-
 /* No FPU on any C33 core; floating point is soft, through libgcc.  */
 #define TARGET_SOFT_FLOAT	1
 #define TARGET_USE_FPU		0
@@ -561,14 +538,6 @@ enum reg_class
 struct cum_arg
 {
   int nbytes;
-
-  /* New callers of variadic and unprototyped functions describe the
-     actual stack argument stream in %r5.  This is used only by
-     __builtin_apply; normal variadic callees continue to see every
-     anonymous argument in its historical stack location.  */
-  unsigned int stack_words;
-  unsigned int apply_shadow_mask;
-  bool apply_descriptor;
 };
 
 /* Initialize a variable CUM of type CUMULATIVE_ARGS
@@ -576,12 +545,7 @@ struct cum_arg
    For a library call, FNTYPE is 0.  */
 
 #define INIT_CUMULATIVE_ARGS(CUM, FNTYPE, LIBNAME, INDIRECT, N_NAMED_ARGS) \
-  do {                                                                  \
-    (CUM).nbytes = 0;                                                   \
-    (CUM).stack_words = 0;                                              \
-    (CUM).apply_shadow_mask = 0;                                        \
-    (CUM).apply_descriptor = c33_apply_descriptor_p (FNTYPE);           \
-  } while (0)
+  ((CUM).nbytes = 0)
 
 /* When a parameter is passed in a register, stack space is still
    allocated for it.  */
@@ -604,12 +568,7 @@ struct cum_arg
    sitting in %r9:%r10 -- see complex-7, which aborts at -O3 -funroll-loops
    (which implies -frename-registers) and passes without it.  */
 
-#define FUNCTION_ARG_REGNO_P(N) ((N) == 5 || ((N) >= 6 && (N) <= 12))
-
-/* What __builtin_apply_args saves for argument register REGNO (see
-   c33_apply_args_save_value).  */
-#define APPLY_ARGS_SAVE_VALUE(REGNO, REG) \
-  c33_apply_args_save_value ((REGNO), (REG))
+#define FUNCTION_ARG_REGNO_P(N) ((N) >= 6 && (N) <= 12)
 
 #define DEFAULT_PCC_STRUCT_RETURN 0
 

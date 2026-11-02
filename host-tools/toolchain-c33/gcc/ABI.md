@@ -137,46 +137,13 @@ target - see *Data areas* below.
   `struct __attribute__((aligned(16)))` arrive at its promised alignment
   (`gcc.dg/pr84877.c`).
 
-### Variadic forwarding and `__builtin_apply`
+### Variadic calls and `__builtin_apply`
 
-The historical ABI puts every anonymous argument on the stack.  A typed
-call, however, puts eligible scalars in the register stream above.  That
-difference is fine for `va_arg`, but it used to make `__builtin_apply`
-fundamentally lossy: after entry to a variadic forwarding function, GCC no
-longer knew which stack words a typed destination would expect in registers.
-
-New callers of variadic and unprototyped functions add a
-backward-compatible forwarding extension:
-
-* every anonymous argument remains in its historical stack slot;
-* an eligible anonymous scalar is also shadowed into the register that the
-  same argument would occupy in a typed call; and
-* caller-clobbered `%r5` carries a versioned descriptor containing the actual
-  stack-word count and a mask of the shadowed words.
-
-Existing variadic callees ignore the shadow registers and `%r5`, so their
-observable ABI is unchanged.  A variadic function's `__builtin_apply_args`
-saves `%r5` together with the ordinary argument registers.  C33's
-`untyped_call` expansion then authenticates the descriptor and compacts only
-the duplicated words out of the copied outgoing stack block before calling
-the typed destination.
-
-A call to a prototyped, non-variadic function carries no descriptor: it has
-no anonymous arguments, so nothing to compact.  Such a function's
-`__builtin_apply_args` saves zero, which is no descriptor, in place of
-`%r5`, since `%r5` may still hold one that its caller passed to an earlier
-call (`APPLY_ARGS_SAVE_VALUE`, GCC patch 0007).  The load is six bytes; on
-every call it would be 9% of the Linux kernel's code.
-
-The initial descriptor represents up to 15 actual stack words (60 bytes);
-larger forwarding calls retain the old stack ABI but do not carry a valid
-compaction descriptor.  This covers the upstream apply tests, whose declared
-copy bound is 64 bytes but whose actual stream is seven words.  Extending the
-descriptor is an ABI-versioned change rather than a test-harness exception.
-
-The upstream `builtin-apply` and stack-alignment families provide 107 focused
-verdicts across normal, PIC and optimization variants; all pass without a
-target skip.
+Every anonymous argument is on the stack, where `va_arg` finds it; named
+arguments use the registers as in any call.  `__builtin_apply` forwards a
+prototyped function's arguments.  A variadic function's anonymous
+arguments are on the stack, where a typed destination does not look for
+them, so forwarding them is not supported, as nothing here uses it.
 
 ### Structures
 

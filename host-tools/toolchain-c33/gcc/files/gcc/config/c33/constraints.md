@@ -110,10 +110,6 @@
   (and (match_code "symbol_ref")
        (match_test "!SYMBOL_REF_ZDA_P (op)")))
 
-(define_constraint "T"
-  "@internal"
-  (match_test "ep_memory_operand (op, mode, TRUE)"))
-
 (define_constraint "U"
   "@internal"
   (ior (and (match_code "symbol_ref")

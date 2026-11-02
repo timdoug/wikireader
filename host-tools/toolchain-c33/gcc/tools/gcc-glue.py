@@ -516,7 +516,6 @@ An integer constant from 0x8000 to 0x3fffff.
 
 @item H
 @itemx P
-@itemx T
 These never match.
 @end table
 @end ifset

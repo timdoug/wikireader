@@ -29,7 +29,6 @@ extern int    c33_handle_pragma            (int (*)(void), void (*)(int), char *
 extern int    compute_register_save_size    (long *);
 extern int    compute_frame_size            (poly_int64, long *);
 extern void   c33_init_expanders           (void);
-extern bool   c33_apply_descriptor_p        (const_tree);
 
 #ifdef RTX_CODE
 extern bool c33_tls_operand_p (rtx);
@@ -54,11 +53,9 @@ extern int         c33_move_length (rtx_insn *);
 extern int         c33_bit_length (rtx_insn *);
 extern bool        c33_uses_sp_p (rtx_insn *);
 extern void        c33_expand_untyped_call (rtx, rtx);
-extern rtx         c33_apply_args_save_value (unsigned int, rtx);
 extern int         c33_alu_length (rtx_insn *, int);
 extern int         c33_shift_length (rtx_insn *);
 #ifdef HAVE_MACHINE_MODES
-extern int    ep_memory_operand             (rtx, machine_mode, int);
 extern int    c33_adjust_insn_length       (rtx_insn *, int);
 extern const char * c33_gen_movdi          (rtx *);
 extern rtx    c33_gen_compare              (enum rtx_code, machine_mode,

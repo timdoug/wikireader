@@ -170,9 +170,7 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
      8-byte scalar starts at the next free word rather than the next free
      *even* word.  Deriving the alignment from the size instead (as V850
      does) is what put a long long in %r8:%r9 where 3.3.2 uses %r7:%r8.  */
-  if (!TARGET_GCC_ABI)
-    align = UNITS_PER_WORD;
-  else if (arg.type)
+  if (arg.type)
     align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
   else
     align = size;
@@ -191,8 +189,7 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
      the next argument still gets %r9.  A long long in the same position is
      passed in %r9:%r10 -- one register past the documented argument set.
      Both are 3.3.2's behaviour, verified from its callee side.  */
-  if (TARGET_GCC_ABI && arg.mode == DFmode
-      && cum->nbytes >= 3 * UNITS_PER_WORD)
+  if (arg.mode == DFmode && cum->nbytes >= 3 * UNITS_PER_WORD)
     return NULL_RTX;
 
   switch (cum->nbytes / UNITS_PER_WORD)
@@ -213,20 +210,9 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
       result = NULL_RTX;
     }
 
-  /* The historical C33 varargs ABI puts every anonymous argument on the
-     stack, whereas a prototyped call can put scalars in %r6-%r9.  Keep the
-     stack copy so existing va_arg implementations remain compatible, and
-     shadow the value in its typed-call register as well.  The NULL member
-     is GCC's standard PARALLEL notation for "also pass in memory".  */
-  if (!arg.named && result != NULL_RTX)
-    {
-      rtvec locations = rtvec_alloc (2);
-      RTVEC_ELT (locations, 0)
-	= gen_rtx_EXPR_LIST (VOIDmode, NULL_RTX, const0_rtx);
-      RTVEC_ELT (locations, 1)
-	= gen_rtx_EXPR_LIST (VOIDmode, result, const0_rtx);
-      return gen_rtx_PARALLEL (arg.mode, locations);
-    }
+  /* Every anonymous argument is on the stack, where va_arg finds it.  */
+  if (!arg.named)
+    return NULL_RTX;
 
   return result;
 }
@@ -255,45 +241,9 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 			   const function_arg_info &arg)
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
-  unsigned int words;
-  bool in_registers;
 
   if (arg.end_marker_p ())
     return;
-
-  if (!TARGET_GCC_ABI)
-    {
-      cum->nbytes += ((arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
-		      & -UNITS_PER_WORD);
-      return;
-    }
-
-  words = (arg.promoted_size_in_bytes () + UNITS_PER_WORD - 1)
-	  / UNITS_PER_WORD;
-
-  in_registers = (arg.mode != BLKmode
-		  && cum->nbytes <= 4 * UNITS_PER_WORD
-		  && !(arg.mode == DFmode
-		       && cum->nbytes >= 3 * UNITS_PER_WORD)
-		  && (arg.type != NULL_TREE
-		      || cum->nbytes + GET_MODE_SIZE (arg.mode)
-			 <= 4 * UNITS_PER_WORD));
-
-  /* Anonymous arguments always have a real stack slot.  Named arguments
-     contribute to this stream only when they did not fit in registers.
-     apply_shadow_mask marks stack words that the PARALLEL above duplicated
-     in argument registers and that an untyped call must therefore remove.  */
-  if (!arg.named || !in_registers)
-    {
-      if (!arg.named && in_registers
-	  && cum->stack_words + words <= 20)
-	{
-	  unsigned int word;
-	  for (word = 0; word < words; ++word)
-	    cum->apply_shadow_mask |= 1U << (cum->stack_words + word);
-	}
-      cum->stack_words += words;
-    }
 
   /* These two mirror the early returns in c33_function_arg: an argument that
      went on the stack there consumes no register slot here.  */
@@ -307,145 +257,15 @@ c33_function_arg_advance (cumulative_args_t cum_v,
 		  & -UNITS_PER_WORD);
 }
 
-/* A call to a variadic or unprototyped function carries an
-   __builtin_apply forwarding descriptor in caller-clobbered %r5:
-
-       31       24 23    20 19                         0
-      +-----------+--------+----------------------------+
-      |    c3     | nwords |       shadow word mask     |
-      +-----------+--------+----------------------------+
-
-   The descriptor is harmless to ordinary callees.  Only those two kinds
-   of callee can receive anonymous arguments, so only they need one: a
-   typed call has nothing to compact, and its callee saves zero in place
-   of %r5 (c33_apply_args_save_value).  The load is six bytes; on every
-   call it would be 9% of the kernel's code.  Library calls have no
-   FNTYPE and are typed.  */
-
-bool
-c33_apply_descriptor_p (const_tree fntype)
-{
-  return fntype && (stdarg_p (fntype) || !prototype_p (fntype));
-}
-
-/* __builtin_apply_args saves the incoming %r5 as the forwarding
-   descriptor.  A function that is not variadic was passed none, and its
-   own arguments duplicate nothing, so it saves zero, which is no
-   descriptor: %r5 may still hold one its caller passed to an earlier
-   call.  */
-
-rtx
-c33_apply_args_save_value (unsigned int regno, rtx reg)
-{
-  if (regno == 5 && cfun && !stdarg_p (TREE_TYPE (cfun->decl)))
-    return const0_rtx;
-  return reg;
-}
-
-static void
-c33_start_call_args (cumulative_args_t cum_v)
-{
-  CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
-  unsigned HOST_WIDE_INT descriptor = 0;
-  rtx reg = gen_rtx_REG (SImode, 5);
-
-  if (!cum->apply_descriptor)
-    return;
-
-  if (cum->stack_words <= 15)
-    descriptor = (HOST_WIDE_INT_UC (0xc3) << 24)
-		 | ((unsigned HOST_WIDE_INT) cum->stack_words << 20)
-		 | cum->apply_shadow_mask;
-
-  emit_move_insn (reg, gen_int_mode (descriptor, SImode));
-  emit_insn (gen_rtx_USE (VOIDmode, reg));
-}
-
-/* Remove the anonymous stack words that were also supplied in registers,
-   converting the incoming variadic layout into the layout expected by the
-   typed destination of __builtin_apply.  The loop is bounded by the count
-   in the authenticated descriptor, so it never reads beyond the caller's
-   actual argument stream.  */
-
-static void
-c33_compact_apply_stack (void)
-{
-  rtx descriptor = gen_rtx_REG (SImode, 5);
-  rtx magic = gen_reg_rtx (SImode);
-  rtx mask = gen_reg_rtx (SImode);
-  rtx count = gen_reg_rtx (SImode);
-  rtx bit = gen_reg_rtx (SImode);
-  rtx source = copy_to_mode_reg (Pmode, virtual_outgoing_args_rtx);
-  rtx dest = copy_to_mode_reg (Pmode, virtual_outgoing_args_rtx);
-  rtx word = gen_reg_rtx (SImode);
-  rtx_code_label *valid = gen_label_rtx ();
-  rtx_code_label *loop = gen_label_rtx ();
-  rtx_code_label *discard = gen_label_rtx ();
-  rtx_code_label *next = gen_label_rtx ();
-  rtx_code_label *done = gen_label_rtx ();
-
-  emit_insn (gen_andsi3 (magic, descriptor,
-			 gen_int_mode (HOST_WIDE_INT_UC (0xff000000),
-				       SImode)));
-  emit_cmp_and_jump_insns (magic,
-			  gen_int_mode (HOST_WIDE_INT_UC (0xc3000000),
-					SImode),
-			  EQ, NULL_RTX, SImode, true, valid);
-  emit_jump_insn (gen_jump (done));
-
-  emit_label (valid);
-  emit_insn (gen_andsi3 (mask, descriptor, GEN_INT (0xfffff)));
-  emit_insn (gen_lshrsi3 (count, descriptor, GEN_INT (20)));
-  emit_insn (gen_andsi3 (count, count, GEN_INT (15)));
-
-  emit_label (loop);
-  emit_cmp_and_jump_insns (count, const0_rtx, EQ, NULL_RTX, SImode,
-			  true, done);
-  emit_insn (gen_andsi3 (bit, mask, const1_rtx));
-  emit_cmp_and_jump_insns (bit, const0_rtx, NE, NULL_RTX, SImode,
-			  true, discard);
-
-  emit_move_insn (word, gen_rtx_MEM (SImode, source));
-  emit_move_insn (gen_rtx_MEM (SImode, dest), word);
-  emit_insn (gen_addsi3 (dest, dest, GEN_INT (UNITS_PER_WORD)));
-  emit_jump_insn (gen_jump (next));
-
-  emit_label (discard);
-  emit_label (next);
-  emit_insn (gen_addsi3 (source, source, GEN_INT (UNITS_PER_WORD)));
-  emit_insn (gen_lshrsi3 (mask, mask, const1_rtx));
-  emit_insn (gen_addsi3 (count, count, constm1_rtx));
-  emit_jump_insn (gen_jump (loop));
-
-  emit_label (done);
-}
+/* __builtin_apply's call: every register that can hold a result is saved
+   in RESULT_VECTOR.  It forwards a prototyped call's arguments; a variadic
+   one's anonymous arguments are on the stack, where a typed destination
+   does not look for them.  */
 
 void
 c33_expand_untyped_call (rtx function, rtx result_vector)
 {
-  rtx saved_args[8];
-  unsigned int regno;
   int i;
-
-  /* GCC restores the __builtin_apply argument registers before expanding
-     this pattern and records them as CALL_INSN_FUNCTION_USAGE.  Preserve
-     them across the control flow in c33_compact_apply_stack, then reload
-     them in one straight-line block immediately before the call.
-
-     Besides making the data flow explicit, this is required by GCC's SJLJ
-     exception expansion: find_first_parameter_load scans backwards from a
-     throwing call and expects to find every advertised argument-register
-     load before encountering a label.  Without these reloads it reaches the
-     compaction loop's exit label and ICEs for an untyped call that may
-     throw, as in harden-cfr-bret-except.c.  */
-  for (regno = 5; regno <= 12; ++regno)
-    saved_args[regno - 5]
-      = copy_to_mode_reg (SImode, gen_rtx_REG (SImode, regno));
-
-  c33_compact_apply_stack ();
-
-  for (regno = 5; regno <= 12; ++regno)
-    emit_move_insn (gen_rtx_REG (SImode, regno), saved_args[regno - 5]);
 
   emit_call_insn (gen_call (function, const0_rtx));
 
@@ -775,22 +595,6 @@ c33_print_operand (FILE * file, rtx x, int code)
 	  gcc_unreachable ();
 	}
       break;
-    case 'S':
-      {
-        /* If it's a reference to a TDA variable, use sst/sld vs. st/ld.  */
-        if (GET_CODE (x) == MEM && ep_memory_operand (x, GET_MODE (x), FALSE))
-          fputs ("s", file);
-
-        break;
-      }
-    case 'T':
-      {
-	/* Like an 'S' operand above, but for unsigned loads only.  */
-        if (GET_CODE (x) == MEM && ep_memory_operand (x, GET_MODE (x), TRUE))
-          fputs ("s", file);
-
-        break;
-      }
     case 'W':			/* Print the instruction suffix.  */
       switch (GET_MODE (x))
 	{
@@ -1396,435 +1200,8 @@ c33_select_cc_mode (enum rtx_code cond, rtx op0, rtx op1)
 }
 
 
-/* Return maximum offset supported for a short EP memory reference of mode
-   MODE and signedness UNSIGNEDP.  */
-
-static int
-ep_memory_offset (machine_mode mode, int unsignedp ATTRIBUTE_UNUSED)
-{
-  int max_offset = 0;
-
-  switch (mode)
-    {
-    case E_QImode:
-      if (TARGET_SMALL_SLD)
-	max_offset = (1 << 4);
-      else if ((TARGET_C33E_UP)
-		&& unsignedp)
-	max_offset = (1 << 4);
-      else
-	max_offset = (1 << 7);
-      break;
-
-    case E_HImode:
-      if (TARGET_SMALL_SLD)
-	max_offset = (1 << 5);
-      else if ((TARGET_C33E_UP)
-		&& unsignedp)
-	max_offset = (1 << 5);
-      else
-	max_offset = (1 << 8);
-      break;
-
-    case E_SImode:
-    case E_SFmode:
-      max_offset = (1 << 8);
-      break;
-
-    default:
-      break;
-    }
-
-  return max_offset;
-}
-
-/* Return true if OP is a valid short EP memory reference */
-
-int
-ep_memory_operand (rtx op, machine_mode mode, int unsigned_load)
-{
-  rtx addr, op0, op1;
-  int max_offset;
-  int mask;
-
-  /* XXX Disabled.  This is V850's ep-relative short addressing.  The C33
-     analogue is %r15-relative default-data-area addressing, but %r15 is a
-     fixed register, so leaving this enabled makes reload try to load
-     addresses into a register it may not allocate -- which shows up as an
-     endless chain of reload copies.  Re-enable as part of the data area
-     work (step 5 in README.md), driven by a proper address predicate
-     rather than this predicate.  */
-  return FALSE;
-
-  /* If we are not using the EP register on a per-function basis
-     then do not allow this optimization at all.  This is to
-     prevent the use of the SLD/SST instructions which cannot be
-     guaranteed to work properly due to a hardware bug.  */
-  if (!TARGET_EP)
-    return FALSE;
-
-  if (GET_CODE (op) != MEM)
-    return FALSE;
-
-  max_offset = ep_memory_offset (mode, unsigned_load);
-
-  mask = GET_MODE_SIZE (mode) - 1;
-
-  addr = XEXP (op, 0);
-  if (GET_CODE (addr) == CONST)
-    addr = XEXP (addr, 0);
-
-  switch (GET_CODE (addr))
-    {
-    default:
-      break;
-
-    case SYMBOL_REF:
-      return SYMBOL_REF_TDA_P (addr);
-
-    case REG:
-      return REGNO (addr) == C33_DP_REGNUM;
-
-    case PLUS:
-      op0 = XEXP (addr, 0);
-      op1 = XEXP (addr, 1);
-      if (GET_CODE (op1) == CONST_INT
-	  && INTVAL (op1) < max_offset
-	  && INTVAL (op1) >= 0
-	  && (INTVAL (op1) & mask) == 0)
-	{
-	  if (GET_CODE (op0) == REG && REGNO (op0) == C33_DP_REGNUM)
-	    return TRUE;
-
-	  if (GET_CODE (op0) == SYMBOL_REF && SYMBOL_REF_TDA_P (op0))
-	    return TRUE;
-	}
-      break;
-    }
-
-  return FALSE;
-}
 
-/* Substitute memory references involving a pointer, to use the ep pointer,
-   taking care to save and preserve the ep.  */
-
-static void
-substitute_ep_register (rtx_insn *first_insn,
-                        rtx_insn *last_insn,
-                        int uses,
-                        int regno,
-                        rtx * p_r1,
-                        rtx * p_ep)
-{
-  rtx reg = gen_rtx_REG (Pmode, regno);
-  rtx_insn *insn;
-
-  if (!*p_r1)
-    {
-      df_set_regs_ever_live (1, true);
-      *p_r1 = gen_rtx_REG (Pmode, 1);
-      *p_ep = gen_rtx_REG (Pmode, 30);
-    }
-
-  if (TARGET_DEBUG)
-    fprintf (stderr, "\
-Saved %d bytes (%d uses of register %s) in function %s, starting as insn %d, ending at %d\n",
-	     2 * (uses - 3), uses, reg_names[regno],
-	     IDENTIFIER_POINTER (DECL_NAME (current_function_decl)),
-	     INSN_UID (first_insn), INSN_UID (last_insn));
-
-  if (NOTE_P (first_insn))
-    first_insn = next_nonnote_insn (first_insn);
-
-  last_insn = next_nonnote_insn (last_insn);
-  for (insn = first_insn; insn && insn != last_insn; insn = NEXT_INSN (insn))
-    {
-      if (NONJUMP_INSN_P (insn))
-	{
-	  rtx pattern = single_set (insn);
-
-	  /* Replace the memory references.  */
-	  if (pattern)
-	    {
-	      rtx *p_mem;
-	      /* Memory operands are signed by default.  */
-	      int unsignedp = FALSE;
-
-	      if (GET_CODE (SET_DEST (pattern)) == MEM
-		  && GET_CODE (SET_SRC (pattern)) == MEM)
-		p_mem = (rtx *)0;
-
-	      else if (GET_CODE (SET_DEST (pattern)) == MEM)
-		p_mem = &SET_DEST (pattern);
-
-	      else if (GET_CODE (SET_SRC (pattern)) == MEM)
-		p_mem = &SET_SRC (pattern);
-
-	      else if (GET_CODE (SET_SRC (pattern)) == SIGN_EXTEND
-		       && GET_CODE (XEXP (SET_SRC (pattern), 0)) == MEM)
-		p_mem = &XEXP (SET_SRC (pattern), 0);
-
-	      else if (GET_CODE (SET_SRC (pattern)) == ZERO_EXTEND
-		       && GET_CODE (XEXP (SET_SRC (pattern), 0)) == MEM)
-		{
-		  p_mem = &XEXP (SET_SRC (pattern), 0);
-		  unsignedp = TRUE;
-		}
-	      else
-		p_mem = (rtx *)0;
-
-	      if (p_mem)
-		{
-		  rtx addr = XEXP (*p_mem, 0);
-
-		  if (GET_CODE (addr) == REG && REGNO (addr) == (unsigned) regno)
-		    *p_mem = change_address (*p_mem, VOIDmode, *p_ep);
-
-		  else if (GET_CODE (addr) == PLUS
-			   && GET_CODE (XEXP (addr, 0)) == REG
-			   && REGNO (XEXP (addr, 0)) == (unsigned) regno
-			   && GET_CODE (XEXP (addr, 1)) == CONST_INT
-			   && ((INTVAL (XEXP (addr, 1)))
-			       < ep_memory_offset (GET_MODE (*p_mem),
-						   unsignedp))
-			   && ((INTVAL (XEXP (addr, 1))) >= 0))
-		    *p_mem = change_address (*p_mem, VOIDmode,
-					     gen_rtx_PLUS (Pmode,
-							   *p_ep,
-							   XEXP (addr, 1)));
-		}
-	    }
-	}
-    }
-
-  /* Optimize back to back cases of ep <- r1 & r1 <- ep.  */
-  insn = prev_nonnote_insn (first_insn);
-  if (insn && NONJUMP_INSN_P (insn)
-      && GET_CODE (PATTERN (insn)) == SET
-      && SET_DEST (PATTERN (insn)) == *p_ep
-      && SET_SRC (PATTERN (insn)) == *p_r1)
-    delete_insn (insn);
-  else
-    emit_insn_before (gen_rtx_SET (*p_r1, *p_ep), first_insn);
-
-  emit_insn_before (gen_rtx_SET (*p_ep, reg), first_insn);
-  emit_insn_before (gen_rtx_SET (*p_ep, *p_r1), last_insn);
-}
-
 
-/* TARGET_MACHINE_DEPENDENT_REORG.  On the 850, we use it to implement
-   the -mep mode to copy heavily used pointers to ep to use the implicit
-   addressing.  */
-
-static void
-c33_reorg (void)
-{
-  struct
-  {
-    int uses;
-    rtx_insn *first_insn;
-    rtx_insn *last_insn;
-  }
-  regs[FIRST_PSEUDO_REGISTER];
-
-  int i;
-  int use_ep = FALSE;
-  rtx r1 = NULL_RTX;
-  rtx ep = NULL_RTX;
-  rtx_insn *insn;
-  rtx pattern;
-
-  /* If not ep mode, just return now.  */
-  if (!TARGET_EP)
-    return;
-
-  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-    {
-      regs[i].uses = 0;
-      regs[i].first_insn = NULL;
-      regs[i].last_insn = NULL;
-    }
-
-  for (insn = get_insns (); insn != NULL_RTX; insn = NEXT_INSN (insn))
-    {
-      switch (GET_CODE (insn))
-	{
-	  /* End of basic block */
-	default:
-	  if (!use_ep)
-	    {
-	      int max_uses = -1;
-	      int max_regno = -1;
-
-	      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-		{
-		  if (max_uses < regs[i].uses)
-		    {
-		      max_uses = regs[i].uses;
-		      max_regno = i;
-		    }
-		}
-
-	      if (max_uses > 3)
-		substitute_ep_register (regs[max_regno].first_insn,
-					regs[max_regno].last_insn,
-					max_uses, max_regno, &r1, &ep);
-	    }
-
-	  use_ep = FALSE;
-	  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-	    {
-	      regs[i].uses = 0;
-	      regs[i].first_insn = NULL;
-	      regs[i].last_insn = NULL;
-	    }
-	  break;
-
-	case NOTE:
-	  break;
-
-	case INSN:
-	  pattern = single_set (insn);
-
-	  /* See if there are any memory references we can shorten.  */
-	  if (pattern)
-	    {
-	      rtx src = SET_SRC (pattern);
-	      rtx dest = SET_DEST (pattern);
-	      rtx mem;
-	      /* Memory operands are signed by default.  */
-	      int unsignedp = FALSE;
-
-	      /* We might have (SUBREG (MEM)) here, so just get rid of the
-		 subregs to make this code simpler.  */
-	      if (GET_CODE (dest) == SUBREG
-		  && (GET_CODE (SUBREG_REG (dest)) == MEM
-		      || GET_CODE (SUBREG_REG (dest)) == REG))
-		alter_subreg (&dest, false);
-	      if (GET_CODE (src) == SUBREG
-		  && (GET_CODE (SUBREG_REG (src)) == MEM
-		      || GET_CODE (SUBREG_REG (src)) == REG))
-		alter_subreg (&src, false);
-
-	      if (GET_CODE (dest) == MEM && GET_CODE (src) == MEM)
-		mem = NULL_RTX;
-
-	      else if (GET_CODE (dest) == MEM)
-		mem = dest;
-
-	      else if (GET_CODE (src) == MEM)
-		mem = src;
-
-	      else if (GET_CODE (src) == SIGN_EXTEND
-		       && GET_CODE (XEXP (src, 0)) == MEM)
-		mem = XEXP (src, 0);
-
-	      else if (GET_CODE (src) == ZERO_EXTEND
-		       && GET_CODE (XEXP (src, 0)) == MEM)
-		{
-		  mem = XEXP (src, 0);
-		  unsignedp = TRUE;
-		}
-	      else
-		mem = NULL_RTX;
-
-	      if (mem && ep_memory_operand (mem, GET_MODE (mem), unsignedp))
-		use_ep = TRUE;
-
-	      else if (!use_ep && mem
-		       && GET_MODE_SIZE (GET_MODE (mem)) <= UNITS_PER_WORD)
-		{
-		  rtx addr = XEXP (mem, 0);
-		  int regno = -1;
-		  int short_p;
-
-		  if (GET_CODE (addr) == REG)
-		    {
-		      short_p = TRUE;
-		      regno = REGNO (addr);
-		    }
-
-		  else if (GET_CODE (addr) == PLUS
-			   && GET_CODE (XEXP (addr, 0)) == REG
-			   && GET_CODE (XEXP (addr, 1)) == CONST_INT
-			   && ((INTVAL (XEXP (addr, 1)))
-			       < ep_memory_offset (GET_MODE (mem), unsignedp))
-			   && ((INTVAL (XEXP (addr, 1))) >= 0))
-		    {
-		      short_p = TRUE;
-		      regno = REGNO (XEXP (addr, 0));
-		    }
-
-		  else
-		    short_p = FALSE;
-
-		  if (short_p)
-		    {
-		      regs[regno].uses++;
-		      regs[regno].last_insn = insn;
-		      if (!regs[regno].first_insn)
-			regs[regno].first_insn = insn;
-		    }
-		}
-
-	      /* Loading up a register in the basic block zaps any savings
-		 for the register */
-	      if (GET_CODE (dest) == REG)
-		{
-		  int regno;
-		  int endregno;
-
-		  regno = REGNO (dest);
-		  endregno = END_REGNO (dest);
-
-		  if (!use_ep)
-		    {
-		      /* See if we can use the pointer before this
-			 modification.  */
-		      int max_uses = -1;
-		      int max_regno = -1;
-
-		      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-			{
-			  if (max_uses < regs[i].uses)
-			    {
-			      max_uses = regs[i].uses;
-			      max_regno = i;
-			    }
-			}
-
-		      if (max_uses > 3
-			  && max_regno >= regno
-			  && max_regno < endregno)
-			{
-			  substitute_ep_register (regs[max_regno].first_insn,
-						  regs[max_regno].last_insn,
-						  max_uses, max_regno, &r1,
-						  &ep);
-
-			  /* Since we made a substitution, zap all remembered
-			     registers.  */
-			  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-			    {
-			      regs[i].uses = 0;
-			      regs[i].first_insn = NULL;
-			      regs[i].last_insn = NULL;
-			    }
-			}
-		    }
-
-		  for (i = regno; i < endregno; i++)
-		    {
-		      regs[i].uses = 0;
-		      regs[i].first_insn = NULL;
-		      regs[i].last_insn = NULL;
-		    }
-		}
-	    }
-	}
-    }
-}
-
 /* # of registers saved by the interrupt handler.  */
 #define INTERRUPT_FIXED_NUM 5
 
@@ -2176,40 +1553,6 @@ compute_frame_size (poly_int64 size, long * p_reg_saved)
 		 - UNITS_PER_WORD;
 
   return frame_size;
-}
-
-static int
-use_prolog_function (int num_save, int frame_size)
-{
-  int alloc_stack = (4 * num_save);
-  int unalloc_stack = frame_size - alloc_stack;
-  int save_func_len, restore_func_len;
-  int save_normal_len, restore_normal_len;
-
-  if (! TARGET_DISABLE_CALLT)
-      save_func_len = restore_func_len = 2;
-  else
-      save_func_len = restore_func_len = TARGET_LONG_CALLS ? (4+4+4+2+2) : 4;
-
-  if (unalloc_stack)
-    {
-      save_func_len += CONST_OK_FOR_J (-unalloc_stack) ? 2 : 4;
-      restore_func_len += CONST_OK_FOR_J (-unalloc_stack) ? 2 : 4;
-    }
-
-  /* See if we would have used ep to save the stack.  */
-  if (TARGET_EP && num_save > 3 && (unsigned)frame_size < 255)
-    save_normal_len = restore_normal_len = (3 * 2) + (2 * num_save);
-  else
-    save_normal_len = restore_normal_len = 4 * num_save;
-
-  save_normal_len += CONST_OK_FOR_J (-frame_size) ? 2 : 4;
-  restore_normal_len += (CONST_OK_FOR_J (frame_size) ? 2 : 4) + 2;
-
-  /* Don't bother checking if we don't actually save any space.
-     This happens for instance if one register is saved and additional
-     stack space is allocated.  */
-  return ((save_func_len + restore_func_len) < (save_normal_len + restore_normal_len));
 }
 
 static void
@@ -2753,11 +2096,7 @@ static bool
 c33_return_in_memory (const_tree type, const_tree fntype ATTRIBUTE_UNUSED)
 {
   /* Return values > 8 bytes in length in memory.  */
-  return int_size_in_bytes (type) > 8
-    || TYPE_MODE (type) == BLKmode
-    /* With the rh850 ABI return all aggregates in memory.  */
-    || ((! TARGET_GCC_ABI) && AGGREGATE_TYPE_P (type))
-    ;
+  return int_size_in_bytes (type) > 8 || TYPE_MODE (type) == BLKmode;
 }
 
 /* Worker function for TARGET_FUNCTION_VALUE.  */
@@ -3012,19 +2351,14 @@ c33_can_eliminate (const int from ATTRIBUTE_UNUSED, const int to)
   return (to == STACK_POINTER_REGNUM ? ! frame_pointer_needed : true);
 }
 
-/* Worker function for TARGET_CONDITIONAL_REGISTER_USAGE.
-
-   If TARGET_APP_REGS is not defined then add r2 and r5 to
-   the pool of fixed registers. See PR 14505.  */
+/* Worker function for TARGET_CONDITIONAL_REGISTER_USAGE: %r2 is
+   call-saved and %r5 call-clobbered, both ordinary registers.  */
 
 static void
 c33_conditional_register_usage (void)
 {
-  if (TARGET_APP_REGS)
-    {
-     fixed_regs[2] = 0;  call_used_regs[2] = 0;
-     fixed_regs[5] = 0;  call_used_regs[5] = 1;
-    }
+  fixed_regs[2] = 0;  call_used_regs[2] = 0;
+  fixed_regs[5] = 0;  call_used_regs[5] = 1;
 }
 
 /* Worker function for TARGET_ASM_TRAMPOLINE_TEMPLATE.
@@ -3763,8 +3097,6 @@ c33_can_inline_p (tree caller, tree callee)
 #undef  TARGET_ADDRESS_COST
 #define TARGET_ADDRESS_COST hook_int_rtx_mode_as_bool_0
 
-#undef  TARGET_MACHINE_DEPENDENT_REORG
-#define TARGET_MACHINE_DEPENDENT_REORG c33_reorg
 
 #undef  TARGET_SCHED_ISSUE_RATE
 #define TARGET_SCHED_ISSUE_RATE c33_issue_rate
@@ -3800,8 +3132,6 @@ c33_can_inline_p (tree caller, tree callee)
 #undef  TARGET_FUNCTION_ARG_ADVANCE
 #define TARGET_FUNCTION_ARG_ADVANCE c33_function_arg_advance
 
-#undef  TARGET_START_CALL_ARGS
-#define TARGET_START_CALL_ARGS c33_start_call_args
 
 #undef  TARGET_CAN_ELIMINATE
 #define TARGET_CAN_ELIMINATE c33_can_eliminate
