@@ -156,6 +156,28 @@ def no_division_trap(s):
 
 edit('gcc/testsuite/gcc.c-torture/execute/20101011-1.c', no_division_trap)
 
+# GCC's probes for exception-table garbage collection link an absolute
+# address in .text, which an FDPIC link refuses; the linker collects the
+# tables correctly.  Answered as upstream does for hppa-linux, so that a
+# COMDAT function's table goes in its group.
+def eh_gc_sections(s):
+    if 'c33-*-*linux*)\n    # FDPIC' in s:
+        return None
+    s = s.replace(
+        '  hppa*-*-linux*)\n    # ??? This apparently exposes a binutils bug',
+        '  c33-*-*linux*)\n    # FDPIC refuses the probe; the linker is right.\n'
+        '    gcc_cv_ld_eh_gc_sections=yes\n    ;;\n'
+        '  hppa*-*-linux*)\n    # ??? This apparently exposes a binutils bug', 1)
+    return s.replace(
+        'if test x$gcc_cv_ld_eh_gc_sections_bug = xyes; then',
+        'case "$target" in\n  c33-*-*linux*)\n    # FDPIC refuses the probe; the linker is right.\n'
+        '    gcc_cv_ld_eh_gc_sections_bug=no\n    ;;\nesac\n'
+        'if test x$gcc_cv_ld_eh_gc_sections_bug = xyes; then', 1)
+
+
+edit('gcc/configure', eh_gc_sections)
+edit('gcc/configure.ac', eh_gc_sections)
+
 # The rest give C33 the per-target expectations upstream gives other ports.
 DG = 'gcc/testsuite/gcc.dg/'
 
@@ -205,5 +227,31 @@ edit(DG + 'pr87954.c', replace_once(r'{ \*w? |WIDEN_MULT_PLUS_EXPR}',
 # A binary64 long double overflows at 1e4000L, as it should.
 edit(DG + 'pr126464.c', add_after_first('/* { dg-options',
      '/* { dg-additional-options "-Wno-overflow" { target { ! large_long_double } } } */\n'))
+
+GXX = 'gcc/testsuite/g++.dg/'
+for t in ('cleanup-8', 'cleanup-9', 'cleanup-10', 'cleanup-11'):
+    edit(GXX + 'ext/' + t + '.C', add_after_first('/* { dg-do run',
+         '/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */\n'))
+# Four and five megabytes in one piece, on the stack or in .bss: more than
+# a no-MMU process of 32 MB is given.
+for t in ('array15', 'array16'):
+    edit(GXX + 'init/' + t + '.C', add_after_first('// { dg-do run',
+         '// { dg-skip-if "no MMU: 4-5 MB in one piece" { c33-*-*linux* } }\n'))
+# uClibc-ng does not predefine __STDC_ISO_10646__, as glibc does.
+def iso_10646(s):
+    if 'c33-*-*linux*' in s:
+        return None
+    return ''.join(
+        l.replace('{ xfail { ! *-*-linux* } }',
+                  '{ xfail { { ! *-*-linux* } || c33-*-*linux* } }')
+        if '__STDC_ISO_10646__' in l else l
+        for l in s.splitlines(keepends=True))
+
+
+for t in ('dr2581-1', 'dr2581-2'):
+    edit(GXX + 'DRs/' + t + '.C', iso_10646)
+# -msep-data keeps the constant pool in .data.
+edit(GXX + 'cpp0x/initlist-const1.C', replace_once(
+    'xfail hppa*-*-hpux* powerpc-ibm-aix* }', 'xfail hppa*-*-hpux* powerpc-ibm-aix* c33-*-*linux* }'))
 
 print('changed:', changed or '(already applied)')

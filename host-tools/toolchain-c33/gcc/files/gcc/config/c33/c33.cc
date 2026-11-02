@@ -2784,6 +2784,53 @@ c33_function_ok_for_sibcall (tree decl, tree)
   return !c33_interrupt_function_p (current_function_decl);
 }
 
+/* C++ thunks: adjust `this' and jump to FUNCTION, leaving every other
+   argument register as the caller set it -- %r5 included, which describes
+   a variadic call's stack arguments -- so a thunk works for any function,
+   variadic ones too.  `this' is the first argument, after the hidden
+   return-slot pointer when there is one.  Under -mfdpic the jump keeps
+   %r15, so FUNCTION must be in this module, as for a sibling call.  */
+
+static bool
+c33_can_output_mi_thunk (const_tree, HOST_WIDE_INT, HOST_WIDE_INT,
+			 const_tree function)
+{
+  return !(TARGET_FDPIC && !targetm.binds_local_p (function));
+}
+
+static void
+c33_add_constant (FILE *file, const char *reg, HOST_WIDE_INT value)
+{
+  if (value > 0)
+    fprintf (file, "\txadd\t%s," HOST_WIDE_INT_PRINT_DEC "\n", reg, value);
+  else if (value < 0)
+    fprintf (file, "\txsub\t%s," HOST_WIDE_INT_PRINT_DEC "\n", reg, -value);
+}
+
+static void
+c33_output_mi_thunk (FILE *file, tree thunk, HOST_WIDE_INT delta,
+		     HOST_WIDE_INT vcall_offset, tree function)
+{
+  const char *name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (thunk));
+  const char *self
+    = reg_names[aggregate_value_p (TREE_TYPE (TREE_TYPE (function)),
+				   function) ? 7 : 6];
+
+  assemble_start_function (thunk, name);
+  c33_add_constant (file, self, delta);
+  if (vcall_offset)
+    {
+      /* this += *(*this + vcall_offset), through scratch %r10.  */
+      fprintf (file, "\tld.w\t%%r10,[%s]\n", self);
+      c33_add_constant (file, "%r10", vcall_offset);
+      fprintf (file, "\tld.w\t%%r10,[%%r10]\n\tadd\t%s,%%r10\n", self);
+    }
+  fputs ("\txjp\t", file);
+  assemble_name (file, XSTR (XEXP (DECL_RTL (function), 0), 0));
+  fputc ('\n', file);
+  assemble_end_function (thunk, name);
+}
+
 /* -mfdpic: the constant pool, initialised data and the unwind tables hold
    the address of a function's canonical descriptor wherever C asks for a
    function's address, as on SH.  */
@@ -3532,15 +3579,33 @@ c33_reloc_rw_mask (void)
 
 /* Implement TARGET_ASM_SELECT_RTX_SECTION.  -msep-data reaches the
    constant pool through %r15 (c33_sep_data_symbol_p), so every entry must
-   be in the data segment, not just those carrying an address.  */
+   be in the data segment, not just those carrying an address.  A
+   function's pool goes with the function: into its COMDAT group, so that
+   a duplicate the linker discards takes its pool along instead of leaving
+   words that name discarded code, and into a section of its own under
+   -ffunction-sections, for --gc-sections.  */
 
 static section *
 c33_select_rtx_section (machine_mode mode, rtx x,
 			unsigned HOST_WIDE_INT align)
 {
-  if (TARGET_SEP_DATA)
-    return data_section;
-  return default_elf_select_rtx_section (mode, x, align);
+  if (!TARGET_SEP_DATA)
+    return default_elf_select_rtx_section (mode, x, align);
+
+  tree fn = current_function_decl;
+  bool comdat = fn && DECL_COMDAT_GROUP (fn) && HAVE_COMDAT_GROUP;
+
+  if (fn && (comdat || flag_function_sections))
+    {
+      const char *name
+	= targetm.strip_name_encoding (IDENTIFIER_POINTER
+				       (DECL_ASSEMBLER_NAME (fn)));
+
+      return get_section (ACONCAT ((".data.rel.local.", name, NULL)),
+			  SECTION_WRITE | (comdat ? SECTION_LINKONCE : 0),
+			  fn);
+    }
+  return data_section;
 }
 
 const char *
@@ -3731,6 +3796,11 @@ c33_can_inline_p (tree caller, tree callee)
 #define TARGET_ASM_TRAMPOLINE_TEMPLATE c33_asm_trampoline_template
 #undef  TARGET_TRAMPOLINE_INIT
 #define TARGET_TRAMPOLINE_INIT c33_trampoline_init
+
+#undef  TARGET_ASM_CAN_OUTPUT_MI_THUNK
+#define TARGET_ASM_CAN_OUTPUT_MI_THUNK c33_can_output_mi_thunk
+#undef  TARGET_ASM_OUTPUT_MI_THUNK
+#define TARGET_ASM_OUTPUT_MI_THUNK c33_output_mi_thunk
 
 #undef  TARGET_LEGITIMATE_CONSTANT_P
 #define TARGET_LEGITIMATE_CONSTANT_P c33_legitimate_constant_p

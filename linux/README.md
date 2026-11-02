@@ -1313,7 +1313,17 @@ suite: 39,553 passes and no failures, with the same per-target expectations
 upstream gives other ports, added by `gcc-glue.py`: no MMU (a null store
 does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
 uClibc-ng has no `_FORTIFY_SOURCE` functions and sets `errno` from libm only
-when built with `fenv`.
+when built with `fenv`. `run.py --tool=g++` runs `g++.dg`, its torture and
+`g++.old-deja` at C++17: 56,909 passes, and the 23 failures of that run are
+fixed or marked, each checked by name (a complete rerun is still to do).
+The C++ ones found three port bugs, all fixed: no multiple-inheritance
+thunks, so a variadic virtual function reached through a second base did
+not compile; a function's constant pool and exception table outside its
+COMDAT group, so a discarded duplicate left words naming discarded code
+(GCC's configure probe for exception-table collection links an absolute
+address in `.text`, which FDPIC refuses, and is answered for C33 as
+upstream answers it for hppa); and a compiler rebuilt without its libgcc
+split linked a private unwinder that `pthread_exit` cannot mix with.
 
 `gcc-test/c33-linux.exp` is the DejaGnu board. It compiles and links as the
 system does, and looks each program's result up by the SHA-256 of the

@@ -213,5 +213,13 @@ rm -rf "${TARGET}/libgcc" "${TARGET}/c33pe" "${TARGET}/c33adv"
 rm -f configure-target-libgcc all-target-libgcc install-target-libgcc
 make -j"${N}" all-target-libgcc
 make install-target-libgcc
+# That bootstrap libgcc.a carries the unwinder.  Once the C library is
+# installed, split it out into libgcc_s and libgcc_eh again, or programs
+# link a private unwinder that uClibc-ng's pthread_exit, which loads
+# libgcc_s's, cannot mix with.
+if [ "${TARGET}" = c33-linux-uclibc ] \
+   && [ -f "${PREFIX}/${TARGET}/sysroot/usr/lib/libc.so" ]; then
+	build_shared_libgcc
+fi
 
 echo "==> DONE: ${PREFIX}/bin/${TARGET}-gcc"
