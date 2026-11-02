@@ -395,10 +395,17 @@ without the cursor (about a fifth of a frame).
 
 ## Wayland: where it stands
 
+Out of the image since 2026-11-01: it worked, and cost more than X for no
+gain (the user's call). Its packages and patches stay in the tree, off;
+`README.md` says how to turn it on. What it left that the X image keeps:
+the uClibc-ng allocator finger and `memalign` fix with `malloc-test`, the
+strict-C `struct stat` fix, C11 threads, `timespec_get`, `reallocarray`,
+`CONFIG_MEMFD_CREATE`, `console/wr-keys.h`.
+
 `startw` runs cage (wlroots, pixman, DRM) with foot in it and `wlkeyboard`
 along the bottom; taps on the keyboard type into foot's shell. Validated in
-wremu through Grifo 2026-11-01 by `make -C linux wayland-test`; not yet run
-on the device. `README.md` has the design.
+wremu through Grifo 2026-11-01 by `make -C linux wayland-test`; never run
+on the device.
 
 What it took, beyond packages: a C33 libffi (`make -C linux libffi-test`,
 179 of 180), uClibc-ng's C11 threads, strict-C11 `timespec`, `reallocarray`

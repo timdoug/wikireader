@@ -596,12 +596,10 @@ TLS values and `errno` after touch wakes the machine. The C++ regression
 also throws through a shared library across repeated `dlopen`/`dlclose`.
 
 uClibc-ng has wide characters, which libstdc++ and many packages need; they
-are about 8 KB of libc's text. It has locales as Buildroot's uClibc-ng does,
-with `newlocale` and `uselocale`, and builds one, `en_US`, as `en_US.UTF-8`
-and as ISO-8859-1, from the build machine's (`provision.sh` generates it in
-the VM): 90 KB of libc's text, loaded once. Its generated tables are
-written into a build directory `patches/0038` makes first; under `make -j`
-the race could lose. `<uchar.h>` is there too, and
+are about 8 KB of libc's text. It has no locales, which would be 90 KB of
+libc's text for `en_US.UTF-8`; when enabled (`UCLIBC_HAS_LOCALE`), their
+generated tables go into a build directory `patches/0038` makes first, a
+race under `make -j`. `<uchar.h>` is there, and
 patches add C11's `<threads.h>` (`patches/0034`, over pthreads),
 `timespec_get` and `struct timespec` in strict C11 (`0035`), and
 `reallocarray` with every allocator, not only the MMU's (`0036`).
@@ -977,7 +975,16 @@ kept only the functions they reached, about 3.3 MB in all: with only twm and
 xeyes sharing libX11, sharing does not yet pay for the whole libraries.
 Startup is mostly reading them from the card.
 
-Wayland runs beside X: `startw` at the console prompt starts cage 0.3, a
+The tree also has a Wayland session, built and measured, and left out of
+the image: X starts in 6 s and runs the same clients, where this took 14 to
+18 s to show a terminal. Its packages stay in `buildroot/external` and its
+patches apply; to build it, add to the Buildroot defconfig
+`BR2_PACKAGE_LIBUDEV_ZERO`, `BR2_PACKAGE_CAGE`, `BR2_PACKAGE_FOOT` and
+`BR2_PACKAGE_WR_WAYLAND` (and leave out hwdata's PCI and USB ids), and give
+uClibc-ng a UTF-8 locale (`UCLIBC_HAS_LOCALE`, `UCLIBC_HAS_XLOCALE`,
+`UCLIBC_BUILD_MINIMAL_LOCALE`, `en_US`, with `en_US.UTF-8` generated in the
+VM) and Buildroot `BR2_TOOLCHAIN_EXTERNAL_LOCALE`. Then `startw` at the
+console prompt starts cage 0.3, a
 compositor that shows one application full screen, on wlroots 0.20's pixman
 renderer and DRM backend, with foot 1.26 in it and `wlkeyboard`, the soft
 keyboard, below. `startw CLIENT ARGS` runs another client. It takes VT 2,
