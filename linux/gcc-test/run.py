@@ -19,8 +19,10 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "linux/artifacts/gcc-test"
 QUEUE = OUT / "queue"
 EXECUTED = OUT / "executed"
-# Seconds a test program may run, guest time.
-TIMEOUT = 60
+# Seconds a test program may run, guest time: about the bare-metal board's
+# 3.2 billion instructions.  pr97459's software 64-bit divisions take most
+# of a minute.
+TIMEOUT = 240
 # Programs a card holds and a boot runs.
 BATCH = 3000
 VM = ["limactl", "shell", "--workdir", str(ROOT), "wr-linux"]

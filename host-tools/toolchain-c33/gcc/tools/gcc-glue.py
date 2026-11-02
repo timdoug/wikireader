@@ -156,4 +156,54 @@ def no_division_trap(s):
 
 edit('gcc/testsuite/gcc.c-torture/execute/20101011-1.c', no_division_trap)
 
+# The rest give C33 the per-target expectations upstream gives other ports.
+DG = 'gcc/testsuite/gcc.dg/'
+
+
+def add_after_first(line_start, new):
+    """Insert NEW after the first line starting with LINE_START."""
+    def fn(s):
+        if new in s:
+            return None
+        i = s.index(line_start)
+        eol = s.index('\n', i) + 1
+        return s[:eol] + new + s[eol:]
+    return fn
+
+
+def replace_once(old, new):
+    return lambda s: None if new in s else s.replace(old, new, 1)
+
+
+# No MMU: a store through a null pointer does not fault.
+for t in ('cleanup-8', 'cleanup-9', 'cleanup-10', 'cleanup-11'):
+    edit(DG + t + '.c', add_after_first('/* { dg-do run',
+         '/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */\n'))
+# No MMU: mprotect cannot make the guard page.
+edit(DG + 'strncmp-2.c', add_after_first('/* { dg-do run',
+     '/* { dg-skip-if "no MMU: no guard page" { c33-*-*linux* } } */\n'))
+# uClibc-ng has no _FORTIFY_SOURCE functions.
+edit(DG + 'strlenopt-2f.c', add_after_first('/* { dg-do run',
+     '/* { dg-skip-if "uClibc-ng has no __memcpy_chk" { c33-*-*linux* } } */\n'))
+# uClibc-ng's libm sets errno only when built with UCLIBC_HAS_FENV.
+for t in ('errno-2', 'errno-3', 'errno-4'):
+    edit(DG + t + '.c', add_after_first('/* { dg-do run',
+         '/* { dg-skip-if "uClibc-ng libm sets errno only with fenv" { c33-*-*linux* } } */\n'))
+# FDPIC code is always PIC, as ARM's.
+edit(DG + '20020312-2.c', replace_once(
+    '{ arm*-*-uclinuxfdpiceabi }', '{ arm*-*-uclinuxfdpiceabi c33-*-*linux* }'))
+# No conditional moves.
+edit(DG + 'ifcvt-4.c', replace_once('pru-*-* loongarch32-*-*', 'pru-*-* loongarch32-*-* c33-*-*'))
+# The frame adds the 16-byte %r0-%r3 save block.
+edit(DG + 'stack-usage-1.c', replace_once(
+    '#elif defined (__loongarch__)\n',
+    '#elif defined (__c33__)\n#  define SIZE 240 /* 256 - 16 bytes for %r0-%r3 */\n'
+    '#elif defined (__loongarch__)\n'))
+# The widening multiply is dumped as " w* ".
+edit(DG + 'pr87954.c', replace_once(r'{ \*w? |WIDEN_MULT_PLUS_EXPR}',
+                                    r'{ \*w? | w\* |WIDEN_MULT_PLUS_EXPR}'))
+# A binary64 long double overflows at 1e4000L, as it should.
+edit(DG + 'pr126464.c', add_after_first('/* { dg-options',
+     '/* { dg-additional-options "-Wno-overflow" { target { ! large_long_double } } } */\n'))
+
 print('changed:', changed or '(already applied)')

@@ -492,8 +492,8 @@ Where the kernel still departs:
 
 The toolchain follows them in design (`host-tools/toolchain-c33/gcc/ABI.md`:
 descriptors as on SH, constructor tables as on ARM). Where it departs:
-- GCC's execute torture and binutils' suites pass (README, "GCC and
-  binutils test suites"); `gcc.dg` and the C++ suites have not been run.
+- GCC's execute torture, `gcc.dg` and binutils' suites pass (README, "GCC
+  and binutils test suites"); the C++ suites have not been run.
 - The unwind tables are data, with absolute pointers, so every process has
   its own copy (73 KB for `cxx-test`); SH keeps them in text with GOT-relative
   relocations the C33 linker does not have.

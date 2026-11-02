@@ -1308,14 +1308,19 @@ runtest selectors) with the installed compiler, and its programs in Linux in
 wremu, booted through Grifo: **24,354 passes, no failures**. 204 are
 unsupported: nested-function trampolines, which GCC does not
 make for `-mfdpic`, 128-bit integers, decimal float, uClibc's partial C99
-math, and GCC's expensive tests.
+math, and GCC's expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
+suite: 39,553 passes and no failures, with the same per-target expectations
+upstream gives other ports, added by `gcc-glue.py`: no MMU (a null store
+does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
+uClibc-ng has no `_FORTIFY_SOURCE` functions and sets `errno` from libm only
+when built with `fenv`.
 
 `gcc-test/c33-linux.exp` is the DejaGnu board. It compiles and links as the
 system does, and looks each program's result up by the SHA-256 of the
 binary; one with none is queued and reported unresolved. `gcc-test/run.py`
 alternates a DejaGnu pass in the VM with batches of up to 3,000 queued
 programs on one card, which `gcc-test/runner.c` runs one by one, each with
-stdin from `/dev/null`, a 60-second deadline and the page cache dropped
+stdin from `/dev/null`, a 240-second deadline and the page cache dropped
 first, until a pass queues nothing. A program that takes the machine down is
 recorded as having crashed it, and the batch goes on without it. A rebuilt
 toolchain reruns only the programs whose bytes changed. Tests are told

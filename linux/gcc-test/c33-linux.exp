@@ -19,7 +19,9 @@ load_generic_config "sim"
 
 set_board_info compiler $env(C33L_GCC)
 set_board_info multitop ""
-set_board_info cflags ""
+# A fixed seed: -fprofile-arcs otherwise stamps each build with the time,
+# so a rebuilt test never finds the result recorded for its last build.
+set_board_info cflags "-frandom-seed=0"
 # Without an MMU a program's stack is what its link asks for, 32 KB by
 # default; the tests get 1 MB.  They are told half that: they size frames
 # from it, and -O0 copies a by-value argument of half of what they are told.
@@ -43,8 +45,18 @@ proc c33-linux_load {dest prog args} {
     set sha [lindex [exec sha256sum $prog] 0]
     set result [file join $env(C33L_RESULTS) $sha]
     if {![file exists $result]} {
-	file copy -force $prog [file join $env(C33L_QUEUE) $sha]
-	return [list unresolved "c33-linux: queued for wremu as $sha"]
+	# GCC's effective-target probes name their source after the process,
+	# and the name is in the symbol table: key those by the stripped
+	# program, which is the same from one pass to the next.
+	set stripped "$prog.stripped"
+	exec c33-linux-uclibc-strip -o $stripped $prog
+	set sha [lindex [exec sha256sum $stripped] 0]
+	set result [file join $env(C33L_RESULTS) $sha]
+	if {![file exists $result]} {
+	    file rename -force $stripped [file join $env(C33L_QUEUE) $sha]
+	    return [list unresolved "c33-linux: queued for wremu as $sha"]
+	}
+	file delete $stripped
     }
     set f [open $result rb]
     set status [gets $f]

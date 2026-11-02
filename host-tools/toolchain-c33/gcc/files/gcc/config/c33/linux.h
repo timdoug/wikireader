@@ -39,6 +39,25 @@
 #undef ASM_FDPIC_SPEC
 #define ASM_FDPIC_SPEC "%{mfdpic:-mfdpic;:-mno-fdpic}"
 
+/* uClibc-ng as built here (DO_C99_MATH) has C94's and C99's library
+   functions and sincos, but not all of C99's complex ones (csqrt) or C11's
+   aligned_alloc: what GCC calls a BSD libc.  linux.h assumes a uClibc has
+   none, which stops GCC folding to round, exp2 and the like.  */
+#undef TARGET_LIBC_HAS_FUNCTION
+#define TARGET_LIBC_HAS_FUNCTION bsd_libc_has_function
+
+/* Thread-local common data, which ld places in .tbss.  */
+#undef ASM_OUTPUT_TLS_COMMON
+#define ASM_OUTPUT_TLS_COMMON(FILE, DECL, NAME, SIZE)			\
+  do									\
+    {									\
+      fputs ("\t.tls_common\t", (FILE));				\
+      assemble_name ((FILE), (NAME));					\
+      fprintf ((FILE), "," HOST_WIDE_INT_PRINT_UNSIGNED ",%u\n",	\
+	       (SIZE), DECL_ALIGN (DECL) / BITS_PER_UNIT);		\
+    }									\
+  while (0)
+
 #undef DRIVER_SELF_SPECS
 #define DRIVER_SELF_SPECS				\
   "%{!mcore=*:-mcore=c33pe}",				\
