@@ -502,6 +502,27 @@ edit('binutils/readelf.c', readelf_reloc_names)
 print('readelf DWARF reloc knowledge done')
 
 
+# ------------------------------------------------------- ld: elf.sc hook
+# INITIAL_DATA_SECTIONS: sections at the very start of the data segment,
+# before the RELRO group.  C33 FDPIC code reaches its data as an unsigned
+# offset from __dp, so .got, which __dp opens, must come first.
+def elf_sc_initial_data(s):
+    if 'INITIAL_DATA_SECTIONS' in s:
+        return None
+    doc = ('#\tINITIAL_READWRITE_SECTIONS - at start of data segment (after relro)\n')
+    if doc not in s:
+        raise SystemExit('elf.sc: INITIAL_READWRITE_SECTIONS documentation moved')
+    s = s.replace(doc, doc + '#\tINITIAL_DATA_SECTIONS - at the very start of the data segment,\n'
+                  '#\t\tbefore the relro sections\n', 1)
+    old = 'emit_data()\n{\ncat <<EOF\n  /* Exception handling.  */\n'
+    if old not in s:
+        raise SystemExit('elf.sc: emit_data moved')
+    return s.replace(old, 'emit_data()\n{\ncat <<EOF\n  ${INITIAL_DATA_SECTIONS}\n\n'
+                     '  /* Exception handling.  */\n', 1)
+
+
+edit('ld/scripttempl/elf.sc', elf_sc_initial_data)
+
 # ------------------------------------------------------- ld testsuite targets
 # A C33 Linux link is FDPIC, which, like FRV's and Blackfin's, refuses an
 # absolute address in a read-only segment: the loader relocates segments
@@ -564,10 +585,5 @@ edit('ld/testsuite/ld-scripts/weak.exp', lambda s: after(
 edit('ld/testsuite/ld-elf/pr19539.d', lambda s: None if C33_LINUX in s else s.replace(
     '#xfail: ![check_pie_support] || bfin-*-*\n',
     f'#xfail: ![check_pie_support] || bfin-*-* || {C33_LINUX}\n', 1))
-
-# The unwind tables are data after .data, where the loader relocates them,
-# so .tbss is not where elf.sc's layout puts it.
-edit('ld/testsuite/ld-elf/tbss4.d', lambda s: None if C33_LINUX in s else s.replace(
-    '#notarget: hppa64-*-* ia64-*-*\n', f'#notarget: hppa64-*-* ia64-*-* {C33_LINUX}\n', 1))
 
 print('ld testsuite expectations done')
