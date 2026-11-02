@@ -1,7 +1,6 @@
 config BR2_PACKAGE_WR_WLKEYBOARD
 	bool "wlkeyboard"
 	depends on BR2_PACKAGE_WAYLAND
-	select BR2_PACKAGE_LIBXKBCOMMON
 	select BR2_PACKAGE_WAYLAND_PROTOCOLS
 	help
 	  The console's soft keyboard for Wayland compositors with the

@@ -6,8 +6,10 @@
  * surface across the bottom of the panel whose exclusive zone keeps the
  * application above it.  A tapped key is sent with the virtual keyboard
  * protocol, so it goes to whichever client has the keyboard focus; the
- * surface itself takes no focus.  The keymap given with it is the
- * system's default, the US one wr-keymap.h's codes are.
+ * surface itself takes no focus.  The keymap given with it is the one the
+ * compositor gives its own keyboards, passed on as it comes, since
+ * compiling one takes seconds here; its codes are wr-keymap.h's, and its
+ * Shift and Control are X's core modifiers, which every keymap has first.
  *
  * It draws one bit a pixel, as the console does, and widens what changed
  * into a shared-memory buffer, RGB565 where the compositor takes it.
@@ -23,7 +25,6 @@
 #include <unistd.h>
 
 #include <wayland-client.h>
-#include <xkbcommon/xkbcommon.h>
 
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
@@ -49,6 +50,8 @@ static struct wl_surface *surface;
 static struct zwlr_layer_surface_v1 *layer_surface;
 static struct wl_touch *touch;
 static struct wl_pointer *pointer;
+static struct wl_keyboard *seat_keyboard;
+static int have_keymap;
 
 static struct buffer buffers[2];
 static int rgb565;
@@ -57,7 +60,9 @@ static int configured;
 static int running = 1;
 /* Panel rows drawn but not yet shown. */
 static unsigned int dirty_first = LCD_HEIGHT, dirty_last;
-static uint32_t shift_mask, control_mask;
+/* X's core modifiers come first in every keymap, in this order. */
+#define SHIFT_MASK	(1u << 0)
+#define CONTROL_MASK	(1u << 2)
 static int pointer_x, pointer_y, touch_x, touch_y;
 static int32_t touch_id = -1;
 
@@ -211,43 +216,13 @@ static void make_buffers(void)
 	close(fd);
 }
 
-/* The keymap that key codes are read in: the system's default. */
-static void send_keymap(void)
-{
-	struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-	struct xkb_keymap *keymap;
-	char *text;
-	size_t size;
-	int fd;
-
-	if (!context)
-		die("no xkb context");
-	keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
-	if (!keymap)
-		die("no keymap");
-	shift_mask = 1u << xkb_keymap_mod_get_index(keymap, XKB_MOD_NAME_SHIFT);
-	control_mask = 1u << xkb_keymap_mod_get_index(keymap, XKB_MOD_NAME_CTRL);
-	text = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
-	if (!text)
-		die("cannot write the keymap");
-	size = strlen(text) + 1;
-	fd = memfd_create("wlkeyboard-keymap", MFD_CLOEXEC);
-	if (fd < 0 || write(fd, text, size) != (ssize_t)size)
-		die("cannot pass the keymap");
-	zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
-	close(fd);
-	free(text);
-	xkb_keymap_unref(keymap);
-	xkb_context_unref(context);
-}
-
 /*
  * A key, pressed and released.  The compositor keeps no modifier state for
  * a virtual keyboard's keys, so the modifiers are sent as state around it.
  */
 static void send_key(int code, int shift, int control)
 {
-	uint32_t mods = (shift ? shift_mask : 0) | (control ? control_mask : 0);
+	uint32_t mods = (shift ? SHIFT_MASK : 0) | (control ? CONTROL_MASK : 0);
 	uint32_t time = now_ms();
 
 	if (mods)
@@ -402,8 +377,52 @@ static const struct wl_pointer_listener pointer_listener = {
 	.axis = pointer_axis,
 };
 
+/* The compositor's keymap, passed on to the virtual keyboard. */
+static void keyboard_keymap(void *data, struct wl_keyboard *k, uint32_t format,
+			    int32_t fd, uint32_t size)
+{
+	if (!have_keymap && format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+		zwp_virtual_keyboard_v1_keymap(keyboard, format, fd, size);
+		have_keymap = 1;
+	}
+	close(fd);
+}
+
+static void keyboard_enter(void *data, struct wl_keyboard *k, uint32_t serial,
+			   struct wl_surface *s, struct wl_array *keys)
+{
+}
+
+static void keyboard_leave(void *data, struct wl_keyboard *k, uint32_t serial,
+			   struct wl_surface *s)
+{
+}
+
+static void keyboard_key(void *data, struct wl_keyboard *k, uint32_t serial,
+			 uint32_t time, uint32_t key, uint32_t state)
+{
+}
+
+static void keyboard_modifiers(void *data, struct wl_keyboard *k, uint32_t serial,
+			       uint32_t depressed, uint32_t latched, uint32_t locked,
+			       uint32_t group)
+{
+}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+	.keymap = keyboard_keymap,
+	.enter = keyboard_enter,
+	.leave = keyboard_leave,
+	.key = keyboard_key,
+	.modifiers = keyboard_modifiers,
+};
+
 static void seat_capabilities(void *data, struct wl_seat *s, uint32_t caps)
 {
+	if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !seat_keyboard) {
+		seat_keyboard = wl_seat_get_keyboard(s);
+		wl_keyboard_add_listener(seat_keyboard, &keyboard_listener, NULL);
+	}
 	if ((caps & WL_SEAT_CAPABILITY_TOUCH) && !touch) {
 		touch = wl_seat_get_touch(s);
 		wl_touch_add_listener(touch, &touch_listener, NULL);
@@ -502,7 +521,10 @@ int main(void)
 		die("the compositor lacks wl_shm, a seat, the layer shell or virtual keyboards");
 
 	keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(keyboard_manager, seat);
-	send_keymap();
+	/* The seat's keyboard, then its keymap. */
+	wl_display_roundtrip(display);
+	if (!have_keymap)
+		die("the compositor gave no keymap: it has no keyboard");
 
 	surface = wl_compositor_create_surface(compositor);
 	layer_surface = zwlr_layer_shell_v1_get_layer_surface(layer_shell, surface, NULL,

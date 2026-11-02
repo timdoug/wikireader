@@ -4,9 +4,18 @@
 #
 ################################################################################
 
-# The session's font is X's misc-fixed 6x13, the console keyboard's, as a
-# BDF file, which FreeType reads directly; only that one of the package's
-# fonts is installed.
+# The session's font is X's misc-fixed 6x13, the console keyboard's,
+# converted to PCF, which FreeType loads without parsing 500 KB of BDF text;
+# only that one of the package's fonts is installed.  It is fontconfig's
+# only font, and fontconfig's default configuration, two dozen files about
+# antialiasing, hinting and families the panel has none of, gives way to one
+# that makes it the monospace font.  Without them in conf.d their templates
+# go too: fontconfig parses every template at every start, 264 KB of XML,
+# to list them.
+#
+# libinput keeps its generic quirks; those for named vendors' USB and
+# Bluetooth devices and for other machines, which libinput parsed at every
+# start, 4 s here, cannot match the WikiReader's own input devices.
 WR_WAYLAND_VERSION = 1.1.3
 WR_WAYLAND_SOURCE = font-misc-misc-$(WR_WAYLAND_VERSION).tar.xz
 WR_WAYLAND_SITE = https://xorg.freedesktop.org/archive/individual/font
@@ -14,22 +23,33 @@ WR_WAYLAND_LICENSE = Public Domain
 WR_WAYLAND_LICENSE_FILES = COPYING
 # After foot, whose default foot.ini this replaces, and after the X server,
 # which prunes the keyboard data this installs beside its own keymap.
-WR_WAYLAND_DEPENDENCIES = cage foot host-xapp_xkbcomp xkeyboard-config \
+WR_WAYLAND_DEPENDENCIES = cage foot host-xapp_bdftopcf host-xapp_xkbcomp \
+	xkeyboard-config \
 	$(if $(BR2_PACKAGE_XSERVER_KDRIVE),xserver-kdrive)
 
 # libxkbcommon builds a keymap from rules, model and layout, reading
 # xkeyboard-config's 4 MB of sources each time.  The panel has one keymap,
 # a US keyboard, so it is resolved here, by xkbcomp, into a keymap of one
 # file a component, and a rules file that gives it for every model and
-# layout: what every client asks for, evdev, pc105 and us, included.
+# layout: what every client asks for, evdev, pc105 and us, included.  It
+# leaves out what the device has no keys or use for (the multimedia keys
+# but its own three buttons, mouse keys, AccessX): a keymap takes seconds
+# to compile or write out here, in proportion to its size, 29 KB of text
+# against 51.
 WR_WAYLAND_XKB = $(TARGET_DIR)/usr/share/X11/xkb
 
 define WR_WAYLAND_BUILD_CMDS
+	$(HOST_DIR)/bin/bdftopcf -o $(@D)/6x13.pcf $(@D)/6x13.bdf
 	printf '%s\n' 'xkb_keymap {' \
-		'	xkb_keycodes { include "evdev+aliases(qwerty)" };' \
-		'	xkb_types { include "complete" };' \
-		'	xkb_compat { include "complete" };' \
-		'	xkb_symbols { include "pc+us+inet(evdev)" };' \
+		'	xkb_keycodes { include "evdev" };' \
+		'	xkb_types { include "basic+pc+iso9995+extra+numpad" };' \
+		'	xkb_compat { include "basic+misc+iso9995+ledcaps+lednum" };' \
+		'	xkb_symbols {' \
+		'		include "pc+us"' \
+		'		key <I225> { [ XF86Search ] };' \
+		'		key <I166> { [ XF86Back ] };' \
+		'		key <POWR> { [ XF86PowerOff ] };' \
+		'	};' \
 		'};' > $(@D)/wikireader.xkb
 	$(HOST_DIR)/bin/xkbcomp -w 0 -I$(STAGING_DIR)/usr/share/X11/xkb -xkb \
 		$(@D)/wikireader.xkb $(@D)/wikireader-resolved.xkb
@@ -57,8 +77,11 @@ define WR_WAYLAND_INSTALL_TARGET_CMDS
 		$(WR_WAYLAND_XKB)/keycodes $(WR_WAYLAND_XKB)/rules \
 		$(WR_WAYLAND_XKB)/symbols $(WR_WAYLAND_XKB)/types
 	cp -R $(@D)/xkb/. $(WR_WAYLAND_XKB)/
-	$(INSTALL) -D -m 0644 $(@D)/6x13.bdf \
-		$(TARGET_DIR)/usr/share/fonts/misc/6x13.bdf
+	$(INSTALL) -D -m 0644 $(@D)/6x13.pcf \
+		$(TARGET_DIR)/usr/share/fonts/misc/6x13.pcf
+	rm -f $(TARGET_DIR)/etc/fonts/conf.d/*.conf
+	rm -rf $(TARGET_DIR)/usr/share/fontconfig/conf.avail
+	find $(TARGET_DIR)/usr/share/libinput -name '[35]0-*.quirks' -delete
 	$(INSTALL) -D -m 0644 $(WR_WAYLAND_PKGDIR)/70-wr-fixed.conf \
 		$(TARGET_DIR)/etc/fonts/conf.d/70-wr-fixed.conf
 	$(INSTALL) -D -m 0644 $(WR_WAYLAND_PKGDIR)/foot.ini \

@@ -43,11 +43,14 @@ def main():
     files["wrun.sh"] = f"""#!/bin/sh
 startw >/mnt/sd/startw.log 2>&1 &
 n=0
+# Up when foot has drawn: its row 100, black under cage until then, white.
 while :; do
-    if pidof foot >/dev/null && pidof wlkeyboard >/dev/null; then break; fi
+    if pidof foot >/dev/null && pidof wlkeyboard >/dev/null &&
+       dd if=/dev/mem bs=32 skip={(SCANOUT + 100 * 32) // 32} count=1 2>/dev/null |
+           od -x | grep -q ' 0000'; then break; fi
     n=$((n + 1))
-    [ "$n" -lt 120 ] || {{ echo WAYLAND FAIL: no session; cat /tmp/cage.log; exit 1; }}
-    sleep 1
+    [ "$n" -lt 240 ] || {{ echo WAYLAND FAIL: no session; cat /tmp/cage.log; exit 1; }}
+    sleep 0.5
 done
 echo "WAYLAND READY at $(cut -d' ' -f1 /proc/uptime) s"
 n=0
@@ -103,7 +106,7 @@ poweroff
                 for y in range(208) for x in range(240))
     (out / "screen.pgm").write_bytes(b"P5 240 208 255\n" + pgm)
     ready = re.search(r"WAYLAND READY at ([0-9.]+) s", text)
-    print(f"Wayland passed: cage, foot and wlkeyboard up at {ready.group(1)} s;"
+    print(f"Wayland passed: foot drawn at {ready.group(1)} s;"
           " wlkeyboard typed \"touch /w\" into foot's shell")
     print(f"Screenshot: {out / 'screen.pgm'}")
 

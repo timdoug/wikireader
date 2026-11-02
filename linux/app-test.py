@@ -134,6 +134,7 @@ def main():
     devmem_test = require(root / "linux/artifacts/devmem-test")
     glob_test = require(root / "linux/artifacts/glob-test")
     time64_test = require(root / "linux/artifacts/time64-test")
+    malloc_test = require(root / "linux/artifacts/malloc-test")
     cxx_test = require(root / "linux/artifacts/cxx-test")
     atomic_test = require(root / "linux/artifacts/atomic-test")
     ipc_test = require(root / "linux/artifacts/ipc-test")
@@ -176,6 +177,7 @@ def main():
             "devmem.bin": devmem_test.read_bytes(),
             "glob.bin": glob_test.read_bytes(),
             "time64.bin": time64_test.read_bytes(),
+            "malloc.bin": malloc_test.read_bytes(),
             "cxxtest.bin": cxx_test.read_bytes(),
             "atomtest.bin": atomic_test.read_bytes(),
             "ipctest.bin": ipc_test.read_bytes(),
@@ -205,7 +207,7 @@ def main():
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
                               "/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
-                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && "
+                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && /mnt/sd/malloc.bin && "
                               "t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
@@ -244,6 +246,7 @@ def main():
             "DEVMEM PASS",
             "GLOB PASS",
             "TIME64 PASS",
+            "MALLOC PASS",
             "SIGNAL PASS:",
             "PTHREAD PASS",
             "STATIC PTHREAD PASS",

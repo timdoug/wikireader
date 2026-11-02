@@ -1,0 +1,19 @@
+Match a keymap with itself without writing it out.
+
+wlr_keyboard_keymaps_match() compares keymaps as text, writing out both,
+and keyboards joining a group are compared with it, though a compositor
+usually gives all its keyboards one keymap.  On a slow machine writing a
+keymap takes seconds.
+
+--- a/types/wlr_keyboard.c
++++ b/types/wlr_keyboard.c
+@@ -305,6 +305,9 @@
+ 	if (!km1 || !km2) {
+ 		return false;
+ 	}
++	if (km1 == km2) {
++		return true;
++	}
+ 	char *km1_str = xkb_keymap_get_as_string(km1, XKB_KEYMAP_FORMAT_TEXT_V1);
+ 	char *km2_str = xkb_keymap_get_as_string(km2, XKB_KEYMAP_FORMAT_TEXT_V1);
+ 	bool result = strcmp(km1_str, km2_str) == 0;

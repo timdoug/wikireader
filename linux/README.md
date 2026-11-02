@@ -599,7 +599,9 @@ uClibc-ng has wide characters, which libstdc++ and many packages need; they
 are about 8 KB of libc's text. It has locales as Buildroot's uClibc-ng does,
 with `newlocale` and `uselocale`, and builds one, `en_US`, as `en_US.UTF-8`
 and as ISO-8859-1, from the build machine's (`provision.sh` generates it in
-the VM): 90 KB of libc's text, loaded once. `<uchar.h>` is there too, and
+the VM): 90 KB of libc's text, loaded once. Its generated tables are
+written into a build directory `patches/0038` makes first; under `make -j`
+the race could lose. `<uchar.h>` is there too, and
 patches add C11's `<threads.h>` (`patches/0034`, over pthreads),
 `timespec_get` and `struct timespec` in strict C11 (`0035`), and
 `reallocarray` with every allocator, not only the MMU's (`0036`).
@@ -607,7 +609,19 @@ patches add C11's `<threads.h>` (`patches/0034`, over pthreads),
 declares it on 32-bit machines with 64-bit time: its timestamps were `int`,
 12 bytes short of what `stat` fills, so FreeType, built that way, had its
 stack overwritten opening a font. `libc` compiles
-`uclibc/stat-layout-test.c` in strict C to keep it so. `libc` then builds
+`uclibc/stat-layout-test.c` in strict C to keep it so.
+
+The allocator is uClibc-ng's `malloc`, the one for machines without an MMU:
+its heap grows by page-sized `mmap`s and keeps its free areas in one list in
+address order. `patches/0039` starts every search at a finger, the free
+area of the last change, instead of the head; a free used to walk the list
+as far as its place, and that was a fifth of compiling a keymap here.
+`patches/0040` fixes `memalign`, which could make blocks too small to hold
+the free-area record written into them when freed, overwriting the end of
+the block before. `uclibc/malloc-test.c`, run by `app-test`, frees such a
+block between live ones, then mixes `malloc`, `free`, `realloc` and
+`memalign` at random, checking every block's contents and that no two
+overlap. `libc` then builds
 libstdc++ against the installed C library, with `toolchain.sh libstdc++`.
 
 That step also builds GCC's upstream `libatomic` against the installed
@@ -984,7 +998,11 @@ allocator), libxkbcommon maps files privately (a shared mapping of an ext4
 file fails without an MMU), and cage gets the layer shell (`cage/0002`):
 layer surfaces drawn above or below the application, which gets the space
 their exclusive zones leave; touch and pointer reach them; they take no
-keyboard focus. libffi had no C33 port; `libffi/0001` adds one for calls,
+keyboard focus. A keymap takes seconds to compile or write out here, so
+cage compiles its one keymap once for all its keyboards and leaves a
+virtual keyboard the keymap its client sends (`cage/0003`), and wlroots
+keeps the text of the last keymap it wrote, for the next keyboard given
+that keymap and for a virtual keyboard sending that text back (`wlroots`). libffi had no C33 port; `libffi/0001` adds one for calls,
 which libwayland makes for every message (closures are not ported).
 `make -C linux libffi-test` runs libffi's own call tests on it through
 Grifo: 179 of 180 pass, and `call-overread`, which needs `mprotect` guard
@@ -994,18 +1012,26 @@ pages, cannot.
 `console/wr-keys.h`, which `wr-keyboard` also draws from, on a layer shell
 surface 88 pixels high across the bottom of the panel with an exclusive
 zone. Taps become keys of the virtual keyboard protocol, so they go to the
-client with the keyboard focus; the compositor tracks no modifiers for
-those keys, so Shift and Ctrl go as modifier state around the key. It draws
+client with the keyboard focus. The keymap it gives the protocol is the
+one the compositor sends its clients, passed on unread, so it compiles
+none; the compositor tracks no modifiers for those keys, so Shift and Ctrl
+go as modifier state, X's core modifiers, around the key. It draws
 a bit a pixel and widens what changed into an `RGB565` shared-memory buffer.
 Shared memory comes from `memfd_create`, which the kernel builds on ramfs
 without an MMU (`CONFIG_MEMFD_CREATE`): such files take shared mappings but
 no seals.
 
-`wr-wayland` installs `startw`, X's misc-fixed 6x13 as the font foot asks
-for by `foot.ini` and fontconfig (`70-wr-fixed.conf`), and a US keymap for
-libxkbcommon: `xkbcomp` resolves it at build time from xkeyboard-config into
-one file a component under `/usr/share/X11/xkb`, with a rules file that
-gives it for every model and layout, instead of the 4 MB of sources. cage
+`wr-wayland` installs `startw`, X's misc-fixed 6x13 converted to PCF as the
+font foot asks for by `foot.ini`, and a US keymap for libxkbcommon:
+`xkbcomp` resolves it at build time from xkeyboard-config into one file a
+component under `/usr/share/X11/xkb`, with a rules file that gives it for
+every model and layout, instead of the 4 MB of sources; it leaves out the
+multimedia keys but the three buttons, mouse keys and AccessX, 29 KB of
+text against 51. It trims what was parsed at every start for hardware the
+device does not have: fontconfig's default configuration and its templates
+(fontconfig parses every template to list them), for its one
+`70-wr-fixed.conf`, and libinput's quirks for named vendors' devices and
+other machines, keeping its generic ones. cage
 runs with `-d`, so clients draw no title bars; foot needs a UTF-8 locale or
 runs no shell, and `startw` sets `LANG=en_US.UTF-8`. Without an MMU a
 program's stack is what its link asks for: cage and foot get 64 KB
@@ -1014,14 +1040,12 @@ program's stack is what its link asks for: cage and foot get 64 KB
 `make -C linux wayland-test` boots through Grifo, runs `startw`, taps
 `touch /w` and Enter on `wlkeyboard` and waits for the file, then reads the
 panel back from the driver's scanout in internal video RAM
-(`artifacts/wayland-run/screen.pgm`). The session takes 65 s to come up in
-wremu, most of it compiling keymaps: libxkbcommon takes 5 s to compile the
-keymap from its rules, 2 s to write it as text and 7.5 s to compile that
-text, and between cage's two keyboards, the virtual keyboard, foot and
-`wlkeyboard` that is done about five times. uClibc-ng's allocator frees by
-walking an address-sorted list of free areas, a fifth of that time.
-fontconfig parsing its 24 configuration files and FreeType parsing the BDF
-font are most of the rest.
+(`artifacts/wayland-run/screen.pgm`). In wremu foot draws its first frame
+18 s after `startw` on a fresh image and 14 s on a later start, when
+fontconfig has its cache. What is left is mostly reading 3 MB of programs,
+libraries and the font from the card, one keymap compile each in cage and
+foot (2 s each), libinput setting up the devices (2 s) and FreeType
+loading the font's 4,121 glyphs.
 
 `drivers/mmc/host/s1c33-sd.c` powers and pin-muxes the WikiReader card slot,
 identifies SDSC and SDHC cards, and exposes standard devices such as

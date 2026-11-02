@@ -7,8 +7,7 @@
 WR_WLKEYBOARD_VERSION = local
 WR_WLKEYBOARD_SITE = $(BR2_EXTERNAL_WIKIREADER_PATH)/../../console
 WR_WLKEYBOARD_SITE_METHOD = local
-WR_WLKEYBOARD_DEPENDENCIES = host-pkgconf host-wayland libxkbcommon wayland \
-	wayland-protocols
+WR_WLKEYBOARD_DEPENDENCIES = host-pkgconf host-wayland wayland wayland-protocols
 
 # The layer shell's code names xdg_popup, so xdg-shell's comes too.
 WR_WLKEYBOARD_PROTOCOLS = \
@@ -28,7 +27,7 @@ define WR_WLKEYBOARD_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Wno-unused-parameter -Werror \
 		-I$(@D) $(@D)/wlkeyboard.c $(@D)/*-protocol.c -o $(@D)/wlkeyboard \
 		$(TARGET_LDFLAGS) \
-		$$($(PKG_CONFIG_HOST_BINARY) --cflags --libs wayland-client xkbcommon)
+		$$($(PKG_CONFIG_HOST_BINARY) --cflags --libs wayland-client)
 endef
 
 define WR_WLKEYBOARD_INSTALL_TARGET_CMDS

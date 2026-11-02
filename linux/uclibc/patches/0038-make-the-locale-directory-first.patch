@@ -1,0 +1,19 @@
+Make the locale directory before writing its first files.
+
+codesets.txt and locales.txt are written straight into extra/locale in the
+build directory, which only the generator programs waited for, so under
+make -j their rules could run first and fail with "Directory nonexistent".
+
+diff --git a/extra/locale/Makefile.in b/extra/locale/Makefile.in
+index d8023eb..bfe6d54 100644
+--- a/extra/locale/Makefile.in
++++ b/extra/locale/Makefile.in
+@@ -55,6 +55,8 @@ DEPH-gen_wctype := $(top_builddir)include/bits/uClibc_ctype.h $(DEPH-locale)
+ locale_HOBJ := gen_collate gen_ldc gen_locale gen_wc8bit gen_wctype
+ locale_HOBJ := $(addprefix $(locale_OUT)/,$(locale_HOBJ))
+ $(locale_HOBJ): | $(locale_OUT)
++# The first files generated, from rules that write straight into it.
++$(locale_OUT)/codesets.txt $(locale_OUT)/locales.txt: | $(locale_OUT)
+ 
+ locale_SRC := $(locale_OUT)/locale_data.c
+ locale_OBJ := $(locale_OUT)/locale_data.o

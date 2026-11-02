@@ -407,21 +407,25 @@ strict-C `struct stat` fix (FreeType smashed its stack); `CONFIG_MEMFD_CREATE`
 on ramfs; libxkbcommon mapping files privately; vfork in cage and foot; the
 layer shell in cage; a build-time US keymap; 64 KB stacks for cage and foot.
 
-Measured in wremu: the session is up 65 s after the kernel starts. Profiled
-(`linux/profile-report.py` with `/proc/PID/maps`, the probe quiet): 67 s of
-CPU, libc 30 s, kernel 17 s, libxkbcommon 9.5 s, expat 3.5 s, FreeType 3.2 s,
-fontconfig 1.8 s. One keymap costs 5 s to compile from rules, 2 s to write
-as text (printf) and 7.5 s to compile from text, and cage (twice), wlroots'
-virtual keyboard, foot and `wlkeyboard` do it about five times;
-`__heap_free`, uClibc-ng's walk of its address-sorted free list, is 9 s.
+Measured in wremu, foot's first frame after `startw`: 18 s on a fresh image,
+14 s on a later start (fontconfig's cache). Profiles came from
+`linux/profile-report.py` over a quiet window with `/proc/PID/maps`; a
+window's PC buckets mix programs that used the same addresses in turn
+without an MMU, so check them against `/proc/PID/stat` times. What it
+took, from more than 50 s: uClibc-ng's free-list finger (`0039`), a 29 KB
+keymap, cage compiling one keymap and wlroots writing it out once and
+recognising it back from `wlkeyboard`, which forwards the compositor's
+keymap; a PCF font; fontconfig without its default configuration or its
+templates; libinput without vendor and machine quirks. On the way,
+`malloc-test` found `memalign` corrupting the heap in stock uClibc-ng
+(`0040`).
 
-Next, in order: fewer and smaller keymap compiles (one in cage for all its
-keyboards; a smaller keymap without `inet(evdev)` and mouse keys); a finger
-in uClibc-ng's free list so a free near the last costs nothing; PCF instead
-of BDF and fewer fontconfig files; then the device. foot warns that there is
-no Compose file for `en_US.UTF-8` (dead keys, which the soft keyboard has
-none of). The DRM mode's clock is the simple-panel placeholder, so wlroots
-reports 0.020 Hz.
+Left, measured: reading 3 MB of programs and the font from the card; one
+keymap compile in cage and one in foot (2 s each); libinput's device setup
+(2 s); FreeType loading the font's 4,121 glyphs, twice on a first start.
+Not yet run on the device. foot warns that there is no Compose file for
+`en_US.UTF-8` (dead keys, which the soft keyboard has none of). The DRM
+mode's clock is the simple-panel placeholder, so wlroots reports 0.020 Hz.
 
 ## Standards: how far the port follows upstream
 

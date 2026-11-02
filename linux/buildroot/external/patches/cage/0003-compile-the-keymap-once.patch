@@ -1,0 +1,87 @@
+Compile the keymap once, and leave virtual keyboards theirs.
+
+Each keyboard had the default keymap compiled for it, and a virtual
+keyboard had it too before its client sent the keymap the protocol
+requires it to.  Compiling a keymap takes seconds on a slow machine, and
+keyboards with distinct keymaps are compared, when grouped, by writing
+both out.  The default keymap is now compiled once, for the first
+keyboard, and shared, and a virtual keyboard keeps the keymap its client
+gives it.
+
+diff --git a/seat.c b/seat.c
+index d3edb75..85b1872 100644
+--- a/seat.c
++++ b/seat.c
+@@ -389,26 +389,41 @@ keyboard_group_destroy(struct cg_keyboard_group *keyboard_group)
+ 	free(keyboard_group);
+ }
+ 
+-static void
+-handle_new_keyboard(struct cg_seat *seat, struct wlr_keyboard *keyboard, bool virtual)
++/* The default keymap, compiled once: a keymap takes long to compile, and
++   keyboards sharing one keymap are matched without comparing them. */
++static struct xkb_keymap *
++seat_keymap(struct cg_seat *seat)
+ {
++	if (seat->keymap) {
++		return seat->keymap;
++	}
++
+ 	struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+ 	if (!context) {
+ 		wlr_log(WLR_ERROR, "Unable to create XKB context");
+-		return;
++		return NULL;
+ 	}
+ 
+-	struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+-	if (!keymap) {
++	seat->keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
++	if (!seat->keymap) {
+ 		wlr_log(WLR_ERROR, "Unable to configure keyboard: keymap does not exist");
+-		xkb_context_unref(context);
+-		return;
+ 	}
++	xkb_context_unref(context);
++	return seat->keymap;
++}
+ 
+-	wlr_keyboard_set_keymap(keyboard, keymap);
++static void
++handle_new_keyboard(struct cg_seat *seat, struct wlr_keyboard *keyboard, bool virtual)
++{
++	/* A virtual keyboard brings its own keymap, before any key. */
++	if (!virtual) {
++		struct xkb_keymap *keymap = seat_keymap(seat);
++		if (!keymap) {
++			return;
++		}
++		wlr_keyboard_set_keymap(keyboard, keymap);
++	}
+ 
+-	xkb_keymap_unref(keymap);
+-	xkb_context_unref(context);
+ 	wlr_keyboard_set_repeat_info(keyboard, 25, 600);
+ 
+ 	cg_keyboard_group_add(keyboard, seat, virtual);
+@@ -906,6 +921,7 @@ seat_destroy(struct cg_seat *seat)
+ 	wl_list_for_each_safe (keyboard_group, keyboard_group_tmp, &seat->keyboard_groups, link) {
+ 		keyboard_group_destroy(keyboard_group);
+ 	}
++	xkb_keymap_unref(seat->keymap);
+ 
+ 	// Destroying the wlr seat will trigger the destroy handler on our seat,
+ 	// which will in turn free it.
+diff --git a/seat.h b/seat.h
+index 4b7bfda..ab1008a 100644
+--- a/seat.h
++++ b/seat.h
+@@ -21,6 +21,8 @@ struct cg_seat {
+ 
+ 	struct wl_list keyboards;
+ 	struct wl_list keyboard_groups;
++	/* The keymap every keyboard gets, compiled for the first one. */
++	struct xkb_keymap *keymap;
+ 	struct wl_list pointers;
+ 	struct wl_list touch;
+ 	struct wl_listener new_input;
