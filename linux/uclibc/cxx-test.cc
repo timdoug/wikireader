@@ -287,8 +287,8 @@ static void reload_throw()
 
 static void reload_unwind()
 {
-	// Exercise both linker tables and the old-style linear fallback, with
-	// the header in shared text and the FDEs in independently mapped data.
+	// Exercise both linker tables and the old-style linear fallback, the
+	// tables in shared text and the data they reach through %r15.
 	for (const char *path : { "/mnt/sd/unwind.so", "/mnt/sd/unwind0.so" }) {
 		for (int i = 0; i < 8; i++) {
 			void *module = dlopen(path, RTLD_NOW | RTLD_LOCAL);

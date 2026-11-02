@@ -663,7 +663,17 @@ static reloc_howto_type c33_elf_howto_table[] =
          "R_C33_TLS_TPREL32", false, 0, 0xffffffff, false),
   HOWTO (R_C33_TLS_LE32, 0, 4, 32, false, 0,
          complain_overflow_dont, bfd_elf_generic_reloc,
-         "R_C33_TLS_LE32", false, 0, 0xffffffff, false)
+         "R_C33_TLS_LE32", false, 0, 0xffffffff, false),
+
+  /* The distance from the word to its target.  */
+  HOWTO (R_C33_REL32, 0, 4, 32, true, 0,
+         complain_overflow_signed, bfd_elf_generic_reloc,
+         "R_C33_REL32", false, 0, 0xffffffff, true),
+
+  /* The target's offset from __dp.  */
+  HOWTO (R_C33_DPREL32, 0, 4, 32, false, 0,
+         complain_overflow_dont, bfd_elf_generic_reloc,
+         "R_C33_DPREL32", false, 0, 0xffffffff, false)
 };
 
 /* Map BFD reloc types to c33 ELF reloc types.  */
@@ -715,7 +725,9 @@ static const struct c33_elf_reloc_map c33_elf_reloc_map[] =
   { BFD_RELOC_C33_TLS_DTPMOD32, R_C33_TLS_DTPMOD32 },
   { BFD_RELOC_C33_TLS_DTPREL32, R_C33_TLS_DTPREL32 },
   { BFD_RELOC_C33_TLS_TPREL32, R_C33_TLS_TPREL32 },
-  { BFD_RELOC_C33_TLS_LE32, R_C33_TLS_LE32 }
+  { BFD_RELOC_C33_TLS_LE32, R_C33_TLS_LE32 },
+  { BFD_RELOC_32_PCREL, R_C33_REL32 },
+  { BFD_RELOC_32_GOTOFF, R_C33_DPREL32 }
 };
 
 
@@ -1007,7 +1019,12 @@ c33_elf_perform_relocation (abfd, r_type, addend, address,gp)
 	switch (r_type)
     {
 		case R_C33_32:
+		case R_C33_REL32:
       		bfd_put_32 (abfd, addend, address);
+      		return bfd_reloc_ok;
+
+		case R_C33_DPREL32:
+      		bfd_put_32 (abfd, addend - gp, address);
       		return bfd_reloc_ok;
 
 		case R_C33_16:
@@ -1557,6 +1574,7 @@ c33_elf_final_link_relocate (howto, input_bfd, output_bfd,
 	case R_C33_S_RL:
 	case R_C33_JP:
 	case R_C33_LOOP:
+	case R_C33_REL32:
 		/* set PC relative value */
 		value -= (input_section->output_section->vma
 		+ input_section->output_offset);
@@ -1674,6 +1692,7 @@ c33_elf_final_link_relocate (howto, input_bfd, output_bfd,
 	case R_C33_DPH:
 	case R_C33_DPM:
 	case R_C33_DPL:
+	case R_C33_DPREL32:
 
 		/* Get the value of __dp.  */
 		h = bfd_link_hash_lookup (info->hash, "__dp", false, false, true);
@@ -2962,11 +2981,29 @@ c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
 
   switch (r_type)
     {
+    case R_C33_REL32:
+      /* Text and data load independently: a distance between them is
+	 not known until run time.  */
+      if (sec != NULL && sec->output_section != NULL
+	  && !bfd_is_abs_section (sec)
+	  && (c33fdpic_osec_readonly_p (output_bfd, sec->output_section)
+	      != c33fdpic_osec_readonly_p (output_bfd,
+					   input_section->output_section)))
+	{
+	  _bfd_error_handler
+	    (_("%pB(%pA+%#" PRIx64 "): PC-relative reference to %s in the"
+	       " other segment"), input_bfd, input_section,
+	     (uint64_t) rel->r_offset, name != NULL ? name : sec->name);
+	  return -1;
+	}
+      return 0;
+
     case R_C33_DH:
     case R_C33_DL:
     case R_C33_DPH:
     case R_C33_DPM:
     case R_C33_DPL:
+    case R_C33_DPREL32:
       if (h != NULL
 	  && (h->root.type == bfd_link_hash_defined
 	      || h->root.type == bfd_link_hash_defweak)
@@ -4098,25 +4135,14 @@ c33_elf_fake_sections (bfd * abfd ATTRIBUTE_UNUSED,
 
 #include "elf32-target.h"
 
-/* Text and data load independently, so a pointer from .eh_frame to code
-   cannot become PC-relative. Keep the absolute relocations emitted by GCC,
-   including personality and LSDA pointers. */
+/* GCC writes FDPIC unwind tables PC-relative to code and %r15-relative to
+   data already; ld has nothing to convert.  */
 static bool
 c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
                                    struct bfd_link_info *info ATTRIBUTE_UNUSED,
                                    asection *sec ATTRIBUTE_UNUSED)
 {
   return false;
-}
-
-/* The unwinder (libgcc's FDPIC support) searches .eh_frame_hdr's table by
-   link-time address and maps only the FDE it selects, so the table is good
-   although the FDEs' addresses stay absolute.  */
-static bool
-c33fdpic_eh_frame_table_link_time_p (bfd *abfd ATTRIBUTE_UNUSED,
-				     struct bfd_link_info *info ATTRIBUTE_UNUSED)
-{
-  return true;
 }
 
 /* FDPIC: the same relocations, plus executables and shared libraries for
@@ -4167,8 +4193,5 @@ c33fdpic_eh_frame_table_link_time_p (bfd *abfd ATTRIBUTE_UNUSED,
 #undef elf_backend_can_make_relative_eh_frame
 #define elf_backend_can_make_relative_eh_frame \
   c33fdpic_can_make_relative_eh_frame
-#undef elf_backend_eh_frame_table_link_time_p
-#define elf_backend_eh_frame_table_link_time_p \
-  c33fdpic_eh_frame_table_link_time_p
 
 #include "elf32-target.h"

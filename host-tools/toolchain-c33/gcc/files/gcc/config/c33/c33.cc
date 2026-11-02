@@ -2835,6 +2835,22 @@ c33_output_mi_thunk (FILE *file, tree thunk, HOST_WIDE_INT delta,
    the address of a function's canonical descriptor wherever C asks for a
    function's address, as on SH.  */
 
+/* -mfdpic: the functions the unwind tables reach through a DW.ref word --
+   personality routines.  dwarf2asm writes that word with a SYMBOL_REF of
+   its own, which does not say it names a function, and the word must hold
+   the function's descriptor: so the name is noted when the tables ask for
+   the word (ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX).  */
+static hash_set<nofree_string_hash> *c33_eh_functions;
+
+void
+c33_note_eh_function (rtx x)
+{
+  if (!c33_eh_functions)
+    c33_eh_functions = new hash_set<nofree_string_hash>;
+  if (!c33_eh_functions->contains (XSTR (x, 0)))
+    c33_eh_functions->add (xstrdup (XSTR (x, 0)));
+}
+
 static bool
 c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
 {
@@ -2868,7 +2884,8 @@ c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
   if (TARGET_FDPIC
       && size == UNITS_PER_WORD
       && GET_CODE (x) == SYMBOL_REF
-      && SYMBOL_REF_FUNCTION_P (x))
+      && (SYMBOL_REF_FUNCTION_P (x)
+	  || (c33_eh_functions && c33_eh_functions->contains (XSTR (x, 0)))))
     {
       fputs ("\t.long\tfuncdesc(", asm_out_file);
       output_addr_const (asm_out_file, x);

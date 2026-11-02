@@ -404,16 +404,24 @@ in a function a common base lookup, followed by link-time `tlsoff` offsets.
 `.tdata`/`.tbss` form `PT_TLS`; ordinary address
 relocation and FDPIC load-map translation must never handle TLS offsets.
 
-FDPIC shared-library unwind tables retain absolute runtime relocations;
-ld must not turn pointers from data to independently loaded code into
-PC-relative encodings. Dynamic modules carry a `PT_GNU_EH_FRAME` header
-and a sorted search table in the shared read-only segment. Version 1 uses
-the normal `pcrel|sdata4` frame pointer, `udata4` count and `datarel|sdata4`
-table encodings, but C33 FDPIC interprets their differences in link-time
-address space. The frame pointer is relative to its own word, and each
-table entry is relative to the header's link-time VMA. None is relocated.
-The unwinder converts the runtime PC to its module VMA before searching,
-then maps the selected FDE into the independently loaded data segment.
+FDPIC unwind tables are shared text, as SH's are, and hold no address the
+loader relocates. An FDE reaches its code PC-relative, and the LSDA its
+landing pads relative to the function. A type_info or a personality routine
+is reached through a word of its own in the data segment, by its offset
+from `__dp` (`DW_EH_PE_indirect | DW_EH_PE_datarel`); a personality
+routine's word holds its descriptor (`funcdesc`). Two relocations carry
+these:
+
+| Relocation | Value |
+|---|---|
+| `R_C33_REL32` (39), `.4byte symbol - .` | Distance from the word to the symbol, within a segment |
+| `R_C33_DPREL32` (40), `.4byte doff(symbol)` | Symbol's offset from `__dp`; the symbol is in this module's data |
+
+Dynamic modules carry a `PT_GNU_EH_FRAME` header and ld's sorted search
+table, both in the read-only segment. The unwinder finds them through
+`dl_iterate_phdr` and the load map, as on FRV, and takes `__dp` for
+`datarel` from the load map's `got_value`. A static program's `crtbeginT`
+registers its frames with `__dp`.
 The FDE itself retains its ordinary absolute runtime relocations.
 The optional shared `libgcc_s.so.1` unwinder discovers frames through
 `dl_iterate_phdr`; libc loads it on the first cancellation. Ordinary
@@ -540,8 +548,8 @@ the FDPIC linker refuses objects without it.
   `DT_RELACOUNT`; an executable relocates its own from its `.rofixup` list.
 - **A function pointer is the address of a descriptor**, eight bytes of
   `{entry point, %r15 of the defining module}`. Words holding a function's
-  address in the pool, in initialised data and in the unwind tables are
-  written `.long funcdesc(f)` (`R_C33_FUNCDESC`), as SH writes
+  address in the pool, in initialised data and in the unwind tables'
+  words are written `.long funcdesc(f)` (`R_C33_FUNCDESC`), as SH writes
   `f@FUNCDESC`, and a function has one canonical descriptor per program.
   The constructor tables (`.init_array`, `.fini_array`) are the exception,
   as on ARM FDPIC: the compiler's constructor hook writes entry points,

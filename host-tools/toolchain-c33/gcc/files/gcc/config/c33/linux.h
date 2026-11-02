@@ -89,11 +89,14 @@
 #undef ENDFILE_SPEC
 #define ENDFILE_SPEC "%{shared:crtendS.o%s;:crtend.o%s} crtn.o%s"
 
-/* Exceptions unwind with DWARF tables. The linker script keeps .eh_frame and
-   .gcc_except_table in the data segment, where the loader relocates their
-   absolute pointers.  */
+/* Exceptions unwind with DWARF tables, in shared text: they reach code
+   PC-relative and data relative to __dp (c33.h).  A dynamically linked
+   module's tables are found through PT_GNU_EH_FRAME and its load map,
+   which gives __dp; a static program's crtbeginT registers them with
+   __dp, which is %r15.  */
 #undef DWARF2_UNWIND_INFO
 #define DWARF2_UNWIND_INFO 1
+#define CRT_GET_RFIB_DATA(BASE) __asm__ ("ld.w %0,%%r15" : "=r" (BASE))
 
 /* uClibc-ng's libc holds the thread library, so libgcc calls pthreads
    directly.  A weak reference would decide a program was single-threaded

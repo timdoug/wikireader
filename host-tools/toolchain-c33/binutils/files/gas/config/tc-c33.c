@@ -4883,6 +4883,11 @@ char    *g_pwhere_rm = 0;
 void
 md_apply_fix (fixS * fixp, valueT * valuep, segT seg)
 {
+  /* "sym - ." in a data word: gas marks the fixup PC-relative and leaves
+     its type to the backend.  */
+  if (fixp->fx_pcrel && fixp->fx_r_type == BFD_RELOC_32)
+    fixp->fx_r_type = BFD_RELOC_32_PCREL;
+
   if (fixp->fx_r_type == BFD_RELOC_C33_TLS_DTPMOD32
       || fixp->fx_r_type == BFD_RELOC_C33_TLS_DTPREL32
       || fixp->fx_r_type == BFD_RELOC_C33_TLS_TPREL32
@@ -5210,6 +5215,15 @@ parse_cons_expression_c33 (expressionS * exp)
       input_line_pointer += 8;
       expression (exp);
       return BFD_RELOC_C33_FUNCDESC;
+    }
+
+  /* "doff(sym)": sym's offset from __dp, for data the unwind tables
+     reach through the module's data segment.  */
+  if (strncmp (input_line_pointer, "doff(", 5) == 0)
+    {
+      input_line_pointer += 4;
+      expression (exp);
+      return BFD_RELOC_32_GOTOFF;
     }
 
   /* Native ELF TLS offsets/pairs live in the writable constant pool. */

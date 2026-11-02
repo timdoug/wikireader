@@ -108,6 +108,11 @@ START_RELOC_NUMBERS (c33_reloc_type)
      RELOC_NUMBER (R_C33_TLS_DTPREL32, 36)
      RELOC_NUMBER (R_C33_TLS_TPREL32, 37)
      RELOC_NUMBER (R_C33_TLS_LE32, 38)
+/* A word holding the distance from itself to its target (unwind tables), and
+   a word holding its target's offset from __dp (unwind tables' references
+   to data, through the module's data segment).  */
+     RELOC_NUMBER (R_C33_REL32, 39)
+     RELOC_NUMBER (R_C33_DPREL32, 40)
 END_RELOC_NUMBERS (R_C33_max)
 
 

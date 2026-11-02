@@ -9,6 +9,7 @@ wremu, booted through Grifo, which runs the queue in Linux and records how
 each program ended and what it printed, until a pass queues nothing.  That
 pass's gcc.sum and gcc.log, in artifacts/gcc-test/results, are the result.
 """
+import fcntl
 import importlib.util
 import os
 from pathlib import Path
@@ -95,6 +96,13 @@ def run_batch(fat, names):
 
 
 def main():
+    # One run at a time: they share the queue, the batch card and results.
+    OUT.mkdir(parents=True, exist_ok=True)
+    lock = (OUT / ".lock").open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"another run.py is using {OUT}")
     spec = importlib.util.spec_from_file_location("wr_app", ROOT / "linux/app-test.py")
     app = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app)

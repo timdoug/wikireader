@@ -33,6 +33,7 @@ extern bool   c33_apply_descriptor_p        (const_tree);
 
 #ifdef RTX_CODE
 extern bool c33_tls_operand_p (rtx);
+extern void c33_note_eh_function (rtx);
 extern rtx c33_tls_address (rtx);
 extern rtx c33_thread_pointer (void);
 extern const char *c33_output_thread_pointer (rtx *);

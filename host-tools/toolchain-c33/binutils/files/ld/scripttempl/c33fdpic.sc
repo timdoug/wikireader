@@ -66,9 +66,11 @@ SECTIONS
   ${RELOCATING+${CODE_ALIGN}}
   .rodata         : { *(.rodata${RELOCATING+ .rodata.* .gnu.linkonce.r.*}) }
   .rodata1        : { *(.rodata1) }
-  /* Unrelocated link-time search entries are shared with the text.  The
-     FDPIC unwinder maps the selected frame in the separate data segment. */
+  /* The unwind tables reach code PC-relative and data through %r15
+     (DW_EH_PE_datarel), so they hold no address and are shared text.  */
   .eh_frame_hdr   : { *(.eh_frame_hdr) }
+  .eh_frame       : { KEEP (*(.eh_frame)) }
+  .gcc_except_table : { *(.gcc_except_table${RELOCATING+ .gcc_except_table.*}) }
   /* The words the program relocates itself at startup, by their link-time
      addresses; the last is __dp's.  Read-only, and it keeps text and data
      apart for the load map lookup of a one-past-the-end address.  */
@@ -124,11 +126,7 @@ SECTIONS
     *(.data${RELOCATING+ .data.* .gnu.linkonce.d.*})
     *(.sdata${RELOCATING+ .sdata.*})
   }
-  /* The unwind tables hold absolute addresses, so they are data, where
-     the loader relocates them.  */
-  .gcc_except_table : { *(.gcc_except_table${RELOCATING+ .gcc_except_table.*}) }
   .tm_clone_table : { *(.tm_clone_table) }
-  .eh_frame       : { KEEP (*(.eh_frame)) }
   ${RELOCATING+_edata = .; PROVIDE (edata = .);}
   .bss            :
   {

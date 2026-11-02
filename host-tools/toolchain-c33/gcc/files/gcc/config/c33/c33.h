@@ -826,26 +826,34 @@ typedef enum
 #define EH_RETURN_DATA_REGNO(N) ((N) < 2 ? (N) + 4 : INVALID_REGNUM)
 #define EH_RETURN_STACKADJ_RTX  gen_rtx_REG (Pmode, 13)
 
-/* -mfdpic: the unwind tables are data, which the loader relocates, so
-   they hold absolute addresses.  A global datum -- a type_info -- is
-   reached through a word of its own (DW.ref.<name>).  The personality
-   routine (CODE 2) is a function, and the unwinder calls it through a C
-   function pointer, so the CIE holds its descriptor's address directly:
-   c33_assemble_integer writes a funcdesc for it as for any function.  */
-#define ASM_PREFERRED_EH_DATA_FORMAT(CODE, GLOBAL) \
-  ((TARGET_FDPIC && (GLOBAL) && (CODE) != 2 ? DW_EH_PE_indirect : 0) \
-   | DW_EH_PE_absptr)
+/* -mfdpic: the unwind tables are shared text, as SH's are: they reach code
+   PC-relative and data relative to the module's data segment
+   (DW_EH_PE_datarel, from %r15's __dp), so they hold no address the
+   loader would have to relocate.  A global datum -- a type_info, or the
+   personality routine's descriptor -- is reached through a word of its
+   own in the data segment (DW.ref.<name>), which holds its address; for
+   the personality routine that is its descriptor, as c33_assemble_integer
+   writes for any function.  */
+#define ASM_PREFERRED_EH_DATA_FORMAT(CODE, GLOBAL)			\
+  (TARGET_FDPIC								\
+   ? (((GLOBAL) ? DW_EH_PE_indirect | DW_EH_PE_datarel : DW_EH_PE_pcrel) \
+      | ((CODE) ? 0 : DW_EH_PE_sdata4))					\
+   : DW_EH_PE_absptr)
 
-/* dwarf2asm writes an absolute pointer with .4byte itself, past
-   TARGET_ASM_INTEGER, so a function's descriptor is asked for here, as SH
-   asks for its @GOTFUNCDESC.  */
+/* dwarf2asm writes encoded pointers with .4byte itself, past
+   TARGET_ASM_INTEGER: the %r15-relative ones are asked for here, as SH
+   asks for its @GOTOFF.  It asks before making an indirect pointer's word,
+   which it does if this declines, and asks again with the word.  */
 #define ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX(FILE, ENCODING, SIZE, ADDR, DONE) \
   do									\
     {									\
-      if (TARGET_FDPIC && (ENCODING) == DW_EH_PE_absptr && (SIZE) == 4	\
+      if (TARGET_FDPIC && ((ENCODING) & DW_EH_PE_indirect)		\
 	  && GET_CODE (ADDR) == SYMBOL_REF && SYMBOL_REF_FUNCTION_P (ADDR)) \
+	c33_note_eh_function (ADDR);					\
+      if (TARGET_FDPIC && ((ENCODING) & 0x70) == DW_EH_PE_datarel	\
+	  && !((ENCODING) & DW_EH_PE_indirect) && (SIZE) == 4)		\
 	{								\
-	  fputs ("\t.4byte\tfuncdesc(", (FILE));				\
+	  fputs ("\t.4byte\tdoff(", (FILE));				\
 	  output_addr_const ((FILE), (ADDR));				\
 	  fputs (")\n", (FILE));					\
 	  goto DONE;							\

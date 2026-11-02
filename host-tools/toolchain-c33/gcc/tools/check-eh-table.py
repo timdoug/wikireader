@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Check C33 FDPIC unwind tables before installing the dynamic runtime."""
+"""Check C33 FDPIC unwind tables before installing the dynamic runtime:
+the search table, PC-relative FDEs, and both in shared read-only text."""
 from pathlib import Path
 import struct
 import sys
@@ -43,24 +44,29 @@ def check(path):
         offset = fde - frames[3]
         if not 0 <= offset <= frames[5] - 16:
             raise ValueError("FDE outside frame section")
-        length, cie, pc, span = struct.unpack_from("<4I", data, frames[4] + offset)
+        length, cie, pc, span = struct.unpack_from("<IIiI", data, frames[4] + offset)
+        pc = (frames[3] + offset + 8 + pc) & 0xffffffff  # PC-relative
         if length < 12 or offset + 4 + length > frames[5] or not cie or pc != initial or not span:
-            raise ValueError("table entry disagrees with its absolute C33 FDE")
-    # Neither the regular dynamic relocations nor executable self-relocation
-    # may rewrite these link-time differences.
+            raise ValueError("table entry disagrees with its PC-relative FDE")
+    if not any(p[0] == 1 and not p[6] & 2 and p[2] <= frames[3] and
+               frames[3] + frames[5] <= p[2] + p[4] for p in loads):
+        raise ValueError(".eh_frame is not in a shared read-only segment")
+    # The tables hold no address: neither the regular dynamic relocations
+    # nor self-relocation may rewrite them.
+    tables = [(hdr[3], hdr[3] + hdr[5]), (frames[3], frames[3] + frames[5])]
+    def in_tables(address):
+        return any(lo <= address < hi for lo, hi in tables)
     for s in sections:
         if s[1] == 4:  # SHT_RELA
             for offset in range(s[4], s[4] + s[5], s[9]):
-                address = struct.unpack_from("<I", data, offset)[0]
-                if hdr[3] <= address < hdr[3] + hdr[5]:
-                    raise ValueError("runtime relocation targets the search table")
+                if in_tables(struct.unpack_from("<I", data, offset)[0]):
+                    raise ValueError("runtime relocation targets the unwind tables")
     fixups = named.get(".rofixup")
     if fixups:
         for offset in range(fixups[4], fixups[4] + fixups[5], 4):
-            address = struct.unpack_from("<I", data, offset)[0]
-            if hdr[3] <= address < hdr[3] + hdr[5]:
-                raise ValueError("self-relocation targets the search table")
-    print(f"{path.name}: {count} FDEs, {hdr[5]} bytes, link-time table passed")
+            if in_tables(struct.unpack_from("<I", data, offset)[0]):
+                raise ValueError("self-relocation targets the unwind tables")
+    print(f"{path.name}: {count} FDEs, {hdr[5]} bytes, shared unwind tables passed")
 
 
 if __name__ == "__main__":

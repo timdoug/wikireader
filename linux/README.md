@@ -554,9 +554,9 @@ and kernel futexes, and remains part of libc. Cancellation uses shared
 C++ programs that need exception handling load it at startup.
 The unwinder discovers module frames through
 `dl_iterate_phdr` and `PT_GNU_EH_FRAME` headers.
-The linker emits sorted FDPIC search tables in the shared read-only segment.
-The unwinder searches with the PC's link-time address, then maps only the
-selected frame into the separate data segment. Lookup finishes inside the
+The tables, ld's sorted search table and the FDEs it indexes, are in the
+shared read-only segment, PC-relative to code and `%r15`-relative to data,
+and are searched as on FRV. Lookup finishes inside the
 serialized program-header callback; it allocates no FDE index and needs no
 runtime sorting. Tables cost 12 bytes plus 8 bytes per FDE, shared between
 processes. Older modules without search tables fall back to linear scanning.
@@ -636,13 +636,13 @@ library to install on the card: only used code is linked into a program.
 Buildroot recognizes the C33 FDPIC toolchain as providing libatomic, so
 packages requiring atomic intrinsics can be selected.
 
-C++ exceptions unwind with DWARF tables. The tables hold absolute
-addresses, so they live in the data segment, where the loader relocates
-them. Dynamic modules use program-header discovery; static programs
-register their frames with `crtbeginT.o`. A personality routine is
-reached through a word holding its function descriptor. `.eh_frame` is an output section of its own after `.data`; placed
-inside `.data`, ld's `--gc-sections` editing of it emits relocations at the
-wrong offsets. A C program carries about 500 bytes of unwind tables from
+C++ exceptions unwind with DWARF tables, which are shared text, as SH's
+are: they reach code PC-relative and data through words in the data
+segment, by their offset from `__dp` (`toolchain-c33/gcc/ABI.md`), so no
+process carries a copy of its own. Dynamic modules use program-header
+discovery; static programs register their frames with `crtbeginT.o`. A
+personality routine is reached through a word holding its function
+descriptor. A C program carries about 500 bytes of unwind tables from
 libgcc. C++ also carries unwind tables, vtables, typeinfo and locale tables.
 Both libc and C++ use the shared unwinder so cancellation runs C++
 destructors. Ordinary arithmetic helpers remain in the static libgcc

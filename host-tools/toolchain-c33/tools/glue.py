@@ -268,60 +268,6 @@ def ld_separate_code_default(s):
 
 edit('ld/configure.tgt', ld_separate_code_default)
 
-# A backend capability: the unwinder searches .eh_frame_hdr's table in
-# link-time address space, so absolute FDE addresses, which a shared object
-# keeps when its frames cannot be made PC-relative, do not stop the table
-# being built.  C33 FDPIC keeps absolute FDE pointers because text and data
-# load independently, and its unwinder maps only the selected FDE.
-EH_HOOK_DOC = (
-    '  /* This function returns TRUE if the unwinder searches the\n'
-    '     .eh_frame_hdr table in link-time address space, so that absolute\n'
-    '     FDE addresses in a shared object need not suppress the table.  */\n'
-    '  bool (*elf_backend_eh_frame_table_link_time_p)\n'
-    '     (bfd *, struct bfd_link_info *);\n\n')
-
-
-def eh_hook_header(s):
-    if 'elf_backend_eh_frame_table_link_time_p' in s:
-        return None
-    anchor = ('  bool (*elf_backend_can_make_lsda_relative_eh_frame)\n'
-              '     (bfd *, struct bfd_link_info *, asection *);\n\n')
-    return s.replace(anchor, anchor + EH_HOOK_DOC, 1)
-
-
-def eh_hook_target(s):
-    if 'elf_backend_eh_frame_table_link_time_p' in s:
-        return None
-    s = s.replace(
-        '#ifndef elf_backend_encode_eh_address\n',
-        '#ifndef elf_backend_eh_frame_table_link_time_p\n'
-        '#define elf_backend_eh_frame_table_link_time_p\tNULL\n'
-        '#endif\n#ifndef elf_backend_encode_eh_address\n', 1)
-    return s.replace(
-        '  elf_backend_can_make_lsda_relative_eh_frame,\n  elf_backend_encode_eh_address,\n',
-        '  elf_backend_can_make_lsda_relative_eh_frame,\n'
-        '  elf_backend_eh_frame_table_link_time_p,\n  elf_backend_encode_eh_address,\n', 1)
-
-
-def eh_hook_use(s):
-    if 'elf_backend_eh_frame_table_link_time_p' in s:
-        return None
-    old = ('    if (bfd_link_pic (info)\n'
-           '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
-    new = ('    if (bfd_link_pic (info)\n'
-           '\t\t&& !(get_elf_backend_data (info->output_bfd)\n'
-           '\t\t       ->elf_backend_eh_frame_table_link_time_p\n'
-           '\t\t     && (get_elf_backend_data (info->output_bfd)\n'
-           '\t\t\t ->elf_backend_eh_frame_table_link_time_p (abfd, info)))\n'
-           '\t\t&& (((ent->fde_encoding & 0x70) == DW_EH_PE_absptr\n')
-    if old not in s:
-        raise SystemExit('Cannot locate absolute FDE table suppression')
-    return s.replace(old, new, 1)
-
-
-edit('bfd/elf-bfd.h', eh_hook_header)
-edit('bfd/elfxx-target.h', eh_hook_target)
-edit('bfd/elf-eh-frame.c', eh_hook_use)
 
 print('changed:')
 for c in changed:
