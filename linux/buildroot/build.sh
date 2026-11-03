@@ -51,7 +51,8 @@ else
 fi
 make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
 	wikireader_defconfig
-make -C "$build_dir"
+# JOBS caps the parallel jobs, as it does for the kernel and the C library.
+make -C "$build_dir" ${JOBS:+BR2_JLEVEL=$JOBS}
 
 mkdir -p "$root/linux/artifacts"
 cp "$build_dir/images/rootfs.ext4" "$root/linux/artifacts/linux.img"
