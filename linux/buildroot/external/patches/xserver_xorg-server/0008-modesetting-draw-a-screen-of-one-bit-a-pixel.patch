@@ -1,0 +1,260 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] modesetting: draw a screen of one bit a pixel
+
+The driver took depths 15, 16, 24 and 30; the server's fb code draws one
+bit a pixel, and a monochrome LCD's DRM driver offers DRM_FORMAT_D1.
+Depth 1 is now drawn in the shadow and copied to a dumb buffer of a bit a
+pixel through a table: Linux keeps the leftmost pixel in a byte's most
+significant bit where X on a little-endian machine keeps it in the least,
+and D1 calls 1 dark where X's StaticGray calls it white.  The framebuffer
+is added as D1, since depth and bits a pixel of 1 name the indexed C1; a
+row's width in pixels is the pitch's bits over the bits a pixel, not its
+bytes over the bytes; the shadow is a bit a pixel; bitmaps are in fb's
+order, which xf86SetDepthBpp() would give the MSBFirst of VGA planes; and
+there is no palette or gamma ramp.  A driver that prefers depth 1 gets it.
+Without a dirty handler on D1, as a driver scanning the buffer in place
+has none, updates cost no ioctl.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A a one-bit panel
+---
+--- a/hw/xfree86/drivers/modesetting/driver.c
++++ b/hw/xfree86/drivers/modesetting/driver.c
+@@ -1166,6 +1166,13 @@
+         return FALSE;
+ 
+     switch (pScrn->depth) {
++    case 1:
++        /* xf86SetDepthBpp() gave a depth below 8 the bitmap format of
++           planar modes; fb draws packed pixels, and bitmaps in its own
++           order. */
++        pScrn->bitmapBitOrder = BITMAP_BIT_ORDER;
++        pScrn->bitmapScanlineUnit = BITMAP_SCANLINE_UNIT;
++        break;
+     case 15:
+     case 16:
+     case 24:
+@@ -1227,13 +1234,19 @@
+                                      prefer_shadow);
+         }
+ 
++        /* One bit a pixel is drawn in the shadow and copied to the
++           front buffer by msUpdateMono(). */
++        if (pScrn->bitsPerPixel == 1)
++            ms->drmmode.shadow_enable = TRUE;
++
+         xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+                    "ShadowFB: preferred %s, enabled %s\n",
+                    prefer_shadow ? "YES" : "NO",
+                    ms->drmmode.force_24_32 ? "FORCE" :
+                    ms->drmmode.shadow_enable ? "YES" : "NO");
+ 
+-        ms->drmmode.shadow_enable2 = msShouldDoubleShadow(pScrn, ms);
++        ms->drmmode.shadow_enable2 = pScrn->bitsPerPixel > 1 &&
++            msShouldDoubleShadow(pScrn, ms);
+     } else {
+         if (!pScrn->is_gpu) {
+             MessageType from = xf86GetOptValBool(ms->drmmode.Options, OPTION_VARIABLE_REFRESH,
+@@ -1384,6 +1397,61 @@
+     return dirty;
+ }
+ 
++/*
++ * A framebuffer of one bit a pixel keeps the leftmost pixel of a byte in its
++ * most significant bit, where X on a little-endian machine keeps it in the
++ * least, and DRM_FORMAT_D1 calls 1 dark where X's StaticGray calls it white.
++ * The shadow's damaged bytes are copied through a table that makes both
++ * right.
++ */
++static void
++msMonoTable(modesettingPtr ms)
++{
++    int i, j;
++
++    for (i = 0; i < 256; i++) {
++        CARD8 v = i;
++
++        if (BITMAP_BIT_ORDER == LSBFirst)
++            for (v = 0, j = 0; j < 8; j++)
++                if (i & (1 << j))
++                    v |= 0x80 >> j;
++        ms->mono[i] = ~v;
++    }
++}
++
++static void
++msUpdateMono(ScreenPtr pScreen, shadowBufPtr pBuf)
++{
++    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
++    modesettingPtr ms = modesettingPTR(pScrn);
++    RegionPtr damage = DamageRegion(pBuf->pDamage);
++    PixmapPtr pShadow = pBuf->pPixmap;
++    int nbox = RegionNumRects(damage);
++    BoxPtr pbox = RegionRects(damage);
++    int pitch = drmmode_bo_get_pitch(&ms->drmmode.front_bo);
++    CARD8 *front = ms->drmmode.front_bo.dumb->ptr;
++    FbBits *shaBase;
++    FbStride shaStride;
++    int shaBpp;
++    _X_UNUSED int shaXoff, shaYoff;
++
++    fbGetDrawable(&pShadow->drawable, shaBase, shaStride, shaBpp, shaXoff,
++                  shaYoff);
++    for (; nbox--; pbox++) {
++        int first = pbox->x1 >> 3, end = (pbox->x2 + 7) >> 3, y, i;
++
++        for (y = pbox->y1; y < pbox->y2; y++) {
++            const CARD8 *sha = (const CARD8 *) (shaBase + y * shaStride) +
++                first;
++            CARD8 *scr = front + y * pitch + first;
++
++            for (i = first; i < end; i++)
++                *scr++ = ms->mono[*sha++];
++        }
++    }
++}
++
+ static void
+ msUpdatePacked(ScreenPtr pScreen, shadowBufPtr pBuf)
+ {
+@@ -1621,8 +1689,9 @@
+         FatalError("Couldn't adjust screen pixmap\n");
+ 
+     if (ms->drmmode.shadow_enable) {
+-        if (!ms->shadow.Add(pScreen, rootPixmap, msUpdatePacked, msShadowWindow,
+-                            0, 0))
++        if (!ms->shadow.Add(pScreen, rootPixmap,
++                            pScrn->bitsPerPixel == 1 ? msUpdateMono :
++                            msUpdatePacked, msShadowWindow, 0, 0))
+             return FALSE;
+     }
+ 
+@@ -1828,10 +1897,11 @@
+         return FALSE;
+ 
+     if (ms->drmmode.shadow_enable) {
++        if (pScrn->bitsPerPixel == 1)
++            msMonoTable(ms);
+         ms->drmmode.shadow_fb =
+-            calloc(1,
+-                   pScrn->displayWidth * pScrn->virtualY *
+-                   ((pScrn->bitsPerPixel + 7) >> 3));
++            calloc(1, PixmapBytePad(pScrn->displayWidth, pScrn->depth) *
++                   pScrn->virtualY);
+         if (!ms->drmmode.shadow_fb)
+             ms->drmmode.shadow_enable = FALSE;
+     }
+--- a/hw/xfree86/drivers/modesetting/driver.h
++++ b/hw/xfree86/drivers/modesetting/driver.h
+@@ -125,6 +125,9 @@
+     DamagePtr damage;
+     Bool dirty_enabled;
+ 
++    /* One bit a pixel: each shadow byte's value in the front buffer */
++    CARD8 mono[256];
++
+     uint32_t cursor_width, cursor_height;
+ 
+     Bool has_queue_sequence;
+--- a/hw/xfree86/drivers/modesetting/drmmode_display.c
++++ b/hw/xfree86/drivers/modesetting/drmmode_display.c
+@@ -1068,6 +1068,17 @@
+         }
+     }
+ #endif
++    /* Depth and bits a pixel of 1 name the indexed C1; a monochrome
++       screen is D1, a bit a pixel dark where set. */
++    if (drmmode->kbpp == 1) {
++        uint32_t handles[4] = { drmmode_bo_get_handle(bo) };
++        uint32_t pitches[4] = { drmmode_bo_get_pitch(bo) };
++        uint32_t offsets[4] = { 0 };
++
++        return drmModeAddFB2(drmmode->fd, bo->width, bo->height,
++                             DRM_FORMAT_D1, handles, pitches, offsets,
++                             fb_id, 0);
++    }
+     return drmModeAddFB(drmmode->fd, bo->width, bo->height,
+                         drmmode->scrn->depth, drmmode->kbpp,
+                         drmmode_bo_get_pitch(bo),
+@@ -3429,7 +3440,6 @@
+     uint32_t old_fb_id;
+     int i, pitch, old_width, old_height, old_pitch;
+     int cpp = (scrn->bitsPerPixel + 7) / 8;
+-    int kcpp = (drmmode->kbpp + 7) / 8;
+     PixmapPtr ppix = screen->GetScreenPixmap(screen);
+     void *new_pixels = NULL;
+ 
+@@ -3454,7 +3464,7 @@
+ 
+     scrn->virtualX = width;
+     scrn->virtualY = height;
+-    scrn->displayWidth = pitch / kcpp;
++    scrn->displayWidth = pitch * 8 / drmmode->kbpp;
+ 
+     if (!drmmode->gbm) {
+         new_pixels = drmmode_map_front_bo(drmmode);
+@@ -3463,7 +3473,8 @@
+     }
+ 
+     if (drmmode->shadow_enable) {
+-        uint32_t size = scrn->displayWidth * scrn->virtualY * cpp;
++        uint32_t size = PixmapBytePad(scrn->displayWidth, scrn->depth) *
++            scrn->virtualY;
+         new_pixels = calloc(1, size);
+         if (new_pixels == NULL)
+             goto fail;
+@@ -3479,7 +3490,8 @@
+     }
+ 
+     screen->ModifyPixmapHeader(ppix, width, height, -1, -1,
+-                               scrn->displayWidth * cpp, new_pixels);
++                               PixmapBytePad(scrn->displayWidth, scrn->depth),
++                               new_pixels);
+ 
+     if (!drmmode_glamor_handle_new_screen_pixmap(drmmode))
+         goto fail;
+@@ -3508,7 +3520,7 @@
+     drmmode->front_bo = old_front;
+     scrn->virtualX = old_width;
+     scrn->virtualY = old_height;
+-    scrn->displayWidth = old_pitch / kcpp;
++    scrn->displayWidth = old_pitch * 8 / drmmode->kbpp;
+     drmmode->fb_id = old_fb_id;
+ 
+     return FALSE;
+@@ -3943,6 +3955,10 @@
+     if (!miCreateDefColormap(pScreen))
+         return FALSE;
+ 
++    /* A monochrome screen has no palette or gamma ramp to load. */
++    if (pScrn->depth == 1)
++        return TRUE;
++
+     /* If the GAMMA_LUT property is available, replace the server's default
+      * gamma ramps with ones of the appropriate size. */
+     for (i = 0; i < xf86_config->num_crtc; i++)
+@@ -4164,14 +4180,13 @@
+     int height;
+     int bpp = ms->drmmode.kbpp;
+     int i;
+-    int cpp = (bpp + 7) / 8;
+ 
+     width = pScrn->virtualX;
+     height = pScrn->virtualY;
+ 
+     if (!drmmode_create_bo(drmmode, &drmmode->front_bo, width, height, bpp))
+         return FALSE;
+-    pScrn->displayWidth = drmmode_bo_get_pitch(&drmmode->front_bo) / cpp;
++    pScrn->displayWidth = drmmode_bo_get_pitch(&drmmode->front_bo) * 8 / bpp;
+ 
+     width = ms->cursor_width;
+     height = ms->cursor_height;
+@@ -4258,7 +4273,7 @@
+ 
+     /* 16 is fine */
+     ret = drmGetCap(drmmode->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &value);
+-    if (!ret && (value == 16 || value == 8)) {
++    if (!ret && (value == 16 || value == 8 || value == 1)) {
+         *depth = value;
+         *bpp = value;
+         return;

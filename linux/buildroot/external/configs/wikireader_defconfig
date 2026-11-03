@@ -63,7 +63,7 @@ BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_fi
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
 BR2_PACKAGE_ZIP=y
-# X11: Xorg on the fbdev driver at one bit a pixel, twm, xeyes, a
+# X11: Xorg on DRM at one bit a pixel (modesetting), twm, xeyes, a
 # PTY-backed xterm and a keyboard.
 BR2_PACKAGE_XORG7=y
 BR2_PACKAGE_XSERVER_XORG_SERVER=y

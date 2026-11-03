@@ -2,12 +2,12 @@ config BR2_PACKAGE_WR_XORG
 	bool "WikiReader X session"
 	depends on BR2_PACKAGE_XSERVER_XORG_SERVER_MODULAR
 	depends on !BR2_STATIC_LIBS # libudev-zero
-	select BR2_PACKAGE_XDRIVER_XF86_VIDEO_FBDEV
 	select BR2_PACKAGE_LIBUDEV_ZERO
 	select BR2_PACKAGE_XDRIVER_XF86_INPUT_EVDEV
 	select BR2_PACKAGE_XKEYBOARD_CONFIG
 	help
-	  X on the panel: Xorg through the fbdev driver at one bit a
-	  pixel, with the touch screen and buttons through evdev, and
+	  X on the panel: Xorg through the modesetting driver on DRM at
+	  one bit a pixel, with the touch screen and buttons through
+	  evdev, and
 	  startx, which runs twm, xeyes and an xterm with the on-screen
 	  keyboard.  The keymap is compiled when this is built.

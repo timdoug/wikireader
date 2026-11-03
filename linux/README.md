@@ -298,8 +298,8 @@ clients draw, is converted where damaged into a `D1` image in internal video
 RAM, which is then scanned. DRM's fbdev emulation gives `/dev/fb0`, one-bit,
 `MONO01`, 32 bytes a line, as before, and scanned in place: without an MMU
 it has no way to see writes through `mmap` (deferred I/O needs page faults),
-so the panel shows its buffer itself, and the console and X run on it
-unchanged. `patches/features/0035` teaches fbdev emulation the monochrome `D1` and
+so the panel shows its buffer itself, and the console runs on it unchanged.
+X is a DRM client of its own, its `D1` dumb buffer scanned in place. `patches/features/0035` teaches fbdev emulation the monochrome `D1` and
 `R1`; it knew only the indexed `C1`. Without fbcon nothing would set
 emulation's mode, so the driver shows it at probe, with the kernel's
 monochrome Tux, until the userspace console replaces it. The early renderer
@@ -970,21 +970,23 @@ frame is about 57 system calls (xeyes' Xt and xcb make 37, most of them
 reads that find nothing), 14 context switches and 10 timer ticks, and the
 scheduler's load tracking, 64-bit arithmetic run 39 times a frame, is a
 third of the kernel's share. The server is Xorg 21.1.24, Buildroot's
-`xorg-server` with the `fbdev` and `evdev` drivers
-(`buildroot/external/package/wr-xorg`, which also installs `startx`, the twm
+`xorg-server` with its `modesetting` driver, which talks to DRM directly, and
+`evdev` (`buildroot/external/package/wr-xorg`, which also installs `startx`, the twm
 configuration and the keymap; `buildroot/patches/0006` lets Buildroot build
 the server without an MMU and evdev with libudev-zero in place of a udev
 daemon). Its patches (`buildroot/external/patches/xserver_xorg-server`) let
 it `vfork` where it would `fork`, load a keymap `xkbcomp` compiled at build
 time instead of running `xkbcomp` (the image carries no XKB rules or
 sources), keep ten events a list instead of a hundred and no motion
-history (both were zeroed RAM it never touched). The fbdev driver
-(`buildroot/external/patches/xdriver_xf86-video-fbdev`) draws one bit a
-pixel through a shadow copied to the panel through a table, bit-reversed
-(X keeps the leftmost pixel in a byte's low bit, Linux framebuffers in the
-high one) and inverted (the panel's 1 is black), and keeps bitmaps in fb's
-own order, which Xorg would otherwise give any depth below 8 as for VGA
-planes, mirroring every glyph. evdev takes the touchscreen as an absolute
+history (both were zeroed RAM it never touched), and let modesetting, which
+took depths 15 to 30, draw one bit a pixel (patch 0008): into a shadow
+copied to a `D1` dumb buffer through a table, bit-reversed (X keeps the
+leftmost pixel in a byte's low bit, `D1` in the high one) and inverted
+(`D1`'s 1 is dark, StaticGray's white), with bitmaps in fb's own order,
+which Xorg would otherwise give any depth below 8 as for VGA planes,
+mirroring every glyph. The LCD controller scans that buffer in place, so an
+update is the copy alone: `D1` needs no dirty rectangles, and the
+modesetting driver sends none when the kernel takes none. evdev takes the touchscreen as an absolute
 pointer, the touch as its first button. `fbFillSpans` finds each
 span's clip band by bisection (patch 0003) instead of walking every clip
 box: a shaped window such as xeyes' has a box or two a row, and the walk

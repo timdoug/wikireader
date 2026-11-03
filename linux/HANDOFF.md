@@ -355,19 +355,20 @@ The pieces:
   (libXfont2 built-in fonts only);
   the defconfig adds X and `-ffunction-sections -fdata-sections`/
   `--gc-sections` for everything.
-- `buildroot/external/package/wr-xorg`: Buildroot's `xorg-server` with the
-  `fbdev` and `evdev` drivers, configured (the extensions nothing uses off,
+- `buildroot/external/package/wr-xorg`: Buildroot's `xorg-server` with its
+  `modesetting` driver on DRM and `evdev`, configured (the extensions nothing uses off,
   a 128 KB stack, a keymap compiled at build time), with `startx`, which
   writes `/tmp/xorg.conf` since there is no udev, `wikireader.twmrc`,
   `xkeyboard` and the keymap. `buildroot/patches/0006` lets Buildroot build
   the server without an MMU and evdev with libudev-zero.
   `patches/xserver_xorg-server`: vfork, the precompiled keymap, clip-band
   bisection in `fbFillSpans`, event lists of ten, no motion history,
-  modprobe through vfork, a monochrome fbdev mode's color lengths, and a
-  link fix without the input thread. `patches/xdriver_xf86-video-fbdev`:
-  one bit a pixel through the shadow, copied through a table that reverses
-  each byte and inverts it for `MONO01`, bitmaps in fb's own order; built
-  without DGA or Xv. 21.1 cannot drop Present or pciaccess.
+  modprobe through vfork, a link fix without the input thread, and
+  modesetting at one bit a pixel: a `D1` dumb buffer, which the LCD
+  controller scans in place, filled from the shadow through a table that
+  reverses each byte and inverts it, bitmaps in fb's own order. 21.1 cannot
+  drop Present or pciaccess, and builds modesetting only with DRI2. X talks
+  to DRM directly; `/dev/fb0`, DRM's fbdev emulation, is the console's.
 - `buildroot/external/patches`: twm opens the root menu only after a still
   hold; xeyes asks for XInput 2.2, drops stale raw motion and moves its
   pupils without trigonometry; libX11 drops the East Asian charsets.
@@ -387,12 +388,13 @@ path:
 | Boot cost of sockets and VTs | about 0.6 s to the prompt |
 
 RAM with the default desktop (twm, xeyes, xterm and its shell, the
-keyboard), measured in wremu through Grifo: 13.0 MB available, 2.0 MB of
-slab; the server is 4.5 MB of it. At the prompt, 23.2 MB is available.
-Against `Xfbdev`, measured the same way, Xorg costs 1.2 MB, brings the
-desktop up 5.5 s later (26.9 s from `startx` to the keyboard) and takes 12%
-more server CPU a touch (194 ms a tap against 172; 2.5% more in all); it
-draws the same one-bit shadow, so drawing costs the same. Upstream
+keyboard), measured in wremu through Grifo: 12.8 MB available, 2.0 MB of
+slab. At the prompt, 23.2 MB is available. Against `Xfbdev`, measured the
+same way, Xorg on `/dev/fb0` cost 1.2 MB, brought the desktop up 5.5 s later
+and took 12% more server CPU a touch; drawing the same one-bit shadow, it
+drew at the same cost. modesetting against that fbdev route, on one image:
+the same CPU a touch (228 ms of server, 830 against 838 in all), 70 KB more
+(libdrm) and 26.6 s against 26.0 to the keyboard. Upstream
 sizes several buffers on the assumption that untouched zero pages cost
 nothing, which without an MMU they do not, so the port cuts them: twm's
 binding table holds three buttons (`patches/xapp_twm/0002`, 410 KB), the

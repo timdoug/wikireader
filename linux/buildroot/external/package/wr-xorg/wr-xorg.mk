@@ -5,11 +5,11 @@
 ################################################################################
 
 # The X session on the panel: Buildroot's xorg-server, configured below,
-# with the fbdev and evdev drivers; startx, which writes the server's
+# with its modesetting driver and evdev; startx, which writes the server's
 # configuration (there is no udev to find the devices) and starts twm,
 # xeyes and an xterm with the on-screen keyboard; and the keymap.  The
-# server's patches are in patches/xserver_xorg-server and the fbdev
-# driver's one-bit support in patches/xdriver_xf86-video-fbdev.
+# server's patches, modesetting's one-bit support among them, are in
+# patches/xserver_xorg-server.
 WR_XORG_VERSION = local
 WR_XORG_SITE = $(BR2_EXTERNAL_WIKIREADER_PATH)/package/wr-xorg
 WR_XORG_SITE_METHOD = local
@@ -21,7 +21,8 @@ WR_XORG_DEPENDENCIES = host-xapp_xkbcomp xkeyboard-config xserver_xorg-server
 WR_XORG_KEYMAP = /usr/share/X11/xkb/wikireader.xkm
 
 # Extensions off as nothing here uses them, but Present, which 21.1's
-# os/utils.c cannot build without; pciaccess kept, as without it drivers
+# os/utils.c cannot build without, and DRI2, without which its autotools
+# build leaves out the modesetting driver; pciaccess kept, as without it drivers
 # take a branch the server's API no longer has.  The keymap is compiled at
 # build time, and the stack is the size the server's recursion needs: a
 # program's stack without an MMU is what its link asks for.
@@ -33,8 +34,8 @@ XSERVER_XORG_SERVER_CONF_OPTS += \
 	--disable-xdmcp --disable-xdm-auth-1 --disable-secure-rpc \
 	--disable-xselinux --disable-xcsecurity --disable-xinerama \
 	--disable-xf86vidmode --disable-dga \
-	--disable-dri --disable-dri2 --disable-dri3 --disable-glamor \
-	--disable-glx --disable-libdrm \
+	--disable-dri --disable-dri3 --disable-glamor \
+	--disable-glx \
 	--disable-config-udev --disable-config-udev-kms --disable-vgahw \
 	--disable-int10-module --disable-linux-acpi --disable-linux-apm \
 	--disable-xfree86-utils --disable-suid-wrapper \

@@ -40,8 +40,8 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # the server turns to others.  The 5-15 ms default suits a fast machine;
 # here one arc takes milliseconds, the slice ran out partway through a
 # redraw, and the idle handler showed the half-drawn frame on the panel.
-# Xorg, through the fbdev driver and evdev, configured here: there is
-# no udev to find the devices.
+# Xorg, through the modesetting driver on DRM and evdev, configured here:
+# there is no udev to find the devices.
 {
 	echo 'Section "ServerFlags"'
 	echo '	Option "AutoAddDevices" "false"'
@@ -49,8 +49,9 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 	echo 'EndSection'
 	echo 'Section "Device"'
 	echo '	Identifier "panel"'
-	echo '	Driver "fbdev"'
-	echo '	Option "fbdev" "/dev/fb0"'
+	echo '	Driver "modesetting"'
+	echo '	Option "kmsdev" "/dev/dri/card0"'
+	echo '	Option "SWcursor" "true"'
 	echo 'EndSection'
 	echo 'Section "Screen"'
 	echo '	Identifier "screen"'
