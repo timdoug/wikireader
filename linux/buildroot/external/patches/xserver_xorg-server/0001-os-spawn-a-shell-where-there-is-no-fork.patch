@@ -1,5 +1,5 @@
 From: Tim Douglas <me@timdoug.com>
-Subject: [PATCH 1/5] os: spawn a shell where there is no fork
+Subject: [PATCH] os: spawn a shell where there is no fork
 
 A uClibc system without an MMU has no fork().  System() and Popen() run
 "/bin/sh -c" with the real user and group IDs and perhaps one end of a
@@ -8,7 +8,7 @@ POSIX_SPAWN_RESETIDS and its file actions.  Fopen() forks only where
 there are no saved IDs, which is not Linux.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
-Upstream: N/A kdrive was removed from the X server after 1.19
+Upstream: N/A a WikiReader without an MMU
 ---
 diff --git a/os/utils.c b/os/utils.c
 --- a/os/utils.c

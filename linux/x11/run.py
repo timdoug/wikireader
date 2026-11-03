@@ -48,7 +48,7 @@ while :; do
         if DISPLAY=:0 /mnt/sd/xwin.bin --shell >/mnt/sd/xwin.txt 2>&1; then break; fi
     fi
     n=$((n + 1))
-    [ "$n" -lt 30 ] || { cat /mnt/sd/xterm.txt /mnt/sd/x11.log /tmp/Xfbdev.log; exit 1; }
+    [ "$n" -lt 60 ] || { cat /mnt/sd/xterm.txt /mnt/sd/x11.log /tmp/Xorg.log /tmp/Xorg.0.log; exit 1; }
     sleep 1
 done
 echo XTERM INTERACTIVE PTY PASS
@@ -56,7 +56,7 @@ cat /mnt/sd/xterm.txt /mnt/sd/xwin.txt
 killall twm
 wait "$session"
 sleep 1
-if pidof xterm xeyes Xfbdev >/dev/null; then
+if pidof xterm xeyes Xorg >/dev/null; then
     echo XTERM CLEANUP FAIL
     ps
     exit 1
@@ -67,7 +67,7 @@ n=0
 while :; do
     if DISPLAY=:0 /mnt/sd/xwin.bin >/mnt/sd/xdemo.txt 2>&1; then break; fi
     n=$((n + 1))
-    [ "$n" -lt 30 ] || { cat /mnt/sd/xdemo.log /tmp/Xfbdev.log; exit 1; }
+    [ "$n" -lt 60 ] || { cat /mnt/sd/xdemo.log /tmp/Xorg.log /tmp/Xorg.0.log; exit 1; }
     sleep 1
 done
 sleep 1
@@ -80,7 +80,7 @@ n=0
 while :; do
     if pidof xvkbd >/dev/null; then break; fi
     n=$((n + 1))
-    [ "$n" -lt 60 ] || { echo XKEYBOARD FAIL: not running; exit 1; }
+    [ "$n" -lt 120 ] || { echo XKEYBOARD FAIL: not running; exit 1; }
     sleep 1
 done
 echo XKEYBOARD READY
@@ -99,18 +99,20 @@ echo XKEYBOARD PASS
     subprocess.run([sys.executable, str(ROOT / "samo-lib/mbr/make-flash.py"),
                     str(out / "flash.rom")], check=True, stdout=subprocess.DEVNULL)
     (out / "uart.in").write_text("sh /mnt/sd/xrun.sh\n")
-    # "touch /k" and Enter on the keyboard, whose window is up by about
-    # cycle 3.7e9 (XKEYBOARD READY); the script waits for the file however
-    # late the taps land.  Keys are 24 pixels a side from row 120.
+    # "touch /k" and Enter on the keyboard, from cycle 5.6e9, after its window
+    # is up (XKEYBOARD READY) on the script's second start of the server; the
+    # script waits for the file however late the taps land.  Keys are 24
+    # pixels a side from row 120.
     keys = {"t": (108, 131), "o": (204, 131), "u": (156, 131), "c": (84, 175),
             "h": (132, 153), "k": (180, 153), " ": (84, 197), "123": (36, 197),
             "/": (36, 153), "ABC": (36, 197), "\n": (204, 197)}
     taps = []
+    first_tap = 5600000000
     for n, key in enumerate(["t", "o", "u", "c", "h", " ", "123", "/", "ABC", "k", "\n"]):
         x, y = keys[key]
-        taps += ["-T", f"{x},{y},{4600000000 + n * 60000000}"]
+        taps += ["-T", f"{x},{y},{first_tap + n * 60000000}"]
     with (out / "boot.log").open("w") as log:
-        subprocess.run([str(ROOT / "emulator/wremu"), "-n", "7000000000", *taps,
+        subprocess.run([str(ROOT / "emulator/wremu"), "-n", str(first_tap + 2400000000), *taps,
                         "-e", str(out / "flash.rom"), "-c", str(out / "card.img"),
                         "--uart-input", str(out / "uart.in"),
                         "--uart-start", "600000000", "--uart-gap", "200000"],

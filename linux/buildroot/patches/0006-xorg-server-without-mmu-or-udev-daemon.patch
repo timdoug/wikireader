@@ -1,0 +1,49 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] package/xorg-server, xf86-input-evdev: build without an MMU or a udev daemon
+
+xorg-server forks only for System() and Popen(), which run a shell, and
+for two things a fork-less system does without: writing a configuration
+file as a setuid server, and running modprobe.  The external tree's
+patches spawn the shell instead and do without the other two, so the
+server no longer depends on an MMU.  xf86-input-evdev asks libudev about
+its devices, as libinput does, and needs no udev daemon: libudev-zero
+does.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+--- a/package/x11r7/xdriver_xf86-input-evdev/Config.in
++++ b/package/x11r7/xdriver_xf86-input-evdev/Config.in
+@@ -1,11 +1,11 @@
+ config BR2_PACKAGE_XDRIVER_XF86_INPUT_EVDEV
+ 	bool "xf86-input-evdev"
+-	depends on BR2_PACKAGE_HAS_UDEV # libudev is configure dependency
++	depends on BR2_PACKAGE_HAS_LIBUDEV # configure dependency
+ 	select BR2_PACKAGE_LIBEVDEV
+ 	select BR2_PACKAGE_MTDEV
+ 	select BR2_PACKAGE_XORGPROTO
+ 	help
+ 	  Generic Linux input driver
+ 
+-comment "xf86-input-evdev requires udev to be enabled"
+-	depends on !BR2_PACKAGE_HAS_UDEV
++comment "xf86-input-evdev needs libudev"
++	depends on !BR2_PACKAGE_HAS_LIBUDEV
+--- a/package/x11r7/xdriver_xf86-input-evdev/xdriver_xf86-input-evdev.mk
++++ b/package/x11r7/xdriver_xf86-input-evdev/xdriver_xf86-input-evdev.mk
+@@ -17,6 +17,6 @@
+ 	mtdev \
+ 	xorgproto \
+ 	xserver_xorg-server \
+-	udev
++	libudev
+ 
+ $(eval $(autotools-package))
+--- a/package/x11r7/xserver_xorg-server/Config.in
++++ b/package/x11r7/xserver_xorg-server/Config.in
+@@ -1,6 +1,5 @@
+ config BR2_PACKAGE_XSERVER_XORG_SERVER
+ 	bool "xorg-server"
+-	depends on BR2_USE_MMU # fork()
+ 	# We need a SHA1 implementation. If either openssl or
+ 	# libgcrypt are already part of the build, we'll use one of
+ 	# them, otherwise, use the small libsha1 library.

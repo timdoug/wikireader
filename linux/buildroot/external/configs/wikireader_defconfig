@@ -63,9 +63,12 @@ BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_fi
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
 BR2_PACKAGE_ZIP=y
-# X11: the framebuffer server, twm, xeyes, a PTY-backed xterm and a keyboard.
+# X11: Xorg on the fbdev driver at one bit a pixel, twm, xeyes, a
+# PTY-backed xterm and a keyboard.
 BR2_PACKAGE_XORG7=y
-BR2_PACKAGE_XSERVER_KDRIVE=y
+BR2_PACKAGE_XSERVER_XORG_SERVER=y
+BR2_PACKAGE_XSERVER_XORG_SERVER_MODULAR=y
+BR2_PACKAGE_WR_XORG=y
 # The server shows only its built-in fonts: no FreeType or font-file readers.
 BR2_PACKAGE_XLIB_LIBXFONT2_BUILTIN_FONTS_ONLY=y
 BR2_PACKAGE_XAPP_XEYES=y

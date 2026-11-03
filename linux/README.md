@@ -298,7 +298,7 @@ clients draw, is converted where damaged into a `D1` image in internal video
 RAM, which is then scanned. DRM's fbdev emulation gives `/dev/fb0`, one-bit,
 `MONO01`, 32 bytes a line, as before, and scanned in place: without an MMU
 it has no way to see writes through `mmap` (deferred I/O needs page faults),
-so the panel shows its buffer itself, and the console and Xfbdev run on it
+so the panel shows its buffer itself, and the console and X run on it
 unchanged. `patches/features/0035` teaches fbdev emulation the monochrome `D1` and
 `R1`; it knew only the indexed `C1`. Without fbcon nothing would set
 emulation's mode, so the driver shows it at probe, with the kernel's
@@ -420,7 +420,7 @@ Mach-O executables under `host-tools/toolchain-c33/work`:
 - `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
 - `c33-linux-uclibc-` is the userspace compiler, for C and C++. It defaults to
   `-mc33pe -mfdpic` with short calls, which reach any module under 2 MB (the
-  largest, Xfbdev, is 1.1 MB), defines `__uClinux__`, and links FDPIC
+  largest, Xorg, is 1.3 MB), defines `__uClinux__`, and links FDPIC
   executables against uClibc-ng's shared libraries in its sysroot, with
   `/lib/ld-uClibc.so.0` as the interpreter; `-static` links a static FDPIC
   program and `-shared` a library. `-Wl,-z,stack-size=<bytes>` sets a
@@ -898,7 +898,9 @@ another VT has the panel it draws nothing, ignores touches and stops its
 blank and suspend timers, and when VT 1 comes back it repaints its rows.
 
 `startx [CLIENT] [-- SERVER-ARGS]` runs an X client on the panel: it starts
-`Xfbdev` on the touchscreen and the buttons, with the classic grey weave
+Xorg on the panel's framebuffer, the touchscreen and the buttons, which it
+names in `/tmp/xorg.conf` since there is no udev to find them, with the
+classic grey weave
 (`-retro`), without the smart scheduler's 20 ms `SIGALRM` (`-dumbSched`),
 and with 100 ms scheduling slices instead of 5 to 15: a client's requests
 are served until they run out or the slice does, and on this CPU one arc
@@ -958,28 +960,39 @@ checks both clients through Xlib; tests session cleanup; and boots the default
 desktop, then types `touch /k` into its xterm with taps on the keyboard. It also checks the 5x8 font's actual cell size.
 Reports and the screenshot are in `artifacts/x11-run/`.
 
-A drag under twm costs about 46 ms of CPU a frame in wremu, so the eyes
+Under the earlier `Xfbdev`, which draws the same one-bit shadow and takes
+12% less server CPU a touch than Xorg, a drag under twm cost about 46 ms of
+CPU a frame in wremu, so the eyes
 follow at about 20 frames a second and a 33 Hz touch stream runs ahead of
 them. The software cursor is about a fifth of that (`startx -- -nocursor`
 leaves it out), xeyes about a seventh, and the kernel over a third: each
 frame is about 57 system calls (xeyes' Xt and xcb make 37, most of them
 reads that find nothing), 14 context switches and 10 timer ticks, and the
 scheduler's load tracking, 64-bit arithmetic run 39 times a frame, is a
-third of the kernel's share. `Xfbdev` is the kdrive framebuffer server of xorg-server 1.19,
-the last release that has it (`buildroot/external/package/xserver-kdrive`).
-Its patches let it `vfork` where it would `fork`, load a keymap `xkbcomp`
-compiled at build time instead of running `xkbcomp` (the image carries no
-XKB rules or sources), draw through a shadow copied to the panel bit-reversed
+third of the kernel's share. The server is Xorg 21.1.24, Buildroot's
+`xorg-server` with the `fbdev` and `evdev` drivers
+(`buildroot/external/package/wr-xorg`, which also installs `startx`, the twm
+configuration and the keymap; `buildroot/patches/0006` lets Buildroot build
+the server without an MMU and evdev with libudev-zero in place of a udev
+daemon). Its patches (`buildroot/external/patches/xserver_xorg-server`) let
+it `vfork` where it would `fork`, load a keymap `xkbcomp` compiled at build
+time instead of running `xkbcomp` (the image carries no XKB rules or
+sources), keep ten events a list instead of a hundred and no motion
+history (both were zeroed RAM it never touched). The fbdev driver
+(`buildroot/external/patches/xdriver_xf86-video-fbdev`) draws one bit a
+pixel through a shadow copied to the panel through a table, bit-reversed
 (X keeps the leftmost pixel in a byte's low bit, Linux framebuffers in the
-high one), and take a touchscreen as an absolute pointer, the touch as its
-first button. `fbFillSpans` finds each
-span's clip band by bisection (patch 0005) instead of walking every clip
+high one) and inverted (the panel's 1 is black), and keeps bitmaps in fb's
+own order, which Xorg would otherwise give any depth below 8 as for VGA
+planes, mirroring every glyph. evdev takes the touchscreen as an absolute
+pointer, the touch as its first button. `fbFillSpans` finds each
+span's clip band by bisection (patch 0003) instead of walking every clip
 box: a shaped window such as xeyes' has a box or two a row, and the walk
 was most of the cost of filling its pupils. libX11 is built without its East Asian
 multi-byte charsets (`buildroot/external/patches/xlib_libX11`), whose tables
 were 410 KB of every X program, and libXfont2 with only its built-in fonts
 (`buildroot/patches/0003`: no FreeType or font-file readers, 575 KB of the
-server). Before adding xterm, 3.97 MB of text was mapped: Xfbdev 1.27 MB, twm 143 KB,
+server). Before adding xterm, under `Xfbdev`, 3.97 MB of text was mapped: the server 1.27 MB, twm 143 KB,
 xeyes 30 KB, and 21 shared libraries, each loaded whole (libX11 696 KB, libc
 489 KB, pixman 384 KB, libXt 305 KB). The static programs these replaced
 kept only the functions they reached, about 3.3 MB in all: with only twm and

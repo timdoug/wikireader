@@ -19,8 +19,8 @@ come through IIO, `generic-adc-battery` and `ntc_thermistor`; the watchdog
 through the watchdog core; the pins through a pinctrl driver
 (`drivers/pinctrl/pinctrl-s1c33.c`, which also owns the GPIOs); the SD card's
 HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`). `boot-test.sh` and
-`app-test.py` both pass, both through Grifo. It also runs X11 (Xfbdev, twm,
-xeyes and xterm): see "X11: where it stands".
+`app-test.py` both pass, both through Grifo. It also runs X11 (Xorg 21.1,
+twm, xeyes and xterm): see "X11: where it stands".
 
 Validated 2026-10-31 in wremu on Linux 7.3.1: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
@@ -335,11 +335,13 @@ unmount/remount, and the card ejected. The prior image is in
 `artifacts/sd-before-cpuinfo.lndi7kjq/`; hashes are in
 `artifacts/sd-cpuinfo-install.txt`.
 
-Proven on the device 2026-09-28 (FDPIC build): `startx` at the
-console prompt brings up Xfbdev on the classic grey weave with twm and
-xeyes; dragging on the background moves the pointer and the eyes follow,
-holding still for 0.6 s opens twm's menu, and its Exit gives the panel back
-to the console. `startx CLIENT -- SERVER-ARGS` works as usual.
+`startx` at the console prompt brings up X on the classic grey weave with
+twm, xeyes, an xterm and the on-screen keyboard; dragging on the background
+moves the pointer and the eyes follow, holding still for 0.6 s opens twm's
+menu, and its Exit gives the panel back to the console. `startx CLIENT --
+SERVER-ARGS` works as usual. The server is Xorg 21.1.24, proven in wremu
+through Grifo (`make -C linux x11-test`); the device ran this session under
+xorg-server 1.19's kdrive `Xfbdev` (2026-09-28), which Xorg replaced.
 `README.md` has the design; this is what exists and what it measured.
 
 The pieces:
@@ -353,10 +355,19 @@ The pieces:
   (libXfont2 built-in fonts only);
   the defconfig adds X and `-ffunction-sections -fdata-sections`/
   `--gc-sections` for everything.
-- `buildroot/external/package/xserver-kdrive`: xorg-server 1.19.7 Xfbdev with
-  five patches (vfork, precompiled keymap, bit-reversed one-bit shadow,
-  evdev absolute pointer and touch, clip-band bisection in `fbFillSpans`),
-  `startx` and `wikireader.twmrc`.
+- `buildroot/external/package/wr-xorg`: Buildroot's `xorg-server` with the
+  `fbdev` and `evdev` drivers, configured (the extensions nothing uses off,
+  a 128 KB stack, a keymap compiled at build time), with `startx`, which
+  writes `/tmp/xorg.conf` since there is no udev, `wikireader.twmrc`,
+  `xkeyboard` and the keymap. `buildroot/patches/0006` lets Buildroot build
+  the server without an MMU and evdev with libudev-zero.
+  `patches/xserver_xorg-server`: vfork, the precompiled keymap, clip-band
+  bisection in `fbFillSpans`, event lists of ten, no motion history,
+  modprobe through vfork, a monochrome fbdev mode's color lengths, and a
+  link fix without the input thread. `patches/xdriver_xf86-video-fbdev`:
+  one bit a pixel through the shadow, copied through a table that reverses
+  each byte and inverts it for `MONO01`, bitmaps in fb's own order; built
+  without DGA or Xv. 21.1 cannot drop Present or pciaccess.
 - `buildroot/external/patches`: twm opens the root menu only after a still
   hold; xeyes asks for XInput 2.2, drops stale raw motion and moves its
   pupils without trigonometry; libX11 drops the East Asian charsets.
@@ -364,7 +375,8 @@ The pieces:
   `c33/sfp-machine.h`); 2,000 IEEE vectors matched bit for bit
   (`artifacts/fptest`, gitignored).
 
-Measured in wremu before adding xterm, launcher path:
+Measured in wremu under the earlier `Xfbdev`, before adding xterm, launcher
+path:
 
 | | |
 |---|---|
@@ -375,15 +387,19 @@ Measured in wremu before adding xterm, launcher path:
 | Boot cost of sockets and VTs | about 0.6 s to the prompt |
 
 RAM with the default desktop (twm, xeyes, xterm and its shell, the
-keyboard), measured in wremu through Grifo: 14.0 MB available, 10.1 MB in
-programs, 2.0 MB of slab. At the prompt, 22.7 MB is available. Upstream
+keyboard), measured in wremu through Grifo: 13.0 MB available, 2.0 MB of
+slab; the server is 4.5 MB of it. At the prompt, 23.2 MB is available.
+Against `Xfbdev`, measured the same way, Xorg costs 1.2 MB, brings the
+desktop up 5.5 s later (26.9 s from `startx` to the keyboard) and takes 12%
+more server CPU a touch (194 ms a tap against 172; 2.5% more in all); it
+draws the same one-bit shadow, so drawing costs the same. Upstream
 sizes several buffers on the assumption that untouched zero pages cost
 nothing, which without an MMU they do not, so the port cuts them: twm's
 binding table holds three buttons (`patches/xapp_twm/0002`, 410 KB), the
-server's event lists hold ten events (`xserver-kdrive/0006`, 460 KB) and
-it keeps no motion history (`0007`, 110 KB); the server also exports no
-symbols and builds no Composite, XRes, Record, Xv, ScreenSaver, DBE, DPMS
-or XACE (240 KB of text). To find more: `ask-app.py` with `-- -D
+server's event lists hold ten events (`patches/xserver_xorg-server/0004`,
+460 KB) and it keeps no motion history (`0005`, 110 KB); the server builds
+no Composite, XRes, Record, Xv, ScreenSaver, DBE, DPMS, DGA or XACE. To
+find more: `ask-app.py` with `-- -D
 0x10000000 -L 0x2000000 -O ram.bin` saves all of RAM after the commands,
 and `/proc/PID/maps` addresses index it directly (no MMU); all-zero pages
 in a live block are the sign.
@@ -464,9 +480,8 @@ libatomic for the C33, libXfont2's built-in fonts, xterm's external PTY,
 and the Wayland stack, which is off. Every carried patch, kernel, uClibc-ng,
 GCC, Buildroot and package, has a mail header (From, Subject, description,
 Signed-off-by, and Buildroot's `Upstream:` on package patches). Local
-programs where upstream has nothing that fits: `xserver-kdrive` (X.org
-dropped kdrive after 1.19), and `wr-console`, a userspace terminal where the
-kernel's would be VT and fbcon.
+programs where upstream has nothing that fits: `wr-console`, a userspace
+terminal where the kernel's would be VT and fbcon.
 
 The kernel uses the generic mechanisms: generic entry, irqdomains, a device
 tree with a schema for every binding (`make -C linux dt-check`:
@@ -596,7 +611,7 @@ Performance, after those:
 - **PIO from A0 RAM** could beat the stream's 13 cycles a word, but it leaves
   DMAengine, which the user wants kept. Only if that changes.
 - **Boot and X memory under FDPIC**: libraries load whole, so libraries only
-  Xfbdev uses (pixman, libXfont2, zlib, libfontenc, libsha1) could link into
+  Xorg uses (pixman, libXfont2, zlib, libfontenc, libsha1) could link into
   it statically; the first exec reads libc's 487 KB of text.
 - **Kernel calls**: the kernel's 2.7 MB of text is past a short call's
   2 MB reach, so it is built with `-mlong-calls`; 94% of its calls would
@@ -663,7 +678,8 @@ it boots the file loader as a direct ELF, which wremu refuses.
   driver's timeout loop never ended and the watchdog reset the machine. It
   looked like an SD hang.
 - **A stack overflow without an MMU lands in a neighbour.** twm's wrote over
-  Xfbdev's function descriptors, which surfaced as Xfbdev jumping into data.
+  the X server's function descriptors, which surfaced as the server jumping
+  into data.
   The kernel now names the program at the next exception
   (`stack overflow: sp ..., stack from ...`) and kills it; a user fault
   prints the mapping holding `pc`, `r4`, `r15` and the word at `sp`.
@@ -728,9 +744,10 @@ it boots the file loader as a direct ELF, which wremu refuses.
   near 39 s, possibly after the script has powered off. Keep the guest's
   shell busy well past every scripted input. `WREMU_DRAG_MS` is in
   milliseconds (60,000 cycles), not cycles.
-- **Buildroot's `PKG-rebuild` recompiles but may not relink.** Xfbdev does
-  not depend on `libkdrive.a` in automake, so an edited kdrive source came
-  out in an old binary; use `PKG-dirclean`, and grep the target binary for a
+- **Buildroot's `PKG-rebuild` recompiles but may not relink.** A program
+  whose automake rule does not depend on a convenience library (kdrive's
+  `Xfbdev` on `libkdrive.a`) comes out of an edited library source as an old
+  binary; use `PKG-dirclean`, and grep the target binary for a
   debug string before trusting a run with it.
 - **X's scheduling slice is sized for fast machines.** With the default 5-15
   ms, one arc fill used up a client's slice and the idle handler put

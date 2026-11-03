@@ -1,0 +1,100 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Build against a server without DGA or Xv
+
+dgaproc.h and xf86xv.h are installed only by a server built with the DGA
+and Xv extensions, which xorg-server.h then says by defining XFreeXDGA and
+XV.  The driver's Xv adaptors were built only with XV already; its DGA
+modes, its one call to DGAInit() and their cleanup are now built only
+with XFreeXDGA, and each header is included only with its extension.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A a server built without DGA or Xv
+---
+--- a/src/fbdev.c
++++ b/src/fbdev.c
+@@ -18,7 +18,9 @@
+ #include "colormapst.h"
+ #include "xf86cmap.h"
+ #include "shadow.h"
++#ifdef XFreeXDGA
+ #include "dgaproc.h"
++#endif
+ 
+ /* for visuals */
+ #include "fb.h"
+@@ -28,7 +30,9 @@
+ #include <linux/fb.h>
+ #include <sys/ioctl.h>
+ 
++#ifdef XV
+ #include "xf86xv.h"
++#endif
+ 
+ #ifdef XSERVER_LIBPCIACCESS
+ #include <pciaccess.h>
+@@ -66,7 +70,9 @@
+ static void *	FBDevWindowLinear(ScreenPtr pScreen, CARD32 row, CARD32 offset, int mode,
+ 				  CARD32 *size, void *closure);
+ static void	FBDevPointerMoved(ScrnInfoPtr pScrn, int x, int y);
++#ifdef XFreeXDGA
+ static Bool	FBDevDGAInit(ScrnInfoPtr pScrn, ScreenPtr pScreen);
++#endif
+ static Bool	FBDevDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op,
+ 				pointer ptr);
+ 
+@@ -187,9 +193,11 @@
+ 	CreateScreenResourcesProcPtr	CreateScreenResources;
+ 	void				(*PointerMoved)(ScrnInfoPtr pScrn, int x, int y);
+ 	EntityInfoPtr			pEnt;
++#ifdef XFreeXDGA
+ 	/* DGA info */
+ 	DGAModePtr			pDGAMode;
+ 	int				nDGAMode;
++#endif
+ 	OptionInfoPtr			Options;
+ 	/* One bit a pixel: each shadow byte's value on the screen */
+ 	CARD8				mono[256];
+@@ -1007,9 +1015,11 @@
+ 	    return FALSE;
+ 	}
+ 
+-	if (!fPtr->rotate)
++	if (!fPtr->rotate) {
++#ifdef XFreeXDGA
+ 	  FBDevDGAInit(pScrn, pScreen);
+-	else {
++#endif
++	} else {
+ 	  xf86DrvMsg(pScrn->scrnIndex, X_INFO, "display rotated; disabling DGA\n");
+ 	  xf86DrvMsg(pScrn->scrnIndex, X_INFO, "using driver rotation; disabling "
+ 			                "XRandR\n");
+@@ -1103,11 +1113,13 @@
+ 	    free(fPtr->shadow);
+ 	    fPtr->shadow = NULL;
+ 	}
++#ifdef XFreeXDGA
+ 	if (fPtr->pDGAMode) {
+ 	  free(fPtr->pDGAMode);
+ 	  fPtr->pDGAMode = NULL;
+ 	  fPtr->nDGAMode = 0;
+ 	}
++#endif
+ 	pScrn->vtSema = FALSE;
+ 
+ 	pScreen->CreateScreenResources = fPtr->CreateScreenResources;
+@@ -1177,6 +1189,7 @@
+ }
+ 
+ 
++#ifdef XFreeXDGA
+ /***********************************************************************
+  * DGA stuff
+  ***********************************************************************/
+@@ -1322,6 +1335,7 @@
+     return TRUE;
+ #endif
+ }
++#endif
+ 
+ static Bool
+ FBDevDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op, pointer ptr)

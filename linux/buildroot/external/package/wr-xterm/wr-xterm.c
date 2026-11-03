@@ -142,8 +142,9 @@ static int initial_command(int master, int slave, const char *command)
 {
     /* The helper's handshake is canonical with echo off. Hush switches to
      * noncanonical, no-echo input when its interactive line editor is ready.
-     * Wait for that transition rather than guessing a startup delay. */
-    for (int n = 0; n < 1000 && !stopped; ++n) {
+     * Wait for that transition rather than guessing a startup delay, for
+     * up to 30 s: a server still starting slows the shell as well. */
+    for (int n = 0; n < 3000 && !stopped; ++n) {
         struct termios tty;
         if (tcgetattr(slave, &tty) < 0)
             return -1;

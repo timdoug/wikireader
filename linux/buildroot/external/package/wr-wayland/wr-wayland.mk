@@ -25,7 +25,7 @@ WR_WAYLAND_LICENSE_FILES = COPYING
 # which prunes the keyboard data this installs beside its own keymap.
 WR_WAYLAND_DEPENDENCIES = cage foot host-xapp_bdftopcf host-xapp_xkbcomp \
 	xkeyboard-config \
-	$(if $(BR2_PACKAGE_XSERVER_KDRIVE),xserver-kdrive)
+	$(if $(BR2_PACKAGE_WR_XORG),wr-xorg)
 
 # libxkbcommon builds a keymap from rules, model and layout, reading
 # xkeyboard-config's 4 MB of sources each time.  The panel has one keymap,

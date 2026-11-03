@@ -9,9 +9,11 @@ WR_XTERM_SITE = $(BR2_EXTERNAL_WIKIREADER_PATH)/package/wr-xterm
 WR_XTERM_SITE_METHOD = local
 WR_XTERM_DEPENDENCIES = xterm
 
-# Bitmap fonts from Xfbdev, no session manager, luit or Tektronix terminal.
+# Bitmap fonts from the server, no session manager, luit or Tektronix terminal.
+# No FreeType: xorg-server's libXft brings it into the build, and xterm would
+# load it and fontconfig, 680 KB of text and 280 KB of heap, to draw 5x8.
 XTERM_CONF_OPTS += --disable-session-mgt --disable-tek4014 --disable-luit \
-	--disable-setuid --disable-setgid
+	--disable-setuid --disable-setgid --disable-freetype
 # No run path to the sysroot: see external.mk.
 XTERM_CONF_OPTS += --disable-rpath-hack
 

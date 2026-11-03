@@ -1,7 +1,7 @@
 From 9c93fc8580dd3b5bd0b3108b1a43b7fd875616c4 Mon Sep 17 00:00:00 2001
 From: Tim Douglas <me@timdoug.com>
 Date: Mon, 28 Sep 2026 11:07:34 -0400
-Subject: [PATCH 5/5] fb: find a span's clip band by bisection
+Subject: [PATCH] fb: find a span's clip band by bisection
 
 fbFillSpans walked every box of the clip for every span.  A shaped
 window's clip is a box or two a row, so filling a small shape inside one
@@ -9,7 +9,7 @@ cost spans times rows; the bands are sorted by y, and bisection finds the
 span's own.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
-Upstream: N/A kdrive was removed from the X server after 1.19
+Upstream: N/A a WikiReader without an MMU
 ---
  fb/fbfillsp.c | 42 ++++++++++++++++++++++++++++--------------
  1 file changed, 28 insertions(+), 14 deletions(-)

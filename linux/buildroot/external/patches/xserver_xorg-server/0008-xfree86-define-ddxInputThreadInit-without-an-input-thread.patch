@@ -1,0 +1,29 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] xfree86: define ddxInputThreadInit without an input thread
+
+os.h declares ddxInputThreadInit() for every build, so sdksyms.c lists it
+among the symbols modules may use, but xf86Init.c defined it only with
+an input thread: --disable-input-thread failed to link Xorg.  It is
+defined either way now, empty without the thread.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A the autotools build, which upstream has since replaced
+---
+--- a/hw/xfree86/common/xf86Init.c
++++ b/hw/xfree86/common/xf86Init.c
+@@ -1343,12 +1343,12 @@
+ }
+ #endif
+ 
+-#if INPUTTHREAD
+ /** This function is called in Xserver/os/inputthread.c when starting
+-    the input thread. */
++    the input thread.  It is part of the module ABI either way. */
+ void
+ ddxInputThreadInit(void)
+ {
++#if INPUTTHREAD
+     xf86OSInputThreadInit();
+-}
+ #endif
++}

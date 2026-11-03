@@ -40,12 +40,43 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # the server turns to others.  The 5-15 ms default suits a fast machine;
 # here one arc takes milliseconds, the slice ran out partway through a
 # redraw, and the idle handler showed the half-drawn frame on the panel.
-Xfbdev :0 -noreset -retro -dumbSched -schedInterval 100 -schedMax 100 ${touch:+-mouse evdev,,device=$touch} \
-	${buttons:+-keybd evdev,,device=$buttons} $server 2>/tmp/Xfbdev.log &
+# Xorg, through the fbdev driver and evdev, configured here: there is
+# no udev to find the devices.
+{
+	echo 'Section "ServerFlags"'
+	echo '	Option "AutoAddDevices" "false"'
+	echo '	Option "BlankTime" "0"'
+	echo 'EndSection'
+	echo 'Section "Device"'
+	echo '	Identifier "panel"'
+	echo '	Driver "fbdev"'
+	echo '	Option "fbdev" "/dev/fb0"'
+	echo 'EndSection'
+	echo 'Section "Screen"'
+	echo '	Identifier "screen"'
+	echo '	Device "panel"'
+	echo '	DefaultDepth 1'
+	echo 'EndSection'
+	for d in ${touch:+touch:$touch} ${buttons:+buttons:$buttons}; do
+		echo 'Section "InputDevice"'
+		echo "	Identifier \"${d%%:*}\""
+		echo '	Driver "evdev"'
+		echo "	Option \"Device\" \"${d#*:}\""
+		echo 'EndSection'
+	done
+	echo 'Section "ServerLayout"'
+	echo '	Identifier "layout"'
+	echo '	Screen "screen"'
+	[ -n "$touch" ] && echo '	InputDevice "touch" "CorePointer"'
+	[ -n "$buttons" ] && echo '	InputDevice "buttons" "CoreKeyboard"'
+	echo 'EndSection'
+} > /tmp/xorg.conf
+Xorg :0 -config /tmp/xorg.conf -logfile /tmp/Xorg.0.log -noreset -retro \
+	-dumbSched -schedInterval 100 -schedMax 100 $server 2>/tmp/Xorg.log &
 server=$!
 while [ ! -S /tmp/.X11-unix/X0 ]; do
 	if ! kill -0 $server 2>/dev/null; then
-		echo "startx: the X server stopped; see /tmp/Xfbdev.log" >&2
+		echo "startx: the X server stopped; see /tmp/Xorg.log and /tmp/Xorg.0.log" >&2
 		exit 1
 	fi
 	sleep 1

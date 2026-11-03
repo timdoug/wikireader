@@ -1,0 +1,175 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Draw a framebuffer of one bit a pixel
+
+The driver took 8, 16, 24 or 32 bits a pixel; the server's fb code draws
+one, and a monochrome LCD is one.  Such a screen is now drawn in the
+shadow and copied a byte at a time through a table: Linux keeps the
+leftmost pixel in a byte's most significant bit where X on a
+little-endian machine keeps it in the least, and FB_VISUAL_MONO01 calls
+1 black where X's StaticGray calls it white.  The shadow is a bit a pixel,
+not a byte, and there is no palette to load.  xf86SetDepthBpp() gives a
+depth below 8 the MSBFirst bitmaps of VGA planar modes, which mirrored
+every glyph within its bytes here: fb draws packed pixels, and bitmaps in
+BITMAP_BIT_ORDER.  Rotation is not supported at this depth.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A the WikiReader's one-bit panel
+---
+--- a/src/fbdev.c
++++ b/src/fbdev.c
+@@ -25,6 +25,9 @@
+ 
+ #include "fbdevhw.h"
+ 
++#include <linux/fb.h>
++#include <sys/ioctl.h>
++
+ #include "xf86xv.h"
+ 
+ #ifdef XSERVER_LIBPCIACCESS
+@@ -188,6 +191,8 @@
+ 	DGAModePtr			pDGAMode;
+ 	int				nDGAMode;
+ 	OptionInfoPtr			Options;
++	/* One bit a pixel: each shadow byte's value on the screen */
++	CARD8				mono[256];
+ } FBDevRec, *FBDevPtr;
+ 
+ #define FBDEVPTR(p) ((FBDevPtr)((p)->driverPrivate))
+@@ -598,6 +603,22 @@
+ 	case FBDEVHW_PACKED_PIXELS:
+ 		switch (pScrn->bitsPerPixel)
+ 		{
++		case 1:
++			/* Drawn in the shadow, whose bytes fbdevUpdateMono()
++			   puts on the screen in the screen's bit order and
++			   pixel values. */
++			if (fPtr->rotate) {
++				xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++				"rotation is not supported at one bit a pixel\n");
++				return FALSE;
++			}
++			fPtr->shadowFB = TRUE;
++			/* xf86SetDepthBpp() gave a depth below 8 the
++			   bitmap format of planar modes; fb draws packed
++			   pixels, and bitmaps in its own order. */
++			pScrn->bitmapBitOrder = BITMAP_BIT_ORDER;
++			pScrn->bitmapScanlineUnit = BITMAP_SCANLINE_UNIT;
++			break;
+ 		case 8:
+ 		case 16:
+ 		case 24:
+@@ -672,6 +693,69 @@
+     shadowUpdatePacked(pScreen, pBuf);
+ }
+ 
++/*
++ * Linux keeps the leftmost pixel of a byte in its most significant bit in a
++ * framebuffer of fewer than eight bits a pixel; X on a little-endian machine
++ * keeps it in the least significant.  A monochrome screen also says which
++ * value is black.  The shadow's damaged bytes are copied through a table
++ * that makes both right.
++ */
++static void
++fbdevMonoTable(ScrnInfoPtr pScrn)
++{
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    struct fb_fix_screeninfo fix;
++    CARD8 invert = 0;
++    int i, j;
++
++    /* StaticGray's pixel 1 is white; MONO01's 1 is black. */
++    if (ioctl(fbdevHWGetFD(pScrn), FBIOGET_FSCREENINFO, &fix) == 0 &&
++        fix.visual == FB_VISUAL_MONO01)
++        invert = 0xff;
++    for (i = 0; i < 256; i++) {
++        CARD8 v = i;
++
++        if (BITMAP_BIT_ORDER == LSBFirst)
++            for (v = 0, j = 0; j < 8; j++)
++                if (i & (1 << j))
++                    v |= 0x80 >> j;
++        fPtr->mono[i] = v ^ invert;
++    }
++}
++
++static void
++fbdevUpdateMono(ScreenPtr pScreen, shadowBufPtr pBuf)
++{
++    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    RegionPtr damage = DamageRegion(pBuf->pDamage);
++    PixmapPtr pShadow = pBuf->pPixmap;
++    int nbox = RegionNumRects(damage);
++    BoxPtr pbox = RegionRects(damage);
++    int lineLength = fbdevHWGetLineLength(pScrn);
++    FbBits *shaBase;
++    FbStride shaStride;
++    int shaBpp;
++    _X_UNUSED int shaXoff, shaYoff;
++
++    if (!pScrn->vtSema)
++        return;
++    fbGetDrawable(&pShadow->drawable, shaBase, shaStride, shaBpp, shaXoff,
++                  shaYoff);
++    for (; nbox--; pbox++) {
++        int first = pbox->x1 >> 3, end = (pbox->x2 + 7) >> 3, y, i;
++
++        for (y = pbox->y1; y < pbox->y2; y++) {
++            const CARD8 *sha = (const CARD8 *) (shaBase + y * shaStride) +
++                first;
++            CARD8 *scr = fPtr->fbstart + y * lineLength + first;
++
++            for (i = first; i < end; i++)
++                *scr++ = fPtr->mono[*sha++];
++        }
++    }
++}
++
+ static Bool
+ FBDevCreateScreenResources(ScreenPtr pScreen)
+ {
+@@ -690,7 +774,9 @@
+ 
+     pPixmap = pScreen->GetScreenPixmap(pScreen);
+ 
+-    if (fPtr->shadow24)
++    if (pScrn->bitsPerPixel == 1)
++        update = fbdevUpdateMono;
++    else if (fPtr->shadow24)
+         update = fbdevUpdate32to24;
+     else if (fPtr->rotate)
+         update = fbdevUpdateRotatePacked;
+@@ -826,7 +912,12 @@
+ 
+ 	fPtr->fbstart = fPtr->fbmem + fPtr->fboff;
+ 
+-	if (fPtr->shadowFB) {
++	if (fPtr->shadowFB && pScrn->bitsPerPixel < 8) {
++	    fbdevMonoTable(pScrn);
++	    fPtr->shadow = calloc(1, PixmapBytePad(pScrn->displayWidth,
++						   pScrn->depth) *
++				  pScrn->virtualY);
++	} else if (fPtr->shadowFB) {
+ 	    fPtr->shadow = calloc(1, pScrn->displayWidth * pScrn->virtualY *
+ 				  ((pScrn->bitsPerPixel + 7) / 8));
+ 
+@@ -841,6 +932,7 @@
+ 	{
+ 	case FBDEVHW_PACKED_PIXELS:
+ 		switch (pScrn->bitsPerPixel) {
++		case 1:
+ 		case 8:
+ 		case 16:
+ 		case 24:
+@@ -974,7 +1066,9 @@
+ 		return FALSE;
+ 	}
+ 	flags = CMAP_PALETTED_TRUECOLOR;
+-	if(!xf86HandleColormaps(pScreen, 256, 8, fbdevLoadPalette, NULL, flags))
++	/* A monochrome screen has no palette to load. */
++	if (pScrn->bitsPerPixel > 1 &&
++	    !xf86HandleColormaps(pScreen, 256, 8, fbdevLoadPalette, NULL, flags))
+ 		return FALSE;
+ 
+ 	xf86DPMSInit(pScreen, fbdevDPMSSet, 0);
