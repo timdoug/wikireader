@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "uart.h"
 
@@ -154,6 +155,10 @@ static bool uart_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 				fputc((int)(*val & 0xff), u->out);
 				fflush(u->out);
 			}
+			if (u->peer >= 0) {
+				uint8_t byte = (uint8_t)*val;
+				(void)!write(u->peer, &byte, 1);
+			}
 			uart_trace_line(u, (uint8_t)*val);
 			if (u->capture_len + 1 < sizeof u->capture)
 				u->capture[u->capture_len++] = (char)(*val & 0xff);
@@ -208,6 +213,7 @@ void uart_attach(struct mem *m, struct uart *u, FILE *out)
 {
 	memset(u, 0, sizeof *u);
 	u->out = out;
+	u->peer = -1;
 	mem_add_mmio(m, "efsif0", EFSIF0_BASE, EFSIF0_LEN, uart_mmio, u);
 }
 

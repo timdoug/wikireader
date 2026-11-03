@@ -10,6 +10,8 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -69,6 +71,9 @@ static void usage(const char *p)
 		"  --uart-input F  receive console bytes from F (- for stdin)\n"
 		"  --uart-start N  first console byte cycle (default 1000000)\n"
 		"  --uart-gap N    cycles between console bytes (default 50000)\n"
+		"  --uart-tcp P    also serve the console on 127.0.0.1:P, one client\n"
+		"                  at a time: its bytes are received, and every byte\n"
+		"                  sent goes to it as well as to stdout\n"
 		"  -D A   dump memory starting at address A\n"
 		"  -L N   memory dump length (default 64)\n"
 		"  -O F   write the memory dump as binary file F\n"
@@ -300,7 +305,7 @@ int main(int argc, char **argv)
 	bool card_readonly = false;
 	bool card_volatile = false;
 	const char *uart_input = NULL;
-	int uart_fd = -1;
+	int uart_fd = -1, uart_listen = -1, uart_tcp_port = 0;
 	uint64_t uart_due = 1000000, uart_gap = 50000;
 	if (getenv("WREMU_HOLD_MS"))
 		hold_cycles = strtoul(getenv("WREMU_HOLD_MS"), NULL, 0) * 60000UL;
@@ -455,6 +460,8 @@ int main(int argc, char **argv)
 			card = argv[++i];
 		else if (!strcmp(argv[i], "--uart-input") && i + 1 < argc)
 			uart_input = argv[++i];
+		else if (!strcmp(argv[i], "--uart-tcp") && i + 1 < argc)
+			uart_tcp_port = atoi(argv[++i]);
 		else if ((!strcmp(argv[i], "--uart-start") ||
 		          !strcmp(argv[i], "--uart-gap")) && i + 1 < argc) {
 			bool gap = !strcmp(argv[i], "--uart-gap");
@@ -632,6 +639,25 @@ int main(int argc, char **argv)
 			open(uart_input, O_RDONLY | O_NONBLOCK);
 		if (uart_fd < 0) {
 			perror(uart_input);
+			return 1;
+		}
+	}
+	/* A console a debugger can reach: gdbserver on the console's tty,
+	 * GDB at the other end of this socket.  Local connections only. */
+	if (uart_tcp_port > 0) {
+		struct sockaddr_in addr = {
+			.sin_family = AF_INET,
+			.sin_port = htons((uint16_t)uart_tcp_port),
+			.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+		};
+		int one = 1;
+		uart_listen = socket(AF_INET, SOCK_STREAM, 0);
+		if (uart_listen < 0 ||
+		    setsockopt(uart_listen, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) ||
+		    bind(uart_listen, (struct sockaddr *)&addr, sizeof addr) ||
+		    listen(uart_listen, 1) ||
+		    fcntl(uart_listen, F_SETFL, O_NONBLOCK)) {
+			perror("--uart-tcp");
 			return 1;
 		}
 	}
@@ -1212,6 +1238,20 @@ int main(int argc, char **argv)
 		 * on a terminal read or overrun the emulated FIFO while feeding a
 		 * file. A cycle deadline also participates in headless HALT waits.
 		 */
+		if (uart_fd < 0 && uart_listen >= 0 && cpu.cycles >= uart_due) {
+			uart_due = cpu.cycles + uart_gap;
+			int client = accept(uart_listen, NULL, NULL);
+			if (client >= 0) {
+				int one = 1;
+#ifdef SO_NOSIGPIPE
+				setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+				(void)one;
+				fcntl(client, F_SETFL, O_NONBLOCK);
+				uart_fd = client;
+				uart.peer = client;
+			}
+		}
 		if (uart_fd >= 0 && cpu.cycles >= uart_due) {
 			uart_due = cpu.cycles + uart_gap;
 			struct pollfd input = { .fd = uart_fd, .events = POLLIN };
@@ -1220,8 +1260,13 @@ int main(int argc, char **argv)
 				ssize_t n = read(uart_fd, &byte, 1);
 				if (n == 1)
 					uart_receive(&uart, byte);
-				else if (n == 0) {
+				else if (n == 0 || (uart_listen >= 0 &&
+				                    errno != EAGAIN && errno != EINTR)) {
+					/* End of input; a TCP client's hanging
+					 * up, however it does, ends its turn. */
 					if (uart_fd != STDIN_FILENO) close(uart_fd);
+					if (uart.peer == uart_fd)
+						uart.peer = -1;
 					uart_fd = -1;
 				} else if (errno != EAGAIN && errno != EINTR) {
 					perror("UART input");
@@ -1344,7 +1389,7 @@ int main(int argc, char **argv)
 				continue;
 			}
 			unsigned long long next = limit;
-			if (uart_fd >= 0 && uart_due < next)
+			if ((uart_fd >= 0 || uart_listen >= 0) && uart_due < next)
 				next = uart_due;
 			/*
 			 * Peripheral deadlines are on the MCLK timeline. DMA bus
@@ -1468,6 +1513,7 @@ int main(int argc, char **argv)
 
 done:
 	if (uart_fd >= 0 && uart_fd != STDIN_FILENO) close(uart_fd);
+	if (uart_listen >= 0) close(uart_listen);
 	if (stop && strcmp(stop, "breakpoint") &&
 	    strcmp(stop, "window closed") && strcmp(stop, "powered off")) {
 		printf("\nlast %d PCs before %s:\n", RING, stop);

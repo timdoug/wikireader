@@ -1539,6 +1539,12 @@ For an NSH image, for example:
 ./wremu --uart-input commands.txt --uart-start 1000000 -n 100000000 nuttx
 ```
 
+`--uart-tcp PORT` also serves the console on 127.0.0.1:PORT, one client at
+a time: the client's bytes are received as `--uart-input`'s are, and every
+byte the console sends goes to it as well as to stdout. When it hangs up,
+the next can connect. This is how GDB reaches gdbserver on the console
+(`linux/gdb-test.py`).
+
 `make test-uart` checks FIFO ordering, overflow, receive/error interrupt
 priority, flag reassertion while data remains, UART reset, that transmit
 takes the time the line takes, and when the transmit cause rises.

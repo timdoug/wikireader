@@ -8,6 +8,8 @@
 
 struct uart {
 	FILE         *out;
+	int           peer;                   /* a host socket that also gets
+	                                         each byte sent, or -1 */
 	struct itc   *itc;
 	uint8_t       rx[4], rx_head, rx_count, control, errors;
 	uint8_t       irda, brtrdl, brtrdm;   /* the baud rate, as programmed */
