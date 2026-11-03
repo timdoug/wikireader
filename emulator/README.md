@@ -487,7 +487,14 @@ up, for a phase that recurs once per block. The summary's `--- dstram stack`
 line gives the lowest stack pointer seen inside DSTRAM, where the ZIM reader
 runs its decoder loops on a private 1 KB stack. The `-F` profile carries cycles and activations per
 2-byte bucket, so `addr2line` on an unstripped link turns it into a
-per-source-line cost that includes memory stalls. Cycles, not instruction
+per-source-line cost that includes memory stalls; its fourth column is the
+cycles spent waiting for the instruction fetch, what the code would save
+from A0 RAM. `WREMU_DATAPROF=FILE` with `-F` writes the same for data: per
+16 bytes of SDRAM and of the internal RAMs, the CPU's accesses inside the
+window and the cycles they waited, then that wait split four ways, kernel,
+kernel stack, user and user stack. The PC decides kernel or user, below
+`WREMU_KTEXT` (the kernel's `_etext`) being the kernel's, and an access
+from 64 bytes below the stack pointer to 8 KB above it counts as the stack. Cycles, not instruction
 counts, are what to look at on this core: the ZIM article load below runs at
 3.5 to 4.7 cycles per instruction, and an instruction-count profile of it
 ranks the wrong lines. The CPU has no cache; the model charges a row change

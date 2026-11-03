@@ -111,7 +111,9 @@ echo XKEYBOARD PASS
         x, y = keys[key]
         taps += ["-T", f"{x},{y},{first_tap + n * 60000000}"]
     with (out / "boot.log").open("w") as log:
+        # WREMU_ARGS adds emulator options, a profile window for one.
         subprocess.run([str(ROOT / "emulator/wremu"), "-n", str(first_tap + 2400000000), *taps,
+                        *os.environ.get("WREMU_ARGS", "").split(),
                         "-e", str(out / "flash.rom"), "-c", str(out / "card.img"),
                         "--uart-input", str(out / "uart.in"),
                         "--uart-start", "600000000", "--uart-gap", "200000"],

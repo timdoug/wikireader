@@ -91,8 +91,46 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 	    m->cpu_data_hook && addr - SDRAM_BASE < SDRAM_SIZE)
 		m->cpu_data_hook(m->cpu_data_ctx, now);
 
-	return stall + (m->wait ? m->wait(m->wait_ctx, access, addr, size,
-					  now + stall) : 0);
+	stall += m->wait ? m->wait(m->wait_ctx, access, addr, size,
+				   now + stall) : 0;
+	if (m->dp_on && *m->dp_on &&
+	    (access == MEM_CPU_READ || access == MEM_CPU_WRITE)) {
+		uint32_t b = ~0u;
+
+		if (addr - SDRAM_BASE < SDRAM_SIZE)
+			b = (addr - SDRAM_BASE) >> MEM_DP_SHIFT;
+		else if (addr < (1u << 20))
+			b = MEM_DP_SDRAM + (addr >> MEM_DP_SHIFT);
+		if (b != ~0u) {
+			uint32_t pc = *m->pc_src, sp = *m->sp_src;
+			unsigned k = pc < m->dp_ktext_end ? 0 : 2;
+
+			if (addr - (sp - 64) < 8192 + 64)
+				k++;
+			m->dp_count[b]++;
+			m->dp_wait[b] += stall;
+			m->dp_class[b * 4 + k] += stall;
+		}
+	}
+	return stall;
+}
+
+/* "address accesses wait kernel kernel-stack user user-stack" for every
+   bucket touched, the last four the wait split by kind. */
+void mem_dump_dataprofile(const struct mem *m, FILE *out)
+{
+	for (uint32_t b = 0; m->dp_count && b < MEM_DP_BUCKETS; b++)
+		if (m->dp_count[b])
+			fprintf(out, "%08x %llu %llu %llu %llu %llu %llu\n",
+				b < MEM_DP_SDRAM ?
+				SDRAM_BASE + (b << MEM_DP_SHIFT) :
+				(b - MEM_DP_SDRAM) << MEM_DP_SHIFT,
+				(unsigned long long)m->dp_count[b],
+				(unsigned long long)m->dp_wait[b],
+				(unsigned long long)m->dp_class[b * 4],
+				(unsigned long long)m->dp_class[b * 4 + 1],
+				(unsigned long long)m->dp_class[b * 4 + 2],
+				(unsigned long long)m->dp_class[b * 4 + 3]);
 }
 
 /* Resolve an address to a host pointer, or NULL if not plain RAM. */

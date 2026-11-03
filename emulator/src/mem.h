@@ -97,7 +97,26 @@ struct mem {
 	uint32_t        vwatch; bool vwatch_on; unsigned vhits;
 	bool            watch_on;
 	const uint32_t *pc_src;   /* points at cpu.pc, for reporting */
+
+	/* WREMU_DATAPROF: the CPU's data accesses and the cycles they waited,
+	   per 16 bytes, while *dp_on (the profile window) is set: what data
+	   would gain from faster RAM, as the PC profile's fetch column says
+	   for code. */
+	uint64_t   *dp_count, *dp_wait;
+	const bool *dp_on;
+	/* ... and the wait split four ways: kernel or user by the PC (below
+	   dp_ktext_end is the kernel), stack or not by the address's distance
+	   above the SP. */
+	uint64_t   *dp_class;		/* MEM_DP_BUCKETS * 4 */
+	const uint32_t *sp_src;
+	uint32_t    dp_ktext_end;
 };
+
+/* Data-profile buckets: SDRAM, then the internal RAMs below 1 MB. */
+#define MEM_DP_SHIFT	4
+#define MEM_DP_SDRAM	(SDRAM_SIZE >> MEM_DP_SHIFT)
+#define MEM_DP_BUCKETS	(MEM_DP_SDRAM + ((1u << 20) >> MEM_DP_SHIFT))
+void mem_dump_dataprofile(const struct mem *m, FILE *out);
 
 bool mem_init(struct mem *m);
 void mem_free(struct mem *m);

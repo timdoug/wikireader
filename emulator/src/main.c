@@ -785,6 +785,18 @@ int main(int argc, char **argv)
 		cpu.pcclk     = calloc(C33_PCBUCKETS, sizeof *cpu.pcclk),
 		cpu.pcfetch   = calloc(C33_PCBUCKETS, sizeof *cpu.pcfetch),
 		cpu.pcrows    = calloc(C33_PCBUCKETS, sizeof *cpu.pcrows);
+	const char *dataprof_path = getenv("WREMU_DATAPROF");
+	if (dataprof_path && pc_profile) {
+		mem.dp_count = calloc(MEM_DP_BUCKETS, sizeof *mem.dp_count);
+		mem.dp_wait  = calloc(MEM_DP_BUCKETS, sizeof *mem.dp_wait);
+		mem.dp_on    = &cpu.pc_profile;
+		mem.dp_class = calloc(MEM_DP_BUCKETS * 4, sizeof *mem.dp_class);
+		mem.sp_src   = &cpu.sr[SR_SP];
+		/* WREMU_KTEXT: where the kernel's text ends; PCs below it, and
+		   in the internal RAMs, count as the kernel's. */
+		mem.dp_ktext_end = getenv("WREMU_KTEXT") ?
+			strtoul(getenv("WREMU_KTEXT"), NULL, 0) : 0x10000000u;
+	}
 	if (boot_sp)
 		cpu.sr[SR_SP] = boot_sp;
 	/*
@@ -1726,6 +1738,11 @@ done:
 			FILE *f = fopen(prof_full_path, "w");
 			if (f) { c33_dump_pcprofile_full(&cpu, f); fclose(f); }
 			else perror(prof_full_path);
+		}
+		if (mem.dp_count) {
+			FILE *f = fopen(dataprof_path, "w");
+			if (f) { mem_dump_dataprofile(&mem, f); fclose(f); }
+			else perror(dataprof_path);
 		}
 		if (pc_profile)
 			c33_dump_pcprofile(&cpu, stdout);
