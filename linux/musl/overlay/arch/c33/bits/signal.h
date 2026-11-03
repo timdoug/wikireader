@@ -34,8 +34,9 @@ typedef struct __ucontext {
 	sigset_t uc_sigmask;
 } ucontext_t;
 
-/* The kernel enters a handler with a return address into its own
- * rt_sigreturn trampoline, so there is no SA_RESTORER. */
+/* The kernel enters a handler with a return address into the
+ * rt_sigreturn trampoline it writes in the signal frame, so there is no
+ * SA_RESTORER. */
 #define SA_NOCLDSTOP  1
 #define SA_NOCLDWAIT  2
 #define SA_SIGINFO    4

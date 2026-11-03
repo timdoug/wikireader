@@ -14,11 +14,25 @@
 #include <asm/syscalls.h>
 #include <asm/ucontext.h>
 
+/*
+ * The handler returns to retcode, in the frame, which calls rt_sigreturn:
+ * xld.w %r4,__NR_rt_sigreturn; int 0.  On the user's stack, as on other
+ * no-MMU ports, a debugger can read it and find the frame from it.
+ */
 struct c33_rt_sigframe {
 	unsigned long return_address;
 	struct siginfo info;
 	struct ucontext uc;
+	unsigned short retcode[4];
 };
+
+static const unsigned short c33_sigreturn_code[4] = {
+	0xc002,		/* ext 2 */
+	0x6cb4,		/* ld.w %r4,0xb: %r4 = 139, __NR_rt_sigreturn */
+	0x0480,		/* int 0 */
+	0x0000,		/* nop */
+};
+static_assert(__NR_rt_sigreturn == 139);
 
 static int c33_restore_sigcontext(struct pt_regs *regs,
 				  struct sigcontext __user *context)
@@ -110,7 +124,9 @@ static int c33_setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	    (unsigned long)frame + sizeof(*frame) > memory_end)
 		return -EFAULT;
 
-	error |= __put_user((unsigned long)c33_rt_sigreturn_trampoline,
+	error |= __copy_to_user(frame->retcode, c33_sigreturn_code,
+				sizeof(frame->retcode));
+	error |= __put_user((unsigned long)frame->retcode,
 			    &frame->return_address);
 	if (ksig->ka.sa.sa_flags & SA_SIGINFO)
 		error |= copy_siginfo_to_user(&frame->info, &ksig->info);
