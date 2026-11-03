@@ -490,7 +490,7 @@ runs its decoder loops on a private 1 KB stack. The `-F` profile carries cycles 
 per-source-line cost that includes memory stalls; its fourth column is the
 cycles spent waiting for the instruction fetch, what the code would save
 from A0 RAM. `WREMU_DATAPROF=FILE` with `-F` writes the same for data: per
-16 bytes of SDRAM and of the internal RAMs, the CPU's accesses inside the
+word of SDRAM and of the internal RAMs, the CPU's accesses inside the
 window and the cycles they waited, then that wait split four ways, kernel,
 kernel stack, user and user stack. The PC decides kernel or user, below
 `WREMU_KTEXT` (the kernel's `_etext`) being the kernel's, and an access

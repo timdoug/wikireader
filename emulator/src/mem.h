@@ -99,7 +99,7 @@ struct mem {
 	const uint32_t *pc_src;   /* points at cpu.pc, for reporting */
 
 	/* WREMU_DATAPROF: the CPU's data accesses and the cycles they waited,
-	   per 16 bytes, while *dp_on (the profile window) is set: what data
+	   per word, while *dp_on (the profile window) is set: what data
 	   would gain from faster RAM, as the PC profile's fetch column says
 	   for code. */
 	uint64_t   *dp_count, *dp_wait;
@@ -112,8 +112,9 @@ struct mem {
 	uint32_t    dp_ktext_end;
 };
 
-/* Data-profile buckets: SDRAM, then the internal RAMs below 1 MB. */
-#define MEM_DP_SHIFT	4
+/* Data-profile buckets, a word each: SDRAM, then the internal RAMs
+   below 1 MB. */
+#define MEM_DP_SHIFT	2
 #define MEM_DP_SDRAM	(SDRAM_SIZE >> MEM_DP_SHIFT)
 #define MEM_DP_BUCKETS	(MEM_DP_SDRAM + ((1u << 20) >> MEM_DP_SHIFT))
 void mem_dump_dataprofile(const struct mem *m, FILE *out);
