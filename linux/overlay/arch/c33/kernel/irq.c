@@ -22,7 +22,8 @@
 #define C33_REG_BASE          0x00300000UL
 #define C33_IRQ_ENABLE_FIRST  (C33_REG_BASE + 0x270)
 #define C33_IRQ_FLAG_FIRST    (C33_REG_BASE + 0x280)
-#define C33_SYSCALL_VECTOR    12
+#define C33_SYSCALL_VECTOR    12	/* int 0; int N is vector 12 + N */
+#define C33_BREAKPOINT_VECTOR 15	/* int 3 */
 
 unsigned long c33_boot_ttbr;
 int c33_grifo_booted;
@@ -86,6 +87,16 @@ static void c33_user_fault(unsigned int vector, struct pt_regs *regs)
 {
 	void __user *pc = (void __user *)regs->pc;
 	unsigned long ret;
+
+	/*
+	 * int 3 is the breakpoint debuggers write.  The trap leaves the PC
+	 * after it; report the breakpoint's own address, as ARM does.
+	 */
+	if (vector == C33_BREAKPOINT_VECTOR) {
+		regs->pc -= 2;
+		force_sig_fault(SIGTRAP, TRAP_BRKPT, (void __user *)regs->pc);
+		return;
+	}
 
 	pr_info_ratelimited("%s[%d]: C33 exception %u at pc %08lx sp %08lx r15 %08lx\n",
 			    current->comm, task_pid_nr(current), vector,

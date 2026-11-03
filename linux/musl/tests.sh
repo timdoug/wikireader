@@ -52,6 +52,7 @@ fi
 "${cross}gcc" -O2 -Wall -Werror "$src/devmem-test.c" -o "$out/devmem-test"
 "${cross}gcc" -O2 -Wall -Werror "$src/glob-test.c" -o "$out/glob-test"
 "${cross}gcc" -O2 -Wall -Werror "$src/time64-test.c" -o "$out/time64-test"
+"${cross}gcc" -O2 -Wall -Werror "$src/breakpoint-test.c" -o "$out/breakpoint-test"
 "${cross}gcc" -O2 -Wall -Werror "$src/malloc-test.c" -o "$out/malloc-test"
 "${cross}gcc" -O2 -Wall -Werror -pthread -static "$src/pthread-test.c" \
 	-o "$out/pthread-test-static"

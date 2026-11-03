@@ -1,0 +1,25 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: warn only when a direct mapping claims to share
+
+do_mmap_private() asks a file with NOMMU_MAP_DIRECT to map itself, and
+warns if it succeeded for a mapping that is not shared.  It warned whether
+or not the file succeeded: a read-only private mapping made by a traced
+process, which may not be an overlay so that breakpoints can be written
+into it, is refused by ramfs with -ENOSYS as it should be, gets its
+private copy, and warned anyway.  A debugger starting a program from
+ramfs did that every time.  Check the mapping only when the file has
+accepted it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -947,7 +947,7 @@ static int do_mmap_private(struct vm_area_struct *vma,
+ 	if (capabilities & NOMMU_MAP_DIRECT) {
+ 		ret = mmap_file(vma->vm_file, vma);
+ 		/* shouldn't return success if we're not sharing */
+-		if (WARN_ON_ONCE(!is_nommu_shared_mapping(vma->vm_flags)))
++		if (!ret && WARN_ON_ONCE(!is_nommu_shared_mapping(vma->vm_flags)))
+ 			ret = -ENOSYS;
+ 		if (ret == 0) {
+ 			vma->vm_region->vm_top = vma->vm_region->vm_end;

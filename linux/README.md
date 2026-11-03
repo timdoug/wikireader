@@ -531,6 +531,21 @@ so Buildroot's `patches/0007` tells it so. `card/bin/t`, which `app-test`
 runs, checks a trace from the first call, a decoded call, an injected
 result and `-f` over a pipeline.
 
+## Breakpoints
+
+`int 3` is the breakpoint: it raises `SIGTRAP` with `TRAP_BRKPT`, and the
+kernel reports the PC at the breakpoint itself, as ARM does, so a tracer
+or a handler resumes by moving it on two bytes. A program a debugger
+starts is traced from before its exec, so the no-MMU kernel gives it
+private copies of its code and its libraries' (shared text is mapped only
+for untraced processes), and `PTRACE_POKETEXT` writes breakpoints into
+them without reaching any other process; one attached to later shares its
+text, and cannot take them. `musl/tests/breakpoint-test.c`, run by
+`app-test`, takes a breakpoint through a handler and under ptrace, where
+the tracer reads it back, writes a second, and resumes past both.
+`patches/fixes/0042` stops the kernel warning each time a traced program
+maps a file from ramfs privately, which it does correctly.
+
 ## Build and test
 
 **NEVER BYPASS GRIFO.** Every emulator run, a test, a timing or a one-off
