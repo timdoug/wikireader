@@ -48,13 +48,15 @@ mkdir -p "$sysroot/usr" "$headers_build" "$build_dir"
 make -C "$linux_source" O="$headers_build" ARCH=c33 CROSS_COMPILE="$cross" \
 	INSTALL_HDR_PATH="$sysroot/usr" headers_install
 
-# musl's own allocator, mallocng, takes memory from brk, which no-MMU Linux
-# does not have, and gives it back in pieces, which a no-MMU mapping cannot
-# be; oldmalloc grows by mmap and keeps what it has.
+# musl's own allocator, mallocng, falls back to mmap where no-MMU Linux has
+# no brk and gives memory back by whole mappings, which no-MMU munmap takes.
+# Unlike oldmalloc, which never returns its heap here, a process gives back
+# what it frees.  It costs a little: about 1.5 ms an exec, 250 KB less
+# available with X up, and realloc past 128 KB copies, since mremap cannot
+# grow a mapping without an MMU (musl/bench).
 cd "$build_dir"
 "$musl_source/configure" --target=$target --prefix=/usr --syslibdir=/lib \
-	--with-malloc=oldmalloc --enable-debug CC="${cross}gcc" AR="${cross}ar" \
-	RANLIB="${cross}ranlib"
+	--enable-debug CC="${cross}gcc" AR="${cross}ar" RANLIB="${cross}ranlib"
 
 if [ "$mode" = headers ]; then
 	make install-headers DESTDIR="$sysroot"

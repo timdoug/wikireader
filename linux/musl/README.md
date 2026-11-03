@@ -69,9 +69,19 @@ musl's SuperH FDPIC code expects them.
   binding of `.plt` slots through the linker's stubs (`LD_BIND_NOW` binds
   at load).
 
-The allocator is `oldmalloc`: `mallocng` takes memory from `brk`, which
-no-MMU Linux does not have, and returns it in pieces, which a no-MMU
-mapping cannot be. Thread stacks have no guard area, and a contended
+The allocator is musl's default, `mallocng`. Without an MMU it has no
+`brk` and maps its memory, and it gives back what a process frees, which
+`oldmalloc` never does here: freeing everything after a 4 MB peak of small
+objects leaves nothing held, against 5.4 MB. It costs a little, measured
+against `oldmalloc` in wremu: an exec about 1.5 ms slower, 100 KB less
+available at the prompt and 250 KB less with X up, churn of small objects
+9% and of 1-16 KB ones 55% slower, and `realloc` growing a block past
+128 KB four times slower, since `mremap` cannot grow a mapping without an
+MMU; many small blocks are allocated twice as fast. `bench/malloc-bench.c`
+measures these: build it with `c33-linux-musl-gcc -O2`, put it on the card
+with `ask-app.py --file MBENCH.BIN=...`, and run it from `/tmp`.
+
+Thread stacks have no guard area, and a contended
 spinlock yields, since its owner cannot run on this one core until it
 does.
 

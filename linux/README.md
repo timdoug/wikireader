@@ -626,10 +626,9 @@ install: its `C.UTF-8` is built in. C11's `<threads.h>` and `<uchar.h>`,
 `timespec_get`, `reallocarray` and a `struct stat` with `struct timespec`
 timestamps in strict C as in every other mode are all musl's own.
 
-The allocator is musl's `oldmalloc`, which grows its heap by `mmap` where
-no-MMU Linux has no `brk`, and keeps its free chunks in size bins;
-`mallocng`, musl's default, returns memory in pieces, which a no-MMU
-mapping cannot be. `musl/tests/malloc-test.c`, run by `app-test`, frees a
+The allocator is musl's default, `mallocng`, which maps its memory where
+no-MMU Linux has no `brk` and gives back what a process frees
+(`musl/README.md` has its costs). `musl/tests/malloc-test.c`, run by `app-test`, frees a
 `memalign` block between live ones, then mixes `malloc`, `free`, `realloc`
 and `memalign` at random, checking every block's contents and that no two
 overlap.
