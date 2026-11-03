@@ -2129,6 +2129,14 @@ c33fdpic_word_kind (struct bfd_link_info *info, int r_type,
       return own;
     }
 
+  /* ld defines a referenced __ehdr_start only while it sizes the dynamic
+     sections, and again once the headers have a segment: the recount
+     after sections are discarded sees it undefined, but it is written as
+     an address of this module, as ld assumes.  */
+  if (h->root.type == bfd_link_hash_undefweak
+      && h == elf_hash_table (info)->hehdr_start)
+    return own;
+
   if (h->root.type == bfd_link_hash_undefweak
       && (h->dynindx == -1 || !elf_hash_table (info)->dynamic_sections_created))
     return C33FDPIC_WORD_PLAIN;
