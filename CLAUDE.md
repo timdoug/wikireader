@@ -13,5 +13,5 @@ numbers and behaviour are not the product's.  A script that already does it
 is not a reason to use it; move the script onto Grifo.
 
 Launcher-path tools: `linux/boot-test.sh`, `linux/app-test.py`;
-`linux/artifacts/perf/ask-app.sh`
+`linux/ask-app.py`
 (types commands on the serial shell and powers off).

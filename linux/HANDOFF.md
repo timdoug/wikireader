@@ -693,8 +693,8 @@ it boots the file loader as a direct ELF, which wremu refuses.
   failing file at once.
 - **Driving the guest's own shell over UART** answers questions about userspace
   in well under a minute, against a two-minute rebuild:
-  `artifacts/perf/ask-app.sh 'commands'` boots through Grifo, types them,
-  and powers off (gitignored; it wraps `/tmp/sepdata/timeline_app.py`).
+  `ask-app.py 'commands'` boots through Grifo, types them,
+  and powers off.
 - **Grifo's ELF loader loads segments by virtual address.** A section
   linked at 0x0c00 with its load address in the image came up there, and
   the kernel's own copy from the (empty) load address then zeroed it. So
