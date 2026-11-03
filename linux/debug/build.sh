@@ -1,5 +1,6 @@
 #!/bin/sh
-# Build deliberately crashing FDPIC fixtures, and save their matching ELFs.
+# Build deliberately crashing FDPIC fixtures and gdb-test.py's program, and
+# save their matching ELFs.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 guest_root=${WR_LINUX_GUEST_ROOT:-/home/$USER.guest/wr-linux}
@@ -12,7 +13,10 @@ mkdir -p "$build" "$symbols"
     "$root/linux/debug/crash-library.c" -Wl,-soname,crashlib.so -o "$build/crashlib.so"
 "${cross}gcc" -Os -g -Wall -Werror "$root/linux/debug/crash-test.c" \
     -L"$build" -l:crashlib.so -o "$build/crashtst.bin"
-for name in crashtst.bin crashlib.so; do
+# For gdb-test.py: unoptimized, so every line and local is there to see.
+"${cross}gcc" -O0 -g -Wall -Werror "$root/linux/debug/gdb-target.c" \
+    -o "$build/gdbtgt.bin"
+for name in crashtst.bin crashlib.so gdbtgt.bin; do
     cp "$build/$name" "$symbols/$name"
     cp "$build/$name" "$root/linux/artifacts/$name"
     "${cross}strip" --strip-debug "$root/linux/artifacts/$name"

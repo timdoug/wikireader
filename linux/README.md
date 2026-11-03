@@ -82,9 +82,10 @@ paths from userspace. It `vfork()`s (the asm-generic
 its exit status with `wait4`: the live syscall register frame, task
 creation, scheduling, exec, exit, and parent wakeup. It installs a `SIGUSR1`
 handler, signals itself, and returns through the C33 `rt_sigreturn`
-trampoline; the kernel saves and restores the complete integer context,
-signal mask, and alternate-stack state in an aligned `ucontext` frame on the
-userspace stack. Handler entry emulates the four-byte return-address push
+trampoline, which the kernel writes in the signal frame, as other no-MMU
+ports do, so that a debugger can read it; the kernel saves and restores the
+complete integer context, signal mask, and alternate-stack state in an
+aligned `ucontext` frame on the userspace stack. Handler entry emulates the four-byte return-address push
 of a normal call: `SP % 16 == 12`, with the argument base at `SP + 4`
 aligned to sixteen bytes. `signal-entry.S` checks this before the C prologue,
 including nested delivery on an alternate stack; the sigreturn trampoline
@@ -546,7 +547,41 @@ so Buildroot's `patches/0007` tells it so. `card/bin/t`, which `app-test`
 runs, checks a trace from the first call, a decoded call, an injected
 result and `-f` over a pipeline.
 
-## Breakpoints
+## Debugging with GDB
+
+`gdbserver` is on the image, and the host's `c33-linux-musl-gdb`
+(`host-tools/toolchain-c33/gdb`) debugs through it. The line is a serial
+port: in wremu, the console, which `--uart-tcp PORT` also serves on
+127.0.0.1; on the device, its serial test points. On the target, quiet
+the kernel console and run gdbserver on that line, in stdio mode:
+
+```sh
+dmesg -n 1; stty raw -echo; gdbserver - PROGRAM 2>/tmp/gdbserver.log; stty sane
+```
+
+and on the host:
+
+```sh
+c33-linux-musl-gdb -ex "set sysroot linux/artifacts/symbols" \
+    -ex "set can-use-hw-watchpoints 0" -ex "target remote :PORT" PROGRAM
+```
+
+gdbserver speaks on its own stdin and stdout, and the program's output
+goes to its stderr: given a tty to debug on, gdbserver hands that
+terminal to the program, as a shell would, and then reads it from the
+background, which fails. There is no hardware single step or watchpoint:
+GDB steps by breakpoints, decoding where each instruction can go (an
+`ext` prefix and its instruction, and a delayed branch and its slot, as
+one), and watches in software. It places the program and libc by the
+FDPIC load maps gdbserver reads with `PTRACE_GETFDPIC`, and the other
+libraries by musl's link map; steps through a `.plt` stub and musl's
+lazy resolver into the function; and unwinds out of a signal handler
+through the `rt_sigreturn` trampoline in the signal frame. `gdb-test.py` boots
+through Grifo, starts gdbserver over the console, and checks
+breakpoints, backtraces through a recursion and a signal handler,
+`next`, `step` into libc, `finish`, a watchpoint, and the exit.
+
+### Breakpoints
 
 `int 3` is the breakpoint: it raises `SIGTRAP` with `TRAP_BRKPT`, and the
 kernel reports the PC at the breakpoint itself, as ARM does, so a tracer

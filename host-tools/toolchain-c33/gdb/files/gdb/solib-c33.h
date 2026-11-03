@@ -27,4 +27,10 @@
 
 extern solib_ops_up make_c33_solib_ops (program_space *pspace);
 
+/* The gdbarch skip_solib_resolver method: where to stop once musl's lazy
+   resolver at PC has bound its slot, or 0.  */
+
+extern CORE_ADDR c33_skip_solib_resolver (struct gdbarch *gdbarch,
+					  CORE_ADDR pc);
+
 #endif /* GDB_SOLIB_C33_H */

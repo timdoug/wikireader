@@ -537,7 +537,10 @@ Where it departs:
 - GCC's execute torture, `gcc.dg`, the C++ suites and binutils' suites
   pass (README, "GCC and binutils test suites"); the C++ suites' last fixes
   are checked by name, not yet by a complete rerun.
-- No gdb or gdbserver; strace runs (README, "strace").
+- strace, and GDB through gdbserver, run (README, "strace" and
+  "Debugging with GDB"); threads are not debugged as threads (musl has no
+  `libthread_db`), and a program attached to after it started shares its
+  text, so takes no breakpoints.
 - binutils and GCC are carried as pristine tarballs, a `files/` tree and
   glue scripts that edit shared files, with a patch series only for GCC's
   shared-code changes.
@@ -594,7 +597,9 @@ The rest of the port, standards first (see "Standards" above):
    other full-screen programs take the panel from it and give it back.
 5. **The overlay as a real patch series**, and binutils' and GCC's glue as
    patch series too; it only bites when a pinned version is bumped.
-6. **gdb and gdbserver**, which FDPIC ports normally have.
+6. **GDB's gaps**: threads (gdbserver sees the LWPs; without
+   `libthread_db` GDB has no thread-local variables), and breakpoints in
+   a program attached to (`gdbserver --attach`) after it started.
 7. **`buildroot/build.sh`'s partial clean** keeps host packages and rebuilds
    the rest; Buildroot's own way is per-package rebuilds or a full clean.
 8. **No-MMU memory locking (`patches/features/0028`)**: it exists for

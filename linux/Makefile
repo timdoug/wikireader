@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test gdb-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -40,6 +40,11 @@ signal-test: build
 core-test: build
 	$(SHELL_IN_VM) ./linux/debug/build.sh
 	./debug/core-test.py
+
+# Needs the host's c33-linux-musl-gdb (host-tools/toolchain-c33/gdb/build.sh).
+gdb-test: vm
+	$(SHELL_IN_VM) ./linux/debug/build.sh
+	python3 ./gdb-test.py
 
 x11-test:
 	$(SHELL_IN_VM) ./linux/x11/build.sh

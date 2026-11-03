@@ -19,10 +19,14 @@
 
 #include "elf-bfd.h"
 #include "elf/c33.h"
+#include "frame.h"
 #include "linux-tdep.h"
+#include "symtab.h"
 #include "osabi.h"
 #include "regcache.h"
 #include "regset.h"
+#include "trad-frame.h"
+#include "tramp-frame.h"
 #include "c33-tdep.h"
 #include "solib-c33.h"
 
@@ -63,10 +67,60 @@ c33_linux_iterate_over_regset_sections (struct gdbarch *gdbarch,
       &c33_linux_gregset, NULL, cb_data);
 }
 
+/* A signal handler returns to the kernel's trampoline, which calls
+   rt_sigreturn:
+
+     ext 2; ld.w %r4,0xb	xld.w %r4,139 (__NR_rt_sigreturn)
+     int 0
+
+   The handler's return popped the frame's return address, so the stack
+   pointer is at the frame's struct siginfo (128 bytes), then struct
+   ucontext: uc_flags, uc_link, uc_stack (12 bytes), and uc_mcontext,
+   the interrupted r0-r15, alr, ahr, sp, psr and pc.  */
+
+#define C33_SIGINFO_SIZE 128
+#define C33_UC_MCONTEXT 20
+
+static void
+c33_linux_rt_sigframe_init (const struct tramp_frame *self,
+			    const frame_info_ptr &this_frame,
+			    struct trad_frame_cache *this_cache,
+			    CORE_ADDR func)
+{
+  CORE_ADDR sp = get_frame_register_unsigned (this_frame, C33_SP_REGNUM);
+  CORE_ADDR sc = sp + C33_SIGINFO_SIZE + C33_UC_MCONTEXT;
+
+  for (int i = 0; i < 16; i++)
+    trad_frame_set_reg_addr (this_cache, C33_R0_REGNUM + i, sc + 4 * i);
+  trad_frame_set_reg_addr (this_cache, C33_ALR_REGNUM, sc + 64);
+  trad_frame_set_reg_addr (this_cache, C33_AHR_REGNUM, sc + 68);
+  trad_frame_set_reg_addr (this_cache, C33_SP_REGNUM, sc + 72);
+  trad_frame_set_reg_addr (this_cache, C33_PSR_REGNUM, sc + 76);
+  trad_frame_set_reg_addr (this_cache, C33_PC_REGNUM, sc + 80);
+  trad_frame_set_id (this_cache, frame_id_build (sp, func));
+}
+
+static const struct tramp_frame c33_linux_rt_sigframe =
+{
+  SIGTRAMP_FRAME,
+  2,
+  {
+    { 0xc002, ULONGEST_MAX },
+    { 0x6cb4, ULONGEST_MAX },
+    { 0x0480, ULONGEST_MAX },
+    { TRAMP_SENTINEL_INSN, ULONGEST_MAX }
+  },
+  c33_linux_rt_sigframe_init
+};
+
 static void
 c33_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   linux_init_abi (info, gdbarch, 0);
+  tramp_frame_prepend_unwinder (gdbarch, &c33_linux_rt_sigframe);
+  /* Step through FUNCTION@plt to FUNCTION.  */
+  set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
+  set_gdbarch_skip_solib_resolver (gdbarch, c33_skip_solib_resolver);
   set_gdbarch_iterate_over_regset_sections
     (gdbarch, c33_linux_iterate_over_regset_sections);
   set_gdbarch_make_solib_ops (gdbarch, make_c33_solib_ops);

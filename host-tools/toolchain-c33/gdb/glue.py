@@ -56,3 +56,35 @@ edit("gdb/Makefile.in", "\tcris-tdep.h \\\n",
      "\tc33-tdep.h \\\n\tcris-tdep.h \\\n", "c33-tdep.h")
 edit("gdb/Makefile.in", "\tsolib-frv.h \\\n",
      "\tsolib-c33.h \\\n\tsolib-frv.h \\\n", "solib-c33.h")
+
+# gdbserver for C33 Linux.
+edit("gdbserver/configure.srv", "  csky*-*linux*)", """  c33*-*-linux*)	srv_regobj="c33-linux.o"
+			srv_tgtobj="$srv_linux_obj linux-c33-low.o"
+			srv_linux_regsets=yes
+			;;
+  csky*-*linux*)""", "linux-c33-low.o")
+
+# GDB's no-MMU path (the ptrace feature probe's CLONE_VM child) assumes
+# uClibc; a no-MMU kernel's compiler defines __uClinux__ whatever the C
+# library, and musl's fork() fails without an MMU.  fork_inferior already
+# uses vfork.
+edit("gdb/nat/linux-ptrace.h", """#ifdef __UCLIBC__
+#if !(defined(__UCLIBC_HAS_MMU__) || defined(__ARCH_HAS_MMU__))
+/* PTRACE_TEXT_ADDR and friends.  */
+#include <asm/ptrace.h>
+#define HAS_NOMMU
+#endif
+#endif
+""", """#ifdef __UCLIBC__
+#if !(defined(__UCLIBC_HAS_MMU__) || defined(__ARCH_HAS_MMU__))
+/* PTRACE_TEXT_ADDR and friends.  */
+#include <asm/ptrace.h>
+#define HAS_NOMMU
+#endif
+#elif defined(__uClinux__)
+#define HAS_NOMMU
+#endif
+""", "#elif defined(__uClinux__)")
+edit("gdb/nat/linux-ptrace.c",
+     "#if defined(__UCLIBC__) && defined(HAS_NOMMU)\n#define STACK_SIZE",
+     "#if defined(HAS_NOMMU)\n#define STACK_SIZE", "#if defined(HAS_NOMMU)\n#define STACK_SIZE")

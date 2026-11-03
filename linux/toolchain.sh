@@ -11,7 +11,7 @@
 # headers and the C library's headers, so make -C linux fetch has to come
 # first; make -C linux libc then puts the library itself in the sysroot and
 # runs the final pass against it, with the final step here, which builds
-# C++ and the shared runtimes.
+# C++ and the shared runtimes, then gdbserver.
 #
 #   toolchain.sh [all|elf|linux|final]
 set -eu
@@ -33,6 +33,10 @@ which=${1:-all}
 if [ "${which}" = final ]; then
 	C33_TARGET=${linux_target} \
 		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" final
+	# gdbserver needs the C library and the C++ runtime; Buildroot copies
+	# it from the toolchain's debug-root into the image.
+	C33_TARGET=${linux_target} C33_GDBSERVER=1 \
+		"${root}/host-tools/toolchain-c33/gdb/build.sh" "${toolwork}"
 	exit 0
 fi
 

@@ -268,6 +268,105 @@ c33_fdpic_loadmap_addresses (struct gdbarch *gdbarch, CORE_ADDR *interp_addr,
   return 0;
 }
 
+/* Software single step.  There is no hardware step for user programs,
+   so GDB puts breakpoints where the instruction at PC can go next.  An
+   ext prefix and the instruction it extends, and a delayed branch and the
+   instruction in its slot, run as one: the hardware takes no interrupt
+   between them, and nothing may stop there.  Every instruction is two
+   bytes.  The encodings are the PE core's (class 0):
+
+     bits 15-8 = 0x08-0x1f, low byte sign8: jr<cc> (0x08-0x1b, ten
+       conditions), call (0x1c) and jp (0x1e), odd for the delayed forms;
+       the target is the branch's own address plus twice the displacement,
+       which ext prefixes widen;
+     bits 15-6, rb in bits 3-0: call %rb 0x18, ret 0x19, jp %rb 0x1a,
+       jpr %rb 0x0b (PC-relative), and delayed 0x1c, 0x1d, 0x1e, 0x0f.  */
+
+static bool
+c33_is_ext (unsigned int insn)
+{
+  return (insn >> 13) == 6;
+}
+
+static std::vector<CORE_ADDR>
+c33_software_single_step (struct regcache *regcache)
+{
+  struct gdbarch *gdbarch = regcache->arch ();
+  enum bfd_endian order = gdbarch_byte_order_for_code (gdbarch);
+  CORE_ADDR pc = regcache_read_pc (regcache);
+  unsigned int ext[2];
+  int n_ext = 0;
+  unsigned int insn;
+  CORE_ADDR at = pc;
+
+  for (;;)
+    {
+      insn = read_memory_unsigned_integer (at, 2, order);
+      if (!c33_is_ext (insn) || n_ext == 2)
+	break;
+      ext[n_ext++] = insn & 0x1fff;
+      at += 2;
+    }
+
+  unsigned int op8 = insn >> 8, op10 = insn >> 6;
+  CORE_ADDR next = at + 2;
+
+  if (op8 >= 0x08 && op8 <= 0x1f)
+    {
+      /* The halfword displacement, sign-extended from its composed
+	 width: 8 bits alone, 21 with one ext, 31 with two (of the first
+	 prefix only bits 12-3 take part).  */
+      uint32_t v = insn & 0xff;
+      unsigned int width = 8;
+
+      if (n_ext == 1)
+	{
+	  v |= ext[0] << 8;
+	  width = 21;
+	}
+      else if (n_ext == 2)
+	{
+	  v |= ((ext[0] >> 3) << 21) | (ext[1] << 8);
+	  width = 31;
+	}
+      v &= (1u << width) - 1;
+      if (v & (1u << (width - 1)))
+	v |= ~((1u << width) - 1);
+
+      CORE_ADDR target = (at + ((int32_t) v << 1)) & 0xffffffff;
+      bool delayed = (op8 & 1) != 0;
+      bool conditional = op8 < 0x1c;
+
+      if (delayed)
+	next = at + 4;
+      if (!conditional)
+	return { target };
+      return { next, target };
+    }
+
+  if ((insn >> 13) == 0)
+    {
+      ULONGEST rb, sp, ra;
+
+      regcache_cooked_read_unsigned (regcache, C33_R0_REGNUM + (insn & 0xf),
+				     &rb);
+      switch (op10)
+	{
+	case 0x18: case 0x1c:	/* call %rb */
+	case 0x1a: case 0x1e:	/* jp %rb */
+	  return { rb & ~(CORE_ADDR) 1 };
+	case 0x0b: case 0x0f:	/* jpr %rb */
+	  return { (at + (rb & ~(ULONGEST) 1)) & 0xffffffff };
+	case 0x19: case 0x1d:	/* ret */
+	  regcache_cooked_read_unsigned (regcache, C33_SP_REGNUM, &sp);
+	  ra = read_memory_unsigned_integer (sp, 4, order);
+	  return { ra & ~(CORE_ADDR) 1 };
+	}
+    }
+
+  return { next };
+}
+
 /* The fallback, for code without call frame information: a function
    that has not yet moved the stack, its return address at [sp].  Leaf
    code written in assembly, and the first instruction of anything, are
@@ -378,6 +477,7 @@ c33_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_breakpoint_kind_from_pc (gdbarch, c33_breakpoint::kind_from_pc);
   set_gdbarch_sw_breakpoint_from_kind (gdbarch, c33_breakpoint::bp_from_kind);
   set_gdbarch_decr_pc_after_break (gdbarch, 0);
+  set_gdbarch_get_next_pcs (gdbarch, c33_software_single_step);
   set_gdbarch_convert_from_func_ptr_addr (gdbarch,
 					  c33_convert_from_func_ptr_addr);
 

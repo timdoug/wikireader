@@ -1,0 +1,28 @@
+# The C33's registers, in the order GDB numbers them (c33-tdep.h).
+# No XML: GDB keeps its own numbering, which this order matches.
+name:c33_linux
+xmlarch:c33
+xmlosabi:GNU/Linux
+expedite:sp,pc
+osabi:GNU/Linux
+32:r0
+32:r1
+32:r2
+32:r3
+32:r4
+32:r5
+32:r6
+32:r7
+32:r8
+32:r9
+32:r10
+32:r11
+32:r12
+32:r13
+32:r14
+32:r15
+32:sp
+32:alr
+32:ahr
+32:psr
+32:pc

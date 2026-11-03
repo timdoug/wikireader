@@ -8,6 +8,11 @@
 # their core files and FDPIC shared libraries.  C33_TARGET selects another
 # triplet, such as c33-epson-elf for bare metal.  GDB's BFD and opcodes are
 # binutils' C33 ones (../binutils), which glue.py copies in.
+#
+# C33_GDBSERVER=1, in the Linux VM once the C library and the final
+# compiler are installed (linux/toolchain.sh final), instead cross-builds
+# gdbserver for C33 Linux into the toolchain's debug-root, where
+# Buildroot's BR2_TOOLCHAIN_EXTERNAL_GDB_SERVER_COPY finds it.
 
 set -e
 
@@ -30,6 +35,27 @@ cd "${WORK}"
 PREPARE_EXTRA="${HERE}/../binutils/files:${TOOLS}/glue.py" \
 	"${TOOLS}/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" \
 	"${HERE}/files" "${HERE}/glue.py"
+
+if [ "${C33_GDBSERVER:-}" = 1 ]; then
+	PREFIX="${WORK}/install"
+	echo "==> configuring gdbserver"
+	BUILD="${SRC}/build-gdbserver-${TARGET}"
+	mkdir -p "${BUILD}"
+	cd "${BUILD}"
+	[ -f config.status ] || PATH="${PREFIX}/bin:${PATH}" ../configure \
+		--host="${TARGET}" --target="${TARGET}" --prefix=/usr \
+		--disable-nls --disable-werror --disable-gdb --disable-sim \
+		--disable-binutils --disable-ld --disable-gas --disable-gprof \
+		--disable-gprofng --enable-gdbserver --without-python
+	echo "==> building gdbserver"
+	PATH="${PREFIX}/bin:${PATH}" make -j"${JOBS:-4}" all-gdbserver
+	debug_root="${PREFIX}/${TARGET}/debug-root"
+	mkdir -p "${debug_root}/usr/bin"
+	"${PREFIX}/bin/${TARGET}-strip" -o "${debug_root}/usr/bin/gdbserver" \
+		gdbserver/gdbserver
+	echo "gdbserver installed in ${debug_root}/usr/bin"
+	exit 0
+fi
 
 # GDB needs GMP and MPFR; use Homebrew's if present.
 CONFIG_MATH=

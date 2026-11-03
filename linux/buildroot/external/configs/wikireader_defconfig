@@ -25,6 +25,8 @@ BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_1=y
 # musl: Buildroot gives it wide characters and threads itself.
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_MUSL=y
 BR2_TOOLCHAIN_EXTERNAL_CXX=y
+# gdbserver, which linux/toolchain.sh builds into the toolchain.
+BR2_TOOLCHAIN_EXTERNAL_GDB_SERVER_COPY=y
 BR2_TOOLCHAIN_EXTERNAL_HAS_SSP=y
 BR2_TOOLCHAIN_EXTERNAL_HAS_SSP_STRONG=y
 BR2_BINFMT_FDPIC=y

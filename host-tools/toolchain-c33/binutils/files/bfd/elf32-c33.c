@@ -4203,6 +4203,18 @@ c33fdpic_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
   return true;
 }
 
+/* The address of the .plt entry for the Ith relocation in .rela.plt: the
+   entries are made in that order, and each passes its relocation's offset
+   to the lazy resolver.  Debuggers and objdump name them FUNCTION@plt.  */
+
+static bfd_vma
+c33fdpic_plt_sym_val (bfd_vma i, const asection *plt,
+		      const arelent *rel ATTRIBUTE_UNUSED)
+{
+  return (plt->vma + C33FDPIC_PLT_HEADER_SIZE
+	  + i * C33FDPIC_PLT_ENTRY_SIZE);
+}
+
 /* FDPIC: the same relocations, plus executables and shared libraries for
    ld.so and the kernel's ELF FDPIC loader.  */
 
@@ -4216,6 +4228,8 @@ c33fdpic_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
 #define elf_backend_grok_prstatus		c33fdpic_grok_prstatus
 #undef elf_backend_grok_psinfo
 #define elf_backend_grok_psinfo			c33fdpic_grok_psinfo
+#undef elf_backend_plt_sym_val
+#define elf_backend_plt_sym_val			c33fdpic_plt_sym_val
 
 #undef elf_backend_check_relocs
 #define elf_backend_check_relocs		c33fdpic_check_relocs

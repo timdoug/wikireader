@@ -25,7 +25,7 @@ WikiReader firmware.
 | ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. Links FDPIC executables and shared libraries for Linux. |
 | objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core and words that violate fixed opcode bits. |
 | GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
-| GDB | GDB 18.1 on the host, `c33-linux-musl-gdb`: C33 Linux programs, their FDPIC shared libraries and core files, with DWARF unwinding and source lines. No live debugging yet. |
+| GDB | GDB 18.1: `c33-linux-musl-gdb` on the host, `gdbserver` on C33 Linux. Programs, their FDPIC shared libraries and core files, with DWARF unwinding and source lines; breakpoints, software single-step, software watchpoints, stepping through `.plt` into libc, and signal frames (`linux/README.md`, "Debugging with GDB"). |
 
 The exact-source binutils testsuites have no unexpected failures, for
 bare metal and for no-MMU Linux (`make -C linux binutils-test`):

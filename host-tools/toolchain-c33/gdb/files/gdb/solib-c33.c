@@ -80,6 +80,15 @@ struct c33_loadmap
 {
   std::vector<c33_loadseg> segs;
 
+  /* Whether run-time address ADDR is in one of the segments.  */
+  bool maps (CORE_ADDR addr) const
+  {
+    for (const c33_loadseg &seg : segs)
+      if (seg.addr <= addr && addr < seg.addr + seg.p_memsz)
+	return true;
+    return false;
+  }
+
   /* The displacement for link-time address ADDR, or 0 outside the map.  */
   CORE_ADDR displacement (CORE_ADDR addr) const
   {
@@ -188,7 +197,6 @@ static CORE_ADDR main_loadmap_addr;
 static c33_loadmap_up main_loadmap;
 static CORE_ADDR debug_addr;		/* musl's struct debug */
 static bool break_done;
-static CORE_ADDR interp_text_low, interp_text_high;
 
 /* Move the main executable's sections to where its load map puts them.  */
 
@@ -242,7 +250,10 @@ find_debug ()
 			   ? bfd_get_section_by_name (exec_bfd, ".interp")
 			   : nullptr);
   if (interp_sect == nullptr)
-    return false;
+    {
+      solib_debug_printf ("a static program");
+      return false;
+    }
 
   gdb::byte_vector name (bfd_section_size (interp_sect) + 1, 0);
   bfd_get_section_contents (exec_bfd, interp_sect, name.data (), 0,
@@ -257,19 +268,18 @@ find_debug ()
     {
     }
   if (interp == nullptr)
-    return false;
+    {
+      solib_debug_printf ("cannot open the interpreter %s",
+			  (const char *) name.data ());
+      return false;
+    }
 
   CORE_ADDR map_addr;
   c33_loadmap_up map = target_loadmap ("interp", &map_addr);
   if (map == nullptr)
-    return false;
-
-  asection *text = bfd_get_section_by_name (interp.get (), ".text");
-  if (text != nullptr)
     {
-      interp_text_low = bfd_section_vma (text);
-      interp_text_low += map->displacement (interp_text_low);
-      interp_text_high = interp_text_low + bfd_section_size (text);
+      solib_debug_printf ("no interpreter load map");
+      return false;
     }
 
   CORE_ADDR sym = gdb_bfd_lookup_symbol (interp.get (),
@@ -289,9 +299,21 @@ find_debug ()
   bfd_endian order = gdbarch_byte_order (current_inferior ()->arch ());
   gdb_byte buf[C33_PTR_SIZE];
   if (target_read_memory (sym, buf, sizeof buf) != 0)
-    return false;
+    {
+      solib_debug_printf ("cannot read _dl_debug_addr at %s",
+			  paddress (current_inferior ()->arch (), sym));
+      return false;
+    }
   CORE_ADDR addr = extract_unsigned_integer (buf, sizeof buf, order);
-  if (addr == 0)
+  solib_debug_printf ("_dl_debug_addr at %s holds %s",
+		      paddress (current_inferior ()->arch (), sym),
+		      paddress (current_inferior ()->arch (), addr));
+
+  /* Until the dynamic linker has relocated itself the pointer holds a
+     link-time address, and until it has filled the struct in, its ver
+     is 0.  */
+  if (!map->maps (addr) || target_read_memory (addr, buf, sizeof buf) != 0
+      || extract_unsigned_integer (buf, sizeof buf, order) != 1)
     return false;
   debug_addr = addr;
 
@@ -364,11 +386,54 @@ c33_solib_ops::current_sos () const
   return sos;
 }
 
+/* musl's lazy binding: a .plt stub, the .plt head, then ld.so's
+   __c33_lazy_resolve, which calls __c33_lazy_bind to fill the slot and
+   jumps where it points.  The dynamic linker is libc, so only that
+   function of it is resolver code.  */
+
+static bool
+in_lazy_resolve (CORE_ADDR pc, CORE_ADDR *start)
+{
+  bound_minimal_symbol sym
+    = lookup_minimal_symbol (current_program_space, "__c33_lazy_resolve");
+  CORE_ADDR func, end;
+
+  if (sym.minsym == nullptr
+      || !find_pc_partial_function (pc, NULL, &func, &end)
+      || func != sym.value_address ())
+    return false;
+  if (start != nullptr)
+    *start = func;
+  return true;
+}
+
 bool
 c33_solib_ops::in_dynsym_resolve_code (CORE_ADDR pc) const
 {
-  return ((pc >= interp_text_low && pc < interp_text_high)
-	  || in_plt_section (pc));
+  return in_plt_section (pc) || in_lazy_resolve (pc, nullptr);
+}
+
+/* See solib-c33.h.  */
+
+CORE_ADDR
+c33_skip_solib_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
+{
+  CORE_ADDR start;
+
+  if (!in_lazy_resolve (pc, &start))
+    return 0;
+
+  /* Run past its call to __c33_lazy_bind (a call sign8, ext-prefixed);
+     what follows jumps to the function bound.  */
+  bfd_endian order = gdbarch_byte_order_for_code (gdbarch);
+  for (CORE_ADDR at = start; at < start + 64; at += 2)
+    {
+      unsigned int insn = read_memory_unsigned_integer (at, 2, order);
+
+      if ((insn >> 8) == 0x1c && at + 2 > pc)
+	return at + 2;
+    }
+  return 0;
 }
 
 void
@@ -397,7 +462,6 @@ c33_solib_ops::clear_solib (program_space *pspace) const
   main_loadmap.reset ();
   debug_addr = 0;
   break_done = false;
-  interp_text_low = interp_text_high = 0;
 }
 
 void
