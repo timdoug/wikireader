@@ -302,8 +302,8 @@ RAM, which is then scanned. There is no fbdev: no `/dev/fb0`, no fbdev
 emulation (the driver has the standard hooks, which compile away without
 it). Every program on the panel is a DRM client with a `D1` dumb buffer,
 scanned in place: the console (`console/wr-drm.h`: the connector, a dumb
-buffer added as `D1`, its mapping, and `SETCRTC` to show it or switch the
-CRTC off) and X's modesetting driver. Without an MMU nothing could see
+buffer added as `D1`, its mapping, and atomic commits that show it or
+switch the CRTC's `ACTIVE` off) and X's modesetting driver. Without an MMU nothing could see
 writes through a mapping, so a buffer that is scanned where it is, written
 directly, is the only kind that needs no telling. The console and X hand
 the panel over with the VT: the program leaving drops DRM master before it
