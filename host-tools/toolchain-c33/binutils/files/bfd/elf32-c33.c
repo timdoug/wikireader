@@ -1767,17 +1767,18 @@ c33_elf_reloc_name_lookup (bfd * abfd ATTRIBUTE_UNUSED,
 
    Words naming symbols of other modules are dynamic relocations: R_C33_32
    against the symbol, R_C33_FUNCDESC for a function pointer and
-   R_C33_FUNCDESC_VALUE for a .plt entry's descriptor.  Lazy binding needs
-   the two words of a descriptor read atomically, which nothing guarantees
-   here, so ld.so resolves every descriptor at load.  */
+   R_C33_FUNCDESC_VALUE for a .plt entry's descriptor, which ld.so binds
+   when it is first called: the two words of a descriptor are not read
+   atomically, so the lazy stub names its module by its own address, never
+   by %r15, and ld.so writes a descriptor's %r15 before its entry point.  */
 
 extern const bfd_target c33_elf32_fdpic_vec;
 #define IS_FDPIC(bfd) ((bfd)->xvec == &c33_elf32_fdpic_vec)
 
-#define ELF_DYNAMIC_INTERPRETER	"/lib/ld-uClibc.so.0"
-/* A dynamic module's .got starts with words for ld.so: the third holds
-   the module's struct elf_resolve, which it finds from a descriptor's %r15.
-   Sixteen bytes keep the descriptors after it 8-byte aligned.  */
+#define ELF_DYNAMIC_INTERPRETER	"/lib/ld-musl-c33.so.1"
+/* A dynamic module's .got starts with words for ld.so, the first two its
+   lazy resolver's descriptor.  Sixteen bytes keep the descriptors after
+   it 8-byte aligned.  */
 #define C33FDPIC_GOT_HEADER_SIZE 16
 /* .plt starts with a trampoline to ld.so's lazy resolver, and each entry is
    the 16-byte call through a descriptor followed by the 12-byte stub its
@@ -2684,8 +2685,7 @@ c33fdpic_write_plt_lazy (bfd *output_bfd, bfd_byte *p, bfd_vma reloc_offset,
 }
 
 /* The head of .plt: into ld.so's resolver, whose descriptor every module's
-   .got header holds (ld.so's INIT_GOT), through whichever module's %r15
-   the caller has.
+   .got header holds, through whichever module's %r15 the caller has.
 
 	ld.w	%r14,[%r15]
 	xld.w	%r15,[%r15+4]

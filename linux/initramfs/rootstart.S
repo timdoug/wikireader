@@ -2,7 +2,7 @@
 /*
  * A static FDPIC program with no C library.  The kernel enters with the
  * load map in %r6 and nothing relocated; as crt1 does, relocate the words
- * .rofixup lists (crtreloc.o) and take __dp, relocated, for %r15.
+ * .rofixup lists (self-reloc.c) and take __dp, relocated, for %r15.
  */
 	.text
 	.global _start

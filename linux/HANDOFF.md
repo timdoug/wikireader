@@ -474,12 +474,13 @@ ports (SH, ARM, FRV, Blackfin, csky, nios2). `UPSTREAM-REVIEW.md` (local,
 2026-10-03) is the review this section answers.
 
 Userland follows them. Buildroot (an external tree, its package
-infrastructure), uClibc-ng and BusyBox run as FDPIC ELF with shared
-libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC `ld.so`, NPTL with
-native ELF TLS through a fixed thread-pointer slot (`C33_TLS_SLOT_ADDRESS`),
-64-bit `off_t` and `time_t`. Buildroot patches: the C33 architecture,
-libatomic for the C33, libXfont2's built-in fonts, xterm's external PTY,
-and the Wayland stack, which is off. Every carried patch, kernel, uClibc-ng,
+infrastructure), musl and BusyBox run as FDPIC ELF with shared
+libraries: `binfmt_elf_fdpic`, musl's FDPIC `ld.so` (SuperH's, with the
+C33's relocations), threads with native ELF TLS through a fixed
+thread-pointer slot (`C33_TLS_SLOT_ADDRESS`), 64-bit `off_t` and `time_t`.
+Buildroot patches: the C33 architecture, libatomic for the C33,
+libXfont2's built-in fonts, xterm's external PTY, and the Wayland stack,
+which is off. Every carried patch, kernel, musl,
 GCC, Buildroot and package, has a mail header (From, Subject, description,
 Signed-off-by, and Buildroot's `Upstream:` on package patches). Local
 programs where upstream has nothing that fits: `wr-console`, a userspace
@@ -516,7 +517,7 @@ Where the kernel still departs:
   VT registration (0018) and the FAT cluster-chain walk (0020), `features/`
   no-MMU memory locking (0028) and the other optional generic features,
   `fixes/` the no-MMU correctness fixes that stand on their own.
-  uClibc-ng's and GCC's patches are grouped the same way. `MAP_FIXED`
+  musl's and GCC's patches are grouped the same way. `MAP_FIXED`
   keeps upstream's EINVAL-first order.
 - The HSDMA driver polls for completion and keeps its own lists instead of
   `virt-dma`, by measurement (README): HALT stops SPI-triggered transfers,
@@ -567,15 +568,15 @@ The rest of the port, standards first (see "Standards" above):
    the program's own `.rofixup` self-relocation (3,539 words for BusyBox).
    A linker-merged GOT in place of each file's constant pool would leave
    BusyBox 2,245 distinct words.
-2. **TLS and NPTL.**
-3. **Send upstream** `uclibc/patches/fixes/0003`: uClibc-ng's FDPIC descriptor
-   table rehashes by descriptor address but is searched by entry point, so
-   after the first resize a lookup misses and a second "canonical"
-   descriptor appears (every FDPIC port); and GCC
+2. **TLS and threads.**
+3. **Send upstream** musl's `musl/patches/fixes/`: an FDPIC library's
+   program headers for `dl_iterate_phdr` (exceptions through any shared
+   library on SuperH FDPIC too), `dl_iterate_phdr` callbacks one at a time
+   (libgcc's unwinder cache assumes glibc's locking), and `clock_nanosleep`
+   on a kernel with 64-bit time only; and GCC
    `host-tools/toolchain-c33/gcc/patches/fixes/0004`: libgcc's and libstdc++'s
    `#if __FDPIC__` exception paths are ARM's and call
-   `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/fixes/0002`
-   (the stack guard's time from `clock_gettime64`) too.
+   `_Unwind_gnu_Find_got`, which only ARM defines.
 4. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft
    keyboard is its own program, `console/wr-keyboard.c`, a `uinput` device,
    so keys reach any program; what remains is that the terminal itself is
@@ -685,8 +686,9 @@ it boots the file loader as a direct ELF, which wremu refuses.
   The kernel now names the program at the next exception
   (`stack overflow: sp ..., stack from ...`) and kills it; a user fault
   prints the mapping holding `pc`, `r4`, `r15` and the word at `sp`.
-- **`/proc/PID/maps` names a library by its file**, `libuClibc-1.0.59.so`,
-  not by the `libc.so.1` link a program asked for.
+- **`/proc/PID/maps` names a library by its file**: musl's libc is
+  `/usr/lib/libc.so`, not the `/lib/ld-musl-c33.so.1` link a program asks
+  for.
 - **`boot-test.sh` prints a filtered view of `boot.log`, not the log.** A new
   assertion has to be added in two places: the check list and the final display
   `grep -E`. It also once had two variables named `clock_expected`, which

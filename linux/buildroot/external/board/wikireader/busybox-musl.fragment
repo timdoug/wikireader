@@ -1,3 +1,0 @@
-# vi's regex search uses GNU's re_search, which musl does not have; vi
-# searches for plain strings instead.
-# CONFIG_FEATURE_VI_REGEX_SEARCH is not set

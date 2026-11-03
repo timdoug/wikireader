@@ -361,7 +361,7 @@ by number before it exists. VTs cost about 0.2 s of boot.
 
 Everything on the root filesystem is FDPIC ELF with shared libraries (see
 `host-tools/toolchain-c33/gcc/ABI.md`), loaded by `binfmt_elf_fdpic` and
-uClibc-ng's `ld.so`. Each module, the program and every library, has a text
+musl's `ld.so`, which is its `libc.so`. Each module, the program and every library, has a text
 segment with no absolute address in it and a data segment of its own, which
 its code reaches through `%r15`. A call into another module goes through a
 function descriptor, its entry point and its `%r15`. The kernel maps each
@@ -405,7 +405,7 @@ and kills it if the exception frame would land below its stack.
 
 The kernel's own `/init`, `rootstart`, has no C library but is a static
 FDPIC program all the same (`initramfs/build-freestanding.sh`): its entry
-point relocates it with uClibc-ng's `crtreloc.o`, as the C library's does,
+point relocates it with `initramfs/self-reloc.c`, as musl's `crt1` does,
 and its system calls are veneers of its own. The kernel has no other binary
 format.
 
@@ -438,16 +438,16 @@ Linux-hosted GCC/binutils toolchains into one prefix; it does not reuse the
 Mach-O executables under `host-tools/toolchain-c33/work`:
 
 - `c33-epson-elf-` is the bare-metal compiler, used for the kernel.
-- `c33-linux-uclibc-` is the userspace compiler, for C and C++. It defaults to
+- `c33-linux-musl-` is the userspace compiler, for C and C++. It defaults to
   `-mc33pe -mfdpic` with short calls, which reach any module under 2 MB (the
   largest, Xorg, is 1.3 MB), defines `__uClinux__`, and links FDPIC
-  executables against uClibc-ng's shared libraries in its sysroot, with
-  `/lib/ld-uClibc.so.0` as the interpreter; `-static` links a static FDPIC
+  executables against musl's shared library in its sysroot, with
+  `/lib/ld-musl-c33.so.1` as the interpreter; `-static` links a static FDPIC
   program and `-shared` a library. `-Wl,-z,stack-size=<bytes>` sets a
   program's stack.
 
 The userspace compiler is built against the kernel's UAPI headers and
-uClibc-ng's headers, so `fetch` comes first.
+musl's headers, so `fetch` comes first.
 
 The tests boot Grifo, `init.app` and the MBR flash from `samo-lib`. Build them
 with the repository's normal firmware targets if they are not present.
@@ -479,8 +479,8 @@ with `ulimit -S -c 0`, and restore the default with `ulimit -S -c 8192`
 
 Rootfs builds enable optimized DWARF builds, save the matching unstripped
 ELFs under `linux/artifacts/symbols/` with the target's directory layout, and
-remove debug sections from on-card files. Libc uses `-g` without uClibc's
-`DODEBUG`, which would also disable optimization and change runtime behavior.
+remove debug sections from on-card files. musl is built with `-g`
+(`--enable-debug`), which leaves its optimization as it is.
 Keep the symbol directory with its corresponding `linux.img`: the host tool
 rejects a rootfs build-ID mismatch. For your own SD-card programs, retain
 their unstripped ELFs at the corresponding path under the symbol directory,
@@ -530,7 +530,7 @@ make -C linux signal-test
 make -C linux dt-check
 ```
 
-`fetch` puts the pinned upstream kernel, uClibc-ng and Buildroot revisions
+`fetch` puts the pinned upstream kernel, musl and Buildroot revisions
 from `revisions` on the VM disk. Nothing in the VM is a source: every build
 first makes the trees it reads exactly their revision plus this
 repository's patches and overlay (`sync-trees.sh`, by way of
@@ -547,22 +547,14 @@ built artifacts, use `python3 linux/signal-test.py`; its boot log is saved
 in `linux/artifacts/signal-test-run/`. `--kernel` and `--binary` select saved
 builds for comparisons, and `--output` selects a separate log directory.
 
-`libc` builds a no-MMU C33 uClibc-ng, shared and static, with `ld.so`, the
-native asm-generic syscall ABI and time64 interfaces, and installs it with
-the kernel headers into the `c33-linux-uclibc-` sysroot. Its link regression
-compiles a real `stdio.h` program both dynamically and statically.
-Every program start sets a stack-protector guard from the clock
-(`SSP_QUICK_CANARY`). Without an MMU the guard only catches bugs, and the
-default of reading `/dev/urandom` would make the first program at boot wait
-3.4 s for the kernel's random pool.
+`libc` builds musl for the no-MMU C33 (`musl/README.md`), shared and
+static, with its `ld.so`, the native asm-generic syscall ABI and 64-bit
+time, and installs it with the kernel headers into the `c33-linux-musl-`
+sysroot. Its link regression compiles a real `stdio.h` program both
+dynamically and statically. Every program start sets its stack-protector
+guard from the kernel's `AT_RANDOM`, which never waits for the random pool.
 
-musl is ported beside it, with its own compiler, `c33-linux-musl-`, on the
-same FDPIC ABI: `musl-toolchain`, `musl-libc` and `musl-test` build it and
-run the C library's regression programs against it, through Grifo
-(`musl/README.md`). The default root image is still uClibc-ng's;
-`WR_LIBC=musl` builds the same system on musl, `artifacts/linux-musl.img`.
-
-The library includes NPTL and native ELF TLS on the NOMMU C33. Threads share
+The library has POSIX threads and native ELF TLS on the NOMMU C33. Threads share
 one process ID and have separate kernel thread IDs, with `CLONE_SETTLS`,
 futex joins, per-thread `errno` and compiler `__thread` variables. All four
 ELF TLS models work in executables and shared libraries, including modules
@@ -575,24 +567,24 @@ Reading the thread pointer needs neither a helper call nor a syscall;
 dynamic TLS still uses `__tls_get_addr` to find its module's allocation.
 The ABI and relocations are in `host-tools/toolchain-c33/gcc/ABI.md`.
 
-Default worker stacks are 64 KB; the stack cache retains at most 256 KB,
-instead of the upstream 16 MB default. Stack guards cannot protect memory
-on this machine. NPTL uses the backend's interrupt-masking inline atomics
-and kernel futexes, and remains part of libc. Cancellation uses shared
-`libgcc_s.so.1`, loaded on the first cancellation in ordinary C programs;
-C++ programs that need exception handling load it at startup.
-The unwinder discovers module frames through
+Default worker stacks are 64 KB, with no guard area: stack guards cannot
+protect memory on this machine. Threads use the backend's
+interrupt-masking inline atomics and kernel futexes, and are part of libc.
+Cancellation runs a thread's cleanup handlers and its TLS and key
+destructors, but, as musl does everywhere, not C++ destructors. C++
+programs that need exception handling load the shared `libgcc_s.so.1` at
+startup. The unwinder discovers module frames through
 `dl_iterate_phdr` and `PT_GNU_EH_FRAME` headers.
 The tables, ld's sorted search table and the FDEs it indexes, are in the
 shared read-only segment, PC-relative to code and `%r15`-relative to data,
-and are searched as on FRV. Lookup finishes inside the
-serialized program-header callback; it allocates no FDE index and needs no
+and are searched as on FRV. Lookup finishes inside the program-header
+callback, which musl runs one at a time; it allocates no FDE index and needs no
 runtime sorting. Tables cost 12 bytes plus 8 bytes per FDE, shared between
 processes. Older modules without search tables fall back to linear scanning.
 The large C++ test's first throw fell from about 108 ms with runtime indexing
 to about 6 ms, while repeated libstdc++ throws remain about 3.8 ms in wremu.
-`libc` builds the optional runtime after
-installing libc, then installs it in the sysroot.
+`libc` builds the shared runtimes after
+installing libc, then installs them in the sysroot.
 `rootfs` includes the runtime and matching host symbols automatically.
 The post-runtime build checks that the arithmetic archive contains no
 unwind objects, that the dynamic C++ test uses the shared unwinder, and that
@@ -629,39 +621,26 @@ touchscreen without a timer, then checks their original thread pointers,
 TLS values and `errno` after touch wakes the machine. The C++ regression
 also throws through a shared library across repeated `dlopen`/`dlclose`.
 
-uClibc-ng has wide characters, which libstdc++ and many packages need; they
-are about 8 KB of libc's text. It has no locales, which would be 90 KB of
-libc's text for `en_US.UTF-8`; when enabled (`UCLIBC_HAS_LOCALE`), their
-generated tables go into a build directory `patches/arch/0038` makes first, a
-race under `make -j`. `<uchar.h>` is there, and
-patches add C11's `<threads.h>` (`patches/arch/0034`, over pthreads),
-`timespec_get` and `struct timespec` in strict C11 (`0035`), and
-`reallocarray` with every allocator, not only the MMU's (`0036`).
-`patches/arch/0037` fixes `struct stat` as strict C (`-std=c99` and the like)
-declares it on 32-bit machines with 64-bit time: its timestamps were `int`,
-12 bytes short of what `stat` fills, so FreeType, built that way, had its
-stack overwritten opening a font. `libc` compiles
-`uclibc/stat-layout-test.c` in strict C to keep it so.
+musl has wide characters and UTF-8 throughout, with no locale data to
+install: its `C.UTF-8` is built in. C11's `<threads.h>` and `<uchar.h>`,
+`timespec_get`, `reallocarray` and a `struct stat` with `struct timespec`
+timestamps in strict C as in every other mode are all musl's own.
 
-The allocator is uClibc-ng's `malloc`, the one for machines without an MMU:
-its heap grows by page-sized `mmap`s and keeps its free areas in one list in
-address order. `uclibc/patches/perf/0039` starts every search at a finger, the free
-area of the last change, instead of the head; a free used to walk the list
-as far as its place, and that was a fifth of compiling a keymap here.
-`uclibc/patches/fixes/0040` fixes `memalign`, which could make blocks too small to hold
-the free-area record written into them when freed, overwriting the end of
-the block before. `uclibc/malloc-test.c`, run by `app-test`, frees such a
-block between live ones, then mixes `malloc`, `free`, `realloc` and
-`memalign` at random, checking every block's contents and that no two
+The allocator is musl's `oldmalloc`, which grows its heap by `mmap` where
+no-MMU Linux has no `brk`, and keeps its free chunks in size bins;
+`mallocng`, musl's default, returns memory in pieces, which a no-MMU
+mapping cannot be. `musl/tests/malloc-test.c`, run by `app-test`, frees a
+`memalign` block between live ones, then mixes `malloc`, `free`, `realloc`
+and `memalign` at random, checking every block's contents and that no two
 overlap.
 
 The compiler is built in the two passes a cross compiler takes. The first,
-C only and without shared runtimes, builds uClibc-ng; `make -C linux libc`
+C only and without shared runtimes, builds musl; `make -C linux libc`
 then installs the library and runs the final pass against it
 (`toolchain.sh final`), which builds C++ and GCC's runtimes with their
 shared libraries, `libgcc_s`, `libstdc++` and `libatomic`, the archives
 beside them, and puts the shared ones in the sysroot's `lib/` with the C
-library, where Buildroot takes them for the card. `uclibc/tests.sh` then
+library, where Buildroot takes them for the card. `musl/tests.sh` then
 builds the regression programs with it. Link programs that need
 `libatomic` with `-pthread -latomic` after their objects. Buildroot
 recognizes the C33 FDPIC toolchain as providing libatomic, so packages
@@ -675,12 +654,9 @@ discovery; static programs register their frames with `crtbeginT.o`. A
 personality routine is reached through a word holding its function
 descriptor. A C program carries about 500 bytes of unwind tables from
 libgcc. C++ also carries unwind tables, vtables, typeinfo and locale tables.
-Both libc and C++ use the shared unwinder so cancellation runs C++
-destructors. Ordinary arithmetic helpers remain in the static libgcc
-archive. Threads call pthreads directly: uClibc-ng claims
-to be glibc 2.2, so gthreads would otherwise judge a program threaded by a
-weak reference to `__pthread_key_create`, which the earlier LinuxThreads did not have
-(`host-tools/toolchain-c33/gcc/patches/fixes/0003`). Atomics of up to 4 bytes are
+C++ uses the shared unwinder. Ordinary arithmetic helpers remain in the
+static libgcc archive. Threads call pthreads directly, which musl's libc
+holds (`GTHREAD_USE_WEAK` is 0 in `c33/linux.h`). Atomics of up to 4 bytes are
 inline and lock-free, masking interrupts around their read/modify/write.
 The runtime supplies 64-bit operations and generic aggregate load, store,
 exchange and compare-exchange. These use GCC's POSIX pthread-mutex fallback
@@ -817,7 +793,7 @@ external toolchain only. The `buildroot/external/` tree holds the defconfig,
 the BusyBox configuration and the packages, among them `wr-console` (the
 console and its keyboard) and `wikireader-system`. The latter installs `initramfs/`'s init configuration
 and builds `wr-selftest`.
-Buildroot builds with `c33-linux-uclibc-` from `toolchain`, as FDPIC with
+Buildroot builds with `c33-linux-musl-` from `toolchain`, as FDPIC with
 shared libraries. Everything is compiled with `-ffunction-sections
 -fdata-sections` and linked with `--gc-sections`, so a program keeps only
 the functions it reaches, and a library only what it exports and they
@@ -846,11 +822,10 @@ credits: one every build shared would be public.
 The image also carries `sl`, with ncurses and its terminfo, and Info-ZIP
 `zip` (147 KB of code and 320 KB of buffers while it runs). BusyBox
 provides `bzip2`, `bunzip2`, `bzcat`, `uudecode`, `tar -j`, `echo -n` and
-fractional `sleep`, together about 20 KB of its shared code. uClibc-ng
-provides what Buildroot's own uClibc configuration offers packages, such as
-the SUSv2 to SUSv4 legacy functions, `nftw`, GNU `glob`, `%m`, memory streams,
-`wordexp` and `libutil`. It leaves out Sun RPC and `getcontext`, which has
-no C33 implementation.
+fractional `sleep`, together about 20 KB of its shared code. musl provides
+what packages ask of a C library, such as the SUSv2 to SUSv4 legacy
+functions, `nftw`, `%m`, memory streams, `wordexp` and `openpty`. It has no
+Sun RPC and no `getcontext`.
 
 BusyBox 1.38.0 is an FDPIC program with an interactive `hush`, core file and
 text tools, checksums, archive/compression tools, filesystem inspection, and
@@ -957,7 +932,7 @@ only from buttons, and a touch is its only button), whose Exit ends the
 session. twm's configuration (`wikireader.twmrc`)
 uses the server's built-in `fixed` font and places windows itself, since
 placing one by hand is awkward by touch. Menu commands start through
-`system()`, which uClibc does with `vfork`. xeyes asks for XInput 2.2 rather than 2.0
+`system()`, which musl does with `posix_spawn`. xeyes asks for XInput 2.2 rather than 2.0
 (`buildroot/external/patches/xapp_xeyes`): a 2.0 client gets no raw motion
 while another client has the pointer grabbed, and twm has it grabbed for any
 drag that starts on the background or a frame. It also drops raw motion
@@ -1035,10 +1010,8 @@ the image: X starts in 6 s and runs the same clients, where this took 14 to
 18 s to show a terminal. Its packages stay in `buildroot/external` and its
 patches apply; to build it, add to the Buildroot defconfig
 `BR2_PACKAGE_LIBUDEV_ZERO`, `BR2_PACKAGE_CAGE`, `BR2_PACKAGE_FOOT` and
-`BR2_PACKAGE_WR_WAYLAND` (and leave out hwdata's PCI and USB ids), and give
-uClibc-ng a UTF-8 locale (`UCLIBC_HAS_LOCALE`, `UCLIBC_HAS_XLOCALE`,
-`UCLIBC_BUILD_MINIMAL_LOCALE`, `en_US`, with `en_US.UTF-8` generated in the
-VM) and Buildroot `BR2_TOOLCHAIN_EXTERNAL_LOCALE`. Then `startw` at the
+`BR2_PACKAGE_WR_WAYLAND` (and leave out hwdata's PCI and USB ids); musl's
+UTF-8 is built in. Then `startw` at the
 console prompt starts cage 0.3, a
 compositor that shows one application full screen, on wlroots 0.20's pixman
 renderer and DRM backend, with foot 1.26 in it and `wlkeyboard`, the soft
@@ -1052,11 +1025,10 @@ which the DRM driver converts to the panel where damaged.
 `buildroot/patches/0005` lets wlroots build without EGL and GBM (it
 allocates DRM dumb buffers and renders with pixman whatever else it has),
 lets seatd and libseat build without an MMU, and gives Buildroot
-`BR2_TOOLCHAIN_HAS_C11_THREADS`, which fcft and foot need and the external
-uClibc-ng toolchain now has. In `buildroot/external/patches`, cage and
-foot start their clients with `vfork`, foot leaves out glibc's
-`malloc_trim` (uClibc-ng claims to be glibc but has it only for the MMU
-allocator), libxkbcommon maps files privately (a shared mapping of an ext4
+`BR2_TOOLCHAIN_HAS_C11_THREADS`, which fcft and foot need and musl has. In
+`buildroot/external/patches`, cage and foot start their clients with
+`vfork`, foot leaves out glibc's `malloc_trim` where the C library has
+none, libxkbcommon maps files privately (a shared mapping of an ext4
 file fails without an MMU), and cage gets the layer shell (`cage/0002`):
 layer surfaces drawn above or below the application, which gets the space
 their exclusive zones leave; touch and pointer reach them; they take no
@@ -1350,10 +1322,10 @@ reproduction commands. Artifacts and detailed reports live under
 `linux/artifacts/ltp-*`. These runs use wremu with 32 MiB SDRAM; physical
 hardware and the 16 MiB configuration remain separate validation.
 
-## Upstream BusyBox and uClibc tests
+## Upstream BusyBox tests
 
-`linux/upstream-tests/` builds the upstream libc inventory and runs it and
-BusyBox's applet and Hush suites through Grifo on disposable virtual cards.
+`linux/upstream-tests/` builds BusyBox's applet and Hush suites and runs
+them through Grifo on disposable virtual cards.
 It preserves build errors, runtime skips, failures, timeouts and crashes,
 and checks individual shell coverage after an interrupted module. See
 [upstream-tests/README.md](upstream-tests/README.md) for source revisions,
@@ -1362,7 +1334,8 @@ reproduction commands, results and the resulting bug backlog.
 ## GCC and binutils test suites
 
 `make -C linux binutils-test` runs the gas, binutils and ld suites in the
-`c33-linux-uclibc` build tree:
+`c33-linux-musl` build tree. Measured in the uClibc-ng tree that preceded
+it, whose linker differed only in its default interpreter:
 
 | Suite | Results |
 | --- | --- |
@@ -1377,15 +1350,16 @@ relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
 
 `make -C linux gcc-test` runs GCC's execute torture (`GCC_TESTS` takes other
 runtest selectors) with the installed compiler, and its programs in Linux in
-wremu, booted through Grifo: **24,354 passes, no failures**. 204 are
-unsupported: nested-function trampolines, which GCC does not
-make for `-mfdpic`, 128-bit integers, decimal float, uClibc's partial C99
-math, and GCC's expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
+wremu, booted through Grifo. The results below are uClibc-ng's, before the
+move to musl, and have not been repeated on musl: **24,354 passes, no
+failures**. 204 were unsupported: nested-function trampolines, which GCC
+does not make for `-mfdpic`, 128-bit integers, decimal float, uClibc-ng's
+partial C99 math, and GCC's expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
 suite: 39,553 passes and no failures, with the same per-target expectations
 upstream gives other ports, added by `gcc-glue.py`: no MMU (a null store
 does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
-uClibc-ng has no `_FORTIFY_SOURCE` functions and sets `errno` from libm only
-when built with `fenv`. `run.py --tool=g++` runs `g++.dg`, its torture and
+musl has no `_FORTIFY_SOURCE` functions and its libm reports errors by
+exception, not `errno`. `run.py --tool=g++` runs `g++.dg`, its torture and
 `g++.old-deja` at C++17: 56,909 passes, and the 23 failures of that run are
 fixed or marked, each checked by name (a complete rerun is still to do).
 The C++ ones found three port bugs, all fixed: no multiple-inheritance

@@ -29,7 +29,7 @@ WikiReader firmware.
 The exact-source binutils testsuites have no unexpected failures, for
 bare metal and for no-MMU Linux (`make -C linux binutils-test`):
 
-| Suite | `c33-epson-elf` | `c33-linux-uclibc` |
+| Suite | `c33-epson-elf` | `c33-linux-musl` (measured as `c33-linux-uclibc`) |
 | --- | --- | --- |
 | gas | 340 passes, 10 unsupported | 340 passes, 10 unsupported |
 | binutils | 240 passes, 18 untested, 17 unsupported | 242 passes, 18 untested, 13 unsupported |
@@ -191,7 +191,7 @@ Additional independent checks are:
 
 ## Supported target contract
 
-- target triplets: `c33-epson-elf` for bare metal, and `c33-linux-uclibc`
+- target triplets: `c33-epson-elf` for bare metal, and `c33-linux-musl`
   for no-MMU Linux userspace, FDPIC (below);
 - cores: `-mc33`, `-mc33adv`, and `-mc33pe`;
 - PE is the WikiReader core and uses strict natural alignment;
@@ -205,7 +205,7 @@ Additional independent checks are:
 - PE software division comes from generic C libgcc helpers because the PE core
   removes the older divide-step instructions.
 
-`c33-linux-uclibc` is the same backend configured by `gcc/config/c33/linux.h`,
+`c33-linux-musl` is the same backend configured by `gcc/config/c33/linux.h`,
 building FDPIC ELF for no-MMU Linux with shared libraries: `-mcore=c33pe
 -mfdpic` and short calls by default, with the FDPIC rules in
 [`gcc/ABI.md`](gcc/ABI.md). A direct call never leaves its module (a call
@@ -215,9 +215,9 @@ either way; `ld` reports a call out of reach, and a bigger module needs
 and `__FDPIC__`, and uses glibc's `<stdint.h>` type conventions. Its `ld`
 defaults to the `c33fdpic` emulation (`elf32-c33fdpic` output), which writes
 `.plt` entries, function descriptors, dynamic relocations and the `.rofixup`
-list executables relocate themselves with; a program links against
-uClibc-ng's `libc.so` and runs under its `ld-uClibc.so`. `binutils/build.sh`
-and `gcc/rebuild.sh` build it with `C33_TARGET=c33-linux-uclibc`;
+list executables relocate themselves with; a program links against musl's
+`libc.so` and runs under it, as `/lib/ld-musl-c33.so.1`. `binutils/build.sh`
+and `gcc/rebuild.sh` build it with `C33_TARGET=c33-linux-musl`;
 `linux/toolchain.sh` supplies the sysroot.
 
 See [`gcc/ABI.md`](gcc/ABI.md) for registers, frames, arguments, returns,

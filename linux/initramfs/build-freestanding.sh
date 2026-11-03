@@ -1,11 +1,11 @@
 #!/bin/sh
 # Build a program with no C library as a static FDPIC ELF: its own entry
 # point and syscall veneers in START.S, the rest in C.  The entry relocates
-# the program with the C library's crtreloc.o, as crt1 does.
+# the program with self-reloc.c, as musl's crt1 does.
 #
 #   build-freestanding.sh CROSS_PREFIX OUTPUT START.S C_FILE [CFLAGS...]
 #
-# CROSS_PREFIX is the Linux compiler's, e.g. .../bin/c33-linux-uclibc-.
+# CROSS_PREFIX is the Linux compiler's, e.g. .../bin/c33-linux-musl-.
 set -eu
 
 if [ "$#" -lt 4 ]; then
@@ -23,4 +23,4 @@ shift 4
 	-fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ffunction-sections -fdata-sections "$@" \
 	-static -nostdlib -s -Wl,--gc-sections -o "$out" "$start" "$source" \
-	"$("${cross}gcc" -print-file-name=crtreloc.o)" -lgcc
+	"$(dirname "$0")/self-reloc.c" -lgcc

@@ -5,7 +5,7 @@
 #   ./build.sh [workdir]
 #
 # Produces c33-epson-elf-{objdump,readelf,as,ld,...} in $workdir/install.
-# C33_TARGET selects another triplet, such as c33-linux-uclibc, built in its
+# C33_TARGET selects another triplet, such as c33-linux-musl, built in its
 # own directory beside the default one; C33_BINUTILS_CONFIGURE adds
 # configure options for it.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GCC's testsuite for c33-linux-uclibc, its programs run in Linux in wremu.
+"""GCC's testsuite for c33-linux-musl, its programs run in Linux in wremu.
 
     run.py [runtest selectors]	(default: the execute torture)
 
@@ -108,7 +108,7 @@ def main():
     spec.loader.exec_module(app)
     fat = app.load_fat_helper(ROOT)
     EXECUTED.mkdir(parents=True, exist_ok=True)
-    vm("sh", "-c", "~/wr-linux/toolchain/install/bin/c33-linux-uclibc-gcc -O2 -Wall "
+    vm("sh", "-c", "~/wr-linux/toolchain/install/bin/c33-linux-musl-gcc -O2 -Wall "
        "-Werror linux/gcc-test/runner.c -o linux/artifacts/gcc-test/runner")
     for attempt in range(8):
         print(vm("linux/gcc-test/run-gcc.sh", *sys.argv[1:]), end="", flush=True)

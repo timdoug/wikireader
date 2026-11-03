@@ -20,7 +20,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     source = args.guest / "buildroot-build/build/busybox-1.38.0"
     script = source / "testsuite/all_sourcecode.tests"
-    prefix = args.guest / "toolchain/install/bin/c33-linux-uclibc-"
+    prefix = args.guest / "toolchain/install/bin/c33-linux-musl-"
     env = {**os.environ, "srcdir": str(source / "testsuite"), "CROSS_COMPILE": str(prefix),
            "ECHO": "/usr/bin/echo", "VERBOSE": "1", "LC_ALL": "C"}
     with tempfile.TemporaryDirectory(prefix="wr-busybox-source-") as directory:

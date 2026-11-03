@@ -52,8 +52,8 @@ static void start_keyboard(const char *window, int slave)
     if (slave > 2)
         posix_spawn_file_actions_addclose(&actions, slave);
     posix_spawnattr_setpgroup(&attributes, 0);
-    /* uClibc forks for a new process group unless told vfork is safe, and
-     * without an MMU it cannot fork. */
+    /* Without an MMU there is no fork: the spawn must be vfork's kind,
+     * which musl's always is and the flag says for any C library. */
     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_USEVFORK);
     if (posix_spawnp(&pid, "xkeyboard", &actions, &attributes, args, environ) != 0)
         fputs("xterm: cannot start xkeyboard\n", stderr);

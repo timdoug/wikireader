@@ -18,7 +18,7 @@ static void handler(int signal_number)
 
 int main(void)
 {
-	struct sigaction action = {0}, previous, queried, snapshot;
+	struct sigaction action = {0}, previous = {0}, queried = {0}, snapshot = {0};
 	int ok;
 	action.sa_handler = handler;
 	sigemptyset(&action.sa_mask);

@@ -1,4 +1,4 @@
-/* Definitions for C33 no-MMU Linux (uClinux) with uClibc-ng or musl.
+/* Definitions for C33 no-MMU Linux (uClinux) with musl.
    Copyright (C) 2026 Free Software Foundation, Inc.
 
    This file is part of GCC.
@@ -39,25 +39,8 @@
 #undef ASM_FDPIC_SPEC
 #define ASM_FDPIC_SPEC "%{mfdpic:-mfdpic;:-mno-fdpic}"
 
-/* uClibc-ng as built here (DO_C99_MATH) has C94's and C99's library
-   functions and sincos, but not all of C99's complex ones (csqrt) or C11's
-   aligned_alloc: what GCC calls a BSD libc.  linux.h assumes a uClibc has
-   none, which stops GCC folding to round, exp2 and the like.  musl has
-   them all, which linux.h knows.  */
-#if DEFAULT_LIBC != LIBC_MUSL
-#undef TARGET_LIBC_HAS_FUNCTION
-#define TARGET_LIBC_HAS_FUNCTION bsd_libc_has_function
-#endif
-
-/* The dynamic linker, and the object with which an executable relocates
-   itself: uClibc-ng's crtreloc.o, or for musl, crt1.o itself.  */
-#if DEFAULT_LIBC == LIBC_MUSL
+/* musl's ld.so, which is its libc.so.  */
 #define C33_DYNAMIC_LINKER "/lib/ld-musl-c33.so.1"
-#define C33_SELF_RELOC_SPEC ""
-#else
-#define C33_DYNAMIC_LINKER "/lib/ld-uClibc.so.0"
-#define C33_SELF_RELOC_SPEC "%{!mno-fdpic:crtreloc.o%s}"
-#endif
 
 /* Thread-local common data, which ld places in .tbss.  */
 #undef ASM_OUTPUT_TLS_COMMON
@@ -90,13 +73,13 @@
 #undef CPP_SPEC
 #define CPP_SPEC "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
 
-/* The C library's startup code, and what an executable relocates itself
-   with before anything else.  Constructors run from
+/* musl's startup code, whose crt1.o relocates the executable before
+   anything else.  Constructors run from
    .init_array, which the linker script collects. Static crtbeginT registers
    .eh_frame; dynamic modules use PT_GNU_EH_FRAME discovery. */
 #undef STARTFILE_SPEC
 #define STARTFILE_SPEC \
-  "%{!shared:crt1.o%s " C33_SELF_RELOC_SPEC "} crti.o%s \
+  "%{!shared:crt1.o%s} crti.o%s \
    %{shared:crtbeginS.o%s;static:crtbeginT.o%s;:crtbegin.o%s}"
 
 #undef ENDFILE_SPEC
@@ -111,17 +94,16 @@
 #define DWARF2_UNWIND_INFO 1
 #define CRT_GET_RFIB_DATA(BASE) __asm__ ("ld.w %0,%%r15" : "=r" (BASE))
 
-/* crtstuff.c turns PT_GNU_EH_FRAME off for every uClibc, and for any C
-   library but glibc; uClibc-ng's and musl's dl_iterate_phdr give the load
-   map it needs.  crtbeginT.o, for static programs, keeps registering its
+/* crtstuff.c turns PT_GNU_EH_FRAME off for any C library but glibc;
+   musl's dl_iterate_phdr gives the load map it needs.  crtbeginT.o, for static programs, keeps registering its
    tables.  */
 #if (defined CRT_BEGIN || defined CRT_END) && defined HAVE_LD_EH_FRAME_HDR \
     && !defined CRTSTUFFT_O
 #define USE_PT_GNU_EH_FRAME
 #endif
 
-/* uClibc-ng's libc holds the thread library, as musl's does, so libgcc
-   calls pthreads directly.  A weak reference would decide a program was single-threaded
+/* musl's libc holds the thread library, so libgcc calls pthreads
+   directly.  A weak reference would decide a program was single-threaded
    whenever nothing else had pulled in the object it names.  */
 #define GTHREAD_USE_WEAK 0
 

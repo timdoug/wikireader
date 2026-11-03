@@ -13,15 +13,14 @@
 #
 #   ./rebuild.sh [workdir [compiler|final]]
 #
-# C33_TARGET=c33-linux-uclibc, or c33-linux-musl, builds a no-MMU Linux
-# compiler instead, into the same prefix, in the two passes a cross
-# toolchain takes.  The first ("compiler", in build-TARGET-stage1) is C
-# only, without threads or shared runtimes, against a sysroot holding the
-# kernel's and the C library's headers: enough to build the C library.  The
-# final pass ("final", in build-TARGET), once the C library is installed,
-# builds C and C++ and the runtimes with their shared libraries: libgcc_s,
-# libstdc++ and libatomic.  linux/toolchain.sh and linux/Makefile run them
-# in order.
+# C33_TARGET=c33-linux-musl builds the no-MMU Linux compiler instead, into
+# the same prefix, in the two passes a cross toolchain takes.  The first
+# ("compiler", in build-TARGET-stage1) is C only, without threads or shared
+# runtimes, against a sysroot holding the kernel's and musl's headers:
+# enough to build musl.  The final pass ("final", in build-TARGET), once
+# musl is installed, builds C and C++ and the runtimes with their shared
+# libraries: libgcc_s, libstdc++ and libatomic.  linux/toolchain.sh and
+# linux/Makefile run them in order.
 
 set -e
 

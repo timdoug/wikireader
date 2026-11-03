@@ -331,26 +331,24 @@ scratch:
 
 ## Native Linux TLS
 
-Linux uses ELF TLS with uClibc-ng NPTL. The general-register calling convention
+Linux uses ELF TLS with musl's threads. The general-register calling convention
 is unchanged: `%r2` remains callee-saved and available to the allocator. The
 bare-metal compiler continues to use GCC's emulated TLS.
 
 The thread pointer is read inline from the aligned A0 RAM word at
 `0x00001fbc`, reserved by the kernel outside the IRAM allocator. GCC emits
 `xld.w %rN,0x1fbc; ld.w %rN,[%rN]` and can combine or hoist reads within
-a thread. libc uses the same builtin for `THREAD_SELF` and the DTV.
-`__c33_read_tp()` remains as a compatibility wrapper; syscall 246
-(`c33_get_tls_slot`) returns the fixed address. Context switches publish
-the incoming thread's TLS base with interrupts disabled. On this UP NOMMU
-machine, an aligned read returns the caller's TP
-even if it is preempted between loads. Syscall 244 (`c33_set_tls`) sets TP;
-245 (`c33_get_tls`) reads it. `CLONE_SETTLS` initializes the child's TP;
+a thread. libc uses the same builtin for `__get_tp`. Context switches
+publish the incoming thread's TLS base with interrupts disabled. On this UP
+NOMMU machine, an aligned read returns the caller's TP even if it is
+preempted between loads. Syscall 244 (`c33_set_tls`) sets TP.
+`CLONE_SETTLS` initializes the child's TP;
 otherwise clone inherits it. Exec clears TP before the new loader initializes
 it. `PTRACE_GET_THREAD_AREA` and `PTRACE_SET_THREAD_AREA` use index zero and
 a pointer to a 32-bit word.
 
-The variant-I TCB at TP contains a DTV pointer and a private word (8 bytes),
-with `struct pthread` immediately before it. The first static TLS block
+Variant I: TP points just past `struct pthread`, whose last member is the
+DTV pointer, and the 8 bytes from TP are the TCB's. The first static TLS block
 starts at `align_up(8, PT_TLS.p_align)` relative to TP. Each subsequent
 module's placement is chosen by ld.so. TLS symbol values are offsets within
 their module's template, including the valid offset zero.
@@ -397,8 +395,8 @@ use `crtbeginT` and explicit registration in the static unwinder. The
 unwinder recognizes the kernel's `rt_sigreturn` trampoline and restores
 registers from the signal frame, so cancellation can unwind a signal handler.
 
-C33/uClibc FDPIC lookup finishes inside the serialized `dl_iterate_phdr`
-callback, so a concurrent `dlclose` cannot remove a module during lookup.
+C33 FDPIC lookup finishes inside the `dl_iterate_phdr` callback, which
+musl runs one at a time, so a concurrent `dlclose` cannot remove a module during lookup.
 There is no allocated FDE index, sorting pass or retained FDE pointer cache.
 Each table costs 12 bytes plus 8 bytes per FDE, shared with the module's text.
 Older eight-byte headers without search tables retain linear FDE lookup.
@@ -501,7 +499,7 @@ Linux userland is FDPIC ELF: an executable and each shared library it uses
 is a module with a text segment, shared by every process, and a data
 segment of its own per process, placed independently of the text. `-mfdpic`
 is `-msep-data` plus the rules that let code in one module call another.
-It is the default for `c33-linux-uclibc`; `-mno-fdpic` still builds the
+It is the default for `c33-linux-musl`; `-mno-fdpic` still builds the
 older static code. The object's ELF header carries `EF_C33_FDPIC` (1), and
 the FDPIC linker refuses objects without it.
 
@@ -520,7 +518,7 @@ the FDPIC linker refuses objects without it.
   `f@FUNCDESC`, and a function has one canonical descriptor per program.
   The constructor tables (`.init_array`, `.fini_array`) are the exception,
   as on ARM FDPIC: the compiler's constructor hook writes entry points,
-  which uClibc's startup code and `ld.so` call with the module's own
+  which musl's startup code and `ld.so` call with the module's own
   `%r15`.
 - **An indirect call** loads the callee's `%r15` from the descriptor, then
   its entry point into `%r14`, and calls it:

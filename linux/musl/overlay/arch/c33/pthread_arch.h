@@ -17,3 +17,6 @@ static inline uintptr_t __get_tp()
 /* Without an MMU nothing protects a guard page: it would only be memory
  * taken from every thread. */
 #define DEFAULT_GUARD_SIZE 0
+
+/* A thread's stack is taken whole from 32 MB of RAM. */
+#define DEFAULT_STACK_SIZE 65536

@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 guest_root=${WR_LINUX_GUEST_ROOT:-/home/$USER.guest/wr-linux}
 tool_dir=${C33_TOOLCHAIN_WORK:-$guest_root/toolchain}
-cross=$tool_dir/install/bin/c33-linux-uclibc-
+cross=$tool_dir/install/bin/c33-linux-musl-
 build=$guest_root/debug-build
 symbols=$root/linux/artifacts/symbols/mnt/sd
 mkdir -p "$build" "$symbols"

@@ -33,7 +33,7 @@ on the device and in the emulator.
 
 - `host-tools/toolchain-c33`: binutils 2.47 and GCC 16.2 for the C33. There
   are two targets. `c33-epson-elf-` builds the firmware and applications.
-  `c33-linux-uclibc-` builds C and C++ programs for Linux, as FDPIC ELF with
+  `c33-linux-musl-` builds C and C++ programs for Linux, as FDPIC ELF with
   shared libraries. The binutils test suites pass with no unexpected failures
   on both targets. GCC's execute torture suite runs inside Linux in the
   emulator: 24,353 tests pass and one fails. We kept the original binutils
@@ -95,7 +95,7 @@ on the device and in the emulator.
 
   Buildroot 2026.08.1 builds the root filesystem, a 24 MB ext4 image that
   lives as one file on the card's FAT partition. All programs share one copy
-  of BusyBox and of uClibc-ng in memory. On screen, Linux shows a terminal
+  of BusyBox and of musl in memory. On screen, Linux shows a terminal
   with a touch keyboard. `startx` starts X11 (Xfbdev, twm, xterm and xeyes),
   which you control by touch. Suspend works, and a touch wakes the device. On
   the device, the shell prompt appears 4.76 s after the kernel starts. C++ works,

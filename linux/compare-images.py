@@ -5,7 +5,7 @@ available at the prompt, 40 execs of /bin/true from the shell, startx to
 the first command an xterm runs beside xeyes and twm, and memory available
 with that desktop up.
 
-    compare-images.py linux.img linux-musl.img [--runs N]
+    compare-images.py saved.img artifacts/linux.img [--runs N]
 
 Times are the guest's (/proc/uptime and the kernel log), so they are the
 emulated machine's, not the host's.

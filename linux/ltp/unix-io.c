@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -85,12 +86,10 @@ static void batches(void)
         CHECK(sender.result == 1 && bytes[0] == 't' && messages[0].msg_len == 1);
         CHECK(elapsed >= 25000000 && elapsed < 2000000000);
         CHECK(timeout.before == 0x12345678 && timeout.after == 0x87654321);
-        if (!wide)
-            CHECK(timeout.value.tv_sec == 0 && timeout.value.tv_nsec >= 0 &&
-                  timeout.value.tv_nsec < 240000000);
-        else
-            CHECK(timeout.value.tv_sec == 2147483999LL &&
-                  timeout.value.tv_nsec >= 0 && timeout.value.tv_nsec < 240000000);
+        /* musl hands the kernel a copy: the timeout is as given, where
+           Linux's own call would write back what was left. */
+        CHECK(timeout.value.tv_sec == (wide ? 2147483999LL : 0) &&
+              timeout.value.tv_nsec == 250000000);
     }
     struct timespec timeout = {0, -1}, original = timeout;
     errno = 0;

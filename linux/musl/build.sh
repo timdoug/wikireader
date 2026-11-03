@@ -53,7 +53,7 @@ make -C "$linux_source" O="$headers_build" ARCH=c33 CROSS_COMPILE="$cross" \
 # be; oldmalloc grows by mmap and keeps what it has.
 cd "$build_dir"
 "$musl_source/configure" --target=$target --prefix=/usr --syslibdir=/lib \
-	--with-malloc=oldmalloc CC="${cross}gcc" AR="${cross}ar" \
+	--with-malloc=oldmalloc --enable-debug CC="${cross}gcc" AR="${cross}ar" \
 	RANLIB="${cross}ranlib"
 
 if [ "$mode" = headers ]; then

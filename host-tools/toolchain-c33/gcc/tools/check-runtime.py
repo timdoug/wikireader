@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 prefix = Path(sys.argv[1])
-target = os.environ.get("C33_TARGET", "c33-linux-uclibc")
+target = os.environ.get("C33_TARGET", "c33-linux-musl")
 def run(tool, *args):
     return subprocess.check_output([str(prefix / "bin" / (target + "-" + tool)),
                                     *map(str, args)], text=True)

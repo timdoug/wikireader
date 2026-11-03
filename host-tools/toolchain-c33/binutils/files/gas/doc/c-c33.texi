@@ -61,7 +61,7 @@ Mark the object as FDPIC code, by setting @code{EF_C33_FDPIC} in the ELF
 header's @code{e_flags}.  Only the @code{elf32-c33fdpic} target accepts
 such objects, and the FDPIC linker does not accept objects without the
 flag.  This is the default when @code{@value{AS}} is configured for
-@samp{c33-*-linux-uclibc}.
+@samp{c33-*-linux-musl}.
 
 @cindex @code{-mno-fdpic} command-line option, C33
 @item -mno-fdpic

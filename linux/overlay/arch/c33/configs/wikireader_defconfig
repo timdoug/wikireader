@@ -1,5 +1,5 @@
 CONFIG_EXPERT=y
-# 64-bit time only, as uClibc-ng is built: no time32 system calls.
+# 64-bit time only, as musl is built: no time32 system calls.
 # CONFIG_COMPAT_32BIT_TIME is not set
 CONFIG_DEFAULT_HOSTNAME="wikireader"
 CONFIG_PRINTK=y

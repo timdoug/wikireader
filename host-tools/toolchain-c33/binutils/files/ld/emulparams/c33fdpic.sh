@@ -15,7 +15,7 @@ ENTRY=_start
 TEMPLATE_NAME=elf
 GENERATE_SHLIB_SCRIPT=yes
 GENERATE_PIE_SCRIPT=yes
-ELF_INTERPRETER_NAME=\"/lib/ld-uClibc.so.0\"
+ELF_INTERPRETER_NAME=\"/lib/ld-musl-c33.so.1\"
 NO_SMALL_DATA=" "
 # .got is placed by INITIAL_DATA_SECTIONS, not where elf.sc puts a GOT.
 GOT=" "

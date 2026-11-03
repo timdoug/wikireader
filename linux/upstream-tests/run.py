@@ -36,9 +36,7 @@ def hush_output(segment):
 
 
 def verdict(suite, case, code, segment):
-    if suite == "uclibc":
-        assertions = Counter(re.findall(r"^(PASS|FAIL|SKIP) \S+", segment, re.M))
-    elif case["name"].startswith("hush/"):
+    if case["name"].startswith("hush/"):
         assertions = Counter("PASS" if x == "ok" else "SKIP" if x.startswith("skip") else "FAIL"
                              for x in re.findall(r"^(?:-n )?hush-[^:\n]+:[ \n]*(ok|skip[^\n]*|fail[^\n]*)$", hush_output(segment), re.M))
     else:
@@ -98,15 +96,12 @@ def trial(args, manifest, cases, out):
         for member in archive:
             family = any(member.name == directory or member.name.startswith(directory + "/")
                          for directory in selected)
-            if args.suite == "busybox":
-                # Keep the binary/config and the complete selected upstream
-                # trees. Applet trials do not use the separate Hush tree and
-                # Hush trials do not use testsuite; unpacking both costs more
-                # than a thousand guest file creations before the first test.
-                keep = member.name.startswith("busybox/") and (
-                    args.full_busybox_fixture or Path(member.name).parent == Path("busybox") or family)
-            else:
-                keep = member.name == "uclibc/test/uclibcng-testrunner.sh" or family
+            # Keep the binary/config and the complete selected upstream
+            # trees. Applet trials do not use the separate Hush tree and
+            # Hush trials do not use testsuite; unpacking both costs more
+            # than a thousand guest file creations before the first test.
+            keep = member.name.startswith("busybox/") and (
+                args.full_busybox_fixture or Path(member.name).parent == Path("busybox") or family)
             if keep:
                 packed.addfile(member, archive.extractfile(member) if member.isfile() else None)
                 staged_members += 1
@@ -120,10 +115,6 @@ def trial(args, manifest, cases, out):
     commands = ["#!/bin/sh", "ulimit -c 0", "export LC_ALL=C LANG=C TZ=UTC0",
                 "mkdir -p /tmp/upstream", "cd /tmp/upstream || exit 1",
                 "tar -xf /mnt/sd/tests.tar || exit 1"]
-    if args.suite == "uclibc":
-        # Both ethers tests explicitly require this manually supplied fixture.
-        commands += ["printf '00:11:22:33:44:55 teeth\\n' >/tmp/upstream/ethers",
-                     "ln -sf /tmp/upstream/ethers /etc/ethers"]
     fixtures = {}
     for index, case in enumerate(cases):
         fixture = args.fixtures.get(f"{args.suite}/{case['name']}", {})
@@ -133,32 +124,23 @@ def trial(args, manifest, cases, out):
         top = "/tmp/upstream/"
         if fixture.get("disk"):
             setup += f"mkdir -p {DISK} || exit 125\n"
-            if args.suite == "uclibc":
-                setup += f"export TMPDIR={DISK}\n"
-            else:
-                # BusyBox's runtest works in its own directory.
-                tree = case["directory"].split("/")[0]
-                setup += (f"rm -rf {DISK}/{tree} && cp -a /tmp/upstream/{tree} {DISK}/ "
-                          "|| exit 125\n")
-                top = DISK + "/"
-        if args.suite == "uclibc":
-            row = case["upstream_row"] + (" -d" if args.direct or fixture.get("direct") else "")
-            script = ("#!/bin/sh\n" + setup + "cd /tmp/upstream/uclibc/test || exit 125\n"
-                      "printf '%s\\n' " + shlex.quote(row) +
-                      " > uclibcng-testrunner.in\nexec sh ./uclibcng-testrunner.sh\n")
-        else:
-            selection = ""
-            if case.get("hush_test"):
-                module = str(Path(case["hush_test"]).parent)
-                selection = ("chmod -x " + shlex.quote(module) + "/*.tests\n" +
-                             "chmod +x " + shlex.quote(case["hush_test"]) + " || exit 125\n")
-            script = ("#!/bin/sh\n" + setup + "cd " + top + case["directory"] +
-                      " || exit 125\n" + selection + case["command"] + "\n")
-            if case["name"].startswith("hush/"):
-                script += ("status=$?\nfor file in *.fail; do\n"
-                           "test -f \"$file\" || continue\n"
-                           "echo UPSTREAM-DIFF \"$file\"\nsed -n '1,100p' \"$file\"\n"
-                           "rm -f \"$file\"\ndone\nexit $status\n")
+            # BusyBox's runtest works in its own directory.
+            tree = case["directory"].split("/")[0]
+            setup += (f"rm -rf {DISK}/{tree} && cp -a /tmp/upstream/{tree} {DISK}/ "
+                      "|| exit 125\n")
+            top = DISK + "/"
+        selection = ""
+        if case.get("hush_test"):
+            module = str(Path(case["hush_test"]).parent)
+            selection = ("chmod -x " + shlex.quote(module) + "/*.tests\n" +
+                         "chmod +x " + shlex.quote(case["hush_test"]) + " || exit 125\n")
+        script = ("#!/bin/sh\n" + setup + "cd " + top + case["directory"] +
+                  " || exit 125\n" + selection + case["command"] + "\n")
+        if case["name"].startswith("hush/"):
+            script += ("status=$?\nfor file in *.fail; do\n"
+                       "test -f \"$file\" || continue\n"
+                       "echo UPSTREAM-DIFF \"$file\"\nsed -n '1,100p' \"$file\"\n"
+                       "rm -f \"$file\"\ndone\nexit $status\n")
         name = f"t{index:03d}.sh"
         files[name] = script.encode()
         commands += [f"echo UPSTREAM-BEGIN {case['name']}",
@@ -273,7 +255,7 @@ def trial(args, manifest, cases, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("suite", choices=["busybox", "uclibc"])
+    parser.add_argument("suite", choices=["busybox"])
     parser.add_argument("--binaries", type=Path, default=ROOT / "linux/artifacts/upstream-suites")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, default=ROOT / "linux/artifacts/linux.app")
@@ -289,7 +271,6 @@ def main():
                         help="stage both BusyBox test trees for baseline comparisons")
     parser.add_argument("--case", action="append")
     parser.add_argument("--hush-case", action="append", help="Select an individual upstream Hush test, e.g. hush-misc/func7.tests")
-    parser.add_argument("--direct", action="store_true", help="Use the upstream test-skeleton -d mode (selected libc tests only)")
     args = parser.parse_args()
     args.fixtures = json.loads(FIXTURES.read_text())
     if min(args.timeout, args.wall_timeout, args.batch_size, args.jobs) <= 0:
@@ -313,14 +294,6 @@ def main():
         cases = [c for c in cases if c["name"] in args.case]
         if len(cases) != len(set(args.case)):
             raise SystemExit("Unknown selected case")
-    if args.direct:
-        if args.suite != "uclibc" or not args.case:
-            raise SystemExit("Direct mode requires explicitly selected libc tests")
-        with tarfile.open(args.binaries / "suite.tar.gz") as archive:
-            for case in cases:
-                source = archive.extractfile("uclibc/test/" + case["name"] + ".c")
-                if source is None or b'test-skeleton.c' not in source.read():
-                    raise SystemExit("Direct mode requires the upstream test skeleton")
     results = [{"name": c["name"], "status": "HOST_ONLY" if c.get("host_only") else c["status"]}
                for c in cases if c["status"] != "BUILT" or c.get("host_only")]
     selected = [c for c in cases if c["status"] == "BUILT" and not c.get("host_only")]
@@ -348,7 +321,7 @@ def main():
               "jobs": args.jobs, "batch_size": args.batch_size,
               "full_busybox_fixture": args.full_busybox_fixture,
               "host_seconds": time.monotonic() - run_started,
-              "cases": len(cases), "direct_mode": args.direct, "fixtures_sha256": sha(FIXTURES), "counts": dict(Counter(x["status"] for x in results)),
+              "cases": len(cases), "fixtures_sha256": sha(FIXTURES), "counts": dict(Counter(x["status"] for x in results)),
               "complete": all(x["status"] != "MISSING" for x in results),
               "clean_trials": all(x["complete"] for x in reports),
               "results": sorted(results, key=lambda x: x["name"]), "batches": reports}

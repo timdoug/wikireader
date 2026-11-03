@@ -6,10 +6,15 @@
 
 static unsigned int errno_entry_alignment;
 
-int *wr_checked_errno_body(unsigned int alignment)
+/* musl's __syscall_ret, with the alignment its entry found. */
+long wr_checked_syscall_ret_body(unsigned long r, unsigned int alignment)
 {
 	errno_entry_alignment = alignment;
-	return __errno_location();
+	if (r > -4096UL) {
+		errno = -r;
+		return -1;
+	}
+	return r;
 }
 
 int main(void)
@@ -27,7 +32,7 @@ int main(void)
 	if (pid == 0)
 		_exit(99);
 	if (pid != -1 || errno != EAGAIN || errno_entry_alignment != 12) {
-		printf("VFORK ERROR FAIL: pid=%ld errno=%d errno-helper SP%%16=%u (expected 12)\n",
+		printf("VFORK ERROR FAIL: pid=%ld errno=%d error-helper SP%%16=%u (expected 12)\n",
 		       (long)pid, errno, errno_entry_alignment);
 		return 1;
 	}

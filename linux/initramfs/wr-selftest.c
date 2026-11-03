@@ -108,7 +108,7 @@ static int libc_test(void)
 
 	if (jumped == 0)
 		longjmp(jump_buffer, 7);
-	printf("C33 uClibc smoke: pid=%ld longjmp=%d\n", (long)getpid(), jumped);
+	printf("C33 libc smoke: pid=%ld longjmp=%d\n", (long)getpid(), jumped);
 	fflush(stdout);
 	return jumped == 7;
 }

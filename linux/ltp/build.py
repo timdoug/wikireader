@@ -22,7 +22,7 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path.home() / "wr-linux/ltp")
-    parser.add_argument("--cc", default=str(Path.home() / "wr-linux/toolchain/install/bin/c33-linux-uclibc-gcc"))
+    parser.add_argument("--cc", default=str(Path.home() / "wr-linux/toolchain/install/bin/c33-linux-musl-gcc"))
     parser.add_argument("--output", type=Path, default=ROOT / "linux/artifacts/ltp")
     parser.add_argument("--all", action="store_true", help="Attempt every non-speculative standalone interface case")
     parser.add_argument("--extended", action="store_true", help="Build functional/behavior cases and separately compile header-definition checks")
@@ -45,7 +45,6 @@ def main():
     interfaces = suite / "conformance/interfaces"
     local = {"c33_vfork_error/1-1": ["vfork-error.c", "vfork-error-entry.S", "vfork-checked.S"],
              "c33_condvar_clock/1-1": ["condvar-clock.c"],
-             "c33_rwlock_priority/1-1": ["rwlock-priority.c"],
              "c33_rwlock_static/1-1": ["rwlock-waits.c"],
              "c33_rwlock_waits/1-1": ["rwlock-waits.c"],
              "c33_io_waits/1-1": ["io-waits.c"],
@@ -134,11 +133,11 @@ def main():
             record["status"] = "COMPILE_ERROR" if result.returncode else "COMPILE_PASS"
             return "compile", record
         if name in local:
-            dependencies = sources + ([ROOT / "linux/uclibc/overlay/libc/sysdeps/linux/c33/vfork.S"]
+            dependencies = sources + ([ROOT / "linux/musl/overlay/src/process/c33/vfork.S"]
                                       if name == "c33_vfork_error/1-1" else [])
             if name in ("c33_io_waits/1-1", "c33_unix_io/1-1",
                         "c33_fd_events/1-1", "c33_blocking_cancel/1-1",
-                        "c33_futex_waits/1-1", "c33_rwlock_priority/1-1",
+                        "c33_futex_waits/1-1",
                         "c33_rwlock_static/1-1", "c33_rwlock_waits/1-1",
                         "c33_memory_lock/1-1", "c33_mmap_errors/1-1",
                         "c33_poll_events/1-1", "c33_nommu_mappings/1-1"):

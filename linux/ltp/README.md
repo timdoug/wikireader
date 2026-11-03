@@ -5,6 +5,10 @@ These scripts run unchanged standalone Open POSIX tests from LTP revision
 FLASH -> Grifo -> launcher -> Linux. The physical SD card is untouched.
 The current trial uses wremu with 32 MiB SDRAM.
 
+The full sweeps below ran on the uClibc-ng system, before the move to musl,
+and have not been repeated on musl; the port regressions
+(`make -C linux ltp-port-test`) run on musl.
+
 ## Coverage and accounting
 
 The build enumerates numbered `conformance/interfaces/*/*.c` cases,
@@ -515,6 +519,8 @@ The new local coverage comprises:
 * `c33_rwlock_priority/1-1`: FIFO/RR, ordinary/timed ordering, both increases
   and decreases of blocked-thread priorities, equal-priority writer ties,
   reader cohorts, recursive reads, new-reader admission and try-lock exclusion.
+  It is out of the port suite since the move to musl, whose rwlocks do not
+  order their waiters by priority; the implementation above was uClibc-ng's.
 * `c33_rwlock_waits/1-1`: invalid, expired and post-2038 deadlines, signal
   retry, errno preservation, timeout removal, owner-record reuse/overflow,
   512 contended operations, and independently exec'd processes sharing a

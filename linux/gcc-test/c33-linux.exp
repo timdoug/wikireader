@@ -1,5 +1,5 @@
-# DejaGnu board for c33-linux-uclibc: GCC's tests compiled as the Linux
-# programs the WikiReader runs (FDPIC, shared uClibc-ng), executed in
+# DejaGnu board for c33-linux-musl: GCC's tests compiled as the Linux
+# programs the WikiReader runs (FDPIC, shared musl), executed in
 # Linux in wremu, booted through Grifo, in batches (run-gcc.sh).
 #
 # Executing a test looks its program up by content in the results the
@@ -49,7 +49,7 @@ proc c33-linux_load {dest prog args} {
 	# and the name is in the symbol table: key those by the stripped
 	# program, which is the same from one pass to the next.
 	set stripped "$prog.stripped"
-	exec c33-linux-uclibc-strip -o $stripped $prog
+	exec c33-linux-musl-strip -o $stripped $prog
 	set sha [lindex [exec sha256sum $stripped] 0]
 	set result [file join $env(C33L_RESULTS) $sha]
 	if {![file exists $result]} {

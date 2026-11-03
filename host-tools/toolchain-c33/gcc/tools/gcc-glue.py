@@ -63,7 +63,7 @@ def target_block(s):
         'v850*-*-*)\n\tcase ${target} in\n', 1)
 
 def linux_block(s):
-    """No-MMU Linux with uClibc-ng: c33-linux-uclibc.
+    """No-MMU Linux with musl: c33-linux-musl.
 
     The generic *-*-linux* section has already added linux.o, glibc-c.o and
     the t-linux/t-glibc fragments; this case has to come before c33-*-*,
@@ -111,7 +111,7 @@ def libgcc_target(s):
                      'v850*-*-*)\n\ttmake_file="${tmake_file} v850/t-v850 t-fdpbit"\n\t;;\n', 1)
 
 def libgcc_linux(s):
-    """No-MMU Linux with uClibc-ng, FDPIC.  crtbegin.o and crtend.o
+    """No-MMU Linux with musl, FDPIC.  crtbegin.o and crtend.o
     use program-header unwind discovery (see c33/linux.h); crtbeginT.o keeps
     explicit registration for static links. Shared CRT supplies __dso_handle.
 
@@ -209,13 +209,13 @@ for t in ('cleanup-8', 'cleanup-9', 'cleanup-10', 'cleanup-11'):
 # No MMU: mprotect cannot make the guard page.
 edit(DG + 'strncmp-2.c', add_after_first('/* { dg-do run',
      '/* { dg-skip-if "no MMU: no guard page" { c33-*-*linux* } } */\n'))
-# uClibc-ng has no _FORTIFY_SOURCE functions.
+# musl has no _FORTIFY_SOURCE functions.
 edit(DG + 'strlenopt-2f.c', add_after_first('/* { dg-do run',
-     '/* { dg-skip-if "uClibc-ng has no __memcpy_chk" { c33-*-*linux* } } */\n'))
-# uClibc-ng's libm sets errno only when built with UCLIBC_HAS_FENV.
+     '/* { dg-skip-if "musl has no __memcpy_chk" { c33-*-*linux* } } */\n'))
+# musl's libm reports errors by exception only (math_errhandling 2).
 for t in ('errno-2', 'errno-3', 'errno-4'):
     edit(DG + t + '.c', add_after_first('/* { dg-do run',
-         '/* { dg-skip-if "uClibc-ng libm sets errno only with fenv" { c33-*-*linux* } } */\n'))
+         '/* { dg-skip-if "musl libm does not set errno" { c33-*-*linux* } } */\n'))
 # FDPIC code is always PIC, as ARM's.
 edit(DG + '20020312-2.c', replace_once(
     '{ arm*-*-uclinuxfdpiceabi }', '{ arm*-*-uclinuxfdpiceabi c33-*-*linux* }'))
@@ -242,19 +242,6 @@ for t in ('cleanup-8', 'cleanup-9', 'cleanup-10', 'cleanup-11'):
 for t in ('array15', 'array16'):
     edit(GXX + 'init/' + t + '.C', add_after_first('// { dg-do run',
          '// { dg-skip-if "no MMU: 4-5 MB in one piece" { c33-*-*linux* } }\n'))
-# uClibc-ng does not predefine __STDC_ISO_10646__, as glibc does.
-def iso_10646(s):
-    if 'c33-*-*linux*' in s:
-        return None
-    return ''.join(
-        l.replace('{ xfail { ! *-*-linux* } }',
-                  '{ xfail { { ! *-*-linux* } || c33-*-*linux* } }')
-        if '__STDC_ISO_10646__' in l else l
-        for l in s.splitlines(keepends=True))
-
-
-for t in ('dr2581-1', 'dr2581-2'):
-    edit(GXX + 'DRs/' + t + '.C', iso_10646)
 # -msep-data keeps the constant pool in .data.
 edit(GXX + 'cpp0x/initlist-const1.C', replace_once(
     'xfail hppa*-*-hpux* powerpc-ibm-aix* }', 'xfail hppa*-*-hpux* powerpc-ibm-aix* c33-*-*linux* }'))
@@ -314,7 +301,7 @@ family of processors.
 Generate code for the C33 core @var{core}: @samp{c33} for the standard
 core, @samp{c33adv} for the Advanced core, or @samp{c33pe} for the PE
 core.  The default is @samp{c33}, except for
-@samp{c33-*-linux-uclibc}, where it is @samp{c33pe}.
+@samp{c33-*-linux-musl}, where it is @samp{c33pe}.
 
 GCC passes the core to the assembler, which records it in the object
 file; the linker does not link objects built for different cores.  For
@@ -343,7 +330,7 @@ whose two @code{ext} prefixes reach the whole 32-bit address space,
 rather than with @code{scall} and @code{sjp}, whose one @code{ext}
 prefix reaches 2 megabytes in either direction.  The default is
 @option{-mno-long-calls}; the linker reports a call that is out of
-range.  For @samp{c33-*-linux-uclibc} a call to another module goes
+range.  For @samp{c33-*-linux-musl} a call to another module goes
 through the calling module's own @code{.plt}, so only a program or
 shared library larger than 2 megabytes needs @option{-mlong-calls}.
 
@@ -363,7 +350,7 @@ in effect.
 
 @option{-msep-data} and @option{-mfdpic} turn @option{-medda32} off;
 giving @option{-medda32} together with either of them is an error.  For
-@samp{c33-*-linux-uclibc}, @option{-medda32} also turns off the default
+@samp{c33-*-linux-musl}, @option{-medda32} also turns off the default
 @option{-mfdpic} and @option{-msep-data}.
 
 @opindex msep-data
@@ -382,7 +369,7 @@ segment.  Read-only data that holds addresses goes in
 addresses, so they stay in the text.
 
 The preprocessor macro @code{__C33_SEP_DATA__} is defined.  The default
-is @option{-mno-sep-data}, except for @samp{c33-*-linux-uclibc}.
+is @option{-mno-sep-data}, except for @samp{c33-*-linux-musl}.
 
 @opindex mfdpic
 @opindex mno-fdpic
@@ -400,7 +387,7 @@ restores the caller's @code{%r15} afterwards.
 
 @option{-mfdpic} implies @option{-msep-data}, and defines the
 preprocessor macros @code{__FDPIC__} and @code{__C33_FDPIC__}.  It is
-the default for @samp{c33-*-linux-uclibc}, whose startup files and
+the default for @samp{c33-*-linux-musl}, whose startup files and
 libraries are FDPIC: code compiled with @option{-mno-fdpic} or
 @option{-medda32} there is for linking by other means, such as a kernel
 or a boot loader, not with the C library.
@@ -526,7 +513,7 @@ These never match.
 edit('gcc/doc/install.texi', put_between(
     '@uref{#bfin,,Blackfin}\n', '@item\n@uref{#cris,,cris}',
     '@item\n@uref{#c33-x-elf,,c33-*-elf}\n'
-    '@item\n@uref{#c33-x-linux-uclibc,,c33-*-linux-uclibc}\n',
+    '@item\n@uref{#c33-x-linux-musl,,c33-*-linux-musl}\n',
     '#c33-x-elf'))
 
 edit('gcc/doc/install.texi', put_between(
@@ -551,9 +538,9 @@ for a list of C33-specific options.
 @html
 <hr />
 @end html
-@anchor{c33-x-linux-uclibc}
-@heading c33-*-linux-uclibc
-No-MMU Linux on the C33 PE core, with uClibc-ng as the C library.
+@anchor{c33-x-linux-musl}
+@heading c33-*-linux-musl
+No-MMU Linux on the C33 PE core, with musl as the C library.
 Programs and shared libraries are FDPIC ELF: the compiler defaults to
 @option{-mcore=c33pe} and @option{-mfdpic}.
 

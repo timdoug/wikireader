@@ -33,8 +33,10 @@ int main(void)
     rejected(p + 1, page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(p, 0, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(p, page, MAP_FIXED, EINVAL); /* missing mapping type */
-    rejected(p, ULONG_MAX, MAP_PRIVATE | MAP_FIXED, EINVAL);
-    rejected(p, top, MAP_SHARED | MAP_FIXED, EINVAL);
+    /* musl refuses a length of PTRDIFF_MAX or more itself, with ENOMEM,
+       one of the errors POSIX gives for a range the process cannot have. */
+    rejected(p, ULONG_MAX, MAP_PRIVATE | MAP_FIXED, ENOMEM);
+    rejected(p, top, MAP_SHARED | MAP_FIXED, ENOMEM);
     rejected((void *)top, page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected((void *)top, 2 * page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(NULL, page, MAP_PRIVATE | MAP_FIXED, EINVAL);

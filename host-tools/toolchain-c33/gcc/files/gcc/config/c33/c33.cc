@@ -2235,7 +2235,7 @@ c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
 }
 
 /* -mfdpic: the constructor and destructor tables hold entry points, not
-   descriptors: uClibc's startup code and ld.so call each with the module's
+   descriptors: musl's startup code and ld.so call each with the module's
    own %r15, as ARM FDPIC's tables and crtstuff.c's entries have it.  */
 
 static void

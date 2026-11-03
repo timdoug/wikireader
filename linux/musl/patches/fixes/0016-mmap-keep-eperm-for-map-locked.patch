@@ -1,0 +1,27 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mmap: keep EPERM for MAP_LOCKED
+
+mmap turns EPERM from the kernel into ENOMEM for an anonymous mapping,
+for kernels that reported an overcommit limit so.  A MAP_LOCKED mapping
+without a memory-lock limit or CAP_IPC_LOCK fails with EPERM, as Linux
+documents it, and that one is right.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/mman/mmap.c b/src/mman/mmap.c
+index 43e5e02..de0f73b 100644
+--- a/src/mman/mmap.c
++++ b/src/mman/mmap.c
+@@ -30,8 +30,10 @@ void *__mmap(void *start, size_t len, int prot, int flags, int fd, off_t off)
+ #else
+ 	ret = __syscall(SYS_mmap, start, len, prot, flags, fd, off);
+ #endif
+-	/* Fixup incorrect EPERM from kernel. */
+-	if (ret == -EPERM && !start && (flags&MAP_ANON) && !(flags&MAP_FIXED))
++	/* Fixup incorrect EPERM from kernel. With MAP_LOCKED it is the
++	 * memory-lock limit's, and right. */
++	if (ret == -EPERM && !start && (flags&MAP_ANON) && !(flags&MAP_FIXED)
++	    && !(flags&MAP_LOCKED))
+ 		ret = -ENOMEM;
+ 	return (void *)__syscall_ret(ret);
+ }

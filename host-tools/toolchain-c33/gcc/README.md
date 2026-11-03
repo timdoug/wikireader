@@ -15,8 +15,8 @@ kernel, `init.app`, and `wiki.app`. The resulting firmware boots through the
 current full-system emulator and renders the tested screens identically to the
 shipped GCC 3.3.2 firmware.
 
-The same backend builds `c33-linux-uclibc`, the C and C++ compiler for
-no-MMU Linux: FDPIC ELF with shared uClibc-ng, and static libstdc++; see
+The same backend builds `c33-linux-musl`, the C and C++ compiler for
+no-MMU Linux: FDPIC ELF with shared musl and shared runtimes; see
 [`linux/README.md`](../../../linux/README.md).
 
 There is no known wrong-code failure in a supported C or ABI feature.

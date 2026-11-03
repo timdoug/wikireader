@@ -1,4 +1,4 @@
-# Site configuration for GCC's testsuite on c33-linux-uclibc: GCC's
+# Site configuration for GCC's testsuite on c33-linux-musl: GCC's
 # generated build-site settings, then this directory's board.
 global env
 if {[info exists env(C33L_BUILD_SITE)] && [file isfile $env(C33L_BUILD_SITE)]} {

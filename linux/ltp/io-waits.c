@@ -61,8 +61,8 @@ static void readiness(int fd)
     FD_SET(fd, &set);
     CHECK(select(fd + 1, &set, NULL, NULL, &huge.value) == 1 && FD_ISSET(fd, &set));
     CHECK(huge.before == 0x12345678 && huge.after == 0x87654321);
-    CHECK(huge.value.tv_sec >= 0 && huge.value.tv_usec >= 0 &&
-          huge.value.tv_usec < 1000000);
+    /* musl hands the kernel a copy: the caller's timeout is as given. */
+    CHECK(huge.value.tv_sec == INT64_MAX && huge.value.tv_usec == 2000000);
 }
 
 static void expiry(void)
@@ -79,8 +79,9 @@ static void expiry(void)
         if (mode < 2)
             CHECK(memcmp(&ts, &original, sizeof(ts)) == 0);
         else
-            /* This checks Linux's timeout writeback, not a POSIX mandate. */
-            CHECK(tv.tv_sec == 0 && tv.tv_usec == 0);
+            /* POSIX lets select leave the timeout or write back what is
+               left; musl leaves it, as given. */
+            CHECK(tv.tv_sec == 0 && tv.tv_usec == 30000);
     }
 }
 
@@ -109,10 +110,8 @@ static void interrupted_select(void)
         CHECK(rc == -1 && error == EINTR && caught == SIGUSR1);
         CHECK(elapsed >= 25000000 && elapsed < 2000000000);
         CHECK(timeout.before == 0x12345678 && timeout.after == 0x87654321);
-        int64_t remaining = timeout.value.tv_sec * 1000000 + timeout.value.tv_usec;
-        CHECK(timeout.value.tv_sec >= 0 && timeout.value.tv_usec >= 0 &&
-              timeout.value.tv_usec < 1000000 &&
-              remaining < original - 20000 && remaining > original - 1000000);
+        /* musl leaves the timeout as given, interrupted or not. */
+        CHECK(timeout.value.tv_sec * 1000000 + timeout.value.tv_usec == original);
     }
 }
 

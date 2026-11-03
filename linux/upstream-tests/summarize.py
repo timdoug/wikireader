@@ -39,17 +39,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binaries", type=Path, default=runner.ROOT / "linux/artifacts/upstream-suites")
     parser.add_argument("--busybox", type=Path, required=True)
-    parser.add_argument("--uclibc", type=Path, required=True)
     parser.add_argument("--hush", type=Path, action="append", default=[])
-    parser.add_argument("--libc-followup", type=Path, action="append", default=[])
     parser.add_argument("--busybox-followup", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = json.loads((args.binaries / "manifest.json").read_text())
     manifest_hash = runner.sha(args.binaries / "manifest.json")
-    summary = {"manifest_sha256": manifest_hash, "uclibc_upstream_disabled": manifest["uclibc_upstream_disabled"]}
+    summary = {"manifest_sha256": manifest_hash}
     full = {}
-    for suite in ("busybox", "uclibc"):
+    for suite in ("busybox",):
         directory = getattr(args, suite).resolve()
         final, observed = records(directory)
         if final["manifest_sha256"] != manifest_hash or set(observed) != {x["name"] for x in manifest[suite]}:
@@ -79,19 +77,6 @@ def main():
         hush[name] = {"name": name, "status": "MISSING"}
     summary["hush_individual"] = {"cases": len(hush), "counts": dict(Counter(x["status"] for x in hush.values())),
                                   "results": sorted(hush.values(), key=lambda x: x["name"])}
-    libc = dict(full["uclibc"])
-    followups = []
-    for directory in args.libc_followup:
-        final, observed = records(directory.resolve())
-        if final["manifest_sha256"] != manifest_hash or set(observed) - set(libc):
-            raise SystemExit("Libc follow-up inventory mismatch")
-        followups.append({"report": str(directory.resolve() / "results.json"),
-                          "direct_mode": final.get("direct_mode", False), "results": list(observed.values())})
-        for name, result in observed.items():
-            libc[name] = {**result, "direct_mode": final.get("direct_mode", False)}
-    summary["uclibc_followups"] = followups
-    summary["uclibc_after_followups"] = {"counts": dict(Counter(x["status"] for x in libc.values())),
-                                         "results": list(libc.values())}
     applets = dict(full["busybox"])
     followups = []
     for directory in args.busybox_followup:
@@ -111,9 +96,9 @@ def main():
         assertions = Counter(re.findall(r"^(PASS|FAIL|SKIPPED):", host.read_text(), re.M))
         summary["busybox_host_source_checks"] = {"assertions": dict(assertions), "log": str(host.resolve()),
                                                 "sha256": runner.sha(host)}
-    summary["accounted"] = all(x["status"] != "MISSING" for x in [*full["busybox"].values(), *libc.values(), *hush.values()])
+    summary["accounted"] = all(x["status"] != "MISSING" for x in [*full["busybox"].values(), *hush.values()])
     args.output.write_text(json.dumps(summary, indent=2) + "\n")
-    for key in ("busybox", "uclibc", "hush_individual", "uclibc_after_followups", "busybox_after_followups"):
+    for key in ("busybox", "hush_individual", "busybox_after_followups"):
         print(key, summary[key].get("audited_counts", summary[key].get("counts")))
     print("accounted:", summary["accounted"])
 

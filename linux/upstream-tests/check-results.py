@@ -29,9 +29,6 @@ class Results(unittest.TestCase):
         got = runner.verdict("busybox", {"name": "applets/xargs"}, 124, "PASS: one\n")
         self.assertEqual(got, {"status": "TIMEOUT", "assertions": {"PASS": 1}})
 
-    def test_expected_nonzero_is_upstream_decision(self):
-        self.assertEqual(runner.verdict("uclibc", {"name": "example"}, 0, "PASS example got 1 expected 1\n")["status"], "PASS")
-
     def test_crash_requires_entered_test(self):
         self.assertTrue(runner.crashed("UPSTREAM-BEGIN one\nstop reason: runaway", "one"))
         self.assertFalse(runner.crashed("UPSTREAM-BEGIN one\nstop reason: runaway", "two"))

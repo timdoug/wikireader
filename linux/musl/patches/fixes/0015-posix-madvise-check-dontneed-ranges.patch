@@ -1,0 +1,24 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] posix_madvise: check the range for POSIX_MADV_DONTNEED too
+
+POSIX_MADV_DONTNEED returned 0 for any range, where POSIX requires
+EINVAL for a misaligned or impossible one and ENOMEM for one not mapped.
+Linux's MADV_DONTNEED discards pages, which POSIX's must not, so the
+range is checked with MADV_NORMAL, which changes nothing.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/mman/posix_madvise.c b/src/mman/posix_madvise.c
+index e5e5acb..be80f7d 100644
+--- a/src/mman/posix_madvise.c
++++ b/src/mman/posix_madvise.c
+@@ -4,6 +4,8 @@
+ 
+ int posix_madvise(void *addr, size_t len, int advice)
+ {
+-	if (advice == MADV_DONTNEED) return 0;
++	/* POSIX's DONTNEED is a hint; Linux's discards the pages. Its range
++	 * is still checked, with a hint that changes nothing. */
++	if (advice == MADV_DONTNEED) advice = MADV_NORMAL;
+ 	return -__syscall(SYS_madvise, addr, len, advice);
+ }

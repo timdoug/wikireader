@@ -3,9 +3,8 @@
 # build, both into one prefix:
 #
 #   c33-epson-elf-     bare metal, for the kernel;
-#   c33-linux-uclibc-  no-MMU Linux userspace: PE core, FDPIC ELF with
-#                      shared libraries, and uClibc-ng;
-#   c33-linux-musl-    the same with musl, when C33_LIBC=musl.
+#   c33-linux-musl-    no-MMU Linux userspace: PE core, FDPIC ELF with
+#                      shared libraries, and musl.
 #
 # The userspace compiler is built in two passes, as cross compilers are.
 # The first is configured against a sysroot holding the kernel's UAPI
@@ -27,8 +26,7 @@ root=$(cd "${here}/.." && pwd)
 work=${WR_LINUX_WORK:-${HOME}/wr-linux}
 toolwork=${work}/toolchain
 prefix=${toolwork}/install
-libc=${C33_LIBC:-uclibc}
-linux_target=c33-linux-${libc}
+linux_target=c33-linux-musl
 sysroot=${prefix}/${linux_target}/sysroot
 which=${1:-all}
 
@@ -49,6 +47,6 @@ C33_TARGET=${linux_target} C33_BINUTILS_CONFIGURE="--with-sysroot=${sysroot}" \
 	"${root}/host-tools/toolchain-c33/binutils/build.sh" "${toolwork}"
 
 # The first pass's libgcc is built against the C library's headers.
-"${here}/${libc}/build.sh" headers
+"${here}/musl/build.sh" headers
 C33_TARGET=${linux_target} "${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}"
 "${prefix}/bin/${linux_target}-gcc" --version | head -1

@@ -37,7 +37,7 @@ make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" wikireader_
 initramfs=$build_dir/c33-initramfs
 here=$root/linux/initramfs
 mkdir -p "$initramfs"
-"$here/build-freestanding.sh" "$tool_dir/install/bin/c33-linux-uclibc-" \
+"$here/build-freestanding.sh" "$tool_dir/install/bin/c33-linux-musl-" \
 	"$initramfs/rootstart" "$here/rootstart.S" "$here/rootstart.c" -Wall -Werror
 cat >"$initramfs.list" <<EOF
 dir /dev 0755 0 0

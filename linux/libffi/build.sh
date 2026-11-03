@@ -9,8 +9,8 @@ work=${WR_LINUX_GUEST_ROOT:-/home/$USER.guest/wr-linux}
 b=${WR_BUILDROOT_BUILD:-$work/buildroot-build}
 src=$(echo "$b"/build/libffi-*)
 t=$src/testsuite
-cc=$b/host/bin/c33-linux-uclibc-gcc
-cfg=$src/c33-buildroot-linux-uclibc
+cc=$b/host/bin/c33-linux-musl-gcc
+cfg=$src/c33-buildroot-linux-musl
 out=$root/linux/artifacts/libffi-tests
 rm -rf "$out"
 mkdir -p "$out/bin"

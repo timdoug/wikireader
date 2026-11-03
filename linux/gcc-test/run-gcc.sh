@@ -1,5 +1,5 @@
 #!/bin/sh
-# One DejaGnu pass of GCC's testsuite for c33-linux-uclibc, in the VM:
+# One DejaGnu pass of GCC's testsuite for c33-linux-musl, in the VM:
 #
 #   run-gcc.sh [runtest selectors]	(default: the execute torture)
 #
@@ -13,8 +13,8 @@ work=${WR_LINUX_GUEST_ROOT:-/home/$USER.guest/wr-linux}
 gcc_src=$work/toolchain/gcc-16.2.0
 out=$root/linux/artifacts/gcc-test
 export PATH=$work/toolchain/install/bin:$PATH
-export C33L_GCC=$work/toolchain/install/bin/c33-linux-uclibc-gcc
-export C33L_BUILD_SITE=$gcc_src/build-c33-linux-uclibc/gcc/site.exp
+export C33L_GCC=$work/toolchain/install/bin/c33-linux-musl-gcc
+export C33L_BUILD_SITE=$gcc_src/build-c33-linux-musl/gcc/site.exp
 export C33L_QUEUE=$out/queue
 export C33L_RESULTS=$out/executed
 export C33L_OBJDIR=$out/results
@@ -32,7 +32,7 @@ case ${1:-} in
 esac
 driver=$C33L_GCC
 if [ "$tool" = g++ ]; then
-	driver=$work/toolchain/install/bin/c33-linux-uclibc-g++
+	driver=$work/toolchain/install/bin/c33-linux-musl-g++
 	export C33L_GXX=$driver
 	export GXX_TESTSUITE_STDS=${GXX_TESTSUITE_STDS:-17}
 	[ "$#" -gt 0 ] || set -- g++.dg/dg.exp g++.dg/torture/dg-torture.exp \
@@ -40,7 +40,7 @@ if [ "$tool" = g++ ]; then
 fi
 [ "$#" -gt 0 ] || set -- gcc.c-torture/execute/execute.exp
 cd "$C33L_OBJDIR"
-runtest --tool "$tool" --target c33-linux-uclibc --target_board=c33-linux \
+runtest --tool "$tool" --target c33-linux-musl --target_board=c33-linux \
 	--srcdir "$gcc_src/gcc/testsuite" --objdir "$C33L_OBJDIR" \
 	--tool_exec "$driver" "$@" >/dev/null 2>&1 || true
 grep "^# of\|^=== " "$tool.sum" | tail -12
