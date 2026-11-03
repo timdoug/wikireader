@@ -4163,6 +4163,46 @@ c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
   return false;
 }
 
+/* Linux core files, which the kernel's FDPIC loader writes.  NT_PRSTATUS
+   is struct elf_prstatus_fdpic: the common fields, pr_reg (struct pt_regs,
+   24 words), then the executable's and the interpreter's load map
+   addresses.  .reg holds pr_reg and the two addresses after it, which a
+   debugger needs to place the program.  */
+
+static bool
+c33fdpic_grok_prstatus (bfd *abfd, Elf_Internal_Note *note)
+{
+  if (note->descsz != 180)
+    return false;
+  elf_tdata (abfd)->core->signal = bfd_get_16 (abfd, note->descdata + 12);
+  elf_tdata (abfd)->core->lwpid = bfd_get_32 (abfd, note->descdata + 24);
+  return _bfd_elfcore_make_pseudosection (abfd, ".reg", 24 * 4 + 2 * 4,
+					  note->descpos + 72);
+}
+
+/* NT_PRPSINFO is the generic 32-bit struct elf_prpsinfo, with 32-bit ids:
+   pr_fname at 32 and pr_psargs at 48.  */
+
+static bool
+c33fdpic_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
+{
+  char *command;
+  size_t n;
+
+  if (note->descsz != 128)
+    return false;
+  elf_tdata (abfd)->core->pid = bfd_get_32 (abfd, note->descdata + 16);
+  elf_tdata (abfd)->core->program
+    = _bfd_elfcore_strndup (abfd, note->descdata + 32, 16);
+  elf_tdata (abfd)->core->command
+    = _bfd_elfcore_strndup (abfd, note->descdata + 48, 80);
+  command = elf_tdata (abfd)->core->command;
+  n = command != NULL ? strlen (command) : 0;
+  if (n > 0 && command[n - 1] == ' ')
+    command[n - 1] = '\0';
+  return true;
+}
+
 /* FDPIC: the same relocations, plus executables and shared libraries for
    ld.so and the kernel's ELF FDPIC loader.  */
 
@@ -4172,6 +4212,10 @@ c33fdpic_can_make_relative_eh_frame (bfd *abfd ATTRIBUTE_UNUSED,
 #define TARGET_LITTLE_NAME			"elf32-c33fdpic"
 #undef elf32_bed
 #define elf32_bed				elf32_c33fdpic_bed
+#undef elf_backend_grok_prstatus
+#define elf_backend_grok_prstatus		c33fdpic_grok_prstatus
+#undef elf_backend_grok_psinfo
+#define elf_backend_grok_psinfo			c33fdpic_grok_psinfo
 
 #undef elf_backend_check_relocs
 #define elf_backend_check_relocs		c33fdpic_check_relocs

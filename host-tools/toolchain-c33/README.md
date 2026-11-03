@@ -25,6 +25,7 @@ WikiReader firmware.
 | ld | Links firmware and the upstream C33 suite; init/fini arrays, start/stop symbols, weak references, build IDs, and section GC work. Links FDPIC executables and shared libraries for Linux. |
 | objdump/readelf/binutils | Read and disassemble shipped and newly built C33 ELF files. PE disassembly rejects instructions removed from the PE core and words that violate fixed opcode bits. |
 | GCC | GCC 16.2 C backend and three libgcc multilibs are complete for the currently supported ABI. |
+| GDB | GDB 18.1 on the host, `c33-linux-musl-gdb`: C33 Linux programs, their FDPIC shared libraries and core files, with DWARF unwinding and source lines. No live debugging yet. |
 
 The exact-source binutils testsuites have no unexpected failures, for
 bare metal and for no-MMU Linux (`make -C linux binutils-test`):
@@ -135,6 +136,7 @@ Use one prefix for binutils, GCC, and libgcc:
 # From the repository root.
 host-tools/toolchain-c33/binutils/build.sh host-tools/toolchain-c33/work
 host-tools/toolchain-c33/gcc/rebuild.sh
+host-tools/toolchain-c33/gdb/build.sh            # c33-linux-musl-gdb
 ```
 
 The result is installed under:
@@ -233,6 +235,9 @@ gcc/files/                  C33 GCC backend sources
 gcc/patches/                focused upstream GCC correctness patches
 gcc/ABI.md                  target ABI and ISA contract
 gcc/README.md               GCC-specific status and validation
+gdb/build.sh                pristine GDB 18.1 build/install for this host
+gdb/files/                  the C33 GDB target, Linux ABI and FDPIC shared libraries
+gdb/glue.py                 binutils' BFD/opcodes and the target in a GDB tree
 tests/abi/                  old/new cross-link tests
 tests/dejagnu/              standard GCC board and runner
 tests/DEJAGNU-TODO.md       current test and feature backlog

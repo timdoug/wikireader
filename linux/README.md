@@ -454,6 +454,21 @@ with the repository's normal firmware targets if they are not present.
 
 ## Core dumps and host symbolization
 
+`c33-linux-musl-gdb` (`host-tools/toolchain-c33/gdb`) reads these cores, with
+the unstripped files Buildroot and `debug/build.sh` leave in
+`linux/artifacts/symbols` as its sysroot:
+
+```sh
+c33-linux-musl-gdb -ex "set sysroot linux/artifacts/symbols" \
+    linux/artifacts/symbols/mnt/sd/crashtst.bin linux/artifacts/crashes/ecore.elf
+```
+
+It places the program and libc by the load maps in the core's
+`NT_PRSTATUS` and its other libraries by musl's link map, and gives a
+backtrace with source lines from DWARF; core-test's executable and library
+crashes both resolve to their lines, through `main`. The tool below needs
+no GDB.
+
 Fatal signals now produce standard ELF32 C33 FDPIC cores. PID 1 starts with
 a 4 MiB soft `RLIMIT_CORE`, inherited by services and shells. `rcS` sets
 `core_pattern` to the small `/usr/libexec/wr-core` pipe helper and

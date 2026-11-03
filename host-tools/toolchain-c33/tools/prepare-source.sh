@@ -7,6 +7,9 @@
 # else, so the repository is the only source of truth and the tree can be
 # thrown away.  Build directories at SRC's top (build, build-*) are kept.
 #
+# PREPARE_EXTRA, a colon-separated list of files and directories, names
+# further inputs a GLUE reads, so that a change to them remakes the tree.
+#
 # SRC.state records the inputs and every file's size and time as this left
 # the tree.  When both still match, the tree is left alone.  Otherwise a
 # fresh tree is made from the inputs and synced into SRC by content: only
@@ -51,6 +54,15 @@ inputs=$(
 		done)
 		cksum < "$glue"
 		cksum < "$0"
+		for x in $(printf '%s' "${PREPARE_EXTRA:-}" | tr ':' ' '); do
+			if [ -d "$x" ]; then
+				(cd "$x" && find . -type f | LC_ALL=C sort | while read -r f; do
+					echo "$f"; cksum < "$f"
+				done)
+			else
+				echo "$x"; cksum < "$x"
+			fi
+		done
 		for p in $(patch_list); do echo "${p##*/}"; cksum < "$p"; done
 	} | cksum | cut -d' ' -f1
 )
