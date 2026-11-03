@@ -78,7 +78,7 @@ examples:
     mmc@301700 {
         compatible = "epson,s1c33-sd";
         reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
-              <0x082e00 0x200>;
+              <0x084000 0x200>;
         reg-names = "spi", "spi-flags", "idma", "sram";
         clocks = <&cmu S1C33_CLK_SPI>;
         dmas = <&hsdma 2 9>, <&hsdma 3 9>;

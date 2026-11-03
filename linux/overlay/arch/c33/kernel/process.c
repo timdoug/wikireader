@@ -11,6 +11,7 @@
 #include <linux/string.h>
 #include <linux/syscalls.h>
 
+#include <asm/iram.h>
 #include <asm/processor.h>
 #include <asm/switch_to.h>
 #include <asm/wikireader.h>
@@ -100,8 +101,21 @@ void arch_cpu_idle(void)
 	__asm__ volatile ("halt");
 }
 
+/*
+ * Grifo draws wherever the LCD controller's main window points, and keeps
+ * its picture in IVRAM: hand IVRAM back to the controller and the window
+ * back to where Grifo had it (head.S).  From here no code in IVRAM may run,
+ * so this runs from SDRAM with interrupts off; nothing from process.c is
+ * placed in A0 RAM.
+ */
 static __noreturn void c33_grifo_exit(unsigned long code)
 {
+	volatile u32 *iram = (u32 *)C33_LCDC_IRAM;
+
+	__asm__ volatile ("psrclr 4" : : : "memory");
+	*iram &= ~1;
+	*(volatile u32 *)C33_LCDC_MLADD = c33_boot_mladd;
+	*(volatile u32 *)C33_LCDC_MADD = c33_boot_madd;
 	__asm__ volatile ("psrclr 4\n\t"
 			  "ld.w %%r6, %0\n\t"
 			  "ld.w %%ttbr, %1\n\t"

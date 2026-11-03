@@ -1,46 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0
-/* A0 RAM for hot code and its data: see asm/iram.h. */
+/* A0 RAM for hot code and data: see asm/iram.h. */
 #include <linux/align.h>
-#include <linux/cache.h>
 #include <linux/init.h>
 #include <linux/printk.h>
 #include <linux/spinlock.h>
-#include <linux/string.h>
 
 #include <asm/iram.h>
 #include <asm/sections.h>
 
-static unsigned long c33_iram_next = C33_IRAM_START;
+static unsigned long c33_iram_next;
 static DEFINE_SPINLOCK(c33_iram_lock);
 
 void __init c33_iram_init(void)
 {
-	size_t size = __iram_text_end - __iram_text_start;
-
-	if (C33_IRAM_START + size > C33_IRAM_END) {
-		pr_err("C33 A0 RAM: %zu bytes of code do not fit\n", size);
-		return;
-	}
-	memcpy((void *)C33_IRAM_START, __iram_text_start, size);
-	c33_iram_next = ALIGN(C33_IRAM_START + size, 4);
-
-	/* From here these run from their copies: lib/string.S and lib/div.S. */
-	c33_memset_fn = __c33_iram_func(__c33_memset);
-	c33_memcpy_fn = __c33_iram_func(__c33_memcpy);
-	c33_memmove_fn = __c33_iram_func(__c33_memmove);
-	c33_udivsi3_fn = __c33_iram_func(__c33_udivsi3);
-	c33_umodsi3_fn = __c33_iram_func(__c33_umodsi3);
-	c33_div64_32_fn = __c33_iram_func(__c33_div64_32);
-}
-
-void *__c33_iram_func(void *func)
-{
-	char *f = func;
-
-	if (f < __iram_text_start || f >= __iram_text_end ||
-	    c33_iram_next == C33_IRAM_START)
-		return func;
-	return (void *)(C33_IRAM_START + (f - __iram_text_start));
+	c33_iram_next = ALIGN((unsigned long)__a0_data_end, 4);
+	pr_info("C33 A0 RAM: %u bytes of code, %u of data, %lu free\n",
+		(unsigned int)(__a0_text_end - __a0_text_start),
+		(unsigned int)(__a0_data_end - __a0_data_start),
+		C33_A0_DATA_END - c33_iram_next);
 }
 
 /* Never freed: what uses A0 RAM keeps it. */
@@ -51,7 +28,7 @@ void *c33_iram_alloc(size_t size)
 
 	spin_lock(&c33_iram_lock);
 	start = ALIGN(c33_iram_next, 4);
-	if (start + size <= C33_IRAM_END) {
+	if (start + size <= C33_A0_DATA_END) {
 		mem = (void *)start;
 		c33_iram_next = start + size;
 	}

@@ -292,15 +292,16 @@ does the press that wakes it. The launcher's `init.ini` line carries that number
 timeout is a card edit.
 
 The panel is a DRM device, `drivers/gpu/drm/tiny/s1c33-lcdc.c` in the
-overlay, `/dev/dri/card0`. The controller can scan any word-aligned memory,
-internal video RAM or SDRAM, from its main window's start address, so a
+overlay, `/dev/dri/card0`. The controller can scan any word-aligned memory
+from its main window's start address, so a
 framebuffer in the panel's own format, DRM's `D1` (a bit a pixel, the leftmost
 in the high bit, set for black), is scanned where it is, and a page flip is a
 register write. An `XRGB8888` or `RGB565` framebuffer, which is what modern
-clients draw, is converted where damaged into a `D1` image in internal video
-RAM, which is then scanned. There is no fbdev: no `/dev/fb0`, no fbdev
-emulation (the driver has the standard hooks, which compile away without
-it). Every program on the panel is a DRM client with a `D1` dumb buffer,
+clients draw, is converted where damaged into the driver's own `D1` image,
+which is then scanned. Every image is in SDRAM: the controller's internal
+video RAM is the kernel's A0 RAM (below). There is no fbdev: no
+`/dev/fb0`, no fbdev emulation (the driver has the standard hooks, which
+compile away without it). Every program on the panel is a DRM client with a `D1` dumb buffer,
 scanned in place: the console (`console/wr-drm.h`: the connector, a dumb
 buffer added as `D1`, its mapping, and atomic commits that show it or
 switch the CRTC's `ACTIVE` off) and X's modesetting driver. Without an MMU nothing could see
@@ -313,7 +314,7 @@ Until the console sets its buffer the panel keeps the launcher's screen.
 DRM's own clients draw on the panel too, one bit a pixel
 (`patches/features/0039` and `0040` teach `drm_draw`, `drm_panic` and
 `drm_log` `R1` and `D1`). A panic draws DRM's panic screen into the
-controller's image in internal video RAM, whatever was on the panel, and
+driver's own image, whatever was on the panel, and
 the driver points the controller at it and lights the panel without
 sleeping. `drm_log` (`console=drm_log`, ahead of the serial port on the
 built-in command line) prints the kernel's messages at the console
@@ -1094,7 +1095,7 @@ program's stack is what its link asks for: cage and foot get 64 KB
 
 `make -C linux wayland-test` boots through Grifo, runs `startw`, taps
 `touch /w` and Enter on `wlkeyboard` and waits for the file, then reads the
-panel back from the driver's scanout in internal video RAM
+panel back from the driver's scanout
 (`artifacts/wayland-run/screen.pgm`). In wremu foot draws its first frame
 18 s after `startw` on a fresh image and 14 s on a later start, when
 fontconfig has its cache. What is left is mostly reading 3 MB of programs,
@@ -1143,7 +1144,8 @@ Multiple-block reads are streamed. The card sends each block's gap, token,
 data and CRC one after another and simply waits whenever the host stops
 clocking, so after the CPU has found the first token, the read comes in by
 DMA into a 64 KB ring: the receive channel writes the wire's bytes there as
-words, and the transmit channel sends all-ones from a single word in IVRAM.
+words, and the transmit channel sends all-ones from a single word in DST
+RAM.
 Each transfer runs to the ring's end or to the first byte not yet used, and
 the next starts as soon as it ends and there is room: the CPU looks when it
 should have ended, after each block, and between requests a high-resolution
@@ -1173,10 +1175,9 @@ each request and 5.1 s a block at a time; the driver's share of a block is
 13,000 cycles against 16,500 on the wire. The check is
 `sd_unpack_crc()`, which takes each word in wire order into the CRC four
 bytes at a time and swaps and shifts it into place: about 37 instructions a
-word, too long for the fetch queue, so it runs from A0 RAM (the zero-wait
-on-chip RAM Grifo leaves applications from 0x0c00; the kernel copies
-`__iramfunc` code there at boot, see `asm/iram.h`), with its 2 KB of tables
-there too, in about 9,700 cycles a block on the device.
+word, too long for the fetch queue, so it runs from A0 RAM (below, an
+`__iramfunc`), with its 2 KB of tables there too, in about 9,700 cycles a
+block on the device.
 
 Single blocks, and cards that shift a token by a few bits, are read a block
 at a time, pipelined: once block N+1's token is in and its transfer
@@ -1189,8 +1190,8 @@ stream's words cost about 13 cycles each over the wire, so most of the
 rest is a transfer getting going.
 Writes and shifted blocks use the byte-at-a-time CRC, a 26-byte loop
 compiled with `-falign-loops=16` so that it runs from the fetch queue, on the
-same tables. The all-ones the transmit channel sends are in IVRAM, above the
-framebuffer, where its reads close no SDRAM rows. Disabling the serial block
+same tables. The all-ones the transmit channel sends are in DST RAM, the
+internal RAM DMA can read, where its reads close no SDRAM rows. Disabling the serial block
 while it drives SCLK creates a real stray edge, and the block has to be
 disabled to change its clock or character size. With one character size,
 only a new clock rate does that, a few times a boot, and SCLK sits in the
@@ -1224,9 +1225,7 @@ so a copy that alternates them opens a row for every access, which the
 device measured at 6.6 cycles a byte. The aligned copy moves eight words at
 a time instead, eight loads then eight stores, which the device measured at
 4.0; the loop is longer than the fetch queue, hence A0 RAM, and every short
-call gains from not fetching its code from SDRAM. The exported names are
-stubs that jump through a pointer, to the SDRAM copies until `setup_arch()`
-has moved them. A 512-byte copy to user space takes about 2,500 cycles in
+call gains from not fetching its code from SDRAM. A 512-byte copy to user space takes about 2,500 cycles in
 wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17 in wremu, and
 5.29 s against 5.36 on the device. Division
 (`arch/c33/lib/div.S`) is there as well: the PE core has no divide
@@ -1236,7 +1235,8 @@ tick, were 4.4% of the boot from SDRAM. The replacements shift and subtract
 once per quotient bit in registers, and take 2.3%. `echo 1 >
 /sys/module/iram_bench/parameters/run` times the same loops from SDRAM and
 from A0 RAM and logs cycles per unit, to check wremu's model of both against
-the device; `check` runs it. On the device, arithmetic takes 3.59 cycles an
+the device; `check` runs it. It needs about 700 bytes of A0 RAM free,
+which the hot lists below leave only when they are emptied. On the device, arithmetic takes 3.59 cycles an
 instruction from SDRAM and 1.31 from A0 RAM, and wremu is within 10% on most
 cases, but it makes back-to-back stores from A0 RAM 16% too cheap, streamed
 loads from SDRAM 13% too cheap, and short branchy loops such as division up
@@ -1257,6 +1257,28 @@ cluster map, reading the sections and zeroing took. wremu's DMA model
 `check` with, a raw 4 MB read takes 2.92 s in wremu as on the device, and
 with the counters on its driver total is 13,400 cycles a block against the
 device's 13,700 less its writes.
+
+A0 RAM is the on-chip RAM the CPU reaches without the bus and without
+waiting (`arch/c33/include/asm/iram.h`). In wremu about 70% of every
+workload's cycles wait on SDRAM: an instruction fetch costs about 1.7
+cycles more than from A0 RAM, a data access 8 or 9. Grifo keeps the bottom
+3 KB and the top 64 bytes of A0 RAM's 8 KB; the kernel puts its hottest data
+in the rest (0x0c00-0x1fbb) and, by setting the LCD controller's IRAM bit,
+takes the controller's 12 KB of IVRAM in as more A0 RAM at 0x2000-0x4fff,
+for its hottest code. The panel is scanned from SDRAM anyway; the SD
+driver's all-ones moved to DST RAM, the 2 KB the DMA can read. `head.S`
+moves Grifo's picture out of IVRAM, where the display driver takes it over,
+switches IVRAM in and copies the two sections into place before any C runs;
+returning to Grifo switches it back and restores Grifo's scan registers.
+`linux/a0-hot.py` chooses the sections, an exact knapsack over what each
+would save per byte in wremu profiles of the boot, a shell session and the
+X test, from the link map (`CONFIG_VMLINUX_MAP`) and wremu's PC and data
+profiles (`WREMU_DATAPROF`); it says how to make them. The lists,
+`arch/c33/kernel/a0-text.lds` and `a0-data.lds`, hold about 11 KB of
+functions (the scheduler's accounting, timekeeping, slab, path walking, the
+SD driver's stream) and 3 KB of data (the run queue, the timekeeper,
+`current`). In wremu they take 12% off the boot to the console's prompt,
+6.6% off the shell session and 9% off the X test's busy time.
 
 `boot-test` runs on macOS. It builds a temporary FLASH image and a FAT32 card
 holding Grifo, `init.app`, `linux.app`, `linux.img` and a single-entry

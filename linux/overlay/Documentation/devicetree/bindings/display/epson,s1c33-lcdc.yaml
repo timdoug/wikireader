@@ -11,7 +11,9 @@ maintainers:
 
 description:
   The LCD controller scanning a one-bit-a-pixel image from internal video
-  RAM or SDRAM onto a 4-bit monochrome panel interface.
+  RAM or SDRAM onto a 4-bit monochrome panel interface.  Its images are
+  framebuffers in SDRAM; the internal video RAM is not described here,
+  since the platform may take it as general-purpose RAM.
 
 properties:
   compatible:
@@ -19,12 +21,10 @@ properties:
 
   reg:
     items:
-      - description: Internal video RAM, for the image the controller scans
       - description: The controller's registers
 
   reg-names:
     items:
-      - const: vram
       - const: lcdc
 
   enable-gpios:
@@ -42,9 +42,9 @@ examples:
   - |
     #include <dt-bindings/gpio/gpio.h>
 
-    display-controller@80000 {
+    display-controller@301a00 {
         compatible = "epson,s1c33-lcdc";
-        reg = <0x080000 0x1a00>, <0x301a00 0x100>;
-        reg-names = "vram", "lcdc";
+        reg = <0x301a00 0x100>;
+        reg-names = "lcdc";
         enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
     };

@@ -140,6 +140,8 @@ CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO_NONE=y
 CONFIG_FRAME_POINTER=y
 CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y
+# The link map: linux/a0-hot.py chooses A0 RAM's sections from it.
+CONFIG_VMLINUX_MAP=y
 # One SD card behind SPI, so no scheduler: mq-deadline's 128 scheduler
 # requests, each with its scatterlist, held 130 KB, and a 4 MB read takes
 # the same 2.9 s without them.

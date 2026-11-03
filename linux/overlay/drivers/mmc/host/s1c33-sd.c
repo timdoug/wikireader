@@ -172,10 +172,7 @@ struct s1c33_sd {
 	unsigned int divider;		/* SCLK = MCLK >> (divider + 2) */
 	u32 control;			/* CTL1 as programmed */
 	unsigned char power_mode;
-	/* Put a block in order and check it: sd_unpack_crc(), in A0 RAM. */
-	u16 (*unpack_crc)(const u32 *words, u32 *out, unsigned int n,
-			  u32 carry, unsigned int lead, const u16 *tables);
-	u16 *crc_tables;		/* its tables, in A0 RAM too */
+	u16 *crc_tables;		/* sd_unpack_crc()'s, in A0 RAM */
 	u8 rx[8];			/* received, not yet read */
 	unsigned int rx_len, rx_pos;
 	unsigned long dma_blocks;
@@ -880,9 +877,9 @@ static int sd_read_finish(struct s1c33_sd *host, struct sd_read *r)
 	if (r->dma && !r->bitshift) {
 		for (i = 0; i < r->lead; i++)
 			carry |= (u32)r->first[i] << (8 * i);
-		crc = host->unpack_crc((u32 *)r->buf, (u32 *)r->buf,
-				       r->len / 4, carry, r->lead,
-				       host->crc_tables);
+		crc = sd_unpack_crc((u32 *)r->buf, (u32 *)r->buf,
+				    r->len / 4, carry, r->lead,
+				    host->crc_tables);
 		if (host->mmc->use_spi_crc &&
 		    get_unaligned_be16(r->crc) != crc)
 			return -EILSEQ;
@@ -1428,9 +1425,9 @@ static int sd_read_stream(struct s1c33_sd *host, struct mmc_data *data,
 		}
 		lead = -s->pos & 3;
 		carry = lead ? swab32(*words) >> (8 * (4 - lead)) : 0;
-		crc = host->unpack_crc(words + !!lead, sg_virt(sg) + offset,
-				       SD_BLOCKSIZE / 4, carry, lead,
-				       host->crc_tables);
+		crc = sd_unpack_crc(words + !!lead, sg_virt(sg) + offset,
+				    SD_BLOCKSIZE / 4, carry, lead,
+				    host->crc_tables);
 		if (host->mmc->use_spi_crc &&
 		    crc != (sd_stream_byte(s, s->pos + SD_BLOCKSIZE) << 8 |
 			    sd_stream_byte(s, s->pos + SD_BLOCKSIZE + 1))) {
@@ -1943,7 +1940,6 @@ static int sd_probe(struct platform_device *pdev)
 	if (!host->crc_tables)
 		return -ENOMEM;
 	sd_crc_tables_init(host->crc_tables);
-	host->unpack_crc = c33_iram_func(sd_unpack_crc);
 	/* The all-ones for the transmitter, in internal RAM if there is some. */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram");
 	if (res) {

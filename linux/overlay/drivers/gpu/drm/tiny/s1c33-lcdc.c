@@ -12,8 +12,10 @@
  * what changed on a machine without an MMU, is on the panel as it is
  * written.  An XRGB8888 or RGB565 framebuffer, which is what modern
  * clients draw, is converted where damaged into the controller's own D1
- * buffer in internal video RAM, which is then scanned.
+ * image, which is then scanned.  The controller's internal video RAM is
+ * the kernel's A0 RAM (asm/iram.h), so every image is in SDRAM.
  */
+#include <linux/dma-mapping.h>
 #include <linux/gpio/consumer.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -61,8 +63,9 @@ struct s1c33_lcdc {
 	struct drm_connector connector;
 	void __iomem *regs;
 	struct gpio_desc *enable;
-	u8 __iomem *vram;		/* the converted image, in IVRAM */
-	phys_addr_t vram_phys;
+	/* The controller's own image: converted frames, the panic screen. */
+	u8 *image;
+	dma_addr_t image_dma;
 };
 
 static struct s1c33_lcdc *to_lcdc(struct drm_device *drm)
@@ -134,18 +137,18 @@ static void s1c33_lcdc_convert(struct s1c33_lcdc *lcdc,
 	unsigned int y, b;
 
 	for (y = clip->y1; y < clip->y2; y++) {
-		u8 __iomem *out = lcdc->vram + y * S1C33_LCD_STRIDE;
+		u8 *out = lcdc->image + y * S1C33_LCD_STRIDE;
 
 		if (fb->format->format == DRM_FORMAT_RGB565) {
 			const u16 *px = (const u16 *)(src + y * pitch) + b0 * 8;
 
 			for (b = b0; b < b1; b++, px += 8)
-				writeb(S1C33_BYTE(S1C33_RGB565_DARK, px), out + b);
+				out[b] = S1C33_BYTE(S1C33_RGB565_DARK, px);
 		} else {
 			const u32 *px = (const u32 *)(src + y * pitch) + b0 * 8;
 
 			for (b = b0; b < b1; b++, px += 8)
-				writeb(S1C33_BYTE(S1C33_XRGB_DARK, px), out + b);
+				out[b] = S1C33_BYTE(S1C33_XRGB_DARK, px);
 		}
 	}
 }
@@ -176,8 +179,8 @@ static int s1c33_lcdc_plane_atomic_check(struct drm_plane *plane,
 
 /*
  * A D1 framebuffer is pointed at; any other has its damage converted into
- * the D1 image in IVRAM, which is pointed at.  This runs before the CRTC is
- * enabled, so the panel lights on the right picture.
+ * the controller's own D1 image, which is pointed at.  This runs before the
+ * CRTC is enabled, so the panel lights on the right picture.
  */
 static void s1c33_lcdc_plane_atomic_update(struct drm_plane *plane,
 					   struct drm_atomic_commit *state)
@@ -200,11 +203,11 @@ static void s1c33_lcdc_plane_atomic_update(struct drm_plane *plane,
 	drm_atomic_helper_damage_iter_init(&iter, old_state, plane_state);
 	drm_atomic_for_each_plane_damage(&iter, &clip)
 		s1c33_lcdc_convert(lcdc, fb, &clip);
-	s1c33_lcdc_scan(lcdc, lcdc->vram_phys, S1C33_LCD_STRIDE);
+	s1c33_lcdc_scan(lcdc, lcdc->image_dma, S1C33_LCD_STRIDE);
 }
 
 /*
- * A panic screen is drawn in the controller's own D1 image in IVRAM, whatever
+ * A panic screen is drawn in the controller's own D1 image, whatever
  * the plane was showing: a converted frame's buffer is not what the panel
  * scans, and a client's D1 one may be gone.  Then the panel scans the image,
  * lit, without sleeping.
@@ -218,7 +221,7 @@ static int s1c33_lcdc_get_scanout_buffer(struct drm_plane *plane,
 	sb->width = S1C33_LCD_WIDTH;
 	sb->height = S1C33_LCD_HEIGHT;
 	sb->pitch[0] = S1C33_LCD_STRIDE;
-	iosys_map_set_vaddr_iomem(&sb->map[0], lcdc->vram);
+	iosys_map_set_vaddr(&sb->map[0], lcdc->image);
 	return 0;
 }
 
@@ -227,7 +230,7 @@ static void s1c33_lcdc_panic_flush(struct drm_plane *plane)
 	struct s1c33_lcdc *lcdc = to_lcdc(plane->dev);
 	u32 ps = readl(lcdc->regs + S1C33_LCDC_PS) & ~S1C33_LCDC_PS_MASK;
 
-	s1c33_lcdc_scan(lcdc, lcdc->vram_phys, S1C33_LCD_STRIDE);
+	s1c33_lcdc_scan(lcdc, lcdc->image_dma, S1C33_LCD_STRIDE);
 	writel(ps | S1C33_LCDC_PS_NORMAL, lcdc->regs + S1C33_LCDC_PS);
 	gpiod_set_value(lcdc->enable, 1);
 }
@@ -364,11 +367,27 @@ static const struct drm_driver s1c33_lcdc_driver = {
 	DRM_FBDEV_DMA_DRIVER_OPS,
 };
 
+/*
+ * The panel shows what the loader left, from wherever the kernel moved it
+ * (head.S): copy that into the controller's own image and scan it from
+ * there, so the picture stays until a client draws, and the memory it came
+ * from can go.  Grifo's lines are the panel's 32 bytes, whatever MLADD
+ * reads: it sets that only for a sub-window.
+ */
+static void s1c33_lcdc_adopt(struct s1c33_lcdc *lcdc)
+{
+	const size_t size = S1C33_LCD_STRIDE * S1C33_LCD_HEIGHT;
+	phys_addr_t at = readl(lcdc->regs + S1C33_LCDC_MADD);
+
+	if (pfn_valid(PHYS_PFN(at)) && pfn_valid(PHYS_PFN(at + size - 1)))
+		memcpy(lcdc->image, phys_to_virt(at), size);
+	s1c33_lcdc_scan(lcdc, lcdc->image_dma, S1C33_LCD_STRIDE);
+}
+
 static int s1c33_lcdc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct s1c33_lcdc *lcdc;
-	struct resource *vram;
 	struct drm_device *drm;
 	int ret;
 
@@ -378,16 +397,15 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 		return PTR_ERR(lcdc);
 	drm = &lcdc->drm;
 
-	vram = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vram");
-	if (!vram || resource_size(vram) < S1C33_LCD_STRIDE * S1C33_LCD_HEIGHT)
-		return dev_err_probe(dev, -EINVAL, "no room for the panel's image\n");
-	lcdc->vram = devm_ioremap_resource(dev, vram);
-	if (IS_ERR(lcdc->vram))
-		return PTR_ERR(lcdc->vram);
-	lcdc->vram_phys = vram->start;
+	lcdc->image = dmam_alloc_coherent(dev,
+					  S1C33_LCD_STRIDE * S1C33_LCD_HEIGHT,
+					  &lcdc->image_dma, GFP_KERNEL);
+	if (!lcdc->image)
+		return -ENOMEM;
 	lcdc->regs = devm_platform_ioremap_resource_byname(pdev, "lcdc");
 	if (IS_ERR(lcdc->regs))
 		return PTR_ERR(lcdc->regs);
+	s1c33_lcdc_adopt(lcdc);
 	/* The panel is already lit: adopt its state rather than glitching it. */
 	lcdc->enable = devm_gpiod_get_optional(dev, "enable", GPIOD_ASIS);
 	if (IS_ERR(lcdc->enable))

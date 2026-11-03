@@ -124,13 +124,14 @@
 		/*
 		 * The synchronous serial interface as an SD host in SPI mode,
 		 * its DMA flags and IDMA request in the interrupt
-		 * controller's block, and 512 bytes of IVRAM for the all-ones
-		 * the transmit DMA sends.
+		 * controller's block, and 512 bytes of DST RAM for the all-ones
+		 * the transmit DMA sends: internal RAM DMA can read, since the
+		 * kernel takes IVRAM into A0 RAM (asm/iram.h).
 		 */
 		sd: mmc@301700 {
 			compatible = "epson,s1c33-sd";
 			reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
-			      <0x082e00 0x200>;
+			      <0x084000 0x200>;
 			reg-names = "spi", "spi-flags", "idma", "sram";
 			clocks = <&cmu S1C33_CLK_SPI>;
 			/* Channel 2 on SPI transmit, 3 on receive: trigger 9. */
@@ -139,11 +140,14 @@
 			status = "disabled";
 		};
 
-		/* The LCD controller and the framebuffer in IVRAM. */
-		lcdc: display-controller@80000 {
+		/*
+		 * The LCD controller.  Its IVRAM is the kernel's A0 RAM
+		 * (asm/iram.h), so it scans framebuffers in SDRAM.
+		 */
+		lcdc: display-controller@301a00 {
 			compatible = "epson,s1c33-lcdc";
-			reg = <0x080000 0x1a00>, <0x301a00 0x100>;
-			reg-names = "vram", "lcdc";
+			reg = <0x301a00 0x100>;
+			reg-names = "lcdc";
 			status = "disabled";
 		};
 

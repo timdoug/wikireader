@@ -57,7 +57,16 @@ make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" olddefconfi
 make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" -j"$jobs" vmlinux
 cp "$build_dir/vmlinux" "$root/linux/artifacts/vmlinux"
 "${cross}objcopy" -O binary "$build_dir/vmlinux" "$root/linux/artifacts/vmlinux.bin"
-"${cross}strip" -o "$root/linux/artifacts/linux.app" "$build_dir/vmlinux"
+cp "$build_dir/vmlinux.map" "$root/linux/artifacts/vmlinux.map"
+# Grifo loads an ELF by its section addresses, and A0 RAM's sections are
+# linked where they run, which is not RAM until head.S has switched IVRAM
+# in: the launcher image gives them their load addresses in SDRAM instead,
+# where head.S copies them from.
+a0=$("${cross}objdump" -h "$build_dir/vmlinux" | awk '
+	$2 == ".a0.text" || $2 == ".a0.data" {
+		printf " --change-section-vma %s=0x%s", $2, $5 }')
+"${cross}objcopy" --strip-all $a0 "$build_dir/vmlinux" \
+	"$root/linux/artifacts/linux.app"
 python3 "$root/samo-lib/grifo/scripts/xpm2icon" \
 	--icon="$root/linux/artifacts/linux.ico" "$root/riscv/rvlinux.xpm"
 "${cross}size" "$build_dir/vmlinux"

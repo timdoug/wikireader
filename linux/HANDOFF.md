@@ -186,7 +186,7 @@ prepare N+2, wait); `sd_unpack_crc()`, slice-by-4 on
 wire-order words plus the byte swap in one pass; A0 RAM code
 (`asm/iram.h`, `kernel/iram.c`), where it, `memcpy`/`memset`/`memmove`
 (`lib/string.S`, eight loads then eight stores) and division (`lib/div.S`)
-run; the all-ones transmit buffer in IVRAM; `/sys/module/iram_bench/
+run; the all-ones transmit buffer in DST RAM; `/sys/module/iram_bench/
 parameters/run`, which times the same loops from SDRAM and from A0 RAM;
 and `read_timing`. Emulator and device results of both tools are in
 `artifacts/perf/` (gitignored).
@@ -584,8 +584,8 @@ The rest of the port, standards first (see "Standards" above):
    the console's ~2.3 ms of CPU, since it scrolls row by row comparing
    every cell (`FRAMEBUFFER_CONSOLE_LEGACY_ACCELERATION`, else it redraws
    every glyph); its one-bit console is white on black, and reverse video
-   leaves cleared areas black. Panning (`pLCDC_MADD`, with the 5 KB of
-   free IVRAM) would make scrolling nearly free, but moves the keyboard
+   leaves cleared areas black. Panning (`pLCDC_MADD`, over a taller
+   buffer) would make scrolling nearly free, but moves the keyboard
    too, which would then need the LCDC's sub-window. The pacing, blanking, and suspend
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and

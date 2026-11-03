@@ -1,12 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * The loops iram_bench.c times.  They are in .iram.text, so each exists
- * twice, as linked in SDRAM and as copied into A0 RAM, and the benchmark
- * runs both copies.  Each loop body is longer than the fetch queue holds.
+ * The loops iram_bench.c times.  They live in SDRAM, and the benchmark
+ * copies them into A0 RAM to run them from both, so they are
+ * position-independent.  Each loop body is longer than the fetch queue
+ * holds.
  */
 #include <linux/linkage.h>
 
-	.section .iram.text,"ax"
+	.text
+	.balign	4
+	.globl	c33_bench_loops_start
+c33_bench_loops_start:
 
 /* void c33_bench_alu(unsigned int passes): 16 register adds a pass */
 SYM_FUNC_START(c33_bench_alu)
@@ -102,3 +106,5 @@ SYM_FUNC_START(c33_bench_lookup)
 	jrne	1b
 	ret
 SYM_FUNC_END(c33_bench_lookup)
+	.globl	c33_bench_loops_end
+c33_bench_loops_end:

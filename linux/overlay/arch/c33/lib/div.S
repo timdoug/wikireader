@@ -8,42 +8,14 @@
  * dequeue and tick.  Those are C, run from SDRAM at several cycles an
  * instruction, and __div64_32 does 64-bit shifts and compares a bit at a
  * time; together they were 4.4% of the boot.  These replace them: the same
- * shift-and-subtract, in registers and from A0 RAM (asm/iram.h), through
- * stubs like lib/string.S's.  They are position-independent: every branch
- * is PC-relative and they call nothing.
+ * shift-and-subtract, in registers and from A0 RAM (asm/iram.h).  They are
+ * position-independent, every branch PC-relative and calling nothing, for
+ * the A0 RAM benchmark's SDRAM copies.
  *
  * C ABI: arguments in %r6-%r7, the result in %r4, %r4-%r14 free.
  */
 #include <linux/export.h>
 #include <linux/linkage.h>
-
-	.data
-	.balign	4
-SYM_DATA(c33_udivsi3_fn, .long __c33_udivsi3)
-SYM_DATA(c33_umodsi3_fn, .long __c33_umodsi3)
-SYM_DATA(c33_div64_32_fn, .long __c33_div64_32)
-
-	.text
-SYM_FUNC_START(__udivsi3)
-	xld.w	%r9,c33_udivsi3_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(__udivsi3)
-EXPORT_SYMBOL(__udivsi3)
-
-SYM_FUNC_START(__umodsi3)
-	xld.w	%r9,c33_umodsi3_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(__umodsi3)
-EXPORT_SYMBOL(__umodsi3)
-
-SYM_FUNC_START(__div64_32)
-	xld.w	%r9,c33_div64_32_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(__div64_32)
-EXPORT_SYMBOL(__div64_32)
 
 	.section .iram.text,"ax"
 
@@ -79,23 +51,25 @@ EXPORT_SYMBOL(__div64_32)
 .endm
 
 /* u32 __udivsi3(u32 n, u32 d) */
-SYM_FUNC_START(__c33_udivsi3)
+SYM_FUNC_START(__udivsi3)
 	cmp	%r7,0
 	jreq	9f
 	udiv32	%r6, %r7, %r4, %r9, %r10
 	ret
 9:	ld.w	%r4,0
 	ret
-SYM_FUNC_END(__c33_udivsi3)
+SYM_FUNC_END(__udivsi3)
+EXPORT_SYMBOL(__udivsi3)
 
 /* u32 __umodsi3(u32 n, u32 d) */
-SYM_FUNC_START(__c33_umodsi3)
+SYM_FUNC_START(__umodsi3)
 	cmp	%r7,0
 	jreq	9f
 	udiv32	%r6, %r7, %r4, %r9, %r10
 9:	ld.w	%r4,%r6
 	ret
-SYM_FUNC_END(__c33_umodsi3)
+SYM_FUNC_END(__umodsi3)
+EXPORT_SYMBOL(__umodsi3)
 
 /*
  * u32 __div64_32(u64 *n, u32 base): *n /= base, returning the remainder.
@@ -104,7 +78,7 @@ SYM_FUNC_END(__c33_umodsi3)
  * steps of shifting the 64-bit remainder left through the carry and taking
  * @base off whenever it fits.
  */
-SYM_FUNC_START(__c33_div64_32)
+SYM_FUNC_START(__div64_32)
 	ld.w	%r10,[%r6]		/* low word */
 	xld.w	%r11,[%r6+4]		/* high word */
 	ld.w	%r12,0			/* high word of the quotient */
@@ -128,4 +102,5 @@ SYM_FUNC_START(__c33_div64_32)
 	xld.w	[%r6+4],%r12
 	ld.w	%r4,%r11
 	ret
-SYM_FUNC_END(__c33_div64_32)
+SYM_FUNC_END(__div64_32)
+EXPORT_SYMBOL(__div64_32)

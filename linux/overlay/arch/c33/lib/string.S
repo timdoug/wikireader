@@ -24,38 +24,10 @@
 #include <linux/export.h>
 #include <linux/linkage.h>
 
-	.data
-	.balign	4
-SYM_DATA(c33_memset_fn, .long __c33_memset)
-SYM_DATA(c33_memcpy_fn, .long __c33_memcpy)
-SYM_DATA(c33_memmove_fn, .long __c33_memmove)
-
-	.text
-SYM_FUNC_START(memset)
-	xld.w	%r9,c33_memset_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(memset)
-EXPORT_SYMBOL(memset)
-
-SYM_FUNC_START(memcpy)
-	xld.w	%r9,c33_memcpy_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(memcpy)
-EXPORT_SYMBOL(memcpy)
-
-SYM_FUNC_START(memmove)
-	xld.w	%r9,c33_memmove_fn
-	ld.w	%r9,[%r9]
-	jp	%r9
-SYM_FUNC_END(memmove)
-EXPORT_SYMBOL(memmove)
-
 	.section .iram.text,"ax"
 
 /* void *memset(void *s, int c, size_t n) */
-SYM_FUNC_START(__c33_memset)
+SYM_FUNC_START(memset)
 	ld.w	%r4,%r6
 	xand	%r7,0xff
 	cmp	%r8,8
@@ -100,10 +72,11 @@ SYM_FUNC_START(__c33_memset)
 	sub	%r8,1
 	jrne	4b
 3:	ret
-SYM_FUNC_END(__c33_memset)
+SYM_FUNC_END(memset)
+EXPORT_SYMBOL(memset)
 
 /* void *memcpy(void *dest, const void *src, size_t n) */
-SYM_FUNC_START(__c33_memcpy)
+SYM_FUNC_START(memcpy)
 	ld.w	%r4,%r6
 	ld.w	%r9,%r6
 	xor	%r9,%r7
@@ -222,7 +195,8 @@ SYM_FUNC_START(__c33_memcpy)
 	add	%r7,%r13		/* and to its byte */
 	ld.w	%r8,%r14
 	jp	.Lcpy_bytes
-SYM_FUNC_END(__c33_memcpy)
+SYM_FUNC_END(memcpy)
+EXPORT_SYMBOL(memcpy)
 
 /*
  * void *memmove(void *dest, const void *src, size_t n)
@@ -232,14 +206,14 @@ SYM_FUNC_END(__c33_memcpy)
  * below the source or clear of it.  Only an overlap from above copies here,
  * backwards: words when the alignments agree, bytes otherwise.
  */
-SYM_FUNC_START(__c33_memmove)
+SYM_FUNC_START(memmove)
 	cmp	%r6,%r7
 	jrule	1f
 	ld.w	%r9,%r7
 	add	%r9,%r8
 	cmp	%r6,%r9
 	jrult	2f
-1:	xjp	__c33_memcpy
+1:	xjp	memcpy
 2:	ld.w	%r4,%r6
 	add	%r6,%r8			/* one past the end of each */
 	add	%r7,%r8
@@ -280,4 +254,5 @@ SYM_FUNC_START(__c33_memmove)
 	sub	%r8,1
 	jrne	6b
 7:	ret
-SYM_FUNC_END(__c33_memmove)
+SYM_FUNC_END(memmove)
+EXPORT_SYMBOL(memmove)
