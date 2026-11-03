@@ -512,6 +512,25 @@ and reboot back through Grifo. Captures and reports remain in
 `linux/artifacts/crashes/` for inspection. A NULL load is not a reliable
 crash fixture on a machine without memory protection.
 
+## strace
+
+`strace` 7.1 is on the image. Its C33 port
+(`buildroot/external/patches/strace/0001`) reads the registers through
+`PTRACE_GETREGSET`: the number in `orig_r4`, the arguments in `r6`-`r11`,
+the result in `r4`, so calls, arguments, errors, signals, `-c` summaries,
+`-f` across `vfork` and threads, `-p` attach and `inject` all work.
+
+Without an MMU, strace starts the program it traces with `vfork`.
+Upstream's NOMMU mode then seizes it once the exec is under way, and on
+this one-core machine the program had often run its first calls by then,
+or all of them. The port has the child ask to be traced before the exec
+instead, so it stops there: a trace begins at the program's first call
+(`c33_set_tls`), though not with the `execve` itself. strace chooses its
+NOMMU mode only when configure finds no `fork()`, and musl declares one,
+so Buildroot's `patches/0007` tells it so. `card/bin/t`, which `app-test`
+runs, checks a trace from the first call, a decoded call, an injected
+result and `-f` over a pipeline.
+
 ## Build and test
 
 **NEVER BYPASS GRIFO.** Every emulator run, a test, a timing or a one-off

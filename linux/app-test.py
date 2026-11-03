@@ -257,6 +257,7 @@ def main():
             "IPC PASS",
             "CXX PASS",
             "BENCH PASS",
+            "STRACE PASS",
             "PASS (thread.txt)",
             "C33 LINUX APP PASS",
             "application returned: 2",

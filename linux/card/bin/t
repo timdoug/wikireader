@@ -12,7 +12,16 @@ export LD_LIBRARY_PATH=/mnt/sd
 	/mnt/sd/ipctest.bin &&
 	/mnt/sd/cxxtest.bin &&
 	/mnt/sd/bench.bin --single &&
-	/mnt/sd/cxxtest.bin --bench
+	/mnt/sd/cxxtest.bin --bench &&
+	# strace: a program traced from its first call, a call decoded, a
+	# result injected, and the children of a pipeline followed.
+	strace -o /tmp/st.log cat /etc/hostname >/dev/null &&
+	head -1 /tmp/st.log | grep -q '^c33_set_tls(' &&
+	grep -qF 'openat(AT_FDCWD, "/etc/hostname", O_RDONLY|O_LARGEFILE) = 3' /tmp/st.log &&
+	test "$(strace -o /dev/null -e trace=getpid -e inject=getpid:retval=4242 sh -c 'echo $$')" = 4242 &&
+	strace -f -o /tmp/sf.log -e trace=execve sh -c 'echo hi | cat' >/dev/null &&
+	test "$(grep -c 'execve(' /tmp/sf.log)" -ge 2 &&
+	echo "STRACE PASS"
 } > "$out" 2>&1
 status=$?
 sync

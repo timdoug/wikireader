@@ -1,0 +1,24 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] package/strace: start tracees with vfork without an MMU
+
+strace has a NOMMU mode, which starts the program it traces with vfork
+and attaches as soon as it can, but chooses it only when configure finds
+no fork().  A C library that declares fork() and fails it at run time,
+as musl does without an MMU, gets the fork path, which cannot work there.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/package/strace/strace.mk b/package/strace/strace.mk
+--- a/package/strace/strace.mk
++++ b/package/strace/strace.mk
+@@ -27,6 +27,10 @@ else
+ STRACE_CONF_OPTS += --without-libiberty
+ endif
+
++ifeq ($(BR2_USE_MMU),)
++STRACE_CONF_ENV += ac_cv_func_fork=no
++endif
++
+ ifeq ($(BR2_PACKAGE_PERL),)
+ define STRACE_REMOVE_STRACE_GRAPH
+ 	rm -f $(TARGET_DIR)/usr/bin/strace-graph

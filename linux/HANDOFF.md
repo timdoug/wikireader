@@ -537,7 +537,7 @@ Where it departs:
 - GCC's execute torture, `gcc.dg`, the C++ suites and binutils' suites
   pass (README, "GCC and binutils test suites"); the C++ suites' last fixes
   are checked by name, not yet by a complete rerun.
-- No gdb, gdbserver or strace.
+- No gdb or gdbserver; strace runs (README, "strace").
 - binutils and GCC are carried as pristine tarballs, a `files/` tree and
   glue scripts that edit shared files, with a patch series only for GCC's
   shared-code changes.
@@ -594,7 +594,7 @@ The rest of the port, standards first (see "Standards" above):
    other full-screen programs take the panel from it and give it back.
 5. **The overlay as a real patch series**, and binutils' and GCC's glue as
    patch series too; it only bites when a pinned version is bumped.
-6. **gdbserver and strace**, which FDPIC ports normally have.
+6. **gdb and gdbserver**, which FDPIC ports normally have.
 7. **`buildroot/build.sh`'s partial clean** keeps host packages and rebuilds
    the rest; Buildroot's own way is per-package rebuilds or a full clean.
 8. **No-MMU memory locking (`patches/features/0028`)**: it exists for
@@ -711,8 +711,9 @@ it boots the file loader as a direct ELF, which wremu refuses.
   `regs_irqs_disabled()`, `arch_syscall_is_vdso_sigreturn()`, a
   `syscall_work` field in `struct thread_info`, and `HAVE_SYSCALL_TRACEPOINTS`.
 - **`GENERIC_ENTRY` does not give you strace.** It makes `PTRACE_SYSCALL` work,
-  which the early-userspace regression now proves, but strace itself has never
-  been ported to this architecture.
+  but strace needs a port of its own (`buildroot/external/patches/strace`),
+  and `start_thread` must leave `orig_r4` as execve's, or the exec's
+  `PTRACE_EVENT_EXEC` and exit stops report call -1.
 - **Clocks the core needs early must not be registered as clocks.** The timer
   gates are set through a raw accessor on purpose: nothing would hold a
   reference, and the clock core turns off every gate no driver has claimed.

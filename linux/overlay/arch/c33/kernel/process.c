@@ -209,6 +209,7 @@ void flush_thread(void)
 void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 {
 	unsigned long r6 = regs->r[6], r7 = regs->r[7], r8 = regs->r[8];
+	unsigned long nr = regs->orig_r4;
 
 	memset(regs, 0, sizeof(*regs));
 	regs->pc = pc;
@@ -223,7 +224,12 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	regs->r[7] = r7;
 	regs->r[8] = r8;
 	regs->psr = 1 << 4;
-	regs->orig_r4 = -1;
+	/*
+	 * Still execve's: its PTRACE_EVENT_EXEC and syscall-exit stops report
+	 * it, as on other architectures.  The syscall path clears it after the
+	 * exit stop; r4 is 0, so no restart can match.
+	 */
+	regs->orig_r4 = nr;
 	regs->reserved = 1;
 	current->thread.usp = sp;
 }
