@@ -25,7 +25,7 @@ def records(directory):
         for case in report["results"]:
             name = case["name"]
             start = re.search(r"^UPSTREAM-BEGIN " + re.escape(name) + r"\s*$", text, re.M)
-            end = re.search(r"^UPSTREAM-RESULT " + re.escape(name) + r" (\d+)\s*$", text, re.M)
+            end = re.search(r"UPSTREAM-RESULT " + re.escape(name) + r" (\d+)\s*$", text, re.M)
             segment = text[start.end():end.start() if end else None] if start else ""
             result = runner.verdict(report["suite"], case, case["exit_status"], segment)
             if result["status"] == "MISSING" and runner.crashed(raw, name):

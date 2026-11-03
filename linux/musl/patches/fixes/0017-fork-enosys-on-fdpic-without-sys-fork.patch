@@ -1,0 +1,33 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] _Fork: fail on FDPIC targets without SYS_fork
+
+An architecture with the generic syscall table has no fork, and _Fork
+falls back to clone(SIGCHLD, 0).  A no-MMU kernel accepts that, but the
+child gets no copy of the parent's memory: it runs on the parent's stack
+and data, and both corrupt each other.  On FDPIC, which is musl's no-MMU
+model, report ENOSYS, as SH FDPIC's kernel does for its fork.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/process/_Fork.c b/src/process/_Fork.c
+index 9c07792..5ff6d9b 100644
+--- a/src/process/_Fork.c
++++ b/src/process/_Fork.c
+@@ -1,5 +1,6 @@
+ #include <unistd.h>
+ #include <signal.h>
++#include <errno.h>
+ #include "syscall.h"
+ #include "libc.h"
+ #include "lock.h"
+@@ -34,6 +35,10 @@ pid_t _Fork(void)
+ 	LOCK(__abort_lock);
+ #ifdef SYS_fork
+ 	ret = __syscall(SYS_fork);
++#elif defined(__FDPIC__)
++	/* Without an MMU, a clone without CLONE_VM gets no copy of the
++	 * parent's memory: it would run on the parent's stack and data. */
++	ret = -ENOSYS;
+ #else
+ 	ret = __syscall(SYS_clone, SIGCHLD, 0);
+ #endif

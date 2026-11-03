@@ -1760,8 +1760,10 @@ c33_elf_reloc_name_lookup (bfd * abfd ATTRIBUTE_UNUSED,
    - Every word holding an address of this module is corrected at load
      time by its segment's displacement.  An executable lists them in
      .rofixup and relocates itself at startup (crt1's __self_reloc); a
-     shared library gets an R_C33_32 dynamic relocation without a symbol,
-     whose addend is the link-time address.  Either way the last .rofixup
+     shared library gets an R_C33_RELATIVE dynamic relocation, whose
+     addend is the link-time address, and so does a word in a dynamic
+     executable's TLS image, which ld.so copies before the executable
+     starts.  Either way the last .rofixup
      entry is the link-time address of __dp, which __self_reloc returns
      relocated: that is how the startup code finds its %r15.
 
@@ -2118,10 +2120,18 @@ c33fdpic_abs_symbol_p (struct elf_link_hash_entry *h, bool sizing)
 static enum c33fdpic_word
 c33fdpic_word_kind (struct bfd_link_info *info, int r_type,
 		    struct elf_link_hash_entry *h, asection *sym_sec,
-		    bool sizing)
+		    asection *word_sec, bool sizing)
 {
   enum c33fdpic_word own = (bfd_link_executable (info)
 			    ? C33FDPIC_WORD_ROFIXUP : C33FDPIC_WORD_RELATIVE);
+
+  /* ld.so copies a dynamic executable's TLS image for its first thread
+     before the executable's start code applies .rofixup: an address in
+     that image must be relocated by ld.so.  */
+  if (own == C33FDPIC_WORD_ROFIXUP
+      && elf_hash_table (info)->dynamic_sections_created
+      && (word_sec->flags & SEC_THREAD_LOCAL) != 0)
+    own = C33FDPIC_WORD_RELATIVE;
 
   if (h == NULL)
     {
@@ -2333,7 +2343,7 @@ c33fdpic_size_fixups (struct bfd_link_info *info, bool *changed)
           continue;
         }
 
-      switch (c33fdpic_word_kind (info, r_type, h, sym_sec, true))
+      switch (c33fdpic_word_kind (info, r_type, h, sym_sec, s, true))
 		{
 		case C33FDPIC_WORD_PLAIN:
 		  break;
@@ -3044,7 +3054,7 @@ c33fdpic_relocate (struct bfd_link_info *info, bfd *input_bfd,
     }
 
   kind = c33fdpic_word_kind (info, r_type, h,
-			     h == NULL ? sec : NULL, false);
+			     h == NULL ? sec : NULL, input_section, false);
   offset = _bfd_elf_section_offset (output_bfd, info, input_section,
 				    rel->r_offset);
   if (offset == (bfd_vma) -1 || offset == (bfd_vma) -2)

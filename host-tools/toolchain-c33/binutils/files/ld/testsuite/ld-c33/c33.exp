@@ -3,3 +3,8 @@
 if [istarget c33-*-*] {
     run_dump_test "branch-align"
 }
+
+if [istarget c33-*-linux*] {
+    run_dump_test "fdpic-tls-image-dynamic"
+    run_dump_test "fdpic-tls-image-static"
+}

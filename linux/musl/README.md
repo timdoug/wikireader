@@ -52,8 +52,9 @@ musl's SuperH FDPIC code expects them.
   `clock_nanosleep` on a kernel without `nanosleep`; `dl_iterate_phdr`
   running one callback at a time, as glibc does, which libgcc's unwinder
   cache needs when threads throw at once; `posix_madvise` checking its
-  range for `POSIX_MADV_DONTNEED` too; and `mmap` keeping the kernel's
-  `EPERM` for `MAP_LOCKED`.
+  range for `POSIX_MADV_DONTNEED` too; `mmap` keeping the kernel's
+  `EPERM` for `MAP_LOCKED`; and `fork` failing with `ENOSYS`, since the
+  generic `clone(SIGCHLD, 0)` would share the parent's memory and stack.
 - `features/`: an architecture's default thread stack and guard sizes,
   64 KB and none here.
 - `port/`: what the C33 linker writes and libgcc expects: relative
@@ -77,4 +78,4 @@ does.
 In Buildroot, BusyBox's vi searches for plain strings: its regex search
 uses GNU's `re_search`. Packages key their no-MMU paths on `__uClinux__`,
 which the compiler defines, not on the C library: musl declares a
-`fork()`, which fails.
+`fork()`, which fails with `ENOSYS`.

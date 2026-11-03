@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the complete upstream BusyBox test inventory in Linux."""
+"""Prepare the complete upstream BusyBox and musl libc-test inventories in Linux."""
 import argparse
 import hashlib
 import json
@@ -9,10 +9,54 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
+LIBC_TEST = "https://repo.or.cz/libc-test.git"
+LIBC_TEST_REVISION = "63e36e934e8f2bedf645303a90b64098e2af6c8f"
+# libc-test's own settings, for the musl cross compiler.  A test's stack is
+# taken whole without an MMU: 256 KB, which the math drivers need.
+LIBC_TEST_CONFIG = """CFLAGS += -pipe -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wno-unused-function -Wno-missing-braces -Wno-unused -Wno-overflow
+CFLAGS += -Wno-unknown-pragmas -fno-builtin -frounding-math
+CFLAGS += -Werror=implicit-function-declaration -Werror=implicit-int -Werror=pointer-sign -Werror=pointer-arith
+LDFLAGS += -Wl,-z,stack-size=262144
+LDLIBS += -lpthread -lm -lrt
+"""
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def libc_test(private, compiler, out):
+    """Build every libc-test binary in its tree, as its Makefile names them,
+    without running any: its runner forks.  Returns the inventory."""
+    src = private / "libc-test"
+    if not src.exists():
+        subprocess.run(["git", "clone", LIBC_TEST, src], check=True)
+    subprocess.run(["git", "-C", src, "checkout", "-q", "--detach", LIBC_TEST_REVISION], check=True)
+    if subprocess.check_output(["git", "-C", src, "status", "--porcelain", "--untracked-files=no"], text=True).strip():
+        raise SystemExit("libc-test source must be clean")
+    subprocess.run(["git", "-C", src, "clean", "-qfdx"], check=True)
+    (src / "config.mak").write_text(f"CC = {compiler}\n" + LIBC_TEST_CONFIG)
+    cross = str(compiler)[:-len("gcc")]
+    make = ["make", "-C", str(src), f"CROSS_COMPILE={cross}"]
+    listing = subprocess.check_output([*make, "-s", "debug"], text=True)
+    names = {key: value.split() for key, _, value in
+             (line.partition(" ") for line in listing.splitlines())}
+    targets = names["BINS"] + [x for x in names["LIBS"] if x.endswith(".so")]
+    with (out / "libc-test-build.log").open("w") as log:
+        build_exit = subprocess.run([*make, "-k", "-j4", *targets],
+                                    stdout=log, stderr=subprocess.STDOUT).returncode
+    entries = []
+    for binary in names["BINS"]:
+        path = src / binary
+        built = path.is_file() and path.read_bytes()[:4] == b"\x7fELF"
+        name = binary.removeprefix("src/").removesuffix(".exe")
+        source = src / "src" / (name.removesuffix("-static") + ".c")
+        entries.append({"name": name, "directory": "libc-test", "command": "./" + binary,
+                        "status": "BUILT" if built else "BUILD_ERROR",
+                        "source_sha256": sha(source) if source.exists() else None,
+                        "binary_sha256": sha(path) if built else None})
+    files = [p for p in sorted((src / "src").rglob("*")) if p.suffix in (".exe", ".so") and p.is_file()]
+    return entries, files, src, build_exit
 
 
 def main():
@@ -48,6 +92,12 @@ def main():
     # Test the installed BusyBox, not a newly configured all-features binary.
     (stage / "busybox/busybox").symlink_to("/bin/busybox")
     (stage / "busybox/shell/hush_test/hush").symlink_to("/bin/busybox")
+    libc_entries, libc_files, libc_src, libc_build_exit = libc_test(private, compiler, out)
+    for path in libc_files:
+        target = stage / "libc-test" / path.relative_to(libc_src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        target.chmod(0o755)
     tests = stage / "busybox/testsuite"
     # testing.sh normally compiles this helper when echo lacks -ne. There is
     # no native compiler in the guest, so cross-build the unchanged helper.
@@ -67,9 +117,10 @@ def main():
                     "-o", out / "super.bin"], check=True)
     with tarfile.open(out / "suite.tar.gz", "w:gz", format=tarfile.USTAR_FORMAT) as archive:
         archive.add(stage / "busybox", arcname="busybox")
-    manifest = {"busybox_version": "1.38.0",
+        archive.add(stage / "libc-test", arcname="libc-test")
+    manifest = {"busybox_version": "1.38.0", "libc_test_revision": LIBC_TEST_REVISION,
                 "compiler": str(compiler), "compiler_sha256": sha(compiler),
-                "busybox": bb_entries,
+                "busybox": bb_entries, "libc": libc_entries, "libc_build_exit": libc_build_exit,
                 "busybox_source_sha256": {str(p.relative_to(bb)): sha(p)
                                           for tree in [bb / "testsuite", bb / "shell/hush_test"]
                                           for p in sorted(tree.rglob("*")) if p.is_file()},
@@ -79,6 +130,8 @@ def main():
                 "archive_sha256": sha(out / "suite.tar.gz"), "supervisor_sha256": sha(out / "super.bin")}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print("BusyBox applet/shell groups:", len(bb_entries), flush=True)
+    print("libc-test binaries:", len(libc_entries), "built:",
+          sum(x["status"] == "BUILT" for x in libc_entries), flush=True)
 
 
 if __name__ == "__main__":

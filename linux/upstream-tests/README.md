@@ -1,15 +1,15 @@
-# Upstream BusyBox suite
+# Upstream BusyBox and libc-test suites
 
-These runners build and attempt BusyBox's complete upstream test inventory
-for the installed C33 Linux configuration: its applet tests and Hush's
-shell tests, against the installed `/bin/busybox`. Every target trial boots
+These runners build and attempt two complete upstream test inventories
+for the installed C33 Linux configuration: BusyBox's applet tests and
+Hush's shell tests, against the installed `/bin/busybox`, and musl's
+libc-test, against the installed C library. Every target trial boots
 **FLASH -> Grifo -> launcher -> Linux**, with 32 MiB SDRAM and a disposable
 virtual SD card. These are emulator results; the physical device and the
 16 MiB configuration need separate qualification.
 
-The C library's own upstream suite is not here: uClibc-ng's was, while the
-system used it, and musl's (libc-test) has no runner yet. The C library's
-regressions are `../musl/tests`, which `app-test.py` runs.
+The C library's own regressions are `../musl/tests`, which `app-test.py`
+runs.
 
 ## Sources and execution
 
@@ -28,6 +28,13 @@ is disabled in our BusyBox configuration; `busybox-disabled-suites.json`
 records its 367 test files and hashes. None of these disabled tests is
 counted as a pass.
 
+libc-test is pinned in `build.py` and built by its own Makefile with its
+own flags, every program dynamic and static (math dynamic only), with a
+256 KB stack. Its runner forks, so each program runs under `super.bin`
+from the top of its tree, where the dlopen tests find their libraries; a
+test passes when it exits 0. A trial stages only the selected programs and
+the test libraries.
+
 Interrupted shell modules do not constitute complete coverage. The runner
 can select each of Hush's 404 executable tests with expected-output files
 through the same upstream `run-all`. Selection changes only executable
@@ -40,12 +47,13 @@ python3 linux/upstream-tests/build.py            # in the VM
 python3 linux/upstream-tests/run.py busybox --output DIR
 python3 linux/upstream-tests/run.py busybox --hush-case hush-misc/func7.tests --output DIR
 python3 linux/upstream-tests/summarize.py --busybox DIR --output summary.json
+python3 linux/upstream-tests/run.py libc --batch-size 16 --output DIR
 ```
 
 ## Results
 
-The last full sweep ran on the uClibc-ng system, before the move to musl;
-it has not been repeated on musl:
+BusyBox's last full sweep ran on the uClibc-ng system, before the move to
+musl; it has not been repeated on musl:
 
 | Inventory and counting unit | Pass | Fail | Skip/untested | Other |
 |---|---:|---:|---:|---|
@@ -60,7 +68,40 @@ it has not been repeated on musl:
 | 1 Hush `signal_read1` | `read` from the runner's `/dev/null` races its HUP; upstream expects a blocking terminal |
 | 4 Hush, 3 sed | Upstream bugs: the Hush tests fail identically in a native no-MMU build; sed's are marked as known |
 
+libc-test (revision 63e36e93, musl 1.2.6) has 486 programs: 440 pass,
+2 do not build, 37 fail and 7 are killed. None crashes or times out:
+
+| Tests | Cause |
+|---|---|
+| `api/main` (build) | POSIX names newer than musl 1.2.6: `_PC_TIMESTAMP_RESOLUTION`, `_SC_XOPEN_UUCP` |
+| `musl/pleval` (build) | Calls libc's hidden `__pleval`; only its static build links, and passes |
+| 6 `ipc_*`, 2 `wordexp`, 2 `daemon-failure`, 2 `fflush-exit`, 2 `pthread_exit-dtor`, 2 `raise-race` | Need `fork`, which fails with `ENOSYS` without an MMU |
+| 4 `malloc-oom`, 2 `pthread_create-oom`, 2 `setenv-oom`, 2 `malloc-brk-fail` | Fill the address space with `PROT_NONE` mappings first: without an MMU each one is RAM, and the OOM killer ends the test |
+| 2 `sscanf_long` | An 8 MB contiguous allocation |
+| 2 `socket` | UDP over IPv4; the kernel has no IPv4 |
+| 4 `strtod`, `strtold` | Hex rounding with a 64-bit `long double`, fixed in musl after 1.2.6 (50979c5b) |
+| `fmaf` | Subnormal double rounding, fixed in musl after 1.2.6 (a9764402, 48a619ca) |
+| 4 `regex-backref-oob`, `regexec-backref` | Tests newer than any musl fix |
+| 2 `strptime` | musl has no `%s` or `%z` |
+| `acoshl`, `asinhl`, `erfcl`, `lgammal`, `tgammal` | `long double` is `double`, and the results are the double functions'; the double drivers accept these errors (their `X` lines), the `long double` drivers do not |
+
 ## Fixes these suites found
+
+libc-test found two:
+
+- musl's `fork` on an architecture without `SYS_fork` is
+  `clone(SIGCHLD, 0)`, which a no-MMU kernel accepts: the child ran on its
+  parent's stack and data, and the tests crashed, hung or took the kernel
+  down. `../musl/patches/fixes/0017` makes it fail with `ENOSYS`; nothing in
+  the root image calls it.
+- An address in a dynamic executable's TLS image was a `.rofixup` entry,
+  applied by the start code after ld.so had copied the image for the
+  first thread, which kept the link-time value (`tls_local_exec`). The
+  linker now gives it an `R_C33_RELATIVE`;
+  `ld-c33/fdpic-tls-image-*.d` checks both kinds of executable. No program
+  in the root image has a TLS segment.
+
+BusyBox's found these:
 
 The kernel's no-MMU FDPIC loader sized a program's stack from
 `PT_GNU_STACK` without counting the argument and environment strings,

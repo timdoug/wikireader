@@ -36,7 +36,10 @@ def hush_output(segment):
 
 
 def verdict(suite, case, code, segment):
-    if case["name"].startswith("hush/"):
+    if suite == "libc":
+        # libc-test reports each failed check on a line and exits non-zero.
+        assertions = Counter()
+    elif case["name"].startswith("hush/"):
         assertions = Counter("PASS" if x == "ok" else "SKIP" if x.startswith("skip") else "FAIL"
                              for x in re.findall(r"^(?:-n )?hush-[^:\n]+:[ \n]*(ok|skip[^\n]*|fail[^\n]*)$", hush_output(segment), re.M))
     else:
@@ -52,6 +55,8 @@ def verdict(suite, case, code, segment):
         status = "ERROR"
     elif code or failed:
         status = "FAIL"
+    elif suite == "libc":
+        status = "PASS"
     elif not passed:
         status = "SKIPPED" if skipped else "UNTESTED"
     else:
@@ -91,6 +96,9 @@ def trial(args, manifest, cases, out):
     fat = app.load_fat_helper(ROOT)
     # Stage only the requested families, keeping RAM available for the tests.
     selected = {x["directory"] for x in cases}
+    # libc-test: the selected programs and every library they may load.
+    programs = {"libc-test/" + x["command"].removeprefix("./") for x in cases
+                if x["directory"] == "libc-test"}
     staged_members = 0
     with tarfile.open(args.binaries / "suite.tar.gz") as archive, tarfile.open(out / "tests.tar", "w") as packed:
         for member in archive:
@@ -102,6 +110,9 @@ def trial(args, manifest, cases, out):
             # than a thousand guest file creations before the first test.
             keep = member.name.startswith("busybox/") and (
                 args.full_busybox_fixture or Path(member.name).parent == Path("busybox") or family)
+            if member.name.startswith("libc-test/"):
+                keep = "libc-test" in selected and (
+                    member.isdir() or member.name in programs or member.name.endswith(".so"))
             if keep:
                 packed.addfile(member, archive.extractfile(member) if member.isfile() else None)
                 staged_members += 1
@@ -218,7 +229,8 @@ def trial(args, manifest, cases, out):
     results = []
     for case in cases:
         start = re.search(r"^UPSTREAM-BEGIN " + re.escape(case["name"]) + r"\s*$", text, re.M)
-        ends = list(re.finditer(r"^UPSTREAM-RESULT " + re.escape(case["name"]) + r" (\d+)\s*$", text, re.M))
+        # A test's last line may lack its newline: the marker can follow it.
+        ends = list(re.finditer(r"UPSTREAM-RESULT " + re.escape(case["name"]) + r" (\d+)\s*$", text, re.M))
         code = int(ends[0][1]) if len(ends) == 1 else None
         segment = text[start.end():ends[0].start()] if start and len(ends) == 1 else text[start.end():] if start else ""
         results.append({"name": case["name"], "exit_status": code,
@@ -255,7 +267,7 @@ def trial(args, manifest, cases, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("suite", choices=["busybox"])
+    parser.add_argument("suite", choices=["busybox", "libc"])
     parser.add_argument("--binaries", type=Path, default=ROOT / "linux/artifacts/upstream-suites")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, default=ROOT / "linux/artifacts/linux.app")
