@@ -11,15 +11,16 @@
 # source tree out from under you, leaving empty directories and a build that
 # fails in confusing ways.
 #
-#   ./rebuild.sh [workdir [libstdc++|libatomic|libgcc-shared]]
+#   ./rebuild.sh [workdir [compiler|final]]
 #
-# C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, in
-# its own build directory and into the same prefix, for C and C++.  It needs
-# that triplet's binutils and a sysroot holding the kernel and uClibc-ng
-# headers (linux/toolchain.sh does all three).  libstdc++ links against the
-# C library, so it is left out of that build and made afterwards, once
-# uClibc-ng is installed, by the libstdc++ step. libatomic is also built
-# after libc, with its own step, using GCC's generic POSIX implementation.
+# C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, into
+# the same prefix, in the two passes a cross toolchain takes.  The first
+# ("compiler", in build-c33-linux-uclibc-stage1) is C only, without threads
+# or shared runtimes, against a sysroot holding the kernel and uClibc-ng
+# headers: enough to build uClibc-ng.  The final pass ("final", in
+# build-c33-linux-uclibc), once uClibc-ng is installed, builds C and C++ and
+# the runtimes with their shared libraries: libgcc_s, libstdc++ and
+# libatomic.  linux/toolchain.sh and linux/Makefile run them in order.
 
 set -e
 
@@ -85,94 +86,33 @@ if [ "${TARGET}" = c33-epson-elf ]; then
 	# Bare metal: C only, no C library headers, newlib's type conventions.
 	TARGET_CONFIG="--enable-languages=c --without-headers --with-newlib \
 		--disable-threads"
-else
+	RUNTIMES="--disable-libatomic"
+	SHARED=--disable-shared
+elif [ "${STEP}" = final ]; then
 	BUILD="${SRC}/build-${TARGET}"
-	# The one multilib is chosen by c33/linux.h; libgcc is built against
-	# the sysroot's uClibc-ng headers, and threads are uClibc-ng's pthreads.
+	# The one multilib is chosen by c33/linux.h; the runtimes are built
+	# against the installed uClibc-ng, and threads are its pthreads.
 	TARGET_CONFIG="--enable-languages=c,c++ \
 		--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib \
 		--enable-threads=posix --disable-libstdcxx-pch"
+	RUNTIMES=
+	SHARED=--enable-shared
+else
+	BUILD="${SRC}/build-${TARGET}-stage1"
+	# Only for building uClibc-ng, whose headers the sysroot holds.
+	TARGET_CONFIG="--enable-languages=c \
+		--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib \
+		--disable-threads"
+	RUNTIMES="--disable-libatomic"
+	SHARED=--disable-shared
 fi
 CONFIG_ARGS="--target=${TARGET} --prefix=${PREFIX} ${TARGET_CONFIG} \
 	--enable-initfini-array \
-	--disable-libssp --disable-libquadmath --disable-libatomic \
-	--disable-libgomp --disable-nls --disable-shared ${CONFIG_MATH}"
+	--disable-libssp --disable-libquadmath ${RUNTIMES} \
+	--disable-libgomp --disable-nls ${SHARED} ${CONFIG_MATH}"
 CONFIG_ARGS=$(echo ${CONFIG_ARGS})
 
-N=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-
-build_shared_libgcc() {
-	[ "${TARGET}" = c33-linux-uclibc ] || exit 1
-	# The compiler bootstrap has only libc headers. Build its shared
-	# runtime after libc is installed, using libgcc's standard shared rules.
-	# Keep the compiler and libstdc++ bootstrap configured for static runtimes.
-	# The bootstrap archive includes EH objects; make does not track that
-	# enable_shared=yes changes its membership. Force the archive split.
-	rm -f "${BUILD}/${TARGET}/libgcc/libgcc.a" \
-		"${BUILD}/${TARGET}/libgcc/libgcc_eh.a"
-	make -C "${BUILD}/${TARGET}/libgcc" -j"${N}" enable_shared=yes
-	make -C "${BUILD}/${TARGET}/libgcc" enable_shared=yes install
-	test -f "${PREFIX}/${TARGET}/lib/libgcc_s.so.1"
-	python3 "${HERE}/tools/check-runtime.py" "${PREFIX}"
-	if [ -d "${PREFIX}/${TARGET}/sysroot/lib" ]; then
-		cp "${PREFIX}/${TARGET}/lib/libgcc_s.so.1" \
-			"${PREFIX}/${TARGET}/sysroot/lib/"
-	fi
-}
-
-if [ "${STEP}" = libgcc-shared ]; then
-	build_shared_libgcc
-	exit 0
-fi
-
-if [ "${STEP}" = libatomic ]; then
-	[ "${TARGET}" = c33-linux-uclibc ] || {
-		echo "libatomic needs the Linux compiler and installed libc" >&2
-		exit 1
-	}
-	# Like libstdc++, this runtime needs the installed C library. Build it
-	# separately so the compiler/header bootstrap does not depend on libc.
-	# GCC's generic POSIX implementation uses pthread locks for operations
-	# wider than the backend's inline atomics. Keep the archive static, as
-	# libstdc++ is, and let --gc-sections keep just each program's operations.
-	ATOMIC_BUILD="${SRC}/build-libatomic-${TARGET}"
-	rm -rf "${ATOMIC_BUILD}"
-	mkdir -p "${ATOMIC_BUILD}/gcc"
-	cd "${ATOMIC_BUILD}"
-	"${SRC}/libatomic/configure" --build="$("${SRC}/config.guess")" \
-		--host="${TARGET}" --target="${TARGET}" --prefix="${PREFIX}" \
-		--libdir="${PREFIX}/${TARGET}/lib" --disable-multilib \
-		--disable-shared --enable-static \
-		CC="${PREFIX}/bin/${TARGET}-gcc" \
-		CFLAGS="-Os -ffunction-sections -fdata-sections"
-	# GCC 16 also installs a copy into its compiler build directory. This
-	# standalone build keeps that temporary copy here instead.
-	make -j"${N}" gcc_objdir="${ATOMIC_BUILD}/gcc"
-	make install
-	test -f "${PREFIX}/${TARGET}/lib/libatomic.a"
-	echo "==> DONE: ${PREFIX}/${TARGET}/lib/libatomic.a"
-	exit 0
-fi
-
-if [ "${STEP}" = libstdc++ ]; then
-	cd "${BUILD}"
-	# Rebuilt from scratch every time, for the reason libgcc is below: it
-	# was configured against the C library, which may have changed.
-	echo "==> rebuilding libstdc++ from scratch"
-	rm -rf "${TARGET}/libstdc++-v3"
-	rm -f configure-target-libstdc++-v3 all-target-libstdc++-v3 \
-		install-target-libstdc++-v3
-	make -j"${N}" all-target-libstdc++-v3
-	make install-target-libstdc++-v3
-	# The top-level static bootstrap configuration rebuilds/reinstalls its
-	# combined libgcc while building libstdc++. Restore the runtime split
-	# before the installed compiler links any applications.
-	if [ "${TARGET}" = c33-linux-uclibc ]; then
-		build_shared_libgcc
-	fi
-	echo "==> DONE: ${PREFIX}/${TARGET}/lib/libstdc++.a"
-	exit 0
-fi
+N=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 
 # A build directory configured with other arguments is started afresh.
 mkdir -p "${BUILD}"
@@ -197,21 +137,33 @@ echo "==> building cc1"
 make -j"${N}" all-gcc
 make install-gcc
 
-# Force libgcc to be rebuilt rather than trusting the stamps.  "make install"
-# copies the old archive with a fresh timestamp, so a stale libgcc.a looks
-# perfectly current.
-echo "==> rebuilding libgcc from scratch"
-rm -rf "${TARGET}/libgcc" "${TARGET}/c33pe" "${TARGET}/c33adv"
-rm -f configure-target-libgcc all-target-libgcc install-target-libgcc
-make -j"${N}" all-target-libgcc
-make install-target-libgcc
-# That bootstrap libgcc.a carries the unwinder.  Once the C library is
-# installed, split it out into libgcc_s and libgcc_eh again, or programs
-# link a private unwinder that uClibc-ng's pthread_exit, which loads
-# libgcc_s's, cannot mix with.
-if [ "${TARGET}" = c33-linux-uclibc ] \
-   && [ -f "${PREFIX}/${TARGET}/sysroot/usr/lib/libc.so" ]; then
-	build_shared_libgcc
+# Force the runtimes to be rebuilt rather than trusting the stamps.  "make
+# install" copies the old archive with a fresh timestamp, so a stale libgcc.a
+# looks perfectly current; and the final pass's are configured against the C
+# library, which may have changed.
+LIBS=libgcc
+[ "${STEP}" != final ] || LIBS="libgcc libstdc++-v3 libatomic"
+echo "==> rebuilding ${LIBS} from scratch"
+rm -rf "${TARGET}/c33pe" "${TARGET}/c33adv"
+for lib in ${LIBS}; do
+	rm -rf "${TARGET:?}/${lib}"
+	rm -f "configure-target-${lib}" "all-target-${lib}" "install-target-${lib}"
+done
+for lib in ${LIBS}; do
+	make -j"${N}" "all-target-${lib}"
+done
+for lib in ${LIBS}; do
+	make "install-target-${lib}"
+done
+
+if [ "${STEP}" = final ]; then
+	# The shared runtimes go in the sysroot's lib/ as well, beside the C
+	# library, where Buildroot and the card's image take them from.
+	for lib in libgcc_s.so.1 'libstdc++.so.*' 'libatomic.so.*'; do
+		cp -a "${PREFIX}/${TARGET}/lib/"${lib} "${PREFIX}/${TARGET}/sysroot/lib/"
+	done
+	rm -f "${PREFIX}/${TARGET}/sysroot/lib/"libstdc++.so.*-gdb.py
+	python3 "${HERE}/tools/check-runtime.py" "${PREFIX}"
 fi
 
 echo "==> DONE: ${PREFIX}/bin/${TARGET}-gcc"

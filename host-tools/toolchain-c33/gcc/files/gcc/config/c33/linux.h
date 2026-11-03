@@ -122,13 +122,6 @@
 #undef LIB_SPEC
 #define LIB_SPEC "%{pthread:-lpthread} -lc"
 
-/* Keep arithmetic helpers static, but share the optional unwinder between
-   libc, C++ and dynamically loaded modules. libgcc_eh.a
-   is installed by the post-libc shared-runtime build for static links. */
-#undef LIBGCC_SPEC
-#define LIBGCC_SPEC \
-  "-lgcc %{static|static-libgcc:-lgcc_eh;shared-libgcc:-lgcc_s;:--push-state --as-needed -lgcc_s --pop-state}"
-
 /* The FDPIC emulation, and ld.so unless the link is static.  Without an
    MMU a program's stack cannot grow: the kernel allocates the size in
    PT_GNU_STACK whole at exec, or 128 KB if that is zero.  32 KB here, and

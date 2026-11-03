@@ -19,7 +19,8 @@ fetch: vm
 
 libc: vm
 	$(SHELL_IN_VM) ./linux/uclibc/build.sh
-	$(SHELL_IN_VM) ./linux/toolchain.sh libstdc++
+	$(SHELL_IN_VM) ./linux/toolchain.sh final
+	$(SHELL_IN_VM) ./linux/uclibc/tests.sh
 
 rootfs: libc
 	$(SHELL_IN_VM) ./linux/buildroot/build.sh

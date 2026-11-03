@@ -624,17 +624,19 @@ the free-area record written into them when freed, overwriting the end of
 the block before. `uclibc/malloc-test.c`, run by `app-test`, frees such a
 block between live ones, then mixes `malloc`, `free`, `realloc` and
 `memalign` at random, checking every block's contents and that no two
-overlap. `libc` then builds
-libstdc++ against the installed C library, with `toolchain.sh libstdc++`.
+overlap.
 
-That step also builds GCC's upstream `libatomic` against the installed
-libc; `toolchain.sh libatomic` rebuilds just that runtime and its C test.
-The static archive lives beside `libstdc++.a` in the cross toolchain and
-is imported into Buildroot's staging sysroot. Link programs that need it
-with `-pthread -latomic` after their objects. There is no extra shared
-library to install on the card: only used code is linked into a program.
-Buildroot recognizes the C33 FDPIC toolchain as providing libatomic, so
-packages requiring atomic intrinsics can be selected.
+The compiler is built in the two passes a cross compiler takes. The first,
+C only and without shared runtimes, builds uClibc-ng; `make -C linux libc`
+then installs the library and runs the final pass against it
+(`toolchain.sh final`), which builds C++ and GCC's runtimes with their
+shared libraries, `libgcc_s`, `libstdc++` and `libatomic`, the archives
+beside them, and puts the shared ones in the sysroot's `lib/` with the C
+library, where Buildroot takes them for the card. `uclibc/tests.sh` then
+builds the regression programs with it. Link programs that need
+`libatomic` with `-pthread -latomic` after their objects. Buildroot
+recognizes the C33 FDPIC toolchain as providing libatomic, so packages
+requiring atomic intrinsics can be selected.
 
 C++ exceptions unwind with DWARF tables, which are shared text, as SH's
 are: they reach code PC-relative and data through words in the data

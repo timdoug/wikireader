@@ -6,12 +6,14 @@
 #   c33-linux-uclibc-  no-MMU Linux userspace: PE core, FDPIC ELF with
 #                      shared libraries, and uClibc-ng.
 #
-# The userspace compiler is configured against a sysroot holding the kernel's
-# UAPI headers and uClibc-ng's headers, so make -C linux fetch has to come
-# first; make -C linux libc then puts the library itself in the sysroot and
-# builds libstdc++ against it, with the libstdc++ step here.
+# The userspace compiler is built in two passes, as cross compilers are.
+# The first is configured against a sysroot holding the kernel's UAPI
+# headers and uClibc-ng's headers, so make -C linux fetch has to come first;
+# make -C linux libc then puts the library itself in the sysroot and runs
+# the final pass against it, with the final step here, which builds C++ and
+# the shared runtimes.
 #
-#   toolchain.sh [all|elf|linux|libstdc++|libatomic]
+#   toolchain.sh [all|elf|linux|final]
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -28,26 +30,9 @@ linux_target=c33-linux-uclibc
 sysroot=${prefix}/${linux_target}/sysroot
 which=${1:-all}
 
-if [ "${which}" = libatomic ]; then
+if [ "${which}" = final ]; then
 	C33_TARGET=${linux_target} \
-		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" libatomic
-	mkdir -p "${here}/artifacts"
-	"${prefix}/bin/${linux_target}-gcc" -std=gnu11 -Os -Wall -Werror \
-		-ffunction-sections -fdata-sections -Wl,--gc-sections -pthread \
-		"${here}/uclibc/atomic-test.c" -latomic -o "${here}/artifacts/atomic-test"
-	exit 0
-fi
-
-if [ "${which}" = libstdc++ ]; then
-	"${here}/toolchain.sh" libatomic
-	C33_TARGET=${linux_target} \
-		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" libstdc++
-	# app-test.py runs this from the card.
-	mkdir -p "${root}/linux/artifacts"
-	"${prefix}/bin/${linux_target}-g++" -Os -Wall -Werror -pthread \
-		"${here}/uclibc/cxx-test.cc" -latomic -o "${root}/linux/artifacts/cxx-test"
-	python3 "${root}/host-tools/toolchain-c33/gcc/tools/check-runtime.py" \
-		"${prefix}" "${root}/linux/artifacts/cxx-test"
+		"${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}" final
 	exit 0
 fi
 
@@ -61,7 +46,7 @@ fi
 C33_TARGET=${linux_target} C33_BINUTILS_CONFIGURE="--with-sysroot=${sysroot}" \
 	"${root}/host-tools/toolchain-c33/binutils/build.sh" "${toolwork}"
 
-# GCC's libgcc is built against the C library's headers.
+# The first pass's libgcc is built against the C library's headers.
 "${here}/uclibc/build.sh" headers
 C33_TARGET=${linux_target} "${root}/host-tools/toolchain-c33/gcc/rebuild.sh" "${toolwork}"
 "${prefix}/bin/${linux_target}-gcc" --version | head -1
