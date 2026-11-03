@@ -284,15 +284,25 @@ void root_main(void)
 	int i;
 
 	/* The card is probed while PID 1 starts; give it time to appear.
-	 * Synchronous, as the system has always mounted it: nothing unmounts
-	 * it before the power goes.  usefree takes the free count the card
-	 * records: attaching the loop device asks for it, and otherwise the
-	 * whole FAT is read and scanned to count, half a second at boot. */
+	 * Opening the partition fails quietly until it exists, where a mount
+	 * of it would log "Can't open blockdev" each time, so the mount waits
+	 * for the open.  Synchronous, as the system has always mounted it:
+	 * nothing unmounts it before the power goes.  usefree takes the free
+	 * count the card records: attaching the loop device asks for it, and
+	 * otherwise the whole FAT is read and scanned to count, half a second
+	 * at boot. */
 	for (i = 0; i < CARD_TRIES; i++) {
-		error = sys(NR_mount, CARD, "/mnt", "vfat", MS_SYNCHRONOUS,
-			    "usefree");
-		if (!error)
-			break;
+		long fd = sys(NR_openat, AT_FDCWD, CARD, O_RDONLY, 0, 0);
+
+		if (fd >= 0) {
+			sys(NR_close, fd, 0, 0, 0, 0);
+			error = sys(NR_mount, CARD, "/mnt", "vfat",
+				    MS_SYNCHRONOUS, "usefree");
+			if (!error)
+				break;
+		} else {
+			error = fd;
+		}
 		sleep_50ms();
 	}
 	if (error)
