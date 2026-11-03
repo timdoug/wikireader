@@ -1,0 +1,31 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Support three mouse buttons, not sixteen
+
+Each screen's ScreenInfo holds a binding for every button, context and
+modifier combination, Mouse[MAX_BUTTONS + 1][NUM_CONTEXTS][MOD_SIZE]:
+17 x 8 x 254 sixteen-byte entries, 540 KB, calloc'd.  With an MMU the
+untouched pages cost nothing; without one all of it is RAM, a third of
+twm's memory.  The WikiReader's touch screen is the first button and the
+only one, but twm's default bindings name the first three, so the table
+holds three, in 130 KB.  A press of a higher button is ignored and a
+configuration that binds one is reported, as for any button past
+MAX_BUTTONS.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A sized for a one-button touch screen without an MMU
+---
+ src/twm.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/twm.h b/src/twm.h
+--- a/src/twm.h
++++ b/src/twm.h
+@@ -110,7 +110,7 @@
+ 
+ #define NULLSTR ((char *) NULL)
+ 
+-#define MAX_BUTTONS     16      /* max mouse buttons supported */
++#define MAX_BUTTONS     3       /* max mouse buttons supported */
+ 
+ /* info strings defines */
+ #define INFO_LINES 30

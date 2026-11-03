@@ -1,0 +1,33 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] dix: room for ten events from one input, not a hundred
+
+Every event list the server keeps, the input queue's and XTEST's among
+them, holds GetMaximumEventsNum() InternalEvents of 2.6 KB each: 256 KB a
+list at 100.  With an MMU the untouched pages cost nothing; without one
+each list is 256 KB of RAM.  An input makes at most a raw event, the event
+and a device-changed event, plus scroll-button emulation, which stops at
+whatever room is left.  Ten keeps room for three scroll steps at once, and
+the WikiReader's touch screen and buttons have no scroll axes.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A sized for a machine without an MMU
+---
+ dix/getevents.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+--- a/dix/getevents.c
++++ b/dix/getevents.c
+@@ -647,10 +647,10 @@
+     /* One raw event
+      * One device event
+      * One possible device changed event
+-     * Lots of possible separate button scroll events (horiz + vert)
+-     * Lots of possible separate raw button scroll events (horiz + vert)
++     * A few separate button scroll events (horiz + vert), which
++     * emulate_scroll_button_events stops at this limit
+      */
+-    return 100;
++    return 10;
+ }
+ 
+ /**

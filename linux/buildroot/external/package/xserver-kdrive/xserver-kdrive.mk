@@ -38,9 +38,18 @@ XSERVER_KDRIVE_CONF_OPTS = \
 	--disable-ipv6 --disable-listen-tcp --enable-listen-unix \
 	--disable-listen-local --disable-docs --disable-devel-docs \
 	--disable-unit-tests --disable-selective-werror --without-dtrace \
+	--disable-composite --disable-xres --disable-clientids \
+	--disable-record --disable-xv --disable-xvmc --disable-screensaver \
+	--disable-dbe --disable-dpms --disable-xace \
 	--with-sha1=libsha1 \
 	--with-default-font-path=built-ins \
 	--with-xkb-path=/usr/share/X11/xkb --with-xkb-output=/tmp
+
+# The server exports its symbols for loadable modules, which kdrive never
+# loads: 2,488 of them, 128 KB of tables in its text.
+XSERVER_KDRIVE_MAKE_OPTS = LD_EXPORT_SYMBOLS_FLAG=
+XSERVER_KDRIVE_INSTALL_TARGET_OPTS = LD_EXPORT_SYMBOLS_FLAG= \
+	DESTDIR=$(TARGET_DIR) install
 
 # A US keyboard, compiled here from xkeyboard-config's sources: the target
 # carries only the result.

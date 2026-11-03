@@ -374,6 +374,20 @@ Measured in wremu before adding xterm, launcher path:
 | RAM | 15.6 MB available with X up; static bFLT X had 14.9 free (17.0 available). 3.97 MB of text mapped, the libraries whole |
 | Boot cost of sockets and VTs | about 0.6 s to the prompt |
 
+RAM with the default desktop (twm, xeyes, xterm and its shell, the
+keyboard), measured in wremu through Grifo: 14.0 MB available, 10.1 MB in
+programs, 2.0 MB of slab. At the prompt, 22.7 MB is available. Upstream
+sizes several buffers on the assumption that untouched zero pages cost
+nothing, which without an MMU they do not, so the port cuts them: twm's
+binding table holds three buttons (`patches/xapp_twm/0002`, 410 KB), the
+server's event lists hold ten events (`xserver-kdrive/0006`, 460 KB) and
+it keeps no motion history (`0007`, 110 KB); the server also exports no
+symbols and builds no Composite, XRes, Record, Xv, ScreenSaver, DBE, DPMS
+or XACE (240 KB of text). To find more: `ask-app.py` with `-- -D
+0x10000000 -L 0x2000000 -O ram.bin` saves all of RAM after the commands,
+and `/proc/PID/maps` addresses index it directly (no MMU); all-zero pages
+in a live block are the sign.
+
 Measured and rejected, so nobody repeats them: a `-Os` kernel (488 KB
 smaller, 40% slower in the kernel), low-resolution timers (no gain), full
 preemption (`ARCH_NO_PREEMPT` dropped: 215 KB more kernel, 0.9 s slower boot,
