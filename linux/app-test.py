@@ -96,10 +96,13 @@ def suspend_run(root, emulator, files, make_flash, fat):
     missing = [marker for marker in expected if marker not in text]
     ready = text.find("TLS SUSPEND READY")
     asleep = text.find("PM: suspend entry (s2idle)", ready)
-    # Userspace thaws before the final "PM: suspend exit" printk.
-    resumed = text.find("Restarting tasks: Starting", asleep)
-    passed = text.find("TLS SUSPEND PASS", resumed)
-    if not (0 <= ready < asleep < resumed < passed):
+    # Kernel messages are printed from a thread, so the resume's own lines
+    # can follow what userspace prints once thawed.  The consoles' suspend
+    # flushes its line after userspace is frozen: userspace output after it
+    # was written after the thaw.
+    frozen = text.find("printk: Suspending console(s)", asleep)
+    passed = text.find("TLS SUSPEND PASS", frozen)
+    if not (0 <= ready < asleep < frozen < passed):
         missing.append("same-thread TLS check spanning suspend")
     # Channel 3 is the wake timer armed across suspend; it has to keep firing
     # while the tick is frozen, or nothing would re-check the wake sources.

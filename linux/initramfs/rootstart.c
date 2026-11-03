@@ -76,9 +76,23 @@ static size_t length(const char *s)
 	return n;
 }
 
+/*
+ * Line-buffered, as stdio is: a line goes out in one write, which the
+ * kernel's console thread, printing between a program's writes, cannot
+ * split.
+ */
 static void put(int fd, const char *s)
 {
-	sys(NR_write, fd, s, length(s), 0, 0);
+	static char line[128];
+	static size_t used;
+
+	for (; *s; s++) {
+		line[used++] = *s;
+		if (*s == '\n' || used == sizeof(line)) {
+			sys(NR_write, fd, line, used, 0, 0);
+			used = 0;
+		}
+	}
 }
 
 static void put_number(int fd, long value)

@@ -59,7 +59,9 @@ number. The domain's
 allocator prefers the hardware number when it is free, so `/proc/interrupts`
 still reads in vectors. The timer and both UARTs use normal `request_irq()`
 registrations visible there. Linux runs the scheduler, registers the
-interrupt-driven `ttyC0` UART console, and runs BusyBox 1.38 as PID 1.
+`ttyC0` UART console, and runs BusyBox 1.38 as PID 1. `ttyC0` is an nbcon
+console like `drm_log`: kernel messages go out from a printer thread, with
+an atomic path for panics, rather than under each `printk()` caller.
 BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
 separate framebuffer console on a Unix98 PTY.
 

@@ -150,10 +150,12 @@ CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y
 # from this and are initialised data, 100 KB of them beside a 32 KB ring at
 # 15, so every doubling adds to RAM and to what Grifo loads from the card.
 CONFIG_LOG_BUF_SHIFT=13
-# A stock unit is a touch panel with nothing on the serial port, and printk
-# writes the console synchronously: at 115200 baud, plus the early LCD
-# console, the boot log cost 0.4 s.  Warnings still show; loglevel=7 on the
-# init.ini line brings the rest back, and a direct boot asks for it.
+# A stock unit is a touch panel with nothing on the serial port.  The whole
+# boot log at 115200 baud and drawn by drm_log took the prompt from 4.8 to
+# 5.6 s in wremu: the printer threads take turns with the boot on one CPU,
+# and the serial one polls a one-character transmitter.  Warnings still
+# show; loglevel=7 on the init.ini line brings the rest back, and a direct
+# boot asks for it.
 CONFIG_CONSOLE_LOGLEVEL_DEFAULT=4
 # Kernel stack variables are not zeroed on entry: a hardening measure against
 # leaking them, bought with a memset in every syscall's frame (select's is

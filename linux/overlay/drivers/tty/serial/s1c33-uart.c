@@ -399,27 +399,66 @@ static struct platform_driver s1c33_uart_platform_driver = {
 };
 
 #ifdef CONFIG_SERIAL_S1C33_CONSOLE
-static void s1c33_uart_console_write(struct console *console, const char *s,
-				     unsigned int count)
+/*
+ * An nbcon console: printk hands records to a printer thread instead of
+ * writing them out under the caller, and keeps the atomic path for
+ * emergencies and panics.  The transmitter holds one character, so both
+ * paths poll it.
+ */
+static void s1c33_uart_console_write_atomic(struct console *console,
+					    struct nbcon_write_context *wctxt)
 {
-	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
-	unsigned long flags;
+	struct uart_port *port = READ_ONCE(s1c33_uart_ports[console->index]);
+
+	if (!port || !nbcon_enter_unsafe(wctxt))
+		return;
+	uart_console_write(port, wctxt->outbuf, wctxt->len, s1c33_uart_putchar);
+	nbcon_exit_unsafe(wctxt);
+}
+
+/* The thread gives the console up between characters if a higher priority asks. */
+static void s1c33_uart_console_write_thread(struct console *console,
+					    struct nbcon_write_context *wctxt)
+{
+	struct uart_port *port = READ_ONCE(s1c33_uart_ports[console->index]);
+	unsigned int len = READ_ONCE(wctxt->len);
+	unsigned int i;
 
 	if (!port)
 		return;
-	uart_port_lock_irqsave(port, &flags);
-	uart_console_write(port, s, count, s1c33_uart_putchar);
-	uart_port_unlock_irqrestore(port, flags);
+	for (i = 0; i < len; i++) {
+		if (!nbcon_enter_unsafe(wctxt))
+			break;
+		uart_console_write(port, wctxt->outbuf + i, 1,
+				   s1c33_uart_putchar);
+		if (!nbcon_exit_unsafe(wctxt))
+			break;
+	}
+}
+
+static void s1c33_uart_console_device_lock(struct console *console,
+					   unsigned long *flags)
+{
+	__uart_port_lock_irqsave(s1c33_uart_ports[console->index], flags);
+}
+
+static void s1c33_uart_console_device_unlock(struct console *console,
+					     unsigned long flags)
+{
+	__uart_port_unlock_irqrestore(s1c33_uart_ports[console->index], flags);
 }
 
 static int s1c33_uart_console_setup(struct console *console, char *options)
 {
-	struct uart_port *port = READ_ONCE(s1c33_uart_ports[0]);
+	struct uart_port *port;
 	int baud = S1C33_UART_DEFAULT_BAUD;
 	int parity = 'n';
 	int bits = 8;
 	int flow = 'n';
 
+	if (console->index < 0 || console->index >= S1C33_UART_NR)
+		console->index = 0;
+	port = READ_ONCE(s1c33_uart_ports[console->index]);
 	if (!port)
 		return -ENODEV;
 	if (options)
@@ -428,13 +467,16 @@ static int s1c33_uart_console_setup(struct console *console, char *options)
 }
 
 static struct console s1c33_uart_console = {
-	.name	= "ttyC",
-	.write	= s1c33_uart_console_write,
-	.device	= uart_console_device,
-	.setup	= s1c33_uart_console_setup,
-	.flags	= CON_PRINTBUFFER,
-	.index	= -1,
-	.data	= &s1c33_uart_driver,
+	.name		= "ttyC",
+	.write_atomic	= s1c33_uart_console_write_atomic,
+	.write_thread	= s1c33_uart_console_write_thread,
+	.device_lock	= s1c33_uart_console_device_lock,
+	.device_unlock	= s1c33_uart_console_device_unlock,
+	.device		= uart_console_device,
+	.setup		= s1c33_uart_console_setup,
+	.flags		= CON_PRINTBUFFER | CON_NBCON,
+	.index		= -1,
+	.data		= &s1c33_uart_driver,
 };
 
 static int __init s1c33_uart_console_init(void)
