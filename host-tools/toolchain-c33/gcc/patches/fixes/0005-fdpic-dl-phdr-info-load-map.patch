@@ -1,0 +1,27 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] libgcc: FDPIC dl_phdr_info starts with a load map
+
+On FRV and Blackfin FDPIC, uClibc's struct dl_phdr_info begins with a
+struct elf32_fdpic_loadaddr, not an address, as _Unwind_IteratePhdrCallback's
+load_base already has it.  ext_dl_phdr_info, the callback's view of the
+extended fields, declared an address, so it read dlpi_adds and dlpi_subs
+from the wrong words and could keep a stale FDE cache after a dlopen or
+dlclose.  Declare the load map there too.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/libgcc/unwind-dw2-fde-dip.c b/libgcc/unwind-dw2-fde-dip.c
+--- a/libgcc/unwind-dw2-fde-dip.c
++++ b/libgcc/unwind-dw2-fde-dip.c
+@@ -200,7 +200,11 @@
+ 
+   struct ext_dl_phdr_info
+     {
++#if defined __FRV_FDPIC__ || defined __BFIN_FDPIC__
++      struct elf32_fdpic_loadaddr dlpi_addr;
++#else
+       ElfW(Addr) dlpi_addr;
++#endif
+       const char *dlpi_name;
+       const ElfW(Phdr) *dlpi_phdr;
+       ElfW(Half) dlpi_phnum;

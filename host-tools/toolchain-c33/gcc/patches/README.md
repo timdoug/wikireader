@@ -1,11 +1,15 @@
 # GCC patches
 
-Applied by `../rebuild.sh` and `../build.sh` in number order across the
-directories:
+Applied by `../rebuild.sh` and `../build.sh`, through
+`../tools/apply-patches.sh`, in number order across the directories; the
+work tree records the patches applied to it in `.c33-patches`.
 
 - `fixes/`: corrections to GCC that stand on their own: nested ICE
   diagnostics, the analyzer's model of a direct global `errno`, uClibc-ng's
-  direct pthreads, and restricting ARM's FDPIC EH encodings to ARM.
+  direct pthreads, restricting ARM's FDPIC EH encodings to ARM, and FDPIC's
+  `dl_phdr_info` load map in libgcc's unwind-table discovery.
 - `port/`: the C33 port's changes to shared code: C33 FDPIC beside FRV's
-  and Blackfin's in libgcc's unwind-table discovery, and uClibc-ng's
-  PT_GNU_EH_FRAME for C33 in crtstuff.
+  and Blackfin's in libgcc's unwind-table discovery.
+
+crtstuff's use of `PT_GNU_EH_FRAME` with uClibc-ng is the target's own
+choice, in `config/c33/linux.h`, beside its `CRT_GET_RFIB_DATA`.

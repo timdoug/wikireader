@@ -52,19 +52,7 @@ python3 "${TOOLS}/gcc-glue.py" "${SRC}"
 echo "==> applying GCC correctness patches"
 # fixes/ are general GCC corrections, port/ the C33 port's changes to
 # shared code (patches/README.md); applied in number order.
-for patchfile in $(for p in "${HERE}"/patches/*/*.patch; do
-		echo "${p##*/} ${p}"
-	done | sort | cut -d' ' -f2); do
-	if patch -d "${SRC}" -p1 --forward --dry-run --silent < "${patchfile}"; then
-		patch -d "${SRC}" -p1 --forward --silent < "${patchfile}"
-	elif patch -d "${SRC}" -p1 --reverse --dry-run --silent < "${patchfile}"; then
-		# Already applied in this persistent work tree.
-		:
-	else
-		echo "cannot apply ${patchfile}" >&2
-		exit 1
-	fi
-done
+"${TOOLS}/apply-patches.sh" "${SRC}" "${HERE}/patches"
 
 echo "==> configuring"
 mkdir -p "${SRC}/build"

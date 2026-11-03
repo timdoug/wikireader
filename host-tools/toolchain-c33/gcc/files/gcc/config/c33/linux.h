@@ -98,6 +98,14 @@
 #define DWARF2_UNWIND_INFO 1
 #define CRT_GET_RFIB_DATA(BASE) __asm__ ("ld.w %0,%%r15" : "=r" (BASE))
 
+/* crtstuff.c turns PT_GNU_EH_FRAME off for every uClibc; uClibc-ng's
+   dl_iterate_phdr gives the load map it needs.  crtbeginT.o, for static
+   programs, keeps registering its tables.  */
+#if (defined CRT_BEGIN || defined CRT_END) && defined HAVE_LD_EH_FRAME_HDR \
+    && !defined CRTSTUFFT_O
+#define USE_PT_GNU_EH_FRAME
+#endif
+
 /* uClibc-ng's libc holds the thread library, so libgcc calls pthreads
    directly.  A weak reference would decide a program was single-threaded
    whenever nothing else had pulled in the object it names.  */
