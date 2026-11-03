@@ -13,8 +13,9 @@
  * raises in the interrupt controller is read by tx_status, which retires
  * the descriptor and starts the next, so a client waits with
  * dmaengine_tx_status() or dma_sync_wait().  A descriptor with a callback
- * is handed to the channel's tasklet, which runs the callback as DMAengine
- * has callbacks run, outside the caller's context and locks;
+ * is handed to the channel's work on the BH workqueue, which runs the
+ * callback in softirq context, as DMAengine has callbacks run, outside the
+ * caller's context and locks;
  * dmaengine_synchronize() waits for it.  One without, the usual case here,
  * is recycled at once.  tx_status also gives the
  * residue of a transfer under way, from the channel's count, so a client
@@ -33,7 +34,6 @@
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/dmaengine.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/list.h>
 #include <linux/module.h>
@@ -41,6 +41,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/workqueue.h>
 
 #include "dmaengine.h"
 
@@ -91,7 +92,7 @@ struct hsdma_chan {
 	struct list_head submitted;
 	struct list_head issued;
 	struct list_head completed;	/* retired, callback still to run */
-	struct tasklet_struct tasklet;
+	struct work_struct complete;	/* runs the callbacks of completed */
 	struct hsdma_desc *active;
 	struct hsdma_desc *spare[HSDMA_SPARE_DESCS];
 	unsigned int spares;
@@ -192,8 +193,8 @@ static void hsdma_retire(struct hsdma_chan *c, struct hsdma_desc *d)
 
 /*
  * Retire the active descriptor if its count has run out, and start the
- * next.  One with a callback waits for the tasklet.  Under the channel
- * lock.
+ * next.  One with a callback waits for the channel's work.  Under the
+ * channel lock.
  */
 static void hsdma_poll(struct hsdma_chan *c)
 {
@@ -205,7 +206,7 @@ static void hsdma_poll(struct hsdma_chan *c)
 	dma_cookie_complete(&d->tx);
 	if (d->tx.callback || d->tx.callback_result) {
 		list_add_tail(&d->node, &c->completed);
-		tasklet_schedule(&c->tasklet);
+		queue_work(system_bh_wq, &c->complete);
 	} else {
 		hsdma_retire(c, d);
 	}
@@ -213,9 +214,9 @@ static void hsdma_poll(struct hsdma_chan *c)
 }
 
 /* Run the callbacks of retired descriptors, one at a time, unlocked. */
-static void hsdma_complete(struct tasklet_struct *t)
+static void hsdma_complete(struct work_struct *work)
 {
-	struct hsdma_chan *c = from_tasklet(c, t, tasklet);
+	struct hsdma_chan *c = from_work(c, work, complete);
 	struct dmaengine_desc_callback cb;
 	struct hsdma_desc *d;
 	unsigned long flags;
@@ -480,10 +481,13 @@ static int hsdma_terminate_all(struct dma_chan *chan)
 	return 0;
 }
 
-/* No callback runs once this returns, as dmaengine_synchronize() asks. */
+/*
+ * No callback runs once this returns, as dmaengine_synchronize() asks: one
+ * queued runs first, so a descriptor already completed is not lost.
+ */
 static void hsdma_synchronize(struct dma_chan *chan)
 {
-	tasklet_kill(&to_hsdma_chan(chan)->tasklet);
+	flush_work(&to_hsdma_chan(chan)->complete);
 }
 
 static int hsdma_alloc_chan_resources(struct dma_chan *chan)
@@ -623,7 +627,7 @@ static int hsdma_probe(struct platform_device *pdev)
 		INIT_LIST_HEAD(&c->submitted);
 		INIT_LIST_HEAD(&c->issued);
 		INIT_LIST_HEAD(&c->completed);
-		tasklet_setup(&c->tasklet, hsdma_complete);
+		INIT_WORK(&c->complete, hsdma_complete);
 		c->chan.device = &hsdma->dd;
 		list_add_tail(&c->chan.device_node, &hsdma->dd.channels);
 	}
