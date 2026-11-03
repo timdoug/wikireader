@@ -24,7 +24,8 @@ guest's own clock, measured in wremu:
 | Available with X up | 12.78 MB | 13.36 MB |
 
 musl's libc is its ld.so too: one library to open and map at every exec,
-and the kernel's share of an exec is smaller for it.
+and the kernel's share of an exec is smaller for it. The musl system runs
+on the device (2026-11-03).
 
 ## The port
 
