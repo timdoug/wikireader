@@ -1,13 +1,14 @@
 From: Tim Douglas <me@timdoug.com>
 Subject: [PATCH] xfree86: run modprobe through vfork() where there is no fork()
 
-A uClibc system without an MMU has no fork(), so the server did not link.
+A system without an MMU has no fork() (__uClinux__): uClibc does not
+declare one, so the server did not link, and musl's fails.
 The child only resets its IDs and execs modprobe, which vfork() allows,
 given the environment as execle()'s argument rather than by setenv(),
 which would change the parent's.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
-Upstream: N/A no-MMU uClibc
+Upstream: N/A no-MMU C33
 ---
 --- a/hw/xfree86/os-support/linux/lnx_kmod.c
 +++ b/hw/xfree86/os-support/linux/lnx_kmod.c
@@ -15,7 +16,7 @@ Upstream: N/A no-MMU uClibc
       * to the log file.  modprobe errors currently are missing from the log
       * file.
       */
-+#if defined(__UCLIBC__) && !defined(__ARCH_USE_MMU__)
++#ifdef __uClinux__
 +    /* No fork() without an MMU; the child below only execs, as vfork()'s
 +       may, and leaves the parent's memory as it was. */
 +    switch (pid = vfork()) {

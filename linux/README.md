@@ -559,7 +559,8 @@ default of reading `/dev/urandom` would make the first program at boot wait
 musl is ported beside it, with its own compiler, `c33-linux-musl-`, on the
 same FDPIC ABI: `musl-toolchain`, `musl-libc` and `musl-test` build it and
 run the C library's regression programs against it, through Grifo
-(`musl/README.md`). The root image is still uClibc-ng's.
+(`musl/README.md`). The default root image is still uClibc-ng's;
+`WR_LIBC=musl` builds the same system on musl, `artifacts/linux-musl.img`.
 
 The library includes NPTL and native ELF TLS on the NOMMU C33. Threads share
 one process ID and have separate kernel thread IDs, with `CLONE_SETTLS`,

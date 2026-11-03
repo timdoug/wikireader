@@ -1,7 +1,8 @@
 From: Tim Douglas <me@timdoug.com>
 Subject: [PATCH] os: spawn a shell where there is no fork
 
-A uClibc system without an MMU has no fork().  System() and Popen() run
+A system without an MMU has no fork() (__uClinux__, whatever the C
+library: musl declares one that fails).  System() and Popen() run
 "/bin/sh -c" with the real user and group IDs and perhaps one end of a
 pipe as stdin or stdout, which posix_spawn() does with
 POSIX_SPAWN_RESETIDS and its file actions.  Fopen() forks only where
@@ -17,7 +18,7 @@ diff --git a/os/utils.c b/os/utils.c
  #include <X11/Xos_r.h>
  
  #include <errno.h>
-+#if defined(__UCLIBC__) && !defined(__ARCH_USE_MMU__)
++#ifdef __uClinux__
 +/* No fork() without an MMU: a child is spawned, as System() and Popen()
 +   need -- a shell, with the real IDs and perhaps one end of a pipe. */
 +#define SPAWN_SHELL

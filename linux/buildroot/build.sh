@@ -2,7 +2,8 @@
 # Build the WikiReader root filesystem with Buildroot, using the
 # c33-linux-uclibc toolchain from linux/toolchain.sh, and leave it as the
 # ext4 image linux/artifacts/linux.img, which goes on the SD card beside
-# linux.app.
+# linux.app.  WR_LIBC=musl builds the same system with c33-linux-musl, in
+# a build directory of its own, as linux/artifacts/linux-musl.img.
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -16,10 +17,17 @@ source_dir=${WR_BUILDROOT_SOURCE:-$guest_root/buildroot}
 build_dir=${WR_BUILDROOT_BUILD:-$guest_root/buildroot-build}
 tool_dir=${C33_TOOLCHAIN_WORK:-$guest_root/toolchain}
 external=$root/linux/buildroot/external
+libc=${WR_LIBC:-uclibc}
+case $libc in
+uclibc)	image=linux.img symbols=symbols ;;
+musl)	image=linux-musl.img symbols=symbols-musl
+	build_dir=${WR_BUILDROOT_BUILD:-$guest_root/buildroot-build-musl} ;;
+*)	echo "WR_LIBC is uclibc or musl" >&2; exit 1 ;;
+esac
 
-if [ ! -x "$tool_dir/install/bin/c33-linux-uclibc-gcc" ]; then
-	echo "c33-linux-uclibc-gcc not found under $tool_dir/install" >&2
-	echo "Run make -C linux toolchain libc first." >&2
+if [ ! -x "$tool_dir/install/bin/c33-linux-$libc-gcc" ]; then
+	echo "c33-linux-$libc-gcc not found under $tool_dir/install" >&2
+	echo "Run make -C linux toolchain libc (or musl-toolchain musl-libc) first." >&2
 	exit 1
 fi
 if [ ! -d "$source_dir/.git" ]; then
@@ -47,15 +55,29 @@ else
 		esac
 	done
 	rm -rf "$build_dir/target" "$build_dir/images" \
-		"$build_dir/host/c33-buildroot-linux-uclibc/sysroot"
+		"$build_dir/host/c33-buildroot-linux-$libc/sysroot"
 fi
-make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
-	wikireader_defconfig
+if [ "$libc" = uclibc ]; then
+	make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
+		wikireader_defconfig
+else
+	# The same system with the other toolchain; Buildroot gives a musl
+	# toolchain its wide characters, threads and SSP itself.
+	mkdir -p "$build_dir"
+	sed -e 's/^\(BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX\)=.*/\1="c33-linux-musl"/' \
+		-e 's/^BR2_TOOLCHAIN_EXTERNAL_CUSTOM_UCLIBC=y/BR2_TOOLCHAIN_EXTERNAL_CUSTOM_MUSL=y/' \
+		-e '/^BR2_TOOLCHAIN_EXTERNAL_HAS_C11_THREADS=y/d' \
+		"$external/configs/wikireader_defconfig" > "$build_dir/musl_defconfig"
+	echo 'BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_WIKIREADER_PATH)/board/wikireader/busybox-musl.fragment"' \
+		>> "$build_dir/musl_defconfig"
+	make -C "$source_dir" O="$build_dir" BR2_EXTERNAL="$external" \
+		BR2_DEFCONFIG="$build_dir/musl_defconfig" defconfig
+fi
 # JOBS caps the parallel jobs, as it does for the kernel and the C library.
 make -C "$build_dir" ${JOBS:+BR2_JLEVEL=$JOBS}
 
 mkdir -p "$root/linux/artifacts"
-cp "$build_dir/images/rootfs.ext4" "$root/linux/artifacts/linux.img"
-rm -rf "$root/linux/artifacts/symbols"
-cp -R "$build_dir/images/symbols" "$root/linux/artifacts/symbols"
-printf '%s\n' "WikiReader root filesystem installed at linux/artifacts/linux.img"
+cp "$build_dir/images/rootfs.ext4" "$root/linux/artifacts/$image"
+rm -rf "$root/linux/artifacts/$symbols"
+cp -R "$build_dir/images/symbols" "$root/linux/artifacts/$symbols"
+printf '%s\n' "WikiReader root filesystem installed at linux/artifacts/$image"

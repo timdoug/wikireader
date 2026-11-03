@@ -81,8 +81,8 @@ echo "C33 BusyBox conveniences passed: arithmetic + filenames + archives + patch
 # BusyBox and libc are FDPIC code, whose text holds no absolute address, so
 # the kernel and ld.so map each read-only once and every process running
 # them uses that copy.  PID 1 and this grep must name the same text
-# mappings.
-text=' r-x.* /(bin/busybox|lib/libuClibc-[0-9.]+\.so)$'
+# mappings.  musl's libc.so is its ld.so too.
+text=' r-x.* /(bin/busybox|lib/libuClibc-[0-9.]+\.so|usr/lib/libc\.so)$'
 init_text=$(grep -E "$text" /proc/1/maps | cut -d' ' -f1) || fail "no text mappings in PID 1"
 own_text=$(grep -E "$text" /proc/self/maps | cut -d' ' -f1) || fail "no text mappings in grep"
 [ "$init_text" = "$own_text" ] || fail "private text: $init_text / $own_text"
