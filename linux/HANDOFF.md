@@ -349,8 +349,8 @@ The pieces:
   `flatten`; the SD stream wait yields (`cond_resched()`).
 - `initramfs/rootstart.c` makes `/dev/tty1..12`; `console/wr-console.c` holds
   VT 1 in `VT_PROCESS` mode and repaints on acquire.
-- Buildroot: FDPIC with shared libraries (`buildroot/patches/0002` still
-  lets X build without an MMU) and `0004` (libXfont2 built-in fonts only);
+- Buildroot: FDPIC with shared libraries and `buildroot/patches/0003`
+  (libXfont2 built-in fonts only);
   the defconfig adds X and `-ffunction-sections -fdata-sections`/
   `--gc-sections` for everything.
 - `buildroot/external/package/xserver-kdrive`: xorg-server 1.19.7 Xfbdev with
@@ -445,9 +445,11 @@ Userland follows them. Buildroot (an external tree, its package
 infrastructure), uClibc-ng and BusyBox run as FDPIC ELF with shared
 libraries: `binfmt_elf_fdpic`, uClibc-ng's generic FDPIC `ld.so`, NPTL with
 native ELF TLS through a fixed thread-pointer slot (`C33_TLS_SLOT_ADDRESS`),
-64-bit `off_t` and `time_t`. Buildroot patches: the C33 architecture, libxcb's
-pthread-stubs without an MMU, libatomic for the C33, libXfont2's built-in
-fonts, xterm's external PTY, and the Wayland stack, which is off. Local
+64-bit `off_t` and `time_t`. Buildroot patches: the C33 architecture,
+libatomic for the C33, libXfont2's built-in fonts, xterm's external PTY,
+and the Wayland stack, which is off. Every carried patch, kernel, uClibc-ng,
+GCC, Buildroot and package, has a mail header (From, Subject, description,
+Signed-off-by, and Buildroot's `Upstream:` on package patches). Local
 programs where upstream has nothing that fits: `xserver-kdrive` (X.org
 dropped kdrive after 1.19), and `wr-console`, a userspace terminal where the
 kernel's would be VT and fbcon.
@@ -481,10 +483,10 @@ Where the kernel still departs:
 - Changes to shared code that are optimisations or conformance rather than
   the port are kept apart from it (`patches/README.md`): `perf/` holds lazy
   VT registration (0018) and the FAT cluster-chain walk (0020), `features/`
-  no-MMU memory locking (0028), the `MAP_FIXED` errno order (0030) and the
-  other optional generic features, `fixes/` the no-MMU correctness fixes
-  that stand on their own. uClibc-ng's and GCC's patches are grouped the
-  same way.
+  no-MMU memory locking (0028) and the other optional generic features,
+  `fixes/` the no-MMU correctness fixes that stand on their own.
+  uClibc-ng's and GCC's patches are grouped the same way. `MAP_FIXED`
+  keeps upstream's EINVAL-first order.
 - The HSDMA driver polls for completion and keeps its own lists instead of
   `virt-dma`, by measurement (README): HALT stops SPI-triggered transfers,
   and virt-dma's tasklet cost a third of a card block.
@@ -492,16 +494,23 @@ Where the kernel still departs:
   starts from `time_init()`, before the pin controller.
 - The early LCD console is the architecture's own, not `earlycon`.
 
-The toolchain follows them in design (`host-tools/toolchain-c33/gcc/ABI.md`:
-descriptors as on SH, constructor tables as on ARM). Where it departs:
+The toolchain follows them too (`host-tools/toolchain-c33/gcc/ABI.md`:
+descriptors as on SH, constructor tables as on ARM, unwind tables in shared
+text as on SH). ld's FDPIC emulation is the generic `elf.sc` with
+parameters, as FRV's and Blackfin's are; BFD reports the C33's relocation
+errors through the ordinary statuses; libgcc finds unwind tables as it does
+for FRV and Blackfin; and the Linux compiler is built in the usual two
+passes, the final one with shared `libgcc_s`, `libstdc++` and `libatomic`.
+Where it departs:
 - GCC's execute torture, `gcc.dg`, the C++ suites and binutils' suites
   pass (README, "GCC and binutils test suites"); the C++ suites' last fixes
   are checked by name, not yet by a complete rerun.
 - No gdb, gdbserver or strace.
-- libstdc++ is static only.
-- The GCC backend is an Epson-era fork of V850's; the review's binutils and
-  GCC items (new global BFD relocation status values, architecture checks in
-  shared EH code) are open.
+- binutils and GCC are carried as pristine tarballs, a `files/` tree and
+  glue scripts that edit shared files, with a patch series only for GCC's
+  shared-code changes.
+- GCC's build reads the TLS slot's address from the kernel overlay beside
+  it (checked against its own copy), so it needs this repository's layout.
 
 ## What is left, in the order I would take it
 
@@ -527,13 +536,8 @@ The rest of the port, standards first (see "Standards" above):
    the program's own `.rofixup` self-relocation (3,539 words for BusyBox).
    A linker-merged GOT in place of each file's constant pool would leave
    BusyBox 2,245 distinct words.
-2. **The toolchain test suites**: the binutils `ld`/`gas` and GCC compile and
-   link tests for `c33-linux-uclibc`, in the VM; execution tests need a
-   harness through wremu.
-3. **Read-only unwind tables, as SH has them**: GOT-entry relocations in the
-   linker, `ASM_PREFERRED_EH_DATA_FORMAT` pc-relative and GOT-relative.
-4. **TLS and NPTL.**
-5. **Send upstream** `uclibc/patches/fixes/0003`: uClibc-ng's FDPIC descriptor
+2. **TLS and NPTL.**
+3. **Send upstream** `uclibc/patches/fixes/0003`: uClibc-ng's FDPIC descriptor
    table rehashes by descriptor address but is searched by entry point, so
    after the first resize a lookup misses and a second "canonical"
    descriptor appears (every FDPIC port); and GCC
@@ -541,8 +545,7 @@ The rest of the port, standards first (see "Standards" above):
    `#if __FDPIC__` exception paths are ARM's and call
    `_Unwind_gnu_Find_got`, which only ARM defines. `uclibc/patches/fixes/0002`
    (the stack guard's time from `clock_gettime64`) too.
-6. **Buildroot patch 0002**: drop its static-library half.
-7. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft
+4. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft
    keyboard is its own program, `console/wr-keyboard.c`, a `uinput` device,
    so keys reach any program; what remains is that the terminal itself is
    not the kernel's. Measured 2026-11-01 (wremu, through Grifo): fbcon with
@@ -556,8 +559,13 @@ The rest of the port, standards first (see "Standards" above):
    policy in it genuinely belong in userspace. The kernel has VTs (dummy
    console only), and `wr-console` holds VT 1 in process mode, so X and
    other full-screen programs take the panel from it and give it back.
-8. **The overlay as a real patch series**, which only bites when the pinned
-    stable tag is bumped.
+5. **The overlay as a real patch series**, and binutils' and GCC's glue as
+   patch series too; it only bites when a pinned version is bumped.
+6. **gdbserver and strace**, which FDPIC ports normally have.
+7. **`buildroot/build.sh`'s partial clean** keeps host packages and rebuilds
+   the rest; Buildroot's own way is per-package rebuilds or a full clean.
+8. **No-MMU memory locking (`patches/features/0028`)**: it exists for
+   conformance, not the hardware; keep it or drop it.
 
 Performance, after those:
 - **The CPU is the limit on card reads**: token, check and the rest of the
