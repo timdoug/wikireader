@@ -1,0 +1,126 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: lazy binding of FDPIC .plt slots
+
+musl binds every .plt slot when a module is loaded: each a lookup by
+name, 244 for BusyBox at every exec, of which a run calls a few.  With
+FDPIC_LAZY_PLT, as uClibc-ng does on FDPIC, a slot first points at the
+module's lazy stub, which the linker writes, and the stub calls the
+arch's __c33_lazy_resolve through the first words of the module's .got;
+__c33_lazy_bind finds the module by the stub's own address, looks the
+symbol up (in the module's own dependencies too, for a library loaded
+RTLD_LOCAL), and writes the slot's %r15 before its entry point, so that
+a caller reading the two meanwhile finds the stub or the binding whole.
+ld.so binds its own at once, and everything does with LD_BIND_NOW.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index e1f22ce..1a7da59 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -144,6 +144,9 @@ static size_t *saved_addends, *apply_addends_to;
+ static struct dso ldso;
+ static struct dso *head, *tail, *fini_head, *syms_tail, *lazy_head;
+ static char *env_path, *sys_path;
++#if FDPIC_LAZY_PLT
++static int bind_now;
++#endif
+ static unsigned long long gencnt;
+ static int runtime;
+ static int ldd_mode;
+@@ -1585,6 +1588,61 @@ static void do_relative_relocs(struct dso *p, size_t *rel, size_t n)
+ }
+ #endif
+ 
++#if FDPIC_LAZY_PLT
++/* Lazy binding, as uClibc-ng's ld.so does it on FDPIC: a .plt slot, the
++ * descriptor a call to another module goes through, first points at the
++ * module's lazy stub, which calls __c33_lazy_resolve (ld.so's, through
++ * the first two words of the module's .got) with the relocation's offset
++ * in .rela.plt.  A program calls a few of its hundreds of imports.  The
++ * stub finds its module by its own address, never by %r15: a caller may
++ * read a slot's two words while the resolver writes them. */
++/* Its entry point, not a descriptor: it is entered by jump, with %r15
++ * already set. */
++hidden extern const char __c33_lazy_resolve[];
++
++static void lazy_plt(struct dso *p, size_t *rel, size_t size)
++{
++	for (; size; rel+=3, size-=3*sizeof(size_t)) {
++		size_t *slot = laddr(p, rel[0]);
++		slot[1] = (size_t)p->got;
++		slot[0] = (size_t)laddr(p, slot[0]);
++	}
++}
++
++/* From __c33_lazy_resolve: bind the slot of the relocation at REL_OFF in
++ * the .rela.plt of the module whose lazy stub returns to STUB, and return
++ * the slot, which the resolver calls through. */
++hidden size_t *__c33_lazy_bind(size_t stub, size_t rel_off)
++{
++	struct dso *p;
++	for (p=head; p; p=p->next) {
++		const struct fdpic_loadmap *m = p->loadmap;
++		if (m && stub - m->segs[0].addr < m->segs[0].p_memsz) break;
++	}
++	if (!p) a_crash();
++	size_t dyn[DYN_CNT];
++	decode_vec(p->dynv, dyn, DYN_CNT);
++	size_t *rel = (void *)((char *)laddr(p, dyn[DT_JMPREL]) + rel_off);
++	const char *name = p->strings + p->syms[R_SYM(rel[1])].st_name;
++	struct symdef def = find_sym(head, name, 0);
++	/* A library loaded RTLD_LOCAL finds its own dependencies' symbols
++	 * through them; the global namespace does not have them. */
++	if (!def.sym) def = find_sym2(p, name, 0, 1);
++	if (!def.sym) {
++		dprintf(2, "Error relocating %s: %s: symbol not found\n",
++			p->name, name);
++		_exit(127);
++	}
++	size_t *slot = laddr(p, rel[0]);
++	/* The %r15 first: a caller that reads the new entry point then reads
++	 * it. */
++	slot[1] = (size_t)def.dso->got;
++	a_barrier();
++	slot[0] = (size_t)laddr(def.dso, def.sym->st_value);
++	return slot;
++}
++#endif
++
+ static void reloc_all(struct dso *p)
+ {
+ 	size_t dyn[DYN_CNT];
+@@ -1593,6 +1651,20 @@ static void reloc_all(struct dso *p)
+ 		decode_vec(p->dynv, dyn, DYN_CNT);
+ 		if (NEED_MIPS_GOT_RELOCS)
+ 			do_mips_relocs(p, laddr(p, dyn[DT_PLTGOT]));
++#if FDPIC_LAZY_PLT
++		/* Every module's .got header names the resolver, bound at once
++		 * or not: a caller that reads a slot as it is written may take
++		 * the stub with the new %r15, which is the callee's. */
++		if (p->got) {
++			p->got[0] = (size_t)__c33_lazy_resolve;
++			p->got[1] = (size_t)ldso.got;
++		}
++		/* ld.so binds its own at once, as everything else does when
++		 * LD_BIND_NOW is set. */
++		if (!bind_now && p != &ldso && dyn[DT_PLTREL]==DT_RELA)
++			lazy_plt(p, laddr(p, dyn[DT_JMPREL]), dyn[DT_PLTRELSZ]);
++		else
++#endif
+ 		do_relocs(p, laddr(p, dyn[DT_JMPREL]), dyn[DT_PLTRELSZ],
+ 			2+(dyn[DT_PLTREL]==DT_RELA));
+ 		do_relocs(p, laddr(p, dyn[DT_REL]), dyn[DT_RELSZ], 2);
+@@ -2023,6 +2095,12 @@ void __dls3(size_t *sp, size_t *auxv)
+ 		env_path = getenv("LD_LIBRARY_PATH");
+ 		env_preload = getenv("LD_PRELOAD");
+ 	}
++#if FDPIC_LAZY_PLT
++	{
++		char *now = getenv("LD_BIND_NOW");
++		bind_now = now && *now;
++	}
++#endif
+ 
+ 	/* Activate error handler function */
+ 	error = error_impl;

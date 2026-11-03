@@ -1,0 +1,88 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] dl_iterate_phdr: run callbacks one at a time
+
+libgcc's unwinder keeps a cache of the modules its dl_iterate_phdr
+callback has found, frame_hdr_cache, which the callback reads and
+relinks without a lock of its own: glibc runs callbacks under its load
+lock.  musl ran them unlocked, and four threads throwing C++ exceptions
+at once corrupted the list and spun in it forever.  Run callbacks one at
+a time, letting a callback that iterates again in, in the dynamic linker
+and in the static library.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 1a7da59..3521330 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -2677,11 +2677,23 @@ no_redir:
+ 	return __dlsym(p, s, ra);
+ }
+ 
++/* Callbacks run one at a time, as glibc's do: libgcc's unwinder keeps a
++ * cache of what its callback found, which it updates from the callback
++ * unlocked, and two threads unwinding at once otherwise corrupt it.  A
++ * callback may iterate again. */
++static volatile int iterate_lock[1];
++static volatile int iterate_owner;
++
+ int dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size_t size, void *data), void *data)
+ {
+ 	struct dso *current;
+ 	struct dl_phdr_info info;
+ 	int ret = 0;
++	int self = __pthread_self()->tid, nested = iterate_owner == self;
++	if (!nested) {
++		LOCK(iterate_lock);
++		iterate_owner = self;
++	}
+ 	for(current = head; current;) {
+ #ifdef __DLPI_ADDR_TYPE
+ 		info.dlpi_addr.map  = (void *)current->loadmap;
+@@ -2706,6 +2718,10 @@ int dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size_t size, void
+ 		current = current->next;
+ 		pthread_rwlock_unlock(&lock);
+ 	}
++	if (!nested) {
++		iterate_owner = 0;
++		UNLOCK(iterate_lock);
++	}
+ 	return ret;
+ }
+ 
+diff --git a/src/ldso/dl_iterate_phdr.c b/src/ldso/dl_iterate_phdr.c
+index 7bab61d..4117ee6 100644
+--- a/src/ldso/dl_iterate_phdr.c
++++ b/src/ldso/dl_iterate_phdr.c
+@@ -2,6 +2,7 @@
+ #include <link.h>
+ #include "pthread_impl.h"
+ #include "libc.h"
++#include "lock.h"
+ #include "reloc.h"
+ 
+ #ifdef FDPIC_EXEC_LOADMAP
+@@ -56,7 +57,22 @@ static int static_dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size
+ 		info.dlpi_tls_modid = 0;
+ 		info.dlpi_tls_data = 0;
+ 	}
+-	return (callback)(&info, sizeof (info), data);
++	/* Callbacks run one at a time, as glibc's do: libgcc's unwinder
++	 * updates a cache from its callback, unlocked.  A callback may
++	 * iterate again. */
++	static volatile int lock[1];
++	static volatile int owner;
++	int self = __pthread_self()->tid, nested = owner == self, ret;
++	if (!nested) {
++		LOCK(lock);
++		owner = self;
++	}
++	ret = (callback)(&info, sizeof (info), data);
++	if (!nested) {
++		owner = 0;
++		UNLOCK(lock);
++	}
++	return ret;
+ }
+ 
+ weak_alias(static_dl_iterate_phdr, dl_iterate_phdr);

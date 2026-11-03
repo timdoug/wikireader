@@ -65,8 +65,10 @@ fi
 make -j"$jobs"
 make install DESTDIR="$sysroot"
 test -f "$sysroot/usr/lib/libc.a"
-# ld.so is a link to /usr/lib/libc.so, which the sysroot is not.
-test -L "$sysroot/lib/ld-musl-c33.so.1"
+# ld.so is libc.so; musl links it by absolute path, which Buildroot cannot
+# follow inside a sysroot.
+ln -sf ../usr/lib/libc.so "$sysroot/lib/ld-musl-c33.so.1"
+test -e "$sysroot/lib/ld-musl-c33.so.1"
 
 if "${cross}readelf" -d "$sysroot/usr/lib/libc.so" | grep -q 'NEEDED'; then
 	echo "libc.so unexpectedly needs another library" >&2

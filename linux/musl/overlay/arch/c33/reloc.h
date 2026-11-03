@@ -54,3 +54,9 @@
 /* This module's %r15, for calling an entry point of its own. */
 #define FDPIC_SELF_GOT() ({ unsigned long __got; \
 	__asm__ ("ld.w %0,%%r15" : "=r"(__got)); __got; })
+
+/* No divide instruction: GNU hash buckets by reciprocal. */
+#define GNU_HASH_RECIPROCAL 1
+
+/* The linker's .plt has lazy stubs (ldso/c33/lazy.s). */
+#define FDPIC_LAZY_PLT 1

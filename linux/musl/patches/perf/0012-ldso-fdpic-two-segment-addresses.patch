@@ -1,0 +1,86 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: FDPIC addresses of a two-segment module in one comparison
+
+laddr searched a module's load map, in memory, for every address it
+translated, several to a relocation.  A module of the two segments the
+linker makes, text below data, now keeps the boundary and the two
+displacements in its struct dso, and laddr and laddr_held translate
+with one comparison.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index c798ea5..e1f22ce 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -109,6 +109,9 @@ struct dso {
+ 	char *shortname;
+ #if DL_FDPIC
+ 	unsigned char *base;
++	/* A load map of two segments, text below data, as the linker makes
++	 * them, translated with one comparison: data from seg_split up. */
++	size_t seg_split, seg_d0, seg_d1;
+ #else
+ 	struct fdpic_loadmap *loadmap;
+ #endif
+@@ -187,6 +190,8 @@ static int dl_strcmp(const char *l, const char *r)
+ static void *laddr(const struct dso *p, size_t v)
+ {
+ 	size_t j=0;
++	if (p->seg_split)
++		return (void *)(v + (v >= p->seg_split ? p->seg_d1 : p->seg_d0));
+ 	if (!p->loadmap) return p->base + v;
+ 	for (j=0; v-p->loadmap->segs[j].p_vaddr >= p->loadmap->segs[j].p_memsz; j++);
+ 	return (void *)(v - p->loadmap->segs[j].p_vaddr + p->loadmap->segs[j].addr);
+@@ -211,11 +216,23 @@ static void *laddr_pg(const struct dso *p, size_t v)
+ static void *laddr_held(const struct dso *p, size_t v)
+ {
+ 	size_t j=0;
++	if (p->seg_split)
++		return (void *)(v + (v >= p->seg_split ? p->seg_d1 : p->seg_d0));
+ 	if (!p->loadmap) return p->base + v;
+ 	for (j=0; v-p->loadmap->segs[j].p_vaddr > p->loadmap->segs[j].p_memsz; j++);
+ 	return (void *)(v - p->loadmap->segs[j].p_vaddr + p->loadmap->segs[j].addr);
+ }
+ #endif
++static void set_seg_split(struct dso *p)
++{
++	const struct fdpic_loadmap *m = p->loadmap;
++	p->seg_split = 0;
++	if (m && m->nsegs == 2 && m->segs[0].p_vaddr < m->segs[1].p_vaddr) {
++		p->seg_split = m->segs[1].p_vaddr;
++		p->seg_d0 = m->segs[0].addr - m->segs[0].p_vaddr;
++		p->seg_d1 = m->segs[1].addr - m->segs[1].p_vaddr;
++	}
++}
+ static void (*fdbarrier(void *p))()
+ {
+ 	void (*fd)();
+@@ -962,6 +979,7 @@ static void *map_library(int fd, struct dso *dso)
+ 				break;
+ 			}
+ 		}
++		set_seg_split(dso);
+ 		map = (void *)dso->loadmap->segs[0].addr;
+ 		map_len = 0;
+ 		goto done_mapping;
+@@ -1904,6 +1922,7 @@ hidden void __dls2(unsigned char *base, size_t *sp)
+ 		}
+ 		app_loadmap = p2 ? p1 : 0;
+ 		ldso.loadmap = p2 ? p2 : p1;
++		set_seg_split(&ldso);
+ 		ldso.base = laddr(&ldso, 0);
+ 	} else {
+ 		ldso.base = base;
+@@ -2030,7 +2049,10 @@ void __dls3(size_t *sp, size_t *auxv)
+ 				app.tls.align = phdr->p_align;
+ 			}
+ 		}
+-		if (DL_FDPIC) app.loadmap = app_loadmap;
++#if DL_FDPIC
++		app.loadmap = app_loadmap;
++		set_seg_split(&app);
++#endif
+ 		if (app.tls.size) app.tls.image = laddr(&app, tls_image);
+ 		if (interp_off) ldso.name = laddr(&app, interp_off);
+ 		if ((aux[0] & (1UL<<AT_EXECFN))

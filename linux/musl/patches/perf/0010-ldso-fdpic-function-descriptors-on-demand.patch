@@ -1,0 +1,316 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: FDPIC function descriptors on demand
+
+makefuncdescs gave every module a descriptor for each of its symbols,
+counting them first through the whole GNU hash table: for libc alone
+1,614 functions and 16 KB, made and kept by every process at every exec,
+for the handful whose addresses are ever taken.  Make each canonical
+descriptor when it is first asked for, in a table by module and symbol;
+ld.so's own, in stage 2, come from a few static ones.  Stages 2b and 3
+are entered through temporary descriptors, which need not be canonical.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 77307dd..a204d78 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -23,6 +23,7 @@
+ #include "fork_impl.h"
+ #include "libc.h"
+ #include "dynlink.h"
++#include "lock.h"
+ 
+ static size_t ldso_page_size;
+ /* libc.h may have defined a macro for dynamic PAGE_SIZE already, but
+@@ -111,14 +112,15 @@ struct dso {
+ #else
+ 	struct fdpic_loadmap *loadmap;
+ #endif
+-	struct funcdesc {
+-		void *addr;
+-		size_t *got;
+-	} *funcdescs;
+ 	size_t *got;
+ 	char buf[];
+ };
+ 
++struct funcdesc {
++	void *addr;
++	size_t *got;
++};
++
+ struct symdef {
+ 	Sym *sym;
+ 	struct dso *dso;
+@@ -230,6 +232,77 @@ static void (*fdbarrier(void *p))()
+ #define fpaddr(p, v) ((void (*)())laddr(p, v))
+ #endif
+ 
++#if DL_FDPIC
++/* The canonical descriptor of each function whose address has been
++ * taken, made when first asked for: a table of every function in every
++ * module would be made, and kept, by every process. */
++struct fdnode {
++	struct funcdesc fd;
++	struct dso *dso;
++	size_t idx;
++	struct fdnode *next;
++};
++static struct fdnode *fd_table[64], fd_early[16];
++static int fd_early_used;
++static volatile int fd_lock[1];
++
++static struct funcdesc *funcdesc(struct dso *p, size_t idx)
++{
++	struct fdnode **b = fd_table
++		+ (idx ^ (size_t)p>>4) % (sizeof fd_table / sizeof *fd_table);
++	struct fdnode *n;
++	LOCK(fd_lock);
++	for (n=*b; n && (n->dso!=p || n->idx!=idx); n=n->next);
++	if (!n) {
++		/* ld.so's own, in stage 2, before malloc. */
++		n = fd_early_used < sizeof fd_early / sizeof *fd_early
++			? fd_early + fd_early_used++ : malloc(sizeof *n);
++		if (n) {
++			n->fd.addr = laddr(p, p->syms[idx].st_value);
++			n->fd.got = p->got;
++			n->dso = p;
++			n->idx = idx;
++			n->next = *b;
++			*b = n;
++		}
++	}
++	UNLOCK(fd_lock);
++	return n ? &n->fd : 0;
++}
++
++static struct fdnode *funcdesc_at(size_t a)
++{
++	struct fdnode *n = 0;
++	size_t i;
++	LOCK(fd_lock);
++	for (i=0; i<sizeof fd_table / sizeof *fd_table && !n; i++)
++		for (n=fd_table[i]; n && (size_t)&n->fd != a; n=n->next);
++	UNLOCK(fd_lock);
++	return n;
++}
++
++static void forget_funcdescs(struct dso *p)
++{
++	size_t i;
++	LOCK(fd_lock);
++	for (i=0; i<sizeof fd_table / sizeof *fd_table; i++) {
++		struct fdnode **n = fd_table + i;
++		while (*n) {
++			if ((*n)->dso != p) {
++				n = &(*n)->next;
++				continue;
++			}
++			struct fdnode *dead = *n;
++			*n = dead->next;
++			if (dead < fd_early || dead >= fd_early
++			    + sizeof fd_early / sizeof *fd_early)
++				free(dead);
++		}
++	}
++	UNLOCK(fd_lock);
++}
++#endif
++
+ static void decode_vec(size_t *v, size_t *a, size_t cnt)
+ {
+ 	size_t i;
+@@ -547,12 +620,25 @@ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stri
+ 				- (size_t)reloc_addr;
+ 			break;
+ 		case REL_FUNCDESC:
++#if DL_FDPIC
++			if (def.sym) {
++				struct funcdesc *fd = funcdesc(def.dso,
++					def.sym - def.dso->syms);
++				if (!fd) {
++					error("Error relocating %s: cannot allocate a function descriptor for %s",
++						dso->name, name);
++					if (runtime) longjmp(*rtld_fail, 1);
++					continue;
++				}
++				sym_val = (size_t)fd;
++			} else {
++				sym_val = 0;
++			}
+ #if FDPIC_ADDEND_RELATIVE
+-			store_word(reloc_addr, def.sym ? (size_t)(def.dso->funcdescs
+-				+ (def.sym - def.dso->syms)) : 0);
++			store_word(reloc_addr, sym_val);
+ #else
+-			*reloc_addr = def.sym ? (size_t)(def.dso->funcdescs
+-				+ (def.sym - def.dso->syms)) : 0;
++			*reloc_addr = sym_val;
++#endif
+ #endif
+ 			break;
+ 		case REL_FUNCDESC_VAL:
+@@ -1102,46 +1188,6 @@ static size_t count_syms(struct dso *p)
+ 	return nsym;
+ }
+ 
+-static void *dl_mmap(size_t n)
+-{
+-	void *p;
+-	int prot = PROT_READ|PROT_WRITE, flags = MAP_ANONYMOUS|MAP_PRIVATE;
+-#ifdef SYS_mmap2
+-	p = (void *)__syscall(SYS_mmap2, 0, n, prot, flags, -1, 0);
+-#else
+-	p = (void *)__syscall(SYS_mmap, 0, n, prot, flags, -1, 0);
+-#endif
+-	return (unsigned long)p > -4096UL ? 0 : p;
+-}
+-
+-static void makefuncdescs(struct dso *p)
+-{
+-	static int self_done;
+-	size_t nsym = count_syms(p);
+-	size_t i, size = nsym * sizeof(*p->funcdescs);
+-
+-	if (!self_done) {
+-		p->funcdescs = dl_mmap(size);
+-		self_done = 1;
+-	} else {
+-		p->funcdescs = malloc(size);
+-	}
+-	if (!p->funcdescs) {
+-		if (!runtime) a_crash();
+-		error("Error allocating function descriptors for %s", p->name);
+-		longjmp(*rtld_fail, 1);
+-	}
+-	for (i=0; i<nsym; i++) {
+-		if ((p->syms[i].st_info&0xf)==STT_FUNC && p->syms[i].st_shndx) {
+-			p->funcdescs[i].addr = laddr(p, p->syms[i].st_value);
+-			p->funcdescs[i].got = p->got;
+-		} else {
+-			p->funcdescs[i].addr = 0;
+-			p->funcdescs[i].got = 0;
+-		}
+-	}
+-}
+-
+ static struct dso *load_library(const char *name, struct dso *needed_by)
+ {
+ 	char buf[2*NAME_MAX+2];
+@@ -1341,7 +1387,6 @@ static struct dso *load_library(const char *name, struct dso *needed_by)
+ 	p->prev = tail;
+ 	tail = p;
+ 
+-	if (DL_FDPIC) makefuncdescs(p);
+ 
+ 	if (ldd_mode) dprintf(1, "\t%s => %s (%p)\n", name, pathname, p->base);
+ 
+@@ -1836,7 +1881,6 @@ hidden void __dls2(unsigned char *base, size_t *sp)
+ 	kernel_mapped_dso(&ldso);
+ 	decode_dyn(&ldso);
+ 
+-	if (DL_FDPIC) makefuncdescs(&ldso);
+ 
+ 	/* Prepare storage for to save clobbered REL addends so they
+ 	 * can be reused in stage 3. There should be very few. If
+@@ -1863,7 +1907,7 @@ hidden void __dls2(unsigned char *base, size_t *sp)
+ 	 * symbolically as a barrier against moving the address
+ 	 * load across the above relocation processing. */
+ 	struct symdef dls2b_def = find_sym(&ldso, "__dls2b", 0);
+-	if (DL_FDPIC) ((stage3_func)&ldso.funcdescs[dls2b_def.sym-ldso.syms])(sp, auxv);
++	if (DL_FDPIC) ((stage3_func)fpaddr(&ldso, dls2b_def.sym->st_value))(sp, auxv);
+ 	else ((stage3_func)laddr(&ldso, dls2b_def.sym->st_value))(sp, auxv);
+ }
+ 
+@@ -1887,7 +1931,7 @@ void __dls2b(size_t *sp, size_t *auxv)
+ 	}
+ 
+ 	struct symdef dls3_def = find_sym(&ldso, "__dls3", 0);
+-	if (DL_FDPIC) ((stage3_func)&ldso.funcdescs[dls3_def.sym-ldso.syms])(sp, auxv);
++	if (DL_FDPIC) ((stage3_func)fpaddr(&ldso, dls3_def.sym->st_value))(sp, auxv);
+ 	else ((stage3_func)laddr(&ldso, dls3_def.sym->st_value))(sp, auxv);
+ }
+ 
+@@ -2039,7 +2083,6 @@ void __dls3(size_t *sp, size_t *auxv)
+ 	}
+ 	decode_dyn(&app);
+ 	if (DL_FDPIC) {
+-		makefuncdescs(&app);
+ 		if (!app.loadmap) {
+ 			app.loadmap = (void *)&app_dummy_loadmap;
+ 			app.loadmap->nsegs = 1;
+@@ -2242,7 +2285,9 @@ void *dlopen(const char *file, int mode)
+ 				free(p->td_index);
+ 				p->td_index = tmp;
+ 			}
+-			free(p->funcdescs);
++#if DL_FDPIC
++			forget_funcdescs(p);
++#endif
+ 			if (p->rpath != p->rpath_orig)
+ 				free(p->rpath);
+ 			free(p->deps);
+@@ -2337,11 +2382,10 @@ static void *addr2dso(size_t a)
+ {
+ 	struct dso *p;
+ 	size_t i;
+-	if (DL_FDPIC) for (p=head; p; p=p->next) {
+-		i = count_syms(p);
+-		if (a-(size_t)p->funcdescs < i*sizeof(*p->funcdescs))
+-			return p;
+-	}
++#if DL_FDPIC
++	struct fdnode *n = funcdesc_at(a);
++	if (n) return n->dso;
++#endif
+ 	for (p=head; p; p=p->next) {
+ 		if (DL_FDPIC && p->loadmap) {
+ 			for (i=0; i<p->loadmap->nsegs; i++) {
+@@ -2387,7 +2431,7 @@ static void *do_dlsym(struct dso *p, const char *s, void *ra)
+ 	if ((def.sym->st_info&0xf) == STT_TLS)
+ 		return __tls_get_addr((tls_mod_off_t []){def.dso->tls_id, def.sym->st_value-DTP_OFFSET});
+ 	if (DL_FDPIC && (def.sym->st_info&0xf) == STT_FUNC)
+-		return def.dso->funcdescs + (def.sym - def.dso->syms);
++		return funcdesc(def.dso, def.sym - def.dso->syms);
+ 	return laddr(def.dso, def.sym->st_value);
+ }
+ 
+@@ -2411,15 +2455,14 @@ int dladdr(const void *addr_arg, Dl_info *info)
+ 	strings = p->strings;
+ 	nsym = count_syms(p);
+ 
+-	if (DL_FDPIC) {
+-		size_t idx = (addr-(size_t)p->funcdescs)
+-			/ sizeof(*p->funcdescs);
+-		if (idx < nsym && (sym[idx].st_info&0xf) == STT_FUNC) {
+-			best = (size_t)(p->funcdescs + idx);
+-			bestsym = sym + idx;
+-			besterr = 0;
+-		}
++#if DL_FDPIC
++	struct fdnode *n = funcdesc_at(addr);
++	if (n && (sym[n->idx].st_info&0xf) == STT_FUNC) {
++		best = addr;
++		bestsym = sym + n->idx;
++		besterr = 0;
+ 	}
++#endif
+ 
+ 	if (!best) for (; nsym; nsym--, sym++) {
+ 		if (sym->st_value
+@@ -2450,8 +2493,12 @@ int dladdr(const void *addr_arg, Dl_info *info)
+ 		return 1;
+ 	}
+ 
+-	if (DL_FDPIC && (bestsym->st_info&0xf) == STT_FUNC)
+-		best = (size_t)(p->funcdescs + (bestsym - p->syms));
++#if DL_FDPIC
++	if ((bestsym->st_info&0xf) == STT_FUNC) {
++		struct funcdesc *fd = funcdesc(p, bestsym - p->syms);
++		if (fd) best = (size_t)fd;
++	}
++#endif
+ 	info->dli_sname = strings + bestsym->st_name;
+ 	info->dli_saddr = (void *)best;
+ 

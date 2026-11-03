@@ -1,0 +1,117 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: FDPIC relative relocations in a pass of their own
+
+The linker puts a module's R_RELATIVE relocations first and counts them
+in DT_RELACOUNT: 971 of libc's 1,074.  ld.so stepped through all of
+them twice more at every exec only to skip its own, and translated each
+of a library's through a search of its load map.  _dlstart_c and
+reloc_all now take the counted block in one loop, which for a module of
+two segments, text then data, needs one comparison an address, and ld.so
+skips its own block at once after _dlstart_c.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dlstart.c b/ldso/dlstart.c
+index 0485724..cf7fdec 100644
+--- a/ldso/dlstart.c
++++ b/ldso/dlstart.c
+@@ -35,12 +35,13 @@ hidden void _dlstart_c(size_t *sp, size_t *dynv)
+ 
+ #if DL_FDPIC
+ 	struct fdpic_loadseg *segs, fakeseg;
+-	size_t j;
++	size_t j, nsegs = 1;
+ 	if (dynv) {
+ 		/* crt_arch.h entry point asm is responsible for reserving
+ 		 * space and moving the extra fdpic arguments to the stack
+ 		 * vector where they are easily accessible from C. */
+ 		segs = ((struct fdpic_loadmap *)(sp[-1] ? sp[-1] : sp[-2]))->segs;
++		nsegs = ((struct fdpic_loadmap *)(sp[-1] ? sp[-1] : sp[-2]))->nsegs;
+ 	} else {
+ 		/* If dynv is null, the entry point was started from loader
+ 		 * that is not fdpic-aware. We can assume normal fixed-
+@@ -80,6 +81,29 @@ hidden void _dlstart_c(size_t *sp, size_t *dynv)
+ 
+ 	rel = (void *)dyn[DT_RELA];
+ 	rel_size = dyn[DT_RELASZ];
++	/* The R_RELATIVE words the linker puts first and counts in
++	 * DT_RELACOUNT, most of ours, in a loop of their own: text then
++	 * data needs one comparison an address. */
++	for (i=0; dynv[i] && dynv[i]!=DT_RELACOUNT; i+=2);
++	size_t relcount = dynv[i] ? dynv[i+1] : 0;
++	if (nsegs == 2 && relcount <= rel_size/(3*sizeof(size_t))
++	    && segs[0].p_vaddr < segs[1].p_vaddr) {
++		size_t split = segs[1].p_vaddr;
++		size_t d0 = segs[0].addr - segs[0].p_vaddr;
++		size_t d1 = segs[1].addr - split;
++		for (; relcount; relcount--, rel+=3, rel_size-=3*sizeof(size_t)) {
++			size_t at = rel[0], val = rel[2];
++			at += at >= split ? d1 : d0;
++			val += val >= split ? d1 : d0;
++			if (at % sizeof(size_t)) {
++				unsigned char *b = (void *)at;
++				for (j=0; j<sizeof(size_t); j++, val>>=8)
++					b[__BYTE_ORDER==__LITTLE_ENDIAN ? j : sizeof(size_t)-1-j] = val;
++			} else {
++				*(size_t *)at = val;
++			}
++		}
++	}
+ 	for (; rel_size; rel+=3, rel_size-=3*sizeof(size_t)) {
+ 		if (!IS_RELATIVE(rel[1], 0)) continue;
+ 		for (j=0; rel[0]-segs[j].p_vaddr >= segs[j].p_memsz; j++);
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index a204d78..c798ea5 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -1542,6 +1542,31 @@ static void do_mips_relocs(struct dso *p, size_t *got)
+ 	}
+ }
+ 
++#if FDPIC_ADDEND_RELATIVE
++/* The R_RELATIVE words the linker puts first in .rela.dyn and counts in
++ * DT_RELACOUNT, most of a library's relocations, in a loop of their own:
++ * a module of two segments, text then data, needs one comparison an
++ * address. */
++static void do_relative_relocs(struct dso *p, size_t *rel, size_t n)
++{
++	const struct fdpic_loadmap *m = p->loadmap;
++	if (m && m->nsegs == 2 && m->segs[0].p_vaddr < m->segs[1].p_vaddr) {
++		size_t split = m->segs[1].p_vaddr;
++		size_t d0 = m->segs[0].addr - m->segs[0].p_vaddr;
++		size_t d1 = m->segs[1].addr - split;
++		for (; n; n--, rel+=3) {
++			size_t at = rel[0], v = rel[2];
++			at += at >= split ? d1 : d0;
++			v += v >= split ? d1 : d0;
++			store_word((size_t *)at, v);
++		}
++		return;
++	}
++	for (; n; n--, rel+=3)
++		store_word(laddr(p, rel[0]), (size_t)laddr_held(p, rel[2]));
++}
++#endif
++
+ static void reloc_all(struct dso *p)
+ {
+ 	size_t dyn[DYN_CNT];
+@@ -1553,7 +1578,18 @@ static void reloc_all(struct dso *p)
+ 		do_relocs(p, laddr(p, dyn[DT_JMPREL]), dyn[DT_PLTRELSZ],
+ 			2+(dyn[DT_PLTREL]==DT_RELA));
+ 		do_relocs(p, laddr(p, dyn[DT_REL]), dyn[DT_RELSZ], 2);
++#if FDPIC_ADDEND_RELATIVE
++		size_t *rela = laddr(p, dyn[DT_RELA]), relasz = dyn[DT_RELASZ];
++		size_t relcount = 0;
++		search_vec(p->dynv, &relcount, DT_RELACOUNT);
++		if (relcount > relasz / (3*sizeof(size_t))) relcount = 0;
++		/* ld.so did its own in _dlstart_c. */
++		if (p != &ldso) do_relative_relocs(p, rela, relcount);
++		do_relocs(p, rela + 3*relcount,
++			relasz - 3*relcount*sizeof(size_t), 3);
++#else
+ 		do_relocs(p, laddr(p, dyn[DT_RELA]), dyn[DT_RELASZ], 3);
++#endif
+ 		if (!DL_FDPIC)
+ 			do_relr_relocs(p, laddr(p, dyn[DT_RELR]), dyn[DT_RELRSZ]);
+ 

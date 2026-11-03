@@ -1,0 +1,51 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: remember recently resolved symbols
+
+A module's relocations name the same few symbols again and again: an
+FDPIC module's every function has a word of its own for
+__stack_chk_guard, 297 of them in BusyBox, each a full lookup by name at
+every exec.  do_relocs keeps what the last lookup in each of 32 slots,
+by symbol index, found.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index a59847c..af1ed18 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -413,6 +413,10 @@ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stri
+ 	size_t tls_val;
+ 	size_t addend;
+ 	int skip_relative = 0, reuse_addends = 0, save_slot = 0;
++	/* A table names the same few symbols again and again: an FDPIC
++	 * module's every function has its own word for __stack_chk_guard,
++	 * for one.  Keep what the last lookups of each slot found. */
++	struct { size_t index; struct symdef def; } recent[32] = { 0 };
+ 
+ 	if (dso == &ldso) {
+ 		/* Only ldso's REL table needs addend saving/reuse. */
+@@ -447,10 +451,20 @@ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stri
+ 			sym = syms + sym_index;
+ 			name = strings + sym->st_name;
+ 			ctx = type==REL_COPY ? head->syms_next : head;
+-			def = (sym->st_info>>4) == STB_LOCAL
+-				? (struct symdef){ .dso = dso, .sym = sym }
+-				: find_sym(ctx, name, type==REL_PLT);
+-			if (!def.sym) def = get_lfs64(name);
++			size_t slot = sym_index % (sizeof recent / sizeof *recent);
++			int cacheable = type!=REL_COPY && type!=REL_PLT;
++			if (cacheable && recent[slot].index == sym_index) {
++				def = recent[slot].def;
++			} else {
++				def = (sym->st_info>>4) == STB_LOCAL
++					? (struct symdef){ .dso = dso, .sym = sym }
++					: find_sym(ctx, name, type==REL_PLT);
++				if (!def.sym) def = get_lfs64(name);
++				if (cacheable && def.sym) {
++					recent[slot].index = sym_index;
++					recent[slot].def = def;
++				}
++			}
+ 			if (!def.sym && (sym->st_shndx != SHN_UNDEF
+ 			    || sym->st_info>>4 != STB_WEAK)) {
+ 				if (dso->lazy && (type==REL_PLT || type==REL_GOT)) {

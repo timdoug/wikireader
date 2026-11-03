@@ -12,53 +12,95 @@ struct c33_loadmap {
 	struct { unsigned long addr, p_vaddr, p_memsz; } segs[];
 };
 
-/* Relocates without %r15, and so without data, calls or addresses. */
+/* These relocate without %r15, and so without data or addresses, and
+ * call only each other. */
+
+/* Relocate the word at link-time address AT, by whichever segments it
+ * and its contents are in; its contents may be one past the end of a
+ * segment, and it may be at any byte (.eh_frame).  A value in no segment
+ * is left alone. */
 __attribute__((__used__, __noinline__))
-static void *c33_fdpic_fixup(const struct c33_loadmap *map,
-	unsigned long *a, unsigned long *z)
+static void c33_fdpic_fixup_one(const struct c33_loadmap *map, unsigned long at)
 {
-	int n = map->nsegs, i, j = 0, k = 0;
+	int n = map->nsegs, i, k;
 	unsigned long v;
 	unsigned char *w;
 
-	/* The list itself is in the text segment; its end is one past. */
-	v = (unsigned long)a;
-	for (i = 0; v - map->segs[i].p_vaddr >= map->segs[i].p_memsz; i++);
-	w = (unsigned char *)(v - map->segs[i].p_vaddr + map->segs[i].addr);
-	z = (unsigned long *)w + (z - a);
-	a = (unsigned long *)w;
-
-	for (;;) {
-		v = *a;
-		while (v - map->segs[j].p_vaddr >= map->segs[j].p_memsz)
-			if (++j == n) j = 0;
-		w = (unsigned char *)(v - map->segs[j].p_vaddr + map->segs[j].addr);
-		if (++a == z) return w;
-		/* .eh_frame keeps addresses at any byte; the C33 faults on a
-		 * misaligned word. */
-		if ((unsigned long)w & 3)
-			v = w[0] | w[1]<<8 | w[2]<<16 | (unsigned long)w[3]<<24;
-		else
-			v = *(unsigned long *)w;
-		/* The address's segment, or the one it is one past the end of. */
-		for (i = 0; i < n; i++, k = k+1 < n ? k+1 : 0)
-			if (v - map->segs[k].p_vaddr < map->segs[k].p_memsz)
+	for (i = 0; at - map->segs[i].p_vaddr >= map->segs[i].p_memsz; i++);
+	w = (unsigned char *)(at - map->segs[i].p_vaddr + map->segs[i].addr);
+	if ((unsigned long)w & 3)
+		v = w[0] | w[1]<<8 | w[2]<<16 | (unsigned long)w[3]<<24;
+	else
+		v = *(unsigned long *)w;
+	for (k = 0; k < n; k++)
+		if (v - map->segs[k].p_vaddr < map->segs[k].p_memsz)
+			break;
+	if (k == n)
+		for (k = 0; k < n; k++)
+			if (v - map->segs[k].p_vaddr == map->segs[k].p_memsz)
 				break;
-		if (i == n)
-			for (k = 0; k < n; k++)
-				if (v - map->segs[k].p_vaddr == map->segs[k].p_memsz)
-					break;
-		if (k == n) {
-			k = 0;
-			continue;
-		}
-		v += map->segs[k].addr - map->segs[k].p_vaddr;
-		if ((unsigned long)w & 3) {
-			w[0] = v; w[1] = v>>8; w[2] = v>>16; w[3] = v>>24;
-		} else {
-			*(unsigned long *)w = v;
-		}
+	if (k == n)
+		return;
+	v += map->segs[k].addr - map->segs[k].p_vaddr;
+	if ((unsigned long)w & 3) {
+		w[0] = v; w[1] = v>>8; w[2] = v>>16; w[3] = v>>24;
+	} else {
+		*(unsigned long *)w = v;
 	}
+}
+
+/* Every word .rofixup lists, in the data segment, holds a link-time
+ * address of this module; the last entry is __dp's own, which comes back
+ * relocated: the caller's %r15.  BusyBox has 3,500 words, at every exec,
+ * so a module of the usual two segments, text then data, has a loop of
+ * its own, which keeps its state in registers; it hands anything else to
+ * c33_fdpic_fixup_one. */
+__attribute__((__used__, __noinline__, __optimize__("O2")))
+static void *c33_fdpic_fixup(const struct c33_loadmap *map,
+	unsigned long *a, unsigned long *z)
+{
+	unsigned long v = (unsigned long)a, at;
+	int i;
+
+	/* The list itself is in the text segment; its end is one past. */
+	for (i = 0; v - map->segs[i].p_vaddr >= map->segs[i].p_memsz; i++);
+	v += map->segs[i].addr - map->segs[i].p_vaddr;
+	z = (unsigned long *)v + (z - a) - 1;
+	a = (unsigned long *)v;
+
+	if (map->nsegs == 2 && map->segs[0].p_vaddr < map->segs[1].p_vaddr) {
+		unsigned long tv = map->segs[0].p_vaddr, tm = map->segs[0].p_memsz;
+		unsigned long td = map->segs[0].addr - tv;
+		unsigned long dv = map->segs[1].p_vaddr, dm = map->segs[1].p_memsz;
+		unsigned long dd = map->segs[1].addr - dv;
+
+		for (; a < z; a++) {
+			unsigned long *w;
+
+			at = *a;
+			if (at - dv < dm && !(at & 3)) {
+				w = (unsigned long *)(at + dd);
+				v = *w;
+				if (v - dv <= dm) {
+					*w = v + dd;
+					continue;
+				}
+				if (v - tv < tm) {
+					*w = v + td;
+					continue;
+				}
+			}
+			c33_fdpic_fixup_one(map, at);
+		}
+	} else {
+		for (; a < z; a++)
+			c33_fdpic_fixup_one(map, *a);
+	}
+
+	/* __dp. */
+	at = *a;
+	for (i = 0; at - map->segs[i].p_vaddr >= map->segs[i].p_memsz; i++);
+	return (void *)(at - map->segs[i].p_vaddr + map->segs[i].addr);
 }
 
 #ifndef SHARED
