@@ -1,20 +1,20 @@
 {
   "revision": "2279d708c817db657611a30c427c7d06c4360049",
-  "scope": "Audit of the remaining 38 non-PASS interface cases after fixed-range validation; categories explain raw results and do not alter them.",
+  "scope": "Audit of the remaining 39 non-PASS interface cases; categories explain raw results and do not alter them.",
   "combined_observations": "linux/artifacts/ltp-fixed-range-verified/results.json",
   "counts": {
     "UNSUPPORTED": 28,
-    "PASS": 1198,
+    "PASS": 1197,
     "UNTESTED": 6,
     "UNRESOLVED": 1,
-    "FAIL": 3,
+    "FAIL": 4,
     "TIMEOUT": 0
   },
   "classifications": {
     "test-placeholder": 1,
     "permission-test-inapplicable": 3,
     "nommu-mapping-limitation": 1,
-    "architecture-limitation": 8,
+    "architecture-limitation": 9,
     "undefined-operation": 2,
     "optional-feature": 22,
     "limit-test-inapplicable": 1
@@ -54,6 +54,13 @@
       "classification": "architecture-limitation",
       "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
       "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
+    },
+    {
+      "name": "mmap/24-2",
+      "observed_status": "FAIL",
+      "classification": "architecture-limitation",
+      "reason": "Expects ENOMEM for a MAP_FIXED range beyond the address space. No-MMU Linux rejects every MAP_FIXED request with EINVAL before checking the range; the port keeps upstream's order.",
+      "source_sha256": "0845fc56c5f0d9d7fdc7a9e987515274fe23f01fcff928c9e9a80477f5bc127e"
     },
     {
       "name": "mmap/3-1",

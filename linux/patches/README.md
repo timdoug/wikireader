@@ -9,8 +9,8 @@ patch may build on an earlier one. The directories say what each is:
   FDPIC loading and core dumps, `/dev/zero`, the ADC battery -- that stand
   on their own, independently of C33.
 - `features/`: optional generic features: no-MMU memory locking, `msync`
-  and `madvise` contracts, the `MAP_FIXED` error order, monochrome fbdev
-  formats, the 6x8 font without the fbdev console.
+  and `madvise` contracts, monochrome fbdev formats, the 6x8 font without
+  the fbdev console.
 - `perf/`: performance choices for this board: lazy VT device
   registration and the FAT cluster-chain walk, each measured in
   `../README.md`.

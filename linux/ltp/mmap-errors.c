@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Fixed-address errors must not replace or damage a live no-MMU mapping. */
+/* No-MMU Linux rejects every fixed placement with EINVAL, before anything
+   else about the request, and the rejection leaves a live mapping intact. */
 #include "io-checks.h"
 #include <limits.h>
 #include <string.h>
@@ -32,10 +33,10 @@ int main(void)
     rejected(p + 1, page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(p, 0, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(p, page, MAP_FIXED, EINVAL); /* missing mapping type */
-    rejected(p, ULONG_MAX, MAP_PRIVATE | MAP_FIXED, ENOMEM);
-    rejected(p, top, MAP_SHARED | MAP_FIXED, ENOMEM);
-    rejected((void *)top, page, MAP_PRIVATE | MAP_FIXED, ENOMEM);
-    rejected((void *)top, 2 * page, MAP_PRIVATE | MAP_FIXED, ENOMEM);
+    rejected(p, ULONG_MAX, MAP_PRIVATE | MAP_FIXED, EINVAL);
+    rejected(p, top, MAP_SHARED | MAP_FIXED, EINVAL);
+    rejected((void *)top, page, MAP_PRIVATE | MAP_FIXED, EINVAL);
+    rejected((void *)top, 2 * page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     rejected(NULL, page, MAP_PRIVATE | MAP_FIXED, EINVAL);
     /* A hint is not a fixed range, even when hint + length would wrap. */
     {
@@ -49,5 +50,5 @@ int main(void)
     for (size_t i = 0; i < page; ++i)
         CHECK(p[i] == 0x5a);
     CHECK(munmap(p, page) == 0);
-    return finish("fixed-range errors, ignored hints and mapping preservation");
+    return finish("fixed placement rejected, ignored hints and mapping preservation");
 }
