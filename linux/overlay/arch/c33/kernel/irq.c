@@ -173,7 +173,6 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	if (!s1c33_itc_is_source(vector)) {
 		int reg;
 
-		c33_lcd_fault(vector);
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
 			 vector, regs->pc, regs->sp, regs->psr);
 		/* Which cause was actually asserted is the whole question. */

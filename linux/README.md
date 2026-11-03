@@ -113,12 +113,10 @@ With a serial adapter attached, `earlycon=s1c33,mmio,0x300b00` reports through
 the standard early console from the first parsed parameter until `ttyC0`
 takes over and the boot console hands off.
 
-The architecture's small early renderer writes `C33 LINUX` into the LCD
-memory left active by the card loader, then becomes a temporary printk console
-that scrolls 40 columns by 24 rows of the ordinary kernel log in Linux's
-standard 6x8 font until late init. An unhandled exception draws a solid
-fault bar below the text, so failures before userspace remain visible without
-attaching to the serial pads. The boot logo is placed on the physical right edge.
+The architecture draws nothing on the panel: everything there is DRM's
+(below). Until the DRM driver probes, about 1.3 s into the kernel, the panel
+keeps the launcher's screen, and a failure before then is reported on the
+serial port only, through `earlycon`.
 Once init is running, two programs share the panel: `/sbin/wr-console`, a
 40-column terminal in the top 120 rows, which holds the panel as a DRM
 client, and `/sbin/wr-keyboard`, a four-row touchscreen keyboard below it,
@@ -308,9 +306,7 @@ writes through a mapping, so a buffer that is scanned where it is, written
 directly, is the only kind that needs no telling. The console and X hand
 the panel over with the VT: the program leaving drops DRM master before it
 releases its VT, and the one arriving takes master and sets its buffer.
-Until the console sets its buffer the panel keeps what the early renderer
-drew, which is independent of all this so it can still report failures
-before platform drivers have probed.
+Until the console sets its buffer the panel keeps the launcher's screen.
 
 DRM's own clients draw on the panel too, one bit a pixel
 (`patches/features/0039` and `0040` teach `drm_draw`, `drm_panic` and
@@ -321,12 +317,11 @@ sleeping. `drm_log` (`console=drm_log`, ahead of the serial port on the
 built-in command line) prints the kernel's messages at the console
 loglevel, which is warnings unless `loglevel=` says otherwise, and shows
 them whenever no program holds the panel: when the console exits, for one.
-It does not replace the early renderer at boot: it prints from a thread,
-which on this non-preemptible kernel first runs once userspace has
-started, by when the console is taking the panel; and it would start only
-once the driver has probed. `patches/fixes/0041` keeps its buffers when
-userspace held the panel at its first setup, so that letting the panel go
-shows them.
+It prints from a thread, which on this non-preemptible kernel first runs
+once userspace has started, by when the console is taking the panel, so a
+normal boot shows the launcher's screen until the console; `patches/fixes/0041`
+keeps its buffers when userspace held the panel at its first setup, so
+that letting the panel go shows them.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,

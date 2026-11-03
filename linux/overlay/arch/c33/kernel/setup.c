@@ -100,7 +100,6 @@ asmlinkage __visible void __init c33_start(int argc, char **argv)
 	*C33_WATCHDOG_ENABLE = 0;
 	*C33_WATCHDOG_WRITE_PROTECT = 0;
 
-	c33_lcd_init();
 	early_uart_puts("\r\nC33 Linux: entry\r\n");
 	start_kernel();
 }
@@ -187,5 +186,4 @@ void __init setup_arch(char **cmdline_p)
 	min_low_pfn = PFN_DOWN(CONFIG_PHYSICAL_START);
 	max_pfn = max_low_pfn = PFN_DOWN(memory_end);
 	paging_init();
-	c33_lcd_console_register();
 }
