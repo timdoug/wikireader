@@ -207,9 +207,11 @@
  * The card is the only device on the synchronous serial interface, run at
  * MCLK/4 as Grifo and the original firmware do; the flash's chip select is
  * the hog above.  The slot has no card-detect line, and the system runs
- * from the card, so the host treats it as non-removable while running.
+ * from the card, so the host treats it as non-removable while running.  A
+ * microSD slot has no write-protect switch.
  */
 &sd {
+	disable-wp;
 	cs-gpios = <&pinctrl 40 GPIO_ACTIVE_LOW>;
 	vmmc-supply = <&sd_vcc>;
 	vqmmc-supply = <&sd_buffer>;

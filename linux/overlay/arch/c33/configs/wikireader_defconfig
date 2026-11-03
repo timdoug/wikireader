@@ -143,13 +143,16 @@ CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO_NONE=y
 CONFIG_FRAME_POINTER=y
 CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y
-# One SD card behind SPI: mq-deadline is plenty.
+# One SD card behind SPI, so no scheduler: mq-deadline's 128 scheduler
+# requests, each with its scatterlist, held 130 KB, and a 4 MB read takes
+# the same 2.9 s without them.
+# CONFIG_MQ_IOSCHED_DEADLINE is not set
 # CONFIG_MQ_IOSCHED_KYBER is not set
 # CONFIG_IOSCHED_BFQ is not set
-# The whole boot logs about 4 KB.  The ring buffer's record tables are sized
-# from this and are initialised data, so every doubling adds to what Grifo
-# loads from the card.
-CONFIG_LOG_BUF_SHIFT=15
+# The whole boot logs about 5 KB.  The ring buffer's record tables are sized
+# from this and are initialised data, 100 KB of them beside a 32 KB ring at
+# 15, so every doubling adds to RAM and to what Grifo loads from the card.
+CONFIG_LOG_BUF_SHIFT=13
 # A stock unit is a touch panel with nothing on the serial port, and printk
 # writes the console synchronously: at 115200 baud, plus the early LCD
 # console, the boot log cost 0.4 s.  Warnings still show; loglevel=7 on the
