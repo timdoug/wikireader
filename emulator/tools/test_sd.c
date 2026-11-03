@@ -227,7 +227,9 @@ int main(void)
 		command(&mem, 55, 0);
 		ok("CMD55 accepts SD_STATUS", settle(&mem) == 0x00);
 		command(&mem, 13, 0);
-		ok("ACMD13 returns a CRC-valid 64-byte SD Status",
+		/* R2 in SPI mode: read_payload takes its second byte as the R1. */
+		ok("ACMD13 returns an R2, then a CRC-valid 64-byte SD Status",
+		   settle(&mem) == 0x00 &&
 		   read_payload(&mem, status, sizeof status));
 
 		command(&mem, 6, 0x00fffff0);

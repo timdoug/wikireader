@@ -237,10 +237,16 @@ static void execute(struct sdcard *sd)
 		respond(sd, 0x00);
 		return;
 	}
-	if (app && idx == 13) {                 /* ACMD13: SD_STATUS */
+	if (app && idx == 13) {                 /* ACMD13: SD_STATUS -> R2 */
 		uint8_t status[64] = { 0 };
 
+		/*
+		 * In SPI mode ACMD13 answers R2, as CMD13 does. With only the
+		 * R1, Linux took the data token for the second status byte,
+		 * missed the block and logged "problem reading SD Status".
+		 */
 		respond(sd, 0x00);
+		push(sd, 0x00);
 		queue_register(sd, status, sizeof status);
 		return;
 	}
