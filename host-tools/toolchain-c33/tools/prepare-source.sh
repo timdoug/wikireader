@@ -7,20 +7,40 @@
 # else, so the repository is the only source of truth and the tree can be
 # thrown away.  Build directories at SRC's top (build, build-*) are kept.
 #
-# The prepared tree is made afresh in SRC.prepared whenever those inputs
-# change, then synced into SRC by content: only files whose contents differ
-# are rewritten (with the current time, so make rebuilds what uses them),
-# files the inputs no longer have are deleted, and the rest keep their
-# timestamps, so an incremental build stays incremental.
+# SRC.state records the inputs and every file's size and time as this left
+# the tree.  When both still match, the tree is left alone.  Otherwise a
+# fresh tree is made from the inputs and synced into SRC by content: only
+# files whose contents differ are rewritten (with the current time, so make
+# rebuilds what uses them), files the inputs no longer have are deleted,
+# and the rest keep their timestamps, so an incremental build stays
+# incremental.
 set -eu
 src=$1 tarball=$2 files=$3 glue=$4 patches=${5:-}
-prepared=$src.prepared
+state=$src.state
 
 patch_list() {
 	[ -n "$patches" ] || return 0
 	for p in "$patches"/*/*.patch; do
 		[ -e "$p" ] && echo "${p##*/} $p"
 	done | sort | cut -d' ' -f2
+}
+
+# Each file's size and modification time, build directories aside.
+tree_stat() {
+	[ -d "$src" ] || { echo none; return; }
+	python3 - "$src" <<'EOF'
+import os, sys, zlib
+top = sys.argv[1]
+h = 0
+for root, dirs, files in os.walk(top):
+    if root == top:
+        dirs[:] = [d for d in dirs if d != "build" and not d.startswith("build-")]
+    dirs.sort()
+    for name in sorted(files):
+        st = os.lstat(os.path.join(root, name))
+        h = zlib.crc32(f"{root}/{name} {st.st_size} {st.st_mtime_ns}\n".encode(), h)
+print(h)
+EOF
 }
 
 inputs=$(
@@ -35,23 +55,23 @@ inputs=$(
 	} | cksum | cut -d' ' -f1
 )
 
-if [ "$(cat "$prepared/.c33-inputs" 2>/dev/null)" != "$inputs" ]; then
-	echo "==> preparing ${src##*/} from the tarball, files/, glue and patches"
-	rm -rf "$prepared" "$prepared.tmp"
-	mkdir -p "$prepared.tmp"
-	tar -xf "$tarball" -C "$prepared.tmp" --strip-components=1
-	cp -R "$files/." "$prepared.tmp/"
-	python3 "$glue" "$prepared.tmp" >/dev/null
-	for p in $(patch_list); do
-		patch -d "$prepared.tmp" -p1 --forward --silent < "$p" || {
-			echo "cannot apply $p" >&2
-			exit 1
-		}
-	done
-	echo "$inputs" > "$prepared.tmp/.c33-inputs"
-	mv "$prepared.tmp" "$prepared"
+if [ "$(cat "$state" 2>/dev/null)" = "$inputs $(tree_stat)" ]; then
+	exit 0
 fi
 
-mkdir -p "$src"
-rsync -rlc --delete --exclude=/build --exclude='/build-*' \
-	--exclude=/.c33-inputs "$prepared/" "$src/"
+echo "==> making ${src##*/} from the tarball, files/, glue and patches"
+fresh=$src.fresh
+rm -rf "$fresh"
+mkdir -p "$fresh" "$src"
+tar -xf "$tarball" -C "$fresh" --strip-components=1
+cp -R "$files/." "$fresh/"
+python3 "$glue" "$fresh" >/dev/null
+for p in $(patch_list); do
+	patch -d "$fresh" -p1 --forward --silent < "$p" || {
+		echo "cannot apply $p" >&2
+		exit 1
+	}
+done
+rsync -rlc --delete --exclude=/build --exclude='/build-*' "$fresh/" "$src/"
+rm -rf "$fresh"
+echo "$inputs $(tree_stat)" > "$state"

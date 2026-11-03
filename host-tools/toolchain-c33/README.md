@@ -246,6 +246,9 @@ Build trees live under `host-tools/toolchain-c33/work/` (in the VM,
 `~/wr-linux/toolchain/`) and are disposable. The maintained target sources
 live under `binutils/files/`, `gcc/files/`, and `gcc/patches/`. Every build
 makes its source tree exactly the tarball plus those and the glue
-(`tools/prepare-source.sh`): a prepared copy is rebuilt when they change,
-then synced into the tree by content, so files whose contents are unchanged
-keep their timestamps and nothing edited in the tree survives.
+(`tools/prepare-source.sh`): when they or the tree have changed since it
+last ran (by each file's size and time), a fresh tree is made from them and
+synced in by content, so files whose contents are unchanged keep their
+timestamps and nothing edited in the tree survives. Installs are stripped
+(`install-strip`), and the Linux compiler's first pass is removed once the
+final one is installed.

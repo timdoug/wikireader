@@ -2,7 +2,7 @@
 
 Applied by `../rebuild.sh` and `../build.sh`, through
 `../../tools/prepare-source.sh`, in number order across the directories, to
-a tree made afresh from the tarball whenever they change.
+a tree made afresh from the tarball whenever they or the tree change.
 
 - `fixes/`: corrections to GCC that stand on their own: nested ICE
   diagnostics, the analyzer's model of a direct global `errno`, uClibc-ng's

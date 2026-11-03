@@ -117,7 +117,7 @@ rm -f gcc/s-mlib
 
 echo "==> building cc1"
 make -j"${N}" all-gcc
-make install-gcc
+make install-strip-gcc
 
 # Force the runtimes to be rebuilt rather than trusting the stamps.  "make
 # install" copies the old archive with a fresh timestamp, so a stale libgcc.a
@@ -135,7 +135,7 @@ for lib in ${LIBS}; do
 	make -j"${N}" "all-target-${lib}"
 done
 for lib in ${LIBS}; do
-	make "install-target-${lib}"
+	make "install-strip-target-${lib}"
 done
 
 if [ "${STEP}" = final ]; then
@@ -146,6 +146,9 @@ if [ "${STEP}" = final ]; then
 	done
 	rm -f "${PREFIX}/${TARGET}/sysroot/lib/"libstdc++.so.*-gdb.py
 	python3 "${HERE}/tools/check-runtime.py" "${PREFIX}"
+	# The first pass only bootstraps the C library; as cross builds do, it
+	# goes once the final compiler is installed.
+	rm -rf "${SRC}/build-${TARGET}-stage1"
 fi
 
 echo "==> DONE: ${PREFIX}/bin/${TARGET}-gcc"

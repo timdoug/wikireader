@@ -44,7 +44,7 @@ cd "${BUILD}"
 
 echo "==> building"
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-make install
+make install-strip
 
 echo
 echo "Done.  Tools are in ${WORK}/install/bin"
