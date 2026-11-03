@@ -1,5 +1,5 @@
 From: Tim Douglas <me@timdoug.com>
-Subject: [PATCH] package/xorg-server, xf86-input-evdev: build without an MMU or a udev daemon
+Subject: [PATCH] package/xorg-server, xf86-input-evdev, xf86-input-libinput: build without an MMU or a udev daemon
 
 xorg-server forks only for System() and Popen(), which run a shell, and
 for two things a fork-less system does without: writing a configuration
@@ -7,7 +7,8 @@ file as a setuid server, and running modprobe.  The external tree's
 patches spawn the shell instead and do without the other two, so the
 server no longer depends on an MMU.  xf86-input-evdev asks libudev about
 its devices, as libinput does, and needs no udev daemon: libudev-zero
-does.
+does.  xf86-input-libinput needs only libinput, which already depends on
+libudev rather than a daemon.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
@@ -47,3 +48,21 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	# We need a SHA1 implementation. If either openssl or
  	# libgcrypt are already part of the build, we'll use one of
  	# them, otherwise, use the small libsha1 library.
+--- a/package/x11r7/xdriver_xf86-input-libinput/Config.in
++++ b/package/x11r7/xdriver_xf86-input-libinput/Config.in
+@@ -1,6 +1,6 @@
+ config BR2_PACKAGE_XDRIVER_XF86_INPUT_LIBINPUT
+ 	bool "xf86-input-libinput"
+-	depends on BR2_PACKAGE_HAS_UDEV # libinput
++	depends on BR2_PACKAGE_HAS_LIBUDEV # libinput
+ 	select BR2_PACKAGE_LIBINPUT
+ 	select BR2_PACKAGE_XORGPROTO
+ 	help
+@@ -8,5 +8,5 @@
+ 	  around libinput, so while it does provide all features that
+ 	  libinput supports it does little beyond.
+ 
+-comment "xf86-input-libinput needs udev /dev management"
+-	depends on !BR2_PACKAGE_HAS_UDEV
++comment "xf86-input-libinput needs libudev"
++	depends on !BR2_PACKAGE_HAS_LIBUDEV

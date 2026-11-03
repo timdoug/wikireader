@@ -975,10 +975,11 @@ reads that find nothing), 14 context switches and 10 timer ticks, and the
 scheduler's load tracking, 64-bit arithmetic run 39 times a frame, is a
 third of the kernel's share. The server is Xorg 21.1.24, Buildroot's
 `xorg-server` with its `modesetting` driver, which talks to DRM directly, and
-`evdev` (`buildroot/external/package/wr-xorg`, which also installs `startx`, the twm
-configuration and the keymap; `buildroot/patches/0006` lets Buildroot build
-the server without an MMU and evdev with libudev-zero in place of a udev
-daemon). Its patches (`buildroot/external/patches/xserver_xorg-server`) let
+`libinput` (`buildroot/external/package/wr-xorg`, which also installs `startx`, the twm
+configuration and the keymap, and leaves out libinput's quirk files for
+named vendors' devices and other machines, which it parsed at every start;
+`buildroot/patches/0006` lets Buildroot build the server without an MMU
+and its input drivers with libudev-zero in place of a udev daemon). Its patches (`buildroot/external/patches/xserver_xorg-server`) let
 it `vfork` where it would `fork`, load a keymap `xkbcomp` compiled at build
 time instead of running `xkbcomp` (the image carries no XKB rules or
 sources), keep ten events a list instead of a hundred and no motion
@@ -990,8 +991,10 @@ leftmost pixel in a byte's low bit, `D1` in the high one) and inverted
 which Xorg would otherwise give any depth below 8 as for VGA planes,
 mirroring every glyph. The LCD controller scans that buffer in place, so an
 update is the copy alone: `D1` needs no dirty rectangles, and the
-modesetting driver sends none when the kernel takes none. evdev takes the touchscreen as an absolute
-pointer, the touch as its first button. `fbFillSpans` finds each
+modesetting driver sends none when the kernel takes none. libinput takes the touchscreen as a touch
+device, the server emulating the pointer from its touches. Against evdev,
+measured on one image, it costs 400 KB and 2.5 s more to bring the desktop
+up and the same CPU a tap. `fbFillSpans` finds each
 span's clip band by bisection (patch 0003) instead of walking every clip
 box: a shaped window such as xeyes' has a box or two a row, and the walk
 was most of the cost of filling its pupils. libX11 is built without its East Asian

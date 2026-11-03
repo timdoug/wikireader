@@ -5,7 +5,7 @@
 ################################################################################
 
 # The X session on the panel: Buildroot's xorg-server, configured below,
-# with its modesetting driver and evdev; startx, which writes the server's
+# with its modesetting driver and libinput; startx, which writes the server's
 # configuration (there is no udev to find the devices) and starts twm,
 # xeyes and an xterm with the on-screen keyboard; and the keymap.  The
 # server's patches, modesetting's one-bit support among them, are in
@@ -16,7 +16,8 @@ WR_XORG_SITE_METHOD = local
 WR_XORG_LICENSE = MIT
 # After the server and xkeyboard-config, whose keyboard data this replaces
 # with the one keymap the server loads.
-WR_XORG_DEPENDENCIES = host-xapp_xkbcomp xkeyboard-config xserver_xorg-server
+WR_XORG_DEPENDENCIES = host-xapp_xkbcomp xkeyboard-config xserver_xorg-server \
+	xdriver_xf86-input-libinput
 
 WR_XORG_KEYMAP = /usr/share/X11/xkb/wikireader.xkm
 
@@ -42,6 +43,7 @@ XSERVER_XORG_SERVER_CONF_OPTS += \
 	--disable-input-thread --disable-libunwind --disable-ipv6 \
 	--disable-listen-tcp --enable-listen-unix --disable-listen-local \
 	--disable-docs --disable-devel-docs --disable-xvfb --disable-xephyr \
+	--disable-xf86-input-inputtest \
 	--with-default-font-path=built-ins --with-xkb-output=/tmp \
 	CFLAGS="$(TARGET_CFLAGS) -I$(STAGING_DIR)/usr/include/pixman-1 \
 		-DXKB_COMPILED_KEYMAP=\\\"$(WR_XORG_KEYMAP)\\\""
@@ -63,7 +65,11 @@ define WR_XORG_BUILD_CMDS
 		$(@D)/wikireader.xkb $(@D)/wikireader.xkm
 endef
 
+# libinput keeps its generic quirks; those for named vendors' USB and
+# Bluetooth devices and for other machines, which libinput parses at every
+# start, 4 s here, cannot match the WikiReader's own input devices.
 define WR_XORG_INSTALL_TARGET_CMDS
+	find $(TARGET_DIR)/usr/share/libinput -name '[35]0-*.quirks' -delete
 	rm -rf $(TARGET_DIR)/usr/share/X11/xkb
 	$(INSTALL) -D -m 0644 $(@D)/wikireader.xkm $(TARGET_DIR)$(WR_XORG_KEYMAP)
 	$(INSTALL) -D -m 0755 $(@D)/startx $(TARGET_DIR)/usr/bin/startx

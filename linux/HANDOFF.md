@@ -356,11 +356,11 @@ The pieces:
   the defconfig adds X and `-ffunction-sections -fdata-sections`/
   `--gc-sections` for everything.
 - `buildroot/external/package/wr-xorg`: Buildroot's `xorg-server` with its
-  `modesetting` driver on DRM and `evdev`, configured (the extensions nothing uses off,
+  `modesetting` driver on DRM and `libinput`, configured (the extensions nothing uses off,
   a 128 KB stack, a keymap compiled at build time), with `startx`, which
   writes `/tmp/xorg.conf` since there is no udev, `wikireader.twmrc`,
   `xkeyboard` and the keymap. `buildroot/patches/0006` lets Buildroot build
-  the server without an MMU and evdev with libudev-zero.
+  the server without an MMU and its input drivers with libudev-zero.
   `patches/xserver_xorg-server`: vfork, the precompiled keymap, clip-band
   bisection in `fbFillSpans`, event lists of ten, no motion history,
   modprobe through vfork, a link fix without the input thread, and

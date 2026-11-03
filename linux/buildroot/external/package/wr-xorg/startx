@@ -40,7 +40,7 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 # the server turns to others.  The 5-15 ms default suits a fast machine;
 # here one arc takes milliseconds, the slice ran out partway through a
 # redraw, and the idle handler showed the half-drawn frame on the panel.
-# Xorg, through the modesetting driver on DRM and evdev, configured here:
+# Xorg, through the modesetting driver on DRM and libinput, configured here:
 # there is no udev to find the devices.
 {
 	echo 'Section "ServerFlags"'
@@ -61,7 +61,7 @@ rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock
 	for d in ${touch:+touch:$touch} ${buttons:+buttons:$buttons}; do
 		echo 'Section "InputDevice"'
 		echo "	Identifier \"${d%%:*}\""
-		echo '	Driver "evdev"'
+		echo '	Driver "libinput"'
 		echo "	Option \"Device\" \"${d#*:}\""
 		echo 'EndSection'
 	done
