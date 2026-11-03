@@ -6,6 +6,8 @@ Linux unlink can instead report EPERM for sticky-directory ownership checks.
 Translate that error at the shm interface, as glibc does, while preserving
 all other errors and the underlying unlink semantics.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/librt/shm.c b/librt/shm.c
 --- a/librt/shm.c
 +++ b/librt/shm.c

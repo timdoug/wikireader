@@ -1,9 +1,13 @@
-Start the shell and helpers with vfork.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Start the shell and helpers with vfork
 
 Each child works on its own copies and then execs or _exits, never
 returning, so vfork does, and it is the only way to start a process on
 a machine without an MMU.  The helper child's setenv() calls reach the
 parent's environment too, which only those launches read.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/slave.c
 +++ b/slave.c

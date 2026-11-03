@@ -1,9 +1,12 @@
-Add ISO C11's struct timespec and timespec_get to <time.h>.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] time: add C11's struct timespec and timespec_get
 
 C11 has struct timespec in <time.h>, but uClibc-ng defined it only for
 POSIX.1b or the default feature set: a strict -std=c11 program, wlroots'
 headers included, had an incomplete type.  timespec_get, with TIME_UTC,
 completes C11's time functions, over clock_gettime.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/include/time.h b/include/time.h
 index 1a14089..b2e5232 100644

@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] watchdog: build the S1C33 watchdog driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's watchdog timer.
+The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
 index 08cb8612d..e62e33692 100644
 --- a/drivers/watchdog/Kconfig

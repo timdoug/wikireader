@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] backlight: build the WikiReader panel contrast driver
+
+Kconfig and Makefile entries for the WikiReader panel's contrast, whose
+bias is a PWM from the S1C33E07 timer block, through the LCD class.  The
+driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/video/backlight/Kconfig b/drivers/video/backlight/Kconfig
 index d9374d208..93294e832 100644
 --- a/drivers/video/backlight/Kconfig

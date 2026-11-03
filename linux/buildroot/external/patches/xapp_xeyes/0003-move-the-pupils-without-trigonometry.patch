@@ -7,6 +7,9 @@ computePupil took the pointer's angle with atan2 and turned it back into
 a direction with cos and sin; the direction is (dx, dy) over their
 length.  Where floating point is software, the three calls were most of
 a frame's arithmetic.  Only the -distance mapping still needs the angle.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 ---
  Eyes.c | 21 ++++++++++++++-------
  1 file changed, 14 insertions(+), 7 deletions(-)

@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: seed the stack guard from clock_gettime64
+
+ld.so seeded the stack protector's canary from gettimeofday, which a
+32-bit ABI with only time64 system calls does not have.  Use
+clock_gettime64 there; the canary needs no exact microseconds.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/ldso/include/dl-syscall.h b/ldso/include/dl-syscall.h
 index c143b8d..3ef0674 100644
 --- a/ldso/include/dl-syscall.h

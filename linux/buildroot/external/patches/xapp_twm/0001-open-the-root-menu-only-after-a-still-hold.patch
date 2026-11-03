@@ -7,6 +7,9 @@ On a touch screen the first button is also how the pointer moves.  A root
 menu binding now waits 600 ms, polling the pointer, and opens only if the
 button is still down within 8 pixels of where it went down; otherwise the
 press just moved the pointer.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A WikiReader touch-screen behaviour
 ---
  src/events.c | 39 +++++++++++++++++++++++++++++++++++++++
  1 file changed, 39 insertions(+)

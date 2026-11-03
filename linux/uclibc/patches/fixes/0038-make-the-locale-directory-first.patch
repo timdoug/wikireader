@@ -1,8 +1,11 @@
-Make the locale directory before writing its first files.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] locale: make the locale directory before writing into it
 
 codesets.txt and locales.txt are written straight into extra/locale in the
 build directory, which only the generator programs waited for, so under
 make -j their rules could run first and fail with "Directory nonexistent".
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/extra/locale/Makefile.in b/extra/locale/Makefile.in
 index d8023eb..bfe6d54 100644

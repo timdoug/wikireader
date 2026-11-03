@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] c33: add the Epson S1C33
+
+TARGET_c33 in the architecture configuration, and the flags every C33
+object is built with: the PE core, FDPIC and long calls.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/Rules.mak b/Rules.mak
 index 53ab39d..b41e11b 100644
 --- a/Rules.mak

@@ -1,5 +1,10 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ipc/shm: forward NOMMU mapping capabilities
+
 Forward backing-file mapping capabilities through the System V shm
 wrapper, so NOMMU shmat can use the direct ramfs-backed shared mapping.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/ipc/shm.c b/ipc/shm.c
 --- a/ipc/shm.c

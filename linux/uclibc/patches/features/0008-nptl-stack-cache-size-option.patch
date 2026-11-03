@@ -5,6 +5,8 @@ PTHREADS_STACK_CACHE_SIZE, beside PTHREADS_STACK_DEFAULT_SIZE: how much
 memory the stacks of exited threads may keep for reuse.  The default is
 the 16 MiB allocatestack.c had; a system with little memory sets it low.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/extra/Configs/Config.in b/extra/Configs/Config.in
 index 0d04dbf..ded7acb 100644
 --- a/extra/Configs/Config.in

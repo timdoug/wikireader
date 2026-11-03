@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] c33: FDPIC shared objects with initial-exec TLS in libc
+
+libc's shared objects are FDPIC, and its own thread-local variables use
+the initial-exec model, as libc is always loaded with the program.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 --- a/Rules.mak
 +++ b/Rules.mak
 @@ -436,6 +436,7 @@

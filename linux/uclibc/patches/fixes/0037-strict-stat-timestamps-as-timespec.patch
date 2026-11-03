@@ -1,4 +1,5 @@
-Give strict-standard struct stat the timestamps libc fills.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] stat: give strict-standard struct stat timespec timestamps
 
 Under -std=c99 or c11, with neither __USE_MISC nor __USE_XOPEN2K8,
 common-generic's struct stat and struct stat64 spelled the timestamps as
@@ -9,6 +10,8 @@ strictly compiled caller's structure: FreeType's FT_Stream_Open, built with
 -std=c99, failed its stack protector check.  The fields are now laid out
 as struct timespec is, __time_t and unsigned long int, as the common
 header and glibc spell them.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/sysdeps/linux/common-generic/bits/stat.h b/libc/sysdeps/linux/common-generic/bits/stat.h
 index 045c0f4..7406bc4 100644

@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] toolchain: the C33's FDPIC toolchain has libatomic
+
+BR2_TOOLCHAIN_HAS_LIBATOMIC is limited to ELF and ARM FLAT toolchains;
+the C33's FDPIC toolchain provides libatomic too.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/toolchain/Config.in b/toolchain/Config.in
 --- a/toolchain/Config.in
 +++ b/toolchain/Config.in

@@ -1,4 +1,5 @@
-Convert 32-bit kernel times in getitimer, getrusage, wait4 and adjtimex.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] time64: convert 32-bit kernel times in getitimer, getrusage, wait4 and adjtimex
 
 With __UCLIBC_USE_TIME64__, struct timeval has 64-bit fields, but the
 getitimer, getrusage and waitid system calls of a 32-bit kernel write
@@ -11,6 +12,8 @@ and setitimer uses them too.
 
 adjtimex used clock_adjtime only when the 32-bit clock_adjtime system
 call exists, so kernels with just clock_adjtime64 returned ENOSYS.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/include/internal/time64_helpers.h b/include/internal/time64_helpers.h
 index 40367a0..7528325 100644

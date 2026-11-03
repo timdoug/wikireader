@@ -1,8 +1,12 @@
-Leave out malloc_trim on uClibc-ng.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Leave out malloc_trim on uClibc-ng
 
 uClibc-ng defines __GLIBC__ for compatibility, but provides malloc_trim
 only with its malloc-standard allocator, and foot failed to build with
 the others.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/terminal.c
 +++ b/terminal.c

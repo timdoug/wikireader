@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drivers: build the S1C33 serial port and WikiReader touchscreen
+
+Kconfig and Makefile entries for the Epson S1C33's serial port and for
+the WikiReader's resistive touchscreen, which is attached to a UART and
+reports through the input layer by way of serdev.  The drivers' sources
+are in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig

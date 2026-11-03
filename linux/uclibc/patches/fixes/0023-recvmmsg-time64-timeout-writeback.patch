@@ -7,6 +7,8 @@ timeout after receiving messages. Preserve NULL and unchanged error
 outputs, and leave the legacy syscall path unchanged.  The conversions
 are __ts64_from_ts() and __ts_from_ts64() in internal/time64_helpers.h.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/include/internal/time64_helpers.h b/include/internal/time64_helpers.h
 index d09072b..40367a0 100644
 --- a/include/internal/time64_helpers.h

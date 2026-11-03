@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: hash table remainders through do_rem
+
+The hash tables took remainders with %, which on a target without a
+divide instruction is a library call.  Use do_rem, as the rest of ld.so
+does.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/ldso/include/inline-hashtab.h b/ldso/include/inline-hashtab.h
 index 80a0da7..3d193a1 100644
 --- a/ldso/include/inline-hashtab.h

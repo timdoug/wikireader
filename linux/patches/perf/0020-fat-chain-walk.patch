@@ -1,3 +1,15 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] fat: follow contiguous cluster chains through the FAT block in hand
+
+fat_get_cluster() followed a file's cluster chain an entry at a time,
+looking up the FAT block for each.  Where an entry holds the number of
+the cluster after it, follow the run on through the block already read
+(fat_ent_follow_contig()), and read ahead the FAT blocks a walk will
+need (fat_ent_readahead()).  A file written in one piece is mostly such
+runs.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/fs/fat/cache.c b/fs/fat/cache.c
 index 1b87354e24..3cb4ab804f 100644
 --- a/fs/fat/cache.c

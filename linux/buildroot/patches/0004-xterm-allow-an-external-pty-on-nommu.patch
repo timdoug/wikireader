@@ -1,5 +1,10 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] package/xterm: allow xterm's external PTY mode on NOMMU
+
 Allow xterm's externally supplied PTY mode on NOMMU. The wr-xterm package
 starts its command through posix_spawn and gives xterm the master via -S.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/package/xterm/Config.in b/package/xterm/Config.in
 --- a/package/xterm/Config.in

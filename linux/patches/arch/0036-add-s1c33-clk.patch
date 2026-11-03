@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] clk: build the S1C33 clock driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's clock generator
+and its gates under the common clock framework.  The driver's source is
+in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index f9592fd9ec..7e60594a34 100644
 --- a/drivers/clk/Kconfig

@@ -1,3 +1,15 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: rehash FDPIC descriptors by entry point
+
+The FDPIC descriptor table is searched by entry point, but a resize
+rehashed it by descriptor address, so after the first resize a lookup
+missed and a second descriptor was made for the same function, which
+then compared unequal to the first.  htab_find_slot() now takes a hash
+for keys and one for entries, which a resize uses; the TLS descriptor
+table passes the same one twice.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/ldso/include/inline-hashtab.h b/ldso/include/inline-hashtab.h
 index c6c584b..80a0da7 100644
 --- a/ldso/include/inline-hashtab.h

@@ -823,7 +823,8 @@ no C33 implementation.
 
 BusyBox 1.38.0 is an FDPIC program with an interactive `hush`, core file and
 text tools, checksums, archive/compression tools, filesystem inspection, and
-recovery utilities, and `hush` carries `busybox/patches/`. It is installed as
+recovery utilities, and `hush` carries
+`buildroot/external/patches/busybox/`. It is installed as
 `/init`, `/bin/busybox`, and a symlink for every applet. BusyBox init
 starts the consoles only once `rcS` ends, so `rcS` does almost nothing: on
 this MMU-less machine every exec, and every background job (the shell

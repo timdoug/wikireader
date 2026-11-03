@@ -1,7 +1,11 @@
-Build ffi_get_closure_size() for a target without closures.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Build ffi_get_closure_size() for a target without closures
 
 ffi_closure is declared only where FFI_CLOSURES is set, so types.c failed
 to compile for a port without them.  There it is 0.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/src/types.c
 +++ b/src/types.c

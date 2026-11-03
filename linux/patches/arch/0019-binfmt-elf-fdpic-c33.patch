@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] binfmt_elf_fdpic: allow the C33
+
+The C33 runs no-MMU Linux with FDPIC ELF, as m68k, RISC-V, SuperH and
+Xtensa can without an MMU.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/fs/Kconfig.binfmt b/fs/Kconfig.binfmt
 index 1949e25c77..af5428a824 100644
 --- a/fs/Kconfig.binfmt

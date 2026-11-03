@@ -7,6 +7,9 @@ The evdev pointer driver printed absolute axes and ignored BTN_TOUCH.  A
 report's position is now scaled from the axes' range to the screen and
 applied at its sync, and a touch is the first button, pressed after the
 pointer has moved to it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A kdrive was removed from the X server after 1.19
 ---
  hw/kdrive/linux/evdev.c | 65 +++++++++++++++++++++++++++++------------
  1 file changed, 46 insertions(+), 19 deletions(-)

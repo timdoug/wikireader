@@ -1,10 +1,13 @@
-Allow NOMMU regions which start at the same address.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: allow regions which start at the same address
 
 Direct character device mappings may overlap other regions; do_mmap()
 says so where it searches for shareable regions. A /dev/mem mapping at
 another region's start address, such as a page the process has already
 mapped, nevertheless hit BUG() in add_nommu_region() and panicked.
 Order regions with equal starts by their own addresses instead.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c
 --- a/mm/nommu.c

@@ -1,7 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Refuse the fork paths without an MMU
+
 On NOMMU the wr-xterm launcher supplies a PTY using xterm's -S option.
 The ordinary child-creation path and optional subprocess features cannot
 use fork; fail explicitly if one is requested rather than using vfork
 inside code which modifies the parent's address space and waits for it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 diff --git a/main.c b/main.c
 --- a/main.c

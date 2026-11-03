@@ -7,6 +7,9 @@ fbFillSpans walked every box of the clip for every span.  A shaped
 window's clip is a box or two a row, so filling a small shape inside one
 cost spans times rows; the bands are sorted by y, and bisection finds the
 span's own.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A kdrive was removed from the X server after 1.19
 ---
  fb/fbfillsp.c | 42 ++++++++++++++++++++++++++++--------------
  1 file changed, 28 insertions(+), 14 deletions(-)

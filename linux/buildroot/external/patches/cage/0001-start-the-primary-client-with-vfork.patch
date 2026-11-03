@@ -1,9 +1,13 @@
-Start the primary client with vfork.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Start the primary client with vfork
 
 The child only clears its signal mask, closes the pipe's read end and execs,
 so vfork does, and it is the only way to start a process on a machine
 without an MMU.  POSIX.1-2008 dropped vfork, so _DEFAULT_SOURCE asks for it
 beside _POSIX_C_SOURCE.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/cage.c
 +++ b/cage.c

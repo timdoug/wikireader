@@ -8,6 +8,8 @@ MEMLOCK/MEMLOCK_RANGE are advertised when realtime support is enabled.
 The MMU memory-protection capability stays withheld.  Off by default;
 other no-MMU configurations keep their behavior.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/extra/Configs/Config.in.arch b/extra/Configs/Config.in.arch
 index 0662b67..1f81111 100644
 --- a/extra/Configs/Config.in.arch

@@ -1,9 +1,12 @@
-Provide reallocarray with every malloc implementation.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] stdlib: provide reallocarray with every malloc
 
 reallocarray only checks M * N for overflow and calls realloc, which any
 of uClibc-ng's allocators provides, but it was built and declared only
 with malloc-standard: a no-MMU configuration, which uses malloc, lacked it,
 and foot failed to build.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/stdlib/malloc-standard/reallocarray.c b/libc/stdlib/reallocarray.c
 similarity index 100%

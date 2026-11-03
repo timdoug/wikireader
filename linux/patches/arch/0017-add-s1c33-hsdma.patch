@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] dmaengine: build the S1C33 HSDMA driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's high-speed DMA
+controller.  The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/dma/Kconfig b/drivers/dma/Kconfig
 index ae6a682c9..f08c48692 100644
 --- a/drivers/dma/Kconfig

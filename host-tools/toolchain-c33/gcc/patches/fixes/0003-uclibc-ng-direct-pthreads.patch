@@ -1,3 +1,14 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] libstdc++: call pthreads directly with uClibc-ng
+
+uClibc-ng builds pthreads into libc and leaves libpthread empty, and has
+no __pthread_key_create, which gthr-posix.h takes as the sign of a
+threaded program because uClibc claims to be glibc 2.2: every program
+was judged single-threaded.  Call pthreads directly, as with glibc 2.34
+and later, from uClibc-ng 1.0.59, the release this was checked against.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libstdc++-v3/config/os/uclibc/os_defines.h b/libstdc++-v3/config/os/uclibc/os_defines.h
 --- a/libstdc++-v3/config/os/uclibc/os_defines.h
 +++ b/libstdc++-v3/config/os/uclibc/os_defines.h

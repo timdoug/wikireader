@@ -15,6 +15,8 @@ stack into a contiguous block twice as large before the tail is trimmed.
 The maximum argument image and ELF segment count bound the image size; the
 untrusted PT_GNU_STACK size needs checked addition.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
 --- a/fs/binfmt_elf_fdpic.c
 +++ b/fs/binfmt_elf_fdpic.c

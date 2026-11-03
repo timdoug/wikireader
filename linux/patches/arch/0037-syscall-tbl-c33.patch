@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] scripts/syscall.tbl: add c33_set_tls
+
+The C33 has no thread-pointer register.  c33_set_tls stores a thread's
+TLS base in the fixed slot user space reads it from (asm/tls.h), as
+ARM's private set_tls call does; the C33 takes the generic numbers
+otherwise.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/scripts/syscall.tbl b/scripts/syscall.tbl
 index 0ab5316051..072ab62b37 100644
 --- a/scripts/syscall.tbl

@@ -6,6 +6,8 @@ syscall guard. On time64-only targets this silently chose gettimeofday,
 so monotonic deadlines were compared with realtime. Include the time64
 syscall in the outer guard and retain the existing conversion and fallback.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c b/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c
 --- a/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c
 +++ b/libpthread/nptl/sysdeps/pthread/pthread_cond_timedwait.c

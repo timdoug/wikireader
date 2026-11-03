@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] arch: add the Epson S1C33
+
+The S1C33 family's 32-bit little-endian core with no MMU or FPU, as
+found in the WikiReader, running FDPIC ELF.  GCC and binutils have no
+upstream port, so only an external toolchain.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/arch/Config.in b/arch/Config.in
 index 863a1eed..a31e63e6 100644
 --- a/arch/Config.in

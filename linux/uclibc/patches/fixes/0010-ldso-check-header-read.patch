@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: check the read of a library header
+
+The loader read a library's ELF header without checking the result: a
+read interrupted by a signal left the buffer uninitialized, and a short
+file was taken for a library.  Retry on EINTR and reject a read shorter
+than the header.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/ldso/ldso/dl-elf.c b/ldso/ldso/dl-elf.c
 --- a/ldso/ldso/dl-elf.c
 +++ b/ldso/ldso/dl-elf.c

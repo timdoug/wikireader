@@ -7,6 +7,9 @@ Each raw motion event redrew the eyes where the pointer was then, so a
 machine that draws more slowly than the pointer reports fell further
 behind for as long as the drag went on.  Raw motion queued behind the
 event being handled is dropped; drawing asks for the position anyway.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 ---
  Eyes.c | 15 ++++++++++++++-
  1 file changed, 14 insertions(+), 1 deletion(-)

@@ -1,9 +1,14 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/msync: iterate across NOMMU holes
+
 Use the common VMA iterator for msync on MMU and NOMMU kernels.
 NOMMU find_vma only returns a containing mapping, so a hole previously
 stopped synchronization before later shared files. Iterate across holes,
 retain ENOMEM for the range, and reset the cursor after dropping mmap_lock
 for file I/O. NOMMU MS_ASYNC must also visit later writable mappings for
 its timestamp updates; the MMU fast path remains unchanged.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/msync.c b/mm/msync.c
 --- a/mm/msync.c

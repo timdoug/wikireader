@@ -1,10 +1,13 @@
-Let pthread_atfork() succeed without an MMU.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: let pthread_atfork succeed without an MMU
 
 NPTL's no-MMU __register_atfork() returned EPERM, although POSIX allows
 pthread_atfork() to fail only for lack of memory. Without an MMU there is
 no fork(), so a registered handler could never run; accept and ignore it.
 Callers which treat registration as fatal fail otherwise: mq_notify()
 closes its netlink helper and reports SIGEV_THREAD as unsupported.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c b/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c
 --- a/libpthread/nptl/sysdeps/unix/sysv/linux/register-atfork.c

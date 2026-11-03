@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] package/x11r7/xlib_libXfont2: add a built-in fonts only option
+
+libXfont2's configure can leave out FreeType, font files and the font
+server, keeping only the fonts compiled into it, fixed and cursor.
+Offer that, for a server that has nothing else to show.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/package/x11r7/xlib_libXfont2/Config.in b/package/x11r7/xlib_libXfont2/Config.in
 index fc2ebfe2..6647f122 100644
 --- a/package/x11r7/xlib_libXfont2/Config.in

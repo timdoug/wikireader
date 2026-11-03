@@ -1,4 +1,5 @@
-Start heap searches at a finger.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] malloc: start heap searches at a finger
 
 The heap keeps its free-areas in a linked list in address order, and every
 free walked it from the start to find its place: a step a free-area, so
@@ -14,6 +15,8 @@ found the same way: the old search stopped at the first free-area starting
 below the block, so it found that area only when it was the heap's first.
 __heap_is_empty tested the address of the list head rather than the head,
 so free never kept the reserve it means to when unmapping empties the heap.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/stdlib/malloc/free.c b/libc/stdlib/malloc/free.c
 index 14d1101..ddb45d8 100644

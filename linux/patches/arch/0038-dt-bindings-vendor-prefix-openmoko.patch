@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] dt-bindings: vendor-prefixes: add openmoko
+
+Openmoko made the WikiReader, whose device tree and bindings use the
+prefix.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
 index ba20029693..ea00198a94 100644
 --- a/Documentation/devicetree/bindings/vendor-prefixes.yaml

@@ -1,8 +1,12 @@
-Map files privately.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Map files privately
 
 A read-only mapping reads the same whether it is shared or private, but
 without an MMU most filesystems can only give a private one, a copy:
 shared, every keymap and rules file failed with ENODEV.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/src/utils.c
 +++ b/src/utils.c

@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] irqchip: build the S1C33 interrupt controller driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's interrupt
+controller.  The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
 index a61c6dc63..8615f6b93 100644
 --- a/drivers/irqchip/Kconfig

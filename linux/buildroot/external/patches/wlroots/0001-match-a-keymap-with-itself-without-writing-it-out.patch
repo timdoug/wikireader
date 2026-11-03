@@ -1,9 +1,13 @@
-Match a keymap with itself without writing it out.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Match a keymap with itself without writing it out
 
 wlr_keyboard_keymaps_match() compares keymaps as text, writing out both,
 and keyboards joining a group are compared with it, though a compositor
 usually gives all its keyboards one keymap.  On a slow machine writing a
 keymap takes seconds.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/types/wlr_keyboard.c
 +++ b/types/wlr_keyboard.c

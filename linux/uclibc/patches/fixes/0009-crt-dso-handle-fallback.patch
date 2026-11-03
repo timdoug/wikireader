@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] librt: make its __dso_handle weak
+
+librt defines a hidden __dso_handle of its own.  In a static link
+crtbegin.o defines one too, and the two collided.  Make librt's weak.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/librt/dso_handle.c b/librt/dso_handle.c
 --- a/librt/dso_handle.c
 +++ b/librt/dso_handle.c

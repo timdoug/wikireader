@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] fdpic: take _start's address without a data load
+
+_start was declared as a void *, so taking its address went through a
+data load on FDPIC targets.  Declare it as an array, whose address is
+the symbol's.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 --- a/ldso/ldso/ldso.c
 +++ b/ldso/ldso/ldso.c
 @@ -112,8 +112,8 @@

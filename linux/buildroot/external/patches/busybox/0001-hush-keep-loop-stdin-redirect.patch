@@ -1,3 +1,16 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] hush: keep a loop's stdin redirect
+
+In a shell reading its commands from stdin, as an interactive one does,
+`while read r; do :; done <FILE` read FILE's first line and then the
+shell's input: the shell's own stdin, moved off fd 0 by the redirect,
+was put back by the first read's restore, which had no squirrel of its
+own.  Note the move in the redirect's squirrel, so that only its restore
+puts it back.  hush-redir/redir_loop_stdin tests it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
+
 diff --git a/shell/hush.c b/shell/hush.c
 index dcc6b22..0404cf6 100644
 --- a/shell/hush.c
@@ -61,3 +74,27 @@ index dcc6b22..0404cf6 100644
  	 && G.HFILE_stdin->fd > STDIN_FILENO
  	/* we compare > STDIN, not == STDIN, since hfgetc()
  	 * closes fd and sets ->fd to -1 if EOF is reached.
+diff --git a/shell/hush_test/hush-redir/redir_loop_stdin.right b/shell/hush_test/hush-redir/redir_loop_stdin.right
+new file mode 100644
+index 0000000..43eaba0
+--- /dev/null
++++ b/shell/hush_test/hush-redir/redir_loop_stdin.right
+@@ -0,0 +1,4 @@
++line 1
++line 2
++line 3
++done
+diff --git a/shell/hush_test/hush-redir/redir_loop_stdin.tests b/shell/hush_test/hush-redir/redir_loop_stdin.tests
+new file mode 100755
+index 0000000..fb066f3
+--- /dev/null
++++ b/shell/hush_test/hush-redir/redir_loop_stdin.tests
+@@ -0,0 +1,8 @@
++# A loop reading a redirected file, in a shell reading its commands from
++# stdin: every read takes a line of the file, not of the shell input.
++printf "%s\n" 1 2 3 >redir_loop_stdin.tmp
++$THIS_SH <<"SCRIPT"
++while read r; do echo "line $r"; done <redir_loop_stdin.tmp
++echo done
++SCRIPT
++rm redir_loop_stdin.tmp

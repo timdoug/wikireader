@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] c33: ptrace requests for the thread area
+
+PTRACE_GET_THREAD_AREA and PTRACE_SET_THREAD_AREA (25 and 26) read and
+write a stopped task's TLS base, as the C33 kernel provides them.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libc/sysdeps/linux/common/sys/ptrace.h b/libc/sysdeps/linux/common/sys/ptrace.h
 --- a/libc/sysdeps/linux/common/sys/ptrace.h
 +++ b/libc/sysdeps/linux/common/sys/ptrace.h

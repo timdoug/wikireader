@@ -1,7 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] /dev/zero: use the read iterator for ordinary reads
+
 Use the existing /dev/zero read iterator for ordinary reads as well as
 kernel reads. kernel_read rejects files that supply both read and read_iter;
 NOMMU's copy-backed private mmap uses kernel_read to initialize its buffer.
 The iterator already handles zero filling, partial faults and signals.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/drivers/char/mem.c b/drivers/char/mem.c
 --- a/drivers/char/mem.c

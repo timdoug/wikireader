@@ -6,6 +6,8 @@ mappings, as the C33's does, gets the out-of-line cancellation-point
 wrapper instead of the generic inline no-op.  Off by default; other
 no-MMU configurations keep their behavior.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/extra/Configs/Config.in.arch b/extra/Configs/Config.in.arch
 index a5fd190..0662b67 100644
 --- a/extra/Configs/Config.in.arch

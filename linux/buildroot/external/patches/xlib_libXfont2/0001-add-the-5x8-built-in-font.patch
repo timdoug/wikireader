@@ -1,6 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Add the 5x8 built-in font
+
 Add the public-domain X.Org 5x8 Latin-1 font alongside fixed and cursor.
 The WikiReader can fit its shell commands, kernel version and CPU details
 beside xeyes without adding font-file readers or FreeType.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A a built-in font for the WikiReader
 
 diff --git a/src/builtins/fonts.c b/src/builtins/fonts.c
 --- a/src/builtins/fonts.c

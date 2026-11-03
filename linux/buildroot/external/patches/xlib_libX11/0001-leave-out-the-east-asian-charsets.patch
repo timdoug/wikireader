@@ -5,6 +5,9 @@ Subject: [PATCH] Leave out the East Asian charsets
 
 Their conversion tables were 410 KB of every statically linked X
 program, on a server with no fonts that could show them.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A the WikiReader shows no East Asian text
 ---
  src/xlibi18n/lcUTF8.c | 43 +++++--------------------------------------
  1 file changed, 5 insertions(+), 38 deletions(-)

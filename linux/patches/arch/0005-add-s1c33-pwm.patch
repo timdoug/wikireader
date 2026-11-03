@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] pwm: build the S1C33 PWM driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's timer PWM outputs.
+The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
 index c2fd3f4b6..372679ebf 100644
 --- a/drivers/pwm/Kconfig

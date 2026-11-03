@@ -1,6 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: unmapping an unmapped range succeeds
+
 Unmapping an already unmapped range is a successful no-op, including on
 NOMMU. Keep rejecting unsupported partial file mappings, and reject address
 wraparound before looking for overlapping VMAs.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c
 --- a/mm/nommu.c

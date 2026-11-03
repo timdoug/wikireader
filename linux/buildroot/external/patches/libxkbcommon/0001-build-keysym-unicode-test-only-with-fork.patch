@@ -1,7 +1,11 @@
-Build the keysym-unicode test only where there is fork().
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Build the keysym-unicode test only where there is fork()
 
 The test splits its work among processes with fork(), which uClibc on a
 system without an MMU does not have, and failed to compile there.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 
 --- a/meson.build
 +++ b/meson.build

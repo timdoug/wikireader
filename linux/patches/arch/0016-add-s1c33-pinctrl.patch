@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] pinctrl: build the S1C33 pin controller driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's port function and
+GPIO registers.  The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/pinctrl/Kconfig b/drivers/pinctrl/Kconfig
 index bf73bc709..2ad2913ad 100644
 --- a/drivers/pinctrl/Kconfig

@@ -1,4 +1,5 @@
-Add the Epson S1C33.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Add the Epson S1C33
 
 Calls, ffi_call, for every type, variadic calls included, as the C33 port
 of GCC makes them: arguments in %r6-%r9 (an 8-byte one may run on into
@@ -9,6 +10,9 @@ and a __builtin_apply descriptor in %r5, results in %r4:%r5 or to memory
 through a hidden first argument.  Under FDPIC the call takes the
 function descriptor's data pointer, as GCC's own indirect calls do.
 No closures yet.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A the C33 has no upstream GCC port
 
 --- a/Makefile.am
 +++ b/Makefile.am

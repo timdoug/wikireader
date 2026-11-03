@@ -1,10 +1,13 @@
-Make memalign's blocks big enough to free.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] malloc: make memalign's blocks big enough to free
 
 A freed block may become a free-area of its own, whose descriptor is
 written in its last bytes, so malloc and realloc never make a block
 smaller than a descriptor.  memalign could: memalign(8, 1) on a 32-bit
 machine made a block of 8 bytes, the 4-byte header and 4 more, and freeing
 it wrote the 12-byte descriptor over the last 4 bytes of the block before.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 --- a/libc/stdlib/malloc/memalign.c
 +++ b/libc/stdlib/malloc/memalign.c

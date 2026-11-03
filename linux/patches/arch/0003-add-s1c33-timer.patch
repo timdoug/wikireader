@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] clocksource: build the S1C33 timer driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's timers as clock
+source and clock event device.  The driver's source is in the port's
+overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
 index d9c76dd44..e61f1dd92 100644
 --- a/drivers/clocksource/Kconfig

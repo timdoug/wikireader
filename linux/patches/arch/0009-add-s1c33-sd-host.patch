@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mmc: host: build the S1C33 SD host driver
+
+Kconfig and Makefile entries for the SD card host on the Epson
+S1C33E07's SPI controller and high-speed DMA.  The driver's source is in
+the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
 index c94ae4794..554fbc5bf 100644
 --- a/drivers/mmc/host/Kconfig

@@ -1,8 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm: build msync for NOMMU kernels
+
 Build msync for NOMMU as well as MMU kernels. Validate ranges and flags and
 sync shared file data through the existing implementation. Since NOMMU has
 no write faults, conservatively update writable shared mapping timestamps
 on explicit MS_SYNC/MS_ASYNC; private and read-only mappings do not do so.
 Also reject length-rounding overflow before it can become a zero-length sync.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/Makefile b/mm/Makefile
 --- a/mm/Makefile

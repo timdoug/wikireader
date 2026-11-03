@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: build NPTL for the C33 without an MMU
+
+NPTL needs an MMU except on ARM and Xtensa, whose no-MMU kernels give it
+what it uses; the C33's does too.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 --- a/extra/Configs/Config.in
 +++ b/extra/Configs/Config.in
 @@ -631,7 +631,7 @@

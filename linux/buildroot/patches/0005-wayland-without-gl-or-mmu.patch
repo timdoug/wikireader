@@ -1,4 +1,5 @@
-Build wlroots, cage, foot and seatd for a no-MMU uClibc device.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] package/wlroots, cage, foot, seatd: build without GL or an MMU
 
 wlroots renders with pixman and allocates DRM dumb buffers whatever else
 it has, so EGL, OpenGL ES and GBM are used when present rather than
@@ -10,6 +11,8 @@ threads, which uClibc-ng can provide: BR2_TOOLCHAIN_HAS_C11_THREADS says
 so, set for glibc and musl and by a question for external uClibc ones.
 cage builds the layer shell's protocol header with wayland-scanner, for
 the external tree's layer shell patch.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 --- a/package/wlroots/Config.in
 +++ b/package/wlroots/Config.in

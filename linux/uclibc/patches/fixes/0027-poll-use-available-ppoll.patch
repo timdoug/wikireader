@@ -1,4 +1,5 @@
-Use an available ppoll syscall before falling back to select emulation.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] poll: use an available ppoll syscall
 
 C33 has ppoll_time64 but no legacy poll syscall. The select emulation
 loses POLLHUP/POLLERR events and imposes fd_set bookkeeping on a poll
@@ -6,6 +7,8 @@ interface. Convert the millisecond timeout to the kernel timespec layout
 and invoke ppoll directly, retaining poll's cancellation wrapper. All
 negative poll timeouts mean an infinite wait. Targets with a legacy poll
 syscall, or without a usable ppoll syscall, retain their existing paths.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/sysdeps/linux/common/poll.c b/libc/sysdeps/linux/common/poll.c
 --- a/libc/sysdeps/linux/common/poll.c

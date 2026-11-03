@@ -5,6 +5,8 @@ Support time64-only syscall targets when probing monotonic clocks.
 Also query process and thread CPU clocks when their support must be
 determined at runtime instead of reporting absence without a probe.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libc/unistd/sysconf.c b/libc/unistd/sysconf.c
 index d04705a..c8608b1 100644
 --- a/libc/unistd/sysconf.c

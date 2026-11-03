@@ -1,4 +1,5 @@
-Track NOMMU memory-locking contracts on selected flat-RAM targets.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: track memory-locking contracts
 
 RAM is already resident, but mlock still requires range validation,
 per-process state, limits, future-map enforcement and MS_INVALIDATE
@@ -11,6 +12,8 @@ without dropping another process's reference on late failures.
 Resize the VMA lookup tree, file interval tree and total_vm alongside
 NOMMU mremap. Preallocate the one tree update before charging locks, so
 failure preserves both the old mapping and its accounting.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/fs/proc/task_nommu.c b/fs/proc/task_nommu.c
 --- a/fs/proc/task_nommu.c

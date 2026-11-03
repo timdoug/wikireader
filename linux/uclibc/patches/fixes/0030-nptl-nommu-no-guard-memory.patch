@@ -1,4 +1,5 @@
-Do not reserve unprotected NPTL guard areas without an MMU.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: no guard area without an MMU
 
 NPTL carved a thread's guard area out of the requested stack size, even
 without an MMU to protect it. Every thread lost a page of stack, and a
@@ -6,6 +7,8 @@ guard as large as the stack failed pthread_create() with EINVAL. A
 mq_notify() SIGEV_THREAD request with such attributes silently lost its
 notification. Allocate no guard memory without an MMU; pthread_getattr_np()
 still reports the requested guard size, as it already does for rounding.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libpthread/nptl/allocatestack.c b/libpthread/nptl/allocatestack.c
 --- a/libpthread/nptl/allocatestack.c

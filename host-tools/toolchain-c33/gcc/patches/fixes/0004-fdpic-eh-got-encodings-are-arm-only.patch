@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] libgcc, libstdc++: FDPIC's GOT-relative EH encodings are ARM's
+
+The __FDPIC__ paths in unwind-pe.h and the personality routine apply
+ARM's GOT-relative encoding and call _Unwind_gnu_Find_got, which only
+ARM defines, so other FDPIC targets failed to link.  Limit them to ARM;
+the other FDPIC targets use the encodings their tables give.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libgcc/unwind-pe.h b/libgcc/unwind-pe.h
 --- a/libgcc/unwind-pe.h
 +++ b/libgcc/unwind-pe.h

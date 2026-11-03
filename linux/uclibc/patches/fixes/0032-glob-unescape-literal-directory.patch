@@ -1,9 +1,12 @@
-Unescape a literal glob directory before opening it.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] glob: unescape a literal directory before opening it
 
 When a pattern's directory part has no metacharacters, glob() opened it
 as a path with its backslash escapes still in place. Hush quotes '-' in
 expansions as "\-", so `for f in "$dir"/*` found nothing whenever $dir
 contained a dash. Remove the escapes first, as glibc's glob() does.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/misc/glob/glob.c b/libc/misc/glob/glob.c
 --- a/libc/misc/glob/glob.c

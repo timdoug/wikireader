@@ -1,7 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] c33: asm-generic IPC layouts and IPC stat time conversion
+
 C33 uses the asm-generic IPC layouts: time64 already supplies both
 32-bit timestamp words. Avoid extra legacy padding in shm and sem.
 Only translate timestamps after successful stat commands, never into
 IPC_INFO buffers or semctl integer arguments; read varargs only when needed.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/libc/sysdeps/linux/common/bits/shm.h b/libc/sysdeps/linux/common/bits/shm.h
 --- a/libc/sysdeps/linux/common/bits/shm.h

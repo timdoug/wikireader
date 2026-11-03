@@ -1,3 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] iio: adc: build the S1C33 ADC driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's A/D converter.
+The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/iio/adc/Kconfig b/drivers/iio/adc/Kconfig
 index c6d3cf68b..ef530c57d 100644
 --- a/drivers/iio/adc/Kconfig

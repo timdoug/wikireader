@@ -1,9 +1,12 @@
-Add ISO C11 threads, <threads.h>, over POSIX threads.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] nptl: add ISO C11 threads over POSIX threads
 
 uClibc-ng had no C11 threads, which foot and fcft (and other current
 programs) use.  thrd_*, mtx_*, cnd_*, tss_* and call_once are thin
 wrappers in libpthread, as glibc's were before 2.34; thrd_create passes
 the int-returning start function through a trampoline.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/include/threads.h b/include/threads.h
 new file mode 100644

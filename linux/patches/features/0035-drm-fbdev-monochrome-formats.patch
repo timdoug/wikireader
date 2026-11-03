@@ -1,4 +1,5 @@
-Let fbdev emulation use the one-bit monochrome formats.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/fb-helper: let fbdev emulation use the one-bit monochrome formats
 
 DRM has D1 and R1, a bit a pixel dark or bright where set, but fbdev
 emulation knew only the indexed C1: a driver offering D1 got no fbdev.
@@ -8,6 +9,8 @@ again from bpp and depth, and the result is described as fbdev's MONO01
 or MONO10 with a bit of each color.  On a little-endian machine the
 pixel order is marked reversed in the byte, since these formats put the
 leftmost pixel in the high bit.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/drivers/gpu/drm/drm_fb_helper.c b/drivers/gpu/drm/drm_fb_helper.c
 index 0817b639b3..9af190afa9 100644

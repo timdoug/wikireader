@@ -1,3 +1,12 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] analyzer: model a direct global errno
+
+Some embedded C libraries expose errno as a direct global rather than
+through an accessor function.  Use the analyzer's errno region for both,
+so that known functions which set errno update later reads.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/gcc/analyzer/region-model-manager.h b/gcc/analyzer/region-model-manager.h
 --- a/gcc/analyzer/region-model-manager.h
 +++ b/gcc/analyzer/region-model-manager.h

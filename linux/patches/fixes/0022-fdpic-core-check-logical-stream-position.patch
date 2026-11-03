@@ -6,6 +6,8 @@ always triggers the final size warning. The coredump helpers already
 track the stream position independently of the output file. Include
 any pending skip, which is also part of the logical position.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
 --- a/fs/binfmt_elf_fdpic.c
 +++ b/fs/binfmt_elf_fdpic.c

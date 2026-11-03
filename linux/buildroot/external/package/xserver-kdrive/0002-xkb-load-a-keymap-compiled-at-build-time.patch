@@ -6,6 +6,9 @@ Subject: [PATCH 2/4] xkb: load a keymap compiled at build time
 With XKB_COMPILED_KEYMAP defined, a device's keymap is read from that
 .xkm file rather than compiled by running xkbcomp, which needs fork and
 the rules and component files on the target.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A kdrive was removed from the X server after 1.19
 ---
  xkb/ddxLoad.c | 22 ++++++++++++++++++++++
  1 file changed, 22 insertions(+)

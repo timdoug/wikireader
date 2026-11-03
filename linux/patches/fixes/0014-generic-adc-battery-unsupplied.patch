@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] power: supply: generic-adc-battery: an unsupplied battery is discharging
+
+power_supply_am_i_supplied() returns -ENODEV when nothing supplies the
+battery, which the status took for supplied, so a device running on its
+battery reported it charging.  Take anything but a positive answer as
+discharging.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/power/supply/generic-adc-battery.c b/drivers/power/supply/generic-adc-battery.c
 index f5f2566b3..8ea710ed0 100644
 --- a/drivers/power/supply/generic-adc-battery.c

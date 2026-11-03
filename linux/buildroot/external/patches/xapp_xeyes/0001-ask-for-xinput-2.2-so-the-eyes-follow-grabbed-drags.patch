@@ -7,6 +7,9 @@ A 2.0 client receives raw motion only while no other client holds the
 pointer grabbed, so the eyes froze for the whole of a drag that began on
 the window manager's frame or root window.  From 2.1 raw events are
 delivered regardless of grabs.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
 ---
  Eyes.c | 4 +++-
  1 file changed, 3 insertions(+), 1 deletion(-)

@@ -7,6 +7,8 @@ without an MMU. The kernel validates ordinary hints against resident VMAs.
 For no-MMU DONTNEED, use NORMAL to validate without discarding contents;
 the existing MMU behavior remains unchanged.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libc/sysdeps/linux/common/bits/mman-linux.h b/libc/sysdeps/linux/common/bits/mman-linux.h
 --- a/libc/sysdeps/linux/common/bits/mman-linux.h
 +++ b/libc/sysdeps/linux/common/bits/mman-linux.h

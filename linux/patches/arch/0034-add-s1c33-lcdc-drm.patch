@@ -1,8 +1,11 @@
-Add a DRM driver for the Epson S1C33 LCD controller.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/tiny: build the S1C33 LCD controller driver
 
 The WikiReader's 240x208 one-bit panel as a tiny DRM device: D1 framebuffers,
 the panel's own format, are scanned where they are; XRGB8888 and RGB565 ones
 are converted to it where damaged.  The driver itself is in the overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/drivers/gpu/drm/tiny/Kconfig b/drivers/gpu/drm/tiny/Kconfig
 index f0e72d4b6a..b42a1bd46d 100644

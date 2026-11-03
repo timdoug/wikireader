@@ -1,3 +1,13 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] diagnostics: let nested ICEs finish their diagnostic
+
+When not checking, an ICE after an earlier error becomes a fatal error.
+A deliberately nested ICE, reported within another diagnostic's group,
+must still finish, so that every output sink can complete the
+surrounding diagnostic; convert only top-level ones.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/gcc/diagnostics/context.cc b/gcc/diagnostics/context.cc
 --- a/gcc/diagnostics/context.cc
 +++ b/gcc/diagnostics/context.cc

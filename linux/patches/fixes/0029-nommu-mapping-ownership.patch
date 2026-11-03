@@ -1,4 +1,5 @@
-Preserve NOMMU mapping ownership when mmap reuses physical addresses.
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: preserve mapping ownership when mmap reuses an address
 
 A Maple Tree slot holds one VMA. Repeated exact mappings previously
 replaced an existing VMA and lost its ownership record, leaking file,
@@ -12,6 +13,8 @@ clipping existing VMA records. Expose the max_map_count sysctl on NOMMU,
 matching the MMU control; upstream already enforces it on new mappings. Update
 total_vm on unmap and include retained alias metadata in proc accounting.
 /proc/PID/maps continues to show each physical address range once.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/fs/proc/task_nommu.c b/fs/proc/task_nommu.c
 --- a/fs/proc/task_nommu.c

@@ -1,6 +1,11 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: validate non-destructive memory advice
+
 Validate non-destructive memory advice for eagerly populated NOMMU mappings.
 Accept ordinary access-pattern hints without changing memory contents; reject
 unmapped ranges, overflow and unsupported operations such as MADV_DONTNEED.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c
 --- a/mm/nommu.c

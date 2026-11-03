@@ -1,3 +1,15 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] vt: register a VT's device when it is allocated
+
+The console driver registered all MAX_NR_CONSOLES devices at boot, and
+registering a device costs milliseconds on a slow machine.  Register a
+VT's device when the VT is allocated; vty_init() registers those
+allocated before the driver.  One character device covers every VT
+(TTY_DRIVER_DYNAMIC_ALLOC), so a VT opens by its number before its
+device exists, and VT_OPENQRY allocates the console it reports.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/drivers/tty/vt/vt.c b/drivers/tty/vt/vt.c
 index 8f467b22b7..905eb2ea8d 100644
 --- a/drivers/tty/vt/vt.c

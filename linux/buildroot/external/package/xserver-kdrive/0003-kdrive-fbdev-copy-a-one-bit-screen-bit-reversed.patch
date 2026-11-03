@@ -7,6 +7,9 @@ Linux keeps the leftmost pixel in a byte's most significant bit in a
 framebuffer of fewer than eight bits a pixel; X on a little-endian
 machine keeps it in the least.  Such a screen is drawn in a shadow and
 copied a byte at a time through a reversal table.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: N/A kdrive was removed from the X server after 1.19
 ---
  hw/kdrive/fbdev/fbdev.c | 73 +++++++++++++++++++++++++++++++++++++++--
  1 file changed, 71 insertions(+), 2 deletions(-)

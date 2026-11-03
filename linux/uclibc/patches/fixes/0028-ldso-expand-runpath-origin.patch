@@ -6,6 +6,8 @@ so entries beginning with $ORIGIN were skipped. Supply the module's file
 name, as the RPATH search already does. Test from a different directory
 with LD_LIBRARY_PATH unset so a current-directory lookup cannot hide it.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 --- a/ldso/ldso/dl-elf.c
 +++ b/ldso/ldso/dl-elf.c
 @@ -269,7 +269,8 @@

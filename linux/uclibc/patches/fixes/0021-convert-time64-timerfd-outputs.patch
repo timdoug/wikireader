@@ -8,6 +8,8 @@ the optional old-value output and aliased input/output of timerfd_settime.
 Keep the non-time64 syscall path unchanged.  The conversion is
 __its_from_its64(), added with the nptl timer fix.
 
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
 diff --git a/libc/sysdeps/linux/common/timerfd.c b/libc/sysdeps/linux/common/timerfd.c
 index b4a9e1a..482e4a4 100644
 --- a/libc/sysdeps/linux/common/timerfd.c
