@@ -972,7 +972,7 @@ box: a shaped window such as xeyes' has a box or two a row, and the walk
 was most of the cost of filling its pupils. libX11 is built without its East Asian
 multi-byte charsets (`buildroot/external/patches/xlib_libX11`), whose tables
 were 410 KB of every X program, and libXfont2 with only its built-in fonts
-(`buildroot/patches/0004`: no FreeType or font-file readers, 575 KB of the
+(`buildroot/patches/0003`: no FreeType or font-file readers, 575 KB of the
 server). Before adding xterm, 3.97 MB of text was mapped: Xfbdev 1.27 MB, twm 143 KB,
 xeyes 30 KB, and 21 shared libraries, each loaded whole (libX11 696 KB, libc
 489 KB, pixman 384 KB, libXt 305 KB). The static programs these replaced
@@ -999,7 +999,7 @@ libseat's `noop` backend; libinput finds the devices with libudev-zero,
 there being no udev daemon. wlroots composites into `XRGB8888` dumb buffers,
 which the DRM driver converts to the panel where damaged.
 
-`buildroot/patches/0006` lets wlroots build without EGL and GBM (it
+`buildroot/patches/0005` lets wlroots build without EGL and GBM (it
 allocates DRM dumb buffers and renders with pixman whatever else it has),
 lets seatd and libseat build without an MMU, and gives Buildroot
 `BR2_TOOLCHAIN_HAS_C11_THREADS`, which fcft and foot need and the external
