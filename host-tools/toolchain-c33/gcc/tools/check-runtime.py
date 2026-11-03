@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Reject private unwinders in the installed dynamic C33 runtime."""
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 prefix = Path(sys.argv[1])
-target = "c33-linux-uclibc"
+target = os.environ.get("C33_TARGET", "c33-linux-uclibc")
 def run(tool, *args):
     return subprocess.check_output([str(prefix / "bin" / (target + "-" + tool)),
                                     *map(str, args)], text=True)

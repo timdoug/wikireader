@@ -1,0 +1,23 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] pthread: let an arch set the default guard size
+
+Without an MMU nothing protects a guard area, which is only memory taken
+from every thread's mapping.  Let pthread_arch.h define
+DEFAULT_GUARD_SIZE.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/internal/pthread_impl.h b/src/internal/pthread_impl.h
+index de2b9d8..8c43bc2 100644
+--- a/src/internal/pthread_impl.h
++++ b/src/internal/pthread_impl.h
+@@ -195,7 +195,9 @@ extern hidden unsigned __default_stacksize;
+ extern hidden unsigned __default_guardsize;
+ 
+ #define DEFAULT_STACK_SIZE 131072
++#ifndef DEFAULT_GUARD_SIZE
+ #define DEFAULT_GUARD_SIZE 8192
++#endif
+ 
+ #define DEFAULT_STACK_MAX (8<<20)
+ #define DEFAULT_GUARD_MAX (1<<20)

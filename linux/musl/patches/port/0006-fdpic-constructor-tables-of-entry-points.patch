@@ -1,0 +1,113 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] FDPIC: constructor tables of entry points
+
+On C33 FDPIC, as on ARM's, .init_array and .fini_array hold entry
+points, called with the module's %r15, not descriptors.  With
+FDPIC_CTOR_ENTRY_POINTS, ld.so calls them through a descriptor made
+with the module's GOT, and the static start and exit code with the
+program's own, FDPIC_SELF_GOT().
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 715948f..a59847c 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -1485,7 +1542,12 @@ void __libc_exit_fini()
+ 		if (dyn[0] & (1<<DT_FINI_ARRAY)) {
+ 			size_t n = dyn[DT_FINI_ARRAYSZ]/sizeof(size_t);
+ 			size_t *fn = (size_t *)laddr(p, dyn[DT_FINI_ARRAY])+n;
++#if FDPIC_CTOR_ENTRY_POINTS
++			while (n--) fdbarrier(&(struct funcdesc){
++				(void *)*--fn, p->got })();
++#else
+ 			while (n--) ((void (*)(void))*--fn)();
++#endif
+ 		}
+ #ifndef NO_LEGACY_INITFINI
+ 		if ((dyn[0] & (1<<DT_FINI)) && dyn[DT_FINI])
+@@ -1603,7 +1665,12 @@ static void do_init_fini(struct dso **queue)
+ 		if (dyn[0] & (1<<DT_INIT_ARRAY)) {
+ 			size_t n = dyn[DT_INIT_ARRAYSZ]/sizeof(size_t);
+ 			size_t *fn = laddr(p, dyn[DT_INIT_ARRAY]);
++#if FDPIC_CTOR_ENTRY_POINTS
++			while (n--) fdbarrier(&(struct funcdesc){
++				(void *)*fn++, p->got })();
++#else
+ 			while (n--) ((void (*)(void))*fn++)();
++#endif
+ 		}
+ 
+ 		pthread_mutex_lock(&init_fini_lock);
+diff --git a/src/env/__libc_start_main.c b/src/env/__libc_start_main.c
+index c5b277b..057639d 100644
+--- a/src/env/__libc_start_main.c
++++ b/src/env/__libc_start_main.c
+@@ -6,6 +6,22 @@
+ #include "syscall.h"
+ #include "atomic.h"
+ #include "libc.h"
++#include "reloc.h"
++
++#ifdef FDPIC_CTOR_ENTRY_POINTS
++/* The tables hold entry points, called with the program's %r15 through a
++ * descriptor made here; the asm keeps the compiler from taking the call
++ * for one that cannot read it. */
++#define CALL_TABLE_ENTRY(a) do { \
++	struct { uintptr_t entry, got; } __fd = { \
++		*(uintptr_t *)(a), FDPIC_SELF_GOT() }; \
++	void (*__fn)(void); \
++	__asm__ ("" : "=r"(__fn) : "0"(&__fd) : "memory"); \
++	__fn(); \
++} while (0)
++#else
++#define CALL_TABLE_ENTRY(a) (*(void (**)(void))(a))()
++#endif
+ 
+ static void dummy(void) {}
+ weak_alias(dummy, _init);
+@@ -61,7 +77,7 @@ static void libc_start_init(void)
+ 	_init();
+ 	uintptr_t a = (uintptr_t)&__init_array_start;
+ 	for (; a<(uintptr_t)&__init_array_end; a+=sizeof(void(*)()))
+-		(*(void (**)(void))a)();
++		CALL_TABLE_ENTRY(a);
+ }
+ 
+ weak_alias(libc_start_init, __libc_start_init);
+diff --git a/src/exit/exit.c b/src/exit/exit.c
+index 17b33cc..44345f7 100644
+--- a/src/exit/exit.c
++++ b/src/exit/exit.c
+@@ -4,6 +4,22 @@
+ #include "pthread_impl.h"
+ #include "atomic.h"
+ #include "syscall.h"
++#include "reloc.h"
++
++#ifdef FDPIC_CTOR_ENTRY_POINTS
++/* The tables hold entry points, called with the program's %r15 through a
++ * descriptor made here; the asm keeps the compiler from taking the call
++ * for one that cannot read it. */
++#define CALL_TABLE_ENTRY(a) do { \
++	struct { uintptr_t entry, got; } __fd = { \
++		*(uintptr_t *)(a), FDPIC_SELF_GOT() }; \
++	void (*__fn)(void); \
++	__asm__ ("" : "=r"(__fn) : "0"(&__fd) : "memory"); \
++	__fn(); \
++} while (0)
++#else
++#define CALL_TABLE_ENTRY(a) (*(void (**)(void))(a))()
++#endif
+ 
+ static void dummy()
+ {
+@@ -21,7 +37,7 @@ static void libc_exit_fini(void)
+ {
+ 	uintptr_t a = (uintptr_t)&__fini_array_end;
+ 	for (; a>(uintptr_t)&__fini_array_start; a-=sizeof(void(*)()))
+-		(*(void (**)())(a-sizeof(void(*)())))();
++		CALL_TABLE_ENTRY(a-sizeof(void(*)()));
+ 	_fini();
+ }
+ 

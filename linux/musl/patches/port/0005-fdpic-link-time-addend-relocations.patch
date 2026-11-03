@@ -1,0 +1,170 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: FDPIC relocations with link-time addends
+
+The C33 FDPIC linker writes a module's own addresses as R_C33_RELATIVE
+and descriptors for its own functions as R_C33_FUNCDESC_VALUE without a
+symbol, both with the link-time address in the addend, which the load
+map translates; an address may be one past the end of its segment.
+With FDPIC_ADDEND_RELATIVE, _dlstart_c and do_relocs do so, and an arch
+may define IS_RELATIVE.  Words in .eh_frame, and data laid out by hand,
+may be at any byte, and are stored with memcpy where misaligned.
+
+fdbarrier gets a memory clobber: the call through the descriptor it
+returns is not a read of the descriptor as far as the compiler knows,
+and without the clobber nothing keeps the stores that build it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dlstart.c b/ldso/dlstart.c
+index 4aac42b..0485724 100644
+--- a/ldso/dlstart.c
++++ b/ldso/dlstart.c
+@@ -67,7 +67,42 @@ hidden void _dlstart_c(size_t *sp, size_t *dynv)
+ 	for (i=0; dynv[i]; i+=2) if (dynv[i]<DYN_CNT)
+ 		dyn[dynv[i]] = dynv[i+1];
+ 
+-#if DL_FDPIC
++#if DL_FDPIC && FDPIC_ADDEND_RELATIVE
++	/* Relative relocations hold the link-time address in the addend,
++	 * a word or, for R_FUNCDESC_VAL, a descriptor's entry point. Only
++	 * the addresses used here are translated: the rest of the dynamic
++	 * section holds sizes and counts as well. */
++	for (j=0; dyn[DT_RELA]-segs[j].p_vaddr >= segs[j].p_memsz; j++);
++	dyn[DT_RELA] += segs[j].addr - segs[j].p_vaddr;
++	for (j=0; dyn[DT_PLTGOT]-segs[j].p_vaddr >= segs[j].p_memsz; j++);
++	dyn[DT_PLTGOT] += segs[j].addr - segs[j].p_vaddr;
++	base = 0;
++
++	rel = (void *)dyn[DT_RELA];
++	rel_size = dyn[DT_RELASZ];
++	for (; rel_size; rel+=3, rel_size-=3*sizeof(size_t)) {
++		if (!IS_RELATIVE(rel[1], 0)) continue;
++		for (j=0; rel[0]-segs[j].p_vaddr >= segs[j].p_memsz; j++);
++		size_t *rel_addr = (void *)
++			(rel[0] + segs[j].addr - segs[j].p_vaddr);
++		/* An address may be one past the end of its segment. */
++		size_t val = rel[2];
++		for (j=0; val-segs[j].p_vaddr > segs[j].p_memsz; j++);
++		val += segs[j].addr - segs[j].p_vaddr;
++		if (R_TYPE(rel[1]) == REL_FUNCDESC_VAL) {
++			rel_addr[0] = val;
++			rel_addr[1] = dyn[DT_PLTGOT];
++		} else if ((size_t)rel_addr % sizeof(size_t)) {
++			/* .eh_frame holds addresses at any byte. Nothing
++			 * may be called yet, so not memcpy. */
++			unsigned char *b = (void *)rel_addr;
++			for (j=0; j<sizeof(size_t); j++, val>>=8)
++				b[__BYTE_ORDER==__LITTLE_ENDIAN ? j : sizeof(size_t)-1-j] = val;
++		} else {
++			*rel_addr = val;
++		}
++	}
++#elif DL_FDPIC
+ 	for (i=0; i<DYN_CNT; i++) {
+ 		if (i==DT_RELASZ || i==DT_RELSZ) continue;
+ 		if (!dyn[i]) continue;
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 715948f..a59847c 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -201,10 +201,22 @@ static void *laddr_pg(const struct dso *p, size_t v)
+ 	}
+ 	return (void *)(v - p->loadmap->segs[j].p_vaddr + p->loadmap->segs[j].addr);
+ }
++#if FDPIC_ADDEND_RELATIVE
++/* An address held in a module may be one past the end of its segment. */
++static void *laddr_held(const struct dso *p, size_t v)
++{
++	size_t j=0;
++	if (!p->loadmap) return p->base + v;
++	for (j=0; v-p->loadmap->segs[j].p_vaddr > p->loadmap->segs[j].p_memsz; j++);
++	return (void *)(v - p->loadmap->segs[j].p_vaddr + p->loadmap->segs[j].addr);
++}
++#endif
+ static void (*fdbarrier(void *p))()
+ {
+ 	void (*fd)();
+-	__asm__("" : "=r"(fd) : "0"(p));
++	/* The descriptor is read by the call, which the compiler does not
++	 * count as a read of the memory: the clobber keeps its stores. */
++	__asm__("" : "=r"(fd) : "0"(p) : "memory");
+ 	return fd;
+ }
+ #define fpaddr(p, v) fdbarrier((&(struct funcdesc){ \
+@@ -376,6 +388,15 @@ nomatch:
+ 	return (struct symdef){ 0 };
+ }
+ 
++#if FDPIC_ADDEND_RELATIVE
++/* .eh_frame, and data laid out by hand, hold addresses at any byte. */
++static void store_word(size_t *p, size_t v)
++{
++	if ((size_t)p % sizeof(size_t)) memcpy(p, &v, sizeof v);
++	else *p = v;
++}
++#endif
++
+ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stride)
+ {
+ 	unsigned char *base = dso->base;
+@@ -467,13 +488,21 @@ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stri
+ 		case REL_SYMBOLIC:
+ 		case REL_GOT:
+ 		case REL_PLT:
++#if FDPIC_ADDEND_RELATIVE
++			store_word(reloc_addr, sym_val + addend);
++#else
+ 			*reloc_addr = sym_val + addend;
++#endif
+ 			break;
+ 		case REL_USYMBOLIC:
+ 			memcpy(reloc_addr, &(size_t){sym_val + addend}, sizeof(size_t));
+ 			break;
+ 		case REL_RELATIVE:
++#if FDPIC_ADDEND_RELATIVE
++			store_word(reloc_addr, (size_t)laddr_held(dso, addend));
++#else
+ 			*reloc_addr = (size_t)base + addend;
++#endif
+ 			break;
+ 		case REL_SYM_OR_REL:
+ 			if (sym) *reloc_addr = sym_val + addend;
+@@ -487,10 +516,24 @@ static void do_relocs(struct dso *dso, size_t *rel, size_t rel_size, size_t stri
+ 				- (size_t)reloc_addr;
+ 			break;
+ 		case REL_FUNCDESC:
++#if FDPIC_ADDEND_RELATIVE
++			store_word(reloc_addr, def.sym ? (size_t)(def.dso->funcdescs
++				+ (def.sym - def.dso->syms)) : 0);
++#else
+ 			*reloc_addr = def.sym ? (size_t)(def.dso->funcdescs
+ 				+ (def.sym - def.dso->syms)) : 0;
++#endif
+ 			break;
+ 		case REL_FUNCDESC_VAL:
++#if FDPIC_ADDEND_RELATIVE
++			/* Without a symbol, a descriptor for a function of
++			 * the module's own, at the link-time address. */
++			if (!sym) {
++				*reloc_addr = (size_t)laddr(dso, addend);
++				reloc_addr[1] = (size_t)dso->got;
++				break;
++			}
++#endif
+ 			if ((sym->st_info&0xf) == STT_SECTION) *reloc_addr += sym_val;
+ 			else *reloc_addr = sym_val;
+ 			reloc_addr[1] = def.sym ? (size_t)def.dso->got : 0;
+diff --git a/src/internal/dynlink.h b/src/internal/dynlink.h
+index 40c743e..313a2be 100644
+--- a/src/internal/dynlink.h
++++ b/src/internal/dynlink.h
+@@ -77,7 +77,8 @@ struct fdpic_dummy_loadmap {
+ #define TLSDESC_BACKWARDS 0
+ #endif
+ 
+-#if !DL_FDPIC
++#ifdef IS_RELATIVE
++#elif !DL_FDPIC
+ #define IS_RELATIVE(x,s) ( \
+ 	(R_TYPE(x) == REL_RELATIVE) || \
+ 	(R_TYPE(x) == REL_SYM_OR_REL && !R_SYM(x)) )

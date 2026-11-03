@@ -1,0 +1,118 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] FDPIC: load maps in dl_phdr_info, and static TLS
+
+libgcc's unwinder for FRV, Blackfin and C33 FDPIC takes dlpi_addr to be
+a struct elf32_fdpic_loadaddr, {load map, GOT}, and translates addresses
+through it; an arch's bits/link.h may say so with __DLPI_ADDR_TYPE, and
+dl_iterate_phdr then reports each module's load map and GOT.
+
+A static program's segments go anywhere too, so its TLS image and its
+dl_iterate_phdr entry come from its load map, which the start code
+saves in FDPIC_EXEC_LOADMAP.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/include/link.h b/include/link.h
+index 8150185..573cd8a 100644
+--- a/include/link.h
++++ b/include/link.h
+@@ -19,7 +19,11 @@ extern "C" {
+ #include <bits/link.h>
+ 
+ struct dl_phdr_info {
++#ifdef __DLPI_ADDR_TYPE
++	__DLPI_ADDR_TYPE dlpi_addr;
++#else
+ 	ElfW(Addr) dlpi_addr;
++#endif
+ 	const char *dlpi_name;
+ 	const ElfW(Phdr) *dlpi_phdr;
+ 	ElfW(Half) dlpi_phnum;
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 715948f..a59847c 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -2398,7 +2465,12 @@ int dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size_t size, void
+ 	struct dl_phdr_info info;
+ 	int ret = 0;
+ 	for(current = head; current;) {
++#ifdef __DLPI_ADDR_TYPE
++		info.dlpi_addr.map  = (void *)current->loadmap;
++		info.dlpi_addr.got_value = current->got;
++#else
+ 		info.dlpi_addr      = (uintptr_t)current->base;
++#endif
+ 		info.dlpi_name      = current->name;
+ 		info.dlpi_phdr      = current->phdr;
+ 		info.dlpi_phnum     = current->phnum;
+diff --git a/src/env/__init_tls.c b/src/env/__init_tls.c
+index a93141e..a7a4437 100644
+--- a/src/env/__init_tls.c
++++ b/src/env/__init_tls.c
+@@ -8,6 +8,16 @@
+ #include "libc.h"
+ #include "atomic.h"
+ #include "syscall.h"
++#include "reloc.h"
++
++#ifdef FDPIC_EXEC_LOADMAP
++/* The program's load map, which its start code saved: its segments go
++ * anywhere. */
++extern weak hidden const struct {
++	unsigned short version, nsegs;
++	struct { uintptr_t addr, p_vaddr, p_memsz; } segs[];
++} *const FDPIC_EXEC_LOADMAP;
++#endif
+ 
+ volatile int __thread_list_lock;
+ 
+@@ -103,7 +113,15 @@ static void static_init_tls(size_t *aux)
+ 	}
+ 
+ 	if (tls_phdr) {
++#ifdef FDPIC_EXEC_LOADMAP
++		for (n=0; tls_phdr->p_vaddr - FDPIC_EXEC_LOADMAP->segs[n].p_vaddr
++		     >= FDPIC_EXEC_LOADMAP->segs[n].p_memsz; n++);
++		main_tls.image = (void *)(tls_phdr->p_vaddr
++			- FDPIC_EXEC_LOADMAP->segs[n].p_vaddr
++			+ FDPIC_EXEC_LOADMAP->segs[n].addr);
++#else
+ 		main_tls.image = (void *)(base + tls_phdr->p_vaddr);
++#endif
+ 		main_tls.len = tls_phdr->p_filesz;
+ 		main_tls.size = tls_phdr->p_memsz;
+ 		main_tls.align = tls_phdr->p_align;
+diff --git a/src/ldso/dl_iterate_phdr.c b/src/ldso/dl_iterate_phdr.c
+index 9546dd3..7bab61d 100644
+--- a/src/ldso/dl_iterate_phdr.c
++++ b/src/ldso/dl_iterate_phdr.c
+@@ -2,6 +2,16 @@
+ #include <link.h>
+ #include "pthread_impl.h"
+ #include "libc.h"
++#include "reloc.h"
++
++#ifdef FDPIC_EXEC_LOADMAP
++/* The program's load map, which its start code saved: its segments go
++ * anywhere. */
++extern weak hidden const struct {
++	unsigned short version, nsegs;
++	struct { uintptr_t addr, p_vaddr, p_memsz; } segs[];
++} *const FDPIC_EXEC_LOADMAP;
++#endif
+ 
+ #define AUX_CNT 38
+ 
+@@ -28,7 +38,12 @@ static int static_dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size
+ 		if (phdr->p_type == PT_TLS)
+ 			tls_phdr = phdr;
+ 	}
++#ifdef __DLPI_ADDR_TYPE
++	info.dlpi_addr.map = (void *)FDPIC_EXEC_LOADMAP;
++	info.dlpi_addr.got_value = (void *)FDPIC_SELF_GOT();
++#else
+ 	info.dlpi_addr  = base;
++#endif
+ 	info.dlpi_name  = "/proc/self/exe";
+ 	info.dlpi_phdr  = (void *)aux[AT_PHDR];
+ 	info.dlpi_phnum = aux[AT_PHNUM];

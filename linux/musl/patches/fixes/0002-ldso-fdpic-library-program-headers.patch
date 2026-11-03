@@ -1,0 +1,37 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ldso: record an FDPIC library's program headers
+
+map_library's FDPIC branch jumps to done_mapping before the loop that
+finds the program headers in a load segment, so every FDPIC library
+went to dl_iterate_phdr with none.  libgcc's unwinder finds a module's
+tables through them, and an exception thrown through any shared library
+ended in std::terminate.  Record them in that branch too, through the
+load map.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ldso/dynlink.c b/ldso/dynlink.c
+index 715948f..a59847c 100644
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -788,6 +831,20 @@ static void *map_library(int fd, struct dso *dso)
+ 				memset(map + brk, 0, pgbrk-brk);
+ 			}
+ 		}
++		/* Record where the program headers are, as below, for
++		 * dl_iterate_phdr: the unwinder finds a module's tables
++		 * through them. */
++		for (ph=ph0, i=eh->e_phnum; i; i--, ph=(void *)((char *)ph+eh->e_phentsize)) {
++			if (ph->p_type != PT_LOAD) continue;
++			if (eh->e_phoff >= ph->p_offset
++			    && eh->e_phoff+phsize <= ph->p_offset+ph->p_filesz) {
++				dso->phdr = laddr(dso, ph->p_vaddr
++					+ (eh->e_phoff-ph->p_offset));
++				dso->phnum = eh->e_phnum;
++				dso->phentsize = eh->e_phentsize;
++				break;
++			}
++		}
+ 		map = (void *)dso->loadmap->segs[0].addr;
+ 		map_len = 0;
+ 		goto done_mapping;

@@ -275,7 +275,11 @@ static void cancellation(void)
 	CHECK(pthread_cancel(thread) == 0);
 	void *result = nullptr;
 	CHECK(pthread_join(thread, &result) == 0 && result == PTHREAD_CANCELED);
+#ifdef __UCLIBC__
+	// uClibc-ng cancels by forced unwinding, which runs destructors; musl
+	// runs only the cleanup handlers, by design.
 	CHECK(cancel_destroyed == 1);
+#endif
 	sem_destroy(&cancel_ready);
 	sem_destroy(&cancel_block);
 }

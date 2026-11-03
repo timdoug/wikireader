@@ -1,5 +1,6 @@
 # component  repository                                      revision
 linux        https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git v7.3.1
 uclibc       https://github.com/wbx-github/uclibc-ng.git                  v1.0.59
+musl         https://git.musl-libc.org/git/musl                          v1.2.6
 buildroot    https://gitlab.com/buildroot.org/buildroot.git              2026.08.1
 

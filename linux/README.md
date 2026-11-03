@@ -556,6 +556,11 @@ Every program start sets a stack-protector guard from the clock
 default of reading `/dev/urandom` would make the first program at boot wait
 3.4 s for the kernel's random pool.
 
+musl is ported beside it, with its own compiler, `c33-linux-musl-`, on the
+same FDPIC ABI: `musl-toolchain`, `musl-libc` and `musl-test` build it and
+run the C library's regression programs against it, through Grifo
+(`musl/README.md`). The root image is still uClibc-ng's.
+
 The library includes NPTL and native ELF TLS on the NOMMU C33. Threads share
 one process ID and have separate kernel thread IDs, with `CLONE_SETTLS`,
 futex joins, per-thread `errno` and compiler `__thread` variables. All four

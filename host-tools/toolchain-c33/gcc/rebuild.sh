@@ -13,14 +13,15 @@
 #
 #   ./rebuild.sh [workdir [compiler|final]]
 #
-# C33_TARGET=c33-linux-uclibc builds the no-MMU Linux compiler instead, into
-# the same prefix, in the two passes a cross toolchain takes.  The first
-# ("compiler", in build-c33-linux-uclibc-stage1) is C only, without threads
-# or shared runtimes, against a sysroot holding the kernel and uClibc-ng
-# headers: enough to build uClibc-ng.  The final pass ("final", in
-# build-c33-linux-uclibc), once uClibc-ng is installed, builds C and C++ and
-# the runtimes with their shared libraries: libgcc_s, libstdc++ and
-# libatomic.  linux/toolchain.sh and linux/Makefile run them in order.
+# C33_TARGET=c33-linux-uclibc, or c33-linux-musl, builds a no-MMU Linux
+# compiler instead, into the same prefix, in the two passes a cross
+# toolchain takes.  The first ("compiler", in build-TARGET-stage1) is C
+# only, without threads or shared runtimes, against a sysroot holding the
+# kernel's and the C library's headers: enough to build the C library.  The
+# final pass ("final", in build-TARGET), once the C library is installed,
+# builds C and C++ and the runtimes with their shared libraries: libgcc_s,
+# libstdc++ and libatomic.  linux/toolchain.sh and linux/Makefile run them
+# in order.
 
 set -e
 
@@ -73,7 +74,7 @@ if [ "${TARGET}" = c33-epson-elf ]; then
 elif [ "${STEP}" = final ]; then
 	BUILD="${SRC}/build-${TARGET}"
 	# The one multilib is chosen by c33/linux.h; the runtimes are built
-	# against the installed uClibc-ng, and threads are its pthreads.
+	# against the installed C library, and threads are its pthreads.
 	TARGET_CONFIG="--enable-languages=c,c++ \
 		--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib \
 		--enable-threads=posix --disable-libstdcxx-pch"
@@ -81,7 +82,7 @@ elif [ "${STEP}" = final ]; then
 	SHARED=--enable-shared
 else
 	BUILD="${SRC}/build-${TARGET}-stage1"
-	# Only for building uClibc-ng, whose headers the sysroot holds.
+	# Only for building the C library, whose headers the sysroot holds.
 	TARGET_CONFIG="--enable-languages=c \
 		--with-sysroot=${PREFIX}/${TARGET}/sysroot --disable-multilib \
 		--disable-threads"

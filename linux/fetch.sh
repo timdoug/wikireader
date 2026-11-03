@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fetch the pinned upstream kernel, uClibc-ng and Buildroot onto the VM's
+# Fetch the pinned upstream kernel, uClibc-ng, musl and Buildroot onto the VM's
 # native filesystem, and make each its revision plus this repository's work.
 set -eu
 
@@ -12,6 +12,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=${WR_LINUX_WORK:-${HOME}/wr-linux}
 src=${work}/linux-src
 uclibc_src=${work}/uclibc-ng
+musl_src=${work}/musl
 buildroot_src=${work}/buildroot
 
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "linux" { print $2, $3 }')
@@ -39,6 +40,18 @@ else
 fi
 
 
+set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "musl" { print $2, $3 }')
+musl_url=$1
+musl_revision=$2
+
+if [ ! -d "${musl_src}/.git" ]; then
+	git clone --depth=1 --branch="${musl_revision}" "${musl_url}" "${musl_src}"
+else
+	git -C "${musl_src}" fetch --depth=1 origin "${musl_revision}"
+	git -C "${musl_src}" checkout --force --detach FETCH_HEAD
+fi
+
+
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "buildroot" { print $2, $3 }')
 buildroot_url=$1
 buildroot_revision=$2
@@ -53,4 +66,4 @@ fi
 
 # Each tree becomes exactly its revision plus this repository's patches and
 # overlay; builds do the same before they read a tree.
-"${here}/sync-trees.sh" linux uclibc buildroot
+"${here}/sync-trees.sh" linux uclibc musl buildroot

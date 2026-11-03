@@ -3,6 +3,9 @@
 commands on the serial shell, power off, and print what the shell printed:
 
     ask-app.py 'uname -a; cat /proc/meminfo' [-- extra wremu arguments]
+
+--file NAME=PATH puts another file on the card, as /mnt/sd/NAME, an 8.3
+name.
 """
 import argparse
 import importlib.util
@@ -21,6 +24,8 @@ parser.add_argument("--kernel", type=Path, default=root / "linux/artifacts/linux
 parser.add_argument("--rootfs", type=Path, default=root / "linux/artifacts/linux.img")
 parser.add_argument("--cycles", type=int, default=4_000_000_000,
                     help="wremu's cycle budget (-n)")
+parser.add_argument("--file", action="append", default=[], metavar="NAME=PATH",
+                    help="another file for the card, by its 8.3 name")
 parser.add_argument("--output", type=Path, default=root / "linux/artifacts/ask-app",
                     help="directory for the serial log")
 parser.add_argument("wremu", nargs=argparse.REMAINDER,
@@ -39,6 +44,9 @@ files = {name: app.require(path).read_bytes() for name, path in {
     "linux.ico": root / "linux/artifacts/linux.ico",
 }.items()}
 files["init.ini"] = b"linux.ico : linux.app\n" * 2
+for item in args.file:
+    name, _, path = item.partition("=")
+    files[name] = app.require(Path(path)).read_bytes()
 args.output.mkdir(parents=True, exist_ok=True)
 log = args.output.resolve() / "serial.log"
 with tempfile.TemporaryDirectory(prefix="wr-ask-app-") as temporary:

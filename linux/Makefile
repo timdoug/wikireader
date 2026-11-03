@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc musl-toolchain musl-libc musl-test rootfs build boot-test app-test signal-test core-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -21,6 +21,20 @@ libc: vm
 	$(SHELL_IN_VM) ./linux/uclibc/build.sh
 	$(SHELL_IN_VM) ./linux/toolchain.sh final
 	$(SHELL_IN_VM) ./linux/uclibc/tests.sh
+
+# musl beside uClibc-ng: the c33-linux-musl compiler, the library and the
+# final compiler built against it, and its regression programs, run from
+# the card through Grifo.
+musl-toolchain: vm
+	$(SHELL_IN_VM) env C33_LIBC=musl ./linux/toolchain.sh linux
+
+musl-libc: vm
+	$(SHELL_IN_VM) ./linux/musl/build.sh
+	$(SHELL_IN_VM) env C33_LIBC=musl ./linux/toolchain.sh final
+	$(SHELL_IN_VM) ./linux/musl/tests.sh
+
+musl-test:
+	python3 ./musl/run-tests.py
 
 rootfs: libc
 	$(SHELL_IN_VM) ./linux/buildroot/build.sh
