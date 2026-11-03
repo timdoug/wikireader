@@ -1,0 +1,85 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/log: draw the one-bit monochrome formats
+
+drm_log picks the first format of the primary plane that drm_draw
+converts to, which on a monochrome panel's driver is now its own R1 or
+D1, a bit a pixel, rather than XRGB8888 at 32 times the memory and a
+conversion for every line.  Its glyphs are placed by column there, since
+a pixel has no bytes to step by.  A line is cleared to black, which is
+not a zero byte in D1, where a set bit is dark, and so is the new buffer;
+the timestamp prefix, which one bit a pixel cannot shade, is drawn in the
+text's color.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/drivers/gpu/drm/clients/drm_log.c
++++ b/drivers/gpu/drm/clients/drm_log.c
+@@ -49,6 +49,7 @@
+ 	u32 px_width;
+ 	u32 front_color;
+ 	u32 prefix_color;
++	u8 clear;	/* a cleared line's bytes: black */
+ };
+ 
+ struct drm_log {
+@@ -98,7 +99,8 @@
+ 
+ 	if (drm_client_buffer_vmap_local(scanout->buffer, &map))
+ 		return;
+-	iosys_map_memset(&map, r.y1 * fb->pitches[0], 0, height * fb->pitches[0]);
++	iosys_map_memset(&map, r.y1 * fb->pitches[0], scanout->clear,
++			 height * fb->pitches[0]);
+ 	drm_client_buffer_vunmap_local(scanout->buffer);
+ 	drm_client_buffer_flush(scanout->buffer, &r);
+ }
+@@ -112,6 +114,7 @@
+ 	size_t font_pitch = DIV_ROUND_UP(font->width, 8);
+ 	const u8 *src;
+ 	u32 px_width = fb->format->cpp[0];
++	bool mono = drm_draw_is_mono(fb->format->format);
+ 	struct drm_rect r = DRM_RECT_INIT(0, scanout->line * scanout->scaled_font_h,
+ 					  fb->width, (scanout->line + 1) * scanout->scaled_font_h);
+ 	u32 i;
+@@ -124,11 +127,17 @@
+ 		u32 color = (i < prefix_len) ? scanout->prefix_color : scanout->front_color;
+ 		src = font_data_glyph_buf(font->data, font->width, font->height,
+ 					  (unsigned char)s[i]);
+-		if (src)
++		/* One bit a pixel is addressed by its column, not its bytes. */
++		if (src && mono)
++			drm_draw_blit1(&map, fb->pitches[0], i * scanout->scaled_font_w,
++				       src, font_pitch, scanout->scaled_font_h,
++				       scanout->scaled_font_w, scale, color);
++		else if (src)
+ 			drm_log_blit(&map, fb->pitches[0], src, font_pitch,
+ 				     scanout->scaled_font_h, scanout->scaled_font_w,
+ 				     px_width, color);
+-		iosys_map_incr(&map, scanout->scaled_font_w * px_width);
++		if (!mono)
++			iosys_map_incr(&map, scanout->scaled_font_w * px_width);
+ 	}
+ 
+ 	scanout->line++;
+@@ -228,6 +237,22 @@
+ 	}
+ 	scanout->front_color = drm_draw_color_from_xrgb8888(0xffffff, format);
+ 	scanout->prefix_color = drm_draw_color_from_xrgb8888(0x4e9a06, format);
++	/*
++	 * A line is cleared to black, which is a zero byte but in D1, where a
++	 * set bit is dark; and one bit a pixel has no shade for the prefix.
++	 */
++	if (drm_draw_is_mono(format)) {
++		struct drm_framebuffer *fb = scanout->buffer->fb;
++		struct iosys_map map;
++
++		scanout->clear = drm_draw_color_from_xrgb8888(0, format) ? 0xff : 0;
++		scanout->prefix_color = scanout->front_color;
++		/* A new buffer's zero bytes are not black in D1. */
++		if (scanout->clear && !drm_client_buffer_vmap_local(scanout->buffer, &map)) {
++			iosys_map_memset(&map, 0, scanout->clear, fb->height * fb->pitches[0]);
++			drm_client_buffer_vunmap_local(scanout->buffer);
++		}
++	}
+ 	return 0;
+ }
+ 

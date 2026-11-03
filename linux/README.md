@@ -312,6 +312,22 @@ Until the console sets its buffer the panel keeps what the early renderer
 drew, which is independent of all this so it can still report failures
 before platform drivers have probed.
 
+DRM's own clients draw on the panel too, one bit a pixel
+(`patches/features/0039` and `0040` teach `drm_draw`, `drm_panic` and
+`drm_log` `R1` and `D1`). A panic draws DRM's panic screen into the
+controller's image in internal video RAM, whatever was on the panel, and
+the driver points the controller at it and lights the panel without
+sleeping. `drm_log` (`console=drm_log`, ahead of the serial port on the
+built-in command line) prints the kernel's messages at the console
+loglevel, which is warnings unless `loglevel=` says otherwise, and shows
+them whenever no program holds the panel: when the console exits, for one.
+It does not replace the early renderer at boot: it prints from a thread,
+which on this non-preemptible kernel first runs once userspace has
+started, by when the console is taking the panel; and it would start only
+once the driver has probed. `patches/fixes/0041` keeps its buffers when
+userspace held the panel at its first setup, so that letting the panel go
+shows them.
+
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
 which this boot path replaces. `drivers/clk/clk-s1c33.c` reads the live CMU

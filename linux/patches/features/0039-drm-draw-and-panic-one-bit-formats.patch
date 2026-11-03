@@ -1,0 +1,209 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/draw, drm/panic: draw the one-bit monochrome formats
+
+drm_draw converted colors to and blitted fonts into formats of two to
+four bytes a pixel; drm_panic, which draws with it, gave up on any other.
+DRM has R1 and D1, a bit a pixel, lit or dark where set, the leftmost in
+the high bit, which a monochrome panel's driver offers.
+
+A color converts to them by its BT.601 luma, lit at half or more.
+drm_draw_blit1() and drm_draw_fill1() take the rectangle's first column in
+pixels, since a pixel has no bytes to step by, and drm_draw_is_mono() says
+which formats need them.  drm_panic blits and fills those formats through
+them, into a mapping; one bit a pixel given as pages is not drawn.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/drivers/gpu/drm/drm_draw.c
++++ b/drivers/gpu/drm/drm_draw.c
+@@ -25,6 +25,8 @@
+ bool drm_draw_can_convert_from_xrgb8888(u32 format)
+ {
+ 	switch (format) {
++	case DRM_FORMAT_R1:
++	case DRM_FORMAT_D1:
+ 	case DRM_FORMAT_RGB565:
+ 	case DRM_FORMAT_RGBA5551:
+ 	case DRM_FORMAT_XRGB1555:
+@@ -45,6 +47,31 @@
+ EXPORT_SYMBOL(drm_draw_can_convert_from_xrgb8888);
+ 
+ /**
++ * drm_draw_is_mono - check if a format is one bit a pixel, monochrome
++ * @format: format
++ *
++ * R1 and D1 keep eight pixels a byte, the leftmost in the most significant
++ * bit, and have no bytes a pixel to step by: they are drawn with
++ * drm_draw_blit1() and drm_draw_fill1(), which take a pixel offset.
++ *
++ * Returns:
++ * True for DRM_FORMAT_R1 and DRM_FORMAT_D1, false otherwise.
++ */
++bool drm_draw_is_mono(u32 format)
++{
++	return format == DRM_FORMAT_R1 || format == DRM_FORMAT_D1;
++}
++EXPORT_SYMBOL(drm_draw_is_mono);
++
++/* Lit where the luma, BT.601's, is at least half. */
++static bool drm_draw_xrgb8888_is_bright(u32 color)
++{
++	u32 r = (color >> 16) & 0xff, g = (color >> 8) & 0xff, b = color & 0xff;
++
++	return r * 77 + g * 150 + b * 29 >= 128 * 256;
++}
++
++/**
+  * drm_draw_color_from_xrgb8888 - convert one pixel from xrgb8888 to the desired format
+  * @color: input color, in xrgb8888 format
+  * @format: output format
+@@ -56,6 +83,10 @@
+ u32 drm_draw_color_from_xrgb8888(u32 color, u32 format)
+ {
+ 	switch (format) {
++	case DRM_FORMAT_R1:
++		return drm_draw_xrgb8888_is_bright(color);
++	case DRM_FORMAT_D1:
++		return !drm_draw_xrgb8888_is_bright(color);
+ 	case DRM_FORMAT_RGB565:
+ 		return drm_pixel_xrgb8888_to_rgb565(color);
+ 	case DRM_FORMAT_RGBA5551:
+@@ -89,6 +120,41 @@
+ /*
+  * Blit functions
+  */
++static void drm_draw_set_bit(struct iosys_map *dmap, unsigned int off,
++			     unsigned int x, u8 bit)
++{
++	u8 mask = 0x80 >> (x % 8);
++	u8 byte = iosys_map_rd(dmap, off + x / 8, u8);
++
++	iosys_map_wr(dmap, off + x / 8, u8, bit ? byte | mask : byte & ~mask);
++}
++
++/**
++ * drm_draw_blit1 - draw a monochrome image's set pixels, one bit a pixel
++ * @dmap: destination, at the start of the rectangle's first row
++ * @dpitch: destination pitch in bytes
++ * @dx: the rectangle's first column, in pixels from @dmap's byte
++ * @sbuf8: source image, a bit a pixel, the leftmost in the high bit
++ * @spitch: source pitch in bytes
++ * @height: rectangle height, in destination pixels
++ * @width: rectangle width, in destination pixels
++ * @scale: source pixels' size in destination pixels
++ * @fg1: the value of a set pixel, 0 or 1
++ */
++void drm_draw_blit1(struct iosys_map *dmap, unsigned int dpitch,
++		    unsigned int dx, const u8 *sbuf8, unsigned int spitch,
++		    unsigned int height, unsigned int width,
++		    unsigned int scale, u8 fg1)
++{
++	unsigned int y, x;
++
++	for (y = 0; y < height; y++)
++		for (x = 0; x < width; x++)
++			if (drm_draw_is_pixel_fg(sbuf8, spitch, x / scale, y / scale))
++				drm_draw_set_bit(dmap, y * dpitch, dx + x, fg1);
++}
++EXPORT_SYMBOL(drm_draw_blit1);
++
+ void drm_draw_blit16(struct iosys_map *dmap, unsigned int dpitch,
+ 		     const u8 *sbuf8, unsigned int spitch,
+ 		     unsigned int height, unsigned int width,
+@@ -142,6 +208,28 @@
+ /*
+  * Fill functions
+  */
++
++/**
++ * drm_draw_fill1 - fill a rectangle, one bit a pixel
++ * @dmap: destination, at the start of the rectangle's first row
++ * @dpitch: destination pitch in bytes
++ * @dx: the rectangle's first column, in pixels from @dmap's byte
++ * @height: rectangle height
++ * @width: rectangle width
++ * @color: 0 or 1
++ */
++void drm_draw_fill1(struct iosys_map *dmap, unsigned int dpitch,
++		    unsigned int dx, unsigned int height, unsigned int width,
++		    u8 color)
++{
++	unsigned int y, x;
++
++	for (y = 0; y < height; y++)
++		for (x = 0; x < width; x++)
++			drm_draw_set_bit(dmap, y * dpitch, dx + x, color);
++}
++EXPORT_SYMBOL(drm_draw_fill1);
++
+ void drm_draw_fill16(struct iosys_map *dmap, unsigned int dpitch,
+ 		     unsigned int height, unsigned int width,
+ 		     u16 color)
+--- a/drivers/gpu/drm/drm_draw_internal.h
++++ b/drivers/gpu/drm/drm_draw_internal.h
+@@ -19,8 +19,15 @@
+ 
+ bool drm_draw_can_convert_from_xrgb8888(u32 format);
+ 
++bool drm_draw_is_mono(u32 format);
++
+ u32 drm_draw_color_from_xrgb8888(u32 color, u32 format);
+ 
++void drm_draw_blit1(struct iosys_map *dmap, unsigned int dpitch,
++		    unsigned int dx, const u8 *sbuf8, unsigned int spitch,
++		    unsigned int height, unsigned int width,
++		    unsigned int scale, u8 fg1);
++
+ void drm_draw_blit16(struct iosys_map *dmap, unsigned int dpitch,
+ 		     const u8 *sbuf8, unsigned int spitch,
+ 		     unsigned int height, unsigned int width,
+@@ -36,6 +43,10 @@
+ 		     unsigned int height, unsigned int width,
+ 		     unsigned int scale, u32 fg32);
+ 
++void drm_draw_fill1(struct iosys_map *dmap, unsigned int dpitch,
++		    unsigned int dx, unsigned int height, unsigned int width,
++		    u8 color);
++
+ void drm_draw_fill16(struct iosys_map *dmap, unsigned int dpitch,
+ 		     unsigned int height, unsigned int width,
+ 		     u16 color);
+--- a/drivers/gpu/drm/drm_panic.c
++++ b/drivers/gpu/drm/drm_panic.c
+@@ -296,6 +296,12 @@
+ 					   sbuf8, spitch, clip, scale, fg_color);
+ 
+ 	map = sb->map[0];
++	if (drm_draw_is_mono(sb->format->format)) {
++		iosys_map_incr(&map, clip->y1 * sb->pitch[0]);
++		return drm_draw_blit1(&map, sb->pitch[0], clip->x1, sbuf8, spitch,
++				      drm_rect_height(clip), drm_rect_width(clip),
++				      scale, fg_color);
++	}
+ 	iosys_map_incr(&map, clip->y1 * sb->pitch[0] + clip->x1 * sb->format->cpp[0]);
+ 
+ 	switch (sb->format->cpp[0]) {
+@@ -385,6 +391,12 @@
+ 					   clip, color);
+ 
+ 	map = sb->map[0];
++	if (drm_draw_is_mono(sb->format->format)) {
++		iosys_map_incr(&map, clip->y1 * sb->pitch[0]);
++		return drm_draw_fill1(&map, sb->pitch[0], clip->x1,
++				      drm_rect_height(clip), drm_rect_width(clip),
++				      color);
++	}
+ 	iosys_map_incr(&map, clip->y1 * sb->pitch[0] + clip->x1 * sb->format->cpp[0]);
+ 
+ 	switch (sb->format->cpp[0]) {
+@@ -938,6 +950,10 @@
+ 	if (!sb.set_pixel && !sb.pages && iosys_map_is_null(&sb.map[0]))
+ 		goto unlock;
+ 
++	/* One bit a pixel is drawn into a mapping or through set_pixel. */
++	if (drm_draw_is_mono(sb.format->format) && !sb.set_pixel && sb.pages)
++		goto unlock;
++
+ 	drm_panic_set_description(description);
+ 
+ 	draw_panic_dispatch(&sb);

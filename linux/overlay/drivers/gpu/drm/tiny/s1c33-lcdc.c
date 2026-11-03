@@ -35,6 +35,7 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_modeset_helper_vtables.h>
+#include <drm/drm_panic.h>
 #include <drm/drm_plane.h>
 #include <drm/drm_probe_helper.h>
 
@@ -202,10 +203,41 @@ static void s1c33_lcdc_plane_atomic_update(struct drm_plane *plane,
 	s1c33_lcdc_scan(lcdc, lcdc->vram_phys, S1C33_LCD_STRIDE);
 }
 
+/*
+ * A panic screen is drawn in the controller's own D1 image in IVRAM, whatever
+ * the plane was showing: a converted frame's buffer is not what the panel
+ * scans, and a client's D1 one may be gone.  Then the panel scans the image,
+ * lit, without sleeping.
+ */
+static int s1c33_lcdc_get_scanout_buffer(struct drm_plane *plane,
+					 struct drm_scanout_buffer *sb)
+{
+	struct s1c33_lcdc *lcdc = to_lcdc(plane->dev);
+
+	sb->format = drm_format_info(DRM_FORMAT_D1);
+	sb->width = S1C33_LCD_WIDTH;
+	sb->height = S1C33_LCD_HEIGHT;
+	sb->pitch[0] = S1C33_LCD_STRIDE;
+	iosys_map_set_vaddr_iomem(&sb->map[0], lcdc->vram);
+	return 0;
+}
+
+static void s1c33_lcdc_panic_flush(struct drm_plane *plane)
+{
+	struct s1c33_lcdc *lcdc = to_lcdc(plane->dev);
+	u32 ps = readl(lcdc->regs + S1C33_LCDC_PS) & ~S1C33_LCDC_PS_MASK;
+
+	s1c33_lcdc_scan(lcdc, lcdc->vram_phys, S1C33_LCD_STRIDE);
+	writel(ps | S1C33_LCDC_PS_NORMAL, lcdc->regs + S1C33_LCDC_PS);
+	gpiod_set_value(lcdc->enable, 1);
+}
+
 static const struct drm_plane_helper_funcs s1c33_lcdc_plane_helper_funcs = {
 	.prepare_fb = drm_gem_plane_helper_prepare_fb,
 	.atomic_check = s1c33_lcdc_plane_atomic_check,
 	.atomic_update = s1c33_lcdc_plane_atomic_update,
+	.get_scanout_buffer = s1c33_lcdc_get_scanout_buffer,
+	.panic_flush = s1c33_lcdc_panic_flush,
 };
 
 static const struct drm_plane_funcs s1c33_lcdc_plane_funcs = {

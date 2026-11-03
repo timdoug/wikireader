@@ -1,0 +1,47 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/log: keep the scanout when userspace has the screen first
+
+drm_log sets up its scanout when its printing thread first runs.  On a
+kernel without preemption on one CPU that is after init has started, and
+a userspace display server may be DRM master by then: the commit failed,
+the buffers were freed, and nothing was left for restore() to show when
+the server let the screen go, which stayed dark.  The scanouts are now
+kept whether the first commit succeeds or not; drawing already waits for
+no master, and restore() commits them.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/drivers/gpu/drm/clients/drm_log.c
++++ b/drivers/gpu/drm/clients/drm_log.c
+@@ -272,7 +272,7 @@
+ {
+ 	struct drm_client_dev *client = &dlog->client;
+ 	struct drm_mode_set *mode_set;
+-	int i, max_modeset;
++	int max_modeset;
+ 	int n_modeset = 0;
+ 
+ 	dlog->probed = true;
+@@ -300,16 +300,16 @@
+ 	if (n_modeset == 0)
+ 		goto err_nomodeset;
+ 
+-	if (drm_client_modeset_commit(client))
+-		goto err_failed_commit;
++	/*
++	 * Userspace may hold the screen already, when the printing thread
++	 * first runs after it started: the commit fails, and the scanouts are
++	 * kept for restore() to show once it lets the screen go.
++	 */
++	drm_client_modeset_commit(client);
+ 
+ 	dlog->n_scanout = n_modeset;
+ 	return;
+ 
+-err_failed_commit:
+-	for (i = 0; i < n_modeset; i++)
+-		drm_client_buffer_delete(dlog->scanout[i].buffer);
+-
+ err_nomodeset:
+ 	kfree(dlog->scanout);
+ 	dlog->scanout = NULL;

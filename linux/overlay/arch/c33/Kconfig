@@ -94,7 +94,10 @@ config C33_MEMORY_SIZE
 
 config CMDLINE
 	string "Built-in kernel command line"
-	default "console=ttyC0,115200"
+	default "console=drm_log console=ttyC0,115200"
+	help
+	  The kernel's messages go to the panel through DRM's log client and
+	  to the serial port, which, named last, is /dev/console.
 
 endmenu
 

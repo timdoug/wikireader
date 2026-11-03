@@ -119,6 +119,11 @@ CONFIG_DRM=y
 CONFIG_DRM_S1C33_LCDC=y
 # CONFIG_DRM_FBDEV_EMULATION is not set
 # CONFIG_FB is not set
+# The kernel's messages on the panel until the console takes it, and a
+# panic screen: DRM's own clients, drawing D1.
+CONFIG_DRM_CLIENT_LOG=y
+CONFIG_DRM_CLIENT_DEFAULT_LOG=y
+CONFIG_DRM_PANIC=y
 CONFIG_LCD_CLASS_DEVICE=y
 CONFIG_LCD_WIKIREADER=y
 CONFIG_PWM=y

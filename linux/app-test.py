@@ -230,7 +230,7 @@ def main():
             "C33 Linux: entry",
             # The launcher's arguments reached the kernel, and asking for an
             # early console on that line produced one before the driver probed.
-            "Kernel command line: console=ttyC0,115200 " +
+            "Kernel command line: console=drm_log console=ttyC0,115200 " +
             LAUNCHER_ARGS.decode(),
             "bootconsole [s1c33] enabled",
             # wr.blank=5 on that same line reaches the console frontend, so an
