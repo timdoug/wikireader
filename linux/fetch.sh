@@ -31,12 +31,13 @@ set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "musl" { print $2, $3
 musl_url=$1
 musl_revision=$2
 
+# musl is pinned to a commit, which git clone --branch cannot name.
 if [ ! -d "${musl_src}/.git" ]; then
-	git clone --depth=1 --branch="${musl_revision}" "${musl_url}" "${musl_src}"
-else
-	git -C "${musl_src}" fetch --depth=1 origin "${musl_revision}"
-	git -C "${musl_src}" checkout --force --detach FETCH_HEAD
+	git init -q "${musl_src}"
+	git -C "${musl_src}" remote add origin "${musl_url}"
 fi
+git -C "${musl_src}" fetch --depth=1 origin "${musl_revision}"
+git -C "${musl_src}" checkout --force --detach FETCH_HEAD
 
 
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "buildroot" { print $2, $3 }')

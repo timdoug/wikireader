@@ -1,6 +1,7 @@
 # musl for C33 Linux
 
-The system's C library is musl 1.2.6 (`../revisions`), ported to the C33
+The system's C library is musl, at a commit after 1.2.6 for its fixes
+since that release (`../revisions`), ported to the C33
 under no-MMU Linux, as FDPIC ELF with shared libraries
 (`host-tools/toolchain-c33/gcc/ABI.md`), and built by `c33-linux-musl-`.
 `make -C linux libc` builds it, the final C/C++ compiler against it, and
@@ -49,9 +50,8 @@ musl's SuperH FDPIC code expects them.
 
 - `arch/`: the target in `configure`.
 - `fixes/`: an FDPIC library's program headers for `dl_iterate_phdr`;
-  `clock_nanosleep` on a kernel without `nanosleep`; `dl_iterate_phdr`
-  running one callback at a time, as glibc does, which libgcc's unwinder
-  cache needs when threads throw at once; `posix_madvise` checking its
+  `dl_iterate_phdr` running one callback at a time, as glibc does, which
+  libgcc's unwinder cache needs when threads throw at once; `posix_madvise` checking its
   range for `POSIX_MADV_DONTNEED` too; `mmap` keeping the kernel's
   `EPERM` for `MAP_LOCKED`; and `fork` failing with `ENOSYS`, since the
   generic `clone(SIGCHLD, 0)` would share the parent's memory and stack.

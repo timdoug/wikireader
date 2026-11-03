@@ -68,19 +68,17 @@ musl; it has not been repeated on musl:
 | 1 Hush `signal_read1` | `read` from the runner's `/dev/null` races its HUP; upstream expects a blocking terminal |
 | 4 Hush, 3 sed | Upstream bugs: the Hush tests fail identically in a native no-MMU build; sed's are marked as known |
 
-libc-test (revision 63e36e93, musl 1.2.6) has 486 programs: 440 pass,
-2 do not build, 37 fail and 7 are killed. None crashes or times out:
+libc-test (revision 63e36e93, musl 7813e911) has 486 programs: 445 pass,
+2 do not build, 31 fail and 8 are killed. None crashes or times out:
 
 | Tests | Cause |
 |---|---|
-| `api/main` (build) | POSIX names newer than musl 1.2.6: `_PC_TIMESTAMP_RESOLUTION`, `_SC_XOPEN_UUCP` |
+| `api/main` (build) | POSIX names musl lacks: `_PC_TIMESTAMP_RESOLUTION`, `_SC_XOPEN_UUCP` |
 | `musl/pleval` (build) | Calls libc's hidden `__pleval`; only its static build links, and passes |
 | 6 `ipc_*`, 2 `wordexp`, 2 `daemon-failure`, 2 `fflush-exit`, 2 `pthread_exit-dtor`, 2 `raise-race` | Need `fork`, which fails with `ENOSYS` without an MMU |
 | 4 `malloc-oom`, 2 `pthread_create-oom`, 2 `setenv-oom`, 2 `malloc-brk-fail` | Fill the address space with `PROT_NONE` mappings first: without an MMU each one is RAM, and the OOM killer ends the test |
 | 2 `sscanf_long` | An 8 MB contiguous allocation |
 | 2 `socket` | UDP over IPv4; the kernel has no IPv4 |
-| 4 `strtod`, `strtold` | Hex rounding with a 64-bit `long double`, fixed in musl after 1.2.6 (50979c5b) |
-| `fmaf` | Subnormal double rounding, fixed in musl after 1.2.6 (a9764402, 48a619ca) |
 | 4 `regex-backref-oob`, `regexec-backref` | Tests newer than any musl fix |
 | 2 `strptime` | musl has no `%s` or `%z` |
 | `acoshl`, `asinhl`, `erfcl`, `lgammal`, `tgammal` | `long double` is `double`, and the results are the double functions'; the double drivers accept these errors (their `X` lines), the `long double` drivers do not |

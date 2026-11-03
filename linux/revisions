@@ -1,5 +1,5 @@
 # component  repository                                      revision
 linux        https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git v7.3.1
-musl         https://git.musl-libc.org/git/musl                          v1.2.6
+musl         https://git.musl-libc.org/git/musl                          7813e9119eb5fe681b6750b8a033a0490bca0941
 buildroot    https://gitlab.com/buildroot.org/buildroot.git              2026.08.1
 

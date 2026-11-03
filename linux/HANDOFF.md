@@ -572,8 +572,9 @@ The rest of the port, standards first (see "Standards" above):
 3. **Send upstream** musl's `musl/patches/fixes/`: an FDPIC library's
    program headers for `dl_iterate_phdr` (exceptions through any shared
    library on SuperH FDPIC too), `dl_iterate_phdr` callbacks one at a time
-   (libgcc's unwinder cache assumes glibc's locking), and `clock_nanosleep`
-   on a kernel with 64-bit time only; and GCC
+   (libgcc's unwinder cache assumes glibc's locking), `posix_madvise`'s
+   range check, `mmap`'s `EPERM` for `MAP_LOCKED` and `fork` on FDPIC
+   without `SYS_fork`; and GCC
    `host-tools/toolchain-c33/gcc/patches/fixes/0004`: libgcc's and libstdc++'s
    `#if __FDPIC__` exception paths are ARM's and call
    `_Unwind_gnu_Find_got`, which only ARM defines.
