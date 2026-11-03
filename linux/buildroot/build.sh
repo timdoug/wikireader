@@ -27,6 +27,7 @@ if [ ! -d "$source_dir/.git" ]; then
 	echo "Run make -C linux fetch first." >&2
 	exit 1
 fi
+"$root/linux/sync-trees.sh" buildroot
 
 # Buildroot does not notice a rebuilt C library or edited local package
 # sources, so every target package is built afresh each time.  The host

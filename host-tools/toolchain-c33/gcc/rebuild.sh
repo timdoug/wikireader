@@ -46,29 +46,11 @@ cd "${WORK}"
 	"https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/${TARBALL}" "${TARBALL}" \
 	e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 
-if [ ! -d "${SRC}" ]; then
-	echo "==> extracting"
-	tar xf "${TARBALL}"
-fi
-
-echo "==> installing C33 backend sources"
-for f in $(cd "${HERE}/files" && find . -type f); do
-	mkdir -p "${SRC}/$(dirname "${f}")"
-	# Preserving the timestamp of an identical destination matters here:
-	# c33.h is included through tm.h by almost every GCC source file, so a
-	# blind cp turns a one-file backend edit into a full compiler rebuild.
-	if [ ! -f "${SRC}/${f}" ] || ! cmp -s "${HERE}/files/${f}" "${SRC}/${f}"; then
-		cp "${HERE}/files/${f}" "${SRC}/${f}"
-	fi
-done
-
-echo "==> registering the c33 target"
-python3 "${HERE}/tools/gcc-glue.py" "${SRC}"
-
-echo "==> applying GCC correctness patches"
-# fixes/ are general GCC corrections, port/ the C33 port's changes to
-# shared code (patches/README.md); applied in number order.
-"${HERE}/tools/apply-patches.sh" "${SRC}" "${HERE}/patches"
+# The tarball, files/, gcc-glue.py and patches/ (applied in number order
+# across fixes/ and port/, patches/README.md) are the source; the tree is
+# made from them, rewriting only files whose contents change.
+"${HERE}/../tools/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" \
+	"${HERE}/files" "${HERE}/tools/gcc-glue.py" "${HERE}/patches"
 
 CONFIG_MATH=""
 for lib in gmp mpfr libmpc; do

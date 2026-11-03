@@ -1,8 +1,8 @@
 # GCC patches
 
 Applied by `../rebuild.sh` and `../build.sh`, through
-`../tools/apply-patches.sh`, in number order across the directories; the
-work tree records the patches applied to it in `.c33-patches`.
+`../../tools/prepare-source.sh`, in number order across the directories, to
+a tree made afresh from the tarball whenever they change.
 
 - `fixes/`: corrections to GCC that stand on their own: nested ICE
   diagnostics, the analyzer's model of a direct global `errno`, uClibc-ng's

@@ -42,7 +42,7 @@ if [ ! -d "$uclibc_source/.git" ]; then
 	exit 1
 fi
 
-cp -R "$root/linux/overlay/." "$linux_source/"
+"$root/linux/sync-trees.sh" linux
 rm -rf "$sysroot" "$headers_build" "$build_dir"
 mkdir -p "$sysroot/usr" "$headers_build" "$build_dir"
 make -C "$linux_source" O="$headers_build" ARCH=c33 CROSS_COMPILE="$cross" \
@@ -55,7 +55,7 @@ uclibc_make() {
 		RUNTIME_PREFIX=/ "$@"
 }
 
-cp -R "$root/linux/uclibc/overlay/." "$uclibc_source/"
+"$root/linux/sync-trees.sh" uclibc
 uclibc_make defconfig
 
 # The generated configuration is deliberately adjusted here rather than

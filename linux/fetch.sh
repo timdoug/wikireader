@@ -1,5 +1,6 @@
 #!/bin/sh
-# Reconstruct the pinned upstream Linux tree on the VM's native filesystem.
+# Fetch the pinned upstream kernel, uClibc-ng and Buildroot onto the VM's
+# native filesystem, and make each its revision plus this repository's work.
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -25,22 +26,6 @@ else
 	git -C "${src}" checkout --force --detach FETCH_HEAD
 fi
 
-git -C "${src}" reset --hard HEAD
-git -C "${src}" clean -fdx
-
-# The patches are grouped by kind (patches/README.md) and applied in number
-# order across the groups: a later patch may build on an earlier one.
-for patch in $(for p in "${here}"/patches/*/*.patch; do
-		echo "${p##*/} ${p}"
-	done | sort | cut -d' ' -f2); do
-	git -C "${src}" apply "${patch}"
-done
-
-if [ -d "${here}/overlay" ]; then
-	cp -R "${here}/overlay/." "${src}/"
-fi
-
-printf '%s\n' "Linux source ready at ${src}"
 
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "uclibc" { print $2, $3 }')
 uclibc_url=$1
@@ -53,21 +38,6 @@ else
 	git -C "${uclibc_src}" checkout --force --detach FETCH_HEAD
 fi
 
-git -C "${uclibc_src}" reset --hard HEAD
-git -C "${uclibc_src}" clean -fdx
-
-if [ -d "${here}/uclibc/overlay" ]; then
-	cp -R "${here}/uclibc/overlay/." "${uclibc_src}/"
-fi
-
-# Grouped and ordered as the kernel's (uclibc/patches/README.md).
-for patch in $(for p in "${here}"/uclibc/patches/*/*.patch; do
-		echo "${p##*/} ${p}"
-	done | sort | cut -d' ' -f2); do
-	git -C "${uclibc_src}" apply "${patch}"
-done
-
-printf '%s\n' "uClibc-ng source ready at ${uclibc_src}"
 
 set -- $(sed -e 's/#.*//' "${here}/revisions" | awk '$1 == "buildroot" { print $2, $3 }')
 buildroot_url=$1
@@ -81,13 +51,6 @@ else
 	git -C "${buildroot_src}" checkout --force --detach FETCH_HEAD
 fi
 
-# Downloaded source tarballs in dl/ are kept; everything else is reset.
-git -C "${buildroot_src}" reset --hard HEAD
-git -C "${buildroot_src}" clean -fdx -e dl
-
-for patch in "${here}"/buildroot/patches/*.patch; do
-	[ -e "${patch}" ] || break
-	git -C "${buildroot_src}" apply "${patch}"
-done
-
-printf '%s\n' "Buildroot source ready at ${buildroot_src}"
+# Each tree becomes exactly its revision plus this repository's patches and
+# overlay; builds do the same before they read a tree.
+"${here}/sync-trees.sh" linux uclibc buildroot

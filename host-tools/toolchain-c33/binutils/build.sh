@@ -27,19 +27,9 @@ cd "${WORK}"
 
 "${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
-if [ ! -d "${SRC}" ]; then
-	echo "==> extracting"
-	tar xf "${TARBALL}"
-fi
-
-echo "==> installing C33 sources"
-for f in $(cd "${HERE}/files" && find . -type f); do
-	mkdir -p "${SRC}/$(dirname "${f}")"
-	cp "${HERE}/files/${f}" "${SRC}/${f}"
-done
-
-echo "==> registering the c33 target in the upstream build system"
-python3 "${TOOLS}/glue.py" "${SRC}"
+# The tarball, files/ and glue.py are the source; the tree is made from them.
+"${TOOLS}/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" "${HERE}/files" \
+	"${TOOLS}/glue.py"
 
 echo "==> configuring"
 BUILD="${SRC}/build"

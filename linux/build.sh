@@ -25,9 +25,8 @@ if [ ! -x "${cross}gcc" ]; then
 	exit 1
 fi
 
-# Keep iterative architecture work in sync without reconstructing the pinned
-# upstream tree on every build.
-cp -R "$root/linux/overlay/." "$source_dir/"
+# The tree is the pinned kernel plus patches/ and overlay/, and nothing else.
+"$root/linux/sync-trees.sh" linux
 
 mkdir -p "$build_dir" "$root/linux/artifacts"
 make -C "$source_dir" O="$build_dir" ARCH=c33 CROSS_COMPILE="$cross" wikireader_defconfig

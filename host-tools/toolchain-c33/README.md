@@ -238,9 +238,14 @@ tests/dejagnu/              standard GCC board and runner
 tests/DEJAGNU-TODO.md       current test and feature backlog
 tools/glue.py               registers C33 in a pristine binutils tree
 tools/gcc-glue.py           registers C33 in a pristine GCC tree
+tools/prepare-source.sh     makes a source tree exactly its tarball and this repo
 tools/compare-with-oracle.sh assembler comparison
 ```
 
-Build trees live under `host-tools/toolchain-c33/work/` and are disposable.
-The maintained target sources live under `binutils/files/`, `gcc/files/`,
-and `gcc/patches/`.
+Build trees live under `host-tools/toolchain-c33/work/` (in the VM,
+`~/wr-linux/toolchain/`) and are disposable. The maintained target sources
+live under `binutils/files/`, `gcc/files/`, and `gcc/patches/`. Every build
+makes its source tree exactly the tarball plus those and the glue
+(`tools/prepare-source.sh`): a prepared copy is rebuilt when they change,
+then synced into the tree by content, so files whose contents are unchanged
+keep their timestamps and nothing edited in the tree survives.

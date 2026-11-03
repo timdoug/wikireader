@@ -510,10 +510,13 @@ make -C linux signal-test
 make -C linux dt-check
 ```
 
-`fetch` reconstructs the pinned upstream kernel, uClibc-ng and Buildroot
-revisions from `revisions` on the VM disk, applies their patches, then
-installs their overlays. Each kernel build also refreshes `overlay/` in the VM source tree so
-iterative port changes cannot be silently missed. It leaves the final kernel
+`fetch` puts the pinned upstream kernel, uClibc-ng and Buildroot revisions
+from `revisions` on the VM disk. Nothing in the VM is a source: every build
+first makes the trees it reads exactly their revision plus this
+repository's patches and overlay (`sync-trees.sh`, by way of
+`sync-tree.py`), rewriting only files whose contents differ and removing
+everything else, so an edit made in the VM does not survive a build and an
+incremental build stays incremental. The kernel build leaves the final kernel
 in `linux/artifacts/`, along with the stripped `linux.app` and its Tux launcher
 icon. `app-test` boots the real Grifo menu in the emulator, taps that icon,
 requires Linux and BusyBox to start, then uses the standard reboot syscall and

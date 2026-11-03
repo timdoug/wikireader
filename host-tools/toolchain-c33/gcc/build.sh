@@ -35,24 +35,11 @@ cd "${WORK}"
 
 "${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
-if [ ! -d "${SRC}" ]; then
-	echo "==> extracting"
-	tar xf "${TARBALL}"
-fi
-
-echo "==> installing C33 backend sources"
-for f in $(cd "${HERE}/files" && find . -type f); do
-	mkdir -p "${SRC}/$(dirname "${f}")"
-	cp "${HERE}/files/${f}" "${SRC}/${f}"
-done
-
-echo "==> registering the c33 target"
-python3 "${TOOLS}/gcc-glue.py" "${SRC}"
-
-echo "==> applying GCC correctness patches"
-# fixes/ are general GCC corrections, port/ the C33 port's changes to
-# shared code (patches/README.md); applied in number order.
-"${TOOLS}/apply-patches.sh" "${SRC}" "${HERE}/patches"
+# The tarball, files/, gcc-glue.py and patches/ (applied in number order
+# across fixes/ and port/, patches/README.md) are the source; the tree is
+# made from them, rewriting only files whose contents change.
+"${HERE}/../tools/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" \
+	"${HERE}/files" "${TOOLS}/gcc-glue.py" "${HERE}/patches"
 
 echo "==> configuring"
 mkdir -p "${SRC}/build"
