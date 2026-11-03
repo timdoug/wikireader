@@ -68,17 +68,20 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	case DRM_FORMAT_RGB565:
  		return drm_pixel_xrgb8888_to_rgb565(color);
  	case DRM_FORMAT_RGBA5551:
-@@ -89,6 +120,41 @@
+@@ -89,6 +120,88 @@
  /*
   * Blit functions
   */
-+static void drm_draw_set_bit(struct iosys_map *dmap, unsigned int off,
-+			     unsigned int x, u8 bit)
++/* Set the pixels of one byte that @mask selects to @bit. */
++static void drm_draw_set_bits(struct iosys_map *dmap, unsigned int off,
++			      u8 mask, u8 bit)
 +{
-+	u8 mask = 0x80 >> (x % 8);
-+	u8 byte = iosys_map_rd(dmap, off + x / 8, u8);
++	u8 byte;
 +
-+	iosys_map_wr(dmap, off + x / 8, u8, bit ? byte | mask : byte & ~mask);
++	if (!mask)
++		return;
++	byte = iosys_map_rd(dmap, off, u8);
++	iosys_map_wr(dmap, off, u8, bit ? byte | mask : byte & ~mask);
 +}
 +
 +/**
@@ -98,19 +101,63 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
 +		    unsigned int height, unsigned int width,
 +		    unsigned int scale, u8 fg1)
 +{
-+	unsigned int y, x;
++	unsigned int y, x, col, sx, step;
++	u8 mask;
 +
-+	for (y = 0; y < height; y++)
-+		for (x = 0; x < width; x++)
-+			if (drm_draw_is_pixel_fg(sbuf8, spitch, x / scale, y / scale))
-+				drm_draw_set_bit(dmap, y * dpitch, dx + x, fg1);
++	/* Unscaled, a source byte is shifted into the one or two it covers. */
++	if (scale == 1) {
++		for (y = 0; y < height; y++) {
++			const u8 *row = sbuf8 + y * spitch;
++			unsigned int off = y * dpitch;
++
++			for (x = 0; x < width; x += 8) {
++				u8 bits = row[x / 8];
++				unsigned int shift = (dx + x) % 8;
++
++				if (width - x < 8)
++					bits &= 0xff << (8 - (width - x));
++				col = (dx + x) / 8;
++				drm_draw_set_bits(dmap, off + col, bits >> shift, fg1);
++				if (shift)
++					drm_draw_set_bits(dmap, off + col + 1,
++							  bits << (8 - shift), fg1);
++			}
++		}
++		return;
++	}
++
++	/*
++	 * Scaled, a byte of the destination at a time, and the source column
++	 * stepped rather than divided for: a pixel's division is most of the
++	 * cost where the CPU divides in software.
++	 */
++	for (y = 0; y < height; y++) {
++		const u8 *row = sbuf8 + y / scale * spitch;
++
++		mask = 0;
++		sx = 0;
++		step = 0;
++		for (x = 0, col = dx; x < width; x++, col++) {
++			if (row[sx / 8] & (0x80 >> (sx % 8)))
++				mask |= 0x80 >> (col % 8);
++			if (++step == scale) {
++				step = 0;
++				sx++;
++			}
++			if (col % 8 == 7 || x + 1 == width) {
++				drm_draw_set_bits(dmap, y * dpitch + col / 8,
++						  mask, fg1);
++				mask = 0;
++			}
++		}
++	}
 +}
 +EXPORT_SYMBOL(drm_draw_blit1);
 +
  void drm_draw_blit16(struct iosys_map *dmap, unsigned int dpitch,
  		     const u8 *sbuf8, unsigned int spitch,
  		     unsigned int height, unsigned int width,
-@@ -142,6 +208,28 @@
+@@ -142,6 +255,37 @@
  /*
   * Fill functions
   */
@@ -128,11 +175,20 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
 +		    unsigned int dx, unsigned int height, unsigned int width,
 +		    u8 color)
 +{
-+	unsigned int y, x;
++	unsigned int y, x, col;
++	u8 mask;
 +
-+	for (y = 0; y < height; y++)
-+		for (x = 0; x < width; x++)
-+			drm_draw_set_bit(dmap, y * dpitch, dx + x, color);
++	for (y = 0; y < height; y++) {
++		mask = 0;
++		for (x = 0, col = dx; x < width; x++, col++) {
++			mask |= 0x80 >> (col % 8);
++			if (col % 8 == 7 || x + 1 == width) {
++				drm_draw_set_bits(dmap, y * dpitch + col / 8,
++						  mask, color);
++				mask = 0;
++			}
++		}
++	}
 +}
 +EXPORT_SYMBOL(drm_draw_fill1);
 +
