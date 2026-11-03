@@ -318,10 +318,12 @@ built-in command line) prints the kernel's messages at the console
 loglevel, which is warnings unless `loglevel=` says otherwise, and shows
 them whenever no program holds the panel: when the console exits, for one.
 It prints from a thread, which on this non-preemptible kernel first runs
-once userspace has started, by when the console is taking the panel, so a
-normal boot shows the launcher's screen until the console; `patches/fixes/0041`
-keeps its buffers when userspace held the panel at its first setup, so
-that letting the panel go shows them.
+once something sleeps: on the device that is during boot, white text on
+black over the launcher's screen until the console takes the panel, and
+in wremu, whose card answers at once, only once userspace has started,
+by when the console is taking it. `patches/fixes/0041` keeps its buffers
+when userspace held the panel at its first setup, so that letting the
+panel go shows them.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
