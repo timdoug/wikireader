@@ -4,8 +4,10 @@
  * bit a pixel, the leftmost pixel in a byte's high bit, black set.  The text,
  * in the kernel's 6x8 console font, takes the top 120 rows, and the keyboard,
  * labelled in X's misc-fixed 6x13, the rest (wr-fonts.h has both).  Each
- * program draws into its own copy of the panel and writes only its own rows
- * to /dev/fb0.
+ * program draws into its own copy of the panel.  wr-console holds the panel
+ * through DRM (wr-drm.h) and writes its own rows; wr-keyboard sends its rows,
+ * and asks for the panel blanked or lit, over a socket the console listens
+ * on: a message is a struct panel_message, then for PANEL_ROWS the rows.
  */
 #ifndef WR_PANEL_H
 #define WR_PANEL_H
@@ -24,6 +26,17 @@
 #define KEYBOARD_Y	120
 
 static uint8_t framebuffer[LCD_BYTES];
+
+/* The console's socket, in the abstract namespace: /tmp is on the card. */
+#define PANEL_SOCKET	"wr-console"
+
+enum { PANEL_ROWS = 1, PANEL_BLANK = 2, PANEL_UNBLANK = 3 };
+
+struct panel_message {
+	uint8_t type;
+	uint8_t first;		/* PANEL_ROWS: the first row */
+	uint8_t count;		/* PANEL_ROWS: rows following, LCD_STRIDE each */
+};
 
 
 static inline void set_pixel(unsigned int x, unsigned int y, int black)

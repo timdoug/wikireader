@@ -113,24 +113,16 @@ CONFIG_S1C33_WATCHDOG=y
 CONFIG_PCI=n
 CONFIG_USB_SUPPORT=n
 CONFIG_SOUND=n
-CONFIG_FB=y
-# The LCD as a DRM device (drivers/gpu/drm/tiny/s1c33-lcdc.c); fbdev
-# emulation keeps /dev/fb0, one-bit and scanned in place, for the console
-# and X.  CONFIG_FB_S1C33=y instead is the fbdev driver it replaced.
-# CONFIG_FB_S1C33 is not set
+# The LCD as a DRM device (drivers/gpu/drm/tiny/s1c33-lcdc.c), and nothing
+# of fbdev: the console (wr-console) and X (modesetting) are DRM clients.
 CONFIG_DRM=y
 CONFIG_DRM_S1C33_LCDC=y
-CONFIG_DRM_FBDEV_EMULATION=y
-# fbcon would default on with it; wr-console is the console.
-# CONFIG_FRAMEBUFFER_CONSOLE is not set
+# CONFIG_DRM_FBDEV_EMULATION is not set
+# CONFIG_FB is not set
 CONFIG_LCD_CLASS_DEVICE=y
 CONFIG_LCD_WIKIREADER=y
 CONFIG_PWM=y
 CONFIG_PWM_S1C33=y
-CONFIG_LOGO=y
-CONFIG_LOGO_LINUX_MONO=y
-CONFIG_LOGO_LINUX_VGA16=n
-CONFIG_LOGO_LINUX_CLUT224=n
 CONFIG_HW_RANDOM=n
 CONFIG_PROC_FS=y
 CONFIG_SYSFS=y

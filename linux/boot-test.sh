@@ -91,12 +91,11 @@ expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
 irq_userspace_expected="C33 IRQ: generic registrations"
 # The column after the chip is the hardware number, the trap vector.
-framebuffer_expected="C33 framebuffer: /dev/fb0 240x208 mono read/write passed"
-blank_expected="C33 display: fbdev blank and unblank passed"
+display_expected="C33 display: DRM 240x208 D1 buffer read/write, mode set, blank and unblank passed"
 seeded_clock_expected="C33 time: clock set from the card, @"
 random_expected="C33 random: credited a 2048-bit seed from the last boot"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
-tux_expected="s1c33-lcdc 80000.display-controller: 240x208 one-bit panel, D1 scanned in place, XRGB8888 and RGB565 converted; Tux logo shown"
+lcdc_expected="s1c33-lcdc 80000.display-controller: 240x208 one-bit panel, D1 scanned in place, XRGB8888 and RGB565 converted"
 input_expected="C33 input: /dev/input/event[0-9]+ absolute touchscreen registered"
 uinput_expected="C33 input: soft keyboard registered as a uinput device"
 keyboard_expected="C33 input: keyboards feed the PTY through evdev"
@@ -113,7 +112,7 @@ busybox_expected="C33 BusyBox recovery suite passed: hush + file/text/archive to
 shared_text_expected="C33 BusyBox shared text: [0-9a-f]+-[0-9a-f]+ and libc [0-9a-f]+-[0-9a-f]+ mapped once for every process"
 shell_ready="C33 BusyBox shell ready on ttyC0"
 shell_expected="C33 INTERACTIVE HUSH PASS"
-userspace_console_expected="C33 userspace console: fbdev + evdev + PTY shell ready"
+userspace_console_expected="C33 userspace console: DRM + evdev + PTY shell ready"
 sd_expected="C33 MMC/SPI: mounted /dev/mmcblk0p1 and persisted linux.ok"
 sd_probe_expected="mmc0: new SDHC card on SPI"
 # Without the trailing ", no poweroff" the slot found its regulators.
@@ -138,12 +137,11 @@ if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$gpio_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$itc_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$framebuffer_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$blank_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$display_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$seeded_clock_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$random_expected" "$work/boot.log" >/dev/null || \
    ! grep -E -- "$lcd_power_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$tux_expected" "$work/boot.log" >/dev/null || \
+   ! grep -F "$lcdc_expected" "$work/boot.log" >/dev/null || \
    ! grep -E "$input_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$uinput_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$keyboard_expected" "$work/boot.log" >/dev/null || \
@@ -237,6 +235,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --symbols --edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|s1c33-hsdma|C33 input:|C33 framebuffer:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|s1c33-hsdma|C33 input:|C33 display:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 uClibc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

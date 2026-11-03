@@ -14,6 +14,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "wr-drm.h"
+
 #define CHILD_STATUS 23
 
 static volatile sig_atomic_t signal_seen;
@@ -111,6 +113,32 @@ static int libc_test(void)
 	return jumped == 7;
 }
 
+/*
+ * The panel through DRM, run before the console takes it: a D1 buffer of
+ * the panel's size, written and read back through its mapping, shown, then
+ * the CRTC off and on, which is how the panel blanks.
+ */
+static int display_test(void)
+{
+	struct wr_drm d;
+	unsigned int i;
+	int passed;
+
+	if (wr_drm_open(&d, "/dev/dri/card0") < 0)
+		return 0;
+	passed = d.width == 240 && d.height == 208 && d.pitch >= 30 &&
+		d.size >= (uint64_t)d.pitch * d.height;
+	for (i = 0; passed && i < d.pitch * d.height; i++)
+		d.map[i] = i * 37;
+	for (i = 0; passed && i < d.pitch * d.height; i++)
+		passed = d.map[i] == (uint8_t)(i * 37);
+	memset(d.map, 0, d.pitch * d.height);
+	passed = passed && wr_drm_show(&d, 1) == 0 &&
+		wr_drm_show(&d, 0) == 0 && wr_drm_show(&d, 1) == 0;
+	close(d.fd);
+	return passed;
+}
+
 static int report(int passed, const char *pass, const char *fail)
 {
 	puts(passed ? pass : fail);
@@ -137,5 +165,8 @@ int main(int argc, char **argv)
 	passed &= report(libc_test(),
 			 "C33 libc test: crt -> stdio -> getpid -> longjmp passed",
 			 "C33 libc test FAILED");
+	passed &= report(display_test(),
+			 "C33 display: DRM 240x208 D1 buffer read/write, mode set, blank and unblank passed",
+			 "C33 display: DRM test FAILED");
 	return passed ? 0 : 1;
 }

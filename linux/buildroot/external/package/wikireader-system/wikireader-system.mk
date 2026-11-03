@@ -13,7 +13,8 @@ WIKIREADER_SYSTEM_DEPENDENCIES = busybox
 define WIKIREADER_SYSTEM_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Werror -fno-unwind-tables \
 		-fno-asynchronous-unwind-tables -ffunction-sections \
-		-fdata-sections $(@D)/wr-selftest.c \
+		-fdata-sections -I$(BR2_EXTERNAL_WIKIREADER_PATH)/../../console \
+		$(@D)/wr-selftest.c \
 		-o $(@D)/wr-selftest $(TARGET_LDFLAGS) -Wl,--gc-sections
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Werror $(@D)/wr-core.c \
 		-o $(@D)/wr-core $(TARGET_LDFLAGS)

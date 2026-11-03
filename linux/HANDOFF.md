@@ -209,7 +209,7 @@ On the device (launcher `init.ini` line with `printk.time=1
 s1c33_sd.timing=1` and `bootlog.on` on the card, then `check`): Grifo loads
 `linux.app` in 2.5 s (113 reads, 1.8 s of them reading), and the prompt is
 up 4.12 s after the kernel starts. From the tap: the icon stays inverted
-about 2.5 s, Tux about 4 s. Before this round it was 10 s and 7.4 s.
+about 2.5 s, the boot screen about 4 s. Before this round it was 10 s and 7.4 s.
 
 | Kernel uptime | Device | wremu (`SPC=1`, penalty 0) |
 |---|---|---|
@@ -368,7 +368,7 @@ The pieces:
   controller scans in place, filled from the shadow through a table that
   reverses each byte and inverts it, bitmaps in fb's own order. 21.1 cannot
   drop Present or pciaccess, and builds modesetting only with DRI2. X talks
-  to DRM directly; `/dev/fb0`, DRM's fbdev emulation, is the console's.
+  to DRM directly, as the console does; the kernel has no fbdev.
 - `buildroot/external/patches`: twm opens the root menu only after a still
   hold; xeyes asks for XInput 2.2, drops stale raw motion and moves its
   pupils without trigonometry; libX11 drops the East Asian charsets.

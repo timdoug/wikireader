@@ -119,9 +119,10 @@ that scrolls 40 columns by 24 rows of the ordinary kernel log in Linux's
 standard 6x8 font until late init. An unhandled exception draws a solid
 fault bar below the text, so failures before userspace remain visible without
 attaching to the serial pads. The boot logo is placed on the physical right edge.
-Once init is running, two programs share the ordinary fbdev device:
-`/sbin/wr-console`, a 40-column terminal in the top 120 rows, and
-`/sbin/wr-keyboard`, a four-row touchscreen keyboard below it. The console
+Once init is running, two programs share the panel: `/sbin/wr-console`, a
+40-column terminal in the top 120 rows, which holds the panel as a DRM
+client, and `/sbin/wr-keyboard`, a four-row touchscreen keyboard below it,
+which sends its rows to the console. The console
 allocates a Unix98 PTY from `/dev/ptmx` and makes the PTY slave Hush's
 controlling terminal. The keyboard provides lowercase and shifted letters,
 `123`/`ABC` symbol pages, Control, Tab, Space, cursor keys, Backspace, and
@@ -138,8 +139,10 @@ interrupt (`^C`), search is Tab, and history is the up arrow. The power
 switch cannot cut power from Linux, so it is the sleep button: the keyboard
 suspends until the next touch when `wr.suspend` is set and blanks the panel
 otherwise. Only a press counts as activity, so the release of the key that
-blanked the machine does not wake it. Each program writes only its own rows
-through fbdev: the console its changed text rows, the keyboard its key bands. Packed glyph writes and overlap-safe framebuffer
+blanked the machine does not wake it. Each program changes only its own rows:
+the console writes its changed text rows into its `D1` dumb buffer, which
+the panel scans, and the keyboard sends its key bands over a local socket
+(`wr-panel.h`) for the console to write. Packed glyph writes and overlap-safe framebuffer
 row moves make scrolling cheap; bounded output frames are paced when they
 scroll so commands remain visibly animated instead of either repainting every
 byte or jumping directly to their final screen. Pacing never sits between a
@@ -277,9 +280,9 @@ when there is no launcher to return to.
 The display driver also owns the two controls that stop the panel: the
 controller's power-save field and the display-enable line, which is an ordinary
 GPIO descriptor taken from the same device tree as the SD slot's chip
-select. `FBIOBLANK`, which DRM's fbdev emulation turns into turning the
-display off and on, therefore works, and because no kernel console blanks the
-screen on a machine that runs from two AAA cells, the keyboard does it, since
+select. A CRTC switched off therefore turns the display off, and because
+no kernel console blanks the screen on a machine that runs from two AAA
+cells, the keyboard does it, through the console, which holds the CRTC, since
 the touchscreen is both what keeps the machine busy and what wakes it: it
 powers the panel down after `wr.blank=<seconds>` with no touch or button, and
 keeps the panel on for `wr.blank=0`. Idle means no input, as for the kernel's
@@ -295,18 +298,19 @@ framebuffer in the panel's own format, DRM's `D1` (a bit a pixel, the leftmost
 in the high bit, set for black), is scanned where it is, and a page flip is a
 register write. An `XRGB8888` or `RGB565` framebuffer, which is what modern
 clients draw, is converted where damaged into a `D1` image in internal video
-RAM, which is then scanned. DRM's fbdev emulation gives `/dev/fb0`, one-bit,
-`MONO01`, 32 bytes a line, as before, and scanned in place: without an MMU
-it has no way to see writes through `mmap` (deferred I/O needs page faults),
-so the panel shows its buffer itself, and the console runs on it unchanged.
-X is a DRM client of its own, its `D1` dumb buffer scanned in place. `patches/features/0035` teaches fbdev emulation the monochrome `D1` and
-`R1`; it knew only the indexed `C1`. Without fbcon nothing would set
-emulation's mode, so the driver shows it at probe, with the kernel's
-monochrome Tux, until the userspace console replaces it. The early renderer
-remains independent of all this so it can still report failures before
-platform drivers have probed. `CONFIG_FB_S1C33`, the fbdev driver it
-replaced, is still in the tree, and DRM with fbdev emulation adds about
-240 KB of kernel code.
+RAM, which is then scanned. There is no fbdev: no `/dev/fb0`, no fbdev
+emulation (the driver has the standard hooks, which compile away without
+it). Every program on the panel is a DRM client with a `D1` dumb buffer,
+scanned in place: the console (`console/wr-drm.h`: the connector, a dumb
+buffer added as `D1`, its mapping, and `SETCRTC` to show it or switch the
+CRTC off) and X's modesetting driver. Without an MMU nothing could see
+writes through a mapping, so a buffer that is scanned where it is, written
+directly, is the only kind that needs no telling. The console and X hand
+the panel over with the VT: the program leaving drops DRM master before it
+releases its VT, and the one arriving takes master and sets its buffer.
+Until the console sets its buffer the panel keeps what the early renderer
+drew, which is independent of all this so it can still report failures
+before platform drivers have probed.
 
 The card ROM and MBR load `kernel.elf` with the S1C33E07 still running from
 its 48 MHz OSC3 reset clock; the 60 MHz PLL setup normally belongs to Grifo,
@@ -864,8 +868,8 @@ includes `free`, `top`, `pstree`, `pgrep`, `pkill`, `pidof`, `pmap`, `lsof`,
 terminal settings. These are available commands, with no extra daemons
 started at boot.
 
-`wr-console` and `wr-keyboard` are the framebuffer frontend. They use only
-standard fbdev, evdev, uinput, Unix98 PTY, devpts, process, and TTY
+`wr-console` and `wr-keyboard` are the panel's frontend. They use only
+standard DRM, evdev, uinput, Unix98 PTY, devpts, process, socket and TTY
 interfaces; neither contains S1C33 register access or private kernel ABI
 (`wr.pmlog` reads the button ports through `/dev/mem` for its log). BusyBox
 init supervises both beside the serial recovery shell. The console's
@@ -1256,7 +1260,8 @@ default artifacts; `KEEP_LOG` retains the full boot log at the supplied path.
 The same regression requires the SD host to announce streamed HSDMA block reads, the
 DMA provider its polled channels, and the emulator to report nonzero HSDMA2 transmit and HSDMA3 receive
 activity. It also
-checks fbdev geometry, reads and rewrites the complete `/dev/fb0` image, and
+checks the panel through DRM (`wr-selftest`: a `D1` buffer of the panel's
+size written and read back, a mode set, the CRTC off and on), and
 requires the frontend to receive the scripted panel events from
 `/dev/input/event0`.
 

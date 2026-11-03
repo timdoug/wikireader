@@ -1,24 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* WikiReader userspace framebuffer terminal. */
 #include <fcntl.h>
-#include <linux/fb.h>
 #include <linux/kd.h>
 #include <linux/vt.h>
 #include <linux/input.h>
 #include <time.h>
 #include <poll.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
+#include "wr-drm.h"
 #include "wr-keymap.h"
 #include "wr-panel.h"
 
@@ -70,7 +73,10 @@ static int private_mode;
 static int terminal_fd = -1;	/* the PTY master, for replies */
 static unsigned int dirty_text_first = TEXT_ROWS;
 static unsigned int dirty_text_last;
-static int fb_fd;
+static struct wr_drm drm;
+static int panel_listen = -1;	/* the socket wr-keyboard connects to */
+static int panel_client = -1;
+static int panel_blanked;
 static int log_fd;
 /*
  * The panel belongs to whichever program holds the foreground VT.  The
@@ -148,26 +154,18 @@ static void note_ready(void)
 	}
 }
 
+/* Rows of the panel's copy into the buffer the panel scans. */
 static void write_rows(unsigned int first, unsigned int count)
 {
-	size_t offset = first * LCD_STRIDE;
-	size_t length = count * LCD_STRIDE;
-	size_t done = 0;
+	unsigned int y;
 
 	if (!count || first >= LCD_HEIGHT || vt_away)
 		return;
 	if (count > LCD_HEIGHT - first)
-		length = (LCD_HEIGHT - first) * LCD_STRIDE;
-	if (lseek(fb_fd, offset, SEEK_SET) < 0)
-		return;
-	while (done < length) {
-		ssize_t written = write(fb_fd, framebuffer + offset + done,
-					length - done);
-
-		if (written <= 0)
-			return;
-		done += written;
-	}
+		count = LCD_HEIGHT - first;
+	for (y = first; y < first + count; y++)
+		memcpy(drm.map + y * drm.pitch, framebuffer + y * LCD_STRIDE,
+		       LCD_STRIDE);
 }
 
 static void mark_text_row(unsigned int row)
@@ -967,23 +965,80 @@ static void vt_request(void)
 
 	while (read(vt_pipe[0], &byte, 1) == 1) {
 		if (byte == 'r' && !vt_away) {
+			/* DRM master goes before the VT, so that the next
+			   VT's program finds it free. */
 			vt_away = 1;
+			wr_drm_master(&drm, 0);
 			ioctl(vt_fd, VT_RELDISP, 1);
 			log_text("C33 console: panel handed to another VT\n");
 		} else if (byte == 'a' && vt_away) {
 			ioctl(vt_fd, VT_RELDISP, VT_ACKACQ);
 			vt_away = 0;
-			write_rows(0, TEXT_HEIGHT);
+			wr_drm_master(&drm, 1);
+			wr_drm_show(&drm, !panel_blanked);
+			write_rows(0, LCD_HEIGHT);
 			log_text("C33 console: panel back\n");
 		}
 	}
 }
 
+static void panel_open(void)
+{
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+
+	panel_listen = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK |
+			      SOCK_CLOEXEC, 0);
+	if (panel_listen < 0)
+		return;
+	memcpy(address.sun_path + 1, PANEL_SOCKET, strlen(PANEL_SOCKET));
+	if (bind(panel_listen, (struct sockaddr *)&address,
+		 offsetof(struct sockaddr_un, sun_path) + 1 +
+		 strlen(PANEL_SOCKET)) < 0 ||
+	    listen(panel_listen, 1) < 0) {
+		close(panel_listen);
+		panel_listen = -1;
+	}
+}
+
+/* wr-keyboard's rows, and its blanking, which on this panel is the CRTC
+   off. */
+static void panel_message(void)
+{
+	static uint8_t message[sizeof(struct panel_message) + LCD_BYTES];
+	const struct panel_message *header = (const void *)message;
+	ssize_t length = recv(panel_client, message, sizeof(message), 0);
+
+	if (length <= 0) {
+		if (length == 0 || errno != EAGAIN) {
+			close(panel_client);
+			panel_client = -1;
+		}
+		return;
+	}
+	if ((size_t)length < sizeof(*header))
+		return;
+	switch (header->type) {
+	case PANEL_ROWS:
+		if (header->first + header->count > LCD_HEIGHT ||
+		    (size_t)length != sizeof(*header) +
+		    (size_t)header->count * LCD_STRIDE)
+			return;
+		memcpy(framebuffer + header->first * LCD_STRIDE,
+		       message + sizeof(*header), header->count * LCD_STRIDE);
+		write_rows(header->first, header->count);
+		break;
+	case PANEL_BLANK:
+	case PANEL_UNBLANK:
+		panel_blanked = header->type == PANEL_BLANK;
+		if (!vt_away)
+			wr_drm_show(&drm, !panel_blanked);
+		break;
+	}
+}
+
 int main(void)
 {
-	struct fb_var_screeninfo variable;
-	struct fb_fix_screeninfo fixed;
-	struct pollfd poll_fds[3 + MAX_KEYBOARDS];
+	struct pollfd poll_fds[5 + MAX_KEYBOARDS];
 	struct input_event events[8];
 	int slave_fd;
 	int master_fd;
@@ -992,18 +1047,13 @@ int main(void)
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
-	fb_fd = open("/dev/fb0", O_RDWR);
-	if (fb_fd < 0 ||
-	    ioctl(fb_fd, FBIOGET_VSCREENINFO, &variable) < 0 ||
-	    ioctl(fb_fd, FBIOGET_FSCREENINFO, &fixed) < 0 ||
-	    variable.xres != LCD_WIDTH || variable.yres != LCD_HEIGHT ||
-	    variable.bits_per_pixel != 1 || fixed.line_length != LCD_STRIDE) {
+	if (wr_drm_open(&drm, "/dev/dri/card0") < 0 ||
+	    drm.width != LCD_WIDTH || drm.height != LCD_HEIGHT ||
+	    drm.pitch < LCD_STRIDE || wr_drm_show(&drm, 1) < 0) {
 		log_text("C33 userspace console: device setup FAILED\n");
 		return 1;
 	}
-	if (read(fb_fd, framebuffer, sizeof(framebuffer)) !=
-	    sizeof(framebuffer))
-		memset(framebuffer, 0, sizeof(framebuffer));
+	panel_open();
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
@@ -1025,7 +1075,7 @@ int main(void)
 		return 1;
 	}
 	flush_display();
-	log_text("C33 userspace console: fbdev + evdev + PTY shell ready\n");
+	log_text("C33 userspace console: DRM + evdev + PTY shell ready\n");
 	note_ready();
 	take_vt();
 
@@ -1033,6 +1083,8 @@ int main(void)
 		unsigned int poll_count = 1;
 		unsigned int vt_index = 0;
 		unsigned int inotify_index = 0;
+		unsigned int listen_index = 0;
+		unsigned int client_index = 0;
 		unsigned int first_keyboard;
 		unsigned int k;
 
@@ -1048,6 +1100,16 @@ int main(void)
 			poll_fds[poll_count].fd = inotify_fd;
 			poll_fds[poll_count++].events = POLLIN;
 		}
+		if (panel_listen >= 0) {
+			listen_index = poll_count;
+			poll_fds[poll_count].fd = panel_listen;
+			poll_fds[poll_count++].events = POLLIN;
+		}
+		if (panel_client >= 0) {
+			client_index = poll_count;
+			poll_fds[poll_count].fd = panel_client;
+			poll_fds[poll_count++].events = POLLIN;
+		}
 		first_keyboard = poll_count;
 		for (k = 0; k < keyboard_count; k++) {
 			poll_fds[poll_count].fd = keyboard_fds[k];
@@ -1057,6 +1119,20 @@ int main(void)
 			continue;
 		if (vt_index && (poll_fds[vt_index].revents & POLLIN))
 			vt_request();
+		if (client_index &&
+		    (poll_fds[client_index].revents & (POLLIN | POLLHUP | POLLERR)))
+			panel_message();
+		if (listen_index && (poll_fds[listen_index].revents & POLLIN)) {
+			int client = accept(panel_listen, NULL, NULL);
+
+			if (client >= 0) {
+				fcntl(client, F_SETFL, O_NONBLOCK);
+				fcntl(client, F_SETFD, FD_CLOEXEC);
+				if (panel_client >= 0)
+					close(panel_client);
+				panel_client = client;
+			}
+		}
 		/* Backwards, since dropping one moves the last into its place. */
 		for (k = keyboard_count; k-- > 0;) {
 			short revents = poll_fds[first_keyboard + k].revents;

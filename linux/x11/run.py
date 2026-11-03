@@ -71,7 +71,6 @@ while :; do
     sleep 1
 done
 sleep 1
-cat /dev/fb0 >/mnt/sd/x11.fb
 cat /mnt/sd/xdemo.txt
 echo XTERM DEMO PASS
 # The demo's xterm starts the on-screen keyboard aimed at itself; the taps
@@ -118,7 +117,7 @@ echo XKEYBOARD PASS
                         "--uart-start", "600000000", "--uart-gap", "200000"],
                        cwd=out, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=600, env=os.environ)
-    for name in ("xterm.txt", "xshell.txt", "xwin.txt", "x11.log", "xdemo.txt", "xdemo.log", "x11.fb"):
+    for name in ("xterm.txt", "xshell.txt", "xwin.txt", "x11.log", "xdemo.txt", "xdemo.log"):
         data = fat.read_file(out / "card.img", name)
         if data is not None:
             (out / name).write_bytes(data)
@@ -130,7 +129,6 @@ echo XKEYBOARD PASS
     if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL|XKEYBOARD FAIL", text):
         raise SystemExit(f"X11 regression failed; see {out / 'boot.log'}")
     assert (out / "xterm.txt").read_text().endswith("XTERM PTY PASS\n")
-    assert (out / "x11.fb").stat().st_size == 32 * 208
     print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, live shell after initial command")
     print("X11 passed: 5x8 font; xterm and xeyes side by side; session cleanup; default desktop")
     print("Keyboard passed: xvkbd typed \"touch /k\" into the demo's xterm, / from its 123 page")

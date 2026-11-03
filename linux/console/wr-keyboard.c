@@ -11,7 +11,8 @@
  * The panel's power is here too, since the touchscreen is both what keeps
  * the machine busy and what wakes it.  After wr.blank= seconds (from the
  * kernel command line, which the launcher takes from the card) with no touch
- * and no button the panel goes dark; after wr.suspend= the machine sleeps
+ * and no button the panel goes dark, by the console, which holds it through
+ * DRM and draws these rows too (wr-panel.h); after wr.suspend= the machine sleeps
  * until touched; the power switch, which cannot cut power from Linux, does
  * whichever is set.  Idle means no input, as for the kernel's own console
  * blanking.  While the panel is dark the buttons are grabbed, so that the
@@ -21,14 +22,16 @@
  * touches and stops its timers; when VT 1 comes back it repaints.
  */
 #include <fcntl.h>
-#include <linux/fb.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <poll.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -46,7 +49,7 @@ static const unsigned short special_keys[] = {
 	KEY_UP, KEY_DOWN, KEY_LEFTSHIFT, KEY_LEFTCTRL,
 };
 
-static int fb_fd = -1;
+static int panel_fd = -1;	/* wr-console's socket */
 static int log_fd;
 static int uinput_fd = -1;
 static int touch_fd = -1;
@@ -85,26 +88,33 @@ static long monotonic_seconds(void)
 	return now.tv_sec;
 }
 
+static int panel_send(const void *message, size_t length)
+{
+	if (panel_fd < 0)
+		return -1;
+	if (send(panel_fd, message, length, MSG_NOSIGNAL) == (ssize_t)length)
+		return 0;
+	close(panel_fd);
+	panel_fd = -1;
+	return -1;
+}
+
+/* Rows of the keyboard's copy to the console, which holds the panel. */
 static void write_rows(unsigned int first, unsigned int count)
 {
-	size_t offset = first * LCD_STRIDE;
-	size_t length = count * LCD_STRIDE;
-	size_t done = 0;
+	static uint8_t message[sizeof(struct panel_message) + LCD_BYTES];
+	struct panel_message *header = (void *)message;
 
 	if (!count || first >= LCD_HEIGHT || away)
 		return;
 	if (count > LCD_HEIGHT - first)
-		length = (LCD_HEIGHT - first) * LCD_STRIDE;
-	if (lseek(fb_fd, offset, SEEK_SET) < 0)
-		return;
-	while (done < length) {
-		ssize_t written = write(fb_fd, framebuffer + offset + done,
-					length - done);
-
-		if (written <= 0)
-			return;
-		done += written;
-	}
+		count = LCD_HEIGHT - first;
+	header->type = PANEL_ROWS;
+	header->first = first;
+	header->count = count;
+	memcpy(message + sizeof(*header), framebuffer + first * LCD_STRIDE,
+	       count * LCD_STRIDE);
+	panel_send(message, sizeof(*header) + count * LCD_STRIDE);
 }
 
 
@@ -373,9 +383,13 @@ static void grab_buttons(int grab)
  */
 static void set_display_blank(int blank)
 {
-	if (blank != display_blanked &&
-	    ioctl(fb_fd, FBIOBLANK,
-		  blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK) == 0) {
+	if (blank != display_blanked) {
+		struct panel_message message = {
+			.type = blank ? PANEL_BLANK : PANEL_UNBLANK,
+		};
+
+		/* A console not yet listening is told when it connects. */
+		panel_send(&message, sizeof(message));
 		display_blanked = blank;
 		log_text(blank ? "C33 display: blanked while idle\n"
 				: "C33 display: woken by touch\n");
@@ -542,10 +556,36 @@ static void touch_events(void)
 	}
 }
 
+/* Connect to the console if it is listening, and give it the keyboard's
+   rows and the panel's blanking. */
+static void panel_connect(void)
+{
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	int fd;
+
+	if (panel_fd >= 0)
+		return;
+	fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return;
+	memcpy(address.sun_path + 1, PANEL_SOCKET, strlen(PANEL_SOCKET));
+	if (connect(fd, (struct sockaddr *)&address,
+		    offsetof(struct sockaddr_un, sun_path) + 1 +
+		    strlen(PANEL_SOCKET)) < 0) {
+		close(fd);
+		return;
+	}
+	panel_fd = fd;
+	flush_keyboard();
+	if (display_blanked) {
+		struct panel_message message = { .type = PANEL_BLANK };
+
+		panel_send(&message, sizeof(message));
+	}
+}
+
 int main(void)
 {
-	struct fb_var_screeninfo variable;
-	struct fb_fix_screeninfo fixed;
 	struct pollfd poll_fds[2 + MAX_BUTTONS];
 	unsigned int poll_count = 0;
 	unsigned int k;
@@ -553,14 +593,9 @@ int main(void)
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
-	fb_fd = open("/dev/fb0", O_RDWR);
 	uinput_fd = create_soft_keyboard();
 	open_input_devices();
-	if (fb_fd < 0 || touch_fd < 0 || uinput_fd < 0 ||
-	    ioctl(fb_fd, FBIOGET_VSCREENINFO, &variable) < 0 ||
-	    ioctl(fb_fd, FBIOGET_FSCREENINFO, &fixed) < 0 ||
-	    variable.xres != LCD_WIDTH || variable.yres != LCD_HEIGHT ||
-	    variable.bits_per_pixel != 1 || fixed.line_length != LCD_STRIDE) {
+	if (touch_fd < 0 || uinput_fd < 0) {
 		log_text("C33 keyboard: device setup FAILED\n");
 		/* Respawning would only fail again, as fast as init can. */
 		for (;;)
@@ -571,7 +606,7 @@ int main(void)
 	check_active_vt();
 	read_timeouts();
 	idle_since = monotonic_seconds();
-	flush_keyboard();
+	panel_connect();
 
 	poll_fds[poll_count].fd = touch_fd;
 	poll_fds[poll_count++].events = POLLIN;
@@ -610,8 +645,12 @@ int main(void)
 			wait = -1;
 		else if (wait < 1)
 			wait = 1;
+		/* Until the console listens, look for it five times a second. */
+		if (panel_fd < 0 && (wait < 0 || wait > 200))
+			wait = 200;
 		if (poll(poll_fds, poll_count, wait) < 0)
 			continue;
+		panel_connect();
 		if (active_fd >= 0 &&
 		    (poll_fds[poll_count - 1].revents & (POLLPRI | POLLERR)))
 			check_active_vt();

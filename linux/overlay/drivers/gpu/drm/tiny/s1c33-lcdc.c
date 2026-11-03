@@ -8,15 +8,14 @@
  * internal video RAM or SDRAM, and its line offset in words) and switches it
  * on and off.  The panel's own format is DRM_FORMAT_D1: a bit a pixel, the
  * leftmost in a byte's high bit, 1 black.  A D1 framebuffer is scanned where
- * it is, so fbdev emulation's buffer, which programs write through mmap
- * with no way to say what changed on a machine without an MMU, is always on
- * the panel.  An XRGB8888 or RGB565 framebuffer, which is what modern
+ * it is, so what a client writes through its mapping, with no way to say
+ * what changed on a machine without an MMU, is on the panel as it is
+ * written.  An XRGB8888 or RGB565 framebuffer, which is what modern
  * clients draw, is converted where damaged into the controller's own D1
  * buffer in internal video RAM, which is then scanned.
  */
 #include <linux/gpio/consumer.h>
 #include <linux/io.h>
-#include <linux/linux_logo.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
@@ -29,7 +28,6 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_encoder.h>
 #include <drm/drm_fb_dma_helper.h>
-#include <drm/drm_fb_helper.h>
 #include <drm/drm_fbdev_dma.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
@@ -291,9 +289,10 @@ static const struct drm_connector_funcs s1c33_lcdc_connector_funcs = {
 };
 
 /*
- * Only a converted framebuffer reports damage.  fbdev emulation gives one
- * that does a shadow kept by deferred I/O, which needs page faults; a D1
- * one it maps as it is, which needs none.
+ * Only a converted framebuffer reports damage: a D1 one is scanned where it
+ * is, so its clients have nothing to report, and fbdev emulation, if built,
+ * maps it as it is rather than keeping a shadow by deferred I/O, which
+ * needs page faults.
  */
 static struct drm_framebuffer *
 s1c33_lcdc_fb_create(struct drm_device *drm, struct drm_file *file,
@@ -332,30 +331,6 @@ static const struct drm_driver s1c33_lcdc_driver = {
 	DRM_GEM_DMA_DRIVER_OPS_WITH_DUMB_CREATE(s1c33_lcdc_dumb_create),
 	DRM_FBDEV_DMA_DRIVER_OPS,
 };
-
-/*
- * The kernel's monochrome Tux on fbdev emulation's image, 16 rows down at the
- * low-address edge, which the panel's wiring puts at its physical right.
- */
-static bool s1c33_lcdc_show_logo(struct drm_device *drm)
-{
-	const struct linux_logo *logo = fb_find_logo(1);
-	struct fb_info *info = drm->fb_helper ? drm->fb_helper->info : NULL;
-	unsigned int stride, x, y;
-	u8 *screen;
-
-	if (!logo || logo->type != LINUX_LOGO_MONO || !info ||
-	    !info->screen_buffer || logo->width > S1C33_LCD_WIDTH ||
-	    16 + logo->height > S1C33_LCD_HEIGHT)
-		return false;
-	screen = info->screen_buffer;
-	stride = DIV_ROUND_UP(logo->width, 8);
-	for (y = 0; y < logo->height; y++)
-		for (x = 0; x < stride; x++)
-			screen[(16 + y) * info->fix.line_length + x] =
-				~logo->data[y * stride + x];
-	return true;
-}
 
 static int s1c33_lcdc_probe(struct platform_device *pdev)
 {
@@ -436,15 +411,7 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 		return ret;
 	platform_set_drvdata(pdev, drm);
 	drm_client_setup_with_fourcc(drm, DRM_FORMAT_D1);
-	/*
-	 * The panel is the boot display, so show fbdev emulation's image now:
-	 * without fbcon to set its mode, nothing else would until a program
-	 * did, and those that write /dev/fb0 directly never do.
-	 */
-	if (drm->fb_helper)
-		drm_fb_helper_restore_fbdev_mode_unlocked(drm->fb_helper, false);
-	dev_info(dev, "240x208 one-bit panel, D1 scanned in place, XRGB8888 and RGB565 converted%s\n",
-		 s1c33_lcdc_show_logo(drm) ? "; Tux logo shown" : "");
+	dev_info(dev, "240x208 one-bit panel, D1 scanned in place, XRGB8888 and RGB565 converted\n");
 	return 0;
 }
 

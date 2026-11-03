@@ -63,27 +63,3 @@ diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
 @@ -38,1 +38,2 @@
 +obj-$(CONFIG_SERIAL_S1C33)		+= s1c33-uart.o
  obj-$(CONFIG_SERIAL_ALTERA_JTAGUART)	+= altera_jtaguart.o
-diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
---- a/drivers/video/fbdev/Kconfig
-+++ b/drivers/video/fbdev/Kconfig
-@@ -47,1 +47,13 @@
-+config FB_S1C33
-+	bool "Epson S1C33 WikiReader framebuffer"
-+	depends on FB && (C33 || COMPILE_TEST)
-+	select FB_IOMEM_HELPERS
-+	select FB_CFB_REV_PIXELS_IN_BYTE
-+	select FB_PROVIDE_GET_FB_UNMAPPED_AREA
-+	help
-+	  Expose the monochrome LCD framebuffer configured by the WikiReader
-+	  loader through the standard Linux framebuffer interface.
-+	  Applications can access the display through the normal framebuffer
-+	  device without depending on architecture-private drawing routines.
-+
- config FB_HECUBA
-diff --git a/drivers/video/fbdev/Makefile b/drivers/video/fbdev/Makefile
---- a/drivers/video/fbdev/Makefile
-+++ b/drivers/video/fbdev/Makefile
-@@ -15,2 +15,3 @@
- # Hardware specific drivers go first
-+obj-$(CONFIG_FB_S1C33)            += s1c33fb.o
- obj-$(CONFIG_FB_AMIGA)            += amifb.o c2p_planar.o
