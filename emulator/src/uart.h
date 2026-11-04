@@ -23,6 +23,9 @@ struct uart {
 	size_t        capture_len;
 	char          trace_line[256];
 	size_t        trace_line_len;
+	const char   *wait_lines;             /* '|'-separated lines to see */
+	uint32_t      wait_seen;              /* one bit for each seen */
+	bool          wait_done;              /* every one of them printed */
 };
 
 void uart_attach(struct mem *m, struct uart *u, FILE *out);
@@ -35,6 +38,10 @@ void uart_reset(struct uart *u);
 bool uart_can_receive(const struct uart *u);
 bool uart_receive(struct uart *u, uint8_t byte);
 void uart_poll(struct uart *u);
+/* Watch the console for every one of LINES ('|'-separated, at most 32,
+   each a whole line), in any order; wait_done is set once all have been
+   printed. */
+void uart_wait_for_lines(struct uart *u, const char *lines);
 /* When a byte waiting to transmit empties the buffer, if one is waiting. */
 bool uart_deadline(const struct uart *u, uint64_t *at);
 

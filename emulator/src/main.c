@@ -63,6 +63,8 @@ static void usage(const char *p)
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
 		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
+		"  --type-after L1|L2...  start -K's cycle count once the\n"
+		"         console has printed each of these whole lines\n"
 		"  --keyboard reader|linux  which keyboard -K types on: the\n"
 		"         reader's (wiki.app, zim.app; the default) or Linux's\n"
 		"  -c F   attach FAT32 card image F\n"
@@ -346,6 +348,8 @@ int main(int argc, char **argv)
 	uint32_t boot_sp = 0;
 	const char *type_text = NULL;
 	unsigned long type_at = 0, type_gap = 6000000;
+	const char *type_after = NULL;	/* lines -K waits for */
+	bool type_armed = true;
 	size_t type_idx = 0; int type_phase = 0;
 	uint32_t watch = 0; bool watch_on = false;
 	uint32_t bp[8]; unsigned nbp = 0;
@@ -440,6 +444,10 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
 			limit = strtoul(argv[++i], NULL, 0);
 			limit_given = true;
+		}
+		else if (!strcmp(argv[i], "--type-after") && i + 1 < argc) {
+			type_after = argv[++i];
+			type_armed = false;
 		}
 		else if (!strcmp(argv[i], "--keyboard") && i + 1 < argc) {
 			const char *k = argv[++i];
@@ -634,6 +642,8 @@ int main(int argc, char **argv)
 	struct itc itc;
 	itc_attach(&mem, &itc);
 	uart.itc = &itc;
+	if (type_after)
+		uart_wait_for_lines(&uart, type_after);
 	if (uart_input) {
 		uart_fd = !strcmp(uart_input, "-") ? STDIN_FILENO :
 			open(uart_input, O_RDONLY | O_NONBLOCK);
@@ -940,8 +950,19 @@ int main(int argc, char **argv)
 		 * Scripted typing: each key is a press then a release, spaced
 		 * far enough apart for the application to consume the events.
 		 */
-		if (script_armed && type_text && cpu.cycles >= type_at &&
-		    type_text[type_idx]) {
+		/*
+		 * --type-after: the typing starts when the guest has said it
+		 * can take keys, as someone waits for the prompt, not at a
+		 * cycle that a slower build would not have reached it by.
+		 */
+		if (!type_armed && uart.wait_done) {
+			type_armed = true;
+			type_at += cpu.cycles;
+			fprintf(stderr, "  [console ready at %llu, typing rebased]\n",
+				(unsigned long long)cpu.cycles);
+		}
+		if (script_armed && type_armed && type_text &&
+		    cpu.cycles >= type_at && type_text[type_idx]) {
 			unsigned long due = type_at + type_idx * type_gap +
 					    (type_phase ? type_gap / 2 : 0);
 			if (cpu.cycles >= due) {
@@ -1437,8 +1458,8 @@ int main(int argc, char **argv)
 			 */
 			if (!script_armed && next > cpu.cycles + 1000000)
 				next = cpu.cycles + 1000000;
-			if (script_armed && type_text && type_text[type_idx] &&
-			    type_at < next)
+			if (script_armed && type_armed && type_text &&
+			    type_text[type_idx] && type_at < next)
 				next = type_at;
 			/*
 			 * Every scripted event still to come, releases

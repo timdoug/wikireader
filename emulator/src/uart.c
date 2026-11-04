@@ -94,11 +94,38 @@ static bool uart_trace_matches(const char *expected, const char *line)
 	return false;
 }
 
+void uart_wait_for_lines(struct uart *u, const char *lines)
+{
+	u->wait_lines = lines;
+	u->wait_seen = 0;
+	u->wait_done = false;
+}
+
+/* Mark the waited-for line LINE equals, and note when all are seen. */
+static void uart_wait_line(struct uart *u, const char *line)
+{
+	const char *expected = u->wait_lines;
+	uint32_t all = 0;
+
+	for (unsigned k = 0; expected && k < 32; k++) {
+		const char *separator = strchr(expected, '|');
+		size_t length = separator ? (size_t)(separator - expected) :
+			strlen(expected);
+
+		all |= 1u << k;
+		if (strlen(line) == length && !memcmp(line, expected, length))
+			u->wait_seen |= 1u << k;
+		expected = separator ? separator + 1 : NULL;
+	}
+	u->wait_done = u->wait_seen == all;
+}
+
 static void uart_trace_line(struct uart *u, uint8_t byte)
 {
 	const char *expected = getenv("WREMU_UART_TRACE");
+	bool waiting = u->wait_lines && !u->wait_done;
 
-	if (!expected)
+	if (!expected && !waiting)
 		return;
 	if (byte == '\r')
 		return;
@@ -108,10 +135,12 @@ static void uart_trace_line(struct uart *u, uint8_t byte)
 		return;
 	}
 	u->trace_line[u->trace_line_len] = '\0';
-	if (uart_trace_matches(expected, u->trace_line))
+	if (expected && uart_trace_matches(expected, u->trace_line))
 		fprintf(stderr, "  [uart line at MCLK %llu] %s\n",
 			u->clock ? (unsigned long long)*u->clock : 0,
 			u->trace_line);
+	if (waiting)
+		uart_wait_line(u, u->trace_line);
 	u->trace_line_len = 0;
 }
 
