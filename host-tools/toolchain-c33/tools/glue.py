@@ -539,7 +539,8 @@ def xfail_line(s):
     return ''.join(out)
 
 
-for f in ('comm-data5', 'ehdr_start', 'ehdr_start-shared', 'pr23591', 'pr23648'):
+for f in ('comm-data5', 'ehdr_start', 'ehdr_start-shared', 'ehdr_start-weak', 'pr23591',
+          'pr23648'):
     edit(f'ld/testsuite/ld-elf/{f}.d', xfail_line)
 for f in ('pr19167', 'start', 'start3', 'start4'):
     edit(f'ld/testsuite/ld-gc/{f}.d', xfail_line)
