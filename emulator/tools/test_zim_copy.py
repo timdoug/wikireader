@@ -29,7 +29,7 @@ subprocess.run([str(cc),'-nostdlib','-mc33pe',
  '-Wl,-T,'+str(ROOT/'samo-lib/grifo/lds/application.lds'),
  '-o',str(elf),*map(str,objects),str(ROOT/'samo-lib/grifo/lib/libgrifo.a'),
  str(ROOT/'samo-lib/mini-libc/lib/libc.a'),'-lgcc'],check=True)
-files={n:(ROOT/'build/wr128/hsdma-tx/hsdma-boot'/n).read_bytes() for n in ('init.app','zim.ico')}
+files={'init.app':(ROOT/'samo-lib/grifo/applications/init/init.app').read_bytes(),'zim.ico':(ROOT/'zim/zim.ico').read_bytes()}
 files.update({'kernel.elf':(ROOT/'samo-lib/grifo/grifo.elf').read_bytes(),'init.ini':b'zim.ico : copytest.app\n','copytest.app':elf.read_bytes()})
 img=OUT/'copy-test.img'; runner.make_image(img,files)
 exe=ROOT/'emulator/wremu'
