@@ -243,11 +243,16 @@ taps and button presses.
 
 `zim/make-card-image` (macOS) writes a card with two partitions: FAT32 for the
 boot files and exFAT for the archives. `zim/README.md` describes the layout
-and the launcher. Add `--nuttx` to put `nuttx.app` on the menu.
+and the launcher. `--doom WAD` and `--gameboy ROM` add Doom and the Game Boy
+with their game data, `--nuttx` adds NuttX, and `--linux` adds native Linux
+with its system image, the card's `bin` folder and the test programs its `t`
+runs (`linux/card/tests.list`).
 
-`install-card.sh` updates an existing card. Mount the boot partition, and the
-script copies the built applications and icons over, updates their lines in
-`init.ini`, then remounts the card and checks every file again.
+`install-card.sh` updates NuttX and Linux on an existing card. Mount the boot
+partition, and the script copies the built applications, icons, `linux.img`
+(in place, so it keeps its clusters), the card's `bin` folder and the test
+programs over, adds any missing lines to `init.ini`, then remounts the card
+and checks every file again.
 
 ## Classic image build
 

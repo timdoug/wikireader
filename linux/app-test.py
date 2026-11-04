@@ -194,30 +194,12 @@ def main():
     launcher = require(root / "samo-lib/grifo/applications/init/init.app")
     app = require(args.kernel)
     system = require(args.rootfs)
-    pthread_test = require(root / "linux/artifacts/pthread-test")
-    pthread_static = require(root / "linux/artifacts/pthread-test-static")
-    signal_test = require(root / "linux/artifacts/signal-test")
-    relocation_test = require(root / "linux/artifacts/relocation-test")
-    origin_rpath = require(root / "linux/artifacts/origin-rpath")
-    origin_runpath = require(root / "linux/artifacts/origin-runpath")
-    origin_library = require(root / "linux/artifacts/origin.so")
-    exec_stack_test = require(root / "linux/artifacts/exec-stack-test")
-    devmem_test = require(root / "linux/artifacts/devmem-test")
-    breakpoint_test = require(root / "linux/artifacts/breakpoint-test")
-    glob_test = require(root / "linux/artifacts/glob-test")
-    time64_test = require(root / "linux/artifacts/time64-test")
-    malloc_test = require(root / "linux/artifacts/malloc-test")
-    cxx_test = require(root / "linux/artifacts/cxx-test")
-    atomic_test = require(root / "linux/artifacts/atomic-test")
-    ipc_test = require(root / "linux/artifacts/ipc-test")
-    native_tls = require(root / "linux/artifacts/nptl-test")
-    tls_library = require(root / "linux/artifacts/tls-library.so")
-    tls_late = require(root / "linux/artifacts/tls-late-library.so")
-    tls_exec = require(root / "linux/artifacts/tls-exec-test")
-    tls_suspend = require(root / "linux/artifacts/tls-suspend-test")
-    unwind_library = require(root / "linux/artifacts/unwind-library.so")
-    unwind_legacy = require(root / "linux/artifacts/unwind-legacy-library.so")
-    runtime_bench = require(root / "linux/artifacts/runtime-bench")
+    # The programs t runs, as the device card carries them.
+    tests = {}
+    for line in (root / "linux/card/tests.list").read_text().splitlines():
+        if line and not line.startswith("#"):
+            name, src = line.split()
+            tests[name] = require(root / "linux/artifacts" / src).read_bytes()
     card_test = require(root / "linux/card/bin/t")
     icon = require(root / "linux/artifacts/linux.ico")
     make_flash = require(root / "samo-lib/mbr/make-flash.py")
@@ -238,30 +220,7 @@ def main():
             "linux.ico": icon.read_bytes(),
             # The thread, atomic and C++ tests are not in the system image, so
             # they ride here.
-            "pthtest.bin": pthread_test.read_bytes(),
-            "pthstat.bin": pthread_static.read_bytes(),
-            "sigtest.bin": signal_test.read_bytes(),
-            "reloc.bin": relocation_test.read_bytes(),
-            "origr.bin": origin_rpath.read_bytes(),
-            "orign.bin": origin_runpath.read_bytes(),
-            "origin.so": origin_library.read_bytes(),
-            "execstk.bin": exec_stack_test.read_bytes(),
-            "devmem.bin": devmem_test.read_bytes(),
-            "bp.bin": breakpoint_test.read_bytes(),
-            "glob.bin": glob_test.read_bytes(),
-            "time64.bin": time64_test.read_bytes(),
-            "malloc.bin": malloc_test.read_bytes(),
-            "cxxtest.bin": cxx_test.read_bytes(),
-            "atomtest.bin": atomic_test.read_bytes(),
-            "ipctest.bin": ipc_test.read_bytes(),
-            "nptl.bin": native_tls.read_bytes(),
-            "tlslib.so": tls_library.read_bytes(),
-            "tlslate.so": tls_late.read_bytes(),
-            "tlsexec.bin": tls_exec.read_bytes(),
-            "tlssusp.bin": tls_suspend.read_bytes(),
-            "unwind.so": unwind_library.read_bytes(),
-            "unwind0.so": unwind_legacy.read_bytes(),
-            "bench.bin": runtime_bench.read_bytes(),
+            **tests,
             "t.sh": card_test.read_bytes(),
             # A second entry makes init.app draw the menu instead of chaining.
             # The arguments are the kernel command line: the launcher is the

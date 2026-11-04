@@ -48,10 +48,8 @@ for a scripted run.
 The launcher only draws the panel for two entries or more; given one it
 chains straight into it, which is why the card carries both.
 
-`../run-launcher.py` is the same boot with every application the tree
-builds -- Kiwix, DOOM, NuttX and both of these -- which is the panel the
-SD card in `../install-card.sh` produces. Row pitch is 68 pixels, so the
-second row's centres are y = 104.
+These two entries are not on the device's card, which runs Linux natively;
+`../install-card.sh` takes them off a card that still has them.
 
 ## Linux directly
 
@@ -217,9 +215,8 @@ its table beside the image it measured — `rvbench.bin` gives
 than appending, so the file always describes the run that just finished.
 The panel gets the summary line only; it is 40 columns and the table is
 wider. Passing `hold` after the image name leaves that summary on screen
-until a key is pressed, which is how the card entry in `install-card.sh`
-is written: the run takes under two seconds on the device, and without it
-the numbers are gone before you can read them. In the emulator the hold
+until a key is pressed: the run takes under two seconds on the device, and
+without it the numbers are gone before you can read them. In the emulator the hold
 stays off, because the wait would be minutes of modelled time for a number
 already in the log.
 

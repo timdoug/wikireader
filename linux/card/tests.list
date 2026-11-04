@@ -1,0 +1,27 @@
+# The programs and libraries linux/card/bin/t and app-test.py run from the
+# card's root (/mnt/sd, also t's LD_LIBRARY_PATH): the name on the card, an
+# 8.3 name, and the build output in linux/artifacts that it is.
+pthtest.bin	pthread-test
+pthstat.bin	pthread-test-static
+sigtest.bin	signal-test
+reloc.bin	relocation-test
+origr.bin	origin-rpath
+orign.bin	origin-runpath
+origin.so	origin.so
+execstk.bin	exec-stack-test
+devmem.bin	devmem-test
+bp.bin	breakpoint-test
+glob.bin	glob-test
+time64.bin	time64-test
+malloc.bin	malloc-test
+cxxtest.bin	cxx-test
+atomtest.bin	atomic-test
+ipctest.bin	ipc-test
+nptl.bin	nptl-test
+tlslib.so	tls-library.so
+tlslate.so	tls-late-library.so
+tlsexec.bin	tls-exec-test
+tlssusp.bin	tls-suspend-test
+unwind.so	unwind-library.so
+unwind0.so	unwind-legacy-library.so
+bench.bin	runtime-bench

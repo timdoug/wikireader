@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Boot the emulator to the icon launcher with everything installed.
 
-The screen equivalent of install-card.sh: it puts the same applications and
-icons on a disposable card image and boots the real chain -- FLASH loader,
+The screen equivalent of a zim/make-card-image card: it puts the applications
+the tree builds, with their icons, on a disposable card image and boots the real chain -- FLASH loader,
 kernel.elf, init.app -- so what you see is what the device shows.  Entries
-whose application is not built are left out rather than shown dead.
+whose application is not built are left out rather than shown dead.  Rows
+of icons are 68 pixels apart, so the second row's centres are y = 104.
 
   python3 run-launcher.py            a window; press power, then tap an icon
   python3 run-launcher.py --headless run without SDL and write screen.pgm
@@ -23,15 +24,13 @@ import run as harness                                  # its FAT32 card builder
 ENTRIES = [
     ('zim',     'zim/zim.app',       'zim/zim.ico',     'started-from-init'),
     ('doom',    'doom/doom.app',     'doom/doom.ico',   '-wrbench'),
+    ('gameboy', 'gameboy/gameboy.app', 'gameboy/gameboy.ico', ''),
     ('nuttx',   'nuttx/nuttx.app',   'nuttx/nuttx.ico', ''),
-    ('riscv',   'riscv/riscv.app',   'riscv/riscv.ico', 'rvbench.bin hold'),
-    ('rvlinux', None,                'riscv/rvlinux.ico', 'rvlinux.bin'),
+    ('linux',   'linux/artifacts/linux.app', 'linux/artifacts/linux.ico', ''),
 ]
 # extra payloads an entry needs on the card
 PAYLOAD = {
-    'riscv':   [('RVBENCH.BIN', 'riscv/build/rvbench.bin')],
-    'rvlinux': [('RVLINUX.BIN', 'riscv/linux/Image'),
-                ('RVLINUX.DTB', 'riscv/linux/wr-sh.dtb')],
+    'linux': [('LINUX.IMG', 'linux/artifacts/linux.img')],
 }
 
 
@@ -49,17 +48,14 @@ def main():
     }
     lines, shown = [], []
     for name, app, icon, arguments in ENTRIES:
-        needed = [p for p in ([app] if app else []) + [icon]
-                  + [src for _, src in PAYLOAD.get(name, [])]]
+        needed = [app, icon] + [src for _, src in PAYLOAD.get(name, [])]
         if any(not (ROOT / p).exists() for p in needed):
             continue
-        if app:
-            files[f'{name.upper()[:8]}.APP'] = (ROOT / app).read_bytes()
+        files[f'{name.upper()[:8]}.APP'] = (ROOT / app).read_bytes()
         files[f'{name.upper()[:8]}.ICO'] = (ROOT / icon).read_bytes()
         for card_name, src in PAYLOAD.get(name, []):
             files[card_name] = (ROOT / src).read_bytes()
-        runs = name if app else ENTRIES[3][0]        # rvlinux runs riscv.app
-        lines.append(f'{name}.ico : {runs}.app {arguments}'.rstrip())
+        lines.append(f'{name}.ico : {name}.app {arguments}'.rstrip())
         shown.append(name)
     files['INIT.INI'] = ('\n'.join(lines) + '\n').encode()
 

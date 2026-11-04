@@ -6,32 +6,42 @@ set -eu
 usage()
 {
 	cat <<EOF
-usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... [--sparrow FILE] [--nuttx] [--linux] ZIM_FILE...
+usage: $(basename "$0") OUTPUT.dmg [--wiki DIR]... [--sparrow FILE] [--doom WAD]
+           [--gameboy ROM]... [--nuttx] [--linux] ZIM_FILE...
        $(basename "$0") ZIM_FILE OUTPUT.dmg
 
 Create an MBR disk image with:
-  partition 1: 64 MiB FAT32 boot volume with the stock card contents plus
-               zim.app and its icon; init.ini lists zim.app and wiki.app,
-               so the launcher offers both at power on
+  partition 1: FAT32 boot volume with the stock card's fonts and files,
+               zim.app and its icon, and the applications asked for below;
+               init.ini lists each in the launcher
   partition 2: exFAT volume containing every ZIM_FILE under its own name
 
 --wiki DIR copies a native WikiReader data set (a folder such as enpedia or
 enquote holding wiki.idx, wiki.fnd, wiki*.dat, ...) onto the boot volume,
-which grows to hold it, so the stock wiki.app in the launcher has something to
-open.  The folder name must be one listed in ROOT_IMAGE/wiki.inf.
+which grows to hold it, and puts wiki.app, which reads it, in the launcher.
+The folder name must be one listed in ROOT_IMAGE/wiki.inf.  Without it the
+card has no wiki.app.
 
 With several archives the reader offers a choice through the keyboard's globe
 key and remembers the selection.
 
 --sparrow FILE installs a generated question index as sparrow.dat on exFAT.
 
+--doom WAD adds doom.app with that IWAD, under its standard name
+(doom1.wad, doom.wad, ...) in a doom folder.  Build it with "make doom".
+
+--gameboy ROM, once for each game, adds gameboy.app with the ROMs (.gb or
+.gbc) in a gameboy folder.  Build it with "make gameboy".
+
 --nuttx adds nuttx.app to the launcher: NuttX with a shell, an editor and a C
 compiler on the device itself.  Build it with "make nuttx" first.  It cannot
 read the card, so it does not need one, and it keeps the machine until
 "poweroff" or "reboot" stops it.
 
---linux adds native C33 Linux to the launcher.  Build it with
-"make -C linux build" first.  Linux takes over the machine until poweroff or
+--linux adds native C33 Linux to the launcher, with its system image
+(linux.img), the card's bin folder, and the test programs bin/t runs
+(linux/card/tests.list).  Build it with "make -C linux build"
+first.  Linux takes over the machine until poweroff or
 reboot; reboot returns through Grifo and starts the launcher again.
 
 The current GCC 16 Grifo kernel, init application, and zim.app must already
@@ -51,8 +61,34 @@ native_dirs=
 native_bytes=0
 zim_files=
 sparrow_data=
+doom_wad=
+gameboy_roms=
+app_bytes=0
 for arg in "$@"; do
-	if [ -n "${want_sparrow:-}" ]; then
+	if [ -n "${want_wad:-}" ]; then
+		[ -f "$arg" ] || { echo "error: Doom IWAD not found: $arg" >&2; exit 2; }
+		case $(basename "$arg" | tr 'A-Z' 'a-z') in
+		doom1.wad|doom.wad|doomu.wad|doom2.wad|tnt.wad|plutonia.wad) ;;
+		*) echo "error: keep the IWAD's standard name, e.g. doom1.wad: $arg" >&2; exit 2 ;;
+		esac
+		doom_wad=$arg
+		app_bytes=$(( app_bytes + $(stat -f %z "$arg") ))
+		want_wad=
+	elif [ -n "${want_rom:-}" ]; then
+		[ -f "$arg" ] || { echo "error: Game Boy ROM not found: $arg" >&2; exit 2; }
+		case $arg in
+		*.gb|*.gbc|*.GB|*.GBC) ;;
+		*) echo "error: a Game Boy ROM ends in .gb or .gbc: $arg" >&2; exit 2 ;;
+		esac
+		gameboy_roms="${gameboy_roms}${arg}
+"
+		app_bytes=$(( app_bytes + $(stat -f %z "$arg") ))
+		want_rom=
+	elif [ "$arg" = "--doom" ]; then
+		want_wad=1
+	elif [ "$arg" = "--gameboy" ]; then
+		want_rom=1
+	elif [ -n "${want_sparrow:-}" ]; then
 		[ -f "$arg" ] || { echo "error: Sparrow index not found: $arg" >&2; exit 2; }
 		sparrow_data=$arg
 		want_sparrow=
@@ -81,6 +117,8 @@ for arg in "$@"; do
 done
 [ -z "${want_dir:-}" ] || usage 2
 [ -z "${want_sparrow:-}" ] || usage 2
+[ -z "${want_wad:-}" ] || usage 2
+[ -z "${want_rom:-}" ] || usage 2
 set --
 old_ifs=$IFS
 IFS='
@@ -100,6 +138,13 @@ nuttx_app="$root_dir/nuttx/nuttx.app"
 nuttx_icon="$root_dir/nuttx/nuttx.ico"
 linux_app="$root_dir/linux/artifacts/linux.app"
 linux_icon="$root_dir/linux/artifacts/linux.ico"
+linux_image="$root_dir/linux/artifacts/linux.img"
+doom_app="$root_dir/doom/doom.app"
+doom_icon="$root_dir/doom/doom.ico"
+gameboy_app="$root_dir/gameboy/gameboy.app"
+gameboy_icon="$root_dir/gameboy/gameboy.ico"
+linux_bin="$root_dir/linux/card/bin"
+linux_tests="$root_dir/linux/card/tests.list"
 nls="$root_dir/XML-Licenses/en/wiki.nls"
 
 case "$output" in
@@ -112,8 +157,10 @@ for zim_file in "$@"; do
 done
 [ ! -e "$output" ] || { echo "error: output already exists: $output" >&2; exit 2; }
 required_files="$kernel $init_app $zim_app $zim_icon $nls"
+[ -z "$doom_wad" ] || required_files="$required_files $doom_app $doom_icon"
+[ -z "$gameboy_roms" ] || required_files="$required_files $gameboy_app $gameboy_icon"
 [ -z "${want_nuttx:-}" ] || required_files="$required_files $nuttx_app $nuttx_icon"
-[ -z "${want_linux:-}" ] || required_files="$required_files $linux_app $linux_icon"
+[ -z "${want_linux:-}" ] || required_files="$required_files $linux_app $linux_icon $linux_image"
 for required in $required_files; do
 	[ -f "$required" ] || {
 		echo "error: required build output not found: $required" >&2
@@ -139,7 +186,8 @@ done
 # sets.  The floor is 320 MiB rather than the 64 the contents need: FAT32
 # wants 65525 clusters, and the volume is formatted below with 4 KiB ones
 # so that reads are not clipped to a single sector.
-boot_mib=$(( 320 + (native_bytes + native_bytes / 20 + 1024 * 1024 - 1) / (1024 * 1024) ))
+extra_bytes=$(( native_bytes + app_bytes ))
+boot_mib=$(( 320 + (extra_bytes + extra_bytes / 20 + 1024 * 1024 - 1) / (1024 * 1024) ))
 # Add ample exFAT metadata and copy slack for the archives.
 image_mib=$(( boot_mib + (zim_bytes + 192 * 1024 * 1024 + 1024 * 1024 - 1) / (1024 * 1024) ))
 boot_label="WRBOOT$$"
@@ -204,33 +252,73 @@ content_mount=$(diskutil info "${device}s2" | sed -n 's/^ *Mount Point: *//p')
 [ -d "$boot_mount" ] || { echo "error: boot volume did not mount" >&2; exit 1; }
 [ -d "$content_mount" ] || { echo "error: content volume did not mount" >&2; exit 1; }
 
+# Linux mounts its system from linux.img, and every read into it walks the
+# file's FAT chain: written first onto the fresh volume, its clusters are
+# one run.
+if [ -n "${want_linux:-}" ]; then
+	echo "Installing linux.img..."
+	cp "$linux_image" "$boot_mount/linux.img"
+fi
 echo "Installing firmware..."
 cp -R "$root_dir/ROOT_IMAGE/." "$boot_mount/"
 cp "$kernel" "$boot_mount/kernel.elf"
 cp "$init_app" "$boot_mount/init.app"
-# Prefer a wiki.app built from this tree, which matches the kernel; the
-# ROOT_IMAGE copy is the 2019 release build.
-[ ! -f "$root_dir/wiki/wiki.app" ] || cp "$root_dir/wiki/wiki.app" "$boot_mount/wiki.app"
+# The reader keeps the stock fonts and wiki.inf; wiki.app, which reads the
+# native data sets, stays only for a card carrying one, built from this tree
+# to match the kernel (the ROOT_IMAGE copy is the 2019 release build).
+if [ -n "$native_dirs" ] && [ -f "$root_dir/wiki/wiki.app" ]; then
+	cp "$root_dir/wiki/wiki.app" "$boot_mount/wiki.app"
+elif [ -z "$native_dirs" ]; then
+	rm -f "$boot_mount/wiki.app" "$boot_mount/wiki.app.old" \
+		"$boot_mount/wiki.ico" "$boot_mount/wiki.gdb-index"
+fi
 cp "$zim_app" "$boot_mount/zim.app"
 cp "$zim_icon" "$boot_mount/zim.ico"
 mkdir -p "$boot_mount/zim"
 cp "$nls" "$boot_mount/zim/wiki.nls"
-# Two entries make init.app show its icon menu at power on; the stock
-# wiki.app stays selectable for cards that also carry its data set.  Delete
-# the wiki.app line for an unattended boot straight into the reader.
-printf '%s\n' 'zim.ico : zim.app started-from-init' \
-	'wiki.ico : wiki.app started-from-init' > "$boot_mount/init.ini"
+# Two entries or more make init.app show its icon menu at power on; with
+# the reader alone it starts straight into it.  The reader is first, in the
+# menu position people know.
+echo 'zim.ico : zim.app started-from-init' > "$boot_mount/init.ini"
+[ -z "$native_dirs" ] ||
+	echo 'wiki.ico : wiki.app started-from-init' >> "$boot_mount/init.ini"
+if [ -n "$doom_wad" ]; then
+	echo "Installing doom.app..."
+	cp "$doom_app" "$boot_mount/doom.app"
+	cp "$doom_icon" "$boot_mount/doom.ico"
+	mkdir -p "$boot_mount/doom"
+	cp "$doom_wad" "$boot_mount/doom/$(basename "$doom_wad" | tr 'A-Z' 'a-z')"
+	echo 'doom.ico : doom.app' >> "$boot_mount/init.ini"
+fi
+if [ -n "$gameboy_roms" ]; then
+	echo "Installing gameboy.app..."
+	cp "$gameboy_app" "$boot_mount/gameboy.app"
+	cp "$gameboy_icon" "$boot_mount/gameboy.ico"
+	mkdir -p "$boot_mount/gameboy"
+	IFS='
+'
+	for rom in $gameboy_roms; do
+		cp "$rom" "$boot_mount/gameboy/$(basename "$rom")"
+	done
+	IFS=$old_ifs
+	echo 'gameboy.ico : gameboy.app' >> "$boot_mount/init.ini"
+fi
 if [ -n "${want_nuttx:-}" ]; then
 	echo "Installing nuttx.app..."
 	cp "$nuttx_app" "$boot_mount/nuttx.app"
 	cp "$nuttx_icon" "$boot_mount/nuttx.ico"
-	# Third, so that the reader stays in the menu position people know.
 	echo 'nuttx.ico : nuttx.app started-from-init' >> "$boot_mount/init.ini"
 fi
 if [ -n "${want_linux:-}" ]; then
 	echo "Installing linux.app..."
 	cp "$linux_app" "$boot_mount/linux.app"
 	cp "$linux_icon" "$boot_mount/linux.ico"
+	# The console shell's PATH ends in /mnt/sd/bin; bin/t runs the programs
+	# tests.list names from the card's root.
+	cp -R "$linux_bin" "$boot_mount/bin"
+	grep -v '^#' "$linux_tests" | while read -r name src; do
+		cp "$root_dir/linux/artifacts/$src" "$boot_mount/$name"
+	done
 	echo 'linux.ico : linux.app started-from-init' >> "$boot_mount/init.ini"
 fi
 
@@ -255,6 +343,15 @@ for zim_file in "$@"; do
 	cp "$zim_file" "$content_mount/$(basename "$zim_file")"
 done
 [ -z "$sparrow_data" ] || cp "$sparrow_data" "$content_mount/sparrow.dat"
+# cp leaves macOS's AppleDouble ._ files beside anything with extended
+# attributes, and a mounted volume gets Spotlight's and fseventsd's folders;
+# none of it is the card's, and these markers keep the latter off.
+for mount in "$boot_mount" "$content_mount"; do
+	find "$mount" -name '._*' -type f -delete
+	rm -rf "$mount/.Spotlight-V100" "$mount/.fseventsd"
+	mkdir "$mount/.fseventsd"
+	touch "$mount/.fseventsd/no_log" "$mount/.metadata_never_index"
+done
 sync
 
 detach_image
