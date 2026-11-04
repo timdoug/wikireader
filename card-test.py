@@ -9,6 +9,7 @@ launcher, then driven on the panel:
   doom     waits for the engine's ready line
   gameboy  starts the third game on its list
   nuttx    waits for the shell
+  spibench waits for its last case (a calibration run, when on a card)
   linux    types t, then check, on the panel's keyboard and reads
            thread.txt and check.txt back off the card
 
@@ -129,6 +130,7 @@ def test_entry(image, flash, out, app, tap):
             'doom': ([], 1500000000, 'Doom ready:'),
             'gameboy': (['-T', '120,101,1000000000'], 2500000000, None),
             'nuttx': ([], 2500000000, 'WIKIREADER_TERMINAL_READY'),
+            'spibench': ([], 40000000000, 'END SPIBENCH'),
         }.get(app, ([], 2000000000, None))
         extra, cycles, ready = script
         log, _ = run(image, flash, out, app, tap, extra, cycles)

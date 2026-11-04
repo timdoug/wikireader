@@ -80,6 +80,75 @@ LOOP(moves_a0, ".fastcode", MOVES)
    from SDRAM. */
 LOOP(moves_sdram, ".text.spibench_sdram", MOVES)
 
+/* The Linux card driver's check, sd_unpack_crc(), a word a pass: a load
+ * from the stream, the CRC-ITU-T of its four bytes from tables in A0 RAM,
+ * and the word swapped into another buffer, in its C, from A0 RAM as the
+ * kernel runs it.  lookup4 is the four table loads alone. */
+static uint16_t crc_tables[4 * 256] __attribute__((section(".fastbss")));
+static volatile uint32_t crc_sink;
+
+static void crc_tables_init(void)
+{
+	uint16_t *t = crc_tables;
+	unsigned i, v;
+
+	for (i = 0; i < 256; i++) {
+		uint16_t c = i << 8;
+		for (v = 0; v < 8; v++)
+			c = c & 0x8000 ? c << 1 ^ 0x1021 : c << 1;
+		t[i] = c;
+	}
+	for (i = 256; i < 4 * 256; i++)
+		t[i] = t[i - 256] << 8 ^ t[t[i - 256] >> 8];
+}
+
+static unsigned long __attribute__((noinline, section(".fastcode")))
+crc(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
+    uint32_t *p, uint32_t *q)
+{
+	const uint16_t *t0 = crc_tables, *t1 = t0 + 256;
+	const uint16_t *t2 = t0 + 512, *t3 = t0 + 768;
+	unsigned long left = limit, wrap = ~REGION;
+	uint16_t c = 0;
+
+	for (; left; left--) {
+		uint32_t raw = *p++, x = raw ^ (uint32_t)c << 16;
+
+		c = t3[x >> 24] ^ t2[(x >> 16) & 0xff] ^
+		    t1[(x >> 8) & 0xff] ^ t0[x & 0xff];
+		*q++ = __builtin_bswap32(raw);
+		p = (uint32_t *)((unsigned long)p & wrap);
+		q = (uint32_t *)((unsigned long)q & wrap);
+		if (*flag & mask)
+			break;
+	}
+	crc_sink = c;
+	return limit - left;
+}
+
+static unsigned long __attribute__((noinline, section(".fastcode")))
+lookup4(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
+	uint32_t *p, uint32_t *q)
+{
+	const uint16_t *t0 = crc_tables, *t1 = t0 + 256;
+	const uint16_t *t2 = t0 + 512, *t3 = t0 + 768;
+	unsigned long left = limit;
+	uint32_t x = 0x12345678;
+	uint16_t c = 0;
+
+	(void)p;
+	(void)q;
+	for (; left; left--) {
+		x = (x * 5 + 1) ^ c;
+		c = t3[x >> 24] ^ t2[(x >> 16) & 0xff] ^
+		    t1[(x >> 8) & 0xff] ^ t0[x & 0xff];
+		if (*flag & mask)
+			break;
+	}
+	crc_sink = c;
+	return limit - left;
+}
+
 static const struct {
 	const char *name;
 	loop_fn *fn;
@@ -87,7 +156,8 @@ static const struct {
 	{ "spin", spin }, { "load1", load1 }, { "load4", load4 },
 	{ "store1", store1 }, { "store4", store4 }, { "copy4", copy4 },
 	{ "rowmiss", rowmiss }, { "moves-a0", moves_a0 },
-	{ "moves-sdram", moves_sdram },
+	{ "moves-sdram", moves_sdram }, { "lookup4", lookup4 },
+	{ "crc", crc },
 };
 static const unsigned widths[] = { 32, 16, 8 };
 
@@ -371,6 +441,7 @@ int grifo_main(int argc, char **argv)
 	lcd_window_disable();
 	REG_P5_P5D = saved_cs | 1;	/* the card ignores what follows */
 	*DUMMY = 0xffffffffUL;
+	crc_tables_init();
 	{
 		critical_t irq = critcal_enter();
 		unsigned long before = timer_get();
