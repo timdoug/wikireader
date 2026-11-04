@@ -5,11 +5,10 @@ Calls, ffi_call, for every type, variadic calls included, as the C33 port
 of GCC makes them: arguments in %r6-%r9 (an 8-byte one may run on into
 %r10, except a double, which then goes on the stack), the rest and
 aggregates without a scalar mode on the stack in order, a variadic call
-with every unnamed argument (and the last named one) on the stack as well
-and a __builtin_apply descriptor in %r5, results in %r4:%r5 or to memory
-through a hidden first argument.  Under FDPIC the call takes the
-function descriptor's data pointer, as GCC's own indirect calls do.
-No closures yet.
+with every unnamed argument (and the last named one) on the stack and in
+no register, results in %r4:%r5 or to memory through a hidden first
+argument.  Under FDPIC the call takes the function descriptor's data
+pointer, as GCC's own indirect calls do.  No closures yet.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 Upstream: N/A the C33 has no upstream GCC port
@@ -47,7 +46,7 @@ Upstream: N/A the C33 has no upstream GCC port
          SOURCES="ffi.c sysv.S"
 --- a/src/c33/ffi.c
 +++ b/src/c33/ffi.c
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,264 @@
 +/* -----------------------------------------------------------------------
 +   ffi.c - Copyright (c) 2026 Tim Douglas
 +
@@ -87,11 +86,10 @@ Upstream: N/A the C33 has no upstream GCC port
 +     scalar; one with a lone double, nested or not, is a double.  Any other
 +     aggregate is copied onto the stack and takes no slot.
 +   - A call to a variadic function treats its last named argument as
-+     unnamed too, and every unnamed argument has a stack slot, in order,
-+     besides the register a named one would have had.  %r5 then carries a
-+     descriptor of that stack stream for __builtin_apply: 0xc3 in the top
-+     byte, its words in bits 20-23 and in bits 0-19 those that are also in
-+     registers, made as GCC makes it.
++     unnamed too, and every unnamed argument goes on the stack, in order,
++     where va_arg finds it, and in no register.  That holds for a call
++     passing no unnamed argument at all: the last named one is still on
++     the stack.
 +   - A value comes back in %r4, or %r4:%r5 for 8 bytes.  Anything larger,
 +     and an aggregate without a scalar mode, is returned to memory whose
 +     address is passed as a hidden first argument, in %r6.
@@ -106,7 +104,8 @@ Upstream: N/A the C33 has no upstream GCC port
 +#include <string.h>
 +
 +/* regs[0] is %r5, regs[1..7] are %r6-%r12; ffi_call_SYSV leaves %r4 and
-+   %r5 as they came back in regs[8] and regs[9].  */
++   %r5 as they came back in regs[8] and regs[9].  No call passes anything
++   in %r5, which stays zero.  */
 +extern void ffi_call_SYSV (void *stack, unsigned bytes, unsigned *regs,
 +			   void (*fn) (void)) FFI_HIDDEN;
 +
@@ -117,11 +116,16 @@ Upstream: N/A the C33 has no upstream GCC port
 +  C33_ARG_DOUBLE		/* a double, or an aggregate of one */
 +};
 +
++/* cif->flags: how the value comes back, and whether ffi_prep_cif_var made
++   the cif, which makes every call through it variadic, even one with no
++   unnamed argument.  */
 +enum
 +{
 +  C33_RET_VOID,
 +  C33_RET_REGS,
-+  C33_RET_MEMORY
++  C33_RET_MEMORY,
++  C33_RET_MASK = 3,
++  C33_VARIADIC = 4
 +};
 +
 +/* Whether an aggregate holds a single double, at any depth, which GCC
@@ -199,6 +203,7 @@ Upstream: N/A the C33 has no upstream GCC port
 +{
 +  ffi_status status = ffi_prep_cif_machdep (cif);
 +
++  cif->flags |= C33_VARIADIC;
 +  cif->nfixedargs = nfixedargs;
 +  return status;
 +}
@@ -232,8 +237,8 @@ Upstream: N/A the C33 has no upstream GCC port
 +ffi_call (ffi_cif *cif, void (*fn) (void), void *rvalue, void **avalue)
 +{
 +  unsigned regs[10] = { 0 };
-+  unsigned nbytes = 0, stack_bytes = 0, stack_words = 0, mask = 0;
-+  int variadic = cif->nfixedargs != cif->nargs;
++  unsigned nbytes = 0, stack_bytes = 0;
++  int variadic = (cif->flags & C33_VARIADIC) != 0;
 +  /* GCC treats a variadic call's last named argument as unnamed.  */
 +  unsigned named = variadic && cif->nfixedargs > 0
 +		   ? cif->nfixedargs - 1 : cif->nfixedargs;
@@ -241,7 +246,7 @@ Upstream: N/A the C33 has no upstream GCC port
 +  void *result = rvalue;
 +  unsigned i;
 +
-+  if (cif->flags == C33_RET_MEMORY)
++  if ((cif->flags & C33_RET_MASK) == C33_RET_MEMORY)
 +    {
 +      if (result == NULL)
 +	result = alloca (cif->rtype->size);
@@ -256,10 +261,7 @@ Upstream: N/A the C33 has no upstream GCC port
 +      unsigned words = c33_round (t->size) / 4;
 +      int unnamed = i >= named;
 +      int skips = kind == C33_ARG_DOUBLE && nbytes >= 12;
-+      int reg = kind != C33_ARG_STACK && nbytes < 16 && !skips;
-+      /* GCC's own count for the descriptor, which takes the fifth slot
-+	 for a register one.  */
-+      int in_registers = kind != C33_ARG_STACK && nbytes <= 16 && !skips;
++      int reg = !unnamed && kind != C33_ARG_STACK && nbytes < 16 && !skips;
 +      unsigned w[4];
 +
 +      if (kind == C33_ARG_STACK)
@@ -274,30 +276,21 @@ Upstream: N/A the C33 has no upstream GCC port
 +	  c33_words (t, avalue[i], w);
 +	  if (reg)
 +	    memcpy (&regs[1 + nbytes / 4], w, words * 4);
-+	  if (unnamed || !reg)
++	  else
 +	    {
 +	      memcpy (stack + stack_bytes, w, words * 4);
 +	      stack_bytes += words * 4;
 +	    }
 +	}
 +
-+      if (unnamed || !in_registers)
-+	{
-+	  if (unnamed && in_registers && stack_words + words <= 20)
-+	    mask |= ((1u << words) - 1) << stack_words;
-+	  stack_words += words;
-+	}
 +      if (kind == C33_ARG_STACK || skips)
 +	continue;
 +      nbytes += words * 4;
 +    }
 +
-+  if (variadic && stack_words <= 15)
-+    regs[0] = 0xc3000000u | (stack_words << 20) | mask;
-+
 +  ffi_call_SYSV (stack, stack_bytes, regs, fn);
 +
-+  if (cif->flags != C33_RET_REGS || rvalue == NULL)
++  if ((cif->flags & C33_RET_MASK) != C33_RET_REGS || rvalue == NULL)
 +    return;
 +  switch (cif->rtype->type)
 +    {
