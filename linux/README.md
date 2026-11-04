@@ -569,17 +569,23 @@ c33-linux-musl-gdb -ex "set sysroot linux/artifacts/symbols" \
 gdbserver speaks on its own stdin and stdout, and the program's output
 goes to its stderr: given a tty to debug on, gdbserver hands that
 terminal to the program, as a shell would, and then reads it from the
-background, which fails. There is no hardware single step or watchpoint:
-GDB steps by breakpoints, decoding where each instruction can go (an
-`ext` prefix and its instruction, and a delayed branch and its slot, as
-one), and watches in software. It places the program and libc by the
-FDPIC load maps gdbserver reads with `PTRACE_GETFDPIC`, and the other
-libraries by musl's link map; steps through a `.plt` stub and musl's
-lazy resolver into the function; and unwinds out of a signal handler
-through the `rt_sigreturn` trampoline in the signal frame. `gdb-test.py` boots
-through Grifo, starts gdbserver over the console, and checks
-breakpoints, backtraces through a recursion and a signal handler,
-`next`, `step` into libc, `finish`, a watchpoint, and the exit.
+background, which fails. The registers are described in XML target
+description features (`org.gnu.gdb.c33.core`, and for a core file
+`org.gnu.gdb.c33.fdpic`, the load map addresses), which gdbserver sends
+and GDB checks. There is no hardware single step or watchpoint:
+gdbserver steps by breakpoints, at the places `arch/c33.c`, which GDB
+shares, decodes as an instruction's next (an `ext` prefix and its
+instruction, and a delayed branch and its slot, as one), and GDB watches
+in software. It places the program and libc by the FDPIC load maps
+gdbserver reads with `PTRACE_GETFDPIC`, and the other libraries by musl's
+link map; steps through a `.plt` stub and musl's lazy resolver into the
+function; unwinds out of a signal handler through the `rt_sigreturn`
+trampoline in the signal frame; and follows threads, which gdbserver
+traces as they are created (thread-local variables would need musl's
+missing `libthread_db`). `gdb-test.py` boots through Grifo, starts
+gdbserver over the console, and checks breakpoints, backtraces through a
+recursion and a signal handler, `next`, `step` into libc, `finish`, a
+watchpoint, a second thread, and the exit.
 
 ### Breakpoints
 

@@ -34,27 +34,42 @@
    it the two load map addresses of struct elf_prstatus_fdpic, which BFD
    includes in a core file's .reg, as FR-V's does.  */
 
+#define C33_LINUX_PT_REGS_MAP						\
+    { 16, C33_R0_REGNUM, 4 },						\
+    { 1, C33_ALR_REGNUM, 4 },						\
+    { 1, C33_AHR_REGNUM, 4 },						\
+    { 1, C33_SP_REGNUM, 4 },						\
+    { 1, REGCACHE_MAP_SKIP, 4 },	/* vector */			\
+    { 1, REGCACHE_MAP_SKIP, 4 },	/* orig_r4 */			\
+    { 1, REGCACHE_MAP_SKIP, 4 },	/* reserved */			\
+    { 1, C33_PSR_REGNUM, 4 },						\
+    { 1, C33_PC_REGNUM, 4 }
+
 static const struct regcache_map_entry c33_linux_gregmap[] =
   {
-    { 16, C33_R0_REGNUM, 4 },
-    { 1, C33_ALR_REGNUM, 4 },
-    { 1, C33_AHR_REGNUM, 4 },
-    { 1, C33_SP_REGNUM, 4 },
-    { 1, REGCACHE_MAP_SKIP, 4 },	/* vector */
-    { 1, REGCACHE_MAP_SKIP, 4 },	/* orig_r4 */
-    { 1, REGCACHE_MAP_SKIP, 4 },	/* reserved */
-    { 1, C33_PSR_REGNUM, 4 },
-    { 1, C33_PC_REGNUM, 4 },
+    C33_LINUX_PT_REGS_MAP,
+    { 0 }
+  };
+
+static const struct regcache_map_entry c33_linux_fdpic_gregmap[] =
+  {
+    C33_LINUX_PT_REGS_MAP,
     { 1, C33_LOADMAP_EXEC_REGNUM, 4 },
     { 1, C33_LOADMAP_INTERP_REGNUM, 4 },
     { 0 }
   };
 
-#define C33_LINUX_SIZEOF_GREGSET ((24 + 2) * 4)
+#define C33_LINUX_SIZEOF_PT_REGS (24 * 4)
+#define C33_LINUX_SIZEOF_FDPIC_GREGSET (C33_LINUX_SIZEOF_PT_REGS + 2 * 4)
 
 static const struct regset c33_linux_gregset =
   {
     c33_linux_gregmap, regcache_supply_regset, regcache_collect_regset
+  };
+
+static const struct regset c33_linux_fdpic_gregset =
+  {
+    c33_linux_fdpic_gregmap, regcache_supply_regset, regcache_collect_regset
   };
 
 static void
@@ -63,8 +78,25 @@ c33_linux_iterate_over_regset_sections (struct gdbarch *gdbarch,
 					void *cb_data,
 					const struct regcache *regcache)
 {
-  cb (".reg", C33_LINUX_SIZEOF_GREGSET, C33_LINUX_SIZEOF_GREGSET,
-      &c33_linux_gregset, NULL, cb_data);
+  if (gdbarch_tdep<c33_gdbarch_tdep> (gdbarch)->loadmap_regs)
+    cb (".reg", C33_LINUX_SIZEOF_FDPIC_GREGSET,
+	C33_LINUX_SIZEOF_FDPIC_GREGSET, &c33_linux_fdpic_gregset, NULL,
+	cb_data);
+  else
+    cb (".reg", C33_LINUX_SIZEOF_PT_REGS, C33_LINUX_SIZEOF_PT_REGS,
+	&c33_linux_gregset, NULL, cb_data);
+}
+
+/* A core file's .reg has the load map addresses.  */
+
+static const struct target_desc *
+c33_linux_core_read_description (struct gdbarch *gdbarch,
+				 struct target_ops *target, bfd *abfd)
+{
+  c33_features features;
+
+  features.fdpic_loadmaps = true;
+  return c33_lookup_target_description (features);
 }
 
 /* A signal handler returns to the kernel's trampoline, which calls
@@ -123,6 +155,8 @@ c33_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_skip_solib_resolver (gdbarch, c33_skip_solib_resolver);
   set_gdbarch_iterate_over_regset_sections
     (gdbarch, c33_linux_iterate_over_regset_sections);
+  set_gdbarch_core_read_description (gdbarch,
+				     c33_linux_core_read_description);
   set_gdbarch_make_solib_ops (gdbarch, make_c33_solib_ops);
 }
 

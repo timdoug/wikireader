@@ -21,35 +21,22 @@
 #define GDB_C33_TDEP_H
 
 #include "gdbarch.h"
+#include "arch/c33.h"
 
-/* GDB's register numbers.  The first nineteen are also GCC's DWARF
-   numbers.  The last two are FDPIC's: the addresses of the executable's
-   and the interpreter's load maps, which place the program in memory, as
-   FR-V's are.  */
-
-enum c33_regnum
+struct c33_gdbarch_tdep : gdbarch_tdep_base
 {
-  C33_R0_REGNUM = 0,
-  C33_R4_REGNUM = 4,		/* return value, low word */
-  C33_R5_REGNUM = 5,		/* return value, high word */
-  C33_R6_REGNUM = 6,		/* first argument */
-  C33_R15_REGNUM = 15,		/* the data segment pointer, __dp */
-  C33_SP_REGNUM = 16,
-  C33_ALR_REGNUM = 17,
-  C33_AHR_REGNUM = 18,
-  C33_PSR_REGNUM = 19,
-  C33_PC_REGNUM = 20,
-  C33_LOADMAP_EXEC_REGNUM = 21,
-  C33_LOADMAP_INTERP_REGNUM = 22,
-  C33_NUM_REGS = 23
+  /* Whether the program is FDPIC, and so has function descriptors.  */
+  bool fdpic = false;
+
+  /* Whether the target description has the FDPIC load map addresses,
+     registers C33_LOADMAP_EXEC_REGNUM and C33_LOADMAP_INTERP_REGNUM.  */
+  bool loadmap_regs = false;
 };
 
-/* The DWARF column GCC uses for the return address: there is no register
-   holding it, so it is one past the compiler's registers.  */
+/* The registers are numbered as in the target description (arch/c33.h),
+   the core's also as GCC's DWARF numbers, except for the return address:
+   no register holds it, so its column is one past the compiler's.  */
 #define C33_DWARF_RETURN_COLUMN 22
-
-/* The C33's breakpoint, int 3.  The kernel reports the PC at it.  */
-#define C33_BREAKPOINT_INSN 0x0483
 
 /* Fetch the addresses of the interpreter's and the executable's FDPIC
    load maps, either of which may be null.  Return 0 on success, -1 if

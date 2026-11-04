@@ -43,49 +43,9 @@
 
 #include "elf-bfd.h"
 #include "elf/c33.h"
+#include "target-descriptions.h"
 #include "c33-tdep.h"
 
-struct c33_gdbarch_tdep : gdbarch_tdep_base
-{
-  /* Whether the program is FDPIC, and so has load maps.  */
-  bool fdpic = false;
-};
-
-static const char *const c33_register_names[] =
-{
-  "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
-  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-  "sp", "alr", "ahr", "psr", "pc",
-  "loadmap_exec", "loadmap_interp"
-};
-
-static const char *
-c33_register_name (struct gdbarch *gdbarch, int regnum)
-{
-  static_assert (ARRAY_SIZE (c33_register_names) == C33_NUM_REGS);
-  c33_gdbarch_tdep *tdep = gdbarch_tdep<c33_gdbarch_tdep> (gdbarch);
-
-  /* The load maps are a property of an FDPIC program only.  */
-  if (!tdep->fdpic && regnum >= C33_LOADMAP_EXEC_REGNUM)
-    return "";
-  return c33_register_names[regnum];
-}
-
-static struct type *
-c33_register_type (struct gdbarch *gdbarch, int regnum)
-{
-  switch (regnum)
-    {
-    case C33_PC_REGNUM:
-      return builtin_type (gdbarch)->builtin_func_ptr;
-    case C33_SP_REGNUM:
-    case C33_LOADMAP_EXEC_REGNUM:
-    case C33_LOADMAP_INTERP_REGNUM:
-      return builtin_type (gdbarch)->builtin_data_ptr;
-    default:
-      return builtin_type (gdbarch)->builtin_uint32;
-    }
-}
 
 /* GCC's DWARF numbers are its register numbers: r0-r15, sp, alr, ahr and
    its condition code, which is psr.  */
@@ -247,7 +207,7 @@ c33_fdpic_loadmap_addresses (struct gdbarch *gdbarch, CORE_ADDR *interp_addr,
 {
   c33_gdbarch_tdep *tdep = gdbarch_tdep<c33_gdbarch_tdep> (gdbarch);
 
-  if (!tdep->fdpic)
+  if (!tdep->loadmap_regs)
     return -1;
 
   regcache *regcache = get_thread_regcache (inferior_thread ());
@@ -268,103 +228,27 @@ c33_fdpic_loadmap_addresses (struct gdbarch *gdbarch, CORE_ADDR *interp_addr,
   return 0;
 }
 
-/* Software single step.  There is no hardware step for user programs,
-   so GDB puts breakpoints where the instruction at PC can go next.  An
-   ext prefix and the instruction it extends, and a delayed branch and the
-   instruction in its slot, run as one: the hardware takes no interrupt
-   between them, and nothing may stop there.  Every instruction is two
-   bytes.  The encodings are the PE core's (class 0):
-
-     bits 15-8 = 0x08-0x1f, low byte sign8: jr<cc> (0x08-0x1b, ten
-       conditions), call (0x1c) and jp (0x1e), odd for the delayed forms;
-       the target is the branch's own address plus twice the displacement,
-       which ext prefixes widen;
-     bits 15-6, rb in bits 3-0: call %rb 0x18, ret 0x19, jp %rb 0x1a,
-       jpr %rb 0x0b (PC-relative), and delayed 0x1c, 0x1d, 0x1e, 0x0f.  */
-
-static bool
-c33_is_ext (unsigned int insn)
-{
-  return (insn >> 13) == 6;
-}
+/* There is no hardware single step: GDB puts breakpoints where the
+   instruction at PC can go next (arch/c33.c, which gdbserver shares).  */
 
 static std::vector<CORE_ADDR>
 c33_software_single_step (struct regcache *regcache)
 {
-  struct gdbarch *gdbarch = regcache->arch ();
-  enum bfd_endian order = gdbarch_byte_order_for_code (gdbarch);
-  CORE_ADDR pc = regcache_read_pc (regcache);
-  unsigned int ext[2];
-  int n_ext = 0;
-  unsigned int insn;
-  CORE_ADDR at = pc;
+  enum bfd_endian order = gdbarch_byte_order_for_code (regcache->arch ());
 
-  for (;;)
-    {
-      insn = read_memory_unsigned_integer (at, 2, order);
-      if (!c33_is_ext (insn) || n_ext == 2)
-	break;
-      ext[n_ext++] = insn & 0x1fff;
-      at += 2;
-    }
+  return c33_get_next_pcs
+    (regcache_read_pc (regcache),
+     [=] (CORE_ADDR addr, int len)
+     {
+       return read_memory_unsigned_integer (addr, len, order);
+     },
+     [=] (int regnum)
+     {
+       ULONGEST value;
 
-  unsigned int op8 = insn >> 8, op10 = insn >> 6;
-  CORE_ADDR next = at + 2;
-
-  if (op8 >= 0x08 && op8 <= 0x1f)
-    {
-      /* The halfword displacement, sign-extended from its composed
-	 width: 8 bits alone, 21 with one ext, 31 with two (of the first
-	 prefix only bits 12-3 take part).  */
-      uint32_t v = insn & 0xff;
-      unsigned int width = 8;
-
-      if (n_ext == 1)
-	{
-	  v |= ext[0] << 8;
-	  width = 21;
-	}
-      else if (n_ext == 2)
-	{
-	  v |= ((ext[0] >> 3) << 21) | (ext[1] << 8);
-	  width = 31;
-	}
-      v &= (1u << width) - 1;
-      if (v & (1u << (width - 1)))
-	v |= ~((1u << width) - 1);
-
-      CORE_ADDR target = (at + ((int32_t) v << 1)) & 0xffffffff;
-      bool delayed = (op8 & 1) != 0;
-      bool conditional = op8 < 0x1c;
-
-      if (delayed)
-	next = at + 4;
-      if (!conditional)
-	return { target };
-      return { next, target };
-    }
-
-  if ((insn >> 13) == 0)
-    {
-      ULONGEST rb, sp, ra;
-
-      regcache_cooked_read_unsigned (regcache, C33_R0_REGNUM + (insn & 0xf),
-				     &rb);
-      switch (op10)
-	{
-	case 0x18: case 0x1c:	/* call %rb */
-	case 0x1a: case 0x1e:	/* jp %rb */
-	  return { rb & ~(CORE_ADDR) 1 };
-	case 0x0b: case 0x0f:	/* jpr %rb */
-	  return { (at + (rb & ~(ULONGEST) 1)) & 0xffffffff };
-	case 0x19: case 0x1d:	/* ret */
-	  regcache_cooked_read_unsigned (regcache, C33_SP_REGNUM, &sp);
-	  ra = read_memory_unsigned_integer (sp, 4, order);
-	  return { ra & ~(CORE_ADDR) 1 };
-	}
-    }
-
-  return { next };
+       regcache_cooked_read_unsigned (regcache, regnum, &value);
+       return value;
+     });
 }
 
 /* The fallback, for code without call frame information: a function
@@ -433,6 +317,51 @@ c33_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 		&& bfd_get_flavour (info.abfd) == bfd_target_elf_flavour
 		&& (elf_elfheader (info.abfd)->e_flags & EF_C33_FDPIC) != 0);
 
+  /* The target's description, or by default the core registers, with the
+     load map addresses for an FDPIC program, which a core file records.
+     A live target that reads the maps themselves (qXfer:fdpic) describes
+     only the core.  */
+  const struct target_desc *tdesc = info.target_desc;
+  c33_features features;
+
+  if (!tdesc_has_registers (tdesc))
+    {
+      features.fdpic_loadmaps = fdpic;
+      tdesc = c33_lookup_target_description (features);
+    }
+
+  const struct tdesc_feature *core
+    = tdesc_find_feature (tdesc, "org.gnu.gdb.c33.core");
+  if (core == NULL)
+    return NULL;
+
+  static const char *const core_names[C33_NUM_CORE_REGS] =
+  {
+    "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
+    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+    "sp", "alr", "ahr", "psr", "pc"
+  };
+  tdesc_arch_data_up tdesc_data = tdesc_data_alloc ();
+  bool valid = true;
+
+  for (int i = 0; i < C33_NUM_CORE_REGS; i++)
+    valid &= tdesc_numbered_register (core, tdesc_data.get (), i,
+				      core_names[i]);
+
+  const struct tdesc_feature *loadmaps
+    = tdesc_find_feature (tdesc, "org.gnu.gdb.c33.fdpic");
+  if (loadmaps != NULL)
+    {
+      valid &= tdesc_numbered_register (loadmaps, tdesc_data.get (),
+					C33_LOADMAP_EXEC_REGNUM,
+					"loadmap_exec");
+      valid &= tdesc_numbered_register (loadmaps, tdesc_data.get (),
+					C33_LOADMAP_INTERP_REGNUM,
+					"loadmap_interp");
+    }
+  if (!valid)
+    return NULL;
+
   for (arches = gdbarch_list_lookup_by_info (arches, &info);
        arches != NULL;
        arches = gdbarch_list_lookup_by_info (arches->next, &info))
@@ -440,7 +369,7 @@ c33_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       c33_gdbarch_tdep *tdep
 	= gdbarch_tdep<c33_gdbarch_tdep> (arches->gdbarch);
 
-      if (tdep->fdpic == fdpic)
+      if (tdep->fdpic == fdpic && tdep->loadmap_regs == (loadmaps != NULL))
 	return arches->gdbarch;
     }
 
@@ -448,13 +377,13 @@ c33_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     = gdbarch_alloc (&info, gdbarch_tdep_up (new c33_gdbarch_tdep));
   c33_gdbarch_tdep *tdep = gdbarch_tdep<c33_gdbarch_tdep> (gdbarch);
   tdep->fdpic = fdpic;
+  tdep->loadmap_regs = loadmaps != NULL;
 
-  set_gdbarch_num_regs (gdbarch, C33_NUM_REGS);
+  set_gdbarch_num_regs (gdbarch, loadmaps != NULL ? C33_NUM_REGS
+				 : C33_NUM_CORE_REGS);
   set_gdbarch_sp_regnum (gdbarch, C33_SP_REGNUM);
   set_gdbarch_pc_regnum (gdbarch, C33_PC_REGNUM);
   set_gdbarch_ps_regnum (gdbarch, C33_PSR_REGNUM);
-  set_gdbarch_register_name (gdbarch, c33_register_name);
-  set_gdbarch_register_type (gdbarch, c33_register_type);
   set_gdbarch_dwarf2_reg_to_regnum (gdbarch, c33_dwarf2_reg_to_regnum);
 
   set_gdbarch_char_signed (gdbarch, 1);
@@ -482,6 +411,7 @@ c33_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 					  c33_convert_from_func_ptr_addr);
 
   dwarf2_frame_set_init_reg (gdbarch, c33_dwarf2_frame_init_reg);
+  tdesc_use_registers (gdbarch, tdesc, std::move (tdesc_data));
 
   /* The OS ABI's unwinders come first, then DWARF, then the fallback.  */
   gdbarch_init_osabi (info, gdbarch);

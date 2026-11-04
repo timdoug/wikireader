@@ -18,12 +18,13 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* The registers come from NT_PRSTATUS, the kernel's struct pt_regs, and
-   go out in GDB's order (c33-linux.dat).  There is no hardware single
-   step: GDB steps by breakpoints, and a breakpoint is int 3, which the
-   kernel reports at its own address.  The FDPIC load maps come from
-   linux-low's PTRACE_GETFDPIC support.  */
+   are described by arch/c33.c, as GDB's are.  There is no hardware single
+   step: gdbserver steps by breakpoints, at the places arch/c33.c finds,
+   and a breakpoint is int 3, which the kernel reports at its own address.
+   The FDPIC load maps come from linux-low's PTRACE_GETFDPIC support.  */
 
 #include "linux-low.h"
+#include "arch/c33.h"
 #include "elf/common.h"
 #include "nat/gdb_ptrace.h"
 #include "tdesc.h"
@@ -42,20 +43,21 @@ protected:
   CORE_ADDR low_get_pc (regcache *regcache) override;
   void low_set_pc (regcache *regcache, CORE_ADDR newpc) override;
   bool low_breakpoint_at (CORE_ADDR pc) override;
+  std::vector<CORE_ADDR> low_get_next_pcs (regcache *regcache) override;
+
+public:
+  bool supports_software_single_step () override;
 };
 
 static c33_target the_c33_target;
 
-void init_registers_c33_linux (void);
-extern const_target_desc_up tdesc_c33_linux;
-
-/* GDB's registers r0-r15, sp, alr, ahr, psr and pc, by their word in
+/* The registers r0-r15, sp, alr, ahr, psr and pc, by their word in
    struct pt_regs: r[16], alr, ahr, sp, vector, orig_r4, reserved, psr,
    pc.  */
 
-enum { C33_NUM_REGS = 21, C33_PT_REGS_WORDS = 24 };
+enum { C33_PT_REGS_WORDS = 24 };
 
-static const int c33_pt_regs_word[C33_NUM_REGS] =
+static const int c33_pt_regs_word[C33_NUM_CORE_REGS] =
 {
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
   18,	/* sp */
@@ -70,7 +72,7 @@ c33_fill_gregset (struct regcache *regcache, void *buf)
 {
   gdb_byte *regs = (gdb_byte *) buf;
 
-  for (int i = 0; i < C33_NUM_REGS; i++)
+  for (int i = 0; i < C33_NUM_CORE_REGS; i++)
     collect_register (regcache, i, regs + 4 * c33_pt_regs_word[i]);
 }
 
@@ -79,7 +81,7 @@ c33_store_gregset (struct regcache *regcache, const void *buf)
 {
   const gdb_byte *regs = (const gdb_byte *) buf;
 
-  for (int i = 0; i < C33_NUM_REGS; i++)
+  for (int i = 0; i < C33_NUM_CORE_REGS; i++)
     supply_register (regcache, i, regs + 4 * c33_pt_regs_word[i]);
 }
 
@@ -113,10 +115,16 @@ c33_target::get_regs_info ()
   return &c33_regs_info;
 }
 
+/* The core registers: the load maps are read whole (qXfer:fdpic).  */
+
 void
 c33_target::low_arch_setup ()
 {
-  current_process ()->tdesc = tdesc_c33_linux.get ();
+  static const char *expedite_regs[] = { "sp", "pc", NULL };
+  target_desc_up tdesc = c33_create_target_description (c33_features ());
+
+  init_target_desc (tdesc.get (), expedite_regs, GDB_OSABI_LINUX);
+  current_process ()->tdesc = tdesc.release ();
 }
 
 /* There is no PTRACE_PEEKUSR, and no usrregs: every register comes
@@ -171,11 +179,37 @@ c33_target::low_breakpoint_at (CORE_ADDR where)
   return memcmp (insn, c33_breakpoint, sizeof insn) == 0;
 }
 
+bool
+c33_target::supports_software_single_step ()
+{
+  return true;
+}
+
+std::vector<CORE_ADDR>
+c33_target::low_get_next_pcs (regcache *regcache)
+{
+  return c33_get_next_pcs
+    (low_get_pc (regcache),
+     [] (CORE_ADDR addr, int len)
+     {
+       uint32_t value = 0;
+
+       target_read_memory (addr, (unsigned char *) &value, len);
+       return (ULONGEST) value;
+     },
+     [=] (int regnum)
+     {
+       uint32_t value;
+
+       collect_register (regcache, regnum, &value);
+       return (ULONGEST) value;
+     });
+}
+
 linux_process_target *the_linux_target = &the_c33_target;
 
 void
 initialize_low_arch (void)
 {
-  init_registers_c33_linux ();
   initialize_regsets_info (&c33_regsets_info);
 }

@@ -36,13 +36,13 @@ def edit(relpath, old, new, guard):
 
 edit("gdb/configure.tgt", "cris*)\n", """c33-*-linux*)
 	# Target: Epson S1C33, no-MMU FDPIC GNU/Linux
-	gdb_target_obs="c33-tdep.o c33-linux-tdep.o linux-tdep.o \\
+	gdb_target_obs="c33-tdep.o arch/c33.o c33-linux-tdep.o linux-tdep.o \\
 			solib-c33.o"
 	;;
 
 c33-*-*)
 	# Target: Epson S1C33
-	gdb_target_obs="c33-tdep.o"
+	gdb_target_obs="c33-tdep.o arch/c33.o"
 	;;
 
 cris*)
@@ -54,12 +54,19 @@ edit("gdb/Makefile.in", "\tsolib-dsbt.o \\\n",
      "\tsolib-c33.o \\\n\tsolib-dsbt.o \\\n", "solib-c33.o")
 edit("gdb/Makefile.in", "\tcris-tdep.h \\\n",
      "\tc33-tdep.h \\\n\tcris-tdep.h \\\n", "c33-tdep.h")
+edit("gdb/Makefile.in", "\tarch/arc.o \\\n",
+     "\tarch/arc.o \\\n\tarch/c33.o \\\n", "arch/c33.o")
+edit("gdb/Makefile.in", "\tarch/arc.h \\\n",
+     "\tarch/arc.h \\\n\tarch/c33.h \\\n", "arch/c33.h")
+edit("gdb/features/Makefile", "\tarm/xscale-iwmmxt.xml \\\n",
+     "\tarm/xscale-iwmmxt.xml \\\n\tc33/core.xml \\\n\tc33/fdpic.xml \\\n",
+     "c33/core.xml")
 edit("gdb/Makefile.in", "\tsolib-frv.h \\\n",
      "\tsolib-c33.h \\\n\tsolib-frv.h \\\n", "solib-c33.h")
 
 # gdbserver for C33 Linux.
-edit("gdbserver/configure.srv", "  csky*-*linux*)", """  c33*-*-linux*)	srv_regobj="c33-linux.o"
-			srv_tgtobj="$srv_linux_obj linux-c33-low.o"
+edit("gdbserver/configure.srv", "  csky*-*linux*)", """  c33*-*-linux*)	srv_tgtobj="$srv_linux_obj linux-c33-low.o"
+			srv_tgtobj="${srv_tgtobj} arch/c33.o"
 			srv_linux_regsets=yes
 			;;
   csky*-*linux*)""", "linux-c33-low.o")

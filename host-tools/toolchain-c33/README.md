@@ -236,7 +236,8 @@ gcc/patches/                focused upstream GCC correctness patches
 gcc/ABI.md                  target ABI and ISA contract
 gcc/README.md               GCC-specific status and validation
 gdb/build.sh                pristine GDB 18.1 build/install for this host
-gdb/files/                  the C33 GDB target, Linux ABI and FDPIC shared libraries
+gdb/files/                  the C33 GDB target (arch/, features/c33/ target descriptions),
+                            Linux ABI, FDPIC shared libraries, gdbserver
 gdb/glue.py                 binutils' BFD/opcodes and the target in a GDB tree
 tests/abi/                  old/new cross-link tests
 tests/dejagnu/              standard GCC board and runner

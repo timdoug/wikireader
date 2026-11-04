@@ -8,7 +8,7 @@ a local TCP port (wremu --uart-tcp), starts gdbserver on the console with
 debug/gdb-target.c's program, and runs the host's c33-linux-musl-gdb
 against it over that port: breakpoints, backtraces, stepping into the
 program and through the PLT into libc, finish, a watchpoint, a signal
-handler's frame, and the program's exit.
+handler's frame, a second thread, and the program's exit.
 
 gdbserver talks on its stdin and stdout (gdbserver -), the console, in
 raw mode; the program's own output goes to gdbserver's stderr, a file.
@@ -34,24 +34,25 @@ GDB = root / "host-tools/toolchain-c33/work/install/bin/c33-linux-musl-gdb"
 SYMBOLS = root / "linux/artifacts/symbols"
 TARGET = SYMBOLS / "mnt/sd/gdbtgt.bin"
 
-# GDB's commands, and what its output must show, in order.
+# GDB's commands, and what its output must show, in order.  {name} is the
+# line of debug/gdb-target.c marked "@name".
 SESSION = [
-    ("break add", r"Breakpoint 1 at 0x[0-9a-f]+: file .*gdb-target.c, line 20"),
-    ("continue", r"Breakpoint 1, add \(a=0, b=0\) at .*gdb-target.c:20"),
+    ("break add", r"Breakpoint 1 at 0x[0-9a-f]+: file .*gdb-target.c, line {add}"),
+    ("continue", r"Breakpoint 1, add \(a=0, b=0\) at .*gdb-target.c:{add}"),
     ("bt", r"#0  add \(a=0, b=0\).*\n#1  0x[0-9a-f]+ in main \(argc=1, argv="),
-    ("next", r"21\t\tcounter\+\+;"),
+    ("next", r"{add-next}\t\tcounter\+\+;"),
     ("print sum", r"\$1 = 0"),
     ("finish", r"in main \(argc=1.*Value returned is \$2 = 0"),
     ("delete", r""),
     ("info sharedlibrary", r"ld-musl-c33.so.1"),
     # Stepping through the PLT into libc, out again, and into a function
     # of the program.
-    ("tbreak 37", r"Temporary breakpoint \d+ at .*line 37"),
-    ("continue", r"main \(argc=1, .*\) at .*:37"),
+    ("tbreak {strlen}", r"Temporary breakpoint \d+ at .*line {strlen}"),
+    ("continue", r"main \(argc=1, .*\) at .*:{strlen}"),
     ("step", r"strlen \(s=0x[0-9a-f]+ \"wikireader\"\)"),
     ("finish", r"Value returned is \$3 = 10"),
-    ("next", r"38\t\ttotal \+= depth\(4\);"),
-    ("step", r"depth \(n=4\) at .*gdb-target.c:12"),
+    ("next", r"{depth-call}\t\ttotal \+= depth\(4\);"),
+    ("step", r"depth \(n=4\) at .*gdb-target.c:{depth}"),
     # A software watchpoint, single-stepping until the value changes: the
     # C33 has no watchpoint hardware.
     ("set can-use-hw-watchpoints 0", r""),
@@ -63,17 +64,34 @@ SESSION = [
     ("bt", r"#0  depth \(n=1\).*\n#1 .*depth \(n=2\).*\n#2 .*depth \(n=3\)"
            r".*\n#3 .*depth \(n=4\).*\n#4 .*main"),
     ("print counter", r"\$4 = 12"),
-    ("info registers pc sp", r"pc\s+0x[0-9a-f]+\s+0x[0-9a-f]+ <depth\+\d+>\s*\nsp\s+0x"),
+    ("info registers pc sp psr", r"pc\s+0x[0-9a-f]+\s+0x[0-9a-f]+ <depth\+\d+>\s*\n"
+                                 r"sp\s+0x[0-9a-f]+.*\npsr\s+0x[0-9a-f]+\s+\[ .*IE"),
     ("delete", r""),
-    # Out of a signal handler, through the kernel's sigreturn trampoline.
+    # Out of a signal handler, through the trampoline in the signal frame.
     ("handle SIGUSR1 nostop noprint pass", r""),
-    ("break on_signal", r"Breakpoint \d+ at .*line 27"),
-    ("continue", r"on_signal \(sig=10\) at .*:27"),
+    ("break on_signal", r"Breakpoint \d+ at .*line {on-signal}"),
+    ("continue", r"on_signal \(sig=10\) at .*:{on-signal}"),
     ("bt", r"#0  on_signal \(sig=10\).*\n#1  <signal handler called>"
-           r".*main \(argc=1, .*:40"),
+           r".*main \(argc=1, .*:{raise}"),
+    ("delete", r""),
+    # A second thread: stopped in it, both listed, each backtraced.
+    ("break worker", r"Breakpoint \d+ at .*line {worker}"),
+    ("continue", r"Thread .* hit Breakpoint \d+, worker \(arg=0x[0-9a-f]+\) at .*:{worker}"),
+    ("info threads", r"  1 +Thread .*\n\* 2 +Thread .*worker \(arg="),
+    ("thread apply all bt 1", r"Thread 2 .*\n#0  worker.*Thread 1 .*\n#0 "),
+    ("print *(int *)arg", r"\$5 = 100"),
     ("delete", r""),
     ("continue", r"\[Inferior 1 \(process \d+\) exited normally\]"),
 ]
+
+
+def marked_lines():
+    lines = {}
+    source = root / "linux/debug/gdb-target.c"
+    for number, text in enumerate(source.read_text().splitlines(), 1):
+        for name in re.findall(r"/\* @([\w-]+) \*/", text):
+            lines[name] = str(number)
+    return lines
 
 
 def free_port():
@@ -174,7 +192,10 @@ def session(emulator, port, server, output, log_path):
                "-ex", "set remotetimeout 120",
                "-ex", f"file {TARGET}",
                "-ex", f"target remote 127.0.0.1:{port}"]
-    for gdb_command, _ in SESSION:
+    lines = marked_lines()
+    session = [(re.sub(r"\{([\w-]+)\}", lambda m: lines[m[1]], c),
+                re.sub(r"\{([\w-]+)\}", lambda m: lines[m[1]], p)) for c, p in SESSION]
+    for gdb_command, _ in session:
         command += ["-ex", f"echo \\n@@ {gdb_command}\\n", "-ex", gdb_command]
     result = subprocess.run(command, capture_output=True, text=True, timeout=3600)
     transcript = result.stdout + result.stderr
@@ -186,7 +207,7 @@ def session(emulator, port, server, output, log_path):
     for i in range(1, len(parts) - 1, 2):
         replies.setdefault(parts[i], []).append(parts[i + 1])
     seen_count = {}
-    for gdb_command, pattern in SESSION:
+    for gdb_command, pattern in session:
         n = seen_count.get(gdb_command, 0)
         seen_count[gdb_command] = n + 1
         reply = replies.get(gdb_command, [])
@@ -196,7 +217,7 @@ def session(emulator, port, server, output, log_path):
     if failures:
         print("\n\n".join(failures))
         raise SystemExit(f"GDB session failed; see {output / 'gdb.log'} and {log_path}")
-    print(f"GDB PASS: {len(SESSION)} commands over gdbserver on the console, through Grifo")
+    print(f"GDB PASS: {len(session)} commands over gdbserver on the console, through Grifo")
     return 0
 
 

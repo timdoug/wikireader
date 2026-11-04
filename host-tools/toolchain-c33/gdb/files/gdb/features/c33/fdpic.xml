@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2026 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<!-- Where an FDPIC program's executable and interpreter load maps are, as
+     a core file's NT_PRSTATUS records them.  A live target that reads the
+     maps themselves (qXfer:fdpic) does without these.  -->
+<feature name="org.gnu.gdb.c33.fdpic">
+  <reg name="loadmap_exec" bitsize="32" type="data_ptr" group="system"/>
+  <reg name="loadmap_interp" bitsize="32" type="data_ptr" group="system"/>
+</feature>
