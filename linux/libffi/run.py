@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run libffi's own call tests on the C33 port through Grifo.
 
-linux/libffi/build.sh builds them.  A test passes when it exits 0 (libffi's
+linux/libffi/build.sh builds them, and the libffi they link against, which
+rides in the same archive because the system image has none.  A test passes when it exits 0 (libffi's
 CHECK aborts on a wrong value).  call-overread needs mprotect guard pages,
 which a machine without an MMU cannot give, and is expected to fail.
 """
@@ -40,7 +41,8 @@ def main():
     files["ffirun.sh"] = b"""#!/bin/sh
 mkdir -p /tmp/ffi
 tar -xf /mnt/sd/ffitests.tar -C /tmp/ffi
-cd /tmp/ffi
+cd /tmp/ffi/bin
+export LD_LIBRARY_PATH=/tmp/ffi/lib
 : > /mnt/sd/ffires.txt
 for t in *; do
     ./$t > /dev/null 2>&1
@@ -68,7 +70,8 @@ poweroff
     status = dict(line.rsplit(" ", 1) for line in results.decode().splitlines())
     failed = {name for name, rc in status.items() if rc != "0"}
     with tarfile.open(ROOT / "linux/artifacts/libffi-tests/ffitests.tar") as tar:
-        built = {Path(m.name).name for m in tar.getmembers() if m.isfile()}
+        built = {Path(m.name).name for m in tar.getmembers()
+                 if m.isfile() and Path(m.name).parent.name == "bin"}
     if built - status.keys() or failed != EXPECTED_FAILURES & built:
         raise SystemExit(f"libffi: failed {sorted(failed)}, not run {sorted(built - status.keys())}")
     print(f"libffi passed: {len(status) - len(failed)} of {len(status)} tests,"
