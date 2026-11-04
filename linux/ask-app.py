@@ -5,7 +5,7 @@ commands on the serial shell, power off, and print what the shell printed:
     ask-app.py 'uname -a; cat /proc/meminfo' [-- extra wremu arguments]
 
 --file NAME=PATH puts another file on the card, as /mnt/sd/NAME, an 8.3
-name.
+name; --args gives the kernel command line, as init.ini's linux line does.
 """
 import argparse
 import importlib.util
@@ -26,6 +26,8 @@ parser.add_argument("--cycles", type=int, default=4_000_000_000,
                     help="wremu's cycle budget (-n)")
 parser.add_argument("--file", action="append", default=[], metavar="NAME=PATH",
                     help="another file for the card, by its 8.3 name")
+parser.add_argument("--args", default="",
+                    help="the kernel command line, from the init.ini line")
 parser.add_argument("--output", type=Path, default=root / "linux/artifacts/ask-app",
                     help="directory for the serial log")
 parser.add_argument("wremu", nargs=argparse.REMAINDER,
@@ -43,7 +45,7 @@ files = {name: app.require(path).read_bytes() for name, path in {
     "linux.app": args.kernel, "linux.img": args.rootfs,
     "linux.ico": root / "linux/artifacts/linux.ico",
 }.items()}
-files["init.ini"] = b"linux.ico : linux.app\n" * 2
+files["init.ini"] = f"linux.ico : linux.app {args.args}\n".encode() * 2
 for item in args.file:
     name, _, path = item.partition("=")
     files[name] = app.require(Path(path)).read_bytes()
