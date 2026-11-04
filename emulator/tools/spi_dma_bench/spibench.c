@@ -14,6 +14,7 @@
 #define UNITS		1024
 #define REPEATS		3
 #define SOLO		20000UL		/* iterations timed without DMA */
+#define SOLO_BLOCKS	400UL		/* ...of the loops a block a pass */
 #define LIMIT		200000UL	/* passes: a transfer that never ends */
 #define REGION		0x8000UL	/* each CPU stream wraps within 32 KiB */
 #define WINDOW		((uint8_t *)0x81a00)	/* IVRAM the display does not use */
@@ -129,6 +130,51 @@ crc(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
 	}
 	crc_sink = c;
 	return limit - left;
+}
+
+/* The kernel's own sd_unpack_crc(), its machine code byte for byte, at
+ * the 16-byte alignment it has there: a pass is one block, from the stream
+ * into another buffer, as the driver's check does it, on consecutive
+ * blocks; unpack2 the blocks that start two bytes into a word, as every
+ * other block of a stream does. */
+static unsigned char unpack_code[] __attribute__((section(".fastcode.unpack"),
+						aligned(16), used)) = {
+#include "unpack_crc.inc"
+};
+typedef uint16_t unpack_fn(const uint32_t *words, uint32_t *out, unsigned n,
+			   uint32_t carry, unsigned lead, const uint16_t *tables);
+
+static inline unsigned long __attribute__((always_inline))
+unpack(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
+       uint32_t *p, uint32_t *q, unsigned lead)
+{
+	unpack_fn *fn = (unpack_fn *)(unsigned long)unpack_code;
+	unsigned long left = limit, wrap = ~REGION;
+	uint16_t c = 0;
+
+	for (; left; left--) {
+		c ^= fn(p, q, 128, 0x1234, lead, crc_tables);
+		p = (uint32_t *)((unsigned long)(p + 130) & wrap);
+		q = (uint32_t *)((unsigned long)(q + 128) & wrap);
+		if (*flag & mask)
+			break;
+	}
+	crc_sink = c;
+	return limit - left;
+}
+
+static unsigned long __attribute__((noinline, section(".fastcode")))
+unpack0(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
+	uint32_t *p, uint32_t *q)
+{
+	return unpack(flag, mask, limit, p, q, 0);
+}
+
+static unsigned long __attribute__((noinline, section(".fastcode")))
+unpack2(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
+	uint32_t *p, uint32_t *q)
+{
+	return unpack(flag, mask, limit, p, q, 2);
 }
 
 static unsigned long __attribute__((noinline, section(".fastcode")))
@@ -331,7 +377,9 @@ static int transfer(unsigned width, int idma, uint32_t dst, loop_fn *fn,
 	return arrived && count == 0 && !(stat & RDOF);
 }
 
-/* @fn's own pace: SOLO passes with nothing else on the bus. */
+static unsigned long solo_passes = SOLO;
+
+/* @fn's own pace: solo_passes passes with nothing else on the bus. */
 static unsigned long solo(loop_fn *fn)
 {
 	unsigned long start, end, passes;
@@ -339,11 +387,11 @@ static unsigned long solo(loop_fn *fn)
 
 	REG_INT_FDMA = IDLE_CHANNEL;
 	start = timer_get();
-	passes = fn(&REG_INT_FDMA, IDLE_CHANNEL, SOLO, stream_p,
+	passes = fn(&REG_INT_FDMA, IDLE_CHANNEL, solo_passes, stream_p,
 		    fn == rowmiss ? (uint32_t *)1028 : stream_q);
 	end = timer_get();
 	critical_exit(irq);
-	return passes == SOLO ? end - start - timer_pair : 0;
+	return passes == solo_passes ? end - start - timer_pair : 0;
 }
 
 /* After every case, so that a hang or a reset keeps what came before. */
@@ -443,8 +491,8 @@ static void run_case(unsigned width, int idma, int ivram, const char *name,
 	    idma ? "idma" : "hsdma", width, ivram ? "ivram" : "sdram",
 	    name, UNITS,
 	    ticks[0], ticks[1], ticks[2], passes[0], passes[1], passes[2],
-	    status[0], status[1], status[2], alone, SOLO,
-	    t * 100 / UNITS, p ? t * 100 / p : 0, alone * 100 / SOLO, ok);
+	    status[0], status[1], status[2], alone, solo_passes,
+	    t * 100 / UNITS, p ? t * 100 / p : 0, alone * 100 / solo_passes, ok);
 	save_log();
 	lcd_at_xy(0, 3);
 	lcd_printf("case %u, %u failed  ", cases, failures);
@@ -517,6 +565,12 @@ int grifo_main(int argc, char **argv)
 				run_case(widths[w], 0, ivram, loops[l].name,
 					 loops[l].fn);
 	ivram_cases();
+	solo_passes = SOLO_BLOCKS;
+	for (unsigned w = 0; w < 3; w += 2) {
+		run_case(widths[w], 0, 0, "unpack0", unpack0);
+		run_case(widths[w], 0, 0, "unpack2", unpack2);
+	}
+	solo_passes = SOLO;
 	/* Receive-paced: each character waits for both engines. */
 	for (unsigned w = 0; w < sizeof(widths) / sizeof(*widths); w++)
 		for (unsigned l = 0; widths[w] != 16 &&
