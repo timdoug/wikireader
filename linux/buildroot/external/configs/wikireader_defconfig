@@ -46,7 +46,7 @@ BR2_PACKAGE_WR_CONSOLE=y
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 # The WikiReader's boot partition is only 64 MB.
-BR2_TARGET_ROOTFS_EXT2_SIZE="24M"
+BR2_TARGET_ROOTFS_EXT2_SIZE="32M"
 BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 # No metadata checksums: a software CRC32C over every metadata block is
 # too dear on this CPU.  4 KB blocks, a page each, where the image's size

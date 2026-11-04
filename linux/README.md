@@ -828,8 +828,9 @@ cross-casts; static construction; iostreams, containers and `shared_ptr`;
 and four threads throwing and catching concurrently under a mutex.
 
 `rootfs` builds the root filesystem with Buildroot 2026.08.1 and leaves it as
-`linux/artifacts/linux.img`, a 24 MB ext4 image with 4 KB blocks and no
-metadata checksums. It goes on the card's FAT partition beside `linux.app`,
+`linux/artifacts/linux.img`, a 32 MB ext4 image with 4 KB blocks and no
+metadata checksums; the system takes about 18 MB of it and the journal 4,
+which leaves room for the home directory and what the tests stage. It goes on the card's FAT partition beside `linux.app`,
 in one piece: every read into it walks its FAT chain, and on a card whose
 free space is scattered the chain jumps about the FAT, which the device
 measured at 1.3 s of every boot (6.05 s to the prompt against 4.76). A
