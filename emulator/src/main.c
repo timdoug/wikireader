@@ -951,9 +951,9 @@ int main(int argc, char **argv)
 		 * far enough apart for the application to consume the events.
 		 */
 		/*
-		 * --type-after: the typing starts when the guest has said it
-		 * can take keys, as someone waits for the prompt, not at a
-		 * cycle that a slower build would not have reached it by.
+		 * --type-after: the typing starts once the console has printed
+		 * the guest's ready lines, not at a fixed cycle that a slower
+		 * build reaches before those lines.
 		 */
 		if (!type_armed && uart.wait_done) {
 			type_armed = true;
