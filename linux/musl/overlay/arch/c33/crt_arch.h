@@ -142,7 +142,9 @@ START ":\n"
 /* ld.so: _dlstart_c finds the load maps below the stack vector, the
  * program's at sp[-2] and ours at sp[-1], or zero when run as a program,
  * and our dynamic section in its second argument.  The stack moves below
- * them, 16-byte aligned, before the first call. */
+ * them, 16-byte aligned, before they are stored: an interrupt pushes its
+ * PC and PSR on whatever stack is current, a program's included, over
+ * anything below %sp. */
 __asm__(
 ".text\n"
 ".global " START "\n"
@@ -152,12 +154,13 @@ START ":\n"
 "	ld.w	%r1,%r8\n"
 "	ld.w	%r4,%sp\n"
 "	sub	%r4,8\n"
+"	and	%r4,-16\n"
+"	ld.w	%sp,%r4\n"
+"	ld.w	%r4,%r0\n"
+"	sub	%r4,8\n"
 "	ld.w	[%r4],%r6\n"
 "	add	%r4,4\n"
 "	ld.w	[%r4],%r7\n"
-"	sub	%r4,4\n"
-"	and	%r4,-16\n"
-"	ld.w	%sp,%r4\n"
 "	cmp	%r7,0\n"
 "	jrne	1f\n"
 "	ld.w	%r7,%r6\n"
