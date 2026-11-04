@@ -223,6 +223,7 @@ get both, and also covers the boot chain and profiling. Then:
 
 ```sh
 cd emulator
+make -C .. mbr   # once: samo-lib/mbr/flash.rom, which make-flash.py patches
 rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
 ./wremu -e /tmp/flash.rom -c images/wrcard.img
 ```

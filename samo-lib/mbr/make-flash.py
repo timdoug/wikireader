@@ -42,7 +42,7 @@ def build(output, toolchain):
         libraries = ('samo-lib/drivers/lib/libdrivers.a', 'samo-lib/fatfs/lib/read-only/libtinyfat.a',
                      'samo-lib/drivers/lib/libdrivers.a', 'samo-lib/mini-libc/lib/libc.a')
         subprocess.run([str(toolchain / 'c33-epson-elf-ld'), '-T', str(ROOT / 'samo-lib/mbr/application.lds'),
-                        '-static', '-N', '--gc-sections', '--undefined=file_loader',
+                        '-static', '-N', '--no-warn-rwx-segments', '--gc-sections', '--undefined=file_loader',
                         '-o', str(tmp / 'loader.elf'), str(tmp / 'loader.o'),
                         *[str(ROOT / p) for p in libraries], libgcc], check=True)
         subprocess.run([str(toolchain / 'c33-epson-elf-objcopy'), '-O', 'binary',

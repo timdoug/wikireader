@@ -378,9 +378,12 @@ FLASH, `kernel.elf` (Grifo) off the card, `init.app`, then the application
 `init.ini` names. A direct ELF boot runs at the 48 MHz reset clock instead
 of Grifo's 60, clocks the card at 12 MHz instead of 15 and skips Grifo's
 hardware setup, so wremu refuses one unless `--bare-elf` says it is
-compiler output for the toolchain suites. `make-flash.py` builds the FLASH:
+compiler output for the toolchain suites. `make-flash.py` builds the FLASH
+by patching `samo-lib/mbr/flash.rom`, which `make mbr` at the top level
+builds:
 
 ```sh
+make -C .. mbr
 rm -f /tmp/flash.rom && python3 ../samo-lib/mbr/make-flash.py /tmp/flash.rom
 ./wremu -g -N 3,1000000 -e /tmp/flash.rom -c images/wrcard.img
 ```
