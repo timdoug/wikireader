@@ -93,8 +93,10 @@ def test_entry(image, flash, out, app, tap):
     problems = []
     if app == 'linux':
         typing = ['--keyboard', 'linux', '--type-after', LINUX_READY]
+        # t times things: type it 25 s after the console is up, as on the
+        # device, clear of the boot's own jobs at 20 s (initramfs/late).
         log, card = run(image, flash, out, 'linux-t', tap,
-                        typing + ['-K', '0,t#'], 12000000000)
+                        typing + ['-K', '1500000000,t#'], 15000000000)
         logs = [log]
         mounted = Card(card)
         try:
