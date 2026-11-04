@@ -43,7 +43,7 @@ cd "${BUILD}"
 	--disable-gprofng ${C33_BINUTILS_CONFIGURE:-}
 
 echo "==> building"
-make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+make -j"${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 make install-strip
 
 echo
