@@ -34,7 +34,7 @@ void __delay(unsigned long cycles)
 	u32 start;
 
 	if (!s1c33_timer_running()) {
-		/* Before time_init(): bounded, and only ever an overestimate. */
+		/* Before the counter runs: bounded, and only an overestimate. */
 		while (cycles--)
 			cpu_relax();
 		return;

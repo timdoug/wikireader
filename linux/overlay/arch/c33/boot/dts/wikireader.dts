@@ -173,6 +173,17 @@
 		function = "tm1";
 	};
 
+	/* The timer cascade: TM0 out on P10, wired to EXCL5 in on P74. */
+	timer_tm0_pins: timer-tm0-pins {
+		pins = "P10";
+		function = "tm0";
+	};
+
+	timer_excl5_pins: timer-excl5-pins {
+		pins = "P74";
+		function = "excl5";
+	};
+
 	sd_pins: sd-pins {
 		groups = "spi";
 		function = "spi";
@@ -219,6 +230,11 @@
 	pinctrl-0 = <&sd_pins>;
 	pinctrl-1 = <&sd_hold_pins>;
 	status = "okay";
+};
+
+&timer {
+	pinctrl-names = "default";
+	pinctrl-0 = <&timer_tm0_pins>, <&timer_excl5_pins>;
 };
 
 &uart0 {

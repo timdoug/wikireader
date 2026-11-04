@@ -8,6 +8,13 @@
  * free-running 32-bit counter: the clocksource, the scheduler clock, and the
  * reference for udelay().  Channel 2 keeps its own prescaler and provides the
  * clock event through the interrupt controller.
+ *
+ * The clock event and the suspend wake count MCLK inside the block, so they
+ * start from time_init().  The counter needs its two pins, TM0 out and
+ * EXCL5 in, which the pin controller sets from the device tree; it starts
+ * when the block probes as a platform device, after the pin controller and
+ * before the drivers that read get_cycles().  Until then the kernel keeps
+ * time in jiffies and udelay() spins.
  */
 #include <linux/bitops.h>
 #include <linux/clk.h>
@@ -19,6 +26,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/platform_device.h>
 #include <linux/sched_clock.h>
 #include <linux/suspend.h>
 
@@ -43,18 +51,6 @@
 #define S1C33_CLKCTL_DIV1	0
 #define S1C33_CLKCTL_DIV64	4
 #define S1C33_CLKCTL_DIV4096	7
-
-
-/*
- * TM0 output on P12 and the EXCL5 input on P74 carry the cascade.  The pin
- * functions are set here, in the port registers, because the clocksource
- * starts from time_init(), before the pin controller probes.
- */
-#define S1C33_P1_03_CFP		0x003003a2UL
-#define S1C33_P1_TM0		0x01
-#define S1C33_P7_4_CFP		0x003003afUL
-#define S1C33_P7_EXCL5		0x02
-#define S1C33_CFP_MASK		0x03
 
 
 #define S1C33_COUNT_LOW		0
@@ -195,10 +191,10 @@ static irqreturn_t s1c33_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-/* The four channels' clocks, held for good, and the cascade's pins. */
+/* The clock event's and the wake's channel clocks, held for good. */
 static int __init s1c33_timer_clocks_on(struct device_node *node)
 {
-	static const char * const gates[] = { "tm0", "tm2", "tm3", "tm5" };
+	static const char * const gates[] = { "tm2", "tm3" };
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(gates); i++) {
@@ -210,15 +206,10 @@ static int __init s1c33_timer_clocks_on(struct device_node *node)
 			return ret;
 		}
 	}
-
-	writeb((readb((void __iomem *)S1C33_P1_03_CFP) & ~S1C33_CFP_MASK) |
-	       S1C33_P1_TM0, (void __iomem *)S1C33_P1_03_CFP);
-	writeb((readb((void __iomem *)S1C33_P7_4_CFP) & ~S1C33_CFP_MASK) |
-	       S1C33_P7_EXCL5, (void __iomem *)S1C33_P7_4_CFP);
 	return 0;
 }
 
-static void __init s1c33_counter_init(unsigned long rate)
+static void s1c33_counter_init(unsigned long rate)
 {
 	/* Advanced mode makes the pause register and counter writes work. */
 	t16_write(S1C33_ADVMODE_ON, S1C33_T16_ADVMODE);
@@ -388,17 +379,62 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 	ret = s1c33_timer_clocks_on(node);
 	if (ret)
 		return ret;
+	/* The counter's rate, for calibrate_delay(), before it runs. */
 	s1c33_counter_rate = mclk_hz;
-	s1c33_counter_init(mclk_hz);
 	s1c33_clockevent_init(mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 	s1c33_wake_init(mclk_hz / S1C33_WAKE_DIVISOR, wake_irq);
 	if (s1c33_wake_seconds)
-		pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, %u s suspend wake on IRQ %d\n",
-			mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq,
+		pr_info("s1c33-timer: %lu Hz clock event on IRQ %d, %u s suspend wake on IRQ %d\n",
+			mclk_hz / S1C33_EVENT_DIVISOR, event_irq,
 			s1c33_wake_seconds, wake_irq);
 	else
-		pr_info("s1c33-timer: %lu Hz counter, %lu Hz clock event on IRQ %d, no suspend wake poll\n",
-			mclk_hz, mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
+		pr_info("s1c33-timer: %lu Hz clock event on IRQ %d, no suspend wake poll\n",
+			mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 	return 0;
 }
 TIMER_OF_DECLARE(s1c33_t16, "epson,s1c33-t16", s1c33_timer_of_init);
+
+/* The counter: the device's pins are set by now, the default state's. */
+static int s1c33_counter_probe(struct platform_device *pdev)
+{
+	static const char * const gates[] = { "tm0", "tm5" };
+	unsigned int i;
+
+	if (!t16_base)
+		return -ENODEV;
+	for (i = 0; i < ARRAY_SIZE(gates); i++) {
+		struct clk *clk = devm_clk_get_enabled(&pdev->dev, gates[i]);
+
+		if (IS_ERR(clk))
+			return dev_err_probe(&pdev->dev, PTR_ERR(clk),
+					     "no %s clock\n", gates[i]);
+	}
+	s1c33_counter_init(s1c33_counter_rate);
+	dev_info(&pdev->dev, "%lu Hz counter\n", s1c33_counter_rate);
+	return 0;
+}
+
+static const struct of_device_id s1c33_counter_of_match[] = {
+	{ .compatible = "epson,s1c33-t16" },
+	{ }
+};
+
+static struct platform_driver s1c33_counter_driver = {
+	.probe = s1c33_counter_probe,
+	.driver = {
+		.name = "s1c33-t16",
+		.of_match_table = s1c33_counter_of_match,
+		.suppress_bind_attrs = true,
+	},
+};
+
+/*
+ * Subsystem level: the device exists, after the pin controller's, and the
+ * counter runs before device-level drivers, the card's among them, which
+ * time transfers with get_cycles().
+ */
+static int __init s1c33_counter_driver_init(void)
+{
+	return platform_driver_register(&s1c33_counter_driver);
+}
+subsys_initcall(s1c33_counter_driver_init);

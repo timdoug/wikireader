@@ -522,8 +522,6 @@ Where the kernel still departs:
 - The HSDMA driver polls for completion and keeps its own lists instead of
   `virt-dma`, by measurement (README): HALT stops SPI-triggered transfers,
   and virt-dma's tasklet cost a third of a card block.
-- The timer sets its cascade's two pin functions in the port registers: it
-  starts from `time_init()`, before the pin controller.
 - The early LCD console is the architecture's own, not `earlycon`.
 
 The toolchain follows them too (`host-tools/toolchain-c33/gcc/ABI.md`:

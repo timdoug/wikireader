@@ -70,7 +70,14 @@ rather than a jiffy tick. Channel 0 counts MCLK and its inverted comparison-B
 output is wired on the board to channel 5's external clock input, so the pair
 is one free-running 32-bit counter; that counter is the clocksource, the
 scheduler clock, and the reference `udelay()` spins against, which makes delays
-independent of where the linker placed the loop. Channel 2 is a clock event
+independent of where the linker placed the loop. The cascade's two pins,
+TM0 on P10 and EXCL5 on P74, are the timer node's default pin state in the
+device tree, so the counter starts when the block probes as a platform
+device, at `subsys_initcall`, after the pin controller and before the card's
+driver: until then, the first 0.63 s of boot in wremu, the kernel keeps time
+in jiffies and `udelay()` spins, and the kernel's timestamps from then on
+read 40-60 ms more than the time that has passed (the emulator's own
+clock, `WREMU_UART_TRACE=`, measures boot). Channel 2 is a clock event
 with both periodic and one-shot modes, so the kernel runs with high-resolution
 timers and an idle tick that stops. `loops_per_jiffy` is set from MCLK instead
 of being measured, and a sleeping process now wakes when it asked to rather
@@ -337,9 +344,9 @@ rate following from its parent, the board's 48 MHz or 32.768 kHz
 oscillator (fixed clocks in the device tree), with the clock-management
 unit's peripheral gates as its children. It registers from `time_init()`
 (`CLK_OF_DECLARE`), so the timer block, which starts there, takes MCLK and
-its four channels' gates as clocks like every other driver; only the
-cascade's two pin functions are set by hand, since the pin controller
-probes later. `udelay` takes MCLK's rate from the timer.
+its four channels' gates as clocks like every other driver, and its
+cascade's pins from the pin controller. `udelay` takes MCLK's rate from the
+timer.
 This also keeps a kernel entered by already-running firmware correct if that
 firmware selected the PLL first. UART initial speeds and the touchscreen
 link's receive-only wiring are firmware properties, so the serial driver has

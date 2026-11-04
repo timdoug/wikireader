@@ -11,8 +11,9 @@ maintainers:
 
 description:
   Six 16-bit timers.  Timer 0 counts MCLK and its output clocks timer 5
-  through the board's wiring of P12 to P74, so the two read as one 32-bit
-  counter; timer 2 is the clock event and timer 3 a slow wake from suspend.
+  through the board's wiring of TM0 (P10) to EXCL5 (P74), so the two read
+  as one 32-bit counter; timer 2 is the clock event and timer 3 a slow wake
+  from suspend.  The default pin state selects those two functions.
 
 properties:
   compatible:
@@ -42,12 +43,20 @@ properties:
       - const: tm3
       - const: tm5
 
+  pinctrl-names:
+    const: default
+
+  pinctrl-0:
+    description: TM0 out and EXCL5 in, which carry the cascade
+
 required:
   - compatible
   - reg
   - interrupts
   - clocks
   - clock-names
+  - pinctrl-names
+  - pinctrl-0
 
 additionalProperties: false
 
@@ -63,4 +72,6 @@ examples:
                  <&cmu S1C33_CLK_TM2>, <&cmu S1C33_CLK_TM3>,
                  <&cmu S1C33_CLK_TM5>;
         clock-names = "mclk", "tm0", "tm2", "tm3", "tm5";
+        pinctrl-names = "default";
+        pinctrl-0 = <&timer_tm0_pins>, <&timer_excl5_pins>;
     };
