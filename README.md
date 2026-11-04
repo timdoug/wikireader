@@ -248,6 +248,13 @@ with their game data, `--nuttx` adds NuttX, and `--linux` adds native Linux
 with its system image, the card's `bin` folder and the test programs its `t`
 runs (`linux/card/tests.list`).
 
+`card-test.py IMAGE` runs every launcher entry of a card image in wremu the
+way the device is used: each on its own copy of the image, booted through
+Grifo, its icon tapped, then driven on the panel (an article opened in the
+reader, a game started, `t` and `check` typed into Linux's console and their
+reports read back off the card). It fails on a missing ready line, a failed
+check or any kernel fault, and leaves the final screens in one contact sheet.
+
 `install-card.sh` updates NuttX and Linux on an existing card. Mount the boot
 partition, and the script copies the built applications, icons, `linux.img`
 (in place, so it keeps its clusters), the card's `bin` folder and the test
