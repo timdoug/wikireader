@@ -52,21 +52,26 @@ python3 linux/upstream-tests/run.py libc --batch-size 16 --output DIR
 
 ## Results
 
-BusyBox's last full sweep ran on the uClibc-ng system, before the move to
-musl; it has not been repeated on musl:
+BusyBox, on musl:
 
 | Inventory and counting unit | Pass | Fail | Skip/untested | Other |
 |---|---:|---:|---:|---|
-| BusyBox applet result markers (792) | 671 | 8 | 113 | None |
-| Individual Hush tests (404) | 388 | 15 | 0 | 1 timeout |
+| BusyBox applet result markers (792) | 674 | 5 | 113 | None |
+| Individual Hush tests (405) | 389 | 13 | 0 | 3 timeouts |
 
 | Tests | Cause |
 |---|---|
-| 3 BusyBox `bunzip2`/`bzip2`, 3 `cpio` | bzip2's default level needs a 3.6 MB contiguous buffer; the suite fragments memory first |
-| 8 Hush leak tests + `many_ifs` timeout | Disabled `HUSH_MEMLEAK` builtin |
-| 2 Hush | Disabled Unicode |
-| 1 Hush `signal_read1` | `read` from the runner's `/dev/null` races its HUP; upstream expects a blocking terminal |
-| 4 Hush, 3 sed | Upstream bugs: the Hush tests fail identically in a native no-MMU build; sed's are marked as known |
+| 3 sed | Upstream bugs, marked as known in the suite |
+| 1 cpio, `cpio lists hardlinks` | Upstream bug, marked as known: `cpio -t` skips zero-length hard links (`get_header_cpio.c`) |
+| 1 awk, `gsub erroneous word start match` | musl has no `REG_STARTEND`; BusyBox then matches from a pointer into the string with `REG_NOTBOL`, where `\<` finds a word start |
+| 8 Hush leak tests (6 fail, 2 time out) + `many_ifs` timeout | Disabled `HUSH_MEMLEAK` builtin |
+| 2 Hush, `unicode1` and `var-utf8-length` | Disabled Unicode |
+| 3 Hush, `strops5_bug`, `tickquote1`, `glob_bkslash_in_var` | Upstream bugs: the same `.config` built natively against glibc fails them too |
+| 2 Hush, `negative_arith` and `quoted_punct` | musl's `fnmatch` and `glob` take a backslash in a bracket expression literally where it would make `-` or `]` literal: `[a\-c]` is a range and `[\]]` ends at the first `]`; glibc escapes them |
+
+`cp` and `mv` stage BusyBox's tree on the root filesystem (`case-fixtures.json`'s
+`disk`), so they need its free space. The Hush modules that run past their
+time limit leave their remaining tests to `--hush-case` runs, one test each.
 
 libc-test (revision 63e36e93, musl 7813e911) has 486 programs: 445 pass,
 2 do not build, 31 fail and 8 are killed. None crashes or times out:
