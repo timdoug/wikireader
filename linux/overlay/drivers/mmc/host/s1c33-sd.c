@@ -41,6 +41,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/scatterlist.h>
 #include <linux/sizes.h>
+#include <linux/slab.h>
 #include <linux/swab.h>
 #include <linux/hrtimer.h>
 #include <linux/timex.h>
@@ -2041,9 +2042,57 @@ static const char *const sd_phase_names[SD_T_PHASES] = {
 };
 
 /*
+ * sd_unpack_crc() alone on a block, with no transfer running: the check
+ * phase without the DMA beside it, an even mix of aligned blocks and blocks
+ * two bytes on, as a stream's come.  Both buffers are in SDRAM, as the
+ * ring and the page cache are.  The fastest of sixteen, each with
+ * interrupts off; 0 if a transfer was running before or after.
+ */
+static u32 sd_check_alone(struct s1c33_sd *host)
+{
+	u32 *words, *out, best = U32_MAX, t;
+	unsigned long flags;
+	int i, waited;
+
+	words = kmalloc(SD_STREAM_BLOCK, GFP_KERNEL);
+	out = kmalloc(SD_BLOCKSIZE, GFP_KERNEL);
+	if (!words || !out) {
+		best = 0;
+		goto out;
+	}
+	for (i = 0; i < SD_STREAM_BLOCK / 4; i++)
+		words[i] = i * 0x9e3779b9u;
+	/* An open stream fills its ring, then its DMA stops. */
+	for (waited = 0; READ_ONCE(host->stream.running) && waited < 100; waited++)
+		msleep(5);
+	if (READ_ONCE(host->stream.running)) {
+		best = 0;
+	} else {
+		for (i = 0; i < 16; i++) {
+			local_irq_save(flags);
+			t = get_cycles();
+			sd_unpack_crc(words, out, SD_BLOCKSIZE / 4, 0, 0,
+				      host->crc_tables);
+			sd_unpack_crc(words + 1, out, SD_BLOCKSIZE / 4, 0x1234, 2,
+				      host->crc_tables);
+			t = get_cycles() - t;
+			local_irq_restore(flags);
+			best = min(best, t / 2);
+		}
+		if (READ_ONCE(host->stream.running))
+			best = 0;
+	}
+out:
+	kfree(words);
+	kfree(out);
+	return best;
+}
+
+/*
  * Cycles a block by phase since timing was last turned on, "1" to turn it
  * on (and clear it), "0" off.  Each figure includes one reading of the
- * clock, the overhead line.
+ * clock, the overhead line.  "alone" is check's CRC and unpack with no
+ * transfer beside it, timed when read.
  */
 static ssize_t read_timing_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -2071,6 +2120,8 @@ static ssize_t read_timing_show(struct device *dev,
 	}
 	len += sysfs_emit_at(buf, len, "%-8s %7llu cycles a block\n", "total",
 			     div_u64(total, blocks));
+	len += sysfs_emit_at(buf, len, "%-8s %7u cycles a block\n", "alone",
+			     sd_check_alone(host));
 	return len;
 }
 
