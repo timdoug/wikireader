@@ -48,6 +48,7 @@ struct sdramc {
 	struct {
 		bool valid;
 		uint64_t activated;
+		uint64_t written;	/* when its last write left the bus */
 	} phys[SDRAMC_MAX_BANKS];
 	struct {
 		bool valid;

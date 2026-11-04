@@ -372,6 +372,11 @@ static uint64_t select_row(struct sdramc *s, uint32_t addr, uint64_t now)
 			uint64_t earliest = since + tras(s) * tick;
 			if (at < earliest)
 				at = earliest;
+			/* tWR: the bank closes no sooner than write recovery
+			   after the last write into it left the bus. */
+			earliest = s->phys[pb].written + model.write_recovery * tick;
+			if (model.write_recovery && at < earliest)
+				at = earliest;
 			at += trp(s) * tick;
 			earliest = since + trc(s) * tick;
 			if (at < earliest)
@@ -516,6 +521,13 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	 * unless the fitted model gives every write a flat cost. */
 	s->bus_free = command + (model.wr_ticks ? model.wr_ticks
 					       : transfers * tick);
+	{
+		unsigned pb;
+		uint32_t row;
+
+		address_parts(s, addr, &pb, &row);
+		s->phys[pb].written = s->bus_free;
+	}
 	last_was_write = true;
 	s->last_sdram_access = s->bus_free;
 	flush_written(s, addr, size);
@@ -707,9 +719,10 @@ uint64_t sdramc_wait_slow(void *ctx, enum mem_access access, uint32_t addr,
 				    i < SDRAMC_WRITE_POST_MAX; i++)
 				if (s->posted[i] < s->posted[oldest])
 					oldest = i;
-			if (s->posted[oldest] <= now)
-				ready = now;          /* room: post it */
-			else
+			/* Room or not, handing the store over takes the CPU
+			   write_issue. */
+			ready = now + model.write_issue;
+			if (s->posted[oldest] > ready)
 				ready = s->posted[oldest];
 			s->posted[oldest] = s->bus_free;
 		}

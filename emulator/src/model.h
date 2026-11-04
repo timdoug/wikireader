@@ -143,6 +143,9 @@ struct model {
 	unsigned call_extra;
 	/* What one peripheral register access costs, in MCLK. */
 	unsigned mmio_wait;
+	unsigned itc_wait;
+	unsigned write_issue;
+	unsigned write_recovery;
 	/* Which cycle after the read command the first halfword lands on:
 	   CAS, or the one after it. */
 	unsigned cas_first;

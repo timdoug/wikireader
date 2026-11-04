@@ -546,23 +546,27 @@ with `WREMU_MODEL=name=value,...`.
 | `branch_bubble` | 4 | MCLK an *undelayed* `jp`/`jpr` owes the fetch path, as a floor on the next fetch's wait |
 | `call_extra` | 2 | extra cycles a call or return pays for the queue it discards |
 | `iqb_first` | 1 | extra half-MCLK before an instruction-queue fill |
-| `iqb_word_gap` | 0 | extra half-MCLK between words of that fill |
-| `dq_extra` | 0 | extra half-MCLK on a data-queue fill |
+| `iqb_word_gap` | 6 | extra half-MCLK between words of that fill |
+| `dq_extra` | 3 | extra half-MCLK on a data-queue fill |
 | `dq_hit` | 1 | ...and on a data-queue hit |
 | `dq_entries` | 1 | 32-bit words the data queue holds; the device measures one |
 | `act_overlap` | 1 | a row activation may proceed while the data bus is busy elsewhere |
 | `dq_iram_extra` | 2 | ...in SDCLK, for a data read issued by code running from internal RAM |
-| `wr_ticks` | 9 | half-MCLK of bus occupancy per written halfword |
+| `wr_ticks` | 8 | half-MCLK of bus occupancy per written halfword |
 | `write_post` | 1 | a store retires into the controller's buffer; 0 blocks the CPU |
 | `wr_rd_turn` | 0 | extra half-MCLK for an SDRAM read after a write |
-| `sdclk_half` | 4 | half-MCLK per SDCLK; the device divides MCLK by two |
+| `sdclk_half` | 2 | half-MCLK per SDCLK; the device divides MCLK by two |
 | `row_ports` | 1 | the open row belongs to the access port, not the bank |
 | `rw_ports` | 1 | reads and writes have row registers of their own |
 | `bank_conflict` | 1 | opening a row closes another data register's row in the same physical bank |
 | `dma_row_change_extra` | 0 | half-MCLK a DMA row change adds; the device's copies pay only tRP and tRCD |
-| `row_change_extra` | 1 | extra half-MCLK on a row change |
+| `row_change_extra` | 5 | extra half-MCLK on a row change |
 | `cas_first` | 0 | the first halfword lands on the CAS cycle, not after it |
-| `mmio_wait` | 8 | extra MCLK on a CPU access to a peripheral register |
+| `mmio_wait` | 5 | extra MCLK on a CPU access to a peripheral register |
+| `itc_wait` | 2 | ...on the interrupt controller's registers instead |
+| `write_issue` | 4 | half-MCLK a posted store keeps the CPU, room in the buffer or not |
+| `write_recovery` | 0 | tWR: SDCLKs from a bank's last write to its precharge |
+| `ivram_a0_fetch_wait` | 0 | extra cycles per fetch from IVRAM switched into area 0 |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `dma_async` | 1 | SPI-triggered HSDMA and IDMA run beside the CPU; 0 freezes the CPU per transfer |

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "mem.h"
+#include "itc.h"
 #include "model.h"
 
 bool mem_init(struct mem *m)
@@ -85,7 +86,8 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 
 	if (model.mmio_wait && addr - REG_BASE < REG_SIZE &&
 	    access != MEM_DMA_READ && access != MEM_DMA_WRITE)
-		return stall + model.mmio_wait;
+		return stall + (addr - (REG_BASE + ITC_BASE) < ITC_LEN ?
+				model.itc_wait : model.mmio_wait);
 
 	if ((access == MEM_CPU_READ || access == MEM_CPU_WRITE) &&
 	    m->cpu_data_hook && addr - SDRAM_BASE < SDRAM_SIZE)

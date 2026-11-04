@@ -131,14 +131,16 @@ int main(void)
 	check64("DQB hits include DMA reads",
 		sdramc.dq_hits, 1);
 
-	/* A posted write does not stop the CPU, but the bus is still busy:
-	 * the device copies a word at a time faster than four at a time, and
-	 * a store that blocked until the bus had taken it could not do that.
+	/* A posted write stops the CPU only for handing it over, write_issue,
+	 * and the bus stays busy behind it: the device copies a word at a
+	 * time faster than four at a time, and a store that blocked until the
+	 * bus had taken it could not do that.
 	 */
 	model.write_post = 1;
 	timing_setup(&mem, &sdramc, 0x8000000b, 0x00000fff);
-	check64("a posted write does not hold the CPU up",
-		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE, 4, 0), 0);
+	check64("a posted write holds the CPU only to hand it over",
+		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE, 4, 0),
+		(model.write_issue + 1) / 2);
 	check64("...but the next write waits for the buffer to drain",
 		mem_wait(&mem, MEM_CPU_WRITE, SDRAM_BASE + 4, 4, 1), 5);
 	model.write_post = 0;

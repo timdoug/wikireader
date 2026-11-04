@@ -57,6 +57,18 @@ struct model model = {
 	   controller register at 82.50 cycles a pass where the same loop of
 	   adds costs 15.15; this was zero until it was asked. */
 	.mmio_wait = 5,
+	/* An interrupt controller register reads faster than the rest:
+	   spibench's spin loop, a flag read a pass, is 13 cycles on the
+	   device and was 16 at mmio_wait (2026-11-04). */
+	.itc_wait = 2,
+	/* Handing a posted store to the controller keeps the CPU two MCLK
+	   even with room: spibench's store1 and ubench's store loops were
+	   3 cycles a store cheap, and four sets (spibench, membench, ubench,
+	   riscv fit-model) all score better at 4 (2026-11-04). */
+	.write_issue = 4,
+	/* tWR before a precharge.  Off: the device's word memcpy within one
+	   bank, load and store two instructions apart, pays none. */
+	.write_recovery = 0,
 	/* Zero: the first halfword lands on the CAS cycle itself, which is
 	   what CAS latency means. Charging the cycle after it made every
 	   external read two MCLK dear -- loadseq, loadseq8 and copyloop were
@@ -220,6 +232,9 @@ static const struct {
 	{ "write_post", NULL, &model.write_post },
 	{ "call_extra", NULL, &model.call_extra },
 	{ "mmio_wait", NULL, &model.mmio_wait },
+	{ "itc_wait", NULL, &model.itc_wait },
+	{ "write_issue", NULL, &model.write_issue },
+	{ "write_recovery", NULL, &model.write_recovery },
 	{ "cas_first", NULL, &model.cas_first },
 	{ "iram_word_fetch", NULL, &model.iram_word_fetch },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
