@@ -39,8 +39,8 @@ bool uart_can_receive(const struct uart *u);
 bool uart_receive(struct uart *u, uint8_t byte);
 void uart_poll(struct uart *u);
 /* Watch the console for every one of LINES ('|'-separated, at most 32,
-   each a whole line), in any order; wait_done is set once all have been
-   printed. */
+   each matching the end of a printed line), in any order; wait_done is set
+   once all have been printed. */
 void uart_wait_for_lines(struct uart *u, const char *lines);
 /* When a byte waiting to transmit empties the buffer, if one is waiting. */
 bool uart_deadline(const struct uart *u, uint64_t *at);

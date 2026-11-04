@@ -101,7 +101,9 @@ void uart_wait_for_lines(struct uart *u, const char *lines)
 	u->wait_done = false;
 }
 
-/* Mark the waited-for line LINE equals, and note when all are seen. */
+/* Mark the waited-for line LINE ends with, and note when all are seen.  The
+   end, not the whole line: a shell prompt printed without a newline just
+   before another process's message shares its line. */
 static void uart_wait_line(struct uart *u, const char *line)
 {
 	const char *expected = u->wait_lines;
@@ -113,7 +115,9 @@ static void uart_wait_line(struct uart *u, const char *line)
 			strlen(expected);
 
 		all |= 1u << k;
-		if (strlen(line) == length && !memcmp(line, expected, length))
+		size_t line_length = strlen(line);
+		if (line_length >= length &&
+		    !memcmp(line + line_length - length, expected, length))
 			u->wait_seen |= 1u << k;
 		expected = separator ? separator + 1 : NULL;
 	}
