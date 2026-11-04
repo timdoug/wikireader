@@ -35,6 +35,74 @@ LAUNCHER_ARGS = (b"loglevel=7 earlycon=s1c33,mmio,0x300b00 wr.blank=5"
                  b" wr.selftest")
 
 
+# The Linux line of the device card's init.ini.
+DEVICE_ARGS = b"wr.blank=300 wr.suspend=600 wr.pmlog printk.time=1 s1c33_sd.timing=1"
+
+
+def card_test_run(root, emulator, files, make_flash, fat):
+    """Run t as it is run on the device: tap Linux in the launcher, then type
+    t and Enter on the on-screen keyboard, into the panel's shell, which is
+    not the serial console's: it is wr-console's child, and inherits what
+    wr-console leaves open."""
+    with tempfile.TemporaryDirectory(prefix="wr-linux-card-") as temporary:
+        out = Path(temporary)
+        card = out / "card.img"
+        flash = out / "flash.rom"
+        log = out / "boot.log"
+        uart = out / "uart.in"
+        # The device card has t in bin/, which the panel shell's PATH
+        # includes; the fixture cannot make folders, so the serial shell
+        # puts it there.
+        uart.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t"
+                        " && echo T INSTALLED\n")
+        card_files = dict(files)
+        # Two entries, so the launcher shows its menu and Linux is tapped.
+        card_files["init.ini"] = (b"linux.ico : linux.app " + DEVICE_ARGS + b"\n") * 2
+        fat.make_image(card, card_files, 64)
+        subprocess.run([sys.executable, str(make_flash), str(flash)],
+                       check=True, stdout=subprocess.DEVNULL)
+        command = [
+            str(emulator), "-n", "12000000000",
+            "-T", f"{ICON0[0]},{ICON0[1]},100000000",
+            "--uart-input", str(uart), "--uart-start", "850000000",
+            "--uart-gap", "200000",
+            # Type once both console daemons are up and t is in place.
+            "--keyboard", "linux",
+            "--type-after", "C33 userspace console: DRM + evdev + PTY shell ready"
+            "|C33 input: soft keyboard registered as a uinput device"
+            "|T INSTALLED",
+            "-K", "0,t#",
+            "-c", str(card), "-e", str(flash),
+        ]
+        with log.open("w") as output:
+            subprocess.run(command, cwd=out, stdout=output,
+                           stderr=subprocess.STDOUT, check=True, timeout=900,
+                           env={**os.environ, "WREMU_HOLD_MS": "33"})
+        text = log.read_bytes().decode(errors="replace").replace("\r", "")
+        thread = (fat.read_file(card, "thread.txt") or b"").decode(errors="replace")
+
+    expected = [
+        "NPTL PASS",
+        "PTHREAD PASS",
+        "STATIC PTHREAD PASS",
+        "ATOMIC PASS",
+        "IPC PASS",
+        "CXX PASS",
+        "BENCH PASS",
+        "STRACE PASS",
+    ]
+    missing = [marker for marker in expected if marker not in thread]
+    if "typing rebased" not in text:
+        missing.insert(0, "the console's ready lines, so t was never typed")
+    if missing or "FAIL" in thread:
+        print(text, file=sys.stderr)
+        print(thread, file=sys.stderr)
+        raise SystemExit("t on the panel's shell failed; missing: " +
+                         ", ".join(missing or ["no FAIL in thread.txt"]))
+    print("Userspace passed, t typed on the panel: NPTL/native ELF TLS, "
+          "pthreads, C11/GCC atomics, cross-process IPC, C++ and strace")
+
+
 def suspend_run(root, emulator, files, make_flash, fat):
     """A single-entry card auto-boots Linux; leave it alone until it sleeps."""
     with tempfile.TemporaryDirectory(prefix="wr-linux-suspend-") as temporary:
@@ -210,10 +278,9 @@ def main():
         subprocess.run([sys.executable, str(make_flash), str(flash)],
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
-        uart_input.write_text("mkdir -p /mnt/sd/bin && cp /mnt/sd/t.sh /mnt/sd/bin/t && "
-                              "/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
+        uart_input.write_text("/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
                               "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && /mnt/sd/malloc.bin && /mnt/sd/bp.bin && "
-                              "t && /mnt/sd/sigtest.bin && cat /mnt/sd/thread.txt && ipcs -a && "
+                              "/mnt/sd/sigtest.bin && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
         command = [
@@ -244,7 +311,6 @@ def main():
             "C33 boot: Grifo application (incoming TTBR 00000400)",
             "*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***",
             "C33 BusyBox init: kernel self-test passed",
-            "NPTL PASS",
             "RELOCATION PASS",
             "ORIGIN PASS",
             "EXEC STACK PASS",
@@ -254,14 +320,6 @@ def main():
             "MALLOC PASS",
             "BREAKPOINT PASS",
             "SIGNAL PASS:",
-            "PTHREAD PASS",
-            "STATIC PTHREAD PASS",
-            "ATOMIC PASS",
-            "IPC PASS",
-            "CXX PASS",
-            "BENCH PASS",
-            "STRACE PASS",
-            "PASS (thread.txt)",
             "C33 LINUX APP PASS",
             "application returned: 2",
             "watchdog reset",
@@ -273,10 +331,9 @@ def main():
             raise SystemExit("Launcher Linux regression failed; missing: " +
                              ", ".join(missing or ["second launcher boot"]))
 
-    print("Userspace passed: NPTL/native ELF TLS, pthreads, C11/GCC atomics, "
-          "cross-process IPC and C++")
     print("Launcher Linux passed: Grifo menu -> linux.app -> BusyBox -> "
           "reboot -> Grifo menu")
+    card_test_run(root, emulator, files, make_flash, fat)
     suspend_run(root, emulator, files, make_flash, fat)
     return 0
 
