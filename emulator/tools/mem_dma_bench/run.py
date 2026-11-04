@@ -192,7 +192,10 @@ def main():
     make_image(image, files)
     symbols = subprocess.check_output([str(TOOLCHAIN/'c33-epson-elf-nm'), str(STAGE/'membench.elf')], text=True)
     done = re.search(r'^([0-9a-f]+) T membench_done$', symbols, re.M)[1]
-    env = dict(os.environ, WREMU_MODEL=f'dma_mem_extra={args.extra}')
+    # Other model settings already in WREMU_MODEL go through as well.
+    model = ','.join(filter(None, [os.environ.get('WREMU_MODEL', ''),
+                                   f'dma_mem_extra={args.extra}']))
+    env = dict(os.environ, WREMU_MODEL=model)
     transcript = STAGE / f'model-{args.extra}.txt'
     with transcript.open('w') as out:
         run = subprocess.run([str(exe), '-e', str(flash), '-c', str(image),
