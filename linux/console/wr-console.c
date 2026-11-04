@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* WikiReader userspace framebuffer terminal. */
+#define _GNU_SOURCE	/* pipe2, accept4 */
 #include <fcntl.h>
 #include <linux/kd.h>
 #include <linux/vt.h>
@@ -135,7 +136,7 @@ static void note_ready(void)
 {
 	char uptime[32], line[96];
 	ssize_t length = -1;
-	int fd = open("/proc/uptime", O_RDONLY);
+	int fd = open("/proc/uptime", O_RDONLY | O_CLOEXEC);
 
 	if (fd >= 0) {
 		length = read(fd, uptime, sizeof(uptime) - 1);
@@ -147,7 +148,7 @@ static void note_ready(void)
 	uptime[strcspn(uptime, " ")] = '\0';
 	snprintf(line, sizeof(line),
 		 "C33 console: prompt up %s s after the kernel started\n", uptime);
-	fd = open("/dev/kmsg", O_WRONLY);
+	fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
 	if (fd >= 0) {
 		length = write(fd, line, strlen(line));
 		close(fd);
@@ -783,7 +784,7 @@ static void add_keyboard(unsigned int n)
 	if (keyboard_count == MAX_KEYBOARDS)
 		return;
 	snprintf(path, sizeof(path), "/dev/input/event%u", n);
-	fd = open(path, O_RDONLY | O_NONBLOCK);
+	fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0)
 		return;
 	if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), &evbits) < 0 ||
@@ -875,7 +876,7 @@ static int open_pty(int *slave_fd)
 	int master;
 	int unlock = 0;
 
-	master = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK);
+	master = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
 	if (master < 0)
 		return -1;
 	if (ioctl(master, TIOCSPTLCK, &unlock) < 0 ||
@@ -890,7 +891,7 @@ static int open_pty(int *slave_fd)
 	for (i = 0; i < count; i++)
 		path[9 + i] = digits[count - i - 1];
 	path[9 + count] = '\0';
-	*slave_fd = open(path, O_RDWR | O_NOCTTY);
+	*slave_fd = open(path, O_RDWR | O_NOCTTY | O_CLOEXEC);
 	if (*slave_fd < 0) {
 		close(master);
 		return -1;
@@ -899,7 +900,7 @@ static int open_pty(int *slave_fd)
 	return master;
 }
 
-static pid_t start_shell(int master, int slave)
+static pid_t start_shell(int slave)
 {
 	char *const argv[] = { "sh", "-l", "-i", NULL };
 	/* Programs in the SD card's bin folder run by name, so a short command
@@ -916,9 +917,8 @@ static pid_t start_shell(int master, int slave)
 		    dup2(slave, STDOUT_FILENO) < 0 ||
 		    dup2(slave, STDERR_FILENO) < 0)
 			_exit(126);
-		close(master);
-		if (slave > STDERR_FILENO)
-			close(slave);
+		/* The PTY's two ends, like every descriptor here, close on
+		   exec. */
 		execve("/bin/sh", argv, envp);
 		_exit(127);
 	}
@@ -939,11 +939,9 @@ static void take_vt(void)
 	};
 	struct sigaction action = { .sa_handler = vt_signalled };
 
-	if (pipe(vt_pipe) < 0)
+	if (pipe2(vt_pipe, O_NONBLOCK | O_CLOEXEC) < 0)
 		return;
-	fcntl(vt_pipe[0], F_SETFL, O_NONBLOCK);
-	fcntl(vt_pipe[1], F_SETFL, O_NONBLOCK);
-	vt_fd = open("/dev/tty1", O_RDWR | O_NOCTTY);
+	vt_fd = open("/dev/tty1", O_RDWR | O_NOCTTY | O_CLOEXEC);
 	if (vt_fd < 0)
 		return;
 	sigaction(SIGUSR1, &action, NULL);
@@ -1044,7 +1042,7 @@ int main(void)
 	int master_fd;
 	pid_t shell;
 
-	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
+	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
 	if (wr_drm_open(&drm, "/dev/dri/card0") < 0 ||
@@ -1057,7 +1055,7 @@ int main(void)
 	memset(cells, ' ', sizeof(cells));
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
-	inotify_fd = inotify_init1(IN_NONBLOCK);
+	inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 	if (inotify_fd >= 0)
 		inotify_add_watch(inotify_fd, "/dev/input", IN_CREATE);
 	scan_keyboards();
@@ -1068,7 +1066,7 @@ int main(void)
 		return 1;
 	}
 	terminal_fd = master_fd;
-	shell = start_shell(master_fd, slave_fd);
+	shell = start_shell(slave_fd);
 	close(slave_fd);
 	if (shell < 0) {
 		log_text("C33 userspace console: shell start FAILED\n");
@@ -1123,11 +1121,10 @@ int main(void)
 		    (poll_fds[client_index].revents & (POLLIN | POLLHUP | POLLERR)))
 			panel_message();
 		if (listen_index && (poll_fds[listen_index].revents & POLLIN)) {
-			int client = accept(panel_listen, NULL, NULL);
+			int client = accept4(panel_listen, NULL, NULL,
+					     SOCK_NONBLOCK | SOCK_CLOEXEC);
 
 			if (client >= 0) {
-				fcntl(client, F_SETFL, O_NONBLOCK);
-				fcntl(client, F_SETFD, FD_CLOEXEC);
 				if (panel_client >= 0)
 					close(panel_client);
 				panel_client = client;
