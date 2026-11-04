@@ -28,6 +28,14 @@ finishes, reading the completion flag once a pass:
 | `rowmiss` | one load a row (1 KiB + 4) further on, a row change each pass |
 | `moves-a0` | twenty register moves |
 | `moves-sdram` | the same from SDRAM, too long for the fetch queue |
+| `lookup4` | four halfword loads from 2 KB of tables in A0 RAM |
+| `crc` | the Linux card driver's CRC and unpack of one word: a stream load, `lookup4`'s loads and a swapped store |
+| `unpack0`, `unpack2` | the kernel's `sd_unpack_crc()` itself, its machine code from `vmlinux` (`unpack_crc.inc`), one 512-byte block a pass, aligned and two bytes on; 400 passes alone |
+
+The same six of them run again from IVRAM switched into area 0 (`-iv`), the
+place the kernel runs its hot code, with the LCD controller's IRAM bit set,
+their tables still in A0 RAM and the transmitter fed from DST RAM, beside
+32- and 8-bit streams into SDRAM.
 
 Each case runs three times with interrupts masked, and the same loop is
 timed alone for 20,000 passes. A `RESULT` line gives the raw ticks, passes
@@ -61,6 +69,19 @@ read the flag, `spin` and `moves-a0`, take 3 cycles a pass less on the
 device than in wremu (13 against 16 for `spin`), which points at the
 interrupt controller's register being cheaper to read than the SDRAM
 controller's that set `mmio_wait`.
+
+`device-2026-11-04.txt` adds the loops after `moves-sdram`. Every loop
+takes the same cycles from IVRAM switched into area 0 as from A0 RAM, alone
+and beside a stream, as the manual has it. A store costs the CPU about three
+cycles more than an SDRAM write's bus time hides, and the interrupt
+controller's flag reads three fewer than other registers: wremu's
+`write_issue` and `itc_wait`. The kernel's own unpack loop is the miss left:
+the device takes 7,456 cycles a block aligned and 8,354 two bytes on, wremu
+about 7,090 and 7,630, though `crc`, the same accesses compiled
+differently, agrees to a cycle. Write-to-read turnaround, write recovery
+before a precharge, row-change cost, a fetch wait for that IVRAM and
+register-shift cost each either fail to close it or make another of the
+device sets worse.
 
 wremu's fit to these is in the [emulator README](../../README.md)
 (`dma_bus_hold` and the parameters beside it).
