@@ -824,8 +824,9 @@ void c33_step(struct c33 *c)
 		   a code byte whatever the instructions are, where a charge
 		   per instruction makes a loop of two-byte ones cost twice as
 		   much a byte as a loop of four-byte ones. */
-		c->clk += at < IVRAM_BASE ? model.iram_fetch_wait
-					  : model.ivram_fetch_wait;
+		c->clk += at < A0RAM_SIZE ? model.iram_fetch_wait
+			: at < IVRAM_BASE ? model.ivram_a0_fetch_wait
+			: model.ivram_fetch_wait;
 	/* Internal RAM has no queue to serve the fetch out of, so the bubble
 	   is simply added here; in SDRAM it is a floor on the queue's wait
 	   and sdramc applies it.  Cleared either way, so that a jump into a

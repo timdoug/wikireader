@@ -91,6 +91,7 @@ struct model model = {
 	.sd_write_latency = 47000,
 	.iram_fetch_wait = 0,       /* fetch-a0 measured exactly 1.0 cycle */
 	.ivram_fetch_wait = 1,      /* ...but ubench measures 1.9 from IVRAM */
+	.ivram_a0_fetch_wait = 0,   /* IVRAM switched into area 0 (I.6.2) */
 	.iq_row_evict = 1,          /* measured: a page crossing costs 3.2x */
 	/* Six, and it was off for four months for a reason that act_overlap
 	   removed.  The device runs a loop body fast while its offset inside
@@ -204,6 +205,7 @@ static const struct {
 	{ "sd_write_latency", &model.sd_write_latency, NULL },
 	{ "iram_fetch_wait", NULL, &model.iram_fetch_wait },
 	{ "ivram_fetch_wait", NULL, &model.ivram_fetch_wait },
+	{ "ivram_a0_fetch_wait", NULL, &model.ivram_a0_fetch_wait },
 	{ "iq_row_evict", NULL, &model.iq_row_evict },
 	{ "iq_lookahead", NULL, &model.iq_lookahead },
 	{ "iq_lookahead_seq", NULL, &model.iq_lookahead_seq },

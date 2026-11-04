@@ -29,6 +29,11 @@
 /* Channel 0x24's descriptor, in DSTRAM past Grifo's own. */
 #define IDMA_SLOT	((volatile uint32_t *)0x84400)
 #define IDMA_TABLE	(0x84400UL - 0x24 * 16)
+/* The all-ones word while IVRAM is in area 0, past the descriptor. */
+#define DSTRAM_ONES	((volatile uint32_t *)0x84410)
+
+/* Where the transmitter's all-ones come from. */
+static volatile uint32_t *tx_source = DUMMY;
 
 typedef unsigned long loop_fn(volatile uint8_t *flag, unsigned long mask,
 			      unsigned long limit, uint32_t *p, uint32_t *q);
@@ -274,7 +279,7 @@ static int transfer(unsigned width, int idma, uint32_t dst, loop_fn *fn,
 	if (idma) {
 		IDMA_SLOT[0] = (width == 32 ? 2UL : width == 16 ? 1UL : 0) << 16;
 		IDMA_SLOT[1] = UNITS - 1;
-		IDMA_SLOT[2] = (uint32_t)DUMMY;
+		IDMA_SLOT[2] = (uint32_t)tx_source;
 		IDMA_SLOT[3] = SPI_TXD_ADDRESS;
 		REG_IDMABASE0 = IDMA_TABLE & 0xffff;
 		REG_IDMABASE1 = IDMA_TABLE >> 16;
@@ -286,8 +291,8 @@ static int transfer(unsigned width, int idma, uint32_t dst, loop_fn *fn,
 	REG_HS2_SADR_H = size;
 	REG_HS2_DADR_L = 0;
 	REG_HS2_DADR_H = 0;
-	REG_HS2_ADV_SADR_L = (uint32_t)DUMMY & 0xffff;
-	REG_HS2_ADV_SADR_H = (uint32_t)DUMMY >> 16;
+	REG_HS2_ADV_SADR_L = (uint32_t)tx_source & 0xffff;
+	REG_HS2_ADV_SADR_H = (uint32_t)tx_source >> 16;
 	REG_HS2_ADV_DADR_L = SPI_TXD_ADDRESS & 0xffff;
 	REG_HS2_ADV_DADR_H = SPI_TXD_ADDRESS >> 16;
 	REG_HSDMA_HTGR2 = idma ? 0x90 : 0x99;
@@ -363,17 +368,65 @@ static unsigned long median(const unsigned long v[3])
 	return v[2] < lo ? lo : v[2] > hi ? hi : v[2];
 }
 
-static void run_case(unsigned width, int idma, int ivram, unsigned which)
+static void run_case(unsigned width, int idma, int ivram, const char *name,
+		     loop_fn *fn);
+
+/* The Linux kernel runs its hot code from IVRAM switched into area 0 (the
+ * LCD controller's IRAM bit, I.6.2), with data such as the CRC tables in
+ * A0 RAM.  The same loops, copied from A0 RAM into the IVRAM window and
+ * run from there with the switch on, with HSDMA3 writing to SDRAM: the
+ * window is not at its usual address meanwhile, and the panel shows
+ * nothing it can scan. */
+extern char __START_fastcode[], __END_fastcode[];
+#define IVRAM_IN_A0	0x2000UL
+#define IVRAM_PHYS	0x80000UL
+
+static void ivram_cases(void)
+{
+	static const struct {
+		const char *name;
+		loop_fn *fn;
+	} iv[] = {
+		{ "spin-iv", spin }, { "load1-iv", load1 },
+		{ "store1-iv", store1 }, { "moves-iv", moves_a0 },
+		{ "lookup4-iv", lookup4 }, { "crc-iv", crc },
+	};
+	static const unsigned iv_widths[] = { 32, 8 };
+	unsigned long size = __END_fastcode - __START_fastcode;
+	uintptr_t copy = (uintptr_t)WINDOW - IVRAM_PHYS + IVRAM_IN_A0;
+
+	if (size > WINDOW_SIZE) {
+		out("ABORT: .fastcode does not fit the IVRAM window\n");
+		failures++;
+		return;
+	}
+	uint32_t saved_ones = *DSTRAM_ONES;
+
+	memcpy(WINDOW, __START_fastcode, size);
+	*DSTRAM_ONES = 0xffffffffUL;
+	tx_source = DSTRAM_ONES;
+	REG_LCDC_IRAM |= 1;
+	for (unsigned w = 0; w < sizeof(iv_widths) / sizeof(*iv_widths); w++)
+		for (unsigned l = 0; l < sizeof(iv) / sizeof(*iv); l++)
+			run_case(iv_widths[w], 0, 0, iv[l].name, (loop_fn *)
+				 (copy + ((char *)iv[l].fn - __START_fastcode)));
+	REG_LCDC_IRAM &= ~1UL;
+	tx_source = DUMMY;
+	*DSTRAM_ONES = saved_ones;
+}
+
+static void run_case(unsigned width, int idma, int ivram, const char *name,
+		     loop_fn *fn)
 {
 	uint32_t dst = ivram ? (uint32_t)WINDOW : (uint32_t)rx_sdram;
 	unsigned long ticks[REPEATS], passes[REPEATS], status[REPEATS];
-	unsigned long alone = solo(loops[which].fn);
+	unsigned long alone = solo(fn);
 	unsigned long t, p;
 	int ok = 1;
 
 	for (unsigned r = 0; r < REPEATS; r++) {
 		watchdog(WATCHDOG_KEY);
-		if (!transfer(width, idma, dst, loops[which].fn, &ticks[r],
+		if (!transfer(width, idma, dst, fn, &ticks[r],
 			      &passes[r], &status[r]))
 			ok = 0;
 	}
@@ -388,7 +441,7 @@ static void run_case(unsigned width, int idma, int ivram, unsigned which)
 	    "passes=%lu,%lu,%lu stat=%02lx,%02lx,%02lx solo=%lu/%lu "
 	    "unit_x100=%lu pass_x100=%lu solo_pass_x100=%lu ok=%d\n",
 	    idma ? "idma" : "hsdma", width, ivram ? "ivram" : "sdram",
-	    loops[which].name, UNITS,
+	    name, UNITS,
 	    ticks[0], ticks[1], ticks[2], passes[0], passes[1], passes[2],
 	    status[0], status[1], status[2], alone, SOLO,
 	    t * 100 / UNITS, p ? t * 100 / p : 0, alone * 100 / SOLO, ok);
@@ -461,12 +514,15 @@ int grifo_main(int argc, char **argv)
 	for (unsigned w = 0; w < sizeof(widths) / sizeof(*widths); w++)
 		for (int ivram = 0; ivram < 2; ivram++)
 			for (unsigned l = 0; l < sizeof(loops) / sizeof(*loops); l++)
-				run_case(widths[w], 0, ivram, l);
+				run_case(widths[w], 0, ivram, loops[l].name,
+					 loops[l].fn);
+	ivram_cases();
 	/* Receive-paced: each character waits for both engines. */
 	for (unsigned w = 0; w < sizeof(widths) / sizeof(*widths); w++)
 		for (unsigned l = 0; widths[w] != 16 &&
 				  l < sizeof(loops) / sizeof(*loops); l++)
-			run_case(widths[w], 1, 0, l);
+			run_case(widths[w], 1, 0, loops[l].name,
+				 loops[l].fn);
 
 	for (unsigned i = 0; i < 4; i++)
 		IDMA_SLOT[i] = saved_slot[i];
