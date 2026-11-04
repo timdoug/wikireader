@@ -310,10 +310,9 @@ A synthetic emulator entry shim with initialized 16 MiB SDRAM geometry also
 passed the shell test; `free` reported a 16,511,200-byte heap with the OS-test
 image. This checked the heap cap before the full FLASH boot was available.
 
-The aggregate emulator `make check` completes. Three targets skip on a bare
+The aggregate emulator `make check` completes. Two targets skip on a bare
 checkout and say so: the binutils decode comparison wants `ref-*.txt` objdump
-captures, and the two GUI boot targets want
-`images/wrcard.img`/`images/grifo.elf`.
+captures, and the GUI boot target wants grifo and init.app built.
 
 The terminal regression uses 215 actual emulated panel taps and a drag. It
 checks letters, Shift, quoted punctuation, Backspace, cursor movement, Tab

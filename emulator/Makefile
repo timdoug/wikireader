@@ -32,7 +32,7 @@ OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o sr
 PGO_PROFILE_ID := $(if $(PGO_USE),$(shell cksum '$(PGO_USE)' 2>/dev/null))
 FLAGS_CHANGED := $(shell printf '%s\n' '$(CC)' '$(CFLAGS)' '$(SDL_LIBS)' '$(PGO_PROFILE_ID)' | cmp -s - .build-flags || echo FORCE)
 
-.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-dma test-gui-boot check difftest test-manual test-sleigh FORCE
+.PHONY: all clean tables test test-isa test-irq test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-chipid test-port test-dma test-gui-boot check difftest test-manual test-sleigh FORCE
 
 all: wremu
 
@@ -240,36 +240,10 @@ test-sd-dma-driver: wremu
 	python3 tools/test_sd_dma_driver.py --bits 8 --tx hsdma $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
 	python3 tools/test_sd_dma_driver.py --bits 32 --tx hsdma $(if $(TOOLCHAIN_BIN),--toolchain "$(TOOLCHAIN_BIN)")
 
-# Direct kernel boot reaches init promptly even though the CPU sleeps between
-# SPI DMA bytes. This catches accidentally stretching each byte to a GUI poll.
-# images/ holds a card image and kernel that are built locally, not shipped, so
-# skip where they are absent rather than failing a fresh checkout.
-test-gui-dma: wremu
-	@if [ ! -f images/wrcard.img ] || [ ! -f images/grifo.elf ] ; then \
-	    echo "test-gui-dma: no images/wrcard.img or images/grifo.elf, skipping" ; \
-	else \
-	    SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 5000000 \
-		-c images/wrcard.img images/grifo.elf > /tmp/test_gui_dma.log 2>&1 && \
-	    grep -q 'init starting' /tmp/test_gui_dma.log ; \
-	fi
-
-# Exercise the same boot chain used by the live GUI. Continue through the
-# loader/kernel handoff and the kernel's first DMA reads: SDRAM descriptor
-# traffic can move MCLK past an SPI deadline, which must not add a GUI poll
-# delay to every byte.
+# The GUI build booted the device's way, through MBR, the boot loader, grifo
+# and the launcher menu, on a generated card (tools/test_gui_boot.py).
 test-gui-boot: wremu
-	@if [ ! -f images/wrcard.img ] || [ ! -f ../samo-lib/mbr/flash.rom ] ; then \
-	    echo "test-gui-boot: no images/wrcard.img or mbr/flash.rom, skipping" ; \
-	else \
-	    SDL_VIDEODRIVER=dummy ./wremu -g -R -N 3,1000000 -n 25000000 \
-		-e ../samo-lib/mbr/flash.rom -c images/wrcard.img \
-		> /tmp/test_gui_boot.log 2>&1 && \
-	    grep -q 'Grifo starting' /tmp/test_gui_boot.log && \
-	    grep -q 'init starting' /tmp/test_gui_boot.log && \
-	    grep -Eq -- '--- lcd: [1-9][0-9]* register writes' /tmp/test_gui_boot.log && \
-	    grep -Eq -- '--- display: [0-9]+ update calls, [2-9][0-9]* presents' \
-		/tmp/test_gui_boot.log ; \
-	fi
+	python3 tools/test_gui_boot.py
 
 # Differential test against the real cross compiler: the same C source
 # compiled by c33-epson-elf-gcc 3.3.2 and by the host compiler, run both
@@ -289,7 +263,7 @@ test-sleigh:
 	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
-check: test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-dma test-gui-boot
+check: test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp
