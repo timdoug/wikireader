@@ -69,6 +69,19 @@ struct model model = {
 	/* tWR before a precharge.  Off: the device's word memcpy within one
 	   bank, load and store two instructions apart, pays none. */
 	.write_recovery = 0,
+	/* An ext prefix from A0 RAM with the fetch ahead: the device runs
+	   ext+and pairs at one cycle (spibench i-extand), but every rule that
+	   frees such prefixes makes riscv fit-model's A0 variants ~9% fast,
+	   so it stays a cycle (2026-11-05). */
+	.ext_local = 1,
+	.fetch_ahead = 0,         /* halfwords the A0 fetch may run ahead */
+	/* A0 RAM data accesses beyond a register move, in half-MCLK: spibench
+	   i-ldh 2.12, i-ldw 2.50, i-stw 1.50 cycles on the device; with them
+	   riscv fit-model goes 0.1796 -> 0.1687 and spibench 3.09 -> 2.60
+	   (2026-11-05). */
+	.a0_read_half = 2,
+	.a0_read_word_half = 3,
+	.a0_write_half = 1,
 	/* Zero: the first halfword lands on the CAS cycle itself, which is
 	   what CAS latency means. Charging the cycle after it made every
 	   external read two MCLK dear -- loadseq, loadseq8 and copyloop were
@@ -235,6 +248,11 @@ static const struct {
 	{ "itc_wait", NULL, &model.itc_wait },
 	{ "write_issue", NULL, &model.write_issue },
 	{ "write_recovery", NULL, &model.write_recovery },
+	{ "ext_local", NULL, &model.ext_local },
+	{ "fetch_ahead", NULL, &model.fetch_ahead },
+	{ "a0_read_half", NULL, &model.a0_read_half },
+	{ "a0_read_word_half", NULL, &model.a0_read_word_half },
+	{ "a0_write_half", NULL, &model.a0_write_half },
 	{ "cas_first", NULL, &model.cas_first },
 	{ "iram_word_fetch", NULL, &model.iram_word_fetch },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },

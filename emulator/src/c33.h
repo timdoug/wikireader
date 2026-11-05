@@ -122,6 +122,16 @@ struct c33 {
 	unsigned long irqs_taken;
 	unsigned long nmis_taken;
 	uint32_t cur_pc;   /* address of the instruction being executed */
+	/* Halfwords the fetch from A0 RAM has run ahead of execution, up to
+	   model.fetch_ahead, none after a jump: two arrive in each cycle the
+	   bus is left to the fetch (it is 32 bits wide) and each instruction
+	   takes one.  An ext prefix with one in hand costs nothing; without,
+	   it takes its cycle. */
+	int fetch_ahead;
+	unsigned touches;
+	uint64_t step_stall;	/* memory waits in this instruction */
+	uint64_t step_clk0;
+	uint32_t seq_next;
 	bool     access_fault; /* current memory access took an exception */
 	bool     debug_mode;   /* brk/debug exception active until retd */
 	uint64_t cycles;      /* instructions retired */

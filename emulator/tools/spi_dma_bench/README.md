@@ -83,6 +83,17 @@ before a precharge, row-change cost, a fetch wait for that IVRAM and
 register-shift cost each either fail to close it or make another of the
 device sets worse.
 
+The instruction loops (`i-*`, run from IVRAM in area 0) give each of that
+loop's instructions on its own: every register operation, shifts by any
+amount, extensions and `swap` take one cycle on both; a halfword load from A0
+RAM takes the device 2.12, a word load 2.50, a store 1.50, against wremu's
+one each, which is `a0_read_half`, `a0_read_word_half` and `a0_write_half`.
+With them the kernel's loop alone models at 7,906 cycles a block against the
+device's 7,992. A run of `ext`-and pairs takes the device one cycle a pair
+and wremu two, but freeing such prefixes makes the riscv interpreter's A0
+variants 9% fast, so `ext` keeps its cycle; a load used by the next
+instruction costs the device 0.8 more than wremu.
+
 wremu's fit to these is in the [emulator README](../../README.md)
 (`dma_bus_hold` and the parameters beside it).
 

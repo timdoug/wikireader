@@ -146,6 +146,11 @@ struct model {
 	unsigned itc_wait;
 	unsigned write_issue;
 	unsigned write_recovery;
+	unsigned ext_local;
+	unsigned fetch_ahead;
+	unsigned a0_read_half;
+	unsigned a0_read_word_half;
+	unsigned a0_write_half;
 	/* Which cycle after the read command the first halfword lands on:
 	   CAS, or the one after it. */
 	unsigned cas_first;

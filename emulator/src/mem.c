@@ -89,6 +89,20 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 		return stall + (addr - (REG_BASE + ITC_BASE) < ITC_LEN ?
 				model.itc_wait : model.mmio_wait);
 
+	/* A0 RAM, IVRAM in area 0 with it, answers data accesses without a
+	   wait state but not in the one cycle a register move takes: from
+	   spibench's i-* loops, a byte or halfword read costs the device about
+	   one more, a word read one and a half, a write a half.  Halves carry
+	   over to the next access. */
+	if (local_ram(m, addr) &&
+	    (access == MEM_CPU_READ || access == MEM_CPU_WRITE)) {
+		m->a0_half += access == MEM_CPU_WRITE ? model.a0_write_half :
+			      size >= 4 ? model.a0_read_word_half :
+					  model.a0_read_half;
+		stall += m->a0_half / 2;
+		m->a0_half &= 1;
+	}
+
 	if ((access == MEM_CPU_READ || access == MEM_CPU_WRITE) &&
 	    m->cpu_data_hook && addr - SDRAM_BASE < SDRAM_SIZE)
 		m->cpu_data_hook(m->cpu_data_ctx, now);

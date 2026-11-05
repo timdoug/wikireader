@@ -567,6 +567,11 @@ with `WREMU_MODEL=name=value,...`.
 | `write_issue` | 4 | half-MCLK a posted store keeps the CPU, room in the buffer or not |
 | `write_recovery` | 0 | tWR: SDCLKs from a bank's last write to its precharge |
 | `ivram_a0_fetch_wait` | 0 | extra cycles per fetch from IVRAM switched into area 0 |
+| `a0_read_half` | 2 | half-MCLK a byte or halfword data read of A0 RAM (IVRAM in area 0 included) costs beyond a register move |
+| `a0_read_word_half` | 3 | ...a word read |
+| `a0_write_half` | 1 | ...a write |
+| `ext_local` | 1 | cycles an `ext` prefix from A0 RAM costs while the fetch is ahead (`fetch_ahead`) |
+| `fetch_ahead` | 0 | halfwords the A0 RAM fetch may run ahead of execution |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
 | `dma_extra` | 30 | extra MCLK cycles per HSDMA or IDMA transfer |
 | `dma_async` | 1 | SPI-triggered HSDMA and IDMA run beside the CPU; 0 freezes the CPU per transfer |

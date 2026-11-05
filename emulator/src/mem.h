@@ -64,6 +64,8 @@ struct mmio_dev {
 
 struct mem {
 	uint8_t *a0ram, *ivram, *dstram, *sdram;
+	/* Half-MCLK owed by A0 RAM data accesses, carried to the next one. */
+	unsigned a0_half;
 	/*
 	 * SDRAM size selected by the controller's ADDRC field, or 0 before the
 	 * controller is enabled.  The chip only decodes that many address bits,

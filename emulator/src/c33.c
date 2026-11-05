@@ -256,10 +256,15 @@ static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 
 static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 {
+	c->touches++;
 	if (misaligned(c, a, sz))
 		return 0;
-	if (c->bus.wait)
-		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_READ, a, sz, c->clk);
+	if (c->bus.wait) {
+		uint64_t w = c->bus.wait(c->bus.ctx, MEM_CPU_READ, a, sz, c->clk);
+
+		c->clk += w;
+		c->step_stall += w;
+	}
 
 	/* Same region cache as the fetch path; see c33_step. */
 	if (a >= c->data_lo && a < c->data_hi && c->data_hi - a >= sz) {
@@ -284,10 +289,15 @@ static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 
 static void wr(struct c33 *c, uint32_t a, unsigned sz, uint32_t v)
 {
+	c->touches++;
 	if (misaligned(c, a, sz))
 		return;
-	if (c->bus.wait)
-		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_WRITE, a, sz, c->clk);
+	if (c->bus.wait) {
+		uint64_t w = c->bus.wait(c->bus.ctx, MEM_CPU_WRITE, a, sz, c->clk);
+
+		c->clk += w;
+		c->step_stall += w;
+	}
 	c->bus.write(c->bus.ctx, a, sz, v);
 }
 
@@ -802,6 +812,23 @@ void c33_step(struct c33 *c)
 
 	c->cur_pc = at;
 	wremu_cur_pc = at;
+	if (at != c->seq_next || at >= 0x5000u) {
+		c->fetch_ahead = 0;
+	} else {
+		/* The fetch waits while a data access does. */
+		int free = (int)(c->clk - c->step_clk0 - c->step_stall) -
+			   (int)c->touches;
+
+		c->fetch_ahead += 2 * (free > 0 ? free : 0) - 1;
+		if (c->fetch_ahead < 0)
+			c->fetch_ahead = 0;
+		if (c->fetch_ahead > (int)model.fetch_ahead)
+			c->fetch_ahead = (int)model.fetch_ahead;
+	}
+	c->touches = 0;
+	c->step_stall = 0;
+	c->step_clk0 = c->clk;
+	c->seq_next = at + 2;
 	/* A jump leaves the fetch path holding halfwords for an address the
 	   program is no longer going to, and it could not have started on the
 	   target any earlier than this. */
@@ -948,7 +975,12 @@ void c33_step(struct c33 *c)
 		   a loop of two-prefix instructions at 49.5 cycles a pass and
 		   the model ran it at 33.0, which is sixteen prefixes at one
 		   cycle each. */
-		c->clk += 1;
+		/* Zero or one cycle "depending on the instruction queue
+		   status" (the manual): from A0 RAM, IVRAM in area 0
+		   included, the fetch keeps ahead and a prefix costs the
+		   device nothing (spibench i-extand); from slower memory
+		   it costs its cycle. */
+		c->clk += c->fetch_ahead > 0 ? model.ext_local : 1;
 		if (c->pc_profile) {
 			c->pcclk[bucket] += c->clk - clk0;
 			if (c->row_counter)
