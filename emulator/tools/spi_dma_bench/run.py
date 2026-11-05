@@ -48,6 +48,11 @@ def emulate(wremu, budget):
                         '-e', str(work / 'flash.rom')], cwd=work, stdout=log,
                        stderr=subprocess.STDOUT,
                        env={**os.environ, 'WREMU_UART_TRACE': ''})
+    # The card's log, written after every case, is complete even when the
+    # serial port, which runs at its baud rate, is still sending at power-off.
+    log = fat.read_file(work / 'card.img', 'spibench.log')
+    if log:
+        return work, log.decode(errors='replace')
     return work, (work / 'boot.log').read_text(errors='replace')
 
 
@@ -55,7 +60,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--device', type=Path, help="the device's spibench.log")
     ap.add_argument('--wremu', default=str(ROOT / 'emulator/wremu'))
-    ap.add_argument('-n', type=int, default=3000000000)
+    ap.add_argument('-n', type=int, default=8000000000)
     ap.add_argument('--no-build', action='store_true')
     args = ap.parse_args()
     if not args.no_build:

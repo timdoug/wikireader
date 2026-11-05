@@ -134,6 +134,38 @@ crc(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
 	return limit - left;
 }
 
+/* One instruction's cost from IVRAM switched into area 0, which times as
+ * A0 RAM does (device-2026-11-04): eight of it a pass after a
+ * prologue that points %r0 at an A0 buffer and puts 16 in %r2 (a shift
+ * count) and 5 in %r1; i-base is the prologue alone, and (case - base) / 8
+ * the instruction.  The kernel's unpack loop runs 12% slower on the device
+ * than in wremu with every access in A0 RAM, where register moves cost one
+ * cycle on both: these are its instructions one at a time. */
+#define ILAT(name, insn)						\
+LOOP(ilat_##name, "ilat",						\
+     "xld.w %%r0,a0_in\n\tld.w %%r1,0x5\n\tld.w %%r2,0x10\n\t"	\
+     ".rept 8\n\t" insn "\n\t.endr\n\t")
+ILAT(base, "")
+ILAT(mov, "ld.w %%r1,%%r1")
+ILAT(add, "add %%r1,%%r2")
+ILAT(xor, "xor %%r1,%%r2")
+ILAT(cmp, "cmp %%r1,%%r2")
+ILAT(ldub, "ld.ub %%r1,%%r1")
+ILAT(lduh, "ld.uh %%r1,%%r1")
+ILAT(swap, "swap %%r1,%%r1")
+ILAT(sllr, "sll %%r1,%%r2")
+ILAT(srl8, "srl %%r1,0x8")
+ILAT(srl24, "srl %%r1,0x18")
+ILAT(extand, "xand %%r1,0x1fe")
+ILAT(ldh, "ld.h %%r1,[%%r0]")
+ILAT(ldw, "ld.w %%r1,[%%r0]")
+ILAT(ldwpi, "ld.w %%r1,[%%r0]+")
+ILAT(stw, "ld.w [%%r0],%%r1")
+ILAT(stwpi, "ld.w [%%r0]+,%%r1")
+ILAT(lduse, "ld.h %%r1,[%%r0]\n\txor %%r2,%%r1")
+
+static uint32_t a0_in[130] __attribute__((section(".fastbss")));
+
 /* The kernel's own sd_unpack_crc(), its machine code byte for byte, at
  * the 16-byte alignment it has there: a pass is one block, from the stream
  * into another buffer, as the driver's check does it, on consecutive
@@ -150,7 +182,6 @@ typedef uint16_t unpack_fn(const uint32_t *words, uint32_t *out, unsigned n,
  * streams, the same code separates what each access class costs in this
  * loop: the A0 buffers stay put, the SDRAM ones advance as before.  Set
  * before each case, read once a run. */
-static uint32_t a0_in[130] __attribute__((section(".fastbss")));
 static uint32_t a0_out[128] __attribute__((section(".fastbss")));
 static unsigned unpack_lead;
 static int unpack_in_a0, unpack_out_a0;
@@ -228,7 +259,7 @@ static uint16_t saved_mode;
 static uint8_t saved_select, saved_cs;
 static uint32_t saved_slot[4];
 static uint16_t saved_base0, saved_base1;
-static char log_text[24576];
+static char log_text[65536];
 static size_t log_used, log_saved;
 static unsigned cases, failures;
 
@@ -244,6 +275,9 @@ static void out(const char *format, ...)
 	va_end(ap);
 	if (n > 0) {
 		debug_print(log_text + log_used);
+		/* A line that did not fit is a failure, not a quiet end. */
+		if ((size_t)n >= sizeof(log_text) - log_used)
+			failures++;
 		log_used += (size_t)n < sizeof(log_text) - log_used ?
 			    (size_t)n : sizeof(log_text) - log_used - 1;
 	}
@@ -435,6 +469,37 @@ extern char __START_fastcode[], __END_fastcode[];
 #define IVRAM_IN_A0	0x2000UL
 #define IVRAM_PHYS	0x80000UL
 
+/* The instruction loops, linked in section ilat (SDRAM) and run from a
+ * copy in the IVRAM window with IVRAM switched into area 0. */
+extern char __start_ilat[], __stop_ilat[];
+
+static void ilat_cases(void)
+{
+	static const struct {
+		const char *name;
+		loop_fn *fn;
+	} ilat[] = { { "i-base", ilat_base }, { "i-mov", ilat_mov }, { "i-add", ilat_add }, { "i-xor", ilat_xor }, { "i-cmp", ilat_cmp }, { "i-ldub", ilat_ldub }, { "i-lduh", ilat_lduh }, { "i-swap", ilat_swap }, { "i-sllr", ilat_sllr }, { "i-srl8", ilat_srl8 }, { "i-srl24", ilat_srl24 }, { "i-extand", ilat_extand }, { "i-ldh", ilat_ldh }, { "i-ldw", ilat_ldw }, { "i-ldwpi", ilat_ldwpi }, { "i-stw", ilat_stw }, { "i-stwpi", ilat_stwpi }, { "i-lduse", ilat_lduse } };
+	unsigned long size = __stop_ilat - __start_ilat;
+	uintptr_t copy = (uintptr_t)WINDOW - IVRAM_PHYS + IVRAM_IN_A0;
+	uint32_t saved_ones = *DSTRAM_ONES;
+
+	if (size > WINDOW_SIZE - 16 || ((uintptr_t)__start_ilat & 15)) {
+		out("ABORT: the instruction loops do not fit the IVRAM window\n");
+		failures++;
+		return;
+	}
+	memcpy(WINDOW, __start_ilat, size);
+	*DSTRAM_ONES = 0xffffffffUL;
+	tx_source = DSTRAM_ONES;
+	REG_LCDC_IRAM |= 1;
+	for (unsigned i = 0; i < sizeof(ilat) / sizeof(*ilat); i++)
+		run_case(32, 0, 0, ilat[i].name, (loop_fn *)
+			 (copy + ((char *)ilat[i].fn - __start_ilat)));
+	REG_LCDC_IRAM &= ~1UL;
+	tx_source = DUMMY;
+	*DSTRAM_ONES = saved_ones;
+}
+
 static void ivram_cases(void)
 {
 	static const struct {
@@ -584,6 +649,8 @@ int grifo_main(int argc, char **argv)
 	unpack_case("unpack2-a0in", 32, 2, 1, 0);
 	unpack_case("unpack2-a0out", 32, 2, 0, 1);
 	unpack_case("unpack2-a0", 32, 2, 1, 1);
+	solo_passes = SOLO;
+	ilat_cases();
 	solo_passes = SOLO;
 	/* Receive-paced: each character waits for both engines. */
 	for (unsigned w = 0; w < sizeof(widths) / sizeof(*widths); w++)
