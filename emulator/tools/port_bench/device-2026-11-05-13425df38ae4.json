@@ -1,0 +1,882 @@
+{
+  "date": "2026-11-05",
+  "valid": true,
+  "report": {
+    "file": "device-2026-11-05-13425df38ae4.txt",
+    "sha256": "13425df38ae48578f875f2ffaff0db8108b63dd35d4c09a1f11135b72b39b72e"
+  },
+  "manifest": {
+    "version": 1,
+    "probes": {
+      "base_u1": {
+        "shape": "base",
+        "unroll": 1,
+        "result": 5,
+        "bytes": 28
+      },
+      "base_u2": {
+        "shape": "base",
+        "unroll": 2,
+        "result": 5,
+        "bytes": 30
+      },
+      "base_u3": {
+        "shape": "base",
+        "unroll": 3,
+        "result": 5,
+        "bytes": 32
+      },
+      "base_u4": {
+        "shape": "base",
+        "unroll": 4,
+        "result": 5,
+        "bytes": 34
+      },
+      "base_u8": {
+        "shape": "base",
+        "unroll": 8,
+        "result": 5,
+        "bytes": 42
+      },
+      "base_u12": {
+        "shape": "base",
+        "unroll": 12,
+        "result": 5,
+        "bytes": 50
+      },
+      "base_u16": {
+        "shape": "base",
+        "unroll": 16,
+        "result": 5,
+        "bytes": 58
+      },
+      "nop_u1": {
+        "shape": "nop",
+        "unroll": 1,
+        "result": 5,
+        "bytes": 28
+      },
+      "nop_u2": {
+        "shape": "nop",
+        "unroll": 2,
+        "result": 5,
+        "bytes": 30
+      },
+      "nop_u3": {
+        "shape": "nop",
+        "unroll": 3,
+        "result": 5,
+        "bytes": 32
+      },
+      "nop_u4": {
+        "shape": "nop",
+        "unroll": 4,
+        "result": 5,
+        "bytes": 34
+      },
+      "nop_u8": {
+        "shape": "nop",
+        "unroll": 8,
+        "result": 5,
+        "bytes": 42
+      },
+      "nop_u12": {
+        "shape": "nop",
+        "unroll": 12,
+        "result": 5,
+        "bytes": 50
+      },
+      "nop_u16": {
+        "shape": "nop",
+        "unroll": 16,
+        "result": 5,
+        "bytes": 58
+      },
+      "ext1_u1": {
+        "shape": "ext1",
+        "unroll": 1,
+        "result": 4,
+        "bytes": 30
+      },
+      "ext1_u2": {
+        "shape": "ext1",
+        "unroll": 2,
+        "result": 4,
+        "bytes": 34
+      },
+      "ext1_u3": {
+        "shape": "ext1",
+        "unroll": 3,
+        "result": 4,
+        "bytes": 38
+      },
+      "ext1_u4": {
+        "shape": "ext1",
+        "unroll": 4,
+        "result": 4,
+        "bytes": 42
+      },
+      "ext1_u8": {
+        "shape": "ext1",
+        "unroll": 8,
+        "result": 4,
+        "bytes": 58
+      },
+      "ext1_u12": {
+        "shape": "ext1",
+        "unroll": 12,
+        "result": 4,
+        "bytes": 74
+      },
+      "ext1_u16": {
+        "shape": "ext1",
+        "unroll": 16,
+        "result": 4,
+        "bytes": 90
+      },
+      "ext2_u1": {
+        "shape": "ext2",
+        "unroll": 1,
+        "result": 4,
+        "bytes": 32
+      },
+      "ext2_u2": {
+        "shape": "ext2",
+        "unroll": 2,
+        "result": 4,
+        "bytes": 38
+      },
+      "ext2_u3": {
+        "shape": "ext2",
+        "unroll": 3,
+        "result": 4,
+        "bytes": 44
+      },
+      "ext2_u4": {
+        "shape": "ext2",
+        "unroll": 4,
+        "result": 4,
+        "bytes": 50
+      },
+      "ext2_u8": {
+        "shape": "ext2",
+        "unroll": 8,
+        "result": 4,
+        "bytes": 74
+      },
+      "ext2_u12": {
+        "shape": "ext2",
+        "unroll": 12,
+        "result": 4,
+        "bytes": 98
+      },
+      "ext2_u16": {
+        "shape": "ext2",
+        "unroll": 16,
+        "result": 4,
+        "bytes": 122
+      },
+      "ldh_u1": {
+        "shape": "ldh",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 28
+      },
+      "ldh_u2": {
+        "shape": "ldh",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 30
+      },
+      "ldh_u3": {
+        "shape": "ldh",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 32
+      },
+      "ldh_u4": {
+        "shape": "ldh",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 34
+      },
+      "ldh_u8": {
+        "shape": "ldh",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 42
+      },
+      "ldh_u12": {
+        "shape": "ldh",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 50
+      },
+      "ldh_u16": {
+        "shape": "ldh",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 58
+      },
+      "ldw_u1": {
+        "shape": "ldw",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 28
+      },
+      "ldw_u2": {
+        "shape": "ldw",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 30
+      },
+      "ldw_u3": {
+        "shape": "ldw",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 32
+      },
+      "ldw_u4": {
+        "shape": "ldw",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 34
+      },
+      "ldw_u8": {
+        "shape": "ldw",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 42
+      },
+      "ldw_u12": {
+        "shape": "ldw",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 50
+      },
+      "ldw_u16": {
+        "shape": "ldw",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 58
+      },
+      "store_u1": {
+        "shape": "store",
+        "unroll": 1,
+        "result": 5,
+        "bytes": 28
+      },
+      "store_u2": {
+        "shape": "store",
+        "unroll": 2,
+        "result": 5,
+        "bytes": 30
+      },
+      "store_u3": {
+        "shape": "store",
+        "unroll": 3,
+        "result": 5,
+        "bytes": 32
+      },
+      "store_u4": {
+        "shape": "store",
+        "unroll": 4,
+        "result": 5,
+        "bytes": 34
+      },
+      "store_u8": {
+        "shape": "store",
+        "unroll": 8,
+        "result": 5,
+        "bytes": 42
+      },
+      "store_u12": {
+        "shape": "store",
+        "unroll": 12,
+        "result": 5,
+        "bytes": 50
+      },
+      "store_u16": {
+        "shape": "store",
+        "unroll": 16,
+        "result": 5,
+        "bytes": 58
+      },
+      "h_nop_u1": {
+        "shape": "h_nop",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "h_nop_u2": {
+        "shape": "h_nop",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "h_nop_u3": {
+        "shape": "h_nop",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "h_nop_u4": {
+        "shape": "h_nop",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "h_nop_u8": {
+        "shape": "h_nop",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "h_nop_u12": {
+        "shape": "h_nop",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "h_nop_u16": {
+        "shape": "h_nop",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "w_nop_u1": {
+        "shape": "w_nop",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "w_nop_u2": {
+        "shape": "w_nop",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "w_nop_u3": {
+        "shape": "w_nop",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "w_nop_u4": {
+        "shape": "w_nop",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "w_nop_u8": {
+        "shape": "w_nop",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "w_nop_u12": {
+        "shape": "w_nop",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "w_nop_u16": {
+        "shape": "w_nop",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "h_xor_dep_u1": {
+        "shape": "h_xor_dep",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "h_xor_dep_u2": {
+        "shape": "h_xor_dep",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "h_xor_dep_u3": {
+        "shape": "h_xor_dep",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "h_xor_dep_u4": {
+        "shape": "h_xor_dep",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "h_xor_dep_u8": {
+        "shape": "h_xor_dep",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "h_xor_dep_u12": {
+        "shape": "h_xor_dep",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "h_xor_dep_u16": {
+        "shape": "h_xor_dep",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "h_xor_indep_u1": {
+        "shape": "h_xor_indep",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "h_xor_indep_u2": {
+        "shape": "h_xor_indep",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "h_xor_indep_u3": {
+        "shape": "h_xor_indep",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "h_xor_indep_u4": {
+        "shape": "h_xor_indep",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "h_xor_indep_u8": {
+        "shape": "h_xor_indep",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "h_xor_indep_u12": {
+        "shape": "h_xor_indep",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "h_xor_indep_u16": {
+        "shape": "h_xor_indep",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "w_xor_dep_u1": {
+        "shape": "w_xor_dep",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "w_xor_dep_u2": {
+        "shape": "w_xor_dep",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "w_xor_dep_u3": {
+        "shape": "w_xor_dep",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "w_xor_dep_u4": {
+        "shape": "w_xor_dep",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "w_xor_dep_u8": {
+        "shape": "w_xor_dep",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "w_xor_dep_u12": {
+        "shape": "w_xor_dep",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "w_xor_dep_u16": {
+        "shape": "w_xor_dep",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "w_xor_indep_u1": {
+        "shape": "w_xor_indep",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "w_xor_indep_u2": {
+        "shape": "w_xor_indep",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "w_xor_indep_u3": {
+        "shape": "w_xor_indep",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "w_xor_indep_u4": {
+        "shape": "w_xor_indep",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "w_xor_indep_u8": {
+        "shape": "w_xor_indep",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "w_xor_indep_u12": {
+        "shape": "w_xor_indep",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "w_xor_indep_u16": {
+        "shape": "w_xor_indep",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "h_two_u1": {
+        "shape": "h_two",
+        "unroll": 1,
+        "result": 0,
+        "bytes": 30
+      },
+      "h_two_u2": {
+        "shape": "h_two",
+        "unroll": 2,
+        "result": 0,
+        "bytes": 34
+      },
+      "h_two_u3": {
+        "shape": "h_two",
+        "unroll": 3,
+        "result": 0,
+        "bytes": 38
+      },
+      "h_two_u4": {
+        "shape": "h_two",
+        "unroll": 4,
+        "result": 0,
+        "bytes": 42
+      },
+      "h_two_u8": {
+        "shape": "h_two",
+        "unroll": 8,
+        "result": 0,
+        "bytes": 58
+      },
+      "h_two_u12": {
+        "shape": "h_two",
+        "unroll": 12,
+        "result": 0,
+        "bytes": 74
+      },
+      "h_two_u16": {
+        "shape": "h_two",
+        "unroll": 16,
+        "result": 0,
+        "bytes": 90
+      },
+      "w_two_u1": {
+        "shape": "w_two",
+        "unroll": 1,
+        "result": 0,
+        "bytes": 30
+      },
+      "w_two_u2": {
+        "shape": "w_two",
+        "unroll": 2,
+        "result": 0,
+        "bytes": 34
+      },
+      "w_two_u3": {
+        "shape": "w_two",
+        "unroll": 3,
+        "result": 0,
+        "bytes": 38
+      },
+      "w_two_u4": {
+        "shape": "w_two",
+        "unroll": 4,
+        "result": 0,
+        "bytes": 42
+      },
+      "w_two_u8": {
+        "shape": "w_two",
+        "unroll": 8,
+        "result": 0,
+        "bytes": 58
+      },
+      "w_two_u12": {
+        "shape": "w_two",
+        "unroll": 12,
+        "result": 0,
+        "bytes": 74
+      },
+      "w_two_u16": {
+        "shape": "w_two",
+        "unroll": 16,
+        "result": 0,
+        "bytes": 90
+      },
+      "ext1_load_u1": {
+        "shape": "ext1_load",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 30
+      },
+      "ext1_load_u2": {
+        "shape": "ext1_load",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 34
+      },
+      "ext1_load_u3": {
+        "shape": "ext1_load",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 38
+      },
+      "ext1_load_u4": {
+        "shape": "ext1_load",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 42
+      },
+      "ext1_load_u8": {
+        "shape": "ext1_load",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 58
+      },
+      "ext1_load_u12": {
+        "shape": "ext1_load",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 74
+      },
+      "ext1_load_u16": {
+        "shape": "ext1_load",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 90
+      },
+      "ext2_load_u1": {
+        "shape": "ext2_load",
+        "unroll": 1,
+        "result": 13,
+        "bytes": 32
+      },
+      "ext2_load_u2": {
+        "shape": "ext2_load",
+        "unroll": 2,
+        "result": 13,
+        "bytes": 38
+      },
+      "ext2_load_u3": {
+        "shape": "ext2_load",
+        "unroll": 3,
+        "result": 13,
+        "bytes": 44
+      },
+      "ext2_load_u4": {
+        "shape": "ext2_load",
+        "unroll": 4,
+        "result": 13,
+        "bytes": 50
+      },
+      "ext2_load_u8": {
+        "shape": "ext2_load",
+        "unroll": 8,
+        "result": 13,
+        "bytes": 74
+      },
+      "ext2_load_u12": {
+        "shape": "ext2_load",
+        "unroll": 12,
+        "result": 13,
+        "bytes": 98
+      },
+      "ext2_load_u16": {
+        "shape": "ext2_load",
+        "unroll": 16,
+        "result": 13,
+        "bytes": 122
+      },
+      "load_ext_u1": {
+        "shape": "load_ext",
+        "unroll": 1,
+        "result": 12,
+        "bytes": 32
+      },
+      "load_ext_u2": {
+        "shape": "load_ext",
+        "unroll": 2,
+        "result": 12,
+        "bytes": 38
+      },
+      "load_ext_u3": {
+        "shape": "load_ext",
+        "unroll": 3,
+        "result": 12,
+        "bytes": 44
+      },
+      "load_ext_u4": {
+        "shape": "load_ext",
+        "unroll": 4,
+        "result": 12,
+        "bytes": 50
+      },
+      "load_ext_u8": {
+        "shape": "load_ext",
+        "unroll": 8,
+        "result": 12,
+        "bytes": 74
+      },
+      "load_ext_u12": {
+        "shape": "load_ext",
+        "unroll": 12,
+        "result": 12,
+        "bytes": 98
+      },
+      "load_ext_u16": {
+        "shape": "load_ext",
+        "unroll": 16,
+        "result": 12,
+        "bytes": 122
+      },
+      "move_ext_u1": {
+        "shape": "move_ext",
+        "unroll": 1,
+        "result": 4,
+        "bytes": 32
+      },
+      "move_ext_u2": {
+        "shape": "move_ext",
+        "unroll": 2,
+        "result": 4,
+        "bytes": 38
+      },
+      "move_ext_u3": {
+        "shape": "move_ext",
+        "unroll": 3,
+        "result": 4,
+        "bytes": 44
+      },
+      "move_ext_u4": {
+        "shape": "move_ext",
+        "unroll": 4,
+        "result": 4,
+        "bytes": 50
+      },
+      "move_ext_u8": {
+        "shape": "move_ext",
+        "unroll": 8,
+        "result": 4,
+        "bytes": 74
+      },
+      "move_ext_u12": {
+        "shape": "move_ext",
+        "unroll": 12,
+        "result": 4,
+        "bytes": 98
+      },
+      "move_ext_u16": {
+        "shape": "move_ext",
+        "unroll": 16,
+        "result": 4,
+        "bytes": 122
+      },
+      "mixed_u1": {
+        "shape": "mixed",
+        "unroll": 1,
+        "result": 12,
+        "bytes": 40
+      },
+      "mixed_u2": {
+        "shape": "mixed",
+        "unroll": 2,
+        "result": 12,
+        "bytes": 54
+      },
+      "mixed_u3": {
+        "shape": "mixed",
+        "unroll": 3,
+        "result": 12,
+        "bytes": 68
+      },
+      "mixed_u4": {
+        "shape": "mixed",
+        "unroll": 4,
+        "result": 12,
+        "bytes": 82
+      },
+      "mixed_u8": {
+        "shape": "mixed",
+        "unroll": 8,
+        "result": 12,
+        "bytes": 138
+      },
+      "mixed_u12": {
+        "shape": "mixed",
+        "unroll": 12,
+        "result": 12,
+        "bytes": 194
+      },
+      "mixed_u16": {
+        "shape": "mixed",
+        "unroll": 16,
+        "result": 12,
+        "bytes": 250
+      }
+    },
+    "placements": [
+      [
+        "a0",
+        0
+      ],
+      [
+        "a0",
+        2
+      ]
+    ],
+    "data": [
+      "a0",
+      "sdram"
+    ],
+    "passes": 20000,
+    "repeats": 3,
+    "cases": 560,
+    "consumer_checksum": "r10 XOR r11; input=13, initial r10=5",
+    "base_source_sha256": "7a07dc77aaff64bd1d3633e234336cca394ce3b4d62ea46c8ed5087f876053a4",
+    "source_sha256": "8a09e5a212ca4e16b6275fca8de5da1c165671b6ef0d1d2b85ae52cc0c1a319f",
+    "app_sha256": "2e2e83ac1c4fb6901a64f31597219c4a2ca7a92cc5b607d8248eb9657b4f6cd6"
+  },
+  "inputs": {
+    "portq.app": "2e2e83ac1c4fb6901a64f31597219c4a2ca7a92cc5b607d8248eb9657b4f6cd6",
+    "portq.ico": "4506fdb5c0d47803cb8b5792f3ea73726d457ab8321b851ca6dfbe4a81dc959e",
+    "kernel.elf": "22aac4641a3261fbbc7f1992f6bb9536b420b30481209c1dea98bf918c413457",
+    "init.app": "7925853408fb192d95b50945df64f5d8d8e5019e3eee00cfc8f0beacd9a819f7",
+    "init.ini": "67a51a69d6d41d561e4e5ceafc1b072ef123c7b9827922d000101b9f82d86698"
+  },
+  "cases": 560
+}

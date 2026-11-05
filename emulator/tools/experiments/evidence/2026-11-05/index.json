@@ -1,0 +1,55 @@
+{
+  "fetch-prospective.json": {
+    "original_path": "build/wr128/fetchq/prospective.json",
+    "sha256": "d051baa471e507c0a1dc62cc770409f38fd50c1a036118d05f24e561ca0158ab"
+  },
+  "port-prospective-queues.frontend.py": {
+    "original_path": "build/wr128/frontend-lab/port-prospective-queues.frontend.py",
+    "sha256": "35c37bb9edb2f3cebee35804c6b4886f115f7bf8ec629dcc89214be24be1553a"
+  },
+  "port-prospective-queues.generator.py": {
+    "original_path": "build/wr128/frontend-lab/port-prospective-queues.generator.py",
+    "sha256": "0ec77c2afb0b83d1df0567821918c8551a6d0db81481ff8043f55d978d60c10b"
+  },
+  "port-prospective-queues.json": {
+    "original_path": "build/wr128/frontend-lab/port-prospective-queues.json",
+    "sha256": "82be824eb502871b6796dbaa7688c914758b8ae8d07fb452143bd8d621cdbdda"
+  },
+  "port-prospective.frontend.py": {
+    "original_path": "build/wr128/frontend-lab/port-prospective.frontend.py",
+    "sha256": "35c37bb9edb2f3cebee35804c6b4886f115f7bf8ec629dcc89214be24be1553a"
+  },
+  "port-prospective.generator.py": {
+    "original_path": "build/wr128/frontend-lab/port-prospective.generator.py",
+    "sha256": "7af706a3aca17d7d3f4185674db6973df6ef968ab9550d5c12b1ff7db3e2ed33"
+  },
+  "port-prospective.json": {
+    "original_path": "build/wr128/frontend-lab/port-prospective.json",
+    "sha256": "51ffc69601f6b3108824263fa1c75f019834096b9f4ecdb474382c8a435ed397"
+  },
+  "fetch-model-0.txt": {
+    "original_path": "build/wr128/fetchq/coherent-default-v2/fetchq/fetchq.log",
+    "sha256": "09ce32100e4768c7f36b5e1512d215f4580c003393ae560bff2857086effac21",
+    "setting": "default"
+  },
+  "fetch-model-1.txt": {
+    "original_path": "build/wr128/fetchq/coherent-frontend-v2/fetchq/fetchq.log",
+    "sha256": "a032cc216e1b8302f5fbfebd6390431b62ba6b2026365c99fea048510e551c6c",
+    "setting": "local_frontend=1,itc_wait=4,dma_write_issue=2"
+  },
+  "fetch-model-2.txt": {
+    "original_path": "build/wr128/fetchq/coherent-word-priority/fetchq/fetchq.log",
+    "sha256": "81f8535071188f9760201a9ee14d1f6255718afb0c9eaa0ada99d354331cb0e7",
+    "setting": "local_frontend=1,itc_wait=4,dma_write_issue=2,iq_deferred=1"
+  },
+  "fetch-model-3.txt": {
+    "original_path": "build/wr128/fetchq/coherent-fill-drain/fetchq/fetchq.log",
+    "sha256": "04c2118a684129eda68cbace7c689204ca8bb46624060a2f34fc5e20f751e7bb",
+    "setting": "local_frontend=1,itc_wait=4,dma_write_issue=2,iq_deferred=2"
+  },
+  "fetch-model-4.txt": {
+    "original_path": "build/wr128/fetchq/coherent-demand-only/fetchq/fetchq.log",
+    "sha256": "ff82dffc866685616482865a9fd6e8a7195c7f48c9220741c944da5884dac376",
+    "setting": "local_frontend=1,itc_wait=4,dma_write_issue=2,iq_lookahead=0"
+  }
+}
