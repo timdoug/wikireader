@@ -261,7 +261,7 @@ test-sleigh:
 	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
-check: test-frontend-cpu test-frontend-native test-dma-write-deadline test-dma-timeline test-cpu-dma-order test-fetch-accounting test-a0-timing test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
+check: test-frontend-cpu test-frontend-native test-dma-write-deadline test-dma-timeline test-cpu-dma-order test-fetch-accounting test-a0-timing test-score-model test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
 
 .PHONY: test-frontend-cpu
 check: test-sdramc-deferred test-suspend
@@ -289,6 +289,17 @@ test-dma-write-deadline: tools/test_dma_write_deadline.c $(C33_OBJS) src/mem.o s
 test-a0-timing: tools/test_a0_timing.c src/mem.o src/model.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_a0_timing $^
 	/tmp/test_a0_timing
+
+.PHONY: test-score-model
+test-score-model:
+	python3 tools/test_score_model.py
+	python3 tools/test_accuracy_report.py
+	python3 -m unittest discover -s tools/port_bench -p 'test_*.py'
+	python3 -m unittest discover -s tools/fetch_bench -p 'test_*.py'
+	python3 -m unittest discover -s tools/experiments -p test_frontend.py
+	python3 -m unittest discover -s tools/experiments -p test_port_predictions.py
+	python3 tools/bus_bench/test_collect.py
+	python3 tools/workflow_bench/test_report.py
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp

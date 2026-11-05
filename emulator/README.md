@@ -26,13 +26,11 @@ values for them. Four separate bugs have come from that gap: a guest clock
 `init_rs232_ch0()` had never run. Each looked like a bug in the thing being
 developed.
 
-`--bare-elf IMAGE` still runs an ELF with no boot. **It is only for the
-toolchain test suites** -- `tests/dejagnu`, `tests/abi`, tinycc's ABI test,
-`doom/tests/c33_math_test.py`, the instruction difftest, NuttX's string
-test and the watchdog test's few hand-written instructions -- which run
-compiler output rather than firmware and have no loader to go through.
-Nothing that runs on a WikiReader may use it, for development or for
-measurement.
+`--bare-elf IMAGE` remains a legacy interface. Repository emulator runs,
+including regressions, differential programs and timing measurements, must
+boot through FLASH, Grifo and the real launcher, as required by
+[`CLAUDE.md`](../CLAUDE.md). The differential and watchdog reset tests now
+build ordinary Grifo applications and verify that complete path.
 
 Build the firmware with the [modern C33 toolchain](../host-tools/toolchain-c33/README.md).
 See the [ZIM reader guide](../zim/README.md) for archive and card setup.
@@ -45,9 +43,10 @@ Shipped GCC 3.3.2 and current GCC 16.2 firmware reach matching UI, search,
 article and scrolling framebuffers for the exercised workflows.
 
 `make check` covers the decoder, core ISA, exceptions, interrupts, LCD,
-display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO and chip
-identification. It completes on a bare checkout; three targets skip and say
-so, wanting objdump captures or a local card image.
+display input, SD, DMA, clocks, ADC, timers, watchdog, SDRAM, GPIO, chip
+identification and real Grifo reboot/suspend paths. Firmware-backed tests
+require the C33 toolchain and built Grifo, mini-libc and launcher. Optional
+checks report a skip when their objdump captures or local card image are absent.
 
 Headless execution is deterministic and fast-forwards blocked intervals.
 Host throughput depends on the instruction mix and memory timing; measure
@@ -190,9 +189,10 @@ for profile collection and merging.
 Headless timer polling advances the six channels when the next comparison
 is due, when timer MMIO exposes or changes state, or when the CMU clock
 configuration changes. Between events it checks the deadline and the three
-relevant CMU registers. Clock changes finish deferred work at the previous
-poll/MMIO boundary using the old rate and gates, then charge the current
-interval to the new configuration. Fractional ticks, buffered comparisons
+relevant CMU registers. Before an accepted CMU rate or gate write, clock
+listeners finish deferred timer and watchdog work at that write's timestamp
+using the old configuration. The new configuration applies only to time
+after the write. Fractional ticks, buffered comparisons
 and the timer 0/5 cascade retain their existing behavior. Interrupt
 arbitration still runs on every poll, including for non-timer sources.
 Interactive wall-clock timers continue to advance on every poll.
@@ -270,7 +270,9 @@ assertion counts and watchdog return to the launcher match:
 262,144 transactions against the general scheduler, including full
 controller state, counters, DMA hooks and address aliasing. It covers
 lookahead settings, refresh edges, self-refresh, branch restarts, CPU/DMA
-writes, register changes and disabled/reset controller states.
+writes, register changes, write recovery/turnaround and disabled/reset
+controller states. `make test-sdramc` separately checks physical-bank
+refresh boundaries, reset history and isolation between controller instances.
 The available model checks and all 122 Grifo SD DMA cases pass with PGO.
 The decoder comparison and GUI targets lack their local fixtures; the bare
 watchdog fixture was skipped in favor of the Grifo reboot comparisons.
@@ -505,7 +507,12 @@ ranks the wrong lines. The CPU has no cache; the model charges a row change
 for every move to another 1 KiB row, closes every bank at each auto-refresh,
 and treats the two-slot 16-byte instruction queue as the only fetch
 buffering.  An auto-refresh closes every row register and every physical
-bank, so the access after one activates but pays no precharge. A row register belongs to the kind of access -- a fetch, a read
+bank, so the access after one activates but pays no precharge. Refresh
+precharge waits for every physical bank's minimum active time and write
+recovery, including the upper banks on the measured 32 MiB geometry.
+Write-to-read turnaround is measured from that controller's last data write;
+reset clears it and intervening refresh does not restart it.
+A row register belongs to the kind of access -- a fetch, a read
 or a write, the CPU's or the DMA's -- and not to the bank, so two read
 streams evict one another however far apart they are: the device reads a
 pair 4 MB apart at the same cost as a pair a kilobyte apart. A physical
@@ -539,6 +546,60 @@ WikiReader running the NuttX port's `ubench`, `bench` and `cardb`
 that the machine state matches the device's. Parameters can be overridden
 with `WREMU_MODEL=name=value,...`.
 
+Run all five hardware calibration sets with one command:
+
+```sh
+python3 emulator/tools/score_model.py --out /tmp/timing-baseline
+WREMU_MODEL=write_issue=4 python3 emulator/tools/score_model.py \
+    --out /tmp/timing-candidate --compare /tmp/timing-baseline/scores.json
+```
+
+Run these commands from the repository root after building `emulator/wremu`,
+the SPI, memory and pipeline benchmark apps, `nuttx/nuttx.app`, and the four RISC-V
+placement variants (`python3 riscv/fit-model.py --build`). The runner uses
+the built Grifo and launcher for every application. `--suites spi mem`
+selects a shorter comparison; the default also includes `ubench`, `riscv`
+and the 360 hardware pipeline cases.
+Full ubench runs take several minutes on the host.
+
+RISC-V calibration uses the matching four-run build and device manifest in
+[`tools/riscv_bench`](tools/riscv_bench/README.md). The original placement
+reports include console time and older division/dispatch code; they are
+historical diagnostics, not an oracle for current binaries. Missing matching
+reports leave qualification incomplete. Pipeline and RISC-V comparisons
+verify application and boot hashes before accepting device data; ubench
+also verifies code size and instruction counts.
+
+Each output directory contains a snapshot of the emulator, fresh FLASH/card
+fixtures, console logs, guest reports, input/device hashes, model overrides
+and `scores.json`. Successful card images are removed after extracting their
+reports; failed ones remain for inspection. Incomplete reports, failed guest
+verification, missing cases and RISC-V checksum mismatches fail the run.
+SPI scores separate solo CPU error and DMA contention error in cycles/pass
+(kernel block loops normalized to 256 word passes), plus transfer log error.
+The other suites report RMS log(model/device). `--compare` verifies matching
+guest inputs and device data, and fails if any selected metric increases.
+
+The [pipeline probe](tools/pipeline_bench/README.md) supplies finer hardware
+measurements for prefix compression and immediate load dependencies. Its
+recorded hardware run passed all 360 cases. The same A0 data accesses cost
+less from SDRAM code than from A0 code; `a0_sdram_overlap` removes half an
+MCLK of data overhead in the former case. Zero restores the older model.
+This matches the measured access costs after subtracting the register-loop
+control: 1.5 cycles for a halfword load, 2 for a word load, 1 for a store.
+
+The core separately charges prefix decoding and target execution. Extended
+memory addressing adds an execution cycle, while immediate/register loads
+remain one execution cycle (Core Manual 6.2.2 note 4 and page 123). The old
+blanket surcharge also charged extended constants as memory operations.
+Operand-shape checks now keep the two cases distinct.
+
+Watchdog accesses synchronize the counter before reading or changing its
+state. A kick, stop, or period extension at an already due timeout cannot
+erase the pending reset/NMI. Clock listeners also settle running time before
+gating and exclude all stopped time before ungating, without requiring an
+instruction poll between the two writes. Listener wiring survives reset.
+
 | Parameter | Default | Meaning |
 | --- | ---: | --- |
 | `branch_taken` | 5 | taken branch cycles with an SDRAM target |
@@ -547,12 +608,13 @@ with `WREMU_MODEL=name=value,...`.
 | `call_extra` | 2 | extra cycles a call or return pays for the queue it discards |
 | `iqb_first` | 1 | extra half-MCLK before an instruction-queue fill |
 | `iqb_word_gap` | 6 | extra half-MCLK between words of that fill |
+| `iq_deferred` | 0 | experimental IQB word scheduling: 1 allows CPU data/DMA between words; 2 drains started fills for external CPU data misses, retaining DMA word priority |
 | `dq_extra` | 3 | extra half-MCLK on a data-queue fill |
 | `dq_hit` | 1 | ...and on a data-queue hit |
 | `dq_entries` | 1 | 32-bit words the data queue holds; the device measures one |
 | `act_overlap` | 1 | a row activation may proceed while the data bus is busy elsewhere |
 | `dq_iram_extra` | 2 | ...in SDCLK, for a data read issued by code running from internal RAM |
-| `wr_ticks` | 8 | half-MCLK of bus occupancy per written halfword |
+| `wr_ticks` | 8 | calibrated half-MCLK for a word write; narrow writes use one 16-bit beat, retaining the fixed overhead; zero uses physical beats only |
 | `write_post` | 1 | a store retires into the controller's buffer; 0 blocks the CPU |
 | `wr_rd_turn` | 0 | extra half-MCLK for an SDRAM read after a write |
 | `sdclk_half` | 2 | half-MCLK per SDCLK; the device divides MCLK by two |
@@ -565,11 +627,13 @@ with `WREMU_MODEL=name=value,...`.
 | `mmio_wait` | 5 | extra MCLK on a CPU access to a peripheral register |
 | `itc_wait` | 2 | ...on the interrupt controller's registers instead |
 | `write_issue` | 4 | half-MCLK a posted store keeps the CPU, room in the buffer or not |
+| `dma_write_issue` | 0 | DMA posted-write acceptance in half-MCLK; zero inherits `write_issue`, preserving existing overrides |
 | `write_recovery` | 0 | tWR: SDCLKs from a bank's last write to its precharge |
 | `ivram_a0_fetch_wait` | 0 | extra cycles per fetch from IVRAM switched into area 0 |
 | `a0_read_half` | 2 | half-MCLK a byte or halfword data read of A0 RAM (IVRAM in area 0 included) costs beyond a register move |
 | `a0_read_word_half` | 3 | ...a word read |
 | `a0_write_half` | 1 | ...a write |
+| `a0_sdram_overlap` | 1 | half-MCLK of the above local-data overhead hidden when instructions come from SDRAM; saturates at zero wait |
 | `ext_local` | 1 | cycles an `ext` prefix from A0 RAM costs while the fetch is ahead (`fetch_ahead`) |
 | `fetch_ahead` | 0 | halfwords the A0 RAM fetch may run ahead of execution |
 | `iram_word_fetch` | 1 | the internal bus is 32 bits: charge the fetch that starts a word |
@@ -1238,6 +1302,58 @@ The SD card operates in SPI mode. Character completion follows live `BPT`,
 `MCBR`, and `SPI_WAIT` values and updates `BSYF`, `TDEF`, `RDFF`, and `RDOF`
 at the scheduled event.
 
+The CPU settles due SPI/DMA events at data request/response boundaries and
+after a fetch wait, before sampling instruction memory. Otherwise an event
+which completed while waiting could leave a stale load, overwrite a later
+CPU store, or make the CPU decode old instruction bytes. Fetch settlement
+includes fixed internal-memory latency and adds no data access or timing
+charge. Zero-wait fetches avoid the extra callback.
+SDRAM instruction/data queue invalidation follows the accepted RAM write,
+through a memory-store observer. Reserving a delayed DMA destination phase
+does not evict still-valid cached data. Stores also invalidate entries reached
+through another address alias of the same physical SDRAM bytes. Existing
+posted-write acceptance and external bus timing are otherwise unchanged.
+The optional `c33_bus.before_data` hook preserves interrupt acceptance at
+instruction boundaries; cached regions are invalidated if event processing
+changes memory decoding. `make test-cpu-dma-order` checks these cases with
+actual SPI/HSDMA devices and isolated instructions, including instruction
+patches and remapped fetch caches. `test-fetch-accounting` verifies 48
+mapped/unmapped, generic/specialized, memory-op, zero-wait and callback-clock
+combinations. Timing callbacks return the total delay from the supplied request
+clock; C33 accounts for clock progress inside the callback exactly once.
+
+The optional deferred IQB modes also poll SPI/SD and DMA before issuing each
+word of a blocking instruction fill or CPU data fill-drain. Events can change
+bus ownership, invalidate a partial fill or reconfigure the controller; the
+request checks those changes before continuing. A half-clock SDRAM boundary
+admits only events due at the preceding MCLK edge. This is experimental bus
+scheduling, not a complete timer/UART/watchdog event timeline. Neither the
+manual's 32-bit SDRAM read size nor these ordering tests establishes the
+hardware's AHB arbitration granularity.
+
+SPI and asynchronous DMA now advance in event order, including during a late
+poll or a blocked instruction. Due DMA work is settled before a later SPI edge
+changes RXD. SPI edges at a shared deadline precede DMA responses at that edge.
+Pending completions are kept separate from active bus phases and fitted idle
+allowances. Outstanding HSDMA writes can complete while IDMA executes or waits
+for its next phase; fitted idle time alone does not publish AHB occupancy.
+Both DMA engines sample RAM/MMIO at the source response. IDMA executes four
+descriptor reads, the source read, the payload write and four descriptor
+writebacks; it no longer changes descriptor memory on a private future clock.
+Hardware causes arriving during writeback are retained. A full queue leaves
+requests pending and retries them when space becomes available. Reset cancels
+pending phases while retaining the host event wiring.
+
+`make test-dma-timeline` checks 250 native device outcomes, including distinct
+receive bytes under late polling, clock-valued MMIO sources, queued units,
+reset cancellation, queue pressure and a clock gate changed before a wire edge.
+The old `test-idma-deadline` target aliases this richer test. Existing fitted
+timing costs remain; these ordering fixes do not establish the silicon's full
+AHB arbitration policy or a shared timer/UART/watchdog event timeline.
+`make test-dma-write-deadline` additionally checks cache preservation during a
+pending destination write and invalidation when it is accepted, for both DMA
+engines, all three transfer widths and all IQB timing policies.
+
 The exit summary separates 8-, 16-, and 32-bit SPI characters. This makes
 controller batching and DMA fast paths observable in full-system tests rather
 than inferring them from a successful filesystem mount.
@@ -1428,10 +1544,12 @@ The model is checked against sources independent of the firmware being run:
   generated table;
 - instruction semantics, exception behavior, reset values, and modeled MMIO
   registers are covered by manual-derived focused tests;
-- the watchdog reset restarts a bare-metal guest that arms it, in
-  `make test-wdt-reset`: the guest marks each boot on the UART, so the marks
-  have to outnumber the resets by exactly one, and the run has to stay
-  bounded; and
+- `make test-wdt-reset` launches an app through FLASH, Grifo and init, calls
+  the production reboot syscall and verifies repeated complete boot chains.
+  The global instruction budget stays bounded across resets. The final boot
+  may be cut short by that budget; at least three complete reboots are
+  required. `tools/test_wdt_reset.py --out DIR` retains the inputs, raw log
+  and verification results; `--wremu` tests a frozen candidate binary; and
 - 40 generated defined C programs at each of five optimization levels - 200
   target runs per compiler - match native execution under both GCC 3.3.2 and
   GCC 16.2.
@@ -1579,3 +1697,66 @@ charged nothing for.
 Scripted `-T` taps, `-N` buttons and `-G` drags each accept up to 256 events.
 Malformed events and scripts exceeding this limit are rejected instead of
 silently dropping input. This accommodates full NuttX soft-keyboard commands.
+
+The working CPU timing review in `build/wr128/address-phase-review` moves
+extended-memory address calculation before the bus access and removes duplicate
+data accounting from fallback instruction fetches. Real SPI/DMA boundary and
+fetch-path regressions cover both corrections. Full functional checks, all 122
+SD DMA cases, the 264-case bus probe and reader output/work checks pass;
+the complete five-suite assessment passes all 738 native cases. Timing changes
+are small and mixed; the overall accuracy milestone remains incomplete.
+The subsequent variable-unroll probe exposed a host check that stopped after
+nine valid NOPs. Removing it passes all 560 new cases through FLASH/Grifo/init
+and the full functional/SD DMA regressions. See `HANDOFF.md` for exact binary
+identities and remaining frontend/arbitration work; no calibration job is live.
+
+The local fetch/decode/data-port scheduler is now integrated as an experiment:
+`WREMU_MODEL=local_frontend=1,itc_wait=4`. It schedules mapped area-0 code
+(including the IVRAM alias); other regions retain the established timing path.
+`local_frontend=0` remains the default and `local_frontend_depth` defaults to
+eight raw halfwords. The ITC override matches the independent polling control
+after branch execution and fetch restart are modeled separately.
+
+The experimental model improves pipeline cases within 10% of hardware from
+169/360 to 329/360, and additional bus cases from 176/264 to 243/264. All native
+correctness checks pass. SPI and memory RMS tradeoffs remain, so it has not
+been promoted to the default. `make test-frontend-cpu test-frontend-native
+test-cpu-dma-order` covers architecture, scheduling and asynchronous data
+ordering. See `HANDOFF.md` and `tools/experiments/FRONTEND.md` for complete
+firmware validation, remaining gaps and the pending physical port probe.
+
+An optional `dma_write_issue` override now lets CPU handoff experiments keep
+DMA acceptance fixed. It affects buffer acceptance, not the external write
+reservation or bus ownership. Zero preserves the previous shared parameter.
+For example, `local_frontend=1,itc_wait=4,write_issue=6,dma_write_issue=4`
+tests a three-clock CPU handoff with the existing two-clock DMA acceptance.
+The isolated three-suite trial improves pipeline/SPI solo results but moves
+three memory cases outside 10% and slows reader screens. This is a sensitivity
+experiment, not a new recommended setting; full integration checks are in
+`build/wr128/conditional-restart/`. A blanket conditional-branch restart was
+also rejected because it worsens ordinary loops and memory timing.
+
+External writes now account for their actual 16-bit beat count. `wr_ticks`
+is the calibrated word duration at SDCLK=MCLK: its fixed controller overhead
+is retained, and only the beats scale with size and SDRAM clock/DBF. Bytes
+and halfwords use one beat; words use two. `wr_ticks=0` retains manual timing.
+The narrow-write correction applies to the default model. The frontend and
+separate DMA handoff remain experimental. Current full-binary validation is
+tracked in `build/wr128/write-width-review/continuation.json`; completed
+five-suite assessments show improved memory timing with SPI tradeoffs.
+
+The next SDRAM experiment is `iq_deferred=1` or `2`, both off by default.
+It reserves one physical word read at a time, defers speculative replacement
+until the first read starts, and preserves completed IQB contents across row
+changes. Unstarted speculative requests may be cancelled on redirect; issued
+bus occupancy survives invalidation. `make test-sdramc-deferred` checks DMA
+boundaries, CPU arbitration policies, background fills, cached reads, reset
+and coherence. These timings remain hypotheses: the first policy improves
+SPI contention and a focused NuttX loop but makes bulk copies too fast.
+The second recovers most of the copy regression and improves reader screen
+timing, but its completed five-suite assessment regresses other workloads.
+It remains optional. The subsequent word-boundary SPI/DMA polling experiment
+passes all 738 native cases under both default and experimental settings;
+experimental contention timing worsens. Removing the fitted DMA holds does
+not reproduce hardware contention either. The current assessment and exact
+source/binary identities are in `build/wr128/word-event-review/continuation.json`.
