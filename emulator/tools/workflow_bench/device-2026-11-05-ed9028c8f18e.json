@@ -1,0 +1,427 @@
+{
+  "date": "2026-11-05",
+  "install_id": "bce26801-89d3-4cb2-a9c5-cb819f95e4dc",
+  "manifest": {
+    "version": 1,
+    "entries": [
+      {
+        "archive": "simple",
+        "title": "Cat"
+      },
+      {
+        "archive": "simple",
+        "title": "Tokyo"
+      },
+      {
+        "archive": "wikivoyage",
+        "title": "Paris"
+      }
+    ],
+    "passes": 3,
+    "scroll_moves": [
+      104,
+      104,
+      -104,
+      -104
+    ],
+    "files": {
+      "zcal.app": "44362cfd278820af4ab07be1c2d0c7c64d18b0901722074333f870a75ab8668a",
+      "zcal.ico": "0e68f4e84bded93e4572b788cfb23804f0e151b65b406a2e37fbb6d7f7dc58d2",
+      "zimbench.lst": "b5b77d2d9aa2b736d819d1037e62dd8f3a54d092e7e30e25731107242df00798"
+    },
+    "driver_sha256": "7a7a22a27be603376faab0208d899d116e636865cea3e265a0f92cfd8d4e604f",
+    "boot_sha256": {
+      "kernel.elf": "22aac4641a3261fbbc7f1992f6bb9536b420b30481209c1dea98bf918c413457",
+      "init.app": "7925853408fb192d95b50945df64f5d8d8e5019e3eee00cfc8f0beacd9a819f7"
+    }
+  },
+  "fixture_sha256": null,
+  "fixture": null,
+  "physical_layout_verified": false,
+  "files": {
+    "zcal.app": "44362cfd278820af4ab07be1c2d0c7c64d18b0901722074333f870a75ab8668a",
+    "zcal.ico": "0e68f4e84bded93e4572b788cfb23804f0e151b65b406a2e37fbb6d7f7dc58d2",
+    "zimbench.lst": "b5b77d2d9aa2b736d819d1037e62dd8f3a54d092e7e30e25731107242df00798",
+    "kernel.elf": "22aac4641a3261fbbc7f1992f6bb9536b420b30481209c1dea98bf918c413457",
+    "init.app": "7925853408fb192d95b50945df64f5d8d8e5019e3eee00cfc8f0beacd9a819f7",
+    "init.ini": "5ed5de300459d3fcc5c61bf60960d3888ef14b5693828e3e766c6b14f975f4a4",
+    "zimlog.on": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "archives": {
+    "wikipedia_en-simple_all_nopic_2026-06.zim": {
+      "size": 990305662,
+      "sha256": "29db7f048681f3cd797176becc6cae0f35ee633493d29bb3ea394e94ccb8b334"
+    },
+    "wikivoyage_en_all_maxi_2026-06.zim": {
+      "size": 1139962802,
+      "sha256": "3e409218d19b25285b894f5925fe8b52181d02d2ff9d4c0c7a93ee8a03443591"
+    }
+  },
+  "report": {
+    "file": "device-2026-11-05-ed9028c8f18e.txt",
+    "sha256": "ed9028c8f18e8700887e8280512c4d6c33e4bc077d777d9f0189c499e3f736bd"
+  },
+  "startup_report": {
+    "file": "device-2026-11-05-ed9028c8f18e-boot.txt",
+    "sha256": "fb4508000fbfaab6dfc0500879c475614b1ec2f2b3a198216ce9cb6c356e9bca"
+  },
+  "phases": [
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "lookup",
+      "ticks": [
+        2313714,
+        2314199,
+        2316344
+      ],
+      "median_us": 38569.98333333333
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "retrieve",
+      "ticks": [
+        35137819,
+        34862175,
+        34865144
+      ],
+      "median_us": 581085.7333333333
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "open",
+      "ticks": [
+        35261010,
+        34997274,
+        35000268
+      ],
+      "median_us": 583337.8
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "paint",
+      "ticks": [
+        38180124,
+        37916424,
+        37919537
+      ],
+      "median_us": 631992.2833333333
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "screen",
+      "ticks": [
+        64376912,
+        63942662,
+        63944875
+      ],
+      "median_us": 1065747.9166666667
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "viewport-0",
+      "ticks": [
+        2192687,
+        2190087,
+        2197841
+      ],
+      "median_us": 36544.78333333333
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "viewport-1",
+      "ticks": [
+        1701012,
+        1701105,
+        1700920
+      ],
+      "median_us": 28350.2
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "viewport-2",
+      "ticks": [
+        30978,
+        31042,
+        31027
+      ],
+      "median_us": 517.1166666666667
+    },
+    {
+      "archive": "simple",
+      "title": "Cat",
+      "phase": "viewport-3",
+      "ticks": [
+        30846,
+        30940,
+        30912
+      ],
+      "median_us": 515.2
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "lookup",
+      "ticks": [
+        2219301,
+        2222602,
+        2223300
+      ],
+      "median_us": 37043.36666666667
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "retrieve",
+      "ticks": [
+        22583387,
+        21419086,
+        21417672
+      ],
+      "median_us": 356984.76666666666
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "open",
+      "ticks": [
+        22708502,
+        21551581,
+        21550147
+      ],
+      "median_us": 359193.01666666666
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "paint",
+      "ticks": [
+        25873338,
+        24716838,
+        24715038
+      ],
+      "median_us": 411947.3
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "screen",
+      "ticks": [
+        52106022,
+        48327372,
+        48328722
+      ],
+      "median_us": 805478.7
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "viewport-0",
+      "ticks": [
+        1308186,
+        1306554,
+        1309050
+      ],
+      "median_us": 21803.1
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "viewport-1",
+      "ticks": [
+        1356744,
+        1356537,
+        1356694
+      ],
+      "median_us": 22611.566666666666
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "viewport-2",
+      "ticks": [
+        31081,
+        30972,
+        30988
+      ],
+      "median_us": 516.4666666666667
+    },
+    {
+      "archive": "simple",
+      "title": "Tokyo",
+      "phase": "viewport-3",
+      "ticks": [
+        30870,
+        30833,
+        30873
+      ],
+      "median_us": 514.5
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "lookup",
+      "ticks": [
+        1882423,
+        1882837,
+        1883474
+      ],
+      "median_us": 31380.616666666665
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "retrieve",
+      "ticks": [
+        70070591,
+        69982466,
+        69983536
+      ],
+      "median_us": 1166392.2666666666
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "open",
+      "ticks": [
+        70135270,
+        70049985,
+        70051067
+      ],
+      "median_us": 1167517.7833333334
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "paint",
+      "ticks": [
+        72145546,
+        72060578,
+        72061710
+      ],
+      "median_us": 1201028.5
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "screen",
+      "ticks": [
+        193104791,
+        192779548,
+        192782930
+      ],
+      "median_us": 3213048.8333333335
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "viewport-0",
+      "ticks": [
+        2021231,
+        2029959,
+        2020746
+      ],
+      "median_us": 33687.183333333334
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "viewport-1",
+      "ticks": [
+        2566682,
+        2566407,
+        2566371
+      ],
+      "median_us": 42773.45
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "viewport-2",
+      "ticks": [
+        31096,
+        31105,
+        31104
+      ],
+      "median_us": 518.4
+    },
+    {
+      "archive": "wikivoyage",
+      "title": "Paris",
+      "phase": "viewport-3",
+      "ticks": [
+        31003,
+        31052,
+        31050
+      ],
+      "median_us": 517.5
+    }
+  ],
+  "startup": {
+    "phases": {
+      "file": {
+        "elapsed_us": 7147,
+        "read_calls": 1,
+        "read_sectors": 1,
+        "read_us": 608,
+        "read_errors": 0,
+        "dma32_bytes": 512,
+        "dma8_bytes": 0,
+        "dma_wait_us": 294,
+        "bypass_bytes": 0,
+        "timeouts": 0,
+        "dma_errors": 0
+      },
+      "indexes": {
+        "elapsed_us": 31186,
+        "read_calls": 33,
+        "read_sectors": 33,
+        "read_us": 22027,
+        "read_errors": 0,
+        "dma32_bytes": 16896,
+        "dma8_bytes": 0,
+        "dma_wait_us": 9721,
+        "bypass_bytes": 0,
+        "timeouts": 0,
+        "dma_errors": 0
+      },
+      "ui": {
+        "elapsed_us": 41165,
+        "read_calls": 40,
+        "read_sectors": 40,
+        "read_us": 20485,
+        "read_errors": 0,
+        "dma32_bytes": 20480,
+        "dma8_bytes": 0,
+        "dma_wait_us": 11784,
+        "bypass_bytes": 0,
+        "timeouts": 0,
+        "dma_errors": 0
+      }
+    },
+    "totals": {
+      "open_to_keyboard_us": 79499,
+      "app_to_keyboard_us": 156227,
+      "kernel_to_app_us": 1340251
+    },
+    "cold_boot_repetitions": 1
+  },
+  "hardware_compared": false,
+  "resources": {
+    "title.bmf": "d109a106c88bbfa9d700a4130acc595a86fc6f372574fd5448467e995bc4a123",
+    "texti.bmf": "654b45a501547d107e0e2b0be45757bd08c25051321a0c529ce5994cf08e8a67",
+    "subtitle.bmf": "f83e5f18c72820819f9160983d97d03fa9221a6f0b5b5811f74eb1c402f752fd",
+    "subtlall.bmf": "4a6e163a9fc52eb7d3075c2e7a378ad135c6e2e699eabf235861f180656d5697",
+    "textall.bmf": "583a67b1dcc68a6c0612cdfa5924c5cd09c61a28582a28653d423851e4f3aa9a",
+    "text.bmf": "fd861a0215c780b1d9906e37d477bb0987ab9f9a4a772e987dcb7c36437c1aa2",
+    "titleall.bmf": "46047b63f9de8ea028b9e9f2ade8b897a206a62cc5ea5ecb224d06df01382f58",
+    "zim/wiki.nls": "519d449f730bac4645757e07a434cb3b2c69170fefce6d27b63db4419cf67815"
+  }
+}

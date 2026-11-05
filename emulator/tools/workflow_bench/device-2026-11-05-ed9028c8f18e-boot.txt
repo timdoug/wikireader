@@ -1,0 +1,13 @@
+ZIMBOOT v1 dma_bits=32
+archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim
+open_to_keyboard_us=79499 app_to_keyboard_us=156227 kernel_to_app_us=1340251
+file elapsed_us=7147 read_calls=1 read_sectors=1 read_us=608 read_errors=0 dma32_bytes=512 dma8_bytes=0 dma_wait_us=294 bypass_bytes=0 timeouts=0 dma_errors=0
+indexes elapsed_us=31186 read_calls=33 read_sectors=33 read_us=22027 read_errors=0 dma32_bytes=16896 dma8_bytes=0 dma_wait_us=9721 bypass_bytes=0 timeouts=0 dma_errors=0
+ui elapsed_us=41165 read_calls=40 read_sectors=40 read_us=20485 read_errors=0 dma32_bytes=20480 dma8_bytes=0 dma_wait_us=11784 bypass_bytes=0 timeouts=0 dma_errors=0
+KERNELBOOT seq=0 kind=1 begin_us=45 elapsed_us=258374 read_calls=7 read_sectors=7 read_us=6124 dma_wait_us=4319 read_errors=0 timeouts=0 dma_errors=0
+KERNELBOOT seq=1 kind=2 begin_us=266273 elapsed_us=328431 read_calls=146 read_sectors=146 read_us=120097 dma_wait_us=90110 read_errors=0 timeouts=0 dma_errors=0
+KERNELBOOT seq=2 kind=3 begin_us=611421 elapsed_us=12949 read_calls=13 read_sectors=14 read_us=8549 dma_wait_us=3535 read_errors=0 timeouts=0 dma_errors=0
+KERNELBOOT seq=3 kind=3 begin_us=938342 elapsed_us=387437 read_calls=52 read_sectors=758 read_us=255046 dma_wait_us=12078 read_errors=0 timeouts=0 dma_errors=0
+dma_disabled_at_start=0 dma_disabled_at_end=0
+END ZIMBOOT
+

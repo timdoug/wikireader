@@ -5,6 +5,8 @@
  * line per load to 0:/zimbench.txt.  With NEXT it then chains to
  * "NEXT bench ..." so two builds run from one tap; the last one shows the
  * comparison and returns to the launcher on a tap or button.
+ * "bench LABEL calibrate" instead saves raw lookup/render/viewport-step
+ * timings with output checksums and a completion marker, then powers off.
  *
  * The hooks below cost nothing unless zim_bench.active is set. */
 #ifndef WIKIREADER_ZIM_BENCH_H

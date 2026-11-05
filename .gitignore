@@ -24,6 +24,7 @@ stamp-*
 /screen.pgm
 /*.zim
 work*
+!emulator/tools/workflow_bench/
 *.xml
 log
 build

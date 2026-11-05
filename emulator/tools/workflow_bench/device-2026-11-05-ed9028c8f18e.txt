@@ -1,0 +1,60 @@
+ZCAL v1 entries=3 passes=3 warmup=0 ticks_per_us=60 scrolls=4 sdram_ctl=00001243 refresh=01ff01c0 clkcntl=0a7b050e pll=00101a95
+ZBRUN label=cal entries=3 passes=3
+ZB label=cal pass=1 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat retrieve_us=585630 read_us=126866 read_sectors=196 open_us=587683 screen_us=1072948 image_us=0 images=0 blob_us=519555 html_us=35789 budget_us=2409 wrap_us=24815 raw=130154 text=7750 article=6911 paint_us=636335 preview=1 finish_us=233224
+ZC pass=1 entry=0 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat index=70197 lookup_ticks=2313714 retrieve_ticks=35137819 open_ticks=35261010 paint_ticks=38180124 screen_ticks=64376912 lookup_reads=43 lookup_sectors=43 lookup_read_ticks=1524440 retrieve_reads=16 retrieve_sectors=196 retrieve_read_ticks=7612013 raw=130154 text=7750 article=6911 images=0 frame=44dd15da ok=1
+ZCS pass=1 entry=0 step=0 delta=104 before=0 after=104 ticks=2192687 direct=1 frame=61c28b1c ok=1
+ZCS pass=1 entry=0 step=1 delta=104 before=104 after=208 ticks=1701012 direct=1 frame=629bb43b ok=1
+ZCS pass=1 entry=0 step=2 delta=-104 before=208 after=104 ticks=30978 direct=1 frame=fbf7b440 ok=1
+ZCS pass=1 entry=0 step=3 delta=-104 before=104 after=0 ticks=30846 direct=1 frame=37d97b07 ok=1
+ZB label=cal pass=1 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo retrieve_us=376389 read_us=79932 read_sectors=116 open_us=378475 screen_us=868433 image_us=0 images=0 blob_us=242588 html_us=81783 budget_us=3243 wrap_us=45948 raw=109194 text=8747 article=7995 paint_us=431222 preview=1 finish_us=280147
+ZC pass=1 entry=1 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo index=358835 lookup_ticks=2219301 retrieve_ticks=22583387 open_ticks=22708502 paint_ticks=25873338 screen_ticks=52106022 lookup_reads=42 lookup_sectors=42 lookup_read_ticks=1438710 retrieve_reads=24 retrieve_sectors=116 retrieve_read_ticks=4795926 raw=109194 text=8747 article=7995 images=0 frame=bbe20403 ok=1
+ZCS pass=1 entry=1 step=0 delta=104 before=0 after=104 ticks=1308186 direct=1 frame=9a2e93b5 ok=1
+ZCS pass=1 entry=1 step=1 delta=104 before=104 after=208 ticks=1356744 direct=1 frame=0093d4f1 ok=1
+ZCS pass=1 entry=1 step=2 delta=-104 before=208 after=104 ticks=31081 direct=1 frame=f8d1373d ok=1
+ZCS pass=1 entry=1 step=3 delta=-104 before=104 after=0 ticks=30870 direct=1 frame=9df9d236 ok=1
+ZB label=cal pass=1 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris retrieve_us=1167843 read_us=301101 read_sectors=453 open_us=1168921 screen_us=3218413 image_us=669470 images=1 blob_us=1095231 html_us=36803 budget_us=2566 wrap_us=30388 raw=391984 text=9987 article=14307 paint_us=1202425 preview=1 finish_us=1108701
+ZBI label=cal pass=1 title=Paris image=0 y=107 size=226x167 read_us=16211 decode_us=669470 done_us=3017988
+ZC pass=1 entry=2 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris index=44677 lookup_ticks=1882423 retrieve_ticks=70070591 open_ticks=70135270 paint_ticks=72145546 screen_ticks=193104791 lookup_reads=34 lookup_sectors=34 lookup_read_ticks=1183577 retrieve_reads=33 retrieve_sectors=453 retrieve_read_ticks=18066099 raw=391984 text=9987 article=14307 images=1 frame=08ad3566 ok=1
+ZCS pass=1 entry=2 step=0 delta=104 before=0 after=104 ticks=2021231 direct=1 frame=32318dd0 ok=1
+ZCS pass=1 entry=2 step=1 delta=104 before=104 after=208 ticks=2566682 direct=1 frame=5cc57645 ok=1
+ZCS pass=1 entry=2 step=2 delta=-104 before=208 after=104 ticks=31096 direct=1 frame=9ee833f0 ok=1
+ZCS pass=1 entry=2 step=3 delta=-104 before=104 after=0 ticks=31003 direct=1 frame=96f692c7 ok=1
+ZB label=cal pass=2 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat retrieve_us=581036 read_us=126318 read_sectors=195 open_us=583287 screen_us=1065711 image_us=0 images=0 blob_us=519178 html_us=35787 budget_us=2410 wrap_us=20768 raw=130154 text=7750 article=6911 paint_us=631940 preview=1 finish_us=230378
+ZC pass=2 entry=0 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat index=70197 lookup_ticks=2314199 retrieve_ticks=34862175 open_ticks=34997274 paint_ticks=37916424 screen_ticks=63942662 lookup_reads=43 lookup_sectors=43 lookup_read_ticks=1524830 retrieve_reads=15 retrieve_sectors=195 retrieve_read_ticks=7579126 raw=130154 text=7750 article=6911 images=0 frame=44dd15da ok=1
+ZCS pass=2 entry=0 step=0 delta=104 before=0 after=104 ticks=2190087 direct=1 frame=61c28b1c ok=1
+ZCS pass=2 entry=0 step=1 delta=104 before=104 after=208 ticks=1701105 direct=1 frame=629bb43b ok=1
+ZCS pass=2 entry=0 step=2 delta=-104 before=208 after=104 ticks=31042 direct=1 frame=fbf7b440 ok=1
+ZCS pass=2 entry=0 step=3 delta=-104 before=104 after=0 ticks=30940 direct=1 frame=37d97b07 ok=1
+ZB label=cal pass=2 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo retrieve_us=356984 read_us=63835 read_sectors=99 open_us=359193 screen_us=805456 image_us=0 images=0 blob_us=242609 html_us=81791 budget_us=3242 wrap_us=26514 raw=109194 text=8747 article=7995 paint_us=411947 preview=1 finish_us=236362
+ZC pass=2 entry=1 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo index=358835 lookup_ticks=2222602 retrieve_ticks=21419086 open_ticks=21551581 paint_ticks=24716838 screen_ticks=48327372 lookup_reads=42 lookup_sectors=42 lookup_read_ticks=1441474 retrieve_reads=9 retrieve_sectors=99 retrieve_read_ticks=3830136 raw=109194 text=8747 article=7995 images=0 frame=bbe20403 ok=1
+ZCS pass=2 entry=1 step=0 delta=104 before=0 after=104 ticks=1306554 direct=1 frame=9a2e93b5 ok=1
+ZCS pass=2 entry=1 step=1 delta=104 before=104 after=208 ticks=1356537 direct=1 frame=0093d4f1 ok=1
+ZCS pass=2 entry=1 step=2 delta=-104 before=208 after=104 ticks=30972 direct=1 frame=f8d1373d ok=1
+ZCS pass=2 entry=1 step=3 delta=-104 before=104 after=0 ticks=30833 direct=1 frame=9df9d236 ok=1
+ZB label=cal pass=2 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris retrieve_us=1166374 read_us=300091 read_sectors=451 open_us=1167499 screen_us=3212992 image_us=669355 images=1 blob_us=1095281 html_us=36799 budget_us=2566 wrap_us=28874 raw=391984 text=9987 article=14307 paint_us=1201009 preview=1 finish_us=1104804
+ZBI label=cal pass=2 title=Paris image=0 y=107 size=226x167 read_us=16225 decode_us=669355 done_us=3012569
+ZC pass=2 entry=2 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris index=44677 lookup_ticks=1882837 retrieve_ticks=69982466 open_ticks=70049985 paint_ticks=72060578 screen_ticks=192779548 lookup_reads=34 lookup_sectors=34 lookup_read_ticks=1184050 retrieve_reads=31 retrieve_sectors=451 retrieve_read_ticks=18005505 raw=391984 text=9987 article=14307 images=1 frame=08ad3566 ok=1
+ZCS pass=2 entry=2 step=0 delta=104 before=0 after=104 ticks=2029959 direct=1 frame=32318dd0 ok=1
+ZCS pass=2 entry=2 step=1 delta=104 before=104 after=208 ticks=2566407 direct=1 frame=5cc57645 ok=1
+ZCS pass=2 entry=2 step=2 delta=-104 before=208 after=104 ticks=31105 direct=1 frame=9ee833f0 ok=1
+ZCS pass=2 entry=2 step=3 delta=-104 before=104 after=0 ticks=31052 direct=1 frame=96f692c7 ok=1
+ZB label=cal pass=3 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat retrieve_us=581085 read_us=126361 read_sectors=195 open_us=583337 screen_us=1065747 image_us=0 images=0 blob_us=519208 html_us=35784 budget_us=2408 wrap_us=20794 raw=130154 text=7750 article=6911 paint_us=631992 preview=1 finish_us=230364
+ZC pass=3 entry=0 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Cat index=70197 lookup_ticks=2316344 retrieve_ticks=34865144 open_ticks=35000268 paint_ticks=37919537 screen_ticks=63944875 lookup_reads=43 lookup_sectors=43 lookup_read_ticks=1527189 retrieve_reads=15 retrieve_sectors=195 retrieve_read_ticks=7581712 raw=130154 text=7750 article=6911 images=0 frame=44dd15da ok=1
+ZCS pass=3 entry=0 step=0 delta=104 before=0 after=104 ticks=2197841 direct=1 frame=61c28b1c ok=1
+ZCS pass=3 entry=0 step=1 delta=104 before=104 after=208 ticks=1700920 direct=1 frame=629bb43b ok=1
+ZCS pass=3 entry=0 step=2 delta=-104 before=208 after=104 ticks=31027 direct=1 frame=fbf7b440 ok=1
+ZCS pass=3 entry=0 step=3 delta=-104 before=104 after=0 ticks=30912 direct=1 frame=37d97b07 ok=1
+ZB label=cal pass=3 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo retrieve_us=356961 read_us=63848 read_sectors=99 open_us=359169 screen_us=805478 image_us=0 images=0 blob_us=242573 html_us=81786 budget_us=3242 wrap_us=26532 raw=109194 text=8747 article=7995 paint_us=411917 preview=1 finish_us=236384
+ZC pass=3 entry=1 archive=1:/wikipedia_en-simple_all_nopic_2026-06.zim title=Tokyo index=358835 lookup_ticks=2223300 retrieve_ticks=21417672 open_ticks=21550147 paint_ticks=24715038 screen_ticks=48328722 lookup_reads=42 lookup_sectors=42 lookup_read_ticks=1441162 retrieve_reads=9 retrieve_sectors=99 retrieve_read_ticks=3830898 raw=109194 text=8747 article=7995 images=0 frame=bbe20403 ok=1
+ZCS pass=3 entry=1 step=0 delta=104 before=0 after=104 ticks=1309050 direct=1 frame=9a2e93b5 ok=1
+ZCS pass=3 entry=1 step=1 delta=104 before=104 after=208 ticks=1356694 direct=1 frame=0093d4f1 ok=1
+ZCS pass=3 entry=1 step=2 delta=-104 before=208 after=104 ticks=30988 direct=1 frame=f8d1373d ok=1
+ZCS pass=3 entry=1 step=3 delta=-104 before=104 after=0 ticks=30873 direct=1 frame=9df9d236 ok=1
+ZB label=cal pass=3 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris retrieve_us=1166392 read_us=300129 read_sectors=451 open_us=1167517 screen_us=3213048 image_us=669358 images=1 blob_us=1095277 html_us=36798 budget_us=2567 wrap_us=28896 raw=391984 text=9987 article=14307 paint_us=1201028 preview=1 finish_us=1104837
+ZBI label=cal pass=3 title=Paris image=0 y=107 size=226x167 read_us=16226 decode_us=669358 done_us=3012623
+ZC pass=3 entry=2 archive=1:/wikivoyage_en_all_maxi_2026-06.zim title=Paris index=44677 lookup_ticks=1883474 retrieve_ticks=69983536 open_ticks=70051067 paint_ticks=72061710 screen_ticks=192782930 lookup_reads=34 lookup_sectors=34 lookup_read_ticks=1184800 retrieve_reads=31 retrieve_sectors=451 retrieve_read_ticks=18007765 raw=391984 text=9987 article=14307 images=1 frame=08ad3566 ok=1
+ZCS pass=3 entry=2 step=0 delta=104 before=0 after=104 ticks=2020746 direct=1 frame=32318dd0 ok=1
+ZCS pass=3 entry=2 step=1 delta=104 before=104 after=208 ticks=2566371 direct=1 frame=5cc57645 ok=1
+ZCS pass=3 entry=2 step=2 delta=-104 before=208 after=104 ticks=31104 direct=1 frame=9ee833f0 ok=1
+ZCS pass=3 entry=2 step=3 delta=-104 before=104 after=0 ticks=31050 direct=1 frame=96f692c7 ok=1
+END ZCAL cases=9 failures=0

@@ -1,6 +1,7 @@
 /* Device benchmark; see zim_bench.h.  Its own object at the end of SOURCES,
  * so building it in moves no existing code. */
 #include <grifo.h>
+#include <regs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,13 @@ extern int display_first_page;   /* lcd_buf_draw.c; older trees lack its declara
 static const char *label = "zim";
 static const char *next_app;
 static const char *next_label;
+static int calibration;
+static unsigned calibration_cases, calibration_failures;
+static file_io_stats_t calibration_lookup_io;
+
+static void calibration_record(int pass, int entry, const char *archive,
+	const char *title, long index, unsigned long lookup_ticks,
+	unsigned long open_ticks, unsigned long paint_ticks, unsigned long screen_ticks);
 
 typedef struct {
 	char archive[48];
@@ -170,20 +178,33 @@ static unsigned long us(unsigned long ticks)
 	return ticks / TIMER_CountsPerMicroSecond;
 }
 
-static void load_one(int pass, const ENTRY *e)
+static void load_one(int pass, int entry, const ENTRY *e)
 {
-	char line[512];
+	char line[768];
 	unsigned long start, opened, idle, painted = 0;
+	unsigned long lookup_start = 0, lookup_ticks = 0;
 	long index;
 	int wiki = find_archive(e->archive);
 	int i, n;
 
-	if (wiki < 0)
+	if (wiki < 0) {
+		if (calibration) calibration_failures++;
 		return;
+	}
 	if (wiki != nCurrentWiki)
 		set_wiki(wiki);
+	if (calibration) {
+		zim_bench_drop_caches();
+		file_profile(&calibration_lookup_io, true);
+		lookup_start = timer_get();
+	}
 	index = zim_bench_find_title(e->title);
+	if (calibration) {
+		lookup_ticks = timer_get() - lookup_start;
+		file_profile(&calibration_lookup_io, false);
+	}
 	if (!index) {
+		if (calibration) calibration_failures++;
 		n = snprintf(line, sizeof(line),
 			     "ZB label=%s pass=%d archive=%s title=%s missing=1\n",
 			     label, pass, zim_catalog_path(wiki), e->title);
@@ -250,6 +271,10 @@ static void load_one(int pass, const ENTRY *e)
 		if (n > 0 && n < (int)sizeof(line))
 			append_log(line, n);
 	}
+	if (calibration && pass > 0)
+		calibration_record(pass, entry, zim_catalog_path(wiki), e->title,
+			index, lookup_ticks, opened - start,
+			painted ? painted - start : 0, idle - start);
 }
 
 /* The comparison: for every article, the fastest measured pass of each
@@ -406,6 +431,10 @@ void zim_bench_args(int argc, char **argv)
 	requested = 1;
 	if (argc > 2)
 		label = argv[2];
+	if (argc == 4 && !strcmp(argv[3], "calibrate")) {
+		calibration = 1;
+		return;
+	}
 	if (argc > 4) {
 		next_app = argv[3];
 		next_label = argv[4];
@@ -419,21 +448,37 @@ int zim_bench_requested(void)
 
 void zim_bench_start(void)
 {
-	char line[160];
+	char line[256];
 	char command[64];
 	int original = nCurrentWiki;
 	int pass, i, n;
 
 	load_list();
+	if (calibration) {
+		event_flush();
+		n = snprintf(line, sizeof(line),
+			"ZCAL v1 entries=%d passes=%d warmup=%d ticks_per_us=%u scrolls=4 "
+			"sdram_ctl=%08lx refresh=%08lx clkcntl=%08lx pll=%08lx\n",
+			entry_count, passes, warmup, TIMER_CountsPerMicroSecond,
+			(unsigned long)REG_SDRAMC_CTL, (unsigned long)REG_SDRAMC_REF,
+			(unsigned long)REG_CMU_CLKCNTL, (unsigned long)REG_CMU_PLL);
+		if (n > 0 && n < (int)sizeof(line)) append_log(line, n);
+	}
 	n = snprintf(line, sizeof(line), "ZBRUN label=%s entries=%d passes=%d\n",
 		     label, entry_count, passes);
 	if (n > 0 && n < (int)sizeof(line))
 		append_log(line, n);
 	for (pass = warmup ? 0 : 1; pass <= passes; pass++)
 		for (i = 0; i < entry_count; i++)
-			load_one(pass, &entries[i]);
+			load_one(pass, i, &entries[i]);
 	if (nCurrentWiki != original)
 		set_wiki(original);
+	if (calibration) {
+		n = snprintf(line, sizeof(line), "END ZCAL cases=%u failures=%u\n",
+			calibration_cases, calibration_failures);
+		if (n > 0 && n < (int)sizeof(line)) append_log(line, n);
+		power_off();
+	}
 	if (next_app) {
 		snprintf(command, sizeof(command), "%s bench %s", next_app, next_label);
 		status("Benchmark: next build...");
@@ -442,4 +487,84 @@ void zim_bench_start(void)
 	summarize();
 	wait_for_tap();
 	chain("init.app");
+}
+
+/* Hashes and formatting are outside each measured interval. Composite the
+ * LCD sub-window so the scroll indicator is checked alongside the text. */
+static unsigned long calibration_frame(void)
+{
+	const unsigned char *frame = lcd_get_framebuffer();
+	const unsigned char *window = lcd_window_get_buffer();
+	unsigned long start = REG_LCDC_SSP, end = REG_LCDC_SEP;
+	unsigned x0 = (start & PIPXST_MASK) * 4;
+	unsigned x1 = ((end & PIPXEND_MASK) + 1) * 4;
+	unsigned y0 = (start & PIPYST_MASK) >> PIPYST_SHIFT;
+	unsigned y1 = ((end & PIPYEND_MASK) >> PIPYEND_SHIFT) + 1;
+	unsigned stride = lcd_window_get_byte_width();
+	unsigned long hash = 2166136261UL;
+	unsigned y, x;
+	for (y = 0; y < LCD_HEIGHT; y++)
+		for (x = 0; x < LCD_WIDTH / 8; x++) {
+			unsigned char byte = frame[y * LCD_BUFFER_WIDTH_BYTES + x];
+			if ((start & PIPEN) && y >= y0 && y < y1 && x >= x0 && x < x1)
+				byte = window[(y - y0) * stride + x - x0];
+			hash = (hash ^ byte) * 16777619UL;
+		}
+	return hash;
+}
+
+static void calibration_record(int pass, int entry, const char *archive,
+	const char *title, long index, unsigned long lookup_ticks,
+	unsigned long open_ticks, unsigned long paint_ticks, unsigned long screen_ticks)
+{
+	static const int moves[] = {104, 104, -104, -104};
+	extern int lcd_draw_cur_y_pos;
+	extern int b_show_scroll_bar;
+	char line[768];
+	unsigned step;
+	int n, ok = lookup_ticks && paint_ticks && screen_ticks &&
+		zim_bench.retrieve_ticks && zim_bench.raw_size && zim_bench.article_size &&
+		!calibration_lookup_io.read_errors && !calibration_lookup_io.dma_timeouts &&
+		!calibration_lookup_io.dma_errors && !calibration_lookup_io.dma_disabled &&
+		!zim_bench.io.read_errors && !zim_bench.io.dma_timeouts &&
+		!zim_bench.io.dma_errors && !zim_bench.io.dma_disabled;
+	calibration_cases++;
+	calibration_failures += !ok;
+	n = snprintf(line, sizeof(line),
+		"ZC pass=%d entry=%d archive=%s title=%s index=%ld lookup_ticks=%lu "
+		"retrieve_ticks=%lu open_ticks=%lu paint_ticks=%lu screen_ticks=%lu "
+		"lookup_reads=%lu lookup_sectors=%lu lookup_read_ticks=%lu "
+		"retrieve_reads=%lu retrieve_sectors=%lu retrieve_read_ticks=%lu "
+		"raw=%lu text=%lu article=%lu images=%d frame=%08lx ok=%d\n",
+		pass, entry, archive, title, index, lookup_ticks, zim_bench.retrieve_ticks,
+		open_ticks, paint_ticks, screen_ticks,
+		(unsigned long)calibration_lookup_io.read_calls,
+		(unsigned long)calibration_lookup_io.read_sectors,
+		(unsigned long)calibration_lookup_io.read_ticks,
+		(unsigned long)zim_bench.io.read_calls, (unsigned long)zim_bench.io.read_sectors,
+		(unsigned long)zim_bench.io.read_ticks, zim_bench.raw_size,
+		zim_bench.text_size, zim_bench.article_size, zim_bench.images,
+		calibration_frame(), ok);
+	if (n > 0 && n < (int)sizeof(line)) append_log(line, n);
+	b_show_scroll_bar = 1; /* the same rendering path used during a drag */
+	for (step = 0; step < sizeof(moves) / sizeof(*moves); step++) {
+		unsigned long start, ticks;
+		int before = lcd_draw_cur_y_pos, after;
+		watchdog(WATCHDOG_KEY);
+		start = timer_get();
+		display_article_with_pcf(moves[step]);
+		while (render_article_with_pcf()) watchdog(WATCHDOG_KEY);
+		ticks = timer_get() - start;
+		after = lcd_draw_cur_y_pos;
+		ok = ticks && (moves[step] > 0 ? after > before : after < before);
+		calibration_failures += !ok;
+		n = snprintf(line, sizeof(line),
+			"ZCS pass=%d entry=%d step=%u delta=%d before=%d after=%d "
+			"ticks=%lu direct=%u frame=%08lx ok=%d\n", pass, entry, step,
+			moves[step], before, after, ticks, !!(REG_LCDC_SSP & PIPEN),
+			calibration_frame(), ok);
+		if (n > 0 && n < (int)sizeof(line)) append_log(line, n);
+	}
+	b_show_scroll_bar = 0;
+	show_scroll_bar(0);
 }
