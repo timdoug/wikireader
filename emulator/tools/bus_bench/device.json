@@ -1,0 +1,85 @@
+{
+  "date": "2026-11-05",
+  "manifest": {
+    "version": 1,
+    "probes": {
+      "base": 5,
+      "ext1": 4,
+      "ext2": 4,
+      "ldh": 5,
+      "ldw": 5,
+      "store": 5,
+      "ext1_load": 5,
+      "ext2_load": 5,
+      "ext1_store": 5,
+      "ext2_store": 5,
+      "load_ext": 4,
+      "move_ext": 4,
+      "load_use0": 5,
+      "load_use1": 5,
+      "load_use2": 5,
+      "word_use0": 5,
+      "word_use1": 5,
+      "ext1_branch": 5,
+      "ext2_branch": 5,
+      "mixed": 4,
+      "h_indep0": 5,
+      "h_indep1": 5,
+      "h_indep2": 5,
+      "w_indep0": 5,
+      "w_indep1": 5,
+      "w_indep2": 5,
+      "word_use2": 5,
+      "h_cmp_dep": 5,
+      "h_cmp_indep": 5,
+      "w_cmp_dep": 5,
+      "w_cmp_indep": 5,
+      "h_mov_dep": 5,
+      "h_mov_indep": 5,
+      "w_mov_dep": 5,
+      "w_mov_indep": 5,
+      "h_overwrite": 5,
+      "w_overwrite": 5,
+      "h_waw": 16,
+      "w_waw": 16,
+      "h_ext_indep": 5,
+      "h_two_loads": 5,
+      "w_two_loads": 5,
+      "ext1_imm": 5,
+      "ext2_imm": 5
+    },
+    "placements": [
+      [
+        "sdram",
+        0
+      ],
+      [
+        "a0",
+        0
+      ],
+      [
+        "a0",
+        2
+      ]
+    ],
+    "data": [
+      "a0",
+      "sdram"
+    ],
+    "cases": 264,
+    "source_sha256": "549daafb9b130863352c28f9569af4ef24af2ca537ec03d669f35e7f1de4f1f8",
+    "app_sha256": "bd02227836939a5d9b4a6dcf2c111f0a5786a0aa799c11f7324b432005b4957a"
+  },
+  "inputs": {
+    "buspipe.app": "bd02227836939a5d9b4a6dcf2c111f0a5786a0aa799c11f7324b432005b4957a",
+    "buspipe.ico": "4506fdb5c0d47803cb8b5792f3ea73726d457ab8321b851ca6dfbe4a81dc959e",
+    "kernel.elf": "22aac4641a3261fbbc7f1992f6bb9536b420b30481209c1dea98bf918c413457",
+    "init.app": "7925853408fb192d95b50945df64f5d8d8e5019e3eee00cfc8f0beacd9a819f7",
+    "init.ini": "6a984278647cf0a5f3e6471fd356db011e5dc8ae80b570e1d298ee23edb8aec7"
+  },
+  "report": {
+    "file": "device-2026-11-05-894a7d225e66.txt",
+    "sha256": "894a7d225e66e76a3d7823a66970bbb167b5c67fa40626f8710dfa57d9ecbc96"
+  },
+  "cases": 264
+}

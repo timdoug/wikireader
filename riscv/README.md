@@ -139,10 +139,19 @@ different workload and gets a smaller factor -- see
 
 ## The device against the model
 
+The current calibration is the matching, checksummed four-variant run in
+[`emulator/tools/riscv_bench`](../emulator/tools/riscv_bench/README.md).
+`fit-model.py` uses that run and verifies its application/input hashes.
+The original numbers below are historical: they include console time and
+predate the present divide implementation and dispatch layout. Use
+`--historical` only to reproduce that diagnostic, not to qualify new timing
+changes. Guest instruction counts alone do not establish matching workloads.
+
 All four builds were put on a card and run — RV32, SDR, A0, A0S — one
 guest workload with more and more of the interpreter in internal RAM, which
 is the axis the disagreement lay along. Their reports are checked in as
-`rv*-device.txt`, so **`fit-model.py` needs no hardware**:
+`rv*-device.txt`. The fresh reports are also saved, so after collection no
+hardware is needed for subsequent matching comparisons:
 
 ```sh
 python3 fit-model.py                       # score the model as it stands
@@ -152,7 +161,8 @@ python3 fit-model.py --sweep dq_hit=0,1,2  # score a parameter at each value
 The three extra builds are no longer on the card or in the launcher: they
 were there to be measured, they have been, and a developer benchmark does
 not want a permanent square of the panel. `compare.py` still builds all
-four for the emulator, which is what `fit-model.py` scores against.
+four for the emulator. Matching calibration builds are kept separately in
+`build/wr128/rv-calibration`.
 
 Whole benchmark, device over model, before any of this was fixed:
 

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Score the emulator's timing model against the device, and sweep it.
+"""Score matching RISC-V calibration builds, or inspect historical diagnostics.
 
 The four placement variants run the same guest workload with different
 amounts of the interpreter in internal RAM, so together they separate an
 error in what SDRAM costs from an error in what internal RAM costs -- which
-one number could not.  The device's own reports are checked in beside this
-script; nothing here needs the hardware.
+one number could not. Fresh reports and their input hashes are collected by
+emulator/tools/riscv_bench/collect.py. The old reports beside this script
+include console output and predate the current divide implementation; they
+are available only with --historical and do not qualify today's emulator.
 
   python3 fit-model.py                         score the model as it stands
   python3 fit-model.py --set dq_iram_extra=4   score it with that override
@@ -98,7 +100,29 @@ def main():
                         help='score one parameter at each of several values')
     parser.add_argument('--build', action='store_true',
                         help='relink the variants first')
+    parser.add_argument('--historical', action='store_true',
+                        help='diagnostic only: compare against obsolete placement reports')
     args = parser.parse_args()
+
+    if not args.historical:
+        # The original four reports include serial output in their timed
+        # regions and predate the replacement of the divide implementation.
+        # They cannot qualify today's binaries against silicon.
+        tools = HERE.parent / 'emulator/tools'
+        if args.build:
+            subprocess.run([sys.executable, str(tools / 'riscv_bench/build.py')], check=True)
+        settings = [args.set]
+        if args.sweep:
+            name, _, values = args.sweep.partition('=')
+            settings = [','.join(filter(None, [args.set, f'{name}={value}']))
+                        for value in values.split(',')]
+        for setting in settings:
+            subprocess.run([sys.executable, str(tools / 'score_model.py'),
+                            '--suites', 'riscv', '--set', setting], check=True)
+        return 0
+
+    print('HISTORICAL DIAGNOSTIC: these device reports include console time and '
+          'older division code; do not use this score to qualify model changes.')
 
     if args.build:
         apps = {name: compare.build(name, flags, 1)

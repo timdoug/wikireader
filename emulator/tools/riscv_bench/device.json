@@ -1,0 +1,70 @@
+{
+  "date": "2026-11-05",
+  "manifest": {
+    "variants": {
+      "sdram": {
+        "app": "rvsdr.app",
+        "report": "rvsdr.txt",
+        "sha256": "93f70c39bb455856a0bba3252e2d245b7c774c73e1d863daba1e85a888432641"
+      },
+      "code": {
+        "app": "rva0.app",
+        "report": "rva0.txt",
+        "sha256": "5cc259ed30f5b006aaa029eaca436e5a84435c6dd583161442e141c609e1e15e"
+      },
+      "code+state": {
+        "app": "rva0s.app",
+        "report": "rva0s.txt",
+        "sha256": "f6fddd4e736e32d9180ff811f03e3623cd2803f37136e19f7ae0609fd29f90ae"
+      },
+      "asm": {
+        "app": "rvasm.app",
+        "report": "rvasm.txt",
+        "sha256": "e9aaf8e633e9664d5193d9fe30889a00f05b58d7406a8f2e5f5e5776818e0542"
+      }
+    },
+    "inputs": {
+      "riscv/console.h": "7ad3885e6e5732d7eecbb8780d9c2fe4efc70289920b3460d16d027d2ae878ff",
+      "riscv/riscv.c": "4ff885948391c57bb315ce5968ed321109b5a2456f2753bb1be54f8687204dba",
+      "riscv/rv32_jit.h": "c25bbfdfda8ac5827d9d2d6783d4f8cb4b33de588beae139848b18a5da008fa7",
+      "riscv/rvlinux.ico": "55f7cf1fa3af2d68335c34e61faf3d96a7461dca894d9d6ddf54280f48f6418a",
+      "riscv/rvjit.ico": "2705ad9532219b3507c8b7e4cb67edf66609af3acc48aba768f272dd04df44c8",
+      "riscv/rv32_jitrt.s": "7d2f04ba50c21244ce69004cfd96352e07bdd985f60c16687f5d1851d35b7b3f",
+      "riscv/rv32_div.s": "2f8cc088e0e209a2e7e294b2e29d5f2ca70427fab950e18cea2c8c33f6dd5a75",
+      "riscv/font6x9.h": "d7362e7af682f19943c7438ad52e27600fb3abd821763bf23c5ea267f8050aa6",
+      "riscv/rv32.h": "37d8d419b1998390dc4cea11d6b229ce22bf16746160949efab5fb198f78b2d5",
+      "riscv/jit_probe.s": "88d45d906eb7c1087e27a966faffb10b937ab4d3ce64f72e40130c18cdebb283",
+      "riscv/console.c": "c07dee4944c6f28f93982b15d570769e8130981e4ee2e0ff1cb551d27e5f69fd",
+      "riscv/jit_probe.h": "e250e17da15c439697fda01dab2bb82ed8a93d209613fc2e02a5bc332b03423a",
+      "riscv/riscv.ico": "73ca3b53cf3fa1b082f5c069fabfa15c84b809d24ab4de68e0a977c22ec22c5b",
+      "riscv/rv32_jit.c": "86961e2eabc36cd256986d58848049a61f2daf195ba7ae649eb518a554e3a83c",
+      "riscv/rv32.c": "3896e32b881e18d6bd7ce5dc37633634d8037cbe7e68cbfd11382142742e0467",
+      "riscv/memory.lds": "49b3969a52d5dd22b103b63df5b1498050a9bca58d3e44cc899d630ba38e3ab8",
+      "riscv/rv32_hot.s": "8313ad39acc3c7f02b8b0e25a5a6eda1713f5e9c5d718abab30166223752f9d8",
+      "riscv/build/rvbench.bin": "01fd3ba59cd3306b75c7d9bc91a9106f7d235e2468df594b40ce6a2a60de13f6",
+      "riscv/build/ref.txt": "ce7241bbc1d1c3c7a59253820adb940ee07437faa975d196bb1c13d91a4d2944"
+    }
+  },
+  "boot_sha256": {
+    "kernel.elf": "22aac4641a3261fbbc7f1992f6bb9536b420b30481209c1dea98bf918c413457",
+    "init.app": "7925853408fb192d95b50945df64f5d8d8e5019e3eee00cfc8f0beacd9a819f7"
+  },
+  "reports": {
+    "sdram": {
+      "file": "device-2026-11-05-sdram.txt",
+      "sha256": "f6afd4e6cfd0d233e49bc239dfbbc1f5850726b06af78310680c48ea8633f456"
+    },
+    "code": {
+      "file": "device-2026-11-05-code.txt",
+      "sha256": "eaa6d2adb1a66cf80a051daddd41ab3d589a78d6f02c1d92ce78b5826524ab7b"
+    },
+    "code+state": {
+      "file": "device-2026-11-05-code+state.txt",
+      "sha256": "cf3fb9dde06394aaa73d9ffc7b47f7415bcbf7f6c1ad81139f8bbbce3f3913b8"
+    },
+    "asm": {
+      "file": "device-2026-11-05-asm.txt",
+      "sha256": "d2873df1b88a7e7c96d3ac69ecdba13230a32afbeb5c8ec373007949db0bac55"
+    }
+  }
+}

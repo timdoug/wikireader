@@ -88,6 +88,10 @@ static uint64_t elapsed_cycles;
    itself, so the next tick() does not see it; what it cost is reported. */
 static uint64_t console_cycles;
 static uint32_t untimed_from;
+static bool capture_console;
+static char captured_console[512];
+static unsigned captured_used;
+static bool captured_overflow;
 
 static void untimed_begin(void)
 {
@@ -119,6 +123,12 @@ static void console_out(void *arg, int c)
 	untimed_begin();
 	console_put(c);
 	debug_print_char(c);
+	if (capture_console) {
+		if (captured_used < sizeof captured_console)
+			captured_console[captured_used++] = c;
+		else
+			captured_overflow = true;
+	}
 	untimed_end();
 	if (c == boot_line[boot_matched]) {
 		if (boot_line[++boot_matched] == 0)
@@ -621,6 +631,7 @@ int grifo_main(int argc, char **argv)
 	/* Grifo's own argv describes the boot ("grifo-kernel", "auto-boot"),
 	   so an image is recognised by its extension rather than position. */
 	const char *path = NULL, *report_name = NULL;
+	bool calibration_chain = false;
 	for (int i = 1; i < argc; ++i) {
 		/* "hold" keeps the panel up at the end instead of powering off.
 		   The benchmark takes under two seconds on the device, so
@@ -630,6 +641,8 @@ int grifo_main(int argc, char **argv)
 		   already has. */
 		if (strcmp(argv[i], "hold") == 0)
 			hold_at_end = true;
+		if (strcmp(argv[i], "calibrate") == 0)
+			calibration_chain = true;
 		/* "jit" measures translated code instead of running a guest:
 		   no image, no interpreter, just the templates. */
 		if (strcmp(argv[i], "jit") == 0)
@@ -644,6 +657,7 @@ int grifo_main(int argc, char **argv)
 	}
 	if (!path)
 		path = "rvbench.bin";
+	capture_console = calibration_chain;
 
 	/* The dispatch table is linked into the window buffer (memory.lds),
 	   so the window must not be drawing from it. */
@@ -874,6 +888,13 @@ int grifo_main(int argc, char **argv)
 	report_u64((uint32_t)stop);
 	report_char('\n');
 	report_run();
+	if (calibration_chain) {
+		report("rv32: captured guest console\n");
+		for (unsigned i = 0; i < captured_used; i++)
+			report_char(captured_console[i]);
+		if (captured_overflow)
+			report("rv32: captured console truncated\n");
+	}
 	if (report_truncated)
 		report("rv32: report truncated\n");
 
@@ -898,6 +919,18 @@ int grifo_main(int argc, char **argv)
 		say("\n");
 	} else {
 		say("not saved to the card.\n");
+	}
+	/* One launcher tap collects all four placement reports from exactly
+	   the binaries the emulator uses. Each chain closes its report first;
+	   Grifo frees the old application's memory before loading the next. */
+	if (saved && calibration_chain) {
+#if !defined(RV32_FASTCODE)
+		chain("rva0.app rvbench.bin rva0.txt calibrate");
+#elif !defined(RV32_FASTSTATE)
+		chain("rva0s.app rvbench.bin rva0s.txt calibrate");
+#elif !defined(RV32_ASM)
+		chain("rvasm.app rvbench.bin rvasm.txt calibrate");
+#endif
 	}
 	if (saved && !hold_at_end)
 		power_off();

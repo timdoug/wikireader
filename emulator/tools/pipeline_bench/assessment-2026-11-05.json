@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-05",
+  "complete": true,
+  "before_emulator_sha256": "ffa063226b4ed083e4ae2fff61dc6971d7e294e53d0df198204f0df087ee595f",
+  "after_emulator_sha256": "87834b082ccbb1016fff6a6628af9d957bd384eff2e2e3912c900af12b963d3e",
+  "before": {
+    "spi": {
+      "cases": 128,
+      "solo_cycles_rms": 2.5749193340416165,
+      "dma_loss_cycles_rms": 6.393407396996797,
+      "transfer_log_rms": 0.027462056057608198
+    },
+    "mem": {
+      "cases": 120,
+      "log_rms": 0.07050219127954815
+    },
+    "ubench": {
+      "cases": 90,
+      "log_rms": 0.07585624721760059
+    },
+    "riscv": {
+      "cases": 40,
+      "log_rms": 0.07094578222468878
+    },
+    "pipeline": {
+      "cases": 360,
+      "log_rms": 0.24148538500076383
+    }
+  },
+  "after": {
+    "spi": {
+      "cases": 128,
+      "solo_cycles_rms": 2.030846261840794,
+      "dma_loss_cycles_rms": 6.450122766746751,
+      "transfer_log_rms": 0.027122645962114333
+    },
+    "mem": {
+      "cases": 120,
+      "log_rms": 0.07023452385205099
+    },
+    "riscv": {
+      "cases": 40,
+      "log_rms": 0.06892010115139045
+    },
+    "pipeline": {
+      "cases": 360,
+      "log_rms": 0.23346908753379833
+    },
+    "ubench": {
+      "cases": 90,
+      "log_rms": 0.07574368271487077
+    }
+  },
+  "verification": {
+    "pipeline_hardware_cases": 360,
+    "riscv_hardware_verified_kernels": 40,
+    "sd_dma_driver_cases": 122,
+    "checks": "make check test-mem-dma test-sd-dma-driver",
+    "optional_skip": "binutils comparison: ref-*.txt unavailable"
+  },
+  "notes": [
+    "Historical RISC-V placement tables are excluded; the matching checksummed hardware reports are used.",
+    "SPI DMA contention RMS rises slightly (6.39341 to 6.45012 cycles/pass) while solo CPU and transfer error improve.",
+    "The prefix frontend remains approximate; speculative free-prefix/load-interlock changes were not adopted."
+  ]
+}

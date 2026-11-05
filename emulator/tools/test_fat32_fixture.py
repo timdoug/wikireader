@@ -42,6 +42,31 @@ with tempfile.TemporaryDirectory() as directory:
         assert primary == image.read(512)
     for name, value in files.items():
         assert builder.read_file(path, name) == value
+    # Reader resource verification needs directories as well as root files.
+    # Reuse the allocated distant cluster for a directory pointing at the
+    # existing, fragmented-capable file chain; nothing executes this image.
+    with path.open('r+b') as image:
+        data = (part + reserved + 2 * fat_size) * 512
+        entry = bytearray(32)
+        entry[:11], entry[11] = b'ZIM        ', 0x10
+        struct.pack_into('<H', entry, 26, 50000)
+        image.seek(data + 64)
+        image.write(entry)
+        entry[:11], entry[11] = b'WIKI    NLS', 0x20
+        struct.pack_into('<H', entry, 26, 10)
+        struct.pack_into('<I', entry, 28, len(files['init.app']))
+        image.seek(data + (50000 - 2) * 512)
+        image.write(entry)
+    assert builder.read_file(path, 'ZiM/wiki.nls') == files['init.app']
+    assert builder.read_file(path, 'zim/missing.nls') is None
+    assert builder.read_file(path, 'init.app/wiki.nls') is None
+    assert builder.read_file(path, 'zim') is None
+    try:
+        builder.read_file(path, '../init.app')
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('Accepted traversal outside the image root')
     bad = Path(directory)/'not-a-card.img'
     bad.write_bytes(bytes(512))
     for invalid in (Path(directory), bad):
@@ -51,4 +76,4 @@ with tempfile.TemporaryDirectory() as directory:
             pass
         else:
             raise AssertionError('Accepted non-fixture input')
-print('FAT32 fixture: valid hints, fragmented allocation, intact files/FAT and input bounds pass')
+print('FAT32 fixture: valid hints, allocation, intact files/FAT, nested files and input bounds pass')

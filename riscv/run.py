@@ -176,7 +176,10 @@ def main():
             entries.append('rvlinux.ico : riscv.app rvlinux.bin')
         files['INIT.INI'] = ('\n'.join(entries) + '\n').encode()
     else:
-        files['INIT.APP'] = args.app.read_bytes()
+        files['INIT.APP'] = (ROOT / 'samo-lib/grifo/applications/init/init.app').read_bytes()
+        files['RISCV.APP'] = args.app.read_bytes()
+        files['RISCV.ICO'] = (here / 'riscv.ico').read_bytes()
+        files['INIT.INI'] = b'riscv.ico : riscv.app rvbench.bin\n'
         files['RVBENCH.BIN'] = args.image.read_bytes()
         if args.dtb:
             files['RVBENCH.DTB'] = args.dtb.read_bytes()

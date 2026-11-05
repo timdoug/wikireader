@@ -1,0 +1,33 @@
+
+rv32: kernel        insns      cycles    cyc/insn    kIPS
+rv32: alu             40100 4167645  103.93  577
+rv32: branch          58061 6131457  105.60  568
+rv32: mul             52101 5426436  104.15  576
+rv32: div             28086 7383355  262.88  228
+rv32: load            65636 7142952  108.83  551
+rv32: store           65655 6734758  102.58  584
+rv32: copy            82044 9250160  112.75  532
+rv32: bytes          196711 20715822  105.31  569
+rv32: crc            327778 35646235  108.75  551
+rv32: sieve          399563 43155671  108.01  555
+rv32: total    1365535 insns, 151026493 cycles, 110.60 cyc/insn, 542 kIPS
+rv32: stopped, reason 1
+rv32: console output: 7911100 cycles, left out of the kernels' and the total
+rv32: captured guest console
+rv32ima
+Loading rvbench.bin...
+Starting...
+rv32 bench
+alu 0x43600481
+branch 0x00002e3b
+mul 0xd7bab489
+div 0xcc637bd8
+load 0xd4c9e000
+store 0x00002000
+copy 0x00001000
+bytes 0x77db7820
+crc 0xe2ec6864
+sieve 0x000008d6
+done
+
+110.60 cyc/insn, 542 kIPS

@@ -127,7 +127,7 @@ def read_file(path, wanted):
         spc = vbr[13]
         fatsize = struct.unpack_from('<I', vbr, 36)[0]
         fat = read((part+reserved)*512, fatsize*512)
-        data = (part+reserved+2*fatsize)*512
+        data = (part+reserved+vbr[16]*fatsize)*512
         def chain(c):
             result = bytearray()
             seen = set()
@@ -137,15 +137,34 @@ def read_file(path, wanted):
                 result.extend(read(data+(c-2)*512*spc, 512*spc))
                 c = struct.unpack_from('<I', fat, c*4)[0] & 0x0fffffff
             return result
-        root = chain(2)
-        for off in range(0, len(root), 32):
-            e = root[off:off+32]
-            if e[0] in (0, 0xe5) or e[11] == 15:
-                continue
-            name = e[:8].decode().rstrip() + '.' + e[8:11].decode().rstrip()
-            if name.lower() == wanted.lower():
+        components = wanted.strip('/').split('/')
+        if any(name in ('', '.', '..') for name in components):
+            raise ValueError('Expected a relative FAT file path')
+        directory = chain(struct.unpack_from('<I', vbr, 44)[0])
+        for index, component in enumerate(components):
+            found = False
+            for off in range(0, len(directory), 32):
+                e = directory[off:off+32]
+                if e[0] in (0, 0xe5) or e[11] & 8:
+                    continue
+                name = e[:8].decode().rstrip()
+                ext = e[8:11].decode().rstrip()
+                if ext:
+                    name += '.' + ext
+                if name.lower() != component.lower():
+                    continue
                 c = struct.unpack_from('<H', e, 20)[0] << 16 | struct.unpack_from('<H', e, 26)[0]
-                return bytes(chain(c)[:struct.unpack_from('<I', e, 28)[0]])
+                if index == len(components) - 1:
+                    if e[11] & 16:
+                        return None
+                    return bytes(chain(c)[:struct.unpack_from('<I', e, 28)[0]])
+                if not e[11] & 16:
+                    return None
+                directory = chain(c)
+                found = True
+                break
+            if not found:
+                return None
     return None
 
 
