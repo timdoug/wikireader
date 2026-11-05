@@ -38,6 +38,8 @@ static volatile uint32_t *tx_source = DUMMY;
 
 typedef unsigned long loop_fn(volatile uint8_t *flag, unsigned long mask,
 			      unsigned long limit, uint32_t *p, uint32_t *q);
+static void run_case(unsigned width, int idma, int ivram, const char *name,
+		     loop_fn *fn);
 
 /* Each pass does its work, then reads the flag and counts down.  Work on
  * p (and q) wraps within REGION, which both buffers are aligned to twice. */
@@ -144,16 +146,28 @@ static unsigned char unpack_code[] __attribute__((section(".fastcode.unpack"),
 typedef uint16_t unpack_fn(const uint32_t *words, uint32_t *out, unsigned n,
 			   uint32_t carry, unsigned lead, const uint16_t *tables);
 
-static inline unsigned long __attribute__((always_inline))
+/* With the input, the output or both in A0 RAM instead of the SDRAM
+ * streams, the same code separates what each access class costs in this
+ * loop: the A0 buffers stay put, the SDRAM ones advance as before.  Set
+ * before each case, read once a run. */
+static uint32_t a0_in[130] __attribute__((section(".fastbss")));
+static uint32_t a0_out[128] __attribute__((section(".fastbss")));
+static unsigned unpack_lead;
+static int unpack_in_a0, unpack_out_a0;
+
+static unsigned long __attribute__((noinline, section(".fastcode")))
 unpack(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
-       uint32_t *p, uint32_t *q, unsigned lead)
+       uint32_t *p, uint32_t *q)
 {
 	unpack_fn *fn = (unpack_fn *)(unsigned long)unpack_code;
 	unsigned long left = limit, wrap = ~REGION;
+	unsigned lead = unpack_lead;
+	uint32_t *in = unpack_in_a0 ? a0_in : 0, *out = unpack_out_a0 ? a0_out : 0;
 	uint16_t c = 0;
 
 	for (; left; left--) {
-		c ^= fn(p, q, 128, 0x1234, lead, crc_tables);
+		c ^= fn(in ? in : p, out ? out : q, 128, 0x1234, lead,
+			crc_tables);
 		p = (uint32_t *)((unsigned long)(p + 130) & wrap);
 		q = (uint32_t *)((unsigned long)(q + 128) & wrap);
 		if (*flag & mask)
@@ -163,18 +177,13 @@ unpack(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
 	return limit - left;
 }
 
-static unsigned long __attribute__((noinline, section(".fastcode")))
-unpack0(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
-	uint32_t *p, uint32_t *q)
+static void unpack_case(const char *name, unsigned width, unsigned lead,
+			int in_a0, int out_a0)
 {
-	return unpack(flag, mask, limit, p, q, 0);
-}
-
-static unsigned long __attribute__((noinline, section(".fastcode")))
-unpack2(volatile uint8_t *flag, unsigned long mask, unsigned long limit,
-	uint32_t *p, uint32_t *q)
-{
-	return unpack(flag, mask, limit, p, q, 2);
+	unpack_lead = lead;
+	unpack_in_a0 = in_a0;
+	unpack_out_a0 = out_a0;
+	run_case(width, 0, 0, name, unpack);
 }
 
 static unsigned long __attribute__((noinline, section(".fastcode")))
@@ -416,9 +425,6 @@ static unsigned long median(const unsigned long v[3])
 	return v[2] < lo ? lo : v[2] > hi ? hi : v[2];
 }
 
-static void run_case(unsigned width, int idma, int ivram, const char *name,
-		     loop_fn *fn);
-
 /* The Linux kernel runs its hot code from IVRAM switched into area 0 (the
  * LCD controller's IRAM bit, I.6.2), with data such as the CRC tables in
  * A0 RAM.  The same loops, copied from A0 RAM into the IVRAM window and
@@ -567,9 +573,17 @@ int grifo_main(int argc, char **argv)
 	ivram_cases();
 	solo_passes = SOLO_BLOCKS;
 	for (unsigned w = 0; w < 3; w += 2) {
-		run_case(widths[w], 0, 0, "unpack0", unpack0);
-		run_case(widths[w], 0, 0, "unpack2", unpack2);
+		unpack_case("unpack0", widths[w], 0, 0, 0);
+		unpack_case("unpack2", widths[w], 2, 0, 0);
 	}
+	for (unsigned i = 0; i < 130; i++)
+		a0_in[i] = i * 0x9e3779b9UL;
+	unpack_case("unpack0-a0in", 32, 0, 1, 0);
+	unpack_case("unpack0-a0out", 32, 0, 0, 1);
+	unpack_case("unpack0-a0", 32, 0, 1, 1);
+	unpack_case("unpack2-a0in", 32, 2, 1, 0);
+	unpack_case("unpack2-a0out", 32, 2, 0, 1);
+	unpack_case("unpack2-a0", 32, 2, 1, 1);
 	solo_passes = SOLO;
 	/* Receive-paced: each character waits for both engines. */
 	for (unsigned w = 0; w < sizeof(widths) / sizeof(*widths); w++)
