@@ -254,19 +254,119 @@ static bool misaligned(struct c33 *c, uint32_t a, unsigned sz)
 	return true;
 }
 
+static void refresh_regions(struct c33 *c)
+{
+	if (c->region_epoch && *c->region_epoch != c->region_epoch_seen) {
+		c->region_epoch_seen = *c->region_epoch;
+		c->fetch_lo = c->fetch_hi = 0;
+		c->data_lo = c->data_hi = 0;
+	}
+}
+
+static void before_data(struct c33 *c)
+{
+	if (c->bus.before_data) {
+		uint64_t before = c->clk;
+		c->bus.before_data(c->bus.before_data_ctx);
+		c->step_stall += c->clk - before;
+	}
+}
+
+/* Timing callbacks may progress the shared clock while settling events.
+ * Their return value is the whole delay from the original request, so
+ * assigning the response edge avoids charging that progress a second time. */
+static uint64_t complete_wait(struct c33 *c, uint64_t request, uint64_t delay)
+{
+	uint64_t response = request + delay;
+	if (c->clk < response)
+		c->clk = response;
+	return c->clk - request;
+}
+
+static void frontend_sync_core(struct c33 *c)
+{
+	if (c->frontend_step) {
+		c->frontend_core += 4 * (c->clk - c->frontend_seen_clk);
+		c->frontend_seen_clk = c->clk;
+	}
+}
+
+static bool frontend_local_data(struct c33 *c, uint32_t a, unsigned size)
+{
+	if (a < A0RAM_SIZE)
+		return true;
+	if (a - IVRAM_A0_BASE < IVRAM_SIZE && c->bus.region) {
+		uint32_t base, len;
+		uint8_t *p = c->bus.region(c->bus.ctx, a, &base, &len);
+		return p && a >= base && len >= size && a - base <= len - size;
+	}
+	return false;
+}
+
+static void data_wait(struct c33 *c, enum mem_access access, uint32_t a, unsigned size)
+{
+	before_data(c);
+	bool local = false;
+	uint64_t started = 0;
+	if (c->frontend_step) {
+		frontend_sync_core(c);
+		local = frontend_local_data(c, a, size);
+		unsigned service = !local ? 4 : access == MEM_CPU_WRITE ? 4 : size >= 4 ? 8 : 6;
+		uint64_t requested = c->frontend_issue + c->frontend_core;
+		if (requested < c->frontend_data_end)
+			requested = c->frontend_data_end;
+		started = frontend_data(&c->frontend, requested, service, local);
+		c->frontend_extra += started - requested + service - 4;
+		c->frontend_data_end = started + service;
+		uint64_t at = (started + 3) / 4;
+		if (c->clk < at) {
+			c->clk = at;
+			/* This movement is scheduled port time, not another core
+			 * wait to add at retirement. */
+			c->frontend_seen_clk = c->clk;
+			before_data(c);
+		}
+	}
+	bool previous = wremu_local_data_scheduled;
+	wremu_local_data_scheduled = local;
+	uint64_t request_clk = c->clk;
+	uint64_t delay = c->bus.wait ? c->bus.wait(c->bus.ctx, access, a, size, request_clk) : 0;
+	wremu_local_data_scheduled = previous;
+	uint64_t wait = complete_wait(c, request_clk, delay);
+	c->step_stall += wait;
+	if (wait)
+		before_data(c);
+	if (c->frontend_step) {
+		frontend_sync_core(c);
+		if (!local && c->frontend_data_end < started + 4 + 4 * wait)
+			c->frontend_data_end = started + 4 + 4 * wait;
+		frontend_advance(&c->frontend, c->frontend_data_end);
+	}
+}
+
+static bool frontend_code_overlap(const struct c33 *c, uint32_t a, unsigned size)
+{
+	const struct frontend *f = &c->frontend;
+	uint64_t last = (uint64_t)a + size - 1;
+	for (unsigned group = 0; group < 3; group++) {
+		const struct frontend_word *words = group == 0 ? f->raw : group == 1 ? f->semantic : f->decoding_words;
+		unsigned count = group == 0 ? f->raw_count : group == 1 ? f->semantic_count : f->decoding ? f->decoding_count : 0;
+		for (unsigned i = 0; i < count; i++)
+			if (a <= (uint64_t)words[i].pc + 1 && words[i].pc <= last)
+				return true;
+	}
+	return false;
+}
+
 static uint32_t rd(struct c33 *c, uint32_t a, unsigned sz)
 {
 	c->touches++;
 	if (misaligned(c, a, sz))
 		return 0;
-	if (c->bus.wait) {
-		uint64_t w = c->bus.wait(c->bus.ctx, MEM_CPU_READ, a, sz, c->clk);
-
-		c->clk += w;
-		c->step_stall += w;
-	}
+	data_wait(c, MEM_CPU_READ, a, sz);
 
 	/* Same region cache as the fetch path; see c33_step. */
+	refresh_regions(c);
 	if (a >= c->data_lo && a < c->data_hi && c->data_hi - a >= sz) {
 		uint32_t v = 0;
 		memcpy(&v, c->data_ptr + (a - c->data_lo), sz);
@@ -292,13 +392,10 @@ static void wr(struct c33 *c, uint32_t a, unsigned sz, uint32_t v)
 	c->touches++;
 	if (misaligned(c, a, sz))
 		return;
-	if (c->bus.wait) {
-		uint64_t w = c->bus.wait(c->bus.ctx, MEM_CPU_WRITE, a, sz, c->clk);
-
-		c->clk += w;
-		c->step_stall += w;
-	}
+	data_wait(c, MEM_CPU_WRITE, a, sz);
 	c->bus.write(c->bus.ctx, a, sz, v);
+	if (c->frontend_step && frontend_code_overlap(c, a, sz))
+		c->frontend_code_dirty = true;
 }
 
 /* ---- flags ----------------------------------------------------------- */
@@ -435,6 +532,117 @@ static bool pe_encoding_valid(uint16_t insn)
 	return (c33_pe_valid[insn >> 3] & (1u << (insn & 7))) != 0;
 }
 
+static enum frontend_kind frontend_kind_of(uint16_t insn)
+{
+	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
+	unsigned op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
+	if (op == OP_EXT)
+		return FRONT_EXT;
+	if (op == OP_LD_W || op == OP_LD_B || op == OP_LD_UB || op == OP_LD_H || op == OP_LD_UH) {
+		switch (f->shape_id) {
+		case SHAPE_LRB_R: case SHAPE_LRBP_R: case SHAPE_LSPPIB_R: case SHAPE_LDPPIB_R:
+			return FRONT_STORE;
+		case SHAPE_R_LRB: case SHAPE_R_LRBP: case SHAPE_R_LSPPIB: case SHAPE_R_LDPPIB:
+			return op == OP_LD_W ? FRONT_WORD : FRONT_HALF;
+		case SHAPE_R_R: return FRONT_ALU;
+		case SHAPE_R_I: return FRONT_IMM;
+		default: return FRONT_OTHER;
+		}
+	}
+	switch (op) {
+	case OP_NOP: case OP_ADD: case OP_SUB: case OP_ADC: case OP_SBC:
+	case OP_AND: case OP_OR: case OP_XOR: case OP_CMP:
+	case OP_SRL: case OP_SLL: case OP_SRA: case OP_SLA: case OP_RL: case OP_RR:
+		return FRONT_ALU;
+	default:
+		return FRONT_OTHER;
+	}
+}
+
+static bool frontend_peek_word(void *ctx, uint32_t at, uint16_t *bits, enum frontend_kind *kind)
+{
+	struct c33 *c = ctx;
+	if (at >= IVRAM_A0_BASE + IVRAM_SIZE || !c->bus.region)
+		return false;
+	uint32_t base, len;
+	uint8_t *p = c->bus.region(c->bus.ctx, at, &base, &len);
+	if (!p || len < 2 || at < base || at - base > len - 2)
+		return false;
+	memcpy(bits, p + at - base, 2);
+	*kind = frontend_kind_of(*bits);
+	return true;
+}
+
+static bool frontend_start(struct c33 *c, uint32_t at, uint16_t *insn)
+{
+	c->frontend_step = false;
+	/* CPU states can be copied by value by embedders/tests. The callback
+	 * belongs to this instance, not the address where the state began. */
+	if (c->frontend_valid)
+		c->frontend.ctx = c;
+	unsigned configured_wait = at < A0RAM_SIZE ? model.iram_fetch_wait : model.ivram_a0_fetch_wait;
+	if (!model.local_frontend || configured_wait || at >= IVRAM_A0_BASE + IVRAM_SIZE || !c->bus.region) {
+		c->frontend_valid = false;
+		return false;
+	}
+	unsigned epoch = c->region_epoch ? *c->region_epoch : 0;
+	if (!c->frontend_valid) {
+		struct frontend_config config = {model.local_frontend_depth, 2, 2, true, true};
+		if (!frontend_reset(&c->frontend, &config, frontend_peek_word, c, at, c->clk * 4))
+			return false;
+		c->frontend.prefixes = c->n_ext;
+	} else if (c->frontend_next_pc != at || c->frontend_epoch != epoch) {
+		frontend_flush(&c->frontend, at, c->clk * 4);
+		c->frontend.prefixes = c->n_ext;
+	}
+	c->frontend_valid = true;
+	c->frontend_epoch = epoch;
+	struct frontend_word word;
+	for (unsigned retry = 0; retry < 2; retry++) {
+		if (!frontend_next(&c->frontend, c->clk * 4, &word))
+			break;
+		uint16_t live;
+		enum frontend_kind kind;
+		if (!frontend_peek_word(c, at, &live, &kind))
+			break;
+		if (word.pc == at && word.bits == live &&
+		    (word.kind == FRONT_EXT || word.prefixes == c->n_ext)) {
+			*insn = word.bits;
+			c->clk = (c->frontend.now + 3) / 4;
+			c->frontend_issue = c->frontend.now;
+			c->frontend_core = c->frontend_extra = 0;
+			c->frontend_data_end = c->frontend.now;
+			c->frontend_seen_clk = c->clk;
+			c->frontend_step = true;
+			c->frontend_code_dirty = false;
+			return true;
+		}
+		/* Preserve the existing coherent instruction-memory behavior even
+		 * when code was patched through a host/direct-memory path. */
+		c->clk = (c->frontend.now + 3) / 4;
+		frontend_flush(&c->frontend, at, c->clk * 4);
+		c->frontend.prefixes = c->n_ext;
+	}
+	c->frontend_valid = false;
+	return false;
+}
+
+static void frontend_finish(struct c33 *c, unsigned core_cost, bool redirect)
+{
+	frontend_sync_core(c);
+	uint64_t end = c->frontend_issue + c->frontend_core + c->frontend_extra + 4 * core_cost;
+	if (end < c->frontend_data_end)
+		end = c->frontend_data_end;
+	frontend_complete(&c->frontend, end, redirect, c->pc);
+	c->clk = (end + 3) / 4;
+	c->frontend_next_pc = c->pc;
+	if (c->frontend_code_dirty) {
+		frontend_flush(&c->frontend, c->pc, c->clk * 4);
+		c->frontend.prefixes = c->n_ext;
+	}
+	c->frontend_step = false;
+}
+
 /*
  * Cycle costs, from the CLK line of each entry in the C33 PE Core manual.
  *
@@ -442,12 +650,23 @@ static bool pe_encoding_valid(uint16_t insn)
  * queue status"; one is charged here as the upper bound, so elapsed time
  * errs slightly long rather than short.
  */
+static bool extended_address_phase(uint8_t op, const struct c33_form *f,
+				   bool had_ext)
+{
+	if (!had_ext)
+		return false;
+	if (op == OP_BSET || op == OP_BCLR || op == OP_BNOT || op == OP_BTST)
+		return true;
+	return (op == OP_LD_W || op == OP_LD_B || op == OP_LD_UB ||
+		op == OP_LD_H || op == OP_LD_UH) &&
+	       (f->shape_id == SHAPE_R_LRB || f->shape_id == SHAPE_LRB_R ||
+		f->shape_id == SHAPE_R_LDPPIB || f->shape_id == SHAPE_LDPPIB_R);
+}
+
 static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
-			   uint16_t insn, bool conditional_taken, bool had_ext,
+			   uint16_t insn, bool conditional_taken,
 			   uint32_t next_pc)
 {
-	unsigned n;
-
 	switch (op) {
 	case OP_INT:                            return 7;
 	/* Seven, as the table says. It was briefly eight, fitted against a
@@ -467,8 +686,8 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 		if (f->sreg == 1 && (insn & 0xfu) == SR_PSR)
 			return 3;
 		break;
-	case OP_BSET: case OP_BCLR: case OP_BNOT: return had_ext ? 4 : 3;
-	case OP_BTST:                           return had_ext ? 3 : 2;
+	case OP_BSET: case OP_BCLR: case OP_BNOT: return 3;
+	case OP_BTST:                           return 2;
 	/* A call and a return each throw the instruction queue away, the way
 	   a taken branch does, and the queue model does not see it: the
 	   return lands on an address the queue still holds. Eight call and
@@ -508,11 +727,9 @@ static unsigned cycle_cost(uint8_t op, const struct c33_form *f,
 		break;
 	}
 
-	n = 1;
-	if (had_ext && (op == OP_LD_W || op == OP_LD_B || op == OP_LD_UB ||
-			op == OP_LD_H || op == OP_LD_UH))
-		n = 2;
-	return n;
+	/* Extended-address calculation has already run before the data bus
+	 * access. Immediate/register forms have no such address phase. */
+	return 1;
 }
 
 /* ---- shape classification -------------------------------------------- */
@@ -639,6 +856,8 @@ static void take_irq(struct c33 *c)
  */
 static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 {
+	if (c->frontend_step && c->clk * 4 < c->frontend.now)
+		c->clk = (c->frontend.now + 3) / 4;
 	uint32_t target = c->bus.read(c->bus.ctx,
 				      c->sr[SR_TTBR] + vector * 4, 4);
 
@@ -649,6 +868,12 @@ static void take_exception(struct c33 *c, unsigned vector, uint32_t return_pc)
 	c->sr[SR_PSR] &= ~PSR_IE;
 	c->pc = pc_value(target);
 	c->delay_pending = false;
+	c->frontend_step = false;
+	if (c->frontend_valid) {
+		frontend_flush(&c->frontend, c->pc, c->clk * 4);
+		c->frontend_next_pc = c->pc;
+		c->frontend.prefixes = 0;
+	}
 }
 
 static void take_nmi(struct c33 *c)
@@ -835,74 +1060,91 @@ void c33_step(struct c33 *c)
 	c->fetch_seq = at + 2;
 	uint64_t clk0 = c->clk;
 	uint64_t rows0 = c->row_counter ? *c->row_counter : 0;
+	uint64_t before_fetch = c->clk;
+	uint64_t fetch_delay = 0;
 	if (c->bus.fetch_wait)
-		c->clk += c->bus.fetch_wait(c->bus.fetch_wait_ctx, at, c->clk);
+		fetch_delay = c->bus.fetch_wait(c->bus.fetch_wait_ctx, at, before_fetch);
 	else if (c->bus.wait)
-		c->clk += c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, c->clk);
-	if (at < 0x10000000u && (!model.iram_word_fetch || !(at & 2)))
-		/* A0 RAM and the other internal memories are not the same
-		   thing: fetching from A0 measured exactly one cycle, and
-		   from IVRAM about two.
-		   
-		   Under iram_word_fetch the charge falls on the fetch that
-		   starts a 32-bit word and not on the halfword after it, the
-		   internal bus being 32 bits wide. The device says so by the
-		   slope: its loops out of internal RAM cost about 0.9 cycles
-		   a code byte whatever the instructions are, where a charge
-		   per instruction makes a loop of two-byte ones cost twice as
-		   much a byte as a loop of four-byte ones. */
-		c->clk += at < A0RAM_SIZE ? model.iram_fetch_wait
-			: at < IVRAM_BASE ? model.ivram_a0_fetch_wait
-			: model.ivram_fetch_wait;
-	/* Internal RAM has no queue to serve the fetch out of, so the bubble
-	   is simply added here; in SDRAM it is a floor on the queue's wait
-	   and sdramc applies it.  Cleared either way, so that a jump into a
-	   region charging nothing cannot leave it set for the fetch after. */
-	if (wremu_fetch_restart && at < 0x10000000u)
-		c->clk += model.branch_bubble;
-	wremu_fetch_restart = false;
-	uint64_t clk_fetched = c->clk;
-
-	/*
-	 * Fetch fast path.
-	 *
-	 * The generic path is an indirect call into mem_read followed by a
-	 * search of the memory map, for every instruction. Caching the region
-	 * the PC currently sits in turns the common case into a bounds check
-	 * and a load. The cache holds a pointer into the same buffer rather
-	 * than a copy, so writes through the bus stay visible.
-	 */
+		fetch_delay = c->bus.wait(c->bus.ctx, MEM_CPU_FETCH, at, 2, before_fetch);
+	complete_wait(c, before_fetch, fetch_delay);
 	uint16_t insn;
-	if (c->region_epoch && *c->region_epoch != c->region_epoch_seen) {
-		c->region_epoch_seen = *c->region_epoch;
-		c->fetch_lo = c->fetch_hi = 0;
-		c->data_lo = c->data_hi = 0;
+	bool explicit_fetch = false;
+	if (c->clk == before_fetch)
+		explicit_fetch = frontend_start(c, at, &insn);
+	else {
+		c->frontend_valid = false;
+		c->frontend_step = false;
 	}
-	/*
-	 * Written to avoid wrapping: "at + 2 <= fetch_hi" would be true for
-	 * an address near 0xffffffff, letting a wild PC index far outside the
-	 * region. A stray jump is exactly when this path must not misbehave.
-	 */
-	if (at >= c->fetch_lo && at < c->fetch_hi && c->fetch_hi - at >= 2) {
-		memcpy(&insn, c->fetch_ptr + (at - c->fetch_lo), 2);
-	} else if (c->bus.region) {
-		uint32_t base, len;
-		uint8_t *p = c->bus.region(c->bus.ctx, at, &base, &len);
-		if (p && at >= base && at - base <= len - 2) {
-			c->fetch_ptr = p;
-			c->fetch_lo  = base;
-			c->fetch_hi  = base + len;
-			memcpy(&insn, p + (at - base), 2);
+	if (!explicit_fetch) {
+		if (at < 0x10000000u && (!model.iram_word_fetch || !(at & 2)))
+			/* A0 RAM and the other internal memories are not the same
+			   thing: fetching from A0 measured exactly one cycle, and
+			   from IVRAM about two.
+
+			   Under iram_word_fetch the charge falls on the fetch that
+			   starts a 32-bit word and not on the halfword after it, the
+			   internal bus being 32 bits wide. The device says so by the
+			   slope: its loops out of internal RAM cost about 0.9 cycles
+			   a code byte whatever the instructions are, where a charge
+			   per instruction makes a loop of two-byte ones cost twice as
+			   much a byte as a loop of four-byte ones. */
+			c->clk += at < A0RAM_SIZE ? model.iram_fetch_wait
+				: at < IVRAM_BASE ? model.ivram_a0_fetch_wait
+				: model.ivram_fetch_wait;
+		/* Internal RAM has no queue to serve the fetch out of, so the bubble
+		   is simply added here; in SDRAM it is a floor on the queue's wait
+		   and sdramc applies it.  Cleared either way, so that a jump into a
+		   region charging nothing cannot leave it set for the fetch after. */
+		if (wremu_fetch_restart && at < 0x10000000u)
+			c->clk += model.branch_bubble;
+		wremu_fetch_restart = false;
+		/* Decode samples instruction memory at the fetch response, not
+		 * at the preceding main-loop poll. A DMA completion during any
+		 * fetch latency must land before reading those bytes. This is
+		 * event settlement, without another data access or bus charge. */
+		if (c->clk != before_fetch)
+			before_data(c);
+
+		/*
+		 * Fetch fast path.
+		 *
+		 * The generic path is an indirect call into mem_read followed by a
+		 * search of the memory map, for every instruction. Caching the region
+		 * the PC currently sits in turns the common case into a bounds check
+		 * and a load. The cache holds a pointer into the same buffer rather
+		 * than a copy, so writes through the bus stay visible.
+		 */
+		refresh_regions(c);
+		/*
+		 * Written to avoid wrapping: "at + 2 <= fetch_hi" would be true for
+		 * an address near 0xffffffff, letting a wild PC index far outside the
+		 * region. A stray jump is exactly when this path must not misbehave.
+		 */
+		if (at >= c->fetch_lo && at < c->fetch_hi && c->fetch_hi - at >= 2) {
+			memcpy(&insn, c->fetch_ptr + (at - c->fetch_lo), 2);
+		} else if (c->bus.region) {
+			uint32_t base, len;
+			uint8_t *p = c->bus.region(c->bus.ctx, at, &base, &len);
+			if (p && at >= base && at - base <= len - 2) {
+				c->fetch_ptr = p;
+				c->fetch_lo  = base;
+				c->fetch_hi  = base + len;
+				memcpy(&insn, p + (at - base), 2);
+			} else {
+				/* Fetch timing was charged above. This remains an
+				 * instruction fetch, without another CPU data access. */
+				insn = (uint16_t)c->bus.read(c->bus.ctx, at, 2);
+				if (c->access_fault)
+					return;
+			}
 		} else {
-			insn = (uint16_t)rd(c, at, 2);
+			insn = (uint16_t)c->bus.read(c->bus.ctx, at, 2);
 			if (c->access_fault)
 				return;
 		}
-	} else {
-		insn = (uint16_t)rd(c, at, 2);
-		if (c->access_fault)
-			return;
 	}
+	wremu_fetch_restart = false;
+	uint64_t clk_fetched = c->clk;
 	c->last_insn = insn;
 	const struct c33_form *f = &c33_forms[c33_form_of[insn]];
 	uint8_t op = pe_encoding_valid(insn) ? f->op : OP_INVALID;
@@ -930,6 +1172,12 @@ void c33_step(struct c33 *c)
 
 	bool was_delayed = c->delay_pending;
 	uint32_t delay_to = c->delay_target;
+	/* Manual 6.2.2 note 4 adds an execution cycle for the extended memory
+	 * address. Pay it before rd/wr: an event becoming due while forming
+	 * that address precedes the load/store, rather than being postponed
+	 * until the instruction retires. Prefix fetch/decode remains separate. */
+	if (extended_address_phase(op, f, had_ext))
+		c->clk++;
 
 	switch (op) {
 	case OP_INVALID:
@@ -980,7 +1228,10 @@ void c33_step(struct c33 *c)
 		   included, the fetch keeps ahead and a prefix costs the
 		   device nothing (spibench i-extand); from slower memory
 		   it costs its cycle. */
-		c->clk += c->fetch_ahead > 0 ? model.ext_local : 1;
+		if (!c->frontend_step)
+			c->clk += c->fetch_ahead > 0 ? model.ext_local : 1;
+		c->frontend_next_pc = c->pc;
+		c->frontend_step = false;
 		if (c->pc_profile) {
 			c->pcclk[bucket] += c->clk - clk0;
 			if (c->row_counter)
@@ -1628,12 +1879,9 @@ void c33_step(struct c33 *c)
 	 * prefixes into the following instruction.
 	 */
 	/* Charge MCLK cycles; a taken conditional branch costs one more. */
-	c->clk += cycle_cost(op, f, insn, conditional_taken, had_ext, c->pc);
-	if (c->pc_profile) {
-		c->pcclk[bucket] += c->clk - clk0;
-		if (c->row_counter)
-			c->pcrows[bucket] += *c->row_counter - rows0;
-	}
+	unsigned execution_cost = cycle_cost(op, f, insn, conditional_taken, c->pc);
+	if (!c->frontend_step)
+		c->clk += execution_cost;
 
 	if (c->n_ext) {
 		/*
@@ -1650,6 +1898,19 @@ void c33_step(struct c33 *c)
 	if (was_delayed && c->delay_pending && !c->halted) {
 		c->delay_pending = false;
 		c->pc = delay_to;
+	}
+	if (c->frontend_step) {
+		if (conditional_taken && !is_delayed(op))
+			execution_cost = 3;
+		bool redirect = c->pc != at + 2 || wremu_fetch_restart ||
+			(conditional_taken && !is_delayed(op)) || was_delayed ||
+			op == OP_CALL || op == OP_RET || op == OP_RETI || op == OP_RETD;
+		frontend_finish(c, execution_cost, redirect);
+	}
+	if (c->pc_profile) {
+		c->pcclk[bucket] += c->clk - clk0;
+		if (c->row_counter)
+			c->pcrows[bucket] += *c->row_counter - rows0;
 	}
 }
 

@@ -118,9 +118,17 @@ static void dma_write(struct dma *d, uint32_t addr, unsigned size,
 }
 
 static bool valid_dual_address(const struct dma *d, uint32_t addr, unsigned size);
+static void service_spi(struct dma *d);
+
+static bool async_idma_queued(const struct dma *d)
+{
+    for (unsigned i = 0; i < d->qn; i++)
+        if (d->q[i].idma) return true;
+    return false;
+}
 static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 		      bool deferred, uint32_t *out_value, uint32_t *out_dst,
-		      unsigned *out_size);
+		      unsigned *out_size, uint64_t *out_read_done);
 
 /* A DMA bus phase ending at @t holds the internal bus dma_bus_hold. */
 static void bus_hold(struct dma *d, uint64_t t)
@@ -183,14 +191,18 @@ static bool hs_transfer(struct dma *d, unsigned ch, bool spi)
 			return false;
 		t += mem_wait(d->mem, MEM_DMA_READ, src, size, t) + 1;
 		bus_hold(d, t);
+		d->phase_busy_until = t;
 		struct async_xfer *x = &d->q[d->qn++];
-		x->value = mem_read(d->mem, src, size);
-		t += 1;	/* the write's own bus phase is when it lands */
-		d->engine_free = t;
-		x->due = x->asked = t + model.dma_extra;
+        x->src = src;
+        x->read_pending = true;
+        x->due = t; /* sample RAM/MMIO only at the source response */
+        x->write_due = x->asked = t + 1 + model.dma_extra;
+        d->engine_free = t + 1;
 		x->dst = dst;
 		x->size = size;
 		x->ch = ch;
+		x->write_started = false;
+		x->idma = false;
 		d->bus_cycles += 2;
 		d->hsdma_transfers++;
 		d->hsdma_channel_transfers[ch]++;
@@ -291,38 +303,34 @@ static bool valid_dual_address(const struct dma *d, uint32_t addr, unsigned size
  */
 static bool idma_transfer(struct dma *d, unsigned channel, bool *terminal)
 {
-	uint32_t dst, value;
-	unsigned size;
-	bool async = model.dma_async && d->clock && d->qn < ASYNC_DEPTH;
-	uint64_t *cpu_clock = d->clock, t = 0, start = 0;
-
-	if (async) {
-		start = t = *cpu_clock > d->engine_free ? *cpu_clock
-							: d->engine_free;
-		d->clock = &t;
-	}
-	bool done = idma_unit(d, channel, terminal, async, &value, &dst, &size);
-	d->clock = cpu_clock;
-	if (!done || !async)
-		return done;
-
-	struct async_xfer *x = &d->q[d->qn++];
-	x->due = x->asked = start + model.idma_extra;
-	x->dst = dst;
-	x->value = value;
-	x->size = size;
-	x->ch = 0;
-	x->done = false;
-	d->engine_free = t;
-	bus_hold(d, t);
-	return true;
+    uint32_t value, dst;
+    unsigned size;
+    uint64_t read_done;
+    *terminal = false;
+    if (!model.dma_async || !d->clock)
+        return idma_unit(d, channel, terminal, false, &value, &dst, &size, &read_done);
+    if (!(d->reg[IDMA_ENABLE] & 1) || !cmu_dma_enabled(d->cmu) || d->qn >= ASYNC_DEPTH)
+        return false;
+    uint32_t desc = get32(d, IDMA_BASE_LO) + channel * 16u;
+    if (!valid_descriptor(desc)) {
+        d->invalid_descriptors++;
+        return false;
+    }
+    struct async_xfer *x = &d->q[d->qn++];
+    memset(x, 0, sizeof *x);
+    x->idma = true;
+    x->idma_desc = desc;
+    x->idma_start = *d->clock > d->engine_free ? *d->clock : d->engine_free;
+    x->due = x->asked = x->idma_start;
+    dma_poll(d);
+    return true;
 }
 
 /* One IDMA unit; with @deferred its destination write is left to the
    caller, which gets the value, where it goes and its size. */
 static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 		      bool deferred, uint32_t *out_value, uint32_t *out_dst,
-		      unsigned *out_size)
+		      unsigned *out_size, uint64_t *out_read_done)
 {
 	uint32_t base, desc, ctl, count, src, dst, value;
 	unsigned size, smode, dmode, transfer_mode;
@@ -356,6 +364,7 @@ static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 	if (transfer_mode != 0)
 		return false;
 	value = dma_read(d, src, size);
+	*out_read_done = d->clock ? *d->clock : 0;
 	*out_value = value;
 	*out_dst = dst;
 	*out_size = size;
@@ -378,6 +387,95 @@ static bool idma_unit(struct dma *d, unsigned channel, bool *terminal,
 		d->bus_available = *d->clock;
 	*terminal = count == 0;
 	return true;
+}
+
+
+/* II.2.4.1: B1..B4 descriptor reads, C source read, D payload write,
+ * F1..F4 descriptor writes. Reserve a phase first, sample/commit only at
+ * its response. This routine executes at *d->clock, never on a private
+ * future clock. A single unlimited-ownership IDMA unit retains the engine. */
+static void async_idma_phase(struct dma *d, unsigned index, uint64_t at)
+{
+    struct async_xfer *x = &d->q[index];
+    unsigned phase = x->idma_phase;
+    uint32_t addr = phase < 4 ? x->idma_desc + 4 * phase :
+                    phase == 4 ? x->idma_words[2] : phase == 5 ? x->dst :
+                    x->idma_desc + 4 * (phase - 6);
+    unsigned size = phase < 4 || phase >= 6 ? 4 : x->size;
+    bool writing = phase >= 5;
+    if (!x->write_started) {
+        if (at < d->phase_busy_until) {
+            x->due = d->phase_busy_until;
+            return;
+        }
+        if (!phase) x->idma_start = at;
+        uint64_t wait = mem_wait(d->mem, writing ? MEM_DMA_WRITE : MEM_DMA_READ,
+                                 addr, size, at);
+        x->due = at + wait + 1;
+        x->write_started = true;
+        d->engine_free = x->due;
+        d->phase_busy_until = x->due;
+        bus_hold(d, x->due);
+        d->bus_cycles++;
+        return;
+    }
+    bool valid = true;
+    if (phase < 4) {
+        x->idma_words[phase] = mem_read(d->mem, addr, 4);
+        if (phase == 3) {
+            uint32_t ctl = x->idma_words[0];
+            x->size = transfer_size((ctl >> 16) & 3);
+            valid = ((ctl >> 16) & 3) != 3 && ((ctl >> 4) & 3) == 0 &&
+                    valid_dual_address(d, x->idma_words[2], x->size) &&
+                    valid_dual_address(d, x->idma_words[3], x->size);
+            x->dst = x->idma_words[3];
+        }
+    } else if (phase == 4) {
+        x->value = mem_read(d->mem, addr, size);
+        uint32_t ctl = x->idma_words[0];
+        x->idma_words[1]--;
+        x->idma_words[2] = advance(x->idma_words[2], (ctl >> 12) & 7, size);
+        x->idma_words[3] = advance(x->idma_words[3], (ctl >> 8) & 7, size);
+    } else {
+        uint32_t value = phase == 5 ? x->value : x->idma_words[phase - 6];
+        mem_write(d->mem, addr, size, value);
+        if (phase == 5) d->idma_transfers++;
+    }
+    if (valid && phase < 9) {
+        x->idma_phase++;
+        x->write_started = false;
+        x->due = x->asked = at;
+        if (phase == 4 && model.idma_extra &&
+            x->due < x->idma_start + model.idma_extra - 1)
+            x->due = x->asked = x->idma_start + model.idma_extra - 1;
+        /* The engine is waiting for its next request time. No new AHB
+         * phase has been reserved yet, so do not publish bus occupancy
+         * for this idle interval. */
+        d->engine_free = x->due;
+        return;
+    }
+    bool hardware = x->idma_hardware;
+    uint32_t count = x->idma_words[1], ctl = x->idma_words[0];
+    bool new_receive = x->idma_generation != d->spi_rx_generation;
+    if (d->qn == ASYNC_DEPTH) d->room_at = at;
+    memmove(d->q + index, d->q + index + 1, (d->qn - index - 1) * sizeof *d->q);
+    d->qn--;
+    d->engine_free = at;
+    for (unsigned i = 0; i < d->qn; i++) {
+        if (d->q[i].idma) {
+            if (d->q[i].due < at) d->q[i].due = d->q[i].asked = at;
+            break;
+        }
+    }
+    if (valid && hardware) {
+        if (!count && (ctl & 1))
+            d->itc->reg[ITC_IDMAREQ_SPI] &= (uint8_t)~0x10u;
+        else {
+            if (!new_receive) d->itc->reg[ITC_FSPI] &= (uint8_t)~0x10u;
+            if (!count) d->itc->reg[ITC_IDMAEN_SPI] &= (uint8_t)~0x10u;
+        }
+    }
+    if (valid) service_spi(d);
 }
 
 /*
@@ -422,7 +520,7 @@ static uint64_t async_start(const struct dma *d)
 {
 	uint64_t start = UINT64_MAX;
 
-	if (d->qn >= ASYNC_DEPTH)
+	if (d->qn >= ASYNC_DEPTH || async_idma_queued(d))
 		return start;
 	for (unsigned ch = 2; ch <= 3; ch++)
 		if (async_spi_request(d, ch) && d->trig_at[ch] < start)
@@ -439,6 +537,7 @@ static uint64_t async_start(const struct dma *d)
 /* Start what is requested while the engine is free, at *d->clock. */
 static void async_service(struct dma *d)
 {
+	if (async_idma_queued(d)) return;
 	while (*d->clock >= d->engine_free && d->qn < ASYNC_DEPTH) {
 		unsigned ch = async_spi_channel(d, 2) ? 2 :
 			      async_spi_channel(d, 3) ? 3 : 0;
@@ -462,29 +561,81 @@ void dma_poll(struct dma *d)
 	d->polling = true;
 	for (;;) {
 		uint64_t now = *d->clock, at, start = async_start(d);
-		bool can_land = d->qn && d->q[0].due <= now;
+        unsigned index = ASYNC_DEPTH;
+        bool idma_seen = false;
+        for (unsigned i = 0; i < d->qn; i++) {
+            if (d->q[i].idma) {
+                if (idma_seen) continue;
+                idma_seen = true;
+            }
+            if (index == ASYNC_DEPTH || d->q[i].due < d->q[index].due) index = i;
+        }
+        bool can_land = index < ASYNC_DEPTH && d->q[index].due <= now;
 		bool can_start = start <= now;
 		bool commit;
 
-		/* Whichever was due first. */
-		if (!can_land && !can_start)
-			break;
-		commit = can_land && (!can_start || d->q[0].due <= start);
-		at = commit ? d->q[0].due : start;
+        commit = can_land && (!can_start || d->q[index].due <= start);
+        at = commit ? d->q[index].due : start;
+        uint64_t spi_at;
+        if (d->sd && sd_next_event(d->sd, &spi_at) && spi_at <= now &&
+            ((!can_land && !can_start) || spi_at <= at)) {
+            *d->clock = spi_at;
+            sd_poll(d->sd);
+            if (*d->clock < now) *d->clock = now;
+            continue; /* SPI may have changed the pending DMA requests. */
+        }
+        if (!can_land && !can_start) break;
 
 		/* Effects at the time they were due, as sd_poll does. */
 		*d->clock = at;
+		if (commit && d->q[index].idma) {
+            async_idma_phase(d, index, at);
+            if (*d->clock < now) *d->clock = now;
+            continue;
+        }
 		if (commit) {
-			struct async_xfer x = d->q[0];
+			struct async_xfer *pending = &d->q[index];
+            if (pending->read_pending) {
+                pending->value = mem_read(d->mem, pending->src, pending->size);
+                pending->read_pending = false;
+                pending->due = pending->write_due;
+                if (*d->clock < now) *d->clock = now;
+                continue;
+            }
+			if (!pending->write_started) {
+                if (at < d->phase_busy_until) {
+                    pending->due = d->phase_busy_until;
+                    *d->clock = now;
+                    continue;
+                }
+				uint64_t wait = mem_wait(d->mem, MEM_DMA_WRITE,
+					pending->dst, pending->size, at);
+				pending->write_started = true;
+				pending->due += wait;
+                d->phase_busy_until = pending->due;
+				bus_hold(d, pending->due);
+				/* Reserve the destination bus once, but expose no
+				 * RAM/MMIO effect or completion flag until it finishes.
+				 * A late poll may complete it on the next loop pass. */
+				if (wait) {
+					/* A waiting destination AHB phase still owns
+					 * the engine; later triggers must remain pending. */
+					if (d->engine_free < pending->due)
+						d->engine_free = pending->due;
+					*d->clock = now;
+					continue;
+				}
+			}
+			struct async_xfer x = d->q[index];
 
 			if (d->qn == ASYNC_DEPTH)
 				d->room_at = at;
-			memmove(d->q, d->q + 1, --d->qn * sizeof(*d->q));
-			bus_hold(d, at + mem_wait(d->mem, MEM_DMA_WRITE, x.dst,
-						  x.size, at));
+            memmove(d->q + index, d->q + index + 1, (d->qn - index - 1) * sizeof *d->q);
+            d->qn--;
 			mem_write(d->mem, x.dst, x.size, x.value);
 			if (x.done)
 				d->itc->reg[ITC_FHDMA] |= (uint8_t)(1u << x.ch);
+            service_spi(d);
 		} else {
 			async_service(d);
 		}
@@ -496,28 +647,37 @@ void dma_poll(struct dma *d)
 
 static void dma_cpu_access(void *ctx, uint64_t now)
 {
-	struct dma *d = ctx;
-	uint64_t end = now + model.dma_cpu_penalty;
-
-	/* Only an access that began before the write asked holds it up.
-	   Reading the port does not touch SDRAM, and the device never lets
-	   a received word be overrun. */
-	for (unsigned i = 0; i < d->qn; i++)
-		if (now < d->q[i].asked && d->q[i].due < end) {
-			d->async_delay += end - d->q[i].due;
-			d->q[i].due = end;
-		}
+    struct dma *d = ctx;
+    uint64_t end = now + model.dma_cpu_penalty;
+    for (unsigned i = 0; i < d->qn; i++) {
+        struct async_xfer *x = &d->q[i];
+        if (x->idma) continue;
+        uint64_t *due = x->read_pending ? &x->write_due : &x->due;
+        if (now < x->asked && *due < end) {
+            d->async_delay += end - *due;
+            *due = end;
+        }
+    }
 }
 
 static void service_spi_idma(struct dma *d)
 {
-	bool terminal;
+    bool terminal;
+    for (unsigned i = 0; i < d->qn; i++) {
+        if (d->q[i].idma && d->q[i].idma_hardware) return;
+    }
 
 	if (!(d->itc->reg[ITC_FSPI] & 0x10u) ||
 	    !(d->itc->reg[ITC_IDMAREQ_SPI] & 0x10u) ||
 	    !(d->itc->reg[ITC_IDMAEN_SPI] & 0x10u) ||
 	    !idma_transfer(d, 0x24u, &terminal))
 		return;
+
+    if (model.dma_async && d->clock) {
+        d->q[d->qn - 1].idma_hardware = true;
+        d->q[d->qn - 1].idma_generation = d->spi_rx_generation;
+        return;
+    }
 
 	/* Hardware IDMA acknowledges the receive cause after a transfer. */
 	d->itc->reg[ITC_FSPI] &= (uint8_t)~0x10u;
@@ -578,6 +738,7 @@ static void service_spi(struct dma *d)
 static void spi_event(void *ctx, unsigned requests)
 {
 	struct dma *d = ctx;
+    if (requests & SPI_DMA_RX) d->spi_rx_generation++;
 
 	/*
 	 * Physical S1C33E07 testing shows that HALT gates the SPI-to-HSDMA
@@ -662,12 +823,14 @@ static bool dma_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 void dma_reset(struct dma *d)
 {
 	struct mem *m = d->mem;
+    struct sdcard *sd = d->sd;
 	struct itc *itc = d->itc;
 	const struct cmu *cmu = d->cmu;
 	uint64_t *clock = d->clock;
 	const bool *cpu_sleeping = d->cpu_sleeping;
 	memset(d, 0, sizeof *d);
 	d->mem = m;
+    d->sd = sd;
 	d->itc = itc;
 	d->cmu = cmu;
 	d->clock = clock;
@@ -685,11 +848,18 @@ void dma_set_cpu_sleeping(struct dma *d, const bool *sleeping)
 	d->cpu_sleeping = sleeping;
 }
 
+static void before_spi_event(void *ctx)
+{
+    struct dma *d = ctx;
+    if (!d->polling) dma_poll(d);
+}
+
 void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 		const struct cmu *cmu, struct sdcard *sd)
 {
 	memset(d, 0, sizeof *d);
 	d->mem = m;
+    d->sd = sd;
 	d->itc = itc;
 	d->cmu = cmu;
 	dma_reset(d);
@@ -697,6 +867,7 @@ void dma_attach(struct mem *m, struct dma *d, struct itc *itc,
 	itc->hsdma_ctx = d;
 	mem_add_mmio(m, "dma", DMA_BASE, DMA_LEN, dma_mmio, d);
 	sd_set_dma_event(sd, spi_event, d);
+    sd_set_before_event(sd, before_spi_event, d);
 	m->cpu_data_hook = dma_cpu_access;
 	m->cpu_data_ctx = d;
 }

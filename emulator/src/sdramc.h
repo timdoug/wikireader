@@ -30,6 +30,9 @@ struct sdramc {
 
 	/* SDRAM-interface time is kept in half-MCLK ticks (DBF uses one). */
 	uint64_t bus_free;
+	/* End of the last data write, independent of later refresh traffic.
+	 * Read turnaround is measured from that write, not bus_free. */
+	uint64_t last_write_end;
 	uint64_t next_refresh;
 	uint64_t last_sdram_access;
 	/* Where the last instruction fetch went, so the lookahead can tell a
@@ -54,8 +57,16 @@ struct sdramc {
 		bool valid;
 		uint32_t tag;
 		uint64_t ready[8];
+		unsigned issued; /* halfwords in actual word-read reservations */
+		uint64_t order;
 	} iq[2];
 	unsigned iq_next;
+	/* A speculative line request does not evict a slot until its first
+	 * word read starts. Bus occupancy of an issued word survives a flush. */
+	bool iq_prefetch_pending;
+	uint32_t iq_prefetch_tag;
+	uint64_t iq_prefetch_offer, iq_order;
+	uint64_t iq_word_reads, iq_prefetch_cancelled;
 	/* Two entries, because two streams read alternately is the shape half
 	   of memcpy and every one of ubench's two-stream loops has.  How many
 	   of them the model uses is model.dq_entries. */
@@ -71,6 +82,14 @@ struct sdramc {
 	uint64_t array_free;
 
 	struct mem *mem;   /* receives the configured size for address aliasing */
+	/* Optional CPU timeline wiring. Deferred demand reads may progress
+	 * to a word boundary and settle asynchronous devices before issuing
+	 * another word. DMA-side/background calls never recurse through it. */
+	uint64_t *event_clock;
+	void (*events)(void *ctx);
+	void *events_ctx;
+	bool events_active;
+	uint64_t event_polls;
 
 	/* Diagnostics: controller transactions, not host memory copies. */
 	/* When each posted write leaves the controller's buffer. */
@@ -103,6 +122,8 @@ extern bool sdramc_trace_on;
 
 void sdramc_attach(struct mem *m, struct sdramc *s);
 void sdramc_reset(struct sdramc *s);
+void sdramc_set_events(struct sdramc *s, uint64_t *clock,
+                      void (*events)(void *ctx), void *ctx);
 /* Fetch timing without generic CPU data/MMIO arbitration for SDRAM. */
 uint64_t sdramc_fetch_wait(void *ctx, uint32_t addr, uint64_t now);
 

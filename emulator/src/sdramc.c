@@ -148,6 +148,7 @@ static void empty_queues(struct sdramc *s)
 		s->dq[i].valid = false;
 	s->iq_next = 0;
 	s->dq_next = 0;
+	s->iq_prefetch_pending = false;
 }
 
 static void address_parts(const struct sdramc *s, uint32_t addr,
@@ -182,12 +183,25 @@ static void service_refresh(struct sdramc *s, uint64_t now)
 	n = (now - s->next_refresh) / period + 1;
 	latest = s->next_refresh + (n - 1) * period;
 	start = s->bus_free > latest ? s->bus_free : latest;
-	for (unsigned i = 0; i < 4; i++)
-		if (s->bank[i].valid) {
-			uint64_t earliest = s->bank[i].activated + tras(s) * tick;
+	/* A refresh precharges every physical bank. Row registers may instead
+	 * be indexed by access port, so they cannot stand in for physical
+	 * active/write-recovery constraints (notably the DMA write port and
+	 * banks 4--7 on the measured 32 MiB geometry). */
+	for (unsigned i = 0; i < SDRAMC_MAX_BANKS; i++) {
+		bool open = model.bank_floors ? s->phys[i].valid : s->bank[i].valid;
+		if (open) {
+			uint64_t since = model.bank_floors ? s->phys[i].activated :
+							   s->bank[i].activated;
+			uint64_t earliest = since + tras(s) * tick;
 			if (start < earliest)
 				start = earliest;
 		}
+		if (s->phys[i].valid && s->phys[i].written && model.write_recovery) {
+			uint64_t earliest = s->phys[i].written + model.write_recovery * tick;
+			if (start < earliest)
+				start = earliest;
+		}
+	}
 	s->bus_free = start + (trp(s) + trc(s)) * tick;
 	s->array_free = s->bus_free;
 	s->next_refresh += n * period;
@@ -270,7 +284,6 @@ static bool trace_row_set;
 static uint32_t trace_row;
 static unsigned trace_left = 48;
 static unsigned long trace_skip;   /* WREMU_ROWTRACE_SKIP: activations to pass first */
-static bool last_was_write;
 
 /* Which row of the whole device an address is in, bank bits and all: with
    the banks collapsed onto one row register the bank bits are part of what
@@ -447,13 +460,12 @@ static uint64_t request_time(const struct sdramc *s, uint64_t now)
 	return held > now ? held : now;
 }
 
-static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
+static uint64_t schedule_read_phase(struct sdramc *s, uint32_t addr,
 			      unsigned halfwords, uint64_t now,
-			      uint64_t *ready)
+			      uint64_t *ready, uint64_t extra, bool instruction)
 {
 	uint64_t tick = sd_tick(s);
 	uint64_t command;
-	uint64_t extra = halfwords > 2 ? model.iqb_first : model.dq_extra;
 
 	/* A data read issued by code that is not itself coming over this bus
 	   costs more than the bus timings account for; see model.h.
@@ -464,14 +476,13 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	   The rv32 interpreter is what noticed: it is the only workload here
 	   that runs almost entirely from internal RAM, and the device charges
 	   it a fifth more than the model does. */
-	if (halfwords <= 2 && current_kind != MEM_DMA_READ &&
+	if (!instruction && current_kind != MEM_DMA_READ &&
 	    wremu_cur_pc < 0x10000000u)
 		extra += model.dq_iram_extra * tick;
 
 	/* A read after a write waits for write recovery and the bus turn. */
-	if (last_was_write && s->bus_free + model.wr_rd_turn * tick > now)
-		now = s->bus_free + model.wr_rd_turn * tick;
-	last_was_write = false;
+	if (s->last_write_end && s->last_write_end + model.wr_rd_turn * tick > now)
+		now = s->last_write_end + model.wr_rd_turn * tick;
 	command = select_row(s, addr, now);
 	/* The transfer still waits for the bus even where the activation did
 	   not. */
@@ -489,18 +500,153 @@ static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
 	return command;
 }
 
-static void flush_written(struct sdramc *s, uint32_t addr, unsigned size)
+static uint64_t schedule_read(struct sdramc *s, uint32_t addr,
+			      unsigned halfwords, uint64_t now, uint64_t *ready)
 {
-	uint32_t last = addr + size - 1;
+	bool instruction = halfwords > 2;
+	return schedule_read_phase(s, addr, halfwords, now, ready,
+		instruction ? model.iqb_first : model.dq_extra, instruction);
+}
 
+static unsigned deferred_iq_allocate(struct sdramc *s, uint32_t tag)
+{
+	unsigned slot = s->iq_next++ & 1;
+	s->iq[slot].valid = true;
+	s->iq[slot].tag = tag;
+	s->iq[slot].issued = 0;
+	s->iq[slot].order = ++s->iq_order;
+	for (unsigned i = 0; i < 8; i++)
+		s->iq[slot].ready[i] = UINT64_MAX;
+	return slot;
+}
+
+static void deferred_iq_word(struct sdramc *s, unsigned slot, uint64_t now)
+{
+	unsigned i = s->iq[slot].issued;
+	unsigned previous = current_kind;
+	current_kind = MEM_CPU_FETCH;
+	prepare_external_access(s, now);
+	now = request_time(s, now);
+	/* Retain the calibrated word spacing, with an actual two-halfword
+	 * READ/CAS phase as its minimum. No subsequent word is reserved yet. */
+	uint64_t cas_gap = (cas(s) + model.cas_first - 1) * sd_tick(s);
+	uint64_t extra = !i ? model.iqb_first :
+		model.iqb_word_gap > cas_gap ? model.iqb_word_gap - cas_gap : 0;
+	if (!i)
+		fetch_holds_dma(s, now);
+	schedule_read_phase(s, s->iq[slot].tag + 2 * i, 2, now,
+		&s->iq[slot].ready[i], extra, true);
+	s->iq[slot].issued += 2;
+	s->iq_word_reads++;
+	current_kind = previous;
+}
+
+/* Catch up only word requests which could have started before @until.
+ * At an exact boundary the incoming CPU data/DMA request wins; an already
+ * issued word keeps its real occupancy. At most eight reads are pending. */
+static void deferred_iq_advance(struct sdramc *s, uint64_t until)
+{
+	if (!(s->reg[OFF_APP] & IQBEN))
+		return;
+	for (;;) {
+		unsigned slot = 2;
+		for (unsigned i = 0; i < 2; i++)
+			if (s->iq[i].valid && s->iq[i].issued < 8 &&
+			    (slot == 2 || s->iq[i].order < s->iq[slot].order))
+				slot = i;
+		if (slot == 2 && !s->iq_prefetch_pending)
+			return;
+		uint64_t at = s->bus_free;
+		if (s->mem && at < 2 * s->mem->dma_bus_free)
+			at = 2 * s->mem->dma_bus_free;
+		if (slot == 2 && at < s->iq_prefetch_offer)
+			at = s->iq_prefetch_offer;
+		if (at >= until)
+			return;
+		if (slot == 2) {
+			slot = deferred_iq_allocate(s, s->iq_prefetch_tag);
+			s->iq_prefetch_pending = false;
+			s->iq_prefetches++;
+		}
+		deferred_iq_word(s, slot, at);
+	}
+}
+
+static uint64_t deferred_iq_now(const struct sdramc *s, uint64_t requested)
+{
+	if (s->event_clock && 2 * *s->event_clock > requested)
+		requested = 2 * *s->event_clock;
+	return requested;
+}
+
+/* Requests occur on MCLK edges. For a half-clock SDRAM boundary, only
+ * events at/before its preceding MCLK edge may outrank the new word.
+ * Events at the following edge belong to the next arbitration boundary. */
+static bool deferred_iq_events(struct sdramc *s, uint64_t boundary)
+{
+	if (!s->events || !s->event_clock || s->events_active ||
+	    boundary / 2 <= *s->event_clock)
+		return false;
+	*s->event_clock = boundary / 2;
+	s->events_active = true;
+	unsigned previous = current_kind;
+	s->event_polls++;
+	s->events(s->events_ctx);
+	current_kind = previous;
+	s->events_active = false;
+	return true;
+}
+
+/* Alternative same-master policy: finish a started fill before another
+ * CPU request needs the external interface. DMA retains word-boundary
+ * priority; queue hits and unstarted speculative requests do not drain. */
+static void deferred_iq_cpu_drain(struct sdramc *s, enum mem_access access,
+				 uint32_t addr, uint64_t now)
+{
+	if (model.iq_deferred < 2 ||
+	    (access != MEM_CPU_READ && access != MEM_CPU_WRITE))
+		return;
+	if (access == MEM_CPU_READ) {
+		unsigned entries = model.dq_entries ? model.dq_entries : 1;
+		for (unsigned i = 0; i < entries && i < SDRAMC_MAX_DQ; i++)
+			if (s->dq[i].valid && s->dq[i].tag == (addr & ~3u))
+				return;
+	}
 	for (unsigned i = 0; i < 2; i++)
-		if (s->iq[i].valid && addr <= s->iq[i].tag + 15 &&
-		    last >= s->iq[i].tag)
+		while (s->iq[i].valid && s->iq[i].issued && s->iq[i].issued < 8) {
+			uint64_t at = deferred_iq_now(s, request_time(s, now));
+			if (at < s->bus_free)
+				at = s->bus_free;
+			if (deferred_iq_events(s, at))
+				continue; /* events can invalidate or replace this fill */
+			deferred_iq_word(s, i, at);
+		}
+}
+
+/* The write has reached memory, rather than merely reserving a future bus
+ * phase. Flush every cached alias of the bytes actually changed. */
+static void flush_written(void *ctx, uint32_t addr, unsigned size)
+{
+	struct sdramc *s = ctx;
+	if (addr - SDRAM_BASE >= SDRAM_SIZE)
+		return;
+	uint32_t mask = (s->mem->sdram_alias ? s->mem->sdram_alias : SDRAM_SIZE) - 1;
+	uint32_t first = (addr - SDRAM_BASE) & mask;
+	uint32_t last = first + size - 1;
+
+	for (unsigned i = 0; i < 2; i++) {
+		uint32_t tag = (s->iq[i].tag - SDRAM_BASE) & mask;
+		if (s->iq[i].valid && first <= tag + 15 && last >= tag)
 			s->iq[i].valid = false;
-	for (unsigned i = 0; i < SDRAMC_MAX_DQ; i++)
-		if (s->dq[i].valid && addr <= s->dq[i].tag + 3 &&
-		    last >= s->dq[i].tag)
+	}
+	for (unsigned i = 0; i < SDRAMC_MAX_DQ; i++) {
+		uint32_t tag = (s->dq[i].tag - SDRAM_BASE) & mask;
+		if (s->dq[i].valid && first <= tag + 3 && last >= tag)
 			s->dq[i].valid = false;
+	}
+	uint32_t tag = (s->iq_prefetch_tag - SDRAM_BASE) & mask;
+	if (s->iq_prefetch_pending && first <= tag + 15 && last >= tag)
+		s->iq_prefetch_pending = false;
 }
 
 static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
@@ -517,10 +663,14 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 	if (model.act_overlap && command < s->bus_free)
 		command = s->bus_free;
 
-	/* Writes are individual operations, one per external 16-bit transfer,
-	 * unless the fitted model gives every write a flat cost. */
-	s->bus_free = command + (model.wr_ticks ? model.wr_ticks
-					       : transfers * tick);
+	/* The calibrated word duration includes two external 16-bit writes.
+	 * Keep its fixed controller overhead, then charge the actual beat
+	 * count. A byte/halfword must not occupy the word's second beat.
+	 * The calibration used SDCLK=MCLK: its two beats occupy four
+	 * half-MCLK ticks. Keep that overhead fixed when DBF changes SDCLK.
+	 * Zero (or a sub-physical calibration) retains manual timing. */
+	uint64_t overhead = model.wr_ticks > 4 ? model.wr_ticks - 4 : 0;
+	s->bus_free = command + overhead + transfers * tick;
 	{
 		unsigned pb;
 		uint32_t row;
@@ -528,9 +678,8 @@ static uint64_t schedule_write(struct sdramc *s, uint32_t addr,
 		address_parts(s, addr, &pb, &row);
 		s->phys[pb].written = s->bus_free;
 	}
-	last_was_write = true;
+	s->last_write_end = s->bus_free;
 	s->last_sdram_access = s->bus_free;
-	flush_written(s, addr, size);
 	s->writes_timed++;
 	return s->bus_free;
 }
@@ -721,7 +870,15 @@ uint64_t sdramc_wait_slow(void *ctx, enum mem_access access, uint32_t addr,
 					oldest = i;
 			/* Room or not, handing the store over takes the CPU
 			   write_issue. */
-			ready = now + model.write_issue;
+			/* The CPU cannot hand a write to the controller while
+			 * DMA still owns the AHB bus, even with buffer space. */
+			/* CPU handoff and DMA acceptance need not have the same
+			 * internal overhead. Preserve the shared calibration unless
+			 * an explicit DMA override is supplied. This changes buffer
+			 * acceptance only; both masters still reserve the real write. */
+			unsigned issue = access == MEM_DMA_WRITE && model.dma_write_issue ?
+				model.dma_write_issue : model.write_issue;
+			ready = request_time(s, now) + issue;
 			if (s->posted[oldest] > ready)
 				ready = s->posted[oldest];
 			s->posted[oldest] = s->bus_free;
@@ -757,6 +914,77 @@ static unsigned iq_slot(const struct sdramc *s, uint32_t tag)
 	return 2;
 }
 
+static uint64_t deferred_iq_fetch(struct sdramc *s, uint32_t addr, uint64_t now)
+{
+	current_kind = MEM_CPU_FETCH;
+	s->accesses[MEM_CPU_FETCH]++;
+	observe_self_refresh(s, now);
+	if (!s->self_refresh)
+		service_refresh(s, now);
+	uint32_t tag = addr & ~15u;
+	bool flowing = addr > s->last_fetch && addr - s->last_fetch <= 4;
+	/* Advance already elapsed work before resolving the redirect. Only a
+	 * request which has not started can be cancelled without bus cost. */
+	if (s->iq_prefetch_pending &&
+	    (!flowing || s->iq_prefetch_tag == tag)) {
+		s->iq_prefetch_pending = false;
+		s->iq_prefetch_cancelled++;
+	}
+	unsigned slot = iq_slot(s, tag);
+	if (slot == 2) {
+		slot = deferred_iq_allocate(s, tag);
+		s->iq_misses++;
+	} else {
+		s->iq_hits++;
+	}
+	unsigned word = (addr >> 1) & 7;
+	for (;;) {
+		/* A DMA code write or controller reconfiguration during the
+		 * preceding word can invalidate the slot we were awaiting. */
+		if (!(s->reg[OFF_INI] & SDON) || !(s->reg[OFF_APP] & APPON) ||
+		    !(s->reg[OFF_APP] & IQBEN) || !s->initialised) {
+			uint64_t resumed = (deferred_iq_now(s, now) + 1) / 2;
+			uint64_t elapsed = resumed - now / 2;
+			s->wait_cycles += elapsed;
+			return elapsed + sdramc_wait_slow(s, MEM_CPU_FETCH, addr, 2, resumed);
+		}
+		if (!s->iq[slot].valid || s->iq[slot].tag != tag) {
+			slot = iq_slot(s, tag);
+			if (slot == 2) {
+				slot = deferred_iq_allocate(s, tag);
+				s->iq_misses++;
+			}
+		}
+		if (s->iq[slot].issued > word)
+			break;
+		uint64_t at = deferred_iq_now(s, request_time(s, now));
+		if (at < s->bus_free)
+			at = s->bus_free;
+		if (deferred_iq_events(s, at))
+			continue; /* re-evaluate ownership and slot generation */
+		deferred_iq_word(s, slot, at);
+	}
+	uint64_t ready = s->iq[slot].ready[word];
+	s->last_fetch = addr;
+	if (model.iq_lookahead && (flowing || !model.iq_lookahead_seq)) {
+		uint32_t ahead = (addr + model.iq_lookahead) & ~15u;
+		if (ahead != tag && iq_slot(s, ahead) == 2 &&
+		    (!s->iq_prefetch_pending || s->iq_prefetch_tag != ahead)) {
+			s->iq_prefetch_pending = true;
+			s->iq_prefetch_tag = ahead;
+			s->iq_prefetch_offer = now;
+		}
+	}
+	if (wremu_fetch_restart && model.branch_bubble) {
+		uint64_t floor = now + 2 * (uint64_t)model.branch_bubble;
+		if (ready < floor)
+			ready = floor;
+	}
+	uint64_t wait = ready > now ? (ready - now + 1) / 2 : 0;
+	s->wait_cycles += wait;
+	return wait;
+}
+
 static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 			    unsigned size, uint64_t mclk_now)
 {
@@ -766,6 +994,14 @@ static uint64_t sdramc_wait(void *ctx, enum mem_access access, uint32_t addr,
 	    !(s->reg[OFF_INI] & SDON) || !(s->reg[OFF_APP] & APPON) ||
 	    !s->initialised)
 		return 0;
+	if (model.iq_deferred) {
+		current_kind = access;
+		deferred_iq_advance(s, now);
+		if (access == MEM_CPU_FETCH && (s->reg[OFF_APP] & IQBEN))
+			return deferred_iq_fetch(s, addr, now);
+		deferred_iq_cpu_drain(s, access, addr, now);
+		goto slow;
+	}
 	if (access != MEM_CPU_FETCH || !(s->reg[OFF_APP] & IQBEN))
 		goto slow;
 
@@ -851,6 +1087,7 @@ static bool sdramc_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 		    (i == OFF_INI && !(*val & SDON))) {
 			empty_queues(s);
 			s->bus_free = 0;
+			s->last_write_end = 0;
 			s->next_refresh = 0;
 			s->last_sdram_access = 0;
 			s->self_refresh = false;
@@ -881,11 +1118,17 @@ void sdramc_reset(struct sdramc *s)
 
 	uint64_t *row_hist = s->row_hist;
 	struct sdramc_pair *pair_hist = s->pair_hist;
+	uint64_t *event_clock = s->event_clock;
+	void (*events)(void *) = s->events;
+	void *events_ctx = s->events_ctx;
 
 	memset(s, 0, sizeof *s);
 	s->mem = m;
 	s->row_hist = row_hist;
 	s->pair_hist = pair_hist;
+	s->event_clock = event_clock;
+	s->events = events;
+	s->events_ctx = events_ctx;
 	/* S1C33E07 Technical Manual register tables, init. column. */
 	s->reg[OFF_CTL] = 0x000000e0u;      /* tRC/tRFC/tXSR = 15 cycles */
 	s->reg[OFF_REF] = 0x007f008cu;      /* self/auto-refresh counters */
@@ -893,11 +1136,24 @@ void sdramc_reset(struct sdramc *s)
 	publish_size(s);                    /* back to the flat window */
 }
 
+void sdramc_set_events(struct sdramc *s, uint64_t *clock,
+                      void (*events)(void *ctx), void *ctx)
+{
+	s->event_clock = clock;
+	s->events = events;
+	s->events_ctx = ctx;
+}
+
 void sdramc_attach(struct mem *m, struct sdramc *s)
 {
 	s->mem = m;
+	m->ram_written = flush_written;
+	m->ram_written_ctx = s;
 	s->row_hist = NULL;
 	s->pair_hist = NULL;
+	s->event_clock = NULL;
+	s->events = NULL;
+	s->events_ctx = NULL;
 	sdramc_reset(s);
 	if (getenv("WREMU_ROWTRACE")) {
 		trace_row = (uint32_t)((strtoul(getenv("WREMU_ROWTRACE"), NULL, 0) - SDRAM_BASE) >> 10);

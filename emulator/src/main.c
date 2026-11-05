@@ -33,6 +33,18 @@
 #include "sdramc.h"
 #include "dma.h"
 
+struct cpu_data_events {
+	struct sdcard *sd;
+	struct dma *dma;
+};
+
+static void settle_cpu_data(void *ctx)
+{
+	struct cpu_data_events *events = ctx;
+	sd_poll(events->sd);
+	dma_poll(events->dma);
+}
+
 /* Scripted taps and button presses accepted on the command line. */
 #define NSCRIPT 256
 static unsigned long hold_cycles = 2000000UL;
@@ -773,6 +785,7 @@ int main(int argc, char **argv)
 	uint64_t retired_before_reset = 0, clk_before_reset = 0;
 
 	struct c33 cpu;
+	struct cpu_data_events data_events = { .sd = &sd, .dma = &dma };
 	memset(&cpu, 0, sizeof cpu);
 	cpu.bus = (struct c33_bus){
 		.read = mem_read,
@@ -782,6 +795,8 @@ int main(int argc, char **argv)
 		.fetch_wait = sdramc_fetch_wait,
 		.fetch_wait_ctx = &sdramc,
 		.ctx = &mem,
+		.before_data = settle_cpu_data,
+		.before_data_ctx = &data_events,
 	};
 	cpu.trace_syscalls = trace_syscalls;
 	c33_reset(&cpu, entry);
@@ -810,6 +825,7 @@ int main(int argc, char **argv)
 	sd_set_clock(&sd, &cpu.clk);
 	dma_set_clock(&dma, &cpu.clk);
 	dma_set_cpu_sleeping(&dma, &cpu.sleeping);
+	sdramc_set_events(&sdramc, &cpu.clk, settle_cpu_data, &data_events);
 	uart_set_clock(&uart, &cpu.clk);
 	periph_set_cmu(&periph, &cmu);
 	periph_set_clock(&periph, &cpu.clk);
@@ -875,7 +891,6 @@ int main(int argc, char **argv)
 #define RING 64
 	uint32_t ring[RING];
 	unsigned rn = 0;
-	unsigned long nop_run = 0;
 	const char *stop = NULL;
 	/* A run that has to be stopped from outside -- a Linux boot driven by
 	   a script, say -- still wants the panel written out and the counters
@@ -1521,16 +1536,8 @@ int main(int argc, char **argv)
 			}
 		}
 
-		/*
-		 * Runaway detection, from the word c33_step already fetched.
-		 * Re-reading it here cost a second full memory dispatch per
-		 * instruction -- about 15% of total run time.
-		 */
-		nop_run = (cpu.last_insn == 0) ? nop_run + 1 : 0;
-		if (nop_run > 8) {
-			stop = "runaway: >8 consecutive zero instructions";
-			break;
-		}
+		/* Zero encodes NOP. Valid delay loops and alignment padding can
+		 * contain arbitrarily long runs; the cycle limit bounds execution. */
 	}
 
 done:

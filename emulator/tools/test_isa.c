@@ -161,6 +161,34 @@ static void extended_register_forms(void)
 	check("ext is a nop before sub %sp,imm10", c.sr[SR_SP], 0x1fc);
 }
 
+static void extended_transfer_timing(void)
+{
+	struct model saved = model;
+	model.fetch_ahead = model.iram_fetch_wait = model.ivram_fetch_wait = 0;
+	for (unsigned prefixes = 1; prefixes <= 2; prefixes++) {
+		static const struct { uint16_t insn; unsigned execute; const char *name; } cases[] = {
+			{ 0x6c10, 1, "extended immediate load stays one execution cycle" },
+			{ 0x2e10, 1, "register move ignores ext without an execution surcharge" },
+			{ 0x2810, 2, "extended halfword memory load takes two execution cycles" },
+			{ 0x3010, 2, "extended word memory load takes two execution cycles" },
+			{ 0x3c10, 2, "extended word memory store takes two execution cycles" },
+		};
+		for (unsigned i = 0; i < sizeof cases / sizeof *cases; i++) {
+			struct c33 c = init(0xc000);
+			if (prefixes == 2)
+				tw(NULL, ENTRY + 2, 2, 0xc000);
+			tw(NULL, ENTRY + 2 * prefixes, 2, cases[i].insn);
+			c.r[1] = 0x200;
+			for (unsigned j = 0; j < prefixes; j++)
+				c33_step(&c);
+			uint64_t before = c.clk;
+			c33_step(&c);
+			check(cases[i].name, c.clk - before, cases[i].execute);
+		}
+	}
+	model = saved;
+}
+
 static void swaps(void)
 {
 	struct c33 c;
@@ -428,6 +456,7 @@ int main(void)
 {
 	arithmetic();
 	extended_register_forms();
+	extended_transfer_timing();
 	multiply();
 	swaps();
 	special_stack();

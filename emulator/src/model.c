@@ -15,6 +15,7 @@
  * (sdramc.c); kept here because every test links the model. */
 uint32_t wremu_cur_pc;
 bool wremu_fetch_restart;
+bool wremu_local_data_scheduled;
 
 struct model model = {
 	/* Refitted 2026-09-13 against a 60 MHz guest clock. Everything here
@@ -35,8 +36,9 @@ struct model model = {
 	   is four separate 32-bit reads (II.4.2.2), so the fetch term goes
 	   per word. */
 	.iqb_word_gap = 6,
+	.iq_deferred = 0,
 	.dq_extra = 3,
-	.wr_ticks = 8,         /* refitted once writes were posted */
+	.wr_ticks = 8,         /* calibrated word write; narrow stores use one beat */
 	/* Zero since the row model: three clocks of bus turn stood in for
 	   what a copy really pays, which is a row change on every access,
 	   and charging both now costs more than the device does. */
@@ -66,6 +68,7 @@ struct model model = {
 	   3 cycles a store cheap, and four sets (spibench, membench, ubench,
 	   riscv fit-model) all score better at 4 (2026-11-04). */
 	.write_issue = 4,
+	.dma_write_issue = 0,
 	/* tWR before a precharge.  Off: the device's word memcpy within one
 	   bank, load and store two instructions apart, pays none. */
 	.write_recovery = 0,
@@ -75,6 +78,8 @@ struct model model = {
 	   so it stays a cycle (2026-11-05). */
 	.ext_local = 1,
 	.fetch_ahead = 0,         /* halfwords the A0 fetch may run ahead */
+	.local_frontend = 0,
+	.local_frontend_depth = 8,
 	/* A0 RAM data accesses beyond a register move, in half-MCLK: spibench
 	   i-ldh 2.12, i-ldw 2.50, i-stw 1.50 cycles on the device; with them
 	   riscv fit-model goes 0.1796 -> 0.1687 and spibench 3.09 -> 2.60
@@ -82,6 +87,7 @@ struct model model = {
 	.a0_read_half = 2,
 	.a0_read_word_half = 3,
 	.a0_write_half = 1,
+	.a0_sdram_overlap = 1,
 	/* Zero: the first halfword lands on the CAS cycle itself, which is
 	   what CAS latency means. Charging the cycle after it made every
 	   external read two MCLK dear -- loadseq, loadseq8 and copyloop were
@@ -212,6 +218,7 @@ static const struct {
 	{ "branch_taken_iram", NULL, &model.branch_taken_iram },
 	{ "iqb_first", NULL, &model.iqb_first },
 	{ "iqb_word_gap", NULL, &model.iqb_word_gap },
+	{ "iq_deferred", NULL, &model.iq_deferred },
 	{ "dq_extra", NULL, &model.dq_extra },
 	{ "wr_ticks", NULL, &model.wr_ticks },
 	{ "dma_extra", NULL, &model.dma_extra },
@@ -247,12 +254,16 @@ static const struct {
 	{ "mmio_wait", NULL, &model.mmio_wait },
 	{ "itc_wait", NULL, &model.itc_wait },
 	{ "write_issue", NULL, &model.write_issue },
+	{ "dma_write_issue", NULL, &model.dma_write_issue },
 	{ "write_recovery", NULL, &model.write_recovery },
 	{ "ext_local", NULL, &model.ext_local },
 	{ "fetch_ahead", NULL, &model.fetch_ahead },
+	{ "local_frontend", NULL, &model.local_frontend },
+	{ "local_frontend_depth", NULL, &model.local_frontend_depth },
 	{ "a0_read_half", NULL, &model.a0_read_half },
 	{ "a0_read_word_half", NULL, &model.a0_read_word_half },
 	{ "a0_write_half", NULL, &model.a0_write_half },
+	{ "a0_sdram_overlap", NULL, &model.a0_sdram_overlap },
 	{ "cas_first", NULL, &model.cas_first },
 	{ "iram_word_fetch", NULL, &model.iram_word_fetch },
 	{ "dq_iram_extra", NULL, &model.dq_iram_extra },
@@ -300,12 +311,13 @@ void model_describe(FILE *out)
 		" sdclk_half %u, row_ports %u, dma_extra %u, dma_mem_extra %u,"
 		" sd_read_latency %lu, sd_init_latency %lu, sd_read_gap %lu, sd_write_latency %lu,"
 		" iram_fetch_wait %u, ivram_fetch_wait %u, dq_iram_extra %u,"
-		" dq_hit %u ---\n",
+		" dq_hit %u, a0_sdram_overlap %u, local_frontend %u/%u ---\n",
 		model.branch_taken, model.branch_taken_iram, model.iqb_first,
 		model.iqb_word_gap, model.dq_extra, model.wr_ticks,
 		model.wr_rd_turn, model.row_change_extra, model.sdclk_half,
 		model.row_ports, model.dma_extra, model.dma_mem_extra, model.sd_read_latency,
 		model.sd_init_latency, model.sd_read_gap, model.sd_write_latency,
 		model.iram_fetch_wait, model.ivram_fetch_wait,
-		model.dq_iram_extra, model.dq_hit);
+		model.dq_iram_extra, model.dq_hit, model.a0_sdram_overlap,
+		model.local_frontend, model.local_frontend_depth);
 }

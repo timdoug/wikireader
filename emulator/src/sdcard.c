@@ -724,6 +724,19 @@ static bool sd_clocked(const struct sdcard *sd)
 	return !sd->cmu || cmu_spi_enabled(sd->cmu);
 }
 
+bool sd_next_event(const struct sdcard *sd, uint64_t *at)
+{
+    if (!sd->clock || sd->polling || !sd_clocked(sd) || !sd->busy) return false;
+    *at = sd->deadline;
+    return true;
+}
+
+void sd_set_before_event(struct sdcard *sd, void (*fn)(void *ctx), void *ctx)
+{
+    sd->before_event = fn;
+    sd->before_event_ctx = ctx;
+}
+
 void sd_poll(struct sdcard *sd)
 {
 	bool powered = !sd->port || port_sd_powered(sd->port);
@@ -738,7 +751,20 @@ void sd_poll(struct sdcard *sd)
 	sd->polling = true;
 	while (sd->busy && *sd->clock >= sd->deadline) {
 		uint64_t observed = *sd->clock;
-		*sd->clock = sd->deadline;
+        uint64_t edge = sd->deadline;
+        if (edge && sd->before_event) {
+            *sd->clock = edge - 1;
+            sd->before_event(sd->before_event_ctx);
+        }
+        *sd->clock = edge;
+        if (!sd_clocked(sd)) {
+            if (*sd->clock < observed) *sd->clock = observed;
+            break;
+        }
+        if (!sd->busy || sd->deadline != edge) {
+            if (*sd->clock < observed) *sd->clock = observed;
+            continue;
+        }
 		if (!sd->shifting) {
 			load_spi_shift(sd);
 		} else {

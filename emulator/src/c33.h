@@ -18,6 +18,7 @@
 #include <stdbool.h>
 
 #include "mem.h"
+#include "frontend.h"
 
 /* Special register file, indices as encoded in ld.w %sreg,%rN (0xa00N). */
 enum c33_sreg {
@@ -55,12 +56,21 @@ struct c33_bus {
 	 * always. Leave NULL and everything still works, just slower.
 	 */
 	uint8_t *(*region)(void *ctx, uint32_t addr, uint32_t *base, uint32_t *len);
+	/* Timing callbacks return total delay from @now. They may advance the
+	 * shared CPU clock while processing events; that progress is included
+	 * in the delay, not an additional charge. */
 	uint64_t (*wait)(void *ctx, enum mem_access access, uint32_t addr,
 			 unsigned size, uint64_t now);
 	/* Optional specialized timing for a 16-bit instruction fetch. */
 	uint64_t (*fetch_wait)(void *ctx, uint32_t addr, uint64_t now);
 	void     *fetch_wait_ctx;
 	void     *ctx;
+	/* Settle asynchronous devices at data request/response and after a
+	 * fetch wait, before sampling memory. Either kind of wait may pass
+	 * a DMA completion since the outer loop polled.
+	 * Interrupt acceptance remains at instruction boundaries. */
+	void     (*before_data)(void *ctx);
+	void     *before_data_ctx;
 };
 
 struct c33 {
@@ -97,7 +107,7 @@ struct c33 {
 	/* same, for data reads; kept separate since code and data differ */
 	uint8_t *data_ptr;
 	uint32_t data_lo, data_hi;
-	/* last instruction word fetched, for the runaway detector */
+	/* last instruction word fetched, for diagnostics */
 	uint16_t last_insn;
 
 	/* diagnostics: how often each form silently discarded ext prefixes */
@@ -132,6 +142,14 @@ struct c33 {
 	uint64_t step_stall;	/* memory waits in this instruction */
 	uint64_t step_clk0;
 	uint32_t seq_next;
+	/* Experimental local frontend. Keep all scheduler state above reset's
+	 * barrier; its mapped-word callback is reconnected when initialized. */
+	struct frontend frontend;
+	bool frontend_valid, frontend_step, frontend_code_dirty;
+	unsigned frontend_epoch;
+	uint32_t frontend_next_pc;
+	uint64_t frontend_issue, frontend_core, frontend_extra;
+	uint64_t frontend_data_end, frontend_seen_clk;
 	bool     access_fault; /* current memory access took an exception */
 	bool     debug_mode;   /* brk/debug exception active until retd */
 	uint64_t cycles;      /* instructions retired */

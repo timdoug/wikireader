@@ -18,6 +18,7 @@ struct sdcard;
 
 struct dma {
 	struct mem    *mem;
+	struct sdcard *sd;
 	struct itc    *itc;
 	const struct cmu *cmu;
 	uint64_t *clock;
@@ -29,13 +30,23 @@ struct dma {
 	/* model.dma_async: SPI transfers whose writes have yet to land. */
 	struct async_xfer {
 		uint64_t due;
+		uint64_t write_due; /* pending HSDMA destination, separate from source response */
 		uint64_t asked;	/* when the write first wanted the bus */
-		uint32_t dst, value;
+		uint32_t src, dst, value;
+		bool read_pending; /* HSDMA source has not reached its response yet */
 		unsigned size, ch;
 		bool done;	/* the channel's last: raise its flag */
+		bool write_started; /* destination timing already reserved */
+		/* IDMA runs its ten bus phases on the shared event clock. */
+		bool idma, idma_hardware;
+		unsigned idma_phase;
+		uint32_t idma_desc, idma_words[4];
+		uint64_t idma_start, idma_generation;
 	} q[ASYNC_DEPTH];
 	unsigned qn;
 	uint64_t engine_free;
+	uint64_t spi_rx_generation; /* preserve causes arriving during IDMA writeback */
+	uint64_t phase_busy_until; /* actual active AHB phase, independent of fitted idle time */
 	uint64_t trig_at[4];	/* when each SPI channel's request came */
 	uint64_t room_at;	/* when the queue last had room again */
 	bool polling;

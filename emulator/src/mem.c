@@ -94,11 +94,19 @@ uint64_t mem_wait(void *ctx, enum mem_access access, uint32_t addr,
 	   spibench's i-* loops, a byte or halfword read costs the device about
 	   one more, a word read one and a half, a write a half.  Halves carry
 	   over to the next access. */
-	if (local_ram(m, addr) &&
+	if (!wremu_local_data_scheduled && local_ram(m, addr) &&
 	    (access == MEM_CPU_READ || access == MEM_CPU_WRITE)) {
-		m->a0_half += access == MEM_CPU_WRITE ? model.a0_write_half :
-			      size >= 4 ? model.a0_read_word_half :
-					  model.a0_read_half;
+		unsigned half = access == MEM_CPU_WRITE ? model.a0_write_half :
+				size >= 4 ? model.a0_read_word_half :
+					    model.a0_read_half;
+		/* Local data does not contend with an SDRAM instruction stream
+		   as it does with an internal-RAM stream. Calibrated against
+		   the identical pipeline-probe bytes in both code placements;
+		   retain the internal-code costs used by spibench. */
+		if (wremu_cur_pc - SDRAM_BASE < SDRAM_SIZE)
+			half -= half < model.a0_sdram_overlap ? half :
+				model.a0_sdram_overlap;
+		m->a0_half += half;
 		stall += m->a0_half / 2;
 		m->a0_half &= 1;
 	}
@@ -306,6 +314,8 @@ void mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val)
 
 	if (p) {
 		memcpy(p, &val, size);
+		if (m->ram_written)
+			m->ram_written(m->ram_written_ctx, addr, size);
 		return;
 	}
 	if (size <= CHIP_ID_SIZE && chip_id(addr, size, &val))

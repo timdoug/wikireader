@@ -26,7 +26,8 @@ override CFLAGS += $(if $(filter 1,$(LTO)),-flto) $(PGO_FLAGS) $(SDL_CFLAGS)
 # Test programs have their own main(), absent from the emulator profile.
 # Exercise the optimized objects without applying that profile to test code.
 TEST_CFLAGS = $(filter-out -fprofile-instr-use=% -Werror=profile-instr-out-of-date,$(CFLAGS))
-OBJS     = src/c33.o src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/model.o src/main.o
+C33_OBJS = src/c33.o src/frontend.o
+OBJS     = $(C33_OBJS) src/mem.o src/elf.o src/uart.o src/sdcard.o src/periph.o src/lcd.o src/display.o src/touch.o src/timer.o src/wdt.o src/itc.o src/cmu.o src/port.o src/eeprom.o src/sdramc.o src/dma.o src/model.o src/main.o
 # Hash the profile as well as its path: merging new data into the same file
 # must invalidate objects, even on make versions with coarse timestamps.
 PGO_PROFILE_ID := $(if $(PGO_USE),$(shell cksum '$(PGO_USE)' 2>/dev/null))
@@ -77,8 +78,8 @@ test: c33_forms.h
 	fi
 
 # Interrupt priority (PSR.IL) rules, per the C33 PE Core manual.
-test-irq: tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_irq tools/test_irq.c src/c33.o src/model.o src/itc.o src/mem.o
+test-irq: tools/test_irq.c $(C33_OBJS) src/model.o src/itc.o src/mem.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_irq tools/test_irq.c $(C33_OBJS) src/model.o src/itc.o src/mem.o
 	/tmp/test_irq
 
 .PHONY: test-itc-select
@@ -87,13 +88,13 @@ test-itc-select: tools/test_itc_select.c src/itc.o src/mem.o src/model.o
 	/tmp/test_itc_select
 
 # Core instruction semantics not exercised by the firmware images.
-test-isa: tools/test_isa.c src/c33.o src/model.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_isa tools/test_isa.c src/c33.o src/model.o
+test-isa: tools/test_isa.c $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_isa tools/test_isa.c $(C33_OBJS) src/model.o
 	/tmp/test_isa
 
 # Synchronous exception entry, saved PCs, IDIR, and PE-removed opcodes.
-test-exception: tools/test_exception.c src/c33.o src/model.o src/mem.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_exception tools/test_exception.c src/c33.o src/model.o
+test-exception: tools/test_exception.c $(C33_OBJS) src/model.o src/mem.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_exception tools/test_exception.c $(C33_OBJS) src/model.o
 	/tmp/test_exception
 
 # LCD sub-window (PIP) compositing, against grifo's own window arithmetic.
@@ -113,12 +114,12 @@ test-display: tools/test_display.c src/display.o src/lcd.o src/mem.o src/model.o
 	/tmp/test_display
 
 # SD writes: the path that makes the guest's history outlive a run.
-test-sd: tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o $(SDL_LIBS)
+test-sd: tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_sd tools/test_sd.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o $(C33_OBJS) src/model.o $(SDL_LIBS)
 	/tmp/test_sd
 
 .PHONY: test-sd-timing
-test-sd-timing: tools/test_sd_timing.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o
+test-sd-timing: tools/test_sd_timing.c src/sdcard.o src/cmu.o src/mem.o src/port.o src/eeprom.o src/itc.o $(C33_OBJS) src/model.o
 	$(CC) $(TEST_CFLAGS) -o /tmp/test_sd_timing $^ $(SDL_LIBS)
 	/tmp/test_sd_timing
 
@@ -190,8 +191,8 @@ test-cmu: tools/test_cmu.c src/cmu.o src/mem.o src/model.o
 	/tmp/test_cmu
 
 # Cascaded timer 0/5 reads and the per-channel count-pause register.
-test-timer: tools/test_timer.c src/timer.o src/c33.o src/model.o src/itc.o src/cmu.o src/mem.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o src/c33.o src/model.o src/itc.o src/cmu.o src/mem.o
+test-timer: tools/test_timer.c src/timer.o $(C33_OBJS) src/model.o src/itc.o src/cmu.o src/mem.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_timer tools/test_timer.c src/timer.o $(C33_OBJS) src/model.o src/itc.o src/cmu.o src/mem.o
 	/tmp/test_timer
 
 # SDRAM controller reset values, status flags, and register masks.
@@ -200,8 +201,8 @@ test-sdramc: tools/test_sdramc.c src/sdramc.o src/model.o src/mem.o
 	/tmp/test_sdramc
 
 .PHONY: test-sdramc-fetch
-test-sdramc-fetch: tools/test_sdramc_fetch.c src/sdramc.c src/sdramc.h src/c33.o src/model.o src/mem.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_sdramc_fetch tools/test_sdramc_fetch.c src/c33.o src/model.o src/mem.o
+test-sdramc-fetch: tools/test_sdramc_fetch.c src/sdramc.c src/sdramc.h $(C33_OBJS) src/model.o src/mem.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_sdramc_fetch tools/test_sdramc_fetch.c $(C33_OBJS) src/model.o src/mem.o
 	/tmp/test_sdramc_fetch
 
 # Fixed CPU/product/model/version bytes at the documented identification area.
@@ -210,19 +211,37 @@ test-chipid: tools/test_chipid.c src/mem.o src/model.o
 	/tmp/test_chipid
 
 # GPIO reset masks and the modeled key/power interrupt inputs.
-test-port: tools/test_port.c src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/eeprom.o src/itc.o src/c33.o src/model.o src/mem.o src/sdramc.o
+test-port: tools/test_port.c src/port.o src/eeprom.o src/itc.o $(C33_OBJS) src/model.o src/mem.o src/sdramc.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_port tools/test_port.c src/port.o src/eeprom.o src/itc.o $(C33_OBJS) src/model.o src/mem.o src/sdramc.o
 	/tmp/test_port
 
 # Documented SPI DMA pipeline, including representative failure modes.
-test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
+test-dma: tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_dma tools/test_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
 	/tmp/test_dma
+
+.PHONY: test-cpu-dma-order
+test-cpu-dma-order: tools/test_cpu_dma_order.c src/dma.o src/sdcard.o src/sdramc.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_cpu_dma_order $^ $(SDL_LIBS)
+	/tmp/test_cpu_dma_order
+
+.PHONY: test-fetch-accounting
+test-fetch-accounting: tools/test_fetch_accounting.c $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_fetch_accounting $^
+	/tmp/test_fetch_accounting
+
+.PHONY: test-idma-deadline
+test-idma-deadline: test-dma-timeline
+
+.PHONY: test-dma-timeline
+test-dma-timeline: tools/test_dma_timeline.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_dma_timeline $^ $(SDL_LIBS)
+	/tmp/test_dma_timeline
 
 # Software-triggered memory DMA, independent of the fitted SPI allowance.
 .PHONY: test-mem-dma
-test-mem-dma: tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
-	$(CC) $(TEST_CFLAGS) -o /tmp/test_mem_dma tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o src/c33.o src/model.o
+test-mem-dma: tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_mem_dma tools/test_mem_dma.c src/dma.o src/sdcard.o src/cmu.o src/itc.o src/mem.o src/port.o src/eeprom.o $(C33_OBJS) src/model.o
 	/tmp/test_mem_dma
 
 # Requires the built Grifo kernel, libc and the local C33 toolchain.
@@ -263,7 +282,34 @@ test-sleigh:
 	python3 tools/check_sleigh.py "$(S1C33_SLEIGH)"
 
 # Everything that can be checked without hardware.
-check: test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
+check: test-frontend-cpu test-frontend-native test-dma-write-deadline test-dma-timeline test-cpu-dma-order test-fetch-accounting test-a0-timing test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
+
+.PHONY: test-frontend-cpu
+check: test-sdramc-deferred
+
+.PHONY: test-sdramc-deferred
+test-sdramc-deferred: tools/test_sdramc_deferred.c src/mem.o src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_sdramc_deferred $^
+	/tmp/test_sdramc_deferred
+
+test-frontend-cpu: tools/test_frontend_cpu.c $(C33_OBJS) src/mem.o src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_frontend_cpu $^
+	/tmp/test_frontend_cpu
+
+.PHONY: test-frontend-native
+test-frontend-native: tools/test_frontend_native.c tools/test_frontend_native.py src/frontend.c src/frontend.h
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_frontend_native tools/test_frontend_native.c src/frontend.c
+	python3 tools/test_frontend_native.py /tmp/test_frontend_native
+
+.PHONY: test-dma-write-deadline
+test-dma-write-deadline: tools/test_dma_write_deadline.c $(C33_OBJS) src/mem.o src/model.o src/cmu.o src/itc.o src/port.o src/sdcard.o src/eeprom.o src/dma.o src/sdramc.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_dma_write_deadline $^ $(SDL_LIBS)
+	/tmp/test_dma_write_deadline
+
+.PHONY: test-a0-timing
+test-a0-timing: tools/test_a0_timing.c src/mem.o src/model.o
+	$(CC) $(TEST_CFLAGS) -o /tmp/test_a0_timing $^
+	/tmp/test_a0_timing
 
 clean:
 	rm -f wremu $(OBJS) $(OBJS:.o=.d) .build-flags .build-flags.tmp

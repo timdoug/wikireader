@@ -97,7 +97,6 @@ int main(void)
 		struct sdramc fast, ref;
 		struct bus_probe fast_bus = {.mem = &fast_mem};
 		struct bus_probe ref_bus = {.mem = &ref_mem};
-		bool fast_write = false, ref_write = false;
 		model = defaults;
 		model.iq_lookahead = lookahead[trial % 4];
 		model.iq_lookahead_seq = (trial >> 2) & 1;
@@ -106,6 +105,8 @@ int main(void)
 		model.sdclk_half = trial & 1 ? 2 : 4;
 		model.row_ports = (trial >> 1) & 1;
 		model.bank_conflict = (trial >> 2) & 1;
+		model.wr_rd_turn = trial % 4;
+		model.write_recovery = (trial >> 2) % 4;
 		sdramc_attach(&fast_mem, &fast);
 		sdramc_attach(&ref_mem, &ref);
 		mem_set_timing(&ref_mem, sdramc_wait_slow, &ref);
@@ -173,20 +174,21 @@ int main(void)
 				now + (step & 3 ? 0 : 20);
 			wremu_cur_pc = step & 1 ? pc : IVRAM_BASE;
 			wremu_fetch_restart = random_value() % 4 == 0;
-			last_was_write = fast_write;
 			uint64_t got = kind == MEM_CPU_FETCH ?
 				sdramc_fetch_wait(&fast, addr, now) :
 				mem_wait(&fast_mem, kind, addr, size, now);
-			fast_write = last_was_write;
 			unsigned fast_kind = current_kind;
-			last_was_write = ref_write;
 			uint64_t want = mem_wait(&ref_mem, kind, addr, size, now);
-			ref_write = last_was_write;
+			if (kind == MEM_CPU_WRITE || kind == MEM_DMA_WRITE) {
+				/* These controller-only fixtures allocate no RAM. */
+				fast_mem.ram_written(fast_mem.ram_written_ctx, addr, size);
+				ref_mem.ram_written(ref_mem.ram_written_ctx, addr, size);
+			}
 			struct sdramc normalized;
 			memcpy(&normalized, &ref, sizeof normalized);
 			normalized.mem = fast.mem;
 			comparisons++;
-			if (got != want || fast_write != ref_write || fast_kind != current_kind ||
+			if (got != want || fast_kind != current_kind ||
 			    memcmp(&fast, &normalized, sizeof fast) ||
 			    fast_mem.dma_bus_free != ref_mem.dma_bus_free ||
 			    fast_mem.sdram_alias != ref_mem.sdram_alias ||

@@ -82,6 +82,10 @@ struct mem {
 	unsigned ndev;
 	mem_wait_fn wait;
 	void       *wait_ctx;
+	/* Observe accepted RAM stores after the bytes change. Timing requests
+	 * reserve a bus phase but must not expose its effects early. */
+	void      (*ram_written)(void *ctx, uint32_t addr, unsigned size);
+	void       *ram_written_ctx;
 	/* Told of every CPU data access to SDRAM: the DMA engine's arbiter. */
 	void      (*cpu_data_hook)(void *ctx, uint64_t now);
 	void       *cpu_data_ctx;

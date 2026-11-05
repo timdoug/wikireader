@@ -118,6 +118,8 @@ struct sdcard {
 	/* TX request at shift start; RX request at character completion. */
 	sd_dma_event_fn dma_event;
 	void            *dma_ctx;
+	void (*before_event)(void *ctx);
+	void *before_event_ctx;
 };
 
 bool sd_attach(struct mem *m, struct sdcard *sd, const char *image_path,
@@ -132,6 +134,9 @@ void sd_set_dma_event(struct sdcard *sd, sd_dma_event_fn fn, void *ctx);
 void sd_set_clock(struct sdcard *sd, uint64_t *clock);
 /* Where to read the SPI clock gate; without one the block is always on. */
 void sd_set_cmu(struct sdcard *sd, const struct cmu *cmu);
+/* Earliest live SPI edge, in absolute MCLK cycles. */
+bool sd_next_event(const struct sdcard *sd, uint64_t *at);
+void sd_set_before_event(struct sdcard *sd, void (*fn)(void *ctx), void *ctx);
 void sd_poll(struct sdcard *sd);
 
 #endif /* SDCARD_H */

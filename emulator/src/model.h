@@ -28,6 +28,10 @@ struct model {
 	/* Extra ticks between successive words of a line fill: the controller
 	   fetches a line as separate 32-bit reads, not one burst. */
 	unsigned iqb_word_gap;
+	/* Experimental deferred IQB reads: 1 yields to CPU data and DMA per
+	 * word; 2 drains a started fill before an external CPU data request.
+	 * DMA still preempts per word. Zero retains the qualified path. */
+	unsigned iq_deferred;
 	/* tRAS and tRC are the array recovering, so they belong to the
 	   physical bank.  0 charges them against the previous access on the
 	   row register instead, which is what this did when the register was
@@ -37,8 +41,9 @@ struct model {
 	unsigned bank_floors;
 	/* Extra ticks on every data-queue fill (a 32-bit read). */
 	unsigned dq_extra;
-	/* Ticks a CPU write occupies the bus regardless of size; 0 keeps the
-	   manual's one tick per 16-bit transfer. */
+	/* Calibrated half-MCLK duration of a word write at SDCLK=MCLK,
+	 * including its two 16-bit beats. Keep the fixed overhead while
+	 * scaling the actual beats with size/SDCLK. Zero is manual timing. */
 	unsigned wr_ticks;
 	/* Fitted extra MCLK cycles per SPI-triggered HSDMA or IDMA unit. */
 	unsigned dma_extra;
@@ -145,12 +150,22 @@ struct model {
 	unsigned mmio_wait;
 	unsigned itc_wait;
 	unsigned write_issue;
+	/* Zero inherits write_issue. A nonzero override isolates DMA controller
+	 * acceptance from the CPU's posted-store handoff cost. */
+	unsigned dma_write_issue;
 	unsigned write_recovery;
 	unsigned ext_local;
 	unsigned fetch_ahead;
+	/* Experimental explicit A0 fetch/decode scheduler, off by default. */
+	unsigned local_frontend;
+	unsigned local_frontend_depth;
 	unsigned a0_read_half;
 	unsigned a0_read_word_half;
 	unsigned a0_write_half;
+	/* Half-MCLK of local-RAM data overhead hidden by an SDRAM fetch
+	   stream. The pipeline probe measures cheaper A0 accesses when
+	   instruction fetches use the SDRAM interface. */
+	unsigned a0_sdram_overlap;
 	/* Which cycle after the read command the first halfword lands on:
 	   CAS, or the one after it. */
 	unsigned cas_first;
@@ -189,6 +204,10 @@ struct model {
 	   with another access, instead of queueing behind it. */
 	unsigned act_overlap;
 };
+
+/* Only while the current CPU data phase has explicit local-port timing.
+ * mem_wait excludes the legacy local-data surcharge in that phase. */
+extern bool wremu_local_data_scheduled;
 
 extern struct model model;
 extern uint32_t wremu_cur_pc;
