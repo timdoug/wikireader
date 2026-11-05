@@ -4,6 +4,19 @@ This harness tests emulator and compiler behavior against native execution.
 The same defined C program is compiled for C33 and for the host; both outputs
 must match value for value.
 
+Every target program boots through the real FLASH image, Grifo kernel and
+`init.app`, which selects its generated application in `init.ini`. The old
+bare-program startup and linker script have been removed. A successful run
+requires the complete boot chain, matching nonempty output between application
+markers, and application poweroff. Each run preserves its inputs, hashes,
+compiler/linker identities, raw boot log and comparison result in `DT_WORK`.
+The validated cleanup covers 20 seeds at `-O2` per compiler, two seeds at
+`-O0` and `-Os` per compiler, and four final harness checks: 52 generated
+program runs. GCC 3.3.2 uses default timing; GCC 16.2 uses the optional local
+frontend. The shared application wrapper also passes all four cross-compiler
+ABI combinations, the reduced compiler regression and Doom's 227,672 exact
+arithmetic results. These are functional checks, not timing calibration.
+
 The target compiler and emulator are independent implementations. Agreement
 therefore checks more than running firmware inferred from the same binaries
 used to develop the emulator.
@@ -24,9 +37,19 @@ DT_TC=/path/to/gcc16/install/bin ./run.sh 1 40
 ```
 
 Run the same seeds under `-O0`, `-O1`, `-O2`, `-O3`, and `-Os`.
-Current qualification uses 40 seeds at each level: 200 target executions per
-compiler. GCC 3.3.2 and GCC 16.2 both match the native reference in every
-case.
+Historical bare-program runs used 40 seeds at each level for each compiler;
+those results do not qualify the Grifo boot path. Current path validation
+is recorded separately in `build/wr128/difftest-grifo-review/`.
+
+`DT_WORK`, `DT_OPTS` and `DT_NINSN` retain their existing meanings.
+`DT_WREMU` selects a frozen emulator executable. `DT_LD` selects the production
+linker: the old GCC 3.3.2 linker cannot parse the current application's overlay
+sections. Target code and arithmetic helpers still come from `DT_TC`.
+Existing C tests can use `--source`, `--extra-object` and `--extra-library`;
+`--target-only` requires the caller to compare the resulting values, as the
+ABI harness does. `--file-output` writes large result streams through the
+real Grifo filesystem; Doom uses it to avoid spending its instruction budget
+polling the configured serial transmitter. Output remains compared exactly.
 
 The original compiler is patched for one reduced GCC 3.3.2 optimizer defect:
 it discarded a narrowing signed cast while reassociating a multiply. The
@@ -59,6 +82,11 @@ post-increment memory operations and `rr`. Delay slots are exercised by both
 compilers.
 
 ## Measured ISA coverage
+
+The historical bare-program measurements below are retained for provenance.
+`coverage.sh DIRECTORY ...` now reads only completed, hash-verified Grifo-run
+logs; it does not rerun old ELFs. Its opcode counts include the boot chain and
+application, so they cannot establish application-only coverage.
 
 `wremu -P` reports retired opcodes:
 
@@ -94,5 +122,5 @@ attached coprocessor.
 | `gen.py` | deterministic defined-program generator |
 | `run.sh` | compile target/native, execute, and compare |
 | `coverage.sh` | aggregate retired-opcode histograms |
-| `runtime/` | target startup, I/O, linker script, and native support |
+| `runtime/` | Grifo application entry, target I/O and native support |
 | `compiler-bugs/` | reduced compiler divergences and adjudication |

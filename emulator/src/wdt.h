@@ -32,7 +32,7 @@ struct wdt {
 	unsigned long blocked;   /* writes rejected by the protect register */
 };
 
-void wdt_attach(struct mem *m, struct wdt *w, const struct cmu *cmu,
+void wdt_attach(struct mem *m, struct wdt *w, struct cmu *cmu,
 		const uint64_t *clk);
 void wdt_reset(struct wdt *w);
 /* True once the counter has run past REG_WD_COMP without being kicked. */

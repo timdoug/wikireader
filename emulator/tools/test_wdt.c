@@ -41,6 +41,73 @@ static void ok(const char *what, bool cond)
 		fails++;
 }
 
+static void arm(struct mem *mem, uint32_t period)
+{
+	mem_write(mem, WD_WP, 2, WP_OFF);
+	mem_write(mem, WD_COMP, 4, period - 1);
+	mem_write(mem, WD_CNTL, 2, WDRESEN);
+	mem_write(mem, WD_EN, 2, RUNSTP | NMIEN | RESEN);
+}
+
+static void test_access_boundaries(struct mem *mem, struct wdt *w, uint64_t *clk)
+{
+	wdt_reset(w);
+	arm(mem, 100);
+	*clk += 37;
+	ok("a counter read includes elapsed time without an intervening poll",
+	   mem_read(mem, WD_CNT, 4) == 37);
+	*clk += 62;
+	mem_write(mem, WD_CNTL, 2, WDRESEN);
+	ok("a kick one clock before expiry prevents timeout", !w->expired);
+	*clk += 100;
+	mem_write(mem, WD_CNTL, 2, WDRESEN);
+	ok("a kick at expiry cannot erase an already due timeout",
+	   w->expired && w->nmi_pending && w->timeouts == 1);
+
+	wdt_reset(w);
+	arm(mem, 100);
+	*clk += 100;
+	mem_write(mem, WD_EN, 2, 0);
+	ok("disabling outputs at expiry retains the old enabled timeout",
+	   w->expired && w->nmi_pending);
+
+	wdt_reset(w);
+	arm(mem, 100);
+	*clk += 100;
+	mem_write(mem, WD_COMP, 4, 1000);
+	ok("lengthening the period cannot suppress a due timeout", w->expired);
+
+	wdt_reset(w);
+	*clk += 10000;
+	mem_write(mem, WD_WP, 2, WP_OFF);
+	mem_write(mem, WD_COMP, 4, 99);
+	mem_write(mem, WD_EN, 2, RUNSTP | RESEN);
+	wdt_poll(w);
+	ok("starting the watchdog does not count time spent stopped",
+	   !w->expired && wdt_count(w) == 0);
+	*clk += 43;
+	mem_write(mem, WD_EN, 2, 0);
+	*clk += 1000;
+	mem_write(mem, WD_EN, 2, RUNSTP | RESEN);
+	wdt_poll(w);
+	ok("stop/resume preserves exactly the elapsed running interval",
+	   !w->expired && wdt_count(w) == 43);
+
+	wdt_reset(w);
+	arm(mem, 100);
+	*clk += 61;
+	mem_write(mem, CMU_GATEDCLK1, 4, 0);
+	ok("gating settles the preceding running interval at the write",
+	   wdt_count(w) == 61);
+	*clk += 10000;
+	mem_write(mem, CMU_GATEDCLK1, 4, WDT_CKE);
+	ok("ungating without polls does not accumulate stopped time",
+	   !w->expired && wdt_count(w) == 61);
+	*clk += 39;
+	wdt_poll(w);
+	ok("the remaining deadline after ungating is exact", w->expired);
+}
+
 int main(void)
 {
 	struct mem mem;
@@ -210,6 +277,16 @@ int main(void)
 		ok("and offers one again when the clock comes back",
 		   wdt_deadline(&w, &delay) && delay == 100);
 	}
+
+	test_access_boundaries(&mem, &w, &clk);
+	/* A whole-machine reset must retain clock listener wiring. */
+	cmu_reset(&cmu);
+	wdt_reset(&w);
+	arm(&mem, 100);
+	clk += 17;
+	mem_write(&mem, CMU_PROTECT, 4, 0x96);
+	mem_write(&mem, CMU_GATEDCLK1, 4, 0);
+	ok("clock synchronization remains connected after reset", wdt_count(&w) == 17);
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all watchdog tests passed");

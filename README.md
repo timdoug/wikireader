@@ -233,7 +233,8 @@ Grifo from the card, `init.app`, then whatever application `init.ini` names.
 Always boot this way. If you load an application or kernel directly, it runs
 at the wrong clock speed and skips the hardware setup that Grifo does, so its
 behaviour and timing do not match the device. `wremu` only accepts a bare ELF
-with `--bare-elf`, which exists for the compiler test suites.
+with the legacy `--bare-elf` option. Repository tests and measurements must
+use the complete boot path above; see [`CLAUDE.md`](CLAUDE.md).
 
 Useful options: `-R` resets and runs headless, `-n` limits the number of
 cycles, `-s` traces system calls, and `-K`, `-T` and `-N` send scripted keys,

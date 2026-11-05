@@ -21,6 +21,11 @@ static void emit(u32 v) { printf("%08x\n", v); }
 
 #else
 
+#ifdef DT_FILE_OUTPUT
+/* Large exact-result suites use the real Grifo filesystem. */
+extern void dt_emit(u32 value);
+static void emit(u32 value) { dt_emit(value); }
+#else
 /* EFSIF0, the console the emulator captures. TDBEx is bit 1 of STATUS. */
 #define DT_TXD    (*(volatile unsigned char *)0x00300b00)
 #define DT_STATUS (*(volatile unsigned char *)0x00300b02)
@@ -41,6 +46,7 @@ static void emit(u32 v)
 	dt_putc('\n');
 }
 
+#endif /* DT_FILE_OUTPUT */
 #endif
 
 /* Guards that keep the generated programs free of undefined behaviour. */

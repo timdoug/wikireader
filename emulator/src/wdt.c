@@ -109,6 +109,10 @@ static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 {
 	struct wdt *w = ctx;
 	uint32_t reg = off - WDT_BASE;
+	/* Reads expose the current count. Writes must not erase a timeout
+	   that occurred before the bus transaction, or charge a stopped
+	   interval to a newly enabled counter. */
+	wdt_poll(w);
 
 	if (is_write) {
 		switch (reg) {
@@ -126,7 +130,6 @@ static bool wdt_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 
 				if (trace < 0)
 					trace = getenv("WREMU_WDT_TRACE") != NULL;
-				accrue(w);
 				if (trace)
 					fprintf(stderr, "  [wdt kick at cycle %llu,"
 						" %llu ticks since the last,"
@@ -174,11 +177,18 @@ void wdt_reset(struct wdt *w)
 	w->clk = clk;
 }
 
-void wdt_attach(struct mem *m, struct wdt *w, const struct cmu *cmu,
+static void wdt_clock_sync(void *ctx)
+{
+	wdt_poll(ctx);
+}
+
+void wdt_attach(struct mem *m, struct wdt *w, struct cmu *cmu,
 		const uint64_t *clk)
 {
 	memset(w, 0, sizeof *w);
 	w->cmu = cmu;
 	w->clk = clk;
+	if (cmu)
+		cmu_watch_clock(cmu, wdt_clock_sync, w);
 	mem_add_mmio(m, "wdt", WDT_BASE, WDT_LEN, wdt_mmio, w);
 }

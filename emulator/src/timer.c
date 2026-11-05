@@ -355,9 +355,8 @@ static void timer_sync_to(struct timerblk *t, uint64_t now)
 }
 
 /*
- * CMU writes can happen between instruction polls. Finish the deferred old
- * interval at the previous poll/MMIO boundary, then charge the current
- * interval to the new clock, exactly as eager instruction polling did.
+ * The CMU listener synchronizes the old clock at the actual write boundary.
+ * Direct register changes by model tests still settle at last_observed.
  * Reads of these three registers are cheaper than decoding the clock tree
  * and advancing/rescheduling all six channels on every instruction.
  */
@@ -388,6 +387,11 @@ static void timer_sync(struct timerblk *t)
 	refresh_clock(t);
 	timer_sync_to(t, now);
 	t->last_observed = now;
+}
+
+static void timer_clock_sync(void *ctx)
+{
+	timer_sync(ctx);
 }
 
 void timer_poll(struct timerblk *t, struct c33 *cpu)
@@ -516,11 +520,13 @@ void timer_reset(struct timerblk *t)
 }
 
 void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,
-		  const struct itc *itc, const struct cmu *cmu)
+		  const struct itc *itc, struct cmu *cmu)
 {
 	memset(t, 0, sizeof *t);
 	t->cycles = cycles;
 	t->itc = itc;
 	t->cmu = cmu;
+	if (cmu)
+		cmu_watch_clock(cmu, timer_clock_sync, t);
 	mem_add_mmio(m, "t16", T16_BASE, T16_LEN, timer_mmio, t);
 }

@@ -82,7 +82,7 @@ static void test_poll_cadence(void)
 
 	for (unsigned trial = 0; trial < 2000; trial++) {
 		uint64_t fine_clk = 0, bulk_clk = 0;
-		struct cmu cmu;
+		struct cmu cmu = {0};
 		struct itc fine_itc = {0}, bulk_itc = {0};
 		struct timerblk fine = {0};
 		cmu_reset(&cmu);
@@ -269,7 +269,7 @@ static void test_lazy_poll(void)
 static void test_lazy_boundaries(void)
 {
 	struct mem mem = {0};
-	struct cmu cmu;
+	struct cmu cmu = {0};
 	struct timerblk timer;
 	struct itc itc = {0};
 	uint64_t clk = 0;
@@ -288,23 +288,23 @@ static void test_lazy_boundaries(void)
 	mem_write(&mem, REG_BASE + 0x1b08, 4, 2); /* 60 MHz -> 48 MHz */
 	timer_poll(&timer, NULL);
 	check("clock change preserves the deferred old-rate interval",
-	      mem_read(&mem, TC0, 2), 5);
-	check("clock change charges only the current interval at the new rate",
-	      timer.phase[0], 48000000);
+	      mem_read(&mem, TC0, 2), 6);
+	check("clock change does not retroactively apply the new rate",
+	      timer.phase[0], 0);
 	clk = 7;
 	mem_write(&mem, REG_BASE + 0x1b04, 4, 0);
 	timer_poll(&timer, NULL);
 	clk = 100;
 	timer_poll(&timer, NULL);
 	check("a gated timer retains count without charging the stopped interval",
-	      mem_read(&mem, TC0, 2), 5);
+	      mem_read(&mem, TC0, 2), 6);
 	clk = 101;
 	mem_write(&mem, REG_BASE + 0x1b04, 4, 1u << 13);
 	timer_poll(&timer, NULL);
 	check("ungating retains the fractional clock from before the pause",
 	      mem_read(&mem, TC0, 2), 6);
-	check("ungating charges just one new-rate instruction interval",
-	      timer.phase[0], 36000000);
+	check("ungating does not charge the stopped interval",
+	      timer.phase[0], 48000000);
 	mem_write(&mem, REG_BASE + 0x1b08, 4, 3 | (7u << 20) | (3u << 2));
 	mem_write(&mem, CTL0, 2, PRESET | PRUN);
 	clk += 9;
@@ -325,6 +325,44 @@ static void test_lazy_boundaries(void)
 	timer_poll(&timer, &cpu);
 	check("a deferred timer poll still presents unrelated pending IRQs",
 	      cpu.irq_vector, 20);
+}
+
+static void test_clock_write_boundaries(void)
+{
+	struct mem mem = {0};
+	struct cmu cmu;
+	struct timerblk timer;
+	uint64_t clk = 0;
+	cmu_attach(&mem, &cmu);
+	timer_attach(&mem, &timer, &clk, NULL, &cmu);
+	mem_write(&mem, REG_BASE + 0x1b24, 4, 0x96);
+	mem_write(&mem, REG_BASE + 0x1b0c, 4, (9u << 4) | 1);
+	mem_write(&mem, REG_BASE + 0x1b08, 4, 3 | (7u << 20) | (3u << 2));
+	mem_write(&mem, CR0A, 2, 40);
+	mem_write(&mem, CR0B, 2, 0xffff);
+	mem_write(&mem, CLKCTL0, 2, P16TON);
+	mem_write(&mem, CTL0, 2, PRUN);
+	clk = 40; /* no polls between setup and the clock write */
+	mem_write(&mem, REG_BASE + 0x1b08, 4, 2);
+	check("rate switch settles all preceding clocks at the old rate", timer.count[0], 40);
+	check("rate switch preserves a comparison due at the write", timer.fires[0][0], 1);
+	clk = 50;
+	mem_write(&mem, REG_BASE + 0x1b04, 4, 0);
+	check("gate close settles all preceding clocks at the old rate", timer.count[0], 48);
+	clk = 1000;
+	mem_write(&mem, REG_BASE + 0x1b04, 4, 1u << 13);
+	check("gate open excludes the entire unpolled stopped interval", timer.count[0], 48);
+	clk = 1005;
+	check("count resumes at the newly selected rate", mem_read(&mem, TC0, 2), 52);
+	cmu_reset(&cmu);
+	timer_reset(&timer);
+	mem_write(&mem, REG_BASE + 0x1b24, 4, 0x96);
+	mem_write(&mem, CR0B, 2, 0xffff);
+	mem_write(&mem, CLKCTL0, 2, P16TON);
+	mem_write(&mem, CTL0, 2, PRUN);
+	clk += 10;
+	mem_write(&mem, REG_BASE + 0x1b04, 4, 0);
+	check("timer clock listener survives a whole-machine reset", timer.count[0], 8);
 }
 
 int main(void)
@@ -461,7 +499,7 @@ int main(void)
 	check("timer 2 records its comparison B match", timer.fires[2][1], 1);
 
 	/* OSC3 is 48 MHz; OSC3/32 is 1.5 MHz against the raw 60 MHz clock. */
-	struct cmu cmu;
+	struct cmu cmu = {0};
 	cmu_reset(&cmu);
 	cmu.reg[(0x1b08 - CMU_BASE) / 4] = (5u << 8) | (1u << 1);
 	timer.cmu = &cmu;
@@ -489,6 +527,7 @@ int main(void)
 	test_poll_cadence();
 	test_lazy_poll();
 	test_lazy_boundaries();
+	test_clock_write_boundaries();
 
 	mem_free(&mem);
 	printf("\n%s\n", fails ? "FAILURES" : "all timer tests passed");

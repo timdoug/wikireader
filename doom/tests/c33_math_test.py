@@ -2,7 +2,7 @@
 """Run Doom's native arithmetic in wremu against host 64-bit references."""
 import argparse
 from pathlib import Path
-import re
+import os
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,29 +22,15 @@ def main():
     runtime = ROOT / 'emulator/difftest/runtime'
     cc = args.toolchain / 'c33-epson-elf-gcc'
     common = ['-O2', '-fwrapv', '-fno-strict-aliasing', '-I', runtime]
-    run(['cc', *common, '-DDT_HOST', ROOT / 'doom/tests/math.c', '-o', out / 'host'])
-    expected = run([out / 'host'], capture_output=True).stdout.decode().splitlines()
-    for src, obj in [(ROOT / 'doom/tests/math.c', 'test.o'),
-                     (ROOT / 'doom/c33_math.c', 'math.o')]:
-        run([cc, '-mc33pe', '-mno-long-calls', '-DWR_C33', *common,
-             '-c', src, '-o', out / obj])
-    run([args.toolchain / 'c33-epson-elf-as', '-mc33pe', runtime / 'start.s',
-         '-o', out / 'start.o'])
-    libgcc = run([cc, '-mc33pe', '-print-libgcc-file-name'],
-                 capture_output=True, text=True).stdout.strip()
-    run([args.toolchain / 'c33-epson-elf-ld', '-T', ROOT / 'doom/tests/math.lds',
-         out / 'start.o', out / 'test.o', out / 'math.o', libgcc, '-o', out / 'math.elf'])
-    with (out / 'run.log').open('w') as log:
-        # --bare-elf: this is arithmetic compiled for the core, not firmware.
-        run([ROOT / 'emulator/wremu', '-n', '300000000',
-             '--bare-elf', out / 'math.elf'],
-            cwd=out, stdout=log, stderr=subprocess.STDOUT, timeout=180)
-    log = (out / 'run.log').read_text()
-    actual = re.findall(r'^[0-9a-f]{8}$', log, re.M)
-    if actual != expected:
-        first = next((i for i, (a, b) in enumerate(zip(actual, expected)) if a != b),
-                     min(len(actual), len(expected)))
-        raise RuntimeError(f'C33 math mismatch at result {first}; see {out / "run.log"}')
+    run([cc, '-mc33pe', '-mno-long-calls', '-DWR_C33', *common,
+         '-c', ROOT / 'doom/c33_math.c', '-o', out / 'math.o'])
+    run(['python3', ROOT / 'emulator/difftest/run.py',
+         '--source', ROOT / 'doom/tests/math.c', '--toolchain', args.toolchain,
+         '--work', out / 'grifo', '--extra-object', out / 'math.o',
+         '--target-flags=-mno-long-calls -DWR_C33', '--file-output',
+         '--limit', '2000000000', '--output', out / 'math.out'],
+        env={**os.environ, 'DT_OPTS': '-O2 -fwrapv -fno-strict-aliasing'})
+    actual = (out / 'math.out').read_text().splitlines()
     print(f'C33 math: {len(actual)} exact results passed (including A0 calls)')
 
 

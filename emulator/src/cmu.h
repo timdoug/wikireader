@@ -17,15 +17,25 @@
 #define OSC3_HZ  48000000u
 #define OSC1_HZ  32768u
 
+#define CMU_CLOCK_LISTENERS 4
+
 struct cmu {
 	uint32_t reg[CMU_LEN / 4];
 	unsigned long writes;
 	unsigned long blocked;      /* writes rejected by the protect register */
+	/* Host wiring survives a machine reset. Settle elapsed time before
+	   a new source, divider, PLL or gate can change its interpretation. */
+	struct {
+		void (*sync)(void *ctx);
+		void *ctx;
+	} clock_listener[CMU_CLOCK_LISTENERS];
+	unsigned nclock_listener;
 };
 
 void cmu_attach(struct mem *m, struct cmu *c);
-/* Restore documented power-on values without re-registering the device. */
+/* Restore power-on values, keeping listeners. Attach or zero-initialize first. */
 void cmu_reset(struct cmu *c);
+void cmu_watch_clock(struct cmu *c, void (*sync)(void *), void *ctx);
 /* System clock in Hz implied by the current register contents. */
 uint32_t cmu_mclk_hz(const struct cmu *c);
 /* True when WAKEUPWT selects automatic cancellation of SLEEP. */

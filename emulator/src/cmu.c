@@ -21,6 +21,7 @@
  */
 
 #include <string.h>
+#include <assert.h>
 
 #include "cmu.h"
 
@@ -71,6 +72,10 @@ static bool cmu_mmio(void *ctx, uint32_t off, unsigned size, uint32_t *val,
 			c->blocked++;
 			return true;
 		}
+		if ((reg == OFF_GATEDCLK1 || reg == OFF_CLKCNTL || reg == OFF_PLL) &&
+		    c->reg[idx] != *val)
+			for (unsigned k = 0; k < c->nclock_listener; k++)
+				c->clock_listener[k].sync(c->clock_listener[k].ctx);
 		c->reg[idx] = *val;
 		c->writes++;
 		return true;
@@ -155,7 +160,8 @@ bool cmu_efsio_enabled(const struct cmu *c)
 
 void cmu_reset(struct cmu *c)
 {
-	memset(c, 0, sizeof *c);
+	memset(c->reg, 0, sizeof c->reg);
+	c->writes = c->blocked = 0;
 
 	/* S1C33E07 Technical Manual, CMU register tables, init. column. */
 	c->reg[OFF_GATEDCLK0 / 4] = 0x00000008; /* DSTRAM_CKE */
@@ -167,10 +173,18 @@ void cmu_reset(struct cmu *c)
 
 void cmu_attach(struct mem *m, struct cmu *c)
 {
+	memset(c, 0, sizeof *c);
 	cmu_reset(c);
 	/*
 	 * Reset state is locked, matching the hardware: the first thing every
 	 * driver does is write 0x96.
 	 */
 	mem_add_mmio(m, "cmu", CMU_BASE, CMU_LEN, cmu_mmio, c);
+}
+
+void cmu_watch_clock(struct cmu *c, void (*sync)(void *), void *ctx)
+{
+	assert(c->nclock_listener < CMU_CLOCK_LISTENERS);
+	c->clock_listener[c->nclock_listener].sync = sync;
+	c->clock_listener[c->nclock_listener++].ctx = ctx;
 }

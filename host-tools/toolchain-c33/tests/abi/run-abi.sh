@@ -30,26 +30,23 @@ mkdir -p "${WORK}"
 oldcc() { "${OLD}/c33-epson-elf-gcc" -mc33pe -w ${OPTS} "$@"; }
 newcc() { "${NEW}/c33-epson-elf-gcc" -mc33pe -mno-long-calls -w ${OPTS} "$@"; }
 
-"${OLD}/c33-epson-elf-as" -mc33pe "${DT}/runtime/start.s" -o "${WORK}/start.o" || exit 2
-
 build() {                       # build <name> <callee-cc> <caller-cc>
 	local name=$1 cee=$2 cer=$3
 	${cee} -I"${DT}/runtime" -c "${HERE}/abi-callee.c" -o "${WORK}/${name}-callee.o" \
 		2>"${WORK}/${name}.log" || { echo "${name}: callee compile failed"; return 1; }
-	${cer} -I"${DT}/runtime" -c "${HERE}/abi-caller.c" -o "${WORK}/${name}-caller.o" \
-		2>>"${WORK}/${name}.log" || { echo "${name}: caller compile failed"; return 1; }
 	# Link with the new ld either way: it is the one under test, and the old
 	# one cannot read the new objects' DWARF.  Both libgcc archives are
 	# supplied so whichever half needs a helper finds one, and mini-libc for
 	# the memcpy that a struct copy expands to.
-	"${NEW}/c33-epson-elf-ld" -T "${DT}/runtime/target.lds" \
-		"${WORK}/start.o" "${WORK}/${name}-callee.o" "${WORK}/${name}-caller.o" \
-		"${LIBC}" "$(newcc -print-libgcc-file-name)" "$(oldcc -print-libgcc-file-name)" \
-		-o "${WORK}/${name}.elf" 2>>"${WORK}/${name}.log" \
-		|| { echo "${name}: link failed"; sed -n 1,5p "${WORK}/${name}.log"; return 1; }
-	# --bare-elf: compiler output, not firmware.  See the emulator usage.
-	"${EMU}" -n 200000000 --bare-elf "${WORK}/${name}.elf" 2>&1 |
-		grep -E '^[0-9a-f]{8}$' > "${WORK}/${name}.out"
+	local caller_tc="${OLD}" target_flags=""
+	if [ "$cer" = newcc ]; then caller_tc="${NEW}"; target_flags="-mno-long-calls"; fi
+	DT_TC="$caller_tc" DT_LD="${NEW}/c33-epson-elf-ld" DT_WREMU="${EMU}" \
+	DT_WORK="${WORK}/${name}-grifo" DT_OPTS="${OPTS}" \
+	python3 "${DT}/run.py" --source "${HERE}/abi-caller.c" --target-only \
+		--target-flags="$target_flags" --extra-object "${WORK}/${name}-callee.o" \
+		--extra-library "$LIBC" --extra-library "$(newcc -print-libgcc-file-name)" \
+		--extra-library "$(oldcc -print-libgcc-file-name)" --output "${WORK}/${name}.out" \
+		|| { echo "${name}: Grifo application failed"; return 1; }
 }
 
 fail=0

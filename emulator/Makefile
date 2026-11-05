@@ -157,33 +157,12 @@ C33_BIN ?= $(if $(TOOLCHAIN_BIN),$(TOOLCHAIN_BIN),../host-tools/toolchain-c33/wo
 
 .PHONY: test-wdt-reset
 test-wdt-reset: wremu
-	@if [ ! -x "$(C33_BIN)/c33-epson-elf-as" ] ; then \
-	    echo "test-wdt-reset: no C33 assembler in $(C33_BIN), skipping" ; \
-	else \
-	    "$(C33_BIN)/c33-epson-elf-as" -mc33pe tools/wdt_reset_guest.S \
-		-o /tmp/wdt_reset_guest.o && \
-	    "$(C33_BIN)/c33-epson-elf-ld" -Ttext 0x10000000 -e _start \
-		/tmp/wdt_reset_guest.o -o /tmp/wdt_reset_guest.elf && \
-	    ./wremu --bare-elf -n 200000 /tmp/wdt_reset_guest.elf \
-		> /tmp/test_wdt_reset.log 2>&1 ; \
-	    boots=$$(grep -c '^B' /tmp/test_wdt_reset.log) ; \
-	    resets=$$(sed -n 's/^.*--- resets: \([0-9]*\);.*/\1/p' \
-		/tmp/test_wdt_reset.log) ; \
-	    if [ -z "$$resets" ] || [ "$$resets" -lt 5 ] ; then \
-		echo "test-wdt-reset: FAIL: $${resets:-no} resets in 200000 instructions" ; \
-		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
-	    fi ; \
-	    if [ "$$boots" -ne $$(($$resets + 1)) ] ; then \
-		echo "test-wdt-reset: FAIL: $$boots boot markers for $$resets resets;" ; \
-		echo "  the guest did not run again from its entry point" ; \
-		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
-	    fi ; \
-	    if ! grep -q 'instruction limit reached' /tmp/test_wdt_reset.log ; then \
-		echo "test-wdt-reset: FAIL: -n did not bound the run across resets" ; \
-		echo "  see /tmp/test_wdt_reset.log" ; exit 1 ; \
-	    fi ; \
-	    echo "test-wdt-reset: ok: $$resets resets, $$boots boots, run stayed bounded" ; \
-	fi
+	python3 tools/test_wdt_reset.py --toolchain "$(C33_BIN)"
+
+# Follow event_wait into real Grifo's clock-gated sleep, then wake by button.
+.PHONY: test-suspend
+test-suspend: wremu
+	python3 tools/test_suspend.py --toolchain "$(C33_BIN)"
 
 # CMU protect gate and the 60 MHz the timebase depends on.
 test-cmu: tools/test_cmu.c src/cmu.o src/mem.o src/model.o
@@ -285,7 +264,7 @@ test-sleigh:
 check: test-frontend-cpu test-frontend-native test-dma-write-deadline test-dma-timeline test-cpu-dma-order test-fetch-accounting test-a0-timing test-uart test test-isa test-irq test-itc-select test-exception test-lcd test-adc test-cmu test-timer test-sdramc test-sdramc-fetch test-chipid test-port test-display test-sd test-sd-timing test-fat32-fixture test-mmc-power test-event-wait test-wdt test-wdt-reset test-dma test-gui-boot
 
 .PHONY: test-frontend-cpu
-check: test-sdramc-deferred
+check: test-sdramc-deferred test-suspend
 
 .PHONY: test-sdramc-deferred
 test-sdramc-deferred: tools/test_sdramc_deferred.c src/mem.o src/model.o

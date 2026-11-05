@@ -59,7 +59,7 @@ def compile_driver(stage, toolchain, bits, tx):
     return app
 
 
-def run_driver(stage, app, bits, tx):
+def run_driver(stage, app, bits, tx, wremu):
     card = stage / "card.img"
     fat.make_image(card, {
         "kernel.elf": (ROOT / "samo-lib/grifo/grifo.elf").read_bytes(),
@@ -74,7 +74,7 @@ def run_driver(stage, app, bits, tx):
     flash = stage / "flash.rom"
     subprocess.run([sys.executable, str(ROOT / "samo-lib/mbr/make-flash.py"),
                     str(flash)], check=True, stdout=subprocess.DEVNULL)
-    run = subprocess.run([str(ROOT / "emulator/wremu"), "-R",
+    run = subprocess.run([str(wremu), "-R",
                           "-e", str(flash), "-c", str(card),
                           "-n", "400000000"],
                          cwd=stage, text=True, errors="replace",
@@ -98,6 +98,7 @@ def main():
         default=ROOT / "host-tools/toolchain-c33/work/install/bin")
     parser.add_argument("--bits", type=int, choices=(8, 32), default=32)
     parser.add_argument("--tx", choices=("idma", "hsdma"), default="idma")
+    parser.add_argument("--wremu", type=Path, default=ROOT / "emulator/wremu")
     args = parser.parse_args()
     toolchain = args.toolchain.resolve()
     for name in ("c33-epson-elf-gcc", "c33-epson-elf-strip"):
@@ -106,7 +107,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="wr-sd-dma-") as work:
         stage = Path(work)
         app = compile_driver(stage, toolchain, args.bits, args.tx)
-        run_driver(stage, app, args.bits, args.tx)
+        run_driver(stage, app, args.bits, args.tx, args.wremu.resolve())
 
 
 if __name__ == "__main__":

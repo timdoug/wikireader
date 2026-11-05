@@ -8,6 +8,7 @@ SPI deadline, and the CPU sleeps between SPI DMA bytes, neither of which may
 add a GUI poll delay to every byte.  The card is generated, so the test needs
 only grifo and init.app built; without them it skips."""
 from pathlib import Path
+import argparse
 import importlib.util
 import os
 import re
@@ -19,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 GRIFO = ROOT / 'samo-lib/grifo/grifo.elf'
 INIT = ROOT / 'samo-lib/grifo/applications/init/init.app'
 ICON = ROOT / 'zim/zim.ico'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--wremu', type=Path, default=ROOT / 'emulator/wremu')
+args = parser.parse_args()
 
 missing = [p for p in (GRIFO, INIT, ICON) if not p.is_file()]
 if missing:
@@ -39,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='wr-gui-boot-') as tmp:
         'init.ini': b'a.ico : a.app\nb.ico : b.app\n'}, 64)
     flash = fat.build_flash(tmp)
     env = dict(os.environ, SDL_VIDEODRIVER='dummy')
-    run = subprocess.run([str(ROOT / 'emulator/wremu'), '-g', '-R', '-N', '3,1000000',
+    run = subprocess.run([str(args.wremu.resolve()), '-g', '-R', '-N', '3,1000000',
                           '-n', '25000000', '-e', str(flash), '-c', str(tmp / 'card.img')],
                          cwd=tmp, env=env, capture_output=True, text=True, errors='replace', timeout=120)
     log = run.stdout + run.stderr

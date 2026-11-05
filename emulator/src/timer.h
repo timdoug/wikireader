@@ -56,6 +56,6 @@ void timer_poll(struct timerblk *t, struct c33 *cpu);
 void timer_reset(struct timerblk *t);
 
 void timer_attach(struct mem *m, struct timerblk *t, const uint64_t *cycles,
-		  const struct itc *itc, const struct cmu *cmu);
+		  const struct itc *itc, struct cmu *cmu);
 
 #endif /* TIMER_H */
