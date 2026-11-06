@@ -22,7 +22,6 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
-#include <linux/irqchip/s1c33-itc.h>
 #include <linux/irqdomain.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
@@ -129,7 +128,7 @@ static struct irq_chip s1c33_itc_chip = {
 	.flags = IRQCHIP_SKIP_SET_WAKE,
 };
 
-bool s1c33_itc_is_source(unsigned int vector)
+static bool s1c33_itc_is_source(unsigned int vector)
 {
 	return vector < S1C33_ITC_VECTORS && s1c33_itc_sources[vector].index;
 }
@@ -174,9 +173,16 @@ static const struct irq_domain_ops s1c33_itc_domain_ops = {
 	.xlate = s1c33_itc_xlate,
 };
 
-int s1c33_itc_handle(unsigned int vector)
+/*
+ * Called by the arch's entry path for every trap from vector 16 up, the
+ * maskable interrupts.  The core vectors each cause to its own trap, and
+ * the entry stub stores the vector in the frame.
+ */
+static void s1c33_itc_handle_irq(struct pt_regs *regs)
 {
-	return generic_handle_domain_irq(s1c33_itc_domain, vector);
+	if (unlikely(generic_handle_domain_irq(s1c33_itc_domain, regs->vector)))
+		pr_warn_ratelimited("s1c33-itc: spurious trap vector %lu\n",
+				    regs->vector);
 }
 
 static int __init s1c33_itc_init(struct device_node *node,
@@ -206,6 +212,7 @@ static int __init s1c33_itc_init(struct device_node *node,
 	for (i = 0; i < S1C33_ITC_VECTORS; i++)
 		if (s1c33_itc_sources[i].index)
 			sources++;
+	set_handle_irq(s1c33_itc_handle_irq);
 	pr_info("s1c33-itc: %u interrupt sources, trap vector as hardware interrupt number\n",
 		sources);
 	return 0;

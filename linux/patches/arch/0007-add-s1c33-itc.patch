@@ -10,12 +10,14 @@ diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
 index a61c6dc63..8615f6b93 100644
 --- a/drivers/irqchip/Kconfig
 +++ b/drivers/irqchip/Kconfig
-@@ -354,6 +354,13 @@ config VERSATILE_FPGA_IRQ_NR
+@@ -354,6 +354,15 @@ config VERSATILE_FPGA_IRQ_NR
         default 4
         depends on VERSATILE_FPGA_IRQ
  
 +config S1C33_ITC
-+	bool "Epson S1C33 interrupt controller" if COMPILE_TEST
++	bool
++	depends on C33
++	select GENERIC_IRQ_MULTI_HANDLER
 +	select IRQ_DOMAIN
 +	help
 +	  The interrupt controller of the Epson S1C33 family, which turns

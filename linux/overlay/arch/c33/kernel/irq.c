@@ -5,7 +5,6 @@
 #include <linux/irq-entry-common.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
-#include <linux/irqchip/s1c33-itc.h>
 #include <linux/irqdesc.h>
 #include <linux/io.h>
 #include <linux/mm.h>
@@ -23,6 +22,7 @@
 #define C33_IRQ_FLAG_FIRST    (C33_REG_BASE + 0x280)
 #define C33_SYSCALL_VECTOR    12	/* int 0; int N is vector 12 + N */
 #define C33_BREAKPOINT_VECTOR 15	/* int 3 */
+#define C33_FIRST_IRQ_VECTOR  16	/* the ITC's interrupts, to 255 */
 
 unsigned long c33_boot_ttbr;
 int c33_grifo_booted;
@@ -150,7 +150,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	if (user_mode(regs))
 		current->thread.regs = regs;
 
-	if (!s1c33_itc_is_source(vector) && user_mode(regs)) {
+	if (vector < C33_FIRST_IRQ_VECTOR && user_mode(regs)) {
 		/* A program's fault is the program's: it gets a signal. */
 		state = irqentry_enter(regs);
 		c33_user_fault(vector, regs);
@@ -160,7 +160,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		return regs;
 	}
 
-	if (!s1c33_itc_is_source(vector)) {
+	if (vector < C33_FIRST_IRQ_VECTOR) {
 		int reg;
 
 		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
@@ -182,7 +182,7 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 
 	state = irqentry_enter(regs);
 	irq_enter_rcu();
-	s1c33_itc_handle(vector);
+	handle_arch_irq(regs);
 	irq_exit_rcu();
 	irqentry_exit(regs, state);
 	current->thread.regs = saved_task_regs;
