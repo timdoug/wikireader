@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * The WikiReader with its card on the stock SPI stack instead of the
+ * s1c33-sd host: the synchronous serial interface as an SPI controller and
+ * the card under mmc_spi.  For comparing the two (linux/README.md); the
+ * board's own device tree is wikireader.dts.
+ */
+#include "wikireader.dts"
+
+/delete-node/ &sd;
+
+/* mmc_spi switches no supplies: the card's stay on. */
+&sd_vcc {
+	regulator-always-on;
+	regulator-boot-on;
+};
+
+&sd_buffer {
+	regulator-always-on;
+	regulator-boot-on;
+};
+
+/ {
+	soc {
+		spi@301700 {
+			compatible = "epson,s1c33e07-spi";
+			reg = <0x301700 0x20>;
+			interrupts = <81 0>, <82 0>;
+			interrupt-names = "rx", "tx";
+			clocks = <&cmu S1C33_CLK_SPI>;
+			dmas = <&itc 3 9>, <&itc 2 9>;
+			dma-names = "rx", "tx";
+			cs-gpios = <&pinctrl 40 GPIO_ACTIVE_LOW>;
+			pinctrl-names = "default", "hold";
+			pinctrl-0 = <&sd_pins>;
+			pinctrl-1 = <&sd_hold_pins>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mmc@0 {
+				compatible = "mmc-spi-slot";
+				reg = <0>;
+				spi-max-frequency = <15000000>;
+				voltage-ranges = <3200 3400>;
+			};
+		};
+	};
+};

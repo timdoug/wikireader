@@ -1330,10 +1330,27 @@ serial interface, so the driver is an MMC host in SPI mode that owns the
 interface itself, instead of a generic SPI controller under `mmc_spi`. Its
 protocol handling (commands, responses, data tokens, write handshakes, CRC
 retries) follows `mmc_spi`; its transport is the controller's registers.
-Under `mmc_spi` each 512-byte block cost about four SPI messages, each
-validated, accounted, chip-selected and scheduled, plus a DMA interrupt that
-put the reader to sleep: about 1.9 ms a block on this CPU against 0.3 ms on
-the wire. Here every character is 32 bits, commands and tokens included:
+The stock stack was measured against it: `drivers/spi/spi-s1c33.c` is the
+same interface as a generic SPI controller, polled, a byte a character by
+the CPU and transfers of whole words by HSDMA at 32 bits, and
+`wikireader-mmc-spi.dts` puts the card under `mmc_spi` on it
+(`./mmc-spi-build.sh` in the VM builds that kernel into
+`artifacts/mmc-spi/`). The system boots and runs from the card either way.
+In wremu, reading `/dev/mmcblk0`:
+
+| | `s1c33-sd` | `mmc_spi`, words by DMA | `mmc_spi`, bytes only |
+| --- | --- | --- | --- |
+| 4 MB, 64 KB reads | 2.88 s | 35.9 s | 32.6 s |
+| 1 MB, 4 KB reads | 0.97 s | 9.9 s | 9.0 s |
+
+Profiled over the 4 MB read, the byte path spends half its time moving
+bytes one character at a time, 18% in the generic `crc_itu_t` over every
+block, and about 15% in the SPI core's per-message work (statistics,
+message checks, chip select, delays). With words by DMA the data moves
+faster, but a generic controller cannot pad a transfer to whole words, so
+it changes the character size around every block, which disables the port
+and has to park SCLK through a pin-control state change each time: 16%.
+Here every character is 32 bits, commands and tokens included:
 outgoing bytes are packed into words behind all-ones padding, which the card
 ignores, and the bytes of each word received queue up for whoever reads
 next. Each data block is one HSDMA2/HSDMA3 transfer through DMAengine: the

@@ -1,0 +1,42 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] spi: build the S1C33 SPI controller driver
+
+Kconfig and Makefile entries for the Epson S1C33E07's synchronous serial
+interface as an SPI controller.  The driver's source is in the port's
+overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index a0f37e2df..8de5db6d7 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -1022,6 +1022,16 @@ config SPI_QCOM_GENI
+ 	  This driver can also be built as a module.  If so, the module
+ 	  will be called spi-geni-qcom.
+ 
++config SPI_S1C33
++	tristate "Epson S1C33 synchronous serial interface"
++	depends on C33 || COMPILE_TEST
++	depends on HAS_DMA
++	help
++	  The synchronous serial interface of the Epson S1C33E07 as an SPI
++	  controller, its long transfers by the high-speed DMA controller.
++	  The WikiReader's card normally has a host of its own, s1c33-sd;
++	  this drives the same port for the stock SPI stack.
++
+ config SPI_S3C64XX
+ 	tristate "Samsung S3C64XX/Exynos SoC series type SPI"
+ 	depends on (PLAT_SAMSUNG || ARCH_S5PV210 || ARCH_EXYNOS || COMPILE_TEST)
+diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
+index a18814fbd..a5a3822e6 100644
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -135,6 +135,7 @@ obj-$(CONFIG_SPI_RPCIF)			+= spi-rpc-if.o
+ obj-$(CONFIG_SPI_RSPI)			+= spi-rspi.o
+ obj-$(CONFIG_SPI_RZV2H_RSPI)		+= spi-rzv2h-rspi.o
+ obj-$(CONFIG_SPI_RZV2M_CSI)		+= spi-rzv2m-csi.o
++obj-$(CONFIG_SPI_S1C33)		+= spi-s1c33.o
+ obj-$(CONFIG_SPI_S3C64XX)		+= spi-s3c64xx.o
+ obj-$(CONFIG_SPI_SC18IS602)		+= spi-sc18is602.o
+ obj-$(CONFIG_SPI_SH)			+= spi-sh.o
