@@ -1,0 +1,307 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] doc: the C33
+
+Its options in invoke.texi (summary, menu and section), its machine
+constraints in md.texi and its installation notes in install.texi, each
+between Blackfin and the next target, as the order requires.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
+index 001d16f..869c12c 100644
+--- a/gcc/doc/install.texi
++++ b/gcc/doc/install.texi
+@@ -3965,6 +3965,10 @@ information have to.
+ @item
+ @uref{#bfin,,Blackfin}
+ @item
++@uref{#c33-x-elf,,c33-*-elf}
++@item
++@uref{#c33-x-linux-musl,,c33-*-linux-musl}
++@item
+ @uref{#cris,,cris}
+ @item
+ @uref{#dos,,DOS}
+@@ -4263,6 +4267,31 @@ See ``Blackfin Options'' in the main manual
+ More information, and a version of binutils with support for this processor,
+ are available at @uref{https://sourceforge.net/projects/adi-toolchain/}.
+ 
++@html
++<hr />
++@end html
++@anchor{c33-x-elf}
++@heading c33-*-elf
++Seiko Epson S1C33 (C33) processors, without an operating system.  The
++standard, Advanced and PE cores are supported.
++@ifnothtml
++@xref{C33 Options,, C33 Options, gcc, Using the GNU Compiler
++Collection (GCC)},
++@end ifnothtml
++@ifhtml
++See ``C33 Options'' in the main manual
++@end ifhtml
++for a list of C33-specific options.
++
++@html
++<hr />
++@end html
++@anchor{c33-x-linux-musl}
++@heading c33-*-linux-musl
++No-MMU Linux on the C33 PE core, with musl as the C library.
++Programs and shared libraries are FDPIC ELF: the compiler defaults to
++@option{-mcore=c33pe} and @option{-mfdpic}.
++
+ @html
+ <hr />
+ @end html
+diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
+index 81213fc..676b25a 100644
+--- a/gcc/doc/invoke.texi
++++ b/gcc/doc/invoke.texi
+@@ -1002,6 +1002,12 @@ Objective-C and Objective-C++ Dialects}.
+ -mfast-fp  -minline-plt  -mmulticore  -mcorea  -mcoreb  -msdram
+ -micplb}
+ 
++@emph{C33 Options} (@ref{C33 Options})
++@gccoptlist{-mcore=@var{core}  -mc33  -mc33adv  -mc33pe
++-mlong-calls  -medda32  -msep-data  -mfdpic
++-memcpy  -mbig-switch  -mjump-tables-in-data-section
++-msda=@var{n}}
++
+ @emph{C6X Options} (@ref{C6X Options})
+ @gccoptlist{-mbig-endian  -mlittle-endian  -march=@var{cpu}
+ -msim  -msdata=@var{sdata-type}  -mdsbt  -mlong-calls}
+@@ -21175,6 +21181,7 @@ other compilers on the same platform.
+ * ARM Options::
+ * AVR Options::
+ * Blackfin Options::
++* C33 Options::
+ * C6X Options::
+ * CRIS Options::
+ * C-SKY Options::
+@@ -25078,6 +25085,137 @@ anomaly workarounds.  For Linux targets, the default is to assume ICPLBs
+ are enabled; for standalone applications the default is off.
+ @end table
+ 
++@node C33 Options
++@subsection C33 Options
++@cindex C33 Options
++
++These @samp{-m} options are defined for the Seiko Epson S1C33 (C33)
++family of processors.
++
++@table @gcctabopt
++@opindex mcore
++@item -mcore=@var{core}
++Generate code for the C33 core @var{core}: @samp{c33} for the standard
++core, @samp{c33adv} for the Advanced core, or @samp{c33pe} for the PE
++core.  The default is @samp{c33}, except for
++@samp{c33-*-linux-musl}, where it is @samp{c33pe}.
++
++GCC passes the core to the assembler, which records it in the object
++file; the linker does not link objects built for different cores.  For
++the Advanced and PE cores GCC uses @code{swaph} for 16-bit byte swaps
++and defines the preprocessor macro @code{__c33adv__} or
++@code{__c33pe__}.  For the PE core GCC expands atomic exchange and
++compare-and-swap operations inline, with interrupts disabled around the
++memory access; for the other cores they are calls to the
++@code{__atomic} library functions.
++
++@opindex mc33
++@opindex mc33adv
++@opindex mc33pe
++@item -mc33
++@itemx -mc33adv
++@itemx -mc33pe
++These are the same as @option{-mcore=c33}, @option{-mcore=c33adv} and
++@option{-mcore=c33pe}.
++
++@opindex mlong-calls
++@opindex mno-long-calls
++@item -mlong-calls
++@itemx -mno-long-calls
++Make direct calls and sibling calls with @code{xcall} and @code{xjp},
++whose two @code{ext} prefixes reach the whole 32-bit address space,
++rather than with @code{scall} and @code{sjp}, whose one @code{ext}
++prefix reaches 2 megabytes in either direction.  The default is
++@option{-mno-long-calls}; the linker reports a call that is out of
++range.  For @samp{c33-*-linux-musl} a call to another module goes
++through the calling module's own @code{.plt}, so only a program or
++shared library larger than 2 megabytes needs @option{-mlong-calls}.
++
++@opindex medda32
++@opindex mno-edda32
++@item -medda32
++@itemx -mno-edda32
++@option{-medda32} reaches static and global variables at their absolute
++addresses, which take two @code{ext} prefixes to load.
++@option{-mno-edda32} reaches them through the default data area
++instead: at an offset from @code{%r15} given by a pair of @code{ext}
++prefixes (@code{doff_hi} and @code{doff_lo}), which a single load or
++store can use.  The startup code must then set @code{%r15} to the
++address of the symbol @code{__dp}.  The default is @option{-medda32},
++and the preprocessor macro @code{__C33_EDDA32__} is defined when it is
++in effect.
++
++@option{-msep-data} and @option{-mfdpic} turn @option{-medda32} off;
++giving @option{-medda32} together with either of them is an error.  For
++@samp{c33-*-linux-musl}, @option{-medda32} also turns off the default
++@option{-mfdpic} and @option{-msep-data}.
++
++@opindex msep-data
++@opindex mno-sep-data
++@item -msep-data
++@itemx -mno-sep-data
++Generate code whose text contains no absolute addresses, so that one
++copy of it can be shared by processes that each have their own data
++segment, on a system without an MMU@.  @code{%r15} holds the address of
++the data segment, the symbol @code{__dp}.  Writable variables in data
++and bss sections are reached at offsets from @code{%r15}.  Every other
++address, of a function, a string literal, read-only data or a label, is
++loaded from the constant pool, which this option places in the data
++segment.  Read-only data that holds addresses goes in
++@code{.data.rel.ro}, and switch tables hold offsets rather than
++addresses, so they stay in the text.
++
++The preprocessor macro @code{__C33_SEP_DATA__} is defined.  The default
++is @option{-mno-sep-data}, except for @samp{c33-*-linux-musl}.
++
++@opindex mfdpic
++@opindex mno-fdpic
++@item -mfdpic
++@itemx -mno-fdpic
++Generate code for the FDPIC ABI, which no-MMU Linux uses for programs
++and shared libraries.  FDPIC code is @option{-msep-data} code in which
++each module, a program or a shared library, has its own data segment
++and its own value of @code{%r15}.  A function pointer is the address of
++a function descriptor, which holds the function's entry point and the
++@code{%r15} of the module that defines it.  Data that another module
++may define is reached through a word in the constant pool that the
++dynamic linker fills in, and a call that may enter another module
++restores the caller's @code{%r15} afterwards.
++
++@option{-mfdpic} implies @option{-msep-data}, and defines the
++preprocessor macros @code{__FDPIC__} and @code{__C33_FDPIC__}.  It is
++the default for @samp{c33-*-linux-musl}, whose startup files and
++libraries are FDPIC: code compiled with @option{-mno-fdpic} or
++@option{-medda32} there is for linking by other means, such as a kernel
++or a boot loader, not with the C library.
++
++@opindex memcpy
++@item -memcpy
++This option is accepted for compatibility with older C33 compilers.  It
++has no effect.
++
++@opindex mbig-switch
++@item -mbig-switch
++This option is accepted for compatibility with older C33 compilers.  It
++does not change the object code: switch tables always have 4-byte
++entries, aligned to 4 bytes.
++
++@opindex mjump-tables-in-data-section
++@opindex mno-jump-tables-in-data-section
++@item -mjump-tables-in-data-section
++@itemx -mno-jump-tables-in-data-section
++Put the tables for switch statements in the read-only data section
++rather than in the text section.  The default is
++@option{-mno-jump-tables-in-data-section}.
++
++@opindex msda
++@item -msda=@var{n}
++Put static and global variables of @var{n} bytes or less in the
++@code{.sdata} and @code{.sbss} sections, or @code{.rosdata} for
++constants.  @var{n} can be at most 65536, and the default is 0.  This
++changes where the variables are placed, not how they are addressed.
++@end table
++
+ @node C6X Options
+ @subsection C6X Options
+ @cindex C6X Options
+diff --git a/gcc/doc/md.texi b/gcc/doc/md.texi
+index 90d9b3e..4d1637b 100644
+--- a/gcc/doc/md.texi
++++ b/gcc/doc/md.texi
+@@ -2396,6 +2396,83 @@ An integer constant with all bits set except exactly one.
+ Any SYMBOL_REF.
+ @end table
+ 
++@item C33---@file{config/c33/constraints.md}
++@table @code
++@item c
++A callee-saved register, @code{%r0} to @code{%r3}.
++
++@item f
++The stack pointer, @code{%sp}.
++
++@item Z
++Register @code{%r14}, which holds the target of an indirect sibling
++call.
++
++@item I
++Integer constant 0.
++
++@item J
++A signed 5-bit integer constant, @minus{}16 to 15.
++
++@item K
++A signed 16-bit integer constant.
++
++@item L
++A signed 32-bit integer constant whose low 16 bits are zero.
++
++@item M
++An unsigned 16-bit integer constant.
++
++@item N
++An integer constant from 0 to 31, a shift count.
++
++@item O
++An integer constant from @minus{}255 to 255.
++
++@item G
++A floating-point zero.
++
++@item Q
++A memory operand that one two-byte instruction can reach:
++@code{[%r@var{n}]} or @code{[%r@var{n}]+}.
++
++@item Y
++A memory operand that the bit instructions can reach: a general
++register plus an unsigned 26-bit displacement, or an absolute address.
++@end table
++
++@ifset INTERNALS
++The C33 back end also defines these constraints, which are not intended
++for inline assembler.  Only @code{S} is used by an instruction pattern.
++
++@table @code
++@item S
++A symbol other than one in the zero data area: the target of a direct
++call.
++
++@item b
++A general register or @code{%sp}, the registers usable as a memory
++base.
++
++@item e
++A general register; the same as @code{r}.
++
++@item R
++A symbol in the small, tiny or zero data area, optionally plus a signed
++16-bit offset.
++
++@item U
++A symbol in the zero data area, optionally plus an offset.
++
++@item W
++An integer constant from 0x8000 to 0x3fffff.
++
++@item H
++@itemx P
++These never match.
++@end table
++@end ifset
++
+ @item C-SKY---@file{config/csky/constraints.md}
+ @table @code
+ 

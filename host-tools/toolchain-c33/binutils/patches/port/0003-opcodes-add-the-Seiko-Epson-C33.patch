@@ -1,0 +1,98 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] opcodes: add the Seiko Epson C33
+
+The disassembler entry for bfd_arch_c33, and c33-dis.c and c33-opc.c
+in the build.
+
+The generated Makefile.in and configure carry the matching hunks, edited by hand rather
+than regenerated; a submission regenerates them with automake 1.15.1
+and autoconf 2.69.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/opcodes/Makefile.am b/opcodes/Makefile.am
+index a0fcf4d5..10cf6b44 100644
+--- a/opcodes/Makefile.am
++++ b/opcodes/Makefile.am
+@@ -248,6 +248,8 @@ TARGET32_LIBOPCODES_CFILES = \
+ 	tic6x-dis.c \
+ 	tilepro-dis.c \
+ 	tilepro-opc.c \
++	c33-dis.c \
++	c33-opc.c \
+ 	v850-dis.c \
+ 	v850-opc.c \
+ 	vax-dis.c \
+diff --git a/opcodes/Makefile.in b/opcodes/Makefile.in
+index c5449beb..0dd34d8f 100644
+--- a/opcodes/Makefile.in
++++ b/opcodes/Makefile.in
+@@ -654,6 +654,8 @@ TARGET32_LIBOPCODES_CFILES = \
+ 	tic6x-dis.c \
+ 	tilepro-dis.c \
+ 	tilepro-opc.c \
++	c33-dis.c \
++	c33-opc.c \
+ 	v850-dis.c \
+ 	v850-opc.c \
+ 	vax-dis.c \
+diff --git a/opcodes/configure b/opcodes/configure
+index 8299ef7e..386ec860 100755
+--- a/opcodes/configure
++++ b/opcodes/configure
+@@ -14395,6 +14395,7 @@ if test x${all_targets} = xfalse ; then
+ 	bfd_tic6x_arch)		ta="$ta tic6x-dis.lo" ;;
+ 	bfd_tilegx_arch)	ta="$ta tilegx-dis.lo tilegx-opc.lo" ;;
+ 	bfd_tilepro_arch)	ta="$ta tilepro-dis.lo tilepro-opc.lo" ;;
++	bfd_c33_arch)		ta="$ta c33-opc.lo c33-dis.lo" ;;
+ 	bfd_v850_arch)		ta="$ta v850-opc.lo v850-dis.lo" ;;
+ 	bfd_v850e_arch)		ta="$ta v850-opc.lo v850-dis.lo" ;;
+ 	bfd_v850ea_arch)	ta="$ta v850-opc.lo v850-dis.lo" ;;
+diff --git a/opcodes/configure.ac b/opcodes/configure.ac
+index 2c255659..d5c0388e 100644
+--- a/opcodes/configure.ac
++++ b/opcodes/configure.ac
+@@ -334,6 +334,7 @@ if test x${all_targets} = xfalse ; then
+ 	bfd_tic6x_arch)		ta="$ta tic6x-dis.lo" ;;
+ 	bfd_tilegx_arch)	ta="$ta tilegx-dis.lo tilegx-opc.lo" ;;
+ 	bfd_tilepro_arch)	ta="$ta tilepro-dis.lo tilepro-opc.lo" ;;
++	bfd_c33_arch)		ta="$ta c33-opc.lo c33-dis.lo" ;;
+ 	bfd_v850_arch)		ta="$ta v850-opc.lo v850-dis.lo" ;;
+ 	bfd_v850e_arch)		ta="$ta v850-opc.lo v850-dis.lo" ;;
+ 	bfd_v850ea_arch)	ta="$ta v850-opc.lo v850-dis.lo" ;;
+diff --git a/opcodes/disassemble.c b/opcodes/disassemble.c
+index 77d44bb0..c3b35dd2 100644
+--- a/opcodes/disassemble.c
++++ b/opcodes/disassemble.c
+@@ -93,6 +93,7 @@
+ #define ARCH_tic54x
+ #define ARCH_tic6x
+ #define ARCH_tilepro
++#define ARCH_c33
+ #define ARCH_v850
+ #define ARCH_vax
+ #define ARCH_visium
+@@ -448,6 +449,11 @@ disassembler (enum bfd_architecture a,
+       disassemble = print_insn_ft32;
+       break;
+ #endif
++#ifdef ARCH_c33
++    case bfd_arch_c33:
++      disassemble = print_insn_c33;
++      break;
++#endif
+ #ifdef ARCH_v850
+     case bfd_arch_v850:
+     case bfd_arch_v850_rh850:
+diff --git a/opcodes/disassemble.h b/opcodes/disassemble.h
+index 2157790c..67e243d6 100644
+--- a/opcodes/disassemble.h
++++ b/opcodes/disassemble.h
+@@ -89,6 +89,7 @@ extern int print_insn_tic6x		(bfd_vma, disassemble_info *);
+ extern int print_insn_tilegx		(bfd_vma, disassemble_info *);
+ extern int print_insn_tilepro		(bfd_vma, disassemble_info *);
+ extern int print_insn_v850		(bfd_vma, disassemble_info *);
++extern int print_insn_c33		(bfd_vma, disassemble_info *);
+ extern int print_insn_vax		(bfd_vma, disassemble_info *);
+ extern int print_insn_visium		(bfd_vma, disassemble_info *);
+ extern int print_insn_wasm32		(bfd_vma, disassemble_info *);

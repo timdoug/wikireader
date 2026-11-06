@@ -1,0 +1,59 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] readelf: apply C33 relocations in debug and frame sections
+
+An object's .debug_* sections refer to code and data through R_C33_32,
+and .eh_frame's FDEs address their code PC-relative, R_C33_REL32; without
+these readelf shows zeroes for every DIE's name and address and every
+FDE's range.  R_C33_NONE is the no-op.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/binutils/readelf.c b/binutils/readelf.c
+index 1f7a90e7..3ec9164a 100644
+--- a/binutils/readelf.c
++++ b/binutils/readelf.c
+@@ -106,6 +106,7 @@
+ #include "elf/cris.h"
+ #include "elf/crx.h"
+ #include "elf/csky.h"
++#include "elf/c33.h"
+ #include "elf/d10v.h"
+ #include "elf/d30v.h"
+ #include "elf/dlx.h"
+@@ -2463,6 +2464,10 @@ dump_relocations (Filedata *          filedata,
+ 	case EM_MSP430:
+ 	  if (uses_msp430x_relocs (filedata))
+ 	    {
++    case EM_SE_C33:
++      rtype = c33_reloc_type (type);
++      break;
++
+ 	      rtype = elf_msp430x_reloc_type (type);
+ 	      break;
+ 	    }
+@@ -16104,6 +16109,8 @@ is_32bit_abs_reloc (Filedata * filedata, unsigned int reloc_type)
+   /* Please keep this table alpha-sorted for ease of visual lookup.  */
+   switch (filedata->file_header.e_machine)
+     {
++    case EM_SE_C33:
++      return reloc_type == 1; /* R_C33_32.  */
+     case EM_386:
+     case EM_IAMCU:
+       return reloc_type == 1; /* R_386_32.  */
+@@ -16312,6 +16319,8 @@ is_32bit_pcrel_reloc (Filedata * filedata, unsigned int reloc_type)
+   switch (filedata->file_header.e_machine)
+   /* Please keep this table alpha-sorted for ease of visual lookup.  */
+     {
++    case EM_SE_C33:
++      return reloc_type == 39; /* R_C33_REL32.  */
+     case EM_386:
+     case EM_IAMCU:
+       return reloc_type == 2;  /* R_386_PC32.  */
+@@ -16784,6 +16793,7 @@ is_none_reloc (Filedata * filedata, unsigned int reloc_type)
+ {
+   switch (filedata->file_header.e_machine)
+     {
++    case EM_SE_C33: /* R_C33_NONE.  */
+     case EM_386:     /* R_386_NONE.  */
+     case EM_68K:     /* R_68K_NONE.  */
+     case EM_ADAPTEVA_EPIPHANY:

@@ -1,5 +1,5 @@
-# This port keeps its own sources under directories named gcc/ and binutils/,
-# and a script named gcc-glue.py.  The patterns in ../.gitignore and
+# This port keeps its own sources under directories named gcc/ and
+# binutils/.  The patterns in ../.gitignore and
 # ../../.gitignore ("gcc", "gcc-*", "binutils", "binutils-*") exist for
 # extracted upstream trees like host-tools/gcc-3.3.2, but they match at any
 # depth, so re-include ours here.  A .gitignore closer to the file wins, which
@@ -7,7 +7,6 @@
 !gcc/
 !binutils/
 !gcc/files/gcc/
-!gcc/tools/gcc-glue.py
 
 # What genuinely is disposable: build.sh downloads a tarball into work/ and
 # builds in place.  Everything here is regenerable from files/ plus tools/.

@@ -1,4 +1,4 @@
-/* Definitions of target machine for GNU compiler. NEC C33 series
+/* Definitions of target machine for GNU compiler.  Seiko Epson C33
    Copyright (C) 1996-2026 Free Software Foundation, Inc.
    Contributed by Jeff Law (law@cygnus.com).
 
@@ -107,16 +107,16 @@
 
 /* Define this if most significant bit is lowest numbered
    in instructions that operate on numbered bit-fields.
-   This is not true on the NEC C33.  */
+   This is not true on the C33.  */
 #define BITS_BIG_ENDIAN 0
 
 /* Define this if most significant byte of a word is the lowest numbered.  */
-/* This is not true on the NEC C33.  */
+/* This is not true on the C33.  */
 #define BYTES_BIG_ENDIAN 0
 
 /* Define this if most significant word of a multiword number is lowest
    numbered.
-   This is not true on the NEC C33.  */
+   This is not true on the C33.  */
 #define WORDS_BIG_ENDIAN 0
 
 /* Width of a word, in units (bytes).  */
@@ -177,7 +177,7 @@
 
 /* Define this as 1 if `char' should by default be signed; else as 0.
 
-   On the NEC C33, loads do sign extension, so make this default.  */
+   On the C33, loads do sign extension, so make this default.  */
 #define DEFAULT_SIGNED_CHAR 1
 
 #undef  SIZE_TYPE

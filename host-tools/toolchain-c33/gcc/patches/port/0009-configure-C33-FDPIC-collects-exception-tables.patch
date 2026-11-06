@@ -1,0 +1,69 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] configure: C33 FDPIC collects exception tables
+
+GCC's probes for exception-table garbage collection link an absolute
+address in .text, which an FDPIC link refuses; the linker collects the
+tables correctly.  Answer them as for hppa-linux, so that a COMDAT
+function's table goes in its group.
+
+The generated configure carries the matching hunk, edited by hand rather
+than regenerated; a submission regenerates it with autoconf 2.69.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gcc/configure b/gcc/configure
+index 4a90e86..b821024 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -32881,6 +32881,10 @@ EOF
+   rm -f conftest.s conftest.o conftest
+ fi
+ case "$target" in
++  c33-*-*linux*)
++    # FDPIC refuses the probe; the linker is right.
++    gcc_cv_ld_eh_gc_sections=yes
++    ;;
+   hppa*-*-linux*)
+     # ??? This apparently exposes a binutils bug with PC-relative relocations.
+     gcc_cv_ld_eh_gc_sections=no
+@@ -32933,6 +32937,12 @@ EOF
+   fi
+   rm -f conftest.s conftest.o conftest
+ fi
++case "$target" in
++  c33-*-*linux*)
++    # FDPIC refuses the probe; the linker is right.
++    gcc_cv_ld_eh_gc_sections_bug=no
++    ;;
++esac
+ if test x$gcc_cv_ld_eh_gc_sections_bug = xyes; then
+ 
+ $as_echo "#define HAVE_LD_EH_GC_SECTIONS_BUG 1" >>confdefs.h
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index abf5e4f..3efa827 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -6249,6 +6249,10 @@ EOF
+   rm -f conftest.s conftest.o conftest
+ fi
+ case "$target" in
++  c33-*-*linux*)
++    # FDPIC refuses the probe; the linker is right.
++    gcc_cv_ld_eh_gc_sections=yes
++    ;;
+   hppa*-*-linux*)
+     # ??? This apparently exposes a binutils bug with PC-relative relocations.
+     gcc_cv_ld_eh_gc_sections=no
+@@ -6299,6 +6303,12 @@ EOF
+   fi
+   rm -f conftest.s conftest.o conftest
+ fi
++case "$target" in
++  c33-*-*linux*)
++    # FDPIC refuses the probe; the linker is right.
++    gcc_cv_ld_eh_gc_sections_bug=no
++    ;;
++esac
+ if test x$gcc_cv_ld_eh_gc_sections_bug = xyes; then
+ 	AC_DEFINE(HAVE_LD_EH_GC_SECTIONS_BUG, 1,
+   [Define if your linker has buggy garbage collection of

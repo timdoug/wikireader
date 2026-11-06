@@ -27,5 +27,6 @@ c33-c.o: $(srcdir)/config/c33/c33-c.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h \
 # Local Variables:
 # mode: Makefile
 # End:
-# The TLS slot is copied from the kernel UAPI by gcc-glue.py.
+# c33-linux-tls.h holds the TLS slot; tools/check-tls-slot.sh checks it
+# against the kernel's UAPI.
 c33.o: $(srcdir)/config/c33/c33-linux-tls.h

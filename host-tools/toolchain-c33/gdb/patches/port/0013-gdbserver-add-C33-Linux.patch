@@ -1,0 +1,22 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] gdbserver: add C33 Linux
+
+linux-c33-low.cc, the port's own file, for c33*-*-linux*.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gdbserver/configure.srv b/gdbserver/configure.srv
+index 7bdd92e..4ff557e 100644
+--- a/gdbserver/configure.srv
++++ b/gdbserver/configure.srv
+@@ -96,6 +96,10 @@ case "${gdbserver_host}" in
+ 			srv_linux_regsets=yes
+ 			srv_linux_thread_db=yes
+ 			;;
++  c33*-*-linux*)	srv_tgtobj="$srv_linux_obj linux-c33-low.o"
++			srv_tgtobj="${srv_tgtobj} arch/c33.o"
++			srv_linux_regsets=yes
++			;;
+   csky*-*linux*)	srv_tgtobj="$srv_linux_obj linux-csky-low.o"
+ 			srv_tgtobj="${srv_tgtobj} arch/csky.o"
+ 			srv_linux_regsets=yes

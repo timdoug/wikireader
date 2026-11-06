@@ -46,11 +46,13 @@ cd "${WORK}"
 	"https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/${TARBALL}" "${TARBALL}" \
 	e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 
-# The tarball, files/, gcc-glue.py and patches/ (applied in number order
-# across fixes/ and port/, patches/README.md) are the source; the tree is
-# made from them, rewriting only files whose contents change.
+# The tarball, files/ (the port's own files) and patches/ (its changes to
+# GCC's, applied in number order across fixes/ and port/, patches/README.md)
+# are the source; the tree is made from them, rewriting only files whose
+# contents change.
+"${HERE}/../tools/check-tls-slot.sh"
 "${HERE}/../tools/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" \
-	"${HERE}/files" "${HERE}/tools/gcc-glue.py" "${HERE}/patches"
+	"${HERE}/files" "${HERE}/patches"
 
 CONFIG_MATH=""
 for lib in gmp mpfr libmpc; do

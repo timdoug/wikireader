@@ -1,0 +1,36 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] gdb/nat: no-MMU Linux without uClibc
+
+The ptrace feature probe's CLONE_VM child is GDB's no-MMU path, and it
+is taken only for uClibc.  A no-MMU kernel's compiler defines
+__uClinux__ whatever the C library, and musl's fork() fails without an
+MMU, so take it for __uClinux__ too.  fork_inferior already uses vfork.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gdb/nat/linux-ptrace.c b/gdb/nat/linux-ptrace.c
+index 43c2d3a..9748fec 100644
+--- a/gdb/nat/linux-ptrace.c
++++ b/gdb/nat/linux-ptrace.c
+@@ -317,7 +317,7 @@ linux_fork_to_function (gdb_byte *child_stack, int (*function) (void *))
+   /* Sanity check the function pointer.  */
+   gdb_assert (function != NULL);
+ 
+-#if defined(__UCLIBC__) && defined(HAS_NOMMU)
++#if defined(HAS_NOMMU)
+ #define STACK_SIZE 4096
+ 
+     if (child_stack == NULL)
+diff --git a/gdb/nat/linux-ptrace.h b/gdb/nat/linux-ptrace.h
+index 6cf5c80..f1b3227 100644
+--- a/gdb/nat/linux-ptrace.h
++++ b/gdb/nat/linux-ptrace.h
+@@ -27,6 +27,8 @@
+ #include <asm/ptrace.h>
+ #define HAS_NOMMU
+ #endif
++#elif defined(__uClinux__)
++#define HAS_NOMMU
+ #endif
+ 
+ #if !defined(PTRACE_TYPE_ARG3)

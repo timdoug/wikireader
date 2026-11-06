@@ -1,0 +1,73 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] Add the Seiko Epson C33 target
+
+c33*-*-elf for firmware and c33*-*-linux* for no-MMU FDPIC Linux with
+musl, in config.gcc and libgcc's config.host.  The back end and libgcc's
+C33 files are the port's own, under config/c33.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 7434217..0cb6d71 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -606,6 +606,9 @@ sh[123456789lbe]*-*-* | sh-*-*)
+ 	extra_options="${extra_options} fused-madd.opt"
+ 	extra_objs="${extra_objs} sh_treg_combine.o sh-mem.o sh_optimize_sett_clrt.o"
+ 	;;
++c33*-*-*)
++	cpu_type=c33
++	;;
+ v850*-*-*)
+ 	cpu_type=v850
+ 	;;
+@@ -3637,6 +3640,20 @@ v850-*-rtems*)
+ 	c_target_objs="v850-c.o"
+ 	cxx_target_objs="v850-c.o"
+ 	;;
++c33-*-linux*)
++	tm_file="elfos.h c33/c33.h gnu-user.h linux.h glibc-stdint.h c33/linux.h"
++	tmake_file="${tmake_file} c33/t-linux"
++	c_target_objs="${c_target_objs} c33-c.o"
++	cxx_target_objs="${cxx_target_objs} c33-c.o"
++	;;
++c33-*-*)
++	tm_file="elfos.h newlib-stdint.h c33/c33.h"
++	tmake_file="${tmake_file} c33/t-c33"
++	use_collect2=no
++	c_target_objs="c33-c.o"
++	cxx_target_objs="c33-c.o"
++	use_gcc_stdint=wrap
++	;;
+ v850*-*-*)
+ 	case ${target} in
+ 	v850e3v5-*-*)
+diff --git a/libgcc/config.host b/libgcc/config.host
+index ac10ccc..2e3a727 100644
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -199,6 +199,9 @@ s390*-*-*)
+ sh[123456789lbe]*-*-*)
+ 	cpu_type=sh
+ 	;;
++c33*-*-*)
++	cpu_type=c33
++	;;
+ v850*-*-*)
+ 	cpu_type=v850
+ 	;;
+@@ -1532,6 +1535,14 @@ tic6x-*-elf)
+ 	extra_parts="$extra_parts crtbeginS.o crtendS.o crti.o crtn.o"
+ 	unwind_header=config/c6x/unwind-c6x.h
+ 	;;
++c33-*-linux*)
++	tmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"
++	extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o crtbeginT.o"
++	md_unwind_header=c33/linux-unwind.h
++	;;
++c33-*-*)
++	tmake_file="${tmake_file} c33/t-c33 t-fdpbit"
++	;;
+ v850*-*-*)
+ 	tmake_file="${tmake_file} v850/t-v850 t-fdpbit"
+ 	;;

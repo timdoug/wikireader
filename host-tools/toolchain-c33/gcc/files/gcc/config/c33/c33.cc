@@ -1,4 +1,4 @@
-/* Subroutines for insn-output.cc for NEC C33 series
+/* Subroutines for insn-output.cc for the Seiko Epson C33
    Copyright (C) 1996-2026 Free Software Foundation, Inc.
    Contributed by Jeff Law (law@cygnus.com).
 

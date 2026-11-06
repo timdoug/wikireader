@@ -1,0 +1,31 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ld: elf.sc: INITIAL_DATA_SECTIONS
+
+Sections at the very start of the data segment, before the RELRO group,
+for an emulation that names them.  C33 FDPIC code reaches its data as an
+unsigned offset from __dp, so .got, which __dp opens, must come first.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ld/scripttempl/elf.sc b/ld/scripttempl/elf.sc
+index 2ded3fa3..5ef04975 100644
+--- a/ld/scripttempl/elf.sc
++++ b/ld/scripttempl/elf.sc
+@@ -19,6 +19,8 @@
+ #		(e.g., .PARISC.milli)
+ #	OTHER_TEXT_SECTIONS - these get put in .text when relocating
+ #	INITIAL_READWRITE_SECTIONS - at start of data segment (after relro)
++#	INITIAL_DATA_SECTIONS - at the very start of the data segment,
++#		before the relro sections
+ #	OTHER_READWRITE_SECTIONS - other than .data .bss .ctors .sdata ...
+ #		(e.g., .PARISC.global)
+ #	OTHER_RELRO_SECTIONS - other than .data.rel.ro ...
+@@ -798,6 +800,8 @@ EOF
+ emit_data()
+ {
+ cat <<EOF
++  ${INITIAL_DATA_SECTIONS}
++
+   /* Exception handling.  */
+   .eh_frame     ${RELOCATING-0} : ONLY_IF_RW { KEEP (*(.eh_frame))${RELOCATING+ *(.eh_frame.*)} }
+   .sframe       ${RELOCATING-0} : ONLY_IF_RW { KEEP (*(.sframe))${RELOCATING+ *(.sframe.*)} }

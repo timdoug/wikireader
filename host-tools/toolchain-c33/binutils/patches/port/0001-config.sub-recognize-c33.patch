@@ -1,0 +1,20 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] config.sub: recognize c33
+
+c33, the Seiko Epson S1C33 family, passed only through the Cray
+machines' c[123]* glob.  List it beside c30.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/config.sub b/config.sub
+index 3d35cde1..7d82cf2c 100755
+--- a/config.sub
++++ b/config.sub
+@@ -1286,6 +1286,7 @@ case $cpu-$vendor in
+ 			| bpf \
+ 			| bs2000 \
+ 			| c30 \
++			| c33 \
+ 			| c4x \
+ 			| c8051 \
+ 			| c[123]* \

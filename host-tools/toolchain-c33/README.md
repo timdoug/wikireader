@@ -234,26 +234,27 @@ binutils/build.sh           pristine binutils 2.47 build/install
 binutils/files/             C33 BFD, gas, ld, opcodes, and testsuite sources
 gcc/rebuild.sh              complete GCC 16.2 and libgcc build/install
 gcc/files/                  C33 GCC backend sources
-gcc/patches/                focused upstream GCC correctness patches
+gcc/patches/                GCC's own files patched: fixes, and the port's registration
 gcc/ABI.md                  target ABI and ISA contract
 gcc/README.md               GCC-specific status and validation
 gdb/build.sh                pristine GDB 18.1 build/install for this host
 gdb/files/                  the C33 GDB target (arch/, features/c33/ target descriptions),
                             Linux ABI, FDPIC shared libraries, gdbserver
-gdb/glue.py                 binutils' BFD/opcodes and the target in a GDB tree
+gdb/patches/                GDB's own files patched for the C33 target and gdbserver
 tests/abi/                  old/new cross-link tests
 tests/dejagnu/              standard GCC board and runner
 tests/DEJAGNU-TODO.md       current test and feature backlog
-tools/glue.py               registers C33 in a pristine binutils tree
-tools/gcc-glue.py           registers C33 in a pristine GCC tree
 tools/prepare-source.sh     makes a source tree exactly its tarball and this repo
+tools/check-tls-slot.sh     checks GCC's TLS slot against the kernel's
 tools/compare-with-oracle.sh assembler comparison
 ```
 
 Build trees live under `host-tools/toolchain-c33/work/` (in the VM,
 `~/wr-linux/toolchain/`) and are disposable. The maintained target sources
-live under `binutils/files/`, `gcc/files/`, and `gcc/patches/`. Every build
-makes its source tree exactly the tarball plus those and the glue
+live under `binutils/files/`, `gcc/files/` and `gdb/files/`, the port's own
+files, and `binutils/patches/`, `gcc/patches/` and `gdb/patches/`, its changes
+to upstream's; GDB's tree also takes binutils' BFD and opcodes, files and
+patches. Every build makes its source tree exactly the tarball plus those
 (`tools/prepare-source.sh`): when they or the tree have changed since it
 last ran (by each file's size and time), a fresh tree is made from them and
 synced in by content, so files whose contents are unchanged keep their

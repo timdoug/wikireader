@@ -9,7 +9,13 @@ a tree made afresh from the tarball whenever they or the tree change.
   restricting ARM's FDPIC EH encodings to ARM, and FDPIC's `dl_phdr_info`
   load map in libgcc's unwind-table discovery.
 - `port/`: the C33 port's changes to shared code: C33 FDPIC beside FRV's
-  and Blackfin's in libgcc's unwind-table discovery.
+  and Blackfin's in libgcc's unwind-table discovery; `config.sub`; the
+  target in `config.gcc` and libgcc's `config.host`; configure's answer to
+  the exception-table GC probes for C33 FDPIC; the C33 in the manual; and
+  the testsuite's per-target expectations.
+
+The generated `gcc/configure` carries a hunk matching `configure.ac`'s,
+edited by hand; a submission regenerates it with autoconf 2.69.
 
 crtstuff's use of `PT_GNU_EH_FRAME` with musl is the target's own
 choice, in `config/c33/linux.h`, beside its `CRT_GET_RFIB_DATA`.

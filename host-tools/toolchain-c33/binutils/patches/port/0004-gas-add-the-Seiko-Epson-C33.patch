@@ -1,0 +1,143 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] gas: add the Seiko Epson C33
+
+The target, its manual chapter (c-c33.texi, enabled by @set C33) and its
+build entries.  A Linux target gets TE_LINUX, under which the assembler
+makes FDPIC objects by default, as FRV's does.
+
+The generated Makefile.in carry the matching hunks, edited by hand rather
+than regenerated; a submission regenerates them with automake 1.15.1.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gas/Makefile.am b/gas/Makefile.am
+index 9f90a1de..8fafdf25 100644
+--- a/gas/Makefile.am
++++ b/gas/Makefile.am
+@@ -206,6 +206,7 @@ TARGET_CPU_CFILES = \
+ 	config/tc-tic6x.c \
+ 	config/tc-tilegx.c \
+ 	config/tc-tilepro.c \
++	config/tc-c33.c \
+ 	config/tc-v850.c \
+ 	config/tc-vax.c \
+ 	config/tc-visium.c \
+@@ -279,6 +280,7 @@ TARGET_CPU_HFILES = \
+ 	config/tc-tic6x.h \
+ 	config/tc-tilegx.h \
+ 	config/tc-tilepro.h \
++	config/tc-c33.h \
+ 	config/tc-v850.h \
+ 	config/tc-vax.h \
+ 	config/tc-visium.h \
+diff --git a/gas/Makefile.in b/gas/Makefile.in
+index b2bb505c..be2e89f8 100644
+--- a/gas/Makefile.in
++++ b/gas/Makefile.in
+@@ -708,6 +708,7 @@ TARGET_CPU_CFILES = \
+ 	config/tc-tic6x.c \
+ 	config/tc-tilegx.c \
+ 	config/tc-tilepro.c \
++	config/tc-c33.c \
+ 	config/tc-v850.c \
+ 	config/tc-vax.c \
+ 	config/tc-visium.c \
+@@ -781,6 +782,7 @@ TARGET_CPU_HFILES = \
+ 	config/tc-tic6x.h \
+ 	config/tc-tilegx.h \
+ 	config/tc-tilepro.h \
++	config/tc-c33.h \
+ 	config/tc-v850.h \
+ 	config/tc-vax.h \
+ 	config/tc-visium.h \
+@@ -974,6 +976,7 @@ CPU_DOCS = \
+ 	doc/c-avr.texi \
+ 	doc/c-bfin.texi \
+ 	doc/c-bpf.texi \
++	doc/c-c33.texi \
+ 	doc/c-cr16.texi \
+ 	doc/c-cris.texi \
+ 	doc/c-csky.texi \
+diff --git a/gas/configure.tgt b/gas/configure.tgt
+index 7a5645fd..536c628a 100644
+--- a/gas/configure.tgt
++++ b/gas/configure.tgt
+@@ -113,6 +113,7 @@ case ${cpu} in
+   tilegx*be)		cpu_type=tilegx endian=big ;;
+   tilegx*)		cpu_type=tilegx endian=little ;;
+   v850*)		cpu_type=v850 ;;
++  c33*)			cpu_type=c33 ;;
+   visium)		cpu_type=visium endian=big ;;
+   wasm32)               cpu_type=wasm32 endian=little ;;
+   x86_64*)		cpu_type=i386 arch=x86_64;;
+@@ -420,6 +421,8 @@ case ${generic_target} in
+   tilepro-*-* | tilegx*-*-*)		fmt=elf ;;
+ 
+   v850*-*-*)				fmt=elf ;;
++  c33-*-*linux*)			fmt=elf em=linux ;;
++  c33-*-*)				fmt=elf ;;
+ 
+   vax-*-netbsdaout)			fmt=aout em=nbsd ;;
+   vax-*-netbsd*)			fmt=elf em=nbsd ;;
+diff --git a/gas/doc/all.texi b/gas/doc/all.texi
+index 83418951..81d77d15 100644
+--- a/gas/doc/all.texi
++++ b/gas/doc/all.texi
+@@ -31,6 +31,7 @@
+ @set AVR
+ @set Blackfin
+ @set BPF
++@set C33
+ @set CR16
+ @set CRIS
+ @set CSKY
+diff --git a/gas/doc/as.texi b/gas/doc/as.texi
+index 5d7772d6..b6739694 100644
+--- a/gas/doc/as.texi
++++ b/gas/doc/as.texi
+@@ -326,6 +326,12 @@ gcc(1), ld(1), and the Info entries for @file{binutils} and @file{ld}.
+ @emph{Target BPF options:}
+    [@b{-EL}] [@b{-EB}]
+ @end ifset
++@ifset C33
++
++@emph{Target C33 options:}
++   [@b{-mc33adv}|@b{-mc33pe}] [@b{-medda32}]
++   [@b{-mfdpic}|@b{-mno-fdpic}]
++@end ifset
+ @ifset CRIS
+ 
+ @emph{Target CRIS options:}
+@@ -8291,6 +8297,9 @@ subject, see the hardware manufacturer's manual.
+ @ifset BPF
+ * BPF-Dependent::		BPF Dependent Features
+ @end ifset
++@ifset C33
++* C33-Dependent::               C33 Dependent Features
++@end ifset
+ @ifset CR16
+ * CR16-Dependent::              CR16 Dependent Features
+ @end ifset
+@@ -8485,6 +8494,10 @@ subject, see the hardware manufacturer's manual.
+ @include c-bpf.texi
+ @end ifset
+ 
++@ifset C33
++@include c-c33.texi
++@end ifset
++
+ @ifset CR16
+ @include c-cr16.texi
+ @end ifset
+diff --git a/gas/doc/local.mk b/gas/doc/local.mk
+index 4185cfe9..943eebfa 100644
+--- a/gas/doc/local.mk
++++ b/gas/doc/local.mk
+@@ -52,6 +52,7 @@ CPU_DOCS = \
+ 	%D%/c-avr.texi \
+ 	%D%/c-bfin.texi \
+ 	%D%/c-bpf.texi \
++	%D%/c-c33.texi \
+ 	%D%/c-cr16.texi \
+ 	%D%/c-cris.texi \
+ 	%D%/c-csky.texi \

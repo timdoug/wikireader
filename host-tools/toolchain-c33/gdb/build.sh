@@ -7,7 +7,8 @@
 # Produces c33-linux-musl-gdb in $workdir/install: it reads C33 programs,
 # their core files and FDPIC shared libraries.  C33_TARGET selects another
 # triplet, such as c33-epson-elf for bare metal.  GDB's BFD and opcodes are
-# binutils' C33 ones (../binutils), which glue.py copies in.
+# binutils' C33 ones: ../binutils' files and its patches for config.sub,
+# BFD and opcodes, which apply to GDB's copies.
 #
 # C33_GDBSERVER=1, in the Linux VM once the C library and the final
 # compiler are installed (linux/toolchain.sh final), instead cross-builds
@@ -32,9 +33,17 @@ cd "${WORK}"
 
 "${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
-PREPARE_EXTRA="${HERE}/../binutils/files:${TOOLS}/glue.py" \
-	"${TOOLS}/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" \
-	"${HERE}/files" "${HERE}/glue.py"
+BINUTILS="${HERE}/../binutils"
+OVERLAYS="${HERE}/files"
+for part in bfd opcodes include; do
+	OVERLAYS="${OVERLAYS}:${BINUTILS}/files/${part}=${part}"
+done
+PATCHES="${HERE}/patches"
+for p in "${BINUTILS}"/patches/port/000[123]-*.patch; do
+	PATCHES="${PATCHES}:${p}"
+done
+"${TOOLS}/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" "${OVERLAYS}" \
+	"${PATCHES}"
 
 if [ "${C33_GDBSERVER:-}" = 1 ]; then
 	PREFIX="${WORK}/install"

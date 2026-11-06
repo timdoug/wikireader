@@ -105,6 +105,6 @@ extern int c33_regname_to_dw2regnum (char *);
 
 
 #define MD_PCREL_FROM_SECTION(fixP,section) c33_pcrel_from_section (fixP, section)
-extern long c33_pcrel_from_section ();
+extern long c33_pcrel_from_section (struct fix *, segT);
 
 #define LEX_PCT  LEX_BEGIN_NAME	/* %��L���ɂ��� */

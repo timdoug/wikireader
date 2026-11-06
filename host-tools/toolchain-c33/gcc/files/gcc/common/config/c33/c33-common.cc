@@ -1,4 +1,4 @@
-/* Common hooks for NEC C33 series.
+/* Common hooks for the Seiko Epson C33.
    Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
    This file is part of GCC.

@@ -1588,7 +1588,7 @@ it, whose linker differed only in its default interpreter:
 | ld | 724 passes, 24 expected failures, 28 untested, 209 unsupported |
 
 The expected failures are the ones upstream already expects of FRV and
-Blackfin FDPIC, added for `c33-*-*linux*` by `glue.py`: the linker refuses
+Blackfin FDPIC, added for `c33-*-*linux*` by binutils' `port/0008` patch: the linker refuses
 an absolute address in a read-only segment, which the loader cannot
 relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
 
@@ -1600,7 +1600,7 @@ failures**. 204 were unsupported: nested-function trampolines, which GCC
 does not make for `-mfdpic`, 128-bit integers, decimal float, uClibc-ng's
 partial C99 math, and GCC's expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
 suite: 39,553 passes and no failures, with the same per-target expectations
-upstream gives other ports, added by `gcc-glue.py`: no MMU (a null store
+upstream gives other ports, added by GCC's `port/0011` patch: no MMU (a null store
 does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
 musl has no `_FORTIFY_SOURCE` functions and its libm reports errors by
 exception, not `errno`. `run.py --tool=g++` runs `g++.dg`, its torture and

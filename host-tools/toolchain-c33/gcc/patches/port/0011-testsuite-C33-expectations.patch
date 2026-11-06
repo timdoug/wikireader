@@ -1,0 +1,263 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] testsuite: C33 expectations
+
+The per-target expectations upstream gives other ports:
+
+- The PE core has no divide instructions; libgcc divides, and a zero
+  divisor does not trap (20101011-1.c, as for csky and or1k).
+- No MMU: a store through a null pointer does not fault, and mprotect
+  cannot make a guard page.
+- musl has no _FORTIFY_SOURCE functions, and its libm reports errors by
+  exception only (math_errhandling 2).
+- FDPIC code is always PIC, as ARM's, and -msep-data keeps the constant
+  pool in .data.
+- No conditional moves; the frame adds the 16-byte %r0-%r3 save block;
+  the widening multiply is dumped as " w* "; a binary64 long double
+  overflows at 1e4000L.
+- Four and five megabytes in one piece, on the stack or in .bss, are more
+  than a no-MMU process of 32 MB is given.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C b/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C
+index 260448a..ac9b526 100644
+--- a/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C
++++ b/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C
+@@ -6,4 +6,4 @@
+ 
+ const auto x = { 1, 2 };
+ 
+-// { dg-final { scan-assembler-not {\.data} { xfail hppa*-*-hpux* powerpc-ibm-aix* } } }
++// { dg-final { scan-assembler-not {\.data} { xfail hppa*-*-hpux* powerpc-ibm-aix* c33-*-*linux* } } }
+diff --git a/gcc/testsuite/g++.dg/ext/cleanup-10.C b/gcc/testsuite/g++.dg/ext/cleanup-10.C
+index 0d535e4..bd34489 100644
+--- a/gcc/testsuite/g++.dg/ext/cleanup-10.C
++++ b/gcc/testsuite/g++.dg/ext/cleanup-10.C
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-skip-if "requires hosted libstdc++ for stdlib malloc" { ! hostedlib } } */
+ /* Verify that cleanups work with exception handling through signal frames
+diff --git a/gcc/testsuite/g++.dg/ext/cleanup-11.C b/gcc/testsuite/g++.dg/ext/cleanup-11.C
+index b9e7426..f107a2e 100644
+--- a/gcc/testsuite/g++.dg/ext/cleanup-11.C
++++ b/gcc/testsuite/g++.dg/ext/cleanup-11.C
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-skip-if "requires hosted libstdc++ for stdlib malloc" { ! hostedlib } } */
+ /* Verify that cleanups work with exception handling through realtime signal
+diff --git a/gcc/testsuite/g++.dg/ext/cleanup-8.C b/gcc/testsuite/g++.dg/ext/cleanup-8.C
+index 13d55f1..a4a33d0 100644
+--- a/gcc/testsuite/g++.dg/ext/cleanup-8.C
++++ b/gcc/testsuite/g++.dg/ext/cleanup-8.C
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-skip-if "requires hosted libstdc++ for stdlib malloc" { ! hostedlib } } */
+ /* Verify that cleanups work with exception handling through signal
+diff --git a/gcc/testsuite/g++.dg/ext/cleanup-9.C b/gcc/testsuite/g++.dg/ext/cleanup-9.C
+index 282df75..95f67ad 100644
+--- a/gcc/testsuite/g++.dg/ext/cleanup-9.C
++++ b/gcc/testsuite/g++.dg/ext/cleanup-9.C
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-skip-if "requires hosted libstdc++ for stdlib malloc" { ! hostedlib } } */
+ /* Verify that cleanups work with exception handling through realtime
+diff --git a/gcc/testsuite/g++.dg/init/array15.C b/gcc/testsuite/g++.dg/init/array15.C
+index 024d93e..bddeaaf 100644
+--- a/gcc/testsuite/g++.dg/init/array15.C
++++ b/gcc/testsuite/g++.dg/init/array15.C
+@@ -1,4 +1,5 @@
+ // { dg-do run }
++// { dg-skip-if "no MMU: 4-5 MB in one piece" { c33-*-*linux* } }
+ // { dg-require-effective-target size24plus }
+ 
+ // Copyright (C) 2004 Free Software Foundation, Inc.
+diff --git a/gcc/testsuite/g++.dg/init/array16.C b/gcc/testsuite/g++.dg/init/array16.C
+index 2f6c63d..c37e18a 100644
+--- a/gcc/testsuite/g++.dg/init/array16.C
++++ b/gcc/testsuite/g++.dg/init/array16.C
+@@ -1,6 +1,7 @@
+ // Causes timeout for the MMIX simulator on a 3GHz P4 and we can't
+ // have "compile" for some targets and "run" for others.
+ // { dg-do run { target { ! mmix-*-* } } }
++// { dg-skip-if "no MMU: 4-5 MB in one piece" { c33-*-*linux* } }
+ 
+ // Copyright (C) 2004 Free Software Foundation, Inc.
+ // Contributed by Nathan Sidwell 8 Dec 2004 <nathan@codesourcery.com>
+diff --git a/gcc/testsuite/gcc.c-torture/execute/20101011-1.c b/gcc/testsuite/gcc.c-torture/execute/20101011-1.c
+index 9fdfb52..61f8605 100644
+--- a/gcc/testsuite/gcc.c-torture/execute/20101011-1.c
++++ b/gcc/testsuite/gcc.c-torture/execute/20101011-1.c
+@@ -100,6 +100,9 @@ __aeabi_idiv0 (int return_value)
+ #elif defined (__or1k__)
+   /* On OpenRISC division by zero does not trap.  */
+ # define DO_TEST 0
++#elif defined (__c33__)
++  /* C33 PE divides in libgcc, which does not trap.  */
++# define DO_TEST 0
+ #elif defined (__pru__)
+ /* There isn't even a signal function.  */
+ # define DO_TEST 0
+diff --git a/gcc/testsuite/gcc.dg/20020312-2.c b/gcc/testsuite/gcc.dg/20020312-2.c
+index 16a04c1..4d64318 100644
+--- a/gcc/testsuite/gcc.dg/20020312-2.c
++++ b/gcc/testsuite/gcc.dg/20020312-2.c
+@@ -9,7 +9,7 @@
+ /* { dg-options "-O -fno-pic" } */
+ /* { dg-additional-options "-no-pie" { target pie_enabled } } */
+ /* { dg-require-effective-target nonlocal_goto } */
+-/* { dg-skip-if "" { arm*-*-uclinuxfdpiceabi } "*" "" } */
++/* { dg-skip-if "" { arm*-*-uclinuxfdpiceabi c33-*-*linux* } "*" "" } */
+ 
+ extern void abort (void);
+ 
+diff --git a/gcc/testsuite/gcc.dg/cleanup-10.c b/gcc/testsuite/gcc.dg/cleanup-10.c
+index 9fc8658..040baab 100644
+--- a/gcc/testsuite/gcc.dg/cleanup-10.c
++++ b/gcc/testsuite/gcc.dg/cleanup-10.c
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-require-effective-target exceptions } */
+ /* Verify that cleanups work with exception handling through signal frames
+diff --git a/gcc/testsuite/gcc.dg/cleanup-11.c b/gcc/testsuite/gcc.dg/cleanup-11.c
+index 6b499d4..a309774 100644
+--- a/gcc/testsuite/gcc.dg/cleanup-11.c
++++ b/gcc/testsuite/gcc.dg/cleanup-11.c
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-require-effective-target exceptions } */
+ /* Verify that cleanups work with exception handling through realtime signal
+diff --git a/gcc/testsuite/gcc.dg/cleanup-8.c b/gcc/testsuite/gcc.dg/cleanup-8.c
+index 87f4186..61d8240 100644
+--- a/gcc/testsuite/gcc.dg/cleanup-8.c
++++ b/gcc/testsuite/gcc.dg/cleanup-8.c
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-require-effective-target exceptions } */
+ /* Verify that cleanups work with exception handling through signal
+diff --git a/gcc/testsuite/gcc.dg/cleanup-9.c b/gcc/testsuite/gcc.dg/cleanup-9.c
+index d34ce12..70838c3 100644
+--- a/gcc/testsuite/gcc.dg/cleanup-9.c
++++ b/gcc/testsuite/gcc.dg/cleanup-9.c
+@@ -1,4 +1,5 @@
+ /* { dg-do run { target hppa*-*-hpux* *-*-linux* *-*-gnu* powerpc*-*-darwin* *-*-darwin[912]* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: a null store does not fault" { c33-*-*linux* } } */
+ /* { dg-options "-fexceptions -fnon-call-exceptions -O2" } */
+ /* { dg-require-effective-target exceptions } */
+ /* Verify that cleanups work with exception handling through realtime
+diff --git a/gcc/testsuite/gcc.dg/errno-2.c b/gcc/testsuite/gcc.dg/errno-2.c
+index b7e7917..9cd0e2a 100644
+--- a/gcc/testsuite/gcc.dg/errno-2.c
++++ b/gcc/testsuite/gcc.dg/errno-2.c
+@@ -1,5 +1,6 @@
+ /* PR middle-end/123826 */
+ /* { dg-do run } */
++/* { dg-skip-if "musl libm does not set errno" { c33-*-*linux* } } */
+ /* { dg-options "-O2" } */
+ 
+ #ifdef __NO_MATH_ERRNO__
+diff --git a/gcc/testsuite/gcc.dg/errno-3.c b/gcc/testsuite/gcc.dg/errno-3.c
+index df985b2..ff16cfd 100644
+--- a/gcc/testsuite/gcc.dg/errno-3.c
++++ b/gcc/testsuite/gcc.dg/errno-3.c
+@@ -1,5 +1,6 @@
+ /* PR middle-end/123826 */
+ /* { dg-do run } */
++/* { dg-skip-if "musl libm does not set errno" { c33-*-*linux* } } */
+ /* { dg-options "-O2" } */
+ 
+ #ifdef __NO_MATH_ERRNO__
+diff --git a/gcc/testsuite/gcc.dg/errno-4.c b/gcc/testsuite/gcc.dg/errno-4.c
+index d7b80c1..7122201 100644
+--- a/gcc/testsuite/gcc.dg/errno-4.c
++++ b/gcc/testsuite/gcc.dg/errno-4.c
+@@ -1,5 +1,6 @@
+ /* PR middle-end/123826 */
+ /* { dg-do run } */
++/* { dg-skip-if "musl libm does not set errno" { c33-*-*linux* } } */
+ /* { dg-options "-O2" } */
+ 
+ #ifdef __NO_MATH_ERRNO__
+diff --git a/gcc/testsuite/gcc.dg/ifcvt-4.c b/gcc/testsuite/gcc.dg/ifcvt-4.c
+index 485352d..3804fcd 100644
+--- a/gcc/testsuite/gcc.dg/ifcvt-4.c
++++ b/gcc/testsuite/gcc.dg/ifcvt-4.c
+@@ -2,7 +2,7 @@
+ /* { dg-additional-options "-misel" { target { powerpc*-*-* } } } */
+ /* { dg-additional-options "-march=z196" { target { s390x-*-* } } } */
+ /* { dg-additional-options "-mtune-ctrl=^one_if_conv_insn" { target { i?86-*-* x86_64-*-* } } } */
+-/* { dg-skip-if "Multiple set if-conversion not guaranteed on all subtargets" { "arm*-*-* avr-*-* cris-*-* hppa*64*-*-* visium-*-*" riscv*-*-* msp430-*-* pru-*-* loongarch32-*-* } }  */
++/* { dg-skip-if "Multiple set if-conversion not guaranteed on all subtargets" { "arm*-*-* avr-*-* cris-*-* hppa*64*-*-* visium-*-*" riscv*-*-* msp430-*-* pru-*-* loongarch32-*-* c33-*-* } }  */
+ /* { dg-skip-if "" { { sparc*-*-* } && { ! sparc_v9 } } }  */
+ /* { dg-skip-if "" { "s390x-*-*" } { "-m31" } }  */
+ 
+diff --git a/gcc/testsuite/gcc.dg/pr126464.c b/gcc/testsuite/gcc.dg/pr126464.c
+index b6eb132..94ed104 100644
+--- a/gcc/testsuite/gcc.dg/pr126464.c
++++ b/gcc/testsuite/gcc.dg/pr126464.c
+@@ -1,6 +1,7 @@
+ /* PR tree-optimization/126464 */
+ /* { dg-do run } */
+ /* { dg-options "-O2" } */
++/* { dg-additional-options "-Wno-overflow" { target { ! large_long_double } } } */
+ /* { dg-add-options ieee } */
+ /* { dg-skip-if "not IEEE float" { "pdp11-*-*" } } */
+ 
+diff --git a/gcc/testsuite/gcc.dg/pr87954.c b/gcc/testsuite/gcc.dg/pr87954.c
+index 80d0543..d6e900d 100644
+--- a/gcc/testsuite/gcc.dg/pr87954.c
++++ b/gcc/testsuite/gcc.dg/pr87954.c
+@@ -18,4 +18,4 @@ imul(unsigned int flags)
+   return type_dma + (is_rec * !is_dma) * KMALLOC_RECLAIM;
+ }
+ 
+-/* { dg-final { scan-tree-dump-times { \*w? |WIDEN_MULT_PLUS_EXPR} 1 "optimized" } } */
++/* { dg-final { scan-tree-dump-times { \*w? | w\* |WIDEN_MULT_PLUS_EXPR} 1 "optimized" } } */
+diff --git a/gcc/testsuite/gcc.dg/stack-usage-1.c b/gcc/testsuite/gcc.dg/stack-usage-1.c
+index 8714c57..bc679aa 100644
+--- a/gcc/testsuite/gcc.dg/stack-usage-1.c
++++ b/gcc/testsuite/gcc.dg/stack-usage-1.c
+@@ -103,6 +103,8 @@
+ #  define SIZE 252
+ #elif defined (__CRIS__)
+ #  define SIZE 252
++#elif defined (__c33__)
++#  define SIZE 240 /* 256 - 16 bytes for %r0-%r3 */
+ #elif defined (__loongarch__)
+ #  define SIZE 240   /* 256 - 8 bytes for $fp, and 8 bytes for a temp value */
+ #else
+diff --git a/gcc/testsuite/gcc.dg/strlenopt-2f.c b/gcc/testsuite/gcc.dg/strlenopt-2f.c
+index c0c7f38..55c3649 100644
+--- a/gcc/testsuite/gcc.dg/strlenopt-2f.c
++++ b/gcc/testsuite/gcc.dg/strlenopt-2f.c
+@@ -1,5 +1,6 @@
+ /* This test needs runtime that provides __*_chk functions.  */
+ /* { dg-do run { target *-*-linux* *-*-gnu* *-*-uclinux* } } */
++/* { dg-skip-if "musl has no __memcpy_chk" { c33-*-*linux* } } */
+ /* { dg-options "-O2 -fdump-tree-strlen" } */
+ 
+ #define FORTIFY_SOURCE 2
+diff --git a/gcc/testsuite/gcc.dg/strncmp-2.c b/gcc/testsuite/gcc.dg/strncmp-2.c
+index 0d84f93..5b9280a 100644
+--- a/gcc/testsuite/gcc.dg/strncmp-2.c
++++ b/gcc/testsuite/gcc.dg/strncmp-2.c
+@@ -1,5 +1,6 @@
+ /* Test strncmp builtin expansion for compilation and proper execution.  */
+ /* { dg-do run { target *-*-linux* *-*-gnu* *-*-uclinux* } } */
++/* { dg-skip-if "no MMU: no guard page" { c33-*-*linux* } } */
+ /* { dg-options "-O2" } */
+ /* { dg-require-effective-target ptr32plus } */
+ 

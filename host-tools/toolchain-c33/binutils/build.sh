@@ -27,9 +27,11 @@ cd "${WORK}"
 
 "${HERE}/../../fetch-verified.sh" "${URL}" "${TARBALL}" "${SHA256}"
 
-# The tarball, files/ and glue.py are the source; the tree is made from them.
+# The tarball, files/ (the port's own files) and patches/ (its changes to
+# binutils' own, patches/README.md) are the source; the tree is made from
+# them.
 "${TOOLS}/prepare-source.sh" "${SRC}" "${WORK}/${TARBALL}" "${HERE}/files" \
-	"${TOOLS}/glue.py"
+	"${HERE}/patches"
 
 echo "==> configuring"
 BUILD="${SRC}/build"

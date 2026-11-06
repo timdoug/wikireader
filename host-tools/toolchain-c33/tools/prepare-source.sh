@@ -1,14 +1,17 @@
 #!/bin/sh
-# prepare-source.sh SRC TARBALL FILES GLUE [PATCHES]
+# prepare-source.sh SRC TARBALL OVERLAYS [PATCHES]
 #
 # Make the work tree SRC exactly the upstream TARBALL with this repository's
-# FILES/ copied in, GLUE (a Python script taking the tree) run over it, and
-# PATCHES/*/*.patch applied in number order across the groups -- and nothing
-# else, so the repository is the only source of truth and the tree can be
-# thrown away.  Build directories at SRC's top (build, build-*) are kept.
+# overlays copied in, the port's own new files, and PATCHES/*/*.patch, its
+# changes to upstream's files, applied in number order across the groups --
+# and nothing else, so the repository is the only source of truth and the
+# tree can be thrown away.  Build directories at SRC's top (build, build-*)
+# are kept.
 #
-# PREPARE_EXTRA, a colon-separated list of files and directories, names
-# further inputs a GLUE reads, so that a change to them remakes the tree.
+# OVERLAYS is a colon-separated list of directories, each copied over the
+# tree's top, or DIR=SUB, copied into the tree's SUB.  PATCHES is one too,
+# of patch directories, whose */*.patch are taken, and single patches; all
+# are applied in the order of their file names.
 #
 # SRC.state records the inputs and every file's size and time as this left
 # the tree.  When both still match, the tree is left alone.  Otherwise a
@@ -18,13 +21,27 @@
 # and the rest keep their timestamps, so an incremental build stays
 # incremental.
 set -eu
-src=$1 tarball=$2 files=$3 glue=$4 patches=${5:-}
+src=$1 tarball=$2 overlays=$3 patches=${4:-}
 state=$src.state
 
+overlay_list() {
+	printf '%s\n' "$overlays" | tr ':' '\n' | while read -r o; do
+		case $o in
+		*=*) echo "${o%%=*} ${o#*=}" ;;
+		?*) echo "$o ." ;;
+		esac
+	done
+}
+
 patch_list() {
-	[ -n "$patches" ] || return 0
-	for p in "$patches"/*/*.patch; do
-		[ -e "$p" ] && echo "${p##*/} $p"
+	printf '%s\n' "$patches" | tr ':' '\n' | while read -r d; do
+		if [ -d "$d" ]; then
+			for p in "$d"/*/*.patch; do
+				[ -e "$p" ] && echo "${p##*/} $p"
+			done
+		elif [ -n "$d" ]; then
+			echo "${d##*/} $d"
+		fi
 	done | sort | cut -d' ' -f2
 }
 
@@ -49,19 +66,12 @@ EOF
 inputs=$(
 	{
 		cksum < "$tarball"
-		(cd "$files" && find . -type f | LC_ALL=C sort | while read -r f; do
-			echo "$f"; cksum < "$f"
-		done)
-		cksum < "$glue"
 		cksum < "$0"
-		for x in $(printf '%s' "${PREPARE_EXTRA:-}" | tr ':' ' '); do
-			if [ -d "$x" ]; then
-				(cd "$x" && find . -type f | LC_ALL=C sort | while read -r f; do
-					echo "$f"; cksum < "$f"
-				done)
-			else
-				echo "$x"; cksum < "$x"
-			fi
+		overlay_list | while read -r dir sub; do
+			echo "overlay $sub"
+			(cd "$dir" && find . -type f | LC_ALL=C sort | while read -r f; do
+				echo "$f"; cksum < "$f"
+			done)
 		done
 		for p in $(patch_list); do echo "${p##*/}"; cksum < "$p"; done
 	} | cksum | cut -d' ' -f1
@@ -71,15 +81,17 @@ if [ "$(cat "$state" 2>/dev/null)" = "$inputs $(tree_stat)" ]; then
 	exit 0
 fi
 
-echo "==> making ${src##*/} from the tarball, files/, glue and patches"
+echo "==> making ${src##*/} from the tarball, overlays and patches"
 fresh=$src.fresh
 rm -rf "$fresh"
 mkdir -p "$fresh" "$src"
 tar -xf "$tarball" -C "$fresh" --strip-components=1
-cp -R "$files/." "$fresh/"
-python3 "$glue" "$fresh" >/dev/null
+overlay_list | while read -r dir sub; do
+	mkdir -p "$fresh/$sub"
+	cp -R "$dir/." "$fresh/$sub/"
+done
 for p in $(patch_list); do
-	patch -d "$fresh" -p1 --forward --silent < "$p" || {
+	patch -d "$fresh" -p1 --forward --silent --no-backup-if-mismatch < "$p" || {
 		echo "cannot apply $p" >&2
 		exit 1
 	}

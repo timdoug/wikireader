@@ -1,0 +1,97 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] gdb: add the Seiko Epson C33
+
+The C33 target, c33-tdep.c and arch/c33.c, with c33-linux-tdep.c and
+solib-c33.c for no-MMU FDPIC Linux, and its target description XML,
+all the port's own files, in GDB's configuration and build.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/gdb/Makefile.in b/gdb/Makefile.in
+index 57f3841..2deae90 100644
+--- a/gdb/Makefile.in
++++ b/gdb/Makefile.in
+@@ -786,6 +786,7 @@ ALL_TARGET_OBS = \
+ 	arc-tdep.o \
+ 	arch/aarch32.o \
+ 	arch/arc.o \
++	arch/c33.o \
+ 	arch/arm.o \
+ 	arch/arm-get-next-pcs.o \
+ 	arch/arm-linux.o \
+@@ -807,6 +808,8 @@ ALL_TARGET_OBS = \
+ 	bfin-linux-tdep.o \
+ 	bfin-tdep.o \
+ 	bsd-uthread.o \
++	c33-linux-tdep.o \
++	c33-tdep.o \
+ 	cris-linux-tdep.o \
+ 	cris-tdep.o \
+ 	csky-linux-tdep.o \
+@@ -881,6 +884,7 @@ ALL_TARGET_OBS = \
+ 	sol2-tdep.o \
+ 	solib-aix.o \
+ 	solib-darwin.o \
++	solib-c33.o \
+ 	solib-dsbt.o \
+ 	solib-frv.o \
+ 	solib-svr4.o \
+@@ -1301,6 +1305,7 @@ HFILES_NO_SRCDIR = \
+ 	arch/amd64.h \
+ 	arch/amd64-linux-tdesc.h \
+ 	arch/arc.h \
++	arch/c33.h \
+ 	arch/arm-get-next-pcs.h \
+ 	arch/arm.h \
+ 	arch/arm-linux.h \
+@@ -1375,6 +1380,7 @@ HFILES_NO_SRCDIR = \
+ 	config/sparc/nm-sol2.h \
+ 	cp-abi.h \
+ 	cp-support.h \
++	c33-tdep.h \
+ 	cris-tdep.h \
+ 	csky-tdep.h \
+ 	c-support.h \
+@@ -1659,6 +1665,7 @@ HFILES_NO_SRCDIR = \
+ 	solib-aix.h \
+ 	solib-darwin.h \
+ 	solib-dsbt.h \
++	solib-c33.h \
+ 	solib-frv.h \
+ 	solib.h \
+ 	solib-svr4.h \
+diff --git a/gdb/configure.tgt b/gdb/configure.tgt
+index 7313b31..b0300f8 100644
+--- a/gdb/configure.tgt
++++ b/gdb/configure.tgt
+@@ -245,6 +245,17 @@ bpf-*-*)
+ 	gdb_target_obs="bpf-tdep.o"
+ 	;;
+ 
++c33-*-linux*)
++	# Target: Epson S1C33, no-MMU FDPIC GNU/Linux
++	gdb_target_obs="c33-tdep.o arch/c33.o c33-linux-tdep.o linux-tdep.o \
++			solib-c33.o"
++	;;
++
++c33-*-*)
++	# Target: Epson S1C33
++	gdb_target_obs="c33-tdep.o arch/c33.o"
++	;;
++
+ cris*)
+ 	# Target: CRIS
+ 	gdb_target_obs="cris-tdep.o cris-linux-tdep.o linux-tdep.o \
+diff --git a/gdb/features/Makefile b/gdb/features/Makefile
+index 161a745..a87be27 100644
+--- a/gdb/features/Makefile
++++ b/gdb/features/Makefile
+@@ -223,6 +223,8 @@ FEATURE_XMLFILES = aarch64-core.xml \
+ 	arm/arm-vfpv2.xml \
+ 	arm/arm-vfpv3.xml \
+ 	arm/xscale-iwmmxt.xml \
++	c33/core.xml \
++	c33/fdpic.xml \
+ 	cskyv2-linux.xml \
+ 	i386/32bit-core.xml \
+ 	i386/32bit-sse.xml \

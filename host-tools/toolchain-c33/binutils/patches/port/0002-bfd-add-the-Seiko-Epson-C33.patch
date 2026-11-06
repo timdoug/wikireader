@@ -1,0 +1,365 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] bfd: add the Seiko Epson C33
+
+The architecture (bfd_arch_c33), its relocations and the c33_elf32_vec
+and c33_elf32_fdpic_vec vectors.  cpu-c33.c and elf32-c33.c are
+the port's own files.
+
+The generated Makefile.in, configure, bfd-in2.h and libbfd.h carry the matching hunks, edited by hand rather
+than regenerated; a submission regenerates them with automake 1.15.1, autoconf 2.69
+and make headers.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/bfd/Makefile.am b/bfd/Makefile.am
+index e4df0544..7c40e6f5 100644
+--- a/bfd/Makefile.am
++++ b/bfd/Makefile.am
+@@ -166,6 +166,7 @@ ALL_MACHINES = \
+ 	cpu-tic6x.lo \
+ 	cpu-tilegx.lo \
+ 	cpu-tilepro.lo \
++	cpu-c33.lo \
+ 	cpu-v850.lo \
+ 	cpu-v850_rh850.lo \
+ 	cpu-vax.lo \
+@@ -249,6 +250,7 @@ ALL_MACHINES_CFILES = \
+ 	cpu-tic6x.c \
+ 	cpu-tilegx.c \
+ 	cpu-tilepro.c \
++	cpu-c33.c \
+ 	cpu-v850.c \
+ 	cpu-v850_rh850.c \
+ 	cpu-vax.c \
+@@ -346,6 +348,7 @@ BFD32_BACKENDS = \
+ 	elf32-tic6x.lo \
+ 	elf32-tilegx.lo \
+ 	elf32-tilepro.lo \
++	elf32-c33.lo \
+ 	elf32-v850.lo \
+ 	elf32-vax.lo \
+ 	elf32-visium.lo \
+@@ -481,6 +484,7 @@ BFD32_BACKENDS_CFILES = \
+ 	elf32-tic6x.c \
+ 	elf32-tilegx.c \
+ 	elf32-tilepro.c \
++	elf32-c33.c \
+ 	elf32-v850.c \
+ 	elf32-vax.c \
+ 	elf32-visium.c \
+diff --git a/bfd/Makefile.in b/bfd/Makefile.in
+index 14512cf6..39219d12 100644
+--- a/bfd/Makefile.in
++++ b/bfd/Makefile.in
+@@ -634,6 +634,7 @@ ALL_MACHINES = \
+ 	cpu-tic6x.lo \
+ 	cpu-tilegx.lo \
+ 	cpu-tilepro.lo \
++	cpu-c33.lo \
+ 	cpu-v850.lo \
+ 	cpu-v850_rh850.lo \
+ 	cpu-vax.lo \
+@@ -717,6 +718,7 @@ ALL_MACHINES_CFILES = \
+ 	cpu-tic6x.c \
+ 	cpu-tilegx.c \
+ 	cpu-tilepro.c \
++	cpu-c33.c \
+ 	cpu-v850.c \
+ 	cpu-v850_rh850.c \
+ 	cpu-vax.c \
+@@ -815,6 +817,7 @@ BFD32_BACKENDS = \
+ 	elf32-tic6x.lo \
+ 	elf32-tilegx.lo \
+ 	elf32-tilepro.lo \
++	elf32-c33.lo \
+ 	elf32-v850.lo \
+ 	elf32-vax.lo \
+ 	elf32-visium.lo \
+@@ -950,6 +953,7 @@ BFD32_BACKENDS_CFILES = \
+ 	elf32-tic6x.c \
+ 	elf32-tilegx.c \
+ 	elf32-tilepro.c \
++	elf32-c33.c \
+ 	elf32-v850.c \
+ 	elf32-vax.c \
+ 	elf32-visium.c \
+diff --git a/bfd/archures.c b/bfd/archures.c
+index 0e919246..cc16f740 100644
+--- a/bfd/archures.c
++++ b/bfd/archures.c
+@@ -347,6 +347,7 @@ DESCRIPTION
+ .  bfd_arch_tic54x,    {* Texas Instruments TMS320C54X.  *}
+ .  bfd_arch_tic6x,     {* Texas Instruments TMS320C6X.  *}
+ .  bfd_arch_v850,      {* NEC V850.  *}
++.  bfd_arch_c33,       {* Seiko Epson C33 (S1C33 family).  *}
+ .  bfd_arch_v850_rh850,{* NEC V850 (using RH850 ABI).  *}
+ .#define bfd_mach_v850		1
+ .#define bfd_mach_v850e		'E'
+@@ -716,6 +717,7 @@ extern const bfd_arch_info_type bfd_tic6x_arch;
+ extern const bfd_arch_info_type bfd_tilegx_arch;
+ extern const bfd_arch_info_type bfd_tilepro_arch;
+ extern const bfd_arch_info_type bfd_v850_arch;
++extern const bfd_arch_info_type bfd_c33_arch;
+ extern const bfd_arch_info_type bfd_v850_rh850_arch;
+ extern const bfd_arch_info_type bfd_vax_arch;
+ extern const bfd_arch_info_type bfd_visium_arch;
+@@ -802,6 +804,7 @@ static const bfd_arch_info_type * const bfd_archures_list[] =
+     &bfd_tilegx_arch,
+     &bfd_tilepro_arch,
+     &bfd_v850_arch,
++    &bfd_c33_arch,
+     &bfd_v850_rh850_arch,
+     &bfd_vax_arch,
+     &bfd_visium_arch,
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index e49d6731..7e56597f 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -1604,6 +1604,7 @@ enum bfd_architecture
+   bfd_arch_tic54x,    /* Texas Instruments TMS320C54X.  */
+   bfd_arch_tic6x,     /* Texas Instruments TMS320C6X.  */
+   bfd_arch_v850,      /* NEC V850.  */
++  bfd_arch_c33,       /* Seiko Epson C33 (S1C33 family).  */
+   bfd_arch_v850_rh850,/* NEC V850 (using RH850 ABI).  */
+ #define bfd_mach_v850          1
+ #define bfd_mach_v850e         'E'
+@@ -4885,6 +4886,41 @@ enum bfd_reloc_code_real
+   BFD_RELOC_NDS32_LSI,
+ 
+   /* This is a 9-bit reloc.  */
++  BFD_RELOC_C33_AH,
++  BFD_RELOC_C33_AL,
++  BFD_RELOC_C33_RH,
++  BFD_RELOC_C33_RM,
++  BFD_RELOC_C33_RL,
++  BFD_RELOC_C33_H,
++  BFD_RELOC_C33_M,
++  BFD_RELOC_C33_L,
++  BFD_RELOC_C33_DH,
++  BFD_RELOC_C33_DL,
++  BFD_RELOC_C33_GL,
++  BFD_RELOC_C33_SH,
++  BFD_RELOC_C33_SL,
++  BFD_RELOC_C33_TH,
++  BFD_RELOC_C33_TL,
++  BFD_RELOC_C33_ZH,
++  BFD_RELOC_C33_ZL,
++  BFD_RELOC_C33_DPH,
++  BFD_RELOC_C33_DPM,
++  BFD_RELOC_C33_DPL,
++  BFD_RELOC_C33_LOOP,
++  BFD_RELOC_C33_JP,
++  BFD_RELOC_C33_S_RH,
++  BFD_RELOC_C33_S_RM,
++  BFD_RELOC_C33_S_RL,
++  BFD_RELOC_C33_PUSHN_R0,
++  BFD_RELOC_C33_PUSHN_R1,
++  BFD_RELOC_C33_PUSH_R1,
++  BFD_RELOC_C33_CALLT_16_16_OFFSET,
++  BFD_RELOC_C33_FUNCDESC,
++  BFD_RELOC_C33_FUNCDESC_VALUE,
++  BFD_RELOC_C33_TLS_DTPMOD32,
++  BFD_RELOC_C33_TLS_DTPREL32,
++  BFD_RELOC_C33_TLS_TPREL32,
++  BFD_RELOC_C33_TLS_LE32,
+   BFD_RELOC_V850_9_PCREL,
+ 
+   /* This is a 22-bit reloc.  */
+diff --git a/bfd/config.bfd b/bfd/config.bfd
+index 02a1a685..37a0ba54 100644
+--- a/bfd/config.bfd
++++ b/bfd/config.bfd
+@@ -1299,6 +1299,11 @@ case "${targ}" in
+     targ_defvec=tilepro_elf32_vec
+     ;;
+ 
++  c33-*-*)
++    targ_defvec=c33_elf32_vec
++    targ_selvecs=c33_elf32_fdpic_vec
++    ;;
++
+   v850*-*-*)
+     targ_defvec=v850_elf32_vec
+     targ_selvecs="v800_elf32_vec"
+diff --git a/bfd/configure b/bfd/configure
+index 1b829384..b858917d 100755
+--- a/bfd/configure
++++ b/bfd/configure
+@@ -16102,6 +16102,8 @@ do
+     tilegx_elf64_le_vec)	 tb="$tb elf64-tilegx.lo elfxx-tilegx.lo elf64.lo $elf" ; target_size=64 ;;
+     tilepro_elf32_vec)		 tb="$tb elf32-tilepro.lo elf32.lo $elf" ;;
+     v800_elf32_vec)		 tb="$tb elf32-v850.lo elf32.lo $elf" ;;
++    c33_elf32_vec)		 tb="$tb elf32-c33.lo elf32.lo $elf" ;;
++    c33_elf32_fdpic_vec)	 tb="$tb elf32-c33.lo elf32.lo $elf" ;;
+     v850_elf32_vec)		 tb="$tb elf32-v850.lo elf32.lo $elf" ;;
+     vax_aout_1knbsd_vec)	 tb="$tb vax1knetbsd.lo aout32.lo" ;;
+     vax_aout_nbsd_vec)		 tb="$tb vaxnetbsd.lo aout32.lo" ;;
+diff --git a/bfd/configure.ac b/bfd/configure.ac
+index c30a75ba..4e19e359 100644
+--- a/bfd/configure.ac
++++ b/bfd/configure.ac
+@@ -643,6 +643,8 @@ do
+     tilegx_elf64_le_vec)	 tb="$tb elf64-tilegx.lo elfxx-tilegx.lo elf64.lo $elf" ; target_size=64 ;;
+     tilepro_elf32_vec)		 tb="$tb elf32-tilepro.lo elf32.lo $elf" ;;
+     v800_elf32_vec)		 tb="$tb elf32-v850.lo elf32.lo $elf" ;;
++    c33_elf32_vec)		 tb="$tb elf32-c33.lo elf32.lo $elf" ;;
++    c33_elf32_fdpic_vec)	 tb="$tb elf32-c33.lo elf32.lo $elf" ;;
+     v850_elf32_vec)		 tb="$tb elf32-v850.lo elf32.lo $elf" ;;
+     vax_aout_1knbsd_vec)	 tb="$tb vax1knetbsd.lo aout32.lo" ;;
+     vax_aout_nbsd_vec)		 tb="$tb vaxnetbsd.lo aout32.lo" ;;
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index 27bc0875..853214fd 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -2096,6 +2096,41 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_NDS32_REMOVE",
+   "BFD_RELOC_NDS32_GROUP",
+   "BFD_RELOC_NDS32_LSI",
++  "BFD_RELOC_C33_AH",
++  "BFD_RELOC_C33_AL",
++  "BFD_RELOC_C33_RH",
++  "BFD_RELOC_C33_RM",
++  "BFD_RELOC_C33_RL",
++  "BFD_RELOC_C33_H",
++  "BFD_RELOC_C33_M",
++  "BFD_RELOC_C33_L",
++  "BFD_RELOC_C33_DH",
++  "BFD_RELOC_C33_DL",
++  "BFD_RELOC_C33_GL",
++  "BFD_RELOC_C33_SH",
++  "BFD_RELOC_C33_SL",
++  "BFD_RELOC_C33_TH",
++  "BFD_RELOC_C33_TL",
++  "BFD_RELOC_C33_ZH",
++  "BFD_RELOC_C33_ZL",
++  "BFD_RELOC_C33_DPH",
++  "BFD_RELOC_C33_DPM",
++  "BFD_RELOC_C33_DPL",
++  "BFD_RELOC_C33_LOOP",
++  "BFD_RELOC_C33_JP",
++  "BFD_RELOC_C33_S_RH",
++  "BFD_RELOC_C33_S_RM",
++  "BFD_RELOC_C33_S_RL",
++  "BFD_RELOC_C33_PUSHN_R0",
++  "BFD_RELOC_C33_PUSHN_R1",
++  "BFD_RELOC_C33_PUSH_R1",
++  "BFD_RELOC_C33_CALLT_16_16_OFFSET",
++  "BFD_RELOC_C33_FUNCDESC",
++  "BFD_RELOC_C33_FUNCDESC_VALUE",
++  "BFD_RELOC_C33_TLS_DTPMOD32",
++  "BFD_RELOC_C33_TLS_DTPREL32",
++  "BFD_RELOC_C33_TLS_TPREL32",
++  "BFD_RELOC_C33_TLS_LE32",
+   "BFD_RELOC_V850_9_PCREL",
+   "BFD_RELOC_V850_22_PCREL",
+   "BFD_RELOC_V850_SDA_16_16_OFFSET",
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index 6b9e00da..48c46a24 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -4008,6 +4008,82 @@ ENUMDOC
+   For floating load store relaxation.
+ 
+ 
++ENUM
++  BFD_RELOC_C33_AH
++ENUMX
++  BFD_RELOC_C33_AL
++ENUMX
++  BFD_RELOC_C33_RH
++ENUMX
++  BFD_RELOC_C33_RM
++ENUMX
++  BFD_RELOC_C33_RL
++ENUMX
++  BFD_RELOC_C33_H
++ENUMX
++  BFD_RELOC_C33_M
++ENUMX
++  BFD_RELOC_C33_L
++ENUMX
++  BFD_RELOC_C33_DH
++ENUMX
++  BFD_RELOC_C33_DL
++ENUMX
++  BFD_RELOC_C33_GL
++ENUMX
++  BFD_RELOC_C33_SH
++ENUMX
++  BFD_RELOC_C33_SL
++ENUMX
++  BFD_RELOC_C33_TH
++ENUMX
++  BFD_RELOC_C33_TL
++ENUMX
++  BFD_RELOC_C33_ZH
++ENUMX
++  BFD_RELOC_C33_ZL
++ENUMX
++  BFD_RELOC_C33_DPH
++ENUMX
++  BFD_RELOC_C33_DPM
++ENUMX
++  BFD_RELOC_C33_DPL
++ENUMX
++  BFD_RELOC_C33_LOOP
++ENUMX
++  BFD_RELOC_C33_JP
++ENUMX
++  BFD_RELOC_C33_S_RH
++ENUMX
++  BFD_RELOC_C33_S_RM
++ENUMX
++  BFD_RELOC_C33_S_RL
++ENUMX
++  BFD_RELOC_C33_PUSHN_R0
++ENUMX
++  BFD_RELOC_C33_PUSHN_R1
++ENUMX
++  BFD_RELOC_C33_PUSH_R1
++ENUMX
++  BFD_RELOC_C33_CALLT_16_16_OFFSET
++ENUMX
++  BFD_RELOC_C33_FUNCDESC
++ENUMX
++  BFD_RELOC_C33_FUNCDESC_VALUE
++ENUMX
++  BFD_RELOC_C33_TLS_DTPMOD32
++ENUMX
++  BFD_RELOC_C33_TLS_DTPREL32
++ENUMX
++  BFD_RELOC_C33_TLS_TPREL32
++ENUMX
++  BFD_RELOC_C33_TLS_LE32
++ENUMDOC
++  Seiko Epson C33 (S1C33 family) relocations.  The H/M/L and
++  RH/RM/RL families split a 32-bit value across the multiple
++  immediate fields produced by the "ext" prefix mechanism; the
++  G/S/T/Z variants are relative to the global, small, tiny and
++  zero data area base registers respectively.
+ ENUM
+   BFD_RELOC_V850_9_PCREL
+ ENUMDOC
+diff --git a/bfd/targets.c b/bfd/targets.c
+index fcf65041..2bc6dd58 100644
+--- a/bfd/targets.c
++++ b/bfd/targets.c
+@@ -923,6 +923,8 @@ extern const bfd_target tilegx_elf64_le_vec;
+ extern const bfd_target tilepro_elf32_vec;
+ extern const bfd_target v800_elf32_vec;
+ extern const bfd_target v850_elf32_vec;
++extern const bfd_target c33_elf32_vec;
++extern const bfd_target c33_elf32_fdpic_vec;
+ extern const bfd_target ft32_elf32_vec;
+ extern const bfd_target vax_aout_1knbsd_vec;
+ extern const bfd_target vax_aout_nbsd_vec;
+@@ -1330,6 +1332,9 @@ static const bfd_target * const _bfd_target_vector[] =
+ 	&v800_elf32_vec,
+ 	&v850_elf32_vec,
+ 
++	&c33_elf32_vec,
++	&c33_elf32_fdpic_vec,
++
+ 	&vax_aout_1knbsd_vec,
+ 	&vax_aout_nbsd_vec,
+ 	&vax_elf32_vec,

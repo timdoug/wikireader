@@ -1,0 +1,71 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] ld: add the Seiko Epson C33 emulations
+
+c33 for firmware and c33fdpic for no-MMU Linux, which links FDPIC by
+default.  C33 firmware links with -z separate-code by default, still
+honouring -N and -z noseparate-code: a per-target configure default, as
+Linux/x86's.
+
+The generated Makefile.in carry the matching hunks, edited by hand rather
+than regenerated; a submission regenerates them with automake 1.15.1.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/ld/Makefile.am b/ld/Makefile.am
+index 3ae3d7f1..f72ade41 100644
+--- a/ld/Makefile.am
++++ b/ld/Makefile.am
+@@ -361,6 +361,8 @@ ALL_EMULATION_SOURCES = \
+ 	etic3xcoff_onchip.c \
+ 	etic4xcoff.c \
+ 	etic54xcoff.c \
++	ec33.c \
++	ec33fdpic.c \
+ 	ev850.c \
+ 	ev850_rh850.c \
+ 	evanilla.c \
+diff --git a/ld/Makefile.in b/ld/Makefile.in
+index d879f04a..525295f3 100644
+--- a/ld/Makefile.in
++++ b/ld/Makefile.in
+@@ -876,6 +876,8 @@ ALL_EMULATION_SOURCES = \
+ 	etic3xcoff_onchip.c \
+ 	etic4xcoff.c \
+ 	etic54xcoff.c \
++	ec33.c \
++	ec33fdpic.c \
+ 	ev850.c \
+ 	ev850_rh850.c \
+ 	evanilla.c \
+diff --git a/ld/configure.tgt b/ld/configure.tgt
+index 60b62e69..975978d3 100644
+--- a/ld/configure.tgt
++++ b/ld/configure.tgt
+@@ -924,6 +924,11 @@ tilegxbe-*-*)		targ_emul=elf64tilegx_be
+ 			;;
+ tilepro-*-*)		targ_emul=elf32tilepro
+ 			;;
++c33-*-linux*)		targ_emul=c33fdpic
++			targ_extra_emuls=c33
++			;;
++c33-*-*)		targ_emul=c33
++			;;
+ v850*-*-*)		targ_emul=v850_rh850
+ 			targ_extra_emuls=v850
+ 			;;
+@@ -1104,6 +1109,15 @@ frv-*-* | hppa*-*-* | ia64-*-* | mips*-*-*)
+   ;;
+ esac
+ 
++# Enable -z separate-code by default for C33 firmware.
++case "${target}" in
++c33-*-elf*)
++  if test ${ac_default_ld_z_separate_code} = unset; then
++    ac_default_ld_z_separate_code=1
++  fi
++  ;;
++esac
++
+ # Enable -z separate-code and --warn-textrel by default for Linux/x86.
+ case "${target}" in
+ i[3-7]86-*-linux-* | x86_64-*-linux-*)

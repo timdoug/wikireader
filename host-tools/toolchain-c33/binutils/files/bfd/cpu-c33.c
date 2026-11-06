@@ -1,4 +1,4 @@
-/* BFD support for the NEC V850 processor
+/* BFD support for the Seiko Epson C33 (S1C33)
    Copyright 1996, 1997, 1998 Free Software Foundation, Inc.
 
 This file is part of BFD, the Binary File Descriptor library.

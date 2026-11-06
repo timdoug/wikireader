@@ -1,4 +1,4 @@
-;; Predicate definitions for NEC C33.
+;; Predicate definitions for the Seiko Epson C33.
 ;; Copyright (C) 2005-2026 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
