@@ -1287,7 +1287,7 @@ int main(void)
 	pid_t shell;
 
 	setlocale(LC_CTYPE, "C.UTF-8");
-	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	log_fd = open("/dev/ttyEP0", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
 	if (wr_drm_open(&drm, "/dev/dri/card0") < 0 ||

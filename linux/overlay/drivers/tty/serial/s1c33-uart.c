@@ -48,7 +48,7 @@ static struct console s1c33_uart_console;
 static struct uart_driver s1c33_uart_driver = {
 	.owner		= THIS_MODULE,
 	.driver_name	= "s1c33-uart",
-	.dev_name	= "ttyC",
+	.dev_name	= "ttyEP",
 	.major		= 0,
 	.minor		= 0,
 	.nr		= S1C33_UART_NR,
@@ -218,15 +218,19 @@ static void s1c33_uart_set_termios(struct uart_port *port,
 	tty_termios_encode_baud_rate(new, baud, baud);
 }
 
+/*
+ * PORT_GENERIC: no userspace program needs to tell this UART from another,
+ * so it takes no PORT_ number of its own (and claims no 8250's).
+ */
 static const char *s1c33_uart_type(struct uart_port *port)
 {
-	return "s1c33-uart";
+	return port->type == PORT_GENERIC ? "S1C33E07 UART" : NULL;
 }
 
 static void s1c33_uart_config_port(struct uart_port *port, int flags)
 {
-	/* A non-zero type marks a configured port to serial_core. */
-	port->type = 1;
+	if (flags & UART_CONFIG_TYPE)
+		port->type = PORT_GENERIC;
 }
 
 static int s1c33_uart_verify_port(struct uart_port *port,
@@ -259,7 +263,7 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	struct clk *clk;
 	unsigned long clock_rate;
 	unsigned int baud;
-	/* ttyC0 and ttyC1 by the device tree's serial0 and serial1 aliases. */
+	/* ttyEP0 and ttyEP1 by the device tree's serial0 and serial1 aliases. */
 	int line = of_alias_get_id(pdev->dev.of_node, "serial");
 	int ret;
 
@@ -308,7 +312,7 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	port->flags = UPF_BOOT_AUTOCONF | UPF_FIXED_PORT | UPF_FIXED_TYPE;
 	port->ops = &s1c33_uart_ops;
 	port->fifosize = 1;
-	port->type = 1;
+	port->type = PORT_GENERIC;
 	port->line = line;
 	spin_lock_init(&port->lock);
 	s1c33_uart_set_baud(port, baud);
@@ -330,7 +334,7 @@ static int s1c33_uart_probe(struct platform_device *pdev)
 	}
 	if (!line) {
 		dev_info(&pdev->dev,
-			 "registered /dev/ttyC0 through serial_core\n");
+			 "registered /dev/ttyEP0 through serial_core\n");
 	} else {
 		dev_info(&pdev->dev,
 			 "registered UART1 as a tty-backed serdev controller\n");
@@ -467,7 +471,7 @@ static int s1c33_uart_console_setup(struct console *console, char *options)
 }
 
 static struct console s1c33_uart_console = {
-	.name		= "ttyC",
+	.name		= "ttyEP",
 	.write_atomic	= s1c33_uart_console_write_atomic,
 	.write_thread	= s1c33_uart_console_write_thread,
 	.device_lock	= s1c33_uart_console_device_lock,
@@ -489,7 +493,8 @@ console_initcall(s1c33_uart_console_init);
 /*
  * Before the platform device exists there is no port to lock or clock to
  * query, so the early console writes through whatever the loader left
- * programmed: "earlycon=s1c33,mmio,0x300b00" on the kernel command line.
+ * programmed.  "earlycon" alone takes the port from /chosen/stdout-path;
+ * "earlycon=s1c33,mmio,0x300b00" names it.
  */
 static void __init s1c33_uart_early_write(struct console *console,
 					  const char *s, unsigned int count)
@@ -507,7 +512,7 @@ static int __init s1c33_uart_early_setup(struct earlycon_device *device,
 	device->con->write = s1c33_uart_early_write;
 	return 0;
 }
-EARLYCON_DECLARE(s1c33, s1c33_uart_early_setup);
+OF_EARLYCON_DECLARE(s1c33, "epson,s1c33e07-uart", s1c33_uart_early_setup);
 #endif
 
 static int __init s1c33_uart_init(void)

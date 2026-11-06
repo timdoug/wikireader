@@ -59,10 +59,10 @@ number. The domain's
 allocator prefers the hardware number when it is free, so `/proc/interrupts`
 still reads in vectors. The timer and both UARTs use normal `request_irq()`
 registrations visible there. Linux runs the scheduler, registers the
-`ttyC0` UART console, and runs BusyBox 1.38 as PID 1. `ttyC0` is an nbcon
+`ttyEP0` UART console, and runs BusyBox 1.38 as PID 1. `ttyEP0` is an nbcon
 console like `drm_log`: kernel messages go out from a printer thread, with
 an atomic path for panics, rather than under each `printk()` caller.
-BusyBox init supervises an interactive Hush recovery shell on `ttyC0` and a
+BusyBox init supervises an interactive Hush recovery shell on `ttyEP0` and a
 separate framebuffer console on a Unix98 PTY.
 
 Time comes from the 16-bit timer block through a `drivers/clocksource` driver
@@ -119,9 +119,10 @@ took about 958 ms before this fix now takes about 603 ms in wremu.
 `ppoll` retains Linux's different behavior, excluding time spent stopped.
 The same regression also runs on native Linux to check these expectations.
 
-With a serial adapter attached, `earlycon=s1c33,mmio,0x300b00` reports through
-the standard early console from the first parsed parameter until `ttyC0`
-takes over and the boot console hands off.
+With a serial adapter attached, `earlycon` reports through the standard
+early console from the first parsed parameter until `ttyEP0` takes over and
+the boot console hands off. Alone it takes the port from the device tree's
+`/chosen/stdout-path`; `earlycon=s1c33,mmio,0x300b00` names it.
 
 The architecture draws nothing on the panel: everything there is DRM's
 (below). Until the DRM driver probes, about 1.3 s into the kernel, the panel
@@ -159,7 +160,7 @@ key and the first thing that key produced: the first frame of a burst is
 painted immediately and only its continuation is paced, which keeps the
 touch-to-shell latency the boot test bounds. BusyBox init respawns either
 program if it exits; the
-independent `ttyC0` recovery shell remains available throughout.
+independent `ttyEP0` recovery shell remains available throughout.
 
 Suspend-to-idle works: `wr.suspend=<seconds>` on the launcher's line makes the
 keyboard freeze the machine once nothing has touched it for that long, and the
@@ -982,7 +983,7 @@ file/text/archive tool suite, then `linux.ok` and, later, the
 `linuxhw.txt` device report on the card. The tests pass `wr.selftest` on the
 launcher's `init.ini` line, and the kernel appends it on a direct boot, the
 bring-up and recovery path. `init` finally respawns an interactive `hush` on
-`ttyC0`.
+`ttyEP0`.
 
 Both consoles start login shells with `HOME=/root` and read `/etc/profile`.
 Hush supports job control (`jobs`, `fg`, `bg`, Ctrl-Z), aliases, 64-bit

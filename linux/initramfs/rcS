@@ -30,5 +30,5 @@ else
 	echo "C33 PTY: devpts mount FAILED"
 fi
 
-echo "C33 BusyBox shell ready on ttyC0"
+echo "C33 BusyBox shell ready on ttyEP0"
 echo "C33 userspace framebuffer console scheduled by init"

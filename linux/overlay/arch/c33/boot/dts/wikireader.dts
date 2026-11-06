@@ -19,6 +19,11 @@
 		serial1 = &uart1;
 	};
 
+	/* "earlycon" alone on the command line reports through this port. */
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
 	/*
 	 * The card's 3.3 V rail is switched by P32 and the level buffer
 	 * between it and the S1C33 by P33.  The rail needs a millisecond to

@@ -590,7 +590,7 @@ int main(void)
 	unsigned int poll_count = 0;
 	unsigned int k;
 
-	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK);
+	log_fd = open("/dev/ttyEP0", O_WRONLY | O_NONBLOCK);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
 	uinput_fd = create_soft_keyboard();

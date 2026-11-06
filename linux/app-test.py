@@ -31,7 +31,8 @@ def require(path):
 # wr.selftest runs the userspace checks rcS skips on a normal boot.  The
 # console is quiet by default, and early parameters take effect in order, so
 # loglevel=7 comes first or earlycon's own announcement is filtered out.
-LAUNCHER_ARGS = (b"loglevel=7 earlycon=s1c33,mmio,0x300b00 wr.blank=5"
+# earlycon alone finds the port from the device tree's /chosen/stdout-path.
+LAUNCHER_ARGS = (b"loglevel=7 earlycon wr.blank=5"
                  b" wr.selftest")
 
 
@@ -261,7 +262,7 @@ def main():
             "C33 Linux: entry",
             # The launcher's arguments reached the kernel, and asking for an
             # early console on that line produced one before the driver probed.
-            "Kernel command line: console=drm_log console=ttyC0,115200 " +
+            "Kernel command line: console=drm_log console=ttyEP0,115200 " +
             LAUNCHER_ARGS.decode(),
             "bootconsole [s1c33] enabled",
             # wr.blank=5 on that same line reaches the console frontend, so an
