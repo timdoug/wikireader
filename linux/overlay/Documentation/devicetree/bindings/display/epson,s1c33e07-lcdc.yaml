@@ -27,24 +27,28 @@ properties:
     items:
       - const: lcdc
 
-  enable-gpios:
-    maxItems: 1
-    description: The panel's display-enable line
+  port:
+    $ref: /schemas/graph.yaml#/properties/port
+    description: The panel
 
 required:
   - compatible
   - reg
   - reg-names
+  - port
 
 unevaluatedProperties: false
 
 examples:
   - |
-    #include <dt-bindings/gpio/gpio.h>
-
     display-controller@301a00 {
         compatible = "epson,s1c33e07-lcdc";
         reg = <0x301a00 0x100>;
         reg-names = "lcdc";
-        enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
+
+        port {
+            endpoint {
+                remote-endpoint = <&panel_in>;
+            };
+        };
     };

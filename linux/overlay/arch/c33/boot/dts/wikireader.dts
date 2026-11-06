@@ -61,10 +61,21 @@
 		regulator-always-on;
 	};
 
-	/* Contrast: 4096 ticks of MCLK, used only if the loader left it off. */
+	/*
+	 * The panel on the LCD controller's port: its display-enable line,
+	 * and its contrast, 4096 ticks of MCLK, used only if the loader left
+	 * it off.
+	 */
 	panel {
 		compatible = "openmoko,wikireader-lcd";
+		enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
 		pwms = <&pwm 0 68267 0>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&lcdc_out>;
+			};
+		};
 	};
 
 	/*
@@ -147,11 +158,15 @@
 };
 
 &lcdc {
-	/* The panel's display-enable line; the controller is on its own. */
-	enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&lcd_pins>;
 	status = "okay";
+
+	port {
+		lcdc_out: endpoint {
+			remote-endpoint = <&panel_in>;
+		};
+	};
 };
 
 &pinctrl {

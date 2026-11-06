@@ -4,30 +4,51 @@
 $id: http://devicetree.org/schemas/display/panel/openmoko,wikireader-lcd.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Openmoko WikiReader panel contrast
+title: Openmoko WikiReader panel
 
 maintainers:
   - Tim Douglas <me@timdoug.com>
 
 description:
-  The WikiReader's panel, whose contrast is a PWM's duty cycle.
+  The WikiReader's 240x208 monochrome panel on the S1C33E07's LCD
+  controller, with a display-enable line, and contrast that is a PWM's
+  duty cycle.
+
+allOf:
+  - $ref: panel-common.yaml#
 
 properties:
   compatible:
     const: openmoko,wikireader-lcd
 
+  enable-gpios: true
+
   pwms:
     maxItems: 1
+    description: The panel's bias, its contrast
+
+  port: true
 
 required:
   - compatible
+  - enable-gpios
   - pwms
+  - port
 
 additionalProperties: false
 
 examples:
   - |
+    #include <dt-bindings/gpio/gpio.h>
+
     panel {
         compatible = "openmoko,wikireader-lcd";
+        enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;
         pwms = <&pwm 0 68267 0>;
+
+        port {
+            endpoint {
+                remote-endpoint = <&lcdc_out>;
+            };
+        };
     };

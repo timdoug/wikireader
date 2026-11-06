@@ -1,0 +1,40 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] drm/panel: build the WikiReader panel driver
+
+Kconfig and Makefile entries for the Openmoko WikiReader's panel on the
+Epson S1C33E07's LCD controller: its display-enable line and its
+contrast PWM.  The driver's source is in the port's overlay.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index cbdf7b8f7..ae1646289 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -1406,6 +1406,16 @@ config DRM_PANEL_WIDECHIPS_WS2401
+ 	  480x800 display controller used in panels such as Samsung LMS380KF01.
+ 	  This display is used in the Samsung Galaxy Ace 2 GT-I8160 (Codina).
+ 
++config DRM_PANEL_WIKIREADER
++	tristate "Openmoko WikiReader panel"
++	depends on OF && GPIOLIB && PWM
++	depends on C33 || COMPILE_TEST
++	select LCD_CLASS_DEVICE
++	help
++	  The Openmoko WikiReader's 240x208 monochrome panel on the Epson
++	  S1C33E07's LCD controller: its display-enable line, and its
++	  contrast, a PWM, as /sys/class/lcd/wikireader/contrast.
++
+ config DRM_PANEL_XINPENG_XPP055C272
+ 	tristate "Xinpeng XPP055C272 panel driver"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 3b523cf37..732126b8c 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -136,4 +136,5 @@ obj-$(CONFIG_DRM_PANEL_VISIONOX_RM692E5) += panel-visionox-rm692e5.o
+ obj-$(CONFIG_DRM_PANEL_VISIONOX_VTDR6130) += panel-visionox-vtdr6130.o
+ obj-$(CONFIG_DRM_PANEL_VISIONOX_R66451) += panel-visionox-r66451.o
+ obj-$(CONFIG_DRM_PANEL_WIDECHIPS_WS2401) += panel-widechips-ws2401.o
++obj-$(CONFIG_DRM_PANEL_WIKIREADER) += panel-wikireader.o
+ obj-$(CONFIG_DRM_PANEL_XINPENG_XPP055C272) += panel-xinpeng-xpp055c272.o

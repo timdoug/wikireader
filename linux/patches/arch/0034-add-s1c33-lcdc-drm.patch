@@ -11,16 +11,20 @@ diff --git a/drivers/gpu/drm/tiny/Kconfig b/drivers/gpu/drm/tiny/Kconfig
 index f0e72d4b6a..b42a1bd46d 100644
 --- a/drivers/gpu/drm/tiny/Kconfig
 +++ b/drivers/gpu/drm/tiny/Kconfig
-@@ -98,6 +98,19 @@ config DRM_PIXPAPER
+@@ -98,6 +98,23 @@ config DRM_PIXPAPER
  
  	  If M is selected, the module will be built as pixpaper.ko.
  
 +config DRM_S1C33_LCDC
 +	tristate "DRM support for the Epson S1C33 LCD controller"
 +	depends on DRM && (C33 || COMPILE_TEST)
++	select DRM_BRIDGE
++	select DRM_BRIDGE_CONNECTOR
 +	select DRM_CLIENT_SELECTION
++	select DRM_DISPLAY_HELPER
 +	select DRM_GEM_DMA_HELPER
 +	select DRM_KMS_HELPER
++	select DRM_PANEL_BRIDGE
 +	select FB_SYS_REV_PIXELS_IN_BYTE if DRM_FBDEV_EMULATION
 +	select FB_PROVIDE_GET_FB_UNMAPPED_AREA if DRM_FBDEV_EMULATION && !MMU
 +	help

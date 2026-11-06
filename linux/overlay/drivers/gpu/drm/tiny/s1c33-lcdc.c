@@ -14,9 +14,12 @@
  * clients draw, is converted where damaged into the controller's own D1
  * image, which is then scanned.  The controller's internal video RAM is
  * the kernel's A0 RAM (asm/iram.h), so every image is in SDRAM.
+ *
+ * The panel is a drm_panel at the end of the controller's port: its mode,
+ * and its enable line, which its bridge raises after the CRTC is on and
+ * drops before it goes off.
  */
 #include <linux/dma-mapping.h>
-#include <linux/gpio/consumer.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -24,6 +27,8 @@
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_bridge.h>
+#include <drm/drm_bridge_connector.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_damage_helper.h>
@@ -37,6 +42,8 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_modeset_helper_vtables.h>
+#include <drm/drm_of.h>
+#include <drm/drm_panel.h>
 #include <drm/drm_panic.h>
 #include <drm/drm_plane.h>
 #include <drm/drm_probe_helper.h>
@@ -60,9 +67,8 @@ struct s1c33_lcdc {
 	struct drm_plane plane;
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
-	struct drm_connector connector;
+	struct drm_panel *panel;
 	void __iomem *regs;
-	struct gpio_desc *enable;
 	/* The controller's own image: converted frames, the panic screen. */
 	u8 *image;
 	dma_addr_t image_dma;
@@ -90,22 +96,13 @@ static void s1c33_lcdc_scan(struct s1c33_lcdc *lcdc, phys_addr_t addr,
 	writel(addr, lcdc->regs + S1C33_LCDC_MADD);
 }
 
-/*
- * The panel is lit by the loader, so this adopts its state: the enable line
- * goes up last and down first, since a panel without it fades instead of
- * clearing.
- */
+/* The controller driving the panel, or not; the panel's line is its own. */
 static void s1c33_lcdc_power(struct s1c33_lcdc *lcdc, bool on)
 {
 	u32 ps = readl(lcdc->regs + S1C33_LCDC_PS) & ~S1C33_LCDC_PS_MASK;
 
-	if (on) {
-		writel(ps | S1C33_LCDC_PS_NORMAL, lcdc->regs + S1C33_LCDC_PS);
-		gpiod_set_value_cansleep(lcdc->enable, 1);
-	} else {
-		gpiod_set_value_cansleep(lcdc->enable, 0);
-		writel(ps | S1C33_LCDC_PS_OFF, lcdc->regs + S1C33_LCDC_PS);
-	}
+	writel(ps | (on ? S1C33_LCDC_PS_NORMAL : S1C33_LCDC_PS_OFF),
+	       lcdc->regs + S1C33_LCDC_PS);
 }
 
 /*
@@ -210,7 +207,9 @@ static void s1c33_lcdc_plane_atomic_update(struct drm_plane *plane,
  * A panic screen is drawn in the controller's own D1 image, whatever
  * the plane was showing: a converted frame's buffer is not what the panel
  * scans, and a client's D1 one may be gone.  Then the panel scans the image,
- * lit, without sleeping.
+ * lit, without sleeping: the WikiReader panel's enable() only sets a GPIO
+ * that does not sleep (panel-wikireader.c), so it is called here directly,
+ * as drm_panel_enable() takes a mutex.
  */
 static int s1c33_lcdc_get_scanout_buffer(struct drm_plane *plane,
 					 struct drm_scanout_buffer *sb)
@@ -232,7 +231,8 @@ static void s1c33_lcdc_panic_flush(struct drm_plane *plane)
 
 	s1c33_lcdc_scan(lcdc, lcdc->image_dma, S1C33_LCD_STRIDE);
 	writel(ps | S1C33_LCDC_PS_NORMAL, lcdc->regs + S1C33_LCDC_PS);
-	gpiod_set_value(lcdc->enable, 1);
+	if (lcdc->panel && lcdc->panel->funcs && lcdc->panel->funcs->enable)
+		lcdc->panel->funcs->enable(lcdc->panel);
 }
 
 static const struct drm_plane_helper_funcs s1c33_lcdc_plane_helper_funcs = {
@@ -306,23 +306,6 @@ static const struct drm_encoder_funcs s1c33_lcdc_encoder_funcs = {
 	.destroy = drm_encoder_cleanup,
 };
 
-static int s1c33_lcdc_get_modes(struct drm_connector *connector)
-{
-	return drm_connector_helper_get_modes_fixed(connector, &s1c33_lcdc_mode);
-}
-
-static const struct drm_connector_helper_funcs s1c33_lcdc_connector_hfuncs = {
-	.get_modes = s1c33_lcdc_get_modes,
-};
-
-static const struct drm_connector_funcs s1c33_lcdc_connector_funcs = {
-	.reset = drm_atomic_helper_connector_reset,
-	.fill_modes = drm_helper_probe_single_connector_modes,
-	.destroy = drm_connector_cleanup,
-	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
-};
-
 /*
  * Only a converted framebuffer reports damage: a D1 one is scanned where it
  * is, so its clients have nothing to report, and fbdev emulation, if built,
@@ -387,6 +370,8 @@ static void s1c33_lcdc_adopt(struct s1c33_lcdc *lcdc)
 static int s1c33_lcdc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct drm_connector *connector;
+	struct drm_bridge *bridge;
 	struct s1c33_lcdc *lcdc;
 	struct drm_device *drm;
 	int ret;
@@ -405,12 +390,17 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 	lcdc->regs = devm_platform_ioremap_resource_byname(pdev, "lcdc");
 	if (IS_ERR(lcdc->regs))
 		return PTR_ERR(lcdc->regs);
+	ret = drm_of_find_panel_or_bridge(dev->of_node, 0, 0, &lcdc->panel,
+					  &bridge);
+	if (ret)
+		return dev_err_probe(dev, ret, "no panel on the port\n");
+	if (lcdc->panel) {
+		bridge = devm_drm_panel_bridge_add_typed(dev, lcdc->panel,
+							 DRM_MODE_CONNECTOR_DPI);
+		if (IS_ERR(bridge))
+			return PTR_ERR(bridge);
+	}
 	s1c33_lcdc_adopt(lcdc);
-	/* The panel is already lit: adopt its state rather than glitching it. */
-	lcdc->enable = devm_gpiod_get_optional(dev, "enable", GPIOD_ASIS);
-	if (IS_ERR(lcdc->enable))
-		return dev_err_probe(dev, PTR_ERR(lcdc->enable),
-				     "cannot claim the display enable\n");
 
 	ret = drmm_mode_config_init(drm);
 	if (ret)
@@ -424,7 +414,7 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 
 	/*
 	 * One plane on one CRTC, through an encoder that is only wiring, to
-	 * the panel.
+	 * the panel's bridge and its connector.
 	 */
 	drm_plane_helper_add(&lcdc->plane, &s1c33_lcdc_plane_helper_funcs);
 	ret = drm_universal_plane_init(drm, &lcdc->plane, 0,
@@ -445,13 +435,14 @@ static int s1c33_lcdc_probe(struct platform_device *pdev)
 			       DRM_MODE_ENCODER_NONE, NULL);
 	if (ret)
 		return ret;
-	drm_connector_helper_add(&lcdc->connector, &s1c33_lcdc_connector_hfuncs);
-	ret = drm_connector_init(drm, &lcdc->connector,
-				 &s1c33_lcdc_connector_funcs,
-				 DRM_MODE_CONNECTOR_DPI);
+	ret = drm_bridge_attach(&lcdc->encoder, bridge, NULL,
+				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
 	if (ret)
 		return ret;
-	ret = drm_connector_attach_encoder(&lcdc->connector, &lcdc->encoder);
+	connector = drm_bridge_connector_init(drm, &lcdc->encoder);
+	if (IS_ERR(connector))
+		return PTR_ERR(connector);
+	ret = drm_connector_attach_encoder(connector, &lcdc->encoder);
 	if (ret)
 		return ret;
 	drm_mode_config_reset(drm);
