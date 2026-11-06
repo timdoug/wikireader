@@ -22,7 +22,7 @@
   "relro-level": "none",
   "has-rpath": false,
   "relocation-model": "static",
-  "panic-strategy": "abort",
+  "panic-strategy": "unwind",
   "disable-redzone": true,
   "max-atomic-width": 32,
   "atomic-cas": true,

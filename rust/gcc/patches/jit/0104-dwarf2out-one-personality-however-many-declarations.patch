@@ -1,0 +1,24 @@
+dwarf2out: one personality, however many declarations
+
+Without .cfi_personality a unit has one personality, and a function
+whose personality is not the unit's is refused.  The check compared
+SYMBOL_REFs by pointer, so two declarations of the same function -- as
+libgccjit makes one for the global default and rustc_codegen_gcc its own
+for each function -- were refused as different personalities, and the
+unit compiled to nothing.  rtx_equal_p compares the symbol's name.
+
+diff --git a/gcc/dwarf2out.cc b/gcc/dwarf2out.cc
+index e7e6de2..a0378ac 100644
+--- a/gcc/dwarf2out.cc
++++ b/gcc/dwarf2out.cc
+@@ -1143,7 +1143,9 @@ dwarf2out_begin_prologue (unsigned int line ATTRIBUTE_UNUSED,
+       /* We cannot keep a current personality per function as without CFI
+ 	 asm, at the point where we emit the CFI data, there is no current
+ 	 function anymore.  */
+-      if (personality && current_unit_personality != personality)
++      /* Two declarations of one function are one personality: their
++	 SYMBOL_REFs share the name, which rtx_equal_p compares.  */
++      if (personality && !rtx_equal_p (current_unit_personality, personality))
+ 	sorry ("multiple EH personalities are supported only with assemblers "
+ 	       "supporting %<.cfi_personality%> directive");
+     }

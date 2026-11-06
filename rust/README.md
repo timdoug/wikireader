@@ -16,7 +16,9 @@ crate's `c/` are compiled with the C applications' flags and linked in.
   patches (`host-tools/toolchain-c33/gcc/patches`) in a tree of its own.
   0101 is GCC trunk's jit work since 16, 0102 the rust-lang GCC fork's
   changes that rustc_codegen_gcc needs, 0103 the build against macOS's
-  libc++ and the Darwin export list.
+  libc++ and the Darwin export list, 0104 one EH personality however many
+  declarations name it (the C33's gas has no .cfi directives, so a unit
+  has a single personality).
 - `patches/rust-0001`: `Arch::C33` in rustc_target, with the C calling
   convention of the C33 GCC port (see its `ABI.md`): records of 1, 2, 4 or
   8 bytes, aligned to their mode, in registers (one holding a lone double
@@ -75,14 +77,21 @@ the environment, files, threads over a channel and a clock.  It needs:
       ./build-linux.sh    # stdhello/stdhello.bin
       ./test-linux.py     # wremu: Grifo -> linux.app -> r
 
-On the device the card carries `stdhello.bin` at its top and
-`card/bin/r` as `bin/r`: `r` at the Linux shell runs it, checks it and
-leaves the output in `rust.txt` on the card.
+On the device the card carries `stdhello.bin` and `unwindtest.bin` (as
+`unwind.bin`) at its top and `card/bin/r` as `bin/r`: `r` at the Linux
+shell runs both, checks them and leaves the output in `rust.txt` on the
+card.
 
 libgccjit compiles in-process with only the options it is given, so
 `build-linux.sh` passes the Linux driver's defaults (`-mcore=c33pe -mfdpic
 -msep-data`) itself.  The target links `-lgcc` last: GCC calls libgcc
 helpers such as `__ucmpdi2` that Rust's compiler_builtins does not have.
+
+`unwindtest/` builds with `panic = "unwind"`, the target's default:
+catch_unwind, destructors run on the way out, a panicking thread's join
+and a second panic, through libgcc's DWARF unwinder as C++ exceptions are.
+A program that sets `panic = "abort"` (stdhello) leaves the unwinder and
+its tables out.
 
 ## On the device
 
