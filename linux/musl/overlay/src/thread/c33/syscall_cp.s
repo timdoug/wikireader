@@ -2,6 +2,7 @@
 # A cancel signal taken between __cp_begin and __cp_end, or one that
 # restarts the call, which backs the PC up to the int, sends the thread to
 # __cp_cancel.  The handler runs in libc, so %r15 is already libc's there.
+	.cfi_sections .debug_frame
 	.text
 	.global __cp_begin
 	.hidden __cp_begin
@@ -15,6 +16,7 @@
 	.type __syscall_cp_asm,@function
 	.align 1
 __syscall_cp_asm:
+	.cfi_startproc
 __cp_begin:
 	ld.w	%r4,[%r6]
 	cmp	%r4,0
@@ -31,4 +33,5 @@ __cp_end:
 	ret
 __cp_cancel:
 	xjp	__cancel
+	.cfi_endproc
 	.size __syscall_cp_asm,.-__syscall_cp_asm

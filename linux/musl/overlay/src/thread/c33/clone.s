@@ -3,13 +3,18 @@
 # on the stack, followed by ptid, tls and ctid.  The kernel takes flags,
 # stack, ptid, ctid and tls in %r6-%r10 and gives the child a copy of
 # every register, so fn, a descriptor, and arg cross in %r0 and %r1.
+	.cfi_sections .debug_frame
 	.text
 	.global __clone
 	.hidden __clone
 	.type __clone,@function
 	.align 1
 __clone:
+	.cfi_startproc
 	pushn	%r1
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r0, 0
+	.cfi_rel_offset %r1, 4
 	ld.w	%r0,%r6
 	xld.w	%r1,[%sp+12]
 	ld.w	%r6,%r8
@@ -23,10 +28,17 @@ __clone:
 	int	0
 	cmp	%r4,0
 	jreq	1f
+	.cfi_remember_state
 	popn	%r1
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r0
+	.cfi_restore %r1
 	ret
 
-1:	ld.w	%r6,%r1
+	# The child, on its new stack: the outermost frame of its thread.
+	.cfi_restore_state
+1:	.cfi_undefined 22
+	ld.w	%r6,%r1
 	xld.w	%r15,[%r0+4]
 	ld.w	%r0,[%r0]
 	call	%r0
@@ -34,4 +46,5 @@ __clone:
 	xld.w	%r4,93
 	int	0
 2:	jp	2b
+	.cfi_endproc
 	.size __clone,.-__clone

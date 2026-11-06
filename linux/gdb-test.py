@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Debug a program on C33 Linux with GDB, through Grifo, in wremu.
 
-    gdb-test.py [--keep] [--gdbserver PATH]
+    gdb-test.py [--gdbserver PATH] [--rootfs IMAGE --symbols DIR]
 
 Boots MBR -> Grifo -> init.app -> linux.app with the console also served on
 a local TCP port (wremu --uart-tcp), starts gdbserver on the console with
@@ -17,6 +17,7 @@ program, as a shell does, and then read it from the background.  The
 kernel console is quieted first, so nothing else writes on the line.
 
 --gdbserver puts that gdbserver on the card instead of the image's.
+--symbols names the host ELFs that match --rootfs's image.
 """
 import argparse
 import importlib.util
@@ -31,8 +32,6 @@ import time
 
 root = Path(__file__).resolve().parent.parent
 GDB = root / "host-tools/toolchain-c33/work/install/bin/c33-linux-musl-gdb"
-SYMBOLS = root / "linux/artifacts/symbols"
-TARGET = SYMBOLS / "mnt/sd/gdbtgt.bin"
 
 # GDB's commands, and what its output must show, in order.  {name} is the
 # line of debug/gdb-target.c marked "@name".
@@ -80,7 +79,25 @@ SESSION = [
     ("info threads", r"  1 +Thread .*\n\* 2 +Thread .*worker \(arg="),
     ("thread apply all bt 1", r"Thread 2 .*\n#0  worker.*Thread 1 .*\n#0 "),
     ("print *(int *)arg", r"\$5 = 100"),
+    # The thread's first frame is __clone's child side, whose return
+    # address is undefined: the backtrace ends there, with nothing after.
+    ("bt", r"#0  worker .*\n#1 .* in start .*\n#2 .* in __clone \(\)[^\n]*\s*$"),
+    # The main thread, stopped in libc's assembly, unwinds to main.
+    ("thread 1", r"Switching to thread 1"),
+    ("bt", r"#\d+ .*main \(argc=1, .*:({join}|\d+)"),
     ("delete", r""),
+    # Through ld.so's lazy binding: the resolver's frame and the PLT stub's
+    # back to the call in main, the first to an unbound function.
+    ("break __c33_lazy_bind", r"Breakpoint \d+ at"),
+    ("continue", r"__c33_lazy_bind"),
+    ("bt", r"#0 .*__c33_lazy_bind.*\n#1 .*__c33_lazy_resolve.*"
+           r"main \(argc=1, .*:({join}|{sigsetjmp})"),
+    ("delete", r""),
+    # setjmp called by sigsetjmp, which has popped its return address and
+    # keeps it in env across the call.
+    ("break ___setjmp", r"Breakpoint \d+ at"),
+    ("continue", r"Breakpoint \d+, .*setjmp"),
+    ("bt", r"#0 .*setjmp \(\).*\n#1 .* in sigsetjmp \(\).*\n#2 .*main \(argc=1, .*:{sigsetjmp}"),
     ("continue", r"\[Inferior 1 \(process \d+\) exited normally\]"),
 ]
 
@@ -108,6 +125,8 @@ def main():
     parser.add_argument("--gdbserver", type=Path,
                         help="a gdbserver for the card, instead of the image's")
     parser.add_argument("--output", type=Path, default=root / "linux/artifacts/gdb-test")
+    parser.add_argument("--symbols", type=Path, default=root / "linux/artifacts/symbols",
+                        help="the host ELFs matching the image, GDB's sysroot")
     args = parser.parse_args()
 
     spec = importlib.util.spec_from_file_location("app", root / "linux/app-test.py")
@@ -127,7 +146,7 @@ def main():
         files["gdbsrv.bin"] = app.require(args.gdbserver).read_bytes()
         server = "/tmp/gdbserver"
     app.require(GDB)
-    app.require(TARGET)
+    target = app.require(args.symbols / "mnt/sd/gdbtgt.bin")
 
     args.output.mkdir(parents=True, exist_ok=True)
     log_path = args.output.resolve() / "serial.log"
@@ -146,13 +165,14 @@ def main():
                 cwd=out, stdout=log, stderr=subprocess.STDOUT,
                 env={**os.environ, "WREMU_HOLD_MS": "33"})
             try:
-                return session(emulator, port, server, args.output, log_path)
+                return session(emulator, port, server, args.output, log_path,
+                               args.symbols, target)
             finally:
                 emulator.kill()
                 emulator.wait()
 
 
-def session(emulator, port, server, output, log_path):
+def session(emulator, port, server, output, log_path, symbols, target):
     # Wait for the shell on the console, then start gdbserver on it.
     deadline = time.monotonic() + 900
     while True:
@@ -188,9 +208,9 @@ def session(emulator, port, server, output, log_path):
                 pass
 
     command = [str(GDB), "-batch", "-nx",
-               "-ex", f"set sysroot {SYMBOLS}",
+               "-ex", f"set sysroot {symbols}",
                "-ex", "set remotetimeout 120",
-               "-ex", f"file {TARGET}",
+               "-ex", f"file {target}",
                "-ex", f"target remote 127.0.0.1:{port}"]
     lines = marked_lines()
     session = [(re.sub(r"\{([\w-]+)\}", lambda m: lines[m[1]], c),

@@ -1,13 +1,16 @@
 /* A program for gdb-test.py to debug: arguments and locals, a global, a
  * recursion to unwind through, a loop to step, a call into libc, a signal
- * handler to unwind out of, and a second thread.  gdb-test.py finds the
- * lines it names by the markers in comments. */
+ * handler to unwind out of, a second thread, and sigsetjmp, the first call
+ * to which goes through ld.so's lazy binding.  gdb-test.py finds the lines
+ * it names by the markers in comments. */
 #include <pthread.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
 int counter;
+static sigjmp_buf jump;
 
 static int depth(int n)
 {
@@ -50,6 +53,8 @@ int main(int argc, char **argv)
 	raise(SIGUSR1);			/* @raise */
 	pthread_create(&thread, NULL, worker, &step);
 	pthread_join(thread, NULL);	/* @join */
+	if (!sigsetjmp(jump, 1))	/* @sigsetjmp */
+		siglongjmp(jump, 1);
 	printf("GDB TARGET %d %d\n", total, counter);
 	return 0;
 }

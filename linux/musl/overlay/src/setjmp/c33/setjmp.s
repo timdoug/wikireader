@@ -1,6 +1,7 @@
 # %r0-%r3, the caller's stack pointer (CALL pushed the return address) and
 # the return address.  %r15 is not saved: a caller restores its own after
 # setjmp returns, either time.
+	.cfi_sections .debug_frame
 	.text
 	.global ___setjmp
 	.hidden ___setjmp
@@ -15,6 +16,7 @@ ___setjmp:
 __setjmp:
 _setjmp:
 setjmp:
+	.cfi_startproc
 	ld.w	[%r6],%r0
 	xld.w	[%r6+4],%r1
 	xld.w	[%r6+8],%r2
@@ -26,4 +28,5 @@ setjmp:
 	xld.w	[%r6+20],%r4
 	ld.w	%r4,0
 	ret
+	.cfi_endproc
 	.size setjmp,.-setjmp
