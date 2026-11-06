@@ -8,11 +8,12 @@
 NoGrabServer
 DecorateTransients
 RandomPlacement
-TitleFont "fixed"
-ResizeFont "fixed"
-MenuFont "fixed"
-IconFont "fixed"
-IconManagerFont "fixed"
+# Keep the 6x13 layout and explicitly provide the Unicode fallback.
+TitleFont "fixed,5x8"
+ResizeFont "fixed,5x8"
+MenuFont "fixed,5x8"
+IconFont "fixed,5x8"
+IconManagerFont "fixed,5x8"
 BorderWidth 1
 # The on-screen keyboard (xkeyboard) spans the bottom of the panel.
 NoTitle { "xvkbd" }

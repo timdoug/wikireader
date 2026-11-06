@@ -93,10 +93,12 @@ on the device and in the emulator.
   - a PWM for the contrast, IIO for the battery voltage and temperature, and
     the watchdog
 
-  Buildroot 2026.08.1 builds the root filesystem, a 24 MB ext4 image that
+  Buildroot 2026.08.1 builds the root filesystem, a 32 MiB ext4 image that
   lives as one file on the card's FAT partition. All programs share one copy
   of BusyBox and of musl in memory. On screen, Linux shows a terminal
-  with a touch keyboard. `startx` starts X11 (Xfbdev, twm, xterm and xeyes),
+  with a touch keyboard. The console and Hush use UTF-8, with Latin, Greek,
+  Cyrillic and symbol glyphs, combining accents and wide-character spacing.
+  `startx` starts X11 (Xorg on DRM, twm, a Unicode xterm and xeyes),
   which you control by touch. Suspend works, and a touch wakes the device. On
   the device, the shell prompt appears 4.76 s after the kernel starts. C++ works,
   with exceptions and threads. 1,183 of LTP's POSIX tests pass. A Wayland

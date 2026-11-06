@@ -3,6 +3,8 @@ BR2_c33=y
 # dates here, a fixed file system UUID and hash seed below, and no build
 # paths in the binaries (external.mk).  The random seed is the exception.
 BR2_REPRODUCIBLE=y
+# Retain Xlib's UTF-8 locale and its C.UTF-8 alias through locale pruning.
+BR2_ENABLE_LOCALE_WHITELIST="C en_US.UTF-8 locale.alias"
 BR2_OPTIMIZE_S=y
 BR2_ENABLE_DEBUG=y
 BR2_DEBUG_2=y
@@ -58,6 +60,7 @@ BR2_TARGET_ROOTFS_EXT2_LABEL="wikireader"
 BR2_TARGET_ROOTFS_EXT2_MKFS_OPTIONS="-b 4096 -O ^64bit,^metadata_csum,^orphan_file -U c6304613-c75a-436c-b803-c7c17cee048c -E hash_seed=406d4924-7578-49f4-b199-cb2f6ae17663"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_SL=y
+BR2_PACKAGE_NCURSES_WCHAR=y
 BR2_PACKAGE_ZIP=y
 # strace, which starts its tracee with vfork without an MMU.
 BR2_PACKAGE_STRACE=y

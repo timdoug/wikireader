@@ -73,6 +73,12 @@ BusyBox, on musl:
 `disk`), so they need its free space. The Hush modules that run past their
 time limit leave their remaining tests to `--hush-case` runs, one test each.
 
+With Unicode enabled using musl's locale routines, fresh Grifo-booted runs of
+the unchanged `hush-misc/unicode1.tests` and `hush-vars/var-utf8-length.tests`
+both pass (`artifacts/unicode-upstream-hush`). The table above is the earlier
+full-suite baseline; the full 405-case inventory has not been rerun for this
+configuration change.
+
 libc-test (revision 63e36e93, musl 7813e911) has 486 programs: 445 pass,
 2 do not build, 31 fail and 8 are killed. None crashes or times out:
 

@@ -16,6 +16,9 @@ XTERM_CONF_OPTS += --disable-session-mgt --disable-tek4014 --disable-luit \
 	--disable-setuid --disable-setgid --disable-freetype
 # No run path to the sysroot: see external.mk.
 XTERM_CONF_OPTS += --disable-rpath-hack
+# UTF-8 bring-up overflowed 32 and 64 KiB fixed NOMMU stacks; give it
+# 128 KiB like Xorg rather than the default 32 KiB.
+XTERM_CONF_ENV += LDFLAGS="$(TARGET_LDFLAGS) -Wl,-z,stack-size=131072"
 
 define WR_XTERM_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror \

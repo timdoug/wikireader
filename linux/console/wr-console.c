@@ -5,6 +5,7 @@
 #include <linux/kd.h>
 #include <linux/vt.h>
 #include <linux/input.h>
+#include <locale.h>
 #include <time.h>
 #include <poll.h>
 #include <signal.h>
@@ -21,6 +22,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <wchar.h>
 
 #include "wr-drm.h"
 #include "wr-keymap.h"
@@ -52,8 +54,27 @@ enum {
 	ESCAPE_OSC,
 };
 
-static unsigned char cells[TEXT_ROWS][TEXT_COLUMNS];
-static unsigned char attrs[TEXT_ROWS][TEXT_COLUMNS];
+/* Zero marks the trailing column of a wide character, never a printable NUL.
+ * Two combining marks fit the small bitmap cell; further marks are ignored.
+ */
+#define COMBINING_MARKS 2
+struct text_cell {
+	uint32_t codepoint;
+	uint32_t marks[COMBINING_MARKS];
+};
+static struct text_cell cell_storage[TEXT_ROWS][TEXT_COLUMNS];
+static unsigned char attr_storage[TEXT_ROWS][TEXT_COLUMNS];
+/* Scrolling rotates row pointers, keeping the Unicode cells and their marks
+ * in place. Only the recycled rows need clearing. */
+static struct text_cell *cells[TEXT_ROWS];
+static unsigned char *attrs[TEXT_ROWS];
+static uint32_t utf8_value;
+static unsigned int utf8_remaining;
+static unsigned char utf8_lower = 0x80, utf8_upper = 0xbf;
+static int cp437_mode;
+static int g1_selected;
+static int dec_graphics[2];
+static int charset_slot;
 static unsigned int cursor_x;
 static unsigned int cursor_y;
 static int wrap_pending;
@@ -185,6 +206,52 @@ static void mark_all_text(void)
 	dirty_text_last = TEXT_ROWS - 1;
 }
 
+/* Both BusyBox and the terminal use musl's width tables in a UTF-8 locale. */
+static int character_width(uint32_t codepoint)
+{
+	return codepoint >= 0x20 && codepoint < 0x7f ? 1 :
+		wcwidth((wchar_t)codepoint);
+}
+
+static void draw_text_cell(unsigned int row, unsigned int column, int inverse)
+{
+	const struct text_cell *cell = &cells[row][column];
+	uint32_t codepoint = cell->codepoint;
+	uint32_t overlays[COMBINING_MARKS];
+	const uint8_t *glyph;
+	uint8_t rows[FONT_HEIGHT];
+	unsigned int i, y;
+
+	if (!cell->marks[0]) {
+		glyph = unicode_glyph(codepoint ? codepoint : ' ');
+		if (!glyph)
+			glyph = unicode_glyph(0xfffd);
+		draw_glyph(column * FONT_WIDTH, row * FONT_HEIGHT, glyph,
+			   FONT_HEIGHT, inverse);
+		return;
+	}
+	for (i = 0; i < COMBINING_MARKS; i++) {
+		uint32_t composed = cell->marks[i] ?
+			unicode_compose(codepoint, cell->marks[i]) : 0;
+
+		overlays[i] = composed ? 0 : cell->marks[i];
+		if (composed)
+			codepoint = composed;
+	}
+	glyph = unicode_glyph(codepoint ? codepoint : ' ');
+	if (!glyph)
+		glyph = unicode_glyph(0xfffd);
+	memcpy(rows, glyph, sizeof(rows));
+	for (i = 0; i < COMBINING_MARKS; i++) {
+		if (!overlays[i] || !(glyph = unicode_glyph(overlays[i])))
+			continue;
+		for (y = 0; y < FONT_HEIGHT; y++)
+			rows[y] |= glyph[y];
+	}
+	draw_glyph(column * FONT_WIDTH, row * FONT_HEIGHT, rows,
+		   FONT_HEIGHT, inverse);
+}
+
 static void draw_text_rows(unsigned int first, unsigned int last)
 {
 	unsigned int row;
@@ -193,8 +260,7 @@ static void draw_text_rows(unsigned int first, unsigned int last)
 	clear_rows(first * FONT_HEIGHT, (last - first + 1) * FONT_HEIGHT);
 	for (row = first; row <= last; row++)
 		for (column = 0; column < TEXT_COLUMNS; column++)
-			draw_character(column * FONT_WIDTH, row * FONT_HEIGHT,
-				       cells[row][column],
+			draw_text_cell(row, column,
 				       (attrs[row][column] & ATTR_REVERSE) ^
 				       (cursor_drawn && row == drawn_y &&
 					column == drawn_x));
@@ -232,8 +298,7 @@ static void draw_cell(unsigned int row, unsigned int column)
 
 	if (cursor_drawn && row == drawn_y && column == drawn_x)
 		inverse = !inverse;
-	draw_character(column * FONT_WIDTH, row * FONT_HEIGHT,
-		       cells[row][column], inverse);
+	draw_text_cell(row, column, inverse);
 	mark_text_row(row);
 }
 
@@ -268,8 +333,31 @@ static void show_cursor(void)
 static void blank_cells(unsigned int row, unsigned int first,
 			unsigned int count)
 {
-	memset(&cells[row][first], ' ', count);
+	for (unsigned int x = first; x < first + count; x++)
+		cells[row][x] = (struct text_cell){ .codepoint = ' ' };
 	memset(&attrs[row][first], 0, count);
+}
+
+/* Rotate the logical rows left; right rotation is rows - count. */
+static void rotate_text_rows(unsigned int top, unsigned int bottom,
+			     unsigned int count)
+{
+	struct text_cell *saved_cells[TEXT_ROWS];
+	unsigned char *saved_attrs[TEXT_ROWS];
+	unsigned int rows = bottom - top + 1;
+
+	if (!count || count == rows)
+		return;
+	memcpy(saved_cells, cells + top, count * sizeof(cells[0]));
+	memcpy(saved_attrs, attrs + top, count * sizeof(attrs[0]));
+	memmove(cells + top, cells + top + count,
+		(rows - count) * sizeof(cells[0]));
+	memmove(attrs + top, attrs + top + count,
+		(rows - count) * sizeof(attrs[0]));
+	memcpy(cells + bottom + 1 - count, saved_cells,
+	       count * sizeof(cells[0]));
+	memcpy(attrs + bottom + 1 - count, saved_attrs,
+	       count * sizeof(attrs[0]));
 }
 
 static void scroll_region_up(unsigned int top, unsigned int bottom,
@@ -280,8 +368,7 @@ static void scroll_region_up(unsigned int top, unsigned int bottom,
 
 	if (count > rows)
 		count = rows;
-	memmove(cells[top], cells[top + count], (rows - count) * TEXT_COLUMNS);
-	memmove(attrs[top], attrs[top + count], (rows - count) * TEXT_COLUMNS);
+	rotate_text_rows(top, bottom, count);
 	for (row = bottom + 1 - count; row <= bottom; row++)
 		blank_cells(row, 0, TEXT_COLUMNS);
 	memmove(framebuffer + top * FONT_HEIGHT * LCD_STRIDE,
@@ -301,8 +388,7 @@ static void scroll_region_down(unsigned int top, unsigned int bottom,
 
 	if (count > rows)
 		count = rows;
-	memmove(cells[top + count], cells[top], (rows - count) * TEXT_COLUMNS);
-	memmove(attrs[top + count], attrs[top], (rows - count) * TEXT_COLUMNS);
+	rotate_text_rows(top, bottom, rows - count);
 	for (row = top; row < top + count; row++)
 		blank_cells(row, 0, TEXT_COLUMNS);
 	memmove(framebuffer + (top + count) * FONT_HEIGHT * LCD_STRIDE,
@@ -338,8 +424,28 @@ static void erase_in_line(unsigned int row, unsigned int first,
 		last = TEXT_COLUMNS - 1;
 	if (first > last)
 		return;
+	/* An erase through either half removes the whole wide character. */
+	if (!cells[row][first].codepoint && first)
+		first--;
+	if (last + 1 < TEXT_COLUMNS && !cells[row][last + 1].codepoint)
+		last++;
 	blank_cells(row, first, last - first + 1);
 	redraw_row(row);
+}
+
+/* Column edits may split a wide pair at either end of a moved span. */
+static void repair_wide_cells(unsigned int row)
+{
+	for (unsigned int x = 0; x < TEXT_COLUMNS; x++) {
+		if (!cells[row][x].codepoint) {
+			blank_cells(row, x, 1);
+		} else if (character_width(cells[row][x].codepoint) == 2) {
+			if (x + 1 < TEXT_COLUMNS && !cells[row][x + 1].codepoint)
+				x++;
+			else
+				blank_cells(row, x, 1);
+		}
+	}
 }
 
 static void erase_in_display(unsigned int mode)
@@ -372,14 +478,17 @@ static void shift_line(int insert, unsigned int count)
 		count = TEXT_COLUMNS - x;
 	keep = TEXT_COLUMNS - x - count;
 	if (insert) {
-		memmove(&cells[cursor_y][x + count], &cells[cursor_y][x], keep);
+		memmove(&cells[cursor_y][x + count], &cells[cursor_y][x],
+			keep * sizeof(cells[0][0]));
 		memmove(&attrs[cursor_y][x + count], &attrs[cursor_y][x], keep);
 		blank_cells(cursor_y, x, count);
 	} else {
-		memmove(&cells[cursor_y][x], &cells[cursor_y][x + count], keep);
+		memmove(&cells[cursor_y][x], &cells[cursor_y][x + count],
+			keep * sizeof(cells[0][0]));
 		memmove(&attrs[cursor_y][x], &attrs[cursor_y][x + count], keep);
 		blank_cells(cursor_y, TEXT_COLUMNS - count, count);
 	}
+	repair_wide_cells(cursor_y);
 	redraw_row(cursor_y);
 }
 
@@ -512,6 +621,10 @@ static void control_sequence(unsigned char final)
 				rendition |= ATTR_REVERSE;
 			else if (parameters[i] == 27)
 				rendition &= ~ATTR_REVERSE;
+			/* TERM=linux's alternate font is raw CP437, explicitly
+			   selected by narrow curses programs for line drawing. */
+			else if (parameters[i] >= 10 && parameters[i] <= 12)
+				cp437_mode = parameters[i] != 10;
 		}
 		break;
 	case 'n':
@@ -538,38 +651,115 @@ static void control_sequence(unsigned char final)
 	}
 }
 
-static void terminal_put(unsigned char byte)
+static void terminal_put(uint32_t codepoint)
 {
+	int width = character_width(codepoint);
+	unsigned int x;
+
+	if (width == 0) {
+		if (!cursor_x && !wrap_pending)
+			return;
+		x = wrap_pending ? cursor_x : cursor_x - 1;
+		if (!cells[cursor_y][x].codepoint && x)
+			x--;
+		for (unsigned int i = 0; i < COMBINING_MARKS; i++) {
+			if (!cells[cursor_y][x].marks[i]) {
+				cells[cursor_y][x].marks[i] = codepoint;
+				draw_cell(cursor_y, x);
+				break;
+			}
+		}
+		return;
+	}
+	if (width < 0) {
+		codepoint = 0xfffd;
+		width = 1;
+	}
 	/* A character in the last column wraps only when the next one comes,
 	   so a full-screen program can fill that column without scrolling. */
-	if (wrap_pending) {
+	if (!wrap_pending && width == 2 && cursor_x == TEXT_COLUMNS - 1)
+		erase_in_line(cursor_y, cursor_x, cursor_x);
+	if (wrap_pending || (width == 2 && cursor_x == TEXT_COLUMNS - 1)) {
 		cursor_x = 0;
 		terminal_index();
 		wrap_pending = 0;
 	}
-	/* The font is the Linux console's, in its CP437 layout, so the line-drawing
-	   characters curses sends for TERM=linux are drawn as they are. */
-	cells[cursor_y][cursor_x] = byte;
-	attrs[cursor_y][cursor_x] = rendition;
-	draw_cell(cursor_y, cursor_x);
-	if (cursor_x == TEXT_COLUMNS - 1)
+	/* The usual one-column write cannot split a wide pair here. Avoid the
+	 * general two-column editing loops, including their repeated row lookups. */
+	if (width == 1 && cells[cursor_y][cursor_x].codepoint &&
+	    (cursor_x + 1 == TEXT_COLUMNS ||
+	     cells[cursor_y][cursor_x + 1].codepoint)) {
+		cells[cursor_y][cursor_x] = (struct text_cell){ .codepoint = codepoint };
+		attrs[cursor_y][cursor_x] = rendition;
+		draw_cell(cursor_y, cursor_x);
+		if (cursor_x + 1 == TEXT_COLUMNS)
+			wrap_pending = 1;
+		else
+			cursor_x++;
+		return;
+	}
+	/* Overwriting either half first clears its old partner. */
+	for (x = cursor_x; x < cursor_x + (unsigned int)width; x++) {
+		if (!cells[cursor_y][x].codepoint && x) {
+			blank_cells(cursor_y, x - 1, 1);
+			draw_cell(cursor_y, x - 1);
+		} else if (x + 1 < TEXT_COLUMNS &&
+			   !cells[cursor_y][x + 1].codepoint) {
+			blank_cells(cursor_y, x + 1, 1);
+			draw_cell(cursor_y, x + 1);
+		}
+	}
+	cells[cursor_y][cursor_x] = (struct text_cell){ .codepoint = codepoint };
+	for (x = cursor_x; x < cursor_x + (unsigned int)width; x++) {
+		if (x != cursor_x)
+			cells[cursor_y][x] = (struct text_cell){0};
+		attrs[cursor_y][x] = rendition;
+		draw_cell(cursor_y, x);
+	}
+	if (cursor_x + width >= TEXT_COLUMNS) {
+		cursor_x = TEXT_COLUMNS - 1;
 		wrap_pending = 1;
-	else
-		cursor_x++;
+	} else {
+		cursor_x += width;
+	}
 }
 
 static void terminal_reset(void)
 {
+	for (unsigned int row = 0; row < TEXT_ROWS; row++) {
+		cells[row] = cell_storage[row];
+		attrs[row] = attr_storage[row];
+	}
 	rendition = 0;
 	scroll_top = 0;
 	scroll_bottom = TEXT_ROWS - 1;
 	cursor_visible = 1;
+	utf8_remaining = 0;
+	cp437_mode = g1_selected = 0;
+	dec_graphics[0] = dec_graphics[1] = 0;
+	charset_slot = -1;
+	escape_state = ESCAPE_NONE;
 	erase_in_display(2);
 	move_cursor(0, 0);
 }
 
 static void terminal_byte(unsigned char byte)
 {
+	/* Decode across reads. Reject overlong encodings, surrogates and values
+	   above U+10FFFF at the first invalid byte; retry an interrupting byte
+	   so neither an ASCII character nor an escape sequence is swallowed. */
+	if (utf8_remaining) {
+		if (byte >= utf8_lower && byte <= utf8_upper) {
+			utf8_value = (utf8_value << 6) | (byte & 0x3f);
+			utf8_lower = 0x80;
+			utf8_upper = 0xbf;
+			if (!--utf8_remaining)
+				terminal_put(utf8_value);
+			return;
+		}
+		utf8_remaining = 0;
+		terminal_put(0xfffd);
+	}
 	switch (escape_state) {
 	case ESCAPE_START:
 		escape_state = ESCAPE_NONE;
@@ -583,7 +773,12 @@ static void terminal_byte(unsigned char byte)
 		case ']':
 			escape_state = ESCAPE_OSC;
 			return;
-		case '(': case ')': case '*': case '+': case '#': case '%':
+		case '(': case ')':
+			charset_slot = byte == ')';
+			escape_state = ESCAPE_SKIP;
+			return;
+		case '*': case '+': case '#': case '%':
+			charset_slot = -1;
 			escape_state = ESCAPE_SKIP;
 			return;
 		case '7':
@@ -636,14 +831,19 @@ static void terminal_byte(unsigned char byte)
 		control_sequence(byte);
 		return;
 	case ESCAPE_SKIP:
+		if (charset_slot >= 0)
+			dec_graphics[charset_slot] = byte == '0';
+		charset_slot = -1;
 		escape_state = ESCAPE_NONE;
 		return;
 	case ESCAPE_OSC:
 		/* A title or palette: ignored up to BEL or ESC \. */
 		if (byte == 0x07)
 			escape_state = ESCAPE_NONE;
-		else if (byte == 0x1b)
+		else if (byte == 0x1b) {
+			charset_slot = -1;
 			escape_state = ESCAPE_SKIP;
+		}
 		return;
 	}
 
@@ -670,10 +870,49 @@ static void terminal_byte(unsigned char byte)
 	case '\t':
 		move_cursor(cursor_y, (cursor_x / 8 + 1) * 8);
 		return;
+	case 0x0e:
+		g1_selected = 1;
+		return;
+	case 0x0f:
+		g1_selected = 0;
+		return;
 	}
 	if (byte < 0x20 || byte == 0x7f)
 		return;
-	terminal_put(byte);
+	if (cp437_mode) {
+		terminal_put(console_cp437[byte]);
+	} else if (byte >= 0x80) {
+		utf8_lower = 0x80;
+		utf8_upper = 0xbf;
+		if (byte >= 0xc2 && byte <= 0xdf) {
+			utf8_value = byte & 0x1f;
+			utf8_remaining = 1;
+		} else if (byte >= 0xe0 && byte <= 0xef) {
+			utf8_value = byte & 0x0f;
+			utf8_remaining = 2;
+			if (byte == 0xe0) utf8_lower = 0xa0;
+			if (byte == 0xed) utf8_upper = 0x9f;
+		} else if (byte >= 0xf0 && byte <= 0xf4) {
+			utf8_value = byte & 7;
+			utf8_remaining = 3;
+			if (byte == 0xf0) utf8_lower = 0x90;
+			if (byte == 0xf4) utf8_upper = 0x8f;
+		} else {
+			terminal_put(0xfffd);
+		}
+	} else if (dec_graphics[g1_selected] && byte >= 0x60 && byte <= 0x7e) {
+		static const uint16_t graphics[] = {
+			0x25c6, 0x2592, 0x2409, 0x240c, 0x240d, 0x240a, 0x00b0,
+			0x00b1, 0x2424, 0x240b, 0x2518, 0x2510, 0x250c, 0x2514,
+			0x253c, 0x23ba, 0x23bb, 0x2500, 0x23bc, 0x23bd, 0x251c,
+			0x2524, 0x2534, 0x252c, 0x2502, 0x2264, 0x2265, 0x03c0,
+			0x2260, 0x00a3, 0x00b7,
+		};
+
+		terminal_put(graphics[byte - 0x60]);
+	} else {
+		terminal_put(byte);
+	}
 }
 
 static void consume_terminal_output(int master_fd)
@@ -897,6 +1136,11 @@ static int open_pty(int *slave_fd)
 		return -1;
 	}
 	ioctl(*slave_fd, TIOCSWINSZ, &size);
+	struct termios tty;
+	if (tcgetattr(*slave_fd, &tty) == 0) {
+		tty.c_iflag |= IUTF8;
+		tcsetattr(*slave_fd, TCSANOW, &tty);
+	}
 	return master;
 }
 
@@ -907,7 +1151,7 @@ static pid_t start_shell(int slave)
 	   can be added without rebuilding the image. */
 	char *const envp[] = {
 		"HOME=/root", "PATH=/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sd/bin",
-		"TERM=linux", NULL,
+		"TERM=linux", "LANG=C.UTF-8", NULL,
 	};
 	pid_t child = vfork();
 
@@ -1042,6 +1286,7 @@ int main(void)
 	int master_fd;
 	pid_t shell;
 
+	setlocale(LC_CTYPE, "C.UTF-8");
 	log_fd = open("/dev/ttyC0", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 	if (log_fd < 0)
 		log_fd = STDERR_FILENO;
@@ -1052,7 +1297,7 @@ int main(void)
 		return 1;
 	}
 	panel_open();
-	memset(cells, ' ', sizeof(cells));
+	terminal_reset();
 	for (const char *banner = "C33 USERSPACE CONSOLE\r\n"; *banner; banner++)
 		terminal_byte(*banner);
 	inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);

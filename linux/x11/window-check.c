@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <locale.h>
 #include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
@@ -12,6 +13,86 @@
 
 struct client { Window id; int x, y, width, height; };
 static struct client terminal, eyes;
+
+static int font_has(XFontStruct *font, unsigned int codepoint)
+{
+    unsigned int row = codepoint >> 8, column = codepoint & 255;
+    if (!font || !font->per_char || row < font->min_byte1 || row > font->max_byte1 ||
+        column < font->min_char_or_byte2 || column > font->max_char_or_byte2)
+        return 0;
+    unsigned int columns = font->max_char_or_byte2 - font->min_char_or_byte2 + 1;
+    XCharStruct *glyph = font->per_char + (row - font->min_byte1) * columns +
+        column - font->min_char_or_byte2;
+    return glyph->width == 5 && glyph->rbearing > glyph->lbearing;
+}
+
+/* Check Xlib's UTF-8 font-set conversion against the actual core glyphs.
+ * The locale must fall back from fixed's Latin-1 to the Unicode 5x8 font
+ * for Greek, Cyrillic and the euro, while retaining the original geometry.
+ */
+static int unicode_fontset(Display *dpy)
+{
+    char **missing, *fallback, **names;
+    int missing_count, count;
+    XFontStruct **fonts, *latin = NULL, *unicode = NULL;
+    XFontSet set = XCreateFontSet(dpy, "fixed,5x8", &missing, &missing_count, &fallback);
+    if (!set)
+        return 0;
+    int passed = missing_count == 0;
+    for (int i = 0; i < missing_count; i++)
+        printf("fontset missing: %s\n", missing[i]);
+    if (missing)
+        XFreeStringList(missing);
+    Window root = DefaultRootWindow(dpy);
+    Pixmap actual = XCreatePixmap(dpy, root, 64, 20, DefaultDepth(dpy, DefaultScreen(dpy)));
+    Pixmap expected = XCreatePixmap(dpy, root, 64, 20, DefaultDepth(dpy, DefaultScreen(dpy)));
+    GC gc = XCreateGC(dpy, actual, 0, NULL);
+    XSetForeground(dpy, gc, WhitePixel(dpy, DefaultScreen(dpy)));
+    XFillRectangle(dpy, actual, gc, 0, 0, 64, 20);
+    XFillRectangle(dpy, expected, gc, 0, 0, 64, 20);
+    XSetForeground(dpy, gc, BlackPixel(dpy, DefaultScreen(dpy)));
+    const char text[] = "\xc3\xa9\xce\xbb\xd0\x96\xe2\x82\xac";
+    XRectangle ink, logical;
+    int width = XmbTextExtents(set, text, sizeof(text) - 1, &ink, &logical);
+    XmbDrawString(dpy, actual, set, gc, 0, 15, text, sizeof(text) - 1);
+    count = XFontsOfFontSet(set, &fonts, &names);
+    for (int i = 0; i < count; i++) {
+        printf("fontset font: %s\n", names[i]);
+        if (fonts[i]->max_byte1 == 0)
+            latin = fonts[i];
+        if (font_has(fonts[i], 0x3bb) && font_has(fonts[i], 0x416))
+            unicode = fonts[i];
+    }
+    passed = passed && latin && unicode && latin->ascent + latin->descent == 13;
+    if (latin && unicode) {
+        const unsigned int codes[] = {0xe9, 0x3bb, 0x416, 0x20ac};
+        int x = 0;
+        for (unsigned int i = 0; i < sizeof(codes) / sizeof(codes[0]); i++) {
+            XFontStruct *font = i ? unicode : latin;
+            XChar2b character = { .byte1 = codes[i] >> 8, .byte2 = codes[i] & 255 };
+            XSetFont(dpy, gc, font->fid);
+            XDrawString16(dpy, expected, gc, x, 15, &character, 1);
+            x += XTextWidth16(font, &character, 1);
+        }
+        passed = passed && width == x;
+    }
+    XImage *a = XGetImage(dpy, actual, 0, 0, 64, 20, AllPlanes, ZPixmap);
+    XImage *b = XGetImage(dpy, expected, 0, 0, 64, 20, AllPlanes, ZPixmap);
+    passed = passed && a && b;
+    if (a && b)
+        for (int y = 0; y < 20; y++)
+            for (int x = 0; x < 64; x++)
+                passed = passed && XGetPixel(a, x, y) == XGetPixel(b, x, y);
+    if (a) XDestroyImage(a);
+    if (b) XDestroyImage(b);
+    XFreeGC(dpy, gc);
+    XFreePixmap(dpy, actual);
+    XFreePixmap(dpy, expected);
+    XFreeFontSet(dpy, set);
+    printf("X11 UTF8 FONTSET %s: missing=%d fonts=%d width=%d\n",
+           passed ? "PASS" : "FAIL", missing_count, count, width);
+    return passed;
+}
 
 static void find(Display *dpy, Window root, Window window, unsigned int depth)
 {
@@ -98,13 +179,23 @@ static int shell_ready(void)
 
 int main(int argc, char **argv)
 {
+    if (!setlocale(LC_CTYPE, "C.UTF-8") || !XSupportsLocale())
+        return 1;
     Display *dpy = XOpenDisplay(NULL);
     if (!dpy)
         return 1;
+    if (argc == 2 && !strcmp(argv[1], "--fontset")) {
+        int passed = unicode_fontset(dpy);
+        XCloseDisplay(dpy);
+        return !passed;
+    }
     Window root = DefaultRootWindow(dpy);
     XFontStruct *font = XLoadQueryFont(dpy, "5x8");
     int small_font = font && font->min_bounds.width == 5 &&
         font->max_bounds.width == 5 && font->ascent + font->descent == 8;
+    small_font = small_font && font_has(font, 0xe9) && font_has(font, 0x3bb) &&
+        font_has(font, 0x416) && font_has(font, 0x20ac) && font_has(font, 0x2500);
+    small_font = small_font && unicode_fontset(dpy);
     if (font) {
         printf("5x8 font: %dx%d\n", font->max_bounds.width, font->ascent + font->descent);
         XFreeFont(dpy, font);

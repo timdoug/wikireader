@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test gdb-test x11-test wayland-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test gdb-test x11-test wayland-test unicode-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -52,6 +52,11 @@ x11-test:
 
 wayland-test:
 	python3 ./wayland/run.py
+
+# Uses the existing kernel/rootfs; rebuild them after changing Unicode options.
+unicode-test:
+	$(SHELL_IN_VM) sh ./linux/console/build-tests.sh
+	python3 ./console/unicode-test.py
 
 dt-check: vm
 	$(SHELL_IN_VM) ./linux/dt-check.sh

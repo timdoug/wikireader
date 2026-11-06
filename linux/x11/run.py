@@ -131,8 +131,8 @@ echo XKEYBOARD PASS
     if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL|XKEYBOARD FAIL", text):
         raise SystemExit(f"X11 regression failed; see {out / 'boot.log'}")
     assert (out / "xterm.txt").read_text().endswith("XTERM PTY PASS\n")
-    print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, live shell after initial command")
-    print("X11 passed: 5x8 font; xterm and xeyes side by side; session cleanup; default desktop")
+    print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, UTF-8/wide/combining cursor report, live shell")
+    print("X11 passed: Unicode 5x8 glyphs; xterm and xeyes side by side; session cleanup; default desktop")
     print("Keyboard passed: xvkbd typed \"touch /k\" into the demo's xterm, / from its 123 page")
     print(f"Screenshot: {out / 'screen.pgm'}")
 

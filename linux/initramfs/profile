@@ -3,6 +3,9 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sd/bin
 export HOME=/root
 export EDITOR=vi
 export PAGER=less
+# musl supplies UTF-8 without installed locale archives. Keep explicit caller
+# choices (LC_ALL/LC_CTYPE still take precedence), including LANG=C scripts.
+export LANG="${LANG:-C.UTF-8}"
 # Save a short history on exit, rather than write to the card after every line.
 export HISTFILE="$HOME/.hush_history"
 export HISTSIZE=64

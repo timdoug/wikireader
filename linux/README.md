@@ -150,9 +150,10 @@ otherwise. Only a press counts as activity, so the release of the key that
 blanked the machine does not wake it. Each program changes only its own rows:
 the console writes its changed text rows into its `D1` dumb buffer, which
 the panel scans, and the keyboard sends its key bands over a local socket
-(`wr-panel.h`) for the console to write. Packed glyph writes and overlap-safe framebuffer
-row moves make scrolling cheap; bounded output frames are paced when they
-scroll so commands remain visibly animated instead of either repainting every
+(`wr-panel.h`) for the console to write. Packed glyph writes, overlap-safe
+framebuffer row moves and rotation of the Unicode cell rows keep scrolling
+cheap; bounded output frames are paced when they scroll so commands remain
+visibly animated instead of either repainting every
 byte or jumping directly to their final screen. Pacing never sits between a
 key and the first thing that key produced: the first frame of a burst is
 painted immediately and only its continuation is paced, which keeps the
@@ -975,17 +976,73 @@ Its terminal is 40 columns by 15 rows and implements the Linux console as
 insertion and deletion of characters and lines, a scrolling region, reverse
 video, saving, hiding and reporting the cursor, and xterm's deferred wrap in
 the last column. Tab stops are every eight columns. Colours and other
-renditions are ignored, since the panel has one bit a pixel. The text is in
-the kernel's own 6x8 console font (`lib/fonts/font_6x8.c`), the boot screen's,
-all 256 characters in the CP437 layout, so the line-drawing characters curses
-sends for `TERM=linux` are drawn as lines; the keyboard is labelled in X's
-misc-fixed 6x13, as the X keyboard is. `console/make-fonts.py` writes both
-into `console/wr-fonts.h` from the kernel source and X.Org's
-font-misc-misc 1.1.3 (fetched with its SHA-256). The cursor is its cell
-drawn inverted. Full-screen programs such as BusyBox `vi`, `less` and `top`,
-and curses programs such as `sl`, therefore work. Escape is Ctrl+`[`.
-`console/terminal-test.c` checks the escape handling on the build machine,
-and the Buildroot package runs it before building the console.
+renditions are ignored, since the panel has one bit a pixel. Its input is
+UTF-8: decoding survives split reads and replaces malformed sequences with
+U+FFFD, preserving the ASCII or escape that interrupted them. Cells retain
+Unicode scalars, with two columns for wide characters and up to two zero-width
+combining marks attached to a base. Erasing, overwriting, scrolling and column
+edits keep wide pairs and their marks together. The cursor is its cell drawn
+inverted. Explicit Linux alternate-font and DEC graphics sequences still draw
+curses borders; ordinary non-ASCII bytes are UTF-8.
+
+The six-by-eight-pixel cells keep the kernel's original ASCII and joined box
+drawing (`lib/fonts/font_6x8.c`), with a sparse Unicode supplement from X.Org's
+public-domain misc-fixed 5x8: Latin, Greek, Cyrillic, punctuation and symbols.
+Canonical compositions present in the font make `e` plus a combining acute
+look like precomposed `é`; other supported marks overlay the base bitmap.
+Unsupported glyphs, including CJK and emoji, display U+FFFD while retaining
+their original one- or two-column width. This is a small bitmap terminal,
+without bidirectional layout, complex-script shaping or emoji-sequence shaping.
+The touch keyboard keeps its US layout; this does not add an international
+input method. The keyboard labels remain X's misc-fixed 6x13.
+`console/make-fonts.py` writes `console/wr-fonts.h` from the kernel source and
+the SHA-256-pinned font-misc-misc 1.1.3 archive; its composition database is
+Python's stable Unicode 3.2 snapshot so regeneration does not depend on the
+host's default Unicode version.
+
+Init and login shells default to `LANG=C.UTF-8`, which musl supplies without
+locale archives. BusyBox uses musl's Unicode and width routines too, so Hush
+editing, character counts, filename completion and console cursor movement
+agree. Explicit caller locale settings remain effective. Curses is built with
+wide-character support. Applications retain their own limitations: BusyBox
+`vi` is still a byte-oriented editor. Escape is Ctrl+`[`.
+`console/terminal-test.c` checks UTF-8, glyph rendering and terminal editing
+on the build machine before the console is built.
+
+`make -C linux unicode-test` uses the existing kernel/rootfs, builds native
+C33 terminal and real interactive Hush PTY tests, and boots them through
+FLASH -> Grifo -> launcher -> Linux. It checks multibyte Backspace and cursor
+arrows, wide characters, combining marks, completion of a `café` filename,
+and the actual DRM scanout against the host renderer pixel for pixel.
+`python3 linux/console/unicode-test.py --ram 16 --output linux/artifacts/unicode-16-run`
+selects the production board revision through `WREMU_BOARD_REV=8`; the default
+is the 32 MiB revision. Logs, image hashes and the screenshot stay under the
+selected output directory. These are emulator checks, not physical-device
+qualification.
+
+The console rotates pointers to its Unicode cell rows on scroll instead of
+copying every scalar and combining mark. Ordinary one-column writes bypass
+the wide-pair editing loops, and glyphs that fit within one framebuffer byte
+leave the adjacent byte untouched. These changes add 120 bytes of row-pointer
+storage and 368 bytes across the console and keyboard executables; filesystem
+allocation and the 32 MiB image size stay unchanged.
+
+In a matched 32 MiB wremu run through Grifo, median process CPU time for
+2,000 ASCII lines fell from **6.584 to 4.564 s** (31% less), and mixed Unicode
+lines from **6.982 to 5.048 s** (28% less), with identical framebuffer
+checksums. The pre-Unicode ASCII renderer took **3.888 s**, so the remaining
+ASCII cost is about 17%. These are three trials per workload in one boot,
+without PTY I/O, panel writes or animation pacing. The profile, saved source
+comparison, all-glyph and 10,000-operation differential check, native boot and
+Unicode integration reports are under `artifacts/unicode-opt/`.
+`console/render-bench.c` is built alongside the Unicode tests for repeatable
+measurements; after `make -C linux unicode-test`, run it from the repository
+root with:
+
+```sh
+python3 linux/ask-app.py \
+  --file bench.bin=linux/artifacts/unicode-tests/render-bench '/mnt/sd/bench.bin'
+```
 
 The console holds VT 1 in process mode. When another program switches VTs,
 the kernel asks the console first: it stops drawing (it keeps drawing into
@@ -1027,7 +1084,8 @@ Dragging on the background moves the pointer; holding still there for 0.6 s
 opens twm's menu (`buildroot/external/patches/xapp_twm`: twm opens menus
 only from buttons, and a touch is its only button), whose Exit ends the
 session. twm's configuration (`wikireader.twmrc`)
-uses the server's built-in `fixed` font and places windows itself, since
+uses the server's built-in `fixed` font with `5x8` explicitly supplied as
+its Unicode fallback, and places windows itself, since
 placing one by hand is awkward by touch. Menu commands start through
 `system()`, which musl does with `posix_spawn`. xeyes asks for XInput 2.2 rather than 2.0
 (`buildroot/external/patches/xapp_xeyes`): a 2.0 client gets no raw motion
@@ -1038,6 +1096,26 @@ is now. It moves the pupils along (dx, dy) over its length instead of
 through `atan2`, `cos` and `sin`, which were most of its arithmetic.
 
 Xterm 410 uses its supported `-S` mode with an externally supplied PTY.
+Its 5x8 built-in font uses 1,422 glyphs from the upstream ISO10646-1 bitmap,
+bounded to U+28FF with the replacement bitmap as its default glyph.
+Three high ligatures and an explicitly encoded U+FFFD would expand X's dense
+core-font metrics reply to about 790 KiB, needing a contiguous 1 MiB allocation
+that failed after a session restart despite 15 MiB free. The bounded range's
+reply fits in 128 KiB. `console/make-xfont.py` regenerates its self-contained libXfont2
+patch from the same pinned archive with `bdftopcf`. No font-file reader or
+FreeType is needed. Xlib's `en_US.UTF-8` locale and `C.UTF-8` alias survive
+Buildroot's locale pruning. The PTY sets `IUTF8`, and xterm gets a fixed
+128 KiB stack: both 32 and 64 KiB stacks overflowed during UTF-8 startup.
+`wr-xorg/prepare-locale.py` limits X font-set searches to the encodings the
+built-in fonts provide (Latin-1 and ISO10646); it retains upstream's complete
+UTF-8 conversion definition. This avoids repeatedly searching for unavailable
+legacy font encodings. twm shares identical font sets between font roles,
+with references released by their last user. The 6x13 geometry remains the
+same, and the explicit `fixed,5x8` list lets Unicode titles use the fallback.
+The xterm launcher supplies `mkSampleSize: 0`, selecting musl's width tables
+without comparing the whole BMP to xterm's built-in tables on every launch;
+xterm retains its line-drawing sanity checks and later user resources can
+override the default.
 `buildroot/external/package/wr-xterm` installs a small launcher as `xterm`
 and the upstream terminal as `/usr/libexec/xterm`. The launcher uses
 `posix_spawn` to start the terminal and a helper that establishes the
@@ -1050,11 +1128,31 @@ editor switches to noncanonical, no-echo input. Ctrl-L clears the startup
 banner and redraws the real prompt before the command is entered; the shell
 executes it normally and retains it in history. The variable is removed from
 the child's environment so nested terminals do not repeat the command.
+For this automated-command mode, the helper notifies the parent through a
+pipe after the window-ID handshake, so the parent sleeps through X startup
+and checks the shell's raw-mode transition only afterward. Ordinary sessions
+do not create this notification pipe.
+
+On 2026-11-05, the full twm/xeyes/xterm/xvkbd first-command benchmark in
+32 MiB wremu went from 22.26 s before Unicode to 31.83 s with the initial
+Unicode setup. The font-search, font-set reuse, width-scan and launcher fixes
+bring it to **25.36 s** (three fresh boots: 25.36, 25.36, 25.53 s).
+The old automated launcher contributed polling overhead to that measurement.
+A separate login-profile marker, with no automated command or startup polling,
+measured **19.88 / 28.25 / 24.60 s** for pre-Unicode, initial Unicode and the
+optimized system, respectively (one fresh boot each). That marker precedes
+the first prompt; it is a different endpoint from executing the first command.
+All runs booted FLASH -> Grifo -> launcher -> Linux; these are emulator
+measurements, not device timings. Raw profiles, controlled trials, image
+hashes and reports are under `artifacts/unicode-startup/`.
 
 `make -C linux x11-test` uses the existing kernel and root image. It checks
 the command's PTY, foreground process group, geometry and environment;
 verifies that the same shell returns to its line editor after the command;
-checks both clients through Xlib; tests session cleanup; and boots the default
+checks Unicode font coverage through Xlib, compares UTF-8 font-set output
+pixel for pixel with the selected Latin/Unicode core glyphs, and checks
+xterm's actual cursor report after multibyte, wide and combining text;
+tests session cleanup; and boots the default
 desktop, then types `touch /k` into its xterm with taps on the keyboard. It also checks the 5x8 font's actual cell size.
 Reports and the screenshot are in `artifacts/x11-run/`.
 
@@ -1103,8 +1201,10 @@ xeyes sharing libX11, sharing does not yet pay for the whole libraries.
 Startup is mostly reading them from the card.
 
 The tree also has a Wayland session, built and measured, and left out of
-the image: X starts in 6 s and runs the same clients, where this took 14 to
-18 s to show a terminal. Its packages stay in `buildroot/external` and its
+the image. Earlier X startup measurements reached an initial screen in about
+6 s; the full interactive-session endpoint above includes the clients and
+shell setup as well. Wayland took 14 to 18 s to show a terminal in its earlier
+tests. Its packages stay in `buildroot/external` and its
 patches apply; to build it, add to the Buildroot defconfig
 `BR2_PACKAGE_LIBUDEV_ZERO`, `BR2_PACKAGE_CAGE`, `BR2_PACKAGE_FOOT` and
 `BR2_PACKAGE_WR_WAYLAND` (and leave out hwdata's PCI and USB ids); musl's

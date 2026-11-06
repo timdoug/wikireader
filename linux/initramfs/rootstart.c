@@ -293,7 +293,7 @@ void root_main(void)
 {
 	static const unsigned long long core_limit[2] = { 4 * 1024 * 1024, ~0ULL };
 	static char *const argv[] = { "/sbin/init", 0 };
-	static char *const envp[] = { "HOME=/root", "TERM=linux", 0 };
+	static char *const envp[] = { "HOME=/root", "TERM=linux", "LANG=C.UTF-8", 0 };
 	long error = 0, image, loop;
 	int i;
 

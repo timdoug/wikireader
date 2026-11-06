@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ static void start_keyboard(const char *window, int slave)
     posix_spawn_file_actions_destroy(&actions);
 }
 
-static void child_command(const char *path, char **command)
+static void child_command(const char *path, int ready, char **command)
 {
     int slave;
     char window[64], ch;
@@ -102,12 +103,20 @@ static void child_command(const char *path, char **command)
     if (want_keyboard)
         start_keyboard(window, slave);
     tty.c_lflag |= ECHO;
+    tty.c_iflag |= IUTF8;
     if (tcsetattr(slave, TCSANOW, &tty) < 0 ||
         tcsetpgrp(slave, getpgrp()) < 0 ||
         dup2(slave, 0) < 0 || dup2(slave, 1) < 0 || dup2(slave, 2) < 0)
         fail("xterm: terminal setup");
     if (slave > 2)
         close(slave);
+    /* The parent can sleep through X's font/window setup. Only once this
+     * handshake is over does it need to watch the shell enter raw mode. */
+    if (ready >= 0) {
+        if (write(ready, "r", 1) != 1)
+            fail("xterm: startup notification");
+        close(ready);
+    }
     execvp(command[0], command);
     perror(command[0]);
     exit(127);
@@ -161,19 +170,38 @@ static int initial_command(int master, int slave, const char *command)
     return -1;
 }
 
+static int wait_for_helper(int fd)
+{
+    struct pollfd ready = { .fd = fd, .events = POLLIN };
+    int result;
+    char byte;
+
+    do {
+        result = poll(&ready, 1, 30000);
+    } while (result < 0 && errno == EINTR && !stopped);
+    if (result > 0 && read(fd, &byte, 1) == 1 && byte == 'r')
+        return 0;
+    if (result == 0)
+        errno = ETIMEDOUT;
+    else if (result > 0)
+        errno = EPIPE;
+    return -1;
+}
+
 int main(int argc, char **argv)
 {
     int master, slave, split = argc, hold = 0, status = 0, result = 0;
     int startup_failed = 0;
+    int ready[2] = {-1, -1};
     pid_t terminal, command, ended;
-    char path[64], option[96];
+    char path[64], option[96], ready_option[24];
     char *shell[] = {"/bin/sh", "-l", NULL};
     struct termios tty;
     posix_spawn_file_actions_t actions;
     struct sigaction action = {.sa_handler = stop};
 
-    if (argc >= 4 && strcmp(argv[1], "--pty-child") == 0) {
-        child_command(argv[2], argv + 3);
+    if (argc >= 5 && strcmp(argv[1], "--pty-child") == 0) {
+        child_command(argv[2], atoi(argv[3]), argv + 4);
         return 127;
     }
     const char *value = getenv("WR_XTERM_INITIAL_COMMAND");
@@ -210,21 +238,30 @@ int main(int argc, char **argv)
     if (tcsetattr(slave, TCSANOW, &tty) < 0)
         fail("xterm: disable handshake echo");
 
-    char **client = calloc((size_t)split + 2, sizeof(*client));
-    char **run = calloc((size_t)argc + 6, sizeof(*run));
+    if (initial && pipe2(ready, O_CLOEXEC) < 0)
+        fail("xterm: startup pipe");
+    char **client = calloc((size_t)split + 4, sizeof(*client));
+    char **run = calloc((size_t)argc + 7, sizeof(*run));
     if (!client || !run)
         fail("xterm: arguments");
     client[0] = "/usr/libexec/xterm";
     snprintf(option, sizeof(option), "-S%s/%d", path, master);
     client[1] = option;
+    /* musl supplies the width tables used by Hush too. Avoid comparing the
+     * whole BMP with xterm's built-in tables at every launch; xterm keeps
+     * its separate line-drawing sanity checks. Later user resources win. */
+    client[2] = "-xrm";
+    client[3] = "XTerm*mkSampleSize: 0";
     for (int i = 1; i < split; ++i)
-        client[i + 1] = argv[i];
+        client[i + 3] = argv[i];
     run[0] = "/usr/bin/xterm";
     run[1] = "--pty-child";
     run[2] = path;
+    snprintf(ready_option, sizeof(ready_option), "%d", ready[1]);
+    run[3] = ready_option;
     char **cmd = split == argc ? shell : argv + split + 1;
     for (int i = 0; cmd[i]; ++i)
-        run[i + 3] = cmd[i];
+        run[i + 4] = cmd[i];
 
     sigemptyset(&action.sa_mask);
     sigaction(SIGHUP, &action, NULL);
@@ -232,8 +269,15 @@ int main(int argc, char **argv)
     sigaction(SIGINT, &action, NULL);
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addclose(&actions, master);
+    if (initial) {
+        posix_spawn_file_actions_addclose(&actions, ready[0]);
+        /* A same-fd dup action clears CLOEXEC in the exec'd helper. */
+        posix_spawn_file_actions_adddup2(&actions, ready[1], ready[1]);
+    }
     int error = spawn(&command, run[0], run, &actions);
     posix_spawn_file_actions_destroy(&actions);
+    if (ready[1] >= 0)
+        close(ready[1]);
     if (error)
         return 1;
     if (spawn(&terminal, client[0], client, NULL)) {
@@ -241,11 +285,14 @@ int main(int argc, char **argv)
         waitpid(command, NULL, 0);
         return 1;
     }
-    if (initial && initial_command(master, slave, initial) < 0) {
+    if (initial && (wait_for_helper(ready[0]) < 0 ||
+                    initial_command(master, slave, initial) < 0)) {
         perror("xterm: initial command");
         result = 1;
         startup_failed = 1;
     }
+    if (ready[0] >= 0)
+        close(ready[0]);
     close(master);
     /* Keep the slave open for -hold so xterm does not see EOF on command exit. */
     if (!hold)

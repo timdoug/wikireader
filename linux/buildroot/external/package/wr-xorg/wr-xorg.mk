@@ -17,7 +17,7 @@ WR_XORG_LICENSE = MIT
 # After the server and xkeyboard-config, whose keyboard data this replaces
 # with the one keymap the server loads.
 WR_XORG_DEPENDENCIES = host-xapp_xkbcomp xkeyboard-config xserver_xorg-server \
-	xdriver_xf86-input-libinput
+	xdriver_xf86-input-libinput xlib_libX11
 
 WR_XORG_KEYMAP = /usr/share/X11/xkb/wikireader.xkm
 
@@ -78,6 +78,8 @@ define WR_XORG_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/xkeyboard $(TARGET_DIR)/usr/bin/xkeyboard
 	$(INSTALL) -D -m 0644 $(@D)/XVkbd-wikireader \
 		$(TARGET_DIR)/usr/share/X11/app-defaults/XVkbd-wikireader
+	python3 $(@D)/prepare-locale.py \
+		$(TARGET_DIR)/usr/share/X11/locale/en_US.UTF-8/XLC_LOCALE
 endef
 
 # xorg-server selects the misc and cursor font files, 5.9 MB, which a

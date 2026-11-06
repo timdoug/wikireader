@@ -1,0 +1,109 @@
+Subject: [PATCH] Reuse identical font sets across window-manager roles
+
+Title, menu, icon, size, icon-manager and default fonts commonly name the
+same pattern. Creating six independent XFontSets repeats charset/font
+searches and metrics requests. Share sets by pattern within the process,
+retaining each role's metrics and releasing the set after its last user.
+Allocation failure keeps the ordinary individually owned font-set path.
+
+--- a/src/util.c
++++ b/src/util.c
+@@ -574,6 +574,39 @@
+     }
+ }
+ 
++/* A font set is shared by all roles requesting the same pattern. The
++ * locale and display stay fixed for the lifetime of this twm process. */
++struct FontSetRef {
++    struct FontSetRef *next;
++    char *name;
++    XFontSet set;
++    unsigned int refs;
++    int missing;
++};
++static struct FontSetRef *fontsets;
++
++static void
++ReleaseFontSet(XFontSet set)
++{
++    struct FontSetRef **link = &fontsets;
++
++    while (*link) {
++        struct FontSetRef *entry = *link;
++        if (entry->set == set) {
++            if (--entry->refs == 0) {
++                *link = entry->next;
++                XFreeFontSet(dpy, set);
++                free(entry->name);
++                free(entry);
++            }
++            return;
++        }
++        link = &entry->next;
++    }
++    /* An allocation failure may leave an uncached, individually owned set. */
++    XFreeFontSet(dpy, set);
++}
++
+ static Boolean
+ FindFontSet(MyFont *font, const char *fontname)
+ {
+@@ -591,7 +624,17 @@
+         int i;
+ 
+         if (font->fontset != NULL) {
+-            XFreeFontSet(dpy, font->fontset);
++            ReleaseFontSet(font->fontset);
++            font->fontset = NULL;
++        }
++
++        for (struct FontSetRef *entry = fontname ? fontsets : NULL; entry; entry = entry->next) {
++            if (strcmp(entry->name, fontname) == 0) {
++                entry->refs++;
++                font->fontset = entry->set;
++                missing_charset_count_return = entry->missing;
++                goto font_metrics;
++            }
+         }
+ 
+         if ((font->fontset = XCreateFontSet(dpy, fontname,
+@@ -610,6 +653,21 @@
+             XFreeStringList(missing_charset_list_return);
+         }
+ 
++        struct FontSetRef *entry = fontname ? malloc(sizeof(*entry)) : NULL;
++        if (entry) {
++            entry->name = strdup(fontname);
++            if (entry->name) {
++                entry->set = font->fontset;
++                entry->refs = 1;
++                entry->missing = missing_charset_count_return;
++                entry->next = fontsets;
++                fontsets = entry;
++            } else {
++                free(entry);
++            }
++        }
++
++font_metrics:
+         font_extents = XExtentsOfFontSet(font->fontset);
+         fnum = XFontsOfFontSet(font->fontset, &xfonts, &font_names);
+         for (i = 0, ascent = 0, descent = 0; i < fnum; i++) {
+@@ -623,7 +681,7 @@
+         font->y = ascent;
+         font->ascent = ascent;
+         font->descent = descent;
+-        twmMessage("created fontset with %d fonts (%d missing) for \"%s\"",
++        twmMessage("using fontset with %d fonts (%d missing) for \"%s\"",
+                    fnum, missing_charset_count_return,
+                    fontname ? fontname : "NULL");
+         return True;
+@@ -681,7 +739,7 @@
+     }
+ 
+     if (font->fontset) {
+-        XFreeFontSet(dpy, font->fontset);
++        ReleaseFontSet(font->fontset);
+         font->fontset = NULL;
+     }
+ 

@@ -82,14 +82,29 @@ static inline void draw_glyph(unsigned int x, unsigned int y,
 	unsigned int gy;
 	unsigned int offset = x & 7;
 	uint16_t mask = 0xfc00U >> offset;
+	uint16_t inversion = inverse ? mask : 0;
 
+	/* Half the six-pixel cells fit in one framebuffer byte. Leave the
+	 * adjacent byte alone and avoid a second read/modify/write per row. */
+	if (offset <= 2) {
+		uint8_t byte_mask = mask >> 8;
+		uint8_t byte_inversion = inversion >> 8;
+
+		for (gy = 0; gy < height; gy++) {
+			uint8_t *destination = framebuffer + (y + gy) * LCD_STRIDE +
+				(x >> 3);
+			uint8_t pixels = ((rows[gy] & 0xfc) >> offset) ^ byte_inversion;
+
+			*destination = (*destination & ~byte_mask) | pixels;
+		}
+		return;
+	}
 	for (gy = 0; gy < height; gy++) {
 		uint8_t *destination = framebuffer + (y + gy) * LCD_STRIDE +
 			(x >> 3);
 		uint16_t pixels = ((uint16_t)(rows[gy] & 0xfc) << 8) >> offset;
 
-		if (inverse)
-			pixels = ~pixels & mask;
+		pixels ^= inversion;
 		destination[0] = (destination[0] & ~(mask >> 8)) |
 			(pixels >> 8);
 		destination[1] = (destination[1] & ~(uint8_t)mask) |
@@ -102,6 +117,48 @@ static inline void draw_character(unsigned int x, unsigned int y,
 				  unsigned char character, int inverse)
 {
 	draw_glyph(x, y, console_font[character], CONSOLE_FONT_HEIGHT, inverse);
+}
+
+/* Sparse BMP font supplement; missing scalars use U+FFFD at their own width. */
+static inline const uint8_t *unicode_glyph(uint32_t codepoint)
+{
+	unsigned int lo = 0;
+	unsigned int hi = sizeof(console_unicode_font) / sizeof(console_unicode_font[0]);
+
+	if (codepoint < 128)
+		return console_font[codepoint];
+	while (lo < hi) {
+		unsigned int mid = lo + (hi - lo) / 2;
+		uint32_t code = console_unicode_font[mid].codepoint;
+
+		if (code == codepoint)
+			return console_unicode_font[mid].rows;
+		if (code < codepoint)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return NULL;
+}
+
+static inline uint32_t unicode_compose(uint32_t base, uint32_t mark)
+{
+	unsigned int lo = 0;
+	unsigned int hi = sizeof(console_compositions) / sizeof(console_compositions[0]);
+
+	while (lo < hi) {
+		unsigned int mid = lo + (hi - lo) / 2;
+		uint32_t a = console_compositions[mid].base;
+		uint32_t b = console_compositions[mid].mark;
+
+		if (a == base && b == mark)
+			return console_compositions[mid].composed;
+		if (a < base || (a == base && b < mark))
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return 0;
 }
 
 /* A key label's character, printable ASCII. */
