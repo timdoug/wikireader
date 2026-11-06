@@ -93,10 +93,10 @@ or times out:
 | `musl/pleval` (build) | Calls libc's hidden `__pleval`; only its static build links, and passes |
 | 6 `ipc_*`, 2 `daemon-failure`, 2 `fflush-exit`, 2 `pthread_exit-dtor`, 2 `raise-race` | The tests fork, which fails with `ENOSYS` without an MMU |
 | 2 `wordexp` | Words expand, through `posix_spawn`; the subtests that fail are the shell's, Hush having no tilde expansion and no `case` inside `$( )`, or musl's `WRDE_NOCMD` scan |
-| 4 `malloc-oom`, 2 `pthread_create-oom`, 2 `setenv-oom`, 2 `malloc-brk-fail` | Fill the address space with `PROT_NONE` mappings first: without an MMU each one is RAM, and the OOM killer ends the test |
+| 2 `malloc-oom`, 2 `pthread_create-oom`, 2 `setenv-oom`, 2 `malloc-brk-fail` | Fill the address space with `PROT_NONE` mappings first: without an MMU each one is RAM, and the OOM killer ends the test |
 | 2 `sscanf_long` | An 8 MB contiguous allocation |
 | 2 `socket` | UDP and TCP over IPv4, which the kernel leaves out (470 KB resident on a machine with no network). With `CONFIG_INET=y` and `lo` up, both builds pass |
-| 4 `regex-backref-oob`, `regexec-backref` | musl regex bugs, unfixed upstream |
+| 2 `regex-backref-oob`, 2 `regexec-backref` | musl regex bugs, unfixed upstream |
 | 2 `strptime` | musl parses `%s` without setting the time, and takes `%z` only as `+hhmm` or `-hhmm`, not `-06` |
 | `acoshl`, `asinhl`, `erfcl`, `lgammal`, `tgammal` | `long double` is `double`, and the results are the double functions'; the double drivers accept these errors (their `X` lines), the `long double` drivers do not |
 
