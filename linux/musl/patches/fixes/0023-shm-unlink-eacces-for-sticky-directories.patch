@@ -1,0 +1,24 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] shm_unlink: report EACCES where unlink fails with EPERM
+
+In a sticky directory such as /dev/shm, unlink of another user's file
+fails with EPERM.  POSIX specifies EACCES for shm_unlink when
+permission is denied, and glibc translates the error the same way.
+Other errors are unchanged.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/mman/shm_open.c b/src/mman/shm_open.c
+--- a/src/mman/shm_open.c
++++ b/src/mman/shm_open.c
+@@ -39,5 +39,9 @@ int shm_unlink(const char *name)
+ {
+ 	char buf[NAME_MAX+10];
+ 	if (!(name = __shm_mapname(name, buf))) return -1;
+-	return unlink(name);
++	int r = unlink(name);
++	/* unlink fails with EPERM in a sticky directory for another
++	 * user's file; shm_unlink reports denied permission as EACCES. */
++	if (r && errno == EPERM) errno = EACCES;
++	return r;
+ }

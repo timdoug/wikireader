@@ -53,8 +53,10 @@ musl's SuperH FDPIC code expects them.
   `dl_iterate_phdr` running one callback at a time, as glibc does, which
   libgcc's unwinder cache needs when threads throw at once; `posix_madvise` checking its
   range for `POSIX_MADV_DONTNEED` too; `mmap` keeping the kernel's
-  `EPERM` for `MAP_LOCKED`; and `fork` failing with `ENOSYS`, since the
-  generic `clone(SIGCHLD, 0)` would share the parent's memory and stack.
+  `EPERM` for `MAP_LOCKED`; `fork` failing with `ENOSYS`, since the
+  generic `clone(SIGCHLD, 0)` would share the parent's memory and stack;
+  and `shm_unlink` reporting a sticky directory's `EPERM` as POSIX's
+  `EACCES`, as glibc does.
 - `features/`: an architecture's default thread stack and guard sizes,
   64 KB and none here.
 - `port/`: what the C33 linker writes and libgcc expects: relative
