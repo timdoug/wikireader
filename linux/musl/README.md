@@ -55,8 +55,9 @@ musl's SuperH FDPIC code expects them.
   range for `POSIX_MADV_DONTNEED` too; `mmap` keeping the kernel's
   `EPERM` for `MAP_LOCKED`; `fork` failing with `ENOSYS`, since the
   generic `clone(SIGCHLD, 0)` would share the parent's memory and stack;
-  and `shm_unlink` reporting a sticky directory's `EPERM` as POSIX's
-  `EACCES`, as glibc does.
+  `shm_unlink` reporting a sticky directory's `EPERM` as POSIX's
+  `EACCES`, as glibc does; and `aio_cancel` of sequenced writes (sockets,
+  pipes, `O_APPEND`), which deadlocked on the queue lock in two ways.
 - `features/`: an architecture's default thread stack and guard sizes,
   64 KB and none here.
 - `port/`: what the C33 linker writes and libgcc expects: relative

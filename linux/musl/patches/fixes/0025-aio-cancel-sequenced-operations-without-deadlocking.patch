@@ -1,0 +1,97 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] aio: cancel sequenced operations without deadlocking
+
+Writes to a socket, a pipe or an O_APPEND file are sequenced: each
+worker waits in pthread_cond_wait on the queue lock until the writes
+before it are done.  aio_cancel cancelled such a worker and waited for
+it while holding that lock, which the worker needs to come out of the
+wait; and once out, the cancellation left the lock taken again for
+cleanup, which takes it itself.  Either deadlocks the process: LTP's
+aio_cancel/2-1 to 7-1, which queue eight writes behind a full datagram
+socket, never returned.
+
+The sequencing wait now has a cleanup handler that releases the lock
+before cleanup runs, and aio_cancel releases it while each target
+finishes, holding the queue by a reference instead and waiting for the
+target's result in its aiocb, which outlives the worker, as aio_suspend
+does.  The scan restarts at the head of the queue after each target,
+since the list can change while the lock is released.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/aio/aio.c b/src/aio/aio.c
+--- a/src/aio/aio.c
++++ b/src/aio/aio.c
+@@ -208,6 +208,12 @@
+ 	}
+ }
+ 
++static void unlock_queue(void *ctx)
++{
++	struct aio_queue *q = ctx;
++	pthread_mutex_unlock(&q->lock);
++}
++
+ static void *io_thread_func(void *ctx)
+ {
+ 	struct aio_thread at, *p;
+@@ -246,13 +252,17 @@
+ 
+ 	pthread_cleanup_push(cleanup, &at);
+ 
+-	/* Wait for sequenced operations. */
++	/* Wait for sequenced operations. A cancellation in the wait
++	 * leaves the queue lock taken again; it is released before
++	 * cleanup, which takes it itself. */
+ 	if (op!=LIO_READ && (op!=LIO_WRITE || q->append)) {
++		pthread_cleanup_push(unlock_queue, q);
+ 		for (;;) {
+ 			for (p=at.next; p && p->op!=LIO_WRITE; p=p->next);
+ 			if (!p) break;
+ 			pthread_cond_wait(&q->cond, &q->lock);
+ 		}
++		pthread_cleanup_pop(0);
+ 	}
+ 
+ 	pthread_mutex_unlock(&q->lock);
+@@ -379,17 +389,32 @@
+ 		goto done;
+ 	}
+ 
+-	for (p = q->head; p; p = p->next) {
+-		if (cb && cb != p->cb) continue;
+-		/* Transition target from running to running-with-waiters */
+-		if (a_cas(&p->running, 1, -1)) {
+-			pthread_cancel(p->td);
+-			__wait(&p->running, 0, -1, 1);
+-			if (p->err == ECANCELED) ret = AIO_CANCELED;
++	/* A worker canceled in its wait for sequenced operations takes
++	 * the queue lock again before its cleanup runs, so the lock is
++	 * released while each target finishes, and the queue is held by
++	 * a reference instead. The target's result is waited for in its
++	 * aiocb, which outlives the worker thread. */
++	q->ref++;
++	for (;;) {
++		for (p = q->head; p; p = p->next) {
++			if (cb && cb != p->cb) continue;
++			/* Transition target from running to running-with-waiters */
++			if (a_cas(&p->running, 1, -1)) break;
++		}
++		if (!p) break;
++		struct aiocb *pcb = p->cb;
++		int err;
++		pthread_cancel(p->td);
++		pthread_mutex_unlock(&q->lock);
++		while (((err = pcb->__err) & 0x7fffffff) == EINPROGRESS) {
++			a_cas(&pcb->__err, EINPROGRESS, EINPROGRESS|0x80000000);
++			__wait(&pcb->__err, 0, EINPROGRESS|0x80000000, 1);
+ 		}
++		if (err == ECANCELED) ret = AIO_CANCELED;
++		pthread_mutex_lock(&q->lock);
+ 	}
+ 
+-	pthread_mutex_unlock(&q->lock);
++	__aio_unref_queue(q);
+ done:
+ 	pthread_sigmask(SIG_SETMASK, &origmask, 0);
+ 	return ret;
