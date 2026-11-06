@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pwm/epson,s1c33e07-t16-pwm.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Epson S1C33E07 16-bit timer channel as a PWM
+
+maintainers:
+  - Tim Douglas <me@timdoug.com>
+
+description:
+  One channel of the 16-bit timer block driving its output pin as a PWM.
+  A child of the block's node, epson,s1c33e07-t16, which owns the block's
+  registers; reg is the channel.
+
+allOf:
+  - $ref: pwm.yaml#
+
+properties:
+  compatible:
+    const: epson,s1c33e07-t16-pwm
+
+  reg:
+    description: The timer channel, one the block leaves to children.
+    enum: [1, 4]
+
+  clocks:
+    maxItems: 1
+    description: The channel's gate
+
+  '#pwm-cells':
+    const: 3
+
+required:
+  - compatible
+  - reg
+  - clocks
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/epson,s1c33e07-cmu.h>
+
+    timer {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        pwm@1 {
+            compatible = "epson,s1c33e07-t16-pwm";
+            reg = <1>;
+            clocks = <&cmu S1C33_CLK_TM1>;
+            #pwm-cells = <3>;
+        };
+    };

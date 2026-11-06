@@ -72,7 +72,8 @@
 		/*
 		 * The 16-bit timers: timer 0 clocks timer 5 for the
 		 * clocksource, timer 2 is the clock event and timer 3 the
-		 * suspend wake.
+		 * suspend wake.  The other channels are children, by
+		 * channel number.
 		 */
 		timer: timer@300780 {
 			compatible = "epson,s1c33e07-t16";
@@ -82,16 +83,17 @@
 				 <&cmu S1C33_CLK_TM2>, <&cmu S1C33_CLK_TM3>,
 				 <&cmu S1C33_CLK_TM5>;
 			clock-names = "mclk", "tm0", "tm2", "tm3", "tm5";
-		};
+			#address-cells = <1>;
+			#size-cells = <0>;
 
-		/* Timer 1 as a PWM, on P11. */
-		pwm: pwm@300788 {
-			compatible = "epson,s1c33e07-pwm";
-			reg = <0x300788 0x8>, <0x3007e2 0x2>;
-			reg-names = "timer", "clock";
-			clocks = <&cmu S1C33_CLK_TM1>;
-			#pwm-cells = <3>;
-			status = "disabled";
+			/* Timer 1 as a PWM, on P11. */
+			pwm: pwm@1 {
+				compatible = "epson,s1c33e07-t16-pwm";
+				reg = <1>;
+				clocks = <&cmu S1C33_CLK_TM1>;
+				#pwm-cells = <3>;
+				status = "disabled";
+			};
 		};
 
 		uart0: serial@300b00 {

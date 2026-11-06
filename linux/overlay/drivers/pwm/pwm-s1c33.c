@@ -9,23 +9,29 @@
  * runs it at MCLK / 4096 and leaves it running, so the driver adopts what it
  * finds rather than restarting it.
  *
- * The channel's ADVMODE and PAUSE registers are shared with the other five
- * channels and belong to the clocksource driver; this driver never touches
- * them, and updates that only move the duty write comparison A alone so the
- * output keeps its phase.
+ * The timer block belongs to the clocksource driver, whose node this one's
+ * is a child of: "reg" is the channel, and its registers are reached
+ * through the block's regmap and lock.  The block's ADVMODE and PAUSE
+ * registers are the parent's; this driver never touches them, and updates
+ * that only move the duty write comparison A alone so the output keeps its
+ * phase.
  */
 #include <linux/bitops.h>
 #include <linux/clk.h>
-#include <linux/io.h>
 #include <linux/math64.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/pwm.h>
+#include <linux/regmap.h>
 
+/* A channel's registers, and its clock control, in the block. */
+#define S1C33_T16_CHANNELS	6
 #define S1C33_T16_CRA		0x0
 #define S1C33_T16_CRB		0x2
 #define S1C33_T16_CTL		0x6
+#define S1C33_T16_CLKCTL(n)	(0x60 + (n) * 2)
 
 #define S1C33_CTL_PRUN		BIT(0)
 #define S1C33_CTL_PRESET	BIT(1)
@@ -43,10 +49,25 @@ static const unsigned int s1c33_pwm_dividers[] = {
 };
 
 struct s1c33_pwm {
-	void __iomem *timer;
-	void __iomem *clkctl;
+	struct regmap *regmap;
+	unsigned int timer;	/* the channel's first register */
+	unsigned int clkctl;
 	struct clk *clk;
 };
+
+static u16 s1c33_pwm_read(struct s1c33_pwm *priv, unsigned int reg)
+{
+	unsigned int value = 0;
+
+	regmap_read(priv->regmap, reg, &value);
+	return value;
+}
+
+static void s1c33_pwm_write(struct s1c33_pwm *priv, u16 value,
+			    unsigned int reg)
+{
+	regmap_write(priv->regmap, reg, value);
+}
 
 static inline struct s1c33_pwm *to_s1c33_pwm(struct pwm_chip *chip)
 {
@@ -68,10 +89,10 @@ static int s1c33_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 {
 	struct s1c33_pwm *priv = to_s1c33_pwm(chip);
 	unsigned long rate = clk_get_rate(priv->clk);
-	u16 ctl = readw(priv->timer + S1C33_T16_CTL);
-	u16 clkctl = readw(priv->clkctl);
-	u16 cra = readw(priv->timer + S1C33_T16_CRA);
-	u16 crb = readw(priv->timer + S1C33_T16_CRB);
+	u16 ctl = s1c33_pwm_read(priv, priv->timer + S1C33_T16_CTL);
+	u16 clkctl = s1c33_pwm_read(priv, priv->clkctl);
+	u16 cra = s1c33_pwm_read(priv, priv->timer + S1C33_T16_CRA);
+	u16 crb = s1c33_pwm_read(priv, priv->timer + S1C33_T16_CRB);
 	unsigned int divider = s1c33_pwm_dividers[clkctl & S1C33_CLKCTL_DIV_MASK];
 	u64 high;
 
@@ -103,8 +124,9 @@ static int s1c33_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	if (!state->enabled) {
 		/* Stop and return the output to its initial, low level. */
-		writew(0, priv->timer + S1C33_T16_CTL);
-		writew(S1C33_CTL_PRESET, priv->timer + S1C33_T16_CTL);
+		s1c33_pwm_write(priv, 0, priv->timer + S1C33_T16_CTL);
+		s1c33_pwm_write(priv, S1C33_CTL_PRESET,
+				priv->timer + S1C33_T16_CTL);
 		return 0;
 	}
 
@@ -124,24 +146,27 @@ static int s1c33_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	if (high >= ticks)
 		high = ticks - 1;
 
-	clkctl = readw(priv->clkctl);
-	ctl = readw(priv->timer + S1C33_T16_CTL);
+	clkctl = s1c33_pwm_read(priv, priv->clkctl);
+	ctl = s1c33_pwm_read(priv, priv->timer + S1C33_T16_CTL);
 	if ((ctl & (S1C33_CTL_PRUN | S1C33_CTL_PTM | S1C33_CTL_OUTINV)) ==
 	    (S1C33_CTL_PRUN | S1C33_CTL_PTM) &&
 	    (clkctl & (S1C33_CLKCTL_ON | S1C33_CLKCTL_DIV_MASK)) ==
 	    (S1C33_CLKCTL_ON | select) &&
-	    readw(priv->timer + S1C33_T16_CRB) == ticks - 1) {
+	    s1c33_pwm_read(priv, priv->timer + S1C33_T16_CRB) == ticks - 1) {
 		/* Same period and clock: move the duty without a restart. */
-		writew(ticks - 1 - high, priv->timer + S1C33_T16_CRA);
+		s1c33_pwm_write(priv, ticks - 1 - high,
+				priv->timer + S1C33_T16_CRA);
 		return 0;
 	}
 
-	writew(0, priv->timer + S1C33_T16_CTL);
-	writew(S1C33_CLKCTL_ON | select, priv->clkctl);
-	writew(ticks - 1, priv->timer + S1C33_T16_CRB);
-	writew(ticks - 1 - high, priv->timer + S1C33_T16_CRA);
-	writew(S1C33_CTL_PTM | S1C33_CTL_PRESET, priv->timer + S1C33_T16_CTL);
-	writew(S1C33_CTL_PTM | S1C33_CTL_PRUN, priv->timer + S1C33_T16_CTL);
+	s1c33_pwm_write(priv, 0, priv->timer + S1C33_T16_CTL);
+	s1c33_pwm_write(priv, S1C33_CLKCTL_ON | select, priv->clkctl);
+	s1c33_pwm_write(priv, ticks - 1, priv->timer + S1C33_T16_CRB);
+	s1c33_pwm_write(priv, ticks - 1 - high, priv->timer + S1C33_T16_CRA);
+	s1c33_pwm_write(priv, S1C33_CTL_PTM | S1C33_CTL_PRESET,
+			priv->timer + S1C33_T16_CTL);
+	s1c33_pwm_write(priv, S1C33_CTL_PTM | S1C33_CTL_PRUN,
+			priv->timer + S1C33_T16_CTL);
 	return 0;
 }
 
@@ -154,18 +179,26 @@ static int s1c33_pwm_probe(struct platform_device *pdev)
 {
 	struct pwm_chip *chip;
 	struct s1c33_pwm *priv;
+	struct regmap *regmap;
+	u32 channel;
+	int ret;
+
+	regmap = dev_get_regmap(pdev->dev.parent, NULL);
+	if (!regmap)
+		return dev_err_probe(&pdev->dev, -ENODEV,
+				     "not a child of the timer block\n");
+	ret = device_property_read_u32(&pdev->dev, "reg", &channel);
+	if (ret || channel >= S1C33_T16_CHANNELS)
+		return dev_err_probe(&pdev->dev, ret ?: -EINVAL,
+				     "no timer channel\n");
 
 	chip = devm_pwmchip_alloc(&pdev->dev, 1, sizeof(*priv));
 	if (IS_ERR(chip))
 		return PTR_ERR(chip);
 	priv = pwmchip_get_drvdata(chip);
-
-	priv->timer = devm_platform_ioremap_resource_byname(pdev, "timer");
-	if (IS_ERR(priv->timer))
-		return PTR_ERR(priv->timer);
-	priv->clkctl = devm_platform_ioremap_resource_byname(pdev, "clock");
-	if (IS_ERR(priv->clkctl))
-		return PTR_ERR(priv->clkctl);
+	priv->regmap = regmap;
+	priv->timer = channel * 8;
+	priv->clkctl = S1C33_T16_CLKCTL(channel);
 	/* The channel's CMU gate: holding it is what keeps the panel lit. */
 	priv->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(priv->clk))
@@ -177,7 +210,7 @@ static int s1c33_pwm_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id s1c33_pwm_of_match[] = {
-	{ .compatible = "epson,s1c33e07-pwm" },
+	{ .compatible = "epson,s1c33e07-t16-pwm" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s1c33_pwm_of_match);

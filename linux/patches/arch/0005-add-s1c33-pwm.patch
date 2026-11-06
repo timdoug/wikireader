@@ -10,14 +10,15 @@ diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
 index c2fd3f4b6..372679ebf 100644
 --- a/drivers/pwm/Kconfig
 +++ b/drivers/pwm/Kconfig
-@@ -615,6 +615,18 @@ config PWM_ROCKCHIP
+@@ -615,6 +615,19 @@ config PWM_ROCKCHIP
  	  Generic PWM framework driver for the PWM controller found on
  	  Rockchip SoCs.
  
 +config PWM_S1C33
 +	tristate "Epson S1C33 16-bit timer PWM"
-+	depends on C33 || COMPILE_TEST
++	depends on TIMER_S1C33 || COMPILE_TEST
 +	depends on COMMON_CLK
++	select REGMAP
 +	help
 +	  Generic PWM framework driver for one channel of the 16-bit timer
 +	  block in the Epson S1C33 family, such as the WikiReader panel

@@ -13,7 +13,9 @@ description:
   Six 16-bit timers.  Timer 0 counts MCLK and its output clocks timer 5
   through the board's wiring of TM0 (P10) to EXCL5 (P74), so the two read
   as one 32-bit counter; timer 2 is the clock event and timer 3 a slow wake
-  from suspend.  The default pin state selects those two functions.
+  from suspend.  The default pin state selects those two functions.  The
+  block's driver owns its registers; timers 1 and 4 can be children, by
+  channel number, which reach theirs through it.
 
 properties:
   compatible:
@@ -49,6 +51,17 @@ properties:
   pinctrl-0:
     description: TM0 out and EXCL5 in, which carry the cascade
 
+  '#address-cells':
+    const: 1
+
+  '#size-cells':
+    const: 0
+
+patternProperties:
+  '^pwm@[14]$':
+    type: object
+    $ref: /schemas/pwm/epson,s1c33e07-t16-pwm.yaml#
+
 required:
   - compatible
   - reg
@@ -74,4 +87,13 @@ examples:
         clock-names = "mclk", "tm0", "tm2", "tm3", "tm5";
         pinctrl-names = "default";
         pinctrl-0 = <&timer_tm0_pins>, <&timer_excl5_pins>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        pwm@1 {
+            compatible = "epson,s1c33e07-t16-pwm";
+            reg = <1>;
+            clocks = <&cmu S1C33_CLK_TM1>;
+            #pwm-cells = <3>;
+        };
     };

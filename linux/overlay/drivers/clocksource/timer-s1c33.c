@@ -15,6 +15,11 @@
  * when the block probes as a platform device, after the pin controller and
  * before the drivers that read get_cycles().  Until then the kernel keeps
  * time in jiffies and udelay() spins.
+ *
+ * This driver owns the block.  Its own channels and the shared pause and
+ * advanced-mode registers it writes directly; channel 1 and channel 4 go
+ * to child nodes, a channel each by "reg", which reach their registers
+ * through the block's regmap and its lock.  The PWM is one.
  */
 #include <linux/bitops.h>
 #include <linux/clk.h>
@@ -26,7 +31,9 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/regmap.h>
 #include <linux/sched_clock.h>
 #include <linux/suspend.h>
 
@@ -372,9 +379,12 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 	wake_irq = irq_of_parse_and_map(node, 1);
 	if (!mclk_hz || !event_irq || !wake_irq)
 		return -EINVAL;
-	t16_base = of_iomap(node, 0);
-	if (!t16_base)
-		return -ENOMEM;
+	t16_base = of_io_request_and_map(node, 0, "s1c33-t16");
+	if (IS_ERR(t16_base)) {
+		ret = PTR_ERR(t16_base);
+		t16_base = NULL;
+		return ret;
+	}
 
 	ret = s1c33_timer_clocks_on(node);
 	if (ret)
@@ -394,10 +404,22 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 }
 TIMER_OF_DECLARE(s1c33_t16, "epson,s1c33e07-t16", s1c33_timer_of_init);
 
-/* The counter: the device's pins are set by now, the default state's. */
+/* Every channel's registers and the block's clock controls, 16 bits each. */
+static const struct regmap_config s1c33_t16_regmap_config = {
+	.reg_bits = 32,
+	.val_bits = 16,
+	.reg_stride = 2,
+	.max_register = S1C33_T16_CLKCTL(5),
+};
+
+/*
+ * The counter: the device's pins are set by now, the default state's.
+ * Then the children, which get the other channels.
+ */
 static int s1c33_counter_probe(struct platform_device *pdev)
 {
 	static const char * const gates[] = { "tm0", "tm5" };
+	struct regmap *regmap;
 	unsigned int i;
 
 	if (!t16_base)
@@ -411,7 +433,12 @@ static int s1c33_counter_probe(struct platform_device *pdev)
 	}
 	s1c33_counter_init(s1c33_counter_rate);
 	dev_info(&pdev->dev, "%lu Hz counter\n", s1c33_counter_rate);
-	return 0;
+
+	regmap = devm_regmap_init_mmio(&pdev->dev, t16_base,
+				       &s1c33_t16_regmap_config);
+	if (IS_ERR(regmap))
+		return PTR_ERR(regmap);
+	return devm_of_platform_populate(&pdev->dev);
 }
 
 static const struct of_device_id s1c33_counter_of_match[] = {

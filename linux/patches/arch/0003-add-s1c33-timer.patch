@@ -11,17 +11,19 @@ diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
 index d9c76dd44..e61f1dd92 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
-@@ -824,4 +824,12 @@ choice
+@@ -824,4 +824,14 @@ choice
  
  endchoice
  
 +config TIMER_S1C33
 +	bool "Epson S1C33 16-bit timer block"
 +	depends on C33 || COMPILE_TEST
++	select REGMAP_MMIO
 +	help
 +	  Enables the six-channel 16-bit timer block of the Epson S1C33E07.
 +	  Two channels are cascaded into a free-running 32-bit clocksource and
-+	  scheduler clock; a third provides the clock event.
++	  scheduler clock; a third provides the clock event.  The block's
++	  other channels go to child devices, such as the PWM.
 +
  endmenu
 diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
