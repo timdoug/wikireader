@@ -58,51 +58,51 @@ programs after them are counted as errors without having run.
 
 ## Results
 
-BusyBox, on musl:
+BusyBox, on musl, with Unicode through musl's locale routines:
 
 | Inventory and counting unit | Pass | Fail | Skip/untested | Other |
 |---|---:|---:|---:|---|
-| BusyBox applet result markers (792) | 674 | 5 | 113 | None |
+| BusyBox applet result markers (791) | 674 | 5 | 112 | None |
 | Individual Hush tests (405) | 389 | 13 | 0 | 3 timeouts |
 
 | Tests | Cause |
 |---|---|
-| 3 sed | Upstream bugs, marked as known in the suite |
-| 1 cpio, `cpio lists hardlinks` | Upstream bug, marked as known: `cpio -t` skips zero-length hard links (`get_header_cpio.c`) |
+| 3 sed | Upstream bugs, behind the suite's own `SKIP_KNOWN_BUGS` guard |
+| 1 cpio, `cpio lists hardlinks` | Upstream bug, behind `SKIP_KNOWN_BUGS`: `cpio -t` skips zero-length hard links (`get_header_cpio.c`) |
 | 1 awk, `gsub erroneous word start match` | musl has no `REG_STARTEND`; BusyBox then matches from a pointer into the string with `REG_NOTBOL`, where `\<` finds a word start |
 | 8 Hush leak tests (6 fail, 2 time out) + `many_ifs` timeout | Disabled `HUSH_MEMLEAK` builtin |
-| 2 Hush, `unicode1` and `var-utf8-length` | Disabled Unicode |
 | 3 Hush, `strops5_bug`, `tickquote1`, `glob_bkslash_in_var` | Upstream bugs: the same `.config` built natively against glibc fails them too |
 | 2 Hush, `negative_arith` and `quoted_punct` | musl's `fnmatch` and `glob` take a backslash in a bracket expression literally where it would make `-` or `]` literal: `[a\-c]` is a range and `[\]]` ends at the first `]`; glibc escapes them |
+| 2 Hush, `redir7` and `redir8` | They name a file with the byte 0x81, which is no character in the shell's UTF-8 locale, and match it with `uni?code`; musl's `fnmatch` matches `?` only against a character, glibc's against the byte too |
 
 `cp` and `mv` stage BusyBox's tree on the root filesystem (`case-fixtures.json`'s
-`disk`), so they need its free space. The Hush modules that run past their
-time limit leave their remaining tests to `--hush-case` runs, one test each.
+`disk`), so they need its free space; `tar`'s 32 tests each grep the whole
+`.config` and take more than the default 120 guest seconds. The Hush modules
+that run past their time limit leave their remaining tests to `--hush-case`
+runs, one test each; `summarize.py` combines the two. `signal_read1` and
+`pipefail` depend on timing and have failed inside a full module while
+passing alone.
 
-With Unicode enabled using musl's locale routines, fresh Grifo-booted runs of
-the unchanged `hush-misc/unicode1.tests` and `hush-vars/var-utf8-length.tests`
-both pass (`artifacts/unicode-upstream-hush`). The table above is the earlier
-full-suite baseline; the full 405-case inventory has not been rerun for this
-configuration change.
-
-libc-test (revision 63e36e93, musl 7813e911) has 486 programs: 445 pass,
-2 do not build, 31 fail and 8 are killed. None crashes or times out:
+libc-test (revision 63e36e93, musl 7813e911, upstream head) has 486
+programs: 445 pass, 2 do not build, 31 fail and 8 are killed. None crashes
+or times out:
 
 | Tests | Cause |
 |---|---|
 | `api/main` (build) | POSIX names musl lacks: `_PC_TIMESTAMP_RESOLUTION`, `_SC_XOPEN_UUCP` |
 | `musl/pleval` (build) | Calls libc's hidden `__pleval`; only its static build links, and passes |
-| 6 `ipc_*`, 2 `wordexp`, 2 `daemon-failure`, 2 `fflush-exit`, 2 `pthread_exit-dtor`, 2 `raise-race` | Need `fork`, which fails with `ENOSYS` without an MMU |
+| 6 `ipc_*`, 2 `daemon-failure`, 2 `fflush-exit`, 2 `pthread_exit-dtor`, 2 `raise-race` | The tests fork, which fails with `ENOSYS` without an MMU |
+| 2 `wordexp` | Words expand, through `posix_spawn`; the subtests that fail are the shell's, Hush having no tilde expansion and no `case` inside `$( )`, or musl's `WRDE_NOCMD` scan |
 | 4 `malloc-oom`, 2 `pthread_create-oom`, 2 `setenv-oom`, 2 `malloc-brk-fail` | Fill the address space with `PROT_NONE` mappings first: without an MMU each one is RAM, and the OOM killer ends the test |
 | 2 `sscanf_long` | An 8 MB contiguous allocation |
-| 2 `socket` | UDP over IPv4; the kernel has no IPv4 |
-| 4 `regex-backref-oob`, `regexec-backref` | Tests newer than any musl fix |
-| 2 `strptime` | musl has no `%s` or `%z` |
+| 2 `socket` | UDP and TCP over IPv4, which the kernel leaves out (470 KB resident on a machine with no network). With `CONFIG_INET=y` and `lo` up, both builds pass |
+| 4 `regex-backref-oob`, `regexec-backref` | musl regex bugs, unfixed upstream |
+| 2 `strptime` | musl parses `%s` without setting the time, and takes `%z` only as `+hhmm` or `-hhmm`, not `-06` |
 | `acoshl`, `asinhl`, `erfcl`, `lgammal`, `tgammal` | `long double` is `double`, and the results are the double functions'; the double drivers accept these errors (their `X` lines), the `long double` drivers do not |
 
 ## Fixes these suites found
 
-libc-test found two:
+libc-test found three:
 
 - musl's `fork` on an architecture without `SYS_fork` is
   `clone(SIGCHLD, 0)`, which a no-MMU kernel accepts: the child ran on its
@@ -115,6 +115,9 @@ libc-test found two:
   linker now gives it an `R_C33_RELATIVE`;
   `ld-c33/fdpic-tls-image-*.d` checks both kinds of executable. No program
   in the root image has a TLS segment.
+- musl's `wordexp` forked to run the shell, so every call failed with
+  `WRDE_NOSPACE`. `../musl/patches/fixes/0026` runs it through
+  `posix_spawn`, as `popen` and `system` already do.
 
 BusyBox's found these:
 

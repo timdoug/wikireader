@@ -1,297 +1,850 @@
 {
-  "revision": "2279d708c817db657611a30c427c7d06c4360049",
-  "scope": "Audit of the remaining 39 non-PASS interface cases; categories explain raw results and do not alter them.",
-  "combined_observations": "linux/artifacts/ltp-fixed-range-verified/results.json",
-  "counts": {
-    "UNSUPPORTED": 28,
-    "PASS": 1197,
-    "UNTESTED": 6,
-    "UNRESOLVED": 1,
-    "FAIL": 4,
-    "TIMEOUT": 0
+ "revision": "2279d708c817db657611a30c427c7d06c4360049",
+ "scope": "Every non-PASS case of the 1294 built, on musl; categories explain results and do not alter them.",
+ "combined_observations": "linux/artifacts/ltp-sweep/results.json",
+ "not_built": {
+  "REQUIRES_FORK": 264,
+  "BUILD_ERROR": 11
+ },
+ "counts": {
+  "PASS": 1178,
+  "FAIL": 33,
+  "UNRESOLVED": 29,
+  "UNTESTED": 24,
+  "UNSUPPORTED": 24,
+  "ERROR": 3,
+  "TIMEOUT": 3
+ },
+ "classifications": {
+  "musl-design": 62,
+  "test-assumption": 16,
+  "test-placeholder": 4,
+  "nommu": 9,
+  "permission-test-inapplicable": 1,
+  "undefined-operation": 3,
+  "optional-feature": 21
+ },
+ "classification_meanings": {
+  "musl-design": "musl's deliberate behaviour, on every architecture",
+  "nommu": "needs an MMU or memory a no-MMU machine cannot provide",
+  "optional-feature": "an optional POSIX feature this system does not provide",
+  "test-assumption": "the test assumes behaviour POSIX leaves to the implementation",
+  "test-placeholder": "the case has no test body",
+  "permission-test-inapplicable": "the test's permission-denial precondition does not arise",
+  "undefined-operation": "an operation POSIX leaves undefined, skipped by the test"
+ },
+ "cases": [
+  {
+   "name": "aio_cancel/5-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "operations in progress are cancelled too, so the result is AIO_CANCELED, not AIO_NOTCANCELED",
+   "source_sha256": "f55a889e1c6fece3f4fcb5312434a6fbf5c7fbfb09ee3986a39fdc0bbcdec497"
   },
-  "classifications": {
-    "test-placeholder": 1,
-    "permission-test-inapplicable": 3,
-    "nommu-mapping-limitation": 1,
-    "architecture-limitation": 9,
-    "undefined-operation": 2,
-    "optional-feature": 22,
-    "limit-test-inapplicable": 1
+  {
+   "name": "aio_cancel/7-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "operations in progress are cancelled too, so the result is AIO_CANCELED, not AIO_NOTCANCELED",
+   "source_sha256": "bd71d7062c403f4332203c895bf73edad0627ec816bb33da866cb25894dad3cb"
   },
-  "cases": [
-    {
-      "name": "aio_suspend/5-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "test-placeholder",
-      "reason": "No AIO operation is tested: capability guard returns UNSUPPORTED, and the remaining body always returns UNTESTED.",
-      "source_sha256": "c98ce815e84dcd93dce1af7fbe6844fb71f234c8d0107ef53c3910447f8f6875"
-    },
-    {
-      "name": "clock_getcpuclockid/5-1",
-      "observed_status": "UNTESTED",
-      "classification": "permission-test-inapplicable",
-      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
-      "source_sha256": "4b0413147b57d3a1e02d27459013149c1b5ac04de475dbb928a2692b78e1f079"
-    },
-    {
-      "name": "mlockall/3-7",
-      "observed_status": "UNRESOLVED",
-      "classification": "nommu-mapping-limitation",
-      "reason": "Setup maps a whole page of an empty file as MAP_SHARED. Direct no-MMU mappings cannot supply that beyond-EOF mapping; setup fails before the memory-lock assertion.",
-      "source_sha256": "d41fdb9bb4120222d4c99fffa590b56637b343ec55a4775f4f0836476728ee64"
-    },
-    {
-      "name": "mmap/11-2",
-      "observed_status": "UNTESTED",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "de404da493e82aed7fc02a14008d9be3db4986242521c0843bbc5edb0bc871f0"
-    },
-    {
-      "name": "mmap/11-3",
-      "observed_status": "UNTESTED",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
-    },
-    {
-      "name": "mmap/24-2",
-      "observed_status": "FAIL",
-      "classification": "architecture-limitation",
-      "reason": "Expects ENOMEM for a MAP_FIXED range beyond the address space. No-MMU Linux rejects every MAP_FIXED request with EINVAL before checking the range; the port keeps upstream's order.",
-      "source_sha256": "0845fc56c5f0d9d7fdc7a9e987515274fe23f01fcff928c9e9a80477f5bc127e"
-    },
-    {
-      "name": "mmap/3-1",
-      "observed_status": "FAIL",
-      "classification": "architecture-limitation",
-      "reason": "Requires MAP_FIXED virtual-address replacement/placement; no-MMU Linux rejects it with EINVAL. The expected replacement or address-limit errno cannot be supplied by a physical-address allocator.",
-      "source_sha256": "e1738fce634903932dd95f89ebcd5d1487b863546298e76c350f451db45e22c2"
-    },
-    {
-      "name": "mmap/6-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "6f5bcf3718d2ed40ff41b109ed33e0d7a6e2f95b96b67ae227faf9a61f2ad492"
-    },
-    {
-      "name": "mmap/6-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "87400f38f4276792f8be86122b16d2353884631a0184c750baffd0b055503bff"
-    },
-    {
-      "name": "mmap/6-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "5380e1d74d2efc47668049cc69a37aec305b00411727f760b4e3cc0162605344"
-    },
-    {
-      "name": "munmap/1-1",
-      "observed_status": "FAIL",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "9fa93e8c23ab9faf40e674b98f8ca2bc7ee970f1e490a7ff18264a613b32855d"
-    },
-    {
-      "name": "munmap/1-2",
-      "observed_status": "FAIL",
-      "classification": "architecture-limitation",
-      "reason": "Requires page-protection faults (SIGSEGV/SIGBUS or execute/read/write protection). No MMU enforces these protections; guarded tests report UNSUPPORTED/UNTESTED, while unguarded tests retain raw failures.",
-      "source_sha256": "0bdbed1885f6aef1afbb9dde4c041ccc97e27d42c192747b0da3861d3a34fab9"
-    },
-    {
-      "name": "pthread_rwlock_unlock/4-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "undefined-operation",
-      "reason": "Upstream explicitly returns UNSUPPORTED on Linux before unlocking an uninitialized lock or a lock owned by another thread.",
-      "source_sha256": "38dd852d187020574653633d384ed9b954716928f6087650f8ea99fb5fc866ac"
-    },
-    {
-      "name": "pthread_rwlock_unlock/4-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "undefined-operation",
-      "reason": "Upstream explicitly returns UNSUPPORTED on Linux before unlocking an uninitialized lock or a lock owned by another thread.",
-      "source_sha256": "60706317316529288d42b69789dae7807fe9802365af59a7786145a72c769870"
-    },
-    {
-      "name": "sched_get_priority_max/1-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "bd339f30d539a37f0c2d8fec9b4899fa8fa316613f5488273ed3df5f4b9a5a4e"
-    },
-    {
-      "name": "sched_get_priority_min/1-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "325b8164922e05935ef9445b7e956ebddf52fbbbde9ea4a82d1d8ff7c32e7c88"
-    },
-    {
-      "name": "sched_getparam/6-1",
-      "observed_status": "UNTESTED",
-      "classification": "permission-test-inapplicable",
-      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
-      "source_sha256": "4f61c03ac87145036ccf1b717b12fdc849ae3ace9dfd4a45ad6e79c937a4b906"
-    },
-    {
-      "name": "sched_getscheduler/7-1",
-      "observed_status": "UNTESTED",
-      "classification": "permission-test-inapplicable",
-      "reason": "Query succeeds after dropping privileges. Linux permits this observation; the upstream test returns UNTESTED when its permission-denial precondition cannot be established.",
-      "source_sha256": "fc0f581dfe2fa40f5e4c70769a17358f77cc8b903e54e33906545d3aa95f0501"
-    },
-    {
-      "name": "sched_setparam/20-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "1d5e76c3da0495bb486df3f9f7f9180c0ed802343d69e9f1d15c1681440bc85d"
-    },
-    {
-      "name": "sched_setparam/21-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "87467f0ed060c64b4670615aaeab42c25fc2b49ffcdc24ec62865bcbaa61ea46"
-    },
-    {
-      "name": "sched_setparam/21-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "4ac5d35be754c6c5b78fb89b0aa61451eca7ea2cb65783f0b05c93ae0a4f420b"
-    },
-    {
-      "name": "sched_setparam/23-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "3369e80386ab118fdd145504ce4bfa7854925d68f97cd5b6099409ec657000c1"
-    },
-    {
-      "name": "sched_setparam/23-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "a71283622c8170a35245ea56cca44e1221c82a0b5f20659f86e8c4dc49cc6848"
-    },
-    {
-      "name": "sched_setparam/23-4",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "211ac3cd864e407e6aedc9b44bdd6832a7dbd0b11cddfc119bddc765b64d5685"
-    },
-    {
-      "name": "sched_setparam/23-5",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "55e8de3994d7e56264b92e784a54b94e99806f326b4898638d5a6274f982d915"
-    },
-    {
-      "name": "sched_setparam/25-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "a06aeb370410804c21822a302be2104f614b83b4bd5097255e9b137d5175f1b3"
-    },
-    {
-      "name": "sched_setparam/25-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "9377bccef770683aed7b5f24d4e2e73936859774e374eb9d0b5ba3f856c75f83"
-    },
-    {
-      "name": "sched_setparam/25-4",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "a76a89ba5b9a495e76b54ec8276d30d546bb3025424b5a42ed50cfc100fe7b76"
-    },
-    {
-      "name": "sched_setscheduler/15-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "5d4f71f043d6246917874aa1b0015ed38efa906e3bb62583464286ca6f586833"
-    },
-    {
-      "name": "sched_setscheduler/15-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "b9700151892baf364f06c442860fd4ab7ee60282dbf2e67790c1868e9e374534"
-    },
-    {
-      "name": "sched_setscheduler/17-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "63a263bbe401c91d6d89d9465766c4874db909cf8df4362f034191e0d2ccee4d"
-    },
-    {
-      "name": "sched_setscheduler/17-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "c2df2d1b51587fd8d3c77997bbc88f7aa01fdddd6cb16c183d811b88708e41bc"
-    },
-    {
-      "name": "sched_setscheduler/17-4",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "c90850eaffe5c8e521c922151ea677e0ab432ad2d15b28a8a4a92e61e99d798f"
-    },
-    {
-      "name": "sched_setscheduler/19-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "29643169c69a147ef182fb2b117d574ca829285fa77688ea253f614b15792287"
-    },
-    {
-      "name": "sched_setscheduler/19-3",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "af11e5c8d59c46862f43d0fdc5c096121096bde1e30783cce0c69cc902b051ce"
-    },
-    {
-      "name": "sched_setscheduler/19-4",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires SCHED_SPORADIC and its server parameters; this scheduler policy is not implemented.",
-      "source_sha256": "45e9c145fc401cc29378ee026b47489d28a2b4c937a6e09808328f51ce75e10a"
-    },
-    {
-      "name": "sched_setscheduler/22-1",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires PTHREAD_SCOPE_PROCESS, which NPTL rejects with ENOTSUP.",
-      "source_sha256": "048678c53ad39b2ad6fed3d66ed12b033d0c89f849b0bb44b7c16687d17950ed"
-    },
-    {
-      "name": "sched_setscheduler/22-2",
-      "observed_status": "UNSUPPORTED",
-      "classification": "optional-feature",
-      "reason": "Requires PTHREAD_SCOPE_PROCESS, which NPTL rejects with ENOTSUP.",
-      "source_sha256": "f975b8e85cc1600d3bb1c15b80be504f8f5bb3f91a584579872f090dc90b9854"
-    },
-    {
-      "name": "sem_init/7-1",
-      "observed_status": "UNTESTED",
-      "classification": "limit-test-inapplicable",
-      "reason": "Unnamed semaphores have no configured SEM_NSEMS_MAX count limit. Upstream returns UNTESTED when sysconf reports no such limit; inventing a limit would add overhead and restrict working programs.",
-      "source_sha256": "1af6ade3bf0e9b6f6bc0960cdba5285d4ec2f974723cb4671d3344b39bb3607a"
-    }
-  ]
+  {
+   "name": "aio_error/2-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "test-assumption",
+   "reason": "every write finishes before the test looks for one in progress",
+   "source_sha256": "670f602f4d71ce7913711a4d2f1890082d0bfdbb8d48a23f743bc44156a8ceb7"
+  },
+  {
+   "name": "aio_error/3-1",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a finished or unknown aiocb reports its result again instead of EINVAL, which POSIX permits",
+   "source_sha256": "6415d5e93fa22b0f6fb351d8c368013802907f1ef780708631bd829107e1e6ac"
+  },
+  {
+   "name": "aio_fsync/5-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-placeholder",
+   "reason": "returns UNTESTED or UNSUPPORTED unconditionally",
+   "source_sha256": "8d665609c275373adae5341bd3638e35224bfeacb577468fe5ad6a43b23da0b6"
+  },
+  {
+   "name": "aio_read/10-1",
+   "observed_status": "FAIL",
+   "classification": "test-assumption",
+   "reason": "musl rejects a bad descriptor at submission with EBADF; POSIX allows that or a deferred error, the test only the deferred one",
+   "source_sha256": "cad0a6ce14228800ad3bb331c2c6096c99c446803c0661b7695d229e02eff8e1"
+  },
+  {
+   "name": "aio_read/11-2",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "aio_reqprio is not validated",
+   "source_sha256": "7a9655fb3e70dee5f0f9de75f64f6f837685e74acddd848b94f342711549120c"
+  },
+  {
+   "name": "aio_read/8-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-placeholder",
+   "reason": "returns UNTESTED or UNSUPPORTED unconditionally",
+   "source_sha256": "06d34f2c3c1d823c32642c4ef2ef9945fef9dfed76047faacdf56123cc7f1481"
+  },
+  {
+   "name": "aio_read/9-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "musl-design",
+   "reason": "musl sets no AIO request limit, so _SC_AIO_MAX is -1 and the queue cannot be filled",
+   "source_sha256": "77b00e09d79e9d7d5b8e63ad8775b33a1fefc9ab4a21fe2e273cae480b44cf7e"
+  },
+  {
+   "name": "aio_return/2-1",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a finished or unknown aiocb reports its result again instead of EINVAL, which POSIX permits",
+   "source_sha256": "a2746f78e339cda6c61c2d9e50003f7beb8e33ce922ddf077300378fc6fa6c78"
+  },
+  {
+   "name": "aio_return/3-2",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a finished or unknown aiocb reports its result again instead of EINVAL, which POSIX permits",
+   "source_sha256": "4a9dd28cfa0f15203db432066e679449a6458a6bfac3a3327b4ee5efababd69d"
+  },
+  {
+   "name": "aio_return/4-1",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a finished or unknown aiocb reports its result again instead of EINVAL, which POSIX permits",
+   "source_sha256": "e18274f8c7bfd3e66f200c70502a90a8948a3784bf9f5d71832f452b06951d0d"
+  },
+  {
+   "name": "aio_suspend/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "nommu",
+   "reason": "a 4-10 MB contiguous buffer",
+   "source_sha256": "baf49941a88aa47be4f062cfefac2283bb40b3e201b74c67533124dfd78645bf"
+  },
+  {
+   "name": "aio_suspend/4-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "nommu",
+   "reason": "a 4-10 MB contiguous buffer",
+   "source_sha256": "2434cb4df45e28b5eea595374d899cba03d3a0d383f0cd8188d0973041fea51a"
+  },
+  {
+   "name": "aio_suspend/5-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "test-placeholder",
+   "reason": "returns UNTESTED or UNSUPPORTED unconditionally",
+   "source_sha256": "c98ce815e84dcd93dce1af7fbe6844fb71f234c8d0107ef53c3910447f8f6875"
+  },
+  {
+   "name": "aio_write/6-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-placeholder",
+   "reason": "returns UNTESTED or UNSUPPORTED unconditionally",
+   "source_sha256": "4ddc6d0e9a47ac035c3fe7abcf840bc48eb81f550ff4b5f1b672db062a09330e"
+  },
+  {
+   "name": "aio_write/7-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "musl-design",
+   "reason": "musl sets no AIO request limit, so _SC_AIO_MAX is -1 and the queue cannot be filled",
+   "source_sha256": "ab1e359a864099002bd08a85b3ac095836401196cc6cfe3f253cc567b5508ec1"
+  },
+  {
+   "name": "aio_write/8-1",
+   "observed_status": "FAIL",
+   "classification": "test-assumption",
+   "reason": "musl rejects a bad descriptor at submission with EBADF; POSIX allows that or a deferred error, the test only the deferred one",
+   "source_sha256": "10bc6cbcc5469235ea51c4530280d6cfaf8bb5ae6547fe7a39534f66f2f0be54"
+  },
+  {
+   "name": "aio_write/9-2",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "aio_reqprio is not validated",
+   "source_sha256": "e9eb142add33cd31fd54d906454d68a6db1da563703577cca64a7d70f41e90fc"
+  },
+  {
+   "name": "clock_getcpuclockid/5-1",
+   "observed_status": "UNTESTED",
+   "classification": "permission-test-inapplicable",
+   "reason": "the query succeeds after dropping privileges, as Linux permits",
+   "source_sha256": "4b0413147b57d3a1e02d27459013149c1b5ac04de475dbb928a2692b78e1f079"
+  },
+  {
+   "name": "lio_listio/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "nommu",
+   "reason": "a 4-10 MB contiguous buffer",
+   "source_sha256": "190db572092530e8276b6292336f2ec64e88f64883bc28cc7dcdc327170a82d0"
+  },
+  {
+   "name": "lio_listio/13-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "lio_listio does not validate opcodes and reports a request it cannot queue as EAGAIN",
+   "source_sha256": "d030994010ca0065ba2514ed2b78cb876dcebe157277a836e6cb1d89f6ac8dd5"
+  },
+  {
+   "name": "lio_listio/14-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "lio_listio does not validate opcodes and reports a request it cannot queue as EAGAIN",
+   "source_sha256": "5092dc5d4c0866d2c5b2972871dc78f40e2b67c3c3bd611205dfb8fe91c1e54d"
+  },
+  {
+   "name": "lio_listio/18-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "lio_listio does not validate opcodes and reports a request it cannot queue as EAGAIN",
+   "source_sha256": "9d064118a1923610ea3e749a8621ccec7d5e7e31918d95f1a135103bdc344f06"
+  },
+  {
+   "name": "lio_listio/5-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "lio_listio does not validate opcodes and reports a request it cannot queue as EAGAIN",
+   "source_sha256": "bc38398e1515dd49e60cbbeb7b1fdbe82d574ef3f7fcf2647ae35acfec2016b7"
+  },
+  {
+   "name": "mlockall/3-7",
+   "observed_status": "UNRESOLVED",
+   "classification": "nommu",
+   "reason": "a shared writable mapping of a ramfs file needs contiguous pages, which only a file sized by ftruncate has",
+   "source_sha256": "d41fdb9bb4120222d4c99fffa590b56637b343ec55a4775f4f0836476728ee64"
+  },
+  {
+   "name": "mmap/11-2",
+   "observed_status": "FAIL",
+   "classification": "nommu",
+   "reason": "a shared mapping past end of file and SIGBUS on it need an MMU",
+   "source_sha256": "de404da493e82aed7fc02a14008d9be3db4986242521c0843bbc5edb0bc871f0"
+  },
+  {
+   "name": "mmap/11-3",
+   "observed_status": "FAIL",
+   "classification": "nommu",
+   "reason": "a shared mapping past end of file and SIGBUS on it need an MMU",
+   "source_sha256": "8443d105034490614c0c4f8a76cadb1a9678c7ea074b17e4df2e296216860793"
+  },
+  {
+   "name": "mmap/3-1",
+   "observed_status": "FAIL",
+   "classification": "nommu",
+   "reason": "a shared writable mapping of a ramfs file needs contiguous pages, which only a file sized by ftruncate has",
+   "source_sha256": "e1738fce634903932dd95f89ebcd5d1487b863546298e76c350f451db45e22c2"
+  },
+  {
+   "name": "mmap/31-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "musl refuses a length past PTRDIFF_MAX with ENOMEM before the kernel can report EOVERFLOW",
+   "source_sha256": "0f7607eaebebba8434cafffa3570d772c1e8ab00db6af293b75f3e290cd1332e"
+  },
+  {
+   "name": "munmap/1-1",
+   "observed_status": "FAIL",
+   "classification": "nommu",
+   "reason": "touching an unmapped page cannot raise SIGSEGV without an MMU",
+   "source_sha256": "9fa93e8c23ab9faf40e674b98f8ca2bc7ee970f1e490a7ff18264a613b32855d"
+  },
+  {
+   "name": "munmap/1-2",
+   "observed_status": "FAIL",
+   "classification": "nommu",
+   "reason": "touching an unmapped page cannot raise SIGSEGV without an MMU",
+   "source_sha256": "0bdbed1885f6aef1afbb9dde4c041ccc97e27d42c192747b0da3861d3a34fab9"
+  },
+  {
+   "name": "pthread_attr_getstack/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "6036d34820e5dc86976279ab79eeb4bafd265fa3821963d269e98e4d9455addd"
+  },
+  {
+   "name": "pthread_attr_setdetachstate/2-1",
+   "observed_status": "ERROR",
+   "classification": "musl-design",
+   "reason": "joining a detached thread is undefined; musl stops the process at the join",
+   "source_sha256": "f1c8b5e524f5443808dc3a801cb490604846559884bf5ab31a2624ebef7c9928"
+  },
+  {
+   "name": "pthread_attr_setschedpolicy/4-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "pthread_attr_setschedpolicy stores the policy without validating it",
+   "source_sha256": "4092e3e21431b767a55b6897dc487c7c751eefd2d64e2662177541d39caff131"
+  },
+  {
+   "name": "pthread_attr_setstack/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "314856610c9e968d392189376e95befb0051c2c3eb0041ecb8e820127db04af0"
+  },
+  {
+   "name": "pthread_attr_setstack/2-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "c753eb9aa9ecd4120d86bdc7b0fab011611b0e28018708faa5e7024b22a924b0"
+  },
+  {
+   "name": "pthread_attr_setstack/4-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "fa409e89eed6ecb17513755ad047283c60d65e21fc689718d71582001d14b974"
+  },
+  {
+   "name": "pthread_attr_setstack/6-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "91278f1099f59918b83e02c80258e81ef82b26e0e8e317c5b7233f603febaa10"
+  },
+  {
+   "name": "pthread_attr_setstack/7-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "pthread_attr_getstack fails with EINVAL on attributes with no stack set",
+   "source_sha256": "43205e5b9dd061ad05c2a417bbd97fedab37a8d05d85298c221ce886cab4bbc9"
+  },
+  {
+   "name": "pthread_attr_setstacksize/4-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "34cd07a3cf3df6bbd46555e2f323c1cabfc1d74074b6702aeaaf1b86b09f897c"
+  },
+  {
+   "name": "pthread_barrier_destroy/2-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "undefined-operation",
+   "reason": "destroying a barrier in use",
+   "source_sha256": "edf81ec497f8648d35025a2a8e67ebc5cc01d15b67f3b0dba898410383888fe3"
+  },
+  {
+   "name": "pthread_create/15-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "9611dc8a70ff96d8c9b069d2b3691532a395f51cb00d7c56c4c6b0c5507ba0f8"
+  },
+  {
+   "name": "pthread_detach/1-1",
+   "observed_status": "ERROR",
+   "classification": "musl-design",
+   "reason": "joining a detached thread is undefined; musl stops the process at the join",
+   "source_sha256": "8b0f2226dc218c9e2c2ed946a9681fbd48428c81dc75f6f642eb142cc52c7e1a"
+  },
+  {
+   "name": "pthread_detach/2-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "6191c60d4828565dfc9268cd7d2f4c051e1db7aedc08e1e2957ba9daf4bf9233"
+  },
+  {
+   "name": "pthread_detach/4-1",
+   "observed_status": "ERROR",
+   "classification": "musl-design",
+   "reason": "joining a detached thread is undefined; musl stops the process at the join",
+   "source_sha256": "22bede955b4378b9afad05c64e55607a72eb1969551918a5643f0668eea2efdc"
+  },
+  {
+   "name": "pthread_detach/4-2",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "an invalid thread ID is undefined; musl does not report ESRCH",
+   "source_sha256": "144451d91cdfd0e2ac4fd8ef29fb50e7f0bef84f22296dee9db37d39d8e25519"
+  },
+  {
+   "name": "pthread_exit/1-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "62d761cf24428bcb552d5f469d1037e8d88f98d46de73359c35e32ffcdffb612"
+  },
+  {
+   "name": "pthread_exit/2-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "bcb52b12d2de63529e15f5f748dbf17fcece98ac36ccec921bfc750495bc0c3c"
+  },
+  {
+   "name": "pthread_exit/3-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "53962196950c3d78ce7906f7ca15864ae09a7f93aea87d4a6ac96654a906cc5c"
+  },
+  {
+   "name": "pthread_exit/4-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "25f12f0d85ce28a391161a8f6e83e010edf96479e8981f7f54e8be0f9a9f78fd"
+  },
+  {
+   "name": "pthread_exit/5-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "9ec12f61c56cbc2a55e3c6cd49c0c6de0647cc7b057b2aa124342cce1ddbde5d"
+  },
+  {
+   "name": "pthread_exit/6-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "1b12dc53a5128ca8c3bee8a46e876a537e122e5d468e03eb6bad4752bc04849a"
+  },
+  {
+   "name": "pthread_join/1-2",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "683eb90d83fe0d8515b5eae2ab0ddb106126051d2461ac4f20b732f08c634e3e"
+  },
+  {
+   "name": "pthread_join/4-1",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "b2c0811047342ae13c61d64e2ae52ecb9fedeea1bc747f9539337d0717d57777"
+  },
+  {
+   "name": "pthread_join/6-2",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "an invalid thread ID is undefined; musl does not report ESRCH",
+   "source_sha256": "c52447b40335aa42c9a611f5fa4ae1c1c7c56431da7254111c7c92107b1b3095"
+  },
+  {
+   "name": "pthread_join/6-3",
+   "observed_status": "UNTESTED",
+   "classification": "test-assumption",
+   "reason": "the test framework requires PTHREAD_STACK_MIN to be a whole page; musl's is 2048 on every architecture",
+   "source_sha256": "797d123a02cd1a0bdecf0ac7ebd6af6e6315b1c0013c0f0eb53a55292ae90b35"
+  },
+  {
+   "name": "pthread_mutex_getprioceiling/1-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "3559db65805ac0713e4c8321c2027410583b0a666b38f339c8f201dba70c0e8e"
+  },
+  {
+   "name": "pthread_mutex_getprioceiling/3-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "b5a59be2faae1e7aee62b6b8662b2594b69f56a00722361b331e2ace9f4d5313"
+  },
+  {
+   "name": "pthread_mutex_getprioceiling/3-2",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "a71b0d6cb8903f0aa97d97205168b962895fef31233dea31fd1bc39ae263ffe3"
+  },
+  {
+   "name": "pthread_mutex_getprioceiling/3-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "1c3173d781e244c6d00c7ee71b9cbdcd8a3061a9d5cc7c6ba146df427f88b2d9"
+  },
+  {
+   "name": "pthread_mutex_init/1-2",
+   "observed_status": "TIMEOUT",
+   "classification": "musl-design",
+   "reason": "a thread blocked in pthread_mutex_lock has cancellation disabled, so an asynchronous cancel waits",
+   "source_sha256": "da8dc9e3252dcca2ccd4e8a8f211dfe6ca8fb62052ead7ae21e1324397e83f38"
+  },
+  {
+   "name": "pthread_mutex_init/3-2",
+   "observed_status": "TIMEOUT",
+   "classification": "musl-design",
+   "reason": "a thread blocked in pthread_mutex_lock has cancellation disabled, so an asynchronous cancel waits",
+   "source_sha256": "032a1e03bcbd4f28530c20ab03bd8c8408dc4a93cc3472b4abcfd1cedcefa054"
+  },
+  {
+   "name": "pthread_mutex_setprioceiling/1-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "ef06b67c67969b8535d155cea4b5433d9513c5b2e0382b2626476b0038e84dfc"
+  },
+  {
+   "name": "pthread_mutexattr_getprotocol/1-2",
+   "observed_status": "UNRESOLVED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "264025d23992f73566edaabf443f0dd27f0bf8421d8b579566a16df3da935943"
+  },
+  {
+   "name": "pthread_mutexattr_setprotocol/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "optional-feature",
+   "reason": "PTHREAD_PRIO_PROTECT; musl has no priority ceilings",
+   "source_sha256": "7545f14262a93b939e0ad1ed829bdee268e48fcb3c40a6b7f26839f2c633f90f"
+  },
+  {
+   "name": "pthread_rwlock_unlock/4-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "undefined-operation",
+   "reason": "unlocking an uninitialized or another thread's read-write lock",
+   "source_sha256": "38dd852d187020574653633d384ed9b954716928f6087650f8ea99fb5fc866ac"
+  },
+  {
+   "name": "pthread_rwlock_unlock/4-2",
+   "observed_status": "UNSUPPORTED",
+   "classification": "undefined-operation",
+   "reason": "unlocking an uninitialized or another thread's read-write lock",
+   "source_sha256": "60706317316529288d42b69789dae7807fe9802365af59a7786145a72c769870"
+  },
+  {
+   "name": "pthread_rwlock_wrlock/3-1",
+   "observed_status": "TIMEOUT",
+   "classification": "optional-feature",
+   "reason": "priority-ordered read-write locks for real-time threads, which musl does not implement",
+   "source_sha256": "67550f56df6d2f447d6a0a27e6168a3a521c457e7b117a1db31095e4995ee726"
+  },
+  {
+   "name": "pthread_setcanceltype/1-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "a thread blocked in pthread_mutex_lock has cancellation disabled, so an asynchronous cancel waits",
+   "source_sha256": "6f5a96dea037f76425fcec3aed868ed66c18326881b1ac914ff977bf96ac6e4a"
+  },
+  {
+   "name": "sched_get_priority_max/1-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "bd339f30d539a37f0c2d8fec9b4899fa8fa316613f5488273ed3df5f4b9a5a4e"
+  },
+  {
+   "name": "sched_get_priority_min/1-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "325b8164922e05935ef9445b7e956ebddf52fbbbde9ea4a82d1d8ff7c32e7c88"
+  },
+  {
+   "name": "sched_getparam/1-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "86450ace1d1224548fca255c62b0664d430e45f60866acd429ebcd363fb2e00b"
+  },
+  {
+   "name": "sched_getparam/2-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "1e88b03fa1edc650921744a6984ad0ee4479e7ca31fb4b82994877cf62401b12"
+  },
+  {
+   "name": "sched_getparam/3-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "76c5d074905dd70e17f0eaa2a9e8efd6a7cb5477da33ad3d425e8eec7caf6e9d"
+  },
+  {
+   "name": "sched_getparam/6-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "4f61c03ac87145036ccf1b717b12fdc849ae3ace9dfd4a45ad6e79c937a4b906"
+  },
+  {
+   "name": "sched_getscheduler/1-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "45b0137d507dc982aa53505afbecb05e43b66cbad87874c0e5fb7aa10274f63b"
+  },
+  {
+   "name": "sched_getscheduler/3-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "62ace0b2815750da9027c38027f29f3bc484a259f1876aed4da8c85c376d6a99"
+  },
+  {
+   "name": "sched_getscheduler/4-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "68c28e51de14aecd8a64296f7944dd618f45227f74e6310626b2cec1cf267f64"
+  },
+  {
+   "name": "sched_getscheduler/7-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "fc0f581dfe2fa40f5e4c70769a17358f77cc8b903e54e33906545d3aa95f0501"
+  },
+  {
+   "name": "sched_rr_get_interval/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "734e8bb3f9fc3dcd188fb7ee06baf264f594228b0f1af8fbcaaf7019513e4d59"
+  },
+  {
+   "name": "sched_rr_get_interval/2-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "c7844ff36c7e31afdb3d13c0d8901b755878baea6159aa7ad994d6e9ca5e4b05"
+  },
+  {
+   "name": "sched_setparam/22-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "6af5d03a11fbafcba4427c0e26598895de99ef7f5707278daee61614b35fb84f"
+  },
+  {
+   "name": "sched_setparam/23-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "735d268672eea771e201741ddf2b66df1e9fdd30c16e3828d841221c070de4f8"
+  },
+  {
+   "name": "sched_setparam/23-2",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "3369e80386ab118fdd145504ce4bfa7854925d68f97cd5b6099409ec657000c1"
+  },
+  {
+   "name": "sched_setparam/23-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "a71283622c8170a35245ea56cca44e1221c82a0b5f20659f86e8c4dc49cc6848"
+  },
+  {
+   "name": "sched_setparam/23-4",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "211ac3cd864e407e6aedc9b44bdd6832a7dbd0b11cddfc119bddc765b64d5685"
+  },
+  {
+   "name": "sched_setparam/23-5",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "55e8de3994d7e56264b92e784a54b94e99806f326b4898638d5a6274f982d915"
+  },
+  {
+   "name": "sched_setparam/23-6",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "e716cad92c6c8096e57d69853d93fcc19d322187b3f1973b951a8bfc070c1cdb"
+  },
+  {
+   "name": "sched_setparam/25-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "9e0acdd27a4b763feafc83faee886100bf4c34733c89a8f05bfc054dc5b4cec6"
+  },
+  {
+   "name": "sched_setparam/26-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "31ed1354392c8bf19bcb5bf192e210199c02422177d69d026a5173c822bc95f1"
+  },
+  {
+   "name": "sched_setparam/5-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "81a4c2050b9b0ceabdc3dda6f06660ad69e45d8b65de371633af5de53d6cb863"
+  },
+  {
+   "name": "sched_setscheduler/1-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "222cec27839e8737ffccd8f60de024599d4b76988b8838e15c004193d6bca511"
+  },
+  {
+   "name": "sched_setscheduler/15-1",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "process-contention-scope threads",
+   "source_sha256": "5d4f71f043d6246917874aa1b0015ed38efa906e3bb62583464286ca6f586833"
+  },
+  {
+   "name": "sched_setscheduler/16-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "9aedf4d2c30602dc4886874731226bc19c7d6ac363642f7dc7e3382c4f8bb79a"
+  },
+  {
+   "name": "sched_setscheduler/17-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "ebaab46969579890a367bea49f5a43f7229adfc98b0e8f1117f4e917b6d77c12"
+  },
+  {
+   "name": "sched_setscheduler/17-2",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "63a263bbe401c91d6d89d9465766c4874db909cf8df4362f034191e0d2ccee4d"
+  },
+  {
+   "name": "sched_setscheduler/17-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "c2df2d1b51587fd8d3c77997bbc88f7aa01fdddd6cb16c183d811b88708e41bc"
+  },
+  {
+   "name": "sched_setscheduler/17-4",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "c90850eaffe5c8e521c922151ea677e0ab432ad2d15b28a8a4a92e61e99d798f"
+  },
+  {
+   "name": "sched_setscheduler/17-5",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "0fddd43f0201a30a3536b0c52d13e3fddc42de13263622976927ba0778893360"
+  },
+  {
+   "name": "sched_setscheduler/17-6",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "235dc6f19a9418a214e07df9d43802f2a0e2b05fdab18e38dcc7261ff52d6770"
+  },
+  {
+   "name": "sched_setscheduler/19-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "2875749c482e76235536952228d22d3956015d733d5263fe4b9977932a2191e9"
+  },
+  {
+   "name": "sched_setscheduler/19-2",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "29643169c69a147ef182fb2b117d574ca829285fa77688ea253f614b15792287"
+  },
+  {
+   "name": "sched_setscheduler/19-3",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "af11e5c8d59c46862f43d0fdc5c096121096bde1e30783cce0c69cc902b051ce"
+  },
+  {
+   "name": "sched_setscheduler/19-4",
+   "observed_status": "UNSUPPORTED",
+   "classification": "optional-feature",
+   "reason": "sporadic server scheduling",
+   "source_sha256": "45e9c145fc401cc29378ee026b47489d28a2b4c937a6e09808328f51ce75e10a"
+  },
+  {
+   "name": "sched_setscheduler/19-5",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "4b463dcddde686e5c92bf8b57fa04ab8b643f992718e514ecac8badc891f86f1"
+  },
+  {
+   "name": "sched_setscheduler/20-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "29699b6f86a86bac32b12cdabad61743c229589d8d1af08f41f280f95641ee05"
+  },
+  {
+   "name": "sched_setscheduler/4-1",
+   "observed_status": "UNRESOLVED",
+   "classification": "musl-design",
+   "reason": "sched_getparam, sched_getscheduler, sched_setparam and sched_setscheduler act on a process, and Linux schedules threads: musl returns ENOSYS",
+   "source_sha256": "98bdbd53807fabb60b019b9d6f8f57f69553831b0418f0819067b0370f7bc8dd"
+  },
+  {
+   "name": "sem_init/7-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "sem_init does not enforce SEM_NSEMS_MAX",
+   "source_sha256": "1af6ade3bf0e9b6f6bc0960cdba5285d4ec2f974723cb4671d3344b39bb3607a"
+  },
+  {
+   "name": "sem_post/8-1",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "_POSIX_PRIORITY_SCHEDULING is not defined, since process scheduling returns ENOSYS",
+   "source_sha256": "99a73a5cb148eb9c59ecc7fb3ead19ba514e05ef57b39ba5c1b03d7845d4db17"
+  },
+  {
+   "name": "sem_unlink/4-1",
+   "observed_status": "FAIL",
+   "classification": "test-assumption",
+   "reason": "the semaphore name is never initialized; musl rejects the stack contents as a name",
+   "source_sha256": "6e590882c4f6c1cafe43e1cc705be3ef2eadefd6d84fa1637ec9f62d6c457e89"
+  },
+  {
+   "name": "sem_unlink/5-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "a name longer than NAME_MAX is refused when created, not only at unlink",
+   "source_sha256": "9b69a74c3c63ff0195866e4b494d03286e0fac504557cea69afc92e4ae8c9dc2"
+  },
+  {
+   "name": "shm_open/39-2",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a name longer than NAME_MAX is refused when created, not only at unlink",
+   "source_sha256": "27bdb274ea0477304b1c9e00b449ed980948c8b777ae9e691b4d656d1579a19a"
+  },
+  {
+   "name": "shm_unlink/10-2",
+   "observed_status": "UNTESTED",
+   "classification": "musl-design",
+   "reason": "a name longer than NAME_MAX is refused when created, not only at unlink",
+   "source_sha256": "cf19a73db70a7fa431dc3caa22fd1df1a29dfee71219f69c4f960ad891e69da7"
+  },
+  {
+   "name": "sigismember/5-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "an invalid signal number returns 0 without EINVAL, which POSIX permits",
+   "source_sha256": "83d6d69c0d483ab0823ac91bf852211a127e67250af59afeb07c8302146f6cc1"
+  },
+  {
+   "name": "sigwaitinfo/6-1",
+   "observed_status": "FAIL",
+   "classification": "musl-design",
+   "reason": "raise uses tkill, so si_code is SI_TKILL, as with glibc's tgkill",
+   "source_sha256": "f7c889232f5d4bb564cfdad5be6260d264671a0d8c8a3fbd1b272dfbea923801"
+  }
+ ]
 }

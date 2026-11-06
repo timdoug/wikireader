@@ -112,7 +112,9 @@ def main():
         # Status comes from the standalone program, not its printed messages.
         commands += [f"mkdir c{index}; cd c{index}", f"echo LTP-BEGIN {case['name']}",
                      f"/mnt/sd/{supervisor['binary']} {deadlines.get(case['name'], args.timeout)} /mnt/sd/{case['binary']}",
-                     "status=$?", f"echo LTP-RESULT {case['name']} $status", "cd ..",
+                     # The marker starts a line even after output with no
+                     # final newline.
+                     "status=$?", f"printf '\\nLTP-RESULT %s %s\\n' {case['name']} $status", "cd ..",
                      f"rm -rf c{index}"]
     commands += ["echo LTP-DONE", "reboot -f"]
     files["ltp.sh"] = ("\n".join(commands) + "\n").encode()

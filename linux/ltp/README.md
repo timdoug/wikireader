@@ -5,64 +5,62 @@ These scripts run unchanged standalone Open POSIX tests from LTP revision
 FLASH -> Grifo -> launcher -> Linux. The physical SD card is untouched.
 The current trial uses wremu with 32 MiB SDRAM.
 
-The full sweeps below ran on the uClibc-ng system, before the move to musl,
-and have not been repeated on musl; the port regressions
-(`make -C linux ltp-port-test`) run on musl.
+The sweep and the port regressions (`make -C linux ltp-port-test`) run on
+the musl system. The sections after the coverage record the bugs the suite
+found and how each was fixed.
 
 ## Coverage and accounting
 
 The build enumerates numbered `conformance/interfaces/*/*.c` cases,
-excluding the speculative directories. Of 1,569 candidates, 1,236 build;
-262 require unavailable `fork`, and 71 include unavailable `aio.h`.
-Compile failures remain in the manifest with their commands and logs.
-Each upstream case links its unchanged `lib/common.c` bootstrap using
-C99, the suite's POSIX/XSI feature macros, `-O2`, pthreads, and librt.
+excluding the speculative directories. Of 1,569 candidates, 1,294 build.
+264 call `fork`, which musl links and fails with `ENOSYS` without an MMU:
+such a case can only fail its setup, and one that then signals its child
+signals pid -1, every process in the trial, so it is accounted as
+`REQUIRES_FORK` and not run. 11 do not compile: six use priority ceilings,
+which musl does not have, two glibc's `pthread_rwlockattr_setkind_np`, and
+three require the sporadic server. Compile failures remain in the manifest
+with their commands and logs. Each upstream case links its unchanged
+`lib/common.c` bootstrap using C99, the suite's POSIX/XSI feature macros,
+`-O2`, pthreads, and librt.
 
-The initial uniform thirty-second sweep and subsequent per-case observations:
+The sweep (`make -C linux ltp-all-test`, 32 MiB, every trial through Grifo):
 
-| Status | Initial | Previous verified | After focused fixes | After rwlock fixes | After memory locking | After mapping ownership |
-|---|---:|---:|---:|---:|---:|---:|
-| Pass | 1,144 | 1,183 | 1,188 | 1,189 | 1,196 | 1,197 |
-| Unsupported | 40 | 29 | 29 | 29 | 28 | 28 |
-| Untested | 6 | 6 | 6 | 6 | 6 | 6 |
-| Fail | 18 | 12 | 8 | 7 | 4 | 4 |
-| Unresolved | 7 | 5 | 4 | 4 | 1 | 1 |
-| Timeout | 9 | 1 | 1 | 1 | 1 | 0 |
-| Other nonzero exit | 12 | 0 | 0 | 0 | 0 | 0 |
+| Status | Cases |
+|---|---:|
+| Pass | 1,178 |
+| Fail | 33 |
+| Unresolved | 29 |
+| Untested | 24 |
+| Unsupported | 24 |
+| Error (stopped by a signal) | 3 |
+| Timeout | 3 |
 
-All 1,236 cases produced a result. The original binaries, root image, and
-reports are retained under `linux/artifacts/ltp-all`,
-`ltp-rootfs-before.img`, and `ltp-before`.
+72 of the cases are AIO, which uClibc could not build; 48 of them pass.
+[remaining.json](remaining.json) gives every non-PASS case its status,
+source hash and reason:
 
-The previous full sweep rebuilt unchanged upstream cases with the corrected compiler
-and used immutable `ltp-rootfs-final.img` and `ltp-kernel-before.app` fixtures.
-Its raw counts are **1,179 pass and four execution errors**, with its other
-categories preserved in the raw report. Those four cases passed individually in
-fresh boots, on the same default emulator and fixtures. The combined
-per-case record is `ltp-verified/results.json`; it preserves each original
-error and links its fresh-boot report. It is **not a clean batch sweep**.
-The raw batch reports remain in `ltp-final-run`, and the four fresh boots
-in `ltp-final-sd-affected-run`.
-
-All ten missing results after the first batch's host deadline received fresh
-boots and completed. In particular, unchanged `clock_gettime/4-1` performs
-2.7 million `clock()` calls and passed with its 1,800-second guest budget.
-The Makefile now allows a 2,400-second host budget per batch.
-
-Of the 39 additional passes in that earlier follow-up, eight come from appropriate deadlines, including
-cases that already pass on the old image. The other 31 cover signal masks,
-timer outputs, available clocks, and the large-frame compiler fix. No case
-that initially passed failed its final individual observation. This is
-functional coverage, not a speed measurement.
-
-The matching unprivileged AArch64 Linux comparison returned 1,132 passes,
-25 unsupported, 12 untested, 53 unresolved, 13 failures, and one timeout.
-This is a reference, not a verdict: C33 runs as root and can exercise
-real-time scheduling and credential changes that the native run cannot.
-Its reports are under `ltp-native-all-run`.
+| Reason | Cases |
+|---|---:|
+| musl's deliberate behaviour: process scheduling returns `ENOSYS` (25), joining a detached thread stops the process, asynchronous cancellation waits out a mutex, unvalidated AIO and thread attributes, and the like | 62 |
+| Optional features: sporadic server, process-contention scope, priority ceilings, priority-ordered read-write locks | 21 |
+| The test assumes what POSIX leaves to the implementation, chiefly a page-sized `PTHREAD_STACK_MIN` (musl's is 2048 on every architecture) | 16 |
+| No MMU: unmapped-page and beyond-EOF faults, contiguous ramfs pages for shared mappings, multi-megabyte contiguous buffers | 9 |
+| AIO placeholders with no test body | 4 |
+| Undefined operations the test skips | 3 |
+| Permission-denial precondition absent; Linux permits the query | 1 |
 
 ## Bugs found and fixed
 
+* **AIO cancellation (musl):** `aio_cancel` cancelled a worker waiting
+  for sequenced writes and waited for it holding the queue lock the worker
+  needed to leave its wait, and the worker's cleanup then took that lock a
+  second time. Writes to a socket, pipe or `O_APPEND` file hung the
+  process (`aio_cancel/2-1` to `7-1`). `../musl/patches/fixes/0025` releases
+  the lock around both; upstream musl has the same code.
+* **Oversized private mappings (kernel):** a no-MMU private copy larger
+  than `MAX_PAGE_ORDER` made the page allocator warn with a stack trace
+  (`aio_suspend/1-1` asks for 10 MB). `../patches/fixes/0045` fails it
+  with `ENOMEM` and nommu's usual report.
 * **Signal actions:** libc's public `struct sigaction` contains a restorer
   pointer; C33's kernel layout does not. Passing it directly shifted both
   signal-mask words. The architecture wrapper now marshals the kernel
@@ -115,7 +113,8 @@ with live-thread TLS (`ltp-app-final.log`).
 Four more unchanged upstream cases pass after focused fixes:
 
 * `shm_unlink/9-1`: translate sticky-directory `EPERM` into the shared-memory
-  interface's required `EACCES`, preserving other errors. This matches the
+  interface's required `EACCES`, preserving other errors
+  (`../musl/patches/fixes/0023`). This matches the
   [glibc implementation](https://sourceware.org/pipermail/glibc-cvs/2021q2/073302.html).
   The earlier description of this as only an expectation difference was wrong.
 * `mlockall/13-1` and `13-2`: no-MMU locking remains a no-op for resident
@@ -152,31 +151,8 @@ SD driver, with the earlier SD diagnostic experiments removed.
 the earlier per-case observations, preserving report hashes and the four
 status changes. Its **1,187/1,236 passes (96.0%)** are not a new full sweep.
 
-[remaining.json](remaining.json) records the raw status, source hash and
-reason for the current 38 remaining non-PASS interface cases, following
-the synchronization, memory-locking and mapping-ownership fixes below. These categories explain the
-results; they do not turn exclusions or failures into passes:
-
-| Reason | Cases |
-|---|---:|
-| Optional features: sporadic scheduling and process-scope threads | 22 |
-| MMU page protection or fixed virtual-address mappings | 8 |
-| Permission-denial precondition absent; Linux permits the query | 3 |
-| Undefined rwlock operations explicitly skipped by upstream on Linux | 2 |
-| AIO placeholder with no implemented test body | 1 |
-| Empty-file shared mapping setup unavailable on no-MMU | 1 |
-| Semaphore count-limit precondition absent | 1 |
-
-Literal 100% cannot be reached with this unchanged corpus on this hardware:
-some cases deliberately return UNSUPPORTED or UNTESTED, and an MMU is needed
-for protection assertions. Real work remains as well. The rwlock failure
-requires priority-aware reader/writer admission and wakeup, including timed
-and process-shared operations; waking readers indiscriminately is not a
-complete fix. POSIX specifies
-[priority order and writer precedence at equal priority](https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_rwlock_unlock.html).
-The no-MMU locking APIs still need coherent kernel range/limit/lock-state
-handling before their broader contracts can be advertised. Those are
-implementation limitations, not all architectural impossibilities.
+The current non-PASS cases and their reasons are in
+[remaining.json](remaining.json), summarized under the coverage above.
 
 ## Extended coverage and resident-memory interfaces
 
@@ -549,9 +525,6 @@ and source/fixture identity. The combined original-interface observations
 advance from **1,188 to 1,189 of 1,236 (96.2%)**, retaining all prior passes.
 `ltp-rwlock-verified/results.json` merges the fresh pthread sweep into the
 previous per-case record; it is **not a new 1,236-case sweep**.
-[remaining.json](remaining.json) now audits the remaining **47 non-PASS**
-cases. Coherent no-MMU memory-lock accounting remains the main unfinished
-implementation work in that original interface set.
 
 
 ## No-MMU memory-lock validation and accounting
@@ -628,8 +601,6 @@ involved. The stripped shared libc grows from **501,720 to 502,056 bytes**.
 `ltp-mlock-verified/results.json` merges the fresh 85-case report with earlier
 observations for the other 1,151 cases. The combined total advances from
 **1,189 to 1,196 of 1,236 (96.8%)**; this is **not a new full sweep**.
-[remaining.json](remaining.json) now contains **40 non-PASS** cases: four
-failures, one unresolved, one timeout, six untested and 28 unsupported.
 The empty-file shared mapping setup in `mlockall/3-7` still fails before its
 locking assertion; it has not been counted as fixed.
 
@@ -704,10 +675,6 @@ fixture and report hashes. `ltp-mappings-verified/results.json` refreshes the
 
 The combined original-interface record advances from **1,196 to 1,197 of
 1,236 (96.8%)**, with **no remaining timeouts**. This is not a new full sweep.
-[remaining.json](remaining.json) now audits **39 non-PASS** cases: four failures,
-one unresolved, six untested and 28 unsupported. The four failures still
-require MMU protection or fixed virtual-address placement, and `mlockall/3-7`
-still fails its beyond-EOF shared-mapping setup.
 
 ## Fixed placement
 
