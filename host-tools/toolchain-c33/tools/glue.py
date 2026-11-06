@@ -464,6 +464,19 @@ def readelf_32bit_abs(s):
 edit('binutils/readelf.c', readelf_32bit_abs)
 
 
+# .eh_frame's FDEs address their code PC-relative (gas's .cfi_* directives
+# and GCC alike), so an object's .eh_frame carries R_C33_REL32.
+def readelf_32bit_pcrel(s):
+    if 'R_C33_REL32.  */' in s:
+        return None
+    return _insert_in_switch(s, 'is_32bit_pcrel_reloc',
+                             '    case EM_SE_C33:\n'
+                             '      return reloc_type == 39; /* R_C33_REL32.  */\n')
+
+
+edit('binutils/readelf.c', readelf_32bit_pcrel)
+
+
 def readelf_none(s):
     if 'R_C33_NONE.  */' in s:
         return None
@@ -546,6 +559,12 @@ for f in ('pr19167', 'start', 'start3', 'start4'):
     edit(f'ld/testsuite/ld-gc/{f}.d', xfail_line)
 for f in ('empty-address-1', 'empty-address-2a', 'empty-address-2b'):
     edit(f'ld/testsuite/ld-scripts/{f}.d', xfail_line)
+# eh5's .cfi_personality 3 and .cfi_lsda 12 put absolute addresses in
+# .eh_frame, which is read-only; FRV and Blackfin skip the test, their gas
+# having no CFI.
+edit('ld/testsuite/ld-elf/eh5.d', lambda s: None if C33_LINUX in s else s.replace(
+    '#xfail: alpha-*-*ecoff tile*-*-* visium-*-*\n',
+    f'#xfail: alpha-*-*ecoff {C33_LINUX} tile*-*-* visium-*-*\n', 1))
 # x = ABSOLUTE(x) makes x absolute only once .rofixup is sized; Blackfin's
 # FDPIC refuses it the same way.
 edit('ld/testsuite/ld-scripts/pr14962.d', lambda s: None if C33_LINUX in s else s.replace(

@@ -79,6 +79,19 @@ extern const struct relax_type md_relax_table[];
 /* Every C33 instruction is at least one 16-bit word.  */
 #define DWARF2_LINE_MIN_INSN_LENGTH 2
 
+/* Call frame information: the .cfi_* directives.  DWARF register numbers
+   are GCC's register numbers, as in GCC's c33.h and GDB's c33-tdep.c:
+   %r0-%r15 are 0-15, %sp 16, %alr 17, %ahr 18 and %psr 19.  A call pushes
+   its return address, so on entry the CFA is %sp + 4 and the return
+   address, column 22 (GCC's FIRST_PSEUDO_REGISTER), is the word below it.  */
+#define TARGET_USE_CFIPOP 1
+#define DWARF2_DEFAULT_RETURN_COLUMN 22
+#define DWARF2_CIE_DATA_ALIGNMENT (-4)
+#define tc_cfi_frame_initial_instructions c33_cfi_frame_initial_instructions
+extern void c33_cfi_frame_initial_instructions (void);
+#define tc_regname_to_dw2regnum c33_regname_to_dw2regnum
+extern int c33_regname_to_dw2regnum (char *);
+
 /* This section must be in the small data area (pointed to by GP).  */
 #define SHF_C33_GPREL		0x10000000
 

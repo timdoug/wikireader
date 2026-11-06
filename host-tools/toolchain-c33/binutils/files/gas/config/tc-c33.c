@@ -25,6 +25,7 @@
 #include "opcode/c33.h"
 #include "elf/c33.h"
 #include "elf-bfd.h"			/* for elf_elfheader */
+#include "dw2gencfi.h"
 
 #define AREA_CDA 0
 #define AREA_GDA 1
@@ -4653,4 +4654,35 @@ c33_force_relocation (struct fix * fixP)
     return 1;
   
   return 0;
+}
+
+/* The CIE's initial frame state: see tc-c33.h.  */
+void
+c33_cfi_frame_initial_instructions (void)
+{
+  cfi_add_CFA_def_cfa (16, 4);
+  cfi_add_CFA_offset (DWARF2_DEFAULT_RETURN_COLUMN, -4);
+}
+
+/* A register's DWARF number for a .cfi_* directive, with or without its
+   '%', or -1.  */
+int
+c33_regname_to_dw2regnum (char *name)
+{
+  static const char *const special[] = { "sp", "alr", "ahr", "psr" };
+  unsigned int i;
+  char *end;
+  unsigned long n;
+
+  if (*name == '%')
+    name++;
+  if ((name[0] == 'r' || name[0] == 'R') && name[1] >= '0' && name[1] <= '9')
+    {
+      n = strtoul (name + 1, &end, 10);
+      return *end == '\0' && n < 16 ? (int) n : -1;
+    }
+  for (i = 0; i < ARRAY_SIZE (special); i++)
+    if (strcasecmp (name, special[i]) == 0)
+      return 16 + i;
+  return -1;
 }

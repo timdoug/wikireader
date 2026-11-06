@@ -21,4 +21,5 @@ if [istarget c33-*-*] {
     run_dump_test "pe-removed-dis"
     run_dump_test "std-removed-dis"
     run_dump_test "line-separator"
+    run_dump_test "cfi"
 }
