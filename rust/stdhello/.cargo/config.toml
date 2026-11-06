@@ -4,4 +4,7 @@ target = "../c33-unknown-linux-musl.json"
 
 [unstable]
 build-std = ["std", "panic_abort"]
+# Not std's default backtrace and panic-unwind: panics abort, and a stripped
+# binary has nothing to symbolize; the symbolizer was 200 kB of 450.
+build-std-features = []
 json-target-spec = true

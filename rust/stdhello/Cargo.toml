@@ -6,3 +6,4 @@ edition = "2024"
 [profile.release]
 panic = "abort"
 opt-level = "s"
+strip = true
