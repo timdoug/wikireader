@@ -29,6 +29,7 @@ config C33
 	select OF
 	select OF_EARLY_FLATTREE
 	select S1C33_ITC
+	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
 	select TIMER_OF
 

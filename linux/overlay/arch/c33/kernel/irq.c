@@ -15,11 +15,9 @@
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
 #include <asm/syscall.h>
+#include <asm/traps.h>
 #include <asm/wikireader.h>
 
-#define C33_REG_BASE          0x00300000UL
-#define C33_IRQ_ENABLE_FIRST  (C33_REG_BASE + 0x270)
-#define C33_IRQ_FLAG_FIRST    (C33_REG_BASE + 0x280)
 #define C33_SYSCALL_VECTOR    12	/* int 0; int N is vector 12 + N */
 #define C33_BREAKPOINT_VECTOR 15	/* int 3 */
 #define C33_FIRST_IRQ_VECTOR  16	/* the ITC's interrupts, to 255 */
@@ -45,12 +43,6 @@ void __init init_IRQ(void)
 			  : "memory");
 }
 
-/*
- * The core's exceptions (S1C33E07 manual 6.3): a third ext prefix (2), an
- * undefined instruction (3) and a misaligned halfword or word access (6).
- * In a program they are its own bug, and it gets the signal a larger machine
- * would send.
- */
 /* Which of the process's mappings holds ADDR, as file+offset.  */
 static void c33_fault_where(const char *what, unsigned long addr)
 {
@@ -73,6 +65,7 @@ static void c33_user_fault(unsigned int vector, struct pt_regs *regs)
 {
 	void __user *pc = (void __user *)regs->pc;
 	unsigned long ret;
+	int sig, code;
 
 	/*
 	 * int 3 is the breakpoint debuggers write.  The trap leaves the PC
@@ -84,29 +77,42 @@ static void c33_user_fault(unsigned int vector, struct pt_regs *regs)
 		return;
 	}
 
-	pr_info_ratelimited("%s[%d]: C33 exception %u at pc %08lx sp %08lx r15 %08lx\n",
-			    current->comm, task_pid_nr(current), vector,
-			    regs->pc, regs->sp, regs->r[15]);
-	pr_info("  r0-r3 %08lx %08lx %08lx %08lx r4 %08lx r12-r14 %08lx %08lx %08lx\n",
-		regs->r[0], regs->r[1], regs->r[2], regs->r[3], regs->r[4],
-		regs->r[12], regs->r[13], regs->r[14]);
-	c33_fault_where("pc", regs->pc);
-	c33_fault_where("r4", regs->r[4]);
-	c33_fault_where("r15", regs->r[15]);
-	if (!get_user(ret, (unsigned long __user *)regs->sp))
-		c33_fault_where("[sp]", ret);
+	/*
+	 * The core's exceptions (S1C33E07 manual 6.3): a third ext prefix (2),
+	 * an undefined instruction (3) and a misaligned halfword or word
+	 * access (6).  In a program they are its own bug, and it gets the
+	 * signal a larger machine would send.
+	 */
 	switch (vector) {
 	case 2:
 	case 3:
-		force_sig_fault(SIGILL, ILL_ILLOPC, pc);
+		sig = SIGILL;
+		code = ILL_ILLOPC;
 		break;
 	case 6:
-		force_sig_fault(SIGBUS, BUS_ADRALN, pc);
+		sig = SIGBUS;
+		code = BUS_ADRALN;
 		break;
 	default:
-		force_sig_fault(SIGSEGV, SEGV_MAPERR, pc);
+		sig = SIGSEGV;
+		code = SEGV_MAPERR;
 		break;
 	}
+
+	/* A fault the program handles itself is not reported. */
+	if (show_unhandled_signals && unhandled_signal(current, sig) &&
+	    printk_ratelimit()) {
+		pr_info("%s[%d]: C33 exception %u (%s): unhandled signal %d code %d\n",
+			current->comm, task_pid_nr(current), vector,
+			c33_vector_name(vector), sig, code);
+		c33_show_regs(regs, KERN_INFO);
+		c33_fault_where("pc", regs->pc);
+		c33_fault_where("r4", regs->r[4]);
+		c33_fault_where("r15", regs->r[15]);
+		if (!get_user(ret, (unsigned long __user *)regs->sp))
+			c33_fault_where("[sp]", ret);
+	}
+	force_sig_fault(sig, code, pc);
 }
 
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
@@ -116,7 +122,6 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 	struct pt_regs *saved_task_regs = current->thread.regs;
 	irqentry_state_t state;
 	long nr;
-	int i;
 
 	if (vector == C33_SYSCALL_VECTOR) {
 		struct pt_regs *old_task_regs = current->thread.regs;
@@ -160,25 +165,8 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		return regs;
 	}
 
-	if (vector < C33_FIRST_IRQ_VECTOR) {
-		int reg;
-
-		pr_emerg("C33 exception %u: pc=%08lx sp=%08lx psr=%08lx\n",
-			 vector, regs->pc, regs->sp, regs->psr);
-		/* Which cause was actually asserted is the whole question. */
-		for (reg = 0; reg < 16; reg += 8) {
-			pr_emerg("itc flags %d: %8ph\n", reg,
-				 (void *)(C33_IRQ_FLAG_FIRST + reg));
-			pr_emerg("itc enable %d: %8ph\n", reg,
-				 (void *)(C33_IRQ_ENABLE_FIRST + reg));
-		}
-		for (i = 0; i < 16; i += 4)
-			pr_emerg("r%d=%08lx r%d=%08lx r%d=%08lx r%d=%08lx\n",
-				i, regs->r[i], i + 1, regs->r[i + 1],
-				i + 2, regs->r[i + 2], i + 3,
-				regs->r[i + 3]);
-		panic("unhandled C33 exception");
-	}
+	if (vector < C33_FIRST_IRQ_VECTOR)
+		c33_die(vector, regs);
 
 	state = irqentry_enter(regs);
 	irq_enter_rcu();

@@ -169,33 +169,6 @@ void machine_power_off(void)
 	machine_halt();
 }
 
-void show_regs(struct pt_regs *regs)
-{
-	pr_info("PC: %08lx SP: %08lx PSR: %08lx vector: %lu\n",
-		regs->pc, regs->sp, regs->psr, regs->vector);
-}
-
-void show_stack(struct task_struct *task, unsigned long *stack,
-		const char *loglvl)
-{
-	unsigned long *end;
-	int words = 0;
-
-	if (!stack) {
-		if (task && task != current)
-			stack = (unsigned long *)task->thread.ksp;
-		else
-			stack = (unsigned long *)current_stack_pointer;
-	}
-
-	end = (unsigned long *)(((unsigned long)stack + THREAD_SIZE - 1) &
-				 ~(THREAD_SIZE - 1));
-	printk("%sStack:", loglvl);
-	while (stack < end && words++ < 32)
-		pr_cont(" %08lx", *stack++);
-	pr_cont("\n");
-}
-
 void flush_thread(void)
 {
 	unsigned long flags;
