@@ -73,7 +73,11 @@ the environment, files, threads over a channel and a clock.  It needs:
           binutils/build.sh $PWD/work && C33_TARGET=c33-linux-musl gcc/rebuild.sh $PWD/work final)
       C33_TARGET=c33-linux-musl ./build-gccjit.sh
       ./build-linux.sh    # stdhello/stdhello.bin
-      ./test-linux.py     # wremu: Grifo -> linux.app -> /mnt/sd/stdhello.bin
+      ./test-linux.py     # wremu: Grifo -> linux.app -> r
+
+On the device the card carries `stdhello.bin` at its top and
+`card/bin/r` as `bin/r`: `r` at the Linux shell runs it, checks it and
+leaves the output in `rust.txt` on the card.
 
 libgccjit compiles in-process with only the options it is given, so
 `build-linux.sh` passes the Linux driver's defaults (`-mcore=c33pe -mfdpic

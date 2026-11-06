@@ -1,0 +1,22 @@
+#!/bin/sh
+# Rust's standard library on C33 Linux (rust/stdhello); keep the output on
+# the card, in rust.txt.
+out=/mnt/sd/rust.txt
+echo "Testing Rust std..."
+HOME=/root /mnt/sd/stdhello.bin a b > "$out" 2>&1
+status=$?
+for want in \
+	'stdhello: 3 args, first Some("/mnt/sd/stdhello.bin")' \
+	'stdhello: HOME=Some("/root")' \
+	'stdhello: file round trip: written by Rust on the C33' \
+	'stdhello: thread sums {0: 500500, 1: 1001000, 2: 1501500, 3: 2002000}' \
+	'stdhello: done in '; do
+	grep -qF "$want" "$out" || { echo "missing: $want" >> "$out"; status=1; }
+done
+sync
+if [ "$status" -eq 0 ]; then
+	echo "PASS (rust.txt)"
+else
+	echo "FAIL (rust.txt)"
+fi
+exit "$status"

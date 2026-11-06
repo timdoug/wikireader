@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run stdhello under C33 Linux in wremu, booted the device's way (MBR flash
--> Grifo -> init.app -> linux.app, through linux/ask-app.py), and check what
-Rust's standard library did: arguments, the environment, a file round
-trip, four threads over a channel, and a clock."""
+"""Run the card's `r` under C33 Linux in wremu, booted the device's way (MBR
+flash -> Grifo -> init.app -> linux.app, through linux/ask-app.py), and
+check what Rust's standard library did: arguments, the environment, a file
+round trip, four threads over a channel, and a clock.  The FAT fixture
+cannot make folders, so the shell puts r in /mnt/sd/bin first."""
 
 from pathlib import Path
 import re
@@ -19,8 +20,9 @@ def main():
     out = ROOT / "rust/stdhello/ask"
     result = subprocess.run(
         [sys.executable, str(ROOT / "linux/ask-app.py"),
-         "--file", f"stdhello.bin={program}", "--output", str(out),
-         "HOME=/root /mnt/sd/stdhello.bin a b"],
+         "--file", f"stdhello.bin={program}",
+         "--file", f"r.sh={ROOT / 'rust/card/bin/r'}", "--output", str(out),
+         "mkdir -p /mnt/sd/bin && cp /mnt/sd/r.sh /mnt/sd/bin/r && r && cat /mnt/sd/rust.txt"],
         capture_output=True, timeout=600)
     log = (result.stdout + result.stderr).decode(errors="replace").replace("\r", "")
     sums = ", ".join(f"{i}: {500500 * (i + 1)}" for i in range(4))
@@ -31,7 +33,8 @@ def main():
         f"stdhello: thread sums {{{sums}}}",
     ]
     missing = [line for line in expected if line not in log]
-    if missing or "panicked" in log or not re.search(r"stdhello: done in [\d.]+m?s", log):
+    if (missing or "panicked" in log or "PASS (rust.txt)" not in log
+            or not re.search(r"stdhello: done in [\d.]+m?s", log)):
         print(log, file=sys.stderr)
         raise SystemExit("stdhello failed; missing: " + ", ".join(missing or ["done"]))
     print("stdhello passed under C33 Linux: args, env, files, threads, channel, time")
