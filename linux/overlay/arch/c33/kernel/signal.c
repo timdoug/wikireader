@@ -6,12 +6,12 @@
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/signal.h>
+#include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <linux/unistd.h>
 
 #include <asm/ptrace.h>
 #include <asm/syscall.h>
-#include <asm/syscalls.h>
 #include <asm/ucontext.h>
 
 /*
@@ -53,7 +53,7 @@ static int c33_restore_sigcontext(struct pt_regs *regs,
 	return error;
 }
 
-asmlinkage long c33_sys_rt_sigreturn(void)
+SYSCALL_DEFINE0(rt_sigreturn)
 {
 	struct pt_regs *regs = current_pt_regs();
 	struct c33_rt_sigframe __user *frame;

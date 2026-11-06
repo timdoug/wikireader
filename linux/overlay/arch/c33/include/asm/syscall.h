@@ -6,7 +6,9 @@
 #include <linux/sched.h>
 #include <uapi/linux/audit.h>
 
-extern void *const c33_sys_call_table[];
+typedef long (*syscall_fn_t)(const struct pt_regs *regs);
+
+extern const syscall_fn_t c33_sys_call_table[];
 
 /* int 0 enters the kernel with the number in r4 and arguments in r6-r11. */
 static inline int syscall_get_nr(struct task_struct *task,

@@ -238,7 +238,7 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
         # One line: hush discards type-ahead each time it prompts.
         uart_input.write_text("/mnt/sd/reloc.bin && /mnt/sd/origr.bin && /mnt/sd/orign.bin && "
-                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && /mnt/sd/malloc.bin && /mnt/sd/bp.bin && "
+                              "/mnt/sd/execstk.bin && /mnt/sd/devmem.bin && /mnt/sd/glob.bin && /mnt/sd/time64.bin && /mnt/sd/malloc.bin && /mnt/sd/bp.bin && /mnt/sd/sysabi.bin && "
                               "/mnt/sd/sigtest.bin && ipcs -a && "
                               "echo C33 LINUX APP PASS; reboot -f\n")
 
@@ -278,6 +278,7 @@ def main():
             "TIME64 PASS",
             "MALLOC PASS",
             "BREAKPOINT PASS",
+            "C33 syscall ABI test passed",
             "SIGNAL PASS:",
             "C33 LINUX APP PASS",
             "application returned: 2",

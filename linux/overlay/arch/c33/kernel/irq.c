@@ -16,7 +16,6 @@
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
 #include <asm/syscall.h>
-#include <asm/syscalls.h>
 #include <asm/wikireader.h>
 
 #define C33_REG_BASE          0x00300000UL
@@ -29,19 +28,6 @@ unsigned long c33_boot_ttbr;
 int c33_grifo_booted;
 asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 					  struct pt_regs *regs);
-
-/*
- * A system call's six argument words arrive in %r6-%r11.  The C33 ABI
- * passes a function's first four words in %r6-%r9 and the rest on the
- * stack, except that a 64-bit argument starting at the fourth word runs on
- * into %r10: pread64's and pwrite64's offset.  So the table's functions are
- * called with words four and five as one 64-bit argument, which puts %r10
- * in %r10, and then with words five and six again, as the stack arguments
- * every other call reads them from.
- */
-typedef long (*c33_syscall_fn_t)(unsigned long, unsigned long,
-				 unsigned long, unsigned long long,
-				 unsigned long, unsigned long);
 
 void __init init_IRQ(void)
 {
@@ -144,16 +130,10 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 		 */
 		nr = regs->orig_r4;
 		regs->r[4] = -ENOSYS;
+		/* The arguments are read from the frame: asm/syscall_wrapper.h. */
 		if (syscall_enter_from_user_mode_randomize_stack(regs, &nr) &&
-		    nr >= 0 && nr < NR_syscalls) {
-			c33_syscall_fn_t fn =
-				(c33_syscall_fn_t)c33_sys_call_table[nr];
-
-			regs->r[4] = fn(regs->r[6], regs->r[7], regs->r[8],
-					((unsigned long long)regs->r[10] << 32)
-					| regs->r[9],
-					regs->r[10], regs->r[11]);
-		}
+		    nr >= 0 && nr < NR_syscalls)
+			regs->r[4] = c33_sys_call_table[nr](regs);
 		syscall_exit_to_user_mode(regs);
 		regs->orig_r4 = -1L;
 		current->thread.regs = old_task_regs;

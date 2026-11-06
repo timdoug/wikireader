@@ -11,6 +11,7 @@ origin.so	origin.so
 execstk.bin	exec-stack-test
 devmem.bin	devmem-test
 bp.bin	breakpoint-test
+sysabi.bin	syscall-abi-test
 glob.bin	glob-test
 time64.bin	time64-test
 malloc.bin	malloc-test

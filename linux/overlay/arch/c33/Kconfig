@@ -2,6 +2,7 @@
 config C33
 	bool
 	default y
+	select ARCH_HAS_SYSCALL_WRAPPER
 	select ARCH_NO_PREEMPT
 	select ARCH_NO_SWAP
 	select COMMON_CLK

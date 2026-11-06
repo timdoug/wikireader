@@ -2,15 +2,26 @@
 #include <linux/syscalls.h>
 #include <linux/unistd.h>
 
-#include <asm/syscalls.h>
+#include <asm/syscall.h>
 
-#define __SYSCALL(nr, call) [nr] = (call),
+#define __c33_sys_mmap2 __c33_sys_mmap_pgoff
+
 #define __SYSCALL_WITH_COMPAT(nr, native, compat) __SYSCALL(nr, native)
 
-#define sys_mmap2 sys_mmap_pgoff
-#define sys_rt_sigreturn c33_sys_rt_sigreturn
+#undef __SYSCALL
+#define __SYSCALL(nr, call) asmlinkage long __c33_##call(const struct pt_regs *);
+#include <asm/syscall_table_32.h>
 
-void *const c33_sys_call_table[__NR_syscalls] = {
-	[0 ... __NR_syscalls - 1] = sys_ni_syscall,
+#undef __SYSCALL
+#define __SYSCALL(nr, call) [nr] = __c33_##call,
+
+/* Not SYSCALL_DEFINE0(), which would allow error injection into it. */
+asmlinkage long __c33_sys_ni_syscall(const struct pt_regs *__unused)
+{
+	return -ENOSYS;
+}
+
+const syscall_fn_t c33_sys_call_table[__NR_syscalls] = {
+	[0 ... __NR_syscalls - 1] = __c33_sys_ni_syscall,
 #include <asm/syscall_table_32.h>
 };
