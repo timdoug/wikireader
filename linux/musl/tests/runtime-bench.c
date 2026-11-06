@@ -1,5 +1,6 @@
 /* Diagnostic timings, run through Grifo by runtime-bench.py. */
 #define _GNU_SOURCE
+#include <fcntl.h>
 #include <pthread.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -21,9 +22,17 @@ static long long now(void)
 }
 int main(int argc, char **argv)
 {
-	int single = argc == 2 && !strcmp(argv[1], "--single");
-	if (argc > 1 && !single) {
-		fputs("Usage: runtime-bench [--single]\n", stderr);
+	int single = argc >= 2 && !strcmp(argv[1], "--single");
+	/* --spawn PROGRAM ARGS...: time that program's spawn/exec/wait too,
+	 * whatever its exit status, its output discarded. */
+	char **spawn = NULL;
+	for (int i = 1 + single; i < argc; i++)
+		if (!strcmp(argv[i], "--spawn") && i + 1 < argc) {
+			spawn = argv + i + 1;
+			break;
+		}
+	if (argc > 1 + single && !spawn) {
+		fputs("Usage: runtime-bench [--single] [--spawn PROGRAM ARGS...]\n", stderr);
 		return 2;
 	}
 	pthread_t thread;
@@ -59,6 +68,20 @@ int main(int argc, char **argv)
 	}
 	__asm__ volatile(".global wr_exec_end\nwr_exec_end: nop" ::: "memory");
 	printf("BENCH spawn/exec/wait /bin/true: %lld ns\n", (now() - start) / 32);
+	if (spawn) {
+		posix_spawn_file_actions_t quiet;
+		if (posix_spawn_file_actions_init(&quiet) ||
+		    posix_spawn_file_actions_addopen(&quiet, 1, "/dev/null", O_WRONLY, 0) ||
+		    posix_spawn_file_actions_addopen(&quiet, 2, "/dev/null", O_WRONLY, 0)) abort();
+		start = now();
+		for (int i = 0; i < 8; i++) {
+			pid_t pid;
+			int status;
+			if (posix_spawn(&pid, spawn[0], &quiet, NULL, spawn, environ) ||
+			    waitpid(pid, &status, 0) != pid) abort();
+		}
+		printf("BENCH spawn/exec/wait %s: %lld ns\n", spawn[0], (now() - start) / 8);
+	}
 	puts("BENCH PASS");
 	return 0;
 }

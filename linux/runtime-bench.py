@@ -15,6 +15,8 @@ parser.add_argument("--image", type=Path, default=root / "linux/artifacts/linux.
 parser.add_argument("--kernel", type=Path, default=root / "linux/artifacts/linux.app")
 parser.add_argument("--binary", type=Path, default=root / "linux/artifacts/runtime-bench")
 parser.add_argument("--argument", default="", help="guest benchmark argument, e.g. --argument=--bench")
+parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                    help="environment for the benchmark and what it spawns, e.g. LD_BIND_NOW=1")
 parser.add_argument("--profile", type=Path, help="save marked-window PC cycles and boot logs here")
 parser.add_argument("--profile-workload", choices=("mutex", "exec"), default="mutex",
                     help="profile the default marked loop or runtime-bench's spawn/exec loop")
@@ -39,7 +41,8 @@ with tempfile.TemporaryDirectory(prefix="wr-runtime-bench-") as temporary:
     fat.make_image(card, files, 64)
     subprocess.run([sys.executable, str(root / "samo-lib/mbr/make-flash.py"), str(flash)],
                    check=True, stdout=subprocess.DEVNULL)
-    uart.write_text(f"/mnt/sd/bench.bin {args.argument}; reboot -f\n")
+    env = "".join(f"{e} " for e in args.env)
+    uart.write_text(f"{env}/mnt/sd/bench.bin {args.argument}; reboot -f\n")
     def run(extra):
         with log.open("w") as output:
             subprocess.run([str(app.require(root / "emulator/wremu")), "-n", "4000000000",
