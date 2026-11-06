@@ -1560,21 +1560,12 @@ unchanged upstream sources pinned to
 kernel, and root filesystem. `make -C linux ltp-port-test` runs the local
 regressions for bugs found during the sweep.
 
-The first full sweep compiled 1,236 of 1,569 candidates: 262 needed
-unavailable `fork`, and 71 needed unavailable `aio.h`. With a uniform
-thirty-second guest deadline, 1,144 returned pass. The sweep exposed
-signal-mask marshalling, time64 timer-output, clock capability, and
-large-frame compiler bugs; a separate regression exposed the misaligned
-C-helper call on `vfork` failure.
-
-After fixes and appropriate deadlines, **1,183 cases pass individually**,
-39 more than initially. Eight gains are deadline corrections; 31 exercise
-the fixes or newly reported clock support. Seven local regressions and the
-normal application checks pass too. The raw final sweep has 1,179 passes
-and four execution errors caused by an emulator DMA stall after a tight
-CPU-timer loop; all four affected tests pass in fresh boots. The combined
-count is not a clean batch-sweep result. The contention-model issue is
-documented separately and no speculative kernel storage fix is included.
+The sweep builds 1,294 of 1,569 candidates: 264 call `fork`, which cannot
+work without an MMU, and 11 need optional features musl lacks. 1,178 pass;
+each of the other 116 has its reason in
+[ltp/remaining.json](ltp/remaining.json). The sweep has found signal-mask
+marshalling, time64 timer-output, clock capability, large-frame compiler,
+`vfork` error-path, `shm_unlink` and musl `aio_cancel` bugs, all fixed.
 
 Every test runs through FLASH -> Grifo -> launcher -> Linux, on an isolated
 virtual card. The supervisor uses genuine `vfork` followed by `exec`,
@@ -1589,6 +1580,23 @@ reproduction commands. Artifacts and detailed reports live under
 `linux/artifacts/ltp-*`. These runs use wremu with 32 MiB SDRAM; physical
 hardware and the 16 MiB configuration remain separate validation.
 
+## Expected failures
+
+Every test that does not pass, across the suites, has one of six causes;
+the suite READMEs and `ltp/remaining.json` name each case:
+
+| Cause | Where |
+| --- | --- |
+| No MMU: no `fork`, no page faults to report, no large contiguous blocks | 14 libc-test programs and 264 LTP cases built around `fork`; 10 libc-test and 9 LTP memory and fault cases; libffi's over-read check |
+| musl's deliberate behaviour, the same on every architecture | 62 LTP cases (25 of them process scheduling, which returns `ENOSYS`); `strptime`, `REG_STARTEND` and `fnmatch` cases |
+| Optional POSIX features this system does not provide | 21 LTP cases: sporadic server, priority ceilings, priority-ordered read-write locks, process-contention scope |
+| Configuration choices | IPv4 left out (2 libc-test, 470 KB resident; both pass with it); Hush's leak-check builtin left out (9 Hush); Hush as `/bin/sh` (`wordexp` subtests); `long double` is `double` (5 libc-test math) |
+| Upstream bugs | musl regex back-references (4 libc-test), BusyBox's own known `sed` and `cpio` bugs (4), 3 Hush bugs that glibc builds fail too |
+| The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition |
+
+GCC's torture, binutils, the LTP port regressions and the launcher tests
+have no failures.
+
 ## Upstream BusyBox tests
 
 `linux/upstream-tests/` builds BusyBox's applet and Hush suites and runs
@@ -1601,14 +1609,13 @@ reproduction commands, results and the resulting bug backlog.
 ## GCC and binutils test suites
 
 `make -C linux binutils-test` runs the gas, binutils and ld suites in the
-`c33-linux-musl` build tree. Measured in the uClibc-ng tree that preceded
-it, whose linker differed only in its default interpreter:
+`c33-linux-musl` build tree:
 
 | Suite | Results |
 | --- | --- |
-| gas | 340 passes, 10 unsupported |
+| gas | 341 passes, 10 unsupported |
 | binutils | 242 passes, 18 untested, 13 unsupported |
-| ld | 724 passes, 24 expected failures, 28 untested, 209 unsupported |
+| ld | 731 passes, 26 expected failures, 28 untested, 205 unsupported |
 
 The expected failures are the ones upstream already expects of FRV and
 Blackfin FDPIC, added for `c33-*-*linux*` by binutils' `port/0008` patch: the linker refuses
@@ -1617,11 +1624,10 @@ relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
 
 `make -C linux gcc-test` runs GCC's execute torture (`GCC_TESTS` takes other
 runtest selectors) with the installed compiler, and its programs in Linux in
-wremu, booted through Grifo. The results below are uClibc-ng's, before the
-move to musl, and have not been repeated on musl: **24,354 passes, no
-failures**. 204 were unsupported: nested-function trampolines, which GCC
-does not make for `-mfdpic`, 128-bit integers, decimal float, uClibc-ng's
-partial C99 math, and GCC's expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
+wremu, booted through Grifo: **24,396 passes, no failures**, all 7,463
+programs run. 183 are unsupported: nested-function trampolines, which GCC
+does not make for `-mfdpic`, 128-bit integers, decimal float, and GCC's
+expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
 suite: 39,553 passes and no failures, with the same per-target expectations
 upstream gives other ports, added by GCC's `port/0011` patch: no MMU (a null store
 does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
