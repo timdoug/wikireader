@@ -92,7 +92,8 @@ irq_userspace_expected="C33 IRQ: generic registrations"
 # The column after the chip is the hardware number, the trap vector.
 display_expected="C33 display: DRM 240x208 D1 buffer read/write, mode set, blank and unblank passed"
 seeded_clock_expected="C33 time: clock set from the card, @"
-random_expected="C33 random: credited a 2048-bit seed from the last boot"
+# A fresh image has no seed; a device saves its own once booted (late).
+random_expected="C33 random: no saved seed"
 lcd_power_expected='--- lcd power: [1-9][0-9]* stops, [1-9][0-9]* starts, panel driving ---'
 lcdc_expected="s1c33-lcdc 301a00.display-controller: 240x208 one-bit panel, D1 scanned in place, XRGB8888 and RGB565 converted"
 input_expected="C33 input: /dev/input/event[0-9]+ absolute touchscreen registered"

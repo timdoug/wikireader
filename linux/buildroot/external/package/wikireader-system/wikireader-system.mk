@@ -20,14 +20,10 @@ define WIKIREADER_SYSTEM_BUILD_CMDS
 		-o $(@D)/wr-core $(TARGET_LDFLAGS)
 endef
 
-# A fresh image's first boot credits a seed made here, so no boot waits for
-# the kernel's random pool; rcS replaces it at once.  Whoever built the
-# image knows this one seed, which costs a device with neither an MMU nor
-# a network nothing.
-define WIKIREADER_SYSTEM_SEED
+# No seed ships in the image: every copy would credit the same one.  A
+# device's first boot starts without, and seedrng saves its own (late).
+define WIKIREADER_SYSTEM_SEED_DIR
 	mkdir -p -m 0700 $(TARGET_DIR)/var/lib/seedrng
-	head -c 256 /dev/urandom >$(TARGET_DIR)/var/lib/seedrng/seed.credit
-	chmod 0600 $(TARGET_DIR)/var/lib/seedrng/seed.credit
 endef
 
 define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
@@ -45,7 +41,7 @@ define WIKIREADER_SYSTEM_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/usr/libexec/wr-core
 	mkdir -p $(TARGET_DIR)/mnt/sd
 	mkdir -p -m 0700 $(TARGET_DIR)/root
-	$(WIKIREADER_SYSTEM_SEED)
+	$(WIKIREADER_SYSTEM_SEED_DIR)
 endef
 
 # Runs after every target package is installed and before stripping. FDPIC
