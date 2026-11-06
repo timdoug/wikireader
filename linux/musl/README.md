@@ -63,12 +63,29 @@ musl's SuperH FDPIC code expects them.
   static program's TLS.
 - `perf/`: ld.so's work at every exec, numbered after everything else so
   that each applies to a tree that builds without it: recently resolved symbols
-  remembered, GNU hash buckets without a divide, function descriptors made
-  on demand rather than for every function of every module (16 KB a
-  process for libc alone), the counted relative relocations in a pass of
-  their own, a two-segment module's addresses in one comparison, and lazy
-  binding of `.plt` slots through the linker's stubs (`LD_BIND_NOW` binds
-  at load).
+  remembered, function descriptors made on demand rather than for every
+  function of every module (16 KB a process for libc alone), the counted
+  relative relocations in a pass of their own, and lazy binding of `.plt`
+  slots through the linker's stubs (`LD_BIND_NOW` binds at load).
+
+Each was timed alone and left out of the set, as spawn/exec/wait of
+`/bin/true` (BusyBox) and of `xeyes` without a display (twelve libraries),
+in wremu (`runtime-bench.py --argument "--single --spawn /usr/bin/xeyes"`):
+
+| | `/bin/true` | `xeyes` |
+| --- | --- | --- |
+| none of them | 106 ms | 1230 ms |
+| all four | 54 ms | 650 ms |
+| all but the symbol cache | +31% | +37% |
+| all but descriptors on demand | +30% | +8% |
+| all but the relative pass | +18% | +11% |
+| all but lazy binding | +18% | +20% |
+| all four, `LD_BIND_NOW=1` | 65 ms | 802 ms |
+
+Two more were measured and dropped: GNU hash buckets by a reciprocal
+instead of a divide, and a two-segment module's addresses in one
+comparison.  Neither showed a gain, alone or in the set; the set without
+them is as fast.
 
 The allocator is musl's default, `mallocng`. Without an MMU it has no
 `brk` and maps its memory, and it gives back what a process frees, which

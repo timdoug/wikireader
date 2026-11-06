@@ -434,11 +434,10 @@ symbol has been looked up; a symbol named by many relocations, such as
 `__stack_chk_guard` in 218 of BusyBox's, is looked up once a module, into a
 256-entry table on the stack (libc's relocations name 59 of its 1,687
 symbols). TLS relocations reuse the same cache, including symbols at offset
-zero: libc's 401 references to `errno` need just one lookup. The PE core has
-no divide, so a lookup's remainder by the bucket count is a multiply by a
-reciprocal, and `ld.so` is built at `-O2`, whose loops branch once an
-iteration. Single-threaded `/bin/true` spawn/exec/wait takes about 64 ms in
-wremu, half of it in the kernel's process creation and teardown.
+zero: libc's 401 references to `errno` need just one lookup. `ld.so` is
+built at `-O2`, whose loops branch once an iteration. Single-threaded
+`/bin/true` spawn/exec/wait takes about 54 ms in wremu, half of it in the
+kernel's process creation and teardown.
 Calls through the `.plt` are bound at their first call.
 Libraries bind as ELF has them, without `-Bsymbolic`: a program may define a
 function a library also defines, and the library then calls the program's. Without an MMU there is
