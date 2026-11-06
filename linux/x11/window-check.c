@@ -177,6 +177,27 @@ static int shell_ready(void)
     return ready;
 }
 
+/* Print a hash of the eyes' window contents: it changes when the pupils
+ * move. */
+static int eyes_image(Display *dpy)
+{
+    Window root = DefaultRootWindow(dpy);
+    find(dpy, root, root, 0);
+    if (!eyes.id)
+        return 0;
+    XImage *image = XGetImage(dpy, eyes.id, 0, 0, eyes.width, eyes.height,
+                              AllPlanes, ZPixmap);
+    if (!image)
+        return 0;
+    unsigned int hash = 2166136261u;
+    for (int y = 0; y < image->height; ++y)
+        for (int x = 0; x < image->width; ++x)
+            hash = (hash ^ (unsigned int)XGetPixel(image, x, y)) * 16777619u;
+    XDestroyImage(image);
+    printf("XEYES IMAGE %08x\n", hash);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     if (!setlocale(LC_CTYPE, "C.UTF-8") || !XSupportsLocale())
@@ -184,6 +205,11 @@ int main(int argc, char **argv)
     Display *dpy = XOpenDisplay(NULL);
     if (!dpy)
         return 1;
+    if (argc == 2 && !strcmp(argv[1], "--eyes")) {
+        int found = eyes_image(dpy);
+        XCloseDisplay(dpy);
+        return !found;
+    }
     if (argc == 2 && !strcmp(argv[1], "--fontset")) {
         int passed = unicode_fontset(dpy);
         XCloseDisplay(dpy);

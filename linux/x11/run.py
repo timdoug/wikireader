@@ -83,6 +83,7 @@ while :; do
     sleep 1
 done
 echo XKEYBOARD READY
+DISPLAY=:0 /mnt/sd/xwin.bin --eyes >/mnt/sd/xeyes0.txt
 n=0
 while :; do
     if [ -e /k ]; then break; fi
@@ -92,6 +93,15 @@ while :; do
 done
 rm /k
 echo XKEYBOARD PASS
+# The taps that typed it moved the pointer, so the pupils have moved since
+# the keyboard came up.
+DISPLAY=:0 /mnt/sd/xwin.bin --eyes >/mnt/sd/xeyes1.txt
+cat /mnt/sd/xeyes0.txt /mnt/sd/xeyes1.txt
+if grep -q 'XEYES IMAGE' /mnt/sd/xeyes1.txt && ! cmp -s /mnt/sd/xeyes0.txt /mnt/sd/xeyes1.txt; then
+    echo XEYES PASS
+else
+    echo XEYES FAIL: the pupils did not follow the taps
+fi
 """
     fat.make_image(out / "card.img", files, 64)
     (out / "flash.rom").unlink(missing_ok=True)
@@ -125,15 +135,16 @@ echo XKEYBOARD PASS
             (out / name).write_bytes(data)
     text = (out / "boot.log").read_text(errors="replace").replace("\r", "")
     for marker in ("XTERM INTERACTIVE PTY PASS", "XTERM SHELL PASS", "XTERM CLEANUP PASS", "XTERM DEMO PASS",
-                   "XKEYBOARD PASS"):
+                   "XKEYBOARD PASS", "XEYES PASS"):
         if marker not in text:
             raise SystemExit(f"Missing {marker}; see {out / 'boot.log'}")
-    if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL|XKEYBOARD FAIL", text):
+    if re.search(r"Kernel panic|C33 exception|XTERM .*FAIL|XKEYBOARD FAIL|XEYES FAIL", text):
         raise SystemExit(f"X11 regression failed; see {out / 'boot.log'}")
     assert (out / "xterm.txt").read_text().endswith("XTERM PTY PASS\n")
     print("Xterm passed: controlling PTY, foreground session, TERM/WINDOWID, geometry, UTF-8/wide/combining cursor report, live shell")
     print("X11 passed: Unicode 5x8 glyphs; xterm and xeyes side by side; session cleanup; default desktop")
     print("Keyboard passed: xvkbd typed \"touch /k\" into the demo's xterm, / from its 123 page")
+    print("Eyes passed: xeyes' pupils followed the taps")
     print(f"Screenshot: {out / 'screen.pgm'}")
 
 

@@ -1,0 +1,34 @@
+From: Tim Douglas <me@timdoug.com>
+Date: Fri, 6 Nov 2026 11:50:00 -0500
+Subject: [PATCH] Follow touches as well as pointer motion
+
+The eyes are redrawn on raw motion events.  A touch screen driven by
+libinput is a touch device: its contacts move the pointer through pointer
+emulation, but its raw events are RawTouchBegin, RawTouchUpdate and
+RawTouchEnd, never RawMotion, so the eyes stayed still while the cursor
+followed every touch.  Select the raw touch events too; each one redraws
+from the pointer's position as raw motion does.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
+---
+ Eyes.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/Eyes.c b/Eyes.c
+--- a/Eyes.c
++++ b/Eyes.c
+@@ -343,8 +343,12 @@
+ 
+     memset(mask1, 0, sizeof(mask1));
+ 
+-    /* select for button and key events from all master devices */
++    /* select for raw motion from all master devices, and for raw touches:
++       a touch screen moves the pointer, but its raw events are touches */
+     XISetMask(mask1, XI_RawMotion);
++    XISetMask(mask1, XI_RawTouchBegin);
++    XISetMask(mask1, XI_RawTouchUpdate);
++    XISetMask(mask1, XI_RawTouchEnd);
+ 
+     evmasks[0].deviceid = XIAllMasterDevices;
+     evmasks[0].mask_len = sizeof(mask1);
