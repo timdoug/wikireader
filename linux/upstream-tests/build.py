@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tarfile
@@ -19,6 +20,10 @@ CFLAGS += -Werror=implicit-function-declaration -Werror=implicit-int -Werror=poi
 LDFLAGS += -Wl,-z,stack-size=262144
 LDLIBS += -lpthread -lm -lrt
 """
+
+# The VM's work tree, as the shell scripts find it.
+GUEST_ROOT = Path(os.environ.get(
+    "WR_LINUX_GUEST_ROOT", f"/home/{os.environ.get('USER', '')}.guest/wr-linux"))
 
 
 def sha(path):
@@ -61,7 +66,7 @@ def libc_test(private, compiler, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--guest", type=Path, default=Path("/home/timdoug.guest/wr-linux"))
+    parser.add_argument("--guest", type=Path, default=GUEST_ROOT)
     parser.add_argument("--output", type=Path, default=ROOT / "linux/artifacts/upstream-suites")
     parser.add_argument("--compiler", type=Path, help="Compiler for an isolated follow-up build")
     parser.add_argument("--work", default="upstream-suites", help="Guest work directory name")

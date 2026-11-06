@@ -3,7 +3,7 @@ VM ?= wr-linux
 LIMACTL ?= limactl
 SHELL_IN_VM = $(LIMACTL) shell --workdir $(ROOT) $(VM)
 
-.PHONY: vm provision toolchain fetch libc rootfs build boot-test app-test signal-test core-test gdb-test x11-test wayland-test unicode-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
+.PHONY: vm provision toolchain fetch libc rootfs build kernel image boot-test app-test signal-test core-test gdb-test x11-test wayland-test unicode-test libffi-test dt-check binutils-test gcc-test ltp-build ltp-test ltp-all-build ltp-all-test ltp-port-test shell
 
 vm:
 	./vm.sh
@@ -27,6 +27,14 @@ rootfs: libc
 
 build: rootfs
 	$(SHELL_IN_VM) ./linux/build.sh
+
+# One part alone, from what the steps before it installed: the kernel with
+# its initramfs, or the root image.  build is every step.
+kernel: vm
+	$(SHELL_IN_VM) ./linux/build.sh
+
+image: vm
+	$(SHELL_IN_VM) ./linux/buildroot/build.sh
 
 boot-test:
 	./boot-test.sh

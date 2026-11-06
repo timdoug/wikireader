@@ -11,7 +11,8 @@ BR2_DEBUG_2=y
 # Every program and library keeps only the functions and data it reaches,
 # and loads from the card at about 1.4 MB/s.
 BR2_TARGET_OPTIMIZATION="-ffunction-sections -fdata-sections"
-BR2_TARGET_LDFLAGS="-Wl,--gc-sections"
+# A build ID in every program and library, for debuggers and core files.
+BR2_TARGET_LDFLAGS="-Wl,--gc-sections -Wl,--build-id"
 # RELRO would link everything -z now: without an MMU there is nothing to
 # protect, and ld.so would bind each .plt descriptor at every exec rather
 # than at its first call.
@@ -23,6 +24,7 @@ BR2_TOOLCHAIN_EXTERNAL_PREINSTALLED=y
 BR2_TOOLCHAIN_EXTERNAL_PATH="$(HOME)/wr-linux/toolchain/install"
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="c33-linux-musl"
 BR2_TOOLCHAIN_EXTERNAL_GCC_16=y
+# "7.1.x or later", Buildroot's newest: the sysroot holds 7.3.1's.
 BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_1=y
 # musl: Buildroot gives it wide characters and threads itself.
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_MUSL=y

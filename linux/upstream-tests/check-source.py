@@ -11,10 +11,14 @@ import shutil
 import subprocess
 import tempfile
 
+# The VM's work tree, as the shell scripts find it.
+GUEST_ROOT = Path(os.environ.get(
+    "WR_LINUX_GUEST_ROOT", f"/home/{os.environ.get('USER', '')}.guest/wr-linux"))
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--guest", type=Path, default=Path("/home/timdoug.guest/wr-linux"))
+    parser.add_argument("--guest", type=Path, default=GUEST_ROOT)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)

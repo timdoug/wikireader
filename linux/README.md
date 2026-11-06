@@ -670,6 +670,10 @@ make -C linux signal-test
 make -C linux dt-check
 ```
 
+Each of `libc`, `rootfs` and `build` runs the steps before it as well;
+`make -C linux kernel` and `make -C linux image` build the kernel or the
+root image alone, from what the earlier steps installed.
+
 `fetch` puts the pinned upstream kernel, musl and Buildroot revisions
 from `revisions` on the VM disk. Nothing in the VM is a source: every build
 first makes the trees it reads exactly their revision plus this
