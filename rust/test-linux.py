@@ -24,6 +24,7 @@ def main():
     result = subprocess.run(
         [sys.executable, str(ROOT / "linux/ask-app.py"),
          "--file", f"stdhello.bin={program}", "--file", f"unwind.bin={unwind}",
+         "--file", f"sdprobe.bin={ROOT / 'rust/sdprobe/sdprobe.bin'}",
          "--file", f"r.sh={ROOT / 'rust/card/bin/r'}", "--output", str(out),
          "mkdir -p /mnt/sd/bin && cp /mnt/sd/r.sh /mnt/sd/bin/r && r && cat /mnt/sd/rust.txt"],
         capture_output=True, timeout=600)

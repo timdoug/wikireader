@@ -1,9 +1,18 @@
 #!/bin/sh
-# Rust's standard library on C33 Linux (rust/stdhello) and panics that
-# unwind (rust/unwindtest); keep the output on the card, in rust.txt.
+# Rust's standard library on C33 Linux (rust/stdhello), panics that unwind
+# (rust/unwindtest), and what a small write to the card costs
+# (rust/sdprobe); keep the output on the card, in rust.txt.
 out=/mnt/sd/rust.txt
 echo "Testing Rust std..."
-{ HOME=/root /mnt/sd/stdhello.bin a b && /mnt/sd/unwind.bin; } > "$out" 2>&1
+{
+	# The same run with stdout on tmpfs, against the card's synchronous
+	# writes: only its timing line is kept.
+	HOME=/root /mnt/sd/stdhello.bin a b > /tmp/stdhello.out &&
+	sed -n 's/^stdhello: done in/stdhello (stdout on tmpfs): done in/p' /tmp/stdhello.out &&
+	HOME=/root /mnt/sd/stdhello.bin a b &&
+	/mnt/sd/unwind.bin &&
+	/mnt/sd/sdprobe.bin
+} > "$out" 2>&1
 status=$?
 for want in \
 	'stdhello: 3 args, first Some("/mnt/sd/stdhello.bin")' \
@@ -14,7 +23,10 @@ for want in \
 	'unwindtest: caught "bottom reached", drops 0x1f' \
 	'unwindtest: thread panicked with &str "thread 7"' \
 	'unwindtest: second panic caught true, drops 0x11f' \
-	'unwindtest: done'; do
+	'unwindtest: done' \
+	'stdhello (stdout on tmpfs): done in ' \
+	'sdprobe: card append' \
+	'sdprobe: tmpfs append'; do
 	grep -qF "$want" "$out" || { echo "missing: $want" >> "$out"; status=1; }
 done
 sync
