@@ -32,6 +32,13 @@ def edit(rel, fn):
         p.write_text(out, encoding='latin-1')
         changed.append(rel)
 
+# ------------------------------------------------------------------ config.sub
+# c33 is a CPU name of its own, not one of the Cray c1/c2/c3 machines whose
+# c[123]* glob happened to accept it.
+edit('config.sub', lambda s: None if '| c30 | c33 |' in s else s.replace(
+    '\t\t\t| c[123]* | c30 | [cjt]90 | c4x \\\n',
+    '\t\t\t| c[123]* | c30 | c33 | [cjt]90 | c4x \\\n', 1))
+
 # ---------------------------------------------------------------- gcc/config.gcc
 
 def cpu_type(s):

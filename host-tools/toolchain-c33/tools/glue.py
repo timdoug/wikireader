@@ -37,6 +37,12 @@ def after(src, anchor, addition, guard):
     return src[:eol] + addition + src[eol:]
 
 
+# ----------------------------------------------------------------- config.sub
+# c33 is a CPU name of its own, not one of the Cray c1/c2/c3 machines whose
+# c[123]* glob happened to accept it.
+edit('config.sub', lambda s: after(s, '\t\t\t| c30 \\\n', '\t\t\t| c33 \\\n',
+                                   '\t\t\t| c33 \\\n'))
+
 # ---------------------------------------------------------------- bfd/archures
 edit('bfd/archures.c', lambda s: after(
     s, '.  bfd_arch_v850,      {* NEC V850.  *}',
