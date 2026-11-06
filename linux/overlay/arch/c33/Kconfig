@@ -56,10 +56,6 @@ config NR_CPUS
 	int
 	default 1
 
-config HZ
-	int
-	default 100
-
 menu "C33 platform options"
 
 config C33_WIKIREADER

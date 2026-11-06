@@ -149,7 +149,6 @@ asmlinkage struct pt_regs *c33_handle_irq(unsigned int vector,
 			c33_syscall_fn_t fn =
 				(c33_syscall_fn_t)c33_sys_call_table[nr];
 
-			pr_info_once("C33: entered userspace syscall path\n");
 			regs->r[4] = fn(regs->r[6], regs->r[7], regs->r[8],
 					((unsigned long long)regs->r[10] << 32)
 					| regs->r[9],

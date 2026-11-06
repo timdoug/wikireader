@@ -68,7 +68,7 @@ static inline bool arch_syscall_is_vdso_sigreturn(struct pt_regs *regs)
 
 static inline int syscall_get_arch(struct task_struct *task)
 {
-	return 107 | __AUDIT_ARCH_LE; /* EM_SE_C33 */
+	return AUDIT_ARCH_C33;
 }
 
 #endif

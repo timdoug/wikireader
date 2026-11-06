@@ -1,0 +1,33 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] uapi: add EM_SE_C33 and AUDIT_ARCH_C33
+
+The S1C33 family's ELF machine number, 107 in the System V ABI's
+registry, and its audit architecture: the C33 port's ELF_ARCH and
+syscall_get_arch().
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/include/uapi/linux/audit.h b/include/uapi/linux/audit.h
+index e8f5ce677..8105fbbcd 100644
+--- a/include/uapi/linux/audit.h
++++ b/include/uapi/linux/audit.h
+@@ -401,6 +401,7 @@ enum {
+ #define AUDIT_ARCH_ARCV2BE	(EM_ARCV2)
+ #define AUDIT_ARCH_ARM		(EM_ARM|__AUDIT_ARCH_LE)
+ #define AUDIT_ARCH_ARMEB	(EM_ARM)
++#define AUDIT_ARCH_C33		(EM_SE_C33|__AUDIT_ARCH_LE)
+ #define AUDIT_ARCH_C6X		(EM_TI_C6000|__AUDIT_ARCH_LE)
+ #define AUDIT_ARCH_C6XBE	(EM_TI_C6000)
+ #define AUDIT_ARCH_CRIS		(EM_CRIS|__AUDIT_ARCH_LE)
+diff --git a/include/uapi/linux/elf-em.h b/include/uapi/linux/elf-em.h
+index ef38c2bc5..496bd002c 100644
+--- a/include/uapi/linux/elf-em.h
++++ b/include/uapi/linux/elf-em.h
+@@ -37,6 +37,7 @@
+ #define EM_ARCOMPACT	93	/* ARCompact processor */
+ #define EM_XTENSA	94	/* Tensilica Xtensa Architecture */
+ #define EM_BLACKFIN     106     /* ADI Blackfin Processor */
++#define EM_SE_C33	107	/* Seiko Epson S1C33 family */
+ #define EM_UNICORE	110	/* UniCore-32 */
+ #define EM_ALTERA_NIOS2	113	/* Altera Nios II soft-core processor */
+ #define EM_TI_C6000	140	/* TI C6X DSPs */

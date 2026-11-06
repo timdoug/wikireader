@@ -5,7 +5,7 @@
 #include <asm/ptrace.h>
 #define ELF_CLASS ELFCLASS32
 #define ELF_DATA ELFDATA2LSB
-#define ELF_ARCH 107 /* EM_SE_C33 */
+#define ELF_ARCH EM_SE_C33
 #define ELF_EXEC_PAGESIZE PAGE_SIZE
 #define ELF_ET_DYN_BASE 0
 #define ELF_HWCAP 0

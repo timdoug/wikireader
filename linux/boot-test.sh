@@ -85,7 +85,6 @@ EOF
 ) >"$work/boot.log" 2>&1
 [ -z "${KEEP_LOG:-}" ] || cp "$work/boot.log" "$KEEP_LOG"
 
-syscall_marker="C33: entered userspace syscall path"
 boot_path_expected="C33 boot: Grifo application (incoming TTBR 00000400)"
 expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
 itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
@@ -131,7 +130,6 @@ libc_expected="C33 libc test: crt -> stdio -> getpid -> longjmp passed"
 clock_expected="s1c33-cmu: 60000000 Hz MCLK from osc3, 10 gates"
 gpio_expected="s1c33-pinctrl 300380.pinctrl: registered 74 pins, 111 functions and 56 GPIOs, P03 and P60..P62 interrupting"
 if ! grep -F "$boot_path_expected" "$work/boot.log" >/dev/null || \
-   ! grep -F "$syscall_marker" "$work/boot.log" >/dev/null || \
    ! grep -F "$expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$irq_userspace_expected" "$work/boot.log" >/dev/null || \
    ! grep -F "$clock_expected" "$work/boot.log" >/dev/null || \
@@ -235,6 +233,6 @@ fi
 python3 "$root/linux/check-lcd.py" "$work/screen.pgm" --symbols --edited
 cp "$work/screen.pgm" "$root/linux/artifacts/lcd-console.pgm"
 
-grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|s1c33-hsdma|C33 input:|C33 display:|C33 PTY:|C33 userspace|Run /init|C33: entered userspace|C33 process test|C33 signal test|C33 trace test|C33 libc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
+grep -E "C33 Linux: entry|C33 boot:|Linux version|Memory:|Calibrating delay loop|s1c33-sd|s1c33-fb|mmcblk0|spi width:|dma channels:|C33 IRQ:|s1c33-itc|c33-timer|s1c33-uart[01]|serdev|wikireader-touch|wikireader-lcd|C33 sensors|s1c33-wdt|s1c33-pinctrl|s1c33-hsdma|C33 input:|C33 display:|C33 PTY:|C33 userspace|Run /init|C33 process test|C33 signal test|C33 trace test|C33 libc smoke|C33 libc test|C33 diagnostic|C33 BusyBox|C33 MMC/SPI|C33 time|C33 random|C33 root|HARDWARE PASS|INTERACTIVE HUSH|touch[- ]keyboard pass" \
 	"$work/boot.log"
 echo "Full-chain native C33 Linux boot passed."

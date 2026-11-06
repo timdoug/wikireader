@@ -356,6 +356,47 @@ The compact defconfig also enables the kernel's section garbage collection;
 unused code and data from generic subsystems are discarded while C33 retains
 its faster short-call model.
 
+`arch/c33/configs/wikireader_defconfig` is `make savedefconfig` output, so
+it holds no comments; the choices in it that are not plain hardware support
+are these:
+
+- `CONFIG_HZ_100`: a 100 Hz tick.
+- `# CONFIG_COMPAT_32BIT_TIME is not set`: 64-bit time only, as musl is
+  built, so no time32 system calls.
+- `# CONFIG_KALLSYMS is not set`: no symbol table, which is about 185 KB of
+  `linux.app` and 0.14 s of Grifo loading it at every boot. Stack traces
+  print bare addresses; look them up in `vmlinux` or
+  `artifacts/vmlinux.map`.
+- `# CONFIG_RD_* is not set`: the initramfs is linked in uncompressed.
+  Grifo loads the extra bytes faster than the kernel can inflate them, and
+  there is no external initrd to decode.
+- `# CONFIG_LEGACY_PTYS is not set`: Unix98 PTYs only. The 256 legacy BSD
+  pairs cost 5.5 s of device registration at boot, and nothing opens them.
+- `# CONFIG_MQ_IOSCHED_DEADLINE`, `KYBER` and `BFQ is not set`: one SD card
+  behind SPI, so no I/O scheduler. mq-deadline's 128 scheduler requests,
+  each with its scatterlist, held 130 KB, and a 4 MB read takes the same
+  2.9 s without them.
+- `CONFIG_LOG_BUF_SHIFT=13`: the whole boot logs about 5 KB. The ring's
+  record tables are sized from this and are initialised data, 100 KB of
+  them beside a 32 KB ring at 15, so every doubling adds to RAM and to what
+  Grifo loads from the card.
+- `CONFIG_CONSOLE_LOGLEVEL_DEFAULT=4`: a stock unit is a touch panel with
+  nothing on the serial port. The whole boot log at 115200 baud and drawn
+  by drm_log took the prompt from 4.8 to 5.6 s in wremu: the printer
+  threads take turns with the boot on one CPU, and the serial one polls a
+  one-character transmitter. Warnings still show; `loglevel=7` on the
+  `init.ini` line brings the rest back.
+- `CONFIG_INIT_STACK_NONE`: kernel stack variables are not zeroed on entry.
+  Zeroing them is a hardening measure against leaking them, paid for with a
+  memset in every syscall's frame (select's is about a kilobyte), about 2%
+  of an X drag frame here.
+- `CONFIG_MEMFD_CREATE`: without an MMU tmpfs is ramfs, which
+  `memfd_create()` makes its files in; such a file takes no seals.
+- `CONFIG_VMLINUX_MAP`: the link map, from which `a0-hot.py` chooses A0
+  RAM's sections.
+- `# CONFIG_POWER_SUPPLY_HWMON is not set`: the battery's voltage is in its
+  `power_supply` node, with no hwmon copy.
+
 The kernel's only networking is local (`AF_UNIX`) sockets, which X clients
 use to reach their server. `CONFIG_NET` brings about 360 KB of networking
 core with them, which no option removes: 0.4 s of every boot in wremu, 0.27 s
@@ -1407,10 +1448,11 @@ wremu against 3,700; a raw 4 MB card read 4.98 s against 5.17 in wremu, and
 instructions, and libgcc's `__udivsi3` and the generic `__div64_32` behind
 `do_div()`, which the scheduler's load tracking calls on every enqueue and
 tick, were 4.4% of the boot from SDRAM. The replacements shift and subtract
-once per quotient bit in registers, and take 2.3%. `echo 1 >
+once per quotient bit in registers, and take 2.3%. With
+`CONFIG_C33_IRAM_BENCH`, off by default, `echo 1 >
 /sys/module/iram_bench/parameters/run` times the same loops from SDRAM and
 from A0 RAM and logs cycles per unit, to check wremu's model of both against
-the device; `check` runs it. It needs about 700 bytes of A0 RAM free,
+the device. It needs about 700 bytes of A0 RAM free,
 which the hot lists below leave only when they are emptied. On the device, arithmetic takes 3.59 cycles an
 instruction from SDRAM and 1.31 from A0 RAM, and wremu is within 10% on most
 cases, but it makes back-to-back stores from A0 RAM 16% too cheap, streamed
