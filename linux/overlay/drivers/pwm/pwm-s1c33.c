@@ -177,7 +177,7 @@ static int s1c33_pwm_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id s1c33_pwm_of_match[] = {
-	{ .compatible = "epson,s1c33-pwm" },
+	{ .compatible = "epson,s1c33e07-pwm" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s1c33_pwm_of_match);

@@ -383,7 +383,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(s1c33_uart_pm_ops, s1c33_uart_suspend,
 				s1c33_uart_resume);
 
 static const struct of_device_id s1c33_uart_of_match[] = {
-	{ .compatible = "epson,s1c33-uart" },
+	{ .compatible = "epson,s1c33e07-uart" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s1c33_uart_of_match);

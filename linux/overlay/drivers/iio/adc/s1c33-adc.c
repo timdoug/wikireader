@@ -181,7 +181,7 @@ static int s1c33_adc_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id s1c33_adc_of_match[] = {
-	{ .compatible = "epson,s1c33-adc" },
+	{ .compatible = "epson,s1c33e07-adc" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s1c33_adc_of_match);

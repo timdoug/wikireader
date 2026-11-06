@@ -2150,7 +2150,7 @@ static struct attribute *sd_attrs[] = {
 ATTRIBUTE_GROUPS(sd);
 
 static const struct of_device_id sd_of_match[] = {
-	{ .compatible = "epson,s1c33-sd" },
+	{ .compatible = "epson,s1c33e07-sd" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, sd_of_match);

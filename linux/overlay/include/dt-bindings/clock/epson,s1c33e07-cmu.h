@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
 /*
- * Clocks of the Epson S1C33E07 clock-management unit ("epson,s1c33-cmu"):
+ * Clocks of the Epson S1C33E07 clock-management unit ("epson,s1c33e07-cmu"):
  * MCLK, and the peripheral gates of GATEDCLK1 that drivers hold, the
  * timers' among them.
  */

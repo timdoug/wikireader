@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/interrupt-controller/epson,s1c33-itc.yaml#
+$id: http://devicetree.org/schemas/interrupt-controller/epson,s1c33e07-itc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Epson S1C33E07 interrupt controller
@@ -16,7 +16,7 @@ description:
 
 properties:
   compatible:
-    const: epson,s1c33-itc
+    const: epson,s1c33e07-itc
 
   reg:
     maxItems: 1
@@ -39,7 +39,7 @@ additionalProperties: false
 examples:
   - |
     interrupt-controller@300260 {
-        compatible = "epson,s1c33-itc";
+        compatible = "epson,s1c33e07-itc";
         reg = <0x300260 0x40>;
         interrupt-controller;
         #interrupt-cells = <2>;

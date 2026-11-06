@@ -644,7 +644,7 @@ static int hsdma_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id hsdma_of_match[] = {
-	{ .compatible = "epson,s1c33-hsdma" },
+	{ .compatible = "epson,s1c33e07-hsdma" },
 	{ }
 };
 

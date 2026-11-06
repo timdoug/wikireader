@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/pinctrl/epson,s1c33-pinctrl.yaml#
+$id: http://devicetree.org/schemas/pinctrl/epson,s1c33e07-pinctrl.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Epson S1C33E07 pin controller and GPIO
@@ -17,7 +17,7 @@ description:
 
 properties:
   compatible:
-    const: epson,s1c33-pinctrl
+    const: epson,s1c33e07-pinctrl
 
   reg:
     items:
@@ -97,7 +97,7 @@ examples:
     #include <dt-bindings/gpio/gpio.h>
 
     pinctrl@300380 {
-        compatible = "epson,s1c33-pinctrl";
+        compatible = "epson,s1c33e07-pinctrl";
         reg = <0x300380 0x0e>, <0x3003a0 0x14>, <0x3003c0 0x16>;
         reg-names = "port", "function", "interrupt";
         interrupts = <20 3>, <19 3>;

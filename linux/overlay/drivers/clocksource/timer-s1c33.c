@@ -353,7 +353,7 @@ static void __init s1c33_wake_init(unsigned long rate, int irq)
 }
 
 /*
- * "epson,s1c33-t16": the clocks are MCLK, which the timers count, and the
+ * "epson,s1c33e07-t16": the clocks are MCLK, which the timers count, and the
  * gates of channels 0, 2, 3 and 5; the first interrupt is the clock
  * event's (timer 2 A) and the second the suspend wake's (timer 3 A).
  */
@@ -392,7 +392,7 @@ static int __init s1c33_timer_of_init(struct device_node *node)
 			mclk_hz / S1C33_EVENT_DIVISOR, event_irq);
 	return 0;
 }
-TIMER_OF_DECLARE(s1c33_t16, "epson,s1c33-t16", s1c33_timer_of_init);
+TIMER_OF_DECLARE(s1c33_t16, "epson,s1c33e07-t16", s1c33_timer_of_init);
 
 /* The counter: the device's pins are set by now, the default state's. */
 static int s1c33_counter_probe(struct platform_device *pdev)
@@ -415,7 +415,7 @@ static int s1c33_counter_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id s1c33_counter_of_match[] = {
-	{ .compatible = "epson,s1c33-t16" },
+	{ .compatible = "epson,s1c33e07-t16" },
 	{ }
 };
 

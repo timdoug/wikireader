@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/timer/epson,s1c33-t16.yaml#
+$id: http://devicetree.org/schemas/timer/epson,s1c33e07-t16.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Epson S1C33E07 16-bit timer block
@@ -17,7 +17,7 @@ description:
 
 properties:
   compatible:
-    const: epson,s1c33-t16
+    const: epson,s1c33e07-t16
 
   reg:
     maxItems: 1
@@ -62,10 +62,10 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/s1c33-cmu.h>
+    #include <dt-bindings/clock/epson,s1c33e07-cmu.h>
 
     timer@300780 {
-        compatible = "epson,s1c33-t16";
+        compatible = "epson,s1c33e07-t16";
         reg = <0x300780 0x80>;
         interrupts = <38 4>, <42 4>;
         clocks = <&cmu S1C33_CLK_MCLK>, <&cmu S1C33_CLK_TM0>,

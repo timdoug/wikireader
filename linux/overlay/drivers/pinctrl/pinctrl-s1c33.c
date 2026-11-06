@@ -1029,7 +1029,7 @@ static int s1c33_gpio_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id s1c33_gpio_of_match[] = {
-	{ .compatible = "epson,s1c33-pinctrl" },
+	{ .compatible = "epson,s1c33e07-pinctrl" },
 	{ }
 };
 

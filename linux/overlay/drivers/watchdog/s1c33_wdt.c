@@ -239,7 +239,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(s1c33_wdt_pm, s1c33_wdt_suspend,
 				s1c33_wdt_resume);
 
 static const struct of_device_id s1c33_wdt_of_match[] = {
-	{ .compatible = "epson,s1c33-wdt" },
+	{ .compatible = "epson,s1c33e07-wdt" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, s1c33_wdt_of_match);

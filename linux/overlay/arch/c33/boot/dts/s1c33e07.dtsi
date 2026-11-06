@@ -4,7 +4,7 @@
  * drives.  Interrupts are <vector priority>: the trap vector is the source,
  * and the priority, 1 to 7, is its group's level in the controller.
  */
-#include <dt-bindings/clock/s1c33-cmu.h>
+#include <dt-bindings/clock/epson,s1c33e07-cmu.h>
 #include <dt-bindings/gpio/gpio.h>
 
 / {
@@ -32,14 +32,14 @@
 		ranges;
 
 		itc: interrupt-controller@300260 {
-			compatible = "epson,s1c33-itc";
+			compatible = "epson,s1c33e07-itc";
 			reg = <0x300260 0x40>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
 
 		pinctrl: pinctrl@300380 {
-			compatible = "epson,s1c33-pinctrl";
+			compatible = "epson,s1c33e07-pinctrl";
 			reg = <0x300380 0x0e>, <0x3003a0 0x14>, <0x3003c0 0x16>;
 			reg-names = "port", "function", "interrupt";
 			/* Key input 0 and port input 3, below the timer. */
@@ -50,7 +50,7 @@
 		};
 
 		adc: adc@300520 {
-			compatible = "epson,s1c33-adc";
+			compatible = "epson,s1c33e07-adc";
 			reg = <0x300520 0x40>;
 			clocks = <&cmu S1C33_CLK_ADC>;
 			#io-channel-cells = <1>;
@@ -58,7 +58,7 @@
 		};
 
 		wdt: watchdog@300660 {
-			compatible = "epson,s1c33-wdt";
+			compatible = "epson,s1c33e07-wdt";
 			reg = <0x300660 0x10>;
 			clocks = <&cmu S1C33_CLK_WDT>;
 		};
@@ -69,7 +69,7 @@
 		 * suspend wake.
 		 */
 		timer: timer@300780 {
-			compatible = "epson,s1c33-t16";
+			compatible = "epson,s1c33e07-t16";
 			reg = <0x300780 0x80>;
 			interrupts = <38 4>, <42 4>;
 			clocks = <&cmu S1C33_CLK_MCLK>, <&cmu S1C33_CLK_TM0>,
@@ -80,7 +80,7 @@
 
 		/* Timer 1 as a PWM, on P11. */
 		pwm: pwm@300788 {
-			compatible = "epson,s1c33-pwm";
+			compatible = "epson,s1c33e07-pwm";
 			reg = <0x300788 0x8>, <0x3007e2 0x2>;
 			reg-names = "timer", "clock";
 			clocks = <&cmu S1C33_CLK_TM1>;
@@ -89,7 +89,7 @@
 		};
 
 		uart0: serial@300b00 {
-			compatible = "epson,s1c33-uart";
+			compatible = "epson,s1c33e07-uart";
 			reg = <0x300b00 0x8>;
 			reg-names = "uart";
 			interrupts = <57 5>;
@@ -99,7 +99,7 @@
 		};
 
 		uart1: serial@300b10 {
-			compatible = "epson,s1c33-uart";
+			compatible = "epson,s1c33e07-uart";
 			reg = <0x300b10 0x8>;
 			reg-names = "uart";
 			interrupts = <60 6>, <61 6>;
@@ -113,7 +113,7 @@
 		 * in the interrupt controller's block.
 		 */
 		hsdma: dma-controller@301100 {
-			compatible = "epson,s1c33-hsdma";
+			compatible = "epson,s1c33e07-hsdma";
 			reg = <0x301100 0xa0>, <0x300264 0x1>, <0x300281 0x1>,
 			      <0x300298 0x2>;
 			reg-names = "dma", "priority", "flags", "triggers";
@@ -129,7 +129,7 @@
 		 * kernel takes IVRAM into A0 RAM (asm/iram.h).
 		 */
 		sd: mmc@301700 {
-			compatible = "epson,s1c33-sd";
+			compatible = "epson,s1c33e07-sd";
 			reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
 			      <0x084000 0x200>;
 			reg-names = "spi", "spi-flags", "idma", "sram";
@@ -145,14 +145,14 @@
 		 * (asm/iram.h), so it scans framebuffers in SDRAM.
 		 */
 		lcdc: display-controller@301a00 {
-			compatible = "epson,s1c33-lcdc";
+			compatible = "epson,s1c33e07-lcdc";
 			reg = <0x301a00 0x100>;
 			reg-names = "lcdc";
 			status = "disabled";
 		};
 
 		cmu: clock-controller@301b00 {
-			compatible = "epson,s1c33-cmu";
+			compatible = "epson,s1c33e07-cmu";
 			reg = <0x301b00 0x30>;
 			clocks = <&osc3>, <&osc1>;
 			clock-names = "osc3", "osc1";

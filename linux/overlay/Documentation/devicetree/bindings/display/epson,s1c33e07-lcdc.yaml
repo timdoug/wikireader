@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/display/epson,s1c33-lcdc.yaml#
+$id: http://devicetree.org/schemas/display/epson,s1c33e07-lcdc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Epson S1C33E07 LCD controller
@@ -17,7 +17,7 @@ description:
 
 properties:
   compatible:
-    const: epson,s1c33-lcdc
+    const: epson,s1c33e07-lcdc
 
   reg:
     items:
@@ -43,7 +43,7 @@ examples:
     #include <dt-bindings/gpio/gpio.h>
 
     display-controller@301a00 {
-        compatible = "epson,s1c33-lcdc";
+        compatible = "epson,s1c33e07-lcdc";
         reg = <0x301a00 0x100>;
         reg-names = "lcdc";
         enable-gpios = <&pinctrl 24 GPIO_ACTIVE_HIGH>;

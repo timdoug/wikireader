@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
-#include <dt-bindings/clock/s1c33-cmu.h>
+#include <dt-bindings/clock/epson,s1c33e07-cmu.h>
 
 #define CMU_GATE1	0x04
 #define CMU_CLKCNTL	0x08
@@ -241,4 +241,4 @@ err:
 	/* No clocks, no clocksource: nothing to unwind into. */
 	pr_err("s1c33-cmu: registration failed: %d\n", ret);
 }
-CLK_OF_DECLARE(s1c33_cmu, "epson,s1c33-cmu", s1c33_cmu_init);
+CLK_OF_DECLARE(s1c33_cmu, "epson,s1c33e07-cmu", s1c33_cmu_init);

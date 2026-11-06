@@ -217,4 +217,4 @@ static int __init s1c33_itc_init(struct device_node *node,
 		sources);
 	return 0;
 }
-IRQCHIP_DECLARE(s1c33_itc, "epson,s1c33-itc", s1c33_itc_init);
+IRQCHIP_DECLARE(s1c33_itc, "epson,s1c33e07-itc", s1c33_itc_init);
