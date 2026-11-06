@@ -1,0 +1,24 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: fail a private copy larger than the largest block
+
+do_mmap_private() makes a private mapping's copy with alloc_pages_exact(),
+which takes one block of the order the length rounds up to.  A length
+beyond MAX_PAGE_ORDER cannot be had at all, and the page allocator warns,
+with a stack trace, the first time it is asked: any program can do that
+with one large mmap() or malloc().  Such a mapping now fails as an
+allocation the allocator refused does, with -ENOMEM and the same report.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -967,6 +967,9 @@ static int do_mmap_private(struct vm_area_struct *vma,
+ 	 *   we're allocating is smaller than a page
+ 	 */
+ 	order = get_order(len);
++	/* No block beyond MAX_PAGE_ORDER can hold the copy. */
++	if (order > MAX_PAGE_ORDER)
++		goto enomem;
+ 	total = 1 << order;
+ 	point = len >> PAGE_SHIFT;
+ 

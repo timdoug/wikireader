@@ -6,7 +6,7 @@ patch may build on an earlier one. The directories say what each is:
 - `arch/`: the C33 architecture and its SoC and board drivers, the device
   tree vendor prefix and the syscall table entry. The port itself.
 - `fixes/`: corrections to shared kernel code -- no-MMU memory management,
-  FDPIC loading and core dumps, `/dev/zero`, the ADC battery, DRM's log
+  FDPIC loading and core dumps, no-MMU private copies too large for any block, `/dev/zero`, the ADC battery, DRM's log
   client giving up its buffers -- that stand
   on their own, independently of C33.
 - `features/`: optional generic features: no-MMU memory locking, `msync`
