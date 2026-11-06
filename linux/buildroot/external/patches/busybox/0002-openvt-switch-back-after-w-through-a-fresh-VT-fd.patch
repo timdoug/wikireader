@@ -1,0 +1,54 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] openvt: switch back after -w through a fresh VT fd
+
+With -s -w, openvt waits for its child and then switches back to the VT
+it started on through fd 0, the new VT.  But the child is a session
+leader with that VT as its controlling tty, so its exit hangs the VT up,
+and every ioctl on openvt's fds to it fails with EIO: VT_ACTIVATE
+failed, openvt exited 1 (its message on the hung-up VT, unseen), and the
+new VT stayed in front with nothing on it.  On the WikiReader that left
+the panel off, since the console only takes it back with its VT.  Close
+fds 0-2, which also lets VT_DISALLOCATE succeed, and switch back through
+/dev/tty0, the current VT, as kbd's openvt opens a console fd for it.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
+
+--- a/console-tools/openvt.c	2026-11-06 16:39:52
++++ b/console-tools/openvt.c	2026-11-06 16:39:52
+@@ -64,7 +64,6 @@
+ -f: always in effect
+ -l: not implemented, ignored
+ -v: ignored
+--ws: does NOT switch back
+ */
+ 
+ /* Helper: does this fd understand VT_xxx? */
+@@ -187,11 +186,25 @@
+ 		/* We have only one child, wait for it */
+ 		safe_waitpid(-1, NULL, 0); /* loops on EINTR */
+ 		if (flags & OPT_s) {
+-			console_make_active(STDIN_FILENO, vtstat.v_active);
++			int fd;
++
++			/* The child was a session leader with the new VT as
++			 * its controlling tty, so its exit hung the VT up:
++			 * every ioctl on our fds 0-2 now fails with EIO.  Let
++			 * go of them, which also lets the VT be deallocated,
++			 * and switch back through the current VT, as kbd's
++			 * openvt does. */
++			close(STDIN_FILENO);
++			close(STDOUT_FILENO);
++			close(STDERR_FILENO);
++			fd = open("/dev/tty0", O_RDWR);
++			if (fd < 0 || not_vt_fd(fd))
++				fd = get_vt_fd();
++			console_make_active(fd, vtstat.v_active);
+ 			// Compat: even with -c N (try to) disallocate:
+ 			// # /usr/app/kbd-1.12/bin/openvt -f -c 9 -ws sleep 5
+ 			// openvt: could not deallocate console 9
+-			xioctl(STDIN_FILENO, VT_DISALLOCATE, (void*)(ptrdiff_t)vtno);
++			xioctl(fd, VT_DISALLOCATE, (void*)(ptrdiff_t)vtno);
+ 		}
+ 	}
+ 	return EXIT_SUCCESS;
