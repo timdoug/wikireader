@@ -96,7 +96,7 @@ index 0000000..cb522ff
 + * SPDX-License-Identifier: LGPL-2.1-or-later
 + */
 +
-+static struct pt_regs c33_regs;
++static struct user_pt_regs c33_regs;
 +
 +#define ARCH_REGS_FOR_GETREGSET	c33_regs
 +#define ARCH_PC_REG		c33_regs.pc

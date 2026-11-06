@@ -1,4 +1,4 @@
-/* The kernel's struct pt_regs, which a core dump's registers are. */
+/* The kernel's struct user_pt_regs, which a core dump's registers are. */
 struct user_regs_struct {
 	unsigned long r[16];
 	unsigned long alr, ahr, sp, vector, orig_r4, reserved, psr, pc;

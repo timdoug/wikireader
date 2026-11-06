@@ -2,7 +2,15 @@
 #ifndef _UAPI_ASM_C33_PTRACE_H
 #define _UAPI_ASM_C33_PTRACE_H
 
-struct pt_regs {
+/*
+ * A tracee's registers, as PTRACE_GETREGSET and PTRACE_SETREGSET move them
+ * (NT_PRSTATUS) and as a core dump's pr_reg holds them.  vector is the trap
+ * that entered the kernel and orig_r4 the system call number, -1 outside a
+ * call, which may be changed at a syscall-entry stop.  A write leaves
+ * vector and reserved as they were and keeps only the PSR's condition
+ * flags.
+ */
+struct user_pt_regs {
 	unsigned long r[16];
 	unsigned long alr;
 	unsigned long ahr;

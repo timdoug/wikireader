@@ -52,7 +52,7 @@ asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 	unsigned long stack_lo;
 
 	if (current->thread.in_kernel) {
-		regs->reserved = 0;
+		regs->from_user = 0;
 		return regs;
 	}
 
@@ -81,7 +81,7 @@ asmlinkage struct pt_regs *c33_exception_enter(struct pt_regs *regs)
 
 	kernel_regs = task_pt_regs(current);
 	*kernel_regs = *regs;
-	kernel_regs->reserved = 1;
+	kernel_regs->from_user = 1;
 	current->thread.in_kernel = 1;
 	current->thread.regs = kernel_regs;
 	return kernel_regs;
@@ -223,14 +223,14 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	regs->r[6] = r6;
 	regs->r[7] = r7;
 	regs->r[8] = r8;
-	regs->psr = 1 << 4;
+	regs->psr = C33_PSR_IE;
 	/*
 	 * Still execve's: its PTRACE_EVENT_EXEC and syscall-exit stops report
 	 * it, as on other architectures.  The syscall path clears it after the
 	 * exit stop; r4 is 0, so no restart can match.
 	 */
 	regs->orig_r4 = nr;
-	regs->reserved = 1;
+	regs->from_user = 1;
 	current->thread.usp = sp;
 }
 

@@ -53,7 +53,7 @@ int main(int argc, char **argv)
             break;
         REQUIRE(++stops < 512);
         REQUIRE(WSTOPSIG(status) == (SIGTRAP | 0x80));
-        struct pt_regs regs;
+        struct user_pt_regs regs;
         struct iovec iov = {&regs, sizeof(regs)};
         REQUIRE(ptrace(PTRACE_GETREGSET, pid, NT_PRSTATUS, &iov) == 0);
         REQUIRE(iov.iov_len == sizeof(regs));

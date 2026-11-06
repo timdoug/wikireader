@@ -47,9 +47,9 @@ static int c33_restore_sigcontext(struct pt_regs *regs,
 	error |= __get_user(regs->sp, &context->sp);
 	error |= __get_user(psr, &context->psr);
 	error |= __get_user(regs->pc, &context->pc);
-	regs->psr = psr & 0x1f;
+	regs->psr = c33_user_psr(psr);
 	regs->orig_r4 = -1;
-	regs->reserved = 1;
+	regs->from_user = 1;
 	return error;
 }
 
