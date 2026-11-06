@@ -78,3 +78,31 @@ checkout "${RUST_COMMIT}" "${HERE}"/patches/rust-*.patch
 cmp -s "${HERE}/bootstrap.toml" bootstrap.toml ||
 	cp "${HERE}/bootstrap.toml" bootstrap.toml
 echo "==> ${RUST} at ${RUST_COMMIT}"
+
+# libc, the version std's Cargo.lock names, checked against its checksum,
+# with the C33 added; library/Cargo.toml (patches/rust-0002) patches it in.
+LIBC_VERSION=$(sed -n '/^name = "libc"$/{n;s/^version = "\(.*\)"/\1/p;}' library/Cargo.lock)
+LIBC_SUM=$(sed -n '/^name = "libc"$/{n;n;n;s/^checksum = "\(.*\)"/\1/p;}' library/Cargo.lock)
+CRATE="${WORK}/libc-${LIBC_VERSION}.crate"
+"${HERE}/../host-tools/fetch-verified.sh" \
+	"https://static.crates.io/crates/libc/libc-${LIBC_VERSION}.crate" "${CRATE}" "${LIBC_SUM}"
+LIBC="${WORK}/libc"
+current=no
+if [ -d "${LIBC}/.git" ] && [ "$(git -C "${LIBC}" log -1 --format=%s)" = "libc ${LIBC_VERSION}" ]; then
+	current=yes
+	for p in "${HERE}"/patches/libc-*.patch; do
+		git -C "${LIBC}" apply --reverse --check "${p}" 2>/dev/null || current=no
+	done
+fi
+if [ "${current}" = no ]; then
+	rm -rf "${LIBC}"
+	mkdir -p "${LIBC}"
+	tar -C "${LIBC}" --strip-components=1 -xzf "${CRATE}"
+	git -C "${LIBC}" init -q
+	git -C "${LIBC}" add -A
+	git -C "${LIBC}" -c user.name=fetch -c user.email=fetch@localhost commit -qm "libc ${LIBC_VERSION}"
+	for p in "${HERE}"/patches/libc-*.patch; do
+		git -C "${LIBC}" apply "${p}"
+	done
+fi
+echo "==> ${LIBC} at ${LIBC_VERSION}"

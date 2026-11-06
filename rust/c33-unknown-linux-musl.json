@@ -1,0 +1,36 @@
+{
+  "arch": "c33",
+  "cpu": "generic",
+  "data-layout": "e-m:e-p:32:32-i64:32-f64:32-i128:32-n32-S128",
+  "llvm-target": "c33-linux-musl",
+  "target-endian": "little",
+  "target-pointer-width": 32,
+  "vendor": "unknown",
+  "os": "linux",
+  "env": "musl",
+  "target-family": [
+    "unix"
+  ],
+  "linker-flavor": "gnu-cc",
+  "linker": "c33-linux-musl-gcc",
+  "executables": true,
+  "dynamic-linking": false,
+  "crt-static-default": true,
+  "crt-static-respected": true,
+  "position-independent-executables": false,
+  "static-position-independent-executables": false,
+  "relro-level": "none",
+  "has-rpath": false,
+  "relocation-model": "static",
+  "panic-strategy": "abort",
+  "disable-redzone": true,
+  "max-atomic-width": 32,
+  "atomic-cas": true,
+  "has-thread-local": false,
+  "emit-debug-gdb-scripts": false,
+  "late-link-args": {
+    "gnu-cc": [
+      "-lgcc"
+    ]
+  }
+}

@@ -34,10 +34,12 @@ for f in "${STAGE1}/lib/rustlib/${HOST}/lib/"*; do
 	[ -e "${TC}/lib/rustlib/${HOST}/lib/${f##*/}" ] ||
 		cp "${f}" "${TC}/lib/rustlib/${HOST}/lib/"
 done
-# rust-src, for -Zbuild-std.
+# rust-src, for -Zbuild-std, and beside it the libc its library/Cargo.toml
+# patches in (../../libc from library/).
 mkdir -p "${TC}/lib/rustlib/src"
-rm -rf "${TC}/lib/rustlib/src/rust"
+rm -rf "${TC}/lib/rustlib/src/rust" "${TC}/lib/rustlib/src/libc"
 ln -s "${RUST}" "${TC}/lib/rustlib/src/rust"
+ln -s "${WORK}/libc" "${TC}/lib/rustlib/src/libc"
 # cargo, which bootstrap does not build here, from the pinned nightly.
 NIGHTLY=$(sed -n 's/^channel = "\(.*\)"/\1/p' "${WORK}/rustc_codegen_gcc/rust-toolchain.toml")
 cp "${RUSTUP_HOME}/toolchains/${NIGHTLY}-${HOST}/bin/cargo" "${TC}/bin/"

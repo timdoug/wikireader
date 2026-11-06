@@ -1,0 +1,7 @@
+# Build with ../build-linux.sh, which sets the backend and libgccjit.
+[build]
+target = "../c33-unknown-linux-musl.json"
+
+[unstable]
+build-std = ["std", "panic_abort"]
+json-target-spec = true

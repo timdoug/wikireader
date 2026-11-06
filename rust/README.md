@@ -50,6 +50,36 @@ or `~/.cargo`.
 Bootstrap has to run with the caller's environment: a different
 `CARGO_HOME` changes every crate's fingerprint and rebuilds both stages.
 
+## Linux: std
+
+`stdhello/` is a program for C33 Linux with Rust's full standard library
+(`c33-unknown-linux-musl.json`: musl, static FDPIC, no MMU): arguments,
+the environment, files, threads over a channel and a clock.  It needs:
+
+- `patches/libc-0001`: the C33 in the libc crate's musl module (riscv32's
+  layout and syscall numbers, which C33 musl shares), fetched by
+  `fetch.sh` at the version std's `Cargo.lock` names.
+- `patches/rust-0002`: std's per-architecture lists, no stack-overflow
+  guard page (no MMU), and libgcc's unwinder (`gcc_eh`), as the
+  toolchain's C++ uses.
+- The C33 Linux GCC on the Mac, built by the toolchain's own scripts
+  against the VM's musl sysroot, and a libgccjit for it:
+
+      D=../host-tools/toolchain-c33/work/install/c33-linux-musl; mkdir -p $D
+      limactl shell wr-linux -- tar -C wr-linux/toolchain/install/c33-linux-musl \
+          -cf - sysroot | tar -C $D -xf -
+      (cd ../host-tools/toolchain-c33 && C33_TARGET=c33-linux-musl \
+          C33_BINUTILS_CONFIGURE=--with-sysroot=$PWD/work/install/c33-linux-musl/sysroot \
+          binutils/build.sh $PWD/work && C33_TARGET=c33-linux-musl gcc/rebuild.sh $PWD/work final)
+      C33_TARGET=c33-linux-musl ./build-gccjit.sh
+      ./build-linux.sh    # stdhello/stdhello.bin
+      ./test-linux.py     # wremu: Grifo -> linux.app -> /mnt/sd/stdhello.bin
+
+libgccjit compiles in-process with only the options it is given, so
+`build-linux.sh` passes the Linux driver's defaults (`-mcore=c33pe -mfdpic
+-msep-data`) itself.  The target links `-lgcc` last: GCC calls libgcc
+helpers such as `__ucmpdi2` that Rust's compiler_builtins does not have.
+
 ## On the device
 
 Convert the icon and copy both files to the card, and add a line to

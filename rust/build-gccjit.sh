@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build libgccjit for the C33, the code generator rustc_codegen_gcc drives.
 #
-#   ./build-gccjit.sh
+#   ./build-gccjit.sh                  bare metal, for Grifo applications
+#   C33_TARGET=c33-linux-musl ./build-gccjit.sh   Linux userspace
 #
 # The source is GCC 16.2 with the C33 port's patches
 # (host-tools/toolchain-c33/gcc) plus gcc/patches/jit here, in a tree of its
@@ -9,18 +10,31 @@
 # assembler and linker are the toolchain's; build it first.
 #
 # The library goes to work/install/lib/libgccjit.so (a Mach-O dylib on
-# macOS under the name rustc_codegen_gcc loads).
+# macOS under the name rustc_codegen_gcc loads), or for Linux to
+# work/install-c33-linux-musl/lib/, configured as the toolchain's final
+# Linux pass is, against its musl sysroot.
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 TC="${HERE}/../host-tools/toolchain-c33"
 TCBIN="${TC}/work/install/bin"
 WORK="${HERE}/work"
-TARGET=c33-epson-elf
+TARGET=${C33_TARGET:-c33-epson-elf}
 TARBALL=gcc-16.2.0.tar.xz
 SRC="${WORK}/gcc-16.2.0"
-BUILD="${SRC}/build-jit"
-PREFIX="${WORK}/install"
+if [ "${TARGET}" = c33-epson-elf ]; then
+	BUILD="${SRC}/build-jit"
+	PREFIX="${WORK}/install"
+	# Bare metal: no C library headers, newlib's type conventions.
+	TARGET_CONFIG="--without-headers --with-newlib"
+	THREADS=--disable-threads
+else
+	BUILD="${SRC}/build-jit-${TARGET}"
+	PREFIX="${WORK}/install-${TARGET}"
+	TARGET_CONFIG="--with-sysroot=${TC}/work/install/${TARGET}/sysroot \
+		--disable-multilib"
+	THREADS=--enable-threads=posix
+fi
 
 if [ ! -x "${TCBIN}/${TARGET}-as" ]; then
 	echo "no ${TARGET}-as in ${TCBIN} -- build the toolchain first" >&2
@@ -50,10 +64,10 @@ done
 CONFIG_ARGS="--target=${TARGET} --prefix=${PREFIX} \
 	--enable-languages=jit --enable-host-shared --disable-bootstrap \
 	--with-as=${TCBIN}/${TARGET}-as --with-ld=${TCBIN}/${TARGET}-ld \
-	--without-headers --with-newlib --enable-initfini-array \
+	${TARGET_CONFIG} --enable-initfini-array \
 	--disable-analyzer --disable-libssp --disable-libquadmath \
 	--disable-libatomic --disable-libgomp --disable-nls \
-	--disable-shared --disable-threads ${CONFIG_MATH}"
+	--disable-shared ${THREADS} ${CONFIG_MATH}"
 CONFIG_ARGS=$(echo ${CONFIG_ARGS})
 
 if [ ! -f "${BUILD}/Makefile" ] ||

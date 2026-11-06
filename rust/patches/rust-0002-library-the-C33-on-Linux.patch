@@ -1,0 +1,145 @@
+library: the C33 on Linux (musl)
+
+std's per-architecture lists gain the C33: the generic stat layout of
+riscv32, exception data in %r4/%r5, malloc's 8-byte minimum alignment.
+There is no MMU, so no guard page for the stack-overflow handler to
+fault on; the C33 takes handler_none.  The unwinder is libgcc's, as the
+toolchain's C++ uses (gcc_eh static, gcc_s shared), and
+_Unwind_Exception is aligned to GCC's BIGGEST_ALIGNMENT, 4.  libc comes
+from ../../libc, the crate with the C33 added (patches/libc-0001).
+
+diff --git a/library/Cargo.toml b/library/Cargo.toml
+index 788c990c1..bc5604c14 100644
+--- a/library/Cargo.toml
++++ b/library/Cargo.toml
+@@ -88,3 +88,6 @@ rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }
+ 
+ # See comments in `library/windows-sys/Cargo.toml` for why this is patched
+ windows-sys = { path = 'windows-sys' }
++
++# libc with the C33 (fetched beside this tree by the WikiReader's fetch.sh)
++libc = { path = '../../libc' }
+diff --git a/library/std/src/os/linux/raw.rs b/library/std/src/os/linux/raw.rs
+index 6f2da15a9..5964d4a7d 100644
+--- a/library/std/src/os/linux/raw.rs
++++ b/library/std/src/os/linux/raw.rs
+@@ -237,7 +237,8 @@ pub struct stat {
+     target_arch = "s390x",
+     target_arch = "sparc64",
+     target_arch = "riscv64",
+-    target_arch = "riscv32"
++    target_arch = "riscv32",
++    target_arch = "c33"
+ ))]
+ mod arch {
+     #[stable(feature = "raw_ext", since = "1.1.0")]
+diff --git a/library/std/src/sys/alloc/mod.rs b/library/std/src/sys/alloc/mod.rs
+index 66a2c3be3..f06b75e8a 100644
+--- a/library/std/src/sys/alloc/mod.rs
++++ b/library/std/src/sys/alloc/mod.rs
+@@ -27,6 +27,7 @@
+     target_arch = "hexagon",
+     target_arch = "riscv32",
+     target_arch = "xtensa",
++    target_arch = "c33",
+ )) {
+     8
+ } else if cfg!(any(
+diff --git a/library/std/src/sys/pal/unix/stack_overflow/mod.rs b/library/std/src/sys/pal/unix/stack_overflow/mod.rs
+index dfd9e0063..e65a064fe 100644
+--- a/library/std/src/sys/pal/unix/stack_overflow/mod.rs
++++ b/library/std/src/sys/pal/unix/stack_overflow/mod.rs
+@@ -10,15 +10,21 @@
+     // usually have fewer qualms about forwards compatibility, since the runtime
+     // is shipped with the OS):
+     // <https://github.com/apple/swift/blob/swift-5.10-RELEASE/stdlib/public/runtime/CrashHandlerMacOS.cpp>
+-    any(
+-        target_os = "linux",
+-        target_os = "freebsd",
+-        target_os = "hurd",
+-        target_os = "macos",
+-        target_os = "netbsd",
+-        target_os = "openbsd",
+-        target_os = "solaris",
+-        target_os = "illumos",
++    //
++    // Nor on the C33, which has no MMU: there is no guard page to fault on,
++    // and mprotect fails.
++    all(
++        any(
++            target_os = "linux",
++            target_os = "freebsd",
++            target_os = "hurd",
++            target_os = "macos",
++            target_os = "netbsd",
++            target_os = "openbsd",
++            target_os = "solaris",
++            target_os = "illumos",
++        ),
++        not(target_arch = "c33"),
+     ) => {
+         mod handler_signal;
+         mod thread_info;
+diff --git a/library/std/src/sys/personality/gcc.rs b/library/std/src/sys/personality/gcc.rs
+index b2fa38293..3b1f2f4cb 100644
+--- a/library/std/src/sys/personality/gcc.rs
++++ b/library/std/src/sys/personality/gcc.rs
+@@ -71,6 +71,9 @@
+ #[cfg(target_arch = "csky")]
+ const UNWIND_DATA_REG: (i32, i32) = (0, 1); // R0, R1
+ 
++#[cfg(target_arch = "c33")]
++const UNWIND_DATA_REG: (i32, i32) = (4, 5); // %r4, %r5
++
+ #[cfg(any(target_arch = "powerpc", target_arch = "powerpc64"))]
+ const UNWIND_DATA_REG: (i32, i32) = (3, 4); // R3, R4 / X3, X4
+ 
+diff --git a/library/unwind/src/lib.rs b/library/unwind/src/lib.rs
+index fb0acdab8..37e5b53ab 100644
+--- a/library/unwind/src/lib.rs
++++ b/library/unwind/src/lib.rs
+@@ -59,7 +59,7 @@
+ #[link(name = "unwind")]
+ unsafe extern "C" {}
+ 
+-#[cfg(all(target_env = "musl", not(target_abi = "pauthtest")))]
++#[cfg(all(target_env = "musl", not(target_abi = "pauthtest"), not(target_arch = "c33")))]
+ cfg_select! {
+     all(feature = "llvm-libunwind", feature = "system-llvm-libunwind") => {
+         compile_error!(
+@@ -95,6 +95,12 @@
+     }
+ }
+ 
++// The C33's musl toolchain has libgcc's unwinder, which its C++ uses too.
++#[cfg(all(target_env = "musl", target_arch = "c33"))]
++#[link(name = "gcc_eh", kind = "static", modifiers = "-bundle", cfg(target_feature = "crt-static"))]
++#[link(name = "gcc_s", cfg(not(target_feature = "crt-static")))]
++unsafe extern "C" {}
++
+ // Hexagon with musl uses llvm-libunwind by default
+ #[cfg(all(target_env = "musl", target_arch = "hexagon"))]
+ cfg_select! {
+diff --git a/library/unwind/src/types.rs b/library/unwind/src/types.rs
+index d299d8e7e..b85dc4a1a 100644
+--- a/library/unwind/src/types.rs
++++ b/library/unwind/src/types.rs
+@@ -30,6 +30,7 @@ pub enum _Unwind_Reason_Code {
+         all(target_arch = "aarch64", target_pointer_width = "64", target_os = "windows") => 6,
+         all(target_arch = "aarch64", target_pointer_width = "32") => 5,
+         target_arch = "m68k" => 2,
++        target_arch = "c33" => 2,
+         any(target_arch = "mips", target_arch = "mips32r6") => 2,
+         target_arch = "csky" => 2,
+         any(target_arch = "mips64", target_arch = "mips64r6") => 2,
+@@ -47,7 +48,9 @@ pub enum _Unwind_Reason_Code {
+ // which libunwind and libgcc interpret as the maximum alignment of any
+ // scalar type on the current target.
+ #[cfg_attr(target_pointer_width = "16", repr(align(4)))]
+-#[cfg_attr(target_pointer_width = "32", repr(align(8)))]
++#[cfg_attr(all(target_pointer_width = "32", not(target_arch = "c33")), repr(align(8)))]
++// The C33's largest alignment is 4 (GCC's BIGGEST_ALIGNMENT).
++#[cfg_attr(target_arch = "c33", repr(align(4)))]
+ #[cfg_attr(target_pointer_width = "64", repr(align(16)))]
+ pub struct _Unwind_Exception {
+     pub exception_class: _Unwind_Exception_Class,

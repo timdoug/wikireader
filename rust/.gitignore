@@ -3,6 +3,8 @@ target/
 *.app
 *.dump
 screen.pgm
+*.bin
+/stdhello/ask/
 
 # The top-level gcc pattern is for build trees; this one is patches.
 !/gcc/
