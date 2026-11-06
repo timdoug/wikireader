@@ -11,6 +11,7 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,9 @@ with tempfile.TemporaryDirectory(prefix="wr-ask-app-") as temporary:
                         "-c", str(card), "-e", str(flash), *extra], cwd=out,
                        stdout=output, stderr=subprocess.STDOUT,
                        env={**os.environ, "WREMU_HOLD_MS": "33"})
+    # The panel as the run left it.
+    if (out / "screen.pgm").exists():
+        shutil.copy(out / "screen.pgm", args.output / "screen.pgm")
 text = log.read_text(errors="replace").replace("\r", "")
 print(text[-20000:])
 if "ASK-DONE" not in text:
