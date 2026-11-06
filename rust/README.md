@@ -4,7 +4,11 @@ Rust applications for Grifo, compiled by rustc with
 [rustc_codegen_gcc](https://github.com/rust-lang/rustc_codegen_gcc) driving
 the C33 GCC 16.2 backend through libgccjit.  `hello/` is a `no_std` Grifo
 application: it prints on the serial port and the panel, draws a Sierpinski
-triangle and returns to the launcher at the next tap.
+triangle and returns to the launcher at the next tap.  `abitest/` checks
+the calling convention against the C compiler: 107 calls in both
+directions with structs of every shape around GCC's register/stack rule,
+narrow and 64-bit scalars, floats and variadic arguments.  C sources in a
+crate's `c/` are compiled with the C applications' flags and linked in.
 
 ## Pieces
 
@@ -15,11 +19,13 @@ triangle and returns to the launcher at the next tap.
   libc++ and the Darwin export list.
 - `patches/rust-0001`: `Arch::C33` in rustc_target, with the C calling
   convention of the C33 GCC port (see its `ABI.md`): records of 1, 2, 4 or
-  8 bytes, aligned to their mode, in registers; others returned through a
-  hidden pointer and passed by value on the stack.
+  8 bytes, aligned to their mode, in registers (one holding a lone double
+  as a double); others returned through a hidden pointer and passed by
+  value on the stack.
 - `patches/rustc_codegen_gcc-0001`: `-C llvm-args` reach the GCC driver as
   well as cc1, so `-mc33pe` reaches the assembler and the objects link with
-  the C applications'.
+  the C applications'.  0002: a variadic call's anonymous arguments are
+  passed as anonymous (on the C33 they are all on the stack).
 - `c33-epson-none.json`: the target.  `build.sh` links as
   `samo-lib/grifo/Mk/application-pre.mk` does: `application.lds`, libgrifo,
   mini-libc and the `-mc33pe` libgcc.
@@ -37,8 +43,9 @@ or `~/.cargo`.
     ./build-rustc.sh    # stage-2 rustc with Arch::C33, ~25 min at 4 jobs
     (cd work/rustc_codegen_gcc && RUSTUP_HOME=$PWD/../rustup CARGO_HOME=$PWD/../cargo \
         ../cargo/bin/cargo +c33 build --release)
-    ./build.sh          # hello/hello.app
-    ./test.py           # wremu: flash -> Grifo -> menu tap -> hello -> tap -> menu
+    ./build.sh hello    # hello/hello.app
+    ./build.sh abitest  # abitest/abitest.app
+    ./test.py           # wremu: flash -> Grifo -> menu tap -> each app -> menu
 
 Bootstrap has to run with the caller's environment: a different
 `CARGO_HOME` changes every crate's fingerprint and rebuilds both stages.

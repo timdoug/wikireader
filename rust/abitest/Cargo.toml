@@ -1,0 +1,17 @@
+[package]
+name = "abitest"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "abitest"
+test = false
+bench = false
+
+[profile.dev]
+panic = "abort"
+opt-level = "s"
+
+[profile.release]
+panic = "abort"
+opt-level = 2

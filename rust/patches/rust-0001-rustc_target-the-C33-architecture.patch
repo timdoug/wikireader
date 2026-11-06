@@ -1,9 +1,12 @@
 rustc_target: the Seiko Epson C33 architecture
 
 Arch::C33 ("c33") with the C calling convention of the C33 GCC port,
-for code generated through rustc_codegen_gcc; LLVM has no C33 backend,
-so its c-variadic lowering reports a bug.  c-variadic definitions are
-unstable, as for the other targets without a tested lowering.
+for code generated through rustc_codegen_gcc: records GCC gives a scalar
+mode travel in registers (a lone double as a double), others are returned
+through a hidden pointer and passed by value on the stack.  LLVM has no
+C33 backend, so its c-variadic lowering reports a bug; c-variadic
+definitions are unstable, as for the other targets without a tested
+lowering.
 
 diff --git a/compiler/rustc_codegen_llvm/src/va_arg.rs b/compiler/rustc_codegen_llvm/src/va_arg.rs
 index c74ea60ac..cbc4ceadc 100644
@@ -44,10 +47,10 @@ index 6f9751e80..3fb1f8a54 100644
  }
 diff --git a/compiler/rustc_target/src/callconv/c33.rs b/compiler/rustc_target/src/callconv/c33.rs
 new file mode 100644
-index 000000000..0643ada69
+index 000000000..856a35930
 --- /dev/null
 +++ b/compiler/rustc_target/src/callconv/c33.rs
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,99 @@
 +// Reference: the Seiko Epson C33 GCC port's calling convention, which follows
 +// Epson's original C33 compiler (gcc 3.3.2): c33_function_arg,
 +// c33_function_arg_advance and c33_return_in_memory in config/c33/c33.cc.
@@ -58,6 +61,11 @@ index 000000000..0643ada69
 +// records need only 4).  Any other aggregate is BLKmode: returned through a
 +// hidden pointer in %r6, and passed by value on the stack without taking an
 +// argument register.
++//
++// A record with one real field takes that field's mode, so one holding just
++// a double is DFmode and follows the double's own rule: an argument that
++// would start in the last register slot goes wholly on the stack.  It is
++// passed as an f64 for GCC to place.
 +
 +use rustc_abi::{HasDataLayout, Size, TyAbiInterface};
 +
@@ -65,8 +73,18 @@ index 000000000..0643ada69
 +
 +/// The registers an aggregate of this layout travels in, if GCC gives it a
 +/// scalar mode.
-+fn scalar_mode_unit<Ty>(arg: &ArgAbi<'_, Ty>) -> Option<Uniform> {
++fn scalar_mode_unit<'a, Ty, C>(cx: &C, arg: &ArgAbi<'a, Ty>) -> Option<Uniform>
++where
++    Ty: TyAbiInterface<'a, C> + Copy,
++    C: HasDataLayout,
++{
 +    let size = arg.layout.size;
++    if let Some(unit) = arg.layout.homogeneous_aggregate(cx).ok().and_then(|ha| ha.unit())
++        && unit == Reg::f64()
++        && size == unit.size
++    {
++        return Some(Uniform::new(unit, size));
++    }
 +    let align = arg.layout.align.abi.bytes();
 +    match size.bytes() {
 +        1 => Some(Uniform::new(Reg::i8(), size)),
@@ -77,12 +95,16 @@ index 000000000..0643ada69
 +    }
 +}
 +
-+fn classify_ret<Ty>(ret: &mut ArgAbi<'_, Ty>) {
++fn classify_ret<'a, Ty, C>(cx: &C, ret: &mut ArgAbi<'a, Ty>)
++where
++    Ty: TyAbiInterface<'a, C> + Copy,
++    C: HasDataLayout,
++{
 +    if !ret.layout.is_sized() {
 +        return;
 +    }
 +    if ret.layout.is_aggregate() {
-+        match scalar_mode_unit(ret) {
++        match scalar_mode_unit(cx, ret) {
 +            Some(unit) => ret.cast_to(unit),
 +            None => ret.make_indirect(),
 +        }
@@ -104,7 +126,7 @@ index 000000000..0643ada69
 +        return;
 +    }
 +    if arg.layout.is_aggregate() {
-+        match scalar_mode_unit(arg) {
++        match scalar_mode_unit(cx, arg) {
 +            Some(unit) => arg.cast_to(unit),
 +            None => arg.pass_by_stack_offset(None),
 +        }
@@ -119,7 +141,7 @@ index 000000000..0643ada69
 +    C: HasDataLayout,
 +{
 +    if !fn_abi.ret.is_ignore() {
-+        classify_ret(&mut fn_abi.ret);
++        classify_ret(cx, &mut fn_abi.ret);
 +    }
 +    for arg in fn_abi.args.iter_mut() {
 +        if arg.is_ignore() {

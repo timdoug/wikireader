@@ -8,6 +8,8 @@
 # build-gccjit.sh.  The application is linked as the C ones are
 # (samo-lib/grifo/Mk/application-pre.mk): application.lds, libgrifo,
 # mini-libc and the -mc33pe libgcc, and lands in the crate as NAME.app.
+# C sources in the crate's c/ are compiled as the C applications' are and
+# linked in.
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -27,11 +29,23 @@ GRIFO="${ROOT}/samo-lib/grifo"
 
 # libgccjit runs the C33 cc1 with these after its own -fPIC (which the C33
 # backend ignores; -fno-pic keeps the generic code static too).
+# The crate's C, with the C applications' flags (samo-lib/Mk/rules.mk).
+COBJ="${CRATE}/target/c"
+mkdir -p "${COBJ}"
+COBJS=
+for c in "${CRATE}"/c/*.c; do
+	[ -e "${c}" ] || continue
+	o="${COBJ}/$(basename "${c}" .c).o"
+	c33-epson-elf-gcc -mc33pe -O2 -mno-long-calls -fno-builtin -ffreestanding \
+		-Wall -Werror -I"${GRIFO}/include" -I"${ROOT}/samo-lib/mini-libc/include" -c "${c}" -o "${o}"
+	COBJS="${COBJS} ${o}"
+done
+
 RUSTFLAGS="-Zcodegen-backend=${CG}/target/release/librustc_codegen_gcc.dylib"
 RUSTFLAGS="${RUSTFLAGS} -Cllvm-args=-mc33pe -Cllvm-args=-mno-long-calls"
 RUSTFLAGS="${RUSTFLAGS} -Cllvm-args=-fno-pic"
 for a in -static --strip-all -N --no-warn-rwx-segments \
-	 -T "${GRIFO}/lds/application.lds" -Map "${CRATE}/${NAME}.map" \
+	 -T "${GRIFO}/lds/application.lds" -Map "${CRATE}/${NAME}.map" ${COBJS} \
 	 "${GRIFO}/lib/libgrifo.a" "${ROOT}/samo-lib/mini-libc/lib/libc.a" \
 	 "${LIBGCC}"; do
 	RUSTFLAGS="${RUSTFLAGS} -Clink-arg=${a}"

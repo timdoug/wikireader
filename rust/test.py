@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Run the Rust hello application the way the device does: MBR flash ->
-Grifo -> init.app's menu -> a tap on the icon -> hello.app, which prints,
-draws, and returns to the launcher at the next tap.
+"""Run the Rust applications the way the device does: MBR flash -> Grifo
+-> init.app's menu -> a tap on the icon -> the application -> the menu.
 
-Two runs: one stopped while the application waits with its picture on the
-panel, for screen.pgm, and one with the second tap, for the return to the
-launcher.
+hello prints, draws, and returns at the next tap: one run stops while it
+waits with its picture on the panel, for screen.pgm, and one taps again.
+abitest exchanges every argument shape with C, prints its verdict and
+returns at once.
 """
 
 import importlib.util
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 ICON0 = (40, 36)
+ICON1 = (112, 36)
 TAP = 100_000_000
 # Instructions, not MCLK: well after the application is waiting.
 TAP2 = TAP + 150_000_000
@@ -55,24 +57,24 @@ def read_pgm(path):
 
 def main():
     emulator = require(ROOT / "emulator/wremu")
-    app_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "rust/hello"
-    app = require(app_dir / "hello.app")
+    rust = ROOT / "rust"
     fat = load_fat_helper()
     with tempfile.TemporaryDirectory(prefix="wr-rust-") as temporary:
         out = Path(temporary)
-        icon = out / "hello.ico"
-        subprocess.run([sys.executable,
-                        str(ROOT / "samo-lib/grifo/scripts/xpm2icon"),
-                        f"--icon={icon}", str(app_dir / "hello.xpm")],
-                       check=True)
         files = {
             "kernel.elf": require(ROOT / "samo-lib/grifo/grifo.elf").read_bytes(),
             "init.app": require(ROOT / "samo-lib/grifo/applications/init/init.app").read_bytes(),
-            "hello.app": app.read_bytes(),
-            "hello.ico": icon.read_bytes(),
-            # Two entries, so init.app draws its menu instead of chaining.
-            "init.ini": b"hello.ico : hello.app\n" * 2,
+            # hello in the menu's first slot, abitest in the second.
+            "init.ini": b"hello.ico : hello.app\nabitest.ico : abitest.app\n",
         }
+        for name in ("hello", "abitest"):
+            icon = out / f"{name}.ico"
+            subprocess.run([sys.executable,
+                            str(ROOT / "samo-lib/grifo/scripts/xpm2icon"),
+                            f"--icon={icon}", str(rust / name / f"{name}.xpm")],
+                           check=True)
+            files[f"{name}.app"] = require(rust / name / f"{name}.app").read_bytes()
+            files[f"{name}.ico"] = icon.read_bytes()
         card = out / "card.img"
         flash = out / "flash.rom"
         fat.make_image(card, files, 64)
@@ -88,34 +90,42 @@ def main():
                 cwd=out, capture_output=True, timeout=300)
             return (result.stdout + result.stderr).decode(errors="replace").replace("\r", "")
 
+        def returned(log, name):
+            if "application returned: 0" not in log or log.count("init starting") < 2:
+                print(log, file=sys.stderr)
+                raise SystemExit(f"rust {name} did not return to the launcher")
+
         expected = [
             "rust hello: argc=1",
             f"rust hello: primes={PRIMES} fnv1a={fnv1a(b'WikiReader'):#010x}",
             "rust hello: waiting for a tap",
         ]
-
         log = run(TAP2, (*ICON0, TAP))
         missing = [m for m in expected if m not in log]
         if missing or "rust panic" in log:
             print(log, file=sys.stderr)
             raise SystemExit("rust hello failed; missing: " + ", ".join(missing))
-        (app_dir / "screen.pgm").write_bytes((out / "screen.pgm").read_bytes())
-        width, height, pixels = read_pgm(out / "screen.pgm")
-        # The triangle: the apex column at x = 120 is black from y = 64 down,
-        # and the Sierpinski hole below its middle row is white.
+        screen = rust / "hello/screen.pgm"
+        screen.write_bytes((out / "screen.pgm").read_bytes())
+        width, height, pixels = read_pgm(screen)
         black = lambda x, y: pixels[y * width + x] < 128
         triangle = [black(56 + u, 64 + v) == (u & v == 0)
                     for v in range(0, 128, 3) for u in range(0, 128, 3)]
         if not all(triangle):
             raise SystemExit(f"triangle wrong at {triangle.count(False)} of "
                              f"{len(triangle)} sampled pixels")
+        returned(run(TAP2 + 100_000_000, (*ICON0, TAP), (120, 150, TAP2)), "hello")
+        print(f"rust hello passed: menu -> hello.app -> tap -> menu; screen in {screen}")
 
-        log = run(TAP2 + 100_000_000, (*ICON0, TAP), (120, 150, TAP2))
-        if "application returned: 0" not in log or log.count("init starting") < 2:
-            print(log, file=sys.stderr)
-            raise SystemExit("rust hello did not return to the launcher")
-    print("rust hello passed: Grifo menu -> hello.app (Rust) -> launcher; "
-          f"screen in {app_dir / 'screen.pgm'}")
+        # abitest checks itself and returns at once.
+        log = run(TAP2, (ICON1[0], ICON1[1], TAP))
+        verdict = re.search(r"abi: (\d+) checks, (\d+) failures: ABI (PASS|FAIL)", log)
+        failures = [line for line in log.splitlines() if line.startswith("abi: ")]
+        if not verdict or verdict.group(3) != "PASS" or "rust panic" in log:
+            print("\n".join(failures) or log, file=sys.stderr)
+            raise SystemExit("rust abitest failed")
+        returned(log, "abitest")
+        print(f"rust abitest passed: {verdict.group(1)} Rust/C calls agree")
 
 
 if __name__ == "__main__":

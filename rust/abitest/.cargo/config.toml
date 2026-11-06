@@ -1,0 +1,7 @@
+# Build with ../build.sh, which sets the backend, sysroot and linker paths.
+[build]
+target = "../c33-epson-none.json"
+
+[unstable]
+build-std = ["core"]
+json-target-spec = true

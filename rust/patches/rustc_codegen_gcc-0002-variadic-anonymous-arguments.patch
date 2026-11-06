@@ -1,0 +1,39 @@
+Pass a variadic call's anonymous arguments as anonymous
+
+The function type a call goes through listed every argument as a
+parameter, so GCC passed the anonymous ones as named.  Where the target
+passes them differently (on the C33 every anonymous argument is on the
+stack), the callee's va_arg read the wrong words.  The type now lists the
+named arguments only.
+
+diff --git a/src/abi.rs b/src/abi.rs
+index 4e910b69..ea89d3be 100644
+--- a/src/abi.rs
++++ b/src/abi.rs
+@@ -183,9 +183,16 @@ impl<'gcc, 'tcx> FnAbiGccExt<'gcc, 'tcx> for FnAbi<'tcx, Ty<'tcx>> {
+         #[cfg(not(feature = "master"))]
+         let apply_attrs = |ty: Type<'gcc>, _attrs: &ArgAttributes, _arg_index: usize| ty;
+ 
++        // The parameters of a variadic function's type are its named arguments only; the
++        // rest of a call's arguments are passed as anonymous ones, which on some targets do not
++        // travel as named ones would (on the C33, every anonymous argument is on the stack).
++        let mut named_params = None;
+         for (source_arg_index, arg) in self.args.iter().enumerate() {
+             #[cfg(not(feature = "master"))]
+             let _ = source_arg_index;
++            if self.c_variadic && source_arg_index == self.fixed_count as usize {
++                named_params = Some(argument_tys.len());
++            }
+ 
+             let arg_ty = match arg.mode {
+                 PassMode::Ignore => continue,
+@@ -269,6 +276,9 @@ impl<'gcc, 'tcx> FnAbiGccExt<'gcc, 'tcx> for FnAbi<'tcx, Ty<'tcx>> {
+             };
+             argument_tys.push(arg_ty);
+         }
++        if let Some(named_params) = named_params {
++            argument_tys.truncate(named_params);
++        }
+ 
+         #[cfg(feature = "master")]
+         let fn_attrs = if non_null_args.is_empty() {
