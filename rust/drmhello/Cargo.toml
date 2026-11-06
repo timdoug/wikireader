@@ -1,0 +1,20 @@
+[package]
+name = "drmhello"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+drm = "0.15"
+drm-ffi = "0.9"
+embedded-graphics = "0.8"
+
+# Crates with the C33 added (fetch.sh: crates.txt and patches/).
+[patch.crates-io]
+linux-raw-sys = { path = "../work/crates/linux-raw-sys-0.12.1" }
+linux-raw-sys-0-9 = { package = "linux-raw-sys", path = "../work/crates/linux-raw-sys-0.9.4" }
+rustix = { path = "../work/crates/rustix-1.1.6" }
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+strip = true

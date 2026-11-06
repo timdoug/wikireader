@@ -77,10 +77,11 @@ the environment, files, threads over a channel and a clock.  It needs:
       ./build-linux.sh    # stdhello/stdhello.bin
       ./test-linux.py     # wremu: Grifo -> linux.app -> r
 
-On the device the card carries `stdhello.bin` and `unwindtest.bin` (as
-`unwind.bin`) at its top and `card/bin/r` as `bin/r`: `r` at the Linux
-shell runs both, checks them and leaves the output in `rust.txt` on the
-card.
+On the device the card carries `stdhello.bin`, `unwindtest.bin` (as
+`unwind.bin`), `sdprobe.bin` and `drmhello.bin` at its top and
+`card/bin/r` as `bin/r`: `r` at the Linux shell runs them all (drmhello
+holds the panel for three seconds), checks them and leaves the output in
+`rust.txt` on the card.
 
 libgccjit compiles in-process with only the options it is given, so
 `build-linux.sh` passes the Linux driver's defaults (`-mcore=c33pe -mfdpic
@@ -92,6 +93,34 @@ catch_unwind, destructors run on the way out, a panicking thread's join
 and a second panic, through libgcc's DWARF unwinder as C++ exceptions are.
 A program that sets `panic = "abort"` (stdhello) leaves the unwinder and
 its tables out.
+
+## Linux: graphics
+
+`drmhello/` is the Rust graphics hello world on the panel: embedded-graphics
+draws text and shapes into a DRM dumb buffer (the `drm` crate) in the
+panel's own format, `D1` (a bit a pixel, 1 black, scanned where it is), and
+runs on a VT of its own, as X and cage do, so the console steps aside:
+
+    openvt -c 2 -s -w -- drmhello.bin [seconds]
+
+It needs the C33 in `rustix` and both `linux-raw-sys` versions
+(`crates.txt`, `patches/rustix-*` and `patches/linux-raw-sys-*`, patched in
+by its `Cargo.toml`); riscv32's generated bindings serve, with rustc laying
+their structs out for the C33.  `drm-fourcc` has no name for D1, so the
+framebuffer is added through `drm-ffi`.
+
+It draws in 92 ms.  Three things cost it 1.2 s first:
+- `opt-level = "s"`: GCC's -Os does not inline even a four-instruction
+  helper (`Point::add`), so every pixel was a chain of calls.  Use
+  `opt-level = 2`; codegen units made no difference.
+- embedded-graphics fills through `draw_iter` a pixel at a time unless the
+  target overrides `fill_solid`; with whole bytes, `clear` is 3 ms, not 551.
+- A stroked `Triangle` is outlined by intersecting its edges with every
+  scanline, about 270 ms here; three `Line`s draw the same outline.
+
+`test-linux.py` stops the emulator while drmhello holds the panel and checks
+the picture in `screen.pgm`.  BusyBox's `openvt -s -w` exits 1 however its
+program went, so scripts judge by the program's own output.
 
 ## On the device
 

@@ -4,7 +4,7 @@ target/
 *.dump
 screen.pgm
 *.bin
-/stdhello/ask/
+ask/
 
 # The top-level gcc pattern is for build trees; this one is patches.
 !/gcc/

@@ -1,0 +1,6 @@
+# Crates from crates.io that need the C33, as fetch.sh fetches them:
+# name, version, and the SHA-256 of the .crate (crates.io's checksum).  Each
+# gets patches/NAME-VERSION-*.patch.
+linux-raw-sys 0.9.4 cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12
+linux-raw-sys 0.12.1 32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53
+rustix 1.1.6 e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa

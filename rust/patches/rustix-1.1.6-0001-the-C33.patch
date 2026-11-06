@@ -1,0 +1,39 @@
+the C33
+
+The Seiko Epson C33's Linux has the generic ioctl encoding, and no
+open syscall (openat), as csky's.
+
+diff --git a/src/backend/libc/fs/syscalls.rs b/src/backend/libc/fs/syscalls.rs
+index d1f1d34..53a74b9 100644
+--- a/src/backend/libc/fs/syscalls.rs
++++ b/src/backend/libc/fs/syscalls.rs
+@@ -113,6 +113,7 @@ fn open_via_syscall(path: &CStr, oflags: OFlags, mode: Mode) -> io::Result<Owned
+         target_arch = "riscv32",
+         target_arch = "riscv64",
+         target_arch = "csky",
++        target_arch = "c33",
+         target_arch = "loongarch64"
+     ))]
+     {
+@@ -125,6 +126,7 @@ fn open_via_syscall(path: &CStr, oflags: OFlags, mode: Mode) -> io::Result<Owned
+         target_arch = "riscv32",
+         target_arch = "riscv64",
+         target_arch = "csky",
++        target_arch = "c33",
+         target_arch = "loongarch64"
+     )))]
+     unsafe {
+diff --git a/src/ioctl/linux.rs b/src/ioctl/linux.rs
+index 8d96a1b..93b03b0 100644
+--- a/src/ioctl/linux.rs
++++ b/src/ioctl/linux.rs
+@@ -51,7 +51,8 @@ const DIR_MASK: Opcode = (1 << DIR_BITS) - 1;
+     target_arch = "riscv32",
+     target_arch = "riscv64",
+     target_arch = "loongarch64",
+-    target_arch = "csky"
++    target_arch = "csky",
++    target_arch = "c33"
+ ))]
+ mod consts {
+     use super::Opcode;

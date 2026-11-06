@@ -1,7 +1,8 @@
 #!/bin/sh
 # Rust's standard library on C33 Linux (rust/stdhello), panics that unwind
-# (rust/unwindtest), and what a small write to the card costs
-# (rust/sdprobe); keep the output on the card, in rust.txt.
+# (rust/unwindtest), what a small write to the card costs (rust/sdprobe),
+# and graphics on the panel (rust/drmhello); keep the output on the card,
+# in rust.txt.
 out=/mnt/sd/rust.txt
 echo "Testing Rust std..."
 {
@@ -12,6 +13,10 @@ echo "Testing Rust std..."
 	HOME=/root /mnt/sd/stdhello.bin a b &&
 	/mnt/sd/unwind.bin &&
 	/mnt/sd/sdprobe.bin
+	# Graphics on the panel for three seconds, on a VT of its own.  openvt
+	# -s -w exits 1 however the program went, so its line is the verdict.
+	openvt -c 2 -s -w -- sh -c '/mnt/sd/drmhello.bin 3 > /tmp/drmhello.out 2>&1'
+	cat /tmp/drmhello.out
 } > "$out" 2>&1
 status=$?
 for want in \
@@ -26,7 +31,8 @@ for want in \
 	'unwindtest: done' \
 	'stdhello (stdout on tmpfs): done in ' \
 	'sdprobe: card append' \
-	'sdprobe: tmpfs append'; do
+	'sdprobe: tmpfs append' \
+	'drmhello: 240x208 D1, drawn in '; do
 	grep -qF "$want" "$out" || { echo "missing: $want" >> "$out"; status=1; }
 done
 sync

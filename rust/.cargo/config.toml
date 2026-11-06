@@ -1,0 +1,5 @@
+# libc with the C33 added, for every crate here and for std (fetch.sh
+# fetches it at the checksum std's Cargo.lock names and applies
+# patches/libc-*).  Paths are relative to rust/.
+[patch.crates-io]
+libc = { path = "work/libc" }

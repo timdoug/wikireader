@@ -1,0 +1,126 @@
+the C33: riscv32's generic bindings
+
+The Seiko Epson C33 (the WikiReader's CPU) runs no-MMU Linux with the
+generic UAPI and syscall table that riscv32 has, so it takes riscv32's
+generated modules.  Their structs carry no padding that depends on
+riscv32's 8-byte u64 alignment (the C33 aligns u64 to 4; rustc lays
+the structs out for the target).  The register-context structs
+(ptrace's user_regs_struct, the signal context) are riscv32's and do
+not describe the C33.
+
+diff --git a/src/lib.rs b/src/lib.rs
+index 18cef6c..ddb3a56 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -21,6 +21,7 @@ pub mod ctypes {
+         target_arch = "powerpc",
+         target_arch = "powerpc64",
+         target_arch = "riscv32",
++        target_arch = "c33",
+         target_arch = "riscv64",
+         target_arch = "s390x",
+     ))]
+@@ -1018,83 +1019,83 @@ pub mod system;
+ #[path = "powerpc64/xdp.rs"]
+ pub mod xdp;
+ #[cfg(feature = "bootparam")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/bootparam.rs"]
+ pub mod bootparam;
+ #[cfg(feature = "btrfs")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/btrfs.rs"]
+ pub mod btrfs;
+ #[cfg(feature = "elf_uapi")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/elf_uapi.rs"]
+ pub mod elf_uapi;
+ #[cfg(feature = "errno")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/errno.rs"]
+ pub mod errno;
+ #[cfg(feature = "general")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/general.rs"]
+ pub mod general;
+ #[cfg(feature = "if_arp")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/if_arp.rs"]
+ pub mod if_arp;
+ #[cfg(feature = "if_ether")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/if_ether.rs"]
+ pub mod if_ether;
+ #[cfg(feature = "if_packet")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/if_packet.rs"]
+ pub mod if_packet;
+ #[cfg(feature = "image")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/image.rs"]
+ pub mod image;
+ #[cfg(feature = "io_uring")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/io_uring.rs"]
+ pub mod io_uring;
+ #[cfg(feature = "ioctl")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/ioctl.rs"]
+ pub mod ioctl;
+ #[cfg(feature = "landlock")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/landlock.rs"]
+ pub mod landlock;
+ #[cfg(feature = "loop_device")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/loop_device.rs"]
+ pub mod loop_device;
+ #[cfg(feature = "mempolicy")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/mempolicy.rs"]
+ pub mod mempolicy;
+ #[cfg(feature = "net")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/net.rs"]
+ pub mod net;
+ #[cfg(feature = "netlink")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/netlink.rs"]
+ pub mod netlink;
+ #[cfg(feature = "prctl")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/prctl.rs"]
+ pub mod prctl;
+ #[cfg(feature = "ptrace")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/ptrace.rs"]
+ pub mod ptrace;
+ #[cfg(feature = "system")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/system.rs"]
+ pub mod system;
+ #[cfg(feature = "xdp")]
+-#[cfg(target_arch = "riscv32")]
++#[cfg(any(target_arch = "riscv32", target_arch = "c33"))]
+ #[path = "riscv32/xdp.rs"]
+ pub mod xdp;
+ #[cfg(feature = "bootparam")]

@@ -106,3 +106,34 @@ if [ "${current}" = no ]; then
 	done
 fi
 echo "==> ${LIBC} at ${LIBC_VERSION}"
+
+# Other crates that need the C33 (crates.txt), each with its
+# patches/NAME-VERSION-*.patch; crates patch them in.
+grep -v '^#' "${HERE}/crates.txt" | while read -r name version sum; do
+	[ -n "${name}" ] || continue
+	dir="${WORK}/crates/${name}-${version}"
+	mkdir -p "${WORK}/crates"
+	"${HERE}/../host-tools/fetch-verified.sh" \
+		"https://static.crates.io/crates/${name}/${name}-${version}.crate" \
+		"${dir}.crate" "${sum}"
+	current=no
+	if [ -d "${dir}/.git" ]; then
+		current=yes
+		for p in "${HERE}/patches/${name}-${version}"-*.patch; do
+			git -C "${dir}" apply --reverse --check "${p}" 2>/dev/null || current=no
+		done
+	fi
+	if [ "${current}" = no ]; then
+		rm -rf "${dir}"
+		mkdir -p "${dir}"
+		tar -C "${dir}" --strip-components=1 -xzf "${dir}.crate"
+		git -C "${dir}" init -q
+		git -C "${dir}" add -A
+		git -C "${dir}" -c user.name=fetch -c user.email=fetch@localhost \
+			commit -qm "${name} ${version}"
+		for p in "${HERE}/patches/${name}-${version}"-*.patch; do
+			git -C "${dir}" apply "${p}"
+		done
+	fi
+	echo "==> ${dir}"
+done
