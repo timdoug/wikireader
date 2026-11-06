@@ -12,7 +12,8 @@ maintainers:
 description:
   The S1C33E07's interrupt controller.  A source is its trap vector, and
   sources are grouped, each group with one priority level that the second
-  cell sets.
+  cell sets.  Its block also selects each high-speed DMA channel's
+  trigger, so it is the DMA router in front of that controller.
 
 properties:
   compatible:
@@ -26,7 +27,18 @@ properties:
   '#interrupt-cells':
     const: 2
     description:
-      The source's trap vector, and its group's priority, 1 (lowest) to 7.
+      The source's trap vector, and its group's priority, 1 (lowest) to 7,
+      or 0 to leave it as it is.
+
+  '#dma-cells':
+    const: 2
+    description:
+      The high-speed DMA channel, 0 to 3, and the trigger source that
+      channel takes for the request, 0 to 15 (the manual's table II.1.5.1).
+
+  dma-masters:
+    maxItems: 1
+    description: The high-speed DMA controller.
 
 required:
   - compatible
@@ -34,13 +46,18 @@ required:
   - interrupt-controller
   - '#interrupt-cells'
 
+dependentRequired:
+  '#dma-cells': [ dma-masters ]
+
 additionalProperties: false
 
 examples:
   - |
     interrupt-controller@300260 {
         compatible = "epson,s1c33e07-itc";
-        reg = <0x300260 0x40>;
+        reg = <0x300260 0x50>;
         interrupt-controller;
         #interrupt-cells = <2>;
+        #dma-cells = <2>;
+        dma-masters = <&hsdma>;
     };

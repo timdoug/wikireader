@@ -16,9 +16,18 @@
  * grouped, each group with a nibble of 0x260..0x26f, so every source in a
  * group has the level the last of them asked for; 0 leaves the nibble as
  * the loader set it.
+ *
+ * The controller's block, 0x300260..0x3002af, also holds the intelligent
+ * DMA's request and enable bits and the high-speed DMA channels' trigger
+ * selectors, and the flags of causes that other drivers poll rather than
+ * take as interrupts.  It is this driver's alone: the IDMA, which Linux
+ * does not use, is switched off here; a cause's flag is its pending state,
+ * irq_get_irqchip_state() and irq_set_irqchip_state(); and the trigger
+ * selectors make the controller a DMA router in front of the HSDMA.
  */
 #include <linux/bitops.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
@@ -26,12 +35,25 @@
 #include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_dma.h>
+#include <linux/spinlock.h>
 
-#define S1C33_ITC_ENABLE	0x10
+/* Offsets in the block, from 0x300260 (the manual's III.2). */
+#define S1C33_ITC_ENABLE	0x10	/* the first 16 causes' banks */
 #define S1C33_ITC_FLAG		0x20
-#define S1C33_ITC_FLAG_MODE	0x3f
 #define S1C33_ITC_BANK		16
-#define S1C33_ITC_VECTORS	64
+#define S1C33_ITC_IDMA_REQ	0x30	/* four bytes, then four of enables */
+#define S1C33_ITC_IDMA_EN	0x34
+#define S1C33_ITC_HSDMA_TRIGGER	0x38	/* a nibble a channel, 0 and 1 then 2 and 3 */
+#define S1C33_ITC_IDMA_REQ2	0x3b	/* LCDC, serial 2, SPI */
+#define S1C33_ITC_IDMA_EN2	0x3c
+#define S1C33_ITC_FLAG_MODE	0x3f
+#define S1C33_ITC_ENABLE2	0x46	/* ports 8-15 and I2S */
+#define S1C33_ITC_FLAG2		0x49
+#define S1C33_ITC_IDMA_REQ3	0x4c
+#define S1C33_ITC_IDMA_EN3	0x4e
+#define S1C33_ITC_VECTORS	108
+#define S1C33_HSDMA_CHANNELS	4
 
 /*
  * Register index within the enable and flag banks, stored plus one so that
@@ -74,34 +96,78 @@ static const struct s1c33_itc_source s1c33_itc_sources[S1C33_ITC_VECTORS] = {
 	S1C33_SOURCE(60, 6, 3, 0xa, 0),	/* serial 1 error */
 	S1C33_SOURCE(61, 6, 4, 0xa, 0),	/* serial 1 receive */
 	S1C33_SOURCE(62, 6, 5, 0xa, 0),	/* serial 1 transmit */
+	S1C33_SOURCE(81, 9, 4, 0xe, 4),	/* SPI receive DMA request */
+	S1C33_SOURCE(82, 9, 5, 0xe, 4),	/* SPI transmit DMA request */
 };
 
 static void __iomem *s1c33_itc_base;
 static struct irq_domain *s1c33_itc_domain;
+/* The bytes that hold several causes' enables, levels or triggers. */
+static DEFINE_RAW_SPINLOCK(s1c33_itc_lock);
+
+static void s1c33_itc_update(unsigned int offset, u8 mask, u8 value)
+{
+	void __iomem *reg = s1c33_itc_base + offset;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&s1c33_itc_lock, flags);
+	writeb((readb(reg) & ~mask) | value, reg);
+	raw_spin_unlock_irqrestore(&s1c33_itc_lock, flags);
+}
 
 static void __iomem *s1c33_itc_reg(unsigned int bank, irq_hw_number_t hwirq)
 {
 	return s1c33_itc_base + bank + s1c33_itc_sources[hwirq].index - 1;
 }
 
+static unsigned int s1c33_itc_offset(unsigned int bank, irq_hw_number_t hwirq)
+{
+	return bank + s1c33_itc_sources[hwirq].index - 1;
+}
+
 static void s1c33_itc_mask(struct irq_data *data)
 {
-	void __iomem *reg = s1c33_itc_reg(S1C33_ITC_ENABLE, data->hwirq);
-
-	writeb(readb(reg) & ~BIT(s1c33_itc_sources[data->hwirq].bit), reg);
+	s1c33_itc_update(s1c33_itc_offset(S1C33_ITC_ENABLE, data->hwirq),
+			 BIT(s1c33_itc_sources[data->hwirq].bit), 0);
 }
 
 static void s1c33_itc_unmask(struct irq_data *data)
 {
-	void __iomem *reg = s1c33_itc_reg(S1C33_ITC_ENABLE, data->hwirq);
+	u8 bit = BIT(s1c33_itc_sources[data->hwirq].bit);
 
-	writeb(readb(reg) | BIT(s1c33_itc_sources[data->hwirq].bit), reg);
+	s1c33_itc_update(s1c33_itc_offset(S1C33_ITC_ENABLE, data->hwirq),
+			 bit, bit);
 }
 
+/* Flags are cleared by writing 1 (S1C33_ITC_FLAG_MODE): no other bit moves. */
 static void s1c33_itc_ack(struct irq_data *data)
 {
 	writeb(BIT(s1c33_itc_sources[data->hwirq].bit),
 	       s1c33_itc_reg(S1C33_ITC_FLAG, data->hwirq));
+}
+
+/*
+ * A cause's flag, whether or not its interrupt is enabled: how the HSDMA
+ * finds a finished transfer and the SD host clears its port's DMA
+ * requests.  A flag can be cleared but not set.
+ */
+static int s1c33_itc_get_state(struct irq_data *data,
+			       enum irqchip_irq_state which, bool *state)
+{
+	if (which != IRQCHIP_STATE_PENDING)
+		return -EINVAL;
+	*state = readb(s1c33_itc_reg(S1C33_ITC_FLAG, data->hwirq)) &
+		 BIT(s1c33_itc_sources[data->hwirq].bit);
+	return 0;
+}
+
+static int s1c33_itc_set_state(struct irq_data *data,
+			       enum irqchip_irq_state which, bool state)
+{
+	if (which != IRQCHIP_STATE_PENDING || state)
+		return -EINVAL;
+	s1c33_itc_ack(data);
+	return 0;
 }
 
 /*
@@ -121,6 +187,8 @@ static struct irq_chip s1c33_itc_chip = {
 	.irq_mask = s1c33_itc_mask,
 	.irq_unmask = s1c33_itc_unmask,
 	.irq_ack = s1c33_itc_ack,
+	.irq_get_irqchip_state = s1c33_itc_get_state,
+	.irq_set_irqchip_state = s1c33_itc_set_state,
 	/*
 	 * Nothing powers the controller down, so a wake source is simply an
 	 * interrupt that suspend leaves enabled.
@@ -149,7 +217,6 @@ static int s1c33_itc_xlate(struct irq_domain *domain, struct device_node *node,
 			   irq_hw_number_t *hwirq, unsigned int *type)
 {
 	const struct s1c33_itc_source *source;
-	void __iomem *reg;
 	u32 level;
 
 	if (intsize != 2 || !s1c33_itc_is_source(intspec[0]))
@@ -158,11 +225,9 @@ static int s1c33_itc_xlate(struct irq_domain *domain, struct device_node *node,
 	if (level > 7)
 		return -EINVAL;
 	source = &s1c33_itc_sources[intspec[0]];
-	if (level) {
-		reg = s1c33_itc_base + source->priority;
-		writeb((readb(reg) & ~(7 << source->shift)) |
-		       level << source->shift, reg);
-	}
+	if (level)
+		s1c33_itc_update(source->priority, 7 << source->shift,
+				 level << source->shift);
 	*hwirq = intspec[0];
 	*type = IRQ_TYPE_EDGE_RISING;
 	return 0;
@@ -171,6 +236,72 @@ static int s1c33_itc_xlate(struct irq_domain *domain, struct device_node *node,
 static const struct irq_domain_ops s1c33_itc_domain_ops = {
 	.map = s1c33_itc_map,
 	.xlate = s1c33_itc_xlate,
+};
+
+/*
+ * The DMA router.  An HSDMA channel's trigger is a nibble here, and each
+ * channel has triggers of its own: a request is <channel trigger>, the
+ * value that channel takes for the cause (the manual's table II.1.5.1).
+ * The trigger is connected while the channel is allocated, and the HSDMA
+ * is handed the channel alone.
+ */
+static struct s1c33_itc_route {
+	bool used;
+} s1c33_itc_routes[S1C33_HSDMA_CHANNELS];
+
+static void s1c33_itc_set_trigger(unsigned int channel, unsigned int trigger)
+{
+	unsigned int shift = (channel % 2) * 4;
+
+	s1c33_itc_update(S1C33_ITC_HSDMA_TRIGGER + channel / 2, 0xf << shift,
+			 trigger << shift);
+}
+
+static void *s1c33_itc_route_allocate(struct of_phandle_args *spec,
+				      struct of_dma *ofdma)
+{
+	struct s1c33_itc_route *route;
+	struct device_node *master;
+	unsigned int channel;
+	unsigned long flags;
+	bool used;
+
+	if (spec->args_count != 2 || spec->args[0] >= S1C33_HSDMA_CHANNELS ||
+	    spec->args[1] > 15)
+		return ERR_PTR(-EINVAL);
+	channel = spec->args[0];
+	route = &s1c33_itc_routes[channel];
+	master = of_parse_phandle(ofdma->of_node, "dma-masters", 0);
+	if (!master)
+		return ERR_PTR(-EINVAL);
+
+	raw_spin_lock_irqsave(&s1c33_itc_lock, flags);
+	used = route->used;
+	route->used = true;
+	raw_spin_unlock_irqrestore(&s1c33_itc_lock, flags);
+	if (used) {
+		of_node_put(master);
+		return ERR_PTR(-EBUSY);
+	}
+	s1c33_itc_set_trigger(channel, spec->args[1]);
+
+	/* of_dma_router_xlate() puts the reference of_parse_phandle() took. */
+	spec->np = master;
+	spec->args_count = 1;
+	spec->args[0] = channel;
+	return route;
+}
+
+static void s1c33_itc_route_free(struct device *dev, void *route_data)
+{
+	struct s1c33_itc_route *route = route_data;
+
+	s1c33_itc_set_trigger(route - s1c33_itc_routes, 0);
+	WRITE_ONCE(route->used, false);
+}
+
+static struct dma_router s1c33_itc_router = {
+	.route_free = s1c33_itc_route_free,
 };
 
 /*
@@ -192,17 +323,37 @@ static int __init s1c33_itc_init(struct device_node *node,
 	unsigned int sources = 0;
 	unsigned int i;
 
-	base = of_iomap(node, 0);
-	if (!base)
-		return -ENOMEM;
+	base = of_io_request_and_map(node, 0, "s1c33-itc");
+	if (IS_ERR(base))
+		return PTR_ERR(base);
 	s1c33_itc_base = base;
 
-	/* Every cause off, then every pending flag cleared by writing it. */
+	/*
+	 * Every cause off, then every pending flag cleared by writing it;
+	 * every IDMA request and enable and every HSDMA trigger off.  What
+	 * ran before Linux may have left any of them set.
+	 */
 	for (i = 0; i < S1C33_ITC_BANK; i++)
 		writeb(0, base + S1C33_ITC_ENABLE + i);
+	for (i = 0; i < 2; i++)
+		writeb(0, base + S1C33_ITC_ENABLE2 + i);
 	writeb(1, base + S1C33_ITC_FLAG_MODE);
 	for (i = 0; i < S1C33_ITC_BANK; i++)
 		writeb(0xff, base + S1C33_ITC_FLAG + i);
+	for (i = 0; i < 2; i++)
+		writeb(0xff, base + S1C33_ITC_FLAG2 + i);
+	for (i = 0; i < 4; i++) {
+		writeb(0, base + S1C33_ITC_IDMA_EN + i);
+		writeb(0, base + S1C33_ITC_IDMA_REQ + i);
+	}
+	for (i = 0; i < 2; i++) {
+		writeb(0, base + S1C33_ITC_IDMA_EN3 + i);
+		writeb(0, base + S1C33_ITC_IDMA_REQ3 + i);
+	}
+	writeb(0, base + S1C33_ITC_IDMA_EN2);
+	writeb(0, base + S1C33_ITC_IDMA_REQ2);
+	writeb(0, base + S1C33_ITC_HSDMA_TRIGGER);
+	writeb(0, base + S1C33_ITC_HSDMA_TRIGGER + 1);
 
 	s1c33_itc_domain = irq_domain_create_linear(of_fwnode_handle(node),
 						    S1C33_ITC_VECTORS,
@@ -213,6 +364,13 @@ static int __init s1c33_itc_init(struct device_node *node,
 		if (s1c33_itc_sources[i].index)
 			sources++;
 	set_handle_irq(s1c33_itc_handle_irq);
+	if (of_property_present(node, "dma-masters")) {
+		int ret = of_dma_router_register(node, s1c33_itc_route_allocate,
+						 &s1c33_itc_router);
+
+		if (ret)
+			pr_err("s1c33-itc: no DMA router: %d\n", ret);
+	}
 	pr_info("s1c33-itc: %u interrupt sources, trap vector as hardware interrupt number\n",
 		sources);
 	return 0;

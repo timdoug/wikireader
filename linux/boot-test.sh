@@ -87,7 +87,7 @@ EOF
 
 boot_path_expected="C33 boot: Grifo application (incoming TTBR 00000400)"
 expected="*** HARDWARE PASS: BusyBox 1.38 is PID 1 on native C33 Linux ***"
-itc_expected="s1c33-itc: 24 interrupt sources, trap vector as hardware interrupt number"
+itc_expected="s1c33-itc: 26 interrupt sources, trap vector as hardware interrupt number"
 irq_userspace_expected="C33 IRQ: generic registrations"
 # The column after the chip is the hardware number, the trap vector.
 display_expected="C33 display: DRM 240x208 D1 buffer read/write, mode set, blank and unblank passed"

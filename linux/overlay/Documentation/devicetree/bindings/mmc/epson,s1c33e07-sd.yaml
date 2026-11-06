@@ -24,16 +24,22 @@ properties:
   reg:
     items:
       - description: The serial interface's registers
-      - description: Its DMA flags in the interrupt controller's block
-      - description: Its IDMA request in the interrupt controller's block
       - description: Internal RAM for the transmit stream
 
   reg-names:
     items:
       - const: spi
-      - const: spi-flags
-      - const: idma
       - const: sram
+
+  interrupts:
+    items:
+      - description: The receive DMA request, polled
+      - description: The transmit DMA request, polled
+
+  interrupt-names:
+    items:
+      - const: rx
+      - const: tx
 
   clocks:
     maxItems: 1
@@ -63,6 +69,8 @@ required:
   - compatible
   - reg
   - reg-names
+  - interrupts
+  - interrupt-names
   - clocks
   - dmas
   - dma-names
@@ -77,11 +85,12 @@ examples:
 
     mmc@301700 {
         compatible = "epson,s1c33e07-sd";
-        reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
-              <0x084000 0x200>;
-        reg-names = "spi", "spi-flags", "idma", "sram";
+        reg = <0x301700 0x20>, <0x084000 0x200>;
+        reg-names = "spi", "sram";
+        interrupts = <81 0>, <82 0>;
+        interrupt-names = "rx", "tx";
         clocks = <&cmu S1C33_CLK_SPI>;
-        dmas = <&hsdma 2 9>, <&hsdma 3 9>;
+        dmas = <&itc 2 9>, <&itc 3 9>;
         dma-names = "tx", "rx";
         cs-gpios = <&pinctrl 40 GPIO_ACTIVE_LOW>;
         vmmc-supply = <&sd_vcc>;

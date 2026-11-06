@@ -31,11 +31,17 @@
 		#size-cells = <1>;
 		ranges;
 
+		/*
+		 * Also the router in front of the HSDMA: a request is
+		 * <channel trigger>, and the channel goes to the HSDMA.
+		 */
 		itc: interrupt-controller@300260 {
 			compatible = "epson,s1c33e07-itc";
-			reg = <0x300260 0x40>;
+			reg = <0x300260 0x50>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
+			#dma-cells = <2>;
+			dma-masters = <&hsdma>;
 		};
 
 		pinctrl: pinctrl@300380 {
@@ -109,33 +115,33 @@
 		};
 
 		/*
-		 * Its priority, transfer-count flags and trigger selects are
-		 * in the interrupt controller's block.
+		 * Each channel's end-of-transfer interrupt, polled, not
+		 * enabled; its triggers are the interrupt controller's.
 		 */
 		hsdma: dma-controller@301100 {
 			compatible = "epson,s1c33e07-hsdma";
-			reg = <0x301100 0xa0>, <0x300264 0x1>, <0x300281 0x1>,
-			      <0x300298 0x2>;
-			reg-names = "dma", "priority", "flags", "triggers";
+			reg = <0x301100 0xa0>;
+			interrupts = <22 0>, <23 0>, <24 0>, <25 0>;
 			clocks = <&cmu S1C33_CLK_HSDMA>;
-			#dma-cells = <2>;
+			#dma-cells = <1>;
 		};
 
 		/*
 		 * The synchronous serial interface as an SD host in SPI mode,
-		 * its DMA flags and IDMA request in the interrupt
-		 * controller's block, and 512 bytes of DST RAM for the all-ones
-		 * the transmit DMA sends: internal RAM DMA can read, since the
-		 * kernel takes IVRAM into A0 RAM (asm/iram.h).
+		 * its DMA requests as interrupt causes, polled, not enabled,
+		 * and 512 bytes of DST RAM for the all-ones the transmit DMA
+		 * sends: internal RAM DMA can read, since the kernel takes
+		 * IVRAM into A0 RAM (asm/iram.h).
 		 */
 		sd: mmc@301700 {
 			compatible = "epson,s1c33e07-sd";
-			reg = <0x301700 0x20>, <0x300289 0x1>, <0x30029b 0x2>,
-			      <0x084000 0x200>;
-			reg-names = "spi", "spi-flags", "idma", "sram";
+			reg = <0x301700 0x20>, <0x084000 0x200>;
+			reg-names = "spi", "sram";
+			interrupts = <81 0>, <82 0>;
+			interrupt-names = "rx", "tx";
 			clocks = <&cmu S1C33_CLK_SPI>;
 			/* Channel 2 on SPI transmit, 3 on receive: trigger 9. */
-			dmas = <&hsdma 2 9>, <&hsdma 3 9>;
+			dmas = <&itc 2 9>, <&itc 3 9>;
 			dma-names = "tx", "rx";
 			status = "disabled";
 		};

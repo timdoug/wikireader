@@ -28,6 +28,7 @@
 #include <linux/dmaengine.h>
 #include <linux/gpio/consumer.h>
 #include <linux/highmem.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
 #include <linux/math64.h>
@@ -70,11 +71,6 @@
 
 #define SPI_POLLS	1000000
 
-/* The interrupt controller's causes and IDMA requests for this port */
-#define ITC_IDMA_REQ		0x00
-#define ITC_IDMA_ENABLE		0x01
-#define ITC_IDMA_SPI_BIT	BIT(4)
-#define ITC_SPI_DMA_FLAGS	(BIT(4) | BIT(5))
 
 /* Data block tokens and responses (mmc_spi.c) */
 #define SPI_MMC_RESPONSE_CODE(x)	((x) & 0x1f)
@@ -145,8 +141,8 @@ struct s1c33_sd {
 	struct device *dev;
 	void __iomem *base;
 	phys_addr_t base_phys;
-	void __iomem *spi_flags;	/* the port's ITC cause flags */
-	void __iomem *idma;		/* its IDMA request and enable */
+	/* The port's DMA requests as interrupt causes, never enabled. */
+	unsigned int rx_irq, tx_irq;
 	struct dma_chan *rx_chan;	/* HSDMA 3 on SPI receive */
 	struct dma_chan *tx_chan;	/* HSDMA 2 on SPI transmit */
 	struct scatterlist rx_sg;	/* each block's, readied once */
@@ -448,9 +444,15 @@ static int sd_dma_prepare(struct s1c33_sd *host, struct sd_read *r)
 	return 0;
 }
 
+static void sd_clear_requests(struct s1c33_sd *host)
+{
+	irq_set_irqchip_state(host->rx_irq, IRQCHIP_STATE_PENDING, false);
+	irq_set_irqchip_state(host->tx_irq, IRQCHIP_STATE_PENDING, false);
+}
+
 static void sd_dma_go(struct s1c33_sd *host)
 {
-	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
+	sd_clear_requests(host);
 	dma_async_issue_pending(host->rx_chan);
 	dma_async_issue_pending(host->tx_chan);
 	writel(~0U, host->base + SPI_TXD);
@@ -1927,13 +1929,14 @@ static int sd_probe(struct platform_device *pdev)
 	if (IS_ERR(host->base))
 		return PTR_ERR(host->base);
 	host->base_phys = res->start;
-	host->spi_flags = devm_platform_ioremap_resource_byname(pdev,
-								"spi-flags");
-	if (IS_ERR(host->spi_flags))
-		return PTR_ERR(host->spi_flags);
-	host->idma = devm_platform_ioremap_resource_byname(pdev, "idma");
-	if (IS_ERR(host->idma))
-		return PTR_ERR(host->idma);
+	ret = platform_get_irq_byname(pdev, "rx");
+	if (ret < 0)
+		return ret;
+	host->rx_irq = ret;
+	ret = platform_get_irq_byname(pdev, "tx");
+	if (ret < 0)
+		return ret;
+	host->tx_irq = ret;
 	host->crc_tables = c33_iram_alloc(SD_CRC_TABLES_SIZE);
 	if (!host->crc_tables)
 		host->crc_tables = devm_kmalloc(dev, SD_CRC_TABLES_SIZE,
@@ -1973,15 +1976,8 @@ static int sd_probe(struct platform_device *pdev)
 		host->pins_hold = NULL;
 	}
 
-	/*
-	 * The loader that ran before Linux may have left the intelligent DMA
-	 * controller asking this port for service, or its causes raised.
-	 */
-	writeb(readb(host->idma + ITC_IDMA_ENABLE) & ~ITC_IDMA_SPI_BIT,
-	       host->idma + ITC_IDMA_ENABLE);
-	writeb(readb(host->idma + ITC_IDMA_REQ) & ~ITC_IDMA_SPI_BIT,
-	       host->idma + ITC_IDMA_REQ);
-	writeb(ITC_SPI_DMA_FLAGS, host->spi_flags);
+	/* The loader that ran before Linux may have left the causes raised. */
+	sd_clear_requests(host);
 	writel(0, host->base + SPI_CTL2);
 	writel(0, host->base + SPI_WAIT);
 	writel(0, host->base + SPI_INT);

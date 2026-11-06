@@ -11,8 +11,9 @@ maintainers:
 
 description:
   Four channels, each with triggers of its own, chosen in the interrupt
-  controller's block, where its priority and transfer-count flags are too.
-  A request is <channel trigger>.
+  controller's block.  Clients request a channel through the interrupt
+  controller, the DMA router, which hands this controller the channel.
+  Each channel's end-of-transfer interrupt is polled.
 
 allOf:
   - $ref: dma-controller.yaml#
@@ -22,30 +23,26 @@ properties:
     const: epson,s1c33e07-hsdma
 
   reg:
-    items:
-      - description: The DMA controller's registers
-      - description: Its interrupt priority register
-      - description: Its transfer-count flags
-      - description: Its trigger selects
+    maxItems: 1
 
-  reg-names:
+  interrupts:
     items:
-      - const: dma
-      - const: priority
-      - const: flags
-      - const: triggers
+      - description: Channel 0's end of transfer
+      - description: Channel 1's end of transfer
+      - description: Channel 2's end of transfer
+      - description: Channel 3's end of transfer
 
   clocks:
     maxItems: 1
 
   '#dma-cells':
-    const: 2
-    description: The channel, 0 to 3, and its trigger source, 0 to 15.
+    const: 1
+    description: The channel, 0 to 3.
 
 required:
   - compatible
   - reg
-  - reg-names
+  - interrupts
   - clocks
   - '#dma-cells'
 
@@ -57,9 +54,8 @@ examples:
 
     dma-controller@301100 {
         compatible = "epson,s1c33e07-hsdma";
-        reg = <0x301100 0xa0>, <0x300264 0x1>, <0x300281 0x1>,
-              <0x300298 0x2>;
-        reg-names = "dma", "priority", "flags", "triggers";
+        reg = <0x301100 0xa0>;
+        interrupts = <22 0>, <23 0>, <24 0>, <25 0>;
         clocks = <&cmu S1C33_CLK_HSDMA>;
-        #dma-cells = <2>;
+        #dma-cells = <1>;
     };

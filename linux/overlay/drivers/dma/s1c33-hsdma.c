@@ -4,13 +4,13 @@
  *
  * Four channels move one unit, a byte, half-word or word, per trigger from
  * a source to a destination address, each incremented or fixed.  A
- * channel's trigger is chosen by a nibble in the interrupt controller, and
- * each channel has triggers of its own: the SPI receiver can only trigger
- * channel 3 and its transmitter channel 2.  So a request line is a channel
- * and a trigger together, and the device tree names them.
+ * channel's trigger is chosen by a nibble in the interrupt controller,
+ * which is the DMA router in front of this driver (irq-s1c33.c): a client
+ * names its request there, and this driver is handed the channel.
  *
- * Completion is found by polling: the transfer-count flag each channel
- * raises in the interrupt controller is read by tx_status, which retires
+ * Completion is found by polling: the end-of-transfer cause each channel
+ * raises in the interrupt controller, read as its interrupt's pending
+ * state with the interrupt never enabled, is read by tx_status, which retires
  * the descriptor and starts the next, so a client waits with
  * dmaengine_tx_status() or dma_sync_wait().  A descriptor with a callback
  * is handed to the channel's work on the BH workqueue, which runs the
@@ -34,6 +34,7 @@
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/dmaengine.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/list.h>
 #include <linux/module.h>
@@ -85,7 +86,7 @@ struct hsdma_chan {
 	struct dma_chan chan;
 	struct hsdma *hsdma;
 	unsigned int id;
-	unsigned int trigger;
+	unsigned int irq;		/* end of transfer, polled */
 	struct dma_slave_config config;
 	spinlock_t lock;		/* the lists and the channel's registers */
 	struct list_head prepared;	/* not submitted, or kept for reuse */
@@ -103,10 +104,6 @@ struct hsdma_chan {
 struct hsdma {
 	struct dma_device dd;
 	void __iomem *base;
-	void __iomem *priority;
-	void __iomem *flags;
-	void __iomem *triggers;
-	spinlock_t trigger_lock;	/* the trigger nibbles share bytes */
 	struct hsdma_chan chans[HSDMA_CHANNELS];
 };
 
@@ -120,23 +117,19 @@ static inline struct hsdma_desc *to_hsdma_desc(struct dma_async_tx_descriptor *t
 	return container_of(tx, struct hsdma_desc, tx);
 }
 
-static void hsdma_set_trigger(struct hsdma *hsdma, unsigned int id,
-			      unsigned int trigger)
-{
-	void __iomem *reg = hsdma->triggers + id / 2;
-	unsigned int shift = (id % 2) * 4;
-	unsigned long flags;
-
-	spin_lock_irqsave(&hsdma->trigger_lock, flags);
-	writeb((readb(reg) & ~(0xf << shift)) | trigger << shift, reg);
-	spin_unlock_irqrestore(&hsdma->trigger_lock, flags);
-}
-
 /* Stop the channel and forget its completion.  Under the channel lock. */
 static void hsdma_stop(struct hsdma_chan *c)
 {
 	writew(0, c->hsdma->base + HSDMA_ENABLE(c->id));
-	writeb(BIT(c->id), c->hsdma->flags);
+	irq_set_irqchip_state(c->irq, IRQCHIP_STATE_PENDING, false);
+}
+
+static bool hsdma_finished(struct hsdma_chan *c)
+{
+	bool pending;
+
+	return !irq_get_irqchip_state(c->irq, IRQCHIP_STATE_PENDING, &pending) &&
+	       pending;
 }
 
 static void hsdma_write_changed(struct hsdma_chan *c, u16 *cached, u16 value,
@@ -200,7 +193,7 @@ static void hsdma_poll(struct hsdma_chan *c)
 {
 	struct hsdma_desc *d = c->active;
 
-	if (!d || !(readb(c->hsdma->flags) & BIT(c->id)))
+	if (!d || !hsdma_finished(c))
 		return;
 	hsdma_stop(c);
 	dma_cookie_complete(&d->tx);
@@ -492,10 +485,7 @@ static void hsdma_synchronize(struct dma_chan *chan)
 
 static int hsdma_alloc_chan_resources(struct dma_chan *chan)
 {
-	struct hsdma_chan *c = to_hsdma_chan(chan);
-
 	dma_cookie_init(chan);
-	hsdma_set_trigger(c->hsdma, c->id, c->trigger);
 	return 0;
 }
 
@@ -506,7 +496,6 @@ static void hsdma_free_chan_resources(struct dma_chan *chan)
 
 	hsdma_terminate_all(chan);
 	hsdma_synchronize(chan);
-	hsdma_set_trigger(c->hsdma, c->id, 0);
 	list_for_each_entry_safe(d, next, &c->prepared, node) {
 		list_del(&d->node);
 		kfree(d);
@@ -515,32 +504,22 @@ static void hsdma_free_chan_resources(struct dma_chan *chan)
 		kfree(c->spare[--c->spares]);
 }
 
-/*
- * A request line in the device tree is <channel trigger>: the channel and
- * the trigger-source value that channel takes for it (the manual's table
- * II.1.5.1).  The SPI transmit request is channel 2's trigger 9 and the SPI
- * receive request channel 3's.
- */
+/* <channel>, from the interrupt controller's router. */
 static struct dma_chan *hsdma_of_xlate(struct of_phandle_args *args,
 				       struct of_dma *ofdma)
 {
 	struct hsdma *hsdma = ofdma->of_dma_data;
-	struct hsdma_chan *c;
 
-	if (args->args_count != 2 || args->args[0] >= HSDMA_CHANNELS ||
-	    args->args[1] > 15)
+	if (args->args_count != 1 || args->args[0] >= HSDMA_CHANNELS)
 		return NULL;
-	c = &hsdma->chans[args->args[0]];
-	c->trigger = args->args[1];
-	return dma_get_slave_channel(&c->chan);
+	return dma_get_slave_channel(&hsdma->chans[args->args[0]].chan);
 }
 
 /*
  * The documented reset-equivalent state: every channel stopped with its
- * trigger disconnected and latches clear, IDMA off, advanced mode for
- * 32-bit units and addresses, and no interrupt priority, since nothing
- * here takes the interrupts.  The loader that ran first may have left
- * any of it otherwise.
+ * latches clear, IDMA off, and advanced mode for 32-bit units and
+ * addresses.  The loader that ran first may have left any of it otherwise;
+ * the triggers are the interrupt controller's, which disconnects them.
  */
 static void hsdma_reset(struct hsdma *hsdma)
 {
@@ -551,7 +530,6 @@ static void hsdma_reset(struct hsdma *hsdma)
 	for (x = 0; x < HSDMA_CHANNELS; x++) {
 		struct hsdma_chan *c = &hsdma->chans[x];
 
-		hsdma_set_trigger(hsdma, x, 0);
 		hsdma_stop(c);
 		writew(1, base + HSDMA_TRIGGER_FLAG(x));
 		writew(c->word, base + HSDMA_ADV_CTL(x));
@@ -561,7 +539,11 @@ static void hsdma_reset(struct hsdma *hsdma)
 	}
 	writew(1, base + HSDMA_ADV_MODE);
 	writew(0, base + HSDMA_ADV_TIME);
-	writeb(0, hsdma->priority);
+}
+
+static void hsdma_of_free(void *data)
+{
+	of_dma_controller_free(data);
 }
 
 static int hsdma_probe(struct platform_device *pdev)
@@ -575,25 +557,13 @@ static int hsdma_probe(struct platform_device *pdev)
 	hsdma = devm_kzalloc(dev, sizeof(*hsdma), GFP_KERNEL);
 	if (!hsdma)
 		return -ENOMEM;
-	hsdma->base = devm_platform_ioremap_resource_byname(pdev, "dma");
+	hsdma->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(hsdma->base))
 		return PTR_ERR(hsdma->base);
-	hsdma->priority = devm_platform_ioremap_resource_byname(pdev,
-								"priority");
-	if (IS_ERR(hsdma->priority))
-		return PTR_ERR(hsdma->priority);
-	hsdma->flags = devm_platform_ioremap_resource_byname(pdev, "flags");
-	if (IS_ERR(hsdma->flags))
-		return PTR_ERR(hsdma->flags);
-	hsdma->triggers = devm_platform_ioremap_resource_byname(pdev,
-								"triggers");
-	if (IS_ERR(hsdma->triggers))
-		return PTR_ERR(hsdma->triggers);
 	clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(clk))
 		return dev_err_probe(dev, PTR_ERR(clk),
 				     "cannot enable the DMA clock\n");
-	spin_lock_init(&hsdma->trigger_lock);
 
 	dma_cap_set(DMA_SLAVE, hsdma->dd.cap_mask);
 	dma_cap_set(DMA_PRIVATE, hsdma->dd.cap_mask);
@@ -621,6 +591,10 @@ static int hsdma_probe(struct platform_device *pdev)
 
 		c->hsdma = hsdma;
 		c->id = x;
+		ret = platform_get_irq(pdev, x);
+		if (ret < 0)
+			return ret;
+		c->irq = ret;
 		c->control = HSDMA_DUAL;
 		spin_lock_init(&c->lock);
 		INIT_LIST_HEAD(&c->prepared);
@@ -637,6 +611,9 @@ static int hsdma_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 	ret = of_dma_controller_register(dev->of_node, hsdma_of_xlate, hsdma);
+	if (ret)
+		return ret;
+	ret = devm_add_action_or_reset(dev, hsdma_of_free, dev->of_node);
 	if (ret)
 		return ret;
 	dev_info(dev, "%d channels, completion polled\n", HSDMA_CHANNELS);
