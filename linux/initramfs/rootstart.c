@@ -12,47 +12,22 @@
  * says why on the console and, when it can, in linuxboot.txt on the card,
  * and reboots to the launcher.
  */
-typedef unsigned long size_t;
+#include <stddef.h>
+
+/* The kernel's own definitions: the sysroot's UAPI headers need no libc. */
+#include <asm/unistd.h>
+#include <linux/fcntl.h>
+#include <linux/loop.h>
+#include <linux/mount.h>
+#include <linux/random.h>
+#include <linux/reboot.h>
+#include <linux/resource.h>
+#include <linux/stat.h>
+#include <linux/time.h>
+#include <linux/time_types.h>
 
 long c33_syscall(long a1, long a2, long a3, long a4, long a5, long nr);
 
-#define NR_ioctl			29
-#define NR_mknodat			33
-#define NR_mkdirat			34
-#define NR_renameat2			276
-#define NR_statx			291
-#define NR_clock_settime64		404
-#define NR_mount			40
-#define NR_chdir			49
-#define NR_chroot			51
-#define NR_openat			56
-#define NR_close			57
-#define NR_read				63
-#define NR_write			64
-#define NR_sync				81
-#define NR_reboot			142
-#define NR_execve			221
-#define NR_prlimit64			261
-#define NR_clock_nanosleep_time64	407
-
-#define AT_FDCWD	-100
-#define O_RDONLY	00
-#define O_WRONLY	01
-#define O_RDWR		02
-#define O_CREAT		0100
-#define O_TRUNC		01000
-#define MS_NOSUID	2
-#define MS_NODEV	4
-#define MS_SYNCHRONOUS	16
-#define MS_NOATIME	1024
-#define MS_MOVE		8192
-#define LOOP_SET_FD	0x4c00
-#define LOOP_SET_DIRECT_IO	0x4c08
-#define RNDADDENTROPY	0x40085203
-#define CLOCK_REALTIME	0
-#define CLOCK_MONOTONIC	1
-#define STATX_MTIME	0x40
-#define STATX_MTIME_OFFSET	112	/* struct statx's stx_mtime.tv_sec */
 
 #define sys(nr, a, b, c, d, e) \
 	c33_syscall((long)(a), (long)(b), (long)(c), (long)(d), (long)(e), nr)
@@ -89,7 +64,7 @@ static void put(int fd, const char *s)
 	for (; *s; s++) {
 		line[used++] = *s;
 		if (*s == '\n' || used == sizeof(line)) {
-			sys(NR_write, fd, line, used, 0, 0);
+			sys(__NR_write, fd, line, used, 0, 0);
 			used = 0;
 		}
 	}
@@ -113,9 +88,9 @@ static void put_number(int fd, long value)
 
 static void sleep_50ms(void)
 {
-	struct { long long sec, nsec; } delay = { 0, 50000000 };
+	struct __kernel_timespec delay = { 0, 50000000 };
 
-	sys(NR_clock_nanosleep_time64, CLOCK_MONOTONIC, 0, &delay, 0, 0);
+	sys(__NR_clock_nanosleep_time64, CLOCK_MONOTONIC, 0, &delay, 0, 0);
 }
 
 /*
@@ -130,15 +105,15 @@ static void set_clock(void)
 	static const char *const files[] = {
 		"/mnt/" IMAGE, "/mnt/linux.app", "/mnt/kernel.elf",
 	};
-	static long long statx[32];
+	static struct statx st;
 	long long newest = 0, when;
-	struct { long long sec, nsec; } now = { 0, 0 };
+	struct __kernel_timespec now = { 0, 0 };
 	unsigned int i;
 
 	for (i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
-		if (sys(NR_statx, AT_FDCWD, files[i], 0, STATX_MTIME, statx))
+		if (sys(__NR_statx, AT_FDCWD, files[i], 0, STATX_MTIME, &st))
 			continue;
-		when = statx[STATX_MTIME_OFFSET / 8];
+		when = st.stx_mtime.tv_sec;
 		if (when > newest)
 			newest = when;
 	}
@@ -146,8 +121,8 @@ static void set_clock(void)
 		put(1, "C33 time: no clock source, running from the epoch\n");
 		return;
 	}
-	now.sec = newest;
-	sys(NR_clock_settime64, CLOCK_REALTIME, &now, 0, 0, 0);
+	now.tv_sec = newest;
+	sys(__NR_clock_settime64, CLOCK_REALTIME, &now, 0, 0, 0);
 	put(1, "C33 time: clock set from the card, @");
 	put_number(1, (long)newest);
 	put(1, "\n");
@@ -158,46 +133,44 @@ static void set_clock(void)
  * pool is ready before the first program runs: without it, the first read
  * of /dev/urandom waits while the kernel gathers jitter entropy, several
  * seconds on this CPU.  The seed is then renamed so that it is never
- * credited twice; rcS runs seedrng, which mixes it in again uncredited and
- * saves a fresh one for the next boot.
+ * credited twice; late runs seedrng, which mixes it in again uncredited and
+ * saves a fresh one for the next boot.  An image's first boot has none.
  */
 static void credit_seed(void)
 {
+	/* struct rand_pool_info with its buffer. */
 	static struct {
 		int bits;
 		int size;
 		unsigned char data[SEED_MAX];
 	} seed;
+	_Static_assert(offsetof(struct rand_pool_info, buf) ==
+		       offsetof(typeof(seed), data), "rand_pool_info layout");
 	long fd, random, size;
 
-	fd = sys(NR_openat, AT_FDCWD, SEED_DIR "/seed.credit", O_RDONLY, 0, 0);
+	fd = sys(__NR_openat, AT_FDCWD, SEED_DIR "/seed.credit", O_RDONLY, 0, 0);
 	if (fd < 0) {
 		put(1, "C33 random: no saved seed\n");
 		return;
 	}
-	size = sys(NR_read, fd, seed.data, SEED_MAX, 0, 0);
-	sys(NR_close, fd, 0, 0, 0, 0);
-	random = sys(NR_openat, AT_FDCWD, "/dev/urandom", O_WRONLY, 0, 0);
+	size = sys(__NR_read, fd, seed.data, SEED_MAX, 0, 0);
+	sys(__NR_close, fd, 0, 0, 0, 0);
+	random = sys(__NR_openat, AT_FDCWD, "/dev/urandom", O_WRONLY, 0, 0);
 	if (size > 0 && random >= 0) {
 		seed.bits = size * 8;
 		seed.size = size;
-		if (!sys(NR_ioctl, random, RNDADDENTROPY, &seed, 0, 0)) {
+		if (!sys(__NR_ioctl, random, RNDADDENTROPY, &seed, 0, 0)) {
 			put(1, "C33 random: credited a ");
 			put_number(1, size * 8);
 			put(1, "-bit seed from the last boot\n");
 		}
 	}
 	if (random >= 0)
-		sys(NR_close, random, 0, 0, 0, 0);
-	sys(NR_renameat2, AT_FDCWD, SEED_DIR "/seed.credit", AT_FDCWD,
+		sys(__NR_close, random, 0, 0, 0, 0);
+	sys(__NR_renameat2, AT_FDCWD, SEED_DIR "/seed.credit", AT_FDCWD,
 	    SEED_DIR "/seed.no-credit", 0);
 }
 
-/*
- * /proc, /sys, /dev and /dev/pts, here rather than from rcS: each mount
- * there is an exec of BusyBox, about a tenth of a second.  A failure is
- * said and survived; rcS checks for the PTYs the console needs.
- */
 /*
  * The kernel registers a VT's device only once the VT is allocated, so
  * devtmpfs holds just the VTs in use.  Programs that name a VT, such as
@@ -216,10 +189,15 @@ static void make_vt_nodes(void)
 		*p++ = '0' + n % 10;
 		*p = 0;
 		/* Character device 4:n, the kernel's encoding of the dev_t. */
-		sys(NR_mknodat, AT_FDCWD, path, 0020000 | 0600, (4 << 8) | n, 0);
+		sys(__NR_mknodat, AT_FDCWD, path, S_IFCHR | 0600, (4 << 8) | n, 0);
 	}
 }
 
+/*
+ * /proc, /sys, /dev and /dev/pts, here rather than from rcS: each mount
+ * there is an exec of BusyBox, about a tenth of a second.  A failure is
+ * said and survived; rcS checks for the PTYs the console needs.
+ */
 static void mount_kernel_fs(void)
 {
 	/* /tmp and /run in RAM, as Buildroot's own fstab has them: X's log,
@@ -241,8 +219,8 @@ static void mount_kernel_fs(void)
 	for (i = 0; i < sizeof(fs) / sizeof(fs[0]); i++) {
 		/* These directories live on the newly mounted devtmpfs. */
 		if (i == 3 || i > 5)
-			sys(NR_mkdirat, AT_FDCWD, fs[i][1], 0755, 0, 0);
-		error = sys(NR_mount, fs[i][0], fs[i][1], fs[i][0],
+			sys(__NR_mkdirat, AT_FDCWD, fs[i][1], 0755, 0, 0);
+		error = sys(__NR_mount, fs[i][0], fs[i][1], fs[i][0],
 			    i > 3 ? MS_NOSUID | MS_NODEV : 0, (long)fs[i][2]);
 		if (error) {
 			put(1, "C33 root: could not mount ");
@@ -276,22 +254,25 @@ static void __attribute__((noreturn)) fail(const char *why, long error)
 			path[i] = card_dir[i];
 		for (size_t i = 0; i <= sizeof("/linuxboot.txt") - 1; i++)
 			path[n + i] = "/linuxboot.txt"[i];
-		fd = sys(NR_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_TRUNC,
+		fd = sys(__NR_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_TRUNC,
 			 0644, 0);
 		if (fd >= 0) {
 			report(fd, why, error);
-			sys(NR_close, fd, 0, 0, 0, 0);
+			sys(__NR_close, fd, 0, 0, 0, 0);
 		}
 	}
-	sys(NR_sync, 0, 0, 0, 0, 0);
-	sys(NR_reboot, 0xfee1dead, 672274793, 0x01234567, 0, 0);
+	sys(__NR_sync, 0, 0, 0, 0, 0);
+	sys(__NR_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2,
+	    LINUX_REBOOT_CMD_RESTART, 0, 0);
 	for (;;)
 		;
 }
 
 void root_main(void)
 {
-	static const unsigned long long core_limit[2] = { 4 * 1024 * 1024, ~0ULL };
+	static const struct rlimit64 core_limit = {
+		.rlim_cur = 4 * 1024 * 1024, .rlim_max = RLIM64_INFINITY,
+	};
 	static char *const argv[] = { "/sbin/init", 0 };
 	static char *const envp[] = { "HOME=/root", "TERM=linux", "LANG=C.UTF-8", 0 };
 	long error = 0, image, loop;
@@ -306,11 +287,11 @@ void root_main(void)
 	 * otherwise the whole FAT is read and scanned to count, half a second
 	 * at boot. */
 	for (i = 0; i < CARD_TRIES; i++) {
-		long fd = sys(NR_openat, AT_FDCWD, CARD, O_RDONLY, 0, 0);
+		long fd = sys(__NR_openat, AT_FDCWD, CARD, O_RDONLY, 0, 0);
 
 		if (fd >= 0) {
-			sys(NR_close, fd, 0, 0, 0, 0);
-			error = sys(NR_mount, CARD, "/mnt", "vfat",
+			sys(__NR_close, fd, 0, 0, 0, 0);
+			error = sys(__NR_mount, CARD, "/mnt", "vfat",
 				    MS_SYNCHRONOUS, "usefree");
 			if (!error)
 				break;
@@ -325,48 +306,48 @@ void root_main(void)
 	/* Before ext4 is mounted, so that it records the time too. */
 	set_clock();
 
-	image = sys(NR_openat, AT_FDCWD, "/mnt/" IMAGE, O_RDWR, 0, 0);
+	image = sys(__NR_openat, AT_FDCWD, "/mnt/" IMAGE, O_RDWR, 0, 0);
 	if (image < 0)
 		fail("no " IMAGE " on the SD card", image);
-	loop = sys(NR_openat, AT_FDCWD, "/dev/loop0", O_RDWR, 0, 0);
+	loop = sys(__NR_openat, AT_FDCWD, "/dev/loop0", O_RDWR, 0, 0);
 	if (loop < 0)
 		fail("no loop device", loop);
-	error = sys(NR_ioctl, loop, LOOP_SET_FD, image, 0, 0);
+	error = sys(__NR_ioctl, loop, LOOP_SET_FD, image, 0, 0);
 	if (error)
 		fail("could not attach " IMAGE, error);
 	/* Straight to the card: through the FAT's page cache, every small ext4
 	 * read would also start the file's own readahead, and the image would
 	 * be cached twice.  Buffered I/O still works if this is refused. */
-	sys(NR_ioctl, loop, LOOP_SET_DIRECT_IO, 1, 0, 0);
-	sys(NR_close, image, 0, 0, 0, 0);
-	sys(NR_close, loop, 0, 0, 0, 0);
+	sys(__NR_ioctl, loop, LOOP_SET_DIRECT_IO, 1, 0, 0);
+	sys(__NR_close, image, 0, 0, 0, 0);
+	sys(__NR_close, loop, 0, 0, 0, 0);
 
-	error = sys(NR_mount, "/dev/loop0", "/newroot", "ext4", MS_NOATIME, "");
+	error = sys(__NR_mount, "/dev/loop0", "/newroot", "ext4", MS_NOATIME, "");
 	if (error)
 		fail(IMAGE " is not a usable ext4 image", error);
 	credit_seed();
-	error = sys(NR_mount, "/mnt", "/newroot/mnt/sd", 0, MS_MOVE, 0);
+	error = sys(__NR_mount, "/mnt", "/newroot/mnt/sd", 0, MS_MOVE, 0);
 	if (error)
 		fail(IMAGE " has no /mnt/sd", error);
 	card_dir = "/newroot/mnt/sd";
 	mount_kernel_fs();
 
-	sys(NR_chdir, "/newroot", 0, 0, 0, 0);
-	error = sys(NR_mount, ".", "/", 0, MS_MOVE, 0);
+	sys(__NR_chdir, "/newroot", 0, 0, 0, 0);
+	error = sys(__NR_mount, ".", "/", 0, MS_MOVE, 0);
 	if (!error)
-		error = sys(NR_chroot, ".", 0, 0, 0, 0);
+		error = sys(__NR_chroot, ".", 0, 0, 0, 0);
 	if (error)
 		fail("could not switch to " IMAGE, error);
 	card_dir = "/mnt/sd";
-	sys(NR_chdir, "/", 0, 0, 0, 0);
+	sys(__NR_chdir, "/", 0, 0, 0, 0);
 
 	put(1, "C33 root: running " IMAGE " from the SD card\n");
 	/* Inherited by init and every service; shells can lower it to zero.
 	 * The pipe collector also enforces this limit, since Linux itself
 	 * does not enforce RLIMIT_CORE for piped dumps. */
-	error = sys(NR_prlimit64, 0, 4 /* RLIMIT_CORE */, core_limit, 0, 0);
+	error = sys(__NR_prlimit64, 0, RLIMIT_CORE, &core_limit, 0, 0);
 	if (error)
 		fail("could not set the core size limit", error);
-	error = sys(NR_execve, argv[0], argv, envp, 0, 0);
+	error = sys(__NR_execve, argv[0], argv, envp, 0, 0);
 	fail(IMAGE " has no /sbin/init", error);
 }
