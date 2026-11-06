@@ -151,6 +151,16 @@ def main():
                     or "implicit declaration of function 'fork'" in result.stderr):
                 record["status"] = "REQUIRES_FORK"
             return "excluded", record
+        # musl links fork() and has it fail with ENOSYS without an MMU, so a
+        # case that calls it can only fail its setup, and one that then
+        # signals its "child" signals pid -1, every process.  It is
+        # accounted as needing fork, as when the C library had none.
+        imports = subprocess.run([args.cc[:-3] + "nm", "-D", "--undefined-only", str(binary)],
+                                 capture_output=True, text=True, check=True).stdout.split()
+        if "fork" in imports and name not in local:
+            record["status"] = "REQUIRES_FORK"
+            binary.unlink()
+            return "excluded", record
         record.update(binary=binary.name, binary_sha256=digest(binary))
         return "runtime", record
 
