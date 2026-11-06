@@ -47,8 +47,14 @@ python3 linux/upstream-tests/build.py            # in the VM
 python3 linux/upstream-tests/run.py busybox --output DIR
 python3 linux/upstream-tests/run.py busybox --hush-case hush-misc/func7.tests --output DIR
 python3 linux/upstream-tests/summarize.py --busybox DIR --output summary.json
-python3 linux/upstream-tests/run.py libc --batch-size 16 --output DIR
+python3 linux/upstream-tests/run.py libc --output DIR
 ```
+
+libc-test's out-of-memory tests fail about 150 allocations each, and the
+kernel prints a memory report on the console for every one at baud rate.
+At the default of eight programs a batch those reports fit in a batch's
+wall-clock limit; at sixteen, two of them in one batch exceed it, and the
+programs after them are counted as errors without having run.
 
 ## Results
 
