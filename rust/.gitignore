@@ -1,5 +1,5 @@
 # Build products: the app, its listing and the test's screen dump.
-/hello/target/
+target/
 *.app
 *.dump
 screen.pgm
