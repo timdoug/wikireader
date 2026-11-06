@@ -9,10 +9,10 @@ the remainder comes from a multiply.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/ldso/dynlink.c b/ldso/dynlink.c
-index af1ed18..77307dd 100644
+index dc25b62..95f6ec9 100644
 --- a/ldso/dynlink.c
 +++ b/ldso/dynlink.c
-@@ -76,6 +76,9 @@ struct dso {
+@@ -81,6 +81,9 @@ struct dso {
  	Sym *syms;
  	Elf_Symndx *hashtab;
  	uint32_t *ghashtab;
@@ -22,7 +22,7 @@ index af1ed18..77307dd 100644
  	int16_t *versym;
  	char *strings;
  	struct dso *syms_next, *lazy_next;
-@@ -280,11 +283,25 @@ static Sym *sysv_lookup(const char *s, uint32_t h, struct dso *dso)
+@@ -285,11 +288,25 @@ static Sym *sysv_lookup(const char *s, uint32_t h, struct dso *dso)
  	return 0;
  }
  
@@ -49,7 +49,7 @@ index af1ed18..77307dd 100644
  
  	if (!i) return 0;
  
-@@ -1056,8 +1073,12 @@ static void decode_dyn(struct dso *p)
+@@ -1061,8 +1078,12 @@ static void decode_dyn(struct dso *p)
  		p->rpath_orig = p->strings + dyn[DT_RUNPATH];
  	if (dyn[0]&(1<<DT_PLTGOT))
  		p->got = laddr(p, dyn[DT_PLTGOT]);

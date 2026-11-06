@@ -12,10 +12,18 @@ and in the static library.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/ldso/dynlink.c b/ldso/dynlink.c
-index 1a7da59..3521330 100644
+index 2c97bf7..068bccc 100644
 --- a/ldso/dynlink.c
 +++ b/ldso/dynlink.c
-@@ -2677,11 +2677,23 @@ no_redir:
+@@ -23,6 +23,7 @@
+ #include "fork_impl.h"
+ #include "libc.h"
+ #include "dynlink.h"
++#include "lock.h"
+ 
+ static size_t ldso_page_size;
+ /* libc.h may have defined a macro for dynamic PAGE_SIZE already, but
+@@ -2465,11 +2466,23 @@ no_redir:
  	return __dlsym(p, s, ra);
  }
  
@@ -39,7 +47,7 @@ index 1a7da59..3521330 100644
  	for(current = head; current;) {
  #ifdef __DLPI_ADDR_TYPE
  		info.dlpi_addr.map  = (void *)current->loadmap;
-@@ -2706,6 +2718,10 @@ int dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size_t size, void
+@@ -2494,6 +2507,10 @@ int dl_iterate_phdr(int(*callback)(struct dl_phdr_info *info, size_t size, void
  		current = current->next;
  		pthread_rwlock_unlock(&lock);
  	}

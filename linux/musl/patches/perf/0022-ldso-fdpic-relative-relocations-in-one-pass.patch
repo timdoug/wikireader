@@ -61,10 +61,10 @@ index 0485724..cf7fdec 100644
  		if (!IS_RELATIVE(rel[1], 0)) continue;
  		for (j=0; rel[0]-segs[j].p_vaddr >= segs[j].p_memsz; j++);
 diff --git a/ldso/dynlink.c b/ldso/dynlink.c
-index a204d78..c798ea5 100644
+index 20d3751..3ba1f55 100644
 --- a/ldso/dynlink.c
 +++ b/ldso/dynlink.c
-@@ -1542,6 +1542,31 @@ static void do_mips_relocs(struct dso *p, size_t *got)
+@@ -1546,6 +1546,31 @@ static void do_mips_relocs(struct dso *p, size_t *got)
  	}
  }
  
@@ -96,7 +96,7 @@ index a204d78..c798ea5 100644
  static void reloc_all(struct dso *p)
  {
  	size_t dyn[DYN_CNT];
-@@ -1553,7 +1578,18 @@ static void reloc_all(struct dso *p)
+@@ -1557,7 +1582,18 @@ static void reloc_all(struct dso *p)
  		do_relocs(p, laddr(p, dyn[DT_JMPREL]), dyn[DT_PLTRELSZ],
  			2+(dyn[DT_PLTREL]==DT_RELA));
  		do_relocs(p, laddr(p, dyn[DT_REL]), dyn[DT_RELSZ], 2);

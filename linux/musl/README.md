@@ -61,7 +61,8 @@ musl's SuperH FDPIC code expects them.
   relocations with the link-time address in the addend, constructor
   tables of entry points, and load maps in `dl_phdr_info` and for a
   static program's TLS.
-- `perf/`: ld.so's work at every exec: recently resolved symbols
+- `perf/`: ld.so's work at every exec, numbered after everything else so
+  that each applies to a tree that builds without it: recently resolved symbols
   remembered, GNU hash buckets without a divide, function descriptors made
   on demand rather than for every function of every module (16 KB a
   process for libc alone), the counted relative relocations in a pass of

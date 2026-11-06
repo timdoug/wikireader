@@ -15,10 +15,10 @@ ld.so binds its own at once, and everything does with LD_BIND_NOW.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/ldso/dynlink.c b/ldso/dynlink.c
-index e1f22ce..1a7da59 100644
+index 4b411a9..f6604fc 100644
 --- a/ldso/dynlink.c
 +++ b/ldso/dynlink.c
-@@ -144,6 +144,9 @@ static size_t *saved_addends, *apply_addends_to;
+@@ -148,6 +148,9 @@ static size_t *saved_addends, *apply_addends_to;
  static struct dso ldso;
  static struct dso *head, *tail, *fini_head, *syms_tail, *lazy_head;
  static char *env_path, *sys_path;
@@ -28,7 +28,7 @@ index e1f22ce..1a7da59 100644
  static unsigned long long gencnt;
  static int runtime;
  static int ldd_mode;
-@@ -1585,6 +1588,61 @@ static void do_relative_relocs(struct dso *p, size_t *rel, size_t n)
+@@ -1589,6 +1592,61 @@ static void do_relative_relocs(struct dso *p, size_t *rel, size_t n)
  }
  #endif
  
@@ -90,7 +90,7 @@ index e1f22ce..1a7da59 100644
  static void reloc_all(struct dso *p)
  {
  	size_t dyn[DYN_CNT];
-@@ -1593,6 +1651,20 @@ static void reloc_all(struct dso *p)
+@@ -1597,6 +1655,20 @@ static void reloc_all(struct dso *p)
  		decode_vec(p->dynv, dyn, DYN_CNT);
  		if (NEED_MIPS_GOT_RELOCS)
  			do_mips_relocs(p, laddr(p, dyn[DT_PLTGOT]));
@@ -111,7 +111,7 @@ index e1f22ce..1a7da59 100644
  		do_relocs(p, laddr(p, dyn[DT_JMPREL]), dyn[DT_PLTRELSZ],
  			2+(dyn[DT_PLTREL]==DT_RELA));
  		do_relocs(p, laddr(p, dyn[DT_REL]), dyn[DT_RELSZ], 2);
-@@ -2023,6 +2095,12 @@ void __dls3(size_t *sp, size_t *auxv)
+@@ -2028,6 +2100,12 @@ void __dls3(size_t *sp, size_t *auxv)
  		env_path = getenv("LD_LIBRARY_PATH");
  		env_preload = getenv("LD_PRELOAD");
  	}
