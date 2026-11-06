@@ -1,0 +1,155 @@
+libgccjit: build against libc++ and export the new entry points on Darwin
+
+jit-playback.h and jit-target.h include <vector> and <unordered_set>,
+which with macOS's libc++ pull in <locale>; after system.h has defined
+_() and poisoned names, that header no longer parses.  The jit sources
+and config/default-jit.cc ask system.h for <vector> instead, as the rest
+of GCC does with INCLUDE_VECTOR.  jit-target.h hashed C strings with
+std::_Hash_bytes, which only libstdc++ has; libiberty's
+htab_hash_string does the same job.  Darwin links the library with
+libgccjit.exports, not libgccjit.map, and the fork added its entry
+points only to the map.
+
+diff --git a/gcc/jit/dummy-frontend.cc b/gcc/jit/dummy-frontend.cc
+index a2e28d8..589f65a 100644
+--- a/gcc/jit/dummy-frontend.cc
++++ b/gcc/jit/dummy-frontend.cc
+@@ -18,6 +18,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #include "system.h"
+ #include "coretypes.h"
+ #include "target.h"
+diff --git a/gcc/jit/jit-builtins.cc b/gcc/jit/jit-builtins.cc
+index 837f242..782908d 100644
+--- a/gcc/jit/jit-builtins.cc
++++ b/gcc/jit/jit-builtins.cc
+@@ -18,6 +18,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #include "system.h"
+ #include "coretypes.h"
+ #include "target.h"
+diff --git a/gcc/jit/jit-playback.cc b/gcc/jit/jit-playback.cc
+index 080926a..d146ce1 100644
+--- a/gcc/jit/jit-playback.cc
++++ b/gcc/jit/jit-playback.cc
+@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #define INCLUDE_MUTEX
+ #define INCLUDE_DLFCN_H
+ #include "libgccjit.h"
+diff --git a/gcc/jit/jit-recording.cc b/gcc/jit/jit-recording.cc
+index 7dc87e0..6431b40 100644
+--- a/gcc/jit/jit-recording.cc
++++ b/gcc/jit/jit-recording.cc
+@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #define INCLUDE_SSTREAM
+ #include "system.h"
+ #include "coretypes.h"
+diff --git a/gcc/jit/jit-target.cc b/gcc/jit/jit-target.cc
+index 4aaa464..0f6e00d 100644
+--- a/gcc/jit/jit-target.cc
++++ b/gcc/jit/jit-target.cc
+@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
+ #define INCLUDE_STRING
+ #define INCLUDE_ALGORITHM
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #include "system.h"
+ #include "coretypes.h"
+ 
+diff --git a/gcc/jit/jit-target.h b/gcc/jit/jit-target.h
+index 7ca4685..0a35538 100644
+--- a/gcc/jit/jit-target.h
++++ b/gcc/jit/jit-target.h
+@@ -31,8 +31,7 @@
+ 
+ static size_t hash_cstr (const char *s)
+ {
+-  const size_t seed = 0;
+-  return std::_Hash_bytes (s, std::strlen (s), seed);
++  return htab_hash_string (s);
+ }
+ 
+ struct CStringHash {
+diff --git a/gcc/jit/libgccjit.cc b/gcc/jit/libgccjit.cc
+index f4efd2d..51772c7 100644
+--- a/gcc/jit/libgccjit.cc
++++ b/gcc/jit/libgccjit.cc
+@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #include "config.h"
++#define INCLUDE_VECTOR
+ #define INCLUDE_MUTEX
+ #define INCLUDE_STRING
+ #include "system.h"
+diff --git a/gcc/config/default-jit.cc b/gcc/config/default-jit.cc
+index ec9f1aa..68963b3 100644
+--- a/gcc/config/default-jit.cc
++++ b/gcc/config/default-jit.cc
+@@ -16,6 +16,7 @@ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+ #define INCLUDE_STRING
++#define INCLUDE_VECTOR
+ #include "config.h"
+ #include "system.h"
+ #include "coretypes.h"
+diff --git a/gcc/jit/libgccjit.exports b/gcc/jit/libgccjit.exports
+index fae0951..355a30d 100644
+--- a/gcc/jit/libgccjit.exports
++++ b/gcc/jit/libgccjit.exports
+@@ -267,3 +267,40 @@ _gcc_jit_context_new_array_type_u64
+ 
+ # LIBGCCJIT_ABI_38
+ _gcc_jit_type_is_floating_point
++
++# The rust-lang fork's additions (LIBGCCJIT_ABI_39 on).
++_gcc_jit_block_add_try_catch
++_gcc_jit_block_add_try_finally
++_gcc_jit_function_set_personality_function
++_gcc_jit_set_global_personality_function_name
++_gcc_jit_field_set_location
++_gcc_jit_function_set_location
++_gcc_jit_rvalue_set_location
++_gcc_jit_rvalue_set_type
++_gcc_jit_lvalue_add_attribute
++_gcc_jit_lvalue_get_name
++_gcc_jit_lvalue_set_name
++_gcc_jit_is_lto_supported
++_gcc_jit_set_lang_name
++_gcc_jit_context_set_filename
++_gcc_jit_context_new_va_arg
++_gcc_jit_block_end_with_fallthrough
++_gcc_jit_function_new_region
++_gcc_jit_region_new_block
++_gcc_jit_region_add_block
++_gcc_jit_blocks_clone
++_gcc_jit_block_add_cleanup
++_gcc_jit_type_add_attribute
++_gcc_jit_type_add_integer_attribute
++_gcc_jit_block_get_successor_count
++_gcc_jit_block_get_successor
++_gcc_jit_function_type_as_object
++_gcc_jit_vector_type_as_object
++_gcc_jit_region_as_object
++_gcc_jit_context_get_error_count
++_gcc_jit_function_set_indirect_return
++_gcc_jit_function_type_is_indirect_return
++_gcc_jit_function_type_set_indirect_return
++_gcc_jit_function_set_named_return_value
++_gcc_jit_rvalue_set_bool_return_slot_optimization
++_gcc_jit_context_new_array_from_bytes

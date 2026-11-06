@@ -1,0 +1,3605 @@
+libgccjit: GCC trunk's jit changes since GCC 16
+
+Upstream gcc-mirror/gcc commits 85a58be7b6 8307743868 88a676869a
+3eb88989cf 32cd422ee5 d45e81a30a 123b6a2397, the jit part of
+2f5ed17008, and 54df3a3d98 (attribute handlers shared with c-family;
+c-attribs.cc's declarations of handle_callback_only_attribute, which
+16.2 lacks, left out).  The base the rust-lang fork is built on.
+
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 8ecef4c..665d821 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -1329,7 +1329,7 @@ C_COMMON_OBJS = c-family/c-common.o c-family/c-cppbuiltin.o c-family/c-dump.o \
+   c-family/c-semantics.o c-family/c-ada-spec.o \
+   c-family/c-ubsan.o c-family/known-headers.o \
+   c-family/c-attribs.o c-family/c-warn.o c-family/c-spellcheck.o \
+-  c-family/c-type-mismatch.o
++  c-family/c-type-mismatch.o attr-handlers.o
+ 
+ # Analyzer object files
+ ANALYZER_OBJS = \
+diff --git a/gcc/attr-handlers.cc b/gcc/attr-handlers.cc
+new file mode 100644
+index 0000000..103f2aa
+--- /dev/null
++++ b/gcc/attr-handlers.cc
+@@ -0,0 +1,882 @@
++/* Language-independent attribute handlers shared across front ends.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify it under
++the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 3, or (at your option) any later
++version.
++
++GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++#include "config.h"
++#include "system.h"
++#include "coretypes.h"
++#include "target.h"
++#include "function.h"
++#include "tree.h"
++#include "stringpool.h"
++#include "attribs.h"
++#include "attr-handlers.h"
++#include "diagnostic-core.h"
++#include "options.h"
++#include "cgraph.h"
++#include "varasm.h"
++#include "common/common-target.h"
++#include "tree-pretty-print.h"
++
++/* Helper to define attribute exclusions.  */
++#define ATTR_EXCL(name, function, type, variable)	\
++  { name, function, type, variable }
++
++/* Define attributes that are mutually exclusive with one another.  */
++const struct attribute_spec::exclusions attr_noreturn_exclusions[] =
++{
++  ATTR_EXCL ("alloc_align", true, true, true),
++  ATTR_EXCL ("alloc_size", true, true, true),
++  ATTR_EXCL ("const", true, true, true),
++  ATTR_EXCL ("malloc", true, true, true),
++  ATTR_EXCL ("pure", true, true, true),
++  ATTR_EXCL ("returns_twice", true, true, true),
++  ATTR_EXCL ("warn_unused_result", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++const struct attribute_spec::exclusions attr_returns_twice_exclusions[] =
++{
++  ATTR_EXCL ("noreturn", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++/* Exclusions that apply to attribute alloc_align, alloc_size, and malloc.  */
++const struct attribute_spec::exclusions attr_alloc_exclusions[] =
++{
++  ATTR_EXCL ("const", true, true, true),
++  ATTR_EXCL ("noreturn", true, true, true),
++  ATTR_EXCL ("pure", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++const struct attribute_spec::exclusions attr_const_pure_exclusions[] =
++{
++  ATTR_EXCL ("const", true, true, true),
++  ATTR_EXCL ("alloc_align", true, true, true),
++  ATTR_EXCL ("alloc_size", true, true, true),
++  ATTR_EXCL ("malloc", true, true, true),
++  ATTR_EXCL ("noreturn", true, true, true),
++  ATTR_EXCL ("pure", true, true, true),
++  ATTR_EXCL (NULL, false, false, false)
++};
++
++const struct attribute_spec::exclusions attr_always_inline_exclusions[] =
++{
++  ATTR_EXCL ("noinline", true, true, true),
++  ATTR_EXCL ("target_clones", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++const struct attribute_spec::exclusions attr_cold_hot_exclusions[] =
++{
++  ATTR_EXCL ("cold", true, true, true),
++  ATTR_EXCL ("hot", true, true, true),
++  ATTR_EXCL (NULL, false, false, false)
++};
++
++const struct attribute_spec::exclusions attr_noinline_exclusions[] =
++{
++  ATTR_EXCL ("always_inline", true, true, true),
++  ATTR_EXCL ("gnu_inline", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++const struct attribute_spec::exclusions attr_target_exclusions[] =
++{
++  ATTR_EXCL ("target_clones", TARGET_HAS_FMV_TARGET_ATTRIBUTE,
++	     TARGET_HAS_FMV_TARGET_ATTRIBUTE, TARGET_HAS_FMV_TARGET_ATTRIBUTE),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++/* Exclusions that apply to attributes that put declarations in specific
++   sections.  */
++const struct attribute_spec::exclusions attr_section_exclusions[] =
++{
++  ATTR_EXCL ("noinit", true, true, true),
++  ATTR_EXCL ("persistent", true, true, true),
++  ATTR_EXCL ("section", true, true, true),
++  ATTR_EXCL (NULL, false, false, false),
++};
++
++/* Return the first of DECL or TYPE attributes installed in NODE if it's
++   a DECL, or TYPE attributes if it's a TYPE, or null otherwise.  */
++
++static tree
++decl_or_type_attrs (tree node)
++{
++  if (DECL_P (node))
++    {
++      if (tree attrs = DECL_ATTRIBUTES (node))
++	return attrs;
++
++      tree type = TREE_TYPE (node);
++      if (type == error_mark_node)
++	return NULL_TREE;
++      return TYPE_ATTRIBUTES (type);
++    }
++
++  if (TYPE_P (node))
++    return TYPE_ATTRIBUTES (node);
++
++  return NULL_TREE;
++}
++
++/* Given a pair of NODEs for arbitrary DECLs or TYPEs, validate one or
++   two integral or string attribute arguments NEWARGS to be applied to
++   NODE[0] for the absence of conflicts with the same attribute arguments
++   already applied to NODE[1]. Issue a warning for conflicts and return
++   false.  Otherwise, when no conflicts are found, return true.  */
++
++bool
++validate_attr_args (tree node[2], tree name, tree newargs[2])
++{
++  /* First validate the arguments against those already applied to
++     the same declaration (or type).  */
++  tree self[2] = { node[0], node[0] };
++  if (node[0] != node[1] && !validate_attr_args (self, name, newargs))
++    return false;
++
++  if (!node[1])
++    return true;
++
++  /* Extract the same attribute from the previous declaration or type.  */
++  tree prevattr = decl_or_type_attrs (node[1]);
++  const char* const namestr = IDENTIFIER_POINTER (name);
++  prevattr = lookup_attribute (namestr, prevattr);
++  if (!prevattr)
++    return true;
++
++  /* Extract one or both attribute arguments.  */
++  tree prevargs[2];
++  prevargs[0] = TREE_VALUE (TREE_VALUE (prevattr));
++  prevargs[1] = TREE_CHAIN (TREE_VALUE (prevattr));
++  if (prevargs[1])
++    prevargs[1] = TREE_VALUE (prevargs[1]);
++
++  /* Both arguments must be equal or, for the second pair, neither must
++     be provided to succeed.  */
++  bool arg1eq, arg2eq;
++  if (TREE_CODE (newargs[0]) == INTEGER_CST)
++    {
++      arg1eq = tree_int_cst_equal (newargs[0], prevargs[0]);
++      if (newargs[1] && prevargs[1])
++	arg2eq = tree_int_cst_equal (newargs[1], prevargs[1]);
++      else
++	arg2eq = newargs[1] == prevargs[1];
++    }
++  else if (TREE_CODE (newargs[0]) == STRING_CST)
++    {
++      const char *s0 = TREE_STRING_POINTER (newargs[0]);
++      const char *s1 = TREE_STRING_POINTER (prevargs[0]);
++      arg1eq = strcmp (s0, s1) == 0;
++      if (newargs[1] && prevargs[1])
++	{
++	  s0 = TREE_STRING_POINTER (newargs[1]);
++	  s1 = TREE_STRING_POINTER (prevargs[1]);
++	  arg2eq = strcmp (s0, s1) == 0;
++	}
++      else
++	arg2eq = newargs[1] == prevargs[1];
++    }
++  else
++    gcc_unreachable ();
++
++  if (arg1eq && arg2eq)
++    return true;
++
++  /* If the two locations are different print a note pointing to
++     the previous one.  */
++  const location_t curloc = input_location;
++  const location_t prevloc
++    = DECL_P (node[1]) ? DECL_SOURCE_LOCATION (node[1]) : curloc;
++
++  /* Format the attribute specification for convenience.  */
++  char newspec[80], prevspec[80];
++  if (newargs[1])
++    snprintf (newspec, sizeof newspec, "%s (%s, %s)", namestr,
++	      print_generic_expr_to_str (newargs[0]),
++	      print_generic_expr_to_str (newargs[1]));
++  else
++    snprintf (newspec, sizeof newspec, "%s (%s)", namestr,
++	      print_generic_expr_to_str (newargs[0]));
++
++  if (prevargs[1])
++    snprintf (prevspec, sizeof prevspec, "%s (%s, %s)", namestr,
++	      print_generic_expr_to_str (prevargs[0]),
++	      print_generic_expr_to_str (prevargs[1]));
++  else
++    snprintf (prevspec, sizeof prevspec, "%s (%s)", namestr,
++	      print_generic_expr_to_str (prevargs[0]));
++
++  if (warning_at (curloc, OPT_Wattributes,
++		  "ignoring attribute %qs because it conflicts "
++		  "with previous %qs",
++		  newspec, prevspec)
++      && curloc != prevloc)
++    inform (prevloc, "previous declaration here");
++
++  return false;
++}
++
++/* Convenience wrapper for validate_attr_args to validate a single
++   attribute argument.  Used by handlers for attributes that take
++   just a single argument.  */
++
++bool
++validate_attr_arg (tree node[2], tree name, tree newarg)
++{
++  tree argarray[2] = { newarg, NULL_TREE };
++  return validate_attr_args (node, name, argarray);
++}
++
++/* Handle an "alias" or "ifunc" attribute; arguments as in
++   struct attribute_spec.handler, except that IS_ALIAS tells us
++   whether this is an alias as opposed to ifunc attribute.  */
++
++tree
++handle_alias_ifunc_attribute (bool is_alias, tree *node, tree name, tree args,
++			      bool *no_add_attrs)
++{
++  tree decl = *node;
++
++  if (TREE_CODE (decl) != FUNCTION_DECL
++      && (!is_alias || !VAR_P (decl)))
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++  else if ((TREE_CODE (decl) == FUNCTION_DECL && DECL_INITIAL (decl))
++      || (TREE_CODE (decl) != FUNCTION_DECL
++	  && TREE_PUBLIC (decl) && !DECL_EXTERNAL (decl))
++      /* A static variable declaration is always a tentative definition,
++	 but the alias is a non-tentative definition which overrides.  */
++      || (TREE_CODE (decl) != FUNCTION_DECL
++	  && ! TREE_PUBLIC (decl) && DECL_INITIAL (decl)))
++    {
++      error ("%q+D defined both normally and as %qE attribute", decl, name);
++      *no_add_attrs = true;
++      return NULL_TREE;
++    }
++  else if (!is_alias
++	   && (lookup_attribute ("weak", DECL_ATTRIBUTES (decl))
++	       || lookup_attribute ("weakref", DECL_ATTRIBUTES (decl))))
++    {
++      error ("weak %q+D cannot be defined %qE", decl, name);
++      *no_add_attrs = true;
++      return NULL_TREE;
++    }
++
++  /* Note that the very first time we process a nested declaration,
++     decl_function_context will not be set.  Indeed, *would* never
++     be set except for the DECL_INITIAL/DECL_EXTERNAL frobbery that
++     we do below.  After such frobbery, pushdecl would set the context.
++     In any case, this is never what we want.  */
++  else if (decl_function_context (decl) == 0 && current_function_decl == NULL)
++    {
++      tree id;
++
++      id = TREE_VALUE (args);
++      if (TREE_CODE (id) != STRING_CST)
++	{
++	  error ("attribute %qE argument not a string", name);
++	  *no_add_attrs = true;
++	  return NULL_TREE;
++	}
++      id = get_identifier (TREE_STRING_POINTER (id));
++      /* This counts as a use of the object pointed to.  */
++      TREE_USED (id) = 1;
++
++      if (TREE_CODE (decl) == FUNCTION_DECL)
++	DECL_INITIAL (decl) = error_mark_node;
++      else
++	TREE_STATIC (decl) = 1;
++
++      if (!is_alias)
++	{
++	  /* ifuncs are also aliases, so set that attribute too.  */
++	  DECL_ATTRIBUTES (decl)
++	    = tree_cons (get_identifier ("alias"), args,
++			 DECL_ATTRIBUTES (decl));
++	  DECL_ATTRIBUTES (decl) = tree_cons (get_identifier ("ifunc"),
++					      NULL, DECL_ATTRIBUTES (decl));
++	}
++    }
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  if (decl_in_symtab_p (*node))
++    {
++      struct symtab_node *n = symtab_node::get (decl);
++      if (n && n->refuse_visibility_changes)
++	error ("%+qD declared %qs after being used",
++	       decl, is_alias ? "alias" : "ifunc");
++    }
++
++  return NULL_TREE;
++}
++
++/* Ignore the given attribute.  Used when this attribute may be usefully
++   overridden by the target, but is not used generically.  */
++
++tree
++ignore_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
++		  tree ARG_UNUSED (args), int ARG_UNUSED (flags),
++		  bool *no_add_attrs)
++{
++  *no_add_attrs = true;
++  return NULL_TREE;
++}
++
++/* Handle a "leaf" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_leaf_attribute (tree *node, tree name,
++		       tree ARG_UNUSED (args),
++		       int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) != FUNCTION_DECL)
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++  if (!TREE_PUBLIC (*node))
++    {
++      warning (OPT_Wattributes, "%qE attribute has no effect on unit local "
++	       "functions", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "const" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_const_attribute (tree *node, tree name, tree ARG_UNUSED (args),
++			int flags, bool *no_add_attrs)
++{
++  tree type = TREE_TYPE (*node);
++
++  /* See FIXME comment on noreturn in c_common_attribute_table.  */
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    TREE_READONLY (*node) = 1;
++  else if (TREE_CODE (type) == POINTER_TYPE
++	   && TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
++    TREE_TYPE (*node)
++      = (build_qualified_type
++	 (build_pointer_type
++	  (build_type_variant (TREE_TYPE (type), 1,
++			       TREE_THIS_VOLATILE (TREE_TYPE (type)))),
++	  TYPE_QUALS (type)));
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  /* void __builtin_unreachable (void) is const.  Accept other such
++     built-ins but warn on user-defined functions that return void.  */
++  if (!(flags & ATTR_FLAG_BUILT_IN)
++      && TREE_CODE (*node) == FUNCTION_DECL
++      && VOID_TYPE_P (TREE_TYPE (type)))
++    warning (OPT_Wattributes, "%qE attribute on function "
++	     "returning %<void%>", name);
++
++  return NULL_TREE;
++}
++
++/* Handle a "pure" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_pure_attribute (tree *node, tree name, tree ARG_UNUSED (args),
++		       int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    {
++      tree type = TREE_TYPE (*node);
++      if (VOID_TYPE_P (TREE_TYPE (type)))
++	warning (OPT_Wattributes, "%qE attribute on function "
++		 "returning %<void%>", name);
++
++      DECL_PURE_P (*node) = 1;
++      /* ??? TODO: Support types.  */
++    }
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "no vops" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_novops_attribute (tree *node, tree ARG_UNUSED (name),
++			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
++			 bool *ARG_UNUSED (no_add_attrs))
++{
++  gcc_assert (TREE_CODE (*node) == FUNCTION_DECL);
++  DECL_IS_NOVOPS (*node) = 1;
++  return NULL_TREE;
++}
++
++/* Handle a "nothrow" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_nothrow_attribute (tree *node, tree name, tree ARG_UNUSED (args),
++			  int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    TREE_NOTHROW (*node) = 1;
++  /* ??? TODO: Support types.  */
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "type_generic" attribute.  */
++
++tree
++handle_type_generic_attribute (tree *node, tree ARG_UNUSED (name),
++			       tree ARG_UNUSED (args), int ARG_UNUSED (flags),
++			       bool * ARG_UNUSED (no_add_attrs))
++{
++  /* Ensure we have a function type.  */
++  gcc_assert (TREE_CODE (*node) == FUNCTION_TYPE);
++
++  /* Ensure we have a variadic function.  */
++  gcc_assert (!prototype_p (*node) || stdarg_p (*node));
++
++  return NULL_TREE;
++}
++
++/* Handle a "returns_twice" attribute.  */
++
++tree
++handle_returns_twice_attribute (tree *node, tree name, tree ARG_UNUSED (args),
++			 int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    DECL_IS_RETURNS_TWICE (*node) = 1;
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "fn spec" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_fnspec_attribute (tree *node ATTRIBUTE_UNUSED, tree ARG_UNUSED (name),
++			 tree args, int ARG_UNUSED (flags),
++			 bool *no_add_attrs ATTRIBUTE_UNUSED)
++{
++  gcc_assert (args
++	      && TREE_CODE (TREE_VALUE (args)) == STRING_CST
++	      && !TREE_CHAIN (args));
++  return NULL_TREE;
++}
++
++/* Handle an "visibility" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_visibility_attribute (tree *node, tree name, tree args,
++			     int ARG_UNUSED (flags),
++			     bool *ARG_UNUSED (no_add_attrs))
++{
++  tree decl = *node;
++  tree id = TREE_VALUE (args);
++  enum symbol_visibility vis;
++
++  if (TYPE_P (*node))
++    {
++      if (TREE_CODE (*node) == ENUMERAL_TYPE)
++	/* OK.  */;
++      else if (!RECORD_OR_UNION_TYPE_P (*node))
++	{
++	  warning (OPT_Wattributes, "%qE attribute ignored on non-class types",
++		   name);
++	  return NULL_TREE;
++	}
++      else if (TYPE_FIELDS (*node))
++	{
++	  error ("%qE attribute ignored because %qT is already defined",
++		 name, *node);
++	  return NULL_TREE;
++	}
++    }
++  else if (decl_function_context (decl) != 0 || !TREE_PUBLIC (decl))
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      return NULL_TREE;
++    }
++
++  if (TREE_CODE (id) != STRING_CST)
++    {
++      error ("visibility argument not a string");
++      return NULL_TREE;
++    }
++
++  /*  If this is a type, set the visibility on the type decl.  */
++  if (TYPE_P (decl))
++    {
++      decl = TYPE_NAME (decl);
++      if (!decl)
++	return NULL_TREE;
++      if (TREE_CODE (decl) == IDENTIFIER_NODE)
++	{
++	   warning (OPT_Wattributes, "%qE attribute ignored on types",
++		    name);
++	   return NULL_TREE;
++	}
++    }
++
++  if (strcmp (TREE_STRING_POINTER (id), "default") == 0)
++    vis = VISIBILITY_DEFAULT;
++  else if (strcmp (TREE_STRING_POINTER (id), "internal") == 0)
++    vis = VISIBILITY_INTERNAL;
++  else if (strcmp (TREE_STRING_POINTER (id), "hidden") == 0)
++    vis = VISIBILITY_HIDDEN;
++  else if (strcmp (TREE_STRING_POINTER (id), "protected") == 0)
++    vis = VISIBILITY_PROTECTED;
++  else
++    {
++      error ("attribute %qE argument must be one of %qs, %qs, %qs, or %qs",
++	     name, "default", "hidden", "protected", "internal");
++      vis = VISIBILITY_DEFAULT;
++    }
++
++  if (DECL_VISIBILITY_SPECIFIED (decl)
++      && vis != DECL_VISIBILITY (decl))
++    {
++      tree attributes = (TYPE_P (*node)
++			 ? TYPE_ATTRIBUTES (*node)
++			 : DECL_ATTRIBUTES (decl));
++      if (lookup_attribute ("visibility", attributes))
++	error ("%qD redeclared with different visibility", decl);
++      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
++	       && lookup_attribute ("dllimport", attributes))
++	error ("%qD was declared %qs which implies default visibility",
++	       decl, "dllimport");
++      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
++	       && lookup_attribute ("dllexport", attributes))
++	error ("%qD was declared %qs which implies default visibility",
++	       decl, "dllexport");
++    }
++
++  DECL_VISIBILITY (decl) = vis;
++  DECL_VISIBILITY_SPECIFIED (decl) = 1;
++
++  /* Go ahead and attach the attribute to the node as well.  This is needed
++     so we can determine whether we have VISIBILITY_DEFAULT because the
++     visibility was not specified, or because it was explicitly overridden
++     from the containing scope.  */
++
++  return NULL_TREE;
++}
++
++/* Handle a "always_inline" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_always_inline_attribute (tree *node, tree name,
++				tree ARG_UNUSED (args),
++				int ARG_UNUSED (flags),
++				bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    {
++      /* Set the attribute and mark it for disregarding inline
++	 limits.  */
++      DECL_DISREGARD_INLINE_LIMITS (*node) = 1;
++    }
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "noinline" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_noinline_attribute (tree *node, tree name,
++			   tree ARG_UNUSED (args),
++			   int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL)
++    DECL_UNINLINABLE (*node) = 1;
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "weak" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_weak_attribute (tree *node, tree name,
++		       tree ARG_UNUSED (args),
++		       int ARG_UNUSED (flags),
++		       bool * ARG_UNUSED (no_add_attrs))
++{
++  if (TREE_CODE (*node) == FUNCTION_DECL
++      && DECL_DECLARED_INLINE_P (*node))
++    {
++      warning (OPT_Wattributes, "inline function %q+D declared weak", *node);
++      *no_add_attrs = true;
++    }
++  else if (lookup_attribute ("ifunc", DECL_ATTRIBUTES (*node)))
++    {
++      error ("indirect function %q+D cannot be declared weak", *node);
++      *no_add_attrs = true;
++      return NULL_TREE;
++    }
++  else if (VAR_OR_FUNCTION_DECL_P (*node))
++    declare_weak (*node);
++  else
++    warning (OPT_Wattributes, "%qE attribute ignored", name);
++
++  return NULL_TREE;
++}
++
++/* Handle a "target" attribute.  */
++
++tree
++handle_target_attribute (tree *node, tree name, tree args, int flags,
++			 bool *no_add_attrs)
++{
++  /* Ensure we have a function declaration.  */
++  if (TREE_CODE (*node) != FUNCTION_DECL)
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++  else if (! targetm.target_option.valid_attribute_p (*node, name, args,
++						      flags))
++    *no_add_attrs = true;
++
++  /* Check that there's no empty string in values of the attribute.  */
++  for (tree t = args; t != NULL_TREE; t = TREE_CHAIN (t))
++    {
++      tree value = TREE_VALUE (t);
++      if (TREE_CODE (value) == STRING_CST
++	  && TREE_STRING_LENGTH (value) == 1
++	  && TREE_STRING_POINTER (value)[0] == '\0')
++	{
++	  warning (OPT_Wattributes, "empty string in attribute %<target%>");
++	  *no_add_attrs = true;
++	}
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle a "used" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_used_attribute (tree *pnode, tree name, tree ARG_UNUSED (args),
++		       int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  tree node = *pnode;
++
++  if (TREE_CODE (node) == FUNCTION_DECL
++      || (VAR_P (node) && TREE_STATIC (node))
++      || (TREE_CODE (node) == TYPE_DECL))
++    {
++      TREE_USED (node) = 1;
++      DECL_PRESERVE_P (node) = 1;
++      if (VAR_P (node))
++	DECL_READ_P (node) = 1;
++    }
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Handle an "alias" or "ifunc" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_alias_attribute (tree *node, tree name, tree args,
++			int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  return handle_alias_ifunc_attribute (true, node, name, args, no_add_attrs);
++}
++
++/* Handle a "section" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_section_attribute (tree *node, tree name, tree args,
++			  int flags, bool *no_add_attrs)
++{
++  tree decl = *node;
++  tree res = NULL_TREE;
++  tree argval = TREE_VALUE (args);
++  const char* new_section_name;
++
++  if (!targetm_common.have_named_sections)
++    {
++      error_at (DECL_SOURCE_LOCATION (*node),
++		"section attributes are not supported for this target");
++      goto fail;
++    }
++
++  if (!VAR_OR_FUNCTION_DECL_P (decl))
++    {
++      error ("section attribute not allowed for %q+D", *node);
++      goto fail;
++    }
++
++  if (TREE_CODE (argval) != STRING_CST)
++    {
++      error ("section attribute argument not a string constant");
++      goto fail;
++    }
++
++  if (VAR_P (decl)
++      && current_function_decl != NULL_TREE
++      && !TREE_STATIC (decl))
++    {
++      error_at (DECL_SOURCE_LOCATION (decl),
++		"section attribute cannot be specified for local variables");
++      goto fail;
++    }
++
++  new_section_name = TREE_STRING_POINTER (argval);
++
++  /* The decl may have already been given a section attribute
++     from a previous declaration.  Ensure they match.  */
++  if (const char* const old_section_name = DECL_SECTION_NAME (decl))
++    if (strcmp (old_section_name, new_section_name) != 0)
++      {
++	error ("section of %q+D conflicts with previous declaration",
++	       *node);
++	goto fail;
++      }
++
++  if (VAR_P (decl)
++      && !targetm.have_tls && targetm.emutls.tmpl_section
++      && DECL_THREAD_LOCAL_P (decl))
++    {
++      error ("section of %q+D cannot be overridden", *node);
++      goto fail;
++    }
++
++  if (!validate_attr_arg (node, name, argval))
++    goto fail;
++
++  res = targetm.handle_generic_attribute (node, name, args, flags,
++					  no_add_attrs);
++
++  /* If the back end confirms the attribute can be added then continue onto
++     final processing.  */
++  if (!(*no_add_attrs))
++    {
++      set_decl_section_name (decl, new_section_name);
++      return res;
++    }
++
++fail:
++  *no_add_attrs = true;
++  return res;
++}
++
++/* Handle a "retain" attribute; arguments as in
++   struct attribute_spec.handler.  */
++
++tree
++handle_retain_attribute (tree *pnode, tree name, tree ARG_UNUSED (args),
++			 int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  tree node = *pnode;
++
++  if (SUPPORTS_SHF_GNU_RETAIN
++      && (TREE_CODE (node) == FUNCTION_DECL
++	  || (VAR_P (node) && TREE_STATIC (node))))
++    ;
++  else
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored", name);
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++/* Part of the `malloc` attribute handling which is shared by libgccjit and
++   the C-family front-end.  */
++
++tree
++handle_malloc_common (tree *node, tree name, tree ARG_UNUSED (args),
++		      int ARG_UNUSED (flags), bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) != FUNCTION_DECL)
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored; valid only "
++	       "for functions", name);
++      *no_add_attrs = true;
++      return NULL_TREE;
++    }
++
++  tree rettype = TREE_TYPE (TREE_TYPE (*node));
++  if (!POINTER_TYPE_P (rettype))
++    {
++      warning (OPT_Wattributes, "%qE attribute ignored on functions "
++	       "returning %qT; valid only for pointer return types",
++	       name, rettype);
++      *no_add_attrs = true;
++      return NULL_TREE;
++    }
++
++  DECL_IS_MALLOC (*node) = 1;
++  return NULL_TREE;
++}
+diff --git a/gcc/attr-handlers.h b/gcc/attr-handlers.h
+new file mode 100644
+index 0000000..5e0dc2f
+--- /dev/null
++++ b/gcc/attr-handlers.h
+@@ -0,0 +1,60 @@
++/* Language-independent attribute handlers shared across front ends.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify it under
++the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 3, or (at your option) any later
++version.
++
++GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++#ifndef GCC_ATTR_HANDLERS_H
++#define GCC_ATTR_HANDLERS_H
++
++/* Attribute exclusion tables used by `c-family` and `libgccjit`.  */
++extern const struct attribute_spec::exclusions attr_noreturn_exclusions[];
++extern const struct attribute_spec::exclusions attr_returns_twice_exclusions[];
++extern const struct attribute_spec::exclusions attr_alloc_exclusions[];
++extern const struct attribute_spec::exclusions attr_const_pure_exclusions[];
++extern const struct attribute_spec::exclusions attr_always_inline_exclusions[];
++extern const struct attribute_spec::exclusions attr_cold_hot_exclusions[];
++extern const struct attribute_spec::exclusions attr_noinline_exclusions[];
++extern const struct attribute_spec::exclusions attr_target_exclusions[];
++extern const struct attribute_spec::exclusions attr_section_exclusions[];
++
++/* Shared helpers used by the handlers.  */
++extern bool validate_attr_args (tree node[2], tree name, tree newargs[2]);
++extern bool validate_attr_arg (tree node[2], tree name, tree newarg);
++
++/* Attribute handlers.  */
++extern tree handle_alias_ifunc_attribute (bool, tree *, tree, tree, bool *);
++extern tree handle_malloc_common (tree *, tree, tree, int, bool *);
++extern tree handle_alias_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_always_inline_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_const_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_fnspec_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_leaf_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_noinline_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_nothrow_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_novops_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_pure_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_retain_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_returns_twice_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_section_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_target_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_type_generic_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_used_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_visibility_attribute (tree *, tree, tree, int, bool *);
++extern tree handle_weak_attribute (tree *, tree, tree, int, bool *);
++extern tree ignore_attribute (tree *, tree, tree, int, bool *);
++
++#endif // GCC_ATTR_HANDLERS_H
+diff --git a/gcc/c-family/c-attribs.cc b/gcc/c-family/c-attribs.cc
+index d437c55..cfd71d7 100644
+--- a/gcc/c-family/c-attribs.cc
++++ b/gcc/c-family/c-attribs.cc
+@@ -35,6 +35,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "stor-layout.h"
+ #include "calls.h"
+ #include "attribs.h"
++#include "attr-handlers.h"
+ #include "varasm.h"
+ #include "trans-mem.h"
+ #include "c-objc.h"
+@@ -73,26 +74,20 @@ static tree handle_stack_protect_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_no_stack_protector_function_attribute (tree *, tree,
+ 							tree, int, bool *);
+ static tree handle_strub_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_noinline_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_noclone_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_nocf_check_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_symver_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_noicf_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_noipa_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_leaf_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_always_inline_attribute (tree *, tree, tree, int,
+-					    bool *);
+ static tree handle_gnu_inline_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_artificial_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_flatten_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_error_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_used_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_uninitialized_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_externally_visible_attribute (tree *, tree, tree, int,
+ 						 bool *);
+ static tree handle_no_reorder_attribute (tree *, tree, tree, int,
+ 						 bool *);
+-static tree handle_const_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_transparent_union_attribute (tree *, tree, tree,
+ 						int, bool *);
+ static tree handle_scalar_storage_order_attribute (tree *, tree, tree,
+@@ -100,7 +95,6 @@ static tree handle_scalar_storage_order_attribute (tree *, tree, tree,
+ static tree handle_constructor_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_destructor_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_mode_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_section_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_special_var_sec_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_warn_if_not_aligned_attribute (tree *, tree, tree,
+ 						  int, bool *);
+@@ -108,14 +102,9 @@ static tree handle_strict_flex_array_attribute (tree *, tree, tree,
+ 						 int, bool *);
+ static tree handle_counted_by_attribute (tree *, tree, tree,
+ 					   int, bool *);
+-static tree handle_weak_attribute (tree *, tree, tree, int, bool *) ;
+ static tree handle_noplt_attribute (tree *, tree, tree, int, bool *) ;
+-static tree handle_alias_ifunc_attribute (bool, tree *, tree, tree, bool *);
+ static tree handle_ifunc_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_alias_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_weakref_attribute (tree *, tree, tree, int, bool *) ;
+-static tree handle_visibility_attribute (tree *, tree, tree, int,
+-					 bool *);
+ static tree handle_tls_model_attribute (tree *, tree, tree, int,
+ 					bool *);
+ static tree handle_no_instrument_function_attribute (tree *, tree,
+@@ -125,13 +114,10 @@ static tree handle_no_profile_instrument_function_attribute (tree *, tree,
+ static tree handle_malloc_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_dealloc_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_tainted_args_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_returns_twice_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_no_limit_stack_attribute (tree *, tree, tree, int,
+ 					     bool *);
+-static tree handle_pure_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_tm_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_tm_wrap_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_novops_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_unavailable_attribute (tree *, tree, tree, int,
+ 					  bool *);
+ static tree handle_vector_size_attribute (tree *, tree, tree, int,
+@@ -142,7 +128,6 @@ static tree handle_nonnull_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_nonnull_if_nonzero_attribute (tree *, tree, tree, int,
+ 						 bool *);
+ static tree handle_nonstring_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_nothrow_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_expected_throw_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_cleanup_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_warn_unused_result_attribute (tree *, tree, tree, int,
+@@ -150,21 +135,17 @@ static tree handle_warn_unused_result_attribute (tree *, tree, tree, int,
+ static tree handle_access_attribute (tree *, tree, tree, int, bool *);
+ 
+ static tree handle_sentinel_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_type_generic_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_alloc_size_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_alloc_align_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_assume_aligned_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_assume_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_target_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_target_version_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_target_clones_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_optimize_attribute (tree *, tree, tree, int, bool *);
+-static tree ignore_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_no_split_stack_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_zero_call_used_regs_attribute (tree *, tree, tree, int,
+ 						  bool *);
+ static tree handle_argspec_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_fnspec_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_warn_unused_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_returns_nonnull_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_omp_declare_simd_attribute (tree *, tree, tree, int,
+@@ -185,7 +166,6 @@ static tree handle_objc_nullability_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_signed_bool_precision_attribute (tree *, tree, tree, int,
+ 						    bool *);
+ static tree handle_hardbool_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_retain_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_fd_arg_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_flag_enum_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_null_terminated_string_arg_attribute (tree *, tree, tree, int, bool *);
+@@ -207,13 +187,6 @@ extern const struct attribute_spec::exclusions attr_aligned_exclusions[] =
+   ATTR_EXCL (NULL, false, false, false)
+ };
+ 
+-extern const struct attribute_spec::exclusions attr_cold_hot_exclusions[] =
+-{
+-  ATTR_EXCL ("cold", true, true, true),
+-  ATTR_EXCL ("hot", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false)
+-};
+-
+ static const struct attribute_spec::exclusions attr_common_exclusions[] =
+ {
+   ATTR_EXCL ("common", true, true, true),
+@@ -227,27 +200,6 @@ static const struct attribute_spec::exclusions attr_inline_exclusions[] =
+   ATTR_EXCL (NULL, false, false, false),
+ };
+ 
+-static const struct attribute_spec::exclusions attr_always_inline_exclusions[] =
+-{
+-  ATTR_EXCL ("noinline", true, true, true),
+-  ATTR_EXCL ("target_clones", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_noinline_exclusions[] =
+-{
+-  ATTR_EXCL ("always_inline", true, true, true),
+-  ATTR_EXCL ("gnu_inline", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_target_exclusions[] =
+-{
+-  ATTR_EXCL ("target_clones", TARGET_HAS_FMV_TARGET_ATTRIBUTE,
+-	     TARGET_HAS_FMV_TARGET_ATTRIBUTE, TARGET_HAS_FMV_TARGET_ATTRIBUTE),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+ static const struct attribute_spec::exclusions attr_target_clones_exclusions[] =
+ {
+   ATTR_EXCL ("always_inline", true, true, true),
+@@ -279,18 +231,6 @@ static const struct attribute_spec::exclusions attr_simd_exclusions[] =
+   ATTR_EXCL (NULL, false, false, false),
+ };
+ 
+-extern const struct attribute_spec::exclusions attr_noreturn_exclusions[] =
+-{
+-  ATTR_EXCL ("alloc_align", true, true, true),
+-  ATTR_EXCL ("alloc_size", true, true, true),
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("malloc", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL ("returns_twice", true, true, true),
+-  ATTR_EXCL ("warn_unused_result", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+ static const struct attribute_spec::exclusions
+ attr_warn_unused_result_exclusions[] =
+ {
+@@ -299,42 +239,6 @@ attr_warn_unused_result_exclusions[] =
+   ATTR_EXCL (NULL, false, false, false),
+ };
+ 
+-static const struct attribute_spec::exclusions attr_returns_twice_exclusions[] =
+-{
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-/* Exclusions that apply to attribute alloc_align, alloc_size, and malloc.  */
+-static const struct attribute_spec::exclusions attr_alloc_exclusions[] =
+-{
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_const_pure_exclusions[] =
+-{
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("alloc_align", true, true, true),
+-  ATTR_EXCL ("alloc_size", true, true, true),
+-  ATTR_EXCL ("malloc", true, true, true),
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false)
+-};
+-
+-/* Exclusions that apply to attributes that put declarations in specific
+-   sections.  */
+-static const struct attribute_spec::exclusions attr_section_exclusions[] =
+-{
+-  ATTR_EXCL ("noinit", true, true, true),
+-  ATTR_EXCL ("persistent", true, true, true),
+-  ATTR_EXCL ("section", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+ static const struct attribute_spec::exclusions attr_stack_protect_exclusions[] =
+ {
+   ATTR_EXCL ("stack_protect", true, false, false),
+@@ -968,137 +872,6 @@ positional_argument (const_tree fn, const_tree atname, tree &pos,
+   return build_int_cst (TREE_TYPE (pos), ipos);
+ }
+ 
+-/* Return the first of DECL or TYPE attributes installed in NODE if it's
+-   a DECL, or TYPE attributes if it's a TYPE, or null otherwise.  */
+-
+-static tree
+-decl_or_type_attrs (tree node)
+-{
+-  if (DECL_P (node))
+-    {
+-      if (tree attrs = DECL_ATTRIBUTES (node))
+-	return attrs;
+-
+-      tree type = TREE_TYPE (node);
+-      if (type == error_mark_node)
+-	return NULL_TREE;
+-      return TYPE_ATTRIBUTES (type);
+-    }
+-
+-  if (TYPE_P (node))
+-    return TYPE_ATTRIBUTES (node);
+-
+-  return NULL_TREE;
+-}
+-
+-/* Given a pair of NODEs for arbitrary DECLs or TYPEs, validate one or
+-   two integral or string attribute arguments NEWARGS to be applied to
+-   NODE[0] for the absence of conflicts with the same attribute arguments
+-   already applied to NODE[1]. Issue a warning for conflicts and return
+-   false.  Otherwise, when no conflicts are found, return true.  */
+-
+-static bool
+-validate_attr_args (tree node[2], tree name, tree newargs[2])
+-{
+-  /* First validate the arguments against those already applied to
+-     the same declaration (or type).  */
+-  tree self[2] = { node[0], node[0] };
+-  if (node[0] != node[1] && !validate_attr_args (self, name, newargs))
+-    return false;
+-
+-  if (!node[1])
+-    return true;
+-
+-  /* Extract the same attribute from the previous declaration or type.  */
+-  tree prevattr = decl_or_type_attrs (node[1]);
+-  const char* const namestr = IDENTIFIER_POINTER (name);
+-  prevattr = lookup_attribute (namestr, prevattr);
+-  if (!prevattr)
+-    return true;
+-
+-  /* Extract one or both attribute arguments.  */
+-  tree prevargs[2];
+-  prevargs[0] = TREE_VALUE (TREE_VALUE (prevattr));
+-  prevargs[1] = TREE_CHAIN (TREE_VALUE (prevattr));
+-  if (prevargs[1])
+-    prevargs[1] = TREE_VALUE (prevargs[1]);
+-
+-  /* Both arguments must be equal or, for the second pair, neither must
+-     be provided to succeed.  */
+-  bool arg1eq, arg2eq;
+-  if (TREE_CODE (newargs[0]) == INTEGER_CST)
+-    {
+-      arg1eq = tree_int_cst_equal (newargs[0], prevargs[0]);
+-      if (newargs[1] && prevargs[1])
+-	arg2eq = tree_int_cst_equal (newargs[1], prevargs[1]);
+-      else
+-	arg2eq = newargs[1] == prevargs[1];
+-    }
+-  else if (TREE_CODE (newargs[0]) == STRING_CST)
+-    {
+-      const char *s0 = TREE_STRING_POINTER (newargs[0]);
+-      const char *s1 = TREE_STRING_POINTER (prevargs[0]);
+-      arg1eq = strcmp (s0, s1) == 0;
+-      if (newargs[1] && prevargs[1])
+-	{
+-	  s0 = TREE_STRING_POINTER (newargs[1]);
+-	  s1 = TREE_STRING_POINTER (prevargs[1]);
+-	  arg2eq = strcmp (s0, s1) == 0;
+-	}
+-      else
+-	arg2eq = newargs[1] == prevargs[1];
+-    }
+-  else
+-    gcc_unreachable ();
+-
+-  if (arg1eq && arg2eq)
+-    return true;
+-
+-  /* If the two locations are different print a note pointing to
+-     the previous one.  */
+-  const location_t curloc = input_location;
+-  const location_t prevloc =
+-    DECL_P (node[1]) ? DECL_SOURCE_LOCATION (node[1]) : curloc;
+-
+-  /* Format the attribute specification for convenience.  */
+-  char newspec[80], prevspec[80];
+-  if (newargs[1])
+-    snprintf (newspec, sizeof newspec, "%s (%s, %s)", namestr,
+-	      print_generic_expr_to_str (newargs[0]),
+-	      print_generic_expr_to_str (newargs[1]));
+-  else
+-    snprintf (newspec, sizeof newspec, "%s (%s)", namestr,
+-	      print_generic_expr_to_str (newargs[0]));
+-
+-  if (prevargs[1])
+-    snprintf (prevspec, sizeof prevspec, "%s (%s, %s)", namestr,
+-	      print_generic_expr_to_str (prevargs[0]),
+-	      print_generic_expr_to_str (prevargs[1]));
+-  else
+-    snprintf (prevspec, sizeof prevspec, "%s (%s)", namestr,
+-	      print_generic_expr_to_str (prevargs[0]));
+-
+-  if (warning_at (curloc, OPT_Wattributes,
+-		  "ignoring attribute %qs because it conflicts "
+-		  "with previous %qs",
+-		  newspec, prevspec)
+-      && curloc != prevloc)
+-    inform (prevloc, "previous declaration here");
+-
+-  return false;
+-}
+-
+-/* Convenience wrapper for validate_attr_args to validate a single
+-   attribute argument.  Used by handlers for attributes that take
+-   just a single argument.  */
+-
+-static bool
+-validate_attr_arg (tree node[2], tree name, tree newarg)
+-{
+-  tree argarray[2] = { newarg, NULL_TREE };
+-  return validate_attr_args (node, name, argarray);
+-}
+-
+ /* Attribute handlers common to C front ends.  */
+ 
+ /* Handle a "signed_bool_precision" attribute; arguments as in
+@@ -1724,25 +1497,6 @@ handle_strub_attribute (tree *node, tree name,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "noinline" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_noinline_attribute (tree *node, tree name,
+-			   tree ARG_UNUSED (args),
+-			   int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    DECL_UNINLINABLE (*node) = 1;
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "noclone" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -1803,31 +1557,6 @@ handle_noicf_attribute (tree *node, tree name,
+   return NULL_TREE;
+ }
+ 
+-
+-/* Handle a "always_inline" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_always_inline_attribute (tree *node, tree name,
+-				tree ARG_UNUSED (args),
+-				int ARG_UNUSED (flags),
+-				bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    {
+-      /* Set the attribute and mark it for disregarding inline
+-	 limits.  */
+-      DECL_DISREGARD_INLINE_LIMITS (*node) = 1;
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "gnu_inline" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -1851,29 +1580,6 @@ handle_gnu_inline_attribute (tree *node, tree name,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "leaf" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_leaf_attribute (tree *node, tree name,
+-		       tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) != FUNCTION_DECL)
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  if (!TREE_PUBLIC (*node))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute has no effect on unit local "
+-	       "functions", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle an "artificial" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -1939,33 +1645,6 @@ handle_error_attribute (tree *node, tree name, tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "used" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_used_attribute (tree *pnode, tree name, tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  tree node = *pnode;
+-
+-  if (TREE_CODE (node) == FUNCTION_DECL
+-      || (VAR_P (node) && TREE_STATIC (node))
+-      || (TREE_CODE (node) == TYPE_DECL))
+-    {
+-      TREE_USED (node) = 1;
+-      DECL_PRESERVE_P (node) = 1;
+-      if (VAR_P (node))
+-	DECL_READ_P (node) = 1;
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "unused" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -2004,28 +1683,6 @@ handle_unused_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "retain" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_retain_attribute (tree *pnode, tree name, tree ARG_UNUSED (args),
+-			 int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  tree node = *pnode;
+-
+-  if (SUPPORTS_SHF_GNU_RETAIN
+-      && (TREE_CODE (node) == FUNCTION_DECL
+-	  || (VAR_P (node) && TREE_STATIC (node))))
+-    ;
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle an "uninitialized" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -2104,43 +1761,6 @@ handle_no_reorder_attribute (tree *pnode,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "const" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_const_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+-			int flags, bool *no_add_attrs)
+-{
+-  tree type = TREE_TYPE (*node);
+-
+-  /* See FIXME comment on noreturn in c_common_attribute_table.  */
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    TREE_READONLY (*node) = 1;
+-  else if (TREE_CODE (type) == POINTER_TYPE
+-	   && TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
+-    TREE_TYPE (*node)
+-      = (build_qualified_type
+-	 (build_pointer_type
+-	  (build_type_variant (TREE_TYPE (type), 1,
+-			       TREE_THIS_VOLATILE (TREE_TYPE (type)))),
+-	  TYPE_QUALS (type)));
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  /* void __builtin_unreachable(void) is const.  Accept other such
+-     built-ins but warn on user-defined functions that return void.  */
+-  if (!(flags & ATTR_FLAG_BUILT_IN)
+-      && TREE_CODE (*node) == FUNCTION_DECL
+-      && VOID_TYPE_P (TREE_TYPE (type)))
+-    warning (OPT_Wattributes, "%qE attribute on function "
+-	     "returning %<void%>", name);
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "scalar_storage_order" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -2603,85 +2223,6 @@ handle_mode_attribute (tree *node, tree name, tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "section" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_section_attribute (tree *node, tree name, tree args,
+-			  int flags, bool *no_add_attrs)
+-{
+-  tree decl = *node;
+-  tree res = NULL_TREE;
+-  tree argval = TREE_VALUE (args);
+-  const char* new_section_name;
+-
+-  if (!targetm_common.have_named_sections)
+-    {
+-      error_at (DECL_SOURCE_LOCATION (*node),
+-		"section attributes are not supported for this target");
+-      goto fail;
+-    }
+-
+-  if (!VAR_OR_FUNCTION_DECL_P (decl))
+-    {
+-      error ("section attribute not allowed for %q+D", *node);
+-      goto fail;
+-    }
+-
+-  if (TREE_CODE (argval) != STRING_CST)
+-    {
+-      error ("section attribute argument not a string constant");
+-      goto fail;
+-    }
+-
+-  if (VAR_P (decl)
+-      && current_function_decl != NULL_TREE
+-      && !TREE_STATIC (decl))
+-    {
+-      error_at (DECL_SOURCE_LOCATION (decl),
+-		"section attribute cannot be specified for local variables");
+-      goto fail;
+-    }
+-
+-  new_section_name = TREE_STRING_POINTER (argval);
+-
+-  /* The decl may have already been given a section attribute
+-     from a previous declaration.  Ensure they match.  */
+-  if (const char* const old_section_name = DECL_SECTION_NAME (decl))
+-    if (strcmp (old_section_name, new_section_name) != 0)
+-      {
+-	error ("section of %q+D conflicts with previous declaration",
+-	       *node);
+-	goto fail;
+-      }
+-
+-  if (VAR_P (decl)
+-      && !targetm.have_tls && targetm.emutls.tmpl_section
+-      && DECL_THREAD_LOCAL_P (decl))
+-    {
+-      error ("section of %q+D cannot be overridden", *node);
+-      goto fail;
+-    }
+-
+-  if (!validate_attr_arg (node, name, argval))
+-    goto fail;
+-
+-  res = targetm.handle_generic_attribute (node, name, args, flags,
+-					  no_add_attrs);
+-
+-  /* If the back end confirms the attribute can be added then continue onto
+-     final processing.  */
+-  if (!(*no_add_attrs))
+-    {
+-      set_decl_section_name (decl, new_section_name);
+-      return res;
+-    }
+-
+-fail:
+-  *no_add_attrs = true;
+-  return res;
+-}
+-
+ /* Common codes shared by handle_warn_if_not_aligned_attribute and
+    handle_aligned_attribute.  */
+ 
+@@ -3027,35 +2568,6 @@ handle_counted_by_attribute (tree *node, tree name,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "weak" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_weak_attribute (tree *node, tree name,
+-		       tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags),
+-		       bool * ARG_UNUSED (no_add_attrs))
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL
+-      && DECL_DECLARED_INLINE_P (*node))
+-    {
+-      warning (OPT_Wattributes, "inline function %q+D declared weak", *node);
+-      *no_add_attrs = true;
+-    }
+-  else if (lookup_attribute ("ifunc", DECL_ATTRIBUTES (*node)))
+-    {
+-      error ("indirect function %q+D cannot be declared weak", *node);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-  else if (VAR_OR_FUNCTION_DECL_P (*node))
+-    declare_weak (*node);
+-  else
+-    warning (OPT_Wattributes, "%qE attribute ignored", name);
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "noinit" or "persistent" attribute; arguments as in
+    struct attribute_spec.handler.
+    This generic handler is used for "special variable sections" that allow the
+@@ -3236,97 +2748,6 @@ handle_symver_attribute (tree *node, tree ARG_UNUSED (name), tree args,
+   return NULL_TREE;
+ }
+ 
+-
+-/* Handle an "alias" or "ifunc" attribute; arguments as in
+-   struct attribute_spec.handler, except that IS_ALIAS tells us
+-   whether this is an alias as opposed to ifunc attribute.  */
+-
+-static tree
+-handle_alias_ifunc_attribute (bool is_alias, tree *node, tree name, tree args,
+-			      bool *no_add_attrs)
+-{
+-  tree decl = *node;
+-
+-  if (TREE_CODE (decl) != FUNCTION_DECL
+-      && (!is_alias || !VAR_P (decl)))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  else if ((TREE_CODE (decl) == FUNCTION_DECL && DECL_INITIAL (decl))
+-      || (TREE_CODE (decl) != FUNCTION_DECL
+-	  && TREE_PUBLIC (decl) && !DECL_EXTERNAL (decl))
+-      /* A static variable declaration is always a tentative definition,
+-	 but the alias is a non-tentative definition which overrides.  */
+-      || (TREE_CODE (decl) != FUNCTION_DECL
+-	  && ! TREE_PUBLIC (decl) && DECL_INITIAL (decl)))
+-    {
+-      error ("%q+D defined both normally and as %qE attribute", decl, name);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-  else if (!is_alias
+-	   && (lookup_attribute ("weak", DECL_ATTRIBUTES (decl))
+-	       || lookup_attribute ("weakref", DECL_ATTRIBUTES (decl))))
+-    {
+-      error ("weak %q+D cannot be defined %qE", decl, name);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-
+-  /* Note that the very first time we process a nested declaration,
+-     decl_function_context will not be set.  Indeed, *would* never
+-     be set except for the DECL_INITIAL/DECL_EXTERNAL frobbery that
+-     we do below.  After such frobbery, pushdecl would set the context.
+-     In any case, this is never what we want.  */
+-  else if (decl_function_context (decl) == 0 && current_function_decl == NULL)
+-    {
+-      tree id;
+-
+-      id = TREE_VALUE (args);
+-      if (TREE_CODE (id) != STRING_CST)
+-	{
+-	  error ("attribute %qE argument not a string", name);
+-	  *no_add_attrs = true;
+-	  return NULL_TREE;
+-	}
+-      id = get_identifier (TREE_STRING_POINTER (id));
+-      /* This counts as a use of the object pointed to.  */
+-      TREE_USED (id) = 1;
+-
+-      if (TREE_CODE (decl) == FUNCTION_DECL)
+-	DECL_INITIAL (decl) = error_mark_node;
+-      else
+-	TREE_STATIC (decl) = 1;
+-
+-      if (!is_alias)
+-	{
+-	  /* ifuncs are also aliases, so set that attribute too.  */
+-	  DECL_ATTRIBUTES (decl)
+-	    = tree_cons (get_identifier ("alias"), args,
+-			 DECL_ATTRIBUTES (decl));
+-	  DECL_ATTRIBUTES (decl) = tree_cons (get_identifier ("ifunc"),
+-					      NULL, DECL_ATTRIBUTES (decl));
+-	}
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  if (decl_in_symtab_p (*node))
+-    {
+-      struct symtab_node *n = symtab_node::get (decl);
+-      if (n && n->refuse_visibility_changes)
+-	error ("%+qD declared %qs after being used",
+-	       decl, is_alias ? "alias" : "ifunc");
+-    }
+-
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle an "alias" or "ifunc" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -3337,16 +2758,6 @@ handle_ifunc_attribute (tree *node, tree name, tree args,
+   return handle_alias_ifunc_attribute (false, node, name, args, no_add_attrs);
+ }
+ 
+-/* Handle an "alias" or "ifunc" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_alias_attribute (tree *node, tree name, tree args,
+-			int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  return handle_alias_ifunc_attribute (true, node, name, args, no_add_attrs);
+-}
+-
+ /* Handle the "copy" attribute NAME by copying the set of attributes
+    from the symbol referenced by ARGS to the declaration of *NODE.  */
+ 
+@@ -3597,105 +3008,6 @@ handle_weakref_attribute (tree *node, tree name, tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Handle an "visibility" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_visibility_attribute (tree *node, tree name, tree args,
+-			     int ARG_UNUSED (flags),
+-			     bool *ARG_UNUSED (no_add_attrs))
+-{
+-  tree decl = *node;
+-  tree id = TREE_VALUE (args);
+-  enum symbol_visibility vis;
+-
+-  if (TYPE_P (*node))
+-    {
+-      if (TREE_CODE (*node) == ENUMERAL_TYPE)
+-	/* OK */;
+-      else if (!RECORD_OR_UNION_TYPE_P (*node))
+-	{
+-	  warning (OPT_Wattributes, "%qE attribute ignored on non-class types",
+-		   name);
+-	  return NULL_TREE;
+-	}
+-      else if (TYPE_FIELDS (*node))
+-	{
+-	  error ("%qE attribute ignored because %qT is already defined",
+-		 name, *node);
+-	  return NULL_TREE;
+-	}
+-    }
+-  else if (decl_function_context (decl) != 0 || !TREE_PUBLIC (decl))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      return NULL_TREE;
+-    }
+-
+-  if (TREE_CODE (id) != STRING_CST)
+-    {
+-      error ("visibility argument not a string");
+-      return NULL_TREE;
+-    }
+-
+-  /*  If this is a type, set the visibility on the type decl.  */
+-  if (TYPE_P (decl))
+-    {
+-      decl = TYPE_NAME (decl);
+-      if (!decl)
+-	return NULL_TREE;
+-      if (TREE_CODE (decl) == IDENTIFIER_NODE)
+-	{
+-	   warning (OPT_Wattributes, "%qE attribute ignored on types",
+-		    name);
+-	   return NULL_TREE;
+-	}
+-    }
+-
+-  if (strcmp (TREE_STRING_POINTER (id), "default") == 0)
+-    vis = VISIBILITY_DEFAULT;
+-  else if (strcmp (TREE_STRING_POINTER (id), "internal") == 0)
+-    vis = VISIBILITY_INTERNAL;
+-  else if (strcmp (TREE_STRING_POINTER (id), "hidden") == 0)
+-    vis = VISIBILITY_HIDDEN;
+-  else if (strcmp (TREE_STRING_POINTER (id), "protected") == 0)
+-    vis = VISIBILITY_PROTECTED;
+-  else
+-    {
+-      error ("attribute %qE argument must be one of %qs, %qs, %qs, or %qs",
+-	     name, "default", "hidden", "protected", "internal");
+-      vis = VISIBILITY_DEFAULT;
+-    }
+-
+-  if (DECL_VISIBILITY_SPECIFIED (decl)
+-      && vis != DECL_VISIBILITY (decl))
+-    {
+-      tree attributes = (TYPE_P (*node)
+-			 ? TYPE_ATTRIBUTES (*node)
+-			 : DECL_ATTRIBUTES (decl));
+-      if (lookup_attribute ("visibility", attributes))
+-	error ("%qD redeclared with different visibility", decl);
+-      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
+-	       && lookup_attribute ("dllimport", attributes))
+-	error ("%qD was declared %qs which implies default visibility",
+-	       decl, "dllimport");
+-      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
+-	       && lookup_attribute ("dllexport", attributes))
+-	error ("%qD was declared %qs which implies default visibility",
+-	       decl, "dllexport");
+-    }
+-
+-  DECL_VISIBILITY (decl) = vis;
+-  DECL_VISIBILITY_SPECIFIED (decl) = 1;
+-
+-  /* Go ahead and attach the attribute to the node as well.  This is needed
+-     so we can determine whether we have VISIBILITY_DEFAULT because the
+-     visibility was not specified, or because it was explicitly overridden
+-     from the containing scope.  */
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle an "tls_model" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -3845,6 +3157,12 @@ handle_malloc_attribute (tree *node, tree name, tree args, int flags,
+     /* Recursive call.  */
+     return NULL_TREE;
+ 
++  /* The argument-less form (declaring the function malloc-like) is shared
++     with libgccjit; the deallocator-argument form below is
++     specific to the C family.  */
++  if (!args)
++    return handle_malloc_common (node, name, args, flags, no_add_attrs);
++
+   tree fndecl = *node;
+ 
+   if (TREE_CODE (*node) != FUNCTION_DECL)
+@@ -4209,19 +3527,6 @@ handle_argspec_attribute (tree *, tree, tree args, int, bool *)
+   return NULL_TREE;
+ }
+ 
+-/* Handle the internal-only "fn spec" attribute.  */
+-
+-static tree
+-handle_fnspec_attribute (tree *node ATTRIBUTE_UNUSED, tree ARG_UNUSED (name),
+-			 tree args, int ARG_UNUSED (flags),
+-			 bool *no_add_attrs ATTRIBUTE_UNUSED)
+-{
+-  gcc_assert (args
+-	      && TREE_CODE (TREE_VALUE (args)) == STRING_CST
+-	      && !TREE_CHAIN (args));
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "warn_unused" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -4327,24 +3632,6 @@ handle_non_overlapping_attribute (tree *, tree, tree, int, bool *)
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "returns_twice" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_returns_twice_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+-			 int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    DECL_IS_RETURNS_TWICE (*node) = 1;
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "no_limit_stack" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -4374,32 +3661,6 @@ handle_no_limit_stack_attribute (tree *node, tree name,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "pure" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_pure_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    {
+-      tree type = TREE_TYPE (*node);
+-      if (VOID_TYPE_P (TREE_TYPE (type)))
+-	warning (OPT_Wattributes, "%qE attribute on function "
+-		 "returning %<void%>", name);
+-
+-      DECL_PURE_P (*node) = 1;
+-      /* ??? TODO: Support types.  */
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle an "unsequenced" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -4672,31 +3933,6 @@ handle_tm_wrap_attribute (tree *node, tree name, tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Ignore the given attribute.  Used when this attribute may be usefully
+-   overridden by the target, but is not used generically.  */
+-
+-static tree
+-ignore_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
+-		  tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-		  bool *no_add_attrs)
+-{
+-  *no_add_attrs = true;
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "no vops" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_novops_attribute (tree *node, tree ARG_UNUSED (name),
+-			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			 bool *ARG_UNUSED (no_add_attrs))
+-{
+-  gcc_assert (TREE_CODE (*node) == FUNCTION_DECL);
+-  DECL_IS_NOVOPS (*node) = 1;
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "deprecated" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -6182,24 +5418,6 @@ build_attr_access_from_parms (tree parms, bool skip_voidptr)
+   return tree_cons (name, attrargs, nnlist);
+ }
+ 
+-/* Handle a "nothrow" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_nothrow_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+-			  int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    TREE_NOTHROW (*node) = 1;
+-  /* ??? TODO: Support types.  */
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+ 
+ /* Handle a "nothrow" attribute; arguments as in
+    struct attribute_spec.handler.  */
+@@ -6332,54 +5550,6 @@ handle_sentinel_attribute (tree *node, tree name, tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "type_generic" attribute.  */
+-
+-static tree
+-handle_type_generic_attribute (tree *node, tree ARG_UNUSED (name),
+-			       tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			       bool * ARG_UNUSED (no_add_attrs))
+-{
+-  /* Ensure we have a function type.  */
+-  gcc_assert (TREE_CODE (*node) == FUNCTION_TYPE);
+-
+-  /* Ensure we have a variadic function.  */
+-  gcc_assert (!prototype_p (*node) || stdarg_p (*node));
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "target" attribute.  */
+-
+-static tree
+-handle_target_attribute (tree *node, tree name, tree args, int flags,
+-			 bool *no_add_attrs)
+-{
+-  /* Ensure we have a function declaration.  */
+-  if (TREE_CODE (*node) != FUNCTION_DECL)
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  else if (! targetm.target_option.valid_attribute_p (*node, name, args,
+-						      flags))
+-    *no_add_attrs = true;
+-
+-  /* Check that there's no empty string in values of the attribute.  */
+-  for (tree t = args; t != NULL_TREE; t = TREE_CHAIN (t))
+-    {
+-      tree value = TREE_VALUE (t);
+-      if (TREE_CODE (value) == STRING_CST
+-	  && TREE_STRING_LENGTH (value) == 1
+-	  && TREE_STRING_POINTER (value)[0] == '\0')
+-	{
+-	  warning (OPT_Wattributes, "empty string in attribute %<target%>");
+-	  *no_add_attrs = true;
+-	}
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "target_version" attribute.  */
+ 
+ static tree
+diff --git a/gcc/jit/Make-lang.in b/gcc/jit/Make-lang.in
+index eb1c996..3c13448 100644
+--- a/gcc/jit/Make-lang.in
++++ b/gcc/jit/Make-lang.in
+@@ -131,6 +131,7 @@ jit.serial = $(LIBGCCJIT_FILENAME)
+ .PHONY: jit
+ 
+ JIT_OBJS = attribs.o \
++	attr-handlers.o \
+ 	jit/dummy-frontend.o \
+ 	jit/libgccjit.o \
+ 	jit/jit-logging.o \
+diff --git a/gcc/jit/TODO.rst b/gcc/jit/TODO.rst
+index ca0ddbb..12befc1 100644
+--- a/gcc/jit/TODO.rst
++++ b/gcc/jit/TODO.rst
+@@ -29,7 +29,7 @@ API
+ 
+     gcc_jit_function_as_rvalue ()
+ 
+-* expressing branch probabilies (like __builtin_expect)::
++* expressing branch probabilities (like __builtin_expect)::
+ 
+     extern gcc_jit_rvalue *
+     gcc_jit_rvalue_likely (gcc_jit_rvalue *rvalue,
+diff --git a/gcc/jit/docs/cp/intro/tutorial03.rst b/gcc/jit/docs/cp/intro/tutorial03.rst
+index e1fe399..57ba32c 100644
+--- a/gcc/jit/docs/cp/intro/tutorial03.rst
++++ b/gcc/jit/docs/cp/intro/tutorial03.rst
+@@ -111,7 +111,7 @@ an assignment: a value that can be computed somehow, and assigned
+ *to* a storage area (such as a variable).  It has a specific
+ :type:`gccjit::type`.
+ 
+-Anothe important class is :type:`gccjit::lvalue`.
++Another important class is :type:`gccjit::lvalue`.
+ A :type:`gccjit::lvalue`. is something that can of the *left*-hand
+ side of an assignment: a storage area (such as a variable).
+ 
+diff --git a/gcc/jit/docs/cp/topics/functions.rst b/gcc/jit/docs/cp/topics/functions.rst
+index 5e05ffb..196063e 100644
+--- a/gcc/jit/docs/cp/topics/functions.rst
++++ b/gcc/jit/docs/cp/topics/functions.rst
+@@ -272,7 +272,7 @@ Statements
+                                               std::vector <gccjit::case_> cases,\
+                                               gccjit::location loc)
+ 
+-   Terminate a block by adding evalation of an rvalue, then performing
++   Terminate a block by adding evaluation of an rvalue, then performing
+    a multiway branch.
+ 
+    This is roughly equivalent to this C code:
+diff --git a/gcc/jit/docs/cp/topics/types.rst b/gcc/jit/docs/cp/topics/types.rst
+index 8e75aff..67742ee 100644
+--- a/gcc/jit/docs/cp/topics/types.rst
++++ b/gcc/jit/docs/cp/topics/types.rst
+@@ -128,7 +128,7 @@ Structures and unions
+ 
+ .. class:: gccjit::struct_
+ 
+-A compound type analagous to a C `struct`.
++A compound type analogous to a C `struct`.
+ 
+ :class:`gccjit::struct_` is a subclass of :class:`gccjit::type` (and thus
+ of :class:`gccjit::object` in turn).
+diff --git a/gcc/jit/docs/internals/index.rst b/gcc/jit/docs/internals/index.rst
+index ce8c94f..e0e5833 100644
+--- a/gcc/jit/docs/internals/index.rst
++++ b/gcc/jit/docs/internals/index.rst
+@@ -229,7 +229,7 @@ environment variables need to be set up:
+ 
+ For example, to run a binary that uses the library against a non-installed
+ build of the library in LIBGCCJIT_BUILD_DIR you need an invocation of the
+-client code like this, to preprend the dir to each of the environment
++client code like this, to prepend the dir to each of the environment
+ variables:
+ 
+ .. code-block:: console
+diff --git a/gcc/jit/docs/intro/tutorial02.rst b/gcc/jit/docs/intro/tutorial02.rst
+index 562fad4..0535aa0 100644
+--- a/gcc/jit/docs/intro/tutorial02.rst
++++ b/gcc/jit/docs/intro/tutorial02.rst
+@@ -260,7 +260,7 @@ away with having a single error-handling check in your code:
+      }
+ 
+ For more information, see the :ref:`error-handling guide <error-handling>`
+-within the Topic eference.
++within the Topic reference.
+ 
+ 
+ Options
+diff --git a/gcc/jit/docs/intro/tutorial03.rst b/gcc/jit/docs/intro/tutorial03.rst
+index af771ce..15e68f7 100644
+--- a/gcc/jit/docs/intro/tutorial03.rst
++++ b/gcc/jit/docs/intro/tutorial03.rst
+@@ -104,7 +104,7 @@ an assignment: a value that can be computed somehow, and assigned
+ *to* a storage area (such as a variable).  It has a specific
+ :c:expr:`gcc_jit_type *`.
+ 
+-Anothe important class is :c:expr:`gcc_jit_lvalue *`.
++Another important class is :c:expr:`gcc_jit_lvalue *`.
+ A :c:expr:`gcc_jit_lvalue *`. is something that can of the *left*-hand
+ side of an assignment: a storage area (such as a variable).
+ 
+diff --git a/gcc/jit/docs/topics/compatibility.rst b/gcc/jit/docs/topics/compatibility.rst
+index 44410a7..e4a231e 100644
+--- a/gcc/jit/docs/topics/compatibility.rst
++++ b/gcc/jit/docs/topics/compatibility.rst
+@@ -30,7 +30,7 @@ libgccjit.h.
+           locked-down at this time.
+ 
+ API compatibility is achieved by extending the API rather than changing
+-it.  For ABI compatiblity, we avoid bumping the SONAME, and instead use
++it.  For ABI compatibility, we avoid bumping the SONAME, and instead use
+ symbol versioning to tag each symbol, so that a binary linked against
+ libgccjit.so is tagged according to the symbols that it uses.
+ 
+@@ -481,3 +481,11 @@ information:
+ --------------------
+ ``LIBGCCJIT_ABI_37`` covers the addition of
+ :func:`gcc_jit_context_new_array_type_u64`
++
++.. _LIBGCCJIT_ABI_38:
++
++``LIBGCCJIT_ABI_38``
++--------------------
++``LIBGCCJIT_ABI_38`` covers the addition of
++
++ * :func:`gcc_jit_type_is_floating_point`
+diff --git a/gcc/jit/docs/topics/contexts.rst b/gcc/jit/docs/topics/contexts.rst
+index 6792f7b..4bfe9ed 100644
+--- a/gcc/jit/docs/topics/contexts.rst
++++ b/gcc/jit/docs/topics/contexts.rst
+@@ -216,7 +216,7 @@ Debugging
+ To contrast the above: :c:func:`gcc_jit_context_dump_to_file` dumps the
+ current state of a context to the given path, whereas
+ :c:func:`gcc_jit_context_set_logfile` enables on-going logging of
+-future activies on a context to the given `FILE *`.
++future activities on a context to the given `FILE *`.
+ 
+ 
+ .. function:: void\
+@@ -557,10 +557,13 @@ Additional command-line options
+    by :func:`gcc_jit_context_compile` and
+    :func:`gcc_jit_context_compile_to_file`.
+ 
++   If you need to add more than one such option, each should be done via
++   its own call to `gcc_jit_context_add_command_line_option`.
++
+    The parameter ``optname`` must be non-NULL.  The underlying buffer is
+    copied, so that it does not need to outlive the call.
+ 
+-   Extra options added by `gcc_jit_context_add_command_line_option` are
++   Extra options added by calls to `gcc_jit_context_add_command_line_option` are
+    applied *after* the regular options above, potentially overriding them.
+    Options from parent contexts are inherited by child contexts; options
+    from the parent are applied *before* those from the child.
+@@ -593,7 +596,10 @@ Additional command-line options
+    The parameter ``optname`` must be non-NULL.  The underlying buffer is
+    copied, so that it does not need to outlive the call.
+ 
+-   Extra options added by `gcc_jit_context_add_driver_option` are
++   If you need to add more than one such option, each should be done via
++   its own call to `gcc_jit_context_add_driver_option`.
++
++   Extra options added by calls to `gcc_jit_context_add_driver_option` are
+    applied *after* all other options potentially overriding them.
+    Options from parent contexts are inherited by child contexts; options
+    from the parent are applied *before* those from the child.
+diff --git a/gcc/jit/docs/topics/functions.rst b/gcc/jit/docs/topics/functions.rst
+index d2b528a..66d4b6b 100644
+--- a/gcc/jit/docs/topics/functions.rst
++++ b/gcc/jit/docs/topics/functions.rst
+@@ -502,7 +502,7 @@ Statements
+                                              int num_cases,\
+                                              gcc_jit_case **cases)
+ 
+-   Terminate a block by adding evalation of an rvalue, then performing
++   Terminate a block by adding evaluation of an rvalue, then performing
+    a multiway branch.
+ 
+    This is roughly equivalent to this C code:
+diff --git a/gcc/jit/docs/topics/performance.rst b/gcc/jit/docs/topics/performance.rst
+index f31e771..827580b 100644
+--- a/gcc/jit/docs/topics/performance.rst
++++ b/gcc/jit/docs/topics/performance.rst
+@@ -32,7 +32,7 @@ of "timer items": as control flow moves through your code, you can push
+ and pop named items relating to your code onto the stack, and the timer
+ will account the time spent accordingly.
+ 
+-You can also asssociate a timer with a :c:type:`gcc_jit_context`, in
++You can also associate a timer with a :c:type:`gcc_jit_context`, in
+ which case the time spent inside compilation will be subdivided.
+ 
+ For example, the following code uses a timer, recording client items
+diff --git a/gcc/jit/docs/topics/types.rst b/gcc/jit/docs/topics/types.rst
+index d9f7e7b..f3e937c 100644
+--- a/gcc/jit/docs/topics/types.rst
++++ b/gcc/jit/docs/topics/types.rst
+@@ -257,7 +257,7 @@ Structures and unions
+ 
+ .. c:type:: gcc_jit_struct
+ 
+-A compound type analagous to a C `struct`.
++A compound type analogous to a C `struct`.
+ 
+ .. c:type:: gcc_jit_field
+ 
+@@ -456,6 +456,18 @@ Reflection API
+ 
+      Return non-zero if the type is an integral.
+ 
++.. function::  int\
++               gcc_jit_type_is_floating_point (gcc_jit_type *type)
++
++     Return non-zero if the type is floating point.
++
++   This entrypoint was added in :ref:`LIBGCCJIT_ABI_38`; you can test for
++   its presence using
++
++   .. code-block:: c
++
++      #ifdef LIBGCCJIT_HAVE_gcc_jit_type_is_floating_point
++
+ .. function::  gcc_jit_type *\
+                gcc_jit_type_is_pointer (gcc_jit_type *type)
+ 
+diff --git a/gcc/jit/dummy-frontend.cc b/gcc/jit/dummy-frontend.cc
+index a92a326..14f8135 100644
+--- a/gcc/jit/dummy-frontend.cc
++++ b/gcc/jit/dummy-frontend.cc
+@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "options.h"
+ #include "stringpool.h"
+ #include "attribs.h"
++#include "attr-handlers.h"
+ #include "cgraph.h"
+ #include "target.h"
+ #include "diagnostics/text-sink.h"
+@@ -40,109 +41,23 @@ along with GCC; see the file COPYING3.  If not see
+ 
+ using namespace gcc::jit;
+ 
+-/* Attribute handling.  */
++/* Attribute handling.  These are the libgccjit-specific attribute handlers;
++   the handlers shared with the C family live in gcc/attr-handlers.cc.  */
+ 
+-static tree handle_alias_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_always_inline_attribute (tree *, tree, tree, int,
+-					    bool *);
+ static tree handle_cold_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_const_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_fnspec_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_format_arg_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_format_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_leaf_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_malloc_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_noinline_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_nonnull_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_noreturn_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_nothrow_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_novops_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_patchable_function_entry_attribute (tree *, tree, tree,
+ 						       int, bool *);
+-static tree handle_pure_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_returns_twice_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_sentinel_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_target_attribute (tree *, tree, tree, int, bool *);
+ static tree handle_transaction_pure_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_type_generic_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_used_attribute (tree *, tree, tree, int, bool *);
+-static tree handle_visibility_attribute (tree *, tree, tree, int,
+-					 bool *);
+-static tree handle_weak_attribute (tree *, tree, tree, int, bool *) ;
+-
+-static tree ignore_attribute (tree *, tree, tree, int, bool *);
+ 
+ /* Helper to define attribute exclusions.  */
+ #define ATTR_EXCL(name, function, type, variable)	\
+   { name, function, type, variable }
+ 
+-/* Define attributes that are mutually exclusive with one another.  */
+-static const struct attribute_spec::exclusions attr_noreturn_exclusions[] =
+-{
+-  ATTR_EXCL ("alloc_align", true, true, true),
+-  ATTR_EXCL ("alloc_size", true, true, true),
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("malloc", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL ("returns_twice", true, true, true),
+-  ATTR_EXCL ("warn_unused_result", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_returns_twice_exclusions[] =
+-{
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-/* Exclusions that apply to attribute alloc_align, alloc_size, and malloc.  */
+-static const struct attribute_spec::exclusions attr_alloc_exclusions[] =
+-{
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_const_pure_exclusions[] =
+-{
+-  ATTR_EXCL ("const", true, true, true),
+-  ATTR_EXCL ("alloc_align", true, true, true),
+-  ATTR_EXCL ("alloc_size", true, true, true),
+-  ATTR_EXCL ("malloc", true, true, true),
+-  ATTR_EXCL ("noreturn", true, true, true),
+-  ATTR_EXCL ("pure", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false)
+-};
+-
+-static const struct attribute_spec::exclusions attr_always_inline_exclusions[] =
+-{
+-  ATTR_EXCL ("noinline", true, true, true),
+-  ATTR_EXCL ("target_clones", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-extern const struct attribute_spec::exclusions attr_cold_hot_exclusions[] =
+-{
+-  ATTR_EXCL ("cold", true, true, true),
+-  ATTR_EXCL ("hot", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false)
+-};
+-
+-static const struct attribute_spec::exclusions attr_noinline_exclusions[] =
+-{
+-  ATTR_EXCL ("always_inline", true, true, true),
+-  ATTR_EXCL ("gnu_inline", true, true, true),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+-static const struct attribute_spec::exclusions attr_target_exclusions[] =
+-{
+-  ATTR_EXCL ("target_clones", TARGET_HAS_FMV_TARGET_ATTRIBUTE,
+-             TARGET_HAS_FMV_TARGET_ATTRIBUTE, TARGET_HAS_FMV_TARGET_ATTRIBUTE),
+-  ATTR_EXCL (NULL, false, false, false),
+-};
+-
+ /* These variables act as a cache for the target builtins. This is needed in
+    order to be able to type-check the calls since we can only get those types
+    in the playback phase while we need them in the recording phase.  */
+@@ -174,7 +89,7 @@ static const attribute_spec jit_gnu_attributes[] =
+   { "leaf",		      0, 0, true,  false, false, false,
+ 			      handle_leaf_attribute, NULL },
+   { "malloc",		      0, 0, true,  false, false, false,
+-			      handle_malloc_attribute, attr_alloc_exclusions },
++			      handle_malloc_common, attr_alloc_exclusions },
+   { "noreturn",		      0, 0, true,  false, false, false,
+ 			      handle_noreturn_attribute,
+ 			      attr_noreturn_exclusions },
+@@ -247,6 +162,11 @@ static const scoped_attribute_specs *const jit_attribute_table[] =
+ 
+ /* Attribute handlers.  */
+ 
++/* Attribute handlers specific to libgccjit.  If the attribute handler code
++   is the same as the one in `c-family/c-attribs.cc`, please move the
++   handler into `attr-handlers.cc`.  */
++
++
+ /* Handle a "noreturn" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -271,107 +191,6 @@ handle_noreturn_attribute (tree *node, tree ARG_UNUSED (name),
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "leaf" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_leaf_attribute (tree *node, tree name,
+-		       tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) != FUNCTION_DECL)
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  if (!TREE_PUBLIC (*node))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute has no effect on unit local functions", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "const" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_const_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+-			int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  tree type = TREE_TYPE (*node);
+-
+-  /* See FIXME comment on noreturn in c_common_attribute_table.  */
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    TREE_READONLY (*node) = 1;
+-  else if (TREE_CODE (type) == POINTER_TYPE
+-	   && TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
+-    TREE_TYPE (*node)
+-      = (build_qualified_type
+-	 (build_pointer_type
+-	  (build_type_variant (TREE_TYPE (type), 1,
+-			       TREE_THIS_VOLATILE (TREE_TYPE (type)))),
+-	  TYPE_QUALS (type)));
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+-
+-/* Handle a "malloc" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_malloc_attribute (tree *node, tree ARG_UNUSED (name),
+-			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			 bool * ARG_UNUSED (no_add_attrs))
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL
+-      && POINTER_TYPE_P (TREE_TYPE (TREE_TYPE (*node))))
+-    DECL_IS_MALLOC (*node) = 1;
+-  else
+-    gcc_unreachable ();
+-
+-  return NULL_TREE;
+-}
+-
+-
+-/* Handle a "pure" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_pure_attribute (tree *node, tree ARG_UNUSED (name),
+-		       tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-		       bool * ARG_UNUSED (no_add_attrs))
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    DECL_PURE_P (*node) = 1;
+-  else
+-    gcc_unreachable ();
+-
+-  return NULL_TREE;
+-}
+-
+-
+-/* Handle a "no vops" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_novops_attribute (tree *node, tree ARG_UNUSED (name),
+-			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			 bool *ARG_UNUSED (no_add_attrs))
+-{
+-  gcc_assert (TREE_CODE (*node) == FUNCTION_DECL);
+-  DECL_IS_NOVOPS (*node) = 1;
+-  return NULL_TREE;
+-}
+-
+-
+ /* Helper for nonnull attribute handling; fetch the operand number
+    from the attribute argument list.  */
+ 
+@@ -437,24 +256,6 @@ handle_nonnull_attribute (tree *node, tree ARG_UNUSED (name),
+   return NULL_TREE;
+ }
+ 
+-
+-/* Handle a "nothrow" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_nothrow_attribute (tree *node, tree ARG_UNUSED (name),
+-			  tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			  bool * ARG_UNUSED (no_add_attrs))
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    TREE_NOTHROW (*node) = 1;
+-  else
+-    gcc_unreachable ();
+-
+-  return NULL_TREE;
+-}
+-
+-
+ /* Handle a "sentinel" attribute.  */
+ 
+ static tree
+@@ -475,22 +276,6 @@ handle_sentinel_attribute (tree *node, tree ARG_UNUSED (name), tree args,
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "type_generic" attribute.  */
+-
+-static tree
+-handle_type_generic_attribute (tree *node, tree ARG_UNUSED (name),
+-			       tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			       bool * ARG_UNUSED (no_add_attrs))
+-{
+-  /* Ensure we have a function type.  */
+-  gcc_assert (TREE_CODE (*node) == FUNCTION_TYPE);
+-
+-  /* Ensure we have a variadic function.  */
+-  gcc_assert (!prototype_p (*node) || stdarg_p (*node));
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "transaction_pure" attribute.  */
+ 
+ static tree
+@@ -505,203 +290,6 @@ handle_transaction_pure_attribute (tree *node, tree ARG_UNUSED (name),
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "returns_twice" attribute.  */
+-
+-static tree
+-handle_returns_twice_attribute (tree *node, tree ARG_UNUSED (name),
+-				tree ARG_UNUSED (args),
+-				int ARG_UNUSED (flags),
+-				bool * ARG_UNUSED (no_add_attrs))
+-{
+-  gcc_assert (TREE_CODE (*node) == FUNCTION_DECL);
+-
+-  DECL_IS_RETURNS_TWICE (*node) = 1;
+-
+-  return NULL_TREE;
+-}
+-
+-static tree
+-handle_patchable_function_entry_attribute (tree *, tree, tree, int, bool *)
+-{
+-  /* Nothing to be done here.  */
+-  return NULL_TREE;
+-}
+-
+-/* Ignore the given attribute.  Used when this attribute may be usefully
+-   overridden by the target, but is not used generically.  */
+-
+-static tree
+-ignore_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
+-		  tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-		  bool *no_add_attrs)
+-{
+-  *no_add_attrs = true;
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "format" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_format_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
+-			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			 bool *no_add_attrs)
+-{
+-  *no_add_attrs = true;
+-  return NULL_TREE;
+-}
+-
+-
+-/* Handle a "format_arg" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-tree
+-handle_format_arg_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
+-			     tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+-			     bool *no_add_attrs)
+-{
+-  *no_add_attrs = true;
+-  return NULL_TREE;
+-}
+-
+-
+-/* Handle a "fn spec" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_fnspec_attribute (tree *node ATTRIBUTE_UNUSED, tree ARG_UNUSED (name),
+-			 tree args, int ARG_UNUSED (flags),
+-			 bool *no_add_attrs ATTRIBUTE_UNUSED)
+-{
+-  gcc_assert (args
+-	      && TREE_CODE (TREE_VALUE (args)) == STRING_CST
+-	      && !TREE_CHAIN (args));
+-  return NULL_TREE;
+-}
+-
+-/* Handle an "visibility" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_visibility_attribute (tree *node, tree name, tree args,
+-			     int ARG_UNUSED (flags),
+-			     bool *ARG_UNUSED (no_add_attrs))
+-{
+-  tree decl = *node;
+-  tree id = TREE_VALUE (args);
+-  enum symbol_visibility vis;
+-
+-  if (TYPE_P (*node))
+-    {
+-      if (TREE_CODE (*node) == ENUMERAL_TYPE)
+-	/* OK.  */;
+-      else if (!RECORD_OR_UNION_TYPE_P (*node))
+-	{
+-	  warning (OPT_Wattributes, "%qE attribute ignored on non-class types",
+-		   name);
+-	  return NULL_TREE;
+-	}
+-      else if (TYPE_FIELDS (*node))
+-	{
+-	  error ("%qE attribute ignored because %qT is already defined",
+-		 name, *node);
+-	  return NULL_TREE;
+-	}
+-    }
+-  else if (decl_function_context (decl) != 0 || !TREE_PUBLIC (decl))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      return NULL_TREE;
+-    }
+-
+-  if (TREE_CODE (id) != STRING_CST)
+-    {
+-      error ("visibility argument not a string");
+-      return NULL_TREE;
+-    }
+-
+-  /*  If this is a type, set the visibility on the type decl.  */
+-  if (TYPE_P (decl))
+-    {
+-      decl = TYPE_NAME (decl);
+-      if (!decl)
+-	return NULL_TREE;
+-      if (TREE_CODE (decl) == IDENTIFIER_NODE)
+-	{
+-	   warning (OPT_Wattributes, "%qE attribute ignored on types",
+-		    name);
+-	   return NULL_TREE;
+-	}
+-    }
+-
+-  if (strcmp (TREE_STRING_POINTER (id), "default") == 0)
+-    vis = VISIBILITY_DEFAULT;
+-  else if (strcmp (TREE_STRING_POINTER (id), "internal") == 0)
+-    vis = VISIBILITY_INTERNAL;
+-  else if (strcmp (TREE_STRING_POINTER (id), "hidden") == 0)
+-    vis = VISIBILITY_HIDDEN;
+-  else if (strcmp (TREE_STRING_POINTER (id), "protected") == 0)
+-    vis = VISIBILITY_PROTECTED;
+-  else
+-    {
+-      error ("attribute %qE argument must be one of %qs, %qs, %qs, or %qs",
+-	     name, "default", "hidden", "protected", "internal");
+-      vis = VISIBILITY_DEFAULT;
+-    }
+-
+-  if (DECL_VISIBILITY_SPECIFIED (decl)
+-      && vis != DECL_VISIBILITY (decl))
+-    {
+-      tree attributes = (TYPE_P (*node)
+-			 ? TYPE_ATTRIBUTES (*node)
+-			 : DECL_ATTRIBUTES (decl));
+-      if (lookup_attribute ("visibility", attributes))
+-	error ("%qD redeclared with different visibility", decl);
+-      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
+-	       && lookup_attribute ("dllimport", attributes))
+-	error ("%qD was declared %qs which implies default visibility",
+-	       decl, "dllimport");
+-      else if (TARGET_DLLIMPORT_DECL_ATTRIBUTES
+-	       && lookup_attribute ("dllexport", attributes))
+-	error ("%qD was declared %qs which implies default visibility",
+-	       decl, "dllexport");
+-    }
+-
+-  DECL_VISIBILITY (decl) = vis;
+-  DECL_VISIBILITY_SPECIFIED (decl) = 1;
+-
+-  /* Go ahead and attach the attribute to the node as well.  This is needed
+-     so we can determine whether we have VISIBILITY_DEFAULT because the
+-     visibility was not specified, or because it was explicitly overridden
+-     from the containing scope.  */
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "always_inline" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_always_inline_attribute (tree *node, tree name,
+-				tree ARG_UNUSED (args),
+-				int ARG_UNUSED (flags),
+-				bool *no_add_attrs)
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    {
+-      /* Set the attribute and mark it for disregarding inline
+-	 limits.  */
+-      DECL_DISREGARD_INLINE_LIMITS (*node) = 1;
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+ /* Handle a "cold" and attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+@@ -723,211 +311,36 @@ handle_cold_attribute (tree *node, tree name, tree ARG_UNUSED (args),
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "noinline" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+ static tree
+-handle_noinline_attribute (tree *node, tree name,
+-			   tree ARG_UNUSED (args),
+-			   int ARG_UNUSED (flags), bool *no_add_attrs)
++handle_patchable_function_entry_attribute (tree *, tree, tree, int, bool *)
+ {
+-  if (TREE_CODE (*node) == FUNCTION_DECL)
+-    DECL_UNINLINABLE (*node) = 1;
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
++  /* Nothing to be done here.  */
+   return NULL_TREE;
+ }
+ 
+-/* Handle a "weak" attribute; arguments as in
++/* Handle a "format" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+ static tree
+-handle_weak_attribute (tree *node, tree name,
+-		       tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags),
+-		       bool * ARG_UNUSED (no_add_attrs))
+-{
+-  if (TREE_CODE (*node) == FUNCTION_DECL
+-      && DECL_DECLARED_INLINE_P (*node))
+-    {
+-      warning (OPT_Wattributes, "inline function %q+D declared weak", *node);
+-      *no_add_attrs = true;
+-    }
+-  else if (lookup_attribute ("ifunc", DECL_ATTRIBUTES (*node)))
+-    {
+-      error ("indirect function %q+D cannot be declared weak", *node);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-  else if (VAR_OR_FUNCTION_DECL_P (*node))
+-    declare_weak (*node);
+-  else
+-    warning (OPT_Wattributes, "%qE attribute ignored", name);
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "target" attribute.  */
+-
+-static tree
+-handle_target_attribute (tree *node, tree name, tree args, int flags,
++handle_format_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
++			 tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+ 			 bool *no_add_attrs)
+ {
+-  /* Ensure we have a function declaration.  */
+-  if (TREE_CODE (*node) != FUNCTION_DECL)
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  else if (! targetm.target_option.valid_attribute_p (*node, name, args,
+-						      flags))
+-    *no_add_attrs = true;
+-
+-  /* Check that there's no empty string in values of the attribute.  */
+-  for (tree t = args; t != NULL_TREE; t = TREE_CHAIN (t))
+-    {
+-      tree value = TREE_VALUE (t);
+-      if (TREE_CODE (value) == STRING_CST
+-	  && TREE_STRING_LENGTH (value) == 1
+-	  && TREE_STRING_POINTER (value)[0] == '\0')
+-	{
+-	  warning (OPT_Wattributes, "empty string in attribute %<target%>");
+-	  *no_add_attrs = true;
+-	}
+-    }
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle a "used" attribute; arguments as in
+-   struct attribute_spec.handler.  */
+-
+-static tree
+-handle_used_attribute (tree *pnode, tree name, tree ARG_UNUSED (args),
+-		       int ARG_UNUSED (flags), bool *no_add_attrs)
+-{
+-  tree node = *pnode;
+-
+-  if (TREE_CODE (node) == FUNCTION_DECL
+-      || (VAR_P (node) && TREE_STATIC (node))
+-      || (TREE_CODE (node) == TYPE_DECL))
+-    {
+-      TREE_USED (node) = 1;
+-      DECL_PRESERVE_P (node) = 1;
+-      if (VAR_P (node))
+-	DECL_READ_P (node) = 1;
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
++  *no_add_attrs = true;
+   return NULL_TREE;
+ }
+ 
+-/* Handle an "alias" or "ifunc" attribute; arguments as in
+-   struct attribute_spec.handler, except that IS_ALIAS tells us
+-   whether this is an alias as opposed to ifunc attribute.  */
+ 
+-static tree
+-handle_alias_ifunc_attribute (bool is_alias, tree *node, tree name, tree args,
+-			      bool *no_add_attrs)
+-{
+-  tree decl = *node;
+-
+-  if (TREE_CODE (decl) != FUNCTION_DECL
+-      && (!is_alias || !VAR_P (decl)))
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-  else if ((TREE_CODE (decl) == FUNCTION_DECL && DECL_INITIAL (decl))
+-      || (TREE_CODE (decl) != FUNCTION_DECL
+-	  && TREE_PUBLIC (decl) && !DECL_EXTERNAL (decl))
+-      /* A static variable declaration is always a tentative definition,
+-	 but the alias is a non-tentative definition which overrides.  */
+-      || (TREE_CODE (decl) != FUNCTION_DECL
+-	  && ! TREE_PUBLIC (decl) && DECL_INITIAL (decl)))
+-    {
+-      error ("%q+D defined both normally and as %qE attribute", decl, name);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-  else if (!is_alias
+-	   && (lookup_attribute ("weak", DECL_ATTRIBUTES (decl))
+-	       || lookup_attribute ("weakref", DECL_ATTRIBUTES (decl))))
+-    {
+-      error ("weak %q+D cannot be defined %qE", decl, name);
+-      *no_add_attrs = true;
+-      return NULL_TREE;
+-    }
+-
+-  /* Note that the very first time we process a nested declaration,
+-     decl_function_context will not be set.  Indeed, *would* never
+-     be set except for the DECL_INITIAL/DECL_EXTERNAL frobbery that
+-     we do below.  After such frobbery, pushdecl would set the context.
+-     In any case, this is never what we want.  */
+-  else if (decl_function_context (decl) == 0 && current_function_decl == NULL)
+-    {
+-      tree id;
+-
+-      id = TREE_VALUE (args);
+-      if (TREE_CODE (id) != STRING_CST)
+-	{
+-	  error ("attribute %qE argument not a string", name);
+-	  *no_add_attrs = true;
+-	  return NULL_TREE;
+-	}
+-      id = get_identifier (TREE_STRING_POINTER (id));
+-      /* This counts as a use of the object pointed to.  */
+-      TREE_USED (id) = 1;
+-
+-      if (TREE_CODE (decl) == FUNCTION_DECL)
+-	DECL_INITIAL (decl) = error_mark_node;
+-      else
+-	TREE_STATIC (decl) = 1;
+-
+-      if (!is_alias)
+-	{
+-	  /* ifuncs are also aliases, so set that attribute too.  */
+-	  DECL_ATTRIBUTES (decl)
+-	    = tree_cons (get_identifier ("alias"), args,
+-			 DECL_ATTRIBUTES (decl));
+-	  DECL_ATTRIBUTES (decl) = tree_cons (get_identifier ("ifunc"),
+-					      NULL, DECL_ATTRIBUTES (decl));
+-	}
+-    }
+-  else
+-    {
+-      warning (OPT_Wattributes, "%qE attribute ignored", name);
+-      *no_add_attrs = true;
+-    }
+-
+-  if (decl_in_symtab_p (*node))
+-    {
+-      struct symtab_node *n = symtab_node::get (decl);
+-      if (n && n->refuse_visibility_changes)
+-	error ("%+qD declared %qs after being used",
+-	       decl, is_alias ? "alias" : "ifunc");
+-    }
+-
+-
+-  return NULL_TREE;
+-}
+-
+-/* Handle an "alias" or "ifunc" attribute; arguments as in
++/* Handle a "format_arg" attribute; arguments as in
+    struct attribute_spec.handler.  */
+ 
+-static tree
+-handle_alias_attribute (tree *node, tree name, tree args,
+-			int ARG_UNUSED (flags), bool *no_add_attrs)
++tree
++handle_format_arg_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
++			     tree ARG_UNUSED (args), int ARG_UNUSED (flags),
++			     bool *no_add_attrs)
+ {
+-  return handle_alias_ifunc_attribute (true, node, name, args, no_add_attrs);
++  *no_add_attrs = true;
++  return NULL_TREE;
+ }
+ 
+ /* (end of attribute-handling).  */
+@@ -1166,6 +579,10 @@ jit_langhook_type_for_mode (machine_mode mode, int unsignedp)
+ 	return complex_integer_type_node;
+     }
+ 
++  for (int i = 0; i < NUM_FLOATN_NX_TYPES; i++)
++    if (FLOATN_NX_TYPE_NODE (i) != NULL_TREE
++	&& mode == TYPE_MODE (FLOATN_NX_TYPE_NODE (i)))
++      return FLOATN_NX_TYPE_NODE (i);
+   /* gcc_unreachable */
+   return NULL;
+ }
+diff --git a/gcc/jit/jit-builtins.cc b/gcc/jit/jit-builtins.cc
+index 53407b7..539ee13 100644
+--- a/gcc/jit/jit-builtins.cc
++++ b/gcc/jit/jit-builtins.cc
+@@ -347,7 +347,7 @@ builtins_manager::make_type (enum jit_builtin_type type_id)
+        - similarly for DEF_FUNCTION_TYPE_VAR_n, but setting the
+ 	"is_variadic" argument.
+        - DEF_POINTER_TYPE is handled by make_ptr_type.
+-     That should handle everything, but just in case we also suppy a
++     That should handle everything, but just in case we also supply a
+      gcc_unreachable default clause.  */
+   switch (type_id)
+     {
+diff --git a/gcc/jit/jit-playback.cc b/gcc/jit/jit-playback.cc
+index 62aa5c2..56c9413 100644
+--- a/gcc/jit/jit-playback.cc
++++ b/gcc/jit/jit-playback.cc
+@@ -3262,7 +3262,7 @@ make_fake_args (vec <char *> *argvec,
+      driver to expand ().
+ 
+      For cc1 etc, the driver processes OPTION_DEFAULT_SPECS and,
+-     if not overriden, injects the defaults as extra arguments to
++     if not overridden, injects the defaults as extra arguments to
+      cc1 etc.
+      For the jit case, we need to add these arguments here.  The
+      input format (using the specs language) means that we have to run
+@@ -4024,7 +4024,7 @@ playback::context::
+ get_source_file (const char *filename)
+ {
+   /* Locate the file.
+-     For simplicitly, this is currently a linear search.
++     For simplicity, this is currently a linear search.
+      Replace with a hash if this shows up in the profile.  */
+   int i;
+   source_file *file;
+@@ -4065,7 +4065,7 @@ playback::source_file::
+ get_source_line (int line_num)
+ {
+   /* Locate the line.
+-     For simplicitly, this is currently a linear search.
++     For simplicity, this is currently a linear search.
+      Replace with a hash if this shows up in the profile.  */
+   int i;
+   source_line *line;
+diff --git a/gcc/jit/jit-recording.cc b/gcc/jit/jit-recording.cc
+index 07c82cc..e28e5f6 100644
+--- a/gcc/jit/jit-recording.cc
++++ b/gcc/jit/jit-recording.cc
+@@ -1546,7 +1546,7 @@ recording::context::set_bool_option (enum gcc_jit_bool_option opt,
+ 		 "unrecognized (enum gcc_jit_bool_option) value: %i", opt);
+       return;
+     }
+-  m_bool_options[opt] = value ? true : false;
++  m_bool_options[opt] = value;
+   log_bool_option (opt);
+ }
+ 
+@@ -1555,7 +1555,7 @@ recording::context::set_inner_bool_option (enum inner_bool_option inner_opt,
+ 					   int value)
+ {
+   gcc_assert (inner_opt >= 0 && inner_opt < NUM_INNER_BOOL_OPTIONS);
+-  m_inner_bool_options[inner_opt] = value ? true : false;
++  m_inner_bool_options[inner_opt] = value;
+   log_inner_bool_option (inner_opt);
+ }
+ 
+diff --git a/gcc/jit/jit-recording.h b/gcc/jit/jit-recording.h
+index ee12067..2a5f23a 100644
+--- a/gcc/jit/jit-recording.h
++++ b/gcc/jit/jit-recording.h
+@@ -653,8 +653,7 @@ public:
+ 
+   virtual bool is_same_type_as (type *other)
+   {
+-    if (is_int ()
+-		 && other->is_int ()
++    if (((is_int () && other->is_int ()) || (is_float () && other->is_float ()))
+ 		 && get_size () == other->get_size ()
+ 		 && is_signed () == other->is_signed ())
+     {
+@@ -1026,7 +1025,8 @@ public:
+     if (other_vec_type == NULL)
+       return false;
+     return get_num_units () == other_vec_type->get_num_units ()
+-      && get_element_type () == other_vec_type->get_element_type ();
++      && get_element_type ()->is_same_type_as (
++	other_vec_type->get_element_type ());
+   }
+ 
+   vector_type *is_vector () final override { return this; }
+@@ -2972,7 +2972,7 @@ types_kinda_same_internal (recording::type *a,
+    if the types and pointer depth are the same, otherwise false.
+ 
+    For array and vector types the number of element also
+-   has to match, aswell as the element types themself.  */
++   has to match, as well as the element types themself.  */
+ inline bool
+ types_kinda_same (recording::type *a, recording::type *b)
+ {
+diff --git a/gcc/jit/libgccjit.cc b/gcc/jit/libgccjit.cc
+index 98a5b56..5a874fc 100644
+--- a/gcc/jit/libgccjit.cc
++++ b/gcc/jit/libgccjit.cc
+@@ -637,6 +637,23 @@ gcc_jit_type_is_integral (gcc_jit_type *type)
+   return type->is_int ();
+ }
+ 
++/* Public entrypoint.  See description in libgccjit.h.
++
++   After error-checking, the real work is done by the
++   gcc::jit::recording::type::is_float method, in
++   jit-recording.cc.  */
++
++int
++gcc_jit_type_is_floating_point (gcc_jit_type *type)
++{
++  RETURN_VAL_IF_FAIL (type, FALSE, NULL, NULL, "NULL type");
++
++  if (type->is_vector ())
++    return false;
++
++  return type->is_float ();
++}
++
+ /* Public entrypoint.  See description in libgccjit.h.
+ 
+    After error-checking, the real work is done by the
+@@ -1502,7 +1519,7 @@ gcc_jit_context_new_struct_constructor (gcc_jit_context *ctxt,
+ 			       type->get_debug_string (),
+ 			       n_fields);
+ 
+-  /* It is OK if fields are null here, indicating definiton order,
++  /* It is OK if fields are null here, indicating definition order,
+      but there has to be a values array.  */
+   RETURN_NULL_IF_FAIL (values,
+ 		       ctxt, loc,
+@@ -2306,7 +2323,8 @@ gcc_jit_context_new_comparison (gcc_jit_context *ctxt,
+   RETURN_NULL_IF_FAIL (a, ctxt, loc, "NULL a");
+   RETURN_NULL_IF_FAIL (b, ctxt, loc, "NULL b");
+   RETURN_NULL_IF_FAIL_PRINTF4 (
+-    a->get_type ()->unqualified () == b->get_type ()->unqualified (),
++    compatible_types (a->get_type ()->unqualified (),
++		      b->get_type ()->unqualified ()),
+     ctxt, loc,
+     "mismatching types for comparison:"
+     " a: %s (type: %s) b: %s (type: %s)",
+@@ -2513,10 +2531,10 @@ is_valid_cast (gcc::jit::recording::type *src_type,
+     if (dst_is_int || dst_is_bool)
+       return true;
+ 
+-  /* Permit casts between pointer types.  */
++  /* Permit casts between pointer types and integers and pointers.  */
+   gcc::jit::recording::type *deref_src_type = src_type->is_pointer ();
+   gcc::jit::recording::type *deref_dst_type = dst_type->is_pointer ();
+-  if (deref_src_type && deref_dst_type)
++  if ((deref_src_type || src_is_int) && (deref_dst_type || dst_is_int))
+     return true;
+ 
+   return false;
+diff --git a/gcc/jit/libgccjit.exports b/gcc/jit/libgccjit.exports
+index 17864c7..fae0951 100644
+--- a/gcc/jit/libgccjit.exports
++++ b/gcc/jit/libgccjit.exports
+@@ -264,3 +264,6 @@ _gcc_jit_context_set_abort_on_unsupported_target_builtin
+ 
+ # LIBGCCJIT_ABI_37
+ _gcc_jit_context_new_array_type_u64
++
++# LIBGCCJIT_ABI_38
++_gcc_jit_type_is_floating_point
+diff --git a/gcc/jit/libgccjit.h b/gcc/jit/libgccjit.h
+index 08ba5f6..2247c99 100644
+--- a/gcc/jit/libgccjit.h
++++ b/gcc/jit/libgccjit.h
+@@ -1637,7 +1637,7 @@ gcc_jit_context_new_case (gcc_jit_context *ctxt,
+ extern gcc_jit_object *
+ gcc_jit_case_as_object (gcc_jit_case *case_);
+ 
+-/* Terminate a block by adding evalation of an rvalue, then performing
++/* Terminate a block by adding evaluation of an rvalue, then performing
+    a multiway branch.
+ 
+    This is roughly equivalent to this C code:
+@@ -2094,6 +2094,12 @@ gcc_jit_function_type_get_param_type (gcc_jit_function_type *function_type,
+ extern int
+ gcc_jit_type_is_integral (gcc_jit_type *type);
+ 
++/* Return non-zero if the type is floating point.  */
++extern int
++gcc_jit_type_is_floating_point (gcc_jit_type * type);
++
++#define LIBGCCJIT_HAVE_gcc_jit_type_is_floating_point
++
+ /* Return the type pointed by the pointer type or NULL if it's not a
+  * pointer.  */
+ extern gcc_jit_type *
+diff --git a/gcc/jit/libgccjit.map b/gcc/jit/libgccjit.map
+index d4cb50d..78b6be9 100644
+--- a/gcc/jit/libgccjit.map
++++ b/gcc/jit/libgccjit.map
+@@ -344,3 +344,8 @@ LIBGCCJIT_ABI_37 {
+   global:
+     gcc_jit_context_new_array_type_u64;
+ } LIBGCCJIT_ABI_36;
++
++LIBGCCJIT_ABI_38 {
++  global:
++    gcc_jit_type_is_floating_point;
++} LIBGCCJIT_ABI_37;
+diff --git a/gcc/testsuite/jit.dg/all-non-failing-tests.h b/gcc/testsuite/jit.dg/all-non-failing-tests.h
+index 1b4dbec..e8f8463 100644
+--- a/gcc/testsuite/jit.dg/all-non-failing-tests.h
++++ b/gcc/testsuite/jit.dg/all-non-failing-tests.h
+@@ -138,6 +138,13 @@
+ #undef create_code
+ #undef verify_code
+ 
++/* test-comparison.c */
++#define create_code create_code_comparison
++#define verify_code verify_code_comparison
++#include "test-comparison.c"
++#undef create_code
++#undef verify_code
++
+ /* test-compound-assignment.c */
+ #define create_code create_code_compound_assignment
+ #define verify_code verify_code_compound_assignment
+@@ -558,6 +565,9 @@ const struct testcase testcases[] = {
+   {"cast",
+    create_code_cast,
+    verify_code_cast},
++  {"comparison",
++   create_code_comparison,
++   verify_code_comparison},
+   {"compound_assignment",
+    create_code_compound_assignment,
+    verify_code_compound_assignment},
+diff --git a/gcc/testsuite/jit.dg/test-cast.c b/gcc/testsuite/jit.dg/test-cast.c
+index 2b1e385..9492d14 100644
+--- a/gcc/testsuite/jit.dg/test-cast.c
++++ b/gcc/testsuite/jit.dg/test-cast.c
+@@ -15,9 +15,17 @@ my_casts (int x)
+ {
+    return (char)(long) x;
+ }
++
++int
++ptrtoint (int *y)
++{
++  return (int) y;
++}
+    */
+   gcc_jit_type *int_type =
+     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_INT);
++  gcc_jit_type *int_ptr_type =
++    gcc_jit_type_get_pointer (int_type);
+   gcc_jit_type *long_type =
+     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_LONG);
+   gcc_jit_type *return_type =
+@@ -50,17 +58,50 @@ my_casts (int x)
+         ),
+         return_type
+     ));
++
++  gcc_jit_param *y =
++    gcc_jit_context_new_param (
++      ctxt,
++      NULL,
++      int_ptr_type, "y");
++  gcc_jit_param *params2[1] = {y};
++  gcc_jit_function *ptrtoint_func =
++    gcc_jit_context_new_function (ctxt,
++				  NULL,
++				  GCC_JIT_FUNCTION_EXPORTED,
++				  int_type,
++				  "ptrtoint",
++				  1, params2, 0);
++
++  gcc_jit_block *start_block =
++    gcc_jit_function_new_block (ptrtoint_func, "start_block");
++
++  gcc_jit_block_end_with_return (start_block, NULL,
++    gcc_jit_context_new_cast (ctxt,
++        NULL,
++        gcc_jit_param_as_rvalue (y),
++        int_type
++    ));
+ }
+ 
+ void
+ verify_code (gcc_jit_context *ctxt, gcc_jit_result *result)
+ {
+-  typedef int (*my_casts_fn_type) (int);
+   CHECK_NON_NULL (result);
++
++  typedef int (*my_casts_fn_type) (int);
+   my_casts_fn_type my_casts =
+     (my_casts_fn_type)gcc_jit_result_get_code (result, "my_casts");
+   CHECK_NON_NULL (my_casts);
+   char val = my_casts (10);
+   note ("my_casts returned: %d", val);
+   CHECK_VALUE (val, 10);
++
++  typedef int (*ptrtoint_fn_type) (int*);
++  ptrtoint_fn_type ptrtoint =
++    (ptrtoint_fn_type)gcc_jit_result_get_code (result, "ptrtoint");
++  CHECK_NON_NULL (ptrtoint);
++  int int_val = ptrtoint (NULL);
++  note ("ptrtoint returned: %d", int_val);
++  CHECK_VALUE (int_val, 0);
+ }
+diff --git a/gcc/testsuite/jit.dg/test-comparison.c b/gcc/testsuite/jit.dg/test-comparison.c
+new file mode 100644
+index 0000000..a7c4182
+--- /dev/null
++++ b/gcc/testsuite/jit.dg/test-comparison.c
+@@ -0,0 +1,79 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++
++#include "libgccjit.h"
++
++#include "harness.h"
++
++void
++create_code (gcc_jit_context *ctxt, void *user_data)
++{
++  /* Let's try to inject the equivalent of:
++int
++func ()
++{
++    _Float32 float32_val = 2.3;
++    float float = 4.5;
++    if (float == float32_val)
++        return 1;
++    return 0;
++}
++   */
++  gcc_jit_type *int_type =
++    gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_INT);
++  gcc_jit_type *float_type =
++    gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT);
++  gcc_jit_type *float32_type;
++
++  gcc_jit_context *info_ctxt = gcc_jit_context_acquire ();
++  gcc_jit_target_info* target_info = gcc_jit_context_get_target_info (info_ctxt);
++  if (gcc_jit_target_info_supports_target_dependent_type (target_info,
++							  GCC_JIT_TYPE_FLOAT32))
++  {
++    gcc_jit_type *sized_float_type =
++      gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT32);
++    float32_type = gcc_jit_type_get_aligned (sized_float_type, 4);
++  }
++  else
++    float32_type = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT);
++
++  gcc_jit_function *func =
++    gcc_jit_context_new_function (ctxt,
++				  NULL,
++				  GCC_JIT_FUNCTION_EXPORTED,
++				  int_type,
++				  "func",
++				  0, NULL, 0);
++
++  gcc_jit_block *initial =
++    gcc_jit_function_new_block (func, "initial");
++  gcc_jit_block *if_block =
++    gcc_jit_function_new_block (func, "if");
++  gcc_jit_block *else_block =
++    gcc_jit_function_new_block (func, "else");
++
++  gcc_jit_rvalue *zero = gcc_jit_context_zero (ctxt, int_type);
++  gcc_jit_rvalue *one = gcc_jit_context_one (ctxt, int_type);
++
++  gcc_jit_rvalue *float32_val =
++    gcc_jit_context_new_rvalue_from_double (ctxt, float32_type, 2.3);
++  gcc_jit_rvalue *float_val =
++    gcc_jit_context_new_rvalue_from_double (ctxt, float_type, 4.5);
++
++  gcc_jit_rvalue *comparison = gcc_jit_context_new_comparison (ctxt,
++    NULL, GCC_JIT_COMPARISON_EQ, float_val, float32_val);
++
++  gcc_jit_block_end_with_conditional (initial,
++    NULL, comparison, if_block, else_block);
++
++  gcc_jit_block_end_with_return(if_block, NULL, one);
++
++  gcc_jit_block_end_with_return(else_block, NULL, zero);
++}
++
++void
++verify_code (gcc_jit_context *ctxt, gcc_jit_result *result)
++{
++  CHECK_NON_NULL (result);
++}
+diff --git a/gcc/testsuite/jit.dg/test-reflection.c b/gcc/testsuite/jit.dg/test-reflection.c
+index afa76ff..a8c5dea 100644
+--- a/gcc/testsuite/jit.dg/test-reflection.c
++++ b/gcc/testsuite/jit.dg/test-reflection.c
+@@ -24,15 +24,68 @@ verify_code (gcc_jit_context *ctxt, gcc_jit_result *result)
+     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_DOUBLE);
+   CHECK_VALUE (gcc_jit_function_get_return_type(builtin_sin), double_type);
+   CHECK (!gcc_jit_type_is_integral(double_type));
++  CHECK (gcc_jit_type_is_floating_point (double_type));
++
++  gcc_jit_type *float_type =
++    gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT);
++  CHECK (!gcc_jit_type_is_bool (float_type));
++  CHECK (!gcc_jit_type_is_integral (float_type));
++  CHECK (gcc_jit_type_is_floating_point (float_type));
++
++  gcc_jit_target_info *target_info = gcc_jit_context_get_target_info (ctxt);
++  if (target_info != NULL &&
++    gcc_jit_target_info_supports_target_dependent_type (target_info,
++      GCC_JIT_TYPE_FLOAT16))
++  {
++    gcc_jit_type *float16_type
++      = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT16);
++    CHECK (!gcc_jit_type_is_bool (float16_type));
++    CHECK (!gcc_jit_type_is_integral (float16_type));
++    CHECK (gcc_jit_type_is_floating_point (float16_type));
++  }
++
++  if (target_info != NULL &&
++    gcc_jit_target_info_supports_target_dependent_type (target_info,
++      GCC_JIT_TYPE_FLOAT32))
++  {
++    gcc_jit_type *float32_type
++      = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT32);
++    CHECK (!gcc_jit_type_is_bool (float32_type));
++    CHECK (!gcc_jit_type_is_integral (float32_type));
++    CHECK (gcc_jit_type_is_floating_point (float32_type));
++  }
++
++  if (target_info != NULL &&
++    gcc_jit_target_info_supports_target_dependent_type (target_info,
++      GCC_JIT_TYPE_FLOAT64))
++  {
++    gcc_jit_type *float64_type
++      = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT64);
++    CHECK (!gcc_jit_type_is_bool (float64_type));
++    CHECK (!gcc_jit_type_is_integral (float64_type));
++    CHECK (gcc_jit_type_is_floating_point (float64_type));
++  }
++
++  if (target_info != NULL &&
++    gcc_jit_target_info_supports_target_dependent_type (target_info,
++      GCC_JIT_TYPE_FLOAT128))
++  {
++    gcc_jit_type *float128_type
++      = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_FLOAT128);
++    CHECK (!gcc_jit_type_is_bool (float128_type));
++    CHECK (!gcc_jit_type_is_integral (float128_type));
++    CHECK (gcc_jit_type_is_floating_point (float128_type));
++  }
+ 
+   gcc_jit_type *bool_type =
+     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_BOOL);
+-  CHECK (gcc_jit_type_is_bool(bool_type));
+-  CHECK (!gcc_jit_type_is_integral(bool_type));
++  CHECK (gcc_jit_type_is_bool (bool_type));
++  CHECK (!gcc_jit_type_is_integral (bool_type));
++  CHECK (!gcc_jit_type_is_floating_point (bool_type));
+ 
+   gcc_jit_type *aligned_bool_type =
+     gcc_jit_type_get_aligned(gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_BOOL), 8);
+-  CHECK (gcc_jit_type_is_bool(aligned_bool_type));
++  CHECK (gcc_jit_type_is_bool (aligned_bool_type));
+   CHECK (bool_type != aligned_bool_type);
+   CHECK_VALUE (gcc_jit_type_unqualified(aligned_bool_type), bool_type);
+ 
+@@ -42,15 +95,19 @@ verify_code (gcc_jit_context *ctxt, gcc_jit_result *result)
+   gcc_jit_type *int64 =
+     gcc_jit_context_get_int_type(ctxt, 8, 1);
+   CHECK (gcc_jit_type_is_integral(int64));
++  CHECK (!gcc_jit_type_is_floating_point(int64));
+   gcc_jit_type *uint64 =
+     gcc_jit_context_get_int_type(ctxt, 8, 0);
+   CHECK (gcc_jit_type_is_integral(uint64));
++  CHECK (!gcc_jit_type_is_floating_point(uint64));
+   gcc_jit_type *int8 =
+     gcc_jit_context_get_int_type(ctxt, 1, 1);
+   CHECK (gcc_jit_type_is_integral(int8));
++  CHECK (!gcc_jit_type_is_floating_point(int8));
+   gcc_jit_type *uint8 =
+     gcc_jit_context_get_int_type(ctxt, 1, 0);
+   CHECK (gcc_jit_type_is_integral(uint8));
++  CHECK (!gcc_jit_type_is_floating_point(uint8));
+ 
+   CHECK (!gcc_jit_type_dyncast_vector(double_type));
+   gcc_jit_type *vec_type = gcc_jit_type_get_vector (double_type, 4);
+diff --git a/gcc/testsuite/jit.dg/test-types.c b/gcc/testsuite/jit.dg/test-types.c
+index 8573711..e5c2b77 100644
+--- a/gcc/testsuite/jit.dg/test-types.c
++++ b/gcc/testsuite/jit.dg/test-types.c
+@@ -9,6 +9,8 @@
+ 
+ #include "harness.h"
+ 
++typedef int v4si __attribute__ ((__vector_size__ (16)));
++
+ struct zoo
+ {
+   void *m_void_ptr;
+@@ -56,6 +58,8 @@ struct zoo
+ 
+   size_t m_size_t;
+ 
++  v4si m_vector;
++
+   FILE *m_FILE_ptr;
+ };
+ 
+@@ -78,6 +82,8 @@ create_code (gcc_jit_context *ctxt, void *user_data)
+   */
+   gcc_jit_type *void_type =
+     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_VOID);
++  gcc_jit_type *int_type =
++    gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_INT);
+ 
+ #define CREATE_FIELD(TYPE, NAME) \
+   gcc_jit_context_new_field ( \
+@@ -163,6 +169,10 @@ create_code (gcc_jit_context *ctxt, void *user_data)
+   gcc_jit_field *field_m_size_t =
+     CREATE_FIELD (GCC_JIT_TYPE_SIZE_T, "m_size_t");
+ 
++  gcc_jit_type *vector_type = gcc_jit_type_get_vector (int_type, 4);
++  gcc_jit_field *field_m_vector =
++    gcc_jit_context_new_field ( ctxt, NULL, vector_type, "m_vector");
++
+   gcc_jit_field *field_m_FILE_ptr =
+     CREATE_FIELD (GCC_JIT_TYPE_FILE_PTR, "m_FILE_ptr");
+ 
+@@ -214,6 +224,8 @@ create_code (gcc_jit_context *ctxt, void *user_data)
+ 
+     field_m_size_t,
+ 
++    field_m_vector,
++
+     field_m_FILE_ptr
+   };
+ 
+@@ -411,6 +423,22 @@ create_code (gcc_jit_context *ctxt, void *user_data)
+       gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_SIZE_T),
+       sizeof (struct zoo)))
+ 
++  gcc_jit_type *aligned_int = gcc_jit_type_get_aligned (int_type, 4);
++  gcc_jit_type *aligned_vector_type = gcc_jit_type_get_vector (aligned_int, 4);
++  gcc_jit_rvalue *value = gcc_jit_context_new_rvalue_from_int (
++      ctxt,
++      aligned_int, 40);
++  gcc_jit_rvalue* array[4] = {
++      value, value, value, value,
++  };
++  ASSIGN(field_m_vector,
++    gcc_jit_context_new_rvalue_from_vector (
++      ctxt,
++      NULL,
++      aligned_vector_type,
++      4,
++      array))
++
+   ASSIGN(field_m_FILE_ptr,
+     gcc_jit_context_new_rvalue_from_ptr (
+       ctxt,

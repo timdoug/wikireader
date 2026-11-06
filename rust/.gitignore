@@ -1,0 +1,8 @@
+# Build products: the app, its listing and the test's screen dump.
+/hello/target/
+*.app
+*.dump
+screen.pgm
+
+# The top-level gcc pattern is for build trees; this one is patches.
+!/gcc/

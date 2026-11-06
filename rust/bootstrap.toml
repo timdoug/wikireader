@@ -1,0 +1,18 @@
+# The C33 stage-1 rustc: rustc_target with Arch::C33, the LLVM backend from
+# CI (it serves the host; C33 code goes through rustc_codegen_gcc).
+change-id = "ignore"
+
+[llvm]
+download-ci-llvm = true
+
+[build]
+jobs = 4
+docs = false
+extended = false
+
+[rust]
+channel = "nightly"
+debug = false
+debug-assertions = false
+incremental = false
+download-rustc = false

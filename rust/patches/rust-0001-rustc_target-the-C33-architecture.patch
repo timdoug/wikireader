@@ -1,0 +1,218 @@
+rustc_target: the Seiko Epson C33 architecture
+
+Arch::C33 ("c33") with the C calling convention of the C33 GCC port,
+for code generated through rustc_codegen_gcc; LLVM has no C33 backend,
+so its c-variadic lowering reports a bug.  c-variadic definitions are
+unstable, as for the other targets without a tested lowering.
+
+diff --git a/compiler/rustc_codegen_llvm/src/va_arg.rs b/compiler/rustc_codegen_llvm/src/va_arg.rs
+index c74ea60ac..cbc4ceadc 100644
+--- a/compiler/rustc_codegen_llvm/src/va_arg.rs
++++ b/compiler/rustc_codegen_llvm/src/va_arg.rs
+@@ -1295,6 +1295,7 @@ pub(super) fn emit_va_arg<'ll, 'tcx>(
+ 
+         Arch::Bpf => bug!("bpf does not support c-variadic functions"),
+         Arch::SpirV => bug!("spirv does not support c-variadic functions"),
++        Arch::C33 => bug!("c33 has no LLVM backend"),
+ 
+         Arch::Avr | Arch::M68k | Arch::Msp430 => {
+             std::assert_matches!(stability, CVariadicStatus::Unstable { .. });
+diff --git a/compiler/rustc_span/src/symbol.rs b/compiler/rustc_span/src/symbol.rs
+index 95197e6c9..325c9dff6 100644
+--- a/compiler/rustc_span/src/symbol.rs
++++ b/compiler/rustc_span/src/symbol.rs
+@@ -582,6 +582,7 @@
+         built,
+         builtin_syntax,
+         bundle,
++        c33,
+         c_dash_variadic,
+         c_str_literals,
+         c_unwind,
+diff --git a/compiler/rustc_target/src/asm/mod.rs b/compiler/rustc_target/src/asm/mod.rs
+index 6f9751e80..3fb1f8a54 100644
+--- a/compiler/rustc_target/src/asm/mod.rs
++++ b/compiler/rustc_target/src/asm/mod.rs
+@@ -281,7 +281,7 @@ pub fn from_arch(arch: &Arch) -> Option<Self> {
+             Arch::M68k => Some(Self::M68k),
+             Arch::CSky => Some(Self::CSKY),
+             Arch::Xtensa => Some(Self::Xtensa),
+-            Arch::Other(_) => None,
++            Arch::C33 | Arch::Other(_) => None,
+         }
+     }
+ }
+diff --git a/compiler/rustc_target/src/callconv/c33.rs b/compiler/rustc_target/src/callconv/c33.rs
+new file mode 100644
+index 000000000..0643ada69
+--- /dev/null
++++ b/compiler/rustc_target/src/callconv/c33.rs
+@@ -0,0 +1,80 @@
++// Reference: the Seiko Epson C33 GCC port's calling convention, which follows
++// Epson's original C33 compiler (gcc 3.3.2): c33_function_arg,
++// c33_function_arg_advance and c33_return_in_memory in config/c33/c33.cc.
++//
++// An aggregate is in registers exactly when GCC gives it a scalar mode: its
++// size is 1, 2, 4 or 8 bytes and, the target being STRICT_ALIGNMENT, its
++// alignment is at least that mode's (BIGGEST_ALIGNMENT is 32 bits, so 8-byte
++// records need only 4).  Any other aggregate is BLKmode: returned through a
++// hidden pointer in %r6, and passed by value on the stack without taking an
++// argument register.
++
++use rustc_abi::{HasDataLayout, Size, TyAbiInterface};
++
++use crate::callconv::{ArgAbi, FnAbi, Reg, Uniform};
++
++/// The registers an aggregate of this layout travels in, if GCC gives it a
++/// scalar mode.
++fn scalar_mode_unit<Ty>(arg: &ArgAbi<'_, Ty>) -> Option<Uniform> {
++    let size = arg.layout.size;
++    let align = arg.layout.align.abi.bytes();
++    match size.bytes() {
++        1 => Some(Uniform::new(Reg::i8(), size)),
++        2 if align >= 2 => Some(Uniform::new(Reg::i16(), size)),
++        4 if align >= 4 => Some(Uniform::new(Reg::i32(), size)),
++        8 if align >= 4 => Some(Uniform::new(Reg::i32(), Size::from_bytes(8))),
++        _ => None,
++    }
++}
++
++fn classify_ret<Ty>(ret: &mut ArgAbi<'_, Ty>) {
++    if !ret.layout.is_sized() {
++        return;
++    }
++    if ret.layout.is_aggregate() {
++        match scalar_mode_unit(ret) {
++            Some(unit) => ret.cast_to(unit),
++            None => ret.make_indirect(),
++        }
++    } else {
++        ret.extend_integer_width_to(32);
++    }
++}
++
++fn classify_arg<'a, Ty, C>(cx: &C, arg: &mut ArgAbi<'a, Ty>)
++where
++    Ty: TyAbiInterface<'a, C> + Copy,
++    C: HasDataLayout,
++{
++    if !arg.layout.is_sized() {
++        return;
++    }
++    if arg.layout.pass_indirectly_in_non_rustic_abis(cx) {
++        arg.make_indirect();
++        return;
++    }
++    if arg.layout.is_aggregate() {
++        match scalar_mode_unit(arg) {
++            Some(unit) => arg.cast_to(unit),
++            None => arg.pass_by_stack_offset(None),
++        }
++    } else {
++        arg.extend_integer_width_to(32);
++    }
++}
++
++pub(crate) fn compute_abi_info<'a, Ty, C>(cx: &C, fn_abi: &mut FnAbi<'a, Ty>)
++where
++    Ty: TyAbiInterface<'a, C> + Copy,
++    C: HasDataLayout,
++{
++    if !fn_abi.ret.is_ignore() {
++        classify_ret(&mut fn_abi.ret);
++    }
++    for arg in fn_abi.args.iter_mut() {
++        if arg.is_ignore() {
++            continue;
++        }
++        classify_arg(cx, arg);
++    }
++}
+diff --git a/compiler/rustc_target/src/callconv/mod.rs b/compiler/rustc_target/src/callconv/mod.rs
+index bb9dd8496..579ab98ee 100644
+--- a/compiler/rustc_target/src/callconv/mod.rs
++++ b/compiler/rustc_target/src/callconv/mod.rs
+@@ -15,6 +15,7 @@
+ mod arm;
+ mod avr;
+ mod bpf;
++mod c33;
+ mod csky;
+ mod hexagon;
+ mod loongarch;
+@@ -752,6 +753,7 @@ pub fn adjust_for_foreign_abi<C>(&mut self, cx: &C, abi: ExternAbi)
+             Arch::AmdGpu => amdgpu::compute_abi_info(cx, self),
+             Arch::Arm => arm::compute_abi_info(cx, self),
+             Arch::Avr => avr::compute_abi_info(cx, self),
++            Arch::C33 => c33::compute_abi_info(cx, self),
+             Arch::LoongArch32 | Arch::LoongArch64 => loongarch::compute_abi_info(cx, self),
+             Arch::M68k => m68k::compute_abi_info(cx, self),
+             Arch::CSky => csky::compute_abi_info(cx, self),
+diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
+index ae17e37e2..db70e81ec 100644
+--- a/compiler/rustc_target/src/spec/mod.rs
++++ b/compiler/rustc_target/src/spec/mod.rs
+@@ -1767,6 +1767,7 @@ pub enum Arch {
+         Arm64EC = "arm64ec",
+         Avr = "avr",
+         Bpf = "bpf",
++        C33 = "c33",
+         CSky = "csky",
+         Hexagon = "hexagon",
+         LoongArch32 = "loongarch32",
+@@ -1804,6 +1805,7 @@ pub fn desc_symbol(&self) -> Symbol {
+             Self::Arm64EC => sym::arm64ec,
+             Self::Avr => sym::avr,
+             Self::Bpf => sym::bpf,
++            Self::C33 => sym::c33,
+             Self::CSky => sym::csky,
+             Self::Hexagon => sym::hexagon,
+             Self::LoongArch32 => sym::loongarch32,
+@@ -1838,7 +1840,7 @@ pub fn supports_scalable_vectors(&self) -> bool {
+ 
+         match self {
+             AArch64 | RiscV32 | RiscV64 => true,
+-            AmdGpu | Arm | Arm64EC | Avr | Bpf | CSky | Hexagon | LoongArch32 | LoongArch64
++            AmdGpu | Arm | Arm64EC | Avr | Bpf | C33 | CSky | Hexagon | LoongArch32 | LoongArch64
+             | M68k | Mips | Mips32r6 | Mips64 | Mips64r6 | Msp430 | Nvptx64 | PowerPC
+             | PowerPC64 | S390x | Sparc | Sparc64 | SpirV | Wasm32 | Wasm64 | X86 | X86_64
+             | Xtensa | Other(_) => false,
+@@ -2124,7 +2126,7 @@ pub fn supports_c_variadic_definitions(&self) -> CVariadicStatus {
+             // - Check that calling c-variadic functions defined in Rust can be called from C.
+             // For most targets `tests/run-make/c-link-to-rust-va-list-fn` can be used here.
+             // For no_std targets a manual setup may be needed.
+-            Sparc | Avr | M68k | Msp430 => {
++            Sparc | Avr | C33 | M68k | Msp430 => {
+                 CVariadicStatus::Unstable { feature: sym::c_variadic_experimental_arch }
+             }
+ 
+@@ -3090,6 +3092,7 @@ pub fn object_architecture(
+             Arch::CSky => (Architecture::Csky, None),
+             Arch::Arm64EC => (Architecture::Aarch64, Some(object::SubArchitecture::Arm64EC)),
+             Arch::AmdGpu
++            | Arch::C33
+             | Arch::Nvptx64
+             | Arch::SpirV
+             | Arch::Wasm32
+diff --git a/compiler/rustc_target/src/target_features.rs b/compiler/rustc_target/src/target_features.rs
+index b209fe188..c9787c4e6 100644
+--- a/compiler/rustc_target/src/target_features.rs
++++ b/compiler/rustc_target/src/target_features.rs
+@@ -1200,7 +1200,7 @@ pub fn rust_target_features(&self) -> &'static [(&'static str, Stability, Implie
+             Arch::M68k => M68K_FEATURES,
+             Arch::Avr => AVR_FEATURES,
+             Arch::Xtensa => XTENSA_FEATURES,
+-            Arch::AmdGpu | Arch::Msp430 | Arch::SpirV | Arch::Other(_) => &[],
++            Arch::AmdGpu | Arch::C33 | Arch::Msp430 | Arch::SpirV | Arch::Other(_) => &[],
+         }
+     }
+ 
+@@ -1236,7 +1236,7 @@ pub fn features_for_correct_fixed_length_vector_abi(&self) -> &'static [(u64, &'
+             Arch::CSky => CSKY_FEATURES_FOR_CORRECT_FIXED_LENGTH_VECTOR_ABI,
+             // FIXME: for some tier3 targets, we are overly cautious and always give warnings
+             // when passing args in vector registers.
+-            Arch::Msp430 | Arch::SpirV | Arch::Xtensa | Arch::Other(_) => &[],
++            Arch::C33 | Arch::Msp430 | Arch::SpirV | Arch::Xtensa | Arch::Other(_) => &[],
+         }
+     }
+ 

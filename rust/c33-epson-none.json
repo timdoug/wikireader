@@ -1,0 +1,22 @@
+{
+  "arch": "c33",
+  "cpu": "generic",
+  "data-layout": "e-m:e-p:32:32-i64:32-f64:32-i128:32-n32-S128",
+  "llvm-target": "c33-epson-elf",
+  "target-endian": "little",
+  "target-pointer-width": 32,
+  "vendor": "epson",
+  "os": "none",
+  "linker-flavor": "gnu",
+  "linker": "c33-epson-elf-ld",
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "disable-redzone": true,
+  "max-atomic-width": 32,
+  "atomic-cas": true,
+  "singlethread": true,
+  "has-thread-local": false,
+  "emit-debug-gdb-scripts": false,
+  "executables": true,
+  "eh-frame-header": false
+}

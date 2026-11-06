@@ -1,0 +1,16 @@
+diff --git a/src/gcc_util.rs b/src/gcc_util.rs
+index b0442cdf..8ab902bc 100644
+--- a/src/gcc_util.rs
++++ b/src/gcc_util.rs
+@@ -278,8 +278,11 @@ pub fn new_context<'gcc>(sess: &Session) -> Context<'gcc> {
+ 
+     add_feature_options(&context, &sess.target.arch, &sess.global_backend_features);
+ 
++    // NOTE: the driver gets them as well, so that a flag selecting a core variant
++    // (e.g. -mc33pe) also reaches the assembler, which records it in the object.
+     for arg in &sess.opts.cg.llvm_args {
+         context.add_command_line_option(arg);
++        context.add_driver_option(arg);
+     }
+     // NOTE: This is needed to compile the file src/intrinsic/archs.rs during a bootstrap of rustc.
+     context.add_command_line_option("-fno-var-tracking-assignments");
