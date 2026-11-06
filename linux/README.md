@@ -249,8 +249,9 @@ leaves it running. `drivers/pwm/pwm-s1c33.c` drives one timer channel as a
 PWM chip, adopting the running configuration rather than restarting it and
 moving only comparison A when the period is unchanged so the output keeps its
 phase; it never touches the ADVMODE and PAUSE registers it shares with the
-clocksource. `drivers/video/backlight/wikireader_lcd.c` consumes it through
-the tree's `pwms` and exposes the firmware's number as
+clocksource. The panel driver, `drivers/gpu/drm/panel/panel-wikireader.c`
+(below), consumes it through the panel node's `pwms` and exposes the
+firmware's number as
 `/sys/class/lcd/wikireader/contrast`, reading the value back from the PWM at
 probe so a boot changes nothing on the panel. Timer 1's CMU gate is a clock
 the PWM driver holds, which is what keeps the panel lit once the clock core
@@ -287,10 +288,16 @@ keeps running, so the driver stops it across a suspend. Only the reset output
 is used; the NMI output, `#WDT_NMI`, is P63, which is wired to the power
 logic. The watchdog is also the restart handler, so `reboot` resets the chip
 when there is no launcher to return to.
-The display driver also owns the two controls that stop the panel: the
-controller's power-save field and the display-enable line, which is an ordinary
-GPIO descriptor taken from the same device tree as the SD slot's chip
-select. A CRTC switched off therefore turns the display off, and because
+Two controls stop the panel: the controller's power-save field, which the
+display driver writes, and the display-enable line, an ordinary GPIO on the
+panel's own node that `drivers/gpu/drm/panel/panel-wikireader.c`, a
+`drm_panel`, raises and drops. The controller reaches the panel through the
+device tree's OF graph (`port` to `port`) and wraps it in DRM's panel bridge
+and bridge connector, so the panel is enabled after the CRTC starts scanning
+and disabled before it stops, as a panel without the line fades rather than
+clears. The line does not sleep, which lets the panic path light the panel
+from the panel's own `enable`. A CRTC switched off therefore turns the
+display off, and because
 no kernel console blanks the screen on a machine that runs from two AAA
 cells, the keyboard does it, through the console, which holds the CRTC, since
 the touchscreen is both what keeps the machine busy and what wakes it: it
