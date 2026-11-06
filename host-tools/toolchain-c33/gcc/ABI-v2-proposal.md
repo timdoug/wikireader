@@ -583,6 +583,53 @@ and requires caller restoration. Retain scratch `r15` as the initial
 absolute-mode policy rather than assuming a common register number makes
 those costs disappear.
 
+### FDPIC reference conventions (2026-11-06 review)
+
+Use musl's [SH FDPIC port](https://git.musl-libc.org/cgit/musl/tree/arch/sh/reloc.h)
+as the loader reference and the
+[ARM FDPIC specification](https://github.com/mickael-guene/fdpic_doc/blob/master/abi.txt)
+as another description of the shared semantics. Ordinary SH ELF and SH FDPIC
+are distinct modes; upstream musl's ARM port currently has no FDPIC wiring.
+ARM FDPIC and ARM musl are therefore separate references.
+
+C33 already follows the established descriptor model: a four-byte function
+pointer addresses an eight-byte `{entry point, GOT}` descriptor, canonical
+descriptors preserve pointer equality, and the caller restores its module
+base after calls that can change it. SH uses `r12`, ARM FDPIC uses `r9`, and
+C33 uses `r15`; all three use a call-clobbered module base. FDPIC does not
+select C33's argument registers, ordinary stack alignment or aggregate rules.
+Keep those choices explicit in the C33 psABI rather than copying register
+numbers or alignment requirements from another processor.
+
+Two loader conventions merit comparison before freezing v2. These are
+experiments, not adopted ABI changes:
+
+* **Constructor arrays:** musl's SH FDPIC path calls ordinary descriptor
+  pointers from `.init_array` and `.fini_array`. C33 currently stores entry
+  addresses and patches musl to supply the module's GOT when calling them.
+  Prototype descriptor pointers to simplify the generic startup and exit
+  paths; measure the added descriptors and relocation cost.
+* **Local dynamic relocations:** musl's SH FDPIC path uses section-symbol
+  relocations. C33's link-time-address addends and symbol-free local
+  descriptor relocations require its own loader path. Compare SH's encoding
+  with the current representation for symbol-table size, relocation work and
+  startup time before choosing either. Retain the module-base addressing
+  forms described above in either case.
+
+The current TLS-above-TP layout with an eight-byte gap also has SH musl
+precedent; C33's fixed RAM slot is the hardware-specific TP access mechanism.
+Its load-map-and-GOT unwind interface follows FRV/Blackfin precedent. Keep
+these documented choices unless a concrete interoperability or measured
+implementation benefit justifies changing them.
+
+Standardization means publishing a processor ABI another implementation can
+follow: define type classification without GCC machine modes, specify all
+runtime boundaries, identify incompatible versions in ELF, and verify GCC,
+TinyCC, libffi and assembly interoperability. The existing v2 argument and
+varargs proposals address the legacy Epson exceptions; adopting FDPIC alone
+does not resolve those rules. Complete that contract and its validation
+before treating v2 as supported.
+
 ## Operating system and service boundaries
 
 Use explicit trap interfaces independent of private kernel C functions.
