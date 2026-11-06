@@ -5,3 +5,7 @@ version = 4
 [[package]]
 name = "stdhello"
 version = "0.1.0"
+
+[[patch.unused]]
+name = "libc"
+version = "0.2.191"
