@@ -4,6 +4,7 @@
   "busybox/applets/md5sum": {"timeout": 1200},
   "busybox/applets/mv": {"disk": true, "timeout": 1200},
   "busybox/applets/sha256sum": {"timeout": 1200},
+  "busybox/applets/tar": {"timeout": 600},
   "busybox/applets/xargs": {"timeout": 1200},
   "libc/functional/clocale_mbfuncs": {"timeout": 600}
 }

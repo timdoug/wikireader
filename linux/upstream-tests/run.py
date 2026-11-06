@@ -171,7 +171,9 @@ def trial(args, manifest, cases, out):
     (out / "uart.in").write_text("sh /mnt/sd/run.sh\n")
     command = [str(args.emulator), "-n", "1000000000000", "-T", "40,36,100000000",
                "--uart-input", str(out / "uart.in"), "--uart-start", "850000000",
-               "--uart-gap", "200000", "-c", str(card), "-e", str(flash)]
+               "--uart-gap", "200000", "-c", str(card), "-e", str(flash),
+               # WREMU_ARGS adds emulator options, a profile window for one.
+               *os.environ.get("WREMU_ARGS", "").split()]
     host_error = None
     first_case_at = done_at = returned_at = None
     emulator_started = time.monotonic()
