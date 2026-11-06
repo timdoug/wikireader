@@ -1,0 +1,35 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mallocng: keep the only group of a size class
+
+A group nested in another group's slot was freed as soon as its last
+slot was, on the grounds that rebuilding one is cheap.  A loop that
+allocates and frees one small object then builds and frees a group on
+every iteration: on a core that fetches every instruction from SDRAM,
+malloc(41) and free took 7,900 cycles, about 1,250 instructions, most of
+them in alloc_slot and nontrivial_free.  The only group of its size class
+is now kept, empty, for the next allocation; with another non-full group
+in the class it is still freed, to consolidate, as before.  The same pair
+takes 3,100 cycles; grep -F over a 1,235-line file runs 33% faster and
+sed 18%, and the memory available with X up did not fall.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/src/malloc/mallocng/free.c b/src/malloc/mallocng/free.c
+--- a/src/malloc/mallocng/free.c
++++ b/src/malloc/mallocng/free.c
+@@ -45,10 +45,11 @@
+ 	if (sc >= 48 || get_stride(g) < UNIT*size_classes[sc])
+ 		return 1;
+ 
+-	// always free groups allocated inside another group's slot
+-	// since recreating them should not be expensive and they
+-	// might be blocking freeing of a much larger group.
+-	if (!g->maplen) return 1;
++	// free a group allocated inside another group's slot, since it
++	// might be blocking freeing of a much larger group, unless it is
++	// the only group of its size class: freeing that one empties the
++	// class, and the next allocation of the size builds it again.
++	if (!g->maplen) return g->next != g;
+ 
+ 	// if there is another non-full group, free this one to
+ 	// consolidate future allocations, reduce fragmentation.

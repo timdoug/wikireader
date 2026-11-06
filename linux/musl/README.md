@@ -68,7 +68,10 @@ musl's SuperH FDPIC code expects them.
   remembered, function descriptors made on demand rather than for every
   function of every module (16 KB a process for libc alone), the counted
   relative relocations in a pass of their own, and lazy binding of `.plt`
-  slots through the linker's stubs (`LD_BIND_NOW` binds at load).
+  slots through the linker's stubs (`LD_BIND_NOW` binds at load); and,
+  after them, mallocng keeping the only group of a size class when its last
+  slot is freed, rather than building a group again at the next
+  allocation (`malloc(41)` and `free` 7,900 -> 3,100 cycles).
 
 Each was timed alone and left out of the set, as spawn/exec/wait of
 `/bin/true` (BusyBox) and of `xeyes` without a display (twelve libraries),
