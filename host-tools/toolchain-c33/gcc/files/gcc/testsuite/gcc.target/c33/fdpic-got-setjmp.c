@@ -15,7 +15,7 @@
    License along with the GNU C Library; If not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* { dg-do run { target c33*-linux* } } */
+/* { dg-do run { target c33-*-linux* } } */
 /* { dg-options "-O2 -mfdpic" } */
 
 /* Derived from uClibc-ng-test's glibc bug269-setjmp regression.
