@@ -17,13 +17,15 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "linux/artifacts/gcc-test"
+# C33L_OUT gives a run its own queue, results and batch card, so runs of
+# different suites can go side by side.
+OUT = Path(os.environ.get("C33L_OUT", ROOT / "linux/artifacts/gcc-test")).resolve()
 QUEUE = OUT / "queue"
 EXECUTED = OUT / "executed"
 # Seconds a test program may run, guest time: about the bare-metal board's
 # 3.2 billion instructions.  pr97459's software 64-bit divisions take most
 # of a minute.
-TIMEOUT = 240
+TIMEOUT = int(os.environ.get("C33L_TIMEOUT", 240))
 # Programs a card holds and a boot runs.
 BATCH = 3000
 VM = ["limactl", "shell", "--workdir", str(ROOT), "wr-linux"]
@@ -49,7 +51,7 @@ def run_batch(fat, names):
         "linux.app": "linux/artifacts/linux.app",
         "linux.img": "linux/artifacts/linux.img",
         "linux.ico": "linux/artifacts/linux.ico",
-        "runner.bin": "linux/artifacts/gcc-test/runner",
+        "runner.bin": OUT / "runner",
     }.items()}
     files["init.ini"] = b"linux.ico : linux.app wr.blank=0\n"
     files["tests.bin"] = bytes(archive)
@@ -77,13 +79,27 @@ def run_batch(fat, names):
     done = 0
     while results:
         header, _, rest = results.partition(b"\n")
-        name, status, length = header.decode().split()
+        name, status, length, *count = header.decode().split()
         length = int(length)
         if len(rest) < length + 1:
             break
-        (EXECUTED / name).write_bytes(status.encode() + b"\n" + rest[:length])
+        output = rest[:length]
+        rest = rest[length + 1:]
+        # Coverage data the program wrote, kept beside its result at its
+        # build path, for the board to put back.
+        files = []
+        for _ in range(int(count[0]) if count else 0):
+            line, _, rest = rest.partition(b"\n")
+            path, size = line.decode().rsplit(" ", 1)
+            files.append((path, rest[:int(size)]))
+            rest = rest[int(size) + 1:]
+        for path, data in files:
+            target = EXECUTED / (name + ".files") / path.lstrip("/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        (EXECUTED / name).write_bytes(status.encode() + b"\n" + output)
         (QUEUE / name).unlink()
-        results = rest[length + 1:]
+        results = rest
         done += 1
     if done < len(names) and b"GCCTEST DONE" not in console:
         name = names[done]
@@ -109,12 +125,15 @@ def main():
     fat = app.load_fat_helper(ROOT)
     EXECUTED.mkdir(parents=True, exist_ok=True)
     vm("sh", "-c", "~/wr-linux/toolchain/install/bin/c33-linux-musl-gcc -O2 -Wall "
-       "-Werror linux/gcc-test/runner.c -o linux/artifacts/gcc-test/runner")
+       f"-Werror linux/gcc-test/runner.c -o {OUT}/runner")
     for attempt in range(8):
-        print(vm("linux/gcc-test/run-gcc.sh", *sys.argv[1:]), end="", flush=True)
+        tool = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--tool=")), "gcc")
+        # The runtime libraries' suites run from their build trees.
+        script = "run-lib.sh" if tool in ("libstdc++", "libatomic") else "run-gcc.sh"
+        print(vm("env", f"C33L_OUT={OUT}", f"linux/gcc-test/{script}", *sys.argv[1:]),
+              end="", flush=True)
         names = sorted(p.name for p in QUEUE.iterdir())
         if not names:
-            tool = "g++" if "--tool=g++" in sys.argv[1:] else "gcc"
             print(f"Results: {OUT / 'results' / (tool + '.sum')}")
             return
         done = 0

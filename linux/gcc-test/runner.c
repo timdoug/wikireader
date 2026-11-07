@@ -8,9 +8,16 @@
  * ARCHIVE is a series of "NAME SIZE\n" headers each followed by SIZE bytes
  * of program.  Each program is written to /tmp, run with stdin from
  * /dev/null and stdout and stderr to a file, and killed after SECONDS.
- * RESULTS gets, for each, "NAME STATUS LENGTH\n" and LENGTH bytes of its
- * output, STATUS being exit-N, signal-N or timeout.  It is flushed to the
- * card after every program, so a run cut short keeps what it did.
+ * RESULTS gets, for each, "NAME STATUS LENGTH FILES\n", LENGTH bytes of its
+ * output and a newline, STATUS being exit-N, signal-N or timeout, then for
+ * each of the FILES coverage-data files the program wrote "PATH SIZE\n",
+ * SIZE bytes and a newline.  It is flushed to the card after every
+ * program, so a run cut short keeps what it did.
+ *
+ * A program built for coverage or profiling writes its .gcda next to its
+ * object file, a path in the build tree.  GCOV_PREFIX puts it under
+ * GCDA instead, and PATH is that build path, for the host to write the
+ * data back where gcov and -fprofile-use read it.
  *
  * Without an MMU a program's memory is contiguous, and the page cache a
  * long run builds up breaks free memory into pieces too small for GCC's
@@ -19,6 +26,7 @@
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +38,14 @@
 #define PROGRAM	"/tmp/gcc-test.bin"
 #define OUTPUT	"/tmp/gcc-test.out"
 #define MAX_OUTPUT	65536
+#define GCDA	"/tmp/gcda"
+#define MAX_FILES	64
+/* musl's nftw descends no deeper than its descriptor limit, and the build
+   paths under GCDA run a dozen directories deep. */
+#define WALK_DEPTH	64
+
+static char *files[MAX_FILES];
+static int nfiles;
 
 static volatile sig_atomic_t timed_out;
 
@@ -70,6 +86,52 @@ static int drop_caches(void)
 	return ok ? 0 : -1;
 }
 
+static int remove_entry(const char *path, const struct stat *st, int type,
+			struct FTW *ftw)
+{
+	(void)st;
+	(void)ftw;
+	return type == FTW_DP ? rmdir(path) : unlink(path);
+}
+
+static int note_file(const char *path, const struct stat *st, int type,
+		     struct FTW *ftw)
+{
+	(void)st;
+	(void)ftw;
+	if (type == FTW_F && nfiles < MAX_FILES)
+		files[nfiles++] = strdup(path);
+	return 0;
+}
+
+static void write_files(FILE *results)
+{
+	char buf[4096];
+	int i;
+
+	for (i = 0; i < nfiles; i++) {
+		int fd = open(files[i], O_RDONLY);
+		long size = fd < 0 ? 0 : lseek(fd, 0, SEEK_END);
+
+		fprintf(results, "%s %ld\n", files[i] + strlen(GCDA), size);
+		if (fd >= 0) {
+			lseek(fd, 0, SEEK_SET);
+			while (size > 0) {
+				ssize_t n = read(fd, buf, size < (long)sizeof(buf) ? size : sizeof(buf));
+
+				if (n <= 0)
+					break;
+				fwrite(buf, 1, n, results);
+				size -= n;
+			}
+			close(fd);
+		}
+		fputc('\n', results);
+		free(files[i]);
+	}
+	nfiles = 0;
+}
+
 static void run(const char *name, FILE *results, unsigned int seconds)
 {
 	char status[32], buf[4096];
@@ -78,6 +140,7 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 	long length = 0;
 	pid_t pid;
 
+	nftw(GCDA, remove_entry, WALK_DEPTH, FTW_DEPTH | FTW_PHYS);
 	drop_caches();
 	pid = vfork();
 	if (pid == 0) {
@@ -122,7 +185,8 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 			length = MAX_OUTPUT;
 		lseek(fd, 0, SEEK_SET);
 	}
-	fprintf(results, "%s %s %ld\n", name, status, length);
+	nftw(GCDA, note_file, WALK_DEPTH, FTW_PHYS);
+	fprintf(results, "%s %s %ld %d\n", name, status, length, nfiles);
 	while (fd >= 0 && length > 0) {
 		ssize_t n = read(fd, buf, length < (long)sizeof(buf) ? length : sizeof(buf));
 
@@ -134,6 +198,7 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 	if (fd >= 0)
 		close(fd);
 	fputc('\n', results);
+	write_files(results);
 	fflush(results);
 	fsync(fileno(results));
 }
@@ -153,6 +218,7 @@ int main(int argc, char **argv)
 	seconds = atoi(argv[3]);
 	if (!archive || !results)
 		return 2;
+	setenv("GCOV_PREFIX", GCDA, 1);
 	if (drop_caches() < 0) {
 		fprintf(stderr, "runner: cannot drop caches: %s\n", strerror(errno));
 		return 1;

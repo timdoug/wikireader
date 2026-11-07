@@ -62,6 +62,16 @@ proc c33-linux_load {dest prog args} {
     set status [gets $f]
     set output [read $f]
     close $f
+    # Coverage data the program wrote goes back to its build path, where
+    # gcov and -fprofile-use read it.
+    set files "$result.files"
+    if {[file isdirectory $files]} {
+	foreach data [exec find $files -type f] {
+	    set target [string range $data [string length $files] end]
+	    file mkdir [file dirname $target]
+	    file copy -force $data $target
+	}
+    }
     if {$status eq "exit-0"} {
 	return [list pass $output]
     }

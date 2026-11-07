@@ -11,7 +11,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 work=${WR_LINUX_GUEST_ROOT:-/home/$USER.guest/wr-linux}
 gcc_src=$work/toolchain/gcc-16.2.0
-out=$root/linux/artifacts/gcc-test
+out=${C33L_OUT:-$root/linux/artifacts/gcc-test}
 export PATH=$work/toolchain/install/bin:$PATH
 export C33L_GCC=$work/toolchain/install/bin/c33-linux-musl-gcc
 export C33L_BUILD_SITE=$gcc_src/build-c33-linux-musl/gcc/site.exp
@@ -26,19 +26,26 @@ mkdir -p "$C33L_QUEUE" "$C33L_RESULTS" "$C33L_OBJDIR"
 [ -f "$C33L_BUILD_SITE" ] || { echo "no $C33L_BUILD_SITE" >&2; exit 1; }
 # --tool=g++ runs the C++ suites, at one standard (C++17) unless
 # GXX_TESTSUITE_STDS says otherwise: the others mostly test the front end.
+# "all" runs every .exp of the tool's testsuite, C++ at upstream's
+# standards.
 tool=gcc
 case ${1:-} in
 --tool=*) tool=${1#--tool=}; shift ;;
 esac
+all=
+if [ "${1:-}" = all ]; then
+	all=1
+	shift
+fi
 driver=$C33L_GCC
 if [ "$tool" = g++ ]; then
 	driver=$work/toolchain/install/bin/c33-linux-musl-g++
 	export C33L_GXX=$driver
-	export GXX_TESTSUITE_STDS=${GXX_TESTSUITE_STDS:-17}
-	[ "$#" -gt 0 ] || set -- g++.dg/dg.exp g++.dg/torture/dg-torture.exp \
-		old-deja.exp
+	[ -n "$all" ] || export GXX_TESTSUITE_STDS=${GXX_TESTSUITE_STDS:-17}
+	[ "$#" -gt 0 ] || [ -n "$all" ] || set -- g++.dg/dg.exp \
+		g++.dg/torture/dg-torture.exp old-deja.exp
 fi
-[ "$#" -gt 0 ] || set -- gcc.c-torture/execute/execute.exp
+[ "$#" -gt 0 ] || [ -n "$all" ] || set -- gcc.c-torture/execute/execute.exp
 cd "$C33L_OBJDIR"
 runtest --tool "$tool" --target c33-linux-musl --target_board=c33-linux \
 	--srcdir "$gcc_src/gcc/testsuite" --objdir "$C33L_OBJDIR" \
