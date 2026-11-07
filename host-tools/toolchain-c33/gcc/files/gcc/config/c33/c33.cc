@@ -2247,6 +2247,14 @@ static bool
 c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
 {
   rtx u = GET_CODE (x) == CONST ? XEXP (x, 0) : x;
+  /* An offset into a TLS object, s.c for s, is folded into the constant
+     as (plus (unspec) N); the relocation carries N as its addend.  */
+  HOST_WIDE_INT addend = 0;
+  if (GET_CODE (u) == PLUS && CONST_INT_P (XEXP (u, 1)))
+    {
+      addend = INTVAL (XEXP (u, 1));
+      u = XEXP (u, 0);
+    }
   if (GET_CODE (u) == UNSPEC
       && (XINT (u, 1) == UNSPEC_TLS_LE
           || XINT (u, 1) == UNSPEC_TLS_IE
@@ -2256,12 +2264,13 @@ c33_assemble_integer (rtx x, unsigned int size, int aligned_p)
     {
       int code = XINT (u, 1);
       bool pair = code == UNSPEC_TLS_GD || code == UNSPEC_TLS_LD;
-      gcc_assert (size == (pair ? 8 : 4));
+      gcc_assert (size == (pair ? 8 : 4) && (!pair || addend == 0));
+      rtx sym = plus_constant (Pmode, XVECEXP (u, 0, 0), addend);
       const char *prefix = code == UNSPEC_TLS_LE ? "tlsle"
                            : code == UNSPEC_TLS_IE ? "tlsie"
                            : code == UNSPEC_TLS_DTPREL ? "tlsoff" : "tlsmod";
       fprintf (asm_out_file, "\t.long\t%s(", prefix);
-      output_addr_const (asm_out_file, XVECEXP (u, 0, 0));
+      output_addr_const (asm_out_file, sym);
       fputs (")\n", asm_out_file);
       if (code == UNSPEC_TLS_LD)
         fputs ("\t.long\t0\n", asm_out_file);
