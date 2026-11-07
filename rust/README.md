@@ -142,14 +142,15 @@ What it takes on this machine:
   through the PLT.
 - Each test runs on its own thread, and std's 2 MB default stack is real
   memory here: `RUST_MIN_STACK=262144`.
+- Each part is a package of its own (`core-1` … `alloc-3`), so its test
+  crate keeps the suite's name, which `any::dyn_type_name` checks.
 - The sort tests take a short list of lengths (patches/rust-0002), as
   Miri's and Emscripten's do.
 
-Results (2026-11-06): core 2,728 of 2,730 and alloc 1,497 of 1,497 pass.
-One failure was a C33 GCC bug, fixed in the backend: a local aligned
+Results (2026-11-06): core 2,730 and alloc 1,497 tests, all passing once
+a C33 GCC bug the suite found was fixed in the backend: a local aligned
 beyond 4 bytes landed off its alignment while GCC folded the checks
-(gcc.target/c33/overaligned-local-run.c).  The other,
-any::dyn_type_name, checks its crate's name, which a part renames.
+(gcc.target/c33/overaligned-local-run.c).
 
 ## On the device
 

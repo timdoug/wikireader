@@ -17,16 +17,13 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-OUT = HERE / "target/c33-unknown-linux-musl/release/build/libtests"
-
-
-# Failures that come from the split, not the compiler: the test names its
-# crate, which a part is built as coretests_N.
-SPLIT_ARTIFACTS = {"any::dyn_type_name"}
+OUT = HERE / "target/c33-unknown-linux-musl/release/build"
 
 
 def binary(part):
-    found = [p for p in OUT.glob(f"*/out/{part}-*") if "." not in p.name]
+    package, k = part.replace("tests", "").split("_")
+    suite = part.split("_")[0]
+    found = [p for p in OUT.glob(f"{package}-{k}/*/out/{suite}-*") if "." not in p.name]
     if not found:
         raise SystemExit(f"no {part}: run build.sh")
     return max(found, key=lambda p: p.stat().st_mtime)
@@ -50,8 +47,7 @@ def run(part):
           f"{summary.group(0) if summary else 'no result line'}", flush=True)
     failures = re.findall(r"^    (\S+)$", log, re.M)
     for f in failures:
-        why = " (the split renames the crate)" if f in SPLIT_ARTIFACTS else ""
-        print(f"    FAILED {f}{why}", flush=True)
+        print(f"    FAILED {f}", flush=True)
     for m in re.findall(r"nommu: .*|Segmentation fault|Illegal instruction|panicked at .*", log):
         print(f"    {m}", flush=True)
 

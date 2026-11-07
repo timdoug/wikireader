@@ -1,0 +1,17 @@
+# Part 1 of core's own test suite (split.py), built under the suite's
+# crate name, coretests, which some of its tests check.
+[package]
+name = "core-1"
+version = "0.0.0"
+edition = "2024"
+autotests = false
+autobins = false
+autolib = false
+
+[[test]]
+name = "coretests"
+path = "../../work/rust/library/coretests/tests/c33_part1.rs"
+
+[dev-dependencies]
+rand = { version = "0.9.0", default-features = false, features = ["alloc"] }
+rand_xorshift = "0.4.0"

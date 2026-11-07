@@ -3,7 +3,47 @@
 version = 4
 
 [[package]]
-name = "libtests"
+name = "alloc-1"
+version = "0.0.0"
+dependencies = [
+ "rand",
+ "rand_xorshift",
+]
+
+[[package]]
+name = "alloc-2"
+version = "0.0.0"
+dependencies = [
+ "rand",
+ "rand_xorshift",
+]
+
+[[package]]
+name = "alloc-3"
+version = "0.0.0"
+dependencies = [
+ "rand",
+ "rand_xorshift",
+]
+
+[[package]]
+name = "core-1"
+version = "0.0.0"
+dependencies = [
+ "rand",
+ "rand_xorshift",
+]
+
+[[package]]
+name = "core-2"
+version = "0.0.0"
+dependencies = [
+ "rand",
+ "rand_xorshift",
+]
+
+[[package]]
+name = "core-3"
 version = "0.0.0"
 dependencies = [
  "rand",

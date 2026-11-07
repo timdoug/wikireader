@@ -8,7 +8,7 @@ own tests/lib.rs -- its crate attributes, macros and helpers -- with only
 some of its top-level `mod` lines, written beside it (so the modules'
 paths resolve) as c33_partN.rs.  Modules are balanced by source size.
 
-    split.py            writes the parts, prints the Cargo [[test]] entries
+    split.py            writes the parts; core-N/ and alloc-N/ build them
 """
 
 from pathlib import Path
@@ -68,8 +68,7 @@ def split(suite, parts):
 
 def main():
     for suite, parts in PARTS.items():
-        for name, path in split(suite, parts):
-            print(f'[[test]]\nname = "{name}"\npath = "{path.relative_to(HERE.parent.parent / "rust" / "libtests", walk_up=True)}"\n')
+        split(suite, parts)
 
 
 if __name__ == "__main__":
