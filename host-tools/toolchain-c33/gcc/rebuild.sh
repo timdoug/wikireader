@@ -26,6 +26,9 @@ set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=${1:-${C33_TOOLCHAIN_WORK:-${HERE}/../work}}
+# Absolute, since the paths below are used after cd.
+mkdir -p "${WORK}"
+WORK=$(cd "${WORK}" && pwd)
 PREFIX="${WORK}/install"
 TARGET=${C33_TARGET:-c33-epson-elf}
 STEP=${2:-compiler}

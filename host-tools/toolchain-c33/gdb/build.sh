@@ -23,6 +23,9 @@ TARGET=${C33_TARGET:-c33-linux-musl}
 HERE=$(cd "$(dirname "$0")" && pwd)
 TOOLS="${HERE}/../tools"
 WORK=${1:-${HERE}/../work}
+# Absolute, since the paths below are used after cd.
+mkdir -p "${WORK}"
+WORK=$(cd "${WORK}" && pwd)
 TARBALL="gdb-${GDB_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/gdb/${TARBALL}"
 SHA256=cd9fc3fe2b47743840e42c1592d3d87f8302eb18639c0b8b4ba0898002e2348f

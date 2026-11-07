@@ -17,6 +17,9 @@ TARGET=c33-epson-elf
 HERE=$(cd "$(dirname "$0")" && pwd)
 TOOLS="${HERE}/tools"
 WORK=${1:-${HERE}/work}
+# Absolute, since the paths below are used after cd.
+mkdir -p "${WORK}"
+WORK=$(cd "${WORK}" && pwd)
 TARBALL="gcc-${GCC_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/${TARBALL}"
 SHA256=e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e

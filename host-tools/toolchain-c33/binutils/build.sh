@@ -17,6 +17,9 @@ TARGET=${C33_TARGET:-c33-epson-elf}
 HERE=$(cd "$(dirname "$0")" && pwd)
 TOOLS="${HERE}/../tools"
 WORK=${1:-${HERE}/work}
+# Absolute, since the paths below are used after cd.
+mkdir -p "${WORK}"
+WORK=$(cd "${WORK}" && pwd)
 TARBALL="binutils-${BINUTILS_VERSION}.tar.xz"
 URL="https://ftp.gnu.org/gnu/binutils/${TARBALL}"
 SHA256=154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
