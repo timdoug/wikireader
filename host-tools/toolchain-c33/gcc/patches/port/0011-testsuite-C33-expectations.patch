@@ -14,8 +14,13 @@ The per-target expectations upstream gives other ports:
 - No conditional moves; the frame adds the 16-byte %r0-%r3 save block;
   the widening multiply is dumped as " w* "; a binary64 long double
   overflows at 1e4000L.
-- Four and five megabytes in one piece, on the stack or in .bss, are more
-  than a no-MMU process of 32 MB is given.
+- Four to fourteen megabytes in one piece, on the stack or in .bss, are
+  more than a no-MMU process of 32 MB is given, and the board's stack is
+  1 MB.
+- Anonymous arguments are passed on the stack and named ones in
+  registers, so __builtin_apply cannot forward a variadic call; the
+  test is skipped on avr and nds32 for the same reason.  An unaligned
+  word access faults.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
@@ -117,6 +122,18 @@ index 16a04c1..4d64318 100644
 +/* { dg-skip-if "" { arm*-*-uclinuxfdpiceabi c33-*-*linux* } "*" "" } */
  
  extern void abort (void);
+ 
+diff --git a/gcc/testsuite/gcc.dg/builtin-apply2.c b/gcc/testsuite/gcc.dg/builtin-apply2.c
+index 0f350f4..76e9f9c 100644
+--- a/gcc/testsuite/gcc.dg/builtin-apply2.c
++++ b/gcc/testsuite/gcc.dg/builtin-apply2.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target untyped_assembly } */
+-/* { dg-skip-if "Variadic funcs have all args on stack. Normal funcs have args in registers." { "avr-*-* nds32*-*-* amdgcn-*-*" } } */
++/* { dg-skip-if "Variadic funcs have all args on stack. Normal funcs have args in registers." { "avr-*-* nds32*-*-* amdgcn-*-* c33-*-*" } } */
+ /* { dg-skip-if "Variadic funcs use different argument passing from normal funcs." { "csky*-*-* riscv*-*-* or1k*-*-* msp430-*-* pru-*-* loongarch*-*-*" } } */
+ /* { dg-skip-if "Variadic funcs use Base AAPCS.  Normal funcs use VFP variant." { arm*-*-* && arm_hf_eabi } } */
  
 diff --git a/gcc/testsuite/gcc.dg/cleanup-10.c b/gcc/testsuite/gcc.dg/cleanup-10.c
 index 9fc8658..040baab 100644
@@ -260,4 +277,80 @@ index 0d84f93..5b9280a 100644
 +/* { dg-skip-if "no MMU: no guard page" { c33-*-*linux* } } */
  /* { dg-options "-O2" } */
  /* { dg-require-effective-target ptr32plus } */
+ 
+diff --git a/gcc/testsuite/gcc.dg/torture/pr37868.c b/gcc/testsuite/gcc.dg/torture/pr37868.c
+index 51c38f8..90bb242 100644
+--- a/gcc/testsuite/gcc.dg/torture/pr37868.c
++++ b/gcc/testsuite/gcc.dg/torture/pr37868.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-options "-fno-strict-aliasing" } */
+-/* { dg-skip-if "unaligned access" { arc*-*-* epiphany-*-* nds32*-*-* sparc*-*-* sh*-*-* tic6x-*-* } } */
++/* { dg-skip-if "unaligned access" { arc*-*-* epiphany-*-* nds32*-*-* sparc*-*-* sh*-*-* tic6x-*-* c33-*-* } } */
+ 
+ extern void abort (void);
+ #if (__SIZEOF_INT__ <= 2)
+diff --git a/gcc/testsuite/gcc.dg/torture/pr95248.c b/gcc/testsuite/gcc.dg/torture/pr95248.c
+index e39eb22..48213e6 100644
+--- a/gcc/testsuite/gcc.dg/torture/pr95248.c
++++ b/gcc/testsuite/gcc.dg/torture/pr95248.c
+@@ -1,6 +1,7 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target int32plus } */
+ /* { dg-require-effective-target size24plus } */
++/* { dg-skip-if "no MMU: 7.7 MB in one piece" { c33-*-*linux* } } */
+ 
+ int var_2 = -2013646301;
+ int var_3 = -1126567434;
+diff --git a/gcc/testsuite/gcc.dg/torture/stackalign/builtin-apply-2.c b/gcc/testsuite/gcc.dg/torture/stackalign/builtin-apply-2.c
+index 552ca14..9adcee1 100644
+--- a/gcc/testsuite/gcc.dg/torture/stackalign/builtin-apply-2.c
++++ b/gcc/testsuite/gcc.dg/torture/stackalign/builtin-apply-2.c
+@@ -9,7 +9,7 @@
+ /* arm_hf_eabi: Variadic funcs use Base AAPCS.  Normal funcs use VFP variant.
+    avr: Variadic funcs don't pass arguments in registers, while normal funcs
+         do.  */
+-/* { dg-skip-if "Variadic funcs use different argument passing from normal funcs" { arm_hf_eabi || { csky*-*-* avr-*-* riscv*-*-* or1k*-*-* msp430-*-* amdgcn-*-* pru-*-* loongarch*-*-* } } } */
++/* { dg-skip-if "Variadic funcs use different argument passing from normal funcs" { arm_hf_eabi || { csky*-*-* avr-*-* riscv*-*-* or1k*-*-* msp430-*-* amdgcn-*-* pru-*-* loongarch*-*-* c33-*-* } } } */
+ /* { dg-skip-if "Variadic funcs have all args on stack. Normal funcs have args in registers." { nds32*-*-* } { v850*-*-* } } */
+ /* { dg-require-effective-target untyped_assembly } */
+    
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1.c b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1.c
+index c7ebaef..90d9414 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1.c
+@@ -1,7 +1,7 @@
+ /* { dg-do run } */
+ /* { dg-options "-O2 -floop-interchange -fassociative-math -fno-signed-zeros -fno-trapping-math -fdump-tree-linterchange-details" } */
+ /* { dg-require-effective-target size32plus } */
+-/* { dg-skip-if "too big data segment" { visium-*-* } } */
++/* { dg-skip-if "too big data segment" { visium-*-* c33-*-*linux* } } */
+ 
+ /* Copied from graphite/interchange-4.c */
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-15.c b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-15.c
+index c07a53d..6794f53 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-15.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-15.c
+@@ -1,7 +1,7 @@
+ /* PR tree-optimization/83337 */
+ /* { dg-do run { target int32plus } } */
+ /* { dg-options "-O2 -floop-interchange" } */
+-/* { dg-skip-if "too big stack" { visium-*-* } } */
++/* { dg-skip-if "too big stack" { visium-*-* c33-*-*linux* } } */
+ 
+ /* Copied from graphite/interchange-5.c */
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1b.c b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1b.c
+index a3063bb..71e3430 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1b.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/loop-interchange-1b.c
+@@ -1,7 +1,7 @@
+ /* { dg-do run } */
+ /* { dg-options "-O2 -floop-interchange -fdump-tree-linterchange-details" } */
+ /* { dg-require-effective-target size32plus } */
+-/* { dg-skip-if "too big data segment" { visium-*-* } } */
++/* { dg-skip-if "too big data segment" { visium-*-* c33-*-*linux* } } */
+ 
+ /* Copied from graphite/interchange-4.c */
  
