@@ -1,7 +1,8 @@
+# Built here, not the toolchain's: the suites' standard library is compiled
+# with -mlong-calls, as they are (build.sh).
 [build]
-target = "../c33-unknown-linux-musl.json"
+target = "c33-unknown-linux-musl"
 
 [unstable]
 build-std = ["std", "panic_unwind"]
 build-std-features = ["panic-unwind"]
-json-target-spec = true

@@ -5,7 +5,3 @@ version = 4
 [[package]]
 name = "i128probe"
 version = "0.1.0"
-
-[[patch.unused]]
-name = "libc"
-version = "0.2.191"

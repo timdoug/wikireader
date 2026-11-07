@@ -1,0 +1,31 @@
+f128 math only where the C library has it
+
+GCC lowers f128 math to the C library's *f128 functions (expf128,
+logf128, ...).  glibc defines them; musl and the bare-metal C libraries
+do not, so on those targets cfg(target_has_reliable_f128_math) was set
+and anything that used it failed to link.  The cfg is now set on glibc
+targets only.
+
+diff --git a/src/lib.rs b/src/lib.rs
+index 17034d0c..e42fd586 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -96,7 +96,7 @@ use rustc_session::{
+     BorrowedIncrCompSession, CodegenBackendInit, EarlySession, IncrCompSession, Session,
+ };
+ use rustc_span::{Symbol, sym};
+-use rustc_target::spec::{RelocModel, TargetTuple};
++use rustc_target::spec::{Env, RelocModel, TargetTuple};
+ use tempfile::TempDir;
+ 
+ use crate::back::lto::ModuleBuffer;
+@@ -528,6 +528,8 @@ fn target_config(sess: &EarlySession, target_info: &SharedTargetInfo) -> TargetC
+         has_reliable_f16_math: has_reliable_f16,
+         has_reliable_f16b,
+         has_reliable_f128,
+-        has_reliable_f128_math: has_reliable_f128,
++        // GCC lowers `f128` math to the C library's `*f128` functions (`expf128`, `logf128`, ...),
++        // which glibc defines and musl and the bare-metal C libraries do not.
++        has_reliable_f128_math: has_reliable_f128 && sess.target.env == Env::Gnu,
+     }
+ }

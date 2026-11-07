@@ -1,8 +1,4 @@
-# Build with ../build-linux.sh, which sets the backend and libgccjit.
+# Build with ../build-linux.sh; the standard library is the toolchain's
+# (build-std.sh).
 [build]
-target = "../c33-unknown-linux-musl.json"
-
-[unstable]
-build-std = ["std", "panic_unwind"]
-build-std-features = ["panic-unwind"]
-json-target-spec = true
+target = "c33-unknown-linux-musl"

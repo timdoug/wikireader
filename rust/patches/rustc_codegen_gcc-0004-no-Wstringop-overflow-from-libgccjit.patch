@@ -1,0 +1,23 @@
+No -Wstringop-overflow from libgccjit
+
+A dangling Weak is the address usize::MAX.  Where Weak::clone is not
+inlined (at opt-level "s", for one), the atomic add to its weak count, at
+usize::MAX plus the field offset, is left on a path that never runs, and
+GCC warned of a write into a region of size 0 at an address near zero.
+The warning has no location in the Rust source and nothing to fix there.
+
+diff --git a/src/gcc_util.rs b/src/gcc_util.rs
+--- a/src/gcc_util.rs
++++ b/src/gcc_util.rs
+@@ -294,6 +294,11 @@
+     context.add_command_line_option("-fwrapv");
+     // NOTE: This is needed to hide a warning caused by the alignment fix on byval arguments.
+     context.add_command_line_option("-Wno-psabi");
++    // NOTE: a dangling `Weak` is the address `usize::MAX`, so a call to `Weak::clone` that is not
++    // inlined leaves an atomic add to a constant address near zero on a path that never runs, and
++    // GCC warns of a write into a region of size 0.  The warning has no location in the Rust
++    // source and nothing to fix there.
++    context.add_command_line_option("-Wno-stringop-overflow");
+ 
+     if let Some(model) = sess.code_model() {
+         use rustc_target::spec::CodeModel;

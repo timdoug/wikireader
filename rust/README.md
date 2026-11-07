@@ -23,11 +23,18 @@ crate's `c/` are compiled with the C applications' flags and linked in.
   convention of the C33 GCC port (see its `ABI.md`): records of 1, 2, 4 or
   8 bytes, aligned to their mode, in registers (one holding a lone double
   as a double); others returned through a hidden pointer and passed by
-  value on the stack.
+  value on the stack.  `rust-0003`: the built-in target
+  `c33-unknown-linux-musl` (below).
 - `patches/rustc_codegen_gcc-0001`: `-C llvm-args` reach the GCC driver as
   well as cc1, so `-mc33pe` reaches the assembler and the objects link with
-  the C applications'.  0002: a variadic call's anonymous arguments are
-  passed as anonymous (on the C33 they are all on the stack).
+  the C applications', and a target's own llvm-args are passed first.
+  0002: a variadic call's anonymous arguments are passed as anonymous (on
+  the C33 they are all on the stack).  0003: `target_has_reliable_f128_math`
+  on glibc targets only, since musl has no `expf128` and the rest of the
+  `*f128` functions GCC lowers `f128` math to.  0004: no
+  `-Wstringop-overflow`: a dangling `Weak` is the address `usize::MAX`, and
+  where `Weak::clone` is not inlined GCC warned of the atomic add to its
+  count, at an address near zero, on a path that never runs.
 - `c33-epson-none.json`: the target.  `build.sh` links as
   `samo-lib/grifo/Mk/application-pre.mk` does: `application.lds`, libgrifo,
   mini-libc and the `-mc33pe` libgcc.
@@ -42,7 +49,7 @@ or `~/.cargo`.
 
     ./fetch.sh          # rustc_codegen_gcc, rustup + its nightly, rustc's source
     ./build-gccjit.sh   # work/install/lib/libgccjit.so (the toolchain's binutils first)
-    ./build-rustc.sh    # stage-2 rustc with Arch::C33, ~25 min at 4 jobs
+    JOBS=2 ./build-rustc.sh    # stage-2 rustc with Arch::C33, ~25 min at 4 jobs
     (cd work/rustc_codegen_gcc && RUSTUP_HOME=$PWD/../rustup CARGO_HOME=$PWD/../cargo \
         ../cargo/bin/cargo +c33 build --release)
     ./build.sh hello    # hello/hello.app
@@ -55,7 +62,7 @@ Bootstrap has to run with the caller's environment: a different
 ## Linux: std
 
 `stdhello/` is a program for C33 Linux with Rust's full standard library
-(`c33-unknown-linux-musl.json`: musl, static FDPIC, no MMU): arguments,
+(`c33-unknown-linux-musl`: musl, static FDPIC, no MMU): arguments,
 the environment, files, threads over a channel and a clock.  It needs:
 
 - `patches/libc-0001`: the C33 in the libc crate's musl module (riscv32's
@@ -74,6 +81,7 @@ the environment, files, threads over a channel and a clock.  It needs:
           C33_BINUTILS_CONFIGURE=--with-sysroot=$PWD/work/install/c33-linux-musl/sysroot \
           binutils/build.sh $PWD/work && C33_TARGET=c33-linux-musl gcc/rebuild.sh $PWD/work final)
       C33_TARGET=c33-linux-musl ./build-gccjit.sh
+      ./build-std.sh      # the target's std, backend and libgccjit, in the toolchain
       ./build-linux.sh    # stdhello/stdhello.bin
       ./test-linux.py     # wremu: Grifo -> linux.app -> r
 
@@ -83,10 +91,24 @@ On the device the card carries `stdhello.bin`, `unwindtest.bin` (as
 holds the panel for three seconds), checks them and leaves the output in
 `rust.txt` on the card.
 
-libgccjit compiles in-process with only the options it is given, so
-`build-linux.sh` passes the Linux driver's defaults (`-mcore=c33pe -mfdpic
--msep-data`) itself.  The target links `-lgcc` last: GCC calls libgcc
-helpers such as `__ucmpdi2` that Rust's compiler_builtins does not have.
+`c33-unknown-linux-musl` is built into rustc (`patches/rust-0003`), and
+`build-std.sh` installs it in the toolchain: the standard
+library, built by rustc_codegen_gcc, in the toolchain's
+`lib/rustlib/c33-unknown-linux-musl/lib`, the backend in its
+`codegen-backends` and the libgccjit for the target beside it.  So
+
+    cargo +c33 build --target c33-unknown-linux-musl
+
+needs neither `-Zbuild-std` nor `-Zcodegen-backend`: the target names
+`gcc` as its codegen backend.  libgccjit compiles in-process with only the
+options it is given, so the target carries the Linux driver's defaults
+(`-mcore=c33pe -mfdpic -msep-data`) as llvm-args, which the backend passes
+on.  It links `-lgcc` last: GCC calls libgcc helpers such as `__ucmpdi2`
+that Rust's compiler_builtins does not have.  `unwindtest/` and
+`i128probe/` use the toolchain's std; `stdhello/`, `sdprobe/` and
+`drmhello/` build their own with `-Zbuild-std`, leaving out the backtrace
+symbolizer and panic unwinding that the toolchain's std includes (the
+symbolizer was 200 kB of stdhello's 450).
 
 `unwindtest/` builds with `panic = "unwind"`, the target's default:
 catch_unwind, destructors run on the way out, a panicking thread's join

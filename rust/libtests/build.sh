@@ -10,12 +10,7 @@ RUST="${HERE}/.."
 export RUSTUP_HOME="${RUST}/work/rustup"
 export CARGO_HOME="${RUST}/work/cargo"
 export PATH="${CARGO_HOME}/bin:${RUST}/../host-tools/toolchain-c33/work/install/bin:${PATH}"
-export CG_GCCJIT_LIBRARY_PATH="${RUST}/work/install-c33-linux-musl/lib/libgccjit.so"
-RUSTFLAGS="-Zcodegen-backend=${RUST}/work/rustc_codegen_gcc/target/release/librustc_codegen_gcc.dylib"
-for o in -mcore=c33pe -mfdpic -msep-data -mlong-calls; do
-	RUSTFLAGS="${RUSTFLAGS} -Cllvm-args=${o}"
-done
-export RUSTFLAGS="${RUSTFLAGS} -Ctarget-feature=-crt-static"
+export RUSTFLAGS="-Cllvm-args=-mlong-calls -Ctarget-feature=-crt-static"
 
 cd "${HERE}"
 python3 split.py > /dev/null

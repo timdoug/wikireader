@@ -1,10 +1,4 @@
-# Build with ../build-linux.sh, which sets the backend and libgccjit.
+# Build with ../build-linux.sh; the standard library is the toolchain's
+# (build-std.sh).
 [build]
-target = "../c33-unknown-linux-musl.json"
-
-[unstable]
-build-std = ["std", "panic_unwind"]
-# Not std's default backtrace and panic-unwind: panics abort, and a stripped
-# binary has nothing to symbolize; the symbolizer was 200 kB of 450.
-build-std-features = ["panic-unwind"]
-json-target-spec = true
+target = "c33-unknown-linux-musl"

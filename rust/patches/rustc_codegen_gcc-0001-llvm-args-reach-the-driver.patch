@@ -1,14 +1,28 @@
+llvm-args reach the driver, and a target's are passed as well
+
+-C llvm-args reached cc1 only.  They now reach the GCC driver as well, so
+a flag selecting a core variant (the C33's -mcore=c33pe) also reaches the
+assembler, which records it in the object.
+
+A target's llvm_args (llvm-args in a target spec) were not passed at all.
+They now come first, ahead of -C llvm-args, which can override them, so
+a target can carry the options its GCC's driver adds itself, such as the
+C33 Linux driver's -mfdpic.
+
 diff --git a/src/gcc_util.rs b/src/gcc_util.rs
-index b0442cdf..8ab902bc 100644
+index b0442cdf..fe7d318e 100644
 --- a/src/gcc_util.rs
 +++ b/src/gcc_util.rs
-@@ -278,8 +278,11 @@ pub fn new_context<'gcc>(sess: &Session) -> Context<'gcc> {
+@@ -278,8 +278,13 @@ pub fn new_context<'gcc>(sess: &Session) -> Context<'gcc> {
  
      add_feature_options(&context, &sess.target.arch, &sess.global_backend_features);
  
+-    for arg in &sess.opts.cg.llvm_args {
 +    // NOTE: the driver gets them as well, so that a flag selecting a core variant
 +    // (e.g. -mc33pe) also reaches the assembler, which records it in the object.
-     for arg in &sess.opts.cg.llvm_args {
++    // The target's own arguments first, so that -C llvm-args can override them.
++    let target_args = sess.target.llvm_args.iter().map(|arg| arg.as_ref());
++    for arg in target_args.chain(sess.opts.cg.llvm_args.iter().map(String::as_str)) {
          context.add_command_line_option(arg);
 +        context.add_driver_option(arg);
      }

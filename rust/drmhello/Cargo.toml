@@ -10,6 +10,7 @@ embedded-graphics = "0.8"
 
 # Crates with the C33 added (fetch.sh: crates.txt and patches/).
 [patch.crates-io]
+libc = { path = "../work/libc" }
 linux-raw-sys = { path = "../work/crates/linux-raw-sys-0.12.1" }
 linux-raw-sys-0-9 = { package = "linux-raw-sys", path = "../work/crates/linux-raw-sys-0.9.4" }
 rustix = { path = "../work/crates/rustix-1.1.6" }

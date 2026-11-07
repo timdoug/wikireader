@@ -2,7 +2,7 @@
 # Build rustc with the C33 architecture (patches/rust-*) and install it as the
 # rustup toolchain "c33" in work/rustup.
 #
-#   ./build-rustc.sh            (after fetch.sh)
+#   ./build-rustc.sh            (after fetch.sh; JOBS=n overrides bootstrap.toml's 4)
 #
 # A codegen backend is a rustc_private crate, so it has to be compiled
 # against the rlibs of the very compiler that loads it.  As for a nightly,
@@ -20,7 +20,7 @@ HOST=${HOST:-aarch64-apple-darwin}
 # Bootstrap runs with the caller's environment untouched: a different
 # CARGO_HOME changes every crate's fingerprint and rebuilds the compiler.
 cd "${RUST}"
-nice -n 19 ./x build --stage 2 library
+nice -n 19 ./x build --stage 2 library ${JOBS:+-j ${JOBS}}
 export RUSTUP_HOME="${WORK}/rustup" CARGO_HOME="${WORK}/cargo"
 
 STAGE1="${RUST}/build/host/stage1"
