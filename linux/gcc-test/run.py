@@ -49,7 +49,7 @@ def run_batch(fat, names):
         "kernel.elf": "samo-lib/grifo/grifo.elf",
         "init.app": "samo-lib/grifo/applications/init/init.app",
         "linux.app": "linux/artifacts/linux.app",
-        "linux.img": "linux/artifacts/linux.img",
+        "linux.img": OUT / "linux.img",
         "linux.ico": "linux/artifacts/linux.ico",
         "runner.bin": OUT / "runner",
     }.items()}
@@ -126,6 +126,22 @@ def main():
     EXECUTED.mkdir(parents=True, exist_ok=True)
     vm("sh", "-c", "~/wr-linux/toolchain/install/bin/c33-linux-musl-gcc -O2 -Wall "
        f"-Werror linux/gcc-test/runner.c -o {OUT}/runner")
+    # The programs run against the runtime libraries they were linked with,
+    # the toolchain's, written over the image's in a copy of linux.img.
+    vm("sh", "-c", f"""set -e
+img={OUT}/linux.img rt=~/wr-linux/toolchain/install/c33-linux-musl/lib
+cp linux/artifacts/linux.img "$img"
+for f in libgcc_s.so.1 libatomic.so.1.2.0 $(cd "$rt" && ls libstdc++.so.6.0.*[0-9]); do
+	~/wr-linux/toolchain/install/bin/c33-linux-musl-strip --strip-unneeded -o "$img.lib" "$rt/$f"
+	chmod 755 "$img.lib"
+	debugfs -w -R "rm /lib/$f" "$img" >/dev/null 2>&1
+	debugfs -w -R "write $img.lib /lib/$f" "$img" >/dev/null 2>&1
+	debugfs -w -R "sif /lib/$f uid 0" "$img" >/dev/null 2>&1
+	debugfs -w -R "sif /lib/$f gid 0" "$img" >/dev/null 2>&1
+	debugfs -R "dump /lib/$f /dev/stdout" "$img" 2>/dev/null | cmp -s - "$img.lib"
+done
+rm "$img.lib"
+""")
     # C33L_PASSES stops after that many DejaGnu passes, for a summary
     # from results already recorded.
     for attempt in range(int(os.environ.get("C33L_PASSES", 8))):
