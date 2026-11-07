@@ -166,13 +166,26 @@ What it takes on this machine:
   memory here: `RUST_MIN_STACK=262144`.
 - Each part is a package of its own (`core-1` … `alloc-3`), so its test
   crate keeps the suite's name, which `any::dyn_type_name` checks.
-- The sort tests take a short list of lengths (patches/rust-0002), as
-  Miri's and Emscripten's do.
+- The sort tests take a short list of lengths (patches/rust-0002).
 
 Results (2026-11-06): core 2,730 and alloc 1,497 tests, all passing once
 a C33 GCC bug the suite found was fixed in the backend: a local aligned
 beyond 4 bytes landed off its alignment while GCC folded the checks
-(gcc.target/c33/overaligned-local-run.c).
+(gcc.target/c33/overaligned-local-run.c).  With `_Float128` in the
+compiler (2026-11-07) core's f128 tests build and run too: part 1 passes
+1,579 tests, 30 of them f128; the other five parts were not rerun with it.
+Built at opt-level "s" the suites compile without a warning.
+
+## f128
+
+Rust's `f128` is GCC's `_Float128`: IEEE quad precision in software,
+libgcc's soft-fp routines (`__addtf3`, `__lttf2`, ...), on bare metal and
+Linux alike.  A quad is passed by reference and returned in memory
+(`host-tools/toolchain-c33/gcc/ABI.md`, "Quad precision").
+compiler_builtins has the arithmetic too; the math functions (`exp`,
+`ln`, `powf`, ...) are the C library's `*f128`, which musl does not have,
+so `cfg(target_has_reliable_f128_math)` is off on C33 Linux (core's tests
+of them are left out) and a program that calls them does not link.
 
 ## On the device
 
