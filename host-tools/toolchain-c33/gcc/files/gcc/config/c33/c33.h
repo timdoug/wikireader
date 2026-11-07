@@ -655,6 +655,12 @@ struct cum_arg
    of two when optimizing for speed.  */
 #define BRANCH_COST(speed_p, predictable_p) ((speed_p) ? 2 : 1)
 
+/* xjr<cc> and xjp take a 32-bit displacement, so a branch between the hot
+   and cold partitions of a function stays a direct branch; c33.md gives
+   every crossing jump that form.  */
+#define HAS_LONG_COND_BRANCH 1
+#define HAS_LONG_UNCOND_BRANCH 1
+
 /* Indirect calls are expensive, never turn a direct call
    into an indirect call.  */
 #define NO_FUNCTION_CSE 1
