@@ -7,13 +7,15 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import time
 
 
 ROOT = Path(__file__).resolve().parents[2]
-STATUS = {0: "PASS", 1: "FAIL", 2: "UNRESOLVED", 4: "UNSUPPORTED", 5: "UNTESTED", 124: "TIMEOUT"}
+STATUS = {0: "PASS", 1: "FAIL", 2: "UNRESOLVED", 4: "UNSUPPORTED", 5: "UNTESTED", 77: "SKIPPED",
+          124: "TIMEOUT"}
 
 
 def digest(data):
@@ -104,18 +106,26 @@ def main():
     commands = ["#!/bin/sh", "mkdir -p /tmp/ltp; cd /tmp/ltp"]
     if manifest.get("result_format") == "ltp":
         commands += ["export KCONFIG_PATH=/mnt/sd/kconf.txt"]
+    # Other packages' suites: commands run once first (unpacking a data
+    # fixture, say), and per case its arguments, environment and directory.
+    commands += manifest.get("setup", [])
     for index, case in enumerate(cases):
         data = (args.binaries / case["binary"]).read_bytes()
         if digest(data) != case["binary_sha256"]:
             raise SystemExit(f"Binary hash mismatch: {case['name']}")
         files[case["binary"]] = data
         # Status comes from the standalone program, not its printed messages.
-        commands += [f"mkdir c{index}; cd c{index}", f"echo LTP-BEGIN {case['name']}",
-                     f"/mnt/sd/{supervisor['binary']} {deadlines.get(case['name'], args.timeout)} /mnt/sd/{case['binary']}",
+        env = " ".join(shlex.quote(f"{k}={v}") for k, v in case.get("env", {}).items())
+        argv = " ".join(shlex.quote(a) for a in case.get("argv", []))
+        commands += [f"mkdir c{index}; cd {shlex.quote(case['cwd']) if case.get('cwd') else f'c{index}'}",
+                     f"echo LTP-BEGIN {case['name']}",
+                     (f"env {env} " if env else "") +
+                     f"/mnt/sd/{supervisor['binary']} {deadlines.get(case['name'], args.timeout)} /mnt/sd/{case['binary']}"
+                     + (f" {argv}" if argv else ""),
                      # The marker starts a line even after output with no
                      # final newline.
-                     "status=$?", f"printf '\\nLTP-RESULT %s %s\\n' {case['name']} $status", "cd ..",
-                     f"rm -rf c{index}"]
+                     "status=$?", f"printf '\\nLTP-RESULT %s %s\\n' {case['name']} $status",
+                     "cd /tmp/ltp", f"rm -rf c{index}"]
     commands += ["echo LTP-DONE", "reboot -f"]
     files["ltp.sh"] = ("\n".join(commands) + "\n").encode()
     files["init.ini"] = b"linux.ico : linux.app loglevel=7 earlycon=s1c33,mmio,0x300b00\n" * 2
