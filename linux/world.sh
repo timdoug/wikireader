@@ -1,6 +1,7 @@
 #!/bin/sh
 # Everything the Linux port runs on, from this checkout and pinned upstream
-# sources, in order: on the Mac, the bare-metal C33 toolchain, the firmware
+# sources, in order: on the Mac, the bare-metal C33 toolchain, the host's
+# c33-linux-musl-gdb (gdb-test.py drives it), the firmware
 # a card boots through (MBR flash, Grifo and init.app) and wremu; in the
 # wr-linux VM, every source fetched and hash-checked, the Linux toolchain,
 # musl, Buildroot's root image, the kernel and the debug tools.
@@ -29,6 +30,7 @@ vm() {
 
 step nice -n 19 "$tools/binutils/build.sh" "$tools/work"
 step nice -n 19 "$tools/gcc/rebuild.sh"
+step nice -n 19 "$tools/gdb/build.sh" "$tools/work"
 step nice -n 19 make -j"$JOBS" TOOLCHAIN_BIN="$tools/work/install/bin" \
 	mini-libc fatfs drivers grifo mbr
 step nice -n 19 make -C emulator -j"$JOBS" LTO=1
