@@ -470,8 +470,7 @@ mode's clock is the simple-panel placeholder, so wlroots reports 0.020 Hz.
 
 Nothing for the C33 is upstream anywhere, so "standard" here means the
 conventions upstream asks of a new architecture and of the no-MMU and FDPIC
-ports (SH, ARM, FRV, Blackfin, csky, nios2). `UPSTREAM-REVIEW.md` (local,
-2026-10-03) is the review this section answers.
+ports (SH, ARM, FRV, Blackfin, csky, nios2).
 
 Userland follows them. Buildroot (an external tree, its package
 infrastructure), musl and BusyBox run as FDPIC ELF with shared
