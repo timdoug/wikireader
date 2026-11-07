@@ -21,7 +21,10 @@ set_board_info compiler $env(C33L_GCC)
 set_board_info multitop ""
 # A fixed seed: -fprofile-arcs otherwise stamps each build with the time,
 # so a rebuilt test never finds the result recorded for its last build.
-set_board_info cflags "-frandom-seed=0"
+# DejaGnu's check-flags appends this to the test's flags without a space,
+# so it starts with one: "-std=gnu++20-frandom-seed=0" hid the -std option
+# from every c++NN selector.
+set_board_info cflags " -frandom-seed=0"
 # Without an MMU a program's stack is what its link asks for, 32 KB by
 # default; the tests get 1 MB.  They are told half that: they size frames
 # from it, and -O0 copies a by-value argument of half of what they are told.

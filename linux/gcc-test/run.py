@@ -126,7 +126,9 @@ def main():
     EXECUTED.mkdir(parents=True, exist_ok=True)
     vm("sh", "-c", "~/wr-linux/toolchain/install/bin/c33-linux-musl-gcc -O2 -Wall "
        f"-Werror linux/gcc-test/runner.c -o {OUT}/runner")
-    for attempt in range(8):
+    # C33L_PASSES stops after that many DejaGnu passes, for a summary
+    # from results already recorded.
+    for attempt in range(int(os.environ.get("C33L_PASSES", 8))):
         tool = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--tool=")), "gcc")
         # The runtime libraries' suites run from their build trees.
         script = "run-lib.sh" if tool in ("libstdc++", "libatomic") else "run-gcc.sh"
@@ -143,7 +145,7 @@ def main():
                 raise SystemExit(f"the batch ran nothing; see {OUT / 'batch/boot.log'}")
             done += ran
         print(f"wremu ran {len(names)} queued programs", flush=True)
-    raise SystemExit("still queuing after 8 passes")
+    raise SystemExit(f"still queuing after {attempt + 1} passes")
 
 
 if __name__ == "__main__":
