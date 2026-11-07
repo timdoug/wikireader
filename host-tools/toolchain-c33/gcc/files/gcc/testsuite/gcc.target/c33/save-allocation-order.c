@@ -1,4 +1,6 @@
-/* { dg-do compile } */
+/* { dg-do compile { target c33-*-elf } } */
+/* Under FDPIC the data pointer %r15 is live across the call too, in
+   %r1, so the value still takes %r0 but pushn saves two.  */
 /* { dg-options "-O2 -mc33pe -fomit-frame-pointer -fno-optimize-sibling-calls" } */
 
 extern void consume (unsigned int);

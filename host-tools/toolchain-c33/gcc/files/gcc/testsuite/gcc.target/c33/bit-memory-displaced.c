@@ -1,4 +1,6 @@
-/* { dg-do compile } */
+/* { dg-do compile { target c33-*-elf } } */
+/* Under FDPIC absolute_byte is reached from %r15 by a two-ext data-segment
+   offset, and set_absolute is compiled as a load, xoor and store.  */
 /* { dg-options "-mcore=c33pe -O2" } */
 /* { dg-skip-if "code quality test" { *-*-* } { "-O0" } { "" } } */
 

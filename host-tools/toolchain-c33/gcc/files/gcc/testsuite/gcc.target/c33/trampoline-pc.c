@@ -1,4 +1,5 @@
-/* { dg-do compile } */
+/* { dg-do compile { target c33-*-elf } } */
+/* GCC makes no trampolines for -mfdpic.  */
 /* { dg-options "-O2 -ftrampolines" } */
 
 typedef int (*callback) (int);
