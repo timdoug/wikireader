@@ -1582,20 +1582,23 @@ hardware and the 16 MiB configuration remain separate validation.
 
 ## Expected failures
 
-Every test that does not pass, across the suites, has one of six causes;
-the suite READMEs and `ltp/remaining.json` name each case:
+Every test that does not pass, across the suites, has one of these causes;
+the suite READMEs, `ltp/remaining.json` and "GCC and binutils test suites"
+below name each case. GCC counts are results, several to a test:
 
 | Cause | Where |
 | --- | --- |
-| No MMU: no `fork`, no page faults to report, no large contiguous blocks | 14 libc-test programs and 264 LTP cases built around `fork`; 10 libc-test and 9 LTP memory and fault cases; libffi's over-read check |
-| musl's deliberate behaviour, the same on every architecture | 62 LTP cases (25 of them process scheduling, which returns `ENOSYS`); `strptime`, `REG_STARTEND` and `fnmatch` cases |
+| No MMU: no `fork`, no page faults to report, no large contiguous blocks, no guard pages | 14 libc-test programs and 264 LTP cases built around `fork`, and GCC's `time-profiler-2`; 10 libc-test and 9 LTP memory and fault cases; libffi's over-read check; expat's 49 checks that allocate 3-7 MB in one piece; pixman's `cover-test`, `fence-image-self-test` and `neg-stride-test`, which check accesses with guard pages |
+| FDPIC | 13 GCC results: an absolute address in text from top-level `asm` (9), the address of a nested function (4) |
+| musl's deliberate behaviour, the same on every architecture | 62 LTP cases (25 of them process scheduling, which returns `ENOSYS`); `strptime`, `REG_STARTEND` and `fnmatch` cases; 193 GCC results that depend on C23 and C2y names from the C library's headers (`FLT32_*`, `nullptr_t`, `ULLONG_WIDTH`, `CR_DECIMAL_DIG`), GCC's own `<float.h>`, `O_ACCMODE` without `O_PATH`, or `-fshort-wchar` to change `wchar_t`; 36 g++ results from 8 tests that depend on `NULL` being GCC's `__null` (musl defines it as `nullptr`) or a global `nullptr_t` |
 | Optional POSIX features this system does not provide | 21 LTP cases: sporadic server, priority ceilings, priority-ordered read-write locks, process-contention scope |
 | Configuration choices | IPv4 left out (2 libc-test, 470 KB resident; both pass with it); Hush's leak-check builtin left out (9 Hush); Hush as `/bin/sh` (`wordexp` subtests); `long double` is `double` (5 libc-test math) |
 | Upstream bugs | musl regex back-references (4 libc-test), BusyBox's own known `sed` and `cpio` bugs (4), 3 Hush bugs that glibc builds fail too |
-| The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition |
+| The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition; GCC's `inline5.c`, whose scan pattern does not match with a `;` comment character (xfailed on hppa for that reason); g++'s `pr120098.C` at `-O0`, whose loop bound is an uninitialized member |
+| This machine's limits | 7 pixman tests (`pixel`, `alphamap`, `gradient-crash`, `filter-reduction`, `stress`, `composite`, and `glyph` over 5,000 iterations) take more than 20 guest minutes, about three quarters of it in software floating point (`pixel-test`, profiled), and `alpha-loop` stops itself after 10 seconds; `gcc.dg/lto/pr122515` links two 160 MB arrays, past the 64 MB the data-area displacement reaches |
 
-GCC's torture, binutils, the LTP port regressions and the launcher tests
-have no failures.
+GCC's execute torture, binutils, the LTP port regressions, zlib, fontconfig,
+libatomic and the launcher tests have no failures.
 
 ## Upstream BusyBox tests
 
@@ -1624,24 +1627,31 @@ relocate, and FDPIC makes no copy relocations or `DT_TEXTREL`.
 
 `make -C linux gcc-test` runs GCC's execute torture (`GCC_TESTS` takes other
 runtest selectors) with the installed compiler, and its programs in Linux in
-wremu, booted through Grifo: **24,396 passes, no failures**, all 7,463
-programs run. 183 are unsupported: nested-function trampolines, which GCC
-does not make for `-mfdpic`, 128-bit integers, decimal float, and GCC's
-expensive tests. `GCC_TESTS=gcc.dg/dg.exp` runs GCC's main C
-suite: 39,553 passes and no failures, with the same per-target expectations
-upstream gives other ports, added by GCC's `port/0011` patch: no MMU (a null store
-does not fault, `mprotect` makes no guard page), FDPIC is always PIC, and
-musl has no `_FORTIFY_SOURCE` functions and its libm reports errors by
-exception, not `errno`. `run.py --tool=g++` runs `g++.dg`, its torture and
-`g++.old-deja` at C++17: 56,909 passes, and the 23 failures of that run are
-fixed or marked, each checked by name (a complete rerun is still to do).
-The C++ ones found three port bugs, all fixed: no multiple-inheritance
+wremu, booted through Grifo. The whole C testsuite gives 158,170 passes and
+1,596 failing results, every one with a cause: 1,273 were coverage and
+profile data the board did not copy back from the guest, now copied
+(`gcov.exp` 281 passes and no failures, `tree-prof.exp` every test but
+`time-profiler-2`); 99 were compiler bugs and missing per-target
+expectations, all fixed; 15 slow tests pass with a 20- or 30-minute
+deadline; and the rest are in "Expected failures". The per-target
+expectations, in GCC's `port/0011` patch, are those upstream gives other
+ports: no MMU (a null store does not fault, `mprotect` makes no guard
+page, objects of several megabytes do not fit), FDPIC is always PIC,
+anonymous arguments are passed on the stack, strict alignment, and musl
+has no `_FORTIFY_SOURCE` functions and its libm reports errors by
+exception, not `errno`. `run.py --tool=g++` runs `g++.dg`, its torture
+and `g++.old-deja` at C++17: 56,977 passes and 38 failing results, the
+36 `NULL` ones, `cdce3.C` (now skipped for its `errno` search) and
+`pr120098.C`; `loop-split-1.C`, unresolved in that run, passes.
+`run.py --tool=libatomic` gives 44 passes and no failures.
+
+The C++ suite found three port bugs, all fixed: no multiple-inheritance
 thunks, so a variadic virtual function reached through a second base did
 not compile; a function's constant pool and exception table outside its
 COMDAT group, so a discarded duplicate left words naming discarded code
 (GCC's configure probe for exception-table collection links an absolute
-address in `.text`, which FDPIC refuses, and is answered for C33 as
-upstream answers it for hppa); and a compiler rebuilt without its libgcc
+address in `.text`, an error in an FDPIC link; its answer is preset for C33,
+and upstream presets it for hppa); and a compiler rebuilt without its libgcc
 split linked a private unwinder that `pthread_exit` cannot mix with.
 
 `gcc-test/c33-linux.exp` is the DejaGnu board. It compiles and links as the
@@ -1649,27 +1659,54 @@ system does, and looks each program's result up by the SHA-256 of the
 binary; one with none is queued and reported unresolved. `gcc-test/run.py`
 alternates a DejaGnu pass in the VM with batches of up to 3,000 queued
 programs on one card, which `gcc-test/runner.c` runs one by one, each with
-stdin from `/dev/null`, a 240-second deadline and the page cache dropped
-first, until a pass queues nothing. A program that takes the machine down is
-recorded as having crashed it, and the batch goes on without it. A rebuilt
-toolchain reruns only the programs whose bytes changed. Tests are told
-512 KB of stack and get 1 MB: `-O0` copies a by-value argument of half what
-a test is told.
+stdin from `/dev/null`, a deadline (`C33L_TIMEOUT`, 240 guest seconds by
+default) and the page cache dropped first, until a pass queues nothing
+(`C33L_PASSES` stops sooner). The card's `linux.img` is a copy with the
+toolchain's runtime libraries written into `/lib`, the ones the programs
+were linked with. Files a program writes under its build directory, such
+as coverage data, come back to the VM. A program that takes the machine
+down is recorded as having crashed it, and the batch goes on without it.
+A rebuilt toolchain reruns only the programs whose bytes changed. Tests
+are told 512 KB of stack and get 1 MB: `-O0` copies a by-value argument
+of half what a test is told. Hundreds of programs in one boot fragment
+memory until a megabyte in one piece is rare: `libstdc++.so.6` then fails
+to load and threads fail to start, so a result other than success from a
+long batch is rerun on a fresh boot before it counts.
 
 What the suites found, all fixed: GCC put out-of-object addresses such as a
 loop's end (`tmp + 288` past a 240-byte array) in the constant pool, where
 startup relocation, which goes by the segment an address lies in, left them
 unrelocated; it addressed 64 MB and more past a symbol through the 26-bit
-data-area displacement; the FDPIC linker script ignored `-z max-page-size`,
-`-Ttext-segment`, `-z separate-code` and `--enable-linker-version`, folded
-`ld -r`'s startup and exit text into `.text`, and kept two `.note.GNU-stack`
-sections; a byte array used as words (`pr43987`) faulted when it landed on
-an odd address, so GCC now word-aligns byte arrays, as SPARC, MIPS and SH
-do; ld crashed on a non-FDPIC input; ld's `.rofixup` sizing and
-relocation disagreed about script-defined absolute symbols; a discarded
-`.rela.dyn` left its dynamic tags; the Linux assembler made non-FDPIC
-objects by default; and `poweroff` halted instead of returning to Grifo,
-since the kernel had no power-off handler.
+data-area displacement; a branch between a function's hot and cold
+partitions took the 2-byte form, which cannot reach another section, both
+from the length GCC computed and from reorg carrying a branch through a
+crossing jump; a constant pool word for a field of a thread-local
+variable, `tlsle(s+8)`, stopped the compiler; the FDPIC linker script
+ignored `-z max-page-size`, `-Ttext-segment`, `-z separate-code` and
+`--enable-linker-version`, folded `ld -r`'s startup and exit text into
+`.text`, and kept two `.note.GNU-stack` sections; a byte array used as
+words (`pr43987`) faulted when it landed on an odd address, so GCC now
+word-aligns byte arrays; ld crashed on a
+non-FDPIC input; ld's `.rofixup` sizing and relocation disagreed about
+script-defined absolute symbols; a discarded `.rela.dyn` left its dynamic
+tags; the Linux assembler made non-FDPIC objects by default; and
+`poweroff` halted instead of returning to Grifo, since the kernel had no
+power-off handler.
+
+## Package test suites
+
+Packages' own suites run through `ltp/run.py`'s manifests, built with the
+system's compiler against its libraries. zlib passes its static, shared and
+64-bit-offset tests; fontconfig its 16, once Hush's `command -v` printed
+an applet's path (`buildroot/external/patches/busybox/0003`); expat 5,135
+of its 5,184 checks, the 49 others allocations of 3-7 MB in one piece.
+Two defaults of a no-MMU build break pixman's test programs. Their utilities enable guard pages whenever `mprotect` links,
+and on no-MMU `mprotect` fails, so every guarded buffer was NULL and
+`composite-traps-test` wrote over the exception vectors at address 0; they
+are built without `HAVE_MPROTECT`. They are written for a growable stack, and
+the toolchain links 32 KB, so they are linked with 1 MB. With both, 15 of its
+tests pass, `rotate-test` among them, and seven fuzzers' first 5,000
+iterations give the checksums of a native build.
 
 ## What comes next
 

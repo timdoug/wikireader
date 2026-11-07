@@ -547,6 +547,38 @@ Where it departs:
 
 ## What is left, in the order I would take it
 
+The test batteries after the next world rebuild, which picks up the
+compiler's 2026-11-07 fixes (`e59c4dd3`, `87d70edc`, `7c42d308`) and the
+`_Float128` additions to libgcc and libstdc++ that the image's runtimes
+lack:
+- **libstdc++ is unfinished.** Its last complete run, 16,705 passes and
+  216 failures, came from batches long enough to fragment memory: 172
+  programs could not load `libstdc++.so.6` and 13 more could not start
+  a thread or allocate. The 359 results other than success were
+  deleted from `artifacts/suites/libstdc++/executed`; rerun with
+  `C33L_PASSES=3 C33L_OUT=artifacts/suites/libstdc++ python3
+  gcc-test/run.py --tool=libstdc++ all` (about three hours, mostly the
+  DejaGnu passes). Results that loaded and still need a fresh-boot
+  verdict: `stacktrace` (3), `hash/chi2_q_bit_flip_set`, `vstring` 28277,
+  `filesystem/path/append/source`, `regex_match` 63199 (wchar_t locale),
+  `list/pthread1` (SIGTRAP), 9 timeouts; compile failures in
+  `17_intro/names.cc`, `names_fortify.cc`, `experimental/names.cc`,
+  `unique_ptr/lwg4148`, `packaged_task/cons/dangling_ref` and both
+  `wait_notify.cc`; and 3 `file-io-diff` tests, whose input files the
+  board does not copy to the guest.
+- **Then the rest once each**, one or two emulators at a time: the GCC C
+  and C++ suites (`gcc-test/run.py`, `--tool=g++`), BusyBox and libc-test
+  (`upstream-tests/run.py`), LTP, and the package suites in
+  `artifacts/suites` (zlib, fontconfig, expat, pixman). Their last results
+  and every failure's cause are in README.md, "Expected failures" and
+  "GCC and binutils test suites".
+- **Not run yet:** pixman's `thread-test`, and `alpha-loop` with its
+  watchdog raised, on the corrected pixman build; libdrm's, the X
+  server's and strace's own suites; GDB's testsuite.
+- **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass
+  runs:** the relink leaves `cc1plus` missing and every compile in that
+  window fails. Build a fix in a separate object directory.
+
 For X, largest first:
 - Stub the scheduler's load tracking on this single CPU: about 2.5 ms a
   frame and cheaper switches for every program, but it is a core scheduler
