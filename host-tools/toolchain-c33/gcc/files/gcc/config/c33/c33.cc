@@ -760,6 +760,17 @@ c33_output_addr_const_extra (FILE * file, rtx x)
   return true;
 }
 
+/* reorg redirects a branch to the target of the jump it leads to, and
+   marks the result crossing only if the branch already was.  A branch
+   carried through a jump into the other partition would keep its short
+   form, which cannot reach there; it is not followed.  */
+
+static bool
+c33_can_follow_jump (const rtx_insn *follower, const rtx_insn *followee)
+{
+  return !CROSSING_JUMP_P (followee) || CROSSING_JUMP_P (follower);
+}
+
 /* -msep-data promises text with no absolute addresses in it, and
    c33_legitimate_constant_p and c33_legitimate_address_p keep symbols out
    of the forms below.  Anything that slips past them is a compiler bug;
@@ -3119,6 +3130,9 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef TARGET_ASM_OUTPUT_ADDR_CONST_EXTRA
 #define TARGET_ASM_OUTPUT_ADDR_CONST_EXTRA c33_output_addr_const_extra
+
+#undef TARGET_CAN_FOLLOW_JUMP
+#define TARGET_CAN_FOLLOW_JUMP c33_can_follow_jump
 
 #undef  TARGET_ATTRIBUTE_TABLE
 #define TARGET_ATTRIBUTE_TABLE c33_attribute_table
