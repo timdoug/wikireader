@@ -102,7 +102,7 @@ or times out:
 
 ## Fixes these suites found
 
-libc-test found three:
+libc-test found four:
 
 - musl's `fork` on an architecture without `SYS_fork` is
   `clone(SIGCHLD, 0)`, which a no-MMU kernel accepts: the child ran on its
@@ -118,6 +118,15 @@ libc-test found three:
 - musl's `wordexp` forked to run the shell, so every call failed with
   `WRDE_NOSPACE`. `../musl/patches/fixes/0026` runs it through
   `posix_spawn`.
+- The kernel refused a signal frame below `memory_start`, the end of its
+  image, but its freed init memory lies there and the page allocator
+  hands it to programs.  Once memory was short, as after the `*-oom`
+  tests, a program or the shell running it got a stack or data page
+  there, and its next signal killed it with `SIGSEGV`: `sigaltstack`,
+  `setvbuf-unget` or another program after the OOM tests, varying with
+  the card's layout.  The frame check now takes any page the allocator
+  owns and refuses the kernel's reserved image, and `virt_addr_valid()`
+  is SH's `pfn_valid()` form.
 
 BusyBox's found these:
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/errno.h>
 #include <linux/irq-entry-common.h>
+#include <linux/mm.h>
 #include <linux/personality.h>
 #include <linux/resume_user_mode.h>
 #include <linux/sched.h>
@@ -92,6 +93,12 @@ static int c33_save_sigcontext(struct sigcontext __user *context,
 	return error;
 }
 
+/* RAM the page allocator manages and has not reserved for the kernel. */
+static bool c33_user_ram(unsigned long addr)
+{
+	return virt_addr_valid(addr) && !PageReserved(virt_to_page(addr));
+}
+
 static void __user *c33_get_sigframe(struct ksignal *ksig,
 				     struct pt_regs *regs, size_t size)
 {
@@ -118,10 +125,13 @@ static int c33_setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	 * Nothing stops a wild stack pointer without an MMU, and access_ok()
 	 * passes any address: a frame written there lands on whatever the
 	 * kernel keeps at it, its own internal-RAM code included.  A user
-	 * stack is in SDRAM; otherwise the process dies without a frame.
+	 * stack is in SDRAM pages the allocator handed out, which may be the
+	 * kernel's freed init memory below memory_start; the kernel's own
+	 * image is reserved.  Otherwise the process dies without a frame.
+	 * The frame is smaller than a page, so its two ends cover it.
 	 */
-	if ((unsigned long)frame < memory_start ||
-	    (unsigned long)frame + sizeof(*frame) > memory_end)
+	if (!c33_user_ram((unsigned long)frame) ||
+	    !c33_user_ram((unsigned long)frame + sizeof(*frame) - 1))
 		return -EFAULT;
 
 	error |= __copy_to_user(frame->retcode, c33_sigreturn_code,

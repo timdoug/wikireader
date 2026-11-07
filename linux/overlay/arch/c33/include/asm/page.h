@@ -39,8 +39,7 @@ extern unsigned long memory_end;
 #define pfn_to_virt(pfn) __va((pfn) << PAGE_SHIFT)
 #define virt_to_page(addr) (mem_map + (((unsigned long)(addr) - PAGE_OFFSET) >> PAGE_SHIFT))
 #define page_to_virt(page) __va((((page) - mem_map) << PAGE_SHIFT) + PAGE_OFFSET)
-#define virt_addr_valid(addr) ((unsigned long)(addr) >= memory_start && \
-			      (unsigned long)(addr) < memory_end)
+#define virt_addr_valid(addr) pfn_valid(virt_to_pfn(addr))
 #define ARCH_PFN_OFFSET PFN_UP(CONFIG_PHYSICAL_START)
 #endif
 
