@@ -1,8 +1,9 @@
 #!/bin/sh
-# Install the host-side dependencies used by Kbuild, the C33 toolchain and
-# Buildroot.  Buildroot uses the host's CMake when it is recent enough;
-# otherwise it builds its own, for Ninja, which Meson packages (pixman,
-# xkeyboard-config) need: 4.5 of the build's 10 minutes.
+# Install the host-side dependencies used by Kbuild, the C33 toolchain,
+# Buildroot and the test builds (package-suites/build.py builds pixman
+# natively with Meson).  Buildroot uses the host's CMake when it is recent
+# enough; otherwise it builds its own, for Ninja, which Meson packages
+# (pixman, xkeyboard-config) need: 4.5 of the build's 10 minutes.
 set -eu
 
 if [ "$(uname -s)" != Linux ]; then
@@ -17,7 +18,7 @@ sudo -E apt-get install -y \
 	python3 python3-venv cpio xz-utils unzip file wget perl \
 	libssl-dev libelf-dev libncurses-dev zlib1g-dev \
 	libgmp-dev libmpfr-dev libmpc-dev device-tree-compiler \
-	dwarves texinfo cmake swig python3-dev
+	dwarves texinfo cmake swig python3-dev meson ninja-build
 
 # dtschema, for make -C linux dt-check.
 python3 -m venv "$HOME/wr-linux/dtschema-venv"

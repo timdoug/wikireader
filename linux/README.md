@@ -1695,11 +1695,13 @@ power-off handler.
 
 ## Package test suites
 
-Packages' own suites run through `ltp/run.py`'s manifests, built with the
-system's compiler against its libraries. zlib passes its static, shared and
-64-bit-offset tests; fontconfig its 16, once Hush's `command -v` printed
-an applet's path (`buildroot/external/patches/busybox/0003`); expat 5,135
-of its 5,184 checks, the 49 others allocations of 3-7 MB in one piece.
+`package-suites/build.py`, in the VM, builds the packages' own suites from
+Buildroot's build trees of the image's packages, with the system's compiler
+against its libraries; `package-suites/run.py` runs them through
+`ltp/run.py`. zlib passes its static, shared and 64-bit-offset tests;
+fontconfig its 16, once Hush's `command -v` printed an applet's path
+(`buildroot/external/patches/busybox/0003`); expat 5,135 of its 5,184
+checks, the 49 others allocations of 3-7 MB in one piece.
 Two defaults of a no-MMU build break pixman's test programs. Their utilities enable guard pages whenever `mprotect` links,
 and on no-MMU `mprotect` fails, so every guarded buffer was NULL and
 `composite-traps-test` wrote over the exception vectors at address 0; they

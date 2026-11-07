@@ -37,7 +37,8 @@ The sweep (`make -C linux ltp-all-test`, 32 MiB, every trial through Grifo):
 
 72 of the cases are AIO, which uClibc could not build; 48 of them pass.
 [remaining.json](remaining.json) gives every non-PASS case its status,
-source hash and reason:
+source hash and reason; [remaining-gen.py](remaining-gen.py) writes it
+from the sweep's results and stops at a case with no reason:
 
 | Reason | Cases |
 |---|---:|

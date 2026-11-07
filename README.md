@@ -154,6 +154,19 @@ Each directory has its own README with the details.
 
 ## Building
 
+Everything builds from this repository and upstream sources pinned by
+revision or hash; the build scripts download those. On a Mac with the Xcode
+command-line tools you need, from Homebrew, `gmp mpfr libmpc` (GCC),
+`gawk` (the MBR flash), `sdl2` (the emulator's window), `lima` (the Linux
+VM), `make flock` (NuttX) and `deja-gnu` (the toolchain's own tests), and
+XQuartz for `bdftopcf` (the reader's fonts).
+
+`linux/world.sh` builds everything the Linux port runs on, in order: the
+toolchain, the firmware a card boots through, the emulator, then in the VM
+the Linux toolchain, musl, the root filesystem and the kernel, in about an
+hour. `linux/battery.sh` then runs every test, which takes more than a day,
+most of it GCC's suites. The steps one at a time follow.
+
 First build the toolchain. This downloads binutils and GCC, builds them, and
 takes about ten minutes:
 
@@ -185,12 +198,14 @@ Other applications have their own targets:
   RISC-V guest kernel and device trees.
 
 Linux builds in an ARM64 Debian VM under Lima, since the kernel build and
-Buildroot need a Linux host:
+Buildroot need a Linux host. Its tests boot through the MBR flash and Grifo
+in the emulator, so build those first (`make mbr grifo`, `make -C emulator`):
 
 ```sh
 make -C linux provision    # once: create the VM and install what it needs
-make -C linux toolchain    # once: build the Linux C33 toolchain in the VM
-make -C linux build        # kernel, root filesystem and linux.app
+make -C linux fetch        # the kernel, musl and Buildroot sources
+make -C linux toolchain    # the Linux C33 toolchain in the VM
+make -C linux build        # musl, root filesystem, kernel and linux.app
 make -C linux boot-test    # boot it through Grifo and check the console,
                            # card, panel and touch input
 ```
