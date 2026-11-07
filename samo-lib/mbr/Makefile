@@ -171,6 +171,7 @@ splash.png: ${LOGO}
 
 $(call MAKE_APP,version)
 $(call MAKE_APP,menu,${IMAGE_HEADERS})
+menu.o: ${IMAGE_HEADERS}
 $(call MAKE_APP,hello)
 $(call MAKE_APP,memory-test)
 $(call MAKE_APP,hw-test)

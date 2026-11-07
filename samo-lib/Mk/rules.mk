@@ -70,13 +70,16 @@ print-%:
 	@echo $* is $($*)
 
 
-# compilation rules
+# compilation rules; the BUILD_PREFIX ones make their directory, since
+# under make -j an object can be built before the Makefile's own
+# directory rule runs
 %.o: %.c
 	$(GCC) -MM $(CFLAGS) -MT $@ $< > ${@:.o=.d}
 	$(GCC) -E $(CFLAGS) $< > ${@:.o=.p}
 	$(GCC) $(CFLAGS) -c -o $@ -Wa,-ahl=${@:.o=.asm33} $<
 
 ${BUILD_PREFIX}%.o: %.c
+	@${MKDIR} "$(@D)"
 	$(GCC) -MM $(CFLAGS) -MT $@ $< > ${@:.o=.d}
 	$(GCC) -E $(CFLAGS) $< > ${@:.o=.p}
 	$(GCC) $(CFLAGS) -c -o $@ -Wa,-ahl=${@:.o=.asm33} $<
@@ -85,6 +88,7 @@ ${BUILD_PREFIX}%.o: %.c
 	${AS} -o $@ ${ASFLAGS} -ahlsm=${@:.o=.lst} $<
 
 ${BUILD_PREFIX}%.o: %.s
+	@${MKDIR} "$(@D)"
 	${AS} -o $@ ${ASFLAGS} -ahlsm=${@:.o=.lst} $<
 
 
@@ -97,6 +101,7 @@ ${BUILD_PREFIX}%.o: %.s
 	${IMAGE2HEADER} --inverted --header-file="$@" --variable-name="$(notdir ${@:.h=_image})" "$<"
 
 ${BUILD_PREFIX}%.h: %.png ${IMAGE2HEADER}
+	@${MKDIR} "$(@D)"
 	${IMAGE2HEADER} --inverted --header-file="$@" --variable-name="$(notdir ${@:.h=_image})" "$<"
 
 

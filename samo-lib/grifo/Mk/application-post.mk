@@ -39,6 +39,10 @@ endif
 OBJECTS = $(addsuffix .o,$(basename ${SOURCES}))
 BUILD_OBJECTS = $(addprefix ${BUILD_PREFIX},${OBJECTS})
 
+# PREBUILD_TARGETS (generated headers) are made before any object compiles;
+# under make -j, build-targets alone would build them alongside the objects
+${BUILD_OBJECTS} build/${PROGRAM}.o: | ${PREBUILD_TARGETS}
+
 # build application library
 lib/libapplication.a: lib ${BUILD_OBJECTS}
 	${RM} "$@"

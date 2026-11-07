@@ -116,6 +116,7 @@ build/file.o: CFLAGS += -std=gnu99
 build/startup_message.h: scripts/MakeStartupMessage.py ${ROOT_DIR}/ROOT_IMAGE/text.bmf | stamp-build
 	python3 $< ${ROOT_DIR}/ROOT_IMAGE/text.bmf $@
 build/LCD.o: build/startup_message.h
+build/syscall.o: build/syscall.table
 
 # SD block payloads by HSDMA/IDMA (SD_DMA=YES) or by the MMC driver's own
 # byte-at-a-time SPI loop (NO).  On a real board (stock 2009 flash, 8 GB
