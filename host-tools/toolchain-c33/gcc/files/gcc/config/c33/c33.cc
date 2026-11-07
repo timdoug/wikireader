@@ -1536,19 +1536,47 @@ c33_expand_compare_and_swap (rtx operands[])
        and stack pointer -> |    | /             _|_   |
   -------------------------- ---- ------------------   V */
 
+/* Whether a stack slot of this function is aligned beyond the 4 bytes the
+   hardware keeps %sp to (a local of an aligned(16) type, or a Rust
+   #[repr(align(16))] one).  GCC lays such slots out at aligned offsets below
+   the frame pointer, so the frame pointer has to be that aligned.  */
+
+static bool
+c33_frame_overaligned_p (void)
+{
+  return crtl->stack_alignment_needed > STACK_BOUNDARY
+	 && !c33_interrupt_function_p (current_function_decl);
+}
+
+/* The size of the locals area for SIZE bytes of locals: with an over-aligned
+   slot, padded below the locals so that the frame pointer, at %sp plus the
+   outgoing arguments plus this, is as aligned as %sp after the prologue.  */
+
+poly_int64
+c33_frame_locals_size (poly_int64 size)
+{
+  if (c33_frame_overaligned_p ())
+    return ((size + crtl->outgoing_args_size + 15) & -16)
+	   - crtl->outgoing_args_size;
+  return size;
+}
+
 int
 compute_frame_size (poly_int64 size, long * p_reg_saved)
 {
-  poly_int64 frame_size = (size
+  poly_int64 frame_size = (c33_frame_locals_size (size)
 			   + compute_register_save_size (p_reg_saved)
 			   + crtl->outgoing_args_size);
 
   /* A normal call pushes a four-byte return address.  If the caller's stack
      pointer is 16-byte aligned before the call, the callee enters at 12 mod
      16.  Round the complete normal frame to 12 mod 16 so that its outgoing
-     argument base is aligned again.  Interrupt entry has a different stack
-     layout and does not participate in this calling convention.  */
-  if (!crtl->is_leaf && !c33_interrupt_function_p (current_function_decl))
+     argument base is aligned again.  A leaf with an over-aligned local is
+     rounded the same way, so that %sp, and with it the frame pointer, is
+     16-byte aligned after its prologue.  Interrupt entry has a different
+     stack layout and does not participate in this calling convention.  */
+  if ((!crtl->is_leaf || c33_frame_overaligned_p ())
+      && !c33_interrupt_function_p (current_function_decl))
     frame_size = ((frame_size + UNITS_PER_WORD + 15) & -16)
 		 - UNITS_PER_WORD;
 

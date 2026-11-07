@@ -28,6 +28,7 @@ extern void   c33_expand_eh_return_epilogue (void);
 extern int    c33_handle_pragma            (int (*)(void), void (*)(int), char *);
 extern int    compute_register_save_size    (long *);
 extern int    compute_frame_size            (poly_int64, long *);
+extern poly_int64 c33_frame_locals_size     (poly_int64);
 extern void   c33_init_expanders           (void);
 
 #ifdef RTX_CODE
