@@ -181,6 +181,15 @@ and goes on the stack; a 4-byte struct is `SImode` and goes in a register.
   slot. This was originally documented as a hidden pointer, conflating it
   with the return convention above; the two are different.
 
+### Quad precision
+
+`_Float128` (`TFmode`, IEEE binary128) exists in software, through libgcc's
+soft-fp; 3.3.2 had no such type.  An argument is passed by reference, a
+pointer to a copy in the argument's slot; a result is returned in memory,
+through the hidden pointer in `%r6`.  A library call's arguments are
+aligned to at most a word, the alignment of the typed C parameters of its
+callee in libgcc.
+
 ### Status: implemented and verified
 
 `tests/abi/run-abi.sh` cross-links the two compilers in all four
@@ -193,7 +202,7 @@ The whole convention is four hooks in `c33.cc`, and each one mirrors 3.3.2:
 
 | hook | rule |
 |---|---|
-| `c33_pass_by_reference` | always false - 3.3.2 has no such hook |
+| `c33_pass_by_reference` | false, except a quad (`TFmode`, which 3.3.2 lacks) - 3.3.2 has no such hook |
 | `c33_arg_partial_bytes` | always 0 - 3.3.2 has no `FUNCTION_ARG_PARTIAL_NREGS` |
 | `c33_function_arg` | BLKmode -> stack; align by `TYPE_ALIGN` (a no-op); `DFmode` past slot 3 -> stack; else `%r6 + nbytes/4` |
 | `c33_function_arg_advance` | BLKmode adds 0; `DFmode` past slot 3 adds 0; else the rounded mode size |

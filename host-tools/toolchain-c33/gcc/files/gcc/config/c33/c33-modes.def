@@ -21,3 +21,7 @@
 CC_MODE (CCZ);
 CC_MODE (CCNZ);
 
+
+/* IEEE quad precision, for _Float128 (and Rust's f128), in software through
+   libgcc's soft-fp (config/c33/t-softfp-tf).  */
+FLOAT_MODE (TF, 16, ieee_quad_format);

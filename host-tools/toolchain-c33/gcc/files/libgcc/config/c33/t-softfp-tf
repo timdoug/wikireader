@@ -1,0 +1,7 @@
+# _Float128 in software: soft-fp's quad-precision routines, beside the
+# target's single and double (soft-fp's own on Linux, fp-bit's on bare
+# metal).  The C33 has no TImode, so integer conversions stop at DI.
+softfp_float_modes += tf
+softfp_int_modes ?= si di
+softfp_extensions += sftf dftf
+softfp_truncations += tfsf tfdf

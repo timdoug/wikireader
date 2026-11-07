@@ -130,13 +130,21 @@ c33_all_frame_related (rtx par)
    Specify whether to pass the argument by reference.  */
 
 static bool
-c33_pass_by_reference (cumulative_args_t, const function_arg_info &)
+c33_pass_by_reference (cumulative_args_t, const function_arg_info &arg)
 {
-  /* Nothing is passed by reference.  gcc 3.3.2 has no pass-by-reference hook
-     at all: its FUNCTION_ARG returns 0 for BLKmode, which copies the
-     aggregate onto the stack *by value*.  Passing a hidden pointer instead
-     is a silent ABI break against every prebuilt object in ROOT_IMAGE.  */
-  return false;
+  /* Nothing 3.3.2 knew is passed by reference.  gcc 3.3.2 has no
+     pass-by-reference hook at all: its FUNCTION_ARG returns 0 for BLKmode,
+     which copies the aggregate onto the stack *by value*.  Passing a hidden
+     pointer instead is a silent ABI break against every prebuilt object in
+     ROOT_IMAGE.
+
+     A quad (TFmode, _Float128), which 3.3.2 did not have, is passed by
+     reference.  By value its second operand would go on the stack, and a
+     library call's stack argument is not safe here: the const libcalls
+     computing the other operand store their own arguments in the same
+     outgoing area, which the register allocator can make the operand's
+     home.  */
+  return arg.mode == TFmode;
 }
 
 /* Return an RTX to represent where argument ARG will be passed to a function.
@@ -173,15 +181,16 @@ c33_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
   if (arg.type)
     align = TYPE_ALIGN (arg.type) / BITS_PER_UNIT;
   else
-    align = size;
+    /* A library call has only the mode, but its callee in libgcc is C with
+       types, whose alignment never exceeds a word: place the argument as
+       that callee expects it.  Aligned by its size, the first quad operand
+       of __addtf3 (after the hidden return pointer) would go on the stack,
+       while libgcc reads it from %r7-%r10.  */
+    align = MIN (size, BIGGEST_ALIGNMENT / BITS_PER_UNIT);
 
   cum->nbytes = (cum->nbytes + align - 1) &~(align - 1);
 
   if (cum->nbytes > 4 * UNITS_PER_WORD)
-    return NULL_RTX;
-
-  if (arg.type == NULL_TREE
-      && cum->nbytes + size > 4 * UNITS_PER_WORD)
     return NULL_RTX;
 
   /* The one place the two 8-byte scalar modes disagree.  A double that would
@@ -341,6 +350,10 @@ const_costs (rtx r, enum rtx_code c)
       return const_costs_int (INTVAL (r), 0);
 
     case CONST_DOUBLE:
+      /* A quad (TFmode) constant is moved a word at a time, never split
+	 here: priced as four words that need their ext.  */
+      if (GET_MODE_SIZE (GET_MODE (r)) > 8)
+	return 4 * const_costs_int (-1, 1);
       const_double_split (r, &high, &low);
       if (GET_MODE (r) == SFmode)
 	return const_costs_int (high, 1);
@@ -2118,6 +2131,18 @@ c33_function_value_regno_p (const unsigned int regno)
   return (regno == RV_REGNUM);
 }
 
+/* Worker function for TARGET_SCALAR_MODE_SUPPORTED_P: TFmode too, IEEE
+   quad precision in software (libgcc's soft-fp), which gives the C front
+   end _Float128 and libgccjit the type Rust's f128 needs.  */
+
+static bool
+c33_scalar_mode_supported_p (scalar_mode mode)
+{
+  if (mode == TFmode)
+    return true;
+  return default_scalar_mode_supported_p (mode);
+}
+
 /* Worker function for TARGET_RETURN_IN_MEMORY.  */
 
 static bool
@@ -3144,6 +3169,9 @@ c33_can_inline_p (tree caller, tree callee)
 
 #undef  TARGET_RETURN_IN_MEMORY
 #define TARGET_RETURN_IN_MEMORY c33_return_in_memory
+
+#undef  TARGET_SCALAR_MODE_SUPPORTED_P
+#define TARGET_SCALAR_MODE_SUPPORTED_P c33_scalar_mode_supported_p
 
 #undef  TARGET_PASS_BY_REFERENCE
 #define TARGET_PASS_BY_REFERENCE c33_pass_by_reference

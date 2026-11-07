@@ -61,12 +61,12 @@ index ac10ccc..2e3a727 100644
  	unwind_header=config/c6x/unwind-c6x.h
  	;;
 +c33-*-linux*)
-+	tmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf t-softfp t-crtstuff-pic"
++	tmake_file="${tmake_file} c33/t-c33 t-softfp-sfdf c33/t-softfp-tf t-softfp t-crtstuff-pic"
 +	extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o crtbeginT.o"
 +	md_unwind_header=c33/linux-unwind.h
 +	;;
 +c33-*-*)
-+	tmake_file="${tmake_file} c33/t-c33 t-fdpbit"
++	tmake_file="${tmake_file} c33/t-c33 t-fdpbit c33/t-softfp-tf t-softfp"
 +	;;
  v850*-*-*)
  	tmake_file="${tmake_file} v850/t-v850 t-fdpbit"
