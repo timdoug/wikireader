@@ -569,7 +569,7 @@ lack:
   turn, one emulator at a time, after `linux/world.sh` builds the world.
   Their last results and every failure's cause are in README.md,
   "Expected failures" and "GCC and binutils test suites".
-- **Not run yet:** pixman's `thread-test`, and `alpha-loop` with its
+- **Not run yet:** pixman's `alpha-loop` with its
   watchdog raised, on the corrected pixman build; libdrm's, the X
   server's and strace's own suites; GDB's testsuite.
 - **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass

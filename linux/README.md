@@ -1706,9 +1706,11 @@ Two defaults of a no-MMU build break pixman's test programs. Their utilities ena
 and on no-MMU `mprotect` fails, so every guarded buffer was NULL and
 `composite-traps-test` wrote over the exception vectors at address 0; they
 are built without `HAVE_MPROTECT`. They are written for a growable stack, and
-the toolchain links 32 KB, so they are linked with 1 MB. With both, 15 of its
-tests pass, `rotate-test` among them, and seven fuzzers' first 5,000
-iterations give the checksums of a native build.
+the toolchain links 32 KB, so they are linked with 1 MB; musl takes that size
+for every thread's stack as well, so `thread-test`, whose 16 threads did not
+fit as 1 MB blocks, is linked with 128 KB. Of its 27 cases, 15 tests pass,
+9 fuzzers give a native build's checksums over their first 5,000 iterations
+(`glyph-test` 1,000), and the 3 that check guard pages skip.
 
 ## What comes next
 

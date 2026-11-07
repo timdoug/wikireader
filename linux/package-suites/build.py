@@ -158,9 +158,24 @@ def meson_setup(tree, build, cross, options, env):
     run("ninja", "-C", build, f"-j{os.environ.get('JOBS', '4')}", cwd=tree, env=env)
 
 
+# Where the fontconfig fixture puts its test tree on the guest.
+FONTCONFIG_GUEST = "tmp/fc-t"
+
+
 def build_fontconfig(out, scratch, supervisor, env):
     source = package_tree("fontconfig")
     tree = copy_tree(source, scratch, "fontconfig")
+    # test-bz89617 and test-bz106632 compile in the test directory's path
+    # for 4x6.pcf; on the guest that is where fctest.tar unpacks it.
+    tests_build = tree / "test/meson.build"
+    text = tests_build.read_text()
+    for macro in ("SRCDIR", "FONTFILE"):
+        lines = [line for line in text.splitlines(True) if f"-D{macro}=" in line]
+        if len(lines) != 1:
+            raise SystemExit(f"fontconfig: expected one -D{macro} in {tests_build}")
+        text = text.replace(lines[0], lines[0].replace(
+            "meson.current_source_dir()", f"'/{FONTCONFIG_GUEST}/test'"))
+    tests_build.write_text(text)
     # The tests call putenv, which -std=c11 leaves undeclared.
     meson_setup(tree, "tb", source / "buildroot-build/cross-compilation.conf",
                 ["-Dtests=enabled", "-Ddoc=disabled", "-Dnls=disabled", "-Dcache-build=disabled",
@@ -179,7 +194,7 @@ def build_fontconfig(out, scratch, supervisor, env):
         suite.case("fontconfig/" + test["name"], name)
     # run-test.sh runs the fc-* tools on the test fonts, from where the
     # fixture unpacks them.
-    guest = "tmp/fc-t"
+    guest = FONTCONFIG_GUEST
     pack = scratch / "fcpack"
     shutil.rmtree(pack, ignore_errors=True)
     shutil.copytree(tree / "test", pack / guest / "test")
@@ -215,6 +230,18 @@ def build_pixman(out, scratch, supervisor, env):
     config = tree / "tb/pixman/pixman-config.h"
     config.write_text(config.read_text().replace("#define HAVE_MPROTECT 1\n", ""))
     run("ninja", "-C", "tb", cwd=tree, env=env)
+    # musl takes PT_GNU_STACK's size for every thread's stack too, and
+    # without an MMU each is one contiguous block: thread-test's 16
+    # threads at 1 MB failed to start (it then joins the threads it never
+    # made and hangs).  Its threads' largest frame is pixman-general.c's
+    # 24 KB scanline buffer, so it is relinked with 128 KB.
+    link = subprocess.run(["ninja", "-C", "tb", "-t", "commands", "test/thread-test"],
+                          cwd=tree, env=env, check=True, capture_output=True,
+                          text=True).stdout.splitlines()[-1]
+    if "-z,stack-size=1048576" not in link:
+        raise SystemExit(f"pixman: unexpected thread-test link: {link}")
+    run("sh", "-c", link.replace("-z,stack-size=1048576", "-z,stack-size=131072"),
+        cwd=tree / "tb", env=env)
     meson_setup(tree, "nb", None, options, dict(os.environ))
     suite = Suite(out, "pixman", tree.name, supervisor)
     suite.add_file("fuzz.sh", text="""#!/bin/sh
