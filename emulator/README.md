@@ -419,10 +419,11 @@ data.
 | `-s` | Trace grifo syscalls with call sites and return values. |
 | `-K cycle,TEXT` | Type text on the on-screen keyboard: the reader's (wiki.app, zim.app), or with `--keyboard linux` the Linux console's. |
 | `--type-after L1\|L2` | Count `-K`'s cycle from when the console has printed each of these lines, in any order, so typing starts at the guest's ready lines. Each matches the end of a line, since a shell prompt printed without a newline can share the line with another process's message. |
-| `-T x,y,cycle` | Tap a pixel; repeatable, up to eight. |
-| `-G x,y0,y1,cycle` | Drag vertically; repeatable, up to eight. |
-| `-N code,cycle` | Press random/search/history/power (`0`-`3`); repeatable, up to eight. |
-| `-b ADDR`, `-W ADDR` | Break on execution or a write. |
+| `-T x,y,cycle` | Tap a pixel; repeatable, up to 256. |
+| `-G x,y0,y1,cycle` | Drag vertically; repeatable, up to 256. |
+| `-N code,cycle` | Press random/search/history/power (`0`-`3`); repeatable, up to 256. |
+| `-b ADDR` | Stop when execution reaches `ADDR` and print the registers and the preceding PCs; up to eight. |
+| `-W ADDR` | Log every store that touches `ADDR`, with the storing PC, and keep running. |
 | `-D ADDR -L N -O FILE` | Dump target memory. |
 | `-m` | Trace unclaimed MMIO accesses. |
 | `-P` | Report retired-opcode counts. |

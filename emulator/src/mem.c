@@ -301,12 +301,6 @@ void mem_write(void *ctx, uint32_t addr, unsigned size, uint32_t val)
 	struct mem *m = ctx;
 	uint8_t *p = ram_ptr(m, addr, size);
 
-	if (m->vwatch_on && size == 1 && (val & 0xff) == m->vwatch &&
-	    m->vhits < 12) {
-		m->vhits++;
-		fprintf(m->log, "  VALWATCH: byte 0x%02x -> 0x%08x (pc=0x%08x)\n",
-			val & 0xff, addr, m->pc_src ? *m->pc_src : 0);
-	}
 	if (m->watch_on && addr <= m->watch && addr + size > m->watch)
 		fprintf(m->log, "  WATCH: store to 0x%08x size %u = 0x%08x"
 			" (pc=0x%08x)\n", addr, size, val,

@@ -100,7 +100,6 @@ struct mem {
 
 	/* write watchpoint: report any store overlapping this address */
 	uint32_t        watch;
-	uint32_t        vwatch; bool vwatch_on; unsigned vhits;
 	bool            watch_on;
 	const uint32_t *pc_src;   /* points at cpu.pc, for reporting */
 

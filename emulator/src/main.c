@@ -74,6 +74,9 @@ static void usage(const char *p)
 		"  -g     show the panel in a live SDL2 window\n"
 		"  -S N   window scale factor (default 3)\n"
 		"  -T x,y,c  scripted tap at pixel x,y on cycle c\n"
+		"  -G x,y0,y1,c  scripted vertical drag from y0 to y1 at x on cycle c\n"
+		"  -N code,c  press a button on cycle c: 0 random, 1 search,\n"
+		"         2 history, 3 power (-T, -G, -N: up to 256 each)\n"
 		"  -K c,TEXT type TEXT on the on-screen keyboard from cycle c\n"
 		"  --type-after L1|L2...  start -K's cycle count once the\n"
 		"         console has printed each of these lines; a line may\n"
@@ -92,6 +95,11 @@ static void usage(const char *p)
 		"  -D A   dump memory starting at address A\n"
 		"  -L N   memory dump length (default 64)\n"
 		"  -O F   write the memory dump as binary file F\n"
+		"  -b A   stop at address A and print the registers and the\n"
+		"         preceding PCs (up to eight)\n"
+		"  -W A   log every store that touches address A, with its PC\n"
+		"  -P     report retired-opcode counts\n"
+		"  -H     profile executed addresses\n"
 		"  -X A[,NAME] count entries to address A without stopping\n"
 		"  -Z A   time the input script from the first hit of A\n"
 		"  -Y A,B profile only between the first hits of A and B\n"
@@ -446,7 +454,6 @@ int main(int argc, char **argv)
 	unsigned long prof_windows = 0;
 	unsigned long long prof_exec0 = 0, prof_clk0 = 0, prof_idle0 = 0;
 	unsigned long long prof_exec = 0, prof_clk = 0, prof_idle = 0;
-	uint32_t vwatch = 0; bool vwatch_on = false;
 	uint32_t dump = 0; bool dump_on = false;
 	unsigned long dump_len = 64;
 	const char *dump_path = NULL;
@@ -561,9 +568,6 @@ int main(int argc, char **argv)
 			dump_len = strtoul(argv[++i], NULL, 0);
 		else if (!strcmp(argv[i], "-O") && i + 1 < argc)
 			dump_path = argv[++i];
-		else if (!strcmp(argv[i], "-V") && i + 1 < argc) {
-			vwatch = strtoul(argv[++i], NULL, 0); vwatch_on = true;
-		}
 		else if (!strcmp(argv[i], "-b") && i + 1 < argc) {
 			if (nbp < 8) bp[nbp++] = strtoul(argv[++i], NULL, 0);
 			else i++;
@@ -641,7 +645,6 @@ int main(int argc, char **argv)
 	}
 	mem.trace_mmio = trace_mmio;
 	mem.watch = watch; mem.watch_on = watch_on;
-	mem.vwatch = vwatch;   /* enabled after load, below */
 
 	struct uart uart;
 	uart_attach(&mem, &uart, stdout);
@@ -764,7 +767,6 @@ int main(int argc, char **argv)
 		}
 		fprintf(stderr, "entry point: 0x%08x\n\n", entry);
 	}
-	mem.vwatch_on = vwatch_on;   /* skip the loader's own stores */
 
 	/*
 	 * A device with a power switch starts off. Headless there is nobody
