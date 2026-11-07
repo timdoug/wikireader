@@ -82,9 +82,14 @@ if [ "$(cat "$state" 2>/dev/null)" = "$inputs $(tree_stat)" ]; then
 fi
 
 echo "==> making ${src##*/} from the tarball, overlays and patches"
-fresh=$src.fresh
-rm -rf "$fresh"
-mkdir -p "$fresh" "$src"
+# Staged in TMPDIR where it is set (macOS): a Finder window computing
+# folder sizes writes .DS_Store into new directories under the checkout,
+# and one written during the final rm -rf failed it.  Linux leaves TMPDIR
+# unset and /tmp is often a small tmpfs, so there it is staged beside SRC.
+tmp=${TMPDIR:-${src%/*}}
+fresh=$(mktemp -d "${tmp%/}/${src##*/}.fresh.XXXXXX")
+trap 'rm -rf "$fresh"' EXIT
+mkdir -p "$src"
 tar -xf "$tarball" -C "$fresh" --strip-components=1
 overlay_list | while read -r dir sub; do
 	mkdir -p "$fresh/$sub"
