@@ -117,7 +117,7 @@ libc-test found three:
   in the root image has a TLS segment.
 - musl's `wordexp` forked to run the shell, so every call failed with
   `WRDE_NOSPACE`. `../musl/patches/fixes/0026` runs it through
-  `posix_spawn`, as `popen` and `system` already do.
+  `posix_spawn`.
 
 BusyBox's found these:
 

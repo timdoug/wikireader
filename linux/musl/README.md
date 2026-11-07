@@ -50,16 +50,15 @@ musl's SuperH FDPIC code expects them.
 
 - `arch/`: the target in `configure`.
 - `fixes/`: an FDPIC library's program headers for `dl_iterate_phdr`;
-  `dl_iterate_phdr` running one callback at a time, as glibc does, which
+  `dl_iterate_phdr` running one callback at a time, which
   libgcc's unwinder cache needs when threads throw at once; `posix_madvise` checking its
   range for `POSIX_MADV_DONTNEED` too; `mmap` keeping the kernel's
   `EPERM` for `MAP_LOCKED`; `fork` failing with `ENOSYS`, since the
   generic `clone(SIGCHLD, 0)` would share the parent's memory and stack;
   `shm_unlink` reporting a sticky directory's `EPERM` as POSIX's
-  `EACCES`, as glibc does; and `aio_cancel` of sequenced writes (sockets,
+  `EACCES`; and `aio_cancel` of sequenced writes (sockets,
   pipes, `O_APPEND`), which deadlocked on the queue lock in two ways; and
-  `wordexp` running the shell through `posix_spawn`, as `popen` and `system`
-  do, rather than `fork`.
+  `wordexp` running the shell through `posix_spawn` rather than `fork`.
 - `features/`: an architecture's default thread stack and guard sizes,
   64 KB and none here.
 - `port/`: what the C33 linker writes and libgcc expects: relative

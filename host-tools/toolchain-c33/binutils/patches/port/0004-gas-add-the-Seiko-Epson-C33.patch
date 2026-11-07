@@ -3,7 +3,7 @@ Subject: [PATCH] gas: add the Seiko Epson C33
 
 The target, its manual chapter (c-c33.texi, enabled by @set C33) and its
 build entries.  A Linux target gets TE_LINUX, under which the assembler
-makes FDPIC objects by default, as FRV's does.
+makes FDPIC objects by default; FRV's gas does too.
 
 The generated Makefile.in carry the matching hunks, edited by hand rather
 than regenerated; a submission regenerates them with automake 1.15.1.

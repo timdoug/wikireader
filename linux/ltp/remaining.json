@@ -171,7 +171,7 @@
    "name": "clock_getcpuclockid/5-1",
    "observed_status": "UNTESTED",
    "classification": "permission-test-inapplicable",
-   "reason": "the query succeeds after dropping privileges, as Linux permits",
+   "reason": "the query succeeds after dropping privileges; Linux permits it",
    "source_sha256": "4b0413147b57d3a1e02d27459013149c1b5ac04de475dbb928a2692b78e1f079"
   },
   {
@@ -843,7 +843,7 @@
    "name": "sigwaitinfo/6-1",
    "observed_status": "FAIL",
    "classification": "musl-design",
-   "reason": "raise uses tkill, so si_code is SI_TKILL, as with glibc's tgkill",
+   "reason": "raise uses tkill, so si_code is SI_TKILL; glibc's tgkill gives the same",
    "source_sha256": "f7c889232f5d4bb564cfdad5be6260d264671a0d8c8a3fbd1b272dfbea923801"
   }
  ]

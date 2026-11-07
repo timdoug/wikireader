@@ -5,7 +5,7 @@ wordexp forked to run the shell, so it failed with WRDE_NOSPACE wherever
 fork cannot work, on every input.  popen and system already run the shell
 through posix_spawn; wordexp now does too, with file actions putting the
 pipe on standard output and, without WRDE_SHOWERR, /dev/null on standard
-error, as the child did by hand.  posix_spawn blocks signals and resets
+error; the child used to set these up by hand.  posix_spawn blocks signals and resets
 handlers around the exec itself.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>

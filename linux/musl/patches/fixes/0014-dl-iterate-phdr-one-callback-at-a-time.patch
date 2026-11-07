@@ -27,7 +27,7 @@ index 2c97bf7..068bccc 100644
  	return __dlsym(p, s, ra);
  }
  
-+/* Callbacks run one at a time, as glibc's do: libgcc's unwinder keeps a
++/* Callbacks run one at a time: libgcc's unwinder keeps a
 + * cache of what its callback found, which it updates from the callback
 + * unlocked, and two threads unwinding at once otherwise corrupt it.  A
 + * callback may iterate again. */
@@ -75,7 +75,7 @@ index 7bab61d..4117ee6 100644
  		info.dlpi_tls_data = 0;
  	}
 -	return (callback)(&info, sizeof (info), data);
-+	/* Callbacks run one at a time, as glibc's do: libgcc's unwinder
++	/* Callbacks run one at a time: libgcc's unwinder
 +	 * updates a cache from its callback, unlocked.  A callback may
 +	 * iterate again. */
 +	static volatile int lock[1];

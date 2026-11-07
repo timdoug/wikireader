@@ -9,7 +9,7 @@ The per-target expectations upstream gives other ports:
   cannot make a guard page.
 - musl has no _FORTIFY_SOURCE functions, and its libm reports errors by
   exception only (math_errhandling 2).
-- FDPIC code is always PIC, as ARM's, and -msep-data keeps the constant
+- FDPIC code is always PIC (ARM's FDPIC too), and -msep-data keeps the constant
   pool in .data.
 - No conditional moves; the frame adds the 16-byte %r0-%r3 save block;
   the widening multiply is dumped as " w* "; a binary64 long double
