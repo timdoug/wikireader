@@ -24,6 +24,18 @@ The per-target expectations upstream gives other ports:
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
+diff --git a/gcc/testsuite/g++.dg/cdce3.C b/gcc/testsuite/g++.dg/cdce3.C
+index 9aecf58..11c9bb1 100644
+--- a/gcc/testsuite/g++.dg/cdce3.C
++++ b/gcc/testsuite/g++.dg/cdce3.C
+@@ -5,6 +5,7 @@
+ /* { dg-additional-options "-DGNU_EXTENSION" { target pow10 } } */
+ /* { dg-add-options ieee } */
+ /* { dg-skip-if "requires hosted libstdc++ for cmath" { ! hostedlib } } */
++/* { dg-skip-if "musl libm does not set errno" { c33-*-*linux* } } */
+ /* { dg-final { scan-tree-dump  "cdce3.C:92: .* function call is shrink-wrapped into error conditions\." "cdce" { target pow10 } } } */
+ /* { dg-final { scan-tree-dump  "cdce3.C:93: .* function call is shrink-wrapped into error conditions\." "cdce" { target pow10 } } } */
+ /* { dg-final { scan-tree-dump  "cdce3.C:95: .* function call is shrink-wrapped into error conditions\." "cdce" } } */
 diff --git a/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C b/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C
 index 260448a..ac9b526 100644
 --- a/gcc/testsuite/g++.dg/cpp0x/initlist-const1.C
