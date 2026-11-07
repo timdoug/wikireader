@@ -122,6 +122,35 @@ It draws in 92 ms.  Three things cost it 1.2 s first:
 the picture in `screen.pgm`.  BusyBox's `openvt -s -w` exits 1 however its
 program went, so scripts judge by the program's own output.
 
+## core's and alloc's own tests
+
+`libtests/` builds the standard library's test suites, library/coretests
+and alloctests in the rust checkout, for C33 Linux, and `libtests/run.py`
+runs them in wremu through Grifo, a boot a part:
+
+    libtests/build.sh       # the parts split.py writes, built
+    libtests/run.py         # about three hours, niced
+
+What it takes on this machine:
+- Each suite is more code than one segment can hold without an MMU (the
+  kernel allocates at most 4 MB contiguous), so `split.py` builds each
+  as three parts: tests/lib.rs with a third of its modules, plus any
+  module the others use.
+- The parts are over 2 MB of text, past a short call's reach: they build
+  with `-mlong-calls` and link musl and libgcc dynamically
+  (`-Ctarget-feature=-crt-static`), so the precompiled C is reached
+  through the PLT.
+- Each test runs on its own thread, and std's 2 MB default stack is real
+  memory here: `RUST_MIN_STACK=262144`.
+- The sort tests take a short list of lengths (patches/rust-0002), as
+  Miri's and Emscripten's do.
+
+Results (2026-11-06): core 2,728 of 2,730 and alloc 1,497 of 1,497 pass.
+One failure was a C33 GCC bug, fixed in the backend: a local aligned
+beyond 4 bytes landed off its alignment while GCC folded the checks
+(gcc.target/c33/overaligned-local-run.c).  The other,
+any::dyn_type_name, checks its crate's name, which a part renames.
+
 ## On the device
 
 Convert the icon and copy both files to the card, and add a line to

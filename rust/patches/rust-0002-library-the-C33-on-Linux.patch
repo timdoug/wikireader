@@ -6,7 +6,9 @@ There is no MMU, so no guard page for the stack-overflow handler to
 fault on; the C33 takes handler_none.  The unwinder is libgcc's, as the
 toolchain's C++ uses (gcc_eh static, gcc_s shared), and
 _Unwind_Exception is aligned to GCC's BIGGEST_ALIGNMENT, 4.  libc comes
-from ../../libc, the crate with the C33 added (patches/libc-0001).
+from ../../libc, the crate with the C33 added (patches/libc-0001).  The
+sort tests take a list of lengths the C33's small, MMU-less memory holds,
+as Miri's and Emscripten's lists are.
 
 diff --git a/library/Cargo.toml b/library/Cargo.toml
 index 788c990c1..bc5604c14 100644
@@ -19,6 +21,35 @@ index 788c990c1..bc5604c14 100644
 +
 +# libc with the C33 (fetched beside this tree by the WikiReader's fetch.sh)
 +libc = { path = '../../libc' }
+diff --git a/library/alloctests/tests/sort/tests.rs b/library/alloctests/tests/sort/tests.rs
+index ec4c4fa61..3cdb65acb 100644
+--- a/library/alloctests/tests/sort/tests.rs
++++ b/library/alloctests/tests/sort/tests.rs
+@@ -11,6 +11,15 @@
+ #[cfg(miri)]
+ const TEST_LENGTHS: &[usize] = &[2, 3, 4, 7, 10, 15, 20, 24, 33, 50, 100, 171, 300];
+ 
++// The C33 Linux machine has about 12 MB free and no MMU, so each vector
++// must be contiguous: the largest elements (FFIOneKibiByte, a kilobyte each)
++// sort at most 500 of them.
++#[cfg(all(not(miri), target_arch = "c33"))]
++const TEST_LENGTHS: &[usize] = &[
++    2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 20, 24, 30, 32, 33, 35, 50, 100, 200, 500, 1_000,
++    2_048,
++];
++
+ // node.js gives out of memory error to use with length 1_100_000
+ #[cfg(all(not(miri), target_os = "emscripten"))]
+ const TEST_LENGTHS: &[usize] = &[
+@@ -18,7 +27,7 @@
+     2_048, 5_000, 10_000, 100_000,
+ ];
+ 
+-#[cfg(all(not(miri), not(target_os = "emscripten")))]
++#[cfg(all(not(miri), not(target_os = "emscripten"), not(target_arch = "c33")))]
+ const TEST_LENGTHS: &[usize] = &[
+     2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 20, 24, 30, 32, 33, 35, 50, 100, 200, 500, 1_000,
+     2_048, 5_000, 10_000, 100_000, 1_100_000,
 diff --git a/library/std/src/os/linux/raw.rs b/library/std/src/os/linux/raw.rs
 index 6f2da15a9..5964d4a7d 100644
 --- a/library/std/src/os/linux/raw.rs
