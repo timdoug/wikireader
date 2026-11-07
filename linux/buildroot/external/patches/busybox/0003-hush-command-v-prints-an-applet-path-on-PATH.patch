@@ -1,0 +1,40 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] hush: command -v prints an applet's path when it is on PATH
+
+With FEATURE_SH_STANDALONE an applet is found before PATH is searched,
+so "command -v md5sum" printed "md5sum".  POSIX specifies the utility's
+path name.  The common test [ -x "$(command -v md5sum)" ] therefore
+failed for every applet, and fontconfig's run-test.sh stopped with "No
+md5sum or equivalent command".
+
+-v and -V now print an applet's path when the applet is installed on
+PATH.  The applet still runs either way.  An applet with no file on PATH
+is still reported as an applet.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+Upstream: not submitted
+
+diff --git a/shell/hush.c b/shell/hush.c
+--- a/shell/hush.c
++++ b/shell/hush.c
+@@ -9393,7 +9393,19 @@
+ 	{
+ 		int a = find_applet_by_name(argv[0]);
+ 		if (a >= 0) {
+-			if_command_vV_print_and_exit(opt_vV, argv[0], "an applet");
++			/* POSIX specifies a path name for "command -v".  If
++			 * the applet is installed on PATH, print that path.
++			 * The applet runs either way.  Otherwise report it as
++			 * an applet.
++			 */
++			if (opt_vV) {
++				char *path = find_executable_in_PATH(argv[0]);
++				int on_path = path != NULL;
++
++				free(path);
++				if_command_vV_print_and_exit(opt_vV, argv[0],
++						on_path ? NULL : "an applet");
++			}
+ # if BB_MMU /* see above why on NOMMU it is not allowed */
+ 			if (APPLET_IS_NOEXEC(a)) {
+ 				/* Do not leak open fds from opened script files etc.
