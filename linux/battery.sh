@@ -36,6 +36,7 @@ step binutils vm sh -c 'make -C "$HOME/wr-linux/toolchain/binutils-2.47/build-c3
 step upstream-build vm python3 ./linux/upstream-tests/build.py
 step libc-test nice -n 19 python3 upstream-tests/run.py libc --output "$out/libc-test"
 step busybox nice -n 19 python3 upstream-tests/run.py busybox --output "$out/busybox"
+step busybox-hush nice -n 19 sh upstream-tests/hush-followup.sh "$out/busybox"
 step ltp-port-build vm python3 ./linux/ltp/build.py --port-tests --output ./linux/artifacts/ltp-port
 step ltp-port nice -n 19 python3 ltp/run.py --binaries ./artifacts/ltp-port --output ./artifacts/ltp-port-run
 step ltp-all-build vm python3 ./linux/ltp/build.py --all --output ./linux/artifacts/ltp-all

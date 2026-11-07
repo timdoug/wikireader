@@ -47,6 +47,7 @@ python3 linux/upstream-tests/build.py            # in the VM
 python3 linux/upstream-tests/run.py busybox --output DIR
 python3 linux/upstream-tests/run.py busybox --hush-case hush-misc/func7.tests --output DIR
 python3 linux/upstream-tests/summarize.py --busybox DIR --output summary.json
+linux/upstream-tests/hush-followup.sh DIR       # both of the above for every missing Hush test
 python3 linux/upstream-tests/run.py libc --output DIR
 ```
 
