@@ -192,8 +192,8 @@ def build_fontconfig(out, scratch, supervisor, env):
                     run(TOOLS / f"{TARGET}-strip", "-o", dest / f.name, f)
                 else:
                     shutil.copy(f, dest / f.name)
-    run("tar", "-cf", suite.dir / "fctest.tar", "-C", pack, "tmp")
-    suite.fixture("fctest.tar", source=suite.dir / "fctest.tar")
+    run("tar", "-cf", scratch / "fctest.tar", "-C", pack, "tmp")
+    suite.fixture("fctest.tar", source=scratch / "fctest.tar")
     suite.manifest["setup"].append("tar -xf /mnt/sd/fctest.tar -C /")
     suite.add_file("rts.sh", text=f"""#!/bin/sh
 exec env srcdir=/{guest}/test builddir=/{guest}/tb/test EXEEXT= VERBOSE=1 sh /{guest}/test/run-test.sh
