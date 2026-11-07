@@ -162,9 +162,9 @@ VM), `make flock` (NuttX) and `deja-gnu` (the toolchain's own tests), and
 XQuartz for `bdftopcf` (the reader's fonts).
 
 `linux/world.sh` builds everything the Linux port runs on, in order: the
-toolchain, the firmware a card boots through, the emulator, then in the VM
-the Linux toolchain, musl, the root filesystem and the kernel, in about an
-hour. `linux/battery.sh` then runs every test, which takes more than a day,
+toolchain and the host's GDB, the firmware a card boots through, the
+emulator, then in the VM the Linux toolchain, musl, the root filesystem and
+the kernel, in about an hour. `linux/battery.sh` then runs every test, which takes more than a day,
 most of it GCC's suites. The steps one at a time follow.
 
 First build the toolchain. This downloads binutils and GCC, builds them, and
