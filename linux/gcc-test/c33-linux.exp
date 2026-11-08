@@ -39,38 +39,122 @@ set_board_info gcc,no_trampolines 1
 set_board_info gdb,nosignals 1
 set_board_info is_simulator 1
 
+# The input files a program reads from its directory, which the test copied
+# there: a libstdc++ test's dg-additional-files, from its source, and the
+# file libstdc++'s file I/O probe names after the process.  The test's
+# source is dg-test's argument up the call stack, since libstdc++ clears
+# its list of them once copied.  GCC's own dg-additional-files name files
+# beside the source, which its tests do not read from their directory.
+proc c33-linux_inputs {} {
+    global tool
+    set inputs {}
+    if {$tool ne "libstdc++"} {
+	return $inputs
+    }
+    for {set level [info level]} {$level > 0} {incr level -1} {
+	set frame [info level $level]
+	switch -- [lindex $frame 0] {
+	    check_v3_target_fileio {
+		lappend inputs "cin_unget-1.[pid].txt"
+	    }
+	    dg-test {
+		set args [lrange $frame 1 end]
+		if {[lindex $args 0] eq "-keep-output"} {
+		    set args [lrange $args 1 end]
+		}
+		set f [open [lindex $args 0]]
+		set text [read $f]
+		close $f
+		foreach {- names} [regexp -all -inline \
+			{dg-additional-files\s+"([^"]*)"} $text] {
+		    lappend inputs {*}$names
+		}
+	    }
+	}
+    }
+    return [lsort -unique $inputs]
+}
+
+# A program with input files is keyed by its stripped bytes and its files',
+# with this process's ID, which the probe's file is named after, made
+# constant: the key is the same from one pass to the next.
+proc c33-linux_key {stripped inputs} {
+    set key "$stripped.key"
+    set out [open $key wb]
+    set f [open $stripped rb]
+    set id ".[pid]."
+    puts -nonewline $out [string map [list $id .PID.] [read $f]]
+    close $f
+    foreach name $inputs {
+	set f [open $name rb]
+	puts -nonewline $out "\n[string map [list $id .PID.] $name]\n[read $f]"
+	close $f
+    }
+    close $out
+    set sha [lindex [exec sha256sum $key] 0]
+    file delete $key
+    return $sha
+}
+
 proc c33-linux_load {dest prog args} {
     global env
 
     if {![file exists $prog]} {
 	return [list unresolved "c33-linux: executable does not exist: $prog"]
     }
-    set sha [lindex [exec sha256sum $prog] 0]
-    set result [file join $env(C33L_RESULTS) $sha]
-    if {![file exists $result]} {
-	# GCC's effective-target probes name their source after the process,
-	# and the name is in the symbol table: key those by the stripped
-	# program, which is the same from one pass to the next.
+    set inputs [c33-linux_inputs]
+    foreach name $inputs {
+	if {![file exists $name]} {
+	    return [list unresolved "c33-linux: input file does not exist: $name"]
+	}
+    }
+    if {$inputs ne ""} {
 	set stripped "$prog.stripped"
 	exec c33-linux-musl-strip -o $stripped $prog
-	set sha [lindex [exec sha256sum $stripped] 0]
+	set sha [c33-linux_key $stripped $inputs]
 	set result [file join $env(C33L_RESULTS) $sha]
 	if {![file exists $result]} {
-	    file rename -force $stripped [file join $env(C33L_QUEUE) $sha]
+	    set queued [file join $env(C33L_QUEUE) $sha]
+	    file mkdir "$queued.files"
+	    foreach name $inputs {
+		file copy -force $name [file join "$queued.files" $name]
+	    }
+	    file rename -force $stripped $queued
 	    return [list unresolved "c33-linux: queued for wremu as $sha"]
 	}
 	file delete $stripped
+    } else {
+	set sha [lindex [exec sha256sum $prog] 0]
+	set result [file join $env(C33L_RESULTS) $sha]
+	if {![file exists $result]} {
+	    # GCC's effective-target probes name their source after the
+	    # process, and the name is in the symbol table: key those by the
+	    # stripped program, which is the same from one pass to the next.
+	    set stripped "$prog.stripped"
+	    exec c33-linux-musl-strip -o $stripped $prog
+	    set sha [lindex [exec sha256sum $stripped] 0]
+	    set result [file join $env(C33L_RESULTS) $sha]
+	    if {![file exists $result]} {
+		file rename -force $stripped [file join $env(C33L_QUEUE) $sha]
+		return [list unresolved "c33-linux: queued for wremu as $sha"]
+	    }
+	    file delete $stripped
+	}
     }
     set f [open $result rb]
     set status [gets $f]
     set output [read $f]
     close $f
     # Coverage data the program wrote goes back to its build path, where
-    # gcov and -fprofile-use read it.
+    # gcov and -fprofile-use read it; files it wrote in its directory, under
+    # @cwd, to the test's, where file-io-diff compares them.
     set files "$result.files"
     if {[file isdirectory $files]} {
 	foreach data [exec find $files -type f] {
 	    set target [string range $data [string length $files] end]
+	    if {[string match /@cwd/* $target]} {
+		set target [string range $target [string length /@cwd/] end]
+	    }
 	    file mkdir [file dirname $target]
 	    file copy -force $data $target
 	}

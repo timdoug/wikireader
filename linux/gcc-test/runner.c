@@ -5,14 +5,20 @@
  *
  *   runner ARCHIVE RESULTS SECONDS
  *
- * ARCHIVE is a series of "NAME SIZE\n" headers each followed by SIZE bytes
- * of program.  Each program is written to /tmp, run with stdin from
- * /dev/null and stdout and stderr to a file, and killed after SECONDS.
- * RESULTS gets, for each, "NAME STATUS LENGTH FILES\n", LENGTH bytes of its
- * output and a newline, STATUS being exit-N, signal-N or timeout, then for
- * each of the FILES coverage-data files the program wrote "PATH SIZE\n",
- * SIZE bytes and a newline.  It is flushed to the card after every
- * program, so a run cut short keeps what it did.
+ * ARCHIVE is a series of "NAME SIZE INPUTS\n" headers each followed by SIZE
+ * bytes of program, then for each of its INPUTS files "FILE SIZE\n" and
+ * SIZE bytes.  Each program is written to /tmp and run in a new WORK
+ * directory holding its input files, with stdin from /dev/null and stdout
+ * and stderr to a file, and killed after SECONDS.  RESULTS gets, for each,
+ * "NAME STATUS LENGTH FILES\n", LENGTH bytes of its output and a newline,
+ * STATUS being exit-N, signal-N or timeout, then for each of the FILES
+ * files the program wrote "PATH SIZE\n", SIZE bytes and a newline.  It is
+ * flushed to the card after every program, so a run cut short keeps what
+ * it did.
+ *
+ * Files a program writes in WORK come back as "@cwd/FILE", for the host to
+ * put in the test's directory, where file-io-diff compares them.  WORK is
+ * on the root filesystem, since /tmp is RAM.
  *
  * A program built for coverage or profiling writes its .gcda next to its
  * object file, a path in the build tree.  GCOV_PREFIX puts it under
@@ -39,13 +45,22 @@
 #define OUTPUT	"/tmp/gcc-test.out"
 #define MAX_OUTPUT	65536
 #define GCDA	"/tmp/gcda"
+#define WORK	"/gcc-work"
+#define CWD_PREFIX	"@cwd"
+/* A file written in WORK larger than this does not come back: the card
+   holding the results is 16 MB. */
+#define MAX_WORK_FILE	(1024 * 1024)
+#define MAX_INPUTS	16
 #define MAX_FILES	64
 /* musl's nftw descends no deeper than its descriptor limit, and the build
    paths under GCDA run a dozen directories deep. */
 #define WALK_DEPTH	64
 
-static char *files[MAX_FILES];
+/* Each file to send back: where it is, and the path the host gets. */
+static char *files[MAX_FILES], *paths[MAX_FILES];
 static int nfiles;
+static char *inputs[MAX_INPUTS];
+static int ninputs;
 
 static volatile sig_atomic_t timed_out;
 
@@ -55,10 +70,10 @@ static void on_alarm(int sig)
 	timed_out = 1;
 }
 
-static int copy_program(FILE *archive, long size)
+static int copy_file(FILE *archive, const char *path, long size, int mode)
 {
 	char buf[4096];
-	int fd = open(PROGRAM, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 
 	if (fd < 0)
 		return -1;
@@ -99,8 +114,32 @@ static int note_file(const char *path, const struct stat *st, int type,
 {
 	(void)st;
 	(void)ftw;
-	if (type == FTW_F && nfiles < MAX_FILES)
-		files[nfiles++] = strdup(path);
+	if (type == FTW_F && nfiles < MAX_FILES) {
+		files[nfiles] = strdup(path);
+		paths[nfiles++] = strdup(path + strlen(GCDA));
+	}
+	return 0;
+}
+
+static int note_work_file(const char *path, const struct stat *st, int type,
+			  struct FTW *ftw)
+{
+	const char *relative = path + strlen(WORK) + 1;
+	char *out;
+	int i;
+
+	(void)ftw;
+	if (type != FTW_F || nfiles >= MAX_FILES || st->st_size > MAX_WORK_FILE)
+		return 0;
+	for (i = 0; i < ninputs; i++)
+		if (!strcmp(relative, inputs[i]))
+			return 0;
+	out = malloc(strlen(CWD_PREFIX) + strlen(relative) + 2);
+	if (!out)
+		return 0;
+	sprintf(out, "%s/%s", CWD_PREFIX, relative);
+	files[nfiles] = strdup(path);
+	paths[nfiles++] = out;
 	return 0;
 }
 
@@ -113,7 +152,7 @@ static void write_files(FILE *results)
 		int fd = open(files[i], O_RDONLY);
 		long size = fd < 0 ? 0 : lseek(fd, 0, SEEK_END);
 
-		fprintf(results, "%s %ld\n", files[i] + strlen(GCDA), size);
+		fprintf(results, "%s %ld\n", paths[i], size);
 		if (fd >= 0) {
 			lseek(fd, 0, SEEK_SET);
 			while (size > 0) {
@@ -128,6 +167,7 @@ static void write_files(FILE *results)
 		}
 		fputc('\n', results);
 		free(files[i]);
+		free(paths[i]);
 	}
 	nfiles = 0;
 }
@@ -150,6 +190,8 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 		dup2(in, 0);
 		dup2(out, 1);
 		dup2(out, 2);
+		if (chdir(WORK) < 0)
+			_exit(126);
 		execl(PROGRAM, PROGRAM, (char *)NULL);
 		_exit(127);
 	}
@@ -186,6 +228,7 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 		lseek(fd, 0, SEEK_SET);
 	}
 	nftw(GCDA, note_file, WALK_DEPTH, FTW_PHYS);
+	nftw(WORK, note_work_file, WALK_DEPTH, FTW_PHYS);
 	fprintf(results, "%s %s %ld %d\n", name, status, length, nfiles);
 	while (fd >= 0 && length > 0) {
 		ssize_t n = read(fd, buf, length < (long)sizeof(buf) ? length : sizeof(buf));
@@ -205,11 +248,11 @@ static void run(const char *name, FILE *results, unsigned int seconds)
 
 int main(int argc, char **argv)
 {
-	char line[256], name[128];
+	char line[256], name[128], file[128], path[256];
 	unsigned int seconds;
 	FILE *archive, *results;
 	long size;
-	int count = 0;
+	int count = 0, n, i;
 
 	if (argc != 4)
 		return 2;
@@ -226,13 +269,39 @@ int main(int argc, char **argv)
 	printf("GCCTEST START\n");
 	fflush(stdout);
 	while (fgets(line, sizeof(line), archive)) {
-		if (sscanf(line, "%127s %ld", name, &size) != 2)
+		n = 0;
+		if (sscanf(line, "%127s %ld %d", name, &size, &n) < 2 ||
+		    n < 0 || n > MAX_INPUTS)
 			break;
-		if (copy_program(archive, size) < 0) {
+		if (copy_file(archive, PROGRAM, size, 0755) < 0) {
 			fprintf(stderr, "runner: cannot write %s\n", name);
 			return 1;
 		}
+		/* A new WORK for each program, with its input files. */
+		nftw(WORK, remove_entry, WALK_DEPTH, FTW_DEPTH | FTW_PHYS);
+		if (mkdir(WORK, 0755) < 0) {
+			fprintf(stderr, "runner: cannot make %s: %s\n", WORK, strerror(errno));
+			return 1;
+		}
+		for (i = 0; i < n; i++) {
+			if (!fgets(line, sizeof(line), archive) ||
+			    sscanf(line, "%127s %ld", file, &size) != 2 ||
+			    strchr(file, '/') || file[0] == '.') {
+				fprintf(stderr, "runner: bad input file for %s\n", name);
+				return 1;
+			}
+			snprintf(path, sizeof(path), "%s/%s", WORK, file);
+			if (copy_file(archive, path, size, 0644) < 0) {
+				fprintf(stderr, "runner: cannot write %s\n", path);
+				return 1;
+			}
+			inputs[i] = strdup(file);
+		}
+		ninputs = n;
 		run(name, results, seconds);
+		for (i = 0; i < ninputs; i++)
+			free(inputs[i]);
+		ninputs = 0;
 		if (++count % 100 == 0)
 			printf("GCCTEST %d run\n", count);
 	}

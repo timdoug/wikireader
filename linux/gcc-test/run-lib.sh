@@ -32,4 +32,4 @@ make -C "$dir" check-DEJAGNU \
 	RUNTESTFLAGS="--target_board=c33-linux $*" >/dev/null 2>&1 || true
 cp "$dir/$tool.sum" "$dir/$tool.log" "$C33L_OBJDIR/"
 grep "^# of\|^=== " "$C33L_OBJDIR/$tool.sum" | tail -12
-echo "queued: $(ls "$C33L_QUEUE" | wc -l)"
+echo "queued: $(ls "$C33L_QUEUE" | grep -cv '\.files$')"

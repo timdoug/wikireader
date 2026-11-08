@@ -13,6 +13,7 @@ import fcntl
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -21,6 +22,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # different suites can go side by side.
 OUT = Path(os.environ.get("C33L_OUT", ROOT / "linux/artifacts/gcc-test")).resolve()
 QUEUE = OUT / "queue"
+# A queued program's input files, which it finds in its working directory,
+# are in QUEUE/NAME.files.
+INPUTS = ".files"
 EXECUTED = OUT / "executed"
 # Seconds a test program may run, guest time: about the bare-metal board's
 # 3.2 billion instructions.  pr97459's software 64-bit divisions take most
@@ -36,6 +40,11 @@ def vm(*command):
                           stdout=subprocess.PIPE).stdout
 
 
+def unqueue(name):
+    (QUEUE / name).unlink()
+    shutil.rmtree(QUEUE / (name + INPUTS), ignore_errors=True)
+
+
 def run_batch(fat, names):
     """Run NAMES in one boot; return how many ran.  A program that takes
     the machine down is recorded as having crashed it, and counts."""
@@ -44,7 +53,11 @@ def run_batch(fat, names):
     archive = bytearray()
     for name in names:
         program = (QUEUE / name).read_bytes()
-        archive += f"{name} {len(program)}\n".encode() + program
+        inputs = sorted((QUEUE / (name + INPUTS)).glob("*"))
+        archive += f"{name} {len(program)} {len(inputs)}\n".encode() + program
+        for path in inputs:
+            data = path.read_bytes()
+            archive += f"{path.name} {len(data)}\n".encode() + data
     files = {name: (ROOT / path).read_bytes() for name, path in {
         "kernel.elf": "samo-lib/grifo/grifo.elf",
         "init.app": "samo-lib/grifo/applications/init/init.app",
@@ -98,7 +111,7 @@ def run_batch(fat, names):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         (EXECUTED / name).write_bytes(status.encode() + b"\n" + output)
-        (QUEUE / name).unlink()
+        unqueue(name)
         results = rest
         done += 1
     if done < len(names) and b"GCCTEST DONE" not in console:
@@ -106,7 +119,7 @@ def run_batch(fat, names):
         print(f"{name} crashed the machine (wremu exit {exited.returncode})",
               flush=True)
         (EXECUTED / name).write_bytes(b"crash\n")
-        (QUEUE / name).unlink()
+        unqueue(name)
         done += 1
     return done
 
@@ -150,7 +163,7 @@ rm "$img.lib"
         script = "run-lib.sh" if tool in ("libstdc++", "libatomic") else "run-gcc.sh"
         print(vm("env", f"C33L_OUT={OUT}", f"linux/gcc-test/{script}", *sys.argv[1:]),
               end="", flush=True)
-        names = sorted(p.name for p in QUEUE.iterdir())
+        names = sorted(p.name for p in QUEUE.iterdir() if not p.name.endswith(INPUTS))
         if not names:
             print(f"Results: {OUT / 'results' / (tool + '.sum')}")
             return

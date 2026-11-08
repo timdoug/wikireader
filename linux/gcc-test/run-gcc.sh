@@ -51,4 +51,4 @@ runtest --tool "$tool" --target c33-linux-musl --target_board=c33-linux \
 	--srcdir "$gcc_src/gcc/testsuite" --objdir "$C33L_OBJDIR" \
 	--tool_exec "$driver" "$@" >/dev/null 2>&1 || true
 grep "^# of\|^=== " "$tool.sum" | tail -12
-echo "queued: $(ls "$C33L_QUEUE" | wc -l)"
+echo "queued: $(ls "$C33L_QUEUE" | grep -cv '\.files$')"
