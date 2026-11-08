@@ -1,0 +1,562 @@
+# gcc: every result other than a pass, by cause; linux/README.md,
+# "Expected failures", says why.  check-expected.py compares a run with it.
+
+# An upstream XFAIL that passes here (1)
+XPASS: gcc.dg/plugin/infoleak-vfio_iommu_type1.c -fplugin=./analyzer_kernel_plugin.so  (test for bogus messages, line 42)
+
+# FDPIC (13)
+FAIL: gcc.dg/gomp/pr66633-1.c (test for excess errors)
+FAIL: gcc.dg/gomp/pr66633-2.c (test for excess errors)
+FAIL: gcc.dg/gomp/pr66633-3.c (test for excess errors)
+FAIL: gcc.dg/gomp/pr66633-4.c (test for excess errors)
+FAIL: gcc.dg/ipa/pr122458.c (test for excess errors)
+FAIL: gcc.dg/lto/toplevel-extended-asm-1 c_lto_toplevel-extended-asm-1_0.o-c_lto_toplevel-extended-asm-1_1.o link, -O2 -flto -flto-partition=1to1
+FAIL: gcc.dg/lto/toplevel-extended-asm-2 c_lto_toplevel-extended-asm-2_0.o-c_lto_toplevel-extended-asm-2_1.o link, -O2 -flto -flto-partition=1to1
+FAIL: gcc.dg/lto/toplevel-extended-asm-2 c_lto_toplevel-extended-asm-2_0.o-c_lto_toplevel-extended-asm-2_1.o link, -O2 -flto -flto-partition=cache
+FAIL: gcc.dg/lto/toplevel-extended-asm-2 c_lto_toplevel-extended-asm-2_0.o-c_lto_toplevel-extended-asm-2_1.o link, -O2 -flto -flto-partition=max
+FAIL: gcc.dg/lto/toplevel-extended-asm-3 c_lto_toplevel-extended-asm-3_0.o-c_lto_toplevel-extended-asm-3_1.o link, -O2 -flto -flto-partition=1to1
+FAIL: gcc.dg/lto/toplevel-simple-asm-1 c_lto_toplevel-simple-asm-1_0.o-c_lto_toplevel-simple-asm-1_1.o link, -O2 -flto -flto-toplevel-asm-heuristics -flto-partition=1to1
+FAIL: gcc.dg/lto/toplevel-simple-asm-1 c_lto_toplevel-simple-asm-1_0.o-c_lto_toplevel-simple-asm-1_1.o link, -O2 -flto -flto-toplevel-asm-heuristics -flto-partition=cache
+FAIL: gcc.dg/lto/toplevel-simple-asm-1 c_lto_toplevel-simple-asm-1_0.o-c_lto_toplevel-simple-asm-1_1.o link, -O2 -flto -flto-toplevel-asm-heuristics -flto-partition=max
+
+# No MMU (3)
+FAIL: gcc.dg/tree-prof/time-profiler-2.c execution,    -fprofile-generate -D_PROFILE_GENERATE
+UNRESOLVED: gcc.dg/tree-prof/time-profiler-2.c compilation,  -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/time-profiler-2.c execution,    -fprofile-use -D_PROFILE_USE
+
+# Slow: past the 240-guest-second deadline (C33L_TIMEOUT) (23)
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O0  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O1  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O2  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -O3 -g  execution test
+FAIL: gcc.dg/atomic/c11-atomic-exec-4.c   -Os  execution test
+FAIL: gcc.dg/torture/inline-mem-cmp-1.c   -O0  execution test
+FAIL: gcc.dg/torture/inline-mem-cmp-1.c   -O1  execution test
+FAIL: gcc.dg/torture/inline-mem-cmp-1.c   -Os  execution test
+FAIL: gcc.dg/torture/inline-mem-cpy-cmp-1.c   -O0  execution test
+FAIL: gcc.dg/torture/inline-mem-cpy-cmp-1.c   -Os  execution test
+FAIL: gcc.dg/tree-prof/indir-call-prof-2.c execution,    -fprofile-generate -D_PROFILE_GENERATE
+FAIL: gcc.dg/tree-prof/indir-call-prof.c execution,    -fprofile-generate -D_PROFILE_GENERATE
+FAIL: gcc.dg/tree-prof/inliner-1.c execution,    -fprofile-generate -D_PROFILE_GENERATE
+FAIL: gcc.misc-tests/gcov-5b.c execution test
+UNRESOLVED: gcc.dg/tree-prof/indir-call-prof-2.c compilation,  -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/indir-call-prof-2.c execution,    -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/indir-call-prof.c compilation,  -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/indir-call-prof.c execution,    -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/inliner-1.c compilation,  -fprofile-use -D_PROFILE_USE
+UNRESOLVED: gcc.dg/tree-prof/inliner-1.c execution,    -fprofile-use -D_PROFILE_USE
+
+# The tests themselves (1)
+FAIL: gcc.dg/debug/dwarf2/inline5.c scan-assembler-times DW_TAG_lexical_block\\)[^#/!@;\\|]*[#/!@;\\|]+ +[^#/!@\\|]*\\(DIE \\(0x[0-9a-f]*\\) DW_TAG_variable 1
+
+# This machine's limits (1)
+FAIL: gcc.dg/lto/pr122515 c_lto_pr122515_0.o-c_lto_pr122515.a link,  -flto=auto -ffat-lto-objects
+
+# musl's deliberate behaviour: C23 and C2y names its headers lack (478)
+FAIL: gcc.dg/c23-bool-limits-1.c (test for excess errors)
+FAIL: gcc.dg/c23-float-1.c (test for excess errors)
+FAIL: gcc.dg/c23-float-10.c (test for excess errors)
+FAIL: gcc.dg/c23-float-13.c (test for excess errors)
+FAIL: gcc.dg/c23-float-2.c (test for excess errors)
+FAIL: gcc.dg/c23-float-3.c (test for excess errors)
+FAIL: gcc.dg/c23-float-4.c (test for excess errors)
+FAIL: gcc.dg/c23-float-6.c (test for excess errors)
+FAIL: gcc.dg/c23-limits-1.c (test for excess errors)
+FAIL: gcc.dg/c23-nullptr-2.c (test for excess errors)
+FAIL: gcc.dg/c23-stdarg-5.c (test for excess errors)
+FAIL: gcc.dg/c23-stddef-1.c (test for excess errors)
+FAIL: gcc.dg/c23-stddef-2.c (test for excess errors)
+FAIL: gcc.dg/c23-stdint-1.c (test for excess errors)
+FAIL: gcc.dg/c23-tag-enum-7.c (test for excess errors)
+FAIL: gcc.dg/c23-unreachable-1.c (test for excess errors)
+FAIL: gcc.dg/c2y-pointer-1.c (test for excess errors)
+FAIL: gcc.dg/c90-float-1.c (test for excess errors)
+FAIL: gcc.dg/c99-float-1.c (test for excess errors)
+FAIL: gcc.dg/cr-decimal-dig-1.c (test for excess errors)
+FAIL: gcc.dg/cr-decimal-dig-3.c (test for excess errors)
+FAIL: gcc.dg/format/sentinel-2.c    (test for excess errors)
+FAIL: gcc.dg/format/sentinel-2.c   -DWIDE  (test for excess errors)
+FAIL: gcc.dg/limits-width-1.c (test for excess errors)
+FAIL: gcc.dg/limits-width-2.c (test for excess errors)
+FAIL: gcc.dg/pr115109.c (test for excess errors)
+FAIL: gcc.dg/stdint-width-1.c (test for excess errors)
+FAIL: gcc.dg/stdint-width-2.c (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float128-floath.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-2.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg-3.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float128-tg.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32-floath.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-2.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg-3.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32-tg.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-floath.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-2.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg-3.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float32x-tg.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64-floath.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-2.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg-3.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64-tg.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-floath.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-2.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg-3.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/float64x-tg.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/floatn-convert.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float128-ieee.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32-timode.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x-timode.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float32x.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64-timode.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x-timode.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/fp-int-convert-float64x.c   -Os  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O0  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O1  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O2  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -O3 -g  (test for excess errors)
+FAIL: gcc.dg/torture/pr121478-1.c   -Os  (test for excess errors)
+UNRESOLVED: gcc.dg/c23-float-1.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/c23-float-2.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/c23-float-3.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/c23-float-4.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/c23-float-6.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/c23-unreachable-1.c compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-floath.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-2.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg-3.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float128-tg.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-floath.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-2.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg-3.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32-tg.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-floath.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-2.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg-3.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float32x-tg.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-floath.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-2.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg-3.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64-tg.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-floath.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-2.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg-3.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/float64x-tg.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O3 -fomit-frame-pointer -funroll-loops -fpeel-loops -ftracer -finline-functions  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/floatn-convert.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee-timode.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float128-ieee.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32-timode.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x-timode.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float32x.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64-timode.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x-timode.c   -Os  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O0  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O1  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O2  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O2 -flto -fno-use-linker-plugin -flto-partition=none  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O2 -flto -fuse-linker-plugin -fno-fat-lto-objects  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -O3 -g  compilation failed to produce executable
+UNRESOLVED: gcc.dg/torture/fp-int-convert-float64x.c   -Os  compilation failed to produce executable
+
+# musl's deliberate behaviour: other header definitions (24)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c  (test for warnings, line 20)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c  (test for warnings, line 28)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c  (test for warnings, line 33)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c  (test for warnings, line 40)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c  (test for warnings, line 56)
+FAIL: gcc.dg/analyzer/fd-access-mode-target-headers.c (test for excess errors)
+FAIL: gcc.dg/c23-bool-1.c (test for excess errors)
+FAIL: gcc.dg/c2y-pointer-1.c  (test for errors, line 22)
+FAIL: gcc.dg/c2y-pointer-1.c  (test for errors, line 46)
+FAIL: gcc.dg/c2y-pointer-1.c conversion note at line 23 (test for warnings, line 22)
+FAIL: gcc.dg/format/sentinel-2.c     (test for warnings, line 17)
+FAIL: gcc.dg/format/sentinel-2.c     (test for warnings, line 18)
+FAIL: gcc.dg/format/sentinel-2.c   -DWIDE   (test for warnings, line 17)
+FAIL: gcc.dg/format/sentinel-2.c   -DWIDE   (test for warnings, line 18)
+FAIL: gcc.dg/init-string-2.c (test for excess errors)
+FAIL: gcc.dg/init-string-2.c a13 (test for errors, line 32)
+FAIL: gcc.dg/init-string-2.c b13 (test for errors, line 47)
+FAIL: gcc.dg/single-precision-constant.c (test for excess errors)
+FAIL: gcc.dg/single-precision-constant.c execution test
+FAIL: gcc.dg/utf-array-short-wchar.c  (test for errors, line 42)
+FAIL: gcc.dg/utf-array-short-wchar.c  (test for errors, line 44)
+FAIL: gcc.dg/utf-array-short-wchar.c  (test for errors, line 46)
+FAIL: gcc.dg/utf-array-short-wchar.c (test for excess errors)
+UNRESOLVED: gcc.dg/c23-bool-1.c compilation failed to produce executable

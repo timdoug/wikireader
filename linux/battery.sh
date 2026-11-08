@@ -4,7 +4,8 @@
 # linux/artifacts/battery/NAME.log, and its exit status and minutes to
 # summary.txt; a failing step does not stop the ones after it.  The GCC
 # suites take more than a day; linux/README.md's "Expected failures" names
-# every result that does not pass.
+# every result that does not pass, and each GCC suite's *-expected step
+# compares its results with gcc-test/expected.
 #
 #   linux/battery.sh
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -48,7 +49,10 @@ step unicode nice -n 19 python3 console/unicode-test.py
 step package-build vm python3 ./linux/package-suites/build.py
 step package-suites nice -n 19 python3 package-suites/run.py
 step gcc env C33L_OUT=artifacts/gcc-test nice -n 19 python3 gcc-test/run.py all
+step gcc-expected python3 gcc-test/check-expected.py artifacts/gcc-test/results/gcc.sum
 step g++ env C33L_OUT=artifacts/gcc-test nice -n 19 python3 gcc-test/run.py --tool=g++
+step g++-expected python3 gcc-test/check-expected.py artifacts/gcc-test/results/g++.sum
 step libatomic env C33L_OUT=artifacts/libatomic-test nice -n 19 python3 gcc-test/run.py --tool=libatomic all
+step libatomic-expected python3 gcc-test/check-expected.py artifacts/libatomic-test/results/libatomic.sum
 step libstdc++ env C33L_OUT=artifacts/libstdc++-test nice -n 19 python3 gcc-test/run.py --tool=libstdc++ all
 echo "=== $(date +%T) battery done" >> "$out/summary.txt"

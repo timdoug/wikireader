@@ -1,0 +1,2 @@
+# libatomic: every result other than a pass, by cause; linux/README.md,
+# "Expected failures", says why.  check-expected.py compares a run with it.
