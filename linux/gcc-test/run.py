@@ -30,14 +30,32 @@ EXECUTED = OUT / "executed"
 # 3.2 billion instructions.  pr97459's software 64-bit divisions take most
 # of a minute.
 TIMEOUT = int(os.environ.get("C33L_TIMEOUT", 240))
-# Programs a card holds and a boot runs.
-BATCH = 3000
+# Programs a card holds and a boot runs.  Hundreds of programs in one
+# boot fragment memory until libstdc++.so.6 cannot load and threads cannot
+# start, so a failure in a long batch is run again in a short one.
+BATCH = int(os.environ.get("C33L_BATCH", 3000))
+# A program that ends other than with exit 0 or a timeout in a batch of
+# more than RETRY runs again in one of RETRY, and that result counts.
+RETRY = int(os.environ.get("C33L_RETRY", 8))
 VM = ["limactl", "shell", "--workdir", str(ROOT), "wr-linux"]
 
 
 def vm(*command):
     return subprocess.run([*VM, *command], check=True, text=True,
                           stdout=subprocess.PIPE).stdout
+
+
+def status(name):
+    return (EXECUTED / name).read_bytes().split(b"\n", 1)[0].decode()
+
+
+def run_batches(fat, names, size):
+    done = 0
+    while done < len(names):
+        ran = run_batch(fat, names[done:done + size])
+        if ran == 0:
+            raise SystemExit(f"the batch ran nothing; see {OUT / 'batch/boot.log'}")
+        done += ran
 
 
 def unqueue(name):
@@ -111,7 +129,6 @@ def run_batch(fat, names):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         (EXECUTED / name).write_bytes(status.encode() + b"\n" + output)
-        unqueue(name)
         results = rest
         done += 1
     if done < len(names) and b"GCCTEST DONE" not in console:
@@ -119,7 +136,6 @@ def run_batch(fat, names):
         print(f"{name} crashed the machine (wremu exit {exited.returncode})",
               flush=True)
         (EXECUTED / name).write_bytes(b"crash\n")
-        unqueue(name)
         done += 1
     return done
 
@@ -167,13 +183,14 @@ rm "$img.lib"
         if not names:
             print(f"Results: {OUT / 'results' / (tool + '.sum')}")
             return
-        done = 0
-        while done < len(names):
-            ran = run_batch(fat, names[done:done + BATCH])
-            if ran == 0:
-                raise SystemExit(f"the batch ran nothing; see {OUT / 'batch/boot.log'}")
-            done += ran
+        run_batches(fat, names, BATCH)
         print(f"wremu ran {len(names)} queued programs", flush=True)
+        if min(BATCH, len(names)) > RETRY:
+            again = [n for n in names if status(n) not in ("exit-0", "timeout")]
+            run_batches(fat, again, RETRY)
+            print(f"wremu ran {len(again)} of them again, {RETRY} a boot", flush=True)
+        for name in names:
+            unqueue(name)
     raise SystemExit(f"still queuing after {attempt + 1} passes")
 
 
