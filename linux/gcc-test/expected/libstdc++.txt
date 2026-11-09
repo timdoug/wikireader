@@ -18,9 +18,6 @@ FAIL: ext/random/hypergeometric_distribution/operators/values.cc  -std=gnu++20 e
 FAIL: ext/rope/pthread7-rope.cc  -std=gnu++20 execution test
 FAIL: std/ranges/iota/max_size_type.cc  -std=gnu++20 execution test
 
-# libstdc++'s generic locale model, with musl, rejects the environment's locale name (1)
-FAIL: 28_regex/algorithms/regex_match/ecma/wchar_t/63199.cc  -std=gnu++20 execution test
-
 # musl's deliberate behaviour: NULL is nullptr (2)
 FAIL: 20_util/unique_ptr/lwg4148.cc  -std=gnu++20 (test for excess errors)
 FAIL: 30_threads/packaged_task/cons/dangling_ref.cc  -std=gnu++20 (test for excess errors)

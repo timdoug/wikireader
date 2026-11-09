@@ -1,0 +1,82 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] libstdc++: the generic locale model takes C.UTF-8 as C
+
+The generic model, which libstdc++ uses with C libraries other than
+glibc, supports only the "C" locale, and std::locale("") throws
+"locale::facet::_S_create_c_locale name not valid" when LANG names any
+other.  Systems on musl name C.UTF-8 there, the C locale with UTF-8
+characters, so every program calling std::locale("") on them threw (PR
+libstdc++/15992 for the general case).  The model's facets use the C
+library, whose own LC_CTYPE gives the encoding, so C.UTF-8 and C.utf8
+are taken as C; other names still throw.
+
+libstdc++-v3/ChangeLog:
+
+	* config/locale/generic/c_locale.cc
+	(locale::facet::_S_create_c_locale): Accept "C.UTF-8" and
+	"C.utf8".
+	* testsuite/22_locale/locale/cons/c_utf8.cc: New test.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+
+diff --git a/libstdc++-v3/config/locale/generic/c_locale.cc b/libstdc++-v3/config/locale/generic/c_locale.cc
+--- a/libstdc++-v3/config/locale/generic/c_locale.cc
++++ b/libstdc++-v3/config/locale/generic/c_locale.cc
+@@ -239,10 +239,13 @@
+   locale::facet::_S_create_c_locale(__c_locale& __cloc, const char* __s,
+ 				    __c_locale)
+   {
+-    // Currently, the generic model only supports the "C" locale.
++    // Currently, the generic model only supports the "C" locale.  It
++    // takes "C.UTF-8", the C locale with UTF-8 characters, which systems
++    // on C libraries such as musl name in LANG, as the same: its facets
++    // use the C library, whose own LC_CTYPE gives the encoding.
+     // See http://gcc.gnu.org/ml/libstdc++/2003-02/msg00345.html
+     __cloc = 0;
+-    if (strcmp(__s, "C"))
++    if (strcmp(__s, "C") && strcmp(__s, "C.UTF-8") && strcmp(__s, "C.utf8"))
+       __throw_runtime_error(__N("locale::facet::_S_create_c_locale "
+ 			    "name not valid"));
+   }
+diff --git a/libstdc++-v3/testsuite/22_locale/locale/cons/c_utf8.cc b/libstdc++-v3/testsuite/22_locale/locale/cons/c_utf8.cc
+new file mode 100644
+--- /dev/null
++++ b/libstdc++-v3/testsuite/22_locale/locale/cons/c_utf8.cc
+@@ -0,0 +1,37 @@
++// { dg-do run }
++// { dg-require-namedlocale "C.UTF-8" }
++
++// Copyright (C) 2026 Free Software Foundation, Inc.
++//
++// This file is part of the GNU ISO C++ Library.  This library is free
++// software; you can redistribute it and/or modify it under the
++// terms of the GNU General Public License as published by the
++// Free Software Foundation; either version 3, or (at your option)
++// any later version.
++
++// This library is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++
++// You should have received a copy of the GNU General Public License along
++// with this library; see the file COPYING3.  If not see
++// <http://www.gnu.org/licenses/>.
++
++// 22.1.1.2 locale constructors and destructors [lib.locale.cons]
++
++#include <locale>
++#include <testsuite_hooks.h>
++
++// A C library that has C.UTF-8 makes a locale of it, whatever the model.
++void test01()
++{
++  std::locale loc("C.UTF-8");
++  VERIFY( loc.name() == "C.UTF-8" );
++}
++
++int main()
++{
++  test01();
++  return 0;
++}
