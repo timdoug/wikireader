@@ -27,11 +27,6 @@ FAIL: ext/random/hypergeometric_distribution/operators/values.cc  -std=gnu++20 e
 FAIL: ext/rope/pthread7-rope.cc  -std=gnu++20 execution test
 FAIL: std/ranges/iota/max_size_type.cc  -std=gnu++20 execution test
 
-# The C33 musl port's bits/signal.h names a field r, which names.cc reserves (3)
-FAIL: 17_intro/names.cc  -std=gnu++20 (test for excess errors)
-FAIL: 17_intro/names_fortify.cc  -std=gnu++20 (test for excess errors)
-FAIL: experimental/names.cc  -std=gnu++20 (test for excess errors)
-
 # The tests themselves: 8-byte atomics are libatomic calls on the C33, and they do not link it (4)
 FAIL: 29_atomics/atomic_float/wait_notify.cc  -std=gnu++20 (test for excess errors)
 FAIL: 29_atomics/atomic_integral/wait_notify.cc  -std=gnu++20 (test for excess errors)

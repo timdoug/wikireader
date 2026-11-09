@@ -21,6 +21,8 @@ The per-target expectations upstream gives other ports:
   registers, so __builtin_apply cannot forward a variadic call; the
   test is skipped on avr and nds32 for the same reason.  An unaligned
   word access faults.
+- The kernel's struct sigcontext, in <bits/signal.h>, has a member r,
+  which names.cc exempts as it does for AIX's and HP-UX's headers.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
@@ -366,3 +368,18 @@ index a3063bb..71e3430 100644
  
  /* Copied from graphite/interchange-4.c */
  
+diff --git a/libstdc++-v3/testsuite/17_intro/names.cc b/libstdc++-v3/testsuite/17_intro/names.cc
+--- a/libstdc++-v3/testsuite/17_intro/names.cc
++++ b/libstdc++-v3/testsuite/17_intro/names.cc
+@@ -311,6 +311,11 @@
+ #undef u
+ #endif
+ 
++#if defined (__linux__) && defined (__c33__)
++// <bits/signal.h> defines sigcontext::r
++#undef r
++#endif
++
+ #if defined (__linux__) || defined (__gnu_hurd__)
+ #if __has_include(<features.h>)
+ #include <features.h>

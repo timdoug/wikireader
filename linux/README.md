@@ -1597,7 +1597,6 @@ cause. GCC counts are results, several to a test:
 | Upstream bugs | musl regex back-references (4 libc-test), BusyBox's own known `sed` and `cpio` bugs (4), 3 Hush bugs that glibc builds fail too |
 | The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition; GCC's `inline5.c`, whose scan pattern does not match with a `;` comment character (xfailed on hppa for that reason); g++'s `pr120098.C` at `-O0`, whose loop bound is an uninitialized member; libstdc++'s `wait_notify.cc` tests, whose 8-byte atomics are libatomic calls on the C33 and which do not link it |
 | This machine's limits | 7 pixman tests (`pixel`, `alphamap`, `gradient-crash`, `filter-reduction`, `stress`, `composite`, and `glyph` over 5,000 iterations) take more than 20 guest minutes, about three quarters of it in software floating point (`pixel-test`, profiled), and `alpha-loop` stops itself after 10 seconds; `gcc.dg/lto/pr122515` links two 160 MB arrays, past the 64 MB the data-area displacement reaches; 8 GCC and 11 libstdc++ tests run past the 240-guest-second deadline |
-| This port, not yet fixed | the C33 musl port's `bits/signal.h` names a field `r`, which libstdc++'s three `names.cc` tests reserve |
 | Not yet explained | libstdc++'s `std::stacktrace` entries lack names and lines (3 tests), and `chi2_q_bit_flip_set`'s hash distribution check fails |
 
 GCC's execute torture, binutils, the LTP port regressions, zlib, fontconfig,
@@ -1646,7 +1645,7 @@ and `g++.old-deja` at C++17: 56,963 passes and 37 failing results, the
 36 `NULL` ones and `pr120098.C`. `run.py --tool=libatomic` gives 44 passes
 and no failures. `run.py --tool=libstdc++` runs libstdc++'s suite from its
 build tree: a full run gave 17,483 passes, and with the tests that did not
-pass rerun on the 256 KB board below, 30 results other than a pass remain,
+pass rerun on the 256 KB board below, 27 results other than a pass remain,
 in `expected/libstdc++.txt`.
 
 The C++ suite found three port bugs, all fixed: no multiple-inheritance

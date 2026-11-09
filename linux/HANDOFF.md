@@ -557,9 +557,6 @@ g++ 153, libatomic under 1, libstdc++ about 300.
   stacks, and only the tests that did not pass at 1 MB were rerun at
   256 KB.  The next full run shows whether any other test needs more;
   `libstdc++-expected` would list it.
-- **libstdc++'s `names.cc` tests against the port's `bits/signal.h`:** its
-  field `r` is a name those tests reserve; a reserved name for it, with
-  the kernel's `sigcontext` layout unchanged, would let them pass.
 - **Not yet explained:** `std::stacktrace`'s entries lack names and
   lines (3 tests), and `chi2_q_bit_flip_set`'s hash check fails.
 - **Not run yet:** pixman's `alpha-loop` with its
