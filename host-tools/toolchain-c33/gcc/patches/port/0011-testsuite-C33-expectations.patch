@@ -23,6 +23,8 @@ The per-target expectations upstream gives other ports:
   word access faults.
 - The kernel's struct sigcontext, in <bits/signal.h>, has a member r,
   which names.cc exempts as it does for AIX's and HP-UX's headers.
+- 8-byte atomics are libatomic calls, so libstdc++'s tests that ask for
+  libatomic link it, as on 32-bit PowerPC and SPARC and on RISC-V.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
@@ -383,3 +385,14 @@ diff --git a/libstdc++-v3/testsuite/17_intro/names.cc b/libstdc++-v3/testsuite/1
  #if defined (__linux__) || defined (__gnu_hurd__)
  #if __has_include(<features.h>)
  #include <features.h>
+diff --git a/libstdc++-v3/testsuite/lib/dg-options.exp b/libstdc++-v3/testsuite/lib/dg-options.exp
+--- a/libstdc++-v3/testsuite/lib/dg-options.exp
++++ b/libstdc++-v3/testsuite/lib/dg-options.exp
+@@ -347,6 +347,7 @@
+ 	 || ([istarget powerpc*-*-*] && [check_effective_target_ilp32])
+ 	 || [istarget riscv*-*-*]
+ 	 || ([istarget sparc*-*-linux-gnu] && [check_effective_target_ilp32])
++	 || [istarget c33-*-*linux*]
+        } {
+ 	global TOOL_OPTIONS
+ 

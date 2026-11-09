@@ -18,12 +18,6 @@ FAIL: ext/random/hypergeometric_distribution/operators/values.cc  -std=gnu++20 e
 FAIL: ext/rope/pthread7-rope.cc  -std=gnu++20 execution test
 FAIL: std/ranges/iota/max_size_type.cc  -std=gnu++20 execution test
 
-# The tests themselves: 8-byte atomics are libatomic calls on the C33, and they do not link it (4)
-FAIL: 29_atomics/atomic_float/wait_notify.cc  -std=gnu++20 (test for excess errors)
-FAIL: 29_atomics/atomic_integral/wait_notify.cc  -std=gnu++20 (test for excess errors)
-UNRESOLVED: 29_atomics/atomic_float/wait_notify.cc  -std=gnu++20 compilation failed to produce executable
-UNRESOLVED: 29_atomics/atomic_integral/wait_notify.cc  -std=gnu++20 compilation failed to produce executable
-
 # libstdc++'s generic locale model, with musl, rejects the environment's locale name (1)
 FAIL: 28_regex/algorithms/regex_match/ecma/wchar_t/63199.cc  -std=gnu++20 execution test
 
