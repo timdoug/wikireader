@@ -5,14 +5,6 @@
 FAIL: 20_util/unsynchronized_pool_resource/allocate-max-chunks.cc  -std=gnu++20 execution test
 FAIL: 23_containers/unordered_set/hash_policy/26132.cc  -std=gnu++20 execution test
 
-# Not yet explained: std::stacktrace entries lack names and lines (6)
-FAIL: 19_diagnostics/stacktrace/entry.cc  -std=gnu++23 execution test
-FAIL: 19_diagnostics/stacktrace/entry.cc  -std=gnu++26 execution test
-FAIL: 19_diagnostics/stacktrace/output.cc  -std=gnu++23 execution test
-FAIL: 19_diagnostics/stacktrace/output.cc  -std=gnu++26 execution test
-FAIL: 19_diagnostics/stacktrace/stacktrace.cc  -std=gnu++23 execution test
-FAIL: 19_diagnostics/stacktrace/stacktrace.cc  -std=gnu++26 execution test
-
 # Slow: past the 240-guest-second deadline (C33L_TIMEOUT) (11)
 FAIL: 23_containers/list/pthread1.cc  -std=gnu++20 execution test
 FAIL: 26_numerics/random/binomial_distribution/operators/values2.cc  -std=gnu++20 execution test

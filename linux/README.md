@@ -657,6 +657,11 @@ text, and cannot take them. `musl/tests/breakpoint-test.c`, run by
 the tracer reads it back, writes a second, and resumes past both.
 `patches/fixes/0042` stops the kernel warning each time a traced program
 maps a file from ramfs privately, which it does correctly.
+`patches/fixes/0046` gives a private mapping that cannot share its file's
+region a copy of its own: a program mapping part of its own executable, as
+libbacktrace does for `std::stacktrace`, got `ENOMEM` (the new mapping lay
+inside the process's text mapping) or `EINVAL` (it overlapped that region
+without being a subset).
 
 ## Build and test
 
@@ -1597,7 +1602,6 @@ cause. GCC counts are results, several to a test:
 | Upstream bugs | musl regex back-references (4 libc-test), BusyBox's own known `sed` and `cpio` bugs (4), 3 Hush bugs that glibc builds fail too |
 | The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition; GCC's `inline5.c`, whose scan pattern does not match with a `;` comment character (xfailed on hppa for that reason); g++'s `pr120098.C` at `-O0`, whose loop bound is an uninitialized member; libstdc++'s `wait_notify.cc` tests, whose 8-byte atomics are libatomic calls on the C33 and which do not link it; libstdc++'s `chi2_q_bit_flip_set`, whose hash distribution over the 30,000 samples a simulator gets measures 336.2 with musl's `rand()` sequence against a limit of 330 (2,917.8 against 3,300 over the full 300,000) |
 | This machine's limits | 7 pixman tests (`pixel`, `alphamap`, `gradient-crash`, `filter-reduction`, `stress`, `composite`, and `glyph` over 5,000 iterations) take more than 20 guest minutes, about three quarters of it in software floating point (`pixel-test`, profiled), and `alpha-loop` stops itself after 10 seconds; `gcc.dg/lto/pr122515` links two 160 MB arrays, past the 64 MB the data-area displacement reaches; 8 GCC and 11 libstdc++ tests run past the 240-guest-second deadline |
-| Not yet explained | libstdc++'s `std::stacktrace` entries lack names and lines (3 tests) |
 
 GCC's execute torture, binutils, the LTP port regressions, zlib, fontconfig,
 libatomic and the launcher tests have no failures.
@@ -1645,7 +1649,7 @@ and `g++.old-deja` at C++17: 56,963 passes and 37 failing results, the
 36 `NULL` ones and `pr120098.C`. `run.py --tool=libatomic` gives 44 passes
 and no failures. `run.py --tool=libstdc++` runs libstdc++'s suite from its
 build tree: a full run gave 17,483 passes, and with the tests that did not
-pass rerun on the 256 KB board below, 27 results other than a pass remain,
+pass rerun on the 256 KB board below, 21 results other than a pass remain,
 in `expected/libstdc++.txt`.
 
 The C++ suite found three port bugs, all fixed: no multiple-inheritance

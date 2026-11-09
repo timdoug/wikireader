@@ -47,6 +47,35 @@ set_board_info gcc,no_trampolines 1
 set_board_info gdb,nosignals 1
 set_board_info is_simulator 1
 
+# The source of the test being run: dg-test's argument up the call stack.
+proc c33-linux_source {} {
+    for {set level [info level]} {$level > 0} {incr level -1} {
+	set frame [info level $level]
+	if {[lindex $frame 0] eq "dg-test"} {
+	    set args [lrange $frame 1 end]
+	    if {[lindex $args 0] eq "-keep-output"} {
+		set args [lrange $args 1 end]
+	    }
+	    return [lindex $args 0]
+	}
+    }
+    return ""
+}
+
+# A libstdc++ test of std::stacktrace reads its own symbols and line
+# tables, so its program runs unstripped.
+proc c33-linux_needs_symbols {} {
+    global tool
+    set src [c33-linux_source]
+    if {$tool ne "libstdc++" || $src eq ""} {
+	return 0
+    }
+    set f [open $src]
+    set text [read $f]
+    close $f
+    return [string match {*std::stacktrace*} $text]
+}
+
 # The input files a program reads from its directory, which the test copied
 # there: a libstdc++ test's dg-additional-files, from its source, and the
 # file libstdc++'s file I/O probe names after the process.  The test's
@@ -66,11 +95,7 @@ proc c33-linux_inputs {} {
 		lappend inputs "cin_unget-1.[pid].txt"
 	    }
 	    dg-test {
-		set args [lrange $frame 1 end]
-		if {[lindex $args 0] eq "-keep-output"} {
-		    set args [lrange $args 1 end]
-		}
-		set f [open [lindex $args 0]]
+		set f [open [c33-linux_source]]
 		set text [read $f]
 		close $f
 		foreach {- names} [regexp -all -inline \
@@ -134,6 +159,10 @@ proc c33-linux_load {dest prog args} {
     } else {
 	set sha [lindex [exec sha256sum $prog] 0]
 	set result [file join $env(C33L_RESULTS) $sha]
+	if {![file exists $result] && [c33-linux_needs_symbols]} {
+	    file copy -force $prog [file join $env(C33L_QUEUE) $sha]
+	    return [list unresolved "c33-linux: queued for wremu as $sha"]
+	}
 	if {![file exists $result]} {
 	    # GCC's effective-target probes name their source after the
 	    # process, and the name is in the symbol table: key those by the

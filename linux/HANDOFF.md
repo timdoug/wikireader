@@ -557,8 +557,6 @@ g++ 153, libatomic under 1, libstdc++ about 300.
   stacks, and only the tests that did not pass at 1 MB were rerun at
   256 KB.  The next full run shows whether any other test needs more;
   `libstdc++-expected` would list it.
-- **Not yet explained:** `std::stacktrace`'s entries lack names and
-  lines (3 tests).
 - **Not run yet:** pixman's `alpha-loop` with its
   watchdog raised, on the corrected pixman build; libdrm's, the X
   server's and strace's own suites; GDB's testsuite.
