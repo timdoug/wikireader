@@ -5,14 +5,13 @@
 FAIL: 20_util/unsynchronized_pool_resource/allocate-max-chunks.cc  -std=gnu++20 execution test
 FAIL: 23_containers/unordered_set/hash_policy/26132.cc  -std=gnu++20 execution test
 
-# Not yet explained: std::stacktrace entries lack names and lines; chi2 hash distribution check (7)
+# Not yet explained: std::stacktrace entries lack names and lines (6)
 FAIL: 19_diagnostics/stacktrace/entry.cc  -std=gnu++23 execution test
 FAIL: 19_diagnostics/stacktrace/entry.cc  -std=gnu++26 execution test
 FAIL: 19_diagnostics/stacktrace/output.cc  -std=gnu++23 execution test
 FAIL: 19_diagnostics/stacktrace/output.cc  -std=gnu++26 execution test
 FAIL: 19_diagnostics/stacktrace/stacktrace.cc  -std=gnu++23 execution test
 FAIL: 19_diagnostics/stacktrace/stacktrace.cc  -std=gnu++26 execution test
-FAIL: 20_util/hash/chi2_q_bit_flip_set.cc  -std=gnu++20 execution test
 
 # Slow: past the 240-guest-second deadline (C33L_TIMEOUT) (11)
 FAIL: 23_containers/list/pthread1.cc  -std=gnu++20 execution test
@@ -39,3 +38,7 @@ FAIL: 28_regex/algorithms/regex_match/ecma/wchar_t/63199.cc  -std=gnu++20 execut
 # musl's deliberate behaviour: NULL is nullptr (2)
 FAIL: 20_util/unique_ptr/lwg4148.cc  -std=gnu++20 (test for excess errors)
 FAIL: 30_threads/packaged_task/cons/dangling_ref.cc  -std=gnu++20 (test for excess errors)
+
+# The tests themselves: chi2 over the 30,000 samples a simulator gets is 336.2
+# with musl's rand() sequence, against 330; over 300,000 it is 2,917.8, against 3,300 (1)
+FAIL: 20_util/hash/chi2_q_bit_flip_set.cc  -std=gnu++20 execution test
