@@ -165,6 +165,32 @@ def meson_setup(tree, build, cross, options, env):
 FONTCONFIG_GUEST = "tmp/fc-t"
 
 
+def buildroot_meson_options(source, **override):
+    """The -D options Buildroot configured a meson package with, OVERRIDE
+    replacing some."""
+    built = json.loads((source / "buildroot-build/meson-info/intro-buildoptions.json").read_text())
+    options = {o["name"]: o["value"] for o in built if o["section"] == "user"}
+    options.update(override)
+    return [f"-D{k}={str(v).lower() if isinstance(v, bool) else v}"
+            for k, v in options.items()]
+
+
+def build_libdrm(out, scratch, supervisor, env):
+    source = package_tree("libdrm")
+    tree = copy_tree(source, scratch, "libdrm")
+    meson_setup(tree, "tb", source / "buildroot-build/cross-compilation.conf",
+                buildroot_meson_options(source, tests=True), env)
+    suite = Suite(out, "libdrm", tree.name, supervisor)
+    tests = json.loads((tree / "tb/meson-info/intro-tests.json").read_text())
+    # The programs built here; the others are host scripts (symbol checks).
+    built = [t for t in tests if Path(t["cmd"][0]).is_relative_to(tree / "tb")]
+    for index, test in enumerate(sorted(built, key=lambda t: t["name"]), 1):
+        name = f"d{index:02d}.bin"
+        suite.add_file(name, source=Path(test["cmd"][0]), strip=True)
+        suite.case("libdrm/" + test["name"], name)
+    suite.write()
+
+
 def build_fontconfig(out, scratch, supervisor, env):
     source = package_tree("fontconfig")
     tree = copy_tree(source, scratch, "fontconfig")
@@ -290,7 +316,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "linux/artifacts/package-suites")
     parser.add_argument("--scratch", type=Path, default=WORK / "package-suites")
-    parser.add_argument("suites", nargs="*", default=["zlib", "expat", "fontconfig", "pixman"])
+    parser.add_argument("suites", nargs="*",
+                        default=["zlib", "expat", "fontconfig", "pixman", "libdrm"])
     args = parser.parse_args()
     args.scratch.mkdir(parents=True, exist_ok=True)
     # Cross builds take Buildroot's host tools (its meson and pkg-config)
@@ -301,7 +328,7 @@ def main():
     run(TOOLS / f"{TARGET}-gcc", "-std=gnu11", "-O2", ROOT / "linux/ltp/supervise.c",
         "-o", supervisor)
     builders = {"zlib": build_zlib, "expat": build_expat, "fontconfig": build_fontconfig,
-                "pixman": build_pixman}
+                "pixman": build_pixman, "libdrm": build_libdrm}
     for suite in args.suites:
         builders[suite](args.output, args.scratch, supervisor, env)
 

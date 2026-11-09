@@ -1594,7 +1594,7 @@ cause. GCC counts are results, several to a test:
 
 | Cause | Where |
 | --- | --- |
-| No MMU: no `fork`, no page faults to report, no large contiguous blocks, no guard pages | 14 libc-test programs and 264 LTP cases built around `fork`, and GCC's `time-profiler-2`; 10 libc-test and 9 LTP memory and fault cases; libffi's over-read check; expat's 49 checks that allocate 3-7 MB in one piece; pixman's `cover-test`, `fence-image-self-test` and `neg-stride-test`, which check accesses with guard pages; 2 libstdc++ tests whose allocations end in `bad_alloc` |
+| No MMU: no `fork`, no page faults to report, no large contiguous blocks, no guard pages | 14 libc-test programs and 264 LTP cases built around `fork`, and GCC's `time-profiler-2`; 10 libc-test and 9 LTP memory and fault cases; libffi's over-read check; expat's 49 checks that allocate 3-7 MB in one piece; libdrm's `drmsl`, a skip-list benchmark with a 4 MB array on its stack; pixman's `cover-test`, `fence-image-self-test` and `neg-stride-test`, which check accesses with guard pages; 2 libstdc++ tests whose allocations end in `bad_alloc` |
 | FDPIC | 13 GCC results: an absolute address in text from top-level `asm` (9), the address of a nested function (4) |
 | musl's deliberate behaviour, the same on every architecture | 62 LTP cases (25 of them process scheduling, which returns `ENOSYS`); `strptime`, `REG_STARTEND` and `fnmatch` cases; 502 GCC results that depend on C23 and C2y names from the C library's headers (`FLT32_*`, `nullptr_t`, `ULLONG_WIDTH`, `CR_DECIMAL_DIG`), GCC's own `<float.h>`, `O_ACCMODE` without `O_PATH`, or `-fshort-wchar` to change `wchar_t`; 36 g++ and 2 libstdc++ results that depend on `NULL` being GCC's `__null` (musl defines it as `nullptr`) or a global `nullptr_t` |
 | Optional POSIX features this system does not provide | 21 LTP cases: sporadic server, priority ceilings, priority-ordered read-write locks, process-contention scope |
@@ -1726,7 +1726,9 @@ fit as 1 MB blocks, is linked with 128 KB. `alpha-loop` stops itself as an
 infinite loop after 10 seconds, which one composite takes longer than here;
 it is built with 120. Of its 28 cases, 16 tests pass, 9 fuzzers give a
 native build's checksums over their first 5,000 iterations (`glyph-test`
-1,000), and the 3 that check guard pages skip.
+1,000), and the 3 that check guard pages skip. libdrm's tests build with
+Buildroot's options: `drmdevice` and `hash` pass, and `drmsl` needs a
+stack larger than the largest block, 4 MB.
 
 ## What comes next
 
