@@ -553,6 +553,12 @@ against `gcc-test/expected`.  Step times, niced at JOBS=4: the regression
 tests and dt-check 6 minutes, libc-test 11, BusyBox 19 and its Hush
 follow-ups 8, the LTP sweep 15, the package suites 69, GCC's C suite 246,
 g++ 153, libatomic under 1, libstdc++ about 300.
+- **Since that battery** the kernel gained `patches/fixes/0046` (private
+  mappings that cannot share) and libstdc++ GCC's `fixes/0012`
+  (`C.UTF-8`), and the root image was rebuilt with it.  Boot, app, gdb,
+  core and signal tests and LTP's mapping cases passed on them; the rest
+  of the battery and `card-test.py` (on a card made afresh) have not run
+  on them yet.
 - **libstdc++ at 256 KB, in full:** the board gives its tests 256 KB
   stacks, and only the tests that did not pass at 1 MB were rerun at
   256 KB.  The next full run shows whether any other test needs more;
