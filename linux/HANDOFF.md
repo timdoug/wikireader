@@ -564,9 +564,12 @@ g++ 153, libatomic under 1, libstdc++ about 300.
   and the tests' deliberate out-of-bounds syscalls corrupted it (accept
   panicked the kernel).  It is not in the default suites: 40 tests took
   5 minutes, so all 1,489 would take about 3 hours, and one boot fragments
-  memory (8 of a 40-test sample's 13 failures); Hush rejects something
-  accept's script does ("out of range"); bpf-success differs from its
-  expected output.  Next: batches on fresh boots, then those causes.
+  memory (8 of a 40-test sample's 13 failures).  The decoder tests'
+  checks that a pointer into a guard page gives EFAULT differ wherever
+  they occur, since nothing faults (accept, bpf-success: the expected raw
+  address is decoded instead), so a failure means something only if its
+  diff has other lines.  Next: batches on fresh boots, and a diff filter
+  that sets the guard-page lines aside.
 - **Not run yet, long:** GDB's testsuite.
 - **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass
   runs:** the relink leaves `cc1plus` missing and every compile in that
