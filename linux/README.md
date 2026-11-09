@@ -1728,7 +1728,11 @@ it is built with 120. Of its 28 cases, 16 tests pass, 9 fuzzers give a
 native build's checksums over their first 5,000 iterations (`glyph-test`
 1,000), and the 3 that check guard pages skip. libdrm's tests build with
 Buildroot's options: `drmdevice` and `hash` pass, and `drmsl` needs a
-stack larger than the largest block, 4 MB.
+stack larger than the largest block, 4 MB. The X server's unit tests build
+in a copy of Buildroot's built tree, configured again as its `config.status`
+records but with them enabled: all 22 groups pass, among them input, touch,
+XKB and the XI and XI2 protocol tests (its script tests need a running
+server and stay out).
 
 ## What comes next
 

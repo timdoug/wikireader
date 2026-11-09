@@ -191,6 +191,32 @@ def build_libdrm(out, scratch, supervisor, env):
     suite.write()
 
 
+def build_xserver(out, scratch, supervisor, env):
+    # Buildroot builds the server with autotools, in its tree: a copy of the
+    # built tree, configured again as config.status records with the unit
+    # tests enabled, builds only them.  Their script tests need a running
+    # server and stay out.
+    source = package_tree("xserver_xorg-server")
+    tree = copy_tree(source, scratch, "xserver")
+    status = tree / "config.status"
+    text = status.read_text()
+    if "--disable-unit-tests" not in text:
+        raise SystemExit("xserver: config.status does not disable the unit tests")
+    status.write_text(text.replace("--disable-unit-tests", "--enable-unit-tests"))
+    run("sh", "./config.status", "--recheck", cwd=tree, env=env)
+    run("sh", "./config.status", cwd=tree, env=env)
+    run("make", f"-j{os.environ.get('JOBS', '4')}", "-C", "test", "tests", cwd=tree, env=env)
+    program = tree / "test/.libs/tests"
+    if not program.is_file():
+        program = tree / "test/tests"
+    if program.read_bytes()[:4] != b"\x7fELF":
+        raise SystemExit(f"xserver: {program} is not a program")
+    suite = Suite(out, "xserver", tree.name, supervisor)
+    suite.add_file("x01.bin", source=program, strip=True)
+    suite.case("xserver/unit", "x01.bin")
+    suite.write()
+
+
 def build_fontconfig(out, scratch, supervisor, env):
     source = package_tree("fontconfig")
     tree = copy_tree(source, scratch, "fontconfig")
@@ -317,7 +343,7 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "linux/artifacts/package-suites")
     parser.add_argument("--scratch", type=Path, default=WORK / "package-suites")
     parser.add_argument("suites", nargs="*",
-                        default=["zlib", "expat", "fontconfig", "pixman", "libdrm"])
+                        default=["zlib", "expat", "fontconfig", "pixman", "libdrm", "xserver"])
     args = parser.parse_args()
     args.scratch.mkdir(parents=True, exist_ok=True)
     # Cross builds take Buildroot's host tools (its meson and pkg-config)
@@ -328,7 +354,7 @@ def main():
     run(TOOLS / f"{TARGET}-gcc", "-std=gnu11", "-O2", ROOT / "linux/ltp/supervise.c",
         "-o", supervisor)
     builders = {"zlib": build_zlib, "expat": build_expat, "fontconfig": build_fontconfig,
-                "pixman": build_pixman, "libdrm": build_libdrm}
+                "pixman": build_pixman, "libdrm": build_libdrm, "xserver": build_xserver}
     for suite in args.suites:
         builders[suite](args.output, args.scratch, supervisor, env)
 

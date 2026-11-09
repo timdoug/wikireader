@@ -557,8 +557,8 @@ g++ 153, libatomic under 1, libstdc++ about 300.
   stacks, and only the tests that did not pass at 1 MB were rerun at
   256 KB.  The next full run shows whether any other test needs more;
   `libstdc++-expected` would list it.
-- **Not run yet:** the X server's and strace's own suites; GDB's
-  testsuite.
+- **Not run yet, long:** strace's own suite (about 1,500 tests, shell
+  driven) and GDB's testsuite.
 - **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass
   runs:** the relink leaves `cc1plus` missing and every compile in that
   window fails. Build a fix in a separate object directory.
