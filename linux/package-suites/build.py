@@ -217,6 +217,65 @@ def build_xserver(out, scratch, supervisor, env):
     suite.write()
 
 
+def build_strace(out, scratch, supervisor, env):
+    # strace's tests run ../../src/strace on ../NAME from a NAME.dir each
+    # makes in the tests directory, beside their expected outputs: the
+    # whole of it goes on an ext4 image the guest loop-mounts, since the
+    # root filesystem has too little room and FAT no symlinks.  A test
+    # program that does not build fails its tests; make -k builds the rest.
+    tree = copy_tree(package_tree("strace"), scratch, "strace")
+    # tail_alloc() unmaps guard pages around each object so that the tests'
+    # accesses past it fault; without an MMU nothing faults, the kernel
+    # takes the pages back, and those accesses (through syscalls) wrote
+    # over its own data.  The guard pages stay mapped: such an access
+    # reaches the test's own memory, and only its expected EFAULT differs.
+    alloc = tree / "tests/tail_alloc.c"
+    guards = """	if (munmap(p, page_size) ||
+	    munmap(p + 2 * page_size, page_size) ||
+	    munmap(tail_guard, page_size) ||
+	    munmap(tail_guard + 2 * page_size, page_size))
+		perror_msg_and_fail("munmap");
+"""
+    text = alloc.read_text()
+    if text.count(guards) != 1:
+        raise SystemExit("strace: tail_alloc's guard pages are not where they were")
+    alloc.write_text(text.replace(guards, ""))
+    jobs = f"-j{os.environ.get('JOBS', '4')}"
+    subprocess.run(["make", "-k", "-C", "tests", jobs, "check", "TESTS="], cwd=tree, env=env,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    tests = subprocess.run(["make", "-s", "-C", "tests", "--eval",
+                            "print-tests: ; @echo $(TESTS)", "print-tests"],
+                           cwd=tree, env=env, check=True, capture_output=True,
+                           text=True).stdout.split()
+    pack = scratch / "strace-pack"
+    shutil.rmtree(pack, ignore_errors=True)
+    (pack / "src").mkdir(parents=True)
+    (pack / "tests").mkdir()
+    strip = TOOLS / f"{TARGET}-strip"
+    run(strip, "-o", pack / "src/strace", tree / "src/strace")
+    for f in sorted((tree / "tests").iterdir()):
+        if f.is_dir() or f.suffix in (".o", ".c", ".h", ".am", ".log", ".trs") \
+                or f.name.startswith("Makefile"):
+            continue
+        if f.read_bytes()[:4] == b"\x7fELF":
+            run(strip, "-o", pack / "tests" / f.name, f)
+        else:
+            shutil.copy2(f, pack / "tests" / f.name)
+    image = scratch / "strace.img"
+    image.unlink(missing_ok=True)
+    run("mke2fs", "-q", "-F", "-t", "ext4", "-d", pack, image, "64M")
+    suite = Suite(out, "strace", tree.name, supervisor)
+    suite.fixture("strace.img", source=image)
+    helper = scratch / "loopmount"
+    run(TOOLS / f"{TARGET}-gcc", "-O2", "-Wall", "-Werror", ROOT / "linux/package-suites/loopmount.c", "-o", helper)
+    suite.fixture("loopmnt.bin", source=helper, strip=True)
+    suite.manifest["setup"].append("mkdir -p /strace && /mnt/sd/loopmnt.bin /mnt/sd/strace.img /strace")
+    suite.add_file("st.sh", text='#!/bin/sh\ncd /strace/tests && exec sh "./$1"\n')
+    for test in tests:
+        suite.case("strace/" + test, "st.sh", argv=[test])
+    suite.write()
+
+
 def build_fontconfig(out, scratch, supervisor, env):
     source = package_tree("fontconfig")
     tree = copy_tree(source, scratch, "fontconfig")
@@ -354,7 +413,8 @@ def main():
     run(TOOLS / f"{TARGET}-gcc", "-std=gnu11", "-O2", ROOT / "linux/ltp/supervise.c",
         "-o", supervisor)
     builders = {"zlib": build_zlib, "expat": build_expat, "fontconfig": build_fontconfig,
-                "pixman": build_pixman, "libdrm": build_libdrm, "xserver": build_xserver}
+                "pixman": build_pixman, "libdrm": build_libdrm, "xserver": build_xserver,
+                "strace": build_strace}
     for suite in args.suites:
         builders[suite](args.output, args.scratch, supervisor, env)
 

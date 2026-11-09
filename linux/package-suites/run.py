@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SUITES = ROOT / "linux/artifacts/package-suites"
 # Guest seconds a case may take.  expat's one program holds all 5,000-odd
 # of its checks.
-TIMEOUTS = {"zlib": 600, "expat": 14400, "fontconfig": 1200, "pixman": 1200, "libdrm": 120, "xserver": 300}
+TIMEOUTS = {"zlib": 600, "expat": 14400, "fontconfig": 1200, "pixman": 1200, "libdrm": 120, "xserver": 300, "strace": 120}
 
 
 def main():

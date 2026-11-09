@@ -557,8 +557,17 @@ g++ 153, libatomic under 1, libstdc++ about 300.
   stacks, and only the tests that did not pass at 1 MB were rerun at
   256 KB.  The next full run shows whether any other test needs more;
   `libstdc++-expected` would list it.
-- **Not run yet, long:** strace's own suite (about 1,500 tests, shell
-  driven) and GDB's testsuite.
+- **strace's own suite:** `package-suites/build.py strace` builds it (1,360
+  of its 1,376 programs; 16 need 32-bit time syscalls, a dropped fallocate
+  flag or a -Werror waiver) onto an ext4 image `loopmnt.bin` mounts, and
+  keeps `tail_alloc`'s guard pages mapped: unmapped, the kernel reused them
+  and the tests' deliberate out-of-bounds syscalls corrupted it (accept
+  panicked the kernel).  It is not in the default suites: 40 tests took
+  5 minutes, so all 1,489 would take about 3 hours, and one boot fragments
+  memory (8 of a 40-test sample's 13 failures); Hush rejects something
+  accept's script does ("out of range"); bpf-success differs from its
+  expected output.  Next: batches on fresh boots, then those causes.
+- **Not run yet, long:** GDB's testsuite.
 - **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass
   runs:** the relink leaves `cc1plus` missing and every compile in that
   window fails. Build a fix in a separate object directory.
