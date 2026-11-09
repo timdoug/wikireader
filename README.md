@@ -35,8 +35,10 @@ on the device and in the emulator.
   are two targets. `c33-epson-elf-` builds the firmware and applications.
   `c33-linux-musl-` builds C and C++ programs for Linux, as FDPIC ELF with
   shared libraries. The binutils test suites pass with no unexpected failures
-  on both targets. GCC's execute torture suite runs inside Linux in the
-  emulator: 24,353 tests pass and one fails. We kept the original binutils
+  on both targets. GCC's testsuites run inside Linux in the emulator: all
+  26,514 execute torture results pass, and every result of the C, C++ and
+  runtime library suites other than a pass is listed with its cause in
+  `linux/gcc-test/expected`. We kept the original binutils
   2.10.1 and GCC 3.3.2 build so that we can check the ABI and assembler output
   against it.
 
@@ -101,7 +103,7 @@ on the device and in the emulator.
   `startx` starts X11 (Xorg on DRM, twm, a Unicode xterm and xeyes),
   which you control by touch. Suspend works, and a touch wakes the device. On
   the device, the shell prompt appears 4.76 s after the kernel starts. C++ works,
-  with exceptions and threads. 1,183 of LTP's POSIX tests pass. A Wayland
+  with exceptions and threads. 1,178 of LTP's POSIX tests pass. A Wayland
   session (cage and foot) also builds, but it is switched off because X is
   much cheaper on this CPU.
 - `nuttx`: Apache NuttX. You get NSH with 139 Toybox commands (`awk grep sed
