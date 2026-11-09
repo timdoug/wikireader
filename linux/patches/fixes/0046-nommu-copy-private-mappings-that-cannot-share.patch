@@ -1,0 +1,80 @@
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] mm/nommu: copy a private mapping that cannot share its region
+
+A read-only private mapping of a file shares an existing region of that
+file when it is a subset of it, or goes on the file's pages when the
+filesystem maps directly.  Two cases failed instead:
+
+- a subset of a region the process has mapped itself, such as its own
+  executable's text: the new mapping lies partly inside that one, which
+  a Maple Tree slot cannot hold, so it failed with -ENOMEM;
+- a mapping that overlaps a region without being a subset, on a file
+  that cannot be mapped directly: "Attempt to share mismatched mappings"
+  and -EINVAL, which protects shared mappings' consistency.
+
+libbacktrace maps parts of the running executable, some reaching past
+its text into the symbol and line tables, so std::stacktrace had no
+names or lines.  A private mapping in either case now gets a private
+copy, as MAP_PRIVATE allows; shared mappings are unchanged.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -1025,6 +1025,18 @@
+ 	       len, current->pid, current->comm);
+ 	show_mem();
+ 	return -ENOMEM;
++}
++
++/*
++ * Whether [start, end) would partly overlap one of mm's mappings.  A Maple
++ * Tree slot holds one VMA, so such a range cannot be registered.
++ */
++static bool nommu_overlaps_partly(struct mm_struct *mm, unsigned long start,
++				  unsigned long end)
++{
++	struct vm_area_struct *vma = find_vma_intersection(mm, start, end);
++
++	return vma && (vma->vm_start != start || vma->vm_end != end);
+ }
+ 
+ /*
+@@ -1142,11 +1154,22 @@
+ 			 * mappings */
+ 			if ((pregion->vm_pgoff != pgoff || rpglen != pglen) &&
+ 			    !(pgoff >= pregion->vm_pgoff && pgend <= rpgend)) {
+-				/* new mapping is not a subset of the region */
+-				if (!(capabilities & NOMMU_MAP_DIRECT))
++				/* new mapping is not a subset of the region; a
++				 * private one gets a copy of its own */
++				if (!(capabilities & NOMMU_MAP_DIRECT) &&
++				    (vm_flags & VM_SHARED))
+ 					goto sharing_violation;
+ 				continue;
+ 			}
++
++			/* A private mapping inside one of this process's own
++			 * mappings of the region, such as a program reading
++			 * its own executable, gets a copy instead. */
++			start = pregion->vm_start;
++			start += (pgoff - pregion->vm_pgoff) << PAGE_SHIFT;
++			if (!(vm_flags & VM_SHARED) &&
++			    nommu_overlaps_partly(current->mm, start, start + len))
++				continue;
+ 
+ 			/* we've found a region we can share */
+ 			pregion->vm_usage++;
+@@ -1200,6 +1223,12 @@
+ 				/* The VMA end must not wrap past TASK_SIZE. */
+ 				ret = -ENOMEM;
+ 				goto error_just_free;
++			} else if (!(vm_flags & VM_SHARED) &&
++				   (capabilities & NOMMU_MAP_COPY) &&
++				   nommu_overlaps_partly(current->mm, addr,
++							 addr + len)) {
++				/* As above: a copy, not the file's pages. */
++				capabilities &= ~NOMMU_MAP_DIRECT;
+ 			} else {
+ 				vma->vm_start = region->vm_start = addr;
+ 				vma->vm_end = region->vm_end = addr + len;
