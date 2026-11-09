@@ -24,10 +24,13 @@ TARGET = "c33-linux-musl"
 TOOLS = WORK / "toolchain/install/bin"
 
 # pixman's tests that are left out: each takes more than 20 guest minutes,
-# most of it in software floating point; alpha-loop stops itself after 10
-# seconds without progress.
+# most of it in software floating point.
 PIXMAN_SLOW = {"pixel-test", "alphamap", "gradient-crash-test", "filter-reduction-test",
-               "stress-test", "composite", "tolerance-test", "alpha-loop"}
+               "stress-test", "composite", "tolerance-test"}
+# alpha-loop calls a composite through a loop of alpha maps an infinite
+# loop if it takes 10 seconds, which this CPU needs more than; it finishes
+# in well under two minutes.
+ALPHA_LOOP_SECONDS = 120
 # The fuzzers run the first iterations of their range, compared with the
 # checksum a native build prints for the same range.  glyph-test's 5,000
 # take more than 20 guest minutes.
@@ -220,6 +223,11 @@ exec env srcdir=/{guest}/test builddir=/{guest}/tb/test EXEEXT= VERBOSE=1 sh /{g
 def build_pixman(out, scratch, supervisor, env):
     source = package_tree("pixman")
     tree = copy_tree(source, scratch, "pixman")
+    alpha_loop = tree / "test/alpha-loop.c"
+    text = alpha_loop.read_text()
+    if text.count("fail_after (10,") != 1:
+        raise SystemExit("pixman: alpha-loop's watchdog is not where it was")
+    alpha_loop.write_text(text.replace("fail_after (10,", f"fail_after ({ALPHA_LOOP_SECONDS},"))
     options = ["-Dtests=enabled", "-Ddemos=disabled", "-Dgtk=disabled", "-Dlibpng=disabled",
                "-Dopenmp=disabled"]
     # The tests are written for a growable stack; the toolchain links 32 KB.

@@ -1601,7 +1601,7 @@ cause. GCC counts are results, several to a test:
 | Configuration choices | IPv4 left out (2 libc-test, 470 KB resident; both pass with it); Hush's leak-check builtin left out (9 Hush); Hush as `/bin/sh` (`wordexp` subtests); `long double` is `double` (5 libc-test math) |
 | Upstream bugs | musl regex back-references (4 libc-test), BusyBox's own known `sed` and `cpio` bugs (4), 3 Hush bugs that glibc builds fail too |
 | The tests themselves | 16 LTP assumptions POSIX leaves open, chiefly a page-sized `PTHREAD_STACK_MIN`; 4 placeholders; 3 undefined operations; 1 absent permission precondition; GCC's `inline5.c`, whose scan pattern does not match with a `;` comment character (xfailed on hppa for that reason); g++'s `pr120098.C` at `-O0`, whose loop bound is an uninitialized member; libstdc++'s `chi2_q_bit_flip_set`, whose hash distribution over the 30,000 samples a simulator gets measures 336.2 with musl's `rand()` sequence against a limit of 330 (2,917.8 against 3,300 over the full 300,000) |
-| This machine's limits | 7 pixman tests (`pixel`, `alphamap`, `gradient-crash`, `filter-reduction`, `stress`, `composite`, and `glyph` over 5,000 iterations) take more than 20 guest minutes, about three quarters of it in software floating point (`pixel-test`, profiled), and `alpha-loop` stops itself after 10 seconds; `gcc.dg/lto/pr122515` links two 160 MB arrays, past the 64 MB the data-area displacement reaches; 8 GCC and 11 libstdc++ tests run past the 240-guest-second deadline |
+| This machine's limits | 7 pixman tests (`pixel`, `alphamap`, `gradient-crash`, `filter-reduction`, `stress`, `composite`, and `glyph` over 5,000 iterations) take more than 20 guest minutes, about three quarters of it in software floating point (`pixel-test`, profiled); `gcc.dg/lto/pr122515` links two 160 MB arrays, past the 64 MB the data-area displacement reaches; 8 GCC and 11 libstdc++ tests run past the 240-guest-second deadline |
 
 GCC's execute torture, binutils, the LTP port regressions, zlib, fontconfig,
 libatomic and the launcher tests have no failures.
@@ -1722,9 +1722,11 @@ and on no-MMU `mprotect` fails, so every guarded buffer was NULL and
 are built without `HAVE_MPROTECT`. They are written for a growable stack, and
 the toolchain links 32 KB, so they are linked with 1 MB; musl takes that size
 for every thread's stack as well, so `thread-test`, whose 16 threads did not
-fit as 1 MB blocks, is linked with 128 KB. Of its 27 cases, 15 tests pass,
-9 fuzzers give a native build's checksums over their first 5,000 iterations
-(`glyph-test` 1,000), and the 3 that check guard pages skip.
+fit as 1 MB blocks, is linked with 128 KB. `alpha-loop` stops itself as an
+infinite loop after 10 seconds, which one composite takes longer than here;
+it is built with 120. Of its 28 cases, 16 tests pass, 9 fuzzers give a
+native build's checksums over their first 5,000 iterations (`glyph-test`
+1,000), and the 3 that check guard pages skip.
 
 ## What comes next
 
