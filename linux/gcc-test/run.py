@@ -35,8 +35,9 @@ TIMEOUT = int(os.environ.get("C33L_TIMEOUT", 240))
 # start, so a failure in a long batch is run again in a short one.
 BATCH = int(os.environ.get("C33L_BATCH", 3000))
 # A program that ends other than with exit 0 or a timeout in a batch of
-# more than RETRY runs again in one of RETRY, and that result counts.
-RETRY = int(os.environ.get("C33L_RETRY", 8))
+# more than RETRY runs again in one of RETRY, and that result counts: one
+# a boot, since eight of libstdc++'s heaviest still fragmented memory.
+RETRY = int(os.environ.get("C33L_RETRY", 1))
 VM = ["limactl", "shell", "--workdir", str(ROOT), "wr-linux"]
 
 

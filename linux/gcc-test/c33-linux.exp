@@ -28,7 +28,15 @@ set_board_info cflags " -frandom-seed=0"
 # Without an MMU a program's stack is what its link asks for, 32 KB by
 # default; the tests get 1 MB.  They are told half that: they size frames
 # from it, and -O0 copies a by-value argument of half of what they are told.
-set_board_info ldflags "-Wl,-z,stack-size=1048576"
+# musl gives every thread a stack of that size too, one contiguous block
+# each, and libstdc++'s thread tests could not start theirs (EAGAIN): its
+# tests get 256 KB.
+global tool
+if {[info exists tool] && $tool eq "libstdc++"} {
+    set_board_info ldflags "-Wl,-z,stack-size=262144"
+} else {
+    set_board_info ldflags "-Wl,-z,stack-size=1048576"
+}
 set_board_info gcc,stack_size 524288
 set_board_info mathlib "-lm"
 set_board_info obj_format elf

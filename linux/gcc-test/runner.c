@@ -129,7 +129,10 @@ static int note_work_file(const char *path, const struct stat *st, int type,
 	int i;
 
 	(void)ftw;
-	if (type != FTW_F || nfiles >= MAX_FILES || st->st_size > MAX_WORK_FILE)
+	/* Regular files only: nftw reports a FIFO a test made as FTW_F, and
+	   opening it to read would wait for a writer forever. */
+	if (type != FTW_F || !S_ISREG(st->st_mode) || nfiles >= MAX_FILES ||
+	    st->st_size > MAX_WORK_FILE)
 		return 0;
 	for (i = 0; i < ninputs; i++)
 		if (!strcmp(relative, inputs[i]))
