@@ -55,4 +55,5 @@ step g++-expected python3 gcc-test/check-expected.py artifacts/gcc-test/results/
 step libatomic env C33L_OUT=artifacts/libatomic-test nice -n 19 python3 gcc-test/run.py --tool=libatomic all
 step libatomic-expected python3 gcc-test/check-expected.py artifacts/libatomic-test/results/libatomic.sum
 step libstdc++ env C33L_OUT=artifacts/libstdc++-test nice -n 19 python3 gcc-test/run.py --tool=libstdc++ all
+step libstdc++-expected python3 gcc-test/check-expected.py artifacts/libstdc++-test/results/libstdc++.sum
 echo "=== $(date +%T) battery done" >> "$out/summary.txt"
