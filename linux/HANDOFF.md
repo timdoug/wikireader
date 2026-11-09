@@ -546,29 +546,22 @@ Where it departs:
 
 ## What is left, in the order I would take it
 
-The test batteries after the next world rebuild, which picks up the
-compiler's 2026-11-07 fixes (`e59c4dd3`, `87d70edc`, `7c42d308`) and the
-`_Float128` additions to libgcc and libstdc++ that the image's runtimes
-lack:
-- **libstdc++ is unfinished.** Its last complete run, 16,705 passes and
-  216 failures, came from batches long enough to fragment memory: 172
-  programs could not load `libstdc++.so.6` and 13 more could not start
-  a thread or allocate. `battery.sh` runs the suite in full (about seven
-  hours); delete the results other than success from its
-  `artifacts/libstdc++-test/executed` and run the same command again, so
-  that they run in one short batch on a fresh boot. Results that loaded and
-  still need that verdict: `stacktrace` (3), `hash/chi2_q_bit_flip_set`,
-  `vstring` 28277, `filesystem/path/append/source`, `regex_match` 63199
-  (wchar_t locale), `list/pthread1` (SIGTRAP), 9 timeouts; compile
-  failures in `17_intro/names.cc`, `names_fortify.cc`,
-  `experimental/names.cc`, `unique_ptr/lwg4148`,
-  `packaged_task/cons/dangling_ref` and both `wait_notify.cc`; and 3
-  `file-io-diff` tests, whose input files the board does not copy to the
-  guest.
-- **Then the rest once each:** `linux/battery.sh` runs every suite in
-  turn, one emulator at a time, after `linux/world.sh` builds the world.
-  Their last results and every failure's cause are in README.md,
-  "Expected failures" and "GCC and binutils test suites".
+The test battery ran in full on 2026-11-07 and 08, on a world built from
+nothing by `linux/world.sh` (about 45 minutes): every suite gives its
+documented results, and each GCC suite's `*-expected` step checks it
+against `gcc-test/expected`.  Step times, niced at JOBS=4: the regression
+tests and dt-check 6 minutes, libc-test 11, BusyBox 19 and its Hush
+follow-ups 8, the LTP sweep 15, the package suites 69, GCC's C suite 246,
+g++ 153, libatomic under 1, libstdc++ about 300.
+- **libstdc++ at 256 KB, in full:** the board gives its tests 256 KB
+  stacks, and only the tests that did not pass at 1 MB were rerun at
+  256 KB.  The next full run shows whether any other test needs more;
+  `libstdc++-expected` would list it.
+- **libstdc++'s `names.cc` tests against the port's `bits/signal.h`:** its
+  field `r` is a name those tests reserve; a reserved name for it, with
+  the kernel's `sigcontext` layout unchanged, would let them pass.
+- **Not yet explained:** `std::stacktrace`'s entries lack names and
+  lines (3 tests), and `chi2_q_bit_flip_set`'s hash check fails.
 - **Not run yet:** pixman's `alpha-loop` with its
   watchdog raised, on the corrected pixman build; libdrm's, the X
   server's and strace's own suites; GDB's testsuite.
