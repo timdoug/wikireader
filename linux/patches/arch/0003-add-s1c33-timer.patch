@@ -8,10 +8,10 @@ overlay.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
-index d9c76dd44..e61f1dd92 100644
+index da8348329..da767e3af 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
-@@ -824,4 +824,14 @@ choice
+@@ -835,4 +835,14 @@ choice
  
  endchoice
  
@@ -27,11 +27,11 @@ index d9c76dd44..e61f1dd92 100644
 +
  endmenu
 diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
-index b46376af6..f50da9a4e 100644
+index 464ec6690..a2d4a3cfc 100644
 --- a/drivers/clocksource/Makefile
 +++ b/drivers/clocksource/Makefile
-@@ -96,3 +96,4 @@ obj-$(CONFIG_EP93XX_TIMER)		+= timer-ep93xx.o
- obj-$(CONFIG_RALINK_TIMER)		+= timer-ralink.o
+@@ -97,3 +97,4 @@ obj-$(CONFIG_RALINK_TIMER)		+= timer-ralink.o
  obj-$(CONFIG_NXP_STM_TIMER)		+= timer-nxp-stm.o
  obj-$(CONFIG_RTK_SYSTIMER)		+= timer-realtek.o
+ obj-$(CONFIG_RZN1_TIMER)		+= timer-rzn1.o
 +obj-$(CONFIG_TIMER_S1C33)		+= timer-s1c33.o

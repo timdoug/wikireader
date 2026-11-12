@@ -12,9 +12,11 @@ text's color.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 ---
+diff --git a/drivers/gpu/drm/clients/drm_log.c b/drivers/gpu/drm/clients/drm_log.c
+index 4654091fe..2ed708eb1 100644
 --- a/drivers/gpu/drm/clients/drm_log.c
 +++ b/drivers/gpu/drm/clients/drm_log.c
-@@ -49,6 +49,7 @@
+@@ -49,6 +49,7 @@ struct drm_log_scanout {
  	u32 px_width;
  	u32 front_color;
  	u32 prefix_color;
@@ -22,17 +24,17 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  };
  
  struct drm_log {
-@@ -98,7 +99,8 @@
+@@ -96,7 +97,8 @@ static void drm_log_clear_line(struct drm_log_scanout *scanout, u32 line,
+ 	unsigned long height = scanout->scaled_font_h;
+ 	struct drm_rect r = DRM_RECT_INIT(0, line * height, fb->width, height);
  
- 	if (drm_client_buffer_vmap_local(scanout->buffer, &map))
- 		return;
 -	iosys_map_memset(&map, r.y1 * fb->pitches[0], 0, height * fb->pitches[0]);
 +	iosys_map_memset(&map, r.y1 * fb->pitches[0], scanout->clear,
 +			 height * fb->pitches[0]);
- 	drm_client_buffer_vunmap_local(scanout->buffer);
- 	drm_client_buffer_flush(scanout->buffer, &r);
  }
-@@ -112,6 +114,7 @@
+ 
+ static void drm_log_draw_line(struct drm_log_scanout *scanout, const char *s,
+@@ -108,6 +110,7 @@ static void drm_log_draw_line(struct drm_log_scanout *scanout, const char *s,
  	size_t font_pitch = DIV_ROUND_UP(font->width, 8);
  	const u8 *src;
  	u32 px_width = fb->format->cpp[0];
@@ -40,7 +42,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	struct drm_rect r = DRM_RECT_INIT(0, scanout->line * scanout->scaled_font_h,
  					  fb->width, (scanout->line + 1) * scanout->scaled_font_h);
  	u32 i;
-@@ -124,11 +127,17 @@
+@@ -119,11 +122,17 @@ static void drm_log_draw_line(struct drm_log_scanout *scanout, const char *s,
  		u32 color = (i < prefix_len) ? scanout->prefix_color : scanout->front_color;
  		src = font_data_glyph_buf(font->data, font->width, font->height,
  					  (unsigned char)s[i]);
@@ -60,7 +62,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	}
  
  	scanout->line++;
-@@ -228,6 +237,22 @@
+@@ -242,6 +251,22 @@ static int drm_log_setup_modeset(struct drm_client_dev *client,
  	}
  	scanout->front_color = drm_draw_color_from_xrgb8888(0xffffff, format);
  	scanout->prefix_color = drm_draw_color_from_xrgb8888(0x4e9a06, format);

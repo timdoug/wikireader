@@ -81,7 +81,7 @@ on the device and in the emulator.
 
 ### Operating systems
 
-- `linux`: Linux 7.3 without an MMU, running natively on the C33. It starts
+- `linux`: Linux 7.4 without an MMU, running natively on the C33. It starts
   from the launcher like any other application, and `reboot` returns to the
   launcher. One kernel image runs on both 16 MiB and 32 MiB boards. The board
   is described in a device tree, with schemas for every binding. Each piece of

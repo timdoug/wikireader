@@ -8,10 +8,10 @@ overlay.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
-index a0f37e2df..8de5db6d7 100644
+index 49088e588..3ed8361e6 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
-@@ -1022,6 +1022,16 @@ config SPI_QCOM_GENI
+@@ -1052,6 +1052,16 @@ config SPI_QCOM_GENI
  	  This driver can also be built as a module.  If so, the module
  	  will be called spi-geni-qcom.
  
@@ -29,11 +29,11 @@ index a0f37e2df..8de5db6d7 100644
  	tristate "Samsung S3C64XX/Exynos SoC series type SPI"
  	depends on (PLAT_SAMSUNG || ARCH_S5PV210 || ARCH_EXYNOS || COMPILE_TEST)
 diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
-index a18814fbd..a5a3822e6 100644
+index b493f50b9..8ce7db832 100644
 --- a/drivers/spi/Makefile
 +++ b/drivers/spi/Makefile
-@@ -135,6 +135,7 @@ obj-$(CONFIG_SPI_RPCIF)			+= spi-rpc-if.o
- obj-$(CONFIG_SPI_RSPI)			+= spi-rspi.o
+@@ -137,6 +137,7 @@ obj-$(CONFIG_SPI_RSPI)			+= spi-rspi.o
+ obj-$(CONFIG_SPI_RTK_NOR)		+= spi-rtk-nor.o
  obj-$(CONFIG_SPI_RZV2H_RSPI)		+= spi-rzv2h-rspi.o
  obj-$(CONFIG_SPI_RZV2M_CSI)		+= spi-rzv2m-csi.o
 +obj-$(CONFIG_SPI_S1C33)		+= spi-s1c33.o

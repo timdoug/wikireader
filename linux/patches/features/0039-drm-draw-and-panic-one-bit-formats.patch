@@ -14,6 +14,8 @@ them, into a mapping; one bit a pixel given as pages is not drawn.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 ---
+diff --git a/drivers/gpu/drm/drm_draw.c b/drivers/gpu/drm/drm_draw.c
+index 5043baf90..1ae46886b 100644
 --- a/drivers/gpu/drm/drm_draw.c
 +++ b/drivers/gpu/drm/drm_draw.c
 @@ -25,6 +25,8 @@
@@ -25,10 +27,11 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	case DRM_FORMAT_RGB565:
  	case DRM_FORMAT_RGBA5551:
  	case DRM_FORMAT_XRGB1555:
-@@ -45,6 +47,31 @@
+@@ -44,6 +46,31 @@ bool drm_draw_can_convert_from_xrgb8888(u32 format)
+ }
  EXPORT_SYMBOL(drm_draw_can_convert_from_xrgb8888);
  
- /**
++/**
 + * drm_draw_is_mono - check if a format is one bit a pixel, monochrome
 + * @format: format
 + *
@@ -53,11 +56,10 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
 +	return r * 77 + g * 150 + b * 29 >= 128 * 256;
 +}
 +
-+/**
+ /**
   * drm_draw_color_from_xrgb8888 - convert one pixel from xrgb8888 to the desired format
   * @color: input color, in xrgb8888 format
-  * @format: output format
-@@ -56,6 +83,10 @@
+@@ -56,6 +83,10 @@ EXPORT_SYMBOL(drm_draw_can_convert_from_xrgb8888);
  u32 drm_draw_color_from_xrgb8888(u32 color, u32 format)
  {
  	switch (format) {
@@ -68,7 +70,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	case DRM_FORMAT_RGB565:
  		return drm_pixel_xrgb8888_to_rgb565(color);
  	case DRM_FORMAT_RGBA5551:
-@@ -89,6 +120,88 @@
+@@ -89,6 +120,88 @@ EXPORT_SYMBOL(drm_draw_color_from_xrgb8888);
  /*
   * Blit functions
   */
@@ -157,7 +159,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  void drm_draw_blit16(struct iosys_map *dmap, unsigned int dpitch,
  		     const u8 *sbuf8, unsigned int spitch,
  		     unsigned int height, unsigned int width,
-@@ -142,6 +255,37 @@
+@@ -142,6 +255,37 @@ EXPORT_SYMBOL(drm_draw_blit32);
  /*
   * Fill functions
   */
@@ -195,9 +197,11 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  void drm_draw_fill16(struct iosys_map *dmap, unsigned int dpitch,
  		     unsigned int height, unsigned int width,
  		     u16 color)
+diff --git a/drivers/gpu/drm/drm_draw_internal.h b/drivers/gpu/drm/drm_draw_internal.h
+index 44ddcee47..71d9cd08b 100644
 --- a/drivers/gpu/drm/drm_draw_internal.h
 +++ b/drivers/gpu/drm/drm_draw_internal.h
-@@ -19,8 +19,15 @@
+@@ -19,8 +19,15 @@ static inline bool drm_draw_is_pixel_fg(const u8 *sbuf8, unsigned int spitch, in
  
  bool drm_draw_can_convert_from_xrgb8888(u32 format);
  
@@ -213,7 +217,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  void drm_draw_blit16(struct iosys_map *dmap, unsigned int dpitch,
  		     const u8 *sbuf8, unsigned int spitch,
  		     unsigned int height, unsigned int width,
-@@ -36,6 +43,10 @@
+@@ -36,6 +43,10 @@ void drm_draw_blit32(struct iosys_map *dmap, unsigned int dpitch,
  		     unsigned int height, unsigned int width,
  		     unsigned int scale, u32 fg32);
  
@@ -224,10 +228,12 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  void drm_draw_fill16(struct iosys_map *dmap, unsigned int dpitch,
  		     unsigned int height, unsigned int width,
  		     u16 color);
---- a/drivers/gpu/drm/drm_panic.c
-+++ b/drivers/gpu/drm/drm_panic.c
-@@ -296,6 +296,12 @@
- 					   sbuf8, spitch, clip, scale, fg_color);
+diff --git a/drivers/gpu/drm/drm_panic_helper.c b/drivers/gpu/drm/drm_panic_helper.c
+index 8913c3d22..ba029eed7 100644
+--- a/drivers/gpu/drm/drm_panic_helper.c
++++ b/drivers/gpu/drm/drm_panic_helper.c
+@@ -253,6 +253,12 @@ static void drm_panic_helper_blit(struct drm_scanout_buffer *sb, struct drm_rect
+ 						  sbuf8, spitch, clip, scale, fg_color);
  
  	map = sb->map[0];
 +	if (drm_draw_is_mono(sb->format->format)) {
@@ -239,8 +245,8 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	iosys_map_incr(&map, clip->y1 * sb->pitch[0] + clip->x1 * sb->format->cpp[0]);
  
  	switch (sb->format->cpp[0]) {
-@@ -385,6 +391,12 @@
- 					   clip, color);
+@@ -342,6 +348,12 @@ static void drm_panic_helper_fill(struct drm_scanout_buffer *sb, struct drm_rect
+ 						  clip, color);
  
  	map = sb->map[0];
 +	if (drm_draw_is_mono(sb->format->format)) {
@@ -252,14 +258,14 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	iosys_map_incr(&map, clip->y1 * sb->pitch[0] + clip->x1 * sb->format->cpp[0]);
  
  	switch (sb->format->cpp[0]) {
-@@ -938,6 +950,10 @@
+@@ -887,6 +899,10 @@ int drm_plane_helper_display_panic_screen(struct drm_plane *plane, const char *d
  	if (!sb.set_pixel && !sb.pages && iosys_map_is_null(&sb.map[0]))
- 		goto unlock;
+ 		return -EINVAL;
  
 +	/* One bit a pixel is drawn into a mapping or through set_pixel. */
 +	if (drm_draw_is_mono(sb.format->format) && !sb.set_pixel && sb.pages)
-+		goto unlock;
++		return -EINVAL;
 +
- 	drm_panic_set_description(description);
+ 	drm_panic_helper_set_description(description);
  
- 	draw_panic_dispatch(&sb);
+ 	ret = draw_panic_helper_dispatch(&sb, panic_type, fg_color, bg_color, qr_version);

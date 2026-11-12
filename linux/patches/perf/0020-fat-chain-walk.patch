@@ -11,7 +11,7 @@ runs.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/fs/fat/cache.c b/fs/fat/cache.c
-index 1b87354e24..3cb4ab804f 100644
+index 1b87354e2..3cb4ab804 100644
 --- a/fs/fat/cache.c
 +++ b/fs/fat/cache.c
 @@ -247,6 +247,7 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
@@ -34,10 +34,10 @@ index 1b87354e24..3cb4ab804f 100644
  	nr = 0;
  	fat_cache_add(inode, &cid);
 diff --git a/fs/fat/fat.h b/fs/fat/fat.h
-index 2772675bd3..b04e63fbc1 100644
+index a8a3ca4f4..0492beecc 100644
 --- a/fs/fat/fat.h
 +++ b/fs/fat/fat.h
-@@ -391,6 +391,9 @@ static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
+@@ -392,6 +392,9 @@ static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
  extern void fat_ent_access_init(struct super_block *sb);
  extern int fat_ent_read(struct inode *inode, struct fat_entry *fatent,
  			int entry);
@@ -45,10 +45,10 @@ index 2772675bd3..b04e63fbc1 100644
 +extern int fat_ent_follow_contig(struct super_block *sb,
 +				 struct fat_entry *fatent, int max);
  extern int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
- 			 int new, int wait);
+ 			 int new, int old, int wait);
  extern int fat_alloc_clusters(struct inode *inode, int *cluster,
 diff --git a/fs/fat/fatent.c b/fs/fat/fatent.c
-index f0801d99dd..1e72cd2fca 100644
+index 2d10a815a..1e86a6ac0 100644
 --- a/fs/fat/fatent.c
 +++ b/fs/fat/fatent.c
 @@ -412,6 +412,94 @@ static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
@@ -144,5 +144,5 @@ index f0801d99dd..1e72cd2fca 100644
 +}
 +
  int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
- 		  int new, int wait)
+ 		  int new, int old, int wait)
  {

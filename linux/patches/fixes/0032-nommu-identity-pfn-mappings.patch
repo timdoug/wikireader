@@ -15,9 +15,10 @@ to zero. Return ENOMEM, as for any range beyond TASK_SIZE.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c
+index efbb86f0d..fc7301ef9 100644
 --- a/mm/nommu.c
 +++ b/mm/nommu.c
-@@ -1197,6 +1197,10 @@
+@@ -1190,6 +1190,10 @@ unsigned long do_mmap(struct file *file,
  					goto error_just_free;
  
  				capabilities &= ~NOMMU_MAP_DIRECT;
@@ -28,7 +29,7 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  			} else {
  				vma->vm_start = region->vm_start = addr;
  				vma->vm_end = region->vm_end = addr + len;
-@@ -1745,6 +1749,20 @@
+@@ -1751,6 +1755,20 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
  }
  EXPORT_SYMBOL(remap_pfn_range);
  
@@ -49,10 +50,11 @@ diff --git a/mm/nommu.c b/mm/nommu.c
  int vm_iomap_memory(struct vm_area_struct *vma, phys_addr_t start, unsigned long len)
  {
  	unsigned long pfn = start >> PAGE_SHIFT;
-diff --git a/mm/util.c	2026-10-01 18:15:22.882546307 -0700 b/mm/util.c	2026-10-01 18:15:22.882546307 -0700
---- a/mm/util.c	2026-10-01 18:15:22.882546307 -0700
-+++ b/mm/util.c	2026-10-01 18:15:22.882546307 -0700
-@@ -1507,7 +1507,9 @@
+diff --git a/mm/util.c b/mm/util.c
+index 80f6c7148..2c3909ebf 100644
+--- a/mm/util.c
++++ b/mm/util.c
+@@ -1607,7 +1607,9 @@ int mmap_action_prepare(struct vm_area_desc *desc)
  	case MMAP_NOTHING:
  		break;
  	case MMAP_REMAP_PFN:
@@ -60,9 +62,9 @@ diff --git a/mm/util.c	2026-10-01 18:15:22.882546307 -0700 b/mm/util.c	2026-10-0
  	case MMAP_IO_REMAP_PFN:
 +		return io_remap_pfn_range_prepare(desc);
  	case MMAP_SIMPLE_IO_REMAP:
- 	case MMAP_MAP_KERNEL_PAGES:
- 		WARN_ON_ONCE(1); /* nommu cannot handle these. */
-@@ -1526,8 +1528,9 @@
+ 	case MMAP_KERNEL_PAGES:
+ 	case MMAP_DISCONTIG_KERNEL_PAGES:
+@@ -1627,8 +1629,9 @@ int mmap_action_complete(struct vm_area_struct *vma,
  
  	switch (action->type) {
  	case MMAP_NOTHING:
@@ -72,4 +74,4 @@ diff --git a/mm/util.c	2026-10-01 18:15:22.882546307 -0700 b/mm/util.c	2026-10-0
 +		break;
  	case MMAP_IO_REMAP_PFN:
  	case MMAP_SIMPLE_IO_REMAP:
- 	case MMAP_MAP_KERNEL_PAGES:
+ 	case MMAP_KERNEL_PAGES:

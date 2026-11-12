@@ -8,10 +8,11 @@ The iterator already handles zero filling, partial faults and signals.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
-diff --git a/drivers/char/mem.c b/drivers/char/mem.c
---- a/drivers/char/mem.c
-+++ b/drivers/char/mem.c
-@@ -471,33 +471,6 @@
+diff --git a/mm/char-mem.c b/mm/char-mem.c
+index c5761dded..6cc1a1c57 100644
+--- a/mm/char-mem.c
++++ b/mm/char-mem.c
+@@ -473,33 +473,6 @@ static ssize_t read_iter_zero(struct kiocb *iocb, struct iov_iter *iter)
  	return written;
  }
  
@@ -45,7 +46,7 @@ diff --git a/drivers/char/mem.c b/drivers/char/mem.c
  static int mmap_zero_prepare(struct vm_area_desc *desc)
  {
  #ifndef CONFIG_MMU
-@@ -667,7 +640,6 @@
+@@ -665,7 +638,6 @@ static const struct file_operations zero_fops = {
  	.llseek		= zero_lseek,
  	.write		= write_zero,
  	.read_iter	= read_iter_zero,

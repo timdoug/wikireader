@@ -9,9 +9,10 @@ any pending skip, which is also part of the logical position.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
+index d3872169f..0582d1e49 100644
 --- a/fs/binfmt_elf_fdpic.c
 +++ b/fs/binfmt_elf_fdpic.c
-@@ -1648,11 +1648,11 @@ static int elf_fdpic_core_dump(struct coredump_params *cprm)
+@@ -1649,11 +1649,11 @@ static bool elf_fdpic_core_dump(struct coredump_params *cprm)
  			goto end_coredump;
  	}
  
@@ -25,4 +26,4 @@ diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
 +		       cprm->pos + cprm->to_skip, offset);
  	}
  
- end_coredump:
+ 	ret = true;

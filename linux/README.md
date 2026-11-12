@@ -1,6 +1,6 @@
 # Native C33 Linux
 
-This directory contains the no-MMU Linux 7.3 port for the Epson S1C33E07
+This directory contains the no-MMU Linux 7.4 port for the Epson S1C33E07
 WikiReader. Linux executes directly on the C33. `wremu` models the WikiReader
 hardware for development and regression testing; it does not run Linux under
 a different guest ISA.
@@ -269,8 +269,8 @@ thermistor under a 120k pull-up to the same rail; `ntc_thermistor` reads it
 as `/sys/class/hwmon/hwmon*/temp1_input` in millidegrees. The part, a
 TCT6GJ104H410, is not in that driver's tables, so the board names the Murata
 NCP03WF104, another 100k thermistor with B = 4250 K. AIN2, the panel's V4
-bias, is a plain IIO channel. `patches/fixes/0014` makes `generic-adc-battery`
-treat a battery nothing supplies as discharging rather than charging.
+bias, is a plain IIO channel. `generic-adc-battery` treats a battery nothing
+supplies as discharging rather than charging (upstream from 7.4-rc1).
 
 The chip's watchdog is `drivers/watchdog/s1c33_wdt.c` on the watchdog core:
 a 30-bit counter on MCLK that resets the chip at most 17.9 s after its last
