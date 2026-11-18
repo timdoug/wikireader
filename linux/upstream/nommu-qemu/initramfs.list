@@ -1,0 +1,9 @@
+# gen_init_cpio list; @PROGS@ is replaced by run.sh.
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+nod /dev/mem 0600 0 0 c 1 1
+dir /proc 0755 0 0
+file /init @PROGS@/init 0755 0 0
+file /stack-victim @PROGS@/stack-victim 0755 0 0
+file /holder @PROGS@/holder 0755 0 0
+file /data @PROGS@/data 0644 0 0

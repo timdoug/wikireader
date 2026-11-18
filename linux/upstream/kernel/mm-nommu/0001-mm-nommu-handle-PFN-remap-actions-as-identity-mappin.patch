@@ -1,0 +1,115 @@
+From 66ccb42130a24ff972b76c81148263c428c37587 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Tue, 17 Nov 2026 23:00:13 -0500
+Subject: [PATCH 1/4] mm/nommu: handle PFN remap actions as identity mappings
+To: Andrew Morton <akpm@linux-foundation.org>
+Cc: Lorenzo Stoakes <ljs@kernel.org>,
+    "Liam R. Howlett" <liam@infradead.org>,
+    Vlastimil Babka <vbabka@kernel.org>,
+    David Hildenbrand <david@kernel.org>,
+    Jann Horn <jannh@google.com>,
+    Pedro Falcato <pfalcato@suse.de>,
+    Mike Rapoport <rppt@kernel.org>,
+    Greg Ungerer <gerg@linux-m68k.org>,
+    linux-mm@kvack.org,
+    linux-kernel@vger.kernel.org
+
+Since commit ab04945f91bc ("mm: update mem char driver to use
+mmap_prepare"), the /dev/mem mmap_prepare hook sets an MMAP_REMAP_PFN
+action for each mapping. The NOMMU versions of mmap_action_prepare() and
+mmap_action_complete() both WARN for every action other than
+MMAP_NOTHING, and mmap_action_complete() then returns -EINVAL, so on
+NOMMU every /dev/mem mmap() fails after two WARNs:
+
+  WARNING: mm/util.c:1614 at mmap_action_prepare+0x12/0x1e
+  WARNING: mm/util.c:1636 at mmap_action_complete+0x38/0xe2
+
+On NOMMU, a driver's get_unmapped_area() hook returns the physical
+address of the range that the driver then remaps, so a direct mapping is
+an identity mapping, and the NOMMU remap_pfn_range() returns success
+only for an identity mapping. Add remap_pfn_range_prepare() with the
+same check and the same VMA flags, call it and
+io_remap_pfn_range_prepare() from mmap_action_prepare(), and complete a
+prepared MMAP_REMAP_PFN action without further work.
+
+A direct mapping of the last page of a 32-bit address space ends at
+2^32, which wraps vm_end to zero. Fail such a mapping with -ENOMEM.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig plus
+CONFIG_DEVMEM=y and CONFIG_STRICT_DEVMEM=n: mapping offset 0x80000000 of
+/dev/mem fails with the WARNs above; with this patch mmap() returns
+0x80000000, and reading the mapping gives the kernel Image header.
+
+Fixes: ab04945f91bc ("mm: update mem char driver to use mmap_prepare")
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+ mm/nommu.c | 18 ++++++++++++++++++
+ mm/util.c  |  5 ++++-
+ 2 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+index 6c6f953296..23a36fcc40 100644
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -1164,6 +1164,10 @@ unsigned long do_mmap(struct file *file,
+ 					goto error_just_free;
+ 
+ 				capabilities &= ~NOMMU_MAP_DIRECT;
++			} else if (addr > TASK_SIZE - len) {
++				/* The VMA end must not wrap past TASK_SIZE. */
++				ret = -ENOMEM;
++				goto error_just_free;
+ 			} else {
+ 				vma->vm_start = region->vm_start = addr;
+ 				vma->vm_end = region->vm_end = addr + len;
+@@ -1628,6 +1632,20 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
+ }
+ EXPORT_SYMBOL(remap_pfn_range);
+ 
++int remap_pfn_range_prepare(struct vm_area_desc *desc)
++{
++	const struct mmap_action *action = &desc->action;
++	const unsigned long start = action->remap.start;
++
++	/* The driver's get_unmapped_area() hook returned this address. */
++	if (start != (action->remap.start_pfn << PAGE_SHIFT) ||
++	    !range_in_vma_desc(desc, start, start + action->remap.size))
++		return -EINVAL;
++
++	vma_desc_set_flags_mask(desc, VMA_REMAP_FLAGS);
++	return 0;
++}
++
+ int vm_iomap_memory(struct vm_area_struct *vma, phys_addr_t start, unsigned long len)
+ {
+ 	unsigned long pfn = start >> PAGE_SHIFT;
+diff --git a/mm/util.c b/mm/util.c
+index 80f6c71484..2c3909ebf6 100644
+--- a/mm/util.c
++++ b/mm/util.c
+@@ -1607,7 +1607,9 @@ int mmap_action_prepare(struct vm_area_desc *desc)
+ 	case MMAP_NOTHING:
+ 		break;
+ 	case MMAP_REMAP_PFN:
++		return remap_pfn_range_prepare(desc);
+ 	case MMAP_IO_REMAP_PFN:
++		return io_remap_pfn_range_prepare(desc);
+ 	case MMAP_SIMPLE_IO_REMAP:
+ 	case MMAP_KERNEL_PAGES:
+ 	case MMAP_DISCONTIG_KERNEL_PAGES:
+@@ -1627,8 +1629,9 @@ int mmap_action_complete(struct vm_area_struct *vma,
+ 
+ 	switch (action->type) {
+ 	case MMAP_NOTHING:
+-		break;
++	/* A prepared PFN mapping is already the identity mapping. */
+ 	case MMAP_REMAP_PFN:
++		break;
+ 	case MMAP_IO_REMAP_PFN:
+ 	case MMAP_SIMPLE_IO_REMAP:
+ 	case MMAP_KERNEL_PAGES:
+
+base-commit: aebb7274476403040d582c61478df8f4a7bf9cd3
+-- 
+2.47.3
+

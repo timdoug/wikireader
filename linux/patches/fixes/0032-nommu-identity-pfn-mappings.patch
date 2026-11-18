@@ -1,17 +1,33 @@
 From: Tim Douglas <me@timdoug.com>
-Subject: [PATCH] mm/nommu: prepare PFN remap actions as identity mappings
+Subject: [PATCH] mm/nommu: handle PFN remap actions as identity mappings
 
-Drivers converted to mmap_prepare, including /dev/mem, describe their
-mapping as a PFN remap action. NOMMU warned about and then rejected every
-such action, so a /dev/mem mmap failed with EINVAL and three WARNs. A
-driver's get_unmapped_area() hook already places a NOMMU mapping at the
-address it remaps. Check that identity, as NOMMU remap_pfn_range() does,
-and apply the same VMA flags; I/O remaps take the same path after the
-usual PFN conversion.
+Since commit ab04945f91bc ("mm: update mem char driver to use
+mmap_prepare"), the /dev/mem mmap_prepare hook sets an MMAP_REMAP_PFN
+action for each mapping. The NOMMU versions of mmap_action_prepare() and
+mmap_action_complete() both WARN for every action other than
+MMAP_NOTHING, and mmap_action_complete() then returns -EINVAL, so on
+NOMMU every /dev/mem mmap() fails after two WARNs:
 
-A direct mapping of the last page would end at 2^32, which wraps vm_end
-to zero. Return ENOMEM, as for any range beyond TASK_SIZE.
+  WARNING: mm/util.c:1614 at mmap_action_prepare+0x12/0x1e
+  WARNING: mm/util.c:1636 at mmap_action_complete+0x38/0xe2
 
+On NOMMU, a driver's get_unmapped_area() hook returns the physical
+address of the range that the driver then remaps, so a direct mapping is
+an identity mapping, and the NOMMU remap_pfn_range() returns success
+only for an identity mapping. Add remap_pfn_range_prepare() with the
+same check and the same VMA flags, call it and
+io_remap_pfn_range_prepare() from mmap_action_prepare(), and complete a
+prepared MMAP_REMAP_PFN action without further work.
+
+A direct mapping of the last page of a 32-bit address space ends at
+2^32, which wraps vm_end to zero. Fail such a mapping with -ENOMEM.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig plus
+CONFIG_DEVMEM=y and CONFIG_STRICT_DEVMEM=n: mapping offset 0x80000000 of
+/dev/mem fails with the WARNs above; with this patch mmap() returns
+0x80000000, and reading the mapping gives the kernel Image header.
+
+Fixes: ab04945f91bc ("mm: update mem char driver to use mmap_prepare")
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c
@@ -38,7 +54,7 @@ index efbb86f0d..fc7301ef9 100644
 +	const struct mmap_action *action = &desc->action;
 +	const unsigned long start = action->remap.start;
 +
-+	/* As above, the driver's get_unmapped_area() chose the address. */
++	/* The driver's get_unmapped_area() hook returned this address. */
 +	if (start != (action->remap.start_pfn << PAGE_SHIFT) ||
 +	    !range_in_vma_desc(desc, start, start + action->remap.size))
 +		return -EINVAL;

@@ -1,14 +1,28 @@
 From: Tim Douglas <me@timdoug.com>
-Subject: [PATCH] mm/nommu: fail a private copy larger than the largest block
+Subject: [PATCH] mm/nommu: fail private mappings larger than the largest page block
 
-do_mmap_private() makes a private mapping's copy with alloc_pages_exact(),
-which takes one block of the order the length rounds up to.  A length
-beyond MAX_PAGE_ORDER cannot be had at all, and the page allocator warns,
-with a stack trace, the first time it is asked: any program can do that
-with one large mmap() or malloc().  Such a mapping now fails as an
-allocation the allocator refused does, with -ENOMEM and the same report.
+do_mmap_private() allocates the memory for a private mapping with
+alloc_pages_exact(), which allocates one block of order get_order(len).
+The largest order of the page allocator is MAX_PAGE_ORDER, and a request
+for a larger order fails and prints a WARNING with a stack trace the
+first time it happens. Any unprivileged program reaches it with one
+large mmap() or malloc():
+
+  WARNING: mm/page_alloc.c:5394 at __alloc_frozen_pages_noprof+0x2c8/0x862
+  ...
+  do_mmap+0x550/0x73c
+  vm_mmap_pgoff+0x88/0xc0
+
+Check the order first and fail such a mapping through the existing
+allocation-failure path, which returns -ENOMEM and prints the usual
+"Allocation of length ... failed" report.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig: an
+8 MiB MAP_PRIVATE | MAP_ANONYMOUS mmap() fails with -ENOMEM either way,
+and the WARNING only appears without this patch.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
+
 ---
 --- a/mm/nommu.c
 +++ b/mm/nommu.c
@@ -16,7 +30,7 @@ Signed-off-by: Tim Douglas <me@timdoug.com>
  	 *   we're allocating is smaller than a page
  	 */
  	order = get_order(len);
-+	/* No block beyond MAX_PAGE_ORDER can hold the copy. */
++	/* alloc_pages_exact() fails, with a WARN, above MAX_PAGE_ORDER. */
 +	if (order > MAX_PAGE_ORDER)
 +		goto enomem;
  	total = 1 << order;

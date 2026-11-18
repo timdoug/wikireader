@@ -1,0 +1,64 @@
+From e819d4189db95743f8a68ae83d8dff73e88e08a6 Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Tue, 17 Nov 2026 23:00:13 -0500
+Subject: [PATCH 3/4] mm/nommu: check sharing only when a direct mapping
+ succeeded
+To: Andrew Morton <akpm@linux-foundation.org>
+Cc: Lorenzo Stoakes <ljs@kernel.org>,
+    "Liam R. Howlett" <liam@infradead.org>,
+    Vlastimil Babka <vbabka@kernel.org>,
+    David Hildenbrand <david@kernel.org>,
+    Jann Horn <jannh@google.com>,
+    Pedro Falcato <pfalcato@suse.de>,
+    Mike Rapoport <rppt@kernel.org>,
+    Greg Ungerer <gerg@linux-m68k.org>,
+    linux-mm@kvack.org,
+    linux-kernel@vger.kernel.org
+
+When the mmap capabilities of a file include NOMMU_MAP_DIRECT,
+do_mmap_private() calls the file's mmap hook, and makes a private copy
+instead if the hook returns -ENOSYS. Commit b6b7a8faf05c ("mm/nommu:
+don't use VM_MAYSHARE for MAP_PRIVATE mappings") turned the BUG_ON()
+that checked a successful direct mapping for sharing into a
+WARN_ON_ONCE() that runs whatever the hook returned. A mapping for which
+the hook returned an error is not shared, so the fallback path, which is
+legitimate, now triggers the warning.
+
+That path is taken for a read-only MAP_PRIVATE mapping of a ramfs file
+made by a ptraced process: VM_MAYOVERLAY is not set on such a mapping,
+so that breakpoints can be written into it, ramfs_nommu_mmap_prepare()
+returns -ENOSYS, and a private copy is made. Starting a program from
+ramfs under a debugger therefore produces:
+
+  WARNING: mm/nommu.c:932 at do_mmap+0x4e0/0x73c
+
+Check for sharing only when the hook succeeded. The BUG_ON() before that
+commit was inside the success branch.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig: a
+child calls ptrace(PTRACE_TRACEME) and maps a file of the initramfs
+read-only and private. The mapping succeeds with or without this patch;
+the warning only appears without it.
+
+Fixes: b6b7a8faf05c ("mm/nommu: don't use VM_MAYSHARE for MAP_PRIVATE mappings")
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+ mm/nommu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+index 605cc4021a..ffa0c88c8e 100644
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -932,7 +932,7 @@ static int do_mmap_private(struct vm_area_struct *vma,
+ 	if (capabilities & NOMMU_MAP_DIRECT) {
+ 		ret = mmap_file(vma->vm_file, vma);
+ 		/* shouldn't return success if we're not sharing */
+-		if (WARN_ON_ONCE(!is_nommu_shared_mapping(vma->vm_flags)))
++		if (!ret && WARN_ON_ONCE(!is_nommu_shared_mapping(vma->vm_flags)))
+ 			ret = -ENOSYS;
+ 		if (ret == 0) {
+ 			vma->vm_region->vm_top = vma->vm_region->vm_end;
+-- 
+2.47.3
+

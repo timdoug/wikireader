@@ -551,32 +551,32 @@ Where it departs:
 The test battery ran in full on 2026-11-07 and 08, on a world built from
 nothing by `linux/world.sh` (about 45 minutes): every suite gives its
 documented results, and each GCC suite's `*-expected` step checks it
-against `gcc-test/expected`.  Step times, niced at JOBS=4: the regression
+against `gcc-test/expected`. Step times, niced at JOBS=4: the regression
 tests and dt-check 6 minutes, libc-test 11, BusyBox 19 and its Hush
 follow-ups 8, the LTP sweep 15, the package suites 69, GCC's C suite 246,
 g++ 153, libatomic under 1, libstdc++ about 300.
 - **Since that battery** the kernel gained `patches/fixes/0046` (private
   mappings that cannot share) and libstdc++ GCC's `fixes/0012`
-  (`C.UTF-8`), and the root image was rebuilt with it.  Boot, app, gdb,
+  (`C.UTF-8`), and the root image was rebuilt with it. Boot, app, gdb,
   core and signal tests and LTP's mapping cases passed on them; the rest
   of the battery and `card-test.py` (on a card made afresh) have not run
   on them yet.
 - **libstdc++ at 256 KB, in full:** the board gives its tests 256 KB
   stacks, and only the tests that did not pass at 1 MB were rerun at
-  256 KB.  The next full run shows whether any other test needs more;
+  256 KB. The next full run shows whether any other test needs more;
   `libstdc++-expected` would list it.
 - **strace's own suite:** `package-suites/build.py strace` builds it (1,360
   of its 1,376 programs; 16 need 32-bit time syscalls, a dropped fallocate
   flag or a -Werror waiver) onto an ext4 image `loopmnt.bin` mounts, and
   keeps `tail_alloc`'s guard pages mapped: unmapped, the kernel reused them
   and the tests' deliberate out-of-bounds syscalls corrupted it (accept
-  panicked the kernel).  It is not in the default suites: 40 tests took
+  panicked the kernel). It is not in the default suites: 40 tests took
   5 minutes, so all 1,489 would take about 3 hours, and one boot fragments
-  memory (8 of a 40-test sample's 13 failures).  The decoder tests'
+  memory (8 of a 40-test sample's 13 failures). The decoder tests'
   checks that a pointer into a guard page gives EFAULT differ wherever
   they occur, since nothing faults (accept, bpf-success: the expected raw
   address is decoded instead), so a failure means something only if its
-  diff has other lines.  Next: batches on fresh boots, and a diff filter
+  diff has other lines. Next: batches on fresh boots, and a diff filter
   that sets the guard-page lines aside.
 - **Not run yet, long:** GDB's testsuite.
 - **Never `make all-gcc` in `build-c33-linux-musl` while a suite pass
@@ -606,12 +606,19 @@ The rest of the port, standards first (see "Standards" above):
    A linker-merged GOT in place of each file's constant pool would leave
    BusyBox 2,245 distinct words.
 2. **TLS and threads.**
-3. **Send upstream** musl's `musl/patches/fixes/`: an FDPIC library's
+3. **Send upstream.** The kernel's `fixes/0031`, `0032`, `0033`, `0042`
+   and `0045` are mail-ready in `upstream/kernel/`, with QEMU RISC-V
+   NOMMU reproducers in `upstream/nommu-qemu/` (`upstream/README.md`);
+   not sent yet. musl's `musl/patches/fixes/`: an FDPIC library's
    program headers for `dl_iterate_phdr` (exceptions through any shared
    library on SuperH FDPIC too), `dl_iterate_phdr` callbacks one at a time
-   (libgcc's unwinder cache assumes glibc's locking), `posix_madvise`'s
-   range check, `mmap`'s `EPERM` for `MAP_LOCKED` and `fork` on FDPIC
-   without `SYS_fork`; and GCC
+   (the lock also needs adding to `fork`'s lock handling; the
+   alternative is a lock in libgcc's unwinder cache, which is safe only
+   under glibc's locking), `mmap`'s `EPERM` for `MAP_LOCKED`, C23 `va_start`,
+   `shm_unlink`'s `EACCES`, `aio_cancel`'s deadlock and `wordexp` through
+   `posix_spawn`. `posix_madvise`'s range check reverses upstream's
+   deliberate `DONTNEED` no-op, and `SYS_fork` is defined on every
+   in-tree architecture, so those two stay local. GCC
    `host-tools/toolchain-c33/gcc/patches/fixes/0004`: libgcc's and libstdc++'s
    `#if __FDPIC__` exception paths are ARM's and call
    `_Unwind_gnu_Find_got`, which only ARM defines.

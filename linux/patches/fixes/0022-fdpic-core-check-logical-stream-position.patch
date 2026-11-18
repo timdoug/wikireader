@@ -1,4 +1,4 @@
-From: WikiReader Linux port
+From: Tim Douglas <me@timdoug.com>
 Subject: [PATCH] binfmt_elf_fdpic: check the logical core stream position
 
 Pipes do not advance file->f_pos, so a successful piped FDPIC core dump

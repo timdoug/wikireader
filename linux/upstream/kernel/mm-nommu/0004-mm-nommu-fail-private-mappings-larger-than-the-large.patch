@@ -1,0 +1,59 @@
+From 1b466eb902f817c2c2b9cb9d3930506a044e1aea Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Tue, 17 Nov 2026 23:00:13 -0500
+Subject: [PATCH 4/4] mm/nommu: fail private mappings larger than the largest
+ page block
+To: Andrew Morton <akpm@linux-foundation.org>
+Cc: Lorenzo Stoakes <ljs@kernel.org>,
+    "Liam R. Howlett" <liam@infradead.org>,
+    Vlastimil Babka <vbabka@kernel.org>,
+    David Hildenbrand <david@kernel.org>,
+    Jann Horn <jannh@google.com>,
+    Pedro Falcato <pfalcato@suse.de>,
+    Mike Rapoport <rppt@kernel.org>,
+    Greg Ungerer <gerg@linux-m68k.org>,
+    linux-mm@kvack.org,
+    linux-kernel@vger.kernel.org
+
+do_mmap_private() allocates the memory for a private mapping with
+alloc_pages_exact(), which allocates one block of order get_order(len).
+The largest order of the page allocator is MAX_PAGE_ORDER, and a request
+for a larger order fails and prints a WARNING with a stack trace the
+first time it happens. Any unprivileged program reaches it with one
+large mmap() or malloc():
+
+  WARNING: mm/page_alloc.c:5394 at __alloc_frozen_pages_noprof+0x2c8/0x862
+  ...
+  do_mmap+0x550/0x73c
+  vm_mmap_pgoff+0x88/0xc0
+
+Check the order first and fail such a mapping through the existing
+allocation-failure path, which returns -ENOMEM and prints the usual
+"Allocation of length ... failed" report.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig: an
+8 MiB MAP_PRIVATE | MAP_ANONYMOUS mmap() fails with -ENOMEM either way,
+and the WARNING only appears without this patch.
+
+Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+ mm/nommu.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mm/nommu.c b/mm/nommu.c
+index ffa0c88c8e..f55158880e 100644
+--- a/mm/nommu.c
++++ b/mm/nommu.c
+@@ -952,6 +952,9 @@ static int do_mmap_private(struct vm_area_struct *vma,
+ 	 *   we're allocating is smaller than a page
+ 	 */
+ 	order = get_order(len);
++	/* alloc_pages_exact() fails, with a WARN, above MAX_PAGE_ORDER. */
++	if (order > MAX_PAGE_ORDER)
++		goto enomem;
+ 	total = 1 << order;
+ 	point = len >> PAGE_SHIFT;
+ 
+-- 
+2.47.3
+

@@ -1,12 +1,28 @@
 From: Tim Douglas <me@timdoug.com>
-Subject: [PATCH] mm/nommu: allow regions which start at the same address
+Subject: [PATCH] mm/nommu: allow regions that start at the same address
 
-Direct character device mappings may overlap other regions; do_mmap()
-says so where it searches for shareable regions. A /dev/mem mapping at
-another region's start address, such as a page the process has already
-mapped, nevertheless hit BUG() in add_nommu_region() and panicked.
-Order regions with equal starts by their own addresses instead.
+add_nommu_region() orders the global region tree by start address and
+calls BUG() when a different region already starts at the same address.
+Direct mappings of character devices can overlap other regions (see the
+comment above the search for shareable regions in do_mmap()), so the
+case is reachable from userspace: a /dev/mem mapping of the physical
+page that backs another process's anonymous mapping panics the kernel:
 
+  kernel BUG at mm/nommu.c:490!
+  Kernel panic - not syncing: Fatal exception in interrupt
+
+The tree is only walked in order, by do_mmap() in the search for
+shareable regions of a file and by /proc/maps, and both walks are
+correct when start addresses are equal. Order regions with equal starts
+by the address of their struct vm_region.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig plus
+CONFIG_DEVMEM=y and CONFIG_STRICT_DEVMEM=n, on top of the previous
+patch, which makes /dev/mem mappable on NOMMU again. With this patch the
+/dev/mem mapping succeeds, and reading it gives the other process's
+data.
+
+Fixes: 8feae13110d6 ("NOMMU: Make VMAs per MM as for MMU-mode linux")
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/mm/nommu.c b/mm/nommu.c

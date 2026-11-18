@@ -1,23 +1,44 @@
-From: WikiReader Linux port
-Subject: [PATCH] binfmt_elf_fdpic: fit the initial no-MMU stack image
+From: Tim Douglas <me@timdoug.com>
+Subject: [PATCH] binfmt_elf_fdpic: fit the initial NOMMU stack image into the
+ stack
 
-The no-MMU loader copies argument strings, pointer arrays, load maps and
-auxiliary information into the stack allocation sized by PT_GNU_STACK,
-without accounting for them. A large argument image consumed the stack and
-then wrote below the mapping, corrupting other kernel or userspace
-allocations; no-MMU copy_to_user() cannot fault.
+Without an MMU, load_elf_fdpic_binary() allocates the stack with the
+size from PT_GNU_STACK (128 KiB when it is zero), and
+create_elf_fdpic_tables() then copies the argument and environment
+strings, the platform strings, the load maps, the auxiliary vector and
+the argv/envp arrays to the top of the allocation. The size of that
+image, up to MAX_ARG_PAGES pages of strings alone, is never compared
+with the size of the allocation, and copy_to_user() cannot fault without
+an MMU. For an exec whose arguments and environment are larger than the
+stack, the kernel writes them below the allocation, over other user or
+kernel memory. binfmt_flat adds the image to the stack size.
 
-Treat PT_GNU_STACK as the whole stack, the image included, as RLIMIT_STACK
-is with an MMU. Grow the allocation only when the image exceeds a quarter
-of it, keeping three quarters for the program. Ordinary execs keep exactly
-the requested size: always adding the image would push a power-of-two
-stack into a contiguous block twice as large before the tail is trimmed.
-The maximum argument image and ELF segment count bound the image size; the
-untrusted PT_GNU_STACK size needs checked addition.
+Count the image against the requested size, so that the size from
+PT_GNU_STACK covers the whole stack. Grow the allocation only when the
+image occupies more than a quarter of it, so that at least three
+quarters remain for the program; for an ordinary exec the allocation
+size is unchanged. Adding the image every time would push a power-of-two
+stack into a power-of-two allocation of twice the size. PT_GNU_STACK
+comes from the binary, so the sums are checked for overflow.
+
+Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig plus
+CONFIG_BINFMT_ELF_FDPIC=y, with a static PIE linked with
+-z stack-size=8192:
+
+  - with a 12 KB environment, the program's initial stack pointer lies
+    4.4 KB below the 8 KiB stack mapping;
+  - with a 112 KiB environment, the machine hangs during the exec.
+
+With this patch both programs start with the stack pointer inside their
+stack mapping.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
+---
+ fs/binfmt_elf_fdpic.c | 63 ++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 60 insertions(+), 3 deletions(-)
 
 diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
+index d3872169f5..104d769628 100644
 --- a/fs/binfmt_elf_fdpic.c
 +++ b/fs/binfmt_elf_fdpic.c
 @@ -36,6 +36,7 @@
@@ -28,50 +49,86 @@ diff --git a/fs/binfmt_elf_fdpic.c b/fs/binfmt_elf_fdpic.c
  
  #include <linux/uaccess.h>
  #include <asm/param.h>
-@@ -411,10 +412,42 @@
- 		PAGE_ALIGN(current->mm->start_brk);
+@@ -66,6 +67,9 @@ static int create_elf_fdpic_tables(struct linux_binprm *, struct mm_struct *,
+ 				   struct elf_fdpic_params *);
+ 
+ #ifndef CONFIG_MMU
++static int elf_fdpic_stack_size(struct linux_binprm *,
++				struct elf_fdpic_params *,
++				struct elf_fdpic_params *, unsigned long *);
+ static int elf_fdpic_map_file_constdisp_on_uclinux(struct elf_fdpic_params *,
+ 						   struct file *,
+ 						   struct mm_struct *);
+@@ -416,9 +420,10 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
  
  #else
--	/* create a stack area and zero-size brk area */
+ 	/* create a stack area and zero-size brk area */
 -	stack_size = (stack_size + PAGE_SIZE - 1) & PAGE_MASK;
 -	if (stack_size < PAGE_SIZE * 2)
 -		stack_size = PAGE_SIZE * 2;
-+	/* PT_GNU_STACK sizes the whole stack, as RLIMIT_STACK does with an MMU,
-+	 * so the initial argument image comes out of it. Grow the stack only when
-+	 * the image takes more than a quarter, leaving the program three quarters:
-+	 * no-MMU copy_to_user() cannot fault, and an image larger than the stack
-+	 * would overwrite neighbouring allocations.
-+	 */
-+	{
-+		unsigned long image;
-+		const char *platform = ELF_PLATFORM;
-+
-+		stack_size = max(stack_size, PAGE_SIZE * 2UL);
-+		image = MAX_ARG_PAGES * PAGE_SIZE - bprm->p;
-+		image += (bprm->argc + bprm->envc + 3UL) * sizeof(elf_caddr_t);
-+		image += sizeof(current->mm->saved_auxv);
-+		image += sizeof(struct elf_fdpic_loadmap) +
-+			 exec_params.loadmap->nsegs * sizeof(struct elf_fdpic_loadseg);
-+		if (interp_params.loadmap)
-+			image += sizeof(struct elf_fdpic_loadmap) +
-+				 interp_params.loadmap->nsegs * sizeof(struct elf_fdpic_loadseg);
-+		if (platform)
-+			image += strlen(platform) + 1;
-+#ifdef ELF_BASE_PLATFORM
-+		platform = ELF_BASE_PLATFORM;
-+		if (platform)
-+			image += strlen(platform) + 1;
-+#endif
-+		/* Alignment of strings, load maps, and the final stack pointer. */
-+		image += 64;
-+		if ((image > stack_size / 4 &&
-+		     check_add_overflow(image, stack_size - stack_size / 4, &stack_size)) ||
-+		    check_add_overflow(stack_size, PAGE_SIZE - 1, &stack_size)) {
-+			retval = -E2BIG;
-+			goto error;
-+		}
-+		stack_size &= PAGE_MASK;
-+	}
++	retval = elf_fdpic_stack_size(bprm, &exec_params, &interp_params,
++				      &stack_size);
++	if (retval < 0)
++		goto error;
  
  	stack_prot = PROT_READ | PROT_WRITE;
  	if (executable_stack == EXSTACK_ENABLE_X ||
+@@ -497,6 +502,58 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
+ #define ELF_BASE_PLATFORM NULL
+ #endif
+ 
++#ifndef CONFIG_MMU
++/*
++ * Size the stack allocation of a NOMMU process. The size from
++ * PT_GNU_STACK covers the whole stack, including the initial image that
++ * create_elf_fdpic_tables() copies to the top of the allocation: the
++ * argument and environment strings, the platform strings, the load maps,
++ * the auxiliary vector and the pointer arrays. Without an MMU, copying
++ * an image larger than the allocation does not fault, and the memory
++ * below the allocation is overwritten.
++ *
++ * Grow the allocation only when the image occupies more than a quarter
++ * of the requested size, so that at least three quarters remain for the
++ * program. Adding the image every time would push a power-of-two stack
++ * into an allocation of twice the size.
++ */
++static int elf_fdpic_stack_size(struct linux_binprm *bprm,
++				struct elf_fdpic_params *exec_params,
++				struct elf_fdpic_params *interp_params,
++				unsigned long *stack_size)
++{
++	unsigned long size = max(*stack_size, PAGE_SIZE * 2UL);
++	const char *k_platform = ELF_PLATFORM;
++	const char *k_base_platform = ELF_BASE_PLATFORM;
++	unsigned long image;
++
++	image = MAX_ARG_PAGES * PAGE_SIZE - bprm->p;
++	if (k_platform)
++		image += strlen(k_platform) + 1;
++	if (k_base_platform)
++		image += strlen(k_base_platform) + 1;
++	image += sizeof(struct elf_fdpic_loadmap) +
++		 exec_params->loadmap->nsegs * sizeof(struct elf_fdpic_loadseg);
++	if (interp_params->loadmap)
++		image += sizeof(struct elf_fdpic_loadmap) +
++			 interp_params->loadmap->nsegs *
++			 sizeof(struct elf_fdpic_loadseg);
++	image += sizeof(current->mm->saved_auxv);
++	/* argc, argv[] and envp[] with their terminating NULLs */
++	image += (bprm->argc + bprm->envc + 3UL) * sizeof(elf_caddr_t);
++	/* the alignment steps of create_elf_fdpic_tables(), 51 bytes at most */
++	image += 64;
++
++	if (image > size / 4 &&
++	    check_add_overflow(image, size - size / 4, &size))
++		return -E2BIG;
++	if (check_add_overflow(size, PAGE_SIZE - 1, &size))
++		return -E2BIG;
++	*stack_size = size & PAGE_MASK;
++	return 0;
++}
++#endif
++
+ /*
+  * present useful information to the program by shovelling it onto the new
+  * process's stack

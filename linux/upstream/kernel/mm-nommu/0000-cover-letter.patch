@@ -1,0 +1,70 @@
+From 9dbcb8929cdb28f240aea13aee5605b9c78aed6e Mon Sep 17 00:00:00 2001
+From: Tim Douglas <me@timdoug.com>
+Date: Tue, 17 Nov 2026 22:12:13 -0500
+Subject: [PATCH 0/4] mm/nommu: /dev/mem mmap, a BUG() and two spurious WARNs
+To: Andrew Morton <akpm@linux-foundation.org>
+Cc: Lorenzo Stoakes <ljs@kernel.org>,
+    "Liam R. Howlett" <liam@infradead.org>,
+    Vlastimil Babka <vbabka@kernel.org>,
+    David Hildenbrand <david@kernel.org>,
+    Jann Horn <jannh@google.com>,
+    Pedro Falcato <pfalcato@suse.de>,
+    Mike Rapoport <rppt@kernel.org>,
+    Greg Ungerer <gerg@linux-m68k.org>,
+    linux-mm@kvack.org,
+    linux-kernel@vger.kernel.org
+
+These fix four problems in NOMMU mmap(). I found them while porting
+Linux to a NOMMU CPU (the Epson S1C33) and reproduced each on QEMU's
+riscv64 virt machine with nommu_virt_defconfig, before and after the
+patch:
+
+1. Since /dev/mem moved to mmap_prepare, mapping it on NOMMU fails with
+   -EINVAL after two WARNs.
+2. With /dev/mem mappable again, mapping the page under another
+   process's anonymous mapping hits BUG() in add_nommu_region().
+   This one predates the mmap_prepare conversion.
+3. A ptraced process's read-only private mapping of a ramfs file (any
+   program started from an initramfs under a debugger) triggers a
+   WARN on the legitimate private-copy fallback.
+4. Any private mapping larger than a MAX_PAGE_ORDER block triggers a
+   page allocator WARN, reachable by an unprivileged mmap() or malloc().
+
+The BUG() fixed by patch 2 is only reachable through /dev/mem once patch 1
+is applied.
+
+The reproducers are freestanding static-PIE programs run as /init, one
+test per boot. The core of each:
+
+  1. mmap(NULL, 4096, PROT_READ, MAP_SHARED, open("/dev/mem"), 0x80000000)
+  2. a child maps one anonymous page and writes the page's address to
+     a pipe; the parent maps that offset of /dev/mem MAP_SHARED
+  3. ptrace(PTRACE_TRACEME); mmap(NULL, 4096, PROT_READ, MAP_PRIVATE,
+     open("/some/initramfs/file"), 0)
+  4. mmap(NULL, 8 << 20, PROT_READ | PROT_WRITE,
+     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+
+with CONFIG_DEVMEM=y and CONFIG_STRICT_DEVMEM=n for 1 and 2. I can
+send the programs and the QEMU script if that helps.
+
+One related thing I left alone: with CONFIG_DEBUG_NOMMU_REGIONS,
+validate_nommu_regions() calls BUG() for any overlap between regions,
+so a direct /dev/mem mapping that overlaps another region triggers it
+whether or not the two start at the same address. I can relax that check as
+well if you prefer.
+
+Tim Douglas (4):
+  mm/nommu: handle PFN remap actions as identity mappings
+  mm/nommu: allow regions that start at the same address
+  mm/nommu: check sharing only when a direct mapping succeeded
+  mm/nommu: fail private mappings larger than the largest page block
+
+ mm/nommu.c | 28 ++++++++++++++++++++++++++--
+ mm/util.c  |  5 ++++-
+ 2 files changed, 30 insertions(+), 3 deletions(-)
+
+
+base-commit: aebb7274476403040d582c61478df8f4a7bf9cd3
+-- 
+2.47.3
+
