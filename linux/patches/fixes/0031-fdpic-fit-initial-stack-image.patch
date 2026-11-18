@@ -21,16 +21,25 @@ size is unchanged. Adding the image every time would push a power-of-two
 stack into a power-of-two allocation of twice the size. PT_GNU_STACK
 comes from the binary, so the sums are checked for overflow.
 
-Reproduced on QEMU's riscv64 virt machine with nommu_virt_defconfig plus
-CONFIG_BINFMT_ELF_FDPIC=y, with a static PIE linked with
--z stack-size=8192:
+Reproduced with static PIEs, which this loader runs on NOMMU, on two
+QEMU machines with CONFIG_BINFMT_ELF_FDPIC=y: riscv64 virt with
+nommu_virt_defconfig, and ColdFire mcf5208evb with m5208evb_defconfig
+(32-bit, 8 KiB pages). A program linked with -z stack-size=8192 prints
+where its initial stack pointer lies:
 
-  - with a 12 KB environment, the program's initial stack pointer lies
-    4.4 KB below the 8 KiB stack mapping;
-  - with a 112 KiB environment, the machine hangs during the exec.
+  - riscv64, 12 KB environment: the stack pointer lies 4.4 KB below the
+    8 KiB stack mapping;
+  - riscv64, 112 KiB environment: the machine hangs during the exec;
+  - ColdFire, 32 KB environment into the 16 KiB two-page minimum: the
+    kernel jumps to 0x78787878, the environment's "xxxx", during softirq
+    handling and panics.
 
-With this patch both programs start with the stack pointer inside their
-stack mapping.
+With this patch, 60 execs on each machine all start with the whole image
+inside the stack mapping and at least min(size - image, size - size / 4)
+bytes below the stack pointer. They cover PT_GNU_STACK sizes of 8 KiB,
+64 KiB and the default, environments up to the 128 KiB argument limit,
+and up to 60000 argv or envp entries; on riscv64, three of them exceed
+the argument limit and fail with E2BIG before anything is loaded.
 
 Signed-off-by: Tim Douglas <me@timdoug.com>
 ---

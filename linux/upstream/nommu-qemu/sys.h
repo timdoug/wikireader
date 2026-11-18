@@ -1,24 +1,14 @@
-/* Freestanding RISC-V Linux system calls and console output for the
- * no-MMU reproducers. The programs are static PIE with no relocations:
- * no libc and no tables of pointers, only PC-relative references. */
+/*
+ * Freestanding Linux system calls and console output for the no-MMU
+ * reproducers, on RISC-V and m68k. The system call numbers come from the
+ * kernel's own UAPI headers (run.sh installs them). The programs are static
+ * PIE with no relocations: no libc and no tables of pointers, only
+ * PC-relative references.
+ */
 #ifndef SYS_H
 #define SYS_H
 
-#define SYS_mount	40
-#define SYS_dup3	24
-#define SYS_openat	56
-#define SYS_close	57
-#define SYS_pipe2	59
-#define SYS_read	63
-#define SYS_write	64
-#define SYS_exit	93
-#define SYS_ptrace	117
-#define SYS_reboot	142
-#define SYS_munmap	215
-#define SYS_clone	220
-#define SYS_execve	221
-#define SYS_mmap	222
-#define SYS_wait4	260
+#include <asm/unistd.h>
 
 #define AT_FDCWD	-100
 #define O_RDONLY	0
@@ -31,6 +21,7 @@
 #define MAP_ANONYMOUS	0x20
 #define PTRACE_TRACEME	0
 
+#if defined(__riscv)
 static inline long syscall6(long n, long a, long b, long c, long d, long e,
 			    long f)
 {
@@ -47,6 +38,26 @@ static inline long syscall6(long n, long a, long b, long c, long d, long e,
 			 : "memory");
 	return a0;
 }
+#elif defined(__m68k__)
+static inline long syscall6(long n, long a, long b, long c, long d, long e,
+			    long f)
+{
+	register long d0 __asm__("d0") = n;
+	register long d1 __asm__("d1") = a;
+	register long d2 __asm__("d2") = b;
+	register long d3 __asm__("d3") = c;
+	register long d4 __asm__("d4") = d;
+	register long d5 __asm__("d5") = e;
+	register long a0 __asm__("a0") = f;
+
+	__asm__ volatile("trap #0" : "+r"(d0)
+			 : "r"(d1), "r"(d2), "r"(d3), "r"(d4), "r"(d5), "r"(a0)
+			 : "memory");
+	return d0;
+}
+#else
+#error "unsupported architecture"
+#endif
 
 #define sys(n, a, b, c, d, e, f) \
 	syscall6(n, (long)(a), (long)(b), (long)(c), (long)(d), (long)(e), \
@@ -54,19 +65,23 @@ static inline long syscall6(long n, long a, long b, long c, long d, long e,
 
 static inline long sys_open(const char *path, int flags)
 {
-	return sys(SYS_openat, AT_FDCWD, path, flags, 0, 0, 0);
+	return sys(__NR_openat, AT_FDCWD, path, flags, 0, 0, 0);
 }
 
 static inline long sys_mmap(void *addr, unsigned long len, int prot,
 			    int flags, int fd, unsigned long off)
 {
-	return sys(SYS_mmap, addr, len, prot, flags, fd, off);
+#ifdef __NR_mmap2
+	return sys(__NR_mmap2, addr, len, prot, flags, fd, off >> 12);
+#else
+	return sys(__NR_mmap, addr, len, prot, flags, fd, off);
+#endif
 }
 
 static inline __attribute__((noreturn)) void sys_exit(int code)
 {
 	for (;;)
-		sys(SYS_exit, code, 0, 0, 0, 0, 0);
+		sys(__NR_exit, code, 0, 0, 0, 0, 0);
 }
 
 static inline int is_err(long r)
@@ -85,19 +100,20 @@ static inline unsigned long str_len(const char *s)
 
 static inline void put(const char *s)
 {
-	sys(SYS_write, 1, s, str_len(s), 0, 0, 0);
+	sys(__NR_write, 1, s, str_len(s), 0, 0, 0);
 }
 
 static inline void put_hex(unsigned long v)
 {
-	char buf[19];
+	char buf[2 + 2 * sizeof(long) + 1];
+	int digits = 2 * sizeof(long);
 	int i;
 
 	buf[0] = '0';
 	buf[1] = 'x';
-	for (i = 0; i < 16; i++)
-		buf[2 + i] = "0123456789abcdef"[(v >> (60 - 4 * i)) & 15];
-	buf[18] = 0;
+	for (i = 0; i < digits; i++)
+		buf[2 + i] = "0123456789abcdef"[(v >> (4 * (digits - 1 - i))) & 15];
+	buf[2 + digits] = 0;
 	put(buf);
 }
 

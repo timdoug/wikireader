@@ -19,7 +19,7 @@ void start_main(long *sp)
 	((char *)p)[3] = 'D';
 	((char *)p)[4] = 'E';
 	((char *)p)[5] = 'R';
-	sys(SYS_write, 4, &p, sizeof(p), 0, 0, 0);
-	sys(SYS_read, 3, &c, 1, 0, 0, 0);
+	sys(__NR_write, 4, &p, sizeof(p), 0, 0, 0);
+	sys(__NR_read, 3, &c, 1, 0, 0, 0);
 	sys_exit(0);
 }
