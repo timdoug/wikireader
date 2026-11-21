@@ -470,7 +470,7 @@ mode's clock is the simple-panel placeholder, so wlroots reports 0.020 Hz.
 
 ## Standards: how far the port follows upstream
 
-Nothing for the C33 is upstream anywhere, so "standard" here means the
+The C33 port is entirely out of tree, so "standard" here means the
 conventions upstream asks of a new architecture and of the no-MMU and FDPIC
 ports (SH, ARM, FRV, Blackfin, csky, nios2).
 
@@ -607,9 +607,11 @@ The rest of the port, standards first (see "Standards" above):
    BusyBox 2,245 distinct words.
 2. **TLS and threads.**
 3. **Send upstream.** The kernel's `fixes/0031`, `0032`, `0033`, `0042`
-   and `0045` are mail-ready in `upstream/kernel/`, with QEMU RISC-V
-   NOMMU reproducers in `upstream/nommu-qemu/` (`upstream/README.md`);
-   not sent yet. musl's `musl/patches/fixes/`: an FDPIC library's
+   and `0045` are mail-ready in `upstream/kernel/`, with QEMU NOMMU
+   reproducers in `upstream/nommu-qemu/` on RISC-V and, for the FDPIC
+   loader, ColdFire; not sent yet. `upstream/README.md` also lists
+   `0021`, `0022`, `0023` and `0029` as candidates, the last two after
+   rework. musl's `musl/patches/fixes/`: an FDPIC library's
    program headers for `dl_iterate_phdr` (exceptions through any shared
    library on SuperH FDPIC too), `dl_iterate_phdr` callbacks one at a time
    (the lock also needs adding to `fork`'s lock handling; the
@@ -621,7 +623,9 @@ The rest of the port, standards first (see "Standards" above):
    in-tree architecture, so those two stay local. GCC
    `host-tools/toolchain-c33/gcc/patches/fixes/0004`: libgcc's and libstdc++'s
    `#if __FDPIC__` exception paths are ARM's and call
-   `_Unwind_gnu_Find_got`, which only ARM defines.
+   `_Unwind_gnu_Find_got`, which only ARM defines; `0005`, the load map
+   at the start of FDPIC's `dl_phdr_info`; `0012`, `C.UTF-8` in
+   libstdc++'s generic locale model.
 4. **fbcon/VT.** `console/wr-console.c` is a userspace terminal; the soft
    keyboard is its own program, `console/wr-keyboard.c`, a `uinput` device,
    so keys reach any program; what remains is that the terminal itself is
