@@ -11,7 +11,7 @@ right.
 
 ## State
 
-The port runs Linux 7.4-rc3 (`revisions`, from the mainline tree). It boots
+The port runs Linux 7.4-rc4 (`revisions`, from the mainline tree). It boots
 the production path and the Grifo launcher path, mounts the card, runs BusyBox
 as PID 1, draws a userspace terminal on the panel, takes touch input, blanks
 the display when idle, suspends to idle, and wakes on a touch. Battery and
@@ -22,18 +22,18 @@ the SD card's HSDMA through DMAengine (`drivers/dma/s1c33-hsdma.c`).
 `boot-test.sh` and `app-test.py` both pass, both through Grifo. It also runs
 X11 (Xorg 21.1, twm, xeyes and xterm): see "X11: where it stands".
 
-Validated 2026-11-17 in wremu on Linux 7.4-rc3: full-chain `boot-test.sh`,
+Validated 2026-11-23 in wremu on Linux 7.4-rc4: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
 `debug/core-test.py`, `x11/run.py` and all 24 local LTP port regressions
 pass with a root image built from Buildroot 2026.08.1. All 37 kernel patches
-apply in order to pristine v7.4-rc3. The root image and the musl sysroot
+apply in order to pristine v7.4-rc4. The root image and the musl sysroot
 were built against 7.3.1's UAPI headers; `musl/build.sh` installs 7.4's on
 its next run.
 The series keeps upstream's deferred NOMMU region registration and error
 cleanup, and drops our duplicate mapping-count check. C33 uses the generic
 syscall-entry API and exposes its existing register set to ptrace;
 the syscall-entry regression checks number rewriting and preservation
-of a tracer-supplied return value. Logs are `artifacts/kernel-7.4-rc3-*` and
+of a tracer-supplied return value. Logs are `artifacts/kernel-7.4-rc4-*` and
 `artifacts/buildroot-2026.08.1-*`.
 Linux 7.3 and 7.4 have not yet been checked on physical hardware; the device
 results below describe earlier kernels.
