@@ -18,6 +18,8 @@
 
 #include "./types.h"
 
+WEBP_ASSUME_UNSAFE_INDEXABLE_ABI
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -58,7 +60,7 @@ typedef enum WebPMuxAnimBlend {
 // (ICC profile, metadata) and WebP compressed image data.
 // 'bytes' memory must be allocated using WebPMalloc() and such.
 struct WebPData {
-  const uint8_t* bytes;
+  const uint8_t* WEBP_COUNTED_BY_OR_NULL(size) bytes;
   size_t size;
 };
 
@@ -73,7 +75,7 @@ static WEBP_INLINE void WebPDataInit(WebPData* webp_data) {
 // Does not deallocate the object itself.
 static WEBP_INLINE void WebPDataClear(WebPData* webp_data) {
   if (webp_data != NULL) {
-    WebPFree((void*)webp_data->bytes);
+    WebPFree(WEBP_UNSAFE_FORGE_SINGLE(void*, webp_data->bytes));
     WebPDataInit(webp_data);
   }
 }
@@ -85,10 +87,11 @@ WEBP_NODISCARD static WEBP_INLINE int WebPDataCopy(const WebPData* src,
   if (src == NULL || dst == NULL) return 0;
   WebPDataInit(dst);
   if (src->bytes != NULL && src->size != 0) {
-    dst->bytes = (uint8_t*)WebPMalloc(src->size);
-    if (dst->bytes == NULL) return 0;
-    WEBP_UNSAFE_MEMCPY((void*)dst->bytes, src->bytes, src->size);
+    uint8_t* const bytes = (uint8_t*)WebPMalloc(src->size);
+    if (bytes == NULL) return 0;
+    WEBP_UNSAFE_MEMCPY(bytes, src->bytes, src->size);
     dst->size = src->size;
+    dst->bytes = WEBP_UNSAFE_FORGE_BIDI_INDEXABLE(uint8_t*, bytes, src->size);
   }
   return 1;
 }

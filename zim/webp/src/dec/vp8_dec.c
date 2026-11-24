@@ -48,9 +48,10 @@ int WebPGetDecoderVersion(void) {
 //------------------------------------------------------------------------------
 // Signature and pointer-to-function for GetCoeffs() variants below.
 
-typedef int (*GetCoeffsFunc)(VP8BitReader* const br,
+typedef int (*GetCoeffsFunc)(VP8BitReader* WEBP_RESTRICT const br,
                              const VP8BandProbas* const prob[], int ctx,
-                             const quant_t dq, int n, int16_t* out);
+                             const quant_t dq, int n,
+                             int16_t* WEBP_RESTRICT out);
 static volatile GetCoeffsFunc GetCoeffs = NULL;
 
 static void InitGetCoeffs(void);
@@ -595,8 +596,9 @@ GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
 }
 #else
 static int ZIM_OVERLAY_SECTION("ovlwebp")
-GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
-              int ctx, const quant_t dq, int n, int16_t* out) {
+GetCoeffsFast(VP8BitReader* WEBP_RESTRICT const br,
+              const VP8BandProbas* const prob[], int ctx, const quant_t dq,
+              int n, int16_t* WEBP_RESTRICT out) {
   const uint8_t* p = prob[n]->probas[ctx];
   for (; n < 16; ++n) {
     if (!VP8GetBit(br, p[0], "coeffs")) {
@@ -616,7 +618,7 @@ GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
         v = GetLargeValue(br, p);
         p = p_ctx[2];
       }
-      out[kZigzag[n]] = VP8GetSigned(br, v, "coeffs") * dq[n > 0];
+      out[kZigzag[n]] = (int16_t)(VP8GetSigned(br, v, "coeffs") * dq[n > 0]);
     }
   }
   return 16;
@@ -625,9 +627,9 @@ GetCoeffsFast(VP8BitReader* const br, const VP8BandProbas* const prob[],
 
 // This version of GetCoeffs() uses VP8GetBitAlt() which is an alternate version
 // of VP8GetBitAlt() targeting specific platforms.
-static int GetCoeffsAlt(VP8BitReader* const br,
+static int GetCoeffsAlt(VP8BitReader* WEBP_RESTRICT const br,
                         const VP8BandProbas* const prob[], int ctx,
-                        const quant_t dq, int n, int16_t* out) {
+                        const quant_t dq, int n, int16_t* WEBP_RESTRICT out) {
   const uint8_t* p = prob[n]->probas[ctx];
   for (; n < 16; ++n) {
     if (!VP8GetBitAlt(br, p[0], "coeffs")) {
@@ -647,7 +649,7 @@ static int GetCoeffsAlt(VP8BitReader* const br,
         v = GetLargeValue(br, p);
         p = p_ctx[2];
       }
-      out[kZigzag[n]] = VP8GetSigned(br, v, "coeffs") * dq[n > 0];
+      out[kZigzag[n]] = (int16_t)(VP8GetSigned(br, v, "coeffs") * dq[n > 0]);
     }
   }
   return 16;
