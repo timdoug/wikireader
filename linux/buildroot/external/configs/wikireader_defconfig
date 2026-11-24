@@ -24,8 +24,8 @@ BR2_TOOLCHAIN_EXTERNAL_PREINSTALLED=y
 BR2_TOOLCHAIN_EXTERNAL_PATH="$(HOME)/wr-linux/toolchain/install"
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="c33-linux-musl"
 BR2_TOOLCHAIN_EXTERNAL_GCC_16=y
-# "7.1.x or later", Buildroot's newest: the sysroot holds 7.3.1's.
-BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_1=y
+# "7.3.x or later", Buildroot's newest, for the sysroot's 7.3.1 headers.
+BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_3=y
 # musl: Buildroot gives it wide characters and threads itself.
 BR2_TOOLCHAIN_EXTERNAL_CUSTOM_MUSL=y
 BR2_TOOLCHAIN_EXTERNAL_CXX=y

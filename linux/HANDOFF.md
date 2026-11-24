@@ -25,16 +25,21 @@ X11 (Xorg 21.1, twm, xeyes and xterm): see "X11: where it stands".
 Validated 2026-11-23 in wremu on Linux 7.4-rc4: full-chain `boot-test.sh`,
 `app-test.py` (including launcher reboot and suspend with live-thread TLS),
 `debug/core-test.py`, `x11/run.py` and all 24 local LTP port regressions
-pass with a root image built from Buildroot 2026.08.1. All 37 kernel patches
+pass with a root image built from Buildroot 2026.11-rc2. Earlier the same
+day they passed with one from 2026.08.1. All 37 kernel patches
 apply in order to pristine v7.4-rc4. The root image and the musl sysroot
-were built against 7.3.1's UAPI headers; `musl/build.sh` installs 7.4's on
-its next run.
+were built against 7.3.1's UAPI headers, selected in the defconfig as
+`BR2_TOOLCHAIN_EXTERNAL_HEADERS_7_3`; `musl/build.sh` installs 7.4's on
+its next run. Measured with `compare-images.py` against the 2026.08.1
+image, boot to the prompt (4.24 against 4.21 s), exec time (59 ms), startx
+(25.5 s) and memory at the prompt (22,848 KB) are the same, and 20 KB less
+is available with X up.
 The series keeps upstream's deferred NOMMU region registration and error
 cleanup, and drops our duplicate mapping-count check. C33 uses the generic
 syscall-entry API and exposes its existing register set to ptrace;
 the syscall-entry regression checks number rewriting and preservation
 of a tracer-supplied return value. Logs are `artifacts/kernel-7.4-rc4-*` and
-`artifacts/buildroot-2026.08.1-*`.
+`artifacts/buildroot-2026.11-rc2-*`.
 Linux 7.3 and 7.4 have not yet been checked on physical hardware; the device
 results below describe earlier kernels.
 

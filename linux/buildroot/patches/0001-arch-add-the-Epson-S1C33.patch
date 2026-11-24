@@ -8,10 +8,10 @@ upstream port, so only an external toolchain.
 Signed-off-by: Tim Douglas <me@timdoug.com>
 
 diff --git a/arch/Config.in b/arch/Config.in
-index 863a1eed..a31e63e6 100644
+index 0f169759..f552ff7f 100644
 --- a/arch/Config.in
 +++ b/arch/Config.in
-@@ -68,6 +68,16 @@ config BR2_aarch64_be
+@@ -65,6 +65,16 @@ config BR2_aarch64_be
  	  http://www.arm.com/products/processors/instruction-set-architectures/armv8-architecture.php
  	  http://en.wikipedia.org/wiki/ARM
  
@@ -27,8 +27,8 @@ index 863a1eed..a31e63e6 100644
 +
  config BR2_hppa
  	bool "HPPA"
- 	depends on !BR2_HIDE_SECONDARY_TARGET_OPTIONS
-@@ -416,6 +426,10 @@ if BR2_arm || BR2_armeb || BR2_aarch64 || BR2_aarch64_be
+ 	select BR2_USE_MMU
+@@ -397,6 +407,10 @@ if BR2_arm || BR2_armeb || BR2_aarch64 || BR2_aarch64_be
  source "arch/Config.in.arm"
  endif
  

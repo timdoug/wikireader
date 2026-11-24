@@ -95,7 +95,7 @@ on the device and in the emulator.
   - a PWM for the contrast, IIO for the battery voltage and temperature, and
     the watchdog
 
-  Buildroot 2026.08.1 builds the root filesystem, a 32 MiB ext4 image that
+  Buildroot 2026.11-rc2 builds the root filesystem, a 32 MiB ext4 image that
   lives as one file on the card's FAT partition. All programs share one copy
   of BusyBox and of musl in memory. On screen, Linux shows a terminal
   with a touch keyboard. The console and Hush use UTF-8, with Latin, Greek,
