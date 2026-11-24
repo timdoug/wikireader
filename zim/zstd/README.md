@@ -2,8 +2,9 @@
 
 `zstddeclib.c` began as the official decoder-only single-file amalgamation,
 generated with upstream's `build/single_file_libs/create_single_file_decoder.sh`,
-now from the `dev` branch at `49cf51799ea051457f57243527aa2058f999f005`
-(2026-10-05). **It is no longer that file.** It carries about 1,100 added lines under 52 `__c33__` guards,
+now from the v1.6.0 release (tag commit
+`916e8e70b33317d469a41ee837e47317807815c8`, 2026-11-23). **It is no longer
+that file.** It carries about 1,100 added lines under 49 `__c33__` guards,
 and it is not a candidate for a drop-in re-generation: regenerating it
 discards all of the following.
 
@@ -19,11 +20,10 @@ Current ZIM archives store clusters in Zstandard format. On C33 this decoder
 contributes about 71 KiB of text and negligible static data; working memory is
 allocated only while an article cluster is decoded.
 
-Upstream: <https://github.com/facebook/zstd/tree/dev>. The newest release is
-still v1.5.7. The decoder changes on `dev` since then are AArch64, x86-64 and
-RISC-V code, the BMI2 dispatch, and two fixes in dictionary code the reader
-never reaches (the multiple-dictionary hash set and the custom calloc it
-uses); article loads measure the same as with 1.5.7.
+Upstream: <https://github.com/facebook/zstd>. The literal scratch buffer can
+be placed by the caller (`ZSTD_DCtx_setLiteralBuffer`), so each upstream
+reference to `dctx->litExtraBuffer` is changed to `dctx->litExtraPtr` here,
+including the one in v1.6.0's `ZSTD_zeroLiteralsBufferPadding`.
 
 To move to a newer upstream, generate the amalgamation at the old and the new
 revision and three-way merge this file onto the new one (`git merge-file`).
