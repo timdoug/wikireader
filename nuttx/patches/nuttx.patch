@@ -1,9 +1,9 @@
 diff --git a/.gitignore b/.gitignore
-index 1a330bdd34..dc06a66910 100644
+index 8f79110e5e..c67b7c6c0a 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -95,3 +95,8 @@ SAVEconfig
- .aider*
+@@ -96,3 +96,8 @@ SAVEconfig
+ .mcp.json
  imx9-norimage.img
  config.txt
 +
@@ -12,10 +12,10 @@ index 1a330bdd34..dc06a66910 100644
 +/tinycc/
 +/.venv/
 diff --git a/arch/Kconfig b/arch/Kconfig
-index d328a3030c..ce960a9fd6 100644
+index b23706fcaa..4697591fbb 100644
 --- a/arch/Kconfig
 +++ b/arch/Kconfig
-@@ -54,6 +54,16 @@ config ARCH_AVR
+@@ -76,6 +76,16 @@ config ARCH_AVR
  	---help---
  		Atmel 8-bit bit AVR and 32-bit AVR32 architectures
  
@@ -32,7 +32,7 @@ index d328a3030c..ce960a9fd6 100644
  config ARCH_HC
  	bool "Freescale HC"
  	select ARCH_NOINTC
-@@ -221,6 +231,7 @@ config ARCH
+@@ -254,6 +264,7 @@ config ARCH
  	default "arm"     if ARCH_ARM
  	default "arm64"   if ARCH_ARM64
  	default "avr"     if ARCH_AVR
@@ -40,7 +40,7 @@ index d328a3030c..ce960a9fd6 100644
  	default "hc"      if ARCH_HC
  	default "mips"    if ARCH_MIPS
  	default "misoc"   if ARCH_MISOC
-@@ -245,6 +256,10 @@ endif
+@@ -279,6 +290,10 @@ endif
  if ARCH_AVR
  source "arch/avr/Kconfig"
  endif
@@ -52,10 +52,10 @@ index d328a3030c..ce960a9fd6 100644
  source "arch/hc/Kconfig"
  endif
 diff --git a/boards/Kconfig b/boards/Kconfig
-index 5245027770..3bbfb87d75 100644
+index 0360b2e58d..ad2cd902d4 100644
 --- a/boards/Kconfig
 +++ b/boards/Kconfig
-@@ -12,6 +12,10 @@ choice
+@@ -33,6 +33,10 @@ choice
  		be available for selection.  Use ARCH_BOARD_CUSTOM to create a new
  		board configuration.
  
@@ -66,7 +66,7 @@ index 5245027770..3bbfb87d75 100644
  config ARCH_BOARD_AMBER
  	bool "Amber Web Server"
  	depends on ARCH_CHIP_ATMEGA128
-@@ -4107,6 +4111,7 @@ endif # ARCH_BOARD_CUSTOM
+@@ -4203,6 +4207,7 @@ endif # ARCH_BOARD_CUSTOM
  
  config ARCH_BOARD
  	string
@@ -74,7 +74,7 @@ index 5245027770..3bbfb87d75 100644
  	default "amber"                        if ARCH_BOARD_AMBER
  	default "arduino-mega2560"             if ARCH_BOARD_ARDUINO_MEGA2560
  	default "arduino-due"                  if ARCH_BOARD_ARDUINO_DUE
-@@ -6284,3 +6289,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
+@@ -6414,3 +6419,7 @@ config BOARD_ETC_ROMFS_PASSWD_EXTRA_SUDOERS
  endif # BOARD_ETC_ROMFS_PASSWD_EXTRA_ENABLE
  
  endif # BOARD_ETC_ROMFS_PASSWD_ENABLE
@@ -82,145 +82,6 @@ index 5245027770..3bbfb87d75 100644
 +if ARCH_BOARD_WIKIREADER
 +source "boards/c33/s1c33e07/wikireader/Kconfig"
 +endif
-diff --git a/drivers/serial/pty.c b/drivers/serial/pty.c
-index 009588659f..edd4e52be0 100644
---- a/drivers/serial/pty.c
-+++ b/drivers/serial/pty.c
-@@ -123,6 +123,7 @@ struct pty_devpair_s
-   bool pp_susv1;                /* SUSv1 or BSD style */
-   bool pp_locked;               /* Slave is locked */
-   bool pp_unlinked;             /* File has been unlinked */
-+  struct winsize pp_winsize;    /* Terminal size, shared by both ends */
-   uint8_t pp_minor;             /* Minor device number */
-   uint16_t pp_nopen;            /* Open file count */
-   sem_t pp_slavesem;            /* Slave lock semaphore */
-@@ -605,6 +606,7 @@ static ssize_t pty_write(FAR struct file *filep,
- #if defined(CONFIG_TTY_SIGINT) || defined(CONFIG_TTY_SIGTSTP)
-   pid_t pid;
- #endif
-+  size_t nbytes;
-   size_t i;
-   char ch;
- 
-@@ -624,8 +626,9 @@ static ssize_t pty_write(FAR struct file *filep,
- 
-   if ((dev->pd_oflag & OPOST) != 0)
-     {
--      /* We will transfer one byte at a time, making the appropriae
--       * translations.  Specifically not handled:
-+      /* Transfer unchanged spans together, handling translated characters
-+       * individually.  Waking a reader for every ordinary character adds
-+       * unnecessary pipe and scheduling overhead.  Specifically not handled:
-        *
-        *   OXTABS - primarily a full-screen terminal optimisation
-        *   ONOEOT - Unix interoperability hack
-@@ -636,6 +639,50 @@ static ssize_t pty_write(FAR struct file *filep,
-       ntotal = 0;
-       for (i = 0; i < len; i++)
-         {
-+          for (nbytes = 0; nbytes < len - i; nbytes++)
-+            {
-+              ch = buffer[nbytes];
-+              if ((ch == '\r' && (dev->pd_oflag & OCRNL) != 0) ||
-+                  (ch == '\n' &&
-+                   (dev->pd_oflag & (ONLCR | ONLRET)) != 0))
-+                {
-+                  break;
-+                }
-+
-+#ifdef CONFIG_TTY_SIGINT
-+              if (pid > 0 && ch == CONFIG_TTY_SIGINT_CHAR)
-+                {
-+                  break;
-+                }
-+#endif
-+
-+#ifdef CONFIG_TTY_SIGTSTP
-+              if (pid > 0 && ch == CONFIG_TTY_SIGTSTP_CHAR)
-+                {
-+                  break;
-+                }
-+#endif
-+            }
-+
-+          if (nbytes > 0)
-+            {
-+              nwritten = file_write(&dev->pd_sink, buffer, nbytes);
-+              if (nwritten < 0)
-+                {
-+                  return ntotal > 0 ? ntotal : nwritten;
-+                }
-+
-+              ntotal += nwritten;
-+              if ((size_t)nwritten < nbytes)
-+                {
-+                  return ntotal;
-+                }
-+
-+              buffer += nbytes;
-+              i += nbytes - 1;
-+              continue;
-+            }
-+
-           ch = *buffer++;
- 
-           /* Mapping CR to NL? */
-@@ -989,6 +1036,55 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
-         break;
- #endif
- 
-+      /* Terminal window size.  The size belongs to the pair, not to one
-+       * end: whoever owns the display sets it, and the application running
-+       * on the other end reads it back.  Without this a full-screen
-+       * application has to guess, or probe the terminal with a cursor
-+       * position report and wait for a reply.
-+       */
-+
-+      case TIOCGWINSZ:
-+        {
-+          FAR struct winsize *winsz = (FAR struct winsize *)((uintptr_t)arg);
-+
-+          if (winsz == NULL)
-+            {
-+              ret = -EINVAL;
-+            }
-+          else if (devpair->pp_winsize.ws_row == 0 &&
-+                   devpair->pp_winsize.ws_col == 0)
-+            {
-+              /* Nobody has published a size, so there is nothing useful to
-+               * report.  Say so rather than claiming a 0x0 terminal.
-+               */
-+
-+              ret = -ENOTTY;
-+            }
-+          else
-+            {
-+              *winsz = devpair->pp_winsize;
-+              ret = 0;
-+            }
-+        }
-+        break;
-+
-+      case TIOCSWINSZ:
-+        {
-+          FAR const struct winsize *winsz =
-+            (FAR const struct winsize *)((uintptr_t)arg);
-+
-+          if (winsz == NULL)
-+            {
-+              ret = -EINVAL;
-+            }
-+          else
-+            {
-+              devpair->pp_winsize = *winsz;
-+              ret = 0;
-+            }
-+        }
-+        break;
-+
-       /* Any unrecognized IOCTL commands will be passed to the contained
-        * pipe driver.
-        *
 diff --git a/fs/fat/fs_fat32dirent.c b/fs/fat/fs_fat32dirent.c
 index fd0f39259a..f27643ed89 100644
 --- a/fs/fat/fs_fat32dirent.c
@@ -253,10 +114,10 @@ index fd0f39259a..f27643ed89 100644
            if (fat_parsesfname(&tmp, dirinfo, NULL) != OK)
              {
 diff --git a/graphics/Kconfig b/graphics/Kconfig
-index a7ac40c012..a6996e6156 100644
+index 58e37c1206..205b3661fe 100644
 --- a/graphics/Kconfig
 +++ b/graphics/Kconfig
-@@ -377,6 +377,18 @@ config NXTERM_CURSORCHAR
+@@ -398,6 +398,18 @@ config NXTERM_CURSORCHAR
  	---help---
  		The bitmap code to use as the cursor.  Default '_' (137)
  
@@ -2280,10 +2141,10 @@ index c92a9f4305..9a2884ffbb 100644
      {
        /* The newly added character is indeed part of a VT100 escape sequence
 diff --git a/libs/libc/machine/Kconfig b/libs/libc/machine/Kconfig
-index 3cee9cd98c..c611ce3917 100644
+index 737456bac4..ff5702e99f 100644
 --- a/libs/libc/machine/Kconfig
 +++ b/libs/libc/machine/Kconfig
-@@ -803,6 +803,9 @@ endif
+@@ -839,6 +839,9 @@ endif
  if ARCH_ARM64
  source "libs/libc/machine/arm64/Kconfig"
  endif
@@ -2294,7 +2155,7 @@ index 3cee9cd98c..c611ce3917 100644
  source "libs/libc/machine/risc-v/Kconfig"
  endif
 diff --git a/libs/libc/machine/Make.defs b/libs/libc/machine/Make.defs
-index e8e03b6543..311094b729 100644
+index 92644125f3..1b37b59451 100644
 --- a/libs/libc/machine/Make.defs
 +++ b/libs/libc/machine/Make.defs
 @@ -36,6 +36,9 @@ endif

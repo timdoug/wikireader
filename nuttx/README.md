@@ -396,7 +396,7 @@ python3 boards/c33/s1c33e07/wikireader/tools/test_libc.py
 ```
 
 `arch_libctest`, `atomic`, `fmemopen_test`, `fopencookie_test`,
-`open_memstream_test`, `popen_test`, `scanftest` and `wcstombs`: 196 checks,
+`open_memstream_test`, `popen_test`, `scanftest` and `wcstombs`: 208 checks,
 all passing. Each is also an ordinary command at the device's own prompt, so
 a run here and a run on hardware compare the same thing.
 
@@ -740,7 +740,7 @@ under `boards/c33/s1c33e07/wikireader`, `libs/libc/machine/c33` (word-at-a-time
 string routines in assembly), `apps/interpreters/tinycc`, and TinyCC's C33 code
 generator. `patches/` is the small change to existing upstream files:
 registering the architecture in Kconfig, NXTerm's VT100 parsing and batched
-rendering, the packed-framebuffer fixes, and the PTY's bulk writes.
+rendering, and the packed-framebuffer fixes.
 
 ## Building
 

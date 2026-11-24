@@ -100,8 +100,8 @@ static uint32_t spi_setfrequency(struct spi_dev_s *dev, uint32_t frequency);
 static void spi_setmode(struct spi_dev_s *dev, enum spi_mode_e mode);
 static void spi_setbits(struct spi_dev_s *dev, int nbits);
 static uint32_t spi_send(struct spi_dev_s *dev, uint32_t wd);
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
-                         void *rxbuffer, size_t nwords);
+static int spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+                        void *rxbuffer, size_t nwords);
 static void spi_wait_idle(void);
 
 /****************************************************************************
@@ -580,12 +580,13 @@ static size_t spi_recv_dma(struct s1c33e07_spidev_s *priv, uint8_t *dest,
  * Description:
  *   Exchange a block.  A NULL transmit buffer clocks out the all-ones a
  *   card expects while it is the one talking; a NULL receive buffer throws
- *   the reply away.
+ *   the reply away.  A stalled DMA transfer is finished by the CPU, so the
+ *   exchange always completes and returns OK.
  *
  ****************************************************************************/
 
-static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
-                         void *rxbuffer, size_t nwords)
+static int spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
+                        void *rxbuffer, size_t nwords)
 {
   struct s1c33e07_spidev_s *priv = (struct s1c33e07_spidev_s *)dev;
   const uint8_t *src = txbuffer;
@@ -609,6 +610,8 @@ static void spi_exchange(struct spi_dev_s *dev, const void *txbuffer,
           *dest++ = (uint8_t)rx;
         }
     }
+
+  return OK;
 }
 
 /****************************************************************************

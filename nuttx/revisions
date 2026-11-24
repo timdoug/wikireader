@@ -7,6 +7,6 @@
 # revision here is the whole of an upstream update: re-run fetch.sh, fix any
 # patch rejects in work/, then "make update-port" to write them back.
 
-nuttx   https://github.com/apache/nuttx.git       bd8ee153d314d6c3b9da72ac0dd28065ebdc4a47
-apps    https://github.com/apache/nuttx-apps.git  35cdcc9a850c7d41f6ff80bde3799f3a17cde4c8
-tinycc  https://repo.or.cz/tinycc.git             e23dabed154a8495f3ac1ff3cc9d04fa1c207893
+nuttx   https://github.com/apache/nuttx.git       c890786083765c0054a8f17e2c5ab603c6fad5d7
+apps    https://github.com/apache/nuttx-apps.git  8ff87439bf4aa4b0ee88322cddc1dcfb052d56e6
+tinycc  https://repo.or.cz/tinycc.git             e9e9e7f6236895a32c5e905aada486bab6671e95

@@ -148,10 +148,11 @@ typing repaints only the pressed/released key's interior. Modifier or page
 changes repaint only keys whose appearance changes; NX exposure events force
 a repaint of the affected keys, including their borders.
 
-The PTY sends ordinary output in chunks, preserving CR/LF processing and
-foreground signals, rather than splitting every output byte into its own pipe
-write. Packed glyph copies update destination bytes with masks instead of
-individual pixels.
+Ordinary PTY output is written to the pipe a run at a time, with CR/LF
+processing and foreground signals preserved, rather than one pipe write per
+byte; this is upstream NuttX's `pty_write()` since commit 05095b6960. Packed
+glyph copies update destination bytes with masks instead of individual
+pixels.
 
 `CONFIG_NXTERM_BATCH` composes each terminal write in a private 1bpp bitmap
 and sends the changed rectangle to NX once, including cursor updates and any
@@ -219,8 +220,8 @@ visible. Linux hosts should use `-l` instead of `-m`.
 
 Tested versions:
 
-* NuttX base: `bd8ee153d3`.
-* nuttx-apps: `35cdcc9a850c7d41f6ff80bde3799f3a17cde4c8`.
+* NuttX base: `c890786083765c0054a8f17e2c5ab603c6fad5d7`.
+* nuttx-apps: `8ff87439bf4aa4b0ee88322cddc1dcfb052d56e6`.
 * C33 GCC: 16.2.0; binutils: 2.47.20260726.
 * Python Kconfiglib: 14.1.0; GNU make; `flock`.
 * wremu with the UART changes and 256-event tap scripts in `~/wikireader/emulator`.
@@ -451,9 +452,11 @@ keyboard rows. The NXTerm test checks 8,000
 empty/full/mixed character caches, retained character order and coordinates,
 and display operation bounds with readable and write-only displays and two
 line-separation settings.
-The PTY test covers 12,800 binary/CR/LF translation cases across four signal
-configurations, verifies bulk writes, exercises partial/error retries, and
-checks control-character delivery to the opposite endpoint's foreground PID.
+The PTY test compiles upstream's `pty_write()` with its termios helpers and
+covers 12,800 binary/CR/LF translation cases across four signal
+configurations, verifies bulk writes, exercises partial/error retries and
+EIO after a hang-up, and checks control-character delivery to the opposite
+endpoint's foreground PID, including ISIG off and a disabled character.
 
 ### The FLASH boot program limit
 
